@@ -1,0 +1,44 @@
+// ADR 0030 S3: a payload sub-pattern whose binders MOVE a non-Copy value out (`Some((a, b))`,
+// `Some(Some(d))`, `Some(w @ (_, 1))` over by-value scrutinees) is carried on the variant pattern and
+// bound once, before the guard; the scrutinee's partial move is recorded per leaf (`o.#<d>.<i>.<j>`),
+// and one arm's leaves share one drop flag. The synthesized payload + body destructure destructured a
+// second time for a guard and dropped both copies (`Some((a, b)) if a.len() > b.len()` over
+// `Option<(String, String)>`: double free, abort 134 in the control binary). An arm with a refutable
+// sub or any guard is not the variant's only taker (its moves were applied to every `Some`), and more
+// than four per-path flags overflowed the guarded-drop expansion and leaked on the other arms.
+package payload_moving_binders;
+use logos.mem.string; use logos.lang.option;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+enum E { V(D, D, D, D, D, D, i64), W }
+fn guarded_strings(o: Option<(String, String)>) -> i64 {
+    let r = match o { Some((a, b)) if a.len() > b.len() => a.len() as i64, Some((_, b)) => b.len() as i64, None => 0 };
+    r
+}
+fn guarded(o: Option<(D, i64)>) -> i64 { let r = match o { Some((a, k)) if k > 0 => a.v, _ => -1 }; r }
+fn refutable_sub(o: Option<(D, i64)>) -> i64 { let r = match o { Some((a, 1)) => a.v, _ => 0 }; r }
+fn partial(o: Option<(D, D)>) -> i64 { let r = match o { Some((a, _)) => a.v, None => 0 }; r }
+fn nested(o: Option<Option<D>>) -> i64 { let r = match o { Some(Some(d)) => d.v, _ => 0 }; r }
+fn at_structural(o: Option<(D, i64)>) -> i64 { let r = match o { Some(w @ (_, 1)) => w.1, _ => 0 }; r }
+enum F { A(D), B(D) }
+fn or_guarded(o: Option<F>) -> i64 { let r = match o { Some(F::A(x) | F::B(x)) if x.v > 2048 => 1, _ => 0 }; r }
+fn many(e: E) -> i64 { let r = match e { E::V(a, b, x, d, y, _, 1) => a.v + b.v + x.v + d.v + y.v, _ => 0 }; r }
+fn main() -> i32 {
+    let mut n: i64 = 0;
+    let c: *mut i64 = &mut n;
+    let s1 = guarded_strings(Some((String::from("abcde"), String::from("xyz"))));
+    let s2 = guarded_strings(Some((String::from("a"), String::from("xyz"))));
+    let r1 = guarded(Some((D { v: 1, c: c }, 1))) + guarded(Some((D { v: 2, c: c }, 0)));
+    let r2 = refutable_sub(Some((D { v: 4, c: c }, 1))) + refutable_sub(Some((D { v: 8, c: c }, 3)));
+    let r3 = partial(Some((D { v: 16, c: c }, D { v: 32, c: c })));
+    let r4 = nested(Some(Some(D { v: 64, c: c }))) + nested(Some(None));
+    let r5 = many(E::V(D { v: 128, c: c }, D { v: 128, c: c }, D { v: 128, c: c }, D { v: 128, c: c },
+                       D { v: 128, c: c }, D { v: 256, c: c }, 1));
+    let r6 = many(E::V(D { v: 512, c: c }, D { v: 512, c: c }, D { v: 512, c: c }, D { v: 512, c: c },
+                       D { v: 512, c: c }, D { v: 1024, c: c }, 2));
+    let r7 = at_structural(Some((D { v: 2048, c: c }, 1))) + at_structural(Some((D { v: 4096, c: c }, 2)));
+    let r8 = or_guarded(Some(F::A(D { v: 8192, c: c }))) + or_guarded(Some(F::B(D { v: 1, c: c })));
+    let got = unsafe { *c };
+    if got != 19840 { return (got % 200) as i32; }
+    return (s1 + s2 + r1 + r2 + r3 + r4 + r5 + r6 + r7 + r8 - 600) as i32;
+}

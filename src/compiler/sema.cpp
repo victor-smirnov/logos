@@ -4594,17 +4594,26 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
             for (auto& [path, flag] : frame.cond_move_flags)
                 if (path.size() > hpre.size() && path.compare(0, hpre.size(), hpre) == 0)
                     hps.emplace_back(path.substr(n.size() + 1), flag);
-            if (!hps.empty() && hps.size() <= 4)
+            // One level per distinct FLAG: the leaves one arm moved share it
+            // (elaborate_cond_moves), and they are skipped together.
+            std::vector<std::pair<std::string, std::vector<std::string>>> groups;   // flag → paths
+            for (auto& [rel, flag] : hps) {
+                auto g = std::find_if(groups.begin(), groups.end(),
+                                      [&](const auto& e) { return e.first == flag; });
+                if (g == groups.end()) groups.push_back({flag, {rel}});
+                else g->second.push_back(rel);
+            }
+            if (!hps.empty() && groups.size() <= 4)
                 if (auto* info = eligible(n)) {
                     auto* self = const_cast<SemaChecker*>(this);
                     std::set<std::string> all_hp;
                     for (auto& h : hps) all_hp.insert(h.first);
-                    // Level k: under flag k set the path is still owned (not skipped),
-                    // under it clear the path is skipped; one whole drop per leaf.
+                    // Level k: under flag k set its paths are still owned (not
+                    // skipped), under it clear they are skipped; one whole drop per leaf.
                     std::function<std::vector<lir_view::StmtRef>(size_t, std::vector<std::string>)> build =
                         [&](size_t k, std::vector<std::string> skips) -> std::vector<lir_view::StmtRef> {
                         std::vector<lir_view::StmtRef> out;
-                        if (k == hps.size()) {
+                        if (k == groups.size()) {
                             std::vector<std::string> fdk = fd;
                             fdk.insert(fdk.end(), skips.begin(), skips.end());
                             std::set<std::string> keep;
@@ -4616,11 +4625,11 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
                         auto boolt = self->prim(LogosType::Kind::Bool);
                         for (int neg = 0; neg < 2; ++neg) {
                             auto sk = skips;
-                            if (neg) sk.push_back(hps[k].first);
+                            if (neg) sk.insert(sk.end(), groups[k].second.begin(), groups[k].second.end());
                             auto inner = build(k + 1, sk);
                             if (inner.empty()) continue;
                             lir::SIf sif;
-                            auto fv = self->builder().var_ref(hps[k].second, boolt);
+                            auto fv = self->builder().var_ref(groups[k].first, boolt);
                             sif.cond = neg ? self->builder().unary(std::string("!"), std::move(fv), boolt)
                                            : std::move(fv);
                             sif.then_ = lir_mirror_block(*cur_prog_, inner);
@@ -4709,14 +4718,29 @@ void SemaChecker::elaborate_cond_moves(const std::set<std::string>& pre,
                 return true;
         return false;
     };
+    // Enum payload paths (`e.#<d>.<i>…`) moved on the SAME reaching branches
+    // share ONE flag: their values are equal on every path, and
+    // emit_frame_drops expands one level per distinct flag (at most four). One
+    // flag per path let the five leaves one arm moves overflow that bound and
+    // leak on every other arm.
+    std::map<std::string, std::string> shared_enum_flag;   // root.#d + branch signature → flag
     for (auto& n : cand) {
         bool all = true;
         for (auto& b : reaching) if (!branch_moved(b, n)) { all = false; break; }
         // Moved on every reaching path AND not already flagged by an inner
         // merge: the union suppression is exact, leave it alone.
         if (all && !has_cond_move_flag(n)) { note_static_move(n); continue; }
-        std::string fl = cond_move_flag_for(n);
+        std::string fl, key;
+        if (auto hp = n.find(".#"); hp != std::string::npos && !has_cond_move_flag(n)) {
+            key = n.substr(0, n.find('.', hp + 2)) + '|';
+            for (auto& b : reaching) key += branch_moved(b, n) ? '1' : '0';
+            if (auto it = shared_enum_flag.find(key); it != shared_enum_flag.end() &&
+                alias_cond_move_flag(n, it->second))
+                fl = it->second;
+        }
+        if (fl.empty()) fl = cond_move_flag_for(n);
         if (fl.empty()) continue;
+        if (!key.empty()) shared_enum_flag.emplace(key, fl);
         for (auto& b : reaching) {
             if (!branch_moved(b, n)) continue;   // #121: a prefix move counts
             bool handled = false;

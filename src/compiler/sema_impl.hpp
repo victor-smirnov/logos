@@ -4912,6 +4912,18 @@ private:
         return fl;
     }
 
+    // Register `name` under an existing flag `fl` (a sibling enum payload path
+    // moved on the same branches — elaborate_cond_moves), on the frame that
+    // owns its root. False when no frame owns it.
+    bool alias_cond_move_flag(const std::string& name, const std::string& fl) {
+        std::string root = name.substr(0, name.find('.'));
+        for (size_t i = scope_.size(); i-- > 0; ) {
+            if (scope_[i].vars.count(root)) { scope_[i].cond_move_flags[name] = fl; return true; }
+            if (scope_[i].closure_boundary) return false;
+        }
+        return false;
+    }
+
     // Every local for which a flag CLEAR has been spliced, in emission order.
     // A merge snapshots its size before lowering a branch: the names appended
     // while that branch was lowered are the ones an INNER merge already

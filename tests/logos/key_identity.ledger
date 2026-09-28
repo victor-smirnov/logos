@@ -531,7 +531,10 @@
 # copies of the diverging-call predicate (`callee == "panic"`) became is_divergent_call_node.
 # 2026-09-27, ADR 0030 S3: 24 -> 25, roster a6283da9 -> f78f48ba — carried_payload_sub asks whether a
 # structural payload sub-pattern binds any NAME: `nm != "_"` is the wildcard keyword, not an entity.
-#SCAN sema_stmt.cpp 25 f78f48ba
+# 2026-09-27, ADR 0030 S3: 25 -> 24, roster f78f48ba -> a6283da9 — that carried_payload_sub question is gone:
+# a structural payload sub is carried whatever its binders do (moving binders included), so the
+# wildcard-keyword test it added is deleted with it.
+#SCAN sema_stmt.cpp 24 a6283da9
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)

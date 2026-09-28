@@ -454,7 +454,18 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   over a non-`str` scrutinee is E0308 (a `String` was accepted and its hoisted
   temp double-freed). Spec: pat.str.position-restricted retired (divergence
   closed), pat.str.any-position.
-Next: the moving binders (retire the guard channel and the K4 prologue lets),
+- A payload sub whose binders MOVE a non-Copy value out is carried too
+  (tuple, struct, variant, slice, and `n @ <structural>`): bound once, before
+  the guard, like a direct payload binder. `mark_match_scrutinee_moved` records
+  the partial move per leaf (`o.#<d>.<i>.<j>`, walked by `emit_moved_leaves`,
+  which gained a VariantData case); `pattern_moves_out` reads SUBS; the enum
+  paths one arm moves share one drop flag (`elaborate_cond_moves`), and
+  `emit_frame_drops` expands one level per distinct flag. An arm with a
+  refutable sub or any guard (user or synthesized) is not exact. Double free
+  closed: the synthesized payload's guard copy was dropped with the body's.
+  The synthesized route remains for or-patterns of binding alternatives.
+Next: the remaining synthesized route (or-patterns with binders), then the
+moving binders' K4 prologue retirement (retire the guard channel and the K4 prologue lets),
 then the statement match as the void expression match (one `lower_match_core`).
 
 ## L0 status (2026-09-27)

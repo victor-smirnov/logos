@@ -4829,12 +4829,10 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         return false;
     };
     // …and a STRUCTURAL sub-pattern (a tuple, a struct, a nested variant, an
-    // array / slice pattern) whose
-    // binders MOVE nothing: under a by-reference scrutinee they bind references,
-    // over a Copy payload they copy, and a sub without binders binds nothing.
+    // array / slice pattern), whatever its binders do: under a by-reference
+    // scrutinee they bind references, over a Copy payload they copy, and a
+    // by-value binder of a non-Copy payload moves it out (see below).
     // `&<structural>` over a `&T` payload copies out of T — only a Copy T.
-    // (A binder that moves a non-Copy payload out keeps the older path: the
-    // scrutinee's partial move is that path's bookkeeping.)
     auto carried_payload_sub = [&](TinyMapView n, TypeRef ftype) -> bool {
         if (carried_sub(n)) return true;
         TinyMapView m = n;
@@ -4848,12 +4846,21 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         if (!ftype || TypeRef(ftype).kind() == LogosType::Kind::Error ||
             TypeRef(ftype).kind() == LogosType::Kind::TypeVar)
             return false;
-        if (structural(c)) {
-            if (pat_scrut_by_ref || !is_move_type(ftype)) return true;
-            std::vector<std::string> names;
-            collect_ast_pat_bindings(m, names);
-            for (auto& nm : names) if (!nm.empty() && nm != "_") return false;
-            return true;
+        // A binder that MOVES a non-Copy payload out is carried too: pat_bind
+        // binds it once, before the guard, as a direct payload binder is bound,
+        // and mark_match_scrutinee_moved records the scrutinee's partial move
+        // per leaf (`o.#<disc>.<i>.<j>`, the paths the enum drop glue skips).
+        // The synthesized payload + body destructure it replaces destructured a
+        // SECOND time for a guard, and both copies were dropped: `Some((a, k))
+        // if k > 0` over `Option<(String, i64)>` freed the String twice.
+        if (structural(c)) return true;
+        // `n @ <structural>` (and `ref n @ …`): the name binds the place the
+        // structural sub matches, both carried the same way.
+        if (c == la::PAT_AT && m.has_key(la::VALUE)) {
+            TinyMapView in = map_of(m.get(la::VALUE.code));
+            if (code_of(in) == la::PAT_OR && in.has_key(la::ITEMS) && arr_of(in.get(la::ITEMS.code)).size() == 1)
+                in = map_of(arr_of(in.get(la::ITEMS.code)).get(0));
+            if (structural(code_of(in))) return true;
         }
         if (c == la::PAT_REF && m.has_key(la::VALUE) && !pat_scrut_by_ref &&
             (TypeRef(ftype).kind() == LogosType::Kind::Ref || TypeRef(ftype).kind() == LogosType::Kind::MutRef) &&
@@ -10306,9 +10313,14 @@ bool SemaChecker::pattern_moves_out(lir_view::PatRef pr, TypeRef ty) {
             v.each_binding([&](std::string_view n){ ns.emplace_back(n); });
             v.each_binding_type(pool, [&](TypeRef t){ tys.push_back(t); });
             auto ms = v.bind_ref_modes();   // absent = all by value (measured, see the E0507 arm)
+            const auto subs = v.subs();     // a carried payload sub-pattern (ADR 0030 S3)
             for (size_t i = 0; i < ns.size(); ++i) {
                 uint32_t m = i < ms.size() ? ms[i] : 0u;
                 TypeRef bt = i < tys.size() ? tys[i] : TypeRef(nullptr);
+                if (i < subs.size() && subs[i]) {
+                    if (pattern_moves_out(subs[i], bt)) return true;
+                    continue;
+                }
                 if (m == 0 && named(ns[i]) && bt && is_move_type(bt)) return true;
             }
             return false;
@@ -10388,6 +10400,141 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // the parent's scope-exit Drop double-frees the moved-out payload. A bare
     // VarRef marks the var. A temporary has no owner to mark (lower_match hoists
     // it into a synth local first, so it arrives here as a VarRef).
+    namespace ps = lir_schema::pat;
+    // …and a TUPLE / STRUCT / `@` pattern at the top is the same fact: the
+    // leaves it binds by value are moved, its `_` parts stay the owner's
+    // (a whole-scrutinee mark leaked them: `let (d, _) = t`, a parameter
+    // `(d, _): (D, D)`; and marked nothing under a nested array).
+    const bool top_structural = pat &&
+        (pat.kind() == ps::Code::Tuple || pat.kind() == ps::Code::Struct ||
+         pat.kind() == ps::Code::At);
+    // A leaf under a variant the arm alone reaches is moved on every path
+    // through it (exact_variant_moves_); elsewhere a plain mark.
+    bool leaf_exact = false;
+    std::vector<std::string>* leaf_sink = nullptr;   // collect instead of marking
+    auto mark_leaf = [&](const std::string& path) {
+        if (leaf_sink) { leaf_sink->push_back(path); return; }
+        mark_moved(path);
+        if (leaf_exact) exact_variant_moves_.push_back(path);
+    };
+        // MARK EVERY MOVED LEAF, NOT ONLY A WHOLE ELEMENT (2026-09-16j-arrpath2).
+        // A nested sub-pattern moves only PART of its element, so the path it owes is the
+        // FULL dotted path of each leaf it binds by value — `arr.0.a` for a struct sub,
+        // `arr.0.1` for a tuple sub, `arr.0.t.0` for a tuple inside a field, `arr.0.0` for
+        // an array inside an array. `split_skip_paths` recurses on a dotted prefix, so a
+        // deeper path suppresses exactly that leaf and still drops its siblings.
+        // The previous predicate emitted a path ONLY for a plain named binder, so a nested
+        // sub marked NOTHING and the array's scope-exit drop destroyed the moved-out leaf a
+        // SECOND time (soundness_queue match_array_nested_destructure_elem_double_drop).
+        // A whole-ELEMENT mark is not the alternative: it would leak the fields the sub-
+        // pattern does not bind, which is the failure direction 2026-09-16c measured on nine
+        // legal programs.
+        std::function<void(lir_view::PatRef, const std::string&, TypeRef)> emit_moved_leaves =
+            [&](lir_view::PatRef sp, const std::string& path, TypeRef pty) {
+            if (!sp) return;
+            // ⚠ THE PARAMETER IS SPELLED `nm` ON PURPOSE — it is a BARE-NAME INTERCEPT and the
+            // key-identity census reads it. tests/logos/key_identity_lint.sh FACT 4 pins a
+            // per-file count of bare entity-name comparisons, and its SCAN_LHS reaches the LHS
+            // spellings `nm`/`name`/`cn`/… but not a one-letter `s`. Renaming this binder made a
+            // LIVE site invisible to that census (count 23 -> 22) while the decision it makes was
+            // unchanged — the exact "a pinned file's intercepts deleted" shape the lint's own
+            // header records being bitten by. The pin is NOT moved to match a rename.
+            auto is_named = [](std::string_view nm) { return !nm.empty() && nm != "_"; };
+            switch (sp.kind()) {
+                case ps::Code::Wild:
+                    if (is_named(lir_view::PatWildView{sp}.name()) && pty && is_move_type(pty))
+                        mark_leaf(path);
+                    return;
+                case ps::Code::VariantData: {
+                    // A variant nested in a payload / an element: its by-value
+                    // binders and its carried subs, at the per-tag paths
+                    // `<path>.#<disc>.<i>` the enum drop glue skips.
+                    lir_view::PatVariantDataView vd{sp};
+                    std::vector<std::string> ns;
+                    vd.each_binding([&](std::string_view b) { ns.emplace_back(b); });
+                    std::vector<TypeRef> tys;
+                    vd.each_binding_type(cur_prog_->type_pool.impl(), [&](TypeRef t) { tys.push_back(t); });
+                    const auto modes = vd.bind_ref_modes();
+                    const auto subs = vd.subs();
+                    for (size_t i = 0; i < ns.size() && i < tys.size(); ++i) {
+                        const std::string fp = path + ".#" + std::to_string(vd.disc()) + "." + std::to_string(i);
+                        if (i < subs.size() && subs[i]) { emit_moved_leaves(subs[i], fp, tys[i]); continue; }
+                        const bool by_value = i >= modes.size() || modes[i] == 0;
+                        if (by_value && is_named(ns[i]) && tys[i] && is_move_type(tys[i])) mark_leaf(fp);
+                    }
+                    return;
+                }
+                case ps::Code::At: {
+                    lir_view::PatAtView av{sp};
+                    if (!av.ref_mode() && is_named(av.name()) && pty && is_move_type(pty)) {
+                        mark_leaf(path);   // the whole value, by value
+                        return;
+                    }
+                    emit_moved_leaves(av.sub(), path, pty);
+                    return;
+                }
+                case ps::Code::Struct: {
+                    lir_view::PatStructView psv{sp};
+                    psv.each_field([&](lir_view::PatFieldBindingView f) {
+                        TypeRef ft = pty ? field_type_of_for_type(pty, f.field_name())
+                                         : TypeRef(nullptr);
+                        std::string fp = path + "." + std::string(f.field_name());
+                        auto fsub = f.sub();
+                        if (!fsub) {            // shorthand `{ f }` binds by value
+                            if (ft && is_move_type(ft)) mark_leaf(fp);
+                            return;
+                        }
+                        emit_moved_leaves(fsub, fp, ft);
+                    });
+                    return;
+                }
+                case ps::Code::Tuple: {
+                    lir_view::PatTupleView ptv{sp};
+                    std::vector<TypeRef> elems;
+                    if (pty && TypeRef(pty).kind() == LogosType::Kind::Tuple)
+                        elems = TypeRef(pty).tuple_elems();
+                    size_t ti = 0;
+                    ptv.each_sub([&](lir_view::PatRef tsp) {
+                        TypeRef tet = ti < elems.size() ? elems[ti] : TypeRef(nullptr);
+                        emit_moved_leaves(tsp, path + "." + std::to_string(ti), tet);
+                        ++ti;
+                    });
+                    return;
+                }
+                case ps::Code::Slice: {
+                    // An element that is ITSELF an array: recurse per index, the twin of the
+                    // outer loop below. Without this an array-in-array bound one element deep
+                    // marks nothing and double-destroys the moved leaf.
+                    if (!pty || TypeRef(pty).kind() != LogosType::Kind::Array) return;
+                    lir_view::PatSliceView isv{sp};
+                    TypeRef iet = TypeRef(pty).elem();
+                    const uint64_t in  = TypeRef(pty).arr_size();
+                    const uint64_t isc = isv.suffix_count();
+                    uint64_t pi = 0;
+                    isv.each_prefix([&](lir_view::PatRef isp) {
+                        if (pi < in)
+                            emit_moved_leaves(isp, path + "." + std::to_string(pi), iet);
+                        ++pi; });
+                    uint64_t si = 0;
+                    isv.each_suffix([&](lir_view::PatRef isp) {
+                        if (in >= isc)
+                            emit_moved_leaves(isp, path + "." + std::to_string(in - isc + si),
+                                              iet);
+                        ++si; });
+                    return;
+                }
+                default:
+                    // RefBind / RefPat bind THROUGH a reference and move nothing; Variant /
+                    // Int / Bool / Range bind nothing. A VariantData payload under an array
+                    // element is the variant door's fact, not this one.
+                    // Under a top-level tuple / struct / `@` there is no variant door: a
+                    // sub-pattern that moves out (`(Some(r), _)`) owes its WHOLE element,
+                    // the mark the whole-scrutinee rule made before this walk reached it.
+                    if (top_structural && pty && is_move_type(pty) && pattern_moves_out(sp, pty))
+                        mark_leaf(path);
+                    return;
+            }
+        };
     // MARK THE ELEMENT, NOT THE ARRAY (2026-09-16c-armelem; see src/compiler/PROBES.md).
     // An owned `[T; N]` place matched by an array pattern moves out exactly the indices its
     // arm binds BY VALUE, and the per-index path is what lets the scope-exit drop skip those and
@@ -10396,14 +10543,6 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // sub-pattern may move only part of its element, and marking the whole element would leak the
     // rest. A named `rest` binds a sub-slice here, not the elements, so it marks nothing.
     {
-        namespace ps = lir_schema::pat;
-        // …and a TUPLE / STRUCT / `@` pattern at the top is the same fact: the
-        // leaves it binds by value are moved, its `_` parts stay the owner's
-        // (a whole-scrutinee mark leaked them: `let (d, _) = t`, a parameter
-        // `(d, _): (D, D)`; and marked nothing under a nested array).
-        const bool top_structural = pat &&
-            (pat.kind() == ps::Code::Tuple || pat.kind() == ps::Code::Struct ||
-             pat.kind() == ps::Code::At);
         if (scrut && scrut_type && pat &&
             ((pat.kind() == ps::Code::Slice &&
               TypeRef(scrut_type).kind() == LogosType::Kind::Array) || top_structural) &&
@@ -10417,105 +10556,6 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
             TypeRef et = is_arr ? TypeRef(scrut_type).elem() : TypeRef(nullptr);
             const uint64_t n  = is_arr ? TypeRef(scrut_type).arr_size() : 0;
             const uint64_t sc = is_arr ? sv.suffix_count() : 0;
-            // MARK EVERY MOVED LEAF, NOT ONLY A WHOLE ELEMENT (2026-09-16j-arrpath2).
-            // A nested sub-pattern moves only PART of its element, so the path it owes is the
-            // FULL dotted path of each leaf it binds by value — `arr.0.a` for a struct sub,
-            // `arr.0.1` for a tuple sub, `arr.0.t.0` for a tuple inside a field, `arr.0.0` for
-            // an array inside an array. `split_skip_paths` recurses on a dotted prefix, so a
-            // deeper path suppresses exactly that leaf and still drops its siblings.
-            // The previous predicate emitted a path ONLY for a plain named binder, so a nested
-            // sub marked NOTHING and the array's scope-exit drop destroyed the moved-out leaf a
-            // SECOND time (soundness_queue match_array_nested_destructure_elem_double_drop).
-            // A whole-ELEMENT mark is not the alternative: it would leak the fields the sub-
-            // pattern does not bind, which is the failure direction 2026-09-16c measured on nine
-            // legal programs.
-            std::function<void(lir_view::PatRef, const std::string&, TypeRef)> emit_moved_leaves =
-                [&](lir_view::PatRef sp, const std::string& path, TypeRef pty) {
-                if (!sp) return;
-                // ⚠ THE PARAMETER IS SPELLED `nm` ON PURPOSE — it is a BARE-NAME INTERCEPT and the
-                // key-identity census reads it. tests/logos/key_identity_lint.sh FACT 4 pins a
-                // per-file count of bare entity-name comparisons, and its SCAN_LHS reaches the LHS
-                // spellings `nm`/`name`/`cn`/… but not a one-letter `s`. Renaming this binder made a
-                // LIVE site invisible to that census (count 23 -> 22) while the decision it makes was
-                // unchanged — the exact "a pinned file's intercepts deleted" shape the lint's own
-                // header records being bitten by. The pin is NOT moved to match a rename.
-                auto is_named = [](std::string_view nm) { return !nm.empty() && nm != "_"; };
-                switch (sp.kind()) {
-                    case ps::Code::Wild:
-                        if (is_named(lir_view::PatWildView{sp}.name()) && pty && is_move_type(pty))
-                            mark_moved(path);
-                        return;
-                    case ps::Code::At: {
-                        lir_view::PatAtView av{sp};
-                        if (!av.ref_mode() && is_named(av.name()) && pty && is_move_type(pty)) {
-                            mark_moved(path);   // the whole value, by value
-                            return;
-                        }
-                        emit_moved_leaves(av.sub(), path, pty);
-                        return;
-                    }
-                    case ps::Code::Struct: {
-                        lir_view::PatStructView psv{sp};
-                        psv.each_field([&](lir_view::PatFieldBindingView f) {
-                            TypeRef ft = pty ? field_type_of_for_type(pty, f.field_name())
-                                             : TypeRef(nullptr);
-                            std::string fp = path + "." + std::string(f.field_name());
-                            auto fsub = f.sub();
-                            if (!fsub) {            // shorthand `{ f }` binds by value
-                                if (ft && is_move_type(ft)) mark_moved(fp);
-                                return;
-                            }
-                            emit_moved_leaves(fsub, fp, ft);
-                        });
-                        return;
-                    }
-                    case ps::Code::Tuple: {
-                        lir_view::PatTupleView ptv{sp};
-                        std::vector<TypeRef> elems;
-                        if (pty && TypeRef(pty).kind() == LogosType::Kind::Tuple)
-                            elems = TypeRef(pty).tuple_elems();
-                        size_t ti = 0;
-                        ptv.each_sub([&](lir_view::PatRef tsp) {
-                            TypeRef tet = ti < elems.size() ? elems[ti] : TypeRef(nullptr);
-                            emit_moved_leaves(tsp, path + "." + std::to_string(ti), tet);
-                            ++ti;
-                        });
-                        return;
-                    }
-                    case ps::Code::Slice: {
-                        // An element that is ITSELF an array: recurse per index, the twin of the
-                        // outer loop below. Without this an array-in-array bound one element deep
-                        // marks nothing and double-destroys the moved leaf.
-                        if (!pty || TypeRef(pty).kind() != LogosType::Kind::Array) return;
-                        lir_view::PatSliceView isv{sp};
-                        TypeRef iet = TypeRef(pty).elem();
-                        const uint64_t in  = TypeRef(pty).arr_size();
-                        const uint64_t isc = isv.suffix_count();
-                        uint64_t pi = 0;
-                        isv.each_prefix([&](lir_view::PatRef isp) {
-                            if (pi < in)
-                                emit_moved_leaves(isp, path + "." + std::to_string(pi), iet);
-                            ++pi; });
-                        uint64_t si = 0;
-                        isv.each_suffix([&](lir_view::PatRef isp) {
-                            if (in >= isc)
-                                emit_moved_leaves(isp, path + "." + std::to_string(in - isc + si),
-                                                  iet);
-                            ++si; });
-                        return;
-                    }
-                    default:
-                        // RefBind / RefPat bind THROUGH a reference and move nothing; Variant /
-                        // Int / Bool / Range bind nothing. A VariantData payload under an array
-                        // element is the variant door's fact, not this one.
-                        // Under a top-level tuple / struct / `@` there is no variant door: a
-                        // sub-pattern that moves out (`(Some(r), _)`) owes its WHOLE element,
-                        // the mark the whole-scrutinee rule made before this walk reached it.
-                        if (top_structural && pty && is_move_type(pty) && pattern_moves_out(sp, pty))
-                            mark_moved(path);
-                        return;
-                }
-            };
             // A place with no dotted path (an array element, a deref) is not the
             // leaf walk's: it falls through to the whole-place rule below, which
             // refuses a move out of an array element (E0508).
@@ -10558,6 +10598,7 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
             std::vector<TypeRef> tys;
             vd.each_binding_type(cur_prog_->type_pool.impl(), [&](TypeRef t) { tys.push_back(t); });
             auto modes = vd.bind_ref_modes();
+            const auto subs = vd.subs();   // carried payload sub-patterns: their leaves
             bool synth = false;
             for (auto& n : names) if (n.size() > 1 && n[0] == '_' && n[1] == '_') synth = true;
             if (!synth && tys.size() == names.size()) {
@@ -10565,15 +10606,23 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                     ? std::string(lir_view::EVarRefView{expr_ref_of(scrut)}.name())
                     : move_path_of(expr_ref_of(scrut));
                 if (!base.empty()) {
+                    std::vector<std::string> leaves;
+                    leaf_sink = &leaves;
                     for (size_t i = 0; i < names.size(); ++i) {
+                        const std::string fp = base + ".#" + std::to_string(vd.disc()) + "." + std::to_string(i);
+                        if (i < subs.size() && subs[i]) { emit_moved_leaves(subs[i], fp, tys[i]); continue; }
                         bool by_value = i >= modes.size() || modes[i] == 0;
                         if (names[i].empty() || names[i] == "_" || !by_value) continue;
                         if (!tys[i] || !is_move_type(tys[i])) continue;
-                        std::string path = base + ".#" + std::to_string(vd.disc()) + "." + std::to_string(i);
+                        leaves.push_back(fp);
+                    }
+                    leaf_sink = nullptr;
+                    // Exact: static over every arm. Otherwise each path is moved on
+                    // this arm only and the branch merge gives it a drop flag (one
+                    // flag for all of this arm's leaves), which emit_frame_drops
+                    // turns into guarded whole drops.
+                    for (auto& path : leaves) {
                         mark_moved(path);
-                        // Exact: static over every arm. Otherwise the path is moved on this
-                        // arm only and the branch merge gives it a drop flag, which
-                        // emit_frame_drops turns into a guarded pair of whole drops.
                         if (variant_exact) exact_variant_moves_.push_back(path);
                     }
                     return;
@@ -12238,7 +12287,17 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                 bool exact_ = false;
                 if (pr_ && pr_.kind() == ps_::Code::VariantData) {
                     int64_t d_ = lir_view::PatVariantDataView{pr_}.disc();
-                    exact_ = !arm_has_user_guard && !earlier_any && !earlier_discs.count(d_);
+                    // Exact = every value of this variant takes this arm. A
+                    // refutable payload sub-pattern (`Some((a, 1))`), or ANY guard
+                    // — the user's or a synthesized refutable-inner one (`Some(w
+                    // @ (_, 1))`) — lets some of them fall through: its moves are
+                    // this path's only. (The user guard alone was asked: the
+                    // synthesized ones made the payload moved for every `Some`.)
+                    bool subs_irrefutable_ = true;
+                    for (auto sp_ : lir_view::PatVariantDataView{pr_}.subs())
+                        if (sp_ && !lir_view::is_irrefutable_pattern(sp_)) subs_irrefutable_ = false;
+                    exact_ = !arm_has_user_guard && !guard.has_value() && !earlier_any &&
+                             !earlier_discs.count(d_) && subs_irrefutable_;
                 }
                 if (arm.has_key(la::LHS))
                     mark_match_scrutinee_moved(smatch.scrut, scrut_type, pr_, exact_);
@@ -12916,7 +12975,17 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 bool exact_ = false;
                 if (pr_ && pr_.kind() == ps_::Code::VariantData) {
                     int64_t d_ = lir_view::PatVariantDataView{pr_}.disc();
-                    exact_ = !arm_has_user_guard && !earlier_any && !earlier_discs.count(d_);
+                    // Exact = every value of this variant takes this arm. A
+                    // refutable payload sub-pattern (`Some((a, 1))`), or ANY guard
+                    // — the user's or a synthesized refutable-inner one (`Some(w
+                    // @ (_, 1))`) — lets some of them fall through: its moves are
+                    // this path's only. (The user guard alone was asked: the
+                    // synthesized ones made the payload moved for every `Some`.)
+                    bool subs_irrefutable_ = true;
+                    for (auto sp_ : lir_view::PatVariantDataView{pr_}.subs())
+                        if (sp_ && !lir_view::is_irrefutable_pattern(sp_)) subs_irrefutable_ = false;
+                    exact_ = !arm_has_user_guard && !guard.has_value() && !earlier_any &&
+                             !earlier_discs.count(d_) && subs_irrefutable_;
                 }
                 if (arm.has_key(la::LHS))
                     mark_match_scrutinee_moved(me.scrut, scrut_type, pr_, exact_);
