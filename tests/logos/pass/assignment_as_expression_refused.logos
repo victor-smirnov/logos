@@ -1,0 +1,7 @@
+// Closed squeue assignment_as_expression_refused (#614): an assignment is an expression of type () — grammar + HIR (ORIGIN ExprAssign).
+package assignment_as_expression_refused;
+unsafe fn main() -> i32 {
+    let mut a: i32 = 0;
+    let x: () = (a = 5);
+    return a;
+}

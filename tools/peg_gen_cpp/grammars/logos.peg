@@ -3063,7 +3063,22 @@
     // which implements `Iterator<T>`. for-stmt keeps its dedicated
     // DOTDOT path (uses expr_ns, no range here) so simple integer loops
     // stay zero-overhead.
-    expr <- range_expr
+    // An assignment is an expression of type `()` (Rust): `|| x = 5`,
+    // `A => s += 1,`, a block's tail `{ x = 1 }`. The node is the statement's
+    // own (ASSIGN / PLACE_ASSIGN / COMPOUND_ASSIGN / DEREF_WRITE /
+    // DEREF_COMPOUND); in expression position the HIR pass puts it in a block.
+    // Statement position keeps the `…;` rules (tried first by `stmt`).
+    expr <- IDENT ASSIGN expr
+         => { CODE: ASSIGN, NAME: $1, VALUE: $3 }
+          / atom ASSIGN expr
+         => { CODE: PLACE_ASSIGN, RECEIVER: $1, VALUE: $3 }
+          / atom compound_assign_op expr
+         => { CODE: COMPOUND_ASSIGN, RECEIVER: $1, OP: $2, VALUE: $3 }
+          / STAR unary_expr ASSIGN expr
+         => { CODE: DEREF_WRITE, NAME: $2, VALUE: $4 }
+          / STAR unary_expr compound_assign_op expr
+         => { CODE: DEREF_COMPOUND, NAME: $2, OP: $3, VALUE: $4 }
+          / range_expr
 
     // Range expressions — full family (Rust parity), closed + half-open. Used as
     // values and (chiefly) as slice indices `s[a..b]`, `s[a..]`, `s[..b]`, `s[..]`.

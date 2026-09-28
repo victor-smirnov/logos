@@ -83,6 +83,7 @@ enum class Origin : int64_t {
                            // unreachable!); on a FN_MACRO_CALL: refused, diagnostic given
     LabeledBlock    = 12,  // `'a: { B }`
     ExitRefused     = 13,  // a break / continue whose target the pass refused (diagnostic given)
+    ExprAssign      = 14,  // an assignment in expression position (`|| x = 5`, `A => s += 1,`)
 };
 
 struct Diag {

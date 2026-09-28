@@ -1269,6 +1269,9 @@ private:
                 if (auto b = v.block()) lower_block_stmts(b);
                 extending_ = ext_guard.v;
                 if (v.result()) lower_into(dest, v.result());
+                // A block without a tail is `()`: its destination is written
+                // (`let u: () = { a = 1; };` — `u` is initialized).
+                else assign(dest, bir::Rvalue(bir::Rvalue::K::Use));
                 pop_scope();
                 return;
             }

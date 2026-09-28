@@ -20008,7 +20008,7 @@ bool SemaChecker::is_stmt_only_code(int32_t c) {
         || c == la::TUPLE_FIELD_COMPOUND_ASSIGN.code
         || c == la::FIELD_INDEX_COMPOUND_ASSIGN.code
         || c == la::CHAIN_FIELD_COMPOUND_ASSIGN.code
-        || c == la::DEREF_WRITE.code
+        || c == la::DEREF_WRITE.code || c == la::DEREF_COMPOUND.code
         || c == la::WHILE.code || c == la::FOR.code || c == la::FOR_EACH.code
         || c == la::BREAK.code || c == la::CONTINUE.code
         || c == la::NESTED_FN.code || c == la::BLOCK_STMT.code
@@ -20028,7 +20028,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
     push_scope();
     bool saved_tail = tail_as_return_;
     tail_as_return_ = false;
-    auto stmts = arr_of(node.get(la::ITEMS.code));
+    auto stmts = cfg_live_entries_(arr_of(node.get(la::ITEMS.code)));
     std::vector<lir_view::StmtRef> block;
     lir::LExprPtr result = nullptr;
     // K10-co-04: track divergence — a block whose tail is `return`
@@ -20041,7 +20041,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
     // inside a tuple/struct/etc literal at non-void type.
     TypeRef divergent_ret_t = nullptr;
     for (uint64_t i = 0; i < stmts.size(); ++i) {
-        auto s = map_of(stmts.get(i));
+        auto s = stmts[i];
         if (s.is_null()) continue;
         bool is_last = (i == stmts.size() - 1);
         int32_t lc = code_of(s);

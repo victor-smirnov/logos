@@ -67,6 +67,12 @@ bool ends_in_tail(TinyMapView blk) noexcept {
 // this pass when sema lowers it), and the driver PATCHES the metacall node in
 // the AST document by its offset — so it must keep its identity, never be
 // copied into this pass's document.
+// The assignment statements, which Rust's grammar has as `()`-typed expressions.
+bool is_assign_code(int32_t c) noexcept {
+    return c == la::ASSIGN.code || c == la::PLACE_ASSIGN.code || c == la::COMPOUND_ASSIGN.code ||
+           c == la::DEREF_WRITE.code || c == la::DEREF_COMPOUND.code;
+}
+
 bool opaque(int32_t c) noexcept {
     return c == la::QUOTE_ITEM.code || c == la::QUOTE_EXPR.code || c == la::QUOTE_TY.code ||
            c == la::META_BLOCK.code || c == la::METACALL.code || c == la::METACALL_ITEM.code;
@@ -86,6 +92,7 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
     if (c == la::DESTRUCTURE_ASSIGN.code) return true;
     if (c == la::FIELD_SHORTHAND.code) return true;
     if (c == la::LABELED_BLOCK.code) return true;
+    if (is_assign_code(c)) return true;   // surface only in expression position (desugar)
     return false;
 }
 
@@ -221,6 +228,9 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
 AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
     TinyMapView n = map_of(v);
     const int32_t c = code_of(n);
+    // An assignment in EXPRESSION position is the statement inside a block (a
+    // block without a tail: `()`); in statement position it is itself.
+    if (is_assign_code(c)) return ctx == Ctx::Stmt ? v : block({v}, n, Origin::ExprAssign);
     // An `else if …` / a non-block else of an EXPRESSION yields its value from
     // a block tail; a missing else of an expression is recorded in ORIGIN so
     // sema refuses it with the construct's own sentence.

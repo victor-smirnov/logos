@@ -1,0 +1,24 @@
+// An assignment is an expression of type `()` (Rust): a match arm `1 => s = 10,` / `2 => s += 20,`, a block's
+// tail `{ s = s + 1 }`, a closure body `|v| s = v * 2` / `|| *r += 100`, and `let u: () = s = s + 5;`. A block expression ending in `*q += 3;` lost the write (the stmt-only kind list lacked DEREF_COMPOUND).
+package assignment_expressions;
+use logos.std.fmt;
+struct P { x: i64, y: i64 }
+fn f(k: i64, c: bool) -> i64 {
+    let mut s = 0i64;
+    let mut p = P { x: 1, y: 2 };
+    match k { 1 => s = 10, 2 => s += 20, 3 => p.x = 7, _ => p.y *= 3 }
+    if c { s = s + 1 } else { s = s - 1 }
+    {
+        let mut set = |v: i64| s = v * 2;
+        set(4);
+    }
+    let r = &mut p.x;
+    let mut bump = || *r += 100;
+    bump();
+    let w: () = { let q = &mut s; *q += 3; };
+    let _ = w;
+    let u: () = s = s + 5;
+    let _ = u;
+    s + p.x + p.y
+}
+fn main() { println!("{} {} {} {}", f(1, true), f(2, false), f(3, true), f(9, false)); }

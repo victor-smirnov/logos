@@ -316,8 +316,6 @@ target_feature_attr_ignored_admitted 3 tests/soundness/open/target_feature_attr_
 
 union_functional_update_admitted 3 tests/soundness/open/union_functional_update_admitted admits
 
-assignment_as_expression_refused 4 tests/soundness/open/assignment_as_expression_refused refuses
-
 assoc_type_unsized_binding_admitted 4 tests/soundness/open/assoc_type_unsized_binding_admitted admits
 
 bare_tuple_variant_name_pattern_admitted 4 tests/soundness/open/bare_tuple_variant_name_pattern_admitted admits
@@ -453,5 +451,5 @@ if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scru
 
 let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
 
-# TOTAL 138
-# SYNC-HASH 56ce9b7c336c0c9804bccf08ee5d8ede
+# TOTAL 137
+# SYNC-HASH c49b0d09c24baee8b264255b571689fc
