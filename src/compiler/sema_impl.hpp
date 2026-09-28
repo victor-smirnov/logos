@@ -1798,7 +1798,17 @@ private:
         // Build a slice_lit using the ref/ptr value as the data ptr and N as
         // the length. arg holds the address expression; reuse it directly.
         // want_elem: the hole-filled element when expected was `&[_]`.
-        auto len = builder().lit_int(n, prim(LogosType::Kind::I64));
+        // A SYMBOLIC length (`&[T; N]` in a `<const N: usize>` body) is the
+        // const parameter's value, which mono bakes per instance
+        // (`__const_param:N`, as a written `N` is). Its arr_size() is 0: the
+        // literal made every such slice EMPTY — `a.iter()` over `&[i64; N]`
+        // summed to 0.
+        lir::LExprPtr len;
+        if (std::string_view asv = pointee.arr_size_var(); !asv.empty() && pointee.arr_size() == 0 &&
+            std::all_of(asv.begin(), asv.end(), [](char c) { return std::isalnum((unsigned char)c) || c == '_'; }))
+            len = builder().var_ref("__const_param:" + std::string(asv), prim(LogosType::Kind::I64));
+        else
+            len = builder().lit_int(n, prim(LogosType::Kind::I64));
         // The decayed slice keeps the SOURCE ref's region. `make_slice_type`
         // has always taken a lifetime; this call never passed one, so every
         // `&[T; N]` -> `&[T]` decay produced a region-less slice and the

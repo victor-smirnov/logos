@@ -534,6 +534,18 @@ bool SemaChecker::body_always_diverges_simple(TinyMapView body_node) {
 bool SemaChecker::is_hoistable_temp_rvalue(lir_view::ExprRef e) {
     namespace ec = lir_schema::expr;
     auto k = e.kind();
+    // A module CONST is a value, not a place: every use makes a fresh one
+    // (rustc), so `P.id` over a Drop-typed `const P` owns a temporary that
+    // drops at the end of the statement (it leaked).
+    if (k == ec::Code::VarRef) {
+        std::string n(lir_view::EVarRefView{e}.name());
+        bool local = false;
+        for (auto it = scope_.rbegin(); it != scope_.rend() && !local; ++it) local = it->vars.count(n) != 0;
+        if (!local) {
+            std::string ck = resolve_const_key(n);
+            if (!ck.empty() && module_consts_.count(ck)) return true;
+        }
+    }
     switch (k) {
         case ec::Code::VarRef: case ec::Code::FieldRead: case ec::Code::IndexRead:
         case ec::Code::Deref:  case ec::Code::TupleIndex: case ec::Code::SliceIndex:

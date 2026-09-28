@@ -1,0 +1,24 @@
+// A symbolic array length in a `<const N>` body is the const parameter's value, baked per instance:
+// `&[T; N]` -> `&[T]` (behind `a.iter()`) and the built-in `[T; N].len()` took arr_size(), which is 0
+// for `N` — every such slice was EMPTY (`total(&a)` summed to 0). And a module const is a VALUE: `P.id`
+// over a Drop-typed `const P` owns a temporary dropped at the end of the statement (it leaked).
+package const_generic_arrays_and_const_temps;
+struct E { id: i64 }
+static mut DROPS: i64 = 0;
+impl Drop for E { fn drop(&mut self) { unsafe { DROPS = DROPS + self.id; } } }
+const PROTO: E = E { id: 7 };
+struct R<const N: usize> { items: [i64; N] }
+impl<const N: usize> R<N> {
+    fn total(&self) -> i64 { let mut t: i64 = 0; for d in self.items.iter() { t += *d; } t }
+    fn first(&self) -> i64 { self.items[0] }
+}
+fn total<const N: usize>(a: &[i64; N]) -> i64 { let mut t = 0i64; for d in a.iter() { t += *d; } t }
+fn count<const N: usize>(a: [i64; N]) -> i64 { a.len() as i64 }
+fn main() -> i32 {
+    let r = R::<3> { items: [1, 2, 3] };
+    let a = [4i64, 5, 6, 7];
+    let s = r.total() + r.first() + total(&a) + count([1i64, 2]);   // 6 + 1 + 22 + 2
+    let id = PROTO.id;                                               // a temporary: dropped here
+    let dropped = unsafe { DROPS };
+    return (s + id + dropped * 10) as i32;                          // 31 + 7 + 70
+}

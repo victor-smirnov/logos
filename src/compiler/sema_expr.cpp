@@ -10482,6 +10482,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (cur_stmt_temp_hoist_ && recv && is_move_type(expr_type(recv)) &&
             is_hoistable_temp_rvalue(recv))
             (void)hoist_stmt_temp(std::move(recv), false);
+        // A SYMBOLIC length (`[T; N]` in a `<const N>` body) is the const
+        // parameter's value, baked per instance by mono — its arr_size() is 0.
+        if (std::string_view asv = TypeRef(expr_type(recv)).arr_size_var(); !asv.empty() && sz == 0 &&
+            std::all_of(asv.begin(), asv.end(), [](char c) { return std::isalnum((unsigned char)c) || c == '_'; }))
+            return builder().var_ref("__const_param:" + std::string(asv), prim(LogosType::Kind::I64));
         return builder().lit_int(sz, prim(LogosType::Kind::I64));
     }
 
