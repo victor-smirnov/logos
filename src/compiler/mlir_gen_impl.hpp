@@ -2128,6 +2128,12 @@ private:
     // so only the moved leaf is suppressed and its siblings still drop.
     void gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_user_drop = true,
                         const std::set<std::string>* skip_paths = nullptr);
+    // Box DerefMove (ADR 0028): a stdlib `Box<T>` at `box_slot` whose content
+    // was moved out whole (`*` in `paths`) or in part (`*.s`) does not run
+    // Box::drop — what is left of the pointee drops in place and the heap block
+    // is freed. False (nothing emitted) when `paths` names no `*` step.
+    bool gen_drop_box_after_deref_move(mlir::Value box_slot, TypeRef ty,
+                                       const std::set<std::string>& paths);
     // Drop an OWNING `Box<dyn Trait>` whose binding storage `handle` IS the
     // 8-byte heap handle to a 16-byte {data,vtable} fat pair. Sequence (null-
     // guarded): load data(field0)+vtable(field1); call vtable[0](data)

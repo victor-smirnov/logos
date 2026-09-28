@@ -19781,7 +19781,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                     divergent_ret_t = never_t();
                     continue;
                 }
-                result = lower_expr(val_node);
+                result = lower_moved_operand_(val_node);
                 continue;
             }
             if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR
@@ -19951,7 +19951,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
                     } else {
                         // Conditionally evaluated branch value — own temporary
                         // scope (see lower_expr_temp_scoped).
-                        result = lower_expr_temp_scoped(val_node);
+                        result = lower_moved_operand_(val_node, /*temp_scoped=*/true);
                     }
                 } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR &&
                            lc != la::LET && lc != la::LET_PAT &&

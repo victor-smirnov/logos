@@ -1,0 +1,28 @@
+// A local some of whose field paths were moved on SOME paths drops, on every path, field by field in
+// DECLARATION order, each conditionally moved path under its own drop flag (Rust drop elaboration).
+// The flagged paths were destroyed FIRST, ahead of their siblings, and in the flag map's hash order:
+// `match k { 0 => eat(x.i), 1 => take(x.i.e), _ => {} }` dropped `x.i.e` before `x.i.d` on the arm
+// that moved nothing, and `if c { eat(x.i); }` dropped `x.i` before `x.t`.
+package conditional_partial_move_drop_order;
+use logos.std.fmt;
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+struct A { d: D, e: D }
+struct O { t: D, i: A, u: D }
+fn eat(a: A) { println!("eat {}", a.d.n); }
+fn take(d: D) { println!("take {}", d.n); }
+fn mk(n: i64) -> A { A { d: D { n: n }, e: D { n: n + 1 } } }
+fn o(n: i64) -> O { O { t: D { n: n }, i: mk(n + 1), u: D { n: n + 9 } } }
+fn overlap(k: i64) { let x = o(10 * k); match k { 0 => { eat(x.i); } 1 => { take(x.i.e); } _ => { println!("overlap none"); } } println!("overlap end"); }
+fn after_sibling(c: bool) { let x = o(100); if c { eat(x.i); } println!("after_sibling end"); }
+fn tuple_root(c: bool) { let t = (D { n: 200 }, mk(201), D { n: 209 }); if c { take(t.1.e); } println!("tuple_root end"); }
+fn two_arms(c: bool) { let x = o(300); if c { take(x.i.d); } else { take(x.u); } println!("two_arms end"); }
+fn loop_arm(c: bool) { let x = o(400); loop { if c { take(x.i.e); break; } else { break; } } println!("loop_arm end"); }
+fn whole_or_part(c: bool, d: bool) { let x = o(500); if c { let y = x; println!("whole {}", y.t.n); } else if d { eat(x.i); } println!("whole_or_part end"); }
+fn then_static(c: bool) { let x = o(600); if c { take(x.i.e); } take(x.t); println!("then_static end"); }
+fn main() {
+    overlap(0); overlap(1); overlap(2); after_sibling(true); after_sibling(false); tuple_root(true); tuple_root(false);
+    two_arms(true); two_arms(false); loop_arm(true); loop_arm(false);
+    whole_or_part(true, false); whole_or_part(false, true); whole_or_part(false, false);
+    then_static(true); then_static(false);
+}

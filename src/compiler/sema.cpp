@@ -4362,6 +4362,8 @@ void SemaChecker::emit_cond_move_field_drops(
                 seg.find_first_not_of("0123456789") == std::string::npos)
                 place = self->builder().tuple_index(
                     std::move(place), (uint32_t)std::stoul(seg), ft);
+            else if (seg == "*")
+                place = self->builder().deref(std::move(place), ft);
             else
                 place = self->builder().field_read(std::move(place), seg, ft);
             pt = ft;
@@ -4424,6 +4426,134 @@ void SemaChecker::emit_cond_move_field_drops(
         sif.then_ = lir_mirror_block(*cur_prog_, body);
         drops.push_back(self->make_stmt_emit(node_line_, std::move(sif)));
     }
+}
+
+// Rust drop elaboration for a local with FLAGGED descendant paths: the local
+// is OPENED along those paths and destroyed field by field in DECLARATION
+// order — each flagged path under its own flag, each unflagged leaf as a
+// move-and-drop of the place skipping what was moved out of it. A Box opens at
+// `*`: the pointee first, then the heap block (a Box drop whose `*` is moved
+// frees the block only). The decomposed form (guarded path drops, then the
+// container skipping them) destroyed the flagged paths FIRST and in the flag
+// map's hash order: `match k { 0 => eat(o.i), 1 => take(o.i.e), _ => {} }`
+// dropped `o.i.e` before `o.i.d` on the arm that moved nothing. False, with
+// nothing emitted, when no flagged path lies under `root` or one crosses a
+// place this walk cannot open (an enum payload `#`, whose flags guard whole
+// drops instead).
+bool SemaChecker::emit_open_drop(const Frame& frame, const std::string& root,
+                                 const VarInfo& info,
+                                 std::vector<lir_view::StmtRef>& drops) const {
+    using K = LogosType::Kind;
+    if (!cur_prog_ || !info.type) return false;
+    auto* self = const_cast<SemaChecker*>(this);
+    auto under = [](const std::string& q, const std::string& p) {
+        return q.size() > p.size() + 1 && q.compare(0, p.size(), p) == 0 && q[p.size()] == '.';
+    };
+    // The place a path names, rebuilt from the root; null type when a step
+    // does not resolve.
+    auto place_of = [&](const std::string& path) -> std::pair<lir::LExprPtr, TypeRef> {
+        TypeRef t = info.type;
+        lir::LExprPtr pl = self->builder().var_ref(root, t);
+        for (size_t p = root.size(); p < path.size() && t; ) {
+            size_t e = path.find('.', p + 1);
+            if (e == std::string::npos) e = path.size();
+            std::string seg = path.substr(p + 1, e - p - 1);
+            TypeRef ft = self->path_segment_type(t, seg);
+            if (!ft) return {nullptr, nullptr};
+            if (seg == "*") pl = self->builder().deref(std::move(pl), ft);
+            else if (TypeRef(t).kind() == K::Tuple)
+                pl = self->builder().tuple_index(std::move(pl), (uint32_t)std::stoul(seg), ft);
+            else pl = self->builder().field_read(std::move(pl), seg, ft);
+            t = ft;
+            p = e;
+        }
+        return {std::move(pl), t};
+    };
+    bool any = false;
+    for (auto& [q, _f] : frame.cond_move_flags) {
+        if (!under(q, root)) continue;
+        if (q.find(".#") != std::string::npos) return false;
+        TypeRef t = info.type;
+        for (size_t p = root.size(); p < q.size() && t; ) {
+            size_t e = q.find('.', p + 1);
+            if (e == std::string::npos) e = q.size();
+            if (TypeRef(t).kind() != K::Struct && TypeRef(t).kind() != K::Tuple) return false;
+            t = self->path_segment_type(t, q.substr(p + 1, e - p - 1));
+            p = e;
+        }
+        if (!t) return false;
+        any = true;
+    }
+    if (!any) return false;
+    // Paths under the root moved on every path (no flag of their own).
+    std::set<std::string> gone;
+    for (auto& mv : moved_vars_)
+        if (under(mv, root) && !closure_owned_drop_.count(mv)) gone.insert(mv);
+    for (auto& q : frame.cond_move_static_moves)
+        if (under(q, root)) gone.insert(q);
+    for (auto& [q, _f] : frame.cond_move_flags) gone.erase(q);
+    auto flagged_under = [&](const std::string& path) {
+        for (auto& [q, _f] : frame.cond_move_flags) if (under(q, path)) return true;
+        return false;
+    };
+    auto move_and_drop = [&](const std::string& path, std::vector<std::string> skips,
+                             std::vector<lir_view::StmtRef>& out) {
+        auto [pl, pt] = place_of(path);
+        if (!pl || !pt) return;
+        VarInfo tinfo;
+        tinfo.type = pt;
+        std::string tmp = std::format("__cmfd_{}", self->tmp_var_count_++);
+        auto d = self->make_drop_stmt(tmp, tinfo, &skips);
+        if (!d) return;
+        lir::SLet sl;
+        sl.name = tmp; sl.type = pt; sl.is_mut = false; sl.value = std::move(pl);
+        sl.compiler_glue = true;   // #121-A provenance: exempt from the Let walkers
+        out.push_back(self->make_stmt_emit(node_line_, std::move(sl)));
+        out.push_back(std::move(*d));
+    };
+    std::function<void(const std::string&, TypeRef, std::vector<lir_view::StmtRef>&)> open;
+    auto visit = [&](const std::string& child, TypeRef ct, std::vector<lir_view::StmtRef>& out) {
+        if (auto f = frame.cond_move_flags.find(child); f != frame.cond_move_flags.end()) {
+            std::vector<lir_view::StmtRef> body;
+            open(child, ct, body);
+            if (body.empty()) return;
+            lir::SIf sif;
+            sif.cond = self->builder().var_ref(f->second, self->prim(K::Bool));
+            sif.then_ = lir_mirror_block(*cur_prog_, body);
+            out.push_back(self->make_stmt_emit(node_line_, std::move(sif)));
+            return;
+        }
+        if (!gone.count(child)) open(child, ct, out);
+    };
+    open = [&](const std::string& path, TypeRef pt, std::vector<lir_view::StmtRef>& out) {
+        if (!flagged_under(path)) {
+            std::vector<std::string> skips;
+            for (auto& q : gone) if (under(q, path)) skips.push_back(q.substr(path.size() + 1));
+            move_and_drop(path, std::move(skips), out);
+            return;
+        }
+        if (is_stdlib_box(pt)) {
+            visit(path + ".*", self->path_segment_type(pt, "*"), out);
+            if (path == root) {
+                std::vector<std::string> star{"*"};
+                if (auto d = make_drop_stmt(root, info, &star)) out.push_back(std::move(*d));
+            } else move_and_drop(path, {"*"}, out);
+            return;
+        }
+        if (TypeRef(pt).kind() == K::Tuple) {
+            auto es = TypeRef(pt).tuple_elems();
+            for (size_t i = 0; i < es.size(); ++i) visit(path + "." + std::to_string(i), es[i], out);
+            return;
+        }
+        if (auto* si = self->find_struct_repr_(TypeRef(pt).pkg_name(), TypeRef(pt).struct_name()))
+            for (auto& f : si->fields) {
+                std::string fname(f.name);
+                if (TypeRef ft = self->path_segment_type(pt, fname))
+                    visit(path + "." + fname, ft, out);
+            }
+    };
+    open(root, info.type, drops);
+    return true;
 }
 
 std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
@@ -4584,7 +4714,31 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         // <flag> { let __cmfd_N: FT = h.p; drop __cmfd_N; }`. Placed BEFORE the
         // container's own drop because a by-value user `Drop` on the container
         // consumes its fields, and the field's value must be out first.
-        emit_cond_move_field_drops(frame, n, drops);
+        // Rust drop elaboration: a local with flagged descendant paths is
+        // opened along them (emit_open_drop); guarded by its own flag when the
+        // whole local was also moved on some paths.
+        bool opened = false;
+        {
+            auto cf = frame.cond_move_flags.find(n);
+            const VarInfo* vi = nullptr;
+            if (cf != frame.cond_move_flags.end()) {
+                if (!closure_owned_drop_.count(n) || frame.cond_release_flagged.count(n))
+                    if (auto vit = frame.vars.find(n); vit != frame.vars.end()) vi = &vit->second;
+            } else vi = eligible(n);
+            std::vector<lir_view::StmtRef> od;
+            if (vi && emit_open_drop(frame, n, *vi, od)) {
+                opened = true;
+                if (cf != frame.cond_move_flags.end() && !od.empty()) {
+                    auto* self = const_cast<SemaChecker*>(this);
+                    lir::SIf sif;
+                    sif.cond = self->builder().var_ref(cf->second, self->prim(LogosType::Kind::Bool));
+                    sif.then_ = lir_mirror_block(*cur_prog_, od);
+                    drops.push_back(self->make_stmt_emit(node_line_, std::move(sif)));
+                } else
+                    for (auto& st : od) drops.push_back(std::move(st));
+            }
+        }
+        if (!opened) emit_cond_move_field_drops(frame, n, drops);
         // #121-A — WHOEVER HOLDS THE BIT OWNS THE PLACE. Every path under `n`
         // that carries its own drop flag was just destroyed (guarded) by the
         // call above, so the container's drop below must not recurse into it.
@@ -4601,7 +4755,7 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         // guards the WHOLE drop instead: flag set → the field is still owned,
         // drop `e` entire; flag clear → drop `e` skipping that field.
         bool enum_path_pair = false;
-        if (!frame.cond_move_flags.count(n)) {
+        if (!opened && !frame.cond_move_flags.count(n)) {
             std::vector<std::pair<std::string, std::string>> hps;   // (relative path, flag)
             const std::string hpre = n + ".#";
             for (auto& [path, flag] : frame.cond_move_flags)
@@ -4654,7 +4808,7 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
                     enum_path_pair = true;
                 }
         }
-        if (enum_path_pair) {
+        if (enum_path_pair || opened) {
             // the closure drop group below still runs
         } else if (auto cf = frame.cond_move_flags.find(n);
             cf != frame.cond_move_flags.end() &&

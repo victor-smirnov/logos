@@ -4830,6 +4830,10 @@ private:
     // flag (and the pre-#121 leak stands for exactly that spelling).
     TypeRef path_segment_type(TypeRef base, const std::string& seg) {
         if (!base) return nullptr;
+        // `*` — the built-in deref of a Box is a step of the place (ADR 0028).
+        if (seg == "*")
+            return is_stdlib_box(base) && TypeRef(base).type_args().size() == 1
+                       ? TypeRef(base).type_args()[0] : TypeRef(nullptr);
         if (TypeRef(base).kind() == LogosType::Kind::Tuple) {
             if (seg.empty() ||
                 seg.find_first_not_of("0123456789") != std::string::npos)
@@ -5403,6 +5407,10 @@ private:
     // rooted at `root`. See the definition in sema.cpp.
     void emit_cond_move_field_drops(const Frame& frame, const std::string& root,
                                     std::vector<lir_view::StmtRef>& drops) const;
+    // Rust drop elaboration for a local with flagged descendant paths: opened
+    // along them, destroyed in declaration order. See the definition.
+    bool emit_open_drop(const Frame& frame, const std::string& root, const VarInfo& info,
+                        std::vector<lir_view::StmtRef>& drops) const;
     std::vector<lir_view::StmtRef> collect_drops() const;
     std::vector<lir_view::StmtRef> collect_all_drops() const;
     // G167-4: drops for a `break`/`continue` — every frame from the innermost
@@ -9038,6 +9046,15 @@ private:
     // Returns null when not applicable (operand isn't a bare Box var, or its
     // element is Copy) — caller falls through to the normal deref path.
     lir::LExprPtr try_lower_box_deref_move(writ::TinyMapView deref_node);
+    // A value that flows OUT of its position (a match arm's value, a block's
+    // tail): `*b` over a move-typed Box<T> is Box's DerefMove there, as in a
+    // `let` or `return` — else the dereferenced place, and the Box binder then
+    // drops the content it already gave away (double drop: `Some(b) => *b`).
+    lir::LExprPtr lower_moved_operand_(writ::TinyMapView n, bool temp_scoped = false) {
+        if (code_of(n) == sema_detail::la::DEREF)
+            if (auto r = try_lower_box_deref_move(n)) return r;
+        return temp_scoped ? lower_expr_temp_scoped(n) : lower_expr(n);
+    }
     lir::LExprPtr lower_call(writ::TinyMapView node);
     // lower_expr literal/cast sub-handlers, factored out of its switch so every
     // case delegates uniformly. Each lowers one expr kind from `expr` + members.

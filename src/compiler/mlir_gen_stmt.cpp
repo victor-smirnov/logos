@@ -1202,6 +1202,23 @@ static bool split_skip_paths(const std::set<std::string>* paths,
     return false;
 }
 
+bool MLIRGenImpl::gen_drop_box_after_deref_move(mlir::Value box_slot, TypeRef ty,
+                                                const std::set<std::string>& paths) {
+    if (!is_stdlib_box(ty) || TypeRef(ty).type_args().size() != 1) return false;
+    std::set<std::string> under;
+    bool whole = false;
+    for (auto& p : paths) {
+        if (p == "*") whole = true;
+        else if (p.size() > 2 && p.compare(0, 2, "*.") == 0) under.emplace(p.substr(2));
+    }
+    if (!whole && under.empty()) return false;
+    mlir::Value heap = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), box_slot);
+    if (!whole) gen_drop_value(heap, TypeRef(ty).type_args()[0], /*run_user_drop=*/true, &under);
+    ensure_malloc_free(builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>());
+    call_free(heap);
+    return true;
+}
+
 void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_user_drop,
                                  const std::set<std::string>* skip_paths) {
     using K = LogosType::Kind;
@@ -1250,6 +1267,8 @@ void MLIRGenImpl::gen_drop_value(mlir::Value value_ptr, TypeRef ty, bool run_use
         llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
         return builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), agg_ty, agg, gi);
     };
+    // A Box field / element whose content was moved out (`w.inner.*`).
+    if (skip_paths && gen_drop_box_after_deref_move(value_ptr, ty, *skip_paths)) return;
     if (k == K::Struct || k == K::ZonedStruct) {
         std::string name = concrete_struct_name(ty);
         // DROP GLUE IS: RUN `Drop::drop`, THEN DROP THE FIELDS — AT EVERY DEPTH.
@@ -1570,24 +1589,11 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
         return;
     }
 
-    // Box DerefMove (ADR 0028): a Box whose content was moved out in part
-    // (`let v = (*bx).s`, moved path `*.s`) or whole (`*`) does not run
-    // Box::drop. What is left of the pointee drops in place, skipping the
-    // moved paths, and the heap block is freed.
-    if (TypeRef bt = v.type(pool_impl()); is_stdlib_box(bt) && TypeRef(bt).type_args().size() == 1) {
-        std::set<std::string> under;
-        bool whole = false;
-        v.each_moved_field([&](std::string_view p) {
-            if (p == "*") whole = true;
-            else if (p.size() > 2 && p.substr(0, 2) == "*.") under.emplace(p.substr(2));
-        });
-        if (whole || !under.empty()) {
-            mlir::Value heap = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), it->second);
-            if (!whole) gen_drop_value(heap, TypeRef(bt).type_args()[0], /*run_user_drop=*/true, &under);
-            ensure_malloc_free(mod);
-            call_free(heap);
-            return;
-        }
+    // Box DerefMove (ADR 0028): `let v = (*bx).s` (moved path `*.s`) or `*bx`.
+    if (TypeRef bt = v.type(pool_impl()); is_stdlib_box(bt)) {
+        std::set<std::string> moved;
+        v.each_moved_field([&](std::string_view p) { moved.emplace(p); });
+        if (gen_drop_box_after_deref_move(it->second, bt, moved)) return;
     }
 
     // 1. Call user's explicit drop function (if any).

@@ -1,0 +1,48 @@
+// Moving out of a Box (`*b`, a by-value method through a Box place) frees the heap block exactly once
+// and drops what is left of the pointee exactly once, in Rust's order:
+// - `*b` as a match-arm value or a block tail takes the box (it was copied out and the box dropped
+//   whole: a use-after-free / double drop);
+// - `w.inner.consume()` (`inner: Box<A>`, `consume(self)`) moves `w.inner.*`: `w`'s drop frees the
+//   block only (it ran Box::drop on it: a double drop), also through tuples and `Box<Box<A>>`;
+// - a CONDITIONAL move of `b.*` / `w.inner.*` / `(*b).e` carries a drop flag: the path that did not
+//   move it drops the pointee (it leaked);
+// - a local with flagged paths drops field by field in declaration order (Rust drop elaboration).
+package box_deref_move_drops;
+use logos.std.fmt; use logos.lang.option; use logos.mem.boxed;
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+struct A { d: D, e: D }
+impl A { fn consume(self) -> D { self.d } }
+struct W { inner: Box<A>, tag: D }
+enum T { L(D), N(Box<T>, Box<T>) }
+fn mk(n: i64) -> A { A { d: D { n: n }, e: D { n: n + 1 } } }
+fn arm_value() { let t = T::N(Box::new(T::L(D { n: 1 })), Box::new(T::L(D { n: 2 }))); let u = match t { T::N(l, _) => *l, other => other }; match u { T::L(d) => println!("arm {}", d.n), _ => {} } }
+fn option_arm() { let o = Some(Box::new(D { n: 3 })); let x = match o { Some(b) => *b, None => D { n: 0 } }; println!("opt {}", x.n); }
+fn block_tail() { let b = Box::new(D { n: 4 }); let x = { let y = 2; println!("y {}", y); *b }; println!("tail {}", x.n); }
+fn field_consume() { let w = W { inner: Box::new(mk(10)), tag: D { n: 19 } }; let x = w.inner.consume(); println!("field {}", x.n); }
+fn tuple_consume() { let t = (Box::new(mk(20)), 7); let x = t.0.consume(); println!("tuple {} {}", x.n, t.1); }
+fn box_box_consume() { let bb = Box::new(Box::new(mk(30))); let x = bb.consume(); println!("boxbox {}", x.n); }
+fn partial_field() { let w = W { inner: Box::new(mk(40)), tag: D { n: 49 } }; let d = (*w.inner).d; println!("partial {}", d.n); }
+fn cond_field(c: bool) { let w = W { inner: Box::new(mk(50)), tag: D { n: 59 } }; if c { let x = w.inner.consume(); println!("cf {}", x.n); } println!("cf end"); }
+fn whole_field() { let w = W { inner: Box::new(mk(60)), tag: D { n: 69 } }; let a = *w.inner; println!("whole {}", a.d.n); }
+fn nested_field() { let w = (W { inner: Box::new(mk(70)), tag: D { n: 79 } },); let x = w.0.inner.consume(); println!("nested {}", x.n); }
+fn cond_local(c: bool) { let b = Box::new(mk(80)); if c { let x = b.consume(); println!("cl {}", x.n); } println!("cl end"); }
+fn cond_partial_local(c: bool) { let b = Box::new(mk(90)); if c { let d = (*b).d; println!("cp {}", d.n); } println!("cp end"); }
+fn match_moves(k: i64) { let b = Box::new(mk(100 + k * 10)); match k { 0 => { let x = b.consume(); println!("mm {}", x.n); } 1 => { let d = (*b).e; println!("mm e {}", d.n); } _ => { println!("mm none"); } } println!("mm end"); }
+fn loop_break(n: i64) { let w = W { inner: Box::new(mk(200 + n)), tag: D { n: 299 } }; let mut i = 0; while i < 3 { if i == n { let x = w.inner.consume(); println!("lb {}", x.n); break; } i += 1; } println!("lb end"); }
+fn param(b: Box<A>, c: bool) { if c { let x = b.consume(); println!("param {}", x.n); } println!("param end"); }
+fn cond_box_box(c: bool) { let bb = Box::new(Box::new(mk(400))); if c { let x = bb.consume(); println!("cbb {}", x.n); } println!("cbb end"); }
+fn cond_partial_field(c: bool) { let w = W { inner: Box::new(mk(500)), tag: D { n: 599 } }; if c { let d = (*w.inner).d; println!("cpf {}", d.n); } println!("cpf end"); }
+fn if_expr(c: bool) -> i64 { let w = W { inner: Box::new(mk(600)), tag: D { n: 699 } }; let r = if c { w.inner.consume().n } else { 0 }; r }
+fn guard(o: Option<Box<A>>, c: bool) { match o { Some(b) if c => { let x = b.consume(); println!("guard {}", x.n); } Some(b) => { println!("guard keep {}", b.d.n); } None => {} } println!("guard end"); }
+fn tuple_arms(k: i64) { let w = (Box::new(mk(700 + k * 10)), D { n: 709 + k * 10 }); match k { 0 => { let a = *w.0; println!("ta {}", a.d.n); } 1 => { let e = (*w.0).e; println!("ta e {}", e.n); } _ => {} } println!("ta end"); }
+fn main() {
+    arm_value(); option_arm(); block_tail(); field_consume(); tuple_consume(); box_box_consume(); partial_field();
+    cond_field(true); cond_field(false); whole_field(); nested_field(); cond_local(true); cond_local(false);
+    cond_partial_local(true); cond_partial_local(false); match_moves(0); match_moves(1); match_moves(2);
+    loop_break(1); loop_break(5); param(Box::new(mk(300)), true); param(Box::new(mk(310)), false);
+    cond_box_box(true); cond_box_box(false); cond_partial_field(true); cond_partial_field(false);
+    println!("ie {}", if_expr(true)); println!("ie {}", if_expr(false));
+    guard(Some(Box::new(mk(800))), true); guard(Some(Box::new(mk(810))), false);
+    tuple_arms(0); tuple_arms(1); tuple_arms(2);
+}

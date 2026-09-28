@@ -6678,8 +6678,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                binders and array args: + 1 pass (array_ref_binders).
 #                ALL 11702 -> 11703 (+1), NOIMPORTED 7139 -> 7140 (+1), TIERCOMMIT 204 -> 204 — 2026-09-28: symbolic
 #                array lengths, const temporaries: + 1 pass (const_generic_arrays_and_const_temps).
-REGISTRY-ALL         11703
-REGISTRY-NOIMPORTED  7140
+#                ALL 11703 -> 11705 (+2), NOIMPORTED 7140 -> 7142 (+2), TIERCOMMIT 204 -> 204 — 2026-09-28: Box
+#                deref-moves and drop elaboration: + 2 pass (box_deref_move_drops,
+#                conditional_partial_move_drop_order).
+REGISTRY-ALL         11705
+REGISTRY-NOIMPORTED  7142
 REGISTRY-TIERCOMMIT  204
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

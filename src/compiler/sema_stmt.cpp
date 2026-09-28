@@ -12376,7 +12376,7 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
                     push_stmt_with_unwind(body, lower_stmt(body_node));  // #122
                 }
             } else if (arm.has_key(la::EXPR)) {
-                auto val = lower_expr(map_of(arm.get(la::EXPR.code)));
+                auto val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)));
                 if (tail_match_nodes_.count(node.ptr())) {
                     // Tail-position match: an EXPR arm IS the function's return
                     // value — the one return judgment (ADR 0030 S2), moves
@@ -13061,7 +13061,7 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
                 // Arm values are CONDITIONALLY evaluated — own temporary scope
                 // (a statement-level hoist of a droppable temp receiver would
                 // evaluate EVERY arm eagerly; see lower_expr_temp_scoped).
-                val = lower_expr_temp_scoped(map_of(arm.get(la::EXPR.code)));
+                val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)), /*temp_scoped=*/true);
             } else if (arm.has_key(la::BODY)) {
                 auto body_node = map_of(arm.get(la::BODY.code));
                 // B-fn-06: this is a match expression's arm body block; a

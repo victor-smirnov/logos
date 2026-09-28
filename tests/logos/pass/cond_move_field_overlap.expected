@@ -24,7 +24,7 @@ lvl3    M23 M24 M25 z D23 D24 D25
 ifex+   M26 M27 D26 D27 r=26 
 ifex-   M26 M27 D27 D26 r=26 
 nest++  M28 M29 D28 D29 
-nest+-  M28 M29 D29 D28 
+nest+-  M28 M29 D28 D29 
 nest--  M28 M29 D28 D29 
 loopf+  M30 M31 D30 D31 
 loopf-  M30 M31 f D30 D31 
