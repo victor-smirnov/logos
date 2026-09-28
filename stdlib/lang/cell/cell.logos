@@ -332,7 +332,7 @@ impl<T> RefCell<T> {
     pub fn replace(&self, t: T) -> T {
         let mut g: RefMut<T> = self.borrow_mut();
         unsafe {
-            let old: T = *g.value;
+            let old: T = logos.lang.ptr::read(g.value as *const T);   // #463
             *g.value = t;
             return old;
         }
@@ -344,8 +344,8 @@ impl<T> RefCell<T> {
         let mut a: RefMut<T> = self.borrow_mut();
         let mut b: RefMut<T> = other.borrow_mut();
         unsafe {
-            let tmp: T = *a.value;
-            *a.value = *b.value;
+            let tmp: T = logos.lang.ptr::read(a.value as *const T);   // #463
+            *a.value = logos.lang.ptr::read(b.value as *const T);
             *b.value = tmp;
         }
     }

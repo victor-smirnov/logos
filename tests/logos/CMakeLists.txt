@@ -1228,17 +1228,11 @@ function(logos_add_grouped_test MODE BASE EXP_FILE LOGOS_FILE SUITE)
     # shape, so one literal's FnMut verdict refused a sibling. The literal's type
     # now states its own family and the bound check asks the type.
     #
-    # DISABLED 2026-09-27: nll/issue-54382-use-span-of-tail-of-block and
-    # nll/issue-54556-temps-in-tail-diagnostic. They passed only because a fn
-    # TAIL skipped its statement temporaries' drops altogether (a leak); ADR
-    # 0030 S2 gave the tail `return e;`'s judgment, and the drop order then
-    # exposes squeue row receiver_chain_temp_dropped_after_borrowed_local_refused
-    # (a `D<&Local>` method-chain temp dropped at fn exit, after the local — a
-    # false E0597 that the `let` form shows on the pre-S2 binary too). Re-enable
-    # both when that row closes.
+    # (nll/issue-54382-use-span-of-tail-of-block and issue-54556-temps-in-tail-
+    # diagnostic were disabled here 2026-09-27 on squeue row
+    # receiver_chain_temp_dropped_after_borrowed_local_refused; re-enabled
+    # 2026-09-28 when it closed.)
     set(_LOGOS_DISABLED_PORTS
-        "issue-54382-use-span-of-tail-of-block"
-        "issue-54556-temps-in-tail-diagnostic"
         "dropck-shadow-rebind"
         "ref-mut-binding-stable-across-guard-m2"
         "poll-problem-case-3"

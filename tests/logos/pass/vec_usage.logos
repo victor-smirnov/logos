@@ -6,7 +6,7 @@ struct Vec<T> {
     len: i64,
 }
 
-impl<T> Vec<T> {
+impl<T: Copy> Vec<T> {
     unsafe fn push(self: *mut Vec<T>, val: T) {
         self.data[self.len as u64] = val;
         self.len = self.len + 1;

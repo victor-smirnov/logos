@@ -96,6 +96,11 @@ inline bool tmcb_site_allowed(int line) {
 
 struct TypeSets {
     std::unordered_set<std::string> drop_types;
+    // The same set by IDENTITY (`pkg::Name`, impl_keys::IDENTITY_TARGET), and
+    // whether every `Drop` impl carried one. When it did, a nominal type with a
+    // package is asked by identity; otherwise `drop_types` answers.
+    std::unordered_set<std::string> drop_type_ids;
+    bool                            drop_ids_complete = true;
     std::unordered_set<std::string> copy_types;
     // `#[borrow_carrying]` struct names — values of these types may hold a Ref into
     // an arena (WAny); escape-tracked like references.
@@ -217,6 +222,8 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             if (!im) continue;
             if (im.identity_trait() != "logos.lang.drop::Drop") continue;
             drop_impl_targets.insert(base_key(im.target_type()));
+            if (im.identity_target().empty()) ts.drop_ids_complete = false;
+            else ts.drop_type_ids.insert(std::string(im.identity_target()));
         }
     }
     auto register_drop_symbol = [&](std::string_view sym) {
@@ -691,6 +698,29 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         auto sit = struct_def_find(ts.struct_by_name, x, want);
         auto def = sit != ts.struct_by_name.end() ? sit->second : lir_view::StructView{};
         if (!def) if (auto pit = struct_def_find(ts.spec_by_name, x, want); pit != ts.spec_by_name.end()) def = pit->second;
+        // A generic type with no instance def — a template's view before mono
+        // (`H<T>`, `MaybeUninit<T>`): its TEMPLATE's fields, each parameter Copy
+        // exactly when its argument is. Taking "no def" for Copy admitted `*p`
+        // of a `*const H<T>` in a generic body, which every non-Copy instance
+        // refuses — and instances of a checked template are not re-checked.
+        // (Post-mono no template def remains, and a type still carrying a type
+        // variable there is mono's defect — layout_decline.ledger — not asked here.)
+        lir_view::StructView tdef;
+        if (!def && !TypeRef(x).type_args().empty())
+            if (auto tit = struct_def_find(ts.struct_by_name, x, std::string(TypeRef(x).struct_name()));
+                tit != ts.struct_by_name.end())
+                tdef = tit->second;
+        if (tdef) {
+            auto targs = TypeRef(x).type_args();
+            std::unordered_set<std::string> arg_copy;
+            auto tps = tdef.type_params();
+            for (size_t i = 0; i < tps.size() && i < targs.size(); ++i)
+                if (!is_move_type(targs[i], prog, ts, copy_tvs)) arg_copy.insert(std::string(tps[i].name()));
+            for (auto& f : tdef.fields())
+                if (TypeRef ft = f.type(prog.type_pool.impl()); ft && !(ft == x) &&
+                    is_move_type(ft, prog, ts, &arg_copy)) return true;
+            return false;
+        }
         if (!def) return false;
         for (auto& f : def.fields())
             if (TypeRef ft = f.type(prog.type_pool.impl()); ft && !(ft == x) &&
@@ -707,15 +737,33 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
         // repaired for above. SOUNDNESS: an ANY-instance search here inherits a
         // foreign payload's move-ness (PROBES.md, round 2026-09-01i).
         auto eit = ts.enum_by_name.end();               // any move-typed payload
-        if (!TypeRef(x).type_args().empty()) {
+        auto targs = TypeRef(x).type_args();
+        if (!targs.empty()) {
             eit = ts.enum_by_name.find(Mono::enum_instance_name(x));
         }
-        if (eit == ts.enum_by_name.end()) eit = ts.enum_by_name.find(en);
+        // The TEMPLATE's def for a generic type with no instance def (before
+        // mono): its payloads are written in the ENUM's parameters, each Copy
+        // exactly when its argument is — not whatever the enclosing function's
+        // same-named parameter is (see struct_is_move).
+        const std::unordered_set<std::string>* pcopy = copy_tvs;
+        std::unordered_set<std::string> arg_copy;
+        if (eit == ts.enum_by_name.end()) {
+            eit = ts.enum_by_name.find(en);
+            if (eit != ts.enum_by_name.end() && !targs.empty()) {
+                size_t i = 0;
+                eit->second.each_type_param([&](lir_view::EnumTParamView tp) {
+                    if (i < targs.size() && !is_move_type(targs[i], prog, ts, copy_tvs))
+                        arg_copy.insert(std::string(tp.name()));
+                    ++i;
+                });
+                pcopy = &arg_copy;
+            }
+        }
         if (eit != ts.enum_by_name.end()) {
             bool moved = false;
             eit->second.each_variant([&](lir_view::EnumVariantView v) {
                 v.each_payload_type(prog.type_pool.impl(), [&](TypeRef pt) {
-                    if (is_move_type(pt, prog, ts, copy_tvs)) moved = true;
+                    if (is_move_type(pt, prog, ts, pcopy)) moved = true;
                 });
             });
             return moved;
@@ -1764,6 +1812,12 @@ struct FnIndex {
     // worklist key as the callee of a devirtualised generic method call, and
     // that key is not any function's name. See resolve_call_flow.
     std::unordered_map<std::string, std::vector<lir_view::FunctionView>> by_bare;
+    // A trait's body-less method signatures, keyed `<trait identity>::<method>`
+    // (TRAITDECL_OF): what a call on a type parameter bounded by it means.
+    std::unordered_map<std::string, lir_view::FunctionView>              by_traitdecl;
+    // The same, keyed by the trait's bare name: a trait object's type names
+    // its trait by spelling only.
+    std::unordered_map<std::string, std::vector<lir_view::FunctionView>> by_traitdecl_tail;
 };
 
 static FnIndex build_fn_index(const lir::LProgram& prog) {
@@ -1779,9 +1833,17 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
         idx.by_name.emplace(std::string(f.name()), f);
         if (!f.method_base().empty()) idx.by_base[std::string(f.method_base())].push_back(f);
         idx.by_bare[std::string(bare_fn_name(f.name()))].push_back(f);
+        if (std::string_view id = f.traitdecl_of(); !id.empty()) {
+            idx.by_traitdecl.emplace(std::string(id), f);
+            // `<pkg>::<Trait>::<method>` → `<Trait>::<method>`.
+            auto m = id.rfind("::");
+            auto t = m == std::string_view::npos || m == 0 ? std::string_view::npos : id.rfind("::", m - 1);
+            idx.by_traitdecl_tail[std::string(t == std::string_view::npos ? id : id.substr(t + 2))].push_back(f);
+        }
     };
     for (auto& f  : prog.functions)       add(f);
     for (auto& f  : prog.specializations) add(f);
+    for (auto& f  : prog.trait_decls)     add(f);
     for (auto& sd : prog.structs) sd.each_method([&](lir_view::FunctionView m) { add(m); });
     // Stage E: impl-block methods were never stored on LImplBlock (always empty);
     // trait-impl methods (Index, Deref, …) live on prog.functions / struct methods.
@@ -17115,7 +17177,7 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
 
 // ── Pass entry point ────────────────────────────────────────────────────────
 
-lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
+lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only, bool library_build) {
     // The same naming context mono and mlir-gen install. Without it an instance
     // name composed HERE (`Option__Buffer$G1$slice_u8`) lacks the module fold
     // the definition was recorded under (`Option__Buffer$M<id>$G1$slice_u8`),
@@ -17231,7 +17293,13 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         // loaded stdlib's generics was the dominant per-compile cost. User code +
         // user-side generic INSTANTIATIONS (from_binary_module=false) still run.
         if (fn.from_binary_module())  return;
-        bool is_generic = !fn.type_params_empty();
+        // The same for an INSTANCE of such a module's generic template: the
+        // template was checked generically by its library's pre-mono pass (and
+        // that pass refuses to leave one unchecked, below).
+        if (fn.instance_of_binary())  return;
+        // A method of a generic impl or struct is generic by the IMPL's
+        // parameters (IMPL_TYPE_PARAMS) even with none of its own.
+        bool is_generic = !fn.type_params_empty() || !fn.impl_type_params_empty();
         // P2-10: a dedicated PRE-mono pass (generic_templates_only) checks generic
         // fn bodies directly — so a generic that is never instantiated (no
         // specialization) is still borrow-checked (Rust parity). It runs in
@@ -17252,6 +17320,18 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
         // still answers rather than leaving it unchecked.
         if (dl_bc_live()) {
             BirVerdict v = bir_check(fn, prog, ts, fn_index, &flows);
+            if (library_build && !v.unsupported.empty()) {
+                bool variadic = false;
+                for (auto tp : fn.type_params()) variadic |= tp.is_variadic();
+                if (!variadic) {
+                    fprintf(stderr,
+                            "internal compiler error: borrow check: generic template `%s` of a module "
+                            "being built into an archive cannot be checked (%s); downstream compiles "
+                            "skip its instances, so it would go unchecked.\n",
+                            std::string(fn.name()).c_str(), v.unsupported.front().c_str());
+                    std::abort();
+                }
+            }
             if (v.unsupported.empty()) {
                 for (auto& e : v.errors) {
                     Diag d;
@@ -17325,9 +17405,9 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only) {
                                 shadow_tag, shadow_input_name(), cc.call_name, cc.call_bare,
                                 cc.call_miss, cc.m_symbol, cc.m_recv, cc.m_miss);
             line += std::format("{}-callee2\t{}\tifr_needle={}\tifr_selftype={}\trm_symbol={}"
-                                "\trm_needle={}\trm_agree_bare={}\trm_agree_base={}\trm_miss={}\n",
+                                "\trm_needle={}\trm_miss={}\n",
                                 shadow_tag, shadow_input_name(), cc.ifr_needle, cc.ifr_selftype,
-                                cc.rm_symbol, cc.rm_needle, cc.rm_agree_bare, cc.rm_agree_base, cc.rm_miss);
+                                cc.rm_symbol, cc.rm_needle, cc.rm_miss);
         }
         shadow_log(line);
     };

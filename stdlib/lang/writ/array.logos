@@ -353,7 +353,7 @@ impl<T: WArrTag> WArray<T> {
     /// Returns the number of elements.
     pub fn len(self: &WArray<T>) -> i64 { return self.len; }
     /// Returns element `i` by value. No bounds check — `i` must be less than `len()`.
-    pub fn get(self: &WArray<T>, i: i64) -> T { return unsafe { *(self.data.add(i)) }; }
+    pub fn get(self: &WArray<T>, i: i64) -> T { return unsafe { logos.lang.ptr::read(self.data.add(i) as *const T) }; }
     // Bind the zone FIRST (zone_of reborrows); `self as *mut WArray<T>` (the cast)
     // consumes the fat &mut, so it must be self's LAST use.
     /// Appends `v`, growing the buffer 2× via the zone carried by the fat `&mut`.

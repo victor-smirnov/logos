@@ -8,7 +8,7 @@ struct Stack<T> {
     top: i32,
 }
 
-impl<T> Stack<T> {
+impl<T: Copy> Stack<T> {
     unsafe fn push(self: *mut Stack<T>, val: T) {
         self.data[self.top as u64] = val;
         self.top = self.top + 1;

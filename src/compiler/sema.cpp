@@ -6854,6 +6854,7 @@ void SemaChecker::fold_where_bounds(TinyMapView node, std::vector<TypeParam>& re
                                 TraitBound tb;
                                 tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
                                 read_trait_bound_args(bnode, tb);
+                                resolve_bound_trait_(tb);
                                 tb.on_ref_subject = true;
                                 tb.is_ref_mut = is_mut;
                                 tp_ptr->bounds.push_back(std::move(tb));
@@ -11951,25 +11952,31 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                         // lifetimes are the caller's, see relate_call).
                         bool _any_default = false;
                         for (auto& m : _tit->methods) _any_default |= m.has_default;
-                        // Every USER trait's signatures (a `self.m()` on a type
-                        // parameter bounded by it resolves to them too); the
-                        // stdlib's stay out of its archives and ABI.
+                        // Every trait's signatures, the stdlib's too: a method
+                        // call on a type parameter bounded by it resolves to
+                        // them, and a call that resolves to nothing is an
+                        // internal error, not a guess.
                         (void)_any_default;
-                        if (!cur_package_.starts_with("logos.") && !logos::probe::on("trdefnogen")) {
+                        if (!logos::probe::on("trdefnogen")) {
                             namespace dk = lir_schema::decl_keys;
-                            for (auto& mm : _tit->methods) {
+                            // `sub` maps a SUPERTRAIT's parameters to this
+                            // trait's (empty for the trait's own methods).
+                            auto emit = [&](const SemaTraitMethodInfo& mm, const SemaSubst& sub) {
+                                auto st = [&](TypeRef t) { return sub.empty() || !t ? t : subst_type_sema(t, sub); };
                                 DeclBuilder d(*cur_prog_, lir_schema::decl::Code::Func, /*cap=*/40);
                                 d.str_always(dk::NAME, (cur_package_.empty() ? std::string() : cur_package_ + ".") +
                                                        "$traitdecl$" + _tn + "__" + mm.name);
                                 if (!cur_package_.empty()) d.str(dk::PKG, cur_package_);
-                                d.type(dk::RET_TYPE, mm.ret_type ? mm.ret_type : prim(LogosType::Kind::Void));
+                                d.str(dk::TRAITDECL_OF, sema_key(_tit->package, _tit->name) + "::" + mm.name);
+                                if (cur_from_binary_) d.flag(dk::FROM_BINARY_MODULE, true);
+                                d.type(dk::RET_TYPE, mm.ret_type ? st(mm.ret_type) : prim(LogosType::Kind::Void));
                                 if (!mm.param_types.empty()) {
                                     auto a = d.array(dk::PARAMS);
                                     for (size_t i = 0; i < mm.param_types.size(); ++i) {
                                         lir::LParam lp;
                                         lp.name = (i == 0 && mm.has_self_receiver) ? std::string("self")
                                                                                   : "p" + std::to_string(i);
-                                        lp.type = mm.param_types[i];
+                                        lp.type = st(mm.param_types[i]);
                                         a.push_param(lp);
                                     }
                                 }
@@ -11992,6 +11999,30 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                                     for (auto& [x, y] : mm.lifetime_outlives) { a.push_str(x); a.push_str(y); }
                                 }
                                 prog.functions.push_back(d.view<lir_view::FunctionView>());
+                            };
+                            // The trait's own methods, then every SUPERTRAIT's not
+                            // shadowed by a nearer one — what a bound `T: Trait`
+                            // makes callable on `T`, as Rust has it — each with the
+                            // supertrait's parameters written in this trait's.
+                            std::set<std::string> have;
+                            for (auto& mm : _tit->methods) { emit(mm, {}); have.insert(mm.name); }
+                            std::set<DefId> seen{_tit->def};
+                            std::vector<std::pair<const SemaTraitInfo*, SemaSubst>> work{{_tit, {}}};
+                            while (!work.empty()) {
+                                auto [ti, sub] = std::move(work.back());
+                                work.pop_back();
+                                for (auto& sb : ti->supertraits) {
+                                    const SemaTraitInfo* sti = trait_info(sb.trait_def);
+                                    if (!sti || !seen.insert(sb.trait_def).second) continue;
+                                    SemaSubst ssub;
+                                    for (size_t i = 0; i < sti->type_params.size() && i < sb.type_args.size(); ++i)
+                                        ssub[sti->type_params[i].name] =
+                                            sub.empty() || !sb.type_args[i] ? sb.type_args[i]
+                                                                            : subst_type_sema(sb.type_args[i], sub);
+                                    for (auto& mm : sti->methods)
+                                        if (have.insert(mm.name).second) emit(mm, ssub);
+                                    work.emplace_back(sti, std::move(ssub));
+                                }
                             }
                         }
                         for (auto& m : _tit->methods) {

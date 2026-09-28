@@ -1,0 +1,15 @@
+// Closed squeue receiver_chain_temp_dropped_after_borrowed_local_refused (#697): stopped reproducing with the 2026-09-28 borrow-checker change set (exact callee resolution; template-aware Copy-ness of generic types; Drop asked by identity); which of them closed it was NOT isolated. rustc: accepts (edition 2024) — the statement's temporaries drop at its end, before any local.
+package receiver_chain_temp_dropped_after_borrowed_local_refused;
+
+struct D<T>(T);
+impl<T> Drop for D<T> { fn drop(self: &mut D<T>) { } }
+impl<T> D<T> {
+    fn next<U>(self: &D<T>, other: U) -> D<U> { return D(other); }
+    fn end(self: &D<T>) -> i64 { return 0i64; }
+}
+
+fn main() -> i32 {
+    let thing: D<Box<i64>> = D(Box::new(1i64));
+    let r: i64 = D(3i64).next(&thing).end();
+    return r as i32;
+}

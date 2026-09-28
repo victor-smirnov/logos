@@ -352,7 +352,7 @@ impl<T> PrimVec<T> {
         unsafe {
             let stride: i64 = sizeof::<T>();
             let slot: *const T = (self.data as i64 + (idx as i64) * stride) as *const T;
-            return *slot;
+            return logos.lang.ptr::read(slot);   // #463
         }
     }
 
@@ -403,7 +403,7 @@ impl<T> PrimVec<T> {
             while i > idx {
                 let dst: *mut T = (self.data as i64 + (i as i64) * stride) as *mut T;
                 let src: *const T = (self.data as i64 + ((i - 1u64) as i64) * stride) as *const T;
-                *dst = *src;
+                *dst = logos.lang.ptr::read(src);   // #463
                 i = i - 1u64;
             }
             let slot: *mut T = (self.data as i64 + (idx as i64) * stride) as *mut T;
@@ -422,7 +422,7 @@ impl<T> PrimVec<T> {
             while i + 1u64 < self.len {
                 let dst: *mut T = (self.data as i64 + (i as i64) * stride) as *mut T;
                 let src: *const T = (self.data as i64 + ((i + 1u64) as i64) * stride) as *const T;
-                *dst = *src;
+                *dst = logos.lang.ptr::read(src);   // #463
                 i = i + 1u64;
             }
             self.len = self.len - 1u64;

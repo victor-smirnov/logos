@@ -1134,7 +1134,7 @@ pub struct CopiedIter<I, T> {
 
 // The METHOD form `.copied()` returns `Copied<Self, Item>` (below); this
 // free-fn form keeps the pointee as an explicit parameter.
-impl<I: Iterator<&T>, T> Iterator<T> for CopiedIter<I, T> {
+impl<I: Iterator<&T>, T: Copy> Iterator<T> for CopiedIter<I, T> {
     fn next(self: &mut CopiedIter<I, T>) -> Option<T> {
         match self.inner.next() {
             Option::Some(r) => { return Option::Some(*r); }
@@ -1143,7 +1143,7 @@ impl<I: Iterator<&T>, T> Iterator<T> for CopiedIter<I, T> {
     }
 }
 
-impl<I: DoubleEndedIterator<&T>, T> DoubleEndedIterator<T> for CopiedIter<I, T> {
+impl<I: DoubleEndedIterator<&T>, T: Copy> DoubleEndedIterator<T> for CopiedIter<I, T> {
     fn next_back(self: &mut CopiedIter<I, T>) -> Option<T> {
         match self.inner.next_back() {
             Option::Some(r) => { return Option::Some(*r); }
@@ -1152,7 +1152,7 @@ impl<I: DoubleEndedIterator<&T>, T> DoubleEndedIterator<T> for CopiedIter<I, T> 
     }
 }
 
-impl<I: ExactSizeIterator<&T>, T> ExactSizeIterator<T> for CopiedIter<I, T> {
+impl<I: ExactSizeIterator<&T>, T: Copy> ExactSizeIterator<T> for CopiedIter<I, T> {
     fn len(&self) -> i64 { return self.inner.len(); }
 }
 

@@ -772,6 +772,8 @@ struct FunctionView {
     bool is_specialization() const noexcept  { return detail::read_bool(self, lir_schema::decl_keys::IS_SPECIALIZATION.code); }
     bool from_binary_module() const noexcept { return detail::read_bool(self, lir_schema::decl_keys::FROM_BINARY_MODULE.code); }
     bool from_lazy_module() const noexcept   { return detail::read_bool(self, lir_schema::decl_keys::FROM_LAZY_MODULE.code); }
+    bool instance_of_binary() const noexcept { return detail::read_bool(self, lir_schema::decl_keys::INSTANCE_OF_BINARY.code); }
+    std::string_view traitdecl_of() const noexcept { return detail::read_string(self, lir_schema::decl_keys::TRAITDECL_OF.code); }
     bool is_test() const noexcept            { return detail::read_bool(self, lir_schema::decl_keys::IS_TEST.code); }
     bool should_panic() const noexcept       { return detail::read_bool(self, lir_schema::decl_keys::SHOULD_PANIC.code); }
     bool ignored() const noexcept            { return detail::read_bool(self, lir_schema::decl_keys::IGNORED.code); }
@@ -850,6 +852,17 @@ struct FunctionView {
             if (el.is_null()) continue;
             f(FnTParamView{detail::make_sub_ref<DeclRef>(self, el)});
         }
+    }
+    std::vector<FnTParamView> where_param_bounds() const noexcept {
+        std::vector<FnTParamView> out;
+        auto av = self.mirror()->get(lir_schema::decl_keys::WHERE_PARAM_BOUNDS.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (!el.is_null()) out.push_back(FnTParamView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+        return out;
     }
     std::vector<FnTParamView> impl_type_params() const noexcept {
         std::vector<FnTParamView> out;
@@ -1351,6 +1364,9 @@ struct ImplView {
     // compile has no packages or the archive predates the key.
     std::string_view pkg() const noexcept {
         return detail::read_string(self, lir_schema::impl_keys::IMPL_PKG.code);
+    }
+    std::string_view identity_target() const noexcept {
+        return detail::read_string(self, lir_schema::impl_keys::IDENTITY_TARGET.code);
     }
     TypeRef target_typeref(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::impl_keys::TARGET_TYPEREF.code, pool);

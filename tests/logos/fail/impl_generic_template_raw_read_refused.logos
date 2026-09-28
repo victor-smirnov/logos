@@ -1,0 +1,10 @@
+// A method of a GENERIC IMPL is checked once, generically, as rustc checks it:
+// `*p` moves a `T` out from behind a raw pointer (E0507 in rustc). The only
+// instance here is `W<i64>`, whose `*p` is a copy, so while such methods were
+// checked per instance only, this was admitted. The borrow checker's pre-mono
+// pass took only functions with type parameters of their OWN; an impl's
+// parameters (IMPL_TYPE_PARAMS) now count too.
+package impl_generic_template_raw_read_refused;
+struct W<T> { v: T }
+impl<T> W<T> { fn read(&self) -> T { let p: *const T = &self.v as *const T; unsafe { *p } } }
+fn main() -> i32 { let w = W { v: 1i64 }; let x: i64 = w.read(); x as i32 }

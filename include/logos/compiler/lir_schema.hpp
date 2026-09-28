@@ -613,6 +613,21 @@ inline constexpr Key UNIT_KEY           {"UNIT_KEY",           39}; // Varchar (
 // lifetimes written in the signature, never to ones a type argument brings).
 // Absent on functions that were never generic.
 inline constexpr Key DECL_RET_TYPE      {"DECL_RET_TYPE",      40}; // RelPtr<LogosType> (sparse)
+// A body-less `$traitdecl$` signature: the trait method it declares,
+// `<trait identity>::<method>` (the identity as a bound's TB_IDENTITY spells
+// it). The borrow checker finds a type parameter's method by it, not by
+// recomposing the declaration's name.
+inline constexpr Key TRAITDECL_OF       {"TRAITDECL_OF",       41}; // Varchar (sparse)
+// A mono INSTANCE of a generic template loaded from a precompiled binary
+// module: the template was borrow-checked generically when its library was
+// built (the pre-mono pass), as rustc checks a generic once. Not set for a
+// variadic instance (a pack is checkable only once expanded).
+inline constexpr Key INSTANCE_OF_BINARY {"INSTANCE_OF_BINARY", 42}; // bool (sparse)
+// A method's own `where P: Trait` bounds, per subject parameter — the subject
+// may be an IMPL-level parameter, which TYPE_PARAMS / IMPL_TYPE_PARAMS do not
+// carry the method's bounds for. Read by the borrow checker's template pass
+// (what a call on `P` resolves to); mono does not gate on it.
+inline constexpr Key WHERE_PARAM_BOUNDS {"WHERE_PARAM_BOUNDS", 43}; // Array<RelPtr<fn_tparam sub-map>> (sparse)
 } // namespace decl_keys
 
 // Function PARAM sub-map keys (own small key space — distinct map schema).
@@ -830,6 +845,10 @@ inline constexpr Key IDENTITY_EXTRA_BOUNDS{"IDENTITY_EXTRA_BOUNDS",19}; // Array
 // package-less compiles and on older archives, where readers fall back to the
 // bare-key behaviour rather than losing the impl.
 inline constexpr Key IMPL_PKG             {"IMPL_PKG",             20}; // Varchar (sparse)
+// The TARGET's identity, `pkg::Name`, for an impl of the `Drop` lang item on a
+// nominal type: the borrow checker's "its owner implements Drop" asks it, and
+// TARGET_TYPE is a spelling two same-named types share. Sparse.
+inline constexpr Key IDENTITY_TARGET      {"IDENTITY_TARGET",      21}; // Varchar (sparse)
 } // namespace impl_keys
 
 // assoc_entry sub-map keys (own space — element of ASSOC_TYPES / PRIMARY_ASSOC_EQS

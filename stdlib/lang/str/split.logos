@@ -120,7 +120,7 @@ pub fn str_split_pat<'a, P: Pattern>(s: &'a str, p: P) -> SplitPat<'a, P> {
     return SplitPat::<P> { haystack: s, pat: p, pos: 0i64, done: false };
 }
 
-impl<'a, P: Pattern> Iterator<&'a str> for SplitPat<'a, P> {
+impl<'a, P: Pattern + Copy> Iterator<&'a str> for SplitPat<'a, P> {
     fn next(self: &mut SplitPat<'a, P>) -> Option<&'a str> {
         if self.done { return Option::None; }
         // Mirror Matches's "advancing pos over immutable haystack" shape

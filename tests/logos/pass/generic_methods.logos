@@ -1,7 +1,7 @@
 // Methods on generic structs: Pair<T>.swap()
 package generic_methods;
 
-struct Pair<T> {
+struct Pair<T: Copy> {
     first: T,
     second: T,
     unsafe fn swap(self: *const Pair<T>) -> Pair<T> {
@@ -9,7 +9,7 @@ struct Pair<T> {
     }
 }
 
-fn make<T>(a: T, b: T) -> Pair<T> {
+fn make<T: Copy>(a: T, b: T) -> Pair<T> {
     return Pair { first: a, second: b };
 }
 

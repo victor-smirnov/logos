@@ -1,0 +1,26 @@
+// SOUNDNESS QUEUE row inherent_impl_same_method_one_funcinfo_ice (tier 3, `refuses`). Three inherent impls of one
+// generic struct each define `tag` (`impl<T> W<&T>`, `impl<T> W<Box<T>>`, `impl W<i64>`); rustc selects by
+// the receiver's type (exits 0). MEASURED: both generic templates are emitted under ONE name,
+// `W__tag__g__ref_W$G1$ref_T` (the `W<Box<T>>` one carries the `W<&T>` signature), and post-mono no
+// `W<&i64>::tag` instance exists. SUSPECTED, not measured: sema's lower_fn finds each method's SemaFuncInfo
+// by name, with look-alike fallbacks (find_generic_func(mangled), "match on arity"). The borrow checker now
+// refuses to guess a callee and stops with an internal compiler error on `wr.tag()` (2026-09-28); before, it
+// took a same-named function's signature. Was tests/logos/pass/adv1_multi_impl_shape. Rowed: a separate
+// defect (reason 1) — a method must be found by its impl's self-type identity, not by name.
+// impl selection by self-type shape: W<&T> vs W<Box<T>> vs W<i64>
+package inherent_impl_same_method_one_funcinfo_ice;
+use logos.mem.boxed;
+struct W<T> { t: T }
+impl<T> W<&T> { fn tag(&self) -> i32 { return 1i32; } }
+impl<T> W<Box<T>> { fn tag(&self) -> i32 { return 2i32; } }
+impl W<i64> { fn tag(&self) -> i32 { return 3i32; } }
+fn main() -> i32 {
+    let x = 5i64;
+    let wr = W { t: &x };
+    if wr.tag() != 1i32 { return 1i32; }
+    let wb = W { t: Box::new(5i64) };
+    if wb.tag() != 2i32 { return 2i32; }
+    let wi = W { t: 5i64 };
+    if wi.tag() != 3i32 { return 3i32; }
+    return 0i32;
+}

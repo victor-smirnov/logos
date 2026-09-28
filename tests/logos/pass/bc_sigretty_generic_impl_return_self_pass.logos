@@ -15,7 +15,7 @@ trait Dup {
     fn dup(self: &Self) -> Self;
 }
 
-impl<T> Dup for Wrap<T> {
+impl<T: Copy> Dup for Wrap<T> {
     fn dup(self: &Wrap<T>) -> Wrap<T> {
         return Wrap::<T> { v: self.v };
     }

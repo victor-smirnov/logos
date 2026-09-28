@@ -672,7 +672,7 @@ pub fn str_matches<'a, P: Pattern>(s: &'a str, p: P) -> Matches<'a, P> {
     return Matches::<P> { haystack: s, pat: p, pos: 0i64 };
 }
 
-impl<'a, P: Pattern> Iterator<&'a str> for Matches<'a, P> {
+impl<'a, P: Pattern + Copy> Iterator<&'a str> for Matches<'a, P> {
     fn next(self: &mut Matches<'a, P>) -> Option<&'a str> {
         let idx: i64 = self.pat.find_in(self.haystack, self.pos);
         if idx < 0i64 { return Option::None; }
@@ -700,7 +700,7 @@ pub fn str_match_indices<'a, P: Pattern>(s: &'a str, p: P) -> MatchIndices<'a, P
     return MatchIndices::<P> { haystack: s, pat: p, pos: 0i64 };
 }
 
-impl<'a, P: Pattern> Iterator<(i64, &'a str)> for MatchIndices<'a, P> {
+impl<'a, P: Pattern + Copy> Iterator<(i64, &'a str)> for MatchIndices<'a, P> {
     fn next(self: &mut MatchIndices<'a, P>) -> Option<(i64, &'a str)> {
         let idx: i64 = self.pat.find_in(self.haystack, self.pos);
         if idx < 0i64 { return Option::None; }

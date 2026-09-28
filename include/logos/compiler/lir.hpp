@@ -858,6 +858,10 @@ struct LProgram {
     std::vector<lir_view::ConstView> consts;            // Stage E: decl mirrors
     std::vector<lir_view::TypeAliasView> type_aliases;  // Stage E: decl mirrors
     std::vector<lir_view::TraitView> traits;
+    // Post-mono: the body-less `$traitdecl$` method signatures (TRAITDECL_OF),
+    // carried beside `functions` for the borrow checker — generic over `Self`,
+    // they are no function codegen emits. Pre-mono they are in `functions`.
+    std::vector<LFunctionPtr>    trait_decls;
     std::vector<lir_view::ImplView> impls;
     std::vector<lir_view::InstAnnotView> inst_annotations; // explicit instantiation declarations (Stage E: decl mirrors)
     std::vector<lir_view::DispatchEntryView> dispatch_entries; // tag-dispatch table entries (Stage E: decl mirrors)

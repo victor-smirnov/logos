@@ -1025,6 +1025,16 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
             }
         }
     }
+    if (!where_scope_bounds.empty()) {
+        namespace dk = lir_schema::decl_keys;
+        auto a = fn.array(dk::WHERE_PARAM_BOUNDS);
+        for (auto& [wn, wb] : where_scope_bounds) {
+            TypeParam tp;
+            tp.name = wn;
+            tp.bounds.push_back(wb);
+            a.push_fn_tparam(tp);
+        }
+    }
     std::vector<std::pair<std::string, std::vector<TraitBound>>> where_saved_bounds;
     for (auto& [wn, wb] : where_scope_bounds) {
         auto it = current_type_bounds_.find(wn);
@@ -2777,6 +2787,17 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         // slot, so mono keying its fact table by it put two traits in one slot.
         std::string ident = impl_key_trait(canon);
         if (ident != trait_name) ib.str(ik::IDENTITY_TRAIT, ident);
+        if (ident == "logos.lang.drop::Drop" && node.has_key(la::TYPE)) {
+            TypeRef tt = target_resolved ? target_resolved : resolve_type(map_of(node.get(la::TYPE.code)));
+            if (tt && !TypeRef(tt).pkg_name().empty()) {
+                auto k = TypeRef(tt).kind();
+                std::string_view nm = k == LogosType::Kind::Struct ? std::string_view(TypeRef(tt).struct_name())
+                                    : k == LogosType::Kind::Enum   ? std::string_view(TypeRef(tt).enum_name())
+                                                                   : std::string_view{};
+                nm = nm.substr(0, nm.find('$'));   // the declared name (see field_of_drop_type)
+                if (!nm.empty()) ib.str(ik::IDENTITY_TARGET, sema_key(TypeRef(tt).pkg_name(), nm));
+            }
+        }
     }
     ib.str(ik::TARGET_TYPE, target);
     // The impl's OWN package (impl_keys::IMPL_PKG). mlir_gen's vtable registry

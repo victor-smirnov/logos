@@ -1,0 +1,13 @@
+// Closed squeue derive_default_nonpod_field_refused (#530): MaybeUninit::zeroed reads with logos.lang.ptr::read; the template check (generic struct Copy-ness now follows its arguments) found the move out of the raw pointer in the stdlib build.
+package derive_default_nonpod_field_refused;
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+
+#[derive_default]
+struct Holder { s: String, n: i32 }
+
+fn main() -> i32 {
+    let h = Holder::default();
+    if h.s.len() != (0 as i64) { return 1; }
+    return 0;
+}

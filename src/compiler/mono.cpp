@@ -236,6 +236,9 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     out_.consts              = std::move(in_.consts);
     out_.type_aliases        = std::move(in_.type_aliases);
     out_.traits              = std::move(in_.traits);
+    for (auto& fn : in_.functions)
+        if (fn && !fn.traitdecl_of().empty()) out_.trait_decls.push_back(fn);
+    for (auto& fn : in_.trait_decls) out_.trait_decls.push_back(fn);
     out_.impls               = std::move(in_.impls);
     out_.dispatch_entries    = std::move(in_.dispatch_entries);
     out_.inst_annotations    = std::move(in_.inst_annotations);

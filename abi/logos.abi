@@ -12506,7 +12506,14 @@ sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], &[u8], &[u8], &[u8], &[u8
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], i64, &[u8])
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__(&[u8], i64, &[u8], &[u8], i64)
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__Vec$G1$i64
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__WAny
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__bool
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__i16
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__i32
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__i64
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__i8
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u16
+sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u32
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u64
 sym	logos_lang.logos.lang.ptr$read__g__pcst_T__u8
 sym	logos_lang.logos.lang.range$range_from_i32__f__i32

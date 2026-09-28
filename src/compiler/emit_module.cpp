@@ -879,31 +879,33 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // clean tree), this falls through and dispatch fails on the
         // first derive trigger that demands stdlib symbol resolution.
         // Bootstrap: build once without stdlib-side derives, then with.
-        for (auto* env_var : {"LOGOS_LIB_DIR"}) {
-            if (const char* dir = std::getenv(env_var)) {
-                fs::path d(dir);
-                std::error_code dec;
-                if (fs::is_directory(d, dec)) {
-                    for (auto& ent : fs::directory_iterator(d, dec)) {
-                        if (!ent.is_regular_file()) continue;
-                        auto fn = ent.path().filename().string();
-                        // Exclude *_fibers.a: fiber_ctx.S carries initial-exec
-                        // TLS relocations (R_X86_64_GOTTPOFF) that ORC's
-                        // RuntimeDyld can't relocate. The metaprog JIT resolves
-                        // the fiber hooks from liblstdlib_rt.a's weak stubs
-                        // (metaprog_stubs.c) instead. (Mirrors is_jit_unsafe_archive
-                        // in main.cpp — the metacall path filtered, this one didn't.)
-                        if ((fn.rfind("liblstdlib", 0) == 0 ||
-                             fn.rfind("liblogos-", 0) == 0) &&
-                            ent.path().extension() == ".a" &&
-                            fn.find("_fibers.a") == std::string::npos) {
-                            mopts.archive_paths.push_back(ent.path().string());
-                        }
-                    }
-                }
-                break;
+        // The archive this compile writes: its layout sidecar's path less the
+        // suffix. Never loaded: this compile defines every symbol in it afresh,
+        // so the prior build's copy can only collide with them (MEASURED: a
+        // prior mem archive, pulled in for one symbol, failed the JIT with
+        // "Unexpected definitions" for the rest of its member).
+        fs::path self_archive;
+        if (constexpr std::string_view sfx = ".abi-layout"; abi_layout_path.ends_with(sfx))
+            self_archive = abi_layout_path.substr(0, abi_layout_path.size() - sfx.size());
+        auto add_archive_dir = [&](const fs::path& d) {
+            std::error_code dec;
+            if (!fs::is_directory(d, dec)) return;
+            for (auto& ent : fs::directory_iterator(d, dec)) {
+                if (!ent.is_regular_file()) continue;
+                auto fn = ent.path().filename().string();
+                if (!self_archive.empty() && fs::equivalent(ent.path(), self_archive, dec)) continue;
+                // Exclude *_fibers.a: fiber_ctx.S carries initial-exec
+                // TLS relocations (R_X86_64_GOTTPOFF) that ORC's
+                // RuntimeDyld can't relocate. The metaprog JIT resolves
+                // the fiber hooks from liblstdlib_rt.a's weak stubs
+                // (metaprog_stubs.c) instead. (Mirrors is_jit_unsafe_archive
+                // in main.cpp — the metacall path filtered, this one didn't.)
+                if ((fn.rfind("liblstdlib", 0) == 0 || fn.rfind("liblogos-", 0) == 0) &&
+                    ent.path().extension() == ".a" && fn.find("_fibers.a") == std::string::npos)
+                    mopts.archive_paths.push_back(ent.path().string());
             }
-        }
+        };
+        if (const char* dir = std::getenv("LOGOS_LIB_DIR")) add_archive_dir(dir);
         // Fallback: argv[0]-relative. Mirrors main.cpp's resolve_system_lib_dir.
         if (mopts.archive_paths.empty()) {
             char exe[PATH_MAX];
@@ -919,23 +921,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
                 p += "/../lib/logos";
 #endif
                 char real[PATH_MAX];
-                if (::realpath(p.c_str(), real)) {
-                    fs::path d(real);
-                    std::error_code dec;
-                    if (fs::is_directory(d, dec)) {
-                        for (auto& ent : fs::directory_iterator(d, dec)) {
-                            if (!ent.is_regular_file()) continue;
-                            auto fn = ent.path().filename().string();
-                            // Exclude *_fibers.a (GOTTPOFF; see above).
-                            if ((fn.rfind("liblstdlib", 0) == 0 ||
-                                 fn.rfind("liblogos-", 0) == 0) &&
-                                ent.path().extension() == ".a" &&
-                                fn.find("_fibers.a") == std::string::npos) {
-                                mopts.archive_paths.push_back(ent.path().string());
-                            }
-                        }
-                    }
-                }
+                if (::realpath(p.c_str(), real)) add_archive_dir(real);
             }
         }
         // emit_module bundles N files — there's no single "entry"; use a
@@ -1394,7 +1380,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     // not re-check them. THIS layer's own generics carry from_binary_module=false,
     // so they ARE checked; lower-layer deps are skipped (already checked at theirs).
     _pt.emplace("borrow_check");
-    prog = borrow_check(std::move(prog), /*generic_templates_only=*/true);
+    prog = borrow_check(std::move(prog), /*generic_templates_only=*/true, /*library_build=*/true);
     _pt.reset();
     prog.print_diags(stderr);
     if (!prog.ok()) return false;

@@ -16,6 +16,11 @@ namespace logos::compiler {
 // `generic_templates_only`: P2-10 — when true, check ONLY generic fn templates
 // (pre-mono), in exclusivity-only mode (move tracking is imprecise on TypeVars).
 // Default false = the normal post-mono pass over concrete fns + specializations.
-lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only = false);
+// `library_build`: the pre-mono pass of a module being built into a binary
+// archive. Downstream compiles skip the instances of its templates
+// (INSTANCE_OF_BINARY), so a template this pass cannot check is an internal
+// error there, not a fallback.
+lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only = false,
+                           bool library_build = false);
 
 } // namespace logos::compiler
