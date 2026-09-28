@@ -314,6 +314,10 @@ void LirBuilder::retype_expr(lir_view::ExprRef e, TypeRef new_ty) {
     if (e) lir_mirror_retype_expr(prog_, e.addr(), new_ty);
 }
 
+void LirBuilder::retype_let(lir_view::StmtRef s, TypeRef new_ty) {
+    if (s) lir_mirror_retype_let(prog_, s.addr(), new_ty);
+}
+
 lir_view::StmtRef LirBuilder::stmt_expr(lir::LExprPtr expr, uint32_t line) {
     return lir_view::StmtRef(prog_.type_pool.arena(),
         lir_mirror_emit_expr_stmt(prog_, line, expr));

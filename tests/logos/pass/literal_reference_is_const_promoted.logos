@@ -1,0 +1,14 @@
+// Constant promotion (Rust `destructors.scope.const-promotion`): `&5` returned from a function is a reference to
+// an anonymous 'static constant, not to a temporary (rustc exits 5). Was squeue row constant_promotion_refused
+// (#527): refused as a dangling reference — the `{integer}` behind `&` was no promotable constant until the
+// return's expected type stamped it (stamp_literal_behind_ref_).
+package literal_reference_is_const_promoted;
+
+fn get() -> &i32 {
+    return &5;
+}
+
+fn main() -> i32 {
+    let r = get();
+    return *r;
+}

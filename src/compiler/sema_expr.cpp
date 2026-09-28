@@ -917,6 +917,7 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     int32_t c = code_of(expr); (void)c;
     auto name = str_of(expr.get(la::NAME.code));
     auto t = lookup(name);
+    note_literal_binding_use_(name);
     if (!t) {
         // Const-generic value-use: `<const N: T>` param referenced in
         // expression position. Emit a VarRef of the underlying numeric
@@ -1741,6 +1742,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         if (code_of(child) == la::VAR_REF) {
             auto var_name = str_of(child.get(la::NAME.code));
             auto vt = lookup(var_name);
+            note_literal_binding_use_(var_name);
             if (!vt) {
                 error(std::format("'&mut': undefined variable '{}'", var_name));
                 return error_expr();
@@ -4269,6 +4271,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         if (code_of(child) == la::VAR_REF && lookup(str_of(child.get(la::NAME.code)))) {
             auto var_name = str_of(child.get(la::NAME.code));
             auto vt = lookup(var_name);
+            note_literal_binding_use_(var_name);
             // §6.2 statics (S25): `&STATIC` IS the global's address (stable,
             // `'static`). The "__static_addr:<sym>" VarRef lowers to
             // llvm.mlir.addressof in mlir-gen — the reference value itself.
@@ -15592,6 +15595,31 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         return builder().arr_lit(std::move(elems), arr_t);
     }
 
+    // Every element is laid out at the element type: an unsuffixed literal tree
+    // among them takes it (`[(1i32, 10i64), (2, 20)]` stored `(2, 20)` as
+    // `(i32, i32)` inside a `[(i32, i64); 3]`, and the read went through the
+    // wrong layout). When element 0 is the literal, the first element with no
+    // literal leaf anchors the type.
+    if (!dyn_elem_hint && !fnptr_elem_hint && elems.size() > 1) {
+        std::function<bool(TypeRef)> lit_leaf = [&](TypeRef t) -> bool {
+            if (!t) return false;
+            auto k = TypeRef(t).kind();
+            if (k == LogosType::Kind::IntLit || k == LogosType::Kind::FloatLit) return true;
+            if (k == LogosType::Kind::Array) return lit_leaf(TypeRef(t).elem());
+            if (k == LogosType::Kind::Tuple)
+                for (auto e : TypeRef(t).tuple_elems()) if (lit_leaf(e)) return true;
+            return false;
+        };
+        if (lit_leaf(elem_type))
+            for (auto& e : elems)
+                if (e && expr_type(e) && !lit_leaf(expr_type(e)) &&
+                    TypeRef(expr_type(e)).kind() == TypeRef(elem_type).kind() &&
+                    types_compatible(elem_type, expr_type(e))) { elem_type = expr_type(e); break; }
+        if (!lit_leaf(elem_type))
+            for (auto& e : elems)
+                if (e && expr_type(e) && !types_equal(expr_type(e), elem_type))
+                    stamp_literal_tree_(expr_ref_of(e), elem_type);
+    }
     auto ty = make_array(elem_type, elems.size());
     return builder().arr_lit(std::move(elems), ty);
 }
@@ -17828,6 +17856,175 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     return CFLAG_NONE;
 }
 
+// An unsuffixed literal tree takes its leaf types from the expectation it
+// meets — `(3, 4)` against `(i64, i64)`, `[3, 4]` against `[i64; 2]`. Only
+// `{integer}` / `{float}` leaves are stamped: a suffixed literal keeps its own
+// type. True when the tree now has exactly `target`'s type.
+bool SemaChecker::stamp_literal_tree_(lir_view::ExprRef e, TypeRef target) {
+    using C = lir_schema::expr::Code;
+    using K = LogosType::Kind;
+    if (!e || !target) return false;
+    TypeRef et(e.type(cur_prog_->type_pool.impl()));
+    if (!et) return false;
+    if (types_equal(et, target)) return true;
+    const auto tk = TypeRef(target).kind();
+    switch (e.kind()) {
+    case C::LitInt:
+        if (TypeRef(et).kind() != K::IntLit || !is_integer_kind(tk) ||
+            tk == K::IntLit || tk == K::Enum) return false;
+        builder().retype_expr(e, target);
+        return true;
+    case C::LitFloat:
+        if (TypeRef(et).kind() != K::FloatLit || (tk != K::F32 && tk != K::F64)) return false;
+        builder().retype_expr(e, target);
+        return true;
+    case C::Unary: {
+        lir_view::EUnaryView u{e};
+        if (u.op() != "-" || !stamp_literal_tree_(u.operand(), target)) return false;
+        builder().retype_expr(e, target);
+        return true;
+    }
+    case C::TupleLit: {
+        if (tk != K::Tuple) return false;
+        auto tes = TypeRef(target).tuple_elems();
+        lir_view::ETupleLitView tl{e};
+        if (tl.count() != tes.size()) return false;
+        bool all = true;
+        size_t i = 0;
+        tl.each_elem([&](lir_view::ExprRef el) { all = stamp_literal_tree_(el, tes[i++]) && all; });
+        if (!all) return false;
+        builder().retype_expr(e, target);
+        return true;
+    }
+    case C::ArrLit: {
+        if (tk != K::Array || !TypeRef(target).elem()) return false;
+        lir_view::EArrLitView al{e};
+        bool all = true;
+        al.each_elem([&](lir_view::ExprRef el) { all = stamp_literal_tree_(el, TypeRef(target).elem()) && all; });
+        if (!all) return false;
+        builder().retype_expr(e, target);
+        return true;
+    }
+    default:
+        return false;
+    }
+}
+
+// The same behind `&` (`f(&(3, 4))` against `&(i64, i64)`, `&[3, 4]` against
+// `&[i64]`): the literal is promoted to static storage with the leaves it has,
+// and read through the expected reference — so `{integer}` leaves left to
+// default to i32 were read as i64 garbage.
+void SemaChecker::stamp_literal_behind_ref_(lir::LExprPtr& e, TypeRef expected) {
+    using K = LogosType::Kind;
+    if (!e || !expected) return;
+    auto er = expr_ref_of(e);
+    if (er.kind() != lir_schema::expr::Code::AddrOfTemp) return;
+    lir_view::EAddrOfTempView av{er};
+    auto inner = av.inner();
+    TypeRef it(inner ? inner.type(cur_prog_->type_pool.impl()) : TypeRef(nullptr));
+    TypeRef rt = expr_type(e);
+    if (!inner || !it || !rt || !TypeRef(rt).pointee()) return;
+    TypeRef want = nullptr;
+    const auto ek = TypeRef(expected).kind();
+    if ((ek == K::Ref || ek == K::MutRef) && TypeRef(expected).pointee())
+        want = TypeRef(expected).pointee();
+    else if (ek == K::Slice && TypeRef(expected).elem() && TypeRef(it).kind() == K::Array)
+        want = make_array(TypeRef(expected).elem(), TypeRef(it).arr_size());
+    if (!want || types_equal(it, want)) return;
+    if (!stamp_literal_tree_(inner, want)) return;
+    builder().retype_expr(er, make_ref(TypeRef(rt).kind() == K::MutRef, want,
+                                       std::string(TypeRef(rt).lifetime())));
+}
+
+// A `let x = <unsuffixed literal>` takes the type its FIRST use behind an
+// indirection expects (`let x = 5; show(&x)` with `show(&i64)`, `let xs = [3, 9];
+// sum(&xs)`, `let t = &(7, 8); f(t)`) — while nothing else has read the
+// binding, the literal, the `let`, the binding and this use are retyped
+// together. The binding defaulted to i32 before, and the reference read it as
+// i64: garbage. A binding used any other way first keeps its default.
+void SemaChecker::note_literal_binding_use_(std::string_view name) {
+    if (pending_lit_lets_.empty()) return;
+    const VarInfo* vi = lookup_var_info(name);
+    if (!vi) return;
+    if (auto it = pending_lit_lets_.find(vi->slot); it != pending_lit_lets_.end() &&
+        ++it->second.uses > 1)
+        pending_lit_lets_.erase(it);
+}
+
+bool SemaChecker::is_stampable_literal_(lir_view::ExprRef e) const {
+    using C = lir_schema::expr::Code;
+    using K = LogosType::Kind;
+    if (!e) return false;
+    const auto* pool = cur_prog_->type_pool.impl();
+    switch (e.kind()) {
+    case C::LitInt:   return TypeRef(e.type(pool)).kind() == K::IntLit;
+    case C::LitFloat: return TypeRef(e.type(pool)).kind() == K::FloatLit;
+    case C::Unary:    return lir_view::EUnaryView{e}.op() == "-" && is_stampable_literal_(lir_view::EUnaryView{e}.operand());
+    case C::AddrOfTemp: return is_stampable_literal_(lir_view::EAddrOfTempView{e}.inner());
+    case C::TupleLit: case C::ArrLit: {
+        bool all = true, any = false;
+        auto each = [&](lir_view::ExprRef el) {
+            const auto k = el.kind();
+            if (k == C::LitInt || k == C::LitFloat || k == C::LitBool ||
+                k == C::Unary || k == C::TupleLit || k == C::ArrLit) {
+                if (is_stampable_literal_(el)) any = true;
+                else if (k != C::LitInt && k != C::LitFloat && k != C::LitBool) all = false;
+            } else all = false;
+        };
+        if (e.kind() == C::TupleLit) lir_view::ETupleLitView{e}.each_elem(each);
+        else lir_view::EArrLitView{e}.each_elem(each);
+        return all && any;
+    }
+    default: return false;
+    }
+}
+
+void SemaChecker::stamp_pending_literal_use_(lir::LExprPtr& e, TypeRef expected) {
+    using C = lir_schema::expr::Code;
+    using K = LogosType::Kind;
+    if (pending_lit_lets_.empty() || !e || !expected) return;
+    auto er = expr_ref_of(e);
+    const bool addr = er.kind() == C::AddrOf;
+    if (!addr && er.kind() != C::VarRef) return;
+    std::string nm(addr ? lir_view::EAddrOfView{er}.var_name() : lir_view::EVarRefView{er}.name());
+    VarInfo* vi = lookup_var_info_mut_(nm);
+    if (!vi) return;
+    auto it = pending_lit_lets_.find(vi->slot);
+    if (it == pending_lit_lets_.end() || it->second.uses != 1) return;
+    lir_view::SLetView sl{it->second.let};
+    auto rhs = sl.value();
+    const auto* pool = cur_prog_->type_pool.impl();
+    TypeRef at = expr_type(e);
+    if (!rhs || !at) return;
+    if (addr) {
+        // `&x`: the binding is the pointee.
+        TypeRef want = nullptr;
+        const auto ek = TypeRef(expected).kind();
+        if ((ek == K::Ref || ek == K::MutRef) && TypeRef(expected).pointee())
+            want = TypeRef(expected).pointee();
+        else if (ek == K::Slice && TypeRef(expected).elem() && vi->type &&
+                 TypeRef(vi->type).kind() == K::Array)
+            want = make_array(TypeRef(expected).elem(), TypeRef(vi->type).arr_size());
+        if (!want || types_equal(want, vi->type) || !stamp_literal_tree_(rhs, want)) return;
+        builder().retype_let(it->second.let, want);
+        vi->type = want;
+        builder().retype_expr(er, make_ref(TypeRef(at).kind() == K::MutRef, want,
+                                           std::string(TypeRef(at).lifetime())));
+    } else {
+        // `let t = &(7, 8); f(t)`: the binding is the reference to the literal.
+        if (rhs.kind() != C::AddrOfTemp || !is_ref_like(TypeRef(at).kind())) return;
+        TypeRef before(rhs.type(pool));
+        lir::LExprPtr rv = rhs;
+        stamp_literal_behind_ref_(rv, expected);
+        TypeRef after(rhs.type(pool));
+        if (!after || types_equal(before, after)) return;
+        builder().retype_let(it->second.let, after);
+        vi->type = after;
+        builder().retype_expr(er, after);
+    }
+    pending_lit_lets_.erase(it);
+}
+
 // A branch arm under an expected `dyn` type (`let r: &dyn Tr = if c { &a } else
 // { &b }`, `let b: Box<dyn Tr> = match k { .. }`) reaches the merge UNSIZED, by a
 // cast in the arm — as `return` does. The merge slot is one value with no
@@ -18158,6 +18355,10 @@ bool SemaChecker::try_deref_coerce(lir::LExprPtr& e, TypeRef pt) {
 void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                                        uint32_t flags) {
     if (!arg || !pt) return;
+    // Unconditional: an unsuffixed literal tree behind `&` takes the pointee's
+    // leaf types at every coercion site (stamp_literal_behind_ref_).
+    stamp_literal_behind_ref_(arg, pt);
+    stamp_pending_literal_use_(arg, pt);
     // Canonical order — see header. Each step is a no-op when not applicable.
     if (flags & CFLAG_BARE_ENUM)        try_retype_bare_enum_arg(arg, pt);
     if (flags & CFLAG_CLOSURE_TO_FNPTR) try_coerce_closure_to_fnptr(arg, pt);

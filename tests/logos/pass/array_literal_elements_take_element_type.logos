@@ -1,0 +1,20 @@
+// Every element of an array literal is laid out at the element type: an unsuffixed literal element takes it,
+// also when it is a tuple or a nested array (`[(1i32, 10i64), (2, 20)]`, `[[1i64, 2], [3, 4]]`), and when the
+// anchoring element comes later (`[(7, -8), (1i64, 2i64)]`). The later elements kept `(i32, i32)` /
+// `[i32; N]` layouts inside the array and were read through the element type's (garbage).
+package array_literal_elements_take_element_type;
+use logos.std.fmt;
+fn main() {
+    let a = [(1i32, 10i64), (2, 20), (3, -30)];
+    println!("a {} {} {}", a[1].0, a[1].1, a[2].1);
+    let b = [(1i64, 2i8), (3, 4), (5, -6)];
+    println!("b {} {}", b[1].0, b[2].1);
+    let c = [[1i64, 2, 3], [4, 5, -6]];
+    println!("c {} {}", c[1][0], c[1][2]);
+    let d = [(7, -8), (1i64, 2i64)];
+    println!("d {} {}", d[0].0, d[0].1);
+    let e = [(1.5f32, 2i64), (2.5, 3)];
+    println!("e {} {}", e[1].0, e[1].1);
+    let s: i64 = c[1][0] + c[1][1] + b[1].0 + a[2].1;
+    println!("s {}", s);
+}

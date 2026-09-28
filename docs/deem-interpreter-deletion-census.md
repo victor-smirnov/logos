@@ -6693,8 +6693,15 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                row dyn_default_object_lifetime_refused (#674, tier 3) CLOSED and landed as pass
 #                owning_dyn_param_is_no_elision_input; + 3 tier-1 squeue rows (#699 ufcs_trait_path_peels_every_reference,
 #                #700 double_ref_receiver_collapsed_before_dispatch, #701 if_let_scrutinee_temporary_dropped_after_else).
-REGISTRY-ALL         11721
-REGISTRY-NOIMPORTED  7158
+#                ALL 11721 -> 11724 (+3), NOIMPORTED 7158 -> 7161 (+3), TIERCOMMIT 206 -> 207 (+1) — 2026-09-28: literal
+#                width behind references: + 1 pass (literal_behind_reference_takes_expected_type), + 1 fail
+#                (int_reference_width_mismatch_refused), + 1 tier-3 squeue row (#702 let_bound_reference_to_literal_refused).
+#                ALL 11724 -> 11725 (+1), NOIMPORTED 7161 -> 7162 (+1), TIERCOMMIT 207 -> 206 (-1) — 2026-09-28: squeue
+#                #527 constant_promotion_refused CLOSED (landed as pass literal_reference_is_const_promoted), #518
+#                vec_literal_elem_type_ignores_call_site_wrong tier 1 -> 3 (now refused), + 1 pass
+#                (array_literal_elements_take_element_type).
+REGISTRY-ALL         11725
+REGISTRY-NOIMPORTED  7162
 REGISTRY-TIERCOMMIT  206
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

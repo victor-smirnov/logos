@@ -3423,7 +3423,12 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                 return changed ? make_tuple_type(std::move(es)) : t;
             };
             TypeRef dt = dflt(var_type);
-            if (dt != var_type && expect_type(rhs, dt, CoercePos::LetInit, "let binding"))
+            // A literal still awaiting its first use (pending_lit_lets_) keeps
+            // its `{integer}` leaves — they default at codegen exactly as the
+            // binding's type says — so that use can still stamp them.
+            if (dt != var_type && !ann && rhs && is_stampable_literal_(expr_ref_of(rhs)))
+                var_type = dt;
+            else if (dt != var_type && expect_type(rhs, dt, CoercePos::LetInit, "let binding"))
                 var_type = expr_type(rhs);
         }
     }
@@ -3557,13 +3562,18 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     if (rhs && is_move_type(rhs_type) && !self_rooted_move)
         mark_moved_expr(expr_ref_of(rhs));
 
+    const bool lit_pending = !ann && rhs && is_stampable_literal_(expr_ref_of(rhs));
     lir::SLet slet;
     slet.name   = std::string(name);
     slet.type   = var_type;
     slet.is_mut = is_mut;
     slet.value  = std::move(rhs);
     slet.annot_lifetime = let_annot_names_lifetime_;
-    return make_stmt_emit(node_line_, std::move(slet));
+    auto st = make_stmt_emit(node_line_, std::move(slet));
+    if (lit_pending)
+        if (const VarInfo* vi = lookup_var_info(name))
+            pending_lit_lets_[vi->slot] = PendingLitLet{st, 0};
+    return st;
 }
 
 // Map a base operator (`+`, `<<`, …) to its `*Assign` trait + method for the

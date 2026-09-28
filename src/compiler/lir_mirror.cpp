@@ -2583,6 +2583,19 @@ void lir_mirror_retype_expr(lir::LProgram& prog,
         "retype_expr put failed");
 }
 
+void lir_mirror_retype_let(lir::LProgram& prog, const uint8_t* stmt_addr, TypeRef new_ty) {
+    if (stmt_addr == nullptr || !new_ty) return;
+    auto& ctr = prog.type_pool.ctr_or_init();
+    auto tom = writ::TinyMapView(
+        reinterpret_cast<writ::TinyObjectMap*>(const_cast<uint8_t*>(stmt_addr)),
+        ctr.holder());
+    writ::AnyVal av;
+    av.set_ref(new_ty.addr());
+    auto r = tom.put(lir_schema::stmt_keys::TYPE.code, av);
+    LOGOS_ASSERT(r.has_value(), "LIR-MIRROR-006",
+        "retype_let put failed");
+}
+
 void lir_mirror_populate_moved(lir::LProgram& prog, LirMirrorTable& table) {
     // Stage E: impl methods are FunctionViews (decl mirror eager-emitted at
     // push); their bridge IS the mirror pointer, so a std::move carries them

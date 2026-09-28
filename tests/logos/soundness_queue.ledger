@@ -210,7 +210,7 @@ map_named_fn_item_collect_crash 1 tests/soundness/open/map_named_fn_item_collect
 
 overlapping_trait_impls_admitted 1 tests/soundness/open/overlapping_trait_impls_admitted admits
 
-vec_literal_elem_type_ignores_call_site_wrong 1 tests/soundness/open/vec_literal_elem_type_ignores_call_site_wrong run 4
+vec_literal_elem_type_ignores_call_site_wrong 3 tests/soundness/open/vec_literal_elem_type_ignores_call_site_wrong refuses
 
 array_nonconst_length_crash 2 tests/soundness/open/array_nonconst_length_crash refuses
 
@@ -221,8 +221,6 @@ closure_mixed_return_types_crash 2 tests/soundness/open/closure_mixed_return_typ
 closure_move_capture_drop_delayed_wrong 2 tests/soundness/open/closure_move_capture_drop_delayed_wrong run 1
 
 closure_param_type_from_usage_refused 2 tests/soundness/open/closure_param_type_from_usage_refused refuses
-
-constant_promotion_refused 2 tests/soundness/open/constant_promotion_refused refuses
 
 custom_iterator_item_assoc_type_refused 2 tests/soundness/open/custom_iterator_item_assoc_type_refused refuses
 
@@ -465,5 +463,7 @@ double_ref_receiver_collapsed_before_dispatch 1 tests/soundness/open/double_ref_
 
 if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scrutinee_temporary_dropped_after_else run 1
 
+let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
+
 # TOTAL 144
-# SYNC-HASH 34d53be7a73598121ae2ec5d23c82b6e
+# SYNC-HASH 5bf2d7c500aaa779941f17a3a95c5766

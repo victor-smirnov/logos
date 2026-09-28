@@ -2326,6 +2326,36 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(
 
 // ── types_compatible ─────────────────────────────────────────────────────────
 
+// Compatibility BEHIND AN INDIRECTION (`&T`, `&mut T`, `*T`): the pointee's bytes
+// are reinterpreted, never converted, so two scalars must be the same kind at
+// every depth of a tuple / array — a `&i32` is no `&i64` (it was accepted as a
+// widening and read 8 bytes of a 4-byte slot). An unsuffixed `{integer}` here is
+// a value that will default to i32 (a literal tree is stamped with the
+// expectation before this is asked, stamp_literal_behind_ref_).
+static bool pointee_compatible_(TypeRef f, TypeRef t) noexcept {
+    using K = LogosType::Kind;
+    if (!f || !t) return types_compatible(f, t);
+    auto scalar = [](K k) {
+        return (is_integer_kind(k) && k != K::IntLit && k != K::Enum) ||
+               k == K::F32 || k == K::F64 || k == K::Bool || k == K::Char;
+    };
+    const K fk = f.kind(), tk = t.kind();
+    if (scalar(fk) && scalar(tk)) return fk == tk;
+    if (fk == K::IntLit && scalar(tk) && is_integer_kind(tk)) return tk == K::I32;
+    if (fk == K::FloatLit && (tk == K::F32 || tk == K::F64)) return tk == K::F64;
+    if (fk == K::Tuple && tk == K::Tuple) {
+        auto fe = f.tuple_elems(), te = t.tuple_elems();
+        if (fe.size() != te.size()) return false;
+        for (size_t i = 0; i < fe.size(); ++i)
+            if (!pointee_compatible_(fe[i], te[i])) return false;
+        return true;
+    }
+    if (fk == K::Array && tk == K::Array && f.elem() && t.elem() &&
+        !pointee_compatible_(f.elem(), t.elem()))
+        return false;
+    return types_compatible(f, t);
+}
+
 bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (!from || !to) return false;
     if (types_equal(from, to)) return true;
@@ -2629,22 +2659,22 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         if ((to.kind() == LogosType::Kind::Ref || to.kind() == LogosType::Kind::MutRef) &&
             to.pointee() &&
             (from_mut || to.kind() == LogosType::Kind::Ref))
-            return types_compatible(aelem, to.pointee());
+            return pointee_compatible_(aelem, to.pointee());
     }
     // &T / &mut T → *const T / *mut T coercions (for backward compat with existing raw-ptr code)
     if ((TypeRef(from).kind() == LogosType::Kind::Ref || TypeRef(from).kind() == LogosType::Kind::MutRef) &&
         TypeRef(to).kind() == LogosType::Kind::Ptr &&
         TypeRef(from).pointee() && TypeRef(to).pointee())
-        return types_compatible(TypeRef(from).pointee(), TypeRef(to).pointee());
+        return pointee_compatible_(TypeRef(from).pointee(), TypeRef(to).pointee());
     // *const T / *mut T → &T (reverse coercion — less safe but needed for existing code)
     if (TypeRef(from).kind() == LogosType::Kind::Ptr &&
         (TypeRef(to).kind() == LogosType::Kind::Ref || TypeRef(to).kind() == LogosType::Kind::MutRef) &&
         TypeRef(from).pointee() && TypeRef(to).pointee())
-        return types_compatible(TypeRef(from).pointee(), TypeRef(to).pointee());
+        return pointee_compatible_(TypeRef(from).pointee(), TypeRef(to).pointee());
     // &mut T → &T coercion (shared ref from exclusive ref)
     if (TypeRef(from).kind() == LogosType::Kind::MutRef && TypeRef(to).kind() == LogosType::Kind::Ref &&
         TypeRef(from).pointee() && TypeRef(to).pointee())
-        return types_compatible(TypeRef(from).pointee(), TypeRef(to).pointee());
+        return pointee_compatible_(TypeRef(from).pointee(), TypeRef(to).pointee());
     // B3-bg-06: `&Vec<T> → &[T]` / `&mut Vec<T> → &[T]` Deref-like coercion.
     // In Logos `&[T]` is the Slice fat-pointer type itself (NOT Ref<Slice>),
     // so the from side is `Ref<Vec<T>>` / `MutRef<Vec<T>>` and the to side
@@ -2658,20 +2688,20 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         is_stdlib_vec(TypeRef(from).pointee()) &&
         !TypeRef(from).pointee().type_args().empty() &&
         TypeRef(to).elem())
-        return types_compatible(TypeRef(from).pointee().type_args()[0],
-                                TypeRef(to).elem());
+        return pointee_compatible_(TypeRef(from).pointee().type_args()[0],
+                                   TypeRef(to).elem());
     // &T → &T and &mut T → &mut T with compatible pointees (e.g. &{integer} → &i32)
     if (TypeRef(from).kind() == LogosType::Kind::Ref && TypeRef(to).kind() == LogosType::Kind::Ref &&
         TypeRef(from).pointee() && TypeRef(to).pointee())
-        return types_compatible(TypeRef(from).pointee(), TypeRef(to).pointee());
+        return pointee_compatible_(TypeRef(from).pointee(), TypeRef(to).pointee());
     if (TypeRef(from).kind() == LogosType::Kind::MutRef && TypeRef(to).kind() == LogosType::Kind::MutRef &&
         TypeRef(from).pointee() && TypeRef(to).pointee())
-        return types_compatible(TypeRef(from).pointee(), TypeRef(to).pointee());
+        return pointee_compatible_(TypeRef(from).pointee(), TypeRef(to).pointee());
     // *mut T → *const T coercion (dropping write permission is always safe).
     if (TypeRef(from).kind() == LogosType::Kind::Ptr && TypeRef(to).kind() == LogosType::Kind::Ptr &&
         TypeRef(from).mut_ptr() && !TypeRef(to).mut_ptr() &&
         TypeRef(from).pointee() && TypeRef(to).pointee())
-        return types_compatible(TypeRef(from).pointee(), TypeRef(to).pointee());
+        return pointee_compatible_(TypeRef(from).pointee(), TypeRef(to).pointee());
     // The same for a RAW fat pointer (ADR 0028): `*mut dyn T` → `*const dyn T`,
     // `*mut Dst` → `*const Dst`. (A raw slice takes the Slice arm above.)
     if (TypeRef(from).raw_fat() && TypeRef(to).raw_fat() &&

@@ -1,0 +1,24 @@
+// An unsuffixed integer literal reached through `&` takes the type the reference is expected to point to:
+// `f(&(3, -4))` against `&(i64, i64)`, `&[3, -4]` against `&[i64; 2]` / `&[i64]`, also through a static
+// call, and a `let y = -5;` / `let xs = [..];` / `let t = (1, -2);` whose FIRST use is `&y` against `&i64`.
+// The literal defaulted to i32 and the reference read 8 bytes of it (garbage), or `&[i64; 2]` refused.
+package literal_behind_reference_takes_expected_type;
+use logos.std.fmt;
+fn f(p: &(i64, i64)) -> i64 { p.0 * 100 + p.1 }
+fn g(p: &i64) -> i64 { *p }
+fn a(xs: &[i64; 2]) -> i64 { xs[0] * 100 + xs[1] }
+fn sum(xs: &[i64]) -> i64 { let mut s = 0i64; for x in xs { s = s * 100 + *x; } s }
+fn fl(p: &f64) -> f64 { *p }
+struct S;
+impl S { fn st(xs: &[i64]) -> i64 { sum(xs) } fn stp(p: &(i64, i64)) -> i64 { f(p) } }
+fn main() {
+    println!("tuple {}", f(&(3, -4)));
+    println!("scalar {}", g(&-5));
+    println!("array {}", a(&[3, -4]));
+    println!("slice {}", sum(&[3, 9, -2]));
+    println!("static {} {}", S::st(&[3, -4]), S::stp(&(3, -4)));
+    println!("float {}", fl(&2.5));
+    let y = -5; println!("let scalar {}", g(&y));
+    let xs = [3, 9, -2, 7]; println!("let array {}", sum(&xs));
+    let t = (1, -2); println!("let tuple {}", f(&t));
+}

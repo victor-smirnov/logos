@@ -305,6 +305,8 @@ const uint8_t* lir_mirror_emit_pat_ref_pat      (lir::LProgram& prog, const std:
 void lir_mirror_retype_expr(lir::LProgram& prog,
                             const uint8_t* expr_addr,
                             TypeRef new_ty);
+// The TYPE key of an emitted SLet.
+void lir_mirror_retype_let(lir::LProgram& prog, const uint8_t* stmt_addr, TypeRef new_ty);
 
 // Cache-only walker for items moved wholesale from in_ → out_ during mono
 // (impl methods, const value exprs). These nodes carry mirror_ptr_ from

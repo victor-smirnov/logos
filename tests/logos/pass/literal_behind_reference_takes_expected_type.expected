@@ -1,0 +1,11 @@
+exit: 0
+stdout:
+tuple 296
+scalar -5
+array 296
+slice 30898
+static 296 296
+float 2.5
+let scalar -5
+let array 3089807
+let tuple 98

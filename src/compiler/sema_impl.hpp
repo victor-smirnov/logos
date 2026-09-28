@@ -2037,6 +2037,15 @@ private:
     // values, assignments). See the definition.
     bool cast_to_expected_dyn(lir::LExprPtr& v, TypeRef expected);
     TypeRef index_output_type_(TypeRef st);
+    // Unsuffixed literal trees stamped with an expected type (also behind `&`).
+    bool stamp_literal_tree_(lir_view::ExprRef e, TypeRef target);
+    void stamp_literal_behind_ref_(lir::LExprPtr& e, TypeRef expected);
+    // A literal `let` retyped by its first use behind an indirection (see the definition).
+    struct PendingLitLet { lir_view::StmtRef let; int uses = 0; };
+    std::unordered_map<uint32_t, PendingLitLet> pending_lit_lets_;   // binding slot -> its `let`
+    void note_literal_binding_use_(std::string_view name);
+    bool is_stampable_literal_(lir_view::ExprRef e) const;
+    void stamp_pending_literal_use_(lir::LExprPtr& e, TypeRef expected);
 
     void coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                               uint32_t flags = CFLAG_STANDARD);
@@ -4384,6 +4393,13 @@ private:
     // local). Second of the pair = the captured binding's own closure_id.
     std::unordered_map<std::string, std::vector<std::pair<TypeRef, std::string>>> closure_caps_by_id_;
     const VarInfo* lookup_var_info(std::string_view name) const {
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
+            auto f = it->vars.find(std::string(name));
+            if (f != it->vars.end()) return &f->second;
+        }
+        return nullptr;
+    }
+    VarInfo* lookup_var_info_mut_(std::string_view name) {
         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it) {
             auto f = it->vars.find(std::string(name));
             if (f != it->vars.end()) return &f->second;

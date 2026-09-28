@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row let_bound_reference_to_literal_refused (tier 3, `refuses`). Cluster
+// literal-behind-ref-coercion-built-i32 (pairs-14_7). `let x = &(7, 8); f(x)` with `f(p: &(i64, i64))`: rustc types
+// the literal's leaves i64 from the use (exits 0). Logos refuses: "expected &(i64, i64), got &({integer},
+// {integer})" — the extending borrow puts the literal in a block temporary (`__lit_temp_N`) and `x` is a
+// reference to THAT, so the first-use stamp (pending_lit_lets_, which retypes a `let` whose initializer IS the
+// literal) cannot reach it. Before 2026-09-28 it compiled and read i32 leaves as i64 (garbage). Rowed: doors in
+// series (reason 2) — the literal's type must come from the constraint its uses place on it (integer inference
+// variables, ADR 0030 S7), which no retype of an emitted node can do through a temporary.
+package let_bound_reference_to_literal_refused;
+fn f(p: &(i64, i64)) -> i64 { p.0 * 100 + p.1 }
+fn main() -> i32 { let x = &(7, 8); if f(x) != 708 { return 1i32; } return 0i32; }

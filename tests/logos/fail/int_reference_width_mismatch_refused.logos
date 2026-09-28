@@ -1,0 +1,5 @@
+// A reference's pointee is read, never converted: `&i32` is no `&i64` (E0308). It was accepted as an
+// integer widening and the callee read 8 bytes of a 4-byte slot (tuple and slice pointees alike).
+package int_reference_width_mismatch_refused;
+fn show(a: &i64) -> i64 { *a }
+fn main() { let x: i32 = 5; let r = show(&x); }

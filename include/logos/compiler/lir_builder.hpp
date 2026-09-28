@@ -160,6 +160,8 @@ public:
     // called when no enclosing structure has snapshotted `e` yet — i.e.
     // before the LExpr is fed into a parent builder call.
     void retype_expr(lir_view::ExprRef e, TypeRef new_ty);
+    // The declared type of an emitted `let` (a literal binding stamped by its first use).
+    void retype_let(lir_view::StmtRef s, TypeRef new_ty);
 
     // ── Statement constructors ──────────────────────────────────────────
     // Build an LStmt and eager-emit its Writ mirror. After this call,
