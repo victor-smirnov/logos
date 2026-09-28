@@ -429,7 +429,24 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   only for subs whose binders move a non-Copy payload out.
   Interaction clusters literal-subpattern-under-ref-no-deref (7) and
   nested-pattern-in-variant-payload-unsupported (9) agree with rustc.
-Next: the moving binders (retire the guard channel and the K4 prologue lets),
+- Slice / array arms are tested by `pat_test` in both doors (length gate, then
+  prefix and suffix elements, any sub-pattern kind) and bound by the one
+  binder (`bind_dyn_slice_elems` for a dynamic `&[T]`). The door copies tested
+  literal prefix elements only and read them before the length gate. Element
+  STRIDE is the slot type (`place_slot_type`): a `&str` element is 16 bytes.
+- The slot convention holds through references: `pat_test` / `pat_bind` load a
+  thin `&Agg` for tuple, struct and array patterns as they did for variants
+  (`peel_thin_ref_slots`), and a door hands them the scrutinee value at the
+  pointee type (`door_place_type`: the value of `&T` is T's address). The
+  tuple door's private Struct-only peel is gone. `n @ sub` at a door binds
+  through `bind_whole_scrutinee_at` (one copy for both doors).
+- A slice pattern nested in a tuple element or carried as a variant payload
+  sub tests and binds like a top-level one.
+  Clusters slice-pattern-subpattern-bindings-lost (6) and
+  slice-pattern-element-offset (5) agree with rustc.
+Next: a `PatStr` carrier (string literals tested by `pat_test` in every
+position; retires the `__smatch` hoist and the synthesized `str_eq` guards),
+the moving binders (retire the guard channel and the K4 prologue lets),
 then the statement match as the void expression match (one `lower_match_core`).
 
 ## L0 status (2026-09-27)

@@ -2299,9 +2299,31 @@ private:
     // scope_; for an or-pattern it dispatches per-alt and binds into the
     // pre-created `shared` allocas (name→alloca) so the join sees one slot.
     mlir::Value pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty);
+    void bind_dyn_slice_elems(lir_view::PatRef pat, mlir::Value sptr, TypeRef slice_ty,
+                              const std::unordered_map<std::string, mlir::Value>* shared);
     mlir::Value variant_subs_test(lir_view::PatVariantDataView pvd, mlir::Value enum_ptr,
                                   const TaggedEnumInfo* te);
-    mlir::Value tuple_elem_struct_slot(lir_view::PatRef sp, mlir::Value fp, TypeRef ety);
+    // THE SLOT CONVENTION THROUGH A REFERENCE: `slot` holds a value of `ty`;
+    // for a thin `&T` that value is T's address, one load away. Every
+    // aggregate case (tuple, struct, array/slice, variant) peels here, so an
+    // aggregate pattern under a `&Agg` field / element / payload finds its
+    // storage. The tuple door had a private Struct-only copy of this peel and
+    // the variant and slice positions had none: `((1, y), k)` over
+    // `(&(i64, i64), i64)` and `Some(S { x: 1, y })` over `Option<&S>` bound
+    // a pointer's bytes as fields.
+    void        peel_thin_ref_slots(mlir::Value& slot, TypeRef& ty);
+    // A top-level pattern DOOR's place type. The VALUE of a thin `&T`
+    // scrutinee is T's address — the door hands pat_test / pat_bind that
+    // address at type T (never at `&T`, which would load it once more).
+    TypeRef     door_place_type(TypeRef scrut_ty);
+    // `n @ sub` at a top-level match door binds the WHOLE scrutinee — one
+    // implementation for the statement and the expression door (two textual
+    // copies). Through a thin `&T` the name holds the reference, which is a
+    // reference to the place: it binds with the reference binder's shapes
+    // (`n.0` / `n[i]` / `n.f` through it), as a `ref` binder does.
+    void        bind_whole_scrutinee_at(lir_view::PatAtView pa, mlir::Value scrut,
+                                        mlir::Value scrut_ptr, mlir::Value scrut_written,
+                                        TypeRef scrut_ty);
     void        bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty);
     std::string bind_array_rest(lir_view::PatRef rest, mlir::Type arr_mlir, mlir::Type elem_mlir,
                                 mlir::Value aptr, size_t pre, size_t len);

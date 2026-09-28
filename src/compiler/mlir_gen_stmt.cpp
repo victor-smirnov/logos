@@ -4428,16 +4428,64 @@ mlir::Value MLIRGenImpl::emit_range_test(mlir::Value scrut, TypeRef scrut_ty,
 // take the struct's own address — the convention a top-level `match &s` hands
 // them. Load once per ref layer. Without it the fields were read out of the
 // pointer's bytes (wrong arm / garbage bindings).
-mlir::Value MLIRGenImpl::tuple_elem_struct_slot(lir_view::PatRef sp, mlir::Value fp, TypeRef ety) {
-    lir_view::PatRef inner = sp;
-    while (inner && inner.kind() == lir_schema::pat::Code::At) inner = lir_view::PatAtView{inner}.sub();
-    if (!inner || inner.kind() != lir_schema::pat::Code::Struct) return fp;
-    while (ety && (TypeRef(ety).kind() == LogosType::Kind::Ref ||
-                   TypeRef(ety).kind() == LogosType::Kind::MutRef) && TypeRef(ety).pointee()) {
-        fp = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), fp);
-        ety = TypeRef(ety).pointee();
+void MLIRGenImpl::peel_thin_ref_slots(mlir::Value& slot, TypeRef& ty) {
+    while (slot && ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+                          TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
+           TypeRef(ty).pointee() && ref_repr_of(TypeRef(ty)) == RefReprKind::ThinPtr) {
+        slot = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
+        ty = TypeRef(ty).pointee();
     }
-    return fp;
+}
+
+TypeRef MLIRGenImpl::door_place_type(TypeRef t) {
+    if (t && (TypeRef(t).kind() == LogosType::Kind::Ref || TypeRef(t).kind() == LogosType::Kind::MutRef) &&
+        TypeRef(t).pointee() && ref_repr_of(TypeRef(t)) == RefReprKind::ThinPtr)
+        return TypeRef(t).pointee();
+    return t;
+}
+
+void MLIRGenImpl::bind_whole_scrutinee_at(lir_view::PatAtView pa, mlir::Value scrut,
+                                          mlir::Value scrut_ptr, mlir::Value scrut_written,
+                                          TypeRef scrut_ty) {
+    std::string aname(pa.name());
+    if (aname.empty() || aname == "_") return;
+    mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
+    // `n @ sub` NAMES THE PLACE `sub` MATCHES: bind it by the one convention
+    // every other binder uses. An alloca-of-a-pointer records NO SHAPE, so
+    // `n.field` / `n.N` GEP the alloca ADDRESS. PROBES.md 2026-09-16f.
+    TypeRef binder_bty(scrut_ty);
+    const bool binder_via_ref = binder_bty &&
+        (binder_bty.kind() == LogosType::Kind::Ref ||
+         binder_bty.kind() == LogosType::Kind::MutRef ||
+         binder_bty.kind() == LogosType::Kind::Ptr);
+    // (the reference value as written, not the fully peeled `scrut_ptr`)
+    if (binder_via_ref && scrut_written && !pa.ref_mode()) sv = scrut_written;
+    if (pa.ref_mode()) {
+        // `ref n @ sub`: n borrows the matched place. An owned scrutinee's
+        // address, or a spilled scalar value's.
+        mlir::Value addr = sv;
+        if (!(sv && sv.getType() == ptr_type() && !binder_via_ref)) {
+            addr = create_entry_alloca(sv.getType());
+            builder_.create<mlir::LLVM::StoreOp>(loc_, sv, addr);
+        }
+        bind_ref_name(aname, addr, scrut_ty);
+    } else if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
+        bind_name_at_slot(aname, sv, scrut_ty, nullptr);
+    } else if (TypeRef pt = door_place_type(scrut_ty);
+               binder_via_ref && pt != scrut_ty && sv && sv.getType() == ptr_type() &&
+               TypeRef(pt).kind() != LogosType::Kind::Ref && TypeRef(pt).kind() != LogosType::Kind::MutRef) {
+        // Through a thin `&T`: the reference value IS the place's address. The
+        // untyped alloca below left `n[1]` over a `&[i64; 2]` reading the slot.
+        bind_ref_name(aname, sv, pt);
+    } else {
+        auto alloca = create_entry_alloca(sv.getType());
+        builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
+        evict_var_shapes(aname);
+        scope_[aname] = alloca;
+        let_vars_.insert(aname);
+        var_elem_types_[aname] = sv.getType();
+        if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
+    }
 }
 
 // ADR 0030 S3: the payload sub-patterns of a variant whose disc is known to
@@ -4504,11 +4552,7 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         // answered TRUE — `match &t { (None, b) => …, (Some(v), b) => … }`
         // took the first arm for every value.
         auto tptr = slot_ptr;
-        while (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
-                      TypeRef(ty).kind() == LogosType::Kind::MutRef) && TypeRef(ty).pointee()) {
-            tptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), tptr);
-            ty = TypeRef(ty).pointee();
-        }
+        peel_thin_ref_slots(tptr, ty);
         auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
         if (!ttype) return true_c();
         auto elems = TypeRef(ty).tuple_elems();
@@ -4521,7 +4565,6 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
             if (!sp || idx >= elems.size()) return;
             llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
             mlir::Value fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
-            fp = tuple_elem_struct_slot(sp, fp, elems[idx]);
             auto sc = pat_test(sp, fp, elems[idx]);
             cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, sc);
         });
@@ -4617,6 +4660,7 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         // contribute nothing to the condition.
         lir_view::PatStructView ps{pat};
         std::string sname(ps.struct_name());
+        peel_thin_ref_slots(slot_ptr, ty);   // a `&S` place: the S is one load away
         // #60: bare pattern name aliases a same-named imported struct — narrow
         // the slot's TypeRef `ty` to the named struct and resolve qualified
         // first; bare stays the last resort (pat_struct_ty).
@@ -4673,16 +4717,14 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         return sub ? pat_test(sub, slot_ptr, ty) : true_c();
     }
     case pc::Code::Slice: {
-        // Slice/array pattern test. `slot_ptr` is the slice VALUE (ptr to
-        // {data,len}) for a dynamic `&[T]`, or the array base for a `[T;N]`
-        // (both via GEP from the enclosing place — no extra load). Mirrors the
-        // gen_match per-arm Slice test, recursing pat_test for sub-elements.
+        // Slice/array pattern test. `slot_ptr` addresses the {data,len} pair
+        // of a dynamic `&[T]`, or the array of a `[T;N]`; through a `&[T; N]`
+        // the array is one load away. Length gate first (dynamic), then each
+        // element through pat_test.
         if (!ty) return true_c();
         lir_view::PatSliceView sv{pat};
         TypeRef aty = ty;
-        if ((TypeRef(aty).kind() == LogosType::Kind::Ref ||
-             TypeRef(aty).kind() == LogosType::Kind::MutRef) && TypeRef(aty).pointee())
-            aty = TypeRef(aty).pointee();
+        peel_thin_ref_slots(slot_ptr, aty);
         auto ak = TypeRef(aty).kind();
         if (ak == LogosType::Kind::Array && TypeRef(aty).elem()) {
             auto arr_mlir = logos_to_mlir(aty);
@@ -4713,22 +4755,49 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
             auto slen = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
             auto n = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)(pre_n + suf_n), 64);
             auto pred = has_rest ? mlir::arith::CmpIPredicate::sge : mlir::arith::CmpIPredicate::eq;
-            mlir::Value cond = builder_.create<mlir::arith::CmpIOp>(loc_, pred, slen, n);
-            auto elem_mlir2 = logos_to_mlir(elem_t);
-            if (elem_mlir2 && pre_n > 0) {
-                llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-                auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, slot_ptr, di);
-                auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
-                int32_t pi = 0;
-                sv.each_prefix([&](lir_view::PatRef sp){
-                    int32_t idx = pi++;
-                    if (!sp || sp.kind() == pc::Code::Wild) return;
-                    llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(idx)};
-                    auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir2, data, gi);
-                    cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, pat_test(sp, ep, elem_t));
-                });
-            }
-            return cond;
+            mlir::Value len_ok = builder_.create<mlir::arith::CmpIOp>(loc_, pred, slen, n);
+            auto elem_mlir2 = place_slot_type(elem_t);   // the element STRIDE (a `&str` is 16B)
+            bool any_test = false;
+            auto tests = [&](lir_view::PatRef sp) { if (sp && sp.kind() != pc::Code::Wild) any_test = true; };
+            sv.each_prefix(tests);
+            sv.each_suffix(tests);
+            if (!elem_mlir2 || !any_test) return len_ok;
+            // The ELEMENTS are read only once the length admits them: a short
+            // slice's data[i] is past its end. (Prefix AND suffix — the suffix
+            // was not tested at all, the prefix was read unconditionally.)
+            auto* region = builder_.getBlock()->getParent();
+            auto* elem_blk = new mlir::Block();
+            auto* join = new mlir::Block();
+            join->addArgument(builder_.getI1Type(), loc_);
+            region->push_back(elem_blk);
+            region->push_back(join);
+            mlir::Value no = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, len_ok, elem_blk, mlir::ValueRange{},
+                                                    join, mlir::ValueRange{no});
+            builder_.setInsertionPointToStart(elem_blk);
+            llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
+            auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, slot_ptr, di);
+            mlir::Value data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+            mlir::Value cond = true_c();
+            auto at = [&](lir_view::PatRef sp, mlir::Value idx) {
+                if (!sp || sp.kind() == pc::Code::Wild) return;
+                auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir2, data,
+                                                             llvm::SmallVector<mlir::LLVM::GEPArg>{idx});
+                cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, pat_test(sp, ep, elem_t));
+            };
+            int64_t pi = 0;
+            sv.each_prefix([&](lir_view::PatRef sp) {
+                at(sp, builder_.create<mlir::arith::ConstantIntOp>(loc_, pi++, 64));
+            });
+            int64_t si = 0;
+            sv.each_suffix([&](lir_view::PatRef sp) {
+                at(sp, builder_.create<mlir::arith::SubIOp>(
+                           loc_, slen, builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)suf_n - si, 64)));
+                ++si;
+            });
+            builder_.create<mlir::cf::BranchOp>(loc_, join, mlir::ValueRange{cond});
+            builder_.setInsertionPointToStart(join);
+            return join->getArgument(0);
         }
         return true_c();
     }
@@ -4957,6 +5026,64 @@ void MLIRGenImpl::bind_ref_name(const std::string& name, mlir::Value slot_ptr, T
     }
 }
 
+// A slice pattern's names over a DYNAMIC `&[T]` (`sptr` addresses its fat
+// {data, len} pair): prefix element i at data[i], suffix element i at
+// data[len - suf + i], each through pat_bind (every sub-pattern kind), and a
+// named rest as the sub-slice {data + pre, len - pre - suf} — a first-class
+// `&[T]` PLACE (var_slice_), so `rest.len()` / re-matching `rest` work.
+void MLIRGenImpl::bind_dyn_slice_elems(lir_view::PatRef pat, mlir::Value sptr, TypeRef slice_ty,
+                                       const std::unordered_map<std::string, mlir::Value>* shared) {
+    TypeRef elem_t = TypeRef(slice_ty).elem();
+    // The element STRIDE is the element's slot type: logos_to_mlir collapses a
+    // fat `&str`/`&[T]`/`&dyn` element to an 8-byte ptr, so `[.., last]` over a
+    // `&[&str]` read the middle element and `[x, y, z]` read a length as a ptr.
+    auto elem_mlir = elem_t ? place_slot_type(elem_t) : mlir::Type();
+    if (!elem_mlir || !sptr) return;
+    auto sdtype = slice_llvm_type();
+    auto i64c = [&](int64_t k) { return builder_.create<mlir::arith::ConstantIntOp>(loc_, k, 64).getResult(); };
+    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr,
+                                                 llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
+    mlir::Value data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
+    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr,
+                                                 llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
+    mlir::Value slen = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
+    lir_view::PatSliceView psl{pat};
+    auto bind_at = [&](lir_view::PatRef sp, mlir::Value idx) {
+        if (!sp) return;
+        auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data,
+                                                     llvm::SmallVector<mlir::LLVM::GEPArg>{idx});
+        pat_bind(sp, ep, elem_t, shared);
+    };
+    int64_t pre_n = 0;
+    psl.each_prefix([&](lir_view::PatRef sp) { bind_at(sp, i64c(pre_n++)); });
+    const int64_t suf_n = (int64_t)psl.suffix_count();
+    {
+        int64_t i = 0;
+        psl.each_suffix([&](lir_view::PatRef sp) {
+            bind_at(sp, builder_.create<mlir::arith::SubIOp>(loc_, slen, i64c(suf_n - i)));
+            ++i;
+        });
+    }
+    if (auto rest = psl.rest()) {
+        std::string rn(lir_view::PatWildView{rest}.name());
+        if (!rn.empty() && rn != "_") {
+            auto rdata = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data,
+                                                            llvm::SmallVector<mlir::LLVM::GEPArg>{i64c(pre_n)});
+            auto rlen = builder_.create<mlir::arith::SubIOp>(loc_, slen, i64c(pre_n + suf_n));
+            auto sub = create_entry_alloca(sdtype);
+            auto sdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
+                                                          llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
+            builder_.create<mlir::LLVM::StoreOp>(loc_, rdata, sdp);
+            auto slp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
+                                                          llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
+            builder_.create<mlir::LLVM::StoreOp>(loc_, rlen, slp);
+            evict_var_shapes(rn);
+            scope_[rn] = sub;
+            var_slice_[rn] = elem_mlir;
+        }
+    }
+}
+
 void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
                            const std::unordered_map<std::string, mlir::Value>* shared) {
     namespace pc = lir_schema::pat;
@@ -4992,26 +5119,19 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
     case pc::Code::Tuple: {
         auto ttype = ty ? tuple_llvm_type(ty) : mlir::Type();
         if (!ttype) return;
-        // Deref a `&(T,U)` / `&mut (T,U)` scrutinee for the element types
-        // (tuple_llvm_type already deref'd for the LLVM layout); without this
-        // tuple_elems() is empty on a Ref ty and no element binds.
+        // A `&(T, U)` place: the tuple is one load away (the slot convention,
+        // as pat_test's Tuple case). Binding at the reference's slot bound the
+        // pointer's bytes as the elements.
         TypeRef tt = ty;
-        if (tt && (TypeRef(tt).kind() == LogosType::Kind::Ref ||
-                   TypeRef(tt).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(tt).pointee() &&
-            TypeRef(TypeRef(tt).pointee()).kind() == LogosType::Kind::Tuple)
-            tt = TypeRef(tt).pointee();
-        auto elems = TypeRef(tt).tuple_elems();
-        // A tuple value IS a pointer to its inline storage (Rust by-value layout):
-        // `slot_ptr` already addresses the tuple struct — GEP directly (no load).
         auto tptr = slot_ptr;
+        peel_thin_ref_slots(tptr, tt);
+        auto elems = TypeRef(tt).tuple_elems();
         size_t i = 0;
         lir_view::PatTupleView{pat}.each_sub([&](lir_view::PatRef sp){
             size_t idx = i++;
             if (!sp || idx >= elems.size()) return;
             llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(idx)};
             mlir::Value fp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, tptr, gi);
-            fp = tuple_elem_struct_slot(sp, fp, elems[idx]);
             pat_bind(sp, fp, elems[idx], shared);
         });
         break;
@@ -5096,6 +5216,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // refutable subs (`{x: Inner::A(v)}`) bind their inner names.
         lir_view::PatStructView ps{pat};
         std::string sname(ps.struct_name());
+        peel_thin_ref_slots(slot_ptr, ty);   // a `&S` place: the S is one load away
         // #60: same as pat_test's Struct case — qualified via the slot TypeRef
         // first, bare name last.
         TypeRef pst = pat_struct_ty(ty, ps.struct_name());
@@ -5136,18 +5257,16 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         break;
     }
     case pc::Code::Slice: {
-        // A nested ARRAY pattern bound BY VALUE (`([a, b], c)` over `([i64; 2],
-        // i64)`): each prefix / suffix element at its index, through the array's
-        // own storage, exactly as pat_test's Slice case reaches them. Only a
-        // by-value array: under a reference the element binders are references
-        // and take a different convention (sema defines no names for that shape).
-        // Under a REFERENCE (`match &arr { [x, _] => … }`) `slot_ptr` is the
-        // array's address and the element binders are sema's RefBind subs —
-        // they bind the element ADDRESS; pat_test walks the same way.
+        // An array / slice pattern's names: each prefix / suffix element at its
+        // index, exactly as pat_test's Slice case reaches them. Through a
+        // `&[T; N]` the array is one load away; under a reference the element
+        // binders are sema's RefBind subs and bind the element ADDRESS.
         TypeRef aty = ty;
-        if (aty && (TypeRef(aty).kind() == LogosType::Kind::Ref ||
-                    TypeRef(aty).kind() == LogosType::Kind::MutRef) && TypeRef(aty).pointee())
-            aty = TypeRef(aty).pointee();
+        peel_thin_ref_slots(slot_ptr, aty);
+        if (aty && TypeRef(aty).kind() == LogosType::Kind::Slice && TypeRef(aty).elem()) {
+            bind_dyn_slice_elems(pat, slot_ptr, aty, shared);   // a dynamic `&[T]`
+            break;
+        }
         if (!aty || TypeRef(aty).kind() != LogosType::Kind::Array || !TypeRef(aty).elem()) break;
         lir_view::PatSliceView sv{pat};
         auto arr_mlir = logos_to_mlir(aty);
@@ -5165,7 +5284,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         int32_t sidx = (int32_t)(total - sv.suffix_count());
         sv.each_suffix([&](lir_view::PatRef sp){ at_idx(sp, sidx++); });
         if (auto rest = sv.rest())
-            bind_array_rest(rest, arr_mlir, logos_to_mlir(elem_t), slot_ptr, (size_t)idx,
+            bind_array_rest(rest, arr_mlir, place_slot_type(elem_t), slot_ptr, (size_t)idx,
                             total - (size_t)idx - sv.suffix_count());
         break;
     }
@@ -5457,8 +5576,9 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
             mlir::Value tptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
             if (!tptr) return;
             // A tuple value IS a pointer to its inline storage — pass it directly
-            // (pat_bind's Tuple case GEPs into it, no load).
-            pat_bind(p, tptr, scrut_ty);
+            // (pat_bind's Tuple case GEPs into it, no load); a `&(..)` value is
+            // the tuple's address too.
+            pat_bind(p, tptr, door_place_type(scrut_ty));
             return;
         }
         // ── PatVariantData ────────────────────────────────────────────────
@@ -5653,7 +5773,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                  TypeRef(TypeRef(atype).pointee()).kind() == LogosType::Kind::Slice))
                 atype = TypeRef(atype).pointee();
             if (atype && TypeRef(atype).kind() == LogosType::Kind::Array && TypeRef(atype).elem()) {
-                auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
+                auto elem_mlir = place_slot_type(TypeRef(atype).elem());
                 auto arr_mlir  = logos_to_mlir(atype);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                 // An array-typed PLACE scrutinee (`match s.arr`, `match t.0`)
@@ -5689,132 +5809,19 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 }
             } else if (atype && TypeRef(atype).kind() == LogosType::Kind::Slice &&
                        TypeRef(atype).elem()) {
-                // G149-4: dynamic `&[T]` slice. scrut is a fat pointer
-                // {data, i64 len}. Bind prefix elements by-value through the
-                // data pointer; bind a named rest (`xs @ ..`) to a freshly
-                // built sub-slice {data + prefix*sizeof(T), len - prefix}.
-                auto elem_mlir = logos_to_mlir(TypeRef(atype).elem());
-                auto sdtype = slice_llvm_type();
+                // G149-4: dynamic `&[T]` slice (a fat {data, len} pair): the
+                // one element binder (pat_bind's Slice case) — this door had its
+                // own two-kind whitelist (Wild, RefBind), so `[(a, _), ..]`'s `a`
+                // bound nothing.
                 mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                if (sptr && elem_mlir) {
-                    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-                    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr, di);
-                    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
-                    llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
-                    auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr, li);
-                    auto slen = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
-                    lir_view::PatSliceView psl{p};
-                    auto bind_at = [&](lir_view::PatRef sp, mlir::Value idx) {
-                        if (!sp) return;
-                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{idx};
-                        auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data, gi);
-                        if (sp.kind() == pc::Code::Wild) {
-                            std::string pwn(lir_view::PatWildView{sp}.name());
-                            if (pwn == "_" || pwn.empty()) return;
-                            auto val = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
-                            auto a = create_entry_alloca(elem_mlir);
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, val, a);
-                            evict_var_shapes(pwn);
-                            scope_[pwn] = a; let_vars_.insert(pwn);
-                            var_elem_types_[pwn] = elem_mlir;
-                        } else if (sp.kind() == pc::Code::RefBind) {
-                            std::string prbn(lir_view::PatRefBindView{sp}.name());
-                            if (prbn == "_" || prbn.empty()) return;
-                            auto a = create_entry_alloca(ptr_type());
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, ep, a);
-                            evict_var_shapes(prbn);
-                            scope_[prbn] = a; let_vars_.insert(prbn);
-                            var_elem_types_[prbn] = ptr_type();
-                            ref_slot_vars_.insert(prbn);   // see bind_ref_name
-                        }
-                    };
-                    auto i64c = [&](int64_t k){
-                        return builder_.create<mlir::arith::ConstantIntOp>(loc_, k, 64).getResult();
-                    };
-                    int32_t pre_n = 0;
-                    psl.each_prefix([&](lir_view::PatRef sp){ bind_at(sp, i64c(pre_n++)); });
-                    // G167-6a: suffix elements bind from the tail at `len - suf_n + i`.
-                    size_t suf_n = psl.suffix_count();
-                    {
-                        size_t i = 0;
-                        psl.each_suffix([&](lir_view::PatRef sp){
-                            mlir::Value idx = builder_.create<mlir::arith::SubIOp>(
-                                loc_, slen, i64c((int64_t)(suf_n - i)));
-                            bind_at(sp, idx);
-                            ++i;
-                        });
-                    }
-                    // G167-6b: named rest → sub-slice {data + pre_n, len - pre_n - suf_n}
-                    // bound as a first-class `&[T]` PLACE (var_slice_, NOT a raw
-                    // struct value) so `rest.len()` / re-matching `rest` work —
-                    // previously typed as the {ptr,i64} struct, so a `.len()` GEP
-                    // hit the struct value and crashed MLIR-gen.
-                    if (auto rest = psl.rest()) {
-                        std::string rn(lir_view::PatWildView{rest}.name());
-                        if (!rn.empty() && rn != "_") {
-                            auto rdata = builder_.create<mlir::LLVM::GEPOp>(
-                                loc_, ptr_type(), elem_mlir, data,
-                                llvm::SmallVector<mlir::LLVM::GEPArg>{i64c((int64_t)pre_n)});
-                            auto rlen = builder_.create<mlir::arith::SubIOp>(
-                                loc_, slen, i64c((int64_t)(pre_n + (int)suf_n)));
-                            auto sub = create_entry_alloca(sdtype);
-                            auto sdp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
-                                llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(0)});
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, rdata, sdp);
-                            auto slp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sub,
-                                llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(1)});
-                            builder_.create<mlir::LLVM::StoreOp>(loc_, rlen, slp);
-                            evict_var_shapes(rn);
-                            scope_[rn] = sub;
-                            var_slice_[rn] = elem_mlir;
-                        }
-                    }
-                }
+                if (sptr) bind_dyn_slice_elems(p, sptr, atype, nullptr);
             }
             return;
         }
         // ── PatAt: bind outer name then recurse into sub-pattern ─────────
         case pc::Code::At: {
             lir_view::PatAtView pa{p};
-            mlir::Value sv = scrut_ptr ? scrut_ptr : scrut;
-            std::string aname(pa.name());
-            if (!aname.empty() && aname != "_") {
-                // `n @ sub` NAMES THE PLACE `sub` MATCHES: bind it by the one
-                // convention every other binder uses (pat_bind's At case already
-                // does). The alloca-of-a-pointer below records NO SHAPE, so
-                // `n.field` / `n.N` GEP the alloca ADDRESS. PROBES.md 2026-09-16f.
-                // ⚠ OWNED SCRUTINEES ONLY. Through a `&W` the place IS the W and
-                // `scrut_ty` is the REFERENCE, so bind_name_at_slot's scalar arm
-                // would load one level too many — measured: it broke the legal
-                // `match &w { y @ W{..} }` (a10) that is correct without it.
-                TypeRef binder_bty(scrut_ty);
-                const bool binder_via_ref = binder_bty &&
-                    (binder_bty.kind() == LogosType::Kind::Ref ||
-                     binder_bty.kind() == LogosType::Kind::MutRef ||
-                     binder_bty.kind() == LogosType::Kind::Ptr);
-                // (the reference value as written, not the fully peeled `scrut_ptr`)
-                if (binder_via_ref && scrut_written && !pa.ref_mode()) sv = scrut_written;
-                if (pa.ref_mode()) {
-                    // `ref n @ sub`: n borrows the matched place. An owned
-                    // scrutinee's address, or a spilled scalar value's.
-                    mlir::Value addr = sv;
-                    if (!(sv && sv.getType() == ptr_type() && !binder_via_ref)) {
-                        addr = create_entry_alloca(sv.getType());
-                        builder_.create<mlir::LLVM::StoreOp>(loc_, sv, addr);
-                    }
-                    bind_ref_name(aname, addr, scrut_ty);
-                } else if (sv && sv.getType() == ptr_type() && !binder_via_ref) {
-                    bind_name_at_slot(aname, sv, scrut_ty, nullptr);
-                } else {
-                    auto alloca = create_entry_alloca(sv.getType());
-                    builder_.create<mlir::LLVM::StoreOp>(loc_, sv, alloca);
-                    evict_var_shapes(aname);
-                    scope_[aname] = alloca;
-                    let_vars_.insert(aname);
-                    var_elem_types_[aname] = sv.getType();
-                    if (!scrut_ptr) register_thin_ref_struct_binding(aname, scrut_ty);
-                }
-            }
+            bind_whole_scrutinee_at(pa, scrut, scrut_ptr, scrut_written, scrut_ty);
             // C5: recurse into sub-pattern to bind nested fields.
             if (auto sub = pa.sub()) extract_payload(sub);
             return;
@@ -6156,7 +6163,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                                 mlir::Value sp = scrut_ptr ? scrut_ptr
                                                : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                                 if (!scrut_ptr && !collapsed_scrut) sp = aggregate_scrut_base(v.scrut(), sp);
-                                alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, pat_test(alt, sp, scrut_ty));
+                                alt_or = builder_.create<mlir::arith::OrIOp>(loc_, alt_or, pat_test(alt, sp, door_place_type(scrut_ty)));
                                 return;
                             }
                             auto cv = coerce_int(
@@ -6193,7 +6200,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                         mlir::Value sp = scrut_ptr ? scrut_ptr
                                        : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                         if (!scrut_ptr && !collapsed_scrut) sp = aggregate_scrut_base(v.scrut(), sp);
-                        auto cond = pat_test(sub, sp, scrut_ty);
+                        auto cond = pat_test(sub, sp, door_place_type(scrut_ty));
                         builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
                     }
                     else_block = test_block;
@@ -6231,11 +6238,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                 builder_.setInsertionPointToStart(test_block);
                 mlir::Value tptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
                 // A `&(..)` scrutinee's VALUE is already the tuple's address.
-                TypeRef tty = scrut_ty;
-                while (tty && (TypeRef(tty).kind() == LogosType::Kind::Ref ||
-                               TypeRef(tty).kind() == LogosType::Kind::MutRef) && TypeRef(tty).pointee())
-                    tty = TypeRef(tty).pointee();
-                mlir::Value cond = pat_test(arm_pat, tptr, tty);
+                mlir::Value cond = pat_test(arm_pat, tptr, door_place_type(scrut_ty));
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
@@ -6248,59 +6251,23 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                       TypeRef(scrut_ty).kind() == LogosType::Kind::MutRef) &&
                      TypeRef(scrut_ty).pointee() &&
                      TypeRef(TypeRef(scrut_ty).pointee()).kind() == LogosType::Kind::Array))) {
-            // P4-pm-04: refutable slice pattern on fixed-size array.
-            // GEP each scalar sub-element and AND-chain equality tests.
-            // PatWild sub-patterns contribute no constraint. Suffix
-            // indices are computed from arr_size - suffix_count.
-            // (Dynamic slice scrutinees deferred — would need length
-            // check and runtime-known arr_size.)
-            lir_view::PatSliceView sv{arm_pat};
-            // G160-4: peel a `&[u8; N]` ref — the ref value IS the array base
-            // pointer (one level, like `&struct`), so `aptr` below works for
-            // both the by-value array and the ref forms.
+            // A slice pattern over a fixed-size array (or `&[T; N]` — the ref
+            // value IS the array base): the one pattern tester. This arm had
+            // its own Int/Bool-only element check, so a range, a variant or a
+            // nested pattern in an element tested NOTHING and matched.
             TypeRef atyp = scrut_ty;
             if ((TypeRef(atyp).kind() == LogosType::Kind::Ref ||
                  TypeRef(atyp).kind() == LogosType::Kind::MutRef) &&
                 TypeRef(atyp).pointee())
                 atyp = TypeRef(atyp).pointee();
-            auto elem_mlir = logos_to_mlir(TypeRef(atyp).elem());
-            auto arr_mlir  = logos_to_mlir(atyp);
-            size_t total   = (size_t)TypeRef(atyp).arr_size();
-            size_t suf_n   = sv.suffix_count();
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
                 mlir::Value aptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                // Same fact as the binder site: the refutable arm's element
-                // TEST also GEPs from this base, so a literal-element arm over
-                // an array-typed place was refused by the same verifier error.
                 if (!scrut_ptr && !collapsed_scrut) aptr = aggregate_scrut_base(v.scrut(), aptr);
-                mlir::Value cond =
-                    builder_.create<mlir::arith::ConstantIntOp>(loc_, 1, 1);
-                auto chk_at = [&](lir_view::PatRef sp, int32_t idx) {
-                    if (!sp || sp.kind() == pc::Code::Wild) return;
-                    int64_t sub_val = 0;
-                    if      (sp.kind() == pc::Code::Int)  sub_val = lir_view::PatIntView{sp}.value();
-                    else if (sp.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sp}.value() ? 1 : 0;
-                    else return;
-                    if (!elem_mlir || !arr_mlir) return;
-                    llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), idx};
-                    auto ep = builder_.create<mlir::LLVM::GEPOp>(
-                        loc_, ptr_type(), arr_mlir, aptr, gi);
-                    auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
-                    auto cv = coerce_int(
-                        builder_.create<mlir::arith::ConstantIntOp>(loc_, sub_val, 64),
-                        elem_mlir);
-                    auto eq = builder_.create<mlir::arith::CmpIOp>(
-                        loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
-                    cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
-                };
-                int32_t idx = 0;
-                sv.each_prefix([&](lir_view::PatRef sp){ chk_at(sp, idx++); });
-                int32_t sidx = (int32_t)(total - suf_n);
-                sv.each_suffix([&](lir_view::PatRef sp){ chk_at(sp, sidx++); });
+                mlir::Value cond = pat_test(arm_pat, aptr, atyp);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
@@ -6308,58 +6275,18 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                    scrut_ty &&
                    TypeRef(scrut_ty).kind() == LogosType::Kind::Slice &&
                    TypeRef(scrut_ty).elem()) {
-            // G149-4: top-level dynamic-slice (`&[T]`) match arm. The scrut is
-            // a fat pointer `{data, i64 len}`; gate on the runtime length
-            // (== prefix when no rest, >= prefix+suffix with a `..`) and
-            // AND-chain any literal prefix-element checks. Element/rest
-            // bindings are emitted by extract_payload's dynamic-slice case.
-            // (Previously this fell through to the default scalar-disc path,
-            // which cmpi'd the slice pointer → silent wrong dispatch.)
-            lir_view::PatSliceView sv{arm_pat};
-            TypeRef stype_l = scrut_ty;
-            auto elem_mlir = logos_to_mlir(TypeRef(stype_l).elem());
-            auto sdtype = slice_llvm_type();
-            size_t pre_n = sv.prefix_count();
-            size_t suf_n = sv.suffix_count();
-            bool has_rest = (bool)sv.rest();
+            // G149-4: top-level dynamic-slice (`&[T]`) match arm: the one
+            // pattern tester (length gate, then prefix AND suffix elements,
+            // any sub-pattern kind). This arm checked literal prefix elements
+            // only — a suffix or a nested pattern tested nothing — and read
+            // them before the length gate.
             auto* test_block = new mlir::Block();
             region->push_back(test_block);
             {
                 mlir::OpBuilder::InsertionGuard ig(builder_);
                 builder_.setInsertionPointToStart(test_block);
                 mlir::Value sptr = scrut_ptr ? scrut_ptr : (collapsed_scrut ? collapsed_scrut : gen_expr(v.scrut()));
-                // len = slot.1
-                llvm::SmallVector<mlir::LLVM::GEPArg> li{int32_t(0), int32_t(1)};
-                auto lp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr, li);
-                auto slen = builder_.create<mlir::LLVM::LoadOp>(loc_, builder_.getI64Type(), lp);
-                auto n = builder_.create<mlir::arith::ConstantIntOp>(
-                    loc_, (int64_t)(pre_n + suf_n), 64);
-                auto pred = has_rest ? mlir::arith::CmpIPredicate::sge
-                                     : mlir::arith::CmpIPredicate::eq;
-                mlir::Value cond = builder_.create<mlir::arith::CmpIOp>(loc_, pred, slen, n);
-                // Literal prefix-element checks through the data pointer.
-                if (elem_mlir && pre_n > 0) {
-                    llvm::SmallVector<mlir::LLVM::GEPArg> di{int32_t(0), int32_t(0)};
-                    auto dp = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), sdtype, sptr, di);
-                    auto data = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), dp);
-                    int32_t pi = 0;
-                    sv.each_prefix([&](lir_view::PatRef sp){
-                        int32_t idx = pi++;
-                        if (!sp || sp.kind() == pc::Code::Wild) return;
-                        int64_t sub_val = 0;
-                        if      (sp.kind() == pc::Code::Int)  sub_val = lir_view::PatIntView{sp}.value();
-                        else if (sp.kind() == pc::Code::Bool) sub_val = lir_view::PatBoolView{sp}.value() ? 1 : 0;
-                        else return;
-                        llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(idx)};
-                        auto ep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), elem_mlir, data, gi);
-                        auto ev = builder_.create<mlir::LLVM::LoadOp>(loc_, elem_mlir, ep);
-                        auto cv = coerce_int(
-                            builder_.create<mlir::arith::ConstantIntOp>(loc_, sub_val, 64), elem_mlir);
-                        auto eq = builder_.create<mlir::arith::CmpIOp>(
-                            loc_, mlir::arith::CmpIPredicate::eq, ev, cv);
-                        cond = builder_.create<mlir::arith::AndIOp>(loc_, cond, eq);
-                    });
-                }
+                mlir::Value cond = pat_test(arm_pat, sptr, scrut_ty);
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
@@ -6402,7 +6329,7 @@ void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
                     builder_.create<mlir::LLVM::StoreOp>(loc_, sptr, a);
                     sptr = a;
                 }
-                auto cond = pat_test(arm_pat, sptr, scrut_ty);
+                auto cond = pat_test(arm_pat, sptr, door_place_type(scrut_ty));
                 builder_.create<mlir::cf::CondBranchOp>(loc_, cond, arm_entry, else_block);
             }
             else_block = test_block;
@@ -6571,6 +6498,10 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
             auto a = create_entry_alloca(place.getType());
             builder_.create<mlir::LLVM::StoreOp>(loc_, place, a);
             place = a;
+        } else if (pat_kind == pc::Code::At) {
+            // `n @ sub` over `&T`: the reference value is the T's address — the
+            // place is at T (n, typed `&T`, then binds a reference to it).
+            scrut_ty = door_place_type(scrut_ty);
         }
         auto* bind_blk = new mlir::Block();
         auto* else_blk = new mlir::Block();

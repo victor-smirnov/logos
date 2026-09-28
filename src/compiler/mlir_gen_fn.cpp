@@ -643,18 +643,9 @@ void MLIRGenImpl::bind_param(const std::string& pname, TypeRef ptype, mlir::Valu
             // pointer to the fat `{ptr, len}` descriptor. Indexed
             // read/write must deref field 0 to the data pointer first
             // (gen_index_write / EIndexRead consult var_slice_), then
-            // stride by the element type. Struct elements lay out inline,
-            // so use the struct's full LLVM type for the stride.
-            TypeRef se = pv.elem();
-            mlir::Type et;
-            if (se.kind() == LogosType::Kind::Struct ||
-                se.kind() == LogosType::Kind::ZonedStruct) {
-                auto cname = mlir_struct_key(se);
-                auto sit = struct_types_.find(cname);
-                if (sit != struct_types_.end()) et = sit->second.llvm_type;
-            }
-            if (!et) et = logos_to_mlir(se);
-            if (et) var_slice_[pname] = et;
+            // stride by the element's SLOT type (a struct, tuple or enum
+            // inline; a fat `&str`/`&[T]`/`&dyn` element its 16-byte pair).
+            if (auto et = place_slot_type(pv.elem())) var_slice_[pname] = et;
         } else if (pv.kind() == LogosType::Kind::Array && pv.elem()) {
             // Array params arrive as `ptr` (per make_fn_type). Without an
             // explicit subscript entry, gen_index_read's

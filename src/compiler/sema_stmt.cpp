@@ -4827,7 +4827,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         }
         return false;
     };
-    // …and a STRUCTURAL sub-pattern (a tuple, a struct, a nested variant) whose
+    // …and a STRUCTURAL sub-pattern (a tuple, a struct, a nested variant, an
+    // array / slice pattern) whose
     // binders MOVE nothing: under a by-reference scrutinee they bind references,
     // over a Copy payload they copy, and a sub without binders binds nothing.
     // `&<structural>` over a `&T` payload copies out of T — only a Copy T.
@@ -4840,7 +4841,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             m = map_of(arr_of(m.get(la::ITEMS.code)).get(0));
         const int32_t c = code_of(m);
         auto structural = [](int32_t k) {
-            return k == la::PAT_TUPLE || k == la::PAT_STRUCT || k == la::PAT_VARIANT_DATA || k == la::PAT_VARIANT;
+            return k == la::PAT_TUPLE || k == la::PAT_STRUCT || k == la::PAT_VARIANT_DATA || k == la::PAT_VARIANT ||
+                   k == la::PAT_SLICE;
         };
         if (!ftype || TypeRef(ftype).kind() == LogosType::Kind::Error ||
             TypeRef(ftype).kind() == LogosType::Kind::TypeVar)
@@ -8131,22 +8133,20 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         v.each_sub([&](lir_view::PatRef sp) {
             // ⚠ RefBind for the same reason: a `ref` element's name is in the
             // SUB, not in `each_binding`, so without this arm it never defines.
-            // ⚠ Struct introduces names too; Slice is NOT here because pat_bind
-            // has no case for it — sema would define a name codegen never binds
-            // (measured: prints 0, PROBES.md 2026-09-16p). RefPat IS here since
-            // pat_bind gained its RefPat case; the two halves are a door in
-            // SERIES and neither may be armed alone (PROBES.md 2026-09-17f).
-            // A nested SLICE pattern over a BY-VALUE ARRAY element: pat_bind binds
-            // exactly that shape now (its Slice case), so its names are defined.
-            const bool array_slice = sp && sp.kind() == ps::Code::Slice && idx < types.size() &&
-                                     types[idx] && TypeRef(types[idx]).kind() == LogosType::Kind::Array;
+            // Struct, RefPat and Slice introduce names too; each is here because
+            // pat_bind binds that shape (a door in SERIES: neither half may be
+            // armed alone, PROBES.md 2026-09-17f). Slice covers an array, a
+            // `&[T; N]` and a dynamic `&[T]` element alike — `([1, x], k)` over
+            // `(&[i64], i64)` left `x` undefined while only the by-value array
+            // was admitted.
             if (sp && (sp.kind() == ps::Code::VariantData ||
                        sp.kind() == ps::Code::Or ||
                        sp.kind() == ps::Code::At ||
                        sp.kind() == ps::Code::RefBind ||
                        sp.kind() == ps::Code::Struct ||
                        sp.kind() == ps::Code::RefPat ||
-                       sp.kind() == ps::Code::Tuple || array_slice)) {
+                       sp.kind() == ps::Code::Tuple ||
+                       sp.kind() == ps::Code::Slice)) {
                 TypeRef sub_t = idx < types.size() ? types[idx] : error_t();
                 bind_pattern_ref(sp, sub_t);
             } else {

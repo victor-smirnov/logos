@@ -1,0 +1,34 @@
+// ADR 0030 S3: a slice pattern nested in a tuple element or a variant payload tests and binds like a
+// top-level one: `([1, x], k)` over `(&[i64], i64)` left `x` undefined (only a by-value array
+// element was admitted), and `Some([a, .., b])` was refused ("nested patterns inside enum-variant
+// payloads are not yet supported").
+package slice_subpattern_in_tuple_and_payload;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.option; use logos.lang.result;
+enum E { V(i64, [i64; 2]) }
+fn in_tuple(t: (&[i64], i64)) -> i64 { match t { ([1, x], k) => x * k, ([.., 9], k) => k, (_, k) => -k } }
+fn in_tuple_arr(t: (&[i64; 3], i64)) -> i64 { match t { ([1, y, ..], k) => y * k, _ => 0 } }
+fn in_tuple_strings(t: (&[String], i64)) -> i64 { match t { ([a, ..], 1) => a.len() as i64, ([.., z], _) => z.len() as i64 + 100, _ => 0 } }
+fn opt_slice(o: Option<&[i64]>) -> i64 { match o { Some([a, .., b]) => a + b, Some([a]) => *a, Some([]) => 0, None => -1 } }
+fn opt_arr(o: Option<&[i64; 3]>) -> i64 { match o { Some([1, m, _]) => *m, Some([_, _, z]) => *z, None => -1 } }
+fn opt_strings(o: Option<&[String]>) -> i64 { match o { Some([a, rest @ ..]) => a.len() as i64 * 10 + rest.len() as i64, Some([]) => 0, None => -1 } }
+fn res_arr(r: Result<[i64; 2], i64>) -> i64 { match r { Ok([0, y]) => y, Ok([x, _]) => -x, Err(e) => e * 10 } }
+fn variant(e: &E) -> i64 { match e { E::V(1, [a, 2]) => *a, E::V(k, [_, b]) => k * 10 + b } }
+fn if_let_tail(o: Option<&[i64]>) -> i64 { if let Some([.., 9]) = o { 1 } else { 0 } }
+fn let_else_head(o: Option<&[i64]>) -> i64 { let Some([x, ..]) = o else { return -1; }; *x }
+fn main() -> i32 {
+    let a = [1i64, 5]; let b = [4i64, 9]; let c = [4i64];
+    let arr = [1i64, 2, 3];
+    let v = vec![String::from("abc"), String::from("zz")];
+    let n1 = in_tuple((&a, 3)) + in_tuple((&b, 2)) + in_tuple((&c, 7)) + in_tuple_arr((&arr, 5));
+    let n2 = in_tuple_strings((v.as_slice(), 1)) + in_tuple_strings((v.as_slice(), 2));
+    let x = [3i64, 4, 5]; let y = [8i64]; let z: [i64; 0] = [];
+    let n3 = opt_slice(Some(&x)) + opt_slice(Some(&y)) + opt_slice(Some(&z)) + opt_slice(None);
+    let m1 = [1i64, 6, 2]; let m2 = [2i64, 6, 7];
+    let n4 = opt_arr(Some(&m1)) + opt_arr(Some(&m2)) + opt_arr(None) + opt_strings(Some(v.as_slice())) + opt_strings(None);
+    let n5 = res_arr(Ok([0, 5])) + res_arr(Ok([3, 5])) + res_arr(Err(2)) + variant(&E::V(1, [7, 2])) + variant(&E::V(3, [7, 9]));
+    let t1 = [1i64, 9]; let t2 = [9i64, 1];
+    let n6 = if_let_tail(Some(&t1)) + if_let_tail(Some(&t2)) + let_else_head(Some(&b)) + let_else_head(Some(&z));
+    let mut ma = [1i64, 2];
+    { let t = (&mut ma, 0i64); match t { ([h, _], _) => { *h = 10; } } }
+    return (n1 + n2 + n3 + n4 + n5 + n6 + ma[0]) as i32;
+}

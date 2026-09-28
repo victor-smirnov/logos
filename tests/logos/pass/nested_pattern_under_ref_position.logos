@@ -1,0 +1,25 @@
+// ADR 0030 S3: an aggregate pattern at a REFERENCE-typed position (a `&(..)` tuple element, an
+// `Option<&S>` payload, an `n @ sub` over `&[T; N]` / `&(..)`) finds its storage one load away (the
+// slot convention). It bound a pointer's bytes as fields (`((1, y), k)`, `Some(S { x: 1, y })`),
+// indexed the binder's slot (`y @ [1, _]`), and loaded a tuple element as a pointer (`y @ (1, _)`:
+// SIGSEGV).
+package nested_pattern_under_ref_position;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.option; use logos.lang.result;
+struct S { x: i64, y: i64 }
+struct P { a: i64 }
+fn tup(t: (&(i64, i64), i64)) -> i64 { match t { ((1, y), k) => y * k, ((x, _), _) => -x } }
+fn opt_struct(o: Option<&S>) -> i64 { match o { Some(S { x: 1, y }) => *y, Some(S { x, .. }) => -x, None => 0 } }
+fn opt_pair(o: Option<&(P, i64)>) -> i64 { match o { Some((P { a: 1 }, k)) => *k, Some((P { a }, _)) => -a, None => 0 } }
+fn at_array(r: &[i64; 2]) -> i64 { match r { y @ [1, _] => y[1], _ => 0 } }
+fn at_tuple(r: &(i64, i64)) -> i64 { match r { y @ (1, _) => y.1, _ => 0 } }
+fn at_let_else(r: &(i64, i64)) -> i64 { let y @ (1, _) = r else { return -1; }; y.1 }
+fn main() -> i32 {
+    let p = (1i64, 7i64); let q = (4i64, 0i64);
+    let s1 = S { x: 1, y: 7 }; let s2 = S { x: 4, y: 0 };
+    let x1 = (P { a: 1 }, 9i64); let x2 = (P { a: 3 }, 9i64);
+    let arr = [1i64, 2]; let t = (1i64, 3i64);
+    let r = tup((&p, 2)) + tup((&q, 2)) + opt_struct(Some(&s1)) + opt_struct(Some(&s2)) + opt_struct(None)
+        + opt_pair(Some(&x1)) + opt_pair(Some(&x2)) + opt_pair(None)
+        + at_array(&arr) + at_tuple(&t) + at_let_else(&t) + at_let_else(&q);
+    return r as i32;
+}

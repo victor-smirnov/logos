@@ -1,0 +1,37 @@
+// ADR 0030 S3: every slice pattern is tested by the one pattern tester (length gate, then prefix AND
+// suffix elements through pat_test) and bound by the one binder. The door copies tested literal
+// prefix elements only (a suffix, a range or a variant element matched anything), read elements
+// before the length gate, and strode a `&str` element as 8 bytes (`[.., last]` over `&[&str]` read
+// the middle element; `[x, y, z]` read a length as a pointer: SIGSEGV).
+package slice_patterns_one_tester;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.option; use logos.lang.result;
+#[derive_copy]
+#[derive_clone]
+enum Sh { Dot(i64), Line(i64, i64) }
+fn cls(s: &[i64]) -> i64 {
+    match s { [] => 0, [.., 1..=5] => 1, [0, .., 9] => 2, [_, x @ 10..=20, ..] => *x, _ => 3 }
+}
+fn cls_expr(s: &[i64]) -> i64 {
+    let r = match s { [] => 0, [.., 1..=5] => 1, [0, .., 9] => 2, [_, x @ 10..=20, ..] => *x, _ => 3 };
+    r
+}
+fn tail_dot(s: &[Sh]) -> i64 {
+    match s { [.., Sh::Dot(d)] => *d, [Sh::Line(a, _), ..] => 10 + *a, _ => 0 }
+}
+fn first_dot(items: &[Sh]) -> i64 { if let [Sh::Dot(d), ..] = items { *d } else { 0 } }
+fn words(w: &[&str]) -> i64 {
+    let a = match w { [x, y, z] => (x.len() + y.len() * 10 + z.len() * 100) as i64, _ => 0 };
+    let b = match w { [.., last] => last.len() as i64, _ => 0 };
+    let c = match w { [_, rest @ ..] => rest.len() as i64, _ => 0 };
+    a + b + c
+}
+fn main() -> i32 {
+    let a = [7i64, 3]; let b = [0i64, 4, 9]; let c = [1i64, 15, 30]; let d = [8i64]; let e: [i64; 0] = [];
+    let n1 = cls(&a) + cls(&b) + cls(&c) + cls(&d) + cls(&e);
+    let n2 = cls_expr(&a) + cls_expr(&b) + cls_expr(&c) + cls_expr(&d) + cls_expr(&e);
+    let v = [Sh::Line(5, 6), Sh::Dot(4)]; let w = [Sh::Line(7, 1)]; let x = [Sh::Dot(2), Sh::Line(0, 0)];
+    let n3 = tail_dot(&v) + tail_dot(&w) + tail_dot(&x) + first_dot(&w) + first_dot(&x);
+    let ws = ["a", "abcd", "ab"];
+    let n4 = words(&ws);
+    return (n1 + n2 + n3 + n4 - 200) as i32;
+}
