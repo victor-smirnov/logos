@@ -1,0 +1,22 @@
+// A generic enum's type arguments are part of the mangled instance key, as a struct's are:
+// `Vec<Option<i64>>` and `Vec<Option<(i64, i64)>>` in one program were ONE monomorphic instance
+// (`VecIntoIter$G1$Option`), so iterating the first strode it by the second's layout and read
+// `Some(5)` as `None` (cluster generic-instance-key-collision). Same for generic fns over
+// `Option<T>` instantiated at two T.
+package generic_enum_type_args_distinct_instances;
+use logos.mem.collections.vec; use logos.lang.option; use logos.lang.result;
+fn first<T>(v: Vec<T>) -> Option<T> { let mut it = v.into_iter(); it.next() }
+fn main() -> i32 {
+    let v = vec![Some(1i64), None, Some(5i64), Some(2i64)];
+    let mut acc = 0i64;
+    for o in v { match o { Some(d) => { acc += d; } None => { acc += 100; } } }
+    let pairs = vec![Some((10i64, 20i64)), None];
+    for p in pairs { match p { Some((a, b)) => { acc += a + b; } None => { acc += 1000; } } }
+    let rs: Vec<Result<i64, bool>> = vec![Ok(3), Err(true)];
+    for r in rs { match r { Ok(x) => { acc += x; } Err(_) => { acc += 10000; } } }
+    let a = first(vec![Some(7i64), None]);
+    let b = first(vec![Some((1i64, 2i64))]);
+    match a { Some(Some(x)) => { acc += x; } _ => {} }
+    match b { Some(Some((p, q))) => { acc += p * q; } _ => {} }
+    return (acc % 256) as i32;
+}

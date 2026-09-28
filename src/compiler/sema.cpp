@@ -1894,10 +1894,23 @@ static std::string mangle_type_for_name(TypeRef t) {
         return concrete_struct_name(t) +
                ambiguous_type_arg_fingerprint(TypeRef(t).struct_name(),
                                               TypeRef(t).pkg_name());
-    case LogosType::Kind::Enum:
+    case LogosType::Kind::Enum: {
         // Coexistence + G156-1: fold module_id (and package, for ambiguous names)
         // into the enum's mangled identity so two same-named enums stay distinct.
-        return type_str_regions_erased(t) + type_module_suffix(TypeRef(t).enum_name(), TypeRef(t).pkg_name());
+        std::string r = type_str_regions_erased(t) +
+                        type_module_suffix(TypeRef(t).enum_name(), TypeRef(t).pkg_name());
+        // A generic enum's TYPE ARGUMENTS are its identity too, spelled as the
+        // Struct case spells them: the bare name made `Vec<Option<i64>>` and
+        // `Vec<Option<(i64, i64)>>` ONE instance (`VecIntoIter$G1$Option`), so
+        // one program iterating both strode the first by the second's layout
+        // (a `Some(5)` read as `None`).
+        if (!TypeRef(t).type_args().empty()) {
+            r += "$G";
+            r += std::to_string(TypeRef(t).type_args().size());
+            for (auto a : TypeRef(t).type_args()) { r += "$"; r += mangle_type_for_name(a); }
+        }
+        return r;
+    }
     case LogosType::Kind::Tuple: {
         std::string r = "tup$" + std::to_string(TypeRef(t).tuple_elems().size());
         for (auto e : TypeRef(t).tuple_elems()) { r += "$"; r += mangle_type_for_name(e); }

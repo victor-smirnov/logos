@@ -6661,8 +6661,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                (moving binders in payload subs carried): + 1 pass (payload_moving_binders).
 #                ALL 11693 -> 11694 (+1), NOIMPORTED 7130 -> 7131 (+1), TIERCOMMIT 204 -> 204 — 2026-09-27: ADR 0030 S3
 #                (guard bindings dead on both edges, BIR): + 1 pass (guard_bindings_in_loop).
-REGISTRY-ALL         11694
-REGISTRY-NOIMPORTED  7131
+#                ALL 11694 -> 11695 (+1), NOIMPORTED 7131 -> 7132 (+1), TIERCOMMIT 204 -> 204 — 2026-09-27: a generic
+#                enum's type args in the mangled instance key: + 1 pass (generic_enum_type_args_distinct_instances).
+REGISTRY-ALL         11695
+REGISTRY-NOIMPORTED  7132
 REGISTRY-TIERCOMMIT  204
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
