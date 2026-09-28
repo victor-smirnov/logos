@@ -76,6 +76,10 @@ struct Proj {
     // lets two of those overlap (`a[_]`); only two pattern elements are disjoint.
     bool        pattern = false;
     int64_t     sub_to = -1;        // Subslice: the END offset (from the end when from_end)
+    // Index (pattern): the slice pattern's fixed element count (prefix + suffix),
+    // MIR's ConstantIndex `min_length`. With it an element counted from the
+    // START and one counted from the END are provably apart: `s < min_length - j`.
+    int64_t     min_length = -1;
     TypeRef     ty;                 // type of the place AFTER this projection, when known
 };
 
@@ -2815,13 +2819,26 @@ private:
                 // the over-approximation the old checker's own comment calls
                 // "coarse". Refused with its own reason so the census counts it.
                 lir_view::PatSliceView sv{pat};
-                TypeRef et = t ? (t.kind() == LogosType::Kind::Array ? t.elem()
-                                                                     : TypeRef{}) : TypeRef{};
+                // A borrowed `&[T]` / `&mut [T]` scrutinee IS its reference: the
+                // elements are behind it, `(*v)[i]`, borrowed with its strength
+                // (a `&mut [T]` needs no `mut v`).
+                // (Not when the scrutinee already IS the contents: `match *s`.)
+                if (t && t.kind() == LogosType::Kind::Slice && !t.owning_slice() && !t.raw_fat() &&
+                    !(!p.proj.empty() && p.proj.back().k == bir::Proj::K::Deref)) {
+                    bir::Proj d(bir::Proj::K::Deref);
+                    d.ty = t;
+                    p = p.with(std::move(d));
+                    if (default_ref == 0) default_ref = t.mut_ptr() ? 2 : 1;
+                }
+                TypeRef et = t ? ((t.kind() == LogosType::Kind::Array || t.kind() == LogosType::Kind::Slice)
+                                      ? t.elem() : TypeRef{}) : TypeRef{};
+                const int64_t min_len = int64_t(sv.prefix_count() + sv.suffix_count());
                 int64_t i = 0;
                 sv.each_prefix([&](lir_view::PatRef sub) {
                     bir::Proj ix(bir::Proj::K::Index);
                     ix.pattern = true;
                     ix.const_index = i++;
+                    ix.min_length = min_len;
                     ix.ty = et;
                     if (sub) bind_pattern(p.with(std::move(ix)), et, sub, default_ref);
                 });
@@ -2881,6 +2898,7 @@ private:
                 sv.each_suffix([&](lir_view::PatRef sub) {
                     bir::Proj ix(bir::Proj::K::Index);
                     ix.pattern = true;
+                    ix.min_length = min_len;
                     if (alen >= 0) ix.const_index = alen - j;
                     else         { ix.const_index = j; ix.from_end = true; }
                     --j;
@@ -4806,6 +4824,28 @@ private:
                 x.const_index >= 0 && y.const_index >= 0 && x.from_end == y.from_end &&
                 x.const_index != y.const_index)
                 return false;   // two pattern elements of one array
+            // One element from the START (offset s) and one from the END (the
+            // j-th last) of a pattern with min_length m are apart when s < m - j
+            // — MIR's ConstantIndex rule: `[first, .., last]`.
+            if (x.k == bir::Proj::K::Index && y.k == bir::Proj::K::Index && x.pattern && y.pattern &&
+                x.const_index >= 0 && y.const_index >= 0 && x.from_end != y.from_end) {
+                const auto& st = x.from_end ? y : x;
+                const auto& en = x.from_end ? x : y;
+                const int64_t m = std::max(st.min_length, en.min_length);
+                if (m >= 0 && st.const_index < m - en.const_index) return false;
+            }
+            // A REST (Subslice [start, len - end)) and a pattern element outside
+            // it: a prefix element before `start`, a suffix element within the
+            // last `end`: `[first, rest @ ..]`.
+            if ((x.k == bir::Proj::K::Subslice && y.k == bir::Proj::K::Index && y.pattern) ||
+                (y.k == bir::Proj::K::Subslice && x.k == bir::Proj::K::Index && x.pattern)) {
+                const auto& ss = x.k == bir::Proj::K::Subslice ? x : y;
+                const auto& el = x.k == bir::Proj::K::Subslice ? y : x;
+                if (ss.from_end && ss.const_index >= 0 && ss.sub_to >= 0 && el.const_index >= 0) {
+                    if (!el.from_end && el.const_index < ss.const_index) return false;
+                    if (el.from_end && el.const_index <= ss.sub_to) return false;
+                }
+            }
             // ⚠ `x.from_end != y.from_end` FALLS THROUGH TO OVERLAP ON PURPOSE:
             // `a[2]` and the element 1 FROM THE END are the same element of a
             // 3-array and different elements of a 4-array, and the length is
@@ -4991,6 +5031,12 @@ private:
                 // borrow IS the value, so its deref is a borrowing one and its
                 // strength is the borrow's own.
                 else if (t.borrowed_dyn_callable()) out |= t.mut_borrowed_dyn_callable() ? 2u : 1u;
+                // A borrowed `&[T]` / `&mut [T]` (the fat Slice kind) likewise.
+                else if (t.kind() == LogosType::Kind::Slice && !t.owning_slice() && !t.raw_fat()) {
+                    out |= t.mut_ptr() ? 2u : 1u;
+                    t = pj.ty ? pj.ty : t;
+                    continue;
+                }
                 else if (t.kind() == LogosType::Kind::Ptr) return out & 4u;   // raw: outside the borrow system (a static's address is spelled as one)
                 else if (!is_std_box(t)) return out;
                 t = pj.ty ? pj.ty : (t.kind() == LogosType::Kind::Struct

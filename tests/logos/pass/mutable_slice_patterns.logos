@@ -1,0 +1,22 @@
+// ADR 0030 S3: a slice pattern over `&mut [T]` binds its elements `&mut T` (and a rest `&mut [T]`) —
+// the default binding mode takes the fat slice's own mutability. They were bound shared (`*first = 9`
+// refused). In BIR the elements are behind the slice reference, `(*v)[i]` (no `mut v` needed), and
+// elements named from the start and from the end of a pattern are apart by MIR's ConstantIndex rule
+// (`[first, .., last]`, `[first, rest @ ..]` borrow disjoint places).
+package mutable_slice_patterns;
+use logos.mem.string; use logos.mem.collections.vec;
+fn ends(v: &mut [i64]) { if let [first, .., last] = v { *first = 9; *last += 100; } }
+fn head_rest(v: &mut [i64]) { if let [first, rest @ ..] = v { *first = 7; rest[0] = 8; } }
+fn two(v: &mut [i64]) -> i64 { if let [first, second, ..] = v { *first += *second; *first } else { 0 } }
+fn strings(v: &mut [String]) { match v { [s, ..] => s.push_str("!"), [] => {} } }
+fn main() -> i32 {
+    let mut a = [1i64, 2, 3];
+    ends(&mut a);
+    let mut b = [1i64, 2, 3];
+    head_rest(&mut b);
+    let mut c = [1i64, 2, 3];
+    let t = two(&mut c);
+    let mut s = vec![String::from("x")];
+    strings(s.as_mut_slice());
+    return (a[0] + a[2] + b[0] + b[1] + t + s[0].len() as i64) as i32;
+}

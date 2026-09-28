@@ -6672,8 +6672,12 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11698 -> 11700 (+2), NOIMPORTED 7135 -> 7137 (+2), TIERCOMMIT 204 -> 204 — 2026-09-28: format-family
 #                macros with no arguments: + 1 pass (zero_arg_format_macros), + 1 fail
 #                (format_macro_without_format_string_refused).
-REGISTRY-ALL         11700
-REGISTRY-NOIMPORTED  7137
+#                ALL 11700 -> 11701 (+1), NOIMPORTED 7137 -> 7138 (+1), TIERCOMMIT 204 -> 204 — 2026-09-28: ADR 0030 S3
+#                (`&mut [T]` slice patterns): + 1 pass (mutable_slice_patterns).
+#                ALL 11701 -> 11702 (+1), NOIMPORTED 7138 -> 7139 (+1), TIERCOMMIT 204 -> 204 — 2026-09-28: thin-ref
+#                binders and array args: + 1 pass (array_ref_binders).
+REGISTRY-ALL         11702
+REGISTRY-NOIMPORTED  7139
 REGISTRY-TIERCOMMIT  204
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

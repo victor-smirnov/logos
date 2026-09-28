@@ -6373,8 +6373,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
          TypeRef(scrut_orig).kind() == LogosType::Kind::MutRef ||
          (pc == la::PAT_SLICE && TypeRef(scrut_orig).kind() == LogosType::Kind::Slice &&
           !(place_deref_scrut_type_ && scrut_orig == place_deref_scrut_type_)));
+    // …and a `&mut [T]` IS a mutable one (the fat Slice kind's `mut`): `[first,
+    // ..]` over it binds `first: &mut T`. Asked of MutRef alone, it bound a
+    // shared reference and `*first = 9` was refused.
     const bool dbm_mut = dbm_ref &&
-        TypeRef(scrut_orig).kind() == LogosType::Kind::MutRef;
+        (TypeRef(scrut_orig).kind() == LogosType::Kind::MutRef ||
+         (TypeRef(scrut_orig).kind() == LogosType::Kind::Slice && TypeRef(scrut_orig).mut_ptr() &&
+          !TypeRef(scrut_orig).raw_fat()));
     // A plain named binder: PAT_WILD + NAME, neither modifier (`ref` has its own
     // door; `mut` here is pat.binding.modifier-requires-move-mode).
     auto dbm_named_bind = [&](writ::TinyMapView n) -> std::string {
@@ -8335,6 +8340,9 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                                            TypeRef(sl_outer).kind() == LogosType::Kind::MutRef);
         bool sl_default_mut = sl_default_ref &&
                               TypeRef(sl_outer).kind() == LogosType::Kind::MutRef;
+        // A `&mut [T]` scrutinee (the fat Slice kind) lends its rest mutably.
+        const bool sl_mut_slice = sl_outer && TypeRef(sl_outer).kind() == LogosType::Kind::Slice &&
+                                  TypeRef(sl_outer).mut_ptr() && !TypeRef(sl_outer).raw_fat();
         TypeRef elem_raw = (sl_scrut && TypeRef(sl_scrut).elem())
                             ? TypeRef(sl_scrut).elem() : error_t();
         TypeRef elem_t = elem_raw;
@@ -8347,7 +8355,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // G149-4: a named rest (`xs @ ..`) binds the sub-slice as `&[T]`
         // (Slice kind), not an element. Anonymous `_` rest binds nothing.
         // Its ELEMENT type is the raw one: the mode wraps the element BINDING.
-        TypeRef rest_slice_t = make_slice_type(elem_raw);
+        TypeRef rest_slice_t = make_slice_type(elem_raw, sl_default_mut || sl_mut_slice);
         v.each_rest  ([&](lir_view::PatRef p) { bind_pattern_ref(p, rest_slice_t); });
         v.each_suffix([&](lir_view::PatRef p) { bind_pattern_ref(p, elem_t); });
     } else if (k == ps::Code::Or) {

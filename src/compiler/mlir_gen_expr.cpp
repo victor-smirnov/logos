@@ -3274,7 +3274,10 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
             if (v.getType() != param_types[i] &&
                 param_types[i] == ptr_type() &&
                 v.getType() != ptr_type() &&
-                (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()) || param_tagged_enum))
+                (mlir::isa<mlir::LLVM::LLVMStructType>(v.getType()) ||
+                 // an ARRAY value too (arrays are passed by pointer): `v.push(p[i])`
+                 // with `T = [i64; 2]` handed the loaded array to a ptr param.
+                 mlir::isa<mlir::LLVM::LLVMArrayType>(v.getType()) || param_tagged_enum))
                 v = spill_to_alloca(v);
             else if (v.getType() != ptr_type())
                 v = coerce_numeric(v, param_types[i], arg_refs[i].type(pool_impl()));
@@ -3611,7 +3614,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             if (val.getType() != param_types[pi] &&
                 param_types[pi] == ptr_type() &&
                 val.getType() != ptr_type() &&
-                (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()) || param_tagged_enum))
+                (mlir::isa<mlir::LLVM::LLVMStructType>(val.getType()) ||
+                 mlir::isa<mlir::LLVM::LLVMArrayType>(val.getType()) || param_tagged_enum))
                 val = spill_to_alloca(val);
             else
                 val = coerce_numeric(val, param_types[pi], arg_refs[i].type(pool_impl()));

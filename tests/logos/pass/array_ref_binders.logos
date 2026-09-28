@@ -1,0 +1,19 @@
+// A pattern binder of thin reference type (`for row in grid.iter()` over `[[i64; 4]; 2]`, `Some(row)` of an
+// `Option<&[i64; 4]>`) holds its reference in its slot, as a `let r: &T` local does: `row[2]` indexes the
+// referent (it indexed the slot: garbage). And an ARRAY value passed to a by-pointer parameter is spilled
+// (`vec![[1, 2], [3, 4]]`: vec_from_arr's `v.push(p[i])` with `T = [i64; 2]` failed MLIR verification).
+package array_ref_binders;
+use logos.mem.collections.vec; use logos.lang.option; use logos.lang.iter;
+fn bump(r: &mut [i64; 2]) { r[0] += 5; }
+fn main() -> i32 {
+    let grid = [[1i64, 2, 3, 4], [5i64, 6, 7, 8]];
+    let mut s = 0i64;
+    for row in grid.iter() { let c = 2; s += row[c] + row[0]; }
+    let o: Option<&[i64; 4]> = Some(&grid[1]);
+    match o { Some(row) => { s += row[3] * 10; } None => {} }
+    let mut v: Vec<[i64; 2]> = vec![[1i64, 2i64], [3i64, 4i64]];
+    for r in v.iter_mut() { r[1] = 0; }
+    for r in v.iter_mut() { bump(r); }
+    s += v[0][0] + v[0][1] + v[1][0] + v[1][1];
+    return s as i32;
+}

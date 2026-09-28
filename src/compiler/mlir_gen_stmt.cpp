@@ -383,6 +383,13 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
         scope_[bindings[bi]] = alloca;
         let_vars_.insert(bindings[bi]);
         var_elem_types_[bindings[bi]] = vp->field_types[bi];
+        // A thin `&T` payload bound by value: the slot HOLDS the reference, as
+        // a `let r: &T` local's does (rule expr.place.ref-local-slot-load), so
+        // a place built on the name starts at the loaded pointer. Unmarked,
+        // `row[2]` over `Some(row)` of an `Option<&[i64; 4]>` indexed the slot.
+        if (lt && (TypeRef(lt).kind() == LogosType::Kind::Ref || TypeRef(lt).kind() == LogosType::Kind::MutRef) &&
+            vp->field_types[bi] == ptr_type() && ref_repr_of(TypeRef(lt)) == RefReprKind::ThinPtr)
+            ref_slot_vars_.insert(bindings[bi]);
         added.push_back(bindings[bi]);
     }
 }
@@ -5013,6 +5020,13 @@ void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_pt
         let_vars_.insert(name);
         var_elem_types_[name] = elem_mlir;
         register_thin_ref_struct_binding(name, ty);  // D3 (task #50)
+        // The slot holds a thin reference: a place built on the name starts at
+        // the loaded pointer (as a `let r: &T` local's; see bind_enum_payload).
+        if (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref || TypeRef(ty).kind() == LogosType::Kind::MutRef) &&
+            elem_mlir == ptr_type() && ref_repr_of(TypeRef(ty)) == RefReprKind::ThinPtr &&
+            !(TypeRef(ty).pointee() && (TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::Struct ||
+                                        TypeRef(TypeRef(ty).pointee()).kind() == LogosType::Kind::ZonedStruct)))
+            ref_slot_vars_.insert(name);
     }
 }
 

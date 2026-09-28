@@ -1,12 +1,15 @@
 // rustc borrowck/borrowck-slice-pattern-element-loan-slice.rs — upstream E0502
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: fail — REFUSED since 2026-08-27 (a by-ref pattern binding now raises a loan on the scrutinee sub-place)
+// 2026-09-28: `second` is used again, as upstream uses it (`nop(&[first, second, second2, third])`); the port
+// without that use is legal (rustc accepts it — `second` is dead) and pinned a refusal with a wrong reason
+// ("`s` is not declared as mutable": the elements are behind the `&mut [i64]`, no `mut s` needed).
 package borrowck_slice_pattern_element_loan_slice;
-fn nop(a: &i64, b: &mut i64) {}
+fn nop(a: &i64, b: &i64, c: &mut i64) {}
 fn const_index_err(s: &mut [i64]) {
     if let [ref first, ref second, ..] = *s {
         if let [_, ref mut second2, ..] = *s {
-            nop(first, second2);
+            nop(first, second, second2);
         }
     }
 }
