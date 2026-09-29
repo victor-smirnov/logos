@@ -657,6 +657,37 @@ of 70 members.
   vtable are S8/S9; move-closure capture paths (`move || p.w` copies the
   field, `move || *p` captures `p`) are C-CLO (S10); `&mut **rb` over
   `&mut Box<dyn Tr>` is place typing (S6). S4 clusters 23 → 51 of 70.
+- S4.4a (2026-09-29): one argument judgment. Every call-argument site
+  (free fn — overloaded, exact and vararg —, closure and fn-pointer call,
+  trait / inherent / struct method, static call, generic call with and
+  without a pack) is `expect_arg_`: `expect_type` with the position's mask,
+  variance of the COERCED argument against the instantiated formal, and one
+  recursive literal-fit check over scalar / array / tuple literals. The
+  eleven pre-coercions (`coerce_arg_to_param` with a site-picked flag set
+  ahead of `expect_type`, or the generic call's hand chain of seven `try_*`
+  steps) and nine copies of the fit check are gone. A static call checked
+  neither range nor variance (`S::f(300)` over `u8` ran as 44), a closure
+  call no range. Fixtures static_call_literal_overflow,
+  static_call_array_literal_overflow, closure_call_literal_overflow.
+  −455 lines.
+
+S4 row (audit §4.1 C-COE), item by item:
+
+| item | state |
+|---|---|
+| unsize to dyn as an explicit cast at every site | done, S4.1 |
+| `types_compatible` rewrites/acceptances rustc lacks (`&T→*mut`, `*T→&T`, `&Vec→&[T]`) | done, S4.2 |
+| arms merge at the expectation | done, S4.3 |
+| pre-coercions ahead of `expect_type` at argument sites; variance on the coerced type | done, S4.4a |
+| pre-coercions at hint sites (if/match arm, `break` value, tuple element) | with `lub_arms` |
+| `lub_arms`: one LUB for if / match / `break` / array literal | open |
+| `coercion_plan(from, to, mask)` → ordered adjustment list, explicit LIR per step | open |
+| cast whitelist (`as`) | open |
+| remaining lenient `types_compatible` arms | open |
+| mlir per-site `coerce_to_dyn` / `coerce_numeric` | open (after `coercion_plan`) |
+| closure escape at the unsize point | deferred: ADR 0029 S3/S4 |
+| variance checks outside argument sites (let / assign / return / struct and enum literals, receiver) | open |
+| slice-method arguments (`coerce_arg_to_param` before the generic finish) | C-INF (S7): their verdict is the generic finish's |
 
 ## S5 status (2026-09-29)
 

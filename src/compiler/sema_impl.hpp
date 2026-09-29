@@ -2038,6 +2038,17 @@ private:
     // call_param_shown_); the check always uses `expected`.
     bool expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
                      std::string_view ctx, TypeRef shown = {});
+    // The argument judgment every call site shares: expect_type (the
+    // position's coercions and verdict), variance of the COERCED argument
+    // against `var_to` (the formal instantiated for this call; empty = not
+    // asked), and every unsuffixed literal in it against the formal's width.
+    // `at` names the slot ("call to 'f' arg 1").
+    bool expect_arg_(lir::LExprPtr& e, TypeRef pt, CoercePos pos, const std::string& at,
+                     TypeRef shown, TypeRef var_to);
+    // "<at>: value V does not fit in T" for each unsuffixed literal of a
+    // literal tree (scalar, array and tuple literals) whose slot in `t` is
+    // narrower than its value.
+    void lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::string& at, int tuple_depth = 0);
     // A value unsized to an expected `dyn` type by a cast (if/match arms, break
     // values, assignments). See the definition.
     TypeRef index_output_type_(TypeRef st);

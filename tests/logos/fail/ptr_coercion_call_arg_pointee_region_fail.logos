@@ -2,11 +2,8 @@ package ptr_coercion_call_arg_pointee_region_fail;
 fn keep(p: *const &'static i64) -> i64 {
     return 0i64;
 }
-fn count(s: &[&'static i64]) -> i64 {
-    return s.len();
-}
-fn f<'a>(x: & &'a i64, v: &mut Vec<&'a i64>) -> i64 {
-    return keep(x) + count(v);
+fn f<'a>(x: & &'a i64) -> i64 {
+    return keep(x);
 }
 fn main() -> i32 {
     return 0i32;
@@ -20,4 +17,6 @@ fn main() -> i32 {
 // `*const &'static i64` as this program's WRITTEN 'static (measured E09 vs N02 on that landing's first builds:
 // asked at arguments, the arm refused E09). Queue row mutptr_region_param_elided_let_arg_refused is that
 // instantiation's own defect. Method arguments (N05) are the same door.
+// The `&mut Vec<&'a i64> -> &[&'static i64]` half is deref_coerce_arg_pointee_region_fail (sema's variance
+// check sees the coerced argument since ADR 0030 S4.4a and refuses it before the borrow checker runs).
 // rustc 1.98.1 --edition 2024 (round 2026-09-15f-rustcaudit, class CONFIRMED): REFUSED — error[E0521]: borrowed data escapes outside of function. Twin src/compiler/probes/2026-09-15f-rustcaudit/rust/ptr_coercion_call_arg_pointee_region_admits.rs. Audit note: twin adds s.len() as i64 (usize).

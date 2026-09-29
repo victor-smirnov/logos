@@ -1,0 +1,14 @@
+// A `&mut Vec<&'a i64>` argument deref-coerced to a `&[&'static i64]` formal: the element region 'a must outlive
+// 'static (rustc 1.98.1: lifetime may not live long enough / E0521). The variance check compares the COERCED
+// argument (`&[&'a i64]`) with the formal (ADR 0030 S4.4a); before, it saw the uncoerced `&mut Vec<..>`, and only
+// the borrow checker refused. Was the second half of ptr_coercion_call_arg_pointee_region_fail.
+package deref_coerce_arg_pointee_region_fail;
+fn count(s: &[&'static i64]) -> i64 {
+    return s.len();
+}
+fn f<'a>(v: &mut Vec<&'a i64>) -> i64 {
+    return count(v);
+}
+fn main() -> i32 {
+    return 0i32;
+}

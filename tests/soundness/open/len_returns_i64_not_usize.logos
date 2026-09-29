@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row len_returns_i64_not_usize (tier 3, `refuses`). `Vec::len`, `str::len`, `[T; N]::len` (and
+// `slice::len`, `VecDeque::len`) return `i64`; Rust's return `usize`, so a length passed where `usize` is
+// expected is refused ("call to 'want' arg 1: expected usize, got i64"). rustc 1.98.1 --edition 2024 runs it
+// and prints 12. Not a DIVERGENCES.md row; the index side (`Vec::get(i: i64)`, A17) is the same knot.
+// Found by the ADR 0030 S4.4a battery (a closure `|s| s.len()` under `fn(&[i64]) -> usize` refused the same way).
+package len_returns_i64_not_usize;
+use logos.std.fmt;
+fn want(n: usize) -> usize { n }
+fn main() {
+    let v = vec![1i64, 2, 3];
+    let s = "abcd";
+    let a = [7u8; 5];
+    println!("{}", want(v.len()) + want(s.len()) + want(a.len()));
+}

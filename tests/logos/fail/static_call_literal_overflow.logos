@@ -1,0 +1,6 @@
+// An unsuffixed literal argument of a static call must fit its formal (rustc: literal out of range for `u8`).
+// The static-call path skipped the check when the literal was type-compatible and truncated 300 to 44.
+package static_call_literal_overflow;
+struct S;
+impl S { fn f(x: u8) -> u8 { x } }
+fn main() { let _ = S::f(300); }

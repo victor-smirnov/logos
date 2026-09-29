@@ -441,5 +441,7 @@ if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scru
 
 let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
 
-# TOTAL 132
-# SYNC-HASH f2650f2691156d88cbcceb6700fc25bb
+len_returns_i64_not_usize 3 tests/soundness/open/len_returns_i64_not_usize refuses
+
+# TOTAL 133
+# SYNC-HASH a3286625b7e24ff93531df7710082208

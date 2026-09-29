@@ -1,0 +1,4 @@
+// An unsuffixed literal argument of a closure call must fit the closure's parameter (rustc: literal out of
+// range for `u8`); the closure-call path had no range check.
+package closure_call_literal_overflow;
+fn main() { let f = |x: u8| x; let _ = f(300); }

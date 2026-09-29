@@ -1,0 +1,6 @@
+// An array literal argument of a static call: each element must fit the formal's element (rustc: literal
+// out of range for `u8`).
+package static_call_array_literal_overflow;
+struct S;
+impl S { fn f(x: [u8; 2]) -> u8 { x[1] } }
+fn main() { let _ = S::f([1, 300]); }
