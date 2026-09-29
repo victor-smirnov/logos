@@ -262,7 +262,7 @@ const uint8_t* lir_mirror_emit_deref_write       (lir::LProgram& prog, uint32_t 
 const uint8_t* lir_mirror_emit_drop              (lir::LProgram& prog, uint32_t line, std::string_view var_name, std::string_view drop_fn, TypeRef ty, bool drop_fields, const std::vector<std::string>& moved_fields = {}, uint32_t slot = 0xFFFFFFFFu);
 const uint8_t* lir_mirror_emit_deref_field_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view type_name, std::string_view field, lir_view::ExprRef value);
 const uint8_t* lir_mirror_emit_tuple_write       (lir::LProgram& prog, uint32_t line, std::string_view receiver, uint32_t index, lir_view::ExprRef value, TypeRef recv_type);
-const uint8_t* lir_mirror_emit_let_else          (lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, lir_view::BlockRef else_block, const std::vector<lir::LExprPtr>& guards = {});
+const uint8_t* lir_mirror_emit_let_else          (lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, lir_view::BlockRef else_block);
 const uint8_t* lir_mirror_emit_chain_field_write (lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, const std::vector<std::string>& extras, std::string_view field, lir_view::ExprRef value);
 
 // Stage B.6 — WritVal direct mirror writers. Allocate a fresh mirror map for

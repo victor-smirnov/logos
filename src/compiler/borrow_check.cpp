@@ -14706,7 +14706,6 @@ private:
                 } else {
                     declare_pat_bindings(v.pat());
                 }
-                v.each_guard([&](ExprRef g) { visit(g, /*consuming=*/true, ln); });
                 if (auto eb = v.else_block()) {
                     auto saved_s = states_;
                     auto saved_p = prov_;

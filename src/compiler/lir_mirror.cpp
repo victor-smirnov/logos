@@ -1038,8 +1038,7 @@ public:
     const uint8_t* emit_let_else_direct(uint32_t line,
                                                  const lir::Pattern& pat,
                                                  lir_view::ExprRef scrut,
-                                                 lir_view::BlockRef else_block,
-                                                 const std::vector<lir::LExprPtr>& guards) {
+                                                 lir_view::BlockRef else_block) {
         auto pat_off  = emit_pat(pat);
         auto scrut_av = expr_av(scrut);
         auto eb_av    = else_block ? mref_addr(else_block.addr()) : writ::AnyVal{};
@@ -1047,8 +1046,6 @@ public:
         put(map_off, sk::PAT,           mref_addr(pat_off));
         put(map_off, sk::SCRUT,         scrut_av);
         put(map_off, sk::ELSE_DIVERGE,  eb_av);
-        if (!guards.empty())
-            put(map_off, sk::LET_ELSE_GUARDS, expr_array(guards));   // G161-3
         put_line(map_off, line);
         return map_off;
     }
@@ -2395,10 +2392,10 @@ const uint8_t* lir_mirror_emit_tuple_write(lir::LProgram& prog, uint32_t line, s
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_tuple_write_direct(line, receiver, index, value, recv_type);
 }
-const uint8_t* lir_mirror_emit_let_else(lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, lir_view::BlockRef else_block, const std::vector<lir::LExprPtr>& guards) {
+const uint8_t* lir_mirror_emit_let_else(lir::LProgram& prog, uint32_t line, const lir::Pattern& pat, lir_view::ExprRef scrut, lir_view::BlockRef else_block) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_let_else_direct(line, pat, scrut, else_block, guards);
+    return em.emit_let_else_direct(line, pat, scrut, else_block);
 }
 const uint8_t* lir_mirror_emit_chain_field_write(lir::LProgram& prog, uint32_t line, std::string_view receiver, std::string_view mid_field, const std::vector<std::string>& extras, std::string_view field, lir_view::ExprRef value) {
     auto& ctr = prog.type_pool.ctr_or_init();

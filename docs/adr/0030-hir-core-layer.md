@@ -582,9 +582,17 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   moved leaf under an or (`Some(F::A(x) | F::B(x))` dropped the payload twice)
   — each alternative's leaves are marked now (per-tag paths). Fixture
   or_binders_move_drop (rustc twin).
-Next: const patterns as tester patterns (a `str` const is a PAT_STR test, a
-byte-array const an array of literals) — the guard channel goes; then the
-feature-interaction matrix re-run that closes S3.
+- S3.3c (2026-09-29): a const in pattern position is a tester pattern, as
+  rustc matches a const structurally — an array const (array literal of
+  constant elements, byte string) is the array pattern of its elements (it
+  was refused, "not ctfe-evaluable"; the byte-array guard path behind the
+  ctfe call was dead), a `str` const a PatStr (it went through a synthesized
+  `str_eq` guard). The guard channel had no producer left and is gone with
+  `SLetElse.guards` (LIR key 38 retired) through mirror, mono, mlir and the
+  borrow checker: no pattern carries a guard the tester does not see.
+  Fixtures const_patterns_structural (rustc twin),
+  const_array_pattern_length_mismatch.
+Next: the feature-interaction matrix re-run that closes S3.
 
 ## L0 status (2026-09-27)
 

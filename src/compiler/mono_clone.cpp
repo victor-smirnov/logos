@@ -5620,10 +5620,8 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         if (auto pref = v.pat()) pat = subst_pattern(pref, s);
         auto scrut = subst_child_expr(v.scrut());
         auto else_block = subst_child_block(v.else_block());
-        std::vector<lir::LExprPtr> guards;   // G161-3
-        v.each_guard([&](lir_view::ExprRef g){ guards.push_back(subst_child_expr(g)); });
         ns.mirror_ptr_ = lir_mirror_emit_let_else(
-            out_, ns.line, pat, scrut, else_block, guards);
+            out_, ns.line, pat, scrut, else_block);
         break;
     }
     default: break;

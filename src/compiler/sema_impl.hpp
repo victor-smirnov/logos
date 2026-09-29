@@ -3051,7 +3051,7 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::STupleWrite>) {
                 s.mirror_ptr_ = lir_mirror_emit_tuple_write(p, line, k.receiver, k.index, k.value, k.recv_type);
             } else if constexpr (std::is_same_v<KT, lir::SLetElse>) {
-                s.mirror_ptr_ = lir_mirror_emit_let_else(p, line, k.pat, k.scrut, k.else_block, k.guards);
+                s.mirror_ptr_ = lir_mirror_emit_let_else(p, line, k.pat, k.scrut, k.else_block);
             } else if constexpr (std::is_same_v<KT, lir::SChainFieldWrite>) {
                 s.mirror_ptr_ = lir_mirror_emit_chain_field_write(p, line, k.receiver, k.mid_field, k.extras, k.field, k.value);
             } else {
@@ -9966,7 +9966,6 @@ private:
     // ready-to-AND-combine boolean expression that uses the synth
     // binding name `build_pattern` chose for that payload slot. Match
     // arm builder consumes the list, AND-combines into the arm's guard.
-    std::vector<lir::LExprPtr>* current_pat_refutable_guards_ = nullptr;
 
     // Temporary-scope drop (Rust temporary scope = end of statement). When a
     // DROPPABLE rvalue is auto-ref'd as a `&self`/`&mut self` method receiver

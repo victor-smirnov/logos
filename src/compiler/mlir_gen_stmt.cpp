@@ -5665,8 +5665,7 @@ mlir::Value MLIRGenImpl::store_arm_result(mlir::Value val, mlir::Type rt) {
 //
 // The match door's one arm whose bindings stay in the ENCLOSING scope: the
 // scrutinee's place (match_scrut_place), `pat_test`, the else block on a miss
-// (it must diverge), `pat_bind`, then the refutable-inner guards (G161-3,
-// `SLetElse.guards`) — a failed guard is a miss too.
+// (it must diverge), then `pat_bind`.
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     if (!v.scrut() || !v.else_block()) return;
     auto pat = v.pat();
@@ -5698,16 +5697,7 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetElseView v) {
     }
     builder_.setInsertionPointToStart(bind_blk);
     pat_bind(pat, slot, scrut_ty);
-    mlir::Value guard_cond;
-    v.each_guard([&](lir_view::ExprRef g) {
-        if (!g) return;
-        auto gv = gen_expr(g);
-        if (!gv) return;
-        if (gv.getType() != builder_.getI1Type()) gv = coerce_int(gv, builder_.getI1Type());
-        guard_cond = guard_cond ? builder_.create<mlir::arith::AndIOp>(loc_, guard_cond, gv).getResult() : gv;
-    });
-    if (guard_cond) builder_.create<mlir::cf::CondBranchOp>(loc_, guard_cond, cont_blk, else_blk);
-    else            builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
+    builder_.create<mlir::cf::BranchOp>(loc_, cont_blk);
     builder_.setInsertionPointToStart(cont_blk);
 }
 

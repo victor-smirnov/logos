@@ -3155,18 +3155,6 @@ struct SLetElseView {
         if (av.is_null()) return {};
         return detail::make_sub_ref<PatRef>(self, av);
     }
-    // G161-3: refutable-inner guard exprs (`__refut_N == value`).
-    template <class F> void each_guard(F&& f) const noexcept {
-        auto av = self.mirror()->get(sk::LET_ELSE_GUARDS.code);
-        if (av.is_null()) return;
-        auto* arr = av.template as_ptr<const writ::ObjectArray>();
-        if (!arr) return;
-        for (uint64_t i = 0; i < arr->size(); ++i) {
-            auto el = arr->get(i);
-            if (el.is_null()) continue;
-            f(detail::make_sub_ref<ExprRef>(self, el));
-        }
-    }
 };
 
 struct SBreakView {

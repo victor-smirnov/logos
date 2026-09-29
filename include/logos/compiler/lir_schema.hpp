@@ -434,10 +434,7 @@ inline constexpr Key TRANSPARENT       {"TRANSPARENT",     41};   // u8 — SBlo
 // (16M items/arena). Absent = not exported. This is the stable per-element
 // handle a cross-arena ExternalRef will carry instead of a name lookup.
 inline constexpr Key EXPORT_ID         {"EXPORT_ID",       37};   // u32 (U24 AnyVal)
-// G161-3: refutable-inner guard exprs on a SLetElse (`let Some(1) = … else`).
-// Each must hold (after the pattern's bindings are bound) or the else block
-// runs; an empty/absent array means the disc/literal test is the whole check.
-inline constexpr Key LET_ELSE_GUARDS   {"LET_ELSE_GUARDS", 38};   // Array<RelPtr<LExpr>>
+// Key 38 (LET_ELSE_GUARDS) is retired: a let-else is tested by its pattern alone.
 // #121-A — THE BINDING WAS SYNTHESISED BY THE COMPILER, not written by a user.
 // Set only by `emit_cond_move_field_drops` on its `__cmfd_N` move-and-drop
 // temp. The borrow checker exempts that binding from both `Code::Let` walkers

@@ -1599,17 +1599,10 @@ lir_view::StmtRef SemaChecker::lower_let_else_core(lir::LExprPtr scrut, TinyMapV
         auto arr = arr_of(pat_node.get(la::ITEMS.code));
         if (arr.size() == 1) pat_inner = map_of(arr.get(0));
     }
-    // G161-3: the refutable guards a const pattern needs (`str` / byte-array
-    // consts, the guard channel); the SLetElse carries them so codegen tests
-    // each AFTER the bindings are bound.
-    std::vector<lir::LExprPtr> refut_guards;
-    auto* saved_pat_refut = current_pat_refutable_guards_;
-    current_pat_refutable_guards_ = &refut_guards;
     logos::compiler::StrSet mut_names;  // `let (mut a, b) = … else`: the side-set the match arms use
     auto* saved_pat_muts = current_pat_mut_names_;
     current_pat_mut_names_ = &mut_names;
     lir::Pattern pat = build_pattern(pat_node, scrut_type);
-    current_pat_refutable_guards_ = saved_pat_refut;
 
     // 3. Lower else block in nested scope (must diverge — closes B-st-03).
     push_scope();
@@ -1695,7 +1688,6 @@ lir_view::StmtRef SemaChecker::lower_let_else_core(lir::LExprPtr scrut, TinyMapV
     sle.pat        = std::move(pat);
     sle.scrut      = std::move(scrut);
     sle.else_block = else_blk;
-    sle.guards     = std::move(refut_guards);   // G161-3
     return make_stmt_emit(node_line_, std::move(sle));
 }
 
@@ -6118,6 +6110,42 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     // diagnosed — needs string-pattern codegen, separate slice.
     if (wname != "_") {
         auto cval = resolve_const_value(wname);   // G156-1: cur-package first
+        // An array const is matched structurally, as rustc matches a const: a
+        // byte string is the array pattern of its bytes, an array literal the
+        // array pattern of its (constant) elements.
+        if (cval && code_of(cval) == la::LIT_BYTES) return build_pattern_bytes(cval, scrut_type);
+        if (cval && code_of(cval) == la::ARR_LIT && cval.has_key(la::ITEMS)) {
+            TypeRef at = scrut_type;
+            while (at && (TypeRef(at).kind() == LogosType::Kind::Ref ||
+                          TypeRef(at).kind() == LogosType::Kind::MutRef) && TypeRef(at).pointee())
+                at = TypeRef(at).pointee();
+            auto items = arr_of(cval.get(la::ITEMS.code));
+            std::vector<lir::Pattern> elems;
+            bool ok = true;
+            for (uint64_t k = 0; k < items.size() && ok; ++k) {
+                auto r = ctfe::eval_expr(map_of(items.get(k)), holder_);
+                if (!r || r->kind == LogosType::Kind::Slice || r->kind == LogosType::Kind::F32 ||
+                    r->kind == LogosType::Kind::F64 || r->kind == LogosType::Kind::FloatLit) { ok = false; break; }
+                lir::Pattern ep;
+                ep.mirror_ptr_ = r->kind == LogosType::Kind::Bool
+                    ? lir_mirror_emit_pat_bool(*cur_prog_, r->b)
+                    : lir_mirror_emit_pat_int(*cur_prog_, r->i);
+                elems.push_back(std::move(ep));
+            }
+            if (ok) {
+                if (at && TypeRef(at).kind() == LogosType::Kind::Array && TypeRef(at).arr_size() != elems.size())
+                    error(std::format("mismatched types: const '{}' has {} elements, the scrutinee array {} (E0308)",
+                                      wname, elems.size(), TypeRef(at).arr_size()));
+                else if (at && TypeRef(at).kind() != LogosType::Kind::Array &&
+                         TypeRef(at).kind() != LogosType::Kind::Error && TypeRef(at).kind() != LogosType::Kind::TypeVar)
+                    error(std::format("mismatched types: const '{}' is an array, the scrutinee is '{}' (E0308)",
+                                      wname, type_str(scrut_type)));
+                std::vector<lir::Pattern> none;
+                lir::Pattern p_;
+                p_.mirror_ptr_ = lir_mirror_emit_pat_slice(*cur_prog_, elems, none, none);
+                return p_;
+            }
+        }
         if (cval) {
             auto r = ctfe::eval_expr(cval, holder_);
             if (r) {
@@ -6137,94 +6165,42 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                     p_.mirror_ptr_ = lir_mirror_emit_pat_int(*cur_prog_, cv.i);
                     return p_;
                 }
-                // P4-pm-06 str-typed const-pattern. CtfeValue reports
-                // `K::Slice` for str literals (str == Slice<u8>).
-                // Synthesize a `__str_<n>` binding + push
-                // `str_eq(__str_<n>, CONST)` into the refutable-guard
-                // side channel. The arm builder ANDs it into the arm's
-                // guard.
-                bool scrut_is_str =
-                    TypeRef(scrut_type).kind() == LogosType::Kind::Slice &&
-                    TypeRef(scrut_type).elem() &&
-                    TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8;
-                // P4-pm-07: byte-array const pattern. ctfe doesn't yet
-                // produce array values, but we can still match against
-                // the const by name. Detect `[u8; N]`-typed consts via
-                // `module_consts_` lookup; synth a `__byte_<n>` binding
-                // + emit element-wise AND-chain `__byte_<n>[i] == CONST[i]`
-                // as the refutable-inner guard.
-                if (TypeRef(scrut_type).kind() == LogosType::Kind::Array &&
-                    TypeRef(scrut_type).elem() &&
-                    TypeRef(scrut_type).elem().kind() == LogosType::Kind::U8 &&
-                    current_pat_refutable_guards_) {
-                    auto cit = module_consts_.find(resolve_const_key(wname));  // G156-1
-                    if (cit != module_consts_.end() &&
-                        TypeRef(cit->second).kind() == LogosType::Kind::Array &&
-                        TypeRef(cit->second).elem().kind() == LogosType::Kind::U8 &&
-                        TypeRef(cit->second).arr_size() ==
-                            TypeRef(scrut_type).arr_size()) {
-                        size_t arr_n = (size_t)TypeRef(scrut_type).arr_size();
-                        std::string syn = std::format(
-                            "__byte_{}", tmp_var_count_++);
-                        auto u8t = prim(LogosType::Kind::U8);
-                        auto i64t = prim(LogosType::Kind::I64);
-                        lir::LExprPtr guard = nullptr;
-                        for (size_t k = 0; k < arr_n; ++k) {
-                            auto lhs = builder().slice_index(
-                                builder().var_ref(syn, scrut_type),
-                                builder().lit_int((int64_t)k, i64t), u8t);
-                            auto rhs = builder().slice_index(
-                                builder().var_ref(wname, scrut_type),
-                                builder().lit_int((int64_t)k, i64t), u8t);
-                            auto eq = builder().bin_op(
-                                "==", std::move(lhs), std::move(rhs), bool_t());
-                            if (!guard) {
-                                guard = std::move(eq);
-                            } else {
-                                guard = builder().bin_op(
-                                    "&&", std::move(guard), std::move(eq), bool_t());
-                            }
+                // A `str` const is a string pattern (tested by content), its
+                // value spelled back as a literal.
+                if (cv.kind == K::Slice) {
+                    std::string lit = "\"";
+                    for (unsigned char ch : cv.s) {
+                        switch (ch) {
+                            case '"':  lit += "\\\""; break;
+                            case '\\': lit += "\\\\"; break;
+                            case '\n': lit += "\\n"; break;
+                            case '\t': lit += "\\t"; break;
+                            case '\r': lit += "\\r"; break;
+                            case '\0': lit += "\\0"; break;
+                            default:
+                                if (ch < 0x20) lit += std::format("\\x{:02x}", (unsigned)ch);
+                                else lit += (char)ch;
                         }
-                        if (!guard) guard = builder().lit_bool(true, bool_t());
-                        current_pat_refutable_guards_->push_back(std::move(guard));
-                        lir::Pattern p_;
-                        p_.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, syn);
-                        return p_;
                     }
-                }
-                if (cv.kind == K::Slice && scrut_is_str &&
-                    current_pat_refutable_guards_) {
-                    auto cands = find_func_candidates("str_eq");
-                    const SemaFuncInfo* fi = nullptr;
-                    for (auto* c : cands)
-                        if (c->param_types.size() == 2) { fi = c; break; }
-                    if (!fi) {
-                        error("str-const pattern needs stdlib `str_eq`; "
-                              "`use std.lang.text.string;` (or rely on the "
-                              "default prelude)");
-                    } else {
-                        std::string syn = std::format(
-                            "__str_{}", tmp_var_count_++);
-                        auto vref = builder().var_ref(syn, scrut_type);
-                        auto cref = builder().var_ref(wname, scrut_type);
-                        std::vector<lir::LExprPtr> args;
-                        args.push_back(std::move(vref));
-                        args.push_back(std::move(cref));
-                        std::string sym = fi->symbol_name.empty()
-                            ? std::string("str_eq") : fi->symbol_name;
-                        auto guard = builder().call(
-                            sym, {}, std::move(args), bool_t());
-                        current_pat_refutable_guards_->push_back(std::move(guard));
-                        lir::Pattern p_;
-                        p_.mirror_ptr_ = lir_mirror_emit_pat_wild(*cur_prog_, syn);
-                        return p_;
-                    }
+                    lit += "\"";
+                    TypeRef st = scrut_type;
+                    while (st && (TypeRef(st).kind() == LogosType::Kind::Ref ||
+                                  TypeRef(st).kind() == LogosType::Kind::MutRef) && TypeRef(st).pointee())
+                        st = TypeRef(st).pointee();
+                    const bool unknown = !st || TypeRef(st).kind() == LogosType::Kind::Error ||
+                                         TypeRef(st).kind() == LogosType::Kind::TypeVar;
+                    const bool is_str = st && TypeRef(st).kind() == LogosType::Kind::Slice && TypeRef(st).elem() &&
+                                        TypeRef(TypeRef(st).elem()).kind() == LogosType::Kind::U8;
+                    if (!unknown && !is_str)
+                        error(std::format("mismatched types: const '{}' is a `&str`, the scrutinee is '{}' (E0308)",
+                                          wname, type_str(scrut_type)));
+                    lir::Pattern p_;
+                    p_.mirror_ptr_ = lir_mirror_emit_pat_str(*cur_prog_, lit);
+                    return p_;
                 }
                 error(std::format(
-                    "const '{}' has non-scalar type — only int/bool/char "
-                    "consts are supported in patterns today (or `str` with "
-                    "P4-pm-06 — needs `current_pat_refutable_guards_` channel)",
-                    wname));
+                    "const '{}' has a type a pattern cannot compare (only "
+                    "integer / bool / char / str / array consts)", wname));
             } else {
                 error(std::format(
                     "const '{}' in pattern position: initializer is not "
@@ -10316,13 +10292,9 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             logos::compiler::StrSet mut_names;
             auto* saved_pat_muts = current_pat_mut_names_;
             current_pat_mut_names_ = &mut_names;
-            std::vector<lir::LExprPtr> refut_guards;
-            auto* saved_pat_refut = current_pat_refutable_guards_;
-            current_pat_refutable_guards_ = &refut_guards;
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
                 : make_pat_wild("_");
-            current_pat_refutable_guards_ = saved_pat_refut;
             in_match_writ_ctx_ = false;
 
             push_scope();
@@ -10438,13 +10410,6 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             if (synth_guard)
                 guard = guard ? builder().bin_op("&&", std::move(synth_guard), std::move(*guard), bool_t())
                               : std::move(synth_guard);
-            // P4-pm-01 / G145-2: AND in the refutable inner-pattern guards
-            // (they read fresh pattern-bound names, never side-effect).
-            for (auto& rg : refut_guards) {
-                if (!rg) continue;
-                guard = guard ? builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t())
-                              : std::move(rg);
-            }
 
             // This arm OWNS what its pattern binds by value — on THIS arm's
             // path only (an arm that binds nothing leaves the scrutinee a

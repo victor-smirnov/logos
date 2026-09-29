@@ -1,0 +1,20 @@
+// ADR 0030 S3: a const in pattern position is matched structurally by the
+// tester, as rustc matches it: an array const (literal or byte string) is the
+// array pattern of its elements, a `str` const a string pattern. The array
+// consts were refused ("not ctfe-evaluable"), the `str` one went through a
+// synthesized `str_eq` guard. rustc 1.98.1 twin exits 0.
+package const_patterns_structural;
+const K: [u8; 3] = [102u8, 111u8, 111u8];
+const B: [u8; 3] = b"bar";
+const S: str = "a\"b\n";
+fn c(x: [u8; 3]) -> i32 { match x { K => { return 1; } B => { return 2; } _ => { return 0; } } }
+fn d(s: str) -> i32 { match s { S => { return 1; } "zz" => { return 2; } _ => { return 0; } } }
+fn main() -> i32 {
+    if c([102u8, 111u8, 111u8]) != 1 { return 1; }
+    if c([98u8, 97u8, 114u8]) != 2 { return 2; }
+    if c([1u8, 2u8, 3u8]) != 0 { return 3; }
+    if d("a\"b\n") != 1 { return 4; }
+    if d("zz") != 2 { return 5; }
+    if d("a") != 0 { return 6; }
+    return 0;
+}
