@@ -598,8 +598,36 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   differing members since 09-28 (62 fixed, one new — a tail `match`'s
   statement temporaries were never dropped, S3.4c; they bind to the return
   value now, fixture tail_match_temporaries_dropped).
-Next: S4 (C-COE: unsize as an explicit cast, closure escape decided at the
-unsize point).
+
+## S4 status (2026-09-29)
+
+Baseline: the 18 S4 clusters of the interaction audit agreed with rustc on 23
+of 70 members.
+
+- S4.1 (2026-09-29): the unsize to a trait object is an explicit cast at
+  every coercion site. `coerce_arg_to_dyn` casts `&C` / `&mut C` → `&dyn Tr`
+  and `Box<C>` → `Box<dyn Tr>` (the source consumed) whenever C implements Tr
+  — it returned early on `types_compatible`, whose Struct → dyn arm is a
+  dispatch-scoring acceptance ("impl check deferred to codegen"), so a struct
+  source was never cast outside a `return` and codegen unsized it with a
+  guessed vtable. The unsize and the dyn upcast are in every value
+  position's mask (call and generic arguments included), and `expect_type`'s
+  verdict no longer takes that acceptance for a match: an unsize left
+  uncoerced is E0277. The hint positions (if / match arms, `break` values,
+  tuple-literal elements) run the same applier (`coerce_arg_to_param` with
+  their row of `mask_for`); `cast_to_expected_dyn`, `apply_place_coercions`
+  and expect_type's Return-only Box cast are gone. The impl question asks
+  the trait as it resolves in scope (a package-local `trait Hash` /
+  `trait FnMut` homonym of a lang item) and knows a projection's bounds
+  (`Box<T::Item>` under `type Item: X`). Deref coercion reaches a fat slot
+  (`&&str` / `&String` → `&str`: the slice IS the reference — it was never
+  tried) and runs at an assignment, as rustc coerces `b = rrx;`. A Deref
+  impl is a candidate only for its own package's target type (the impl key
+  is the target's spelling: a local `struct Vec` took the stdlib's
+  `Deref<[T]>`). S4 clusters 23 → 44 of 70.
+Next: S4.2 — narrow `types_compatible`'s silent acceptances into plan steps
+or errors (`&T` → `*mut T`, `*T` → `&T`, `&Vec<T>` → `&[T]` by layout, `!`,
+fn item → fn pointer); S4.3 — closure escape decided at the unsize point.
 
 ## L0 status (2026-09-27)
 

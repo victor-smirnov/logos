@@ -1,0 +1,31 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `unsize-in-aggregate-generic-ctor-slot`, member pairs-14_36
+// (tests/interactions/clusters/unsize-in-aggregate-generic-ctor-slot/pairs-14_36.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package m_vec_boxdyn;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+use logos.lang.clone;
+use logos.lang.default;
+use logos.lang.hash;
+use logos.lang.convert;
+use logos.mem.fmt;
+use logos.std.compiler.metaprog;
+trait A { fn a(&self) -> i64; }
+struct S(i64);
+impl A for S { fn a(&self) -> i64 { self.0 } }
+fn mk(n: i64) -> Box<dyn A> { Box::new(S(n)) }
+fn main() { let v: Vec<Box<dyn A>> = vec![mk(1), mk(2)]; println!("{}", v[1].a()); }

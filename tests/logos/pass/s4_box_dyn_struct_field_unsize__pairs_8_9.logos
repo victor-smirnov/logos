@@ -1,0 +1,16 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `box-dyn-struct-field-unsize`, member pairs-8_9
+// (tests/interactions/clusters/box-dyn-struct-field-unsize/pairs-8_9.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package f_structlit_boxdyn_field;
+use logos.mem.boxed;
+use logos.std.fmt;
+trait Expr { fn eval(&self) -> i64; }
+struct Num(i64);
+struct Add { l: Box<dyn Expr>, r: Box<dyn Expr> }
+impl Expr for Num { fn eval(&self) -> i64 { self.0 } }
+impl Expr for Add { fn eval(&self) -> i64 { self.l.eval() + self.r.eval() } }
+fn main() {
+    let a = Add { l: Box::new(Num(1)), r: Box::new(Num(2)) };
+    println!("{}", a.eval());
+    let b: Box<dyn Expr> = Box::new(Add { l: Box::new(Num(3)), r: Box::new(a) });
+    println!("{}", b.eval());
+}

@@ -522,6 +522,16 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
             if (ait == impls_all_.end()) continue;
             for (const auto& info : ait->second) {
                 if (info.is_negative) continue;
+                // The key is the target's SPELLING: an impl for another
+                // package's same-named type is not a candidate.
+                {
+                    std::string_view rpkg = TypeRef(rt).pkg_name();
+                    std::string_view ipkg = info.target_pkg;
+                    if (ipkg.empty() && info.target_typeref &&
+                        TypeRef(info.target_typeref).kind() == TypeRef(rt).kind())
+                        ipkg = TypeRef(info.target_typeref).pkg_name();
+                    if (!ipkg.empty() && !rpkg.empty() && ipkg != rpkg) continue;
+                }
                 if (info.target_typeref) {
                     StrMap<TypeRef> binds;
                     unify_types(info.target_typeref, rt, binds);
@@ -2484,7 +2494,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // And coerce like any expected-type position: `(1i64, &arr)`
             // against `(i64, &[i64])` decays the array-ref element.
             if (i < hint_elems.size() && hint_elems[i])
-                apply_place_coercions(e, hint_elems[i]);
+                coerce_arg_to_param(e, hint_elems[i], mask_for(CoercePos::TupleElem));
             // Upgrade IntLit element type to i64 if the literal overflows i32.
             TypeRef et = expr_type(e);
             if (TypeRef(et).kind() == LogosType::Kind::IntLit) {
@@ -17610,11 +17620,23 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
     std::string trait(TypeRef(pt).trait_name());
     if (trait.empty()) return false;
 
-    // (a) pointee is a TypeVar bounded (transitively) by the trait.
-    if (TypeRef(pointee).kind() == LogosType::Kind::TypeVar) {
-        std::string tv(TypeRef(pointee).type_var_name());
-        auto bit = current_type_bounds_.find(tv);
-        if (bit == current_type_bounds_.end()) return false;
+    // (a) pointee is a TypeVar, or a projection `T::Item`, bounded
+    //     (transitively) by the trait: a where-clause / parameter bound, or a
+    //     bound the trait declares on its associated type (`type Item: X`).
+    if (TypeRef(pointee).kind() == LogosType::Kind::TypeVar ||
+        TypeRef(pointee).kind() == LogosType::Kind::AssocType) {
+        std::vector<TraitBound> bounds;
+        const bool is_tv = TypeRef(pointee).kind() == LogosType::Kind::TypeVar;
+        // KEY-IDENTITY: a type-parameter name / a projection's own spelling in the signature's type-parameter namespace
+        auto bit = current_type_bounds_.find(is_tv ? std::string(TypeRef(pointee).type_var_name())
+                                                   : type_str(pointee));
+        if (bit != current_type_bounds_.end()) bounds = bit->second;
+        if (!is_tv)
+            if (auto* ati = resolve_trait(std::string(TypeRef(pointee).trait_name())))
+                for (auto& at : ati->assoc_types)
+                    if (at.name == TypeRef(pointee).assoc_type_name())
+                        bounds.insert(bounds.end(), at.bounds.begin(), at.bounds.end());
+        if (bounds.empty()) return false;
         logos::compiler::StrSet seen;
         std::function<bool(const std::string&)> reaches =
             [&](const std::string& tn) -> bool {
@@ -17626,7 +17648,7 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
                     if (reaches(s.trait_name)) return true;
                 return false;
             };
-        for (auto& b : bit->second)
+        for (auto& b : bounds)
             if (reaches(b.trait_name)) return true;
         return false;
     }
@@ -17683,7 +17705,10 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
     }
     if (bare.empty()) return false;
     logos::compiler::StrSet seen2;
-    if (!sema_has_impl_recursive(trait, concrete, bare, seen2)) return false;
+    // The trait as it resolves in this scope: a TraitObject carries the
+    // spelling, and a package-local homonym of a lang item (`trait Hash`,
+    // `trait FnMut`) is registered under its path, not the bare slot.
+    if (!sema_has_impl_recursive(canonical_trait_name(trait), concrete, bare, seen2)) return false;
     // logos-core 2.4(c): auto-trait bound enforcement at the unsize site.
     // `&NotSend → &dyn Trait + Send` must be rejected: the trait object's
     // contract is that the erased type satisfies every `+ Auto` bound. The
@@ -17780,15 +17805,15 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     switch (pos) {
     case CoercePos::CallArg:
     case CoercePos::ClosureArg:
-        return CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
+        return CFLAG_STANDARD | CFLAG_ARG_TO_DYN | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
                CFLAG_SKIP_UNRESOLVED | CFLAG_DEREF_COERCE;
     case CoercePos::GenericArg:
-        return (CFLAG_STANDARD | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
+        return (CFLAG_STANDARD | CFLAG_ARG_TO_DYN | CFLAG_ACCEPT_SD_THIN | CFLAG_ACCEPT_REF_DYN |
                 CFLAG_SKIP_UNRESOLVED) & ~uint32_t(CFLAG_IMPLICIT_REBORROW);
     case CoercePos::MethodArg:
         // Order pinned by the suite (widen-last equivalence argued at the
         // former inline site).
-        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARG_TO_DYN |
+        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_DYN_UPCAST | CFLAG_ARG_TO_DYN |
                CFLAG_ARRAY_TO_SLICE |
                CFLAG_IMPLICIT_REBORROW | CFLAG_WIDEN_INT |
                CFLAG_CHECK_E0507 | CFLAG_CHECK_DYN_BOUNDS |
@@ -17797,28 +17822,24 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
     case CoercePos::PlaceWrite:
     case CoercePos::TupleElem:
     case CoercePos::BranchArm:
-        // ARG_TO_DYN: `&i64` -> `&dyn Tr` is a coercion at every site (Rust);
-        // a struct pointee is unsized by codegen, a scalar needs the cast.
-        // DEREF_COERCE: Rust's coercion sites are `let` with a type and what
-        // propagates into it (tuple elements, branch arms) — not an assignment.
+        // Every one of these is a coercion site in rustc, an assignment's
+        // right-hand side included (`b = rrx;` with `b: &i64` derefs).
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
                CFLAG_SLICE_TO_ARRAY | CFLAG_IMPLICIT_REBORROW |
-               CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN |
-               (pos == CoercePos::PlaceWrite ? CFLAG_CHECK_DYN_BOUNDS : CFLAG_DEREF_COERCE);
+               CFLAG_WIDEN_INT | CFLAG_DYN_UPCAST | CFLAG_ARG_TO_DYN | CFLAG_DEREF_COERCE |
+               (pos == CoercePos::PlaceWrite ? CFLAG_CHECK_DYN_BOUNDS : 0u);
     case CoercePos::StructLitField:
         // Rust MOVES into a struct literal: no reborrow. Everything else
         // applies.
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
-               CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN |
+               CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT | CFLAG_DYN_UPCAST | CFLAG_ARG_TO_DYN |
                CFLAG_DEREF_COERCE;
     case CoercePos::ArrayElem:
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT |
-               CFLAG_DEREF_COERCE;
+               CFLAG_DYN_UPCAST | CFLAG_ARG_TO_DYN | CFLAG_DEREF_COERCE;
     case CoercePos::Return:
-        // + the Box→dyn consume, handled in expect_type itself (it rewrites
-        // the expr, not just its type).
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
-               CFLAG_WIDEN_INT | CFLAG_ARG_TO_DYN | CFLAG_DEREF_COERCE;
+               CFLAG_WIDEN_INT | CFLAG_DYN_UPCAST | CFLAG_ARG_TO_DYN | CFLAG_DEREF_COERCE;
     case CoercePos::ConstInit:
     case CoercePos::Operand:
         return CFLAG_WIDEN_INT;
@@ -17995,36 +18016,6 @@ void SemaChecker::stamp_pending_literal_use_(lir::LExprPtr& e, TypeRef expected)
     pending_lit_lets_.erase(it);
 }
 
-// A branch arm under an expected `dyn` type (`let r: &dyn Tr = if c { &a } else
-// { &b }`, `let b: Box<dyn Tr> = match k { .. }`) reaches the merge UNSIZED, by a
-// cast in the arm — as `return` does. The merge slot is one value with no
-// coercion of its own: the consumer unsized the FIRST arm's concrete type, so
-// every arm dispatched through that arm's vtable (`Ci` data, `Sq::area`), and
-// a `match` refused the second arm outright. True when a cast was inserted or
-// the arm already has the expected type.
-bool SemaChecker::cast_to_expected_dyn(lir::LExprPtr& v, TypeRef expected) {
-    using K = LogosType::Kind;
-    if (!v || !expected) return false;
-    TypeRef vt = expr_type(v);
-    if (!vt) return false;
-    if (vt.kind() == K::Never) return true;
-    if (types_equal(vt, expected)) return true;
-    if (TypeRef(expected).owning_trait_object()) {
-        if (!is_stdlib_box(vt)) return false;
-        mark_moved_expr(expr_ref_of(v));
-        v = builder().cast(std::move(v), expected);
-        return true;
-    }
-    TypeRef want = expected;
-    if ((want.kind() == K::Ref || want.kind() == K::MutRef) && want.pointee())
-        want = want.pointee();
-    if (want.kind() != K::TraitObject || want.owning_trait_object()) return false;
-    if ((vt.kind() != K::Ref && vt.kind() != K::MutRef) || !vt.pointee()) return false;
-    const auto pk = TypeRef(vt.pointee()).kind();
-    if (pk != K::Struct && pk != K::Enum && pk != K::ZonedStruct) return false;
-    v = builder().cast(std::move(v), expected);
-    return true;
-}
 
 bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
                               std::string_view ctx, TypeRef shown) {
@@ -18126,21 +18117,22 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     if (expected && expr_type(e) &&
         reject_uncoerced_aggregate_unsize(expected, expr_type(e)))
         return false;
-    if (pos == CoercePos::Return &&
-        TypeRef(expected).owning_trait_object() &&
-        expr_type(e) && is_stdlib_box(expr_type(e))) {
-        // Box<Concrete> → Box<dyn Trait>: consume the source Box and desugar
-        // to the proven `as`-unsize cast, exactly like the explicit form —
-        // else codegen gets a mis-keyed vtable AND an un-consumed Box (a
-        // double free).
-        mark_moved_expr(expr_ref_of(e));
-        e = builder().cast(std::move(e), expected);
-    }
     // `&Rc<dyn Tr>` at a `&dyn Tr` slot: types_compatible's Struct → dyn arm
     // accepts any struct ("impl check deferred to codegen"), and codegen then
     // has no vtable for `Rc<dyn Tr>` as `Tr`. It is the E0277 verdict below.
     const bool shared_owner_dyn = shared_owner_dyn_pointee_(expr_type(e), expected) != nullptr;
-    if (!shared_owner_dyn) {
+    // An unsize to a trait object the coercion did not perform (no impl) is
+    // not a match, whatever types_compatible's dispatch acceptance says.
+    const bool unsize_left = [&] {
+        TypeRef g(expr_type(e));
+        if (!g || TypeRef(expected).kind() != LogosType::Kind::TraitObject) return false;
+        if (is_stdlib_box(g)) return TypeRef(expected).owning_trait_object();
+        if (g.kind() != LogosType::Kind::Ref && g.kind() != LogosType::Kind::MutRef) return false;
+        TypeRef p = g.pointee();
+        return p && (p.kind() == LogosType::Kind::Struct || p.kind() == LogosType::Kind::ZonedStruct ||
+                     p.kind() == LogosType::Kind::Enum);
+    }();
+    if (!shared_owner_dyn && !unsize_left) {
     if (types_compatible(expr_type(e), expected)) return true;
     if (ptr_rel_compatible(expr_type(e), expected)) return true;   // #[rel_ptr] ↔ *T
     if ((mask_for(pos) & CFLAG_ACCEPT_SD_THIN) &&
@@ -18286,6 +18278,30 @@ bool SemaChecker::try_deref_coerce(lir::LExprPtr& e, TypeRef pt) {
         if (nx && !degraded && *nx && expr_type(*nx) && types_compatible(expr_type(*nx), pt)) {
             e = *nx;
             return true;
+        }
+        return false;
+    }
+    // A fat reference slot (`&str`, `&[T]` — the slice IS the reference):
+    // `&&str` / `&&[T]` / `&String` reach it by dereferencing to a value of
+    // the slot's own type.
+    if (pt.kind() == K::Slice && is_ref(at) && TypeRef(at).pointee() && !types_compatible(at, pt)) {
+        TypeRef ct = TypeRef(at).pointee();
+        lir::LExprPtr cur = builder().deref(e, ct);
+        for (int step = 0; step < 8 && ct; ++step) {
+            if (ct.kind() == K::Slice && types_equal(ct, pt)) { e = cur; return true; }
+            if (is_ref(ct) && ct.pointee()) {
+                TypeRef nt = ct.pointee();
+                cur = builder().deref(cur, nt);
+                ct = nt;
+            } else if (ct.kind() == K::Struct) {
+                bool degraded = false;
+                auto nx = emit_generic_deref_step(cur, /*want_mut=*/false, &degraded);
+                if (!nx || degraded || !*nx || !expr_type(*nx)) return false;
+                cur = *nx;
+                ct = expr_type(cur);
+            } else {
+                return false;
+            }
         }
         return false;
     }
@@ -18702,14 +18718,31 @@ bool SemaChecker::coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt) {
     return true;
 }
 
+// ADR 0030 S4: the unsize to a trait object is an explicit cast at every
+// coercion site — `&C` / `&mut C` → `&dyn Tr`, `Box<C>` → `Box<dyn Tr>`, a
+// wrapper struct's CoerceUnsized — when C implements Tr (E0277 otherwise, the
+// judgment's verdict). types_compatible accepts a struct at a dyn slot for
+// dispatch scoring; that acceptance is not the coercion, so it is not asked.
 bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
     if (!arg || !pt) return false;
-    if (TypeRef(expr_type(arg)).kind() == LogosType::Kind::Error) return false;
-    if (types_compatible(expr_type(arg), pt)) return false;  // already fits
+    TypeRef at(expr_type(arg));
+    if (!at || at.kind() == LogosType::Kind::Error || at.kind() == LogosType::Kind::Never) return false;
+    if (types_equal(at, pt)) return false;
     // Implicit CoerceUnsized for a smart-pointer/wrapper struct param
     // (`Rc<A>` → `Rc<dyn Tr>`): rebuild unsizing the inner field. Mirrors the
     // explicit `as` path; closes GAP-C for the flipped struct repr.
     if (try_struct_unsize_coerce(arg, pt)) return true;
+    // `Box<C>` → `Box<dyn Tr>`: the source Box is consumed.
+    if (TypeRef(pt).owning_trait_object()) {
+        if (!is_stdlib_box(at) || at.type_args().empty()) return false;
+        TypeRef inner(at.type_args()[0]);
+        if (!inner || inner.kind() == LogosType::Kind::TraitObject ||
+            inner.kind() == LogosType::Kind::UnsizedDyn) return false;
+        if (!ref_arg_satisfies_dyn(make_ref(false, inner), pt)) return false;
+        mark_moved_expr(expr_ref_of(arg));
+        arg = builder().cast(std::move(arg), pt);
+        return true;
+    }
     // Peel a `&dyn` / `&mut dyn` param to the bare TraitObject.
     TypeRef pdyn = pt;
     auto pk = TypeRef(pt).kind();
@@ -20337,17 +20370,18 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
             // type that both could reach was never consulted.
             bool took_expected = false;
             if (hint_expected_type_ && !types_equal(expr_type(then_val), expr_type(else_val))) {
-                const bool t_ok = cast_to_expected_dyn(then_val, hint_expected_type_);
-                const bool e_ok = cast_to_expected_dyn(else_val, hint_expected_type_);
-                if (t_ok && e_ok) { result_type = hint_expected_type_; took_expected = true; }
-            }
-            if (!took_expected && hint_expected_type_ &&
-                !types_compatible(expr_type(then_val), expr_type(else_val)) &&
-                !types_compatible(expr_type(else_val), expr_type(then_val))) {
-                apply_place_coercions(then_val, hint_expected_type_);
-                apply_place_coercions(else_val, hint_expected_type_);
-                if (types_compatible(expr_type(then_val), hint_expected_type_) &&
-                    types_compatible(expr_type(else_val), hint_expected_type_)) {
+                // Each branch meets the expected type (a coercion site
+                // propagates into the branches); the merge takes it when both
+                // reach it.
+                coerce_arg_to_param(then_val, hint_expected_type_, mask_for(CoercePos::BranchArm));
+                coerce_arg_to_param(else_val, hint_expected_type_, mask_for(CoercePos::BranchArm));
+                auto reaches = [&](TypeRef t) {
+                    return TypeRef(t).kind() == LogosType::Kind::Never || types_equal(t, hint_expected_type_) ||
+                           (types_compatible(t, hint_expected_type_) &&
+                            !(TypeRef(hint_expected_type_).kind() == LogosType::Kind::TraitObject &&
+                              TypeRef(t).kind() != LogosType::Kind::TraitObject));
+                };
+                if (reaches(expr_type(then_val)) && reaches(expr_type(else_val))) {
                     result_type = hint_expected_type_;
                     took_expected = true;
                 }

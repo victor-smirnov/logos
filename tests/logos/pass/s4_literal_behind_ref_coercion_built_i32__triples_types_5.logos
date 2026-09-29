@@ -1,0 +1,6 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `literal-behind-ref-coercion-built-i32`, member triples-types_5
+// (tests/interactions/clusters/literal-behind-ref-coercion-built-i32/triples-types_5.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package m25;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+fn show(a: &i64) -> i64 { *a }
+fn main() { let x = 5; let y = 3; println!("{} {}", show(&x), show(&y)); }

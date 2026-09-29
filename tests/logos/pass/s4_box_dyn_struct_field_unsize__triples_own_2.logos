@@ -1,0 +1,12 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `box-dyn-struct-field-unsize`, member triples-own_2
+// (tests/interactions/clusters/box-dyn-struct-field-unsize/triples-own_2.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package m7p;
+use logos.mem.boxed;
+trait Shape { fn area(&self) -> i64; }
+struct Rect { w: i64 }
+impl Shape for Rect { fn area(&self) -> i64 { return self.w; } }
+struct Slot { cur: Box<dyn Shape> }
+fn main() -> i32 {
+    let slot = Slot { cur: Box::new(Rect { w: 5 }) };
+    return slot.cur.area() as i32;
+}

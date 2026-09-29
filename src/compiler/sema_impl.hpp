@@ -1838,7 +1838,6 @@ private:
     // `let f: &[T] = &arr` was not. Same target type, same source expression,
     // different answer depending on the statement form.
     // Returns true iff `rhs` was rewritten.
-    bool apply_place_coercions(lir::LExprPtr& rhs, TypeRef target);
 
     bool try_coerce_slice_to_array_ref(lir::LExprPtr& arg, TypeRef expected) {
         if (!arg || !expected) return false;
@@ -2035,7 +2034,6 @@ private:
                      std::string_view ctx, TypeRef shown = {});
     // A value unsized to an expected `dyn` type by a cast (if/match arms, break
     // values, assignments). See the definition.
-    bool cast_to_expected_dyn(lir::LExprPtr& v, TypeRef expected);
     TypeRef index_output_type_(TypeRef st);
     // Unsuffixed literal trees stamped with an expected type (also behind `&`).
     bool stamp_literal_tree_(lir_view::ExprRef e, TypeRef target);
@@ -8856,7 +8854,7 @@ private:
         TypeRef it(inferred);
         if ((it.kind() != LogosType::Kind::Ref && it.kind() != LogosType::Kind::MutRef) || !it.pointee() ||
             TypeRef(it.pointee()).kind() != LogosType::Kind::Array) return false;
-        apply_place_coercions(e, hint);
+        coerce_arg_to_param(e, hint, mask_for(CoercePos::LetInit));
         return TypeRef(expr_type(e)).kind() == LogosType::Kind::Slice;
     }
     TypeRef payload_arr_elem_hint_(TypeRef pt) {

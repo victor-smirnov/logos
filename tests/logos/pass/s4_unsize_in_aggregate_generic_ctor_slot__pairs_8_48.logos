@@ -1,0 +1,13 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `unsize-in-aggregate-generic-ctor-slot`, member pairs-8_48
+// (tests/interactions/clusters/unsize-in-aggregate-generic-ctor-slot/pairs-8_48.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package f_vec_tuple_box_dyn;
+use logos.mem.collections.vec;
+use logos.mem.boxed;
+use logos.std.fmt;
+trait Op { fn apply(&self, x: i64) -> i64; }
+struct AddN(i64);
+impl Op for AddN { fn apply(&self, x: i64) -> i64 { x + self.0 } }
+fn main() {
+    let v: Vec<(i64, Box<dyn Op>)> = vec![(0, Box::new(AddN(5))), (1, Box::new(AddN(7)))];
+    for (i, o) in v.iter() { println!("{} {}", i, o.apply(2)); }
+}

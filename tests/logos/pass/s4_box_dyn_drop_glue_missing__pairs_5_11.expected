@@ -1,0 +1,13 @@
+exit: 0
+stdout:
+popped 4
+drop dog1
+--
+drop dog2
+--
+drop dog3
+--
+old some true
+drop dog4
+drop dog5
+end

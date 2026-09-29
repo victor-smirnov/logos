@@ -1,0 +1,6 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `literal-behind-ref-coercion-built-i32`, member pairs-9_13
+// (tests/interactions/clusters/literal-behind-ref-coercion-built-i32/pairs-9_13.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package m72;
+use logos.std.fmt;
+fn sum(xs: &[i64]) -> i64 { let mut s = 0i64; for x in xs { s += *x; } s }
+fn main() { let xs = [3, 9, 2, 7]; println!("{}", sum(&xs)); }

@@ -9,6 +9,9 @@
 // one level shallower (2^10) completes the walk and produces the ordinary
 // `aggregate slot `.1`' diagnostic, so this file pins the boundary, not a
 // property of the type-alias feature. Whole-compile 0.33 s.
+// The source is a BOUND tuple, not a literal: a literal's elements meet the
+// expected slot types (ADR 0030 S4 — a tuple literal is a coercion site), so
+// `(l11, &a)` written in place is coerced and leaves no uncoerced slot.
 package aggregate_unsize_budget;
 trait Shape { fn area(&self) -> i64; }
 struct Sq { s: i64 }
@@ -52,6 +55,7 @@ fn main() -> i32 {
   let l9: L9 = (l8, l8);
   let l10: L10 = (l9, l9);
   let l11: L11 = (l10, l10);
-  let t: (M11, &dyn Shape) = (l11, &a);
+  let p = (l11, &a);
+  let t: (M11, &dyn Shape) = p;
   return 42i32;
 }

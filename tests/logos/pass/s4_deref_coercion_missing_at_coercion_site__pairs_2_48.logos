@@ -1,0 +1,11 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `deref-coercion-missing-at-coercion-site`, member pairs-2_48
+// (tests/interactions/clusters/deref-coercion-missing-at-coercion-site/pairs-2_48.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package p12b;
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash; use logos.lang.convert;
+enum Tree { Leaf(i64), Node(Box<Tree>, Box<Tree>) }
+fn leftmost<'a>(mut t: &'a mut Tree) -> &'a mut i64 { loop { match t { Tree::Leaf(v) => return v, Tree::Node(l, _) => { t = l; } } } }
+fn main() {
+    let mut t = Tree::Node(Box::new(Tree::Leaf(3)), Box::new(Tree::Leaf(4)));
+    *leftmost(&mut t) = 100;
+    if let Tree::Node(l, _) = &t { if let Tree::Leaf(v) = &**l { println!("{}", v); } }
+}

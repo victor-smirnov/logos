@@ -1,0 +1,15 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `double-deref-box-dyn-to-dyn-refused`, member pairs-5_9
+// (tests/interactions/clusters/double-deref-box-dyn-to-dyn-refused/pairs-5_9.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package f9_reborrow_dyn_from_ref_box;
+use logos.std.fmt;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+fn side(s: &dyn Shape) -> i64 { return s.area(); }
+fn main() {
+    let mut v: Vec<Box<dyn Shape>> = Vec::new();
+    v.push(Box::new(Sq { s: 4 }));
+    for b in v.iter() { println!("side {}", side(&**b)); }
+}

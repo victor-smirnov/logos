@@ -1,0 +1,23 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `box-dyn-drop-glue-missing`, member pairs-4_14
+// (tests/interactions/clusters/box-dyn-drop-glue-missing/pairs-4_14.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package m46;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.lang.rc;
+trait R { fn n(&self) -> i64; }
+struct T { s: String }
+impl R for T { fn n(&self) -> i64 { self.s.len() } }
+struct D { k: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.k); } }
+struct U { d: D }
+impl R for U { fn n(&self) -> i64 { self.d.k } }
+fn main() {
+    let b: Box<dyn R> = Box::new(T { s: String::from("hello") });
+    println!("{}", b.n());
+    let mut v: Vec<Box<dyn R>> = Vec::new();
+    v.push(Box::new(T { s: String::from("abc") }));
+    v.push(Box::new(U { d: D { k: 7 } }));
+    println!("{}", v[0].n() + v[1].n());
+    let c: Box<dyn R> = Box::new(U { d: D { k: 9 } });
+    println!("{}", c.n());
+}

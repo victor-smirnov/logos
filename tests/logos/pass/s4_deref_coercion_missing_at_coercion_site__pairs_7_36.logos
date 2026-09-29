@@ -1,0 +1,29 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `deref-coercion-missing-at-coercion-site`, member pairs-7_36
+// (tests/interactions/clusters/deref-coercion-missing-at-coercion-site/pairs-7_36.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package m78;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.boxed;
+use logos.lang.iter;
+use logos.lang.cmp;
+use logos.lang.ops;
+fn len(s: &str) -> i64 { s.len() as i64 }
+fn main() {
+    let words = ["ab", "cde"];
+    let mut t = 0i64;
+    for w in words.iter() { t += len(w); }
+    let mut best: &str = "";
+    for w in words.iter() { if w.len() > best.len() { best = w; } }
+    println!("{} {}", t, best);
+}

@@ -1,0 +1,10 @@
+exit: 0
+stdout:
+1
+drop 1
+mid
+drop 3
+after drop
+drop 4
+after drop4
+end

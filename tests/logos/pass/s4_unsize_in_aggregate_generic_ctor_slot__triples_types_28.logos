@@ -1,0 +1,13 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `unsize-in-aggregate-generic-ctor-slot`, member triples-types_28
+// (tests/interactions/clusters/unsize-in-aggregate-generic-ctor-slot/triples-types_28.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package m6;
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+trait T { fn f(&self) -> i64; }
+struct A(i64);
+impl T for A { fn f(&self) -> i64 { self.0 } }
+fn main() {
+    let v: Vec<Box<dyn T>> = vec![Box::new(A(1)), Box::new(A(2))];
+    let mut w: Vec<Box<dyn T>> = Vec::new();
+    w.push(Box::new(A(5)));
+    println!("{} {}", v[1].f(), w[0].f());
+}

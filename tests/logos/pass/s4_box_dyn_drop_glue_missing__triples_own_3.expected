@@ -1,0 +1,5 @@
+exit: 0
+stdout:
+drop rect 1
+11
+end

@@ -1,0 +1,7 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `deref-coercion-missing-at-coercion-site`, member pairs-8_50
+// (tests/interactions/clusters/deref-coercion-missing-at-coercion-site/pairs-8_50.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package f_refref_deref_coercion;
+use logos.std.fmt;
+fn len(s: &str) -> i64 { s.len() as i64 }
+fn twice(x: &i64) -> i64 { *x * 2 }
+fn main() { let a: &str = "abc"; let r: &&str = &a; let n = 5i64; let rn = &n; let x = len(r); let y = twice(&rn); println!("{} {}", x, y); }

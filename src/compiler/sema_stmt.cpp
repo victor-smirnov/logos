@@ -831,7 +831,9 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             // source's own drop — on this path's unwind and at its scope end —
             // must not run a second time.
             if (bval) mark_moved_expr(expr_ref_of(bval));
-            if (target && target->expected && bval) cast_to_expected_dyn(bval, target->expected);
+            // The loop's expected type is a coercion site for each break value.
+            if (target && target->expected && bval)
+                coerce_arg_to_param(bval, target->expected, mask_for(CoercePos::BranchArm));
             if (target && target->no_value_kind) {
                 error(std::format("`break` with value from a `{}` loop (E0571): only `loop` "
                                   "yields a value", target->no_value_kind));
@@ -3212,10 +3214,6 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
     // drop_old hint at every reassignment); only currently_uninit_vars_ tracks
     // the CURRENT init state and is what var-read uses.
     currently_uninit_vars_.erase(std::string(name));
-    // `x = Box::new(Ci)` / `x = z` into `x: Box<dyn Tr>`: unsized HERE, so the
-    // value carries its own vtable and the old value drops as the `dyn` it is
-    // (it dropped through the NEW value's concrete destructor).
-    cast_to_expected_dyn(rhs, var_type);
     // RHS source consumed: `dst = src` for a move-type src moves src's bytes
     // into dst; src's scope-exit drop must be suppressed, else we double-free.
     track_write_move(rhs);
@@ -4627,30 +4625,6 @@ lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type
 // FIRST alternative only (the nested-Or builder enforces its own
 // consistency).
 
-// The coercions a WRITE to a typed place performs — shared by assignment,
-// field writes, index/deref writes and the struct-literal field paths, and
-// mirroring what `let x: T = e` did. Order matters and matches the let path:
-// reborrow first (it changes a `&mut` into the shape the rest expect), then
-// the rewrites, each tried only while the types still disagree.
-// NOTE: being folded into expect_type (S1); new positions must call
-// expect_type, not this.
-bool SemaChecker::apply_place_coercions(lir::LExprPtr& rhs, TypeRef target) {
-    if (!rhs || !target) return false;
-    if (TypeRef(target).kind() == LogosType::Kind::Error) return false;
-    if (TypeRef(expr_type(rhs)).kind() == LogosType::Kind::Error) return false;
-    bool changed = false;
-    if (TypeRef(target).kind() == LogosType::Kind::MutRef ||
-        TypeRef(target).kind() == LogosType::Kind::Ref ||
-        TypeRef(target).kind() == LogosType::Kind::Ptr) {
-        if (try_implicit_reborrow_mut(rhs, target)) changed = true;
-    }
-    if (types_compatible(expr_type(rhs), target)) return changed;
-    if (try_struct_unsize_coerce(rhs, target))      return true;
-    if (try_coerce_array_ref_to_slice(rhs, target)) return true;
-    if (try_coerce_slice_to_array_ref(rhs, target)) return true;
-    if (try_coerce_closure_to_fnptr(rhs, target))   return true;
-    return changed;
-}
 
 void SemaChecker::collect_ast_pat_bindings(TinyMapView pat,
                                            std::vector<std::string>& out) {
@@ -6198,9 +6172,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                     p_.mirror_ptr_ = lir_mirror_emit_pat_str(*cur_prog_, lit);
                     return p_;
                 }
-                error(std::format(
-                    "const '{}' has a type a pattern cannot compare (only "
-                    "integer / bool / char / str / array consts)", wname));
+                if (cv.kind == K::F32 || cv.kind == K::F64 || cv.kind == K::FloatLit)
+                    error(std::format("const '{}': float patterns are not yet supported "
+                                      "(IEEE equality semantics undecided)", wname));
+                else
+                    error(std::format(
+                        "const '{}' has a type a pattern cannot compare (only "
+                        "integer / bool / char / str / array consts)", wname));
             } else {
                 error(std::format(
                     "const '{}' in pattern position: initializer is not "
@@ -10504,10 +10482,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             if (hint_expected_type_ && val &&
                 TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
                 TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
-                apply_place_coercions(val, hint_expected_type_);
-                // An expected `dyn`: every arm is unsized by a cast in the
-                // arm (see cast_to_expected_dyn).
-                cast_to_expected_dyn(val, hint_expected_type_);
+                coerce_arg_to_param(val, hint_expected_type_, mask_for(CoercePos::BranchArm));
             }
             // A diverging arm (`!`) contributes no type.
             TypeRef& result_type = mc.result_type;
