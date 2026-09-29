@@ -10677,8 +10677,10 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     lir::LExprPtr e = mc.refused ? error_expr() : match_expr_of_(mc);
     const auto k = TypeRef(expr_type(e)).kind();
     // A tail match every arm of which diverges (`!`) returns nothing itself.
+    // Its statement temporaries (`match &*c.borrow() { … }`: the `Ref`) drop
+    // after the value is computed and before the return, as a `return`'s do.
     if (tail && k != LogosType::Kind::Never && k != LogosType::Kind::Error)
-        return finish_return_(std::move(e), node, /*bind_temps=*/false);
+        return finish_return_(std::move(e), node, /*bind_temps=*/true);
     if (!tail && k != LogosType::Kind::Void && k != LogosType::Kind::Never && k != LogosType::Kind::Error)
         error(std::format("mismatched types: expected `()`, found `{}` — a `match` statement without `;` "
                           "has type `()` (E0308)", type_str(expr_type(e))));

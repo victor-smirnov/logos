@@ -592,7 +592,14 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   borrow checker: no pattern carries a guard the tester does not see.
   Fixtures const_patterns_structural (rustc twin),
   const_array_pattern_length_mismatch.
-Next: the feature-interaction matrix re-run that closes S3.
+- S3 closed (2026-09-29): the feature-interaction matrix re-run. The 16 S3
+  clusters (and the two S3+S5 rest-pattern ones) agree with rustc 1.98.1 on
+  stdout and exit code, 64 of 64 members. The whole matrix: 538 → 477
+  differing members since 09-28 (62 fixed, one new — a tail `match`'s
+  statement temporaries were never dropped, S3.4c; they bind to the return
+  value now, fixture tail_match_temporaries_dropped).
+Next: S4 (C-COE: unsize as an explicit cast, closure escape decided at the
+unsize point).
 
 ## L0 status (2026-09-27)
 

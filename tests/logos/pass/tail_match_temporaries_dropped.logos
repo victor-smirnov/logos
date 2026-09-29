@@ -1,0 +1,16 @@
+// ADR 0030 S3.4c fallout: a TAIL match is the function's return; its statement
+// temporaries (the `Ref` of `match &*c.borrow() { … }`) drop before the return,
+// as a `return`'s do — they leaked and the next borrow_mut panicked (audit
+// cluster fn-tail-temporaries-not-dropped, pairs-14_14). rustc 1.98.1 twin exits 0.
+package tail_match_temporaries_dropped;
+use logos.lang.cell; use logos.lang.option;
+fn peek(c: &RefCell<Option<i64>>) -> i64 { match &*c.borrow() { Some(v) => *v, None => 0 } }
+fn peek2(c: &RefCell<Option<i64>>) -> i64 { let r = match &*c.borrow() { Some(v) => *v, None => 0 }; r }
+fn peek3(c: &RefCell<Option<i64>>) -> i64 { return match &*c.borrow() { Some(v) => *v, None => 0 }; }
+fn main() -> i32 {
+    let c = RefCell::new(Some(5i64));
+    let a = peek(&c); *c.borrow_mut() = Some(7);
+    let b = peek2(&c); *c.borrow_mut() = Some(8);
+    let d = peek3(&c); *c.borrow_mut() = Some(9);
+    return (a + b + d - 20) as i32;
+}

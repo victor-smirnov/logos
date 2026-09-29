@@ -544,7 +544,11 @@
 # 2026-09-28, ADR 0030 S3.3a: 24 -> 22, roster a6283da9 -> 09e2decf — build_pattern's PAT_AT asks
 # "does the binder bind a name" once (`at_named`) where its slot, mut-name and modifier sites each
 # spelled `pa.name != "_"`; carried_sub's `n @ _` asks the wildcard by node code, not by name.
-#SCAN sema_stmt.cpp 22 09e2decf
+# 2026-09-29, ADR 0030 S3.3b: 22 -> 20, roster 09e2decf -> 01487839 — deletions, no swap: the
+# synthesized payload route and the K4 prologue (`synth_refutable_inner`, `emit_nested_pat_destructure`,
+# `emit_nested_variant_lets`) went, and with them their wildcard-keyword tests (`n != "_"` before
+# defining a synth's names). Nothing replaced them: the tester binds those sub-patterns.
+#SCAN sema_stmt.cpp 20 01487839
 borrow_check.cpp	fnfam_tvs_	D	1	std::string(t.type_var_name())
 mlir_gen_dyn.cpp	all_struct_defs_	O	1	std::string(TypeRef(cur_t).struct_name())
 mlir_gen_dyn.cpp	struct_types_	B#98	1	concrete_struct_name(tv)
