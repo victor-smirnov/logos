@@ -1422,7 +1422,7 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
     // (`val` IS that pointer — Box<concrete> = {ptr}). No malloc(16) handle: the
     // pair is a stack alloca the consumer copies (Vec slot / return). Drop frees
     // `data` via vtable[0].
-    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name, vt_type);
+    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name, vt_type, TypeRef(ptl).pkg_name());
     return fat ? fat : val;
 }
 

@@ -3121,7 +3121,7 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
             // take the load-fat-pair branch below, not this one.)
             auto fat_ptr = coerce_to_dyn(val,
                 std::string(TypeRef(cur_fn_ret_logos_type_).trait_name()),
-                type_str(src_lt));
+                type_str(src_lt), {}, TypeRef(cur_fn_ret_logos_type_).pkg_name());
             if (!fat_ptr) { ret_dropped("dyn coercion"); return; }
             auto dyn_struct = dyn_llvm_type();
             auto fat_val = builder_.create<mlir::LLVM::LoadOp>(loc_, dyn_struct, fat_ptr);

@@ -4350,7 +4350,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             // stored → SIGSEGV on dispatch.
             src_struct = type_str(pointee);
         std::string trait = std::string(TypeRef(type).trait_name());
-        if (auto alloca = coerce_to_dyn(val, trait, src_struct, pointee)) return alloca;
+        if (auto alloca = coerce_to_dyn(val, trait, src_struct, pointee, TypeRef(type).pkg_name())) return alloca;
     }
 
     // `box_new(x) as Box<dyn Trait>` (and `concrete as dyn`/`*dyn`): the source is
@@ -4408,7 +4408,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
             // size / align. heap=false ⇒ inline value (no extra handle); drop is
             // kind-specific (Box→free(data); Rc/Arc→dec strong + free RcInner) —
             // see gen_drop_owning_dyn_handle.
-            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct, boxed)) return alloca;
+            if (auto alloca = coerce_to_dyn(data_ptr, trait, src_struct, boxed, tgt_to.pkg_name())) return alloca;
         }
     }
 

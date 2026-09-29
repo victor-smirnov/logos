@@ -674,7 +674,11 @@ of 09-26 were lost; the battery is new).
   its moves with the zero-trip path as `for` over a range did. `..h.inner`
   reads a place base in place and moves out only the fields taken (a copy
   into a temporary left `h` owning all of `h.inner` too — two copies of that
-  code, both fixed). Fixtures own_* (6, rustc twins).
+  code, both fixed). `break v` computes v while the loop body's locals live
+  and drops them after, as `return` does (`break d.v` read `d` after its drop
+  — a legal program refused as a use after move; found by a second battery of
+  ten early-exit / loop / pattern shapes, the other nine agreeing with
+  rustc). Fixtures own_* (7, rustc twins).
 Next: S5.2 — the consolidation proper: one `consume(place)` / `reinit` /
 join, the per-construct save/restore/union copies, and the mlir B8
 drop-before-replace (name-keyed, invisible to BIR) retired onto the one flag

@@ -1278,7 +1278,23 @@ void SemaChecker::push_stmt_with_unwind(std::vector<lir_view::StmtRef>& out,
             for (size_t k = loop_break_frames_.size(); k-- > 0; ++cross)
                 if (loop_break_frames_[k].label == lbl) break;
         if (cross >= loop_break_frames_.size()) cross = 0;   // unknown label: diagnosed elsewhere
-        for (auto& d : collect_drops_to_loop(cross))
+        auto drops = collect_drops_to_loop(cross);
+        // `break v`: the value is computed while the locals live, then they
+        // drop (`break d.v` read `d` after its drop), as a `return` does.
+        if (!drops.empty() && sref.kind() == lir_schema::stmt::Code::Break) {
+            lir_view::SBreakView bv{sref};
+            if (auto val = bv.value()) {
+                TypeRef rt = expr_type(val);
+                std::string tmp = "__brk_tmp_" + std::to_string(tmp_var_count_++);
+                lir::SLet sl;
+                sl.name = tmp; sl.type = rt; sl.is_mut = false; sl.value = val;
+                out.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                for (auto& d : drops) out.push_back(std::move(d));
+                out.push_back(builder().stmt_break(builder().var_ref(tmp, rt), std::string(bv.label()), node_line_));
+                return;
+            }
+        }
+        for (auto& d : drops)
             out.push_back(std::move(d));
     }
     out.push_back(std::move(lowered));

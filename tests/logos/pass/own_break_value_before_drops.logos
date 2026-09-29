@@ -1,0 +1,8 @@
+// ADR 0030 S5 (C-OWN): `break v` computes v while the loop body's locals live,
+// then drops them (`break i + d.v` read d after its drop and was refused as a use
+// after move). The exit code is the drop counter; rustc 1.98.1 twin exits 3.
+package own_break_value_before_drops;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+fn f(c: *mut i64) -> i64 { let mut i = 0; let r = loop { let d = D { v: 1, c: c }; i = i + 1; if i == 3 { break i + d.v - d.v; } }; return r; }
+fn main() -> i32 { let mut n: i64 = 0; let c: *mut i64 = &mut n; let _r = f(c); return unsafe { *c } as i32; }
