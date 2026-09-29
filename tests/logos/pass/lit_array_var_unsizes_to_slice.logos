@@ -1,0 +1,16 @@
+// C-LIT: an array variable of unsuffixed literals takes its element type from a slice use — `sum(&xs)` over
+// `&[i64]`, `bump(&mut xs)` over `&mut [i64]`, a method arg `&ys` over `&[u16]` (the selector must admit
+// the unsolved element). The array stayed i32 while the slice read it at i64 stride (garbage), and the
+// method call reported "no method". rustc 1.98.1 gives the same stdout.
+package lit_array_var_unsizes_to_slice;
+use logos.std.fmt;
+fn sum(xs: &[i64]) -> i64 { let mut s = 0i64; for x in xs { s = s * 100 + *x; } s }
+fn bump(xs: &mut [i64]) { xs[0] += 5000000000; }
+struct S;
+impl S { fn s(&self, xs: &[u16]) -> u16 { xs[1] } }
+fn main() {
+    let xs = [3, 9, -2, 7]; println!("{}", sum(&xs));
+    let ys = [3, 9, -2, 7]; let r: &[i64] = &ys; println!("{}", sum(r));
+    let mut zs = [3, 9]; bump(&mut zs); println!("{}", zs[0] + zs[1]);
+    let ws = [7, 65535]; let s = S; println!("{}", s.s(&ws));
+}

@@ -1788,6 +1788,12 @@ private:
                    TypeRef(want_elem).kind() != LogosType::Kind::IntLit) {
             // adopt below via the arg rewrite: the slice takes the hinted
             // element; codegen already widens IntLit array elements in place.
+            // C-LIT: an array VARIABLE's element is an inference variable —
+            // solve it, so the array itself is built at the slice's width.
+            if (is_lit_var_(have_elem)) {
+                lit_solve_(have_elem, want_elem);
+                builder().retype_expr(arg, lit_zonk_(expr_type(arg)));
+            }
         } else if (!types_equal(have_elem, want_elem)) {
             return false;
         }
@@ -2038,12 +2044,6 @@ private:
     // Unsuffixed literal trees stamped with an expected type (also behind `&`).
     bool stamp_literal_tree_(lir_view::ExprRef e, TypeRef target);
     void stamp_literal_behind_ref_(lir::LExprPtr& e, TypeRef expected);
-    // A literal `let` retyped by its first use behind an indirection (see the definition).
-    struct PendingLitLet { lir_view::StmtRef let; int uses = 0; };
-    std::unordered_map<uint32_t, PendingLitLet> pending_lit_lets_;   // binding slot -> its `let`
-    void note_literal_binding_use_(std::string_view name);
-    bool is_stampable_literal_(lir_view::ExprRef e) const;
-    void stamp_pending_literal_use_(lir::LExprPtr& e, TypeRef expected);
 
     void coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                               uint32_t flags = CFLAG_STANDARD);
@@ -10577,8 +10577,12 @@ private:
             TypeRef(pt).kind() == LogosType::Kind::Slice &&
             (!TypeRef(pt).mut_ptr() ||
              TypeRef(at).kind() == LogosType::Kind::MutRef) &&
-            types_equal(TypeRef(TypeRef(at).pointee()).elem(),
-                        TypeRef(pt).elem()))
+            (types_equal(TypeRef(TypeRef(at).pointee()).elem(), TypeRef(pt).elem()) ||
+             // C-LIT: an unsolved integer variable element can become the
+             // slice's integer element (try_coerce_array_ref_to_slice solves it).
+             (is_lit_var_(lit_resolve_(TypeRef(TypeRef(at).pointee()).elem())) &&
+              TypeRef(pt).elem() && is_integer_kind(TypeRef(TypeRef(pt).elem()).kind()) &&
+              TypeRef(TypeRef(pt).elem()).kind() != LogosType::Kind::Enum)))
             return true;
         // An UNSUFFIXED int LITERAL that fits a narrower integer param dispatches
         // (e.g. `push(u8)` with `7`). Gated on `at == IntLit`: a SUFFIXED literal

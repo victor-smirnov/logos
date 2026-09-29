@@ -749,10 +749,21 @@ mistyped a legal program because an unannotated `let` fixed its literal to
   `take_u8(a)`, `let y: u64 = x`, `Some(7)` read at `u16`, `(1, 2)` read at
   `(u8, i64)`, `Vec::new()` + `push(1)` read at `u64` agree with rustc.
   Fixtures lit_*.
-Next: S7.2 — retire the literal scaffolding the variables replace
-(`pending_lit_lets_` single-use stamping, the per-site `IntLit → i32`
-defaults onto `lit_default_`), then C-EXP (one expected-type scope) and
-C-INF.
+- S7.2 (2026-09-29): every unsuffixed integer leaf of an unannotated
+  `let` — in a tuple, an array, behind a `&` — is a variable, so the
+  single-use stamping (`pending_lit_lets_`: the binding's FIRST use
+  re-typed the literal in place, every later use saw that) is deleted. An
+  array variable unsized to a slice (`let xs = [3, 9]; sum(&xs)` over
+  `&[i64]`, `&mut xs` over `&mut [i64]`) solves its element at the decay —
+  the slice had taken the width while the array stayed i32 (garbage at the
+  wider stride) — and the method selector admits the unsolved element (a
+  method arg `&ys` over `&[u16]` reported "no method"). Fixture
+  lit_array_var_unsizes_to_slice. −65 lines.
+Remaining on the S7 row: the per-site `IntLit → i32` defaults onto
+`lit_default_` and the range checks onto the variable's close; a value
+stored through `*r = 5000000000` into a variable-typed place still
+truncates; C-EXP (one expected-type scope); C-INF (one generic-argument
+inference).
 
 ## L0 status (2026-09-27)
 

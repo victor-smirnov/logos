@@ -2455,27 +2455,53 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // The same default one level down: an unsuffixed literal inside a tuple
         // (`let mut u = (Some(4), 3)`) was left `{integer}` in the binding's
         // type, so `&mut u` at `&mut (Option<i32>, i32)` failed invariance.
-        if (TypeRef(var_type).kind() == LogosType::Kind::Tuple) {
-            // C-LIT: each unsuffixed integer leaf is an inference variable.
+        {
+            // C-LIT: each unsuffixed integer leaf of the binding's type — in a
+            // tuple, an array, behind a `&` — is an inference variable its uses
+            // solve (`let xs = [3, 9]; sum(&xs)` over `&[i64; 2]`,
+            // `let t = &(7, 8); f(t)`).
             std::function<TypeRef(TypeRef)> dflt = [&](TypeRef t) -> TypeRef {
                 if (!t) return t;
                 auto k = TypeRef(t).kind();
                 if (k == LogosType::Kind::IntLit) return is_lit_var_(t) ? t : mint_lit_var_(std::nullopt);
                 if (k == LogosType::Kind::FloatLit) return prim(LogosType::Kind::F64);
-                if (k != LogosType::Kind::Tuple) return t;
-                std::vector<TypeRef> es;
-                bool changed = false;
-                for (auto e : TypeRef(t).tuple_elems()) {
-                    auto ne = dflt(e);
-                    changed |= (ne != e);
-                    es.push_back(ne);
+                if (k == LogosType::Kind::Tuple) {
+                    std::vector<TypeRef> es;
+                    bool changed = false;
+                    for (auto e : TypeRef(t).tuple_elems()) {
+                        auto ne = dflt(e);
+                        changed |= (ne != e);
+                        es.push_back(ne);
+                    }
+                    return changed ? make_tuple_type(std::move(es)) : t;
                 }
-                return changed ? make_tuple_type(std::move(es)) : t;
+                if (k == LogosType::Kind::Array && TypeRef(t).elem()) {
+                    TypeRef ne = dflt(TypeRef(t).elem());
+                    return ne != TypeRef(t).elem()
+                        ? make_array(ne, TypeRef(t).arr_size(), std::string_view(TypeRef(t).arr_size_var())) : t;
+                }
+                if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) && TypeRef(t).pointee()) {
+                    TypeRef np = dflt(TypeRef(t).pointee());
+                    return np != TypeRef(t).pointee()
+                        ? make_ref(k == LogosType::Kind::MutRef, np, std::string(TypeRef(t).lifetime())) : t;
+                }
+                return t;
             };
             TypeRef dt = dflt(var_type);
-            if (dt != var_type && !ann && rhs && stamp_literal_tree_(expr_ref_of(rhs), dt))
+            auto stamp = [&]() {
+                auto er = expr_ref_of(rhs);
+                if (er.kind() == lir_schema::expr::Code::AddrOfTemp) {
+                    TypeRef dp = TypeRef(dt).pointee();
+                    if (!dp || !stamp_literal_tree_(lir_view::EAddrOfTempView{er}.inner(), dp)) return false;
+                    builder().retype_expr(rhs, dt);
+                    return true;
+                }
+                return stamp_literal_tree_(er, dt);
+            };
+            if (dt != var_type && !ann && rhs && stamp())
                 var_type = dt;
-            else if (dt != var_type && expect_type(rhs, dt, CoercePos::LetInit, "let binding"))
+            else if (dt != var_type && TypeRef(var_type).kind() == LogosType::Kind::Tuple &&
+                     expect_type(rhs, dt, CoercePos::LetInit, "let binding"))
                 var_type = expr_type(rhs);
         }
     }
@@ -2613,7 +2639,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     if (rhs && is_move_type(rhs_type) && !self_rooted_move)
         mark_moved_expr(expr_ref_of(rhs));
 
-    const bool lit_pending = !ann && rhs && is_stampable_literal_(expr_ref_of(rhs));
     lir::SLet slet;
     slet.name   = std::string(name);
     slet.type   = var_type;
@@ -2621,9 +2646,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     slet.value  = std::move(rhs);
     slet.annot_lifetime = let_annot_names_lifetime_;
     auto st = make_stmt_emit(node_line_, std::move(slet));
-    if (lit_pending)
-        if (const VarInfo* vi = lookup_var_info(name))
-            pending_lit_lets_[vi->slot] = PendingLitLet{st, 0};
     return st;
 }
 
