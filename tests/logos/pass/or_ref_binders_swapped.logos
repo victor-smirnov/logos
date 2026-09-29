@@ -1,0 +1,26 @@
+// ADR 0030 S3.3b: an or-pattern's `ref` binders in swapped positions bind ONE
+// storage per name (the tuple door bound each alternative's own; SIGSEGV in
+// match-pipe-binding test3). rustc 1.98.1 twin exits 0.
+package or_ref_binders_swapped;
+struct P { x: i64, y: i64 }
+fn f(t: (i32, P, P)) -> i64 {
+    match t {
+        (1i32, ref a, ref b) | (2i32, ref b, ref a) => { return a.x * 10 + b.y; }
+        _ => { return 0; }
+    }
+}
+fn g(t: (i32, (i64, i64), (i64, i64))) -> i64 {
+    match t {
+        (1i32, ref a, _) | (2i32, _, ref a) if a.0 > 0 => { return a.0 + a.1; }
+        _ => { return -1; }
+    }
+}
+fn main() -> i32 {
+    let r1 = f((1i32, P { x: 1, y: 2 }, P { x: 3, y: 4 }));   // a=P1 b=P2: 10 + 4
+    let r2 = f((2i32, P { x: 1, y: 2 }, P { x: 3, y: 4 }));   // a=P2 b=P1: 30 + 2
+    let r3 = g((2i32, (0, 5), (7, 1)));                        // a=(7,1): 8
+    if r1 != 14 { return 1; }
+    if r2 != 32 { return 2; }
+    if r3 != 8 { return 3; }
+    return 0;
+}

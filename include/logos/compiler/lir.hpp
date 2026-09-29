@@ -325,6 +325,7 @@ struct EMatchArm {
     Pattern                  pat;
     std::optional<LExprPtr>  guard;
     LExprPtr                 value = {};
+    uint32_t                 line = 0;   // the arm's source line (0: none)
 };
 
 // Mirror-view form of an expression match arm: value/guard reference an
@@ -334,6 +335,7 @@ struct EMatchArmView {
     Pattern           pat;
     lir_view::ExprRef guard{};
     lir_view::ExprRef value{};
+    uint32_t          line = 0;
 };
 
 // match expr { pat => val, ... } — produces a value

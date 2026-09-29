@@ -1,0 +1,9 @@
+// A block ending in a statement is `()` (ADR 0030 S3.4c); `()` has no value
+// to cast. rustc 1.98.1: E0605 "non-primitive cast: `()` as `i32`". The stdlib
+// `str_len` spelled its byte read `unsafe { s[n]; } as i32` and looped forever.
+package cast_unit_block_to_int;
+fn main() -> i32 {
+    let p: *const u8 = "ab".as_ptr();
+    let x = unsafe { p[0]; } as i32;
+    return x;
+}

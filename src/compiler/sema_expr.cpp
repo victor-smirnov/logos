@@ -1492,6 +1492,9 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         if (src_agg && tgt_scalar && !src_is_cstyle_enum)
             error(std::format("cannot cast '{}' to '{}'",
                   type_str(expr_type(inner)), type_str(target)));
+        // `()` has no value to convert (rustc E0605, "non-primitive cast").
+        if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Void && tgt_scalar)
+            error(std::format("non-primitive cast: '()' as '{}'", type_str(target)));
         // §1.2 — `as bool` is not a permitted cast in Rust. Only the
         // reverse direction (`bool as i32`) is valid (true→1, false→0).
         // Previously `let i: i32 = 1; let b: bool = i as bool;` and the

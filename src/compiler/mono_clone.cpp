@@ -1366,6 +1366,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 if (auto gr = arm.guard(); gr)
                     na.guard = subst_child_expr(gr);
                 na.value = subst_child_expr(arm.value());
+                na.line  = arm.line();
                 arms.push_back(std::move(na));
             });
             mp_ = lir_mirror_emit_match_expr(

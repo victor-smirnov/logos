@@ -545,10 +545,29 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   types it; a pattern error is one error (no "refutable" on top); the arity,
   field and type-mismatch sentences are rustc's (E0527/E0528, E0023, E0026,
   E0027, E0308).
-Next: S3.3b — or-patterns of binding
-alternatives in the tester (guarded arms retry the next alternative,
-alternative-dependent moves), retiring the fan-out, the synthesized route,
-the guard channel and the K4 prologue.
+- S3.3b, first half (2026-09-29): an or-pattern is bound by the tester, not
+  expanded into arms — the arm fan-out (top-level, payload and `@` ors) is
+  gone; `carried_payload_sub` carries an or of structural / literal / range /
+  wild / `@` alternatives. mlir: one storage per name shared by all
+  alternatives (`collect_pat_bindings` reaches every nested binder), registered
+  with the name's shape (`register_shared_binding`: a by-value aggregate, a
+  `ref` to an aggregate — swapped `ref` binders SIGSEGVed); a guarded
+  arm with ors enumerates the alternative combinations (`or_choice_`, cap
+  256) — test, bind, guard, next combination on false — and generates the
+  body once. BIR: an or is a nondeterministic branch whose alternatives bind
+  the SAME locals, and a guard over an or is lowered twice (the false edge of
+  the first run reaches a second), which is how rustc's per-alternative guard
+  runs a move twice (move-in-guard-2). Each arm carries its source line
+  (`ARM_LINE`): sema lowers the arm at it, so a guard's error is at the
+  guard, as rustc reports it; a binding's move out of a Drop owner (E0509)
+  stays at the scrutinee (`bir::Stmt::place_line`). Five fixtures pinned the
+  match line for a guard / binding use; they pin rustc's line now. S3.4c's
+  block-tail rule left one stdlib spelling `unsafe { s[n]; } as i32`
+  (`str_len`) — a `()` cast to an integer, accepted and looping forever
+  (fs_meta timed out); `() as <scalar>` is E0605 now (fixture
+  cast_unit_block_to_int) and `str_len` reads `unsafe { s[n] }`.
+Next: S3.3b second half — retire the synthesized route, the guard channel and
+the K4 prologue, if the census shows them unreached.
 
 ## L0 status (2026-09-27)
 

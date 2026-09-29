@@ -1,0 +1,45 @@
+// ADR 0030 S3.3b: or-pattern binders share ONE storage per name, with the
+// name's shape: a by-value struct, a `ref` struct inside a tuple and inside an
+// enum payload, read in a guard and in the body. rustc 1.98.1 twin exits 0.
+package or_bindings_shared_storage;
+
+struct P { x: i64, y: i64 }
+impl Clone for P { fn clone(self: &P) -> P { return *self; } }
+impl Copy for P {}
+enum E { A(P, i64), B(i64, P) }
+fn v(t: (i32, P, P)) -> i64 {
+    match t {
+        (1i32, a, b) | (2i32, b, a) => { return a.x * 10 + b.y; }
+        _ => { return 0; }
+    }
+}
+fn vg(t: (i32, P, P)) -> i64 {
+    match t {
+        (1i32, a, _) | (2i32, _, a) if a.x > 2 => { return a.x + a.y; }
+        _ => { return -1; }
+    }
+}
+fn e(x: &E) -> i64 {
+    match x {
+        E::A(p, n) | E::B(n, p) => { return p.x * 100 + *n; }
+    }
+}
+fn eg(x: E) -> i64 {
+    match x {
+        E::A(ref p, _) | E::B(_, ref p) if p.y == 4 => { return p.x; }
+        _ => { return -2; }
+    }
+}
+fn main() -> i32 {
+    let p1 = P { x: 1, y: 2 };
+    let p2 = P { x: 3, y: 4 };
+    if v((1i32, p1, p2)) != 14 { return 1; }
+    if v((2i32, p1, p2)) != 32 { return 2; }
+    if vg((1i32, p1, p2)) != -1 { return 3; }
+    if vg((2i32, p1, p2)) != 7 { return 4; }
+    if e(&E::A(p2, 5)) != 305 { return 5; }
+    if e(&E::B(6, p1)) != 106 { return 6; }
+    if eg(E::B(0, p2)) != 3 { return 7; }
+    if eg(E::A(p1, 0)) != -2 { return 8; }
+    return 0;
+}

@@ -138,8 +138,17 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             bool ref_to_struct = pointee &&
                 (pointee.kind() == LogosType::Kind::Struct ||
                  pointee.kind() == LogosType::Kind::ZonedStruct);
+            // An or-pattern's alternatives bind ONE storage per name (`shared`):
+            // the reference goes into it, never a slot of this alternative's own.
+            const mlir::Value shared_slot = [&]() -> mlir::Value {
+                if (!shared) return {};
+                auto it = shared->find(bindings[bi]);
+                return it == shared->end() ? mlir::Value{} : it->second;
+            }();
             if (ref_to_struct && ref_bind_depth == 1) {
-                // Depth-1 ref-to-struct: bind fp directly + carry struct shape.
+                // Depth-1 ref-to-struct: bind fp directly + carry struct shape;
+                // an or-pattern's shared slot holds it too, for the arm's body.
+                if (shared_slot) builder_.create<mlir::LLVM::StoreOp>(loc_, fp, shared_slot);
                 evict_shapes(bindings[bi]);
                 scope_[bindings[bi]] = fp;
                 let_vars_.insert(bindings[bi]);
@@ -157,7 +166,7 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
                 builder_.create<mlir::LLVM::StoreOp>(loc_, chain_val, intermediate);
                 chain_val = intermediate;
             }
-            auto bind_slot = create_entry_alloca(ptr_type());
+            auto bind_slot = shared_slot ? shared_slot : create_entry_alloca(ptr_type());
             builder_.create<mlir::LLVM::StoreOp>(loc_, chain_val, bind_slot);
             evict_shapes(bindings[bi]);
             scope_[bindings[bi]] = bind_slot;
@@ -4239,10 +4248,63 @@ void MLIRGenImpl::collect_pat_bindings(
         pvd.each_binding([&](std::string_view n){ names.emplace_back(n); });
         std::vector<TypeRef> btypes;
         pvd.each_binding_type(pool_impl(), [&](TypeRef t){ btypes.push_back(t); });
-        for (size_t i = 0; i < names.size(); ++i)
-            if (names[i] != "_")
-                out.emplace_back(names[i], i < btypes.size() ? btypes[i] : TypeRef{});
+        // A payload SUB-PATTERN (`A(P { x: 1, y })`) names what it binds
+        // inside: the binder list holds a synthesized name for it.
+        auto subs = pvd.subs();
+        for (size_t i = 0; i < names.size(); ++i) {
+            TypeRef bt = i < btypes.size() ? btypes[i] : TypeRef{};
+            if (i < subs.size() && subs[i]) collect_pat_bindings(subs[i], bt, out);
+            else if (names[i] != "_") out.emplace_back(names[i], bt);
+        }
         (void)te;
+        break;
+    }
+    case pc::Code::Struct: {
+        lir_view::PatStructView ps{pat};
+        std::string sname(ps.struct_name());
+        TypeRef sty = ty;
+        while (sty && (TypeRef(sty).kind() == LogosType::Kind::Ref ||
+                       TypeRef(sty).kind() == LogosType::Kind::MutRef) && TypeRef(sty).pointee())
+            sty = TypeRef(sty).pointee();
+        TypeRef pst = pat_struct_ty(sty, ps.struct_name());
+        lir_view::StructView sd;
+        {
+            auto di = pst ? find_struct_def_it(pst) : all_struct_defs_.find(sname);
+            if (di == all_struct_defs_.end()) di = all_struct_defs_.find(sname);
+            if (di != all_struct_defs_.end()) sd = di->second;
+        }
+        ps.each_field([&](lir_view::PatFieldBindingView pfb) {
+            std::string fname(pfb.field_name());
+            TypeRef fty;
+            if (sd) for (auto& lf : sd.fields())
+                if (lf.name() == fname) { fty = lf.type(pool_impl()); break; }
+            if (auto sub = pfb.sub()) collect_pat_bindings(sub, fty, out);
+            else out.emplace_back(fname, fty);
+        });
+        break;
+    }
+    case pc::Code::RefBind: {
+        lir_view::PatRefBindView rb{pat};
+        auto n = rb.name();
+        if (!n.empty() && n != "_") out.emplace_back(std::string(n), rb.bind_type(pool_impl()));
+        break;
+    }
+    case pc::Code::RefPat: {
+        TypeRef pointee = (ty && (TypeRef(ty).kind() == LogosType::Kind::Ref ||
+                                  TypeRef(ty).kind() == LogosType::Kind::MutRef))
+                          ? TypeRef(ty).pointee() : ty;
+        collect_pat_bindings(lir_view::PatRefPatView{pat}.inner(), pointee, out);
+        break;
+    }
+    case pc::Code::Slice: {
+        TypeRef aty = ty;
+        while (aty && (TypeRef(aty).kind() == LogosType::Kind::Ref ||
+                       TypeRef(aty).kind() == LogosType::Kind::MutRef) && TypeRef(aty).pointee())
+            aty = TypeRef(aty).pointee();
+        TypeRef et = aty ? TypeRef(aty).elem() : TypeRef{};
+        lir_view::PatSliceView sv{pat};
+        sv.each_prefix([&](lir_view::PatRef sp) { collect_pat_bindings(sp, et, out); });
+        sv.each_suffix([&](lir_view::PatRef sp) { collect_pat_bindings(sp, et, out); });
         break;
     }
     case pc::Code::Or: {
@@ -4468,6 +4530,13 @@ mlir::Value MLIRGenImpl::pat_test(lir_view::PatRef pat, mlir::Value slot_ptr, Ty
         return eq;
     }
     case pc::Code::Or: {
+        // A guarded arm enumerates its alternatives (or_choice_, gen_match_door):
+        // under a choice only that alternative is the pattern.
+        if (auto ch = or_choice_.find(pat.addr()); ch != or_choice_.end()) {
+            size_t k = 0; lir_view::PatRef chosen;
+            lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a) { if (k++ == ch->second) chosen = a; });
+            return chosen ? pat_test(chosen, slot_ptr, ty) : builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+        }
         mlir::Value cond = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
         lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef alt){
             auto sc = pat_test(alt, slot_ptr, ty);
@@ -4893,14 +4962,20 @@ std::string MLIRGenImpl::bind_array_rest(lir_view::PatRef rest, mlir::Type arr_m
     return rn;
 }
 
-void MLIRGenImpl::bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty) {
+void MLIRGenImpl::bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty,
+                                const std::unordered_map<std::string, mlir::Value>* shared) {
     evict_var_shapes(name);  // gap C: fresh binding drops stale peer shapes
-    bool ref_to_struct = ty &&
+    // An or-pattern's alternatives bind ONE storage per name: the reference
+    // goes into it (each alternative addresses a different place).
+    mlir::Value shared_slot;
+    if (shared)
+        if (auto it = shared->find(name); it != shared->end()) shared_slot = it->second;
+    bool ref_to_struct = !shared_slot && ty &&
         (TypeRef(ty).kind() == LogosType::Kind::Struct ||
          TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
     // The tuple is the SECOND aggregate shape; without it `p.0` GEPs
     // through the alloca-wrap and the write lands nowhere. 2026-09-06j.
-    bool ref_to_tuple = ty && TypeRef(ty).kind() == LogosType::Kind::Tuple;
+    bool ref_to_tuple = !shared_slot && ty && TypeRef(ty).kind() == LogosType::Kind::Tuple;
     if (ref_to_struct) {
         scope_[name] = slot_ptr;
         let_vars_.insert(name);
@@ -4909,6 +4984,20 @@ void MLIRGenImpl::bind_ref_name(const std::string& name, mlir::Value slot_ptr, T
         scope_[name] = slot_ptr;
         let_vars_.insert(name);
         var_tuple_.insert(name);
+    } else if (shared_slot) {
+        // As register_shared_binding reads a thin reference to `ty`.
+        builder_.create<mlir::LLVM::StoreOp>(loc_, slot_ptr, shared_slot);
+        let_vars_.insert(name);
+        const bool agg_struct = ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
+                                       TypeRef(ty).kind() == LogosType::Kind::ZonedStruct);
+        if (agg_struct || (ty && TypeRef(ty).kind() == LogosType::Kind::Tuple)) {
+            scope_[name] = slot_ptr;
+            if (agg_struct) var_struct_[name] = mlir_struct_key(ty); else var_tuple_.insert(name);
+        } else {
+            scope_[name] = shared_slot;
+            var_elem_types_[name] = ptr_type();
+            ref_slot_vars_.insert(name);
+        }
     } else {
         auto alloca = create_entry_alloca(ptr_type());
         builder_.create<mlir::LLVM::StoreOp>(loc_, slot_ptr, alloca);
@@ -5007,7 +5096,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         const bool default_ref = !av.ref_mode() &&
             ref_bind_kind(av.type(pool_impl()), ty, added_ref) && added_ref == 1;
         if ((av.ref_mode() || default_ref) && !av.name().empty() && av.name() != "_")
-            bind_ref_name(std::string(av.name()), slot_ptr, ty);
+            bind_ref_name(std::string(av.name()), slot_ptr, ty, shared);
         else
             bind_name_at_slot(std::string(av.name()), slot_ptr, ty, shared);
         pat_bind(av.sub(), slot_ptr, ty, shared);
@@ -5070,6 +5159,12 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         break;
     }
     case pc::Code::Or: {
+        if (auto ch = or_choice_.find(pat.addr()); ch != or_choice_.end()) {
+            size_t k = 0; lir_view::PatRef chosen;
+            lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a) { if (k++ == ch->second) chosen = a; });
+            if (chosen) pat_bind(chosen, slot_ptr, ty, shared);
+            break;
+        }
         // Pre-create shared allocas for the bindings (all alts bind the same
         // names+types), dispatch per-alt, and bind each alt into the shared
         // slots so the join sees one storage per name.
@@ -5079,14 +5174,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         if (first) collect_pat_bindings(first, ty, binds);
         if (binds.empty()) break;   // `1 | 2`: the test was the whole pattern
         std::unordered_map<std::string, mlir::Value> shared_map;
-        for (auto& [nm, bty] : binds) {
-            auto em = bty ? logos_to_mlir(bty) : ptr_type();
-            if (!em) em = ptr_type();
-            auto a = create_entry_alloca(em);
-            shared_map[nm] = a;
-            evict_var_shapes(nm);
-            scope_[nm] = a; let_vars_.insert(nm); var_elem_types_[nm] = em;
-        }
+        for (auto& [nm, bty] : binds) shared_map[nm] = shared_binding_alloca(bty);
         std::vector<lir_view::PatRef> alts;
         lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a){ alts.push_back(a); });
         auto* region = builder_.getBlock()->getParent();
@@ -5105,6 +5193,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
             builder_.setInsertionPointToStart(next_blk);
         }
         // current block is `done` (last next_blk == done).
+        for (auto& [nm, bty] : binds) register_shared_binding(nm, shared_map[nm], bty);
         break;
     }
     case pc::Code::Struct: {
@@ -5198,7 +5287,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // alloca-wraps so `*x` derefs one level.
         auto n = lir_view::PatRefBindView{pat}.name();
         if (n.empty() || n == "_") return;
-        bind_ref_name(std::string(n), slot_ptr, ty);
+        bind_ref_name(std::string(n), slot_ptr, ty, shared);
         break;
     }
     case pc::Code::RefPat: {
@@ -5360,6 +5449,52 @@ mlir::Value MLIRGenImpl::gen_match_door(lir_view::ExprRef scrut_e,
     for (size_t i = 0; i < arms.size(); ++i) {
         auto pat = arms[i].pat();
         mlir::Block* next = i + 1 < arms.size() ? new mlir::Block() : fall;
+        // ADR 0030 S3.3b: a GUARDED arm whose pattern holds binding or-patterns
+        // tries its alternatives in order — each combination is tested, bound
+        // (into one storage per name) and guarded; a failed guard goes on to the
+        // next combination, as rustc runs the guard once per matching way.
+        std::vector<std::pair<const void*, size_t>> ors;
+        if (arms[i].guard()) collect_binding_ors(pat, ors);
+        size_t combos = 1;
+        for (auto& o : ors) combos = std::min<size_t>(combos * o.second, 256);
+        if (arms[i].guard() && !ors.empty()) {
+            std::vector<std::pair<std::string, TypeRef>> binds;
+            collect_pat_bindings(pat, scrut_ty, binds);
+            std::unordered_map<std::string, mlir::Value> shared;
+            for (auto& [nm, bty] : binds) shared[nm] = shared_binding_alloca(bty);
+            auto* body = new mlir::Block();
+            if (next != fall) region->push_back(next);
+            for (size_t c = 0; c < combos; ++c) {
+                size_t rem = c;
+                for (auto& o : ors) { or_choice_[o.first] = rem % o.second; rem /= o.second; }
+                mlir::Block* nextc = c + 1 < combos ? new mlir::Block() : next;
+                auto* bind = new mlir::Block();
+                region->push_back(bind);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, pat_test(pat, slot, scrut_ty), bind, nextc);
+                builder_.setInsertionPointToStart(bind);
+                pat_bind(pat, slot, scrut_ty, &shared);
+                auto gv = coerce_int(gen_expr(arms[i].guard()), builder_.getI1Type());
+                if (!gv) gv = builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 1);
+                builder_.create<mlir::cf::CondBranchOp>(loc_, gv, body, nextc);
+                if (nextc != next) { region->push_back(nextc); builder_.setInsertionPointToStart(nextc); }
+            }
+            for (auto& o : ors) or_choice_.erase(o.first);
+            shadow_register_pattern(pat);
+            region->push_back(body);
+            builder_.setInsertionPointToStart(body);
+            // The names read the arm's storage in the body.
+            for (auto& [nm, bty] : binds) register_shared_binding(nm, shared[nm], bty);
+            if (auto ve = arms[i].value()) {
+                auto val = gen_expr(ve);
+                if (val && result_type && !is_terminated(builder_.getBlock()))
+                    builder_.create<mlir::LLVM::StoreOp>(loc_, store_arm_result(val, result_type), result_alloca);
+            }
+            restore_var_scope(match_scope);
+            if (!is_terminated(builder_.getBlock()))
+                builder_.create<mlir::cf::BranchOp>(loc_, merge);
+            if (next != fall) builder_.setInsertionPointToStart(next);
+            continue;
+        }
         auto* bind = new mlir::Block();
         region->push_back(bind);
         if (next != fall) region->push_back(next);
@@ -5398,6 +5533,92 @@ mlir::Value MLIRGenImpl::gen_match_door(lir_view::ExprRef scrut_e,
         return nullptr;
     }
     return result();
+}
+
+// The or-patterns of `p` (ADR 0030 S3.3b), outside any other or-pattern, with
+// their alternative counts: the choice points a GUARDED arm enumerates — rustc
+// runs the guard once per way the pattern matches, whether or not the
+// alternatives bind (`(1, _) | (_, 2) if take(x)` moves `x` twice).
+// The storage an or-pattern's alternatives all bind a name into: an aggregate
+// by value is its own storage (bind_name_at_slot copies into it), anything else
+// the slot of its value (a reference is a pointer).
+mlir::Value MLIRGenImpl::shared_binding_alloca(TypeRef bty) {
+    mlir::Type em;
+    if (bty && (TypeRef(bty).kind() == LogosType::Kind::Struct || TypeRef(bty).kind() == LogosType::Kind::ZonedStruct)) {
+        auto sit = find_struct_it(bty);
+        if (sit != struct_types_.end()) em = sit->second.llvm_type;
+    } else if (bty && TypeRef(bty).kind() == LogosType::Kind::Tuple) {
+        em = tuple_llvm_type(bty);
+    }
+    if (!em) em = bty ? logos_to_mlir(bty) : ptr_type();
+    if (!em) em = ptr_type();
+    return create_entry_alloca(em);
+}
+
+// A name over its shared storage, registered as a local of its type is: an
+// aggregate by value IS the storage (with its shape); a thin reference to an
+// aggregate is the loaded pointer with the pointee's shape (a `let r: &P`); any
+// other value is read from the slot, a thin reference through it.
+void MLIRGenImpl::register_shared_binding(const std::string& nm, mlir::Value slot, TypeRef bty) {
+    evict_var_shapes(nm);
+    let_vars_.insert(nm);
+    const TypeRef t = bty ? TypeRef(bty) : TypeRef{};
+    auto is_struct = [](TypeRef x) {
+        return x && (x.kind() == LogosType::Kind::Struct || x.kind() == LogosType::Kind::ZonedStruct);
+    };
+    const bool is_ref = t && (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef);
+    const TypeRef pt = is_ref && t.pointee() ? TypeRef(t.pointee()) : TypeRef{};
+    if (is_struct(t) || (t && t.kind() == LogosType::Kind::Tuple)) {
+        scope_[nm] = slot;
+        if (is_struct(t)) var_struct_[nm] = mlir_struct_key(t); else var_tuple_.insert(nm);
+        return;
+    }
+    if (is_ref && ref_repr_of(t) == RefReprKind::ThinPtr && (is_struct(pt) || (pt && pt.kind() == LogosType::Kind::Tuple))) {
+        scope_[nm] = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), slot);
+        if (is_struct(pt)) var_struct_[nm] = mlir_struct_key(pt); else var_tuple_.insert(nm);
+        return;
+    }
+    scope_[nm] = slot;
+    auto et = mlir::cast<mlir::LLVM::AllocaOp>(slot.getDefiningOp()).getElemType();
+    var_elem_types_[nm] = et;
+    if (auto arr_t = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(et)) {
+        var_elem_types_[nm] = arr_t.getElementType();
+        var_subscript_[nm]  = arr_t.getElementType();
+    }
+    if (is_ref && ref_repr_of(t) == RefReprKind::ThinPtr && et == ptr_type()) ref_slot_vars_.insert(nm);
+}
+
+void MLIRGenImpl::collect_binding_ors(lir_view::PatRef p, std::vector<std::pair<const void*, size_t>>& out) {
+    namespace pc = lir_schema::pat;
+    if (!p) return;
+    switch (p.kind()) {
+    case pc::Code::Or: {
+        size_t n = 0;
+        lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef) { ++n; });
+        if (n > 1) out.emplace_back(p.addr(), n);
+        return;
+    }
+    case pc::Code::Tuple:
+        lir_view::PatTupleView{p}.each_sub([&](lir_view::PatRef s) { collect_binding_ors(s, out); });
+        return;
+    case pc::Code::VariantData:
+        for (auto s : lir_view::PatVariantDataView{p}.subs()) collect_binding_ors(s, out);
+        return;
+    case pc::Code::Struct:
+        lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView f) {
+            if (auto s = f.sub()) collect_binding_ors(s, out);
+        });
+        return;
+    case pc::Code::Slice: {
+        lir_view::PatSliceView sv{p};
+        sv.each_prefix([&](lir_view::PatRef s) { collect_binding_ors(s, out); });
+        sv.each_suffix([&](lir_view::PatRef s) { collect_binding_ors(s, out); });
+        return;
+    }
+    case pc::Code::At: collect_binding_ors(lir_view::PatAtView{p}.sub(), out); return;
+    case pc::Code::RefPat: collect_binding_ors(lir_view::PatRefPatView{p}.inner(), out); return;
+    default: return;
+    }
 }
 
 // G161-4 / task #94: an arm's value in the result slot's representation. A

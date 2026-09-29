@@ -282,6 +282,7 @@ namespace arm_keys {
 inline constexpr Key PAT               {"ARM_PAT",          0};   // RelPtr<Pattern-mirror>
 inline constexpr Key GUARD             {"ARM_GUARD",        1};   // RelPtr<LExpr> (optional)
 inline constexpr Key VALUE             {"ARM_VALUE",        2};   // RelPtr<LExpr> (EMatchArm)
+inline constexpr Key LINE              {"ARM_LINE",         3};   // u32 (sparse): the arm's source line
 } // namespace arm_keys
 
 // Keys for the EWritLit LExpr variant map. expr_common::TYPE at 0 still

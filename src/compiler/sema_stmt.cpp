@@ -3942,6 +3942,23 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         // SECOND time for a guard, and both copies were dropped: `Some((a, k))
         // if k > 0` over `Option<(String, i64)>` freed the String twice.
         if (structural(c)) return true;
+        // An or-pattern of carried alternatives (`Some((a, _) | (_, a))`,
+        // ADR 0030 S3.3b): the tester binds whichever alternative matched,
+        // into one storage per name.
+        if (c == la::PAT_OR && m.has_key(la::ITEMS)) {
+            auto alts = arr_of(m.get(la::ITEMS.code));
+            if (alts.size() >= 2) {
+                bool all = true;
+                for (uint64_t k = 0; k < alts.size() && all; ++k) {
+                    TinyMapView a = map_of(alts.get(k));
+                    const int32_t ac = code_of(a);
+                    all = structural(ac) || ac == la::PAT_INT || ac == la::PAT_BOOL || ac == la::PAT_CHAR ||
+                          ac == la::PAT_STR || ac == la::PAT_RANGE ||
+                          (ac == la::PAT_WILD && a.has_key(la::NAME)) || ac == la::PAT_AT;
+                }
+                if (all) return true;
+            }
+        }
         // A bare name that is a VALUE (`Some(K)` for a const, `Some(None)`) is
         // a test carried like a literal; as a binder it matched everything.
         if (c == la::PAT_WILD && m.has_key(la::NAME) && !pat_byval_mut(m) &&
@@ -4487,18 +4504,6 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                 auto bitems = arr_of(blist.get(la::ITEMS.code));
                 for (uint64_t j = 0; j < bitems.size(); ++j) {
                     auto bnode = map_of(bitems.get(j));
-                    // B170-E: or-distribution. When lower_match fanned this arm
-                    // out per payload-or alternative, replace a multi-alt PAT_OR
-                    // arg with the selected alternative so the rest of the loop
-                    // handles it like a plain payload sub-pattern (each fanned
-                    // arm re-runs the guard with its own bindings). Mirrors the
-                    // grammar's single-alt PAT_OR unwrap, generalised to N alts.
-                    if (payload_or_alt_ >= 0 &&
-                        code_of(bnode) == la::PAT_OR && bnode.has_key(la::ITEMS)) {
-                        auto oalts = arr_of(bnode.get(la::ITEMS.code));
-                        if ((uint64_t)payload_or_alt_ < oalts.size())
-                            bnode = map_of(oalts.get((uint64_t)payload_or_alt_));
-                    }
                     // B-pt-04: variant-payload args now parse as full
                     // patterns, but only PAT_WILD bindings (or PAT_UNIT
                     // skip) are codegen'd today.  Anything else (struct,
@@ -5006,24 +5011,6 @@ lir::Pattern SemaChecker::build_pattern_bytes(TinyMapView pnode, TypeRef scrut_t
     lir::Pattern p_;
     p_.mirror_ptr_ = mo;
     return p_;
-}
-
-int SemaChecker::at_or_fanout_alts(writ::TinyMapView lhs) {
-    // The grammar wraps a whole arm pattern in a single-alt PAT_OR.
-    if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
-        auto a = arr_of(lhs.get(la::ITEMS.code));
-        if (a.size() == 1) lhs = map_of(a.get(0));
-    }
-    if (code_of(lhs) != la::PAT_AT || !lhs.has_key(la::VALUE)) return 0;
-    auto sub = map_of(lhs.get(la::VALUE.code));
-    if (code_of(sub) != la::PAT_OR || !sub.has_key(la::ITEMS)) return 0;
-    auto alts = arr_of(sub.get(la::ITEMS.code));
-    if (alts.size() < 2) return 0;
-    for (uint64_t k = 0; k < alts.size(); ++k) {
-        int32_t c = code_of(map_of(alts.get(k)));
-        if (c != la::PAT_INT && c != la::PAT_BOOL && c != la::PAT_CHAR) return (int)alts.size();
-    }
-    return 0;
 }
 
 lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type) {
@@ -6091,14 +6078,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     if (pc == la::PAT_AT) {
         auto bname = std::string(str_of(pnode.get(la::NAME.code)));
         auto sub_node = map_of(pnode.get(la::VALUE.code));
-        if (at_or_alt_ >= 0 && code_of(sub_node) == la::PAT_OR && sub_node.has_key(la::ITEMS)) {
-            auto alts = arr_of(sub_node.get(la::ITEMS.code));
-            if ((uint64_t)at_or_alt_ < alts.size()) sub_node = map_of(alts.get((uint64_t)at_or_alt_));
-        }
-        int32_t saved_at_or_alt = at_or_alt_;
-        at_or_alt_ = -1;   // the selection is this binder's; nested ones are not fanned
         auto sub_pat = build_pattern(sub_node, scrut_orig);
-        at_or_alt_ = saved_at_or_alt;
         lir::PatAt pa;
         pa.name = bname;
         // NS3: scrut_type may be null for unknown types; fallback to error_t() so
@@ -10991,85 +10971,19 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
     mc.result_type = error_t();
     if (node.has_key(la::ITEMS)) {
         auto arms = cfg_live_entries_(arr_of(node.get(la::ITEMS.code)));
-        // P4-pm-25: fan out or-pattern arms whose alternatives are not pure
-        // scalar literals that bind nothing (PAT_INT / PAT_BOOL / PAT_CHAR):
-        // each alternative goes through the single-arm path with its own
-        // payload extraction and refutable-inner guard. B170-E: a variant whose
-        // SINGLE payload arg is a multi-alt PAT_OR (`Some((a,_) | (_,a))`) fans
-        // out one arm per alternative (`Some(P|Q)` → `Some(P) | Some(Q)`); each
-        // fanned arm re-evaluates the guard with its own bindings. (S3.3b
-        // retires the fan-out: the tester binds or-pattern alternatives.)
-        struct EffArm { writ::TinyMapView arm; int32_t alt_idx; int32_t payload_alt = -1; int32_t at_alt = -1; };
-        auto alt_is_merge_safe = [](int32_t c) -> bool {
-            return c == la::PAT_INT || c == la::PAT_BOOL || c == la::PAT_CHAR;
-        };
-        auto or_needs_fanout = [&](writ::TinyMapView lhs) -> bool {
-            if (code_of(lhs) != la::PAT_OR || !lhs.has_key(la::ITEMS)) return false;
-            auto a = arr_of(lhs.get(la::ITEMS.code));
-            if (a.size() < 2) return false;
-            for (uint64_t k = 0; k < a.size(); ++k)
-                if (!alt_is_merge_safe(code_of(map_of(a.get(k))))) return true;
-            return false;
-        };
-        auto variant_payload_or_alts = [&](writ::TinyMapView lhs) -> int {
-            // The grammar wraps a whole arm pattern in a single-alt PAT_OR.
-            if (code_of(lhs) == la::PAT_OR && lhs.has_key(la::ITEMS)) {
-                auto a = arr_of(lhs.get(la::ITEMS.code));
-                if (a.size() == 1) lhs = map_of(a.get(0));
-            }
-            if (code_of(lhs) != la::PAT_VARIANT_DATA || !lhs.has_key(la::ARGS)) return 0;
-            AnyVal aav = lhs.get(la::ARGS.code);
-            if (aav.is_null() || !aav.is_pointer()) return 0;
-            auto blist = map_of(aav);
-            if (!blist.has_key(la::ITEMS)) return 0;
-            auto items = arr_of(blist.get(la::ITEMS.code));
-            if (items.size() != 1) return 0;
-            auto arg = map_of(items.get(0));
-            if (code_of(arg) != la::PAT_OR || !arg.has_key(la::ITEMS)) return 0;
-            auto alts = arr_of(arg.get(la::ITEMS.code));
-            // A pure scalar or (`Some(1|2)`) is a carried sub-pattern.
-            bool needs = false;
-            for (uint64_t k = 0; k < alts.size(); ++k)
-                if (!alt_is_merge_safe(code_of(map_of(alts.get(k))))) { needs = true; break; }
-            return (alts.size() >= 2 && needs) ? (int)alts.size() : 0;
-        };
-        std::vector<EffArm> eff_arms;
+        // ADR 0030 S3.3b: an or-pattern arm is ONE arm — the tester binds the
+        // alternative that matched and a guarded arm tries its alternatives in
+        // turn (gen_match_door); T1-8 (E0408): every alternative binds the same
+        // names.
+        std::vector<writ::TinyMapView> eff_arms;
         for (uint64_t i = 0; i < arms.size(); ++i) {
             auto arm = arms[i];
-            if (code_of(arm) != la::MATCH_ARM) { eff_arms.push_back({arm, -1}); continue; }
-            if (arm.has_key(la::LHS)) {
+            if (code_of(arm) == la::MATCH_ARM && arm.has_key(la::LHS)) {
                 auto lhs = map_of(arm.get(la::LHS.code));
-                // T1-8 (E0408): top-level `A | B =>` arm alternations must
-                // bind the same names in every alternative.
-                if (code_of(lhs) == la::PAT_OR)
-                    check_or_alt_binding_consistency(lhs);
-                if (or_needs_fanout(lhs)) {
-                    logos::probe::census("s3.fanout.top");
-                    auto a = arr_of(lhs.get(la::ITEMS.code));
-                    for (uint64_t k = 0; k < a.size(); ++k)
-                        eff_arms.push_back({arm, (int32_t)k});
-                    continue;
-                }
-                if (int n = variant_payload_or_alts(lhs); n > 0) {
-                    logos::probe::census("s3.fanout.payload");
-                    for (int k = 0; k < n; ++k)
-                        eff_arms.push_back({arm, -1, k});
-                    continue;
-                }
-                if (int n = at_or_fanout_alts(lhs); n > 0) {
-                    logos::probe::census("s3.fanout.at");
-                    for (int k = 0; k < n; ++k)
-                        eff_arms.push_back({arm, -1, -1, k});
-                    continue;
-                }
+                if (code_of(lhs) == la::PAT_OR) check_or_alt_binding_consistency(lhs);
             }
-            eff_arms.push_back({arm, -1});
+            eff_arms.push_back(arm);
         }
-        auto effective_lhs = [&](writ::TinyMapView arm, int32_t alt_idx) {
-            auto lhs = map_of(arm.get(la::LHS.code));
-            if (alt_idx < 0) return lhs;
-            return map_of(arr_of(lhs.get(la::ITEMS.code)).get((uint64_t)alt_idx));
-        };
         // Every arm starts from the pre-match move / definite-assignment state;
         // a DIVERGING arm's moves do not leak into its siblings or past the
         // match —
@@ -11091,10 +11005,13 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
         // flag clear is spliced into.
         std::vector<CondMoveBranch> arm_branches;
         std::vector<size_t> arm_slot;
+        // Each arm is lowered at its own line: the guard is an expression, not
+        // a statement, so nothing else moves node_line_ off the match's line.
+        struct LineRestore { uint32_t& r; uint32_t v; ~LineRestore() { r = v; } } line_restore_{node_line_, node_line_};
         for (uint64_t i = 0; i < eff_arms.size(); ++i) {
-            auto arm = eff_arms[i].arm;
-            int32_t alt_idx = eff_arms[i].alt_idx;
+            auto arm = eff_arms[i];
             if (code_of(arm) != la::MATCH_ARM) continue;
+            if (uint32_t al = get_line(arm)) node_line_ = al;
 
             moved_vars_ = pre_moves;
             closure_owned_drop_ = owned_pre_m;
@@ -11108,7 +11025,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             if (has_writ_pat && arm.has_key(la::LHS)) {
                 std::vector<lir_view::StmtRef> g_stmts;
                 std::vector<WritPatBinding> g_binds;
-                auto raw = build_writ_pat_guard(effective_lhs(arm, alt_idx), root_var, anyval_t,
+                auto raw = build_writ_pat_guard(map_of(arm.get(la::LHS.code)), root_var, anyval_t,
                                                 base_var, g_stmts, g_binds);
                 if (!g_stmts.empty() && raw)
                     synth_guard = builder().block_expr(lir_mirror_block(*cur_prog_, g_stmts), std::move(raw), bool_t());
@@ -11117,7 +11034,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                 // Re-run the pattern lowering for parallel body-scope stmts /
                 // bindings (fresh tmp names, consistent with body_prologue).
                 if (!g_binds.empty())
-                    (void)build_writ_pat_guard(effective_lhs(arm, alt_idx), root_var, anyval_t,
+                    (void)build_writ_pat_guard(map_of(arm.get(la::LHS.code)), root_var, anyval_t,
                                                base_var, body_prologue, body_binds);
             }
 
@@ -11136,16 +11053,9 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             std::vector<lir::LExprPtr> refut_guards;
             auto* saved_pat_refut = current_pat_refutable_guards_;
             current_pat_refutable_guards_ = &refut_guards;
-            // B170-E: select this fanned arm's payload-or alternative.
-            int32_t saved_payload_or_alt = payload_or_alt_;
-            payload_or_alt_ = eff_arms[i].payload_alt;
-            int32_t saved_at_or_alt = at_or_alt_;
-            at_or_alt_ = eff_arms[i].at_alt;
             lir::Pattern pat = arm.has_key(la::LHS)
-                ? build_pattern(effective_lhs(arm, alt_idx), scrut_type)
+                ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
                 : make_pat_wild("_");
-            payload_or_alt_ = saved_payload_or_alt;
-            at_or_alt_ = saved_at_or_alt;
             current_pat_nested_subs_ = saved_pat_subs;
             current_pat_refutable_guards_ = saved_pat_refut;
             in_match_writ_ctx_ = false;
@@ -11316,6 +11226,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             }
 
             MatchCoreArm out;
+            out.line = static_cast<uint32_t>(get_line(arm));
             // 0: falls through; 1: never reaches the enclosing frame's drops
             // (`return`, a `!` value); 2: `break` / `continue` — unwinds to the
             // loop body and reaches the frame's drops by the loop edge (#122).
@@ -11599,6 +11510,7 @@ lir::LExprPtr SemaChecker::match_expr_of_(MatchCore& mc) {
         ema.pat   = std::move(a.pat);
         ema.guard = std::move(a.guard);
         ema.value = std::move(a.value);
+        ema.line  = a.line;
         me.arms.push_back(std::move(ema));
     }
     const TypeRef rty = mc.result_type;

@@ -2184,6 +2184,13 @@ private:
     mlir::Value gen_match_door(lir_view::ExprRef scrut, const std::vector<lir_view::EMatchArmRef>& arms,
                                TypeRef type);
     mlir::Value match_scrut_place(lir_view::ExprRef e, mlir::Value v, TypeRef t);
+    // ADR 0030 S3.3b: while a GUARDED arm enumerates its or-pattern
+    // alternatives, the alternative each binding Or node stands for.
+    std::unordered_map<const void*, size_t> or_choice_;
+    void collect_binding_ors(lir_view::PatRef p, std::vector<std::pair<const void*, size_t>>& out);
+    // An or-pattern's one storage per name, and the name's registration over it.
+    mlir::Value shared_binding_alloca(TypeRef bty);
+    void        register_shared_binding(const std::string& nm, mlir::Value slot, TypeRef bty);
     bool        match_arms_cover(const std::vector<lir_view::EMatchArmRef>& arms, TypeRef t);
     mlir::Value store_arm_result(mlir::Value val, mlir::Type rt);
 
@@ -2306,7 +2313,8 @@ private:
     // a pointer's bytes as fields.
     void        peel_thin_ref_slots(mlir::Value& slot, TypeRef& ty);
     mlir::func::FuncOp memcmp_fn();
-    void        bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty);
+    void        bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty,
+                              const std::unordered_map<std::string, mlir::Value>* shared = nullptr);
     std::string bind_array_rest(lir_view::PatRef rest, mlir::Type arr_mlir, mlir::Type elem_mlir,
                                 mlir::Value aptr, size_t pre, size_t len, bool by_value = false);
     void        pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,

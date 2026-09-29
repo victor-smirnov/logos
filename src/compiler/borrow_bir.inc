@@ -134,6 +134,10 @@ struct Stmt {
     Rvalue   rv;        // Assign; Read: rv.ops are read for effect
     LocalId  local = kNoLocal;   // StorageDead
     uint32_t line = 0;
+    // The line of the place a binding moves out of, when it is not `line`: a
+    // match arm binds at its own line, but the place is the scrutinee (E0509's
+    // span, where rustc puts it).
+    uint32_t place_line = 0;
 };
 
 struct Term {
@@ -554,6 +558,7 @@ private:
     }
     void emit(bir::Stmt s) {
         s.line = line_;
+        s.place_line = place_line_;
         if (body_.blocks[cur_].terminated) {
             // Code after a diverging statement: give it an unreachable block
             // so it is still lowered (its loans cannot matter).
@@ -2870,11 +2875,37 @@ private:
         r.rv.ops.push_back(std::move(o));
         emit(std::move(r));
     }
+    // Does the pattern hold an or-pattern of two or more alternatives anywhere?
+    bool pattern_has_or_(lir_view::PatRef p) const {
+        if (!p) return false;
+        switch (p.kind()) {
+            case PCode::Or: { size_t n = 0; lir_view::PatOrView{p}.each_alt([&](lir_view::PatRef) { ++n; }); return n > 1; }
+            case PCode::Tuple: { bool r = false; lir_view::PatTupleView{p}.each_sub([&](lir_view::PatRef s) { r = r || pattern_has_or_(s); }); return r; }
+            case PCode::VariantData: { for (auto s : lir_view::PatVariantDataView{p}.subs()) if (pattern_has_or_(s)) return true; return false; }
+            case PCode::Struct: { bool r = false; lir_view::PatStructView{p}.each_field([&](lir_view::PatFieldBindingView f) { r = r || pattern_has_or_(f.sub()); }); return r; }
+            case PCode::Slice: { bool r = false; lir_view::PatSliceView sv{p}; sv.each_prefix([&](lir_view::PatRef s) { r = r || pattern_has_or_(s); }); sv.each_suffix([&](lir_view::PatRef s) { r = r || pattern_has_or_(s); }); return r; }
+            case PCode::At: return pattern_has_or_(lir_view::PatAtView{p}.sub());
+            case PCode::RefPat: return pattern_has_or_(lir_view::PatRefPatView{p}.inner());
+            default: return false;
+        }
+    }
+    // ADR 0030 S3.3b: while an or-pattern's alternatives bind, each name is ONE
+    // local (MIR's bindings of an or-pattern): the first alternative makes it,
+    // the others assign it on their own path.
+    std::vector<std::unordered_map<std::string, bir::LocalId>> or_locals_;
     void bind_to(bir::Place src, TypeRef bind_type, std::string_view name, uint32_t slot,
                  bool is_mut, int ref_mode) {
         if (name.empty() || name == "_") return;
-        bir::LocalId l = new_local(std::string(name), bir::LocalKind::User, bind_type, is_mut,
-                                   slot, line_);
+        bir::LocalId l{};
+        bool reuse = false;
+        if (!or_locals_.empty())
+            if (auto it = or_locals_.back().find(std::string(name)); it != or_locals_.back().end()) {
+                l = it->second; reuse = true;
+            }
+        if (!reuse) {
+            l = new_local(std::string(name), bir::LocalKind::User, bind_type, is_mut, slot, line_);
+            if (!or_locals_.empty()) or_locals_.back().emplace(std::string(name), l);
+        }
         if (ref_mode == 1 || ref_mode == 2)
             // In a guard every binding is a SHARED reference, a `ref mut` one
             // included (rustc: the guard sees `&&mut`): the unique borrow is
@@ -2886,7 +2917,7 @@ private:
             rv.ops.push_back(in_guard_ ? as_read(std::move(o)) : std::move(o));
             assign({l, {}}, std::move(rv));
         }
-        declare(l);
+        if (!reuse) declare(l);
     }
     // `default_ref`: 0 by value, 1 / 2 when matching through a `&` / `&mut`
     // scrutinee without an explicit `&` pattern (default binding modes).
@@ -2991,11 +3022,28 @@ private:
                 return;
             }
             case PCode::Or: {
+                // Each alternative binds on its own path into the SAME locals;
+                // the paths join. Which alternative matched is the tester's
+                // (as the arms are, the branch is not decided here).
                 bool binds = false;
+                std::vector<lir_view::PatRef> alts;
                 lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a) {
+                    alts.push_back(a);
                     if (pattern_binds(a)) binds = true;
                 });
-                if (binds) unsupported("pat:Or with bindings");
+                if (!binds) return;
+                std::vector<bir::BlockId> blocks;
+                for (size_t k = 0; k < alts.size(); ++k) blocks.push_back(new_block());
+                bir::BlockId join = new_block();
+                branch(bir::Operand{}, blocks);
+                or_locals_.emplace_back();
+                for (size_t k = 0; k < alts.size(); ++k) {
+                    cur_ = blocks[k];
+                    bind_pattern(p, t, alts[k], default_ref);
+                    if (!body_.blocks[cur_].terminated) goto_(join);
+                }
+                or_locals_.pop_back();
+                cur_ = join;
                 return;
             }
             case PCode::Slice: {
@@ -3200,6 +3248,7 @@ private:
         match_arm_ext_ = false;
         bir::Place sp = place_or_temp(scrut);
         TypeRef stype = scrut.type(pool_);
+        const uint32_t scrut_line = line_;
         std::vector<lir_view::EMatchArmRef> arms;
         each_arm([&](lir_view::EMatchArmRef a) { arms.push_back(a); });
         bir::BlockId join = new_block();
@@ -3250,8 +3299,18 @@ private:
         branch(shape_only ? bir::Operand{} : read_place(sp, {}), arm_blocks);
         for (size_t i = 0; i < arms.size(); ++i) {
             cur_ = arm_blocks[i];
+            if (uint32_t ln = arms[i].line()) line_ = ln;
             push_scope();
             if (auto g = arms[i].guard()) {
+                // ADR 0030 S3.3b: a guard over an or-pattern runs once per way the
+                // pattern matches (rustc), so it is lowered TWICE — the first
+                // false edge reaches a second attempt — which is enough to see a
+                // guard that moves or borrows what a second run needs.
+                const int attempts = pattern_has_or_(arms[i].pat()) ? 2 : 1;
+                bir::BlockId guard_ok = new_block();
+                for (int attempt = 0; attempt < attempts; ++attempt) {
+                bir::BlockId retry = attempt + 1 < attempts ? new_block()
+                                   : (i + 1 < arms.size() ? arm_blocks[i + 1] : nomatch);
                 // As MIR has it: the guard sees the arm's bindings BY
                 // REFERENCE, and the scrutinee is moved out of only once the
                 // guard has passed. Binding by move first left the scrutinee
@@ -3266,7 +3325,9 @@ private:
                 // loop, the next iteration's guard — bound them again (E0384
                 // "cannot assign twice to immutable", a legal program).
                 push_scope();
+                place_line_ = scrut_line;
                 bind_pattern(sp, stype, arms[i].pat(), 0);
+                place_line_ = 0;
                 // E0510: the guard may not change what is being matched. MIR
                 // holds a FAKE shared borrow of the scrutinee across the guard;
                 // here it is a real one that is read once the guard is done, so
@@ -3306,12 +3367,18 @@ private:
                 branch(std::move(c), {yes, no});
                 cur_ = no;
                 guard_bindings_dead();
-                goto_(i + 1 < arms.size() ? arm_blocks[i + 1] : nomatch);
+                goto_(retry);
                 cur_ = yes;
                 guard_bindings_dead();
                 scopes_.pop_back();
+                goto_(guard_ok);
+                cur_ = retry;
+                }
+                cur_ = guard_ok;
             }
+            place_line_ = scrut_line;
             bind_pattern(sp, stype, arms[i].pat(), 0);
+            place_line_ = 0;
             if (dest && arms[i].value()) {
                 bool saved_ext = extending_;
                 extending_ = arm_ext;
@@ -3337,6 +3404,7 @@ private:
     std::unordered_map<std::string, bir::Place> aliases_;   // destructure temps -> the scrutinee place
     bir::BlockId          cur_ = 0;
     uint32_t              line_ = 0;
+    uint32_t              place_line_ = 0;   // see bir::Stmt::place_line
 };
 
 // ── Closure requirements ─────────────────────────────────────────────────────
@@ -3421,6 +3489,10 @@ public:
     }
     std::string point_name(uint32_t p) const { return "p" + std::to_string(p); }
     uint32_t point_line(uint32_t p) const { return p < point_lines_.size() ? point_lines_[p] : 0; }
+    // The line of the place moved out of at p (bir::Stmt::place_line), else p's line.
+    uint32_t point_place_line(uint32_t p) const {
+        return p < point_place_lines_.size() && point_place_lines_[p] ? point_place_lines_[p] : point_line(p);
+    }
     // rustc renders a place in source form: a Deref followed by a field or an
     // index vanishes (`(*r).a` is `r.a`), and only a trailing one is written,
     // as a `*` prefix with no parentheses (`*r`, `**p`, `*child.raw`).
@@ -5521,6 +5593,7 @@ private:
     std::vector<std::pair<std::string, std::vector<std::string>>> rows_;
     std::vector<uint32_t>              point_order_;   // point id -> linear order
     std::vector<uint32_t>              point_lines_;
+    std::vector<uint32_t>              point_place_lines_;
 
 public:
     const std::vector<std::pair<std::string, std::vector<std::string>>>& rows() const { return rows_; }
@@ -5538,6 +5611,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
     }
     point_order_.resize(np);
     point_lines_.resize(np);
+    point_place_lines_.assign(np, 0);
     for (uint32_t i = 0; i < np; ++i) point_order_[i] = i;
     auto S = [&](size_t bi, size_t si) { return bp[bi].first + uint32_t(si) * 2; };
     auto M = [&](size_t bi, size_t si) { return bp[bi].first + uint32_t(si) * 2 + 1; };
@@ -5547,6 +5621,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
         for (size_t si = 0; si <= n; ++si) {
             uint32_t line = si < n ? blk.stmts[si].line : blk.term.line;
             point_lines_[S(bi, si)] = point_lines_[M(bi, si)] = line;
+            if (si < n) point_place_lines_[S(bi, si)] = point_place_lines_[M(bi, si)] = blk.stmts[si].place_line;
             row("cfg_edge", {pt(S(bi, si)), pt(M(bi, si))});
             if (si < n) row("cfg_edge", {pt(M(bi, si)), pt(S(bi, si + 1))});
         }
@@ -7048,9 +7123,9 @@ static void bir_check_body(bir::Body& body, const lir::LProgram& prog,
         const dl::Relation& R = rel("move_drop_errors");
         for (size_t i = 0; i < R.size(); ++i) {
             auto row = R.row(i);
-            v.add(facts.point_line(num(sym(row[1]))), std::format("cannot move out of '{}': its owner implements Drop (E0509, line {})",
-                                           facts.path_str(num(sym(row[0]))),
-                                           facts.point_line(num(sym(row[1])))));
+            const uint32_t ln = facts.point_place_line(num(sym(row[1])));
+            v.add(ln, std::format("cannot move out of '{}': its owner implements Drop (E0509, line {})",
+                                  facts.path_str(num(sym(row[0]))), ln));
         }
     }
     std::sort(v.errors.begin(), v.errors.end());

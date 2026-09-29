@@ -1727,6 +1727,7 @@ public:
         if (av.is_null()) return {};
         return detail::make_sub_ref<ExprRef>(*this, av);
     }
+    uint32_t line() const noexcept { return detail::read_u32(*this, ak::LINE.code); }
 };
 
 // ── LExpr variant views ──────────────────────────────────────────────────

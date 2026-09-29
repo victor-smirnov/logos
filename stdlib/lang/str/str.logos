@@ -40,7 +40,7 @@ pub unsafe fn str_from_cstr(ptr: *const u8) -> str {
 /// Returns the byte length of a null-terminated C string, excluding the terminator.
 pub fn str_len(s: *const u8) -> i64 {
     let mut n: i64 = 0;
-    while (unsafe { s[n]; } as i32) != 0 {
+    while (unsafe { s[n] } as i32) != 0 {
         n = n + 1;
     }
     return n;

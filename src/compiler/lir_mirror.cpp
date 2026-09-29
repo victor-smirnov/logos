@@ -1579,6 +1579,7 @@ const uint8_t* LirMirrorEmitter::emit_expr_arm(const lir::EMatchArm& a) {
     put(map_off, ak::PAT,   mref_addr(pat_off));
     put(map_off, ak::VALUE, mref_addr(value_off));
     put(map_off, ak::GUARD, guard_av);
+    if (a.line) put(map_off, ak::LINE, put_u32(a.line));
     return map_off;
 }
 
@@ -1605,6 +1606,7 @@ const uint8_t* LirMirrorEmitter::emit_expr_arm(const lir::EMatchArmView& a) {
     put(map_off, ak::PAT,   mref_addr(pat_off));
     put(map_off, ak::VALUE, value_off);
     put(map_off, ak::GUARD, guard_av);
+    if (a.line) put(map_off, ak::LINE, put_u32(a.line));
     return map_off;
 }
 

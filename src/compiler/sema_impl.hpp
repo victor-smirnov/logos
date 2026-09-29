@@ -9935,25 +9935,12 @@ private:
         writ::TinyMapView        sub_pat_node;
     };
     std::vector<NestedPatSub>* current_pat_nested_subs_ = nullptr;
-    // B170-E: when ≥0, build_pattern_variant selects this alternative index of a
-    // multi-alt PAT_OR appearing as a variant payload arg (`Some((a,_)|(_,a))`).
-    // Set per fanned-out effective arm so the or distributes into one arm per
-    // alternative (`Some(P|Q)` → `Some(P) | Some(Q)`), each re-evaluating the
-    // guard with its own bindings (rustc backtracks alts under a failing guard).
-    int32_t payload_or_alt_ = -1;
     // The default binding mode of the scrutinee a PAT_VARIANT_DATA door is built
     // for (build_pattern_impl peels one layer before handing it the type, so the
     // door cannot see it): the tuple-struct door `TS(a, b)` under `match &t`
     // binds `&T` like every other container door.
     struct DbmCtx { bool ref = false; bool mut_ = false; };
     DbmCtx variant_data_dbm_;
-    // `y @ (P | Q)` fanned out one arm per alternative (as a top-level or-arm
-    // is): the PAT_AT builder takes alternative `at_or_alt_` of its sub-pattern,
-    // so each alternative's refutable-inner guard stays its own arm's.
-    int32_t at_or_alt_ = -1;
-    // The alternative count when `lhs` is `name @ (A | B …)` with an alternative
-    // that binds or is structured (merge-unsafe); 0 otherwise.
-    int at_or_fanout_alts(writ::TinyMapView lhs);
     // K4: emit `let <variant-sub-pat> = synth else { loop {} }` body-prologue
     // stmts (into `out`) that re-extract the bindings of a nested variant
     // payload pattern (e.g. `Some(Some(v))`), defining them in the current
@@ -10217,6 +10204,7 @@ private:
         lir::Pattern                   pat;
         std::optional<lir::LExprPtr>   guard;
         lir::LExprPtr                  value = {};
+        uint32_t                       line = 0;   // the arm's source line
     };
     struct MatchCore {
         lir::LExprPtr                  scrut = {};
