@@ -17585,7 +17585,13 @@ TypeRef SemaChecker::lub2_(TypeRef a, TypeRef b) {
     }
     if (a.kind() == K::MutRef && b.kind() == K::Ref && types_equal(a.pointee(), b.pointee())) return b;
     if (b.kind() == K::MutRef && a.kind() == K::Ref && types_equal(a.pointee(), b.pointee())) return a;
-    if (types_compatible(b, a) || types_compatible(a, b)) {
+    const bool ab = types_compatible(a, b), ba = types_compatible(b, a);
+    // One direction only: the merge is the type the other coerces INTO (`&B`
+    // beside `&dyn T` is `&dyn T` — taking the first read a fat `&dyn T` arm
+    // as a thin `&B`).
+    if (ab && !ba) return b;
+    if (ba && !ab) return a;
+    if (ab || ba) {
         // The side with no literal leaf names the layout (`(200, 5)` beside a
         // `(i8, i8)`).
         std::function<bool(TypeRef, int)> lit_leaf = [&](TypeRef t, int d) -> bool {
@@ -17666,6 +17672,13 @@ TypeRef SemaChecker::lub_arms_(const std::vector<lir::LExprPtr*>& arms, TypeRef 
                     if (!try_coerce_closure_to_fnptr(e, res)) { refuse(li[k], res, expr_type(*a)); return res; }
                     *a = e;
                 }
+            // Every other arm is coerced to the merged type, as rustc coerces
+            // each arm to the arms before it: `&b` beside `&a as &dyn T` is
+            // unsized (E0277 without an impl) — it stayed a thin `&B` in a
+            // `&dyn T` slot and the call through it segfaulted.
+            for (size_t k = 0; k < ls.size(); ++k)
+                if (!types_equal(expr_type(*ls[k]), res) && TypeRef(res).kind() == K::TraitObject)
+                    expect_type(*ls[k], res, CoercePos::BranchArm, label(li[k]));
         }
     }
     if (TypeRef(res).kind() != K::IntLit && TypeRef(res).kind() != K::Error)

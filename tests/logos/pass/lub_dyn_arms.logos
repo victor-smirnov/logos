@@ -1,0 +1,20 @@
+// ADR 0030 S4.6: arms that merge at a trait object are unsized to it. `&b` beside `&a as &dyn T` (either order),
+// in a match, an if and an array literal, and `Box::new(B)` beside `Box::new(A) as Box<dyn T>`: the other arm
+// stayed a thin `&B` / `Box<B>` in the `dyn` slot and the call through it segfaulted (also on the 09-27
+// binary). rustc 1.98.1 gives the same stdout.
+package lub_dyn_arms;
+use logos.std.fmt;
+trait T { fn v(&self) -> i64; }
+struct A;
+struct B;
+impl T for A { fn v(&self) -> i64 { 1 } }
+impl T for B { fn v(&self) -> i64 { 2 } }
+fn pick(c: i64) -> i64 {
+    let a = A; let b = B;
+    let x = match c { 0 => &a as &dyn T, _ => &b };
+    let y = if c == 0 { &b } else { &a as &dyn T };
+    let z = match c { 0 => Box::new(A) as Box<dyn T>, _ => Box::new(B) };
+    let xs = [&b, &a as &dyn T];
+    x.v() * 1000 + y.v() * 100 + z.v() * 10 + xs[0].v() + xs[1].v()
+}
+fn main() { println!("{} {}", pick(0), pick(1)); }

@@ -1,0 +1,8 @@
+// Arms that merge at a trait object are unsized to it; the second arm's type does not implement the trait
+// (rustc 1.98.1: E0277 the trait bound `N: T` is not satisfied). It was admitted and the call segfaulted.
+package lub_dyn_arm_missing_impl;
+trait T { fn v(&self) -> i64; }
+struct A;
+struct N;
+impl T for A { fn v(&self) -> i64 { 1 } }
+fn main() { let c = 1; let a = A; let n = N; let x = match c { 0 => &a as &dyn T, _ => &n }; let _ = x.v(); }

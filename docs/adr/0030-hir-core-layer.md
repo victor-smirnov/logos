@@ -726,6 +726,15 @@ of 70 members.
   sites, which belongs with the `str ≡ [u8]` boundary (#706). Fixtures
   cast_closure_to_fn_ptr, cast_{ref_to_int,char_to_float,ptr_to_ref}_refused.
 
+- S4.6 (2026-09-29): arms that merge at a trait object are unsized to it,
+  and a one-directional compatibility picks the type the other side coerces
+  INTO. `lub2_(&B, &dyn T)` took the first (`&B`), so a fat `&a as &dyn T`
+  arm was read as a thin `&B` and dispatched statically to `B::v` — a wrong
+  value, silent on the 09-27 binary too; with the thin arm first the call
+  segfaulted. `match`, `if` and array literals, either order, and
+  `Box<B>` beside `Box<dyn T>` agree with rustc; a non-implementing arm is
+  E0277. Fixtures lub_dyn_arms, lub_dyn_arm_missing_impl.
+
 S4 row (audit §4.1 C-COE), item by item:
 
 | item | state |
