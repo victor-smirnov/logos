@@ -2216,43 +2216,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
                 }
             }
         } else if (ir_recv.kind() == ec::Code::FieldRead) {
-            lir_view::EFieldReadView frv{ir_recv};
-            if (frv.receiver()) {
-                auto [struct_ptr, sname] = gen_recv_struct(frv.receiver());
-                if (struct_ptr && !sname.empty()) {
-                    auto& info = struct_types_[sname];
-                    auto field_ptr = gep_field(struct_ptr, info, std::string(frv.field()));
-                    if (field_ptr) {
-                        bool field_is_ptr = field_holds_array_ptr_(ir_recv_t);
-                        if (field_is_ptr) {
-                            base_ptr = builder_.create<mlir::LLVM::LoadOp>(
-                                loc_, ptr_type(), field_ptr);
-                            TypeRef rpt = ir_recv_t.pointee();
-                            if (rpt &&
-                                (rpt.kind() == LogosType::Kind::Struct ||
-                                 rpt.kind() == LogosType::Kind::ZonedStruct)) {
-                                auto sit2  = find_struct_it(rpt);
-                                if (sit2 != struct_types_.end())
-                                    elem_type = sit2->second.llvm_type;
-                            }
-                            // Enum value-repr: a `*mut Enum` field (e.g. a
-                            // `Vec<Enum>`'s buffer `self.ptr`) strides by the
-                            // inline {disc,payload} footprint, not a ptr — so
-                            // `self.ptr[i] = val` writes the right element slot.
-                            if (!elem_type && rpt && rpt.kind() == LogosType::Kind::Enum) {
-                                if (auto* te = resolve_tagged_enum(std::string(rpt.enum_name()), rpt);
-                                    te && te->llvm_type)
-                                    elem_type = te->llvm_type;
-                            }
-                            if (!elem_type)
-                                elem_type = logos_to_mlir(inner_t);
-                        } else {
-                            base_ptr  = field_ptr;
-                            elem_type = logos_to_mlir(inner_t);
-                        }
-                    }
-                }
-            }
+            std::tie(base_ptr, elem_type) = field_index_base_(lir_view::EFieldReadView{ir_recv}, ir_recv_t, inner_t);
         }
         if (base_ptr && elem_type) {
             if (!ir_index) return nullptr;
@@ -3684,6 +3648,39 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EFieldReadView v, TypeRef type)
     return nullptr;
 }
 
+// The base of `recv.field[i]` — ONE computation for the read and the address
+// (write) paths: the field's own storage when it holds the elements, the
+// loaded pointer when it holds a pointer to them (`*T`, a thin `&[T; N]`); and
+// the element type to stride by (an inline struct / tagged enum pointee
+// strides by its footprint). {null, null} when the receiver is not a struct.
+std::pair<mlir::Value, mlir::Type> MLIRGenImpl::field_index_base_(lir_view::EFieldReadView frv,
+                                                                 TypeRef field_t, TypeRef elem_t) {
+    auto fr_recv = frv.receiver();
+    if (!fr_recv) return {};
+    auto [struct_ptr, sname] = gen_recv_struct(fr_recv);
+    if (!struct_ptr || sname.empty()) return {};
+    auto field_ptr = gep_field(struct_ptr, struct_types_[sname], std::string(frv.field()));
+    if (!field_ptr) return {};
+    mlir::Type et;
+    mlir::Value base = field_ptr;
+    if (field_holds_array_ptr_(field_t)) {
+        base = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_ptr);
+        TypeRef rpt = field_t.pointee();
+        if (rpt && (rpt.kind() == LogosType::Kind::Struct || rpt.kind() == LogosType::Kind::ZonedStruct)) {
+            auto sit = find_struct_it(rpt);
+            if (sit != struct_types_.end()) et = sit->second.llvm_type;
+        }
+        // A `*mut Enum` buffer (a `Vec<Enum>`'s `self.ptr`) strides by the
+        // inline {disc,payload} footprint.
+        if (!et && rpt && rpt.kind() == LogosType::Kind::Enum)
+            if (auto* te = resolve_tagged_enum(std::string(rpt.enum_name()), rpt); te && te->llvm_type)
+                et = te->llvm_type;
+    }
+    if (!et) et = logos_to_mlir(elem_t);
+    if (!et) et = builder_.getI32Type();
+    return {base, et};
+}
+
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type) {
     namespace ec = lir_schema::expr;
     auto recv_ref = v.receiver();
@@ -3778,36 +3775,8 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
         break;
     }
     case ec::Code::FieldRead: {
-        // Field index read: field may be an array or a pointer.
-        lir_view::EFieldReadView frv{recv_ref};
-        auto fr_recv = frv.receiver();
-        std::string field(frv.field());
-        if (fr_recv) {
-            auto [struct_ptr, sname] = gen_recv_struct(fr_recv);
-            if (struct_ptr && !sname.empty()) {
-                auto& info = struct_types_[sname];
-                auto field_ptr = gep_field(struct_ptr, info, field);
-                if (field_ptr) {
-                    elem_type = logos_to_mlir(type);
-                    if (!elem_type) elem_type = builder_.getI32Type();
-                    bool field_is_ptr = field_holds_array_ptr_(recv_t);
-                    if (field_is_ptr) {
-                        arr_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_ptr);
-                        TypeRef rpt = recv_t.pointee();
-                        if (rpt &&
-                            (rpt.kind() == LogosType::Kind::Struct ||
-                             rpt.kind() == LogosType::Kind::ZonedStruct)) {
-                            auto cname = concrete_struct_name(rpt);
-                            auto sit   = struct_types_.find(cname);
-                            if (sit != struct_types_.end())
-                                elem_type = sit->second.llvm_type;
-                        }
-                    } else {
-                        arr_ptr = field_ptr;
-                    }
-                }
-            }
-        }
+        // Field index read: the field holds the elements or a pointer to them.
+        std::tie(arr_ptr, elem_type) = field_index_base_(lir_view::EFieldReadView{recv_ref}, recv_t, type);
         if (!arr_ptr) {
             arr_ptr   = gen_expr(recv_ref);
             elem_type = logos_to_mlir(type);

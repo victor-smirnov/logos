@@ -1684,6 +1684,7 @@ private:
     // An indexed FIELD whose slot holds a POINTER to the elements: a raw
     // `*T`, or a thin `&[T; N]` / `&mut [T; N]` (`h.p[i]` with `p: &mut [i64;
     // 3]` indexed the field's own 8 bytes: garbage read, lost write).
+    std::pair<mlir::Value, mlir::Type> field_index_base_(lir_view::EFieldReadView frv, TypeRef field_t, TypeRef elem_t);
     bool field_holds_array_ptr_(TypeRef t) {
         if (!t) return false;
         if (t.kind() == LogosType::Kind::Ptr) return true;

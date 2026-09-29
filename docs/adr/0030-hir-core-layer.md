@@ -719,8 +719,17 @@ battery with rustc twins over the path inventory's place/assignment rows
   `Vec<i64>` compiled). Operator overloading of `op=` for an enum or a
   generic `T: AddAssign` (an mlir failure; E0368's wording) is operator
   resolution — S8/S9, with the rest of the operator traits. Fixtures plc_*.
-Next: S6.2 — one place-address path in mlir (`gen_lvalue_addr` and the
-per-shape receiver cases of index/field reads), one writability check.
+- S6.2 (2026-09-29): `recv.field[i]`'s base is ONE computation for the read
+  and the address/write paths (`field_index_base_`: the field's storage, or
+  the loaded pointer for `*T` / a thin `&[T; N]`, and the stride for an
+  inline struct / tagged-enum pointee) — the two copies had already drifted
+  once (S6.1's `Kind::Ptr`-only test). A second eight-shape battery (nested
+  fields through `&mut`, `(*p).f`, Box field writes, `self.v[i] += 1`,
+  `m[i][j]`, array-of-struct fields, slice fields, `RefCell::borrow_mut`,
+  tuple paths) agreed with rustc throughout; out-of-bounds writes trap.
+  −30 lines.
+Next: S7 — C-EXP + C-LIT + C-INF (one expected-type scope, literal
+inference variables defaulted once, one generic-argument inference).
 
 ## L0 status (2026-09-27)
 
