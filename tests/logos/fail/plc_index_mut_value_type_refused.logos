@@ -1,0 +1,5 @@
+// ADR 0030 S6 (C-PLC): `v[0] = true` over a `Vec<i64>` — the value meets the element type
+// `index_mut` hands back (it was not checked). rustc 1.98.1: E0308 mismatched types.
+package plc_index_mut_value_type_refused;
+use logos.mem.collections.vec;
+fn main() -> i32 { let mut v: Vec<i64> = Vec::new(); v.push(1); v[0] = true; return v[0] as i32; }

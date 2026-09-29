@@ -701,7 +701,26 @@ of 09-26 were lost; the battery is new).
   the retired sema E0381's tracker, written in 12 places and read by none —
   is deleted with its loop guards and the `&&`/`||` fork. −151 lines; the
   36-program drop-counter battery agrees with rustc before and after.
-Next: S6 — HIR destructuring assignment; C-PLC in sema and mlir.
+
+## S6 status (2026-09-29)
+
+The HIR half landed with S2 (destructuring assignment desugars to a `let`
+of fresh names plus plain assignments). C-PLC starts, as S5 did, from a
+battery with rustc twins over the path inventory's place/assignment rows
+(eight shapes; two agreed).
+
+- S6.1 (2026-09-29): `place = value` evaluates the value first, then the
+  place, in codegen as the BIR already did (`a[t(1)] = t(2)` and `*pick(..)
+  = t(5)` ran the place first — #521's class, both doors). An indexed field
+  whose slot holds a pointer is loaded first for a thin `&[T; N]` / `&mut
+  [T; N]` too, not only a raw `*T` (`h.p[i]` read and wrote the field's own
+  bytes; the `Kind::Ptr`-only test had two copies). `a[i] = v` through
+  `IndexMut` checks v against the element type (`v[0] = true` over a
+  `Vec<i64>` compiled). Operator overloading of `op=` for an enum or a
+  generic `T: AddAssign` (an mlir failure; E0368's wording) is operator
+  resolution — S8/S9, with the rest of the operator traits. Fixtures plc_*.
+Next: S6.2 — one place-address path in mlir (`gen_lvalue_addr` and the
+per-shape receiver cases of index/field reads), one writability check.
 
 ## L0 status (2026-09-27)
 

@@ -1644,8 +1644,11 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
     if (!v.ptr() || !v.value()) return;
     TypeRef ptr_ty = v.ptr().type(pool_impl());
     TypeRef val_ty = v.value().type(pool_impl());
-    auto ptr = gen_expr(v.ptr());
+    // `place = value` evaluates the VALUE first, then the place (Rust
+    // expr.assign.evaluation-order; the BIR lowers it in the same order):
+    // `a[t(1)] = t(2)` calls t(2) first.
     auto val = gen_expr(v.value());
+    auto ptr = gen_expr(v.ptr());
     if (!ptr || !val) return;
     // T1.5: field-level drop-before-replace — run the OLD value's
     // destructor before overwriting. Sema gates v.drop_old() to live owned

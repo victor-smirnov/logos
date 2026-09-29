@@ -1681,6 +1681,16 @@ private:
     };
     // Classify a reference-like TypeRef into its repr kind (NotARef otherwise).
     RefReprKind ref_repr_of(TypeRef t);
+    // An indexed FIELD whose slot holds a POINTER to the elements: a raw
+    // `*T`, or a thin `&[T; N]` / `&mut [T; N]` (`h.p[i]` with `p: &mut [i64;
+    // 3]` indexed the field's own 8 bytes: garbage read, lost write).
+    bool field_holds_array_ptr_(TypeRef t) {
+        if (!t) return false;
+        if (t.kind() == LogosType::Kind::Ptr) return true;
+        return (t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef) &&
+               t.pointee() && TypeRef(t.pointee()).kind() == LogosType::Kind::Array &&
+               ref_repr_of(t) == RefReprKind::ThinPtr;
+    }
     // The EFFECTIVE repr of a struct field: like ref_repr_of(field_type), but a
     // thin pointer field inside a #[zoned2] struct stores SELF-RELATIVE (RelOffset)
     // — the untagged zoned-reference case (ref-repr-design §6). `owner_key` is the

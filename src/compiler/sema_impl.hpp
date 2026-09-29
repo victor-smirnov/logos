@@ -3394,6 +3394,7 @@ private:
     // tuple / struct literal, a call): `{ let __v = v; let mut __t = R;
     // __t.f[i] = __v; }` — Rust's order (the value first), and the temporary
     // drops at the end of the statement. Null when the root is a place.
+    void check_index_mut_value_(lir::LExprPtr& val, TypeRef ref_out, const std::string& arr_name);
     std::optional<lir_view::StmtRef> lower_temp_rooted_place_assign_(writ::TinyMapView node,
                                                                     writ::TinyMapView place);
     writ::AnyVal synth_str(std::string_view text);

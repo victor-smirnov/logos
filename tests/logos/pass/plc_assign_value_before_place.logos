@@ -1,0 +1,6 @@
+// ADR 0030 S6 (C-PLC): `a[t(1)] = t(2)` evaluates the value first, then the place (Rust expr.assign.evaluation-order); a compound `b[t(3)] += t(1)` over a primitive evaluates the right operand first too. The exit code is the call log mod 256.
+// rustc 1.98.1 twin exits 65.
+package plc_assign_value_before_place;
+static mut LOG: i64 = 0;
+fn t(d: i64) -> i64 { unsafe { LOG = LOG * 10 + d; } return d; }
+fn main() -> i32 { let mut a: [i64; 4] = [0, 0, 0, 0]; a[t(1) as usize] = t(2); let mut b: [i64; 4] = [0, 0, 0, 0]; b[t(3) as usize] += t(1); return unsafe { LOG } as i32 % 256; }

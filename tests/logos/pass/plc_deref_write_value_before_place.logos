@@ -1,0 +1,7 @@
+// ADR 0030 S6 (C-PLC): `*pick(&mut a, 0) = t(5)` evaluates t(5) before the place expression's call. The exit code is the call log.
+// rustc 1.98.1 twin exits 51.
+package plc_deref_write_value_before_place;
+static mut LOG: i64 = 0;
+fn t(d: i64) -> i64 { unsafe { LOG = LOG * 10 + d; } return d; }
+fn pick(a: &mut [i64; 2], i: i64) -> &mut i64 { t(i + 1); return &mut a[i as usize]; }
+fn main() -> i32 { let mut a: [i64; 2] = [0, 0]; *pick(&mut a, 0) = t(5); return unsafe { LOG } as i32; }

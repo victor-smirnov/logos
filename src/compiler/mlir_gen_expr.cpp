@@ -2223,7 +2223,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
                     auto& info = struct_types_[sname];
                     auto field_ptr = gep_field(struct_ptr, info, std::string(frv.field()));
                     if (field_ptr) {
-                        bool field_is_ptr = ir_recv_t && ir_recv_t.kind() == LogosType::Kind::Ptr;
+                        bool field_is_ptr = field_holds_array_ptr_(ir_recv_t);
                         if (field_is_ptr) {
                             base_ptr = builder_.create<mlir::LLVM::LoadOp>(
                                 loc_, ptr_type(), field_ptr);
@@ -3790,7 +3790,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EIndexReadView v, TypeRef type)
                 if (field_ptr) {
                     elem_type = logos_to_mlir(type);
                     if (!elem_type) elem_type = builder_.getI32Type();
-                    bool field_is_ptr = recv_t && recv_t.kind() == LogosType::Kind::Ptr;
+                    bool field_is_ptr = field_holds_array_ptr_(recv_t);
                     if (field_is_ptr) {
                         arr_ptr = builder_.create<mlir::LLVM::LoadOp>(loc_, ptr_type(), field_ptr);
                         TypeRef rpt = recv_t.pointee();

@@ -8188,6 +8188,19 @@ TypeRef SemaChecker::index_output_type_(TypeRef st) {
     return subst_type_sema(ii->trait_type_args[1], subst);
 }
 
+// `a[i] = v` through `IndexMut`: v meets the element type `index_mut` hands
+// back (`&mut Output`), as any place write does — it was not checked at all
+// (`v[0] = true` over a `Vec<i64>` compiled).
+void SemaChecker::check_index_mut_value_(lir::LExprPtr& val, TypeRef ref_out, const std::string& arr_name) {
+    if (!val || !ref_out) return;
+    TypeRef r(ref_out);
+    if ((r.kind() != LogosType::Kind::Ref && r.kind() != LogosType::Kind::MutRef) || !r.pointee()) return;
+    TypeRef elem(r.pointee());
+    if (elem.kind() == LogosType::Kind::TypeVar || elem.kind() == LogosType::Kind::AssocType) return;
+    expect_type(val, elem, CoercePos::PlaceWrite,
+                std::format("assignment to '{}[..]': type mismatch —", arr_name));
+}
+
 std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
     const std::string& arr_name, TypeRef arr_type,
     writ::TinyMapView idx_node, writ::TinyMapView val_node) {
@@ -8221,6 +8234,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         auto call_e = builder().call(
             fit->symbol_name.empty() ? mangled : fit->symbol_name,
             {}, std::move(args), fit->ret_type);
+        check_index_mut_value_(val_e, fit->ret_type, arr_name);
         track_write_move(val_e);
         return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_, drop_old);
     }
@@ -8247,6 +8261,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         mc.vtable_index = -1;
         mc.resolved_type = "";
         auto call_e = builder().method_call_v(std::move(mc), make_ref(true, out_t));
+        check_index_mut_value_(val_e, make_ref(true, out_t), arr_name);
         track_write_move(val_e);
         return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_, drop_old);
     }
