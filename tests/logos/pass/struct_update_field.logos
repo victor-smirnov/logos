@@ -9,8 +9,8 @@ unsafe fn shift(p: *mut Point, dx: i32, dy: i32) {
 
 fn dist_from_origin(p: Point) -> i32 {
     // Manhattan distance
-    let ax: i32 = if p.x < 0 { 0 - p.x; } else { p.x; };
-    let ay: i32 = if p.y < 0 { 0 - p.y; } else { p.y; };
+    let ax: i32 = if p.x < 0 { 0 - p.x } else { p.x };
+    let ay: i32 = if p.y < 0 { 0 - p.y } else { p.y };
     return ax + ay;
 }
 

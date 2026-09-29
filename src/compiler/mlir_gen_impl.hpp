@@ -2086,7 +2086,6 @@ private:
     void gen_stmt_kind(lir_view::SIndexWriteView v);
     void gen_stmt_kind(lir_view::SFieldIndexWriteView v);
     void gen_stmt_kind(lir_view::SExprStmtView v);
-    void gen_stmt_kind(lir_view::SMatchView v);
     void gen_stmt_kind(lir_view::SForEachView v);
     void gen_stmt_kind(lir_view::SBlockView v);
     void gen_stmt_kind(lir_view::SDropView v);
@@ -2179,12 +2178,11 @@ private:
     void gen_tuple_write(lir_view::STupleWriteView v);
     void gen_index_write(lir_view::SIndexWriteView v);
     void gen_field_index_write(lir_view::SFieldIndexWriteView v);
-    void gen_match(lir_view::SMatchView v);
-    // ADR 0030 S3.4: THE match door — the statement match (`stmt`), the
-    // expression match and, through its one-arm spelling, let-else. See
+    // ADR 0030 S3.4: THE match door — every match (a match statement is an
+    // expression statement of one, S3.4c); let-else is its one-arm spelling. See
     // mlir_gen_stmt.cpp.
     mlir::Value gen_match_door(lir_view::ExprRef scrut, const std::vector<lir_view::EMatchArmRef>& arms,
-                               TypeRef type, bool stmt);
+                               TypeRef type);
     mlir::Value match_scrut_place(lir_view::ExprRef e, mlir::Value v, TypeRef t);
     bool        match_arms_cover(const std::vector<lir_view::EMatchArmRef>& arms, TypeRef t);
     mlir::Value store_arm_result(mlir::Value val, mlir::Type rt);

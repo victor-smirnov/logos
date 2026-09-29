@@ -6,7 +6,7 @@ fn test(tag: i32) -> i32 {
     let mut x: i32 = 10;
     let mut y: i32 = 20;
     // r conditionally borrows x or y — both must be marked borrowed.
-    let r: &mut i32 = if tag > 0 { &mut x; } else { &mut y; };
+    let r: &mut i32 = if tag > 0 { &mut x } else { &mut y };
     // x is mutably borrowed through r — cannot use it directly.
     let z: i32 = x;  // error: cannot use 'x' while it is mutably borrowed
     *r = 99i32;

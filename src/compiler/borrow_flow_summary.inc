@@ -1610,28 +1610,6 @@ private:
                 if (auto b = v.body()) walk_block(b);
                 break;
             }
-            case Code::Match: {
-                SMatchView v{sr};
-                uint64_t scrut = taint_of(v.scrut());
-                // ⚠ THE SAME OMISSION AS Code::Break, AND THE RATCHET FOUND IT
-                // ONE COMMIT LATER. Tainting from the scrutinee says what the
-                // VALUE carries; it says nothing about what a call inside that
-                // scrutinee did to its `&mut` arguments. LetElse — the sibling
-                // that also binds a pattern from a scrutinee — runs
-                // call_effects on it (:1428); this arm did not.
-                // MEASURED, one-property pair:
-                //     let n: i64 = stash(h, c);        -> REFUSED
-                //     match stash(h, c) { _ => { } }   -> rc 0
-                // with `stash` pushing `c.mk()` into `h.r`. The STATEMENT form
-                // only: the match-EXPRESSION spelling goes through a different
-                // arm and refused all along, which is why this survived.
-                call_effects(v.scrut());
-                v.each_arm([&](EMatchArmRef arm){
-                    bind_pat(arm.pat(), scrut);
-                    if (auto b = arm.body()) walk_block(b);
-                });
-                break;
-            }
             case Code::Block:
                 if (auto b = SBlockView{sr}.body()) walk_block(b);
                 break;

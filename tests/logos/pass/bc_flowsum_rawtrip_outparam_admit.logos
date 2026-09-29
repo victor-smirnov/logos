@@ -11,7 +11,7 @@ use logos.mem.string;
 
 pub struct W { pub ssz: [str; 4] }
 
-pub fn sas(s: &String) -> str { return unsafe { str_from_raw(s.as_ptr(), s.len()); }; }
+pub fn sas(s: &String) -> str { return unsafe { str_from_raw(s.as_ptr(), s.len()) }; }
 
 pub fn sides(w: &mut W, szs: &[String; 4]) { w.ssz[0] = sas(&szs[0]); }
 

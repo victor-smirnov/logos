@@ -2753,11 +2753,11 @@ In `if`/`while`/`for` condition position the scrutinee uses the no-struct-lit ex
 
 *Source:* `tools/peg_gen_cpp/grammars/logos.peg#L2425-L2428`
 
-### `expr.if.requires-else-in-expr-position` — if/if-let in expression position requires else
+### `expr.if.requires-else-in-expr-position` — a value other than `()` needs an else
 
-An `if` or `if let` used as an expression (yielding a value) must have an `else` branch; an `if` without `else` is only valid in statement position.
+An `if` without `else` is an expression of type `()` (as in Rust): its then-block's value is discarded, and where a value of another type is expected the `if` is a type mismatch (rustc E0317). An `if let` without `else` in expression position is refused.
 
-*Source:* `src/compiler/sema_expr.cpp#L13820-L13823`, `src/compiler/sema_expr.cpp#L13913-L13916`
+*Source:* `src/compiler/sema_expr.cpp` (`lower_if_expr`), `src/compiler/sema_stmt.cpp` (`lower_match_core`, ORIGIN `IfLetNoElse`)
 
 ### `expr.if.cond-must-be-bool` — if condition must be bool
 

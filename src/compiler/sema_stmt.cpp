@@ -9363,19 +9363,18 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         std::vector<lir_view::StmtRef> else_body;
         else_body.push_back(builder().stmt_break(nullptr, "", node_line_));
 
-        lir::SMatch sm;
-        sm.scrut = make_next_call();
         auto some_mo = lir_mirror_emit_pat_variant_data(
             *cur_prog_, some_pat.enum_name, some_pat.variant, some_pat.disc,
             some_pat.bindings, some_pat.binding_types, {},
             std::vector<uint32_t>{for_var_mut ? 0x10u : 0u});
         lir::Pattern some_pattern;
         some_pattern.mirror_ptr_ = some_mo;
-        sm.arms.push_back({std::move(some_pattern), lir_mirror_block(*cur_prog_, then_body), std::nullopt});
-        sm.arms.push_back({make_pat_wild("_"), lir_mirror_block(*cur_prog_, else_body), std::nullopt});
+        std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms;
+        arms.emplace_back(std::move(some_pattern), std::move(then_body));
+        arms.emplace_back(make_pat_wild("_"), std::move(else_body));
 
         std::vector<lir_view::StmtRef> loop_body;
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sm)));
+        loop_body.push_back(unit_match_stmt_(make_next_call(), std::move(arms)));
         lir::SLoop sl; sl.body = lir_mirror_block(*cur_prog_, loop_body); sl.label = my_label;
         outer_block.push_back(make_stmt_emit(node_line_, std::move(sl)));
         for (auto& d : iter_drops) outer_block.push_back(std::move(d));
@@ -12228,241 +12227,164 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             // (`return`, a `!` value); 2: `break` / `continue` — unwinds to the
             // loop body and reaches the frame's drops by the loop edge (#122).
             int div = 0;
-            if (!value_form) {
-                std::vector<lir_view::StmtRef>& body = out.body;
-                TypeRef expr_arm_t = nullptr;
-                if (arm.has_key(la::BODY)) {
-                    auto body_node = map_of(arm.get(la::BODY.code));
-                    if (code_of(body_node) == la::BLOCK)
-                        lower_block(body_node).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
-                    else
-                        push_stmt_with_unwind(body, lower_stmt(body_node));  // #122
-                } else if (arm.has_key(la::EXPR)) {
-                    auto val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)));
-                    expr_arm_t = expr_type(val);
-                    if (form == MatchForm::Tail) {
-                        // The tail match's expression arm IS the function's
-                        // return value — the one return judgment (ADR 0030 S2),
-                        // moves and the return unwind included.
-                        push_stmt_with_unwind(body, finish_return_(std::move(val), map_of(arm.get(la::EXPR.code)),
-                                                                   /*bind_temps=*/false));
+            lir::LExprPtr val = nullptr;
+            bool arm_diverges = false;
+            if (arm.has_key(la::EXPR)) {
+                // Arm values are CONDITIONALLY evaluated — own temporary
+                // scope (a statement-level hoist of a droppable temp
+                // receiver would evaluate EVERY arm eagerly).
+                val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)), /*temp_scoped=*/true);
+            } else if (arm.has_key(la::BODY)) {
+                auto body_node = map_of(arm.get(la::BODY.code));
+                // B-fn-06: a trailing TAIL_EXPR is the arm value, not an
+                // implicit return.
+                bool saved_tail = tail_as_return_;
+                tail_as_return_ = false;
+                arm_diverges = (code_of(body_node) == la::BLOCK) ? block_always_diverts(body_node)
+                                                                 : stmt_always_diverts(body_node);
+                if (arm_diverges) {
+                    // The tail is unreachable: the arm is `!` (skipped by
+                    // the type merge).
+                    lir_view::BlockRef blk_ref;
+                    if (code_of(body_node) == la::BLOCK) {
+                        blk_ref = lower_block(body_node);
                     } else {
-                        lir::SExprStmt es; es.expr = std::move(val);
-                        body.push_back(make_stmt_emit(node_line_, std::move(es)));
-                    }
-                }
-                // The nested-pattern destructure, then the Writ @-pattern
-                // prologue, run before the user body.
-                if (!nested_destructure_stmts.empty())
-                    body.insert(body.begin(), std::make_move_iterator(nested_destructure_stmts.begin()),
-                                std::make_move_iterator(nested_destructure_stmts.end()));
-                if (!body_prologue.empty() || !body_binds.empty()) {
-                    std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
-                    for (const auto& b : body_binds) {
-                        lir::SLet sl;
-                        sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
-                        sl.value = builder().var_ref(b.av_var, anyval_t);
-                        prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                    }
-                    body.insert(body.begin(), std::make_move_iterator(prologue.begin()),
-                                std::make_move_iterator(prologue.end()));
-                }
-                // [[baghunt-match-arm-binding-no-drop]]: the arm-scope pattern
-                // bindings drop before a falling-through arm exits (a body
-                // ending in `return` unwound every frame already); a binding
-                // moved out as the body's last value is marked first.
-                lir_view::StmtRef last = body.empty() ? lir_view::StmtRef{} : stmt_ref_of(body.back());
-                if (!(last && last.kind() == lir_schema::stmt::Code::Return)) {
-                    if (last && last.kind() == lir_schema::stmt::Code::ExprStmt)
-                        mark_moved_in_expr_recursive(lir_view::SExprStmtView{last}.expr());
-                    for (auto& d : collect_drops()) body.push_back(std::move(d));
-                }
-                pop_scope();
-                if (last && last.kind() == lir_schema::stmt::Code::Return) div = 1;
-                else if (last && (last.kind() == lir_schema::stmt::Code::Break ||
-                                  last.kind() == lir_schema::stmt::Code::Continue)) div = 2;
-                else if (expr_arm_t && TypeRef(expr_arm_t).kind() == LogosType::Kind::Never) div = 1;
-            } else {
-                lir::LExprPtr val = nullptr;
-                bool arm_diverges = false;
-                if (arm.has_key(la::EXPR)) {
-                    // Arm values are CONDITIONALLY evaluated — own temporary
-                    // scope (a statement-level hoist of a droppable temp
-                    // receiver would evaluate EVERY arm eagerly).
-                    val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)), /*temp_scoped=*/true);
-                } else if (arm.has_key(la::BODY)) {
-                    auto body_node = map_of(arm.get(la::BODY.code));
-                    // B-fn-06: a trailing TAIL_EXPR is the arm value, not an
-                    // implicit return.
-                    bool saved_tail = tail_as_return_;
-                    tail_as_return_ = false;
-                    arm_diverges = (code_of(body_node) == la::BLOCK) ? block_always_diverts(body_node)
-                                                                     : stmt_always_diverts(body_node);
-                    if (arm_diverges) {
-                        // The tail is unreachable: error_expr (skipped by the
-                        // type merge).
-                        lir_view::BlockRef blk_ref;
-                        if (code_of(body_node) == la::BLOCK) {
-                            blk_ref = lower_block(body_node);
-                        } else {
-                            std::vector<lir_view::StmtRef> blk;
-                            push_stmt_with_unwind(blk, lower_stmt(body_node));  // #122
-                            blk_ref = lir_mirror_block(*cur_prog_, blk);
-                        }
-                        val = builder().block_expr(blk_ref, error_expr(), error_t());
-                    } else {
-                        // The block's last item, when it is an expression, is
-                        // the arm value; a block ending in a statement (`{}`,
-                        // `{ a = 1; }`) is `()`, as rustc types it.
                         std::vector<lir_view::StmtRef> blk;
-                        lir::LExprPtr last_expr = nullptr;
-                        if (code_of(body_node) == la::BLOCK && body_node.has_key(la::ITEMS)) {
-                            auto stmts = cfg_live_entries_(arr_of(body_node.get(la::ITEMS.code)));
-                            for (uint64_t si = 0; si < stmts.size(); ++si) {
-                                auto s = stmts[si];
-                                int32_t sc = code_of(s);
-                                if (si + 1 == stmts.size() &&
-                                    (sc == la::EXPR_STMT || sc == la::TAIL_EXPR) && s.has_key(la::VALUE))
-                                    last_expr = lower_expr_temp_scoped(map_of(s.get(la::VALUE.code)));
-                                else if (si + 1 == stmts.size() && sc != la::EXPR_STMT && sc != la::TAIL_EXPR &&
-                                         sc != la::LET && sc != la::LET_PAT && sc != la::RETURN &&
-                                         !is_stmt_only_code(sc))
-                                    last_expr = lower_expr_temp_scoped(s);
-                                else
-                                    push_stmt_with_unwind(blk, lower_stmt(s));  // #122
-                            }
-                        } else if (code_of(body_node) != la::BLOCK) {
-                            push_stmt_with_unwind(blk, lower_stmt(body_node));  // #122
-                        }
-                        if (last_expr) {
-                            TypeRef vt = expr_type(last_expr);
-                            val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(last_expr), vt);
-                        } else {
-                            val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), void_t());
-                        }
+                        push_stmt_with_unwind(blk, lower_stmt(body_node));  // #122
+                        blk_ref = lir_mirror_block(*cur_prog_, blk);
                     }
-                    tail_as_return_ = saved_tail;
+                    val = builder().block_expr(blk_ref, error_expr(), never_t());
+                } else if (code_of(body_node) == la::BLOCK) {
+                    // A block arm is a block expression: its last item, when
+                    // an expression, is the arm value; one ending in a
+                    // statement (`{}`, `{ a = 1; }`) is `()`, as rustc types it.
+                    val = lower_block_expr(body_node);
                 } else {
-                    error("match expression: arm has no body");
-                    val = error_expr();
+                    std::vector<lir_view::StmtRef> blk;
+                    push_stmt_with_unwind(blk, lower_stmt(body_node));  // #122
+                    val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), void_t());
                 }
-                // The nested-pattern destructure, then the Writ @-pattern
-                // prologue, wrap the arm value.
-                if (!nested_destructure_stmts.empty()) {
-                    TypeRef vt = val ? expr_type(val) : error_t();
-                    val = builder().block_expr(lir_mirror_block(*cur_prog_, nested_destructure_stmts), std::move(val), vt);
-                }
-                if (!body_prologue.empty() || !body_binds.empty()) {
-                    std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
-                    for (const auto& b : body_binds) {
-                        lir::SLet sl;
-                        sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
-                        sl.value = builder().var_ref(b.av_var, anyval_t);
-                        prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                    }
-                    TypeRef vt = expr_type(val);
-                    val = builder().block_expr(lir_mirror_block(*cur_prog_, prologue), std::move(val), vt);
-                }
-                // Coerce EVERY arm to the expected type before the merge: a
-                // selective coercion splits TYPE from REPRESENTATION (the merged
-                // type the slice, an arm still a thin ref-to-array).
-                if (hint_expected_type_ && val &&
-                    TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-                    TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
-                    apply_place_coercions(val, hint_expected_type_);
-                    // An expected `dyn`: every arm is unsized by a cast in the
-                    // arm (see cast_to_expected_dyn).
-                    cast_to_expected_dyn(val, hint_expected_type_);
-                }
-                // A diverging arm (`!`) contributes no type.
-                TypeRef& result_type = mc.result_type;
-                if (TypeRef(result_type).kind() == LogosType::Kind::Error ||
-                    TypeRef(result_type).kind() == LogosType::Kind::Never) {
-                    result_type = expr_type(val);
-                } else if (TypeRef(expr_type(val)).kind() == LogosType::Kind::Never) {
-                    // keep result_type — this arm yields no value.
-                } else if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error) {
-                    // The arms are ONE type: open inference variables unify.
-                    if (!infer_solved_.empty() &&
-                        (has_infer_var_(result_type) || has_infer_var_(expr_type(val)))) {
-                        infer_unify_(result_type, expr_type(val));
-                        result_type = zonk_(result_type);
-                        builder().retype_expr(val, zonk_(expr_type(val)));
-                    }
-                    // logos-core 1.4: distinct FnItems of one signature LUB to
-                    // the matching FnPtr, as Rust's LUB does for fn-item arms.
-                    bool lubbed_to_fnptr = false;
-                    if (TypeRef(result_type).kind() == LogosType::Kind::FnItem &&
-                        TypeRef(expr_type(val)).kind() == LogosType::Kind::FnItem) {
-                        LogosTypeBuilder fpt;
-                        fpt.kind = LogosType::Kind::FnPtr;
-                        for (auto p : TypeRef(expr_type(val)).closure_params())
-                            fpt.closure_params.push_back(p);
-                        fpt.closure_ret = TypeRef(expr_type(val)).closure_ret();
-                        TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
-                        if (types_compatible(result_type, fp) && types_compatible(expr_type(val), fp)) {
-                            result_type = fp;
-                            lubbed_to_fnptr = true;
-                        }
-                    }
-                    if (!lubbed_to_fnptr) {
-                        if (!types_compatible(expr_type(val), result_type) &&
-                            !types_compatible(result_type, expr_type(val)))
-                            error(std::format(
-                                "match expression: arm type '{}' is incompatible with '{}'",
-                                type_str(expr_type(val)), type_str(result_type)));
-                        else
-                            result_type = unify_numeric(result_type, expr_type(val));
-                    }
-                }
-                // Upgrade an IntLit result to i64 if an arm literal overflows i32.
-                if (TypeRef(result_type).kind() == LogosType::Kind::IntLit && val) {
-                    auto er = expr_ref_of(val);
-                    // A divergent arm's BlockExpr has NO result.
-                    if (er.kind() == lir_schema::expr::Code::BlockExpr)
-                        er = lir_view::EBlockExprView{er}.result();
-                    if (er && er.kind() == lir_schema::expr::Code::LitInt) {
-                        int64_t v = lir_view::ELitIntView{er}.value();
-                        if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
-                            result_type = prim(LogosType::Kind::I64);
-                    }
-                }
-                // [[baghunt-match-arm-binding-no-drop]]: the arm-scope bindings
-                // drop before the arm value escapes — the value is hoisted into
-                // a temp, the drops run, the temp is yielded. Not for an Error
-                // (a divergent block unwound already) or Never value.
-                if (val && TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
-                    TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
-                    mark_moved_in_expr_recursive(expr_ref_of(val));
-                    auto arm_drops = collect_drops();
-                    if (!arm_drops.empty()) {
-                        TypeRef vt = expr_type(val);
-                        std::vector<lir_view::StmtRef> blk;
-                        if (TypeRef(vt).kind() == LogosType::Kind::Void) {
-                            lir::SExprStmt es; es.expr = std::move(val);
-                            blk.push_back(make_stmt_emit(node_line_, std::move(es)));
-                            for (auto& d : arm_drops) blk.push_back(std::move(d));
-                            val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), vt);
-                        } else {
-                            std::string tmp = "__match_arm_tmp_" + std::to_string(tmp_var_count_++);
-                            lir::SLet sl;
-                            sl.name = tmp; sl.type = vt; sl.is_mut = false;
-                            sl.value = std::move(val);
-                            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                            for (auto& d : arm_drops) blk.push_back(std::move(d));
-                            val = builder().block_expr(lir_mirror_block(*cur_prog_, blk),
-                                                       builder().var_ref(tmp, vt), vt);
-                        }
-                    }
-                }
-                pop_scope();
-                // A Never-typed arm value (`panic!`, `=> return x`) diverges
-                // even without a block body.
-                if (!arm_diverges && val && TypeRef(expr_type(val)).kind() == LogosType::Kind::Never)
-                    arm_diverges = true;
-                if (arm_diverges) div = expr_arm_div_kind(val) == 2 ? 2 : 1;
-                out.value = std::move(val);
+                tail_as_return_ = saved_tail;
+            } else {
+                error("match expression: arm has no body");
+                val = error_expr();
             }
+            // The nested-pattern destructure, then the Writ @-pattern
+            // prologue, wrap the arm value.
+            if (!nested_destructure_stmts.empty()) {
+                TypeRef vt = val ? expr_type(val) : error_t();
+                val = builder().block_expr(lir_mirror_block(*cur_prog_, nested_destructure_stmts), std::move(val), vt);
+            }
+            if (!body_prologue.empty() || !body_binds.empty()) {
+                std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
+                for (const auto& b : body_binds) {
+                    lir::SLet sl;
+                    sl.name = b.name; sl.type = anyval_t; sl.is_mut = false;
+                    sl.value = builder().var_ref(b.av_var, anyval_t);
+                    prologue.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                }
+                TypeRef vt = expr_type(val);
+                val = builder().block_expr(lir_mirror_block(*cur_prog_, prologue), std::move(val), vt);
+            }
+            // Coerce EVERY arm to the expected type before the merge: a
+            // selective coercion splits TYPE from REPRESENTATION (the merged
+            // type the slice, an arm still a thin ref-to-array).
+            if (hint_expected_type_ && val &&
+                TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
+                TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
+                apply_place_coercions(val, hint_expected_type_);
+                // An expected `dyn`: every arm is unsized by a cast in the
+                // arm (see cast_to_expected_dyn).
+                cast_to_expected_dyn(val, hint_expected_type_);
+            }
+            // A diverging arm (`!`) contributes no type.
+            TypeRef& result_type = mc.result_type;
+            if (TypeRef(result_type).kind() == LogosType::Kind::Error ||
+                TypeRef(result_type).kind() == LogosType::Kind::Never) {
+                result_type = expr_type(val);
+            } else if (TypeRef(expr_type(val)).kind() == LogosType::Kind::Never) {
+                // keep result_type — this arm yields no value.
+            } else if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error) {
+                // The arms are ONE type: open inference variables unify.
+                if (!infer_solved_.empty() &&
+                    (has_infer_var_(result_type) || has_infer_var_(expr_type(val)))) {
+                    infer_unify_(result_type, expr_type(val));
+                    result_type = zonk_(result_type);
+                    builder().retype_expr(val, zonk_(expr_type(val)));
+                }
+                // logos-core 1.4: distinct FnItems of one signature LUB to
+                // the matching FnPtr, as Rust's LUB does for fn-item arms.
+                bool lubbed_to_fnptr = false;
+                if (TypeRef(result_type).kind() == LogosType::Kind::FnItem &&
+                    TypeRef(expr_type(val)).kind() == LogosType::Kind::FnItem) {
+                    LogosTypeBuilder fpt;
+                    fpt.kind = LogosType::Kind::FnPtr;
+                    for (auto p : TypeRef(expr_type(val)).closure_params())
+                        fpt.closure_params.push_back(p);
+                    fpt.closure_ret = TypeRef(expr_type(val)).closure_ret();
+                    TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
+                    if (types_compatible(result_type, fp) && types_compatible(expr_type(val), fp)) {
+                        result_type = fp;
+                        lubbed_to_fnptr = true;
+                    }
+                }
+                if (!lubbed_to_fnptr) {
+                    if (!types_compatible(expr_type(val), result_type) &&
+                        !types_compatible(result_type, expr_type(val)))
+                        error(std::format(
+                            "match expression: arm type '{}' is incompatible with '{}'",
+                            type_str(expr_type(val)), type_str(result_type)));
+                    else
+                        result_type = unify_numeric(result_type, expr_type(val));
+                }
+            }
+            // Upgrade an IntLit result to i64 if an arm literal overflows i32.
+            if (TypeRef(result_type).kind() == LogosType::Kind::IntLit && val) {
+                auto er = expr_ref_of(val);
+                // A divergent arm's BlockExpr has NO result.
+                if (er.kind() == lir_schema::expr::Code::BlockExpr)
+                    er = lir_view::EBlockExprView{er}.result();
+                if (er && er.kind() == lir_schema::expr::Code::LitInt) {
+                    int64_t v = lir_view::ELitIntView{er}.value();
+                    if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
+                        result_type = prim(LogosType::Kind::I64);
+                }
+            }
+            // [[baghunt-match-arm-binding-no-drop]]: the arm-scope bindings
+            // drop before the arm value escapes — the value is hoisted into
+            // a temp, the drops run, the temp is yielded. Not for an Error
+            // (a divergent block unwound already) or Never value.
+            if (val && TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
+                TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
+                mark_moved_in_expr_recursive(expr_ref_of(val));
+                auto arm_drops = collect_drops();
+                if (!arm_drops.empty()) {
+                    TypeRef vt = expr_type(val);
+                    std::vector<lir_view::StmtRef> blk;
+                    if (TypeRef(vt).kind() == LogosType::Kind::Void) {
+                        lir::SExprStmt es; es.expr = std::move(val);
+                        blk.push_back(make_stmt_emit(node_line_, std::move(es)));
+                        for (auto& d : arm_drops) blk.push_back(std::move(d));
+                        val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), vt);
+                    } else {
+                        std::string tmp = "__match_arm_tmp_" + std::to_string(tmp_var_count_++);
+                        lir::SLet sl;
+                        sl.name = tmp; sl.type = vt; sl.is_mut = false;
+                        sl.value = std::move(val);
+                        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+                        for (auto& d : arm_drops) blk.push_back(std::move(d));
+                        val = builder().block_expr(lir_mirror_block(*cur_prog_, blk),
+                                                   builder().var_ref(tmp, vt), vt);
+                    }
+                }
+            }
+            pop_scope();
+            // A Never-typed arm value (`panic!`, `=> return x`) diverges
+            // even without a block body.
+            if (!arm_diverges && val && TypeRef(expr_type(val)).kind() == LogosType::Kind::Never)
+                arm_diverges = true;
+            if (arm_diverges) div = expr_arm_div_kind(val) == 2 ? 2 : 1;
+            out.value = std::move(val);
             out.pat = std::move(pat);
             out.guard = std::move(guard);
             if (div == 0) {
@@ -12486,8 +12408,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
         // #118 — arm the flags; `mc.arms` is stable now, so an arm's body (or
         // value) is addressed and rebuilt in place.
         for (size_t k = 0; k < arm_branches.size(); ++k) {
-            if (value_form) arm_branches[k].val = &mc.arms[arm_slot[k]].value;
-            else            arm_branches[k].blk = &mc.arms[arm_slot[k]].body;
+            arm_branches[k].val = &mc.arms[arm_slot[k]].value;
         }
         // Variant-exact payload moves are moved on EVERY path (static) — if
         // still moved at the end of an arm that moved them.
@@ -12527,35 +12448,57 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
     return mc;
 }
 
+// ADR 0030 S3.4c: a `match` in statement position is an expression statement
+// of a match (there is no statement match). Without `;` its type is `()`, as
+// rustc types a block-like expression statement; a TAIL match (the body's
+// value, tail_match_nodes_) is the function's return, its arms coerced to the
+// return type.
 lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     const uint32_t match_line = node_line_;  // own line; arm lowering moves node_line_
-    MatchCore mc = lower_match_core(node, tail_match_nodes_.count(node.ptr()) ? MatchForm::Tail
-                                                                              : MatchForm::Stmt);
+    const bool tail = tail_match_nodes_.count(node.ptr()) &&
+                      !(ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Void);
+    const TypeRef saved_hint = hint_expected_type_;
+    hint_expected_type_ = tail ? ret_type_ : TypeRef(nullptr);
+    MatchCore mc = lower_match_core(node, tail ? MatchForm::Tail : MatchForm::Stmt);
+    hint_expected_type_ = saved_hint;
     if (mc.schema_stmt) return mc.schema_stmt;
-    lir::SMatch smatch;
-    smatch.scrut = mc.scrut;
-    for (auto& a : mc.arms)
-        smatch.arms.push_back({std::move(a.pat), lir_mirror_block(*cur_prog_, a.body), std::move(a.guard)});
-    lir_view::StmtRef st = make_stmt_emit(match_line, std::move(smatch));
-    if (!mc.hoists.empty()) {
-        mc.hoists.push_back(st);
-        st = make_stmt_emit(match_line, lir::SBlock{lir_mirror_block(*cur_prog_, mc.hoists), /*transparent=*/true});
-    }
-    if (!mc.temp_scrut_hoisted) return st;
-    // `{ let __ms = <scrut>; <match>; <fall-through drops> }`: collect_drops
-    // yields the fall-through drop of __ms (none when an arm moved it).
-    auto ft_drops = collect_drops();
-    pop_scope();
-    std::vector<lir_view::StmtRef> blk;
-    blk.push_back(std::move(mc.temp_scrut_let));
-    blk.push_back(std::move(st));
-    for (auto& d : ft_drops) blk.push_back(std::move(d));
-    return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
+    lir::LExprPtr e = mc.refused ? error_expr() : match_expr_of_(mc);
+    const auto k = TypeRef(expr_type(e)).kind();
+    // A tail match every arm of which diverges (`!`) returns nothing itself.
+    if (tail && k != LogosType::Kind::Never && k != LogosType::Kind::Error)
+        return finish_return_(std::move(e), node, /*bind_temps=*/false);
+    if (!tail && k != LogosType::Kind::Void && k != LogosType::Kind::Never && k != LogosType::Kind::Error)
+        error(std::format("mismatched types: expected `()`, found `{}` — a `match` statement without `;` "
+                          "has type `()` (E0308)", type_str(expr_type(e))));
+    lir::SExprStmt es;
+    es.expr = std::move(e);
+    return make_stmt_emit(match_line, std::move(es));
+}
+
+lir_view::StmtRef SemaChecker::unit_match_stmt_(
+        lir::LExprPtr scrut, std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms) {
+    lir::EMatchExpr me;
+    me.scrut = std::move(scrut);
+    for (auto& [pat, body] : arms)
+        me.arms.push_back({std::move(pat), std::nullopt,
+                           builder().block_expr(lir_mirror_block(*cur_prog_, body), nullptr, void_t())});
+    lir::SExprStmt es;
+    es.expr = builder().match_expr_v(std::move(me), void_t());
+    return make_stmt_emit(node_line_, std::move(es));
 }
 
 lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     MatchCore mc = lower_match_core(node, MatchForm::Value);
     if (mc.refused) return error_expr();
+    return match_expr_of_(mc);
+}
+
+// The match expression of a lowered core, with its hoists and, for a hoisted
+// temporary scrutinee, `{ let __ms; let __mr = <match>; <drop __ms>; __mr }` —
+// the value is bound first so __ms drops AFTER it is read (a returning arm
+// dropped __ms already). A `()` match: `{ let __ms; <match>; <drop __ms> }`; a
+// never / error one: `{ let __ms; <match> }`.
+lir::LExprPtr SemaChecker::match_expr_of_(MatchCore& mc) {
     lir::EMatchExpr me;
     me.scrut = mc.scrut;
     for (auto& a : mc.arms) {
@@ -12570,18 +12513,18 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     if (!mc.hoists.empty())
         me_expr = builder().block_expr(lir_mirror_block(*cur_prog_, mc.hoists), std::move(me_expr), rty);
     if (!mc.temp_scrut_hoisted) return me_expr;
-    // A hoisted temporary scrutinee: `{ let __ms; let __mr = <match>; <drop
-    // __ms>; __mr }` — the value is bound first so __ms drops AFTER it is read
-    // (a returning arm dropped __ms already). A void / never / error match:
-    // `{ let __ms; <match> }`.
     auto ft_drops = collect_drops();
     pop_scope();
     std::vector<lir_view::StmtRef> blk;
     blk.push_back(std::move(mc.temp_scrut_let));
-    const bool valueful = rty && TypeRef(rty).kind() != LogosType::Kind::Void &&
-                          TypeRef(rty).kind() != LogosType::Kind::Never &&
-                          TypeRef(rty).kind() != LogosType::Kind::Error;
-    if (!valueful)
+    const auto k = rty ? TypeRef(rty).kind() : LogosType::Kind::Error;
+    if (k == LogosType::Kind::Void) {
+        lir::SExprStmt es; es.expr = std::move(me_expr);
+        blk.push_back(make_stmt_emit(node_line_, std::move(es)));
+        for (auto& d : ft_drops) blk.push_back(std::move(d));
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk), nullptr, rty);
+    }
+    if (k == LogosType::Kind::Never || k == LogosType::Kind::Error)
         return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(me_expr), rty);
     std::string res_var = "__match_res_" + std::to_string(tmp_var_count_++);
     {
@@ -12593,6 +12536,5 @@ lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {
     for (auto& d : ft_drops) blk.push_back(std::move(d));
     return builder().block_expr(lir_mirror_block(*cur_prog_, blk), builder().var_ref(res_var, rty), rty);
 }
-
 
 } // namespace logos::compiler

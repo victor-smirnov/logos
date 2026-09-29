@@ -2838,11 +2838,6 @@ private:
                 goto_(l.cont);
                 return;
             }
-            case SCode::Match: {
-                lir_view::SMatchView v{s};
-                lower_match(v.scrut(), [&](auto&& f) { v.each_arm(f); }, nullptr);
-                return;
-            }
             case SCode::LetElse: {
                 lir_view::SLetElseView v{s};
                 bir::Place sp = place_or_temp(v.scrut());
@@ -3323,7 +3318,6 @@ private:
                 lower_into(*dest, arms[i].value());
                 extending_ = saved_ext;
             }
-            if (auto b = arms[i].body()) lower_block_stmts(b);
             pop_scope();
             if (!body_.blocks[cur_].terminated) goto_(join);
         }

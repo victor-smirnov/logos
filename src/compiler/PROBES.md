@@ -25429,7 +25429,7 @@ note: 19 of 33 hand programs move from the sema sentence to
   Also closes `let … else` (h16) outright, which needs no value-side change.
 
 ## scvalstmt
-site: src/compiler/mlir_gen_stmt.cpp::gen_match
+site: src/compiler/mlir_gen_stmt.cpp::gen_match_door   (was gen_match; ADR 0030 S3.4c retired the statement match)
 build: bbbc042bc7d8a03d
 measured: 2026-09-06
 fires: 14558
@@ -25442,7 +25442,7 @@ note: bc ceiling 0, COST 0 (gate-run build 842 -> 844), COST-fail 0 of 1435,
   defect's two symptoms.
 
 ## scall
-site: src/compiler/mlir_gen_stmt.cpp::gen_match
+site: src/compiler/mlir_gen_stmt.cpp::gen_match_door   (was gen_match; ADR 0030 S3.4c retired the statement match)
 build: bbbc042bc7d8a03d
 measured: 2026-09-06
 fires: 14558
@@ -25455,7 +25455,7 @@ note: bc ceiling 0 (gate-run 842 -> 845), COST 0, COST-fail 0 of 1435, stdlib
   h33/h34/h35 still refused — the per-match exemption, section 5.
 
 ## scallb
-site: src/compiler/mlir_gen_stmt.cpp::gen_match
+site: src/compiler/mlir_gen_stmt.cpp::gen_match_door   (was gen_match; ADR 0030 S3.4c retired the statement match)
 build: bbbc042bc7d8a03d
 measured: 2026-09-06
 fires: 14566
@@ -33207,7 +33207,7 @@ the whole round, which is the control: no compiled source moved.
 
 ## 2026-09-09f-tlrefbind — A TOP-LEVEL `ref` BINDER OVER A REFERENCE-TYPED SCRUTINEE IS BOUND ONE INDIRECTION SHORT, AT TWO COPIES OF ONE SITE; THE DOOR HAS **SIX** ARRIVALS IN THE WHOLE 6602-FIXTURE PASS CORPUS AND **NONE OF THEM IS TOP-LEVEL**, WHICH IS BOTH WHY THE DEFECT IS INVISIBLE AND WHY THE CRUDE ARM BREAKS THREE GREEN FIXTURES THE REFINED ONE DOES NOT
 
-site: src/compiler/mlir_gen_stmt.cpp::gen_match (the `case pc::Code::RefBind` of its
+site: src/compiler/mlir_gen_stmt.cpp::gen_match_door (was gen_match, retired by ADR 0030 S3.4c; the `case pc::Code::RefBind` of its
 `extract_payload` walker), src/compiler/mlir_gen_expr.cpp::gen_expr_kind (the
 `EMatchExprView` overload's `extract_arm_payload` twin of the same case),
 src/compiler/mlir_gen_stmt.cpp::ref_bind_kind (the arm that ALREADY computes the owed
@@ -46006,7 +46006,7 @@ cost: see COLUMNS
 verdict: LANDED — the same fact at the expression door, a strict extension of the statement door's own collapse
 
 ## enumrefdepth
-site: src/compiler/mlir_gen_stmt.cpp::gen_match
+site: src/compiler/mlir_gen_stmt.cpp::gen_match_door   (was gen_match; ADR 0030 S3.4c retired the statement match)
 build: 72c2afc955f79321 43
 measured: 2026-09-15
 fires: battery q04 (4 -> 0) q04e (verifier refusal -> 0) q25 q31 -> Rust's answer

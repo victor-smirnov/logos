@@ -9,7 +9,7 @@ unsafe fn main() -> i32 {
     let buf: *mut u8 = alloc(4);
     let p: *mut i32 = buf as *mut i32;
     unsafe { *p = 99; }
-    let v: i32 = unsafe { *p; };
+    let v: i32 = unsafe { *p };
     dealloc(buf);
     return v;
 }

@@ -14,7 +14,7 @@ impl Risky for Bomb {
 }
 
 fn run(r: &dyn Risky) -> i32 {
-    let v: i32 = unsafe { r.danger(); };
+    let v: i32 = unsafe { r.danger() };
     return v;
 }
 

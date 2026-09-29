@@ -21,7 +21,6 @@
 
 namespace logos::compiler {
 
-using lir::LMatchArm;
 using lir::Pattern;
 using lir::WritVal;
 using lir::EClosure;
@@ -940,17 +939,6 @@ public:
         put_line(map_off, line);
         return map_off;
     }
-    const uint8_t* emit_match_stmt_direct(uint32_t line,
-                                                   lir_view::ExprRef scrut,
-                                                   const std::vector<lir::LMatchArm>& arms) {
-        auto scrut_av = expr_av(scrut);
-        auto arms_av  = arm_array(arms);
-        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::Match));
-        put(map_off, sk::SCRUT, scrut_av);
-        put(map_off, sk::ARMS,  arms_av);
-        put_line(map_off, line);
-        return map_off;
-    }
     const uint8_t* emit_for_each_direct(uint32_t line,
                                                  std::string_view var,
                                                  lir_view::ExprRef iter,
@@ -1432,9 +1420,6 @@ public:
         if (!v) return writ::AnyVal{};
         return mref_addr(emit_hv(*v));
     }
-    writ::AnyVal arm_av(const LMatchArm& a) {
-        return mref_addr(emit_arm(a));
-    }
     writ::AnyVal closure_av(const EClosure& c) {
         return mref_addr(emit_closure(c));
     }
@@ -1496,17 +1481,7 @@ public:
         for (auto av : elems) array_push(arr_off, av);
         return mref_addr(arr_off);
     }
-    writ::AnyVal arm_array(const std::vector<LMatchArm>& v) {
-        if (v.empty()) return writ::AnyVal{};
-        std::vector<writ::AnyVal> elems;
-        elems.reserve(v.size());
-        for (auto& a : v) elems.push_back(arm_av(a));
-        auto arr_off = make_array(elems.size());
-        for (auto av : elems) array_push(arr_off, av);
-        return mref_addr(arr_off);
-    }
-
-    // EMatchExpr arms have a different shape than LMatchArm (value vs body) —
+    // EMatchExpr arms: pattern, guard, value —
     // emit each as a small TinyObjectMap and return an array of AnyVal.
     writ::AnyVal expr_arm_array(const std::vector<lir::EMatchArm>& v);
     writ::AnyVal expr_arm_array(const std::vector<lir::EMatchArmView>& v);
@@ -1581,7 +1556,6 @@ public:
     }
     const uint8_t* emit_pat(const Pattern& p);
     const uint8_t* emit_hv(const WritVal& v);
-    const uint8_t* emit_arm(const LMatchArm& a);
     const uint8_t* emit_closure(const EClosure& c);
     const uint8_t* emit_expr_arm(const lir::EMatchArm& a);
     const uint8_t* emit_field_binding(const lir::PatFieldBinding& fb);
@@ -1592,21 +1566,8 @@ public:
 // ──────────────────────────────────────────────────────────────────────────
 
 // ──────────────────────────────────────────────────────────────────────────
-// LMatchArm / EMatchArm / PatFieldBinding / EClosure
+// EMatchArm / PatFieldBinding / EClosure
 // ──────────────────────────────────────────────────────────────────────────
-
-const uint8_t* LirMirrorEmitter::emit_arm(const LMatchArm& a) {
-    auto pat_off    = emit_pat(a.pat);
-    auto body_off   = a.body.addr();   // Stage D: arm body pre-emitted BlockRef
-    writ::AnyVal guard_av;
-    if (a.guard.has_value()) guard_av = expr_av(*a.guard);
-
-    auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Count + 1));
-    put(map_off, ak::PAT,   mref_addr(pat_off));
-    put(map_off, ak::BODY,  mref_addr(body_off));
-    put(map_off, ak::GUARD, guard_av);
-    return map_off;
-}
 
 const uint8_t* LirMirrorEmitter::emit_expr_arm(const lir::EMatchArm& a) {
     auto pat_off    = emit_pat(a.pat);
@@ -2406,11 +2367,6 @@ const uint8_t* lir_mirror_emit_expr_stmt(lir::LProgram& prog, uint32_t line, lir
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_expr_stmt_direct(line, expr);
-}
-const uint8_t* lir_mirror_emit_match_stmt(lir::LProgram& prog, uint32_t line, lir_view::ExprRef scrut, const std::vector<lir::LMatchArm>& arms) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_match_stmt_direct(line, scrut, arms);
 }
 const uint8_t* lir_mirror_emit_for_each(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef iter, TypeRef elem_type, int64_t arr_size, bool is_slice, lir_view::BlockRef body, uint32_t slot, bool var_mut, std::string_view label) {
     auto& ctr = prog.type_pool.ctr_or_init();

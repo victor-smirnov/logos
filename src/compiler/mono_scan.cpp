@@ -212,15 +212,6 @@ void Mono::scan_stmt(lir_view::StmtRef s) {
     case SCode::ExprStmt:
         scan_expr(lir_view::SExprStmtView{s}.expr());
         break;
-    case SCode::Match: {
-        lir_view::SMatchView v{s};
-        scan_expr(v.scrut());
-        v.each_arm([&](lir_view::EMatchArmRef arm) {
-            if (auto g = arm.guard()) scan_expr(g);
-            scan_block(arm.body());
-        });
-        break;
-    }
     case SCode::ForEach: {
         lir_view::SForEachView v{s};
         scan_expr(v.iter());

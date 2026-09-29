@@ -15,6 +15,6 @@ impl Dangerous for Bomb {
 
 unsafe fn main() -> i32 {
     let b = Bomb { val: 33 };
-    let v: i32 = unsafe { b.do_it(); };
+    let v: i32 = unsafe { b.do_it() };
     return v;
 }

@@ -112,7 +112,7 @@ enum class Code : int32_t {
     IndexWrite      = 11,
     FieldIndexWrite = 12,
     ExprStmt        = 13,
-    Match           = 14,
+    // 14 retired: the statement match (ADR 0030 S3.4c — an expression statement of a match)
     // 15 retired: C++-style `delete` stmt (removed; no Rust equivalent)
     ForEach         = 16,
     DerefWrite      = 17,
@@ -233,7 +233,7 @@ inline constexpr Key TYPE_ARGS         {"TYPE_ARGS",       33};   // Array<RelPt
 inline constexpr Key ARG_TYPES         {"ARG_TYPES",       34};   // Array<RelPtr<LogosType>>
 inline constexpr Key FIELD_NAMES       {"FIELD_NAMES",     35};   // Array<Varchar> (parallel to FIELD_VALUES)
 inline constexpr Key FIELD_VALUES      {"FIELD_VALUES",    36};   // Array<RelPtr<LExpr>>
-inline constexpr Key ARMS              {"ARMS",            37};   // Array<RelPtr<LMatchArm-mirror>>
+inline constexpr Key ARMS              {"ARMS",            37};   // Array<RelPtr<EMatchArm-mirror>>
 
 // Method-call dispatch metadata
 inline constexpr Key METHOD            {"METHOD",          38};   // Varchar
@@ -277,12 +277,11 @@ inline constexpr Key ERR_DISC          {"ERR_DISC",        51};   // i32
 // only valid in maps of the corresponding category — they freely overlap with
 // expr_keys numerically because they're never present in the same map.
 
-// Keys for LMatchArm / EMatchArm mirror maps (separate map category).
+// Keys for EMatchArm mirror maps (separate map category).
 namespace arm_keys {
 inline constexpr Key PAT               {"ARM_PAT",          0};   // RelPtr<Pattern-mirror>
 inline constexpr Key GUARD             {"ARM_GUARD",        1};   // RelPtr<LExpr> (optional)
 inline constexpr Key VALUE             {"ARM_VALUE",        2};   // RelPtr<LExpr> (EMatchArm)
-inline constexpr Key BODY              {"ARM_BODY",         3};   // RelPtr<LBlock> (LMatchArm)
 } // namespace arm_keys
 
 // Keys for the EWritLit LExpr variant map. expr_common::TYPE at 0 still
@@ -396,7 +395,7 @@ inline constexpr Key EXPR              {"EXPR",            22};   // SExprStmt
 inline constexpr Key PAT               {"PAT",             23};   // RelPtr<Pattern>
 
 // Match arms
-inline constexpr Key ARMS              {"ARMS",            24};   // Array<RelPtr<LMatchArm>>
+inline constexpr Key ARMS              {"ARMS",            24};   // Array<RelPtr<LStmt>> (a block's statements)
 
 // Tuple write
 inline constexpr Key TUPLE_INDEX_VAL   {"TUPLE_INDEX_VAL", 25};   // u32

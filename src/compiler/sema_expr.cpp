@@ -2141,17 +2141,11 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 // drop (leak on the Err path).
                 auto err_block = make_return_with_drops(std::move(err_lit));
                 if (void_ok) {
-                    lir::SMatch sm;
-                    sm.scrut = std::move(inner);
-                    std::vector<lir_view::StmtRef> ok_body;
-                    sm.arms.push_back({std::move(ok_pat),
-                                       lir_mirror_block(*cur_prog_, ok_body),
-                                       std::nullopt});
-                    sm.arms.push_back({std::move(err_pat),
-                                       lir_mirror_block(*cur_prog_, err_block),
-                                       std::nullopt});
+                    std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms;
+                    arms.emplace_back(std::move(ok_pat), std::vector<lir_view::StmtRef>{});
+                    arms.emplace_back(std::move(err_pat), std::move(err_block));
                     std::vector<lir_view::StmtRef> blk;
-                    blk.push_back(make_stmt_emit(node_line_, std::move(sm)));
+                    blk.push_back(unit_match_stmt_(std::move(inner), std::move(arms)));
                     return builder().block_expr(
                         lir_mirror_block(*cur_prog_, blk), nullptr, ok_type);
                 }
@@ -2218,17 +2212,11 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             }
             auto err_block = make_return_with_drops(std::move(err_lit));
             if (void_ok) {
-                lir::SMatch sm;
-                sm.scrut = std::move(inner);
-                std::vector<lir_view::StmtRef> ok_body;
-                sm.arms.push_back({std::move(ok_pat),
-                                   lir_mirror_block(*cur_prog_, ok_body),
-                                   std::nullopt});
-                sm.arms.push_back({std::move(err_pat),
-                                   lir_mirror_block(*cur_prog_, err_block),
-                                   std::nullopt});
+                std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms;
+                arms.emplace_back(std::move(ok_pat), std::vector<lir_view::StmtRef>{});
+                arms.emplace_back(std::move(err_pat), std::move(err_block));
                 std::vector<lir_view::StmtRef> blk;
-                blk.push_back(make_stmt_emit(node_line_, std::move(sm)));
+                blk.push_back(unit_match_stmt_(std::move(inner), std::move(arms)));
                 return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
                                             nullptr, ok_type);
             }
@@ -2450,39 +2438,14 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     }
 
     case la::UNSAFE_BLOCK: {
+        // A block expression with `unsafe` in effect: ONE block-tail rule
+        // (lower_block_expr), its scope-exit drops included.
         if (!expr.has_key(la::BODY)) return error_expr();
-        auto inner = map_of(expr.get(la::BODY.code));
         bool was = inside_unsafe_;
         inside_unsafe_ = true;
-        // B-fn-06: unsafe block at expression position; trailing TAIL_EXPR is
-        // the block's value, not a return.
-        bool saved_tail = tail_as_return_;
-        tail_as_return_ = false;
-        lir::LExprPtr result = nullptr;
-        std::vector<lir_view::StmtRef> block;
-        if (inner.has_key(la::ITEMS)) {
-            auto stmts = arr_of(inner.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < stmts.size(); ++i) {
-                auto s = map_of(stmts.get(i));
-                if (i == stmts.size() - 1) {
-                    int32_t lc = code_of(s);
-                    if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
-                        result = lower_expr(map_of(s.get(la::VALUE.code)));
-                    } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR && lc != la::LET && lc != la::LET_PAT && lc != la::RETURN) {
-                        result = lower_expr(s);
-                    } else {
-                        push_stmt_with_unwind(block, lower_stmt(s));  // #122
-                    }
-                } else {
-                    push_stmt_with_unwind(block, lower_stmt(s));  // #122
-                }
-            }
-        }
+        auto result = lower_block_expr(map_of(expr.get(la::BODY.code)));
         inside_unsafe_ = was;
-        tail_as_return_ = saved_tail;
-        if (!result) return builder().block_expr(lir_mirror_block(*cur_prog_, block), nullptr, void_t());
-        TypeRef rt = expr_type(result);
-        return builder().block_expr(lir_mirror_block(*cur_prog_, block), std::move(result), rt);
+        return result;
     }
 
     case la::TUPLE_LIT: {
@@ -19988,10 +19951,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
 
 // Bare `{ stmts; tail_expr }` at expression position. The tail expression
 // (TAIL_EXPR or a trailing expression-shape stmt) becomes the block's value;
-// the block evaluates as void if the last stmt is a let/return/etc.
-//
-// Mirrors the local `lower_block_last_expr` lambda in lower_if_expr; the
-// two paths could be unified once block-as-expression is settled.
+// the block evaluates as void if the last stmt is a let/return/etc. ONE
+// block-tail rule: match arms, if-expression branches and `unsafe { }` blocks
+// lower through here.
 // Statement-ONLY node codes: shapes lower_expr cannot lower (its default is a
 // SILENT error_expr — an assign in a block-expr tail used to just vanish). A
 // block whose last item is one of these lowers it via lower_stmt and types the
@@ -20064,14 +20026,23 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                     divergent_ret_t = never_t();
                     continue;
                 }
+                // `e;` is a statement: the block ending in it is `()`, as
+                // rustc types it. Only the tail WITHOUT `;` is the value.
+                if (lc == la::EXPR_STMT) {
+                    push_stmt_with_unwind(block, lower_stmt(s));  // #122
+                    continue;
+                }
                 // Rust 2024: a block's tail expression is a temporary scope —
                 // its temporaries drop BEFORE the block's locals.
                 result = lower_moved_operand_(val_node, /*temp_scoped=*/true);
                 continue;
             }
+            // An `if` / if-let chain without `else` is a `()` expression
+            // (rustc): lowered as the statement it is, the block yields `()`.
+            const bool if_no_else = (lc == la::IF || lc == la::IF_LET_CHAIN) && !s.has_key(la::ELSE);
             if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR
                 && lc != la::LET && lc != la::LET_PAT
-                && lc != la::RETURN && !is_stmt_only_code(lc)) {
+                && lc != la::RETURN && !is_stmt_only_code(lc) && !if_no_else) {
                 result = lower_expr(s);
                 continue;
             }
@@ -20181,130 +20152,17 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         cond = error_expr();
     }
 
-    // Both branches must be single-expression blocks (last expr is the value)
-    // For simplicity: require both THEN and ELSE branches (else is required for expr form)
+    // `if c { .. }` without `else` is a `()` expression (rustc): the
+    // statement it is, in a block that yields `()`.
     if (!node.has_key(la::ELSE)) {
-        error("if-as-expression requires an else branch");
-        return error_expr();
+        std::vector<lir_view::StmtRef> blk;
+        push_stmt_with_unwind(blk, lower_if(node));  // #122
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk), nullptr, void_t());
     }
 
     // Lower the last expression from each block
     lir::LExprPtr then_val = error_expr();
     lir::LExprPtr else_val = error_expr();
-
-    auto lower_block_last_expr = [&](TinyMapView blk) -> lir::LExprPtr {
-        if (blk.is_null() || !blk.has_key(la::ITEMS)) return error_expr();
-        auto stmts = arr_of(blk.get(la::ITEMS.code));
-        if (stmts.size() == 0) { error("block-as-expression: empty branch"); return error_expr(); }
-        // B-fn-06: this is a block in expression position (if-as-expr branch);
-        // a trailing TAIL_EXPR is the block's value, not an implicit return.
-        bool saved_tail = tail_as_return_;
-        tail_as_return_ = false;
-        // ⚠ THE BRANCH IS ITS OWN SCOPE, and it did not used to be. Without a
-        // frame here, a `let` inside an if-as-expression branch was define()d
-        // into the ENCLOSING function scope, so the enclosing `lower_block`'s
-        // scope-end `collect_drops()` emitted its destructor AFTER the whole
-        // `if` — on BOTH paths. On the path where the branch never ran, that
-        // dropped a slot holding whatever was there before: `free(): double
-        // free detected in tcache 2` when a previous call had left its freed
-        // pointer, or an invalid free of a .text address when the leftover was
-        // a code pointer (the container factory's bool-column abort, whose
-        // `emit_cow_map` has exactly this shape — a String declared in the
-        // non-bool arm of `let vconv = if str_eq(vty,"bool") {…} else {…}`).
-        // Silent: compile exit 0, wrong program.
-        push_scope();
-        lir::LExprPtr result = nullptr;
-        // K10-co-04 follow-up: same divergent-tail-as-Never logic as
-        // lower_block_expr — a tail `panic(...)` makes the branch type
-        // Never (`!`) so the if-expression unifier picks the
-        // non-divergent arm's type.
-        TypeRef divergent_t = nullptr;
-        std::vector<lir_view::StmtRef> block;
-        for (uint64_t i = 0; i < stmts.size(); ++i) {
-            auto s = map_of(stmts.get(i));
-            if (i == stmts.size() - 1) {
-                int32_t lc = code_of(s);
-                if ((lc == la::EXPR_STMT || lc == la::TAIL_EXPR) && s.has_key(la::VALUE)) {
-                    auto val_node = map_of(s.get(la::VALUE.code));
-                    // Diverging tail call (any `-> !` callee): the branch
-                    // types as Never so the if-expr unifier picks the
-                    // non-divergent arm's type. Shared with the block-expr
-                    // lowering above.
-                    if (is_divergent_call_node(val_node)) {
-                        push_stmt_with_unwind(block, lower_stmt(s));  // #122
-                        divergent_t = never_t();
-                    } else {
-                        // Conditionally evaluated branch value — own temporary
-                        // scope (see lower_expr_temp_scoped).
-                        result = lower_moved_operand_(val_node, /*temp_scoped=*/true);
-                    }
-                } else if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR &&
-                           lc != la::LET && lc != la::LET_PAT &&
-                           lc != la::RETURN && lc != la::BREAK && lc != la::CONTINUE) {
-                    result = lower_expr_temp_scoped(s);
-                } else {
-                    push_stmt_with_unwind(block, lower_stmt(s));  // #122
-                    // A branch whose last statement diverges (`return` / `break`
-                    // / `continue`, with a trailing `;`) never yields a value —
-                    // it is the never type `!`. Mark the branch Never so the
-                    // if-expression unifier adopts the OTHER arm's type. The
-                    // emitted stmt (SReturn / SBreak / SContinue) terminates the
-                    // block at codegen, and the if-expr value-merge skips a
-                    // terminated branch (is_terminated). (`break`/`continue`
-                    // without a `;` parse as BREAK_EXPR/CONTINUE_EXPR and reach
-                    // the Never path through lower_expr instead.)
-                    if (lc == la::RETURN || lc == la::BREAK || lc == la::CONTINUE)
-                        divergent_t = never_t();
-                }
-            } else {
-                push_stmt_with_unwind(block, lower_stmt(s));  // #122
-            }
-        }
-        tail_as_return_ = saved_tail;
-        // The branch's own locals die HERE, at the branch's end — not at the
-        // enclosing scope's end. The value is bound FIRST (it may read them),
-        // then the drops run, then the binding is the branch's result: the same
-        // order `lower_expr_temp_scoped` uses for a temp scope. When the branch
-        // declares nothing droppable this is byte-identical to the old shape.
-        auto finish = [&](lir::LExprPtr res, TypeRef rt) -> lir::LExprPtr {
-            // #118 R2 — THE ARM VALUE IS A MOVE, and this lowering never said
-            // so. `lower_match_expr` marks its arm value moved
-            // (sema_stmt.cpp, `mark_moved_in_expr_recursive` before
-            // `collect_drops`); the if-expression twin marked nothing, so
-            // `let k = if c { a } else { b }` left BOTH `a` and `b` unmoved:
-            // the enclosing frame dropped them at scope exit AND dropped `k`,
-            // which is a bitwise copy of whichever arm slot the select
-            // yielded — three destructor calls for two values, `free():
-            // double free detected in tcache 2`, rc 134. Marking here makes
-            // the if-expression's arm behave exactly like a match arm's.
-            if (res && TypeRef(expr_type(res)).kind() != LogosType::Kind::Error &&
-                TypeRef(expr_type(res)).kind() != LogosType::Kind::Never)
-                mark_moved_in_expr_recursive(expr_ref_of(res));
-            auto drops = collect_drops();
-            if (drops.empty()) {
-                pop_scope();
-                return builder().block_expr(lir_mirror_block(*cur_prog_, block),
-                                            std::move(res), rt);
-            }
-            lir::LExprPtr out = nullptr;
-            if (res) {
-                std::string vn = std::format("__armtmp_{}", destruct_counter_++);
-                lir::SLet vl;
-                vl.name = vn; vl.type = rt; vl.is_mut = false;
-                vl.value = std::move(res);
-                block.push_back(make_stmt_emit(node_line_, std::move(vl)));
-                out = builder().var_ref(vn, rt);
-            }
-            for (auto& d : drops) block.push_back(std::move(d));
-            pop_scope();
-            return builder().block_expr(lir_mirror_block(*cur_prog_, block),
-                                        std::move(out), rt);
-        };
-        if (!result && divergent_t) return finish(nullptr, divergent_t);
-        if (!result)               return finish(nullptr, void_t());
-        TypeRef rt = expr_type(result);
-        return finish(std::move(result), rt);
-    };
 
     // #118 R2 — per-branch move tracking, the same save / restore / union
     // merge `lower_match_expr` and `lower_if` (stmt form) already run. The
@@ -20334,9 +20192,14 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
         auto then_node = map_of(node.get(la::THEN.code));
         moved_vars_ = ifx_pre_moves;
         ifx_then_mark = flag_clear_log_.size();
-        if (code_of(then_node) == la::BLOCK)
-            then_val = lower_block_last_expr(then_node);
-        else {
+        if (code_of(then_node) == la::BLOCK) {
+            then_val = lower_block_expr(then_node);
+            // #118 R2: the branch value is a MOVE (lower_block_expr leaves an
+            // outer local's mark to the consumer, as a match arm marks its own).
+            if (then_val && TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Error &&
+                TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Never)
+                mark_moved_in_expr_recursive(expr_ref_of(then_val));
+        } else {
             then_val = lower_expr_temp_scoped(then_node);
             if (then_val &&
                 TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Error &&
@@ -20356,9 +20219,12 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     auto else_node = map_of(node.get(la::ELSE.code));
     moved_vars_ = ifx_pre_moves;
     ifx_else_mark = flag_clear_log_.size();
-    if (code_of(else_node) == la::BLOCK)
-        else_val = lower_block_last_expr(else_node);
-    else {
+    if (code_of(else_node) == la::BLOCK) {
+        else_val = lower_block_expr(else_node);
+        if (else_val && TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Error &&
+            TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Never)
+            mark_moved_in_expr_recursive(expr_ref_of(else_val));   // #118 R2, as the then branch
+    } else {
         else_val = lower_expr_temp_scoped(else_node);
         if (else_val &&
             TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Error &&
@@ -20999,13 +20865,19 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 case SC::While: scan_block(lir_view::SWhileView{s}.body()); break;
                 case SC::Loop:  scan_block(lir_view::SLoopView{s}.body());  break;
                 case SC::Block: scan_block(lir_view::SBlockView{s}.body()); break;
-                // A tail `match` returns from its arms (tail_match_nodes_);
-                // a return nested in a loop body over a collection counts too.
-                case SC::Match:
-                    lir_view::SMatchView{s}.each_arm([&](lir_view::EMatchArmRef arm) {
-                        scan_block(arm.body());
-                    });
+                // A `match` statement (an expression statement of a match,
+                // ADR 0030 S3.4c): a return in an arm block.
+                case SC::ExprStmt: {
+                    auto e = lir_view::SExprStmtView{s}.expr();
+                    if (e && e.kind() == lir_schema::expr::Code::MatchExpr)
+                        lir_view::EMatchExprView{e}.each_arm([&](lir_view::EMatchArmRef arm) {
+                            auto v = arm.value();
+                            if (v && v.kind() == lir_schema::expr::Code::BlockExpr)
+                                scan_block(lir_view::EBlockExprView{v}.block());
+                        });
                     break;
+                }
+                // A return nested in a loop body over a collection counts too.
                 case SC::For:     scan_block(lir_view::SForView{s}.body());     break;
                 case SC::ForEach: scan_block(lir_view::SForEachView{s}.body()); break;
                 default: break;
@@ -21596,15 +21468,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.index()); scan_captures_v(v.value()); break;
             }
             case SC::ExprStmt:   scan_captures_v(lir_view::SExprStmtView{s}.expr()); break;
-            case SC::Match: {
-                auto v = lir_view::SMatchView{s};
-                scan_captures_v(v.scrut());
-                v.each_arm([&](lir_view::EMatchArmRef arm){
-                    if (auto g = arm.guard()) scan_captures_v(g);
-                    if (auto b = arm.body()) scan_block_v(b);
-                });
-                break;
-            }
             case SC::ForEach: {
                 auto v = lir_view::SForEachView{s};
                 scan_captures_v(v.iter());

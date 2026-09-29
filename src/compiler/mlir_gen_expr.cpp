@@ -4840,7 +4840,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMatchExprView v, TypeRef type)
     if (!v.scrut()) return nullptr;
     std::vector<lir_view::EMatchArmRef> arms;
     v.each_arm([&](lir_view::EMatchArmRef a){ arms.push_back(a); });
-    return gen_match_door(v.scrut(), arms, type, /*stmt=*/false);
+    return gen_match_door(v.scrut(), arms, type);
 }
 
 // ---------------------------------------------------------------------------

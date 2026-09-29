@@ -19,6 +19,6 @@ fn main() -> i32 {
     let x: i32 = 42;
     let p: *const i32 = &x;
     let pp: *const *const i32 = &p;
-    let result: i32 = unsafe { get_through_pp(pp); };
+    let result: i32 = unsafe { get_through_pp(pp) };
     return result;
 }

@@ -3040,8 +3040,6 @@ private:
                 s.mirror_ptr_ = lir_mirror_emit_field_index_write(p, line, k.receiver, k.field, k.index, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SExprStmt>) {
                 s.mirror_ptr_ = lir_mirror_emit_expr_stmt(p, line, k.expr);
-            } else if constexpr (std::is_same_v<KT, lir::SMatch>) {
-                s.mirror_ptr_ = lir_mirror_emit_match_stmt(p, line, k.scrut, k.arms);
             } else if constexpr (std::is_same_v<KT, lir::SForEach>) {
                 s.mirror_ptr_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body, k.slot, k.var_mut, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {
@@ -10219,8 +10217,7 @@ private:
     struct MatchCoreArm {
         lir::Pattern                   pat;
         std::optional<lir::LExprPtr>   guard;
-        std::vector<lir_view::StmtRef> body;    // Stmt / Tail
-        lir::LExprPtr                  value = {};  // Value
+        lir::LExprPtr                  value = {};
     };
     struct MatchCore {
         lir::LExprPtr                  scrut = {};
@@ -10240,6 +10237,12 @@ private:
     lir_view::StmtRef lower_schema_enum_match(writ::TinyMapView node,
                                               lir::LExprPtr scrut, TypeRef scrut_type);
     lir::LExprPtr lower_match_expr(writ::TinyMapView node);
+    lir::LExprPtr match_expr_of_(MatchCore& mc);
+    // A `()`-typed match whose arms are statement blocks (a compiler-built
+    // match: `?` over a unit Ok, the `for` desugar). ADR 0030 S3.4c: there is
+    // no statement match, only an expression statement of a match.
+    lir_view::StmtRef unit_match_stmt_(lir::LExprPtr scrut,
+                                       std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms);
     // G156-2: mark a by-value move-type match scrutinee (var or place) moved
     // when THIS arm's pattern binds+moves out of it (whole-binding / struct /
     // tuple / variant payload). Called PER ARM, inside the arm's own move

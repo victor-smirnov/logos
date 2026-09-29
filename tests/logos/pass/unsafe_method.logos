@@ -18,7 +18,7 @@ unsafe fn main() -> i32 {
     let p: *mut i32 = raw as *mut i32;
     unsafe { *p = 55; }
     let b = Buf { ptr: p };
-    let v: i32 = unsafe { b.read(); };
+    let v: i32 = unsafe { b.read() };
     dealloc(raw);
     return v;
 }

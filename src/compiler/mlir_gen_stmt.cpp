@@ -366,11 +366,6 @@ void MLIRGenImpl::prescan_uninit_flags(lir_view::BlockRef block, int depth,
         case C::Loop:    prescan_uninit_flags(lir_view::SLoopView{s}.body(),    depth + 1, decl_depth); break;
         case C::For:     prescan_uninit_flags(lir_view::SForView{s}.body(),     depth + 1, decl_depth); break;
         case C::ForEach: prescan_uninit_flags(lir_view::SForEachView{s}.body(), depth + 1, decl_depth); break;
-        case C::Match:
-            lir_view::SMatchView{s}.each_arm([&](lir_view::EMatchArmRef arm){
-                prescan_uninit_flags(arm.body(), depth + 1, decl_depth);
-            });
-            break;
         case C::Block:   prescan_uninit_flags(lir_view::SBlockView{s}.body(),   depth,     decl_depth); break;
         case C::LetElse: prescan_uninit_flags(lir_view::SLetElseView{s}.else_block(), depth + 1, decl_depth); break;
         default: break;
@@ -459,7 +454,6 @@ void MLIRGenImpl::prescan_uninit_expr(lir_view::ExprRef e, int depth,
         auto arm = lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el);
         prescan_uninit_expr(arm.guard(), depth + 1, decl_depth);
         prescan_uninit_expr(arm.value(), depth + 1, decl_depth);
-        prescan_uninit_flags(arm.body(), depth + 1, decl_depth);
     }
 }
 
@@ -492,7 +486,6 @@ void MLIRGenImpl::gen_stmt(lir_view::StmtRef sr) {
     case C::IndexWrite:      gen_stmt_kind(lir_view::SIndexWriteView{sr}); return;
     case C::FieldIndexWrite: gen_stmt_kind(lir_view::SFieldIndexWriteView{sr}); return;
     case C::ExprStmt:        gen_stmt_kind(lir_view::SExprStmtView{sr}); return;
-    case C::Match:           gen_stmt_kind(lir_view::SMatchView{sr}); return;
     case C::ForEach:         gen_stmt_kind(lir_view::SForEachView{sr}); return;
     case C::DerefWrite:      gen_stmt_kind(lir_view::SDerefWriteView{sr}); return;
     case C::Drop:            gen_stmt_kind(lir_view::SDropView{sr}); return;
@@ -582,7 +575,6 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SExprStmtView v) {
         }
     }
 }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SMatchView v)      { gen_match(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SForEachView v)    { gen_for_each(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBlockView v)      {
     // Sema-synthesized TRANSPARENT blocks: their bindings must LEAK into the
@@ -5309,16 +5301,16 @@ bool MLIRGenImpl::match_arms_cover(const std::vector<lir_view::EMatchArmRef>& ar
 
 mlir::Value MLIRGenImpl::gen_match_door(lir_view::ExprRef scrut_e,
                                         const std::vector<lir_view::EMatchArmRef>& arms,
-                                        TypeRef type, bool stmt) {
-    // The expression form's result: a slot the arms store into, loaded at the
-    // merge; a void match (and the statement form) yields a synthetic unit.
-    mlir::Type result_type = stmt ? mlir::Type() : logos_to_mlir(type);
-    if (!stmt && !result_type && !(type && TypeRef(type).kind() == LogosType::Kind::Void))
-        return nullptr;
+                                        TypeRef type) {
+    // The result: a slot the arms store into, loaded at the merge; a void
+    // match yields a synthetic unit, a never one (every arm diverges) nothing.
+    const bool unit = type && (TypeRef(type).kind() == LogosType::Kind::Void ||
+                               TypeRef(type).kind() == LogosType::Kind::Never);
+    mlir::Type result_type = unit ? mlir::Type() : logos_to_mlir(type);
+    if (!result_type && !unit) return nullptr;
     mlir::Value result_alloca;
     if (result_type) result_alloca = create_entry_alloca(result_type);
     auto result = [&]() -> mlir::Value {
-        if (stmt) return nullptr;
         if (!result_type) return builder_.create<mlir::arith::ConstantIntOp>(loc_, 0, 32);
         return builder_.create<mlir::LLVM::LoadOp>(loc_, result_type, result_alloca);
     };
@@ -5328,7 +5320,6 @@ mlir::Value MLIRGenImpl::gen_match_door(lir_view::ExprRef scrut_e,
     // G160-10: a diverging scrutinee (`match return x { … }`) already emitted a
     // terminator — the arms are dead.
     if (!scrut || is_terminated(builder_.getBlock())) {
-        if (stmt) return nullptr;
         if (is_terminated(builder_.getBlock())) {
             auto* dead = new mlir::Block();
             region->push_back(dead);
@@ -5371,9 +5362,7 @@ mlir::Value MLIRGenImpl::gen_match_door(lir_view::ExprRef scrut_e,
             builder_.create<mlir::cf::CondBranchOp>(loc_, gv, body, next);
             builder_.setInsertionPointToStart(body);
         }
-        if (stmt) {
-            if (auto b = arms[i].body()) gen_block(b);
-        } else if (auto ve = arms[i].value()) {
+        if (auto ve = arms[i].value()) {
             auto val = gen_expr(ve);
             if (val && result_type && !is_terminated(builder_.getBlock()))
                 builder_.create<mlir::LLVM::StoreOp>(loc_, store_arm_result(val, result_type), result_alloca);
@@ -5385,11 +5374,13 @@ mlir::Value MLIRGenImpl::gen_match_door(lir_view::ExprRef scrut_e,
     }
     if (arms.empty()) builder_.create<mlir::cf::BranchOp>(loc_, fall);
     region->push_back(merge);
-    if (stmt && merge->hasNoPredecessors()) {
-        merge->erase();
+    builder_.setInsertionPointToStart(merge);
+    // Every arm diverged: nothing reaches the merge, which is dead and
+    // terminated — a caller checks is_terminated and emits no fall-through.
+    if (merge->hasNoPredecessors()) {
+        builder_.create<mlir::LLVM::UnreachableOp>(loc_);
         return nullptr;
     }
-    builder_.setInsertionPointToStart(merge);
     return result();
 }
 
@@ -5408,13 +5399,6 @@ mlir::Value MLIRGenImpl::store_arm_result(mlir::Value val, mlir::Type rt) {
         (mlir::isa<mlir::LLVM::LLVMStructType>(rt) || mlir::isa<mlir::LLVM::LLVMArrayType>(rt)))
         return builder_.create<mlir::LLVM::LoadOp>(loc_, rt, val);
     return coerce_numeric(val, rt);
-}
-
-void MLIRGenImpl::gen_match(lir_view::SMatchView v) {
-    if (!v.scrut()) return;
-    std::vector<lir_view::EMatchArmRef> arms;
-    v.each_arm([&](lir_view::EMatchArmRef a){ arms.push_back(a); });
-    (void)gen_match_door(v.scrut(), arms, TypeRef{}, /*stmt=*/true);
 }
 
 // ---------------------------------------------------------------------------

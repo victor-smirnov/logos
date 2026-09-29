@@ -138,12 +138,6 @@ struct Pattern {
     Pattern& operator=(Pattern&&) noexcept = default;
 };
 
-struct LMatchArm {
-    Pattern                  pat;
-    LBlockPtr                body = {};   // arm body (single stmts are wrapped in a 1-stmt block)
-    std::optional<LExprPtr>  guard;  // if-guard: arm only matches when guard is true
-};
-
 // ── Writ SDN literal tree ───────────────────────────────────────────────
 
 struct WritVal;
@@ -606,11 +600,6 @@ struct SForEach {
     LBlockPtr        body = {};
     uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
     std::string      label;       // optional loop label (`'l: for x in v`), empty = unlabeled
-};
-
-struct SMatch {
-    lir_view::ExprRef               scrut;
-    std::vector<LMatchArm> arms;
 };
 
 // let-else: let Pat = expr else { block (must diverge) };

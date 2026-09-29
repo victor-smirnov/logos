@@ -371,8 +371,7 @@ public:
     BlockRef() = default;
     using RefBase::RefBase;
 
-    // Block stmts are stored under stmt_keys::ARMS (key 24) — a single key
-    // shared with SMatch.arms because both are Array<RelPtr<sub-node>>.
+    // Block stmts are stored under stmt_keys::ARMS (key 24).
     template <class F>
     void each_stmt(F&& f) const noexcept;
 };
@@ -1660,8 +1659,8 @@ inline StmtRef StmtRef::sub_stmt(uint8_t key) const noexcept {
     return detail::make_sub_ref<StmtRef>(*this, loc.av);
 }
 
-// Iterate stmts inside a block. The mirror stores them at stmt_keys::ARMS (24),
-// reusing the same key for SMatch.arms — see lir_mirror.cpp:emit_block.
+// Iterate stmts inside a block. The mirror stores them at stmt_keys::ARMS (24)
+// — see lir_mirror.cpp:emit_block.
 template <class F>
 inline void BlockRef::each_stmt(F&& f) const noexcept {
     auto av = mirror()->get(/*stmt_keys::ARMS*/ 24);
@@ -1705,8 +1704,8 @@ void for_each_expr(const RefBase& r, uint8_t key, F&& f) noexcept {
 
 // ── Match-arm views ──────────────────────────────────────────────────────
 //
-// The mirror represents both LMatchArm (statement-style, with body block)
-// and EMatchArm (expression-style, with value expr) as TinyObjectMaps.
+// The mirror represents an EMatchArm (pattern, guard, value expr) as a
+// TinyObjectMap.
 
 class EMatchArmRef : public detail::RefBase {
 public:
@@ -1727,11 +1726,6 @@ public:
         auto av = mirror()->get(ak::GUARD.code);
         if (av.is_null()) return {};
         return detail::make_sub_ref<ExprRef>(*this, av);
-    }
-    BlockRef body() const noexcept {
-        auto av = mirror()->get(ak::BODY.code);
-        if (av.is_null()) return {};
-        return detail::make_sub_ref<BlockRef>(*this, av);
     }
 };
 
@@ -3203,27 +3197,6 @@ struct SDropView     {
     }
 };
 
-struct SMatchView {
-    StmtRef self;
-    ExprRef scrut() const noexcept { return detail::stmt_sub_expr(self, sk::SCRUT.code); }
-
-    template <class F>
-    void each_arm(F&& f) const noexcept {
-        // Re-fetch the array pointer on each iteration: `f` may recurse
-        // into substitution/cloning which allocates and triggers
-        // GrowableSingleChunk relocation, moving the arena's head buffer.
-        // A cached `arr` pointer would dangle. Mirror the pattern used by
-        // detail::each_block_stmt / each_call_arg above.
-        auto av = self.mirror()->get(sk::ARMS.code);
-        if (av.is_null()) return;
-        uint64_t n = av.as_ptr<const writ::ObjectArray>()->size();
-        for (uint64_t i = 0; i < n; ++i) {
-            auto el = av.as_ptr<const writ::ObjectArray>()->get(i);
-            if (el.is_null()) continue;
-            f(detail::make_sub_ref<EMatchArmRef>(self, el));
-        }
-    }
-};
 
 inline uint32_t stmt_line(const StmtRef& s) noexcept {
     return detail::read_u32(s, sc::LINE.code);

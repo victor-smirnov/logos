@@ -5594,21 +5594,6 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             out_, ns.line, var_name, drop_fn, ty, drop_fields, moved_fields, v.var_slot());
         break;
     }
-    case SCode::Match: {
-        lir_view::SMatchView v{sref};
-        auto scrut = subst_child_expr(v.scrut());
-        std::vector<lir::LMatchArm> arms;
-        v.each_arm([&](lir_view::EMatchArmRef arm) {
-            lir::LMatchArm na;
-            if (auto pref = arm.pat()) na.pat = subst_pattern(pref, s);
-            na.body = subst_child_block(arm.body());
-            if (auto g = arm.guard()) na.guard = subst_child_expr(g);
-            arms.push_back(std::move(na));
-        });
-        ns.mirror_ptr_ = lir_mirror_emit_match_stmt(
-            out_, ns.line, scrut, arms);
-        break;
-    }
     case SCode::ForEach: {
         lir_view::SForEachView v{sref};
         std::string var(v.var());
@@ -7146,15 +7131,6 @@ void Mono::collect_struct_needs_from_stmt(lir_view::StmtRef s) {
         break;
     case SCode::Drop:
         break;
-    case SCode::Match: {
-        lir_view::SMatchView v{s};
-        collect_struct_needs_from_expr(v.scrut());
-        v.each_arm([&](lir_view::EMatchArmRef arm) {
-            if (auto g = arm.guard()) collect_struct_needs_from_expr(g);
-            collect_struct_needs_from_block(arm.body());
-        });
-        break;
-    }
     case SCode::LetElse: {
         lir_view::SLetElseView v{s};
         collect_struct_needs_from_expr(v.scrut());

@@ -466,7 +466,6 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
                                 lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el);
                             walk_expr(arm.guard());
                             walk_expr(arm.value());
-                            walk_block(arm.body());
                         }
                     }
                 }
@@ -500,16 +499,6 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
             }
             case SC::Loop:   walk_block(lir_view::SLoopView{s}.body()); break;
             case SC::Block:  walk_block(lir_view::SBlockView{s}.body()); break;
-            case SC::Match: {
-                lir_view::SMatchView v{s};
-                walk_expr(v.scrut());
-                v.each_arm([&](lir_view::EMatchArmRef arm) {
-                    walk_expr(arm.guard());
-                    walk_expr(arm.value());
-                    walk_block(arm.body());
-                });
-                break;
-            }
             case SC::FieldWrite:      walk_expr(lir_view::SFieldWriteView{s}.value()); break;
             case SC::DerefFieldWrite: walk_expr(lir_view::SDerefFieldWriteView{s}.value()); break;
             case SC::IndexWrite: {

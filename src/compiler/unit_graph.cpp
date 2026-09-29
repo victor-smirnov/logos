@@ -472,7 +472,6 @@ void UnitGraph::assign_ownership(const lir::LProgram& post_mono) {
                             auto arm = lir_view::detail::make_sub_ref<lir_view::EMatchArmRef>(e, el);
                             walk_expr(arm.guard(), out);
                             walk_expr(arm.value(), out);
-                            walk_block(arm.body(), out);
                         }
                     }
                 }
@@ -507,16 +506,6 @@ void UnitGraph::assign_ownership(const lir::LProgram& post_mono) {
             }
             case SC::Loop:  walk_block(lir_view::SLoopView{s}.body(), out); break;
             case SC::Block: walk_block(lir_view::SBlockView{s}.body(), out); break;
-            case SC::Match: {
-                lir_view::SMatchView v{s};
-                walk_expr(v.scrut(), out);
-                v.each_arm([&](lir_view::EMatchArmRef arm) {
-                    walk_expr(arm.guard(), out);
-                    walk_expr(arm.value(), out);
-                    walk_block(arm.body(), out);
-                });
-                break;
-            }
             case SC::FieldWrite:      walk_expr(lir_view::SFieldWriteView{s}.value(), out); break;
             case SC::DerefFieldWrite: walk_expr(lir_view::SDerefFieldWriteView{s}.value(), out); break;
             case SC::IndexWrite: {

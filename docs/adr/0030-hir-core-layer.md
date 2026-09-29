@@ -514,12 +514,25 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   is `()`, as rustc types it (spec expr.match.arm-block-tail-is-value: the
   mismatch is the arm-type error; it was "block arm must end with an
   expression"). Budget ≤ −900 net; landed −916 (+563 / −1479).
-Next: the grammar takes `;` after a block-like statement (a lone `;` is the
-empty statement; `match … {};` is an expression statement) — the user's
-direction (the grammar is a syntactic superset of Rust). Then S3.4c: the
-statement match as `ExprStmt(match)` with rustc's typing (no `;`: `()`),
-SMatch retired; let / let-else on the core's arm phase (temporary hoist —
-squeue let_ref_mut_binding_crash); then S3.3b — or-patterns of binding
+- S3.4c (2026-09-28): there is no statement match. A `match` in statement
+  position is an expression statement of a match (`lir::SMatch`, its view,
+  mirror emitter, stmt code 14 and every consumer's case are gone; the
+  compiler-built ones — `?` over a unit Ok, the `for` desugar — are
+  `unit_match_stmt_`). Without `;` its type is `()` (E0308 otherwise, as
+  rustc); a TAIL match is the function's `return <match>`, its arms coerced to
+  the return type; one every arm of which diverges is `!` and returns nothing
+  itself. lower_match_core has one arm phase (the value form). The block-tail
+  rule was FOUR copies (block expression, match arm, if-expression branch,
+  `unsafe { }` expression — the last without scope-exit drops); it is one,
+  `lower_block_expr`, and it is Rust's: `{ e; }` is `()`, an `if` without
+  `else` is a `()` expression (was refused), a block that always diverts is
+  `!` (was Error, which dropped the whole match from codegen). The mlir door
+  lost its statement flag; a match of type `!` generates (it returned nothing
+  for a `!` type) and its dead merge is terminated. A `()` match over a
+  hoisted temporary scrutinee dropped the temporary nowhere (leak). 17 pass /
+  fail fixtures spelled a value as `{ x; }`; they say `{ x }` now.
+Next: S3.4c's second half — let / let-else on the core's arm phase (temporary
+hoist — squeue let_ref_mut_binding_crash); then S3.3b — or-patterns of binding
 alternatives in the tester (guarded arms retry the next alternative,
 alternative-dependent moves), retiring the fan-out, the synthesized route,
 the guard channel and the K4 prologue.

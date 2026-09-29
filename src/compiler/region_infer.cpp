@@ -312,22 +312,6 @@ void RegionInferer::walk_block(lir_view::BlockRef br0, uint32_t blk_id,
                 cur = after_id;
                 break;
             }
-            case SCode::Match: {
-                SMatchView v{sr};
-                std::vector<uint32_t> arm_ids;
-                v.each_arm([&](EMatchArmRef arm) {
-                    uint32_t arm_id = RegionInferer_alloc_block(cfg_);
-                    arm_ids.push_back(arm_id);
-                    if (auto b = arm.body()) walk_block(b, arm_id, prog);
-                });
-                uint32_t after_id = RegionInferer_alloc_block(cfg_);
-                for (auto id : arm_ids) {
-                    cfg_.blocks[cur].successors.push_back(id);
-                    cfg_.blocks[id].successors.push_back(after_id);
-                }
-                cur = after_id;
-                break;
-            }
             case SCode::LetElse: {
                 SLetElseView v{sr};
                 uint32_t else_id  = RegionInferer_alloc_block(cfg_);
@@ -679,9 +663,6 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
         case SCode::ForEach:
             walk_expr(SForEachView{sr}.iter(), "");
             break;
-        case SCode::Match:
-            walk_expr(SMatchView{sr}.scrut(), "");
-            break;
         case SCode::LetElse:
             walk_expr(SLetElseView{sr}.scrut(), "");
             break;
@@ -882,9 +863,6 @@ void RegionInferer::use_def_for_stmt(lir_view::StmtRef sr,
             def.insert(live_key(v.var(), v.var_slot()));
             break;
         }
-        case SCode::Match:
-            walk_use(SMatchView{sr}.scrut());
-            break;
         case SCode::LetElse:
             walk_use(SLetElseView{sr}.scrut());
             break;
