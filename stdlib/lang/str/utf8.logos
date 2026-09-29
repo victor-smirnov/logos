@@ -217,12 +217,12 @@ impl Iterator<char> for Chars {
             let avail: i64 = self.len - self.pos;
             if slen > avail {
                 self.pos = self.pos + 1;
-                return Option::Some(0xFFFD as u32 as char);
+                return Option::Some('\u{FFFD}');
             }
             let p: *const u8 = (self.ptr as i64 + self.pos) as *const u8;
             let cp: u32 = decode(p);
             self.pos = self.pos + slen;
-            return Option::Some(cp as char);
+            return Option::Some(char::from_u32_unchecked(cp));
         }
     }
 }
@@ -256,12 +256,12 @@ impl Iterator<(i64, char)> for CharIndices {
             let avail: i64 = self.len - self.pos;
             if slen > avail {
                 self.pos = self.pos + 1;
-                return Option::Some((start, 0xFFFD as u32 as char));
+                return Option::Some((start, '\u{FFFD}'));
             }
             let p: *const u8 = (self.ptr as i64 + self.pos) as *const u8;
             let cp: u32 = decode(p);
             self.pos = self.pos + slen;
-            return Option::Some((start, cp as char));
+            return Option::Some((start, char::from_u32_unchecked(cp)));
         }
     }
 }

@@ -1524,6 +1524,18 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
                     "`x != 0.0` for floats)",
                     type_str(expr_type(inner))));
         }
+        // Only `u8` (and `char`) casts to `char` (rustc E0604): any wider
+        // integer could name a surrogate or a value past U+10FFFF. An
+        // unsuffixed literal is typed `u8` by the cast when it fits.
+        if (TypeRef(target).kind() == LogosType::Kind::Char) {
+            auto sk = TypeRef(expr_type(inner)).kind();
+            bool ok = sk == LogosType::Kind::U8 || sk == LogosType::Kind::Char;
+            if (sk == LogosType::Kind::IntLit)
+                if (auto v = get_intlit_value(inner)) ok = *v >= 0 && *v <= 255;
+            if (!ok)
+                error(std::format("only `u8` can be cast as `char`, not `{}` (E0604)",
+                                  type_str(expr_type(inner))));
+        }
         // Sprint 3.4: also forbid scalar/pointer → aggregate (closes B-ex-05).
         // Casting to a struct/enum/tuple/array reinterprets unrelated bits;
         // there is no well-defined operation here.
@@ -18284,18 +18296,21 @@ bool SemaChecker::try_deref_coerce(lir::LExprPtr& e, TypeRef pt) {
     // A fat reference slot (`&str`, `&[T]` — the slice IS the reference):
     // `&&str` / `&&[T]` / `&String` reach it by dereferencing to a value of
     // the slot's own type.
-    if (pt.kind() == K::Slice && is_ref(at) && TypeRef(at).pointee() && !types_compatible(at, pt)) {
+    if (pt.kind() == K::Slice && is_ref(at) && TypeRef(at).pointee() && !types_equal(at, pt)) {
+        const bool slice_mut = pt.mut_ptr();   // `&mut [T]`: every step is `&mut` / DerefMut
+        if (slice_mut && TypeRef(at).kind() != K::MutRef) return false;
         TypeRef ct = TypeRef(at).pointee();
         lir::LExprPtr cur = builder().deref(e, ct);
         for (int step = 0; step < 8 && ct; ++step) {
-            if (ct.kind() == K::Slice && types_equal(ct, pt)) { e = cur; return true; }
+            if (ct.kind() == K::Slice && types_compatible(ct, pt) && (!slice_mut || ct.mut_ptr())) { e = cur; return true; }
             if (is_ref(ct) && ct.pointee()) {
+                if (slice_mut && ct.kind() != K::MutRef) return false;
                 TypeRef nt = ct.pointee();
                 cur = builder().deref(cur, nt);
                 ct = nt;
             } else if (ct.kind() == K::Struct) {
                 bool degraded = false;
-                auto nx = emit_generic_deref_step(cur, /*want_mut=*/false, &degraded);
+                auto nx = emit_generic_deref_step(cur, slice_mut, &degraded);
                 if (!nx || degraded || !*nx || !expr_type(*nx)) return false;
                 cur = *nx;
                 ct = expr_type(cur);

@@ -21,7 +21,13 @@ impl char {
     pub static fn from_u32(i: u32) -> Option<char> {
         if i > 0x10FFFFu32 { return Option::None; }
         if i >= 0xD800u32 && i <= 0xDFFFu32 { return Option::None; }
-        return Option::Some(i as char);
+        return Option::Some(unsafe { char::from_u32_unchecked(i) });
+    }
+
+    /// The `char` with scalar value `i`, unchecked. Safety: `i` is a Unicode scalar value
+    /// (not a surrogate, at most `U+10FFFF`). Only `u8` casts to `char` with `as`.
+    pub static unsafe fn from_u32_unchecked(i: u32) -> char {
+        return unsafe { *(&i as *const u32 as *const char) };
     }
 
     /// The digit `num` in `radix` (`0-9` then lowercase `a-z`), or `None` if `num >= radix`.
@@ -29,8 +35,8 @@ impl char {
     pub static fn from_digit(num: u32, radix: u32) -> Option<char> {
         if radix > 36u32 { panic("char::from_digit: radix is too high (maximum 36)"); }
         if num >= radix { return Option::None; }
-        if num < 10u32 { return Option::Some((48u32 + num) as char); }
-        return Option::Some((87u32 + num) as char);
+        if num < 10u32 { return Option::Some(((48u32 + num) as u8) as char); }
+        return Option::Some(((87u32 + num) as u8) as char);
     }
 
     // ── ASCII range membership ────────────────────────────────────────────
@@ -159,14 +165,14 @@ impl char {
     /// Returns the ASCII-lowercase equivalent of `self`; chars other than `A-Z` are unchanged.
     pub fn to_ascii_lowercase(self: char) -> char {
         let c: u32 = self as u32;
-        if c >= 65u32 && c <= 90u32 { return (c + 32u32) as char; }
+        if c >= 65u32 && c <= 90u32 { return ((c + 32u32) as u8) as char; }
         return self;
     }
 
     /// Returns the ASCII-uppercase equivalent of `self`; chars other than `a-z` are unchanged.
     pub fn to_ascii_uppercase(self: char) -> char {
         let c: u32 = self as u32;
-        if c >= 97u32 && c <= 122u32 { return (c - 32u32) as char; }
+        if c >= 97u32 && c <= 122u32 { return ((c - 32u32) as u8) as char; }
         return self;
     }
 

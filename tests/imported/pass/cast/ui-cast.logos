@@ -19,7 +19,7 @@ fn main() -> i32 {
     assert_eq!(u, 'Q' as u32);
     assert_eq!(i as u8, 'Q' as u8);
     assert_eq!(i as u8 as i8, 'Q' as u8 as i8);
-    let c: char = 0x51u32 as char;
+    let c: char = 0x51u8 as char;
     if (c as u32) != ('Q' as u32) { return 1; }
     assert_eq!(0u32, false as u32);
     return 0;

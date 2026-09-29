@@ -625,9 +625,21 @@ of 70 members.
   impl is a candidate only for its own package's target type (the impl key
   is the target's spelling: a local `struct Vec` took the stdlib's
   `Deref<[T]>`). S4 clusters 23 → 44 of 70.
-Next: S4.2 — narrow `types_compatible`'s silent acceptances into plan steps
-or errors (`&T` → `*mut T`, `*T` → `&T`, `&Vec<T>` → `&[T]` by layout, `!`,
-fn item → fn pointer); S4.3 — closure escape decided at the unsize point.
+- S4.2 (2026-09-29): `types_compatible` stops accepting three mismatches
+  rustc refuses or rewrites. `&T` → `*mut T` is refused (a shared reference
+  never becomes a mutable raw pointer); `*T` → `&T` is gone (rustc has no raw
+  → reference coercion; five stdlib sites called a method on a raw pointer and
+  say `(*p).m()` now); `&Vec<T>` → `&[T]` by layout is Vec's Deref coercion,
+  a rewrite — including `&mut Vec<T>` → `&mut [T]` through DerefMut. The
+  subtype check's `&Vec` → `&[U]` special case went with it, and `&mut [T]`
+  is invariant in T in the subtype check (it compared elements covariantly;
+  the special case had been hiding that). Only `u8` casts to `char` (E0604):
+  stdlib `char::from_u32`, `TryFrom<u32>`, the UTF-8 decoders and `String::pop`
+  / `remove` build their checked scalar with `char::from_u32_unchecked`.
+  S4 clusters 44 → 48 of 70.
+Next: S4.3 — closure escape decided at the unsize point; then the remaining
+S4 clusters (no-vtable-box-box-dyn, raw-mut-dyn-reborrow-typing,
+rangeinclusive-u8-contains, move-closure-capture-shares-slot).
 
 ## L0 status (2026-09-27)
 

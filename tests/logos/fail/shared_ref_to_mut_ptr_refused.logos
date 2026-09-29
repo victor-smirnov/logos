@@ -1,0 +1,4 @@
+// A shared reference never coerces to a mutable raw pointer (rustc 1.98.1
+// E0308 "types differ in mutability"): `&T` -> `*const T` only.
+package shared_ref_to_mut_ptr_refused;
+fn main() -> i32 { let x: i64 = 5i64; let p: *mut i64 = &x; unsafe { *p = 6i64; } return x as i32; }

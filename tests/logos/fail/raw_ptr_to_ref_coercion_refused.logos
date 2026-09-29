@@ -1,0 +1,5 @@
+// A raw pointer never coerces to a reference (rustc 1.98.1 E0308): the
+// spelling is `&*p` inside `unsafe`.
+package raw_ptr_to_ref_coercion_refused;
+fn get(r: &i64) -> i64 { return *r; }
+fn main() -> i32 { let x: i64 = 5i64; let p: *const i64 = &x; return get(p) as i32; }

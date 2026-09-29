@@ -7,7 +7,8 @@
 //   2. a tuple carrying a fat ref RETURNED across a function boundary — the
 //      `CoercePos::Return` position the nested refusal also inspects.
 //   3. the identical tuple and ARRAY literals over a NON-`#[zone_mut]` struct
-//      built from a raw pointer: the control that the new structural check is
+//      reborrowed from a raw pointer (`&mut *q`: a raw pointer never coerces to
+//      a reference, ADR 0030 S4.2): the control that the new structural check is
 //      keyed on the ATTRIBUTE and not on the aggregate syntax.
 package test;
 extern fn malloc(n: i64) -> *mut u8;
@@ -48,9 +49,9 @@ unsafe fn main() -> i32 {
     // 3. non-zone_mut control: tuple AND array of thin refs from a raw pointer
     let q: *mut Plain = malloc(8i64) as *mut Plain;
     (*q).v = 5i64;
-    let tp: (&mut Plain, i64) = (q, 1i64);
+    let tp: (&mut Plain, i64) = (&mut *q, 1i64);
     if takes_thin(tp.0) != 5i64 { return 6; }
-    let mut ap: [&mut Plain; 1] = [q];
+    let mut ap: [&mut Plain; 1] = [&mut *q];
     if takes_thin(ap[0]) != 5i64 { return 7; }
     return 0;
 }

@@ -493,7 +493,7 @@ impl String {
             let cp: u32 = decode(p);
             self.nbytes = i;
             self.data[i] = 0 as u8;
-            return Option::Some(cp as char);
+            return Option::Some(char::from_u32_unchecked(cp));
         }
     }
 
@@ -511,7 +511,7 @@ impl String {
             mem_move(p, src, self.nbytes - idx - n);
             self.nbytes = self.nbytes - n;
             self.data[self.nbytes] = 0 as u8;
-            return cp as char;
+            return char::from_u32_unchecked(cp);
         }
     }
 

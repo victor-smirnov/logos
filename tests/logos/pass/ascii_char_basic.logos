@@ -12,7 +12,7 @@ fn main() -> i32 {
     if !a.is_some() { return fail(1); }
     let ch: AsciiChar = a.unwrap();
     if ch.as_u8() != 65u8 { return fail(2); }
-    if ch.as_char() != 65u32 as char { return fail(3); }
+    if ch.as_char() != 65u8 as char { return fail(3); }
     if !ch.is_uppercase()  { return fail(4); }
     if !ch.is_alphabetic() { return fail(5); }
     if  ch.is_digit()      { return fail(6); }

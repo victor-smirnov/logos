@@ -9,9 +9,8 @@
 //   property tables that Logos's std.lang.char doesn't ship yet
 //   (only the ASCII subset is faithful). Where the upstream test
 //   exercises both, we keep the ASCII half and mark the rest open.
-// - `'\u{XXXX}'` escape isn't on Logos's char-literal surface yet —
-//   non-ASCII / control-byte codepoints are constructed via
-//   `(0xNNN as u32) as char` instead.
+// - non-ASCII / control-byte codepoints are written `'\u{XXXX}'`, as upstream
+//   (`u32 as char` is E0604: only `u8` casts to `char`).
 //
 // Source `#[test]` fns ported:
 //   char.rs::test_is_whitespace
@@ -36,12 +35,12 @@ use logos.lang.char;
 #[test]
 fn test_is_whitespace() {
     assert!(' '.is_whitespace());
-    assert!((0x2007u32 as char).is_whitespace());
+    assert!('\u{2007}'.is_whitespace());
     assert!('\t'.is_whitespace());
     assert!('\n'.is_whitespace());
     assert!(!'a'.is_whitespace());
     assert!(!'_'.is_whitespace());
-    assert!(!(0u32 as char).is_whitespace());
+    assert!(!'\0'.is_whitespace());
 }
 
 #[test]
@@ -92,12 +91,12 @@ fn test_is_numeric_ascii() {
 
 #[test]
 fn test_is_control_ascii() {
-    assert!((0u32    as char).is_control());
-    assert!((3u32    as char).is_control());
-    assert!((9u32    as char).is_control());
-    assert!((0x7Fu32 as char).is_control());
-    assert!(!(0x20u32 as char).is_control());
-    assert!(!(0x55u32 as char).is_control());
+    assert!('\u{0}'.is_control());
+    assert!('\u{3}'.is_control());
+    assert!('\u{9}'.is_control());
+    assert!('\u{7F}'.is_control());
+    assert!(!'\u{20}'.is_control());
+    assert!(!'\u{55}'.is_control());
     assert!(!'A'.is_control());
 }
 
@@ -139,12 +138,12 @@ fn test_to_digit() {
 #[test]
 fn test_len_utf8() {
     assert_eq!('A'.len_utf8(),                  1i64);
-    assert_eq!((0x7Fu32  as char).len_utf8(),   1i64);
-    assert_eq!((0x80u32  as char).len_utf8(),   2i64);
-    assert_eq!((0x7FFu32 as char).len_utf8(),   2i64);
-    assert_eq!((0x800u32 as char).len_utf8(),   3i64);
-    assert_eq!((0x2007u32 as char).len_utf8(),  3i64);
-    assert_eq!((0x10000u32 as char).len_utf8(), 4i64);
+    assert_eq!('\u{7F}'.len_utf8(),   1i64);
+    assert_eq!('\u{80}'.len_utf8(),   2i64);
+    assert_eq!('\u{7FF}'.len_utf8(),   2i64);
+    assert_eq!('\u{800}'.len_utf8(),   3i64);
+    assert_eq!('\u{2007}'.len_utf8(),  3i64);
+    assert_eq!('\u{10000}'.len_utf8(), 4i64);
 }
 
 #[test]
@@ -183,5 +182,5 @@ fn test_is_ascii_graphic() {
     assert!('~'.is_ascii_graphic());
     assert!(!' '.is_ascii_graphic());
     assert!(!'\t'.is_ascii_graphic());
-    assert!(!(0u32 as char).is_ascii_graphic());
+    assert!(!'\0'.is_ascii_graphic());
 }

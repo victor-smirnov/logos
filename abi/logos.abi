@@ -727,6 +727,7 @@ sym	logos_lang..logos.lang.cell.UnsafeCell$G1$i64__get__g__ref_UnsafeCell$G1$T
 sym	logos_lang..logos.lang.cell.UnsafeCell$G1$i64__new__g__T
 sym	logos_lang..logos.lang.char.char__from_digit__f__u32__u32
 sym	logos_lang..logos.lang.char.char__from_u32__f__u32
+sym	logos_lang..logos.lang.char.char__from_u32_unchecked__f__u32
 sym	logos_lang..logos.lang.char.char__is_alphabetic__f__char
 sym	logos_lang..logos.lang.char.char__is_alphanumeric__f__char
 sym	logos_lang..logos.lang.char.char__is_ascii__f__char

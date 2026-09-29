@@ -1,0 +1,5 @@
+// Only `u8` casts to `char` (rustc 1.98.1 E0604 "only `u8` can be cast as
+// `char`, not `u32`"): a wider integer could name a surrogate or a value past
+// U+10FFFF. `char::from_u32` / `from_u32_unchecked` are the spellings.
+package cast_u32_as_char_refused;
+fn main() -> i32 { let n: u32 = 0xD800u32; let c = n as char; return c as i32; }

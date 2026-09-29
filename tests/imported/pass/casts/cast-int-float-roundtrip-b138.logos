@@ -17,7 +17,7 @@ fn main() -> i32 {
     let t: u32 = big as u32;
     if t != 1u32 { return 3i32; }
 
-    let c: char = (65u32 as char);
+    let c: char = (65u8 as char);
     if (c as u32) != 65u32 { return 4i32; }
     return 0i32;
 }

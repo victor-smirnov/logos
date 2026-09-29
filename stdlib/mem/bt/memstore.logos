@@ -717,7 +717,7 @@ impl MemoryStore {
         while k < self.snaps.len() {
             let d: *mut SnapDesc = self.snaps.get(k) as *mut SnapDesc;
             unsafe {
-                if (&mut (*d).wrappers as *mut AtomicI32).load() == 0i32 {
+                if (*d).wrappers.load() == 0i32 {
                     tree_release((*d).dir_root.ptr(), (*d).dir_level);
                     self.snaps.remove(k);
                     let _ = box_from_raw(d);
@@ -1047,7 +1047,7 @@ pub fn store_pack(st: &mut Arc<MemoryStore>) -> i64 {
             let mut reclaim: bool = false;
             unsafe {
                 if (*d).status == SNAP_DROPPED
-                    && (&mut (*d).wrappers as *mut AtomicI32).load() == 0i32 {
+                    && (*d).wrappers.load() == 0i32 {
                     let id: u64 = (*d).id;
                     reclaim = !g.has_committed_child(id) && !g.is_branch_tip(id);
                 }

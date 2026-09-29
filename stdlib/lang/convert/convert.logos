@@ -196,7 +196,7 @@ impl TryFrom<u32> for char {
     fn try_from(val: u32) -> Result<char, ConvertError> {
         if val >= 0x110000u32 { return Result::Err(ConvertError{}); }
         if val >= 0xD800u32 && val <= 0xDFFFu32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as char);
+        return Result::Ok(unsafe { char::from_u32_unchecked(val) });
     }
 }
 

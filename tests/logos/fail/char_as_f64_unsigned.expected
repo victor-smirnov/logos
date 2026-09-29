@@ -1,0 +1,1 @@
+only `u8` can be cast as `char`, not `u32` (E0604)

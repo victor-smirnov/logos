@@ -62,12 +62,12 @@ fn test_is_whitespace_ascii() {
 #[test]
 fn test_is_whitespace_u2007() {
     // U+2007 FIGURE SPACE — Logos's is_whitespace includes it explicitly.
-    let figure_space: char = 0x2007u32 as char;
+    let figure_space: char = '\u{2007}';
     assert!(figure_space.is_whitespace());
 
-    let nbsp: char = 0x00A0u32 as char;
+    let nbsp: char = '\u{A0}';
     assert!(nbsp.is_whitespace());
 
-    let null_char: char = 0u32 as char;
+    let null_char: char = '\0';
     assert!(!null_char.is_whitespace());
 }

@@ -1,3 +1,6 @@
+// MOVED TO fail/ 2026-09-29 (ADR 0030 S4.2), as the note below asked: `u32 as
+// char` is refused (E0604 — only `u8` casts to `char`), so the out-of-range
+// `char` this file built is no longer constructible. It is the refusal's sensor.
 package char_as_f64_unsigned;
 // `char as f64` IS AN **UNSIGNED** CONVERSION, AND THIS FILE IS THE SENSOR THAT
 // SAYS SO. It pins the `Kind::Char` member of `LogosType::is_unsigned_repr_kind`

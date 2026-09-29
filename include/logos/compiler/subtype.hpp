@@ -406,15 +406,6 @@ inline bool subtype(TypeRef sub, TypeRef sup,
     if (!permissive_empty && sub.kind() == K::MutRef && sup.kind() == K::Ref && sub.pointee() && sup.pointee())
         return detail::names_generic_struct(sub.pointee()) || detail::names_generic_struct(sup.pointee()) ||
                subtype(sub.pointee(), sup.pointee(), adj, vars, depth + 1, permissive_empty);  // pointee only
-    // `&Vec<T>` -> `&[U]`: types_compatible admits it for the stdlib Vec only, and it is this function's only gate.
-    if (!permissive_empty && (sub.kind() == K::Ref || sub.kind() == K::MutRef) && sup.kind() == K::Slice && sub.pointee() &&
-        sub.pointee().kind() == K::Struct && sub.pointee().type_args().size() == 1 && sup.elem()) {
-        TypeRef se = sub.pointee().type_args()[0];
-        if (detail::names_generic_struct(se) || detail::names_generic_struct(sup.elem())) return true;
-        if (sup.mut_ptr())  // `&mut [U]`: the MutRef arm's own invariance test
-            return detail::types_equal_with_lifetimes(se, sup.elem(), &adj, permissive_empty);
-        return subtype(se, sup.elem(), adj, vars, depth + 1, permissive_empty);
-    }
     // Other different kinds (IntLit → i32, …): the caller's compat check handles them.
     //
     // EXCEPT FnItem → FnPtr. sema.hpp declares the rule this exit broke:
@@ -477,6 +468,9 @@ inline bool subtype(TypeRef sub, TypeRef sup,
                 !detail::lifetime_at(Variance::Co, sub.lifetime(), sup.lifetime(),
                                      adj, permissive_empty))
                 return false;
+            // `&mut [T]` is invariant in T, as `&mut T` is.
+            if (sup.kind() == K::Slice && sup.mut_ptr())
+                return detail::types_equal_with_lifetimes(sub.elem(), sup.elem(), &adj, permissive_empty);
             return subtype(sub.elem(), sup.elem(), adj, vars, depth + 1, permissive_empty);
         case K::Struct:
         case K::ZonedStruct: {

@@ -4637,7 +4637,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         // cast-validity check — the open blocklist→allowlist arc), so a `char`
         // holding 0xFFFFFFFF is reachable in an accepted program, and there the
         // two lowerings differ by the whole word: uitofp 4294967295.0 vs sitofp
-        // -1.0. `tests/logos/pass/char_as_f64_unsigned.logos` is that fixture.
+        // -1.0. `tests/logos/pass/char_as_f64_unsigned.logos` was that fixture.
+        // ⚠ AND SINCE 2026-09-29 (ADR 0030 S4.2) NO FIXTURE CAN RED THE Char
+        // MEMBER AGAIN: only `u8` casts to `char` (E0604), so every `char` is a
+        // legal scalar, positive in i32, and `sitofp` ≡ `uitofp` on it. The
+        // witness program is now tests/logos/fail/char_as_f64_unsigned.logos —
+        // the sensor of the refusal that made it unconstructible.
         // CONTROL, applied to `is_unsigned_repr_kind` itself
         // (`include/logos/compiler/sema.hpp`), not to this line: drop
         // `k == Kind::Char` → that fixture PREDICTED 8, MEASURED 8, while L1

@@ -5,7 +5,7 @@
 package c_u8_to_char_cast_9918;
 
 fn main() -> i32 {
-    let c: char = (0i32 + 0i32) as char;
+    let c: char = (0u8 + 0u8) as char;
     if c != '\0' { return 1i32; }
     return 0i32;
 }

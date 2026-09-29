@@ -328,7 +328,7 @@ impl PkdAlloc {
         if self.is_allocatable(idx) {
             let el: *mut PkdAllocatable = dst as *mut PkdAllocatable;
             let sp: *const PkdAlloc = self as *const PkdAlloc;
-            el.set_allocator_offset(sp);
+            (*el).set_allocator_offset(sp);
         }
     }
 
@@ -470,7 +470,7 @@ impl PkdAlloc {
         if is_allocatable {
             let el: *mut PkdAllocatable = p as *mut PkdAllocatable;
             let sp: *const PkdAlloc = self as *const PkdAlloc;
-            el.set_allocator_offset(sp);
+            (*el).set_allocator_offset(sp);
         }
         return Result::Ok(p);
     }
@@ -524,7 +524,7 @@ impl PkdAlloc {
         if ssize > 0 && src_allocatable {
             let el: *mut PkdAllocatable = tp as *mut PkdAllocatable;
             let sp2: *const PkdAlloc = self as *const PkdAlloc;
-            el.set_allocator_offset(sp2);
+            (*el).set_allocator_offset(sp2);
         }
         return Result::Ok(());
     }

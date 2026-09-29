@@ -13,7 +13,7 @@ fn main() -> i32 {
     if u != ('Q' as u32) { return 3i32; }
     if (i as u8) != ('Q' as u8) { return 4i32; }
     if ((i as u8) as i8) != (('Q' as u8) as i8) { return 5i32; }
-    if (0x51i64 as char) != 'Q' { return 6i32; }
+    if (0x51u8 as char) != 'Q' { return 6i32; }
     if (0i64 as u32) != (false as u32) { return 7i32; }
     return 0i32;
 }
