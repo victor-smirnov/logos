@@ -1,0 +1,31 @@
+// ADR 0030 S3.3b: or-pattern binders that MOVE (a Drop struct, a String, a
+// tagged enum) copy into one storage per name, and the scrutinee's moved leaves
+// are every alternative's (per-tag paths): no double drop, no leak (the drop
+// counter is 125). rustc 1.98.1 twin exits 0.
+package or_binders_move_drop;
+use logos.mem.string;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+enum F { A(D), B(D) }
+enum G { X(Option<i64>, i64), Y(i64, Option<i64>) }
+fn og(o: Option<F>) -> i64 { match o { Some(F::A(x) | F::B(x)) if x.v > 10 => { return x.v; } _ => { return 0; } } }
+fn ou(o: F) -> i64 { match o { F::A(x) | F::B(x) => { return x.v; } } }
+fn en(g: G) -> i64 {
+    match g {
+        G::X(o, n) | G::Y(n, o) if n > 0 => { match o { Some(k) => { return k * 10 + n; } None => { return n; } } }
+        _ => { return -1; }
+    }
+}
+fn st(o: Option<(String, i64)>) -> i64 { match o { Some((s, 1) | (s, 2)) => { return s.len() as i64; } _ => { return 0; } } }
+fn main() -> i32 {
+    let mut n: i64 = 0;
+    let c: *mut i64 = &mut n;
+    if og(Some(F::B(D { v: 20, c: c }))) != 20 { return 1; }
+    if og(Some(F::A(D { v: 5, c: c }))) != 0 { return 2; }
+    if ou(F::B(D { v: 100, c: c })) != 100 { return 3; }
+    if en(G::Y(3, Some(4))) != 43 { return 4; }
+    if en(G::X(None, 0)) != -1 { return 5; }
+    if st(Some((String::from("abc"), 2))) != 3 { return 6; }
+    if unsafe { *c } != 125 { return 7; }
+    return 0;
+}

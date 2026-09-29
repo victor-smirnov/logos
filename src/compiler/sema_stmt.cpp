@@ -1599,11 +1599,9 @@ lir_view::StmtRef SemaChecker::lower_let_else_core(lir::LExprPtr scrut, TinyMapV
         auto arr = arr_of(pat_node.get(la::ITEMS.code));
         if (arr.size() == 1) pat_inner = map_of(arr.get(0));
     }
-    // G161-3: collect refutable-inner guard exprs (`__refut_N == value` for
-    // `let Some(1) = … else`). build_pattern's synth_refutable_inner pushes them
-    // here; the SLetElse carries them so codegen tests each AFTER the bindings
-    // are bound (else the inner literal test was silently dropped — only the
-    // variant discriminant was checked).
+    // G161-3: the refutable guards a const pattern needs (`str` / byte-array
+    // consts, the guard channel); the SLetElse carries them so codegen tests
+    // each AFTER the bindings are bound.
     std::vector<lir::LExprPtr> refut_guards;
     auto* saved_pat_refut = current_pat_refutable_guards_;
     current_pat_refutable_guards_ = &refut_guards;
@@ -3996,308 +3994,6 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         variant_data_dbm_ = saved;
         return sp.mirror_ptr_;
     };
-    // Synthesize a binding + guard for a refutable inner sub-pat. Returns
-    // the synth binding name (caller stores it at the correct position
-    // in `bindings`). Caller must also have `current_pat_refutable_guards_`
-    // wired or guard generation is silently skipped (then the pattern
-    // becomes too permissive — caller already errored).
-    // explicit_name: when non-empty, the payload is bound to THAT name (an
-    // `@`-binding — `Msg::Num(n @ 1..=5)`) and the refutable guard is built
-    // against it, rather than to a fresh synth temp. The caller pushes the
-    // returned name into `bindings`.
-    // Set by synth_refutable_inner when the returned synth must bind by-ref
-    // (by-ref-ergonomics nested-variant synth). The caller reads it to set
-    // binding_is_ref for that synth.
-    bool synth_wants_ref = false;
-    // Set by a caller whose synth is a `ref n @ sub` name: it binds `&T`, so a
-    // scalar guard compares the POINTEE (as under a by-reference scrutinee).
-    bool synth_forced_ref = false;
-    auto synth_refutable_inner =
-        [&](TinyMapView sub, TypeRef ftype, std::string_view ctx_field,
-            std::string_view explicit_name = {}) -> std::string {
-        synth_wants_ref = false;
-        logos::probe::census("s3.synth." + std::to_string(code_of(sub)));
-        std::string synth = explicit_name.empty()
-            ? std::format("__refut_{}_{}_{}", pvname, ctx_field, tmp_var_count_++)
-            : std::string(explicit_name);
-        int32_t sc = code_of(sub);
-        // Nested VARIANT inner pattern, e.g. `Some(Color::Red)` /
-        // `Ok(Status::Done)`. Bind the payload to `synth`, and gate the arm
-        // with a synthesized `match synth { <inner> => true, _ => false }`
-        // guard (reuses enum match dispatch). Only for inners that bind
-        // nothing (a payload-carrying inner like `Some(Inner(x))` would lose
-        // its inner bindings through the guard — left to the existing error).
-        // A bindingless variant inner check, reused for plain PAT_VARIANT_DATA
-        // and for each alternative of a PAT_OR.
-        std::function<bool(TinyMapView)> data_has_binding = [&](TinyMapView dn) -> bool {
-            // A STRUCT-SHAPED variant (`Inn::S { f }`) keeps its fields under
-            // ITEMS: a shorthand field binds its name, a `f: sub` binds what
-            // `sub` binds.
-            if (dn.has_key(la::variant::IS_STRUCT_SHAPE) &&
-                dn.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0) {
-                std::vector<std::string> names;
-                collect_ast_pat_bindings(dn, names);
-                for (auto& n : names) if (!n.empty() && n != "_") return true;
-                return false;
-            }
-            if (!dn.has_key(la::ARGS)) return false;
-            auto av = dn.get(la::ARGS.code);
-            if (av.is_null() || !av.is_pointer()) return false;
-            auto al = map_of(av);
-            if (!al.has_key(la::ITEMS)) return false;
-            auto items = arr_of(al.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < items.size(); ++i) {
-                auto sn = map_of(items.get(i));
-                int32_t c = code_of(sn);
-                if (c == la::PAT_WILD && sn.has_key(la::NAME) &&
-                    str_of(sn.get(la::NAME.code)) != "_") return true;
-                // A binding anywhere DEEPER (e.g. `Some(Some(w))`) also routes
-                // through the K4 binding-variant path so its depth gate fires.
-                if (c == la::PAT_VARIANT_DATA && data_has_binding(sn)) return true;
-                if (c == la::PAT_AT) return true;
-            }
-            return false;
-        };
-        // A tuple / struct sub-pattern with a refutable part inside
-        // (`Some(P { x: 1, y })`, `A((1, y))`) takes the K4 route below: a
-        // guard match on the payload plus a body re-extraction of its binders.
-        const bool refut_aggregate = (sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) &&
-                                     !ast_pat_irrefutable(sub);
-        if (sc == la::PAT_VARIANT ||
-            (sc == la::PAT_VARIANT_DATA && current_pat_refutable_guards_) ||
-            (sc == la::PAT_OR && current_pat_refutable_guards_) ||
-            (refut_aggregate && current_pat_refutable_guards_)) {
-            // K4: nested variant pattern carrying bindings (e.g.
-            // `Some(Some(v))`). Bind the outer payload to `synth`, gate the arm
-            // with a guard match `match synth { <sub> => <inner_check>, _ =>
-            // false }` (so sibling arms like `Some(None)` dispatch correctly),
-            // and register a body let-else that re-extracts the inner bindings
-            // from `synth` (the guard guarantees the match → the else is dead).
-            // Composes to arbitrary depth: the deeper checks ride the matching
-            // arm's VALUE (never an arm GUARD), and the body let-else recurses.
-            if ((sc == la::PAT_VARIANT_DATA && data_has_binding(sub)) || refut_aggregate) {
-                if (!current_pat_refutable_guards_ || !current_pat_nested_subs_)
-                    return std::string();
-                // Raw-pointer scrutinee (`*const`/`*mut`) keeps the clean
-                // reject — match ergonomics is `&`/`&mut` only.
-                if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Ptr)
-                    return std::string();
-                TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                    ? ftype : error_t();
-                // By-ref ergonomics: the outer payload binds by-reference, so
-                // the synth carrying the nested enum is `&Inner` / `&mut Inner`.
-                // The guard match + body let-else then run over a ref scrutinee
-                // (default binding modes handle that), matching the pattern
-                // binding type the binding_types pass assigns to this synth.
-                if (pat_scrut_by_ref && rt && TypeRef(rt).kind() != LogosType::Kind::Error) {
-                    // logos-core 4.3: wrap N times for arbitrary-depth
-                    // scrutinees. Outermost layer carries the strictest
-                    // (mut-if-any) mutability; inner layers stay shared
-                    // (Rust's default binding modes — the outer-most
-                    // binding-mode determines the binding's mutability).
-                    for (int li = 0; li < pat_scrut_ref_depth; ++li)
-                        rt = make_ref(li == pat_scrut_ref_depth - 1 ? pat_scrut_by_mut : false, rt);
-                    synth_wants_ref = true;
-                }
-                std::vector<lir::LExprPtr> inner_guards;
-                std::vector<NestedPatSub> inner_subs;   // discarded — re-extracted
-                auto* sg = current_pat_refutable_guards_;
-                auto* ssub = current_pat_nested_subs_;
-                current_pat_refutable_guards_ = &inner_guards;
-                current_pat_nested_subs_ = &inner_subs;
-                lir::EMatchArm a0;
-                a0.pat = build_pattern(sub, rt);
-                current_pat_refutable_guards_ = sg;
-                current_pat_nested_subs_ = ssub;
-                define(synth, rt);
-                // This definition only types the guard's read: it is a bitwise
-                // COPY of the payload, and the arm's own binding of the same name
-                // (a fresh slot, so it shadows this one) is the owner. Unmarked,
-                // the shadowed copy was destroyed too — `Some(Some(s)) => return
-                // s.len()` freed the String twice.
-                mark_moved(synth);
-                // Deeper binding-nesting: the inner checks become this guard
-                // arm's VALUE — `match synth { <sub> => <inner_check>, _ =>
-                // false }` (an arm VALUE, not an arm GUARD, to avoid the
-                // guarded-arm slot bug). For one-level nesting inner_guards is
-                // empty → value `true`.
-                lir::LExprPtr inner_check = nullptr;
-                for (auto& ig : inner_guards) {
-                    if (!ig) continue;
-                    inner_check = inner_check
-                        ? builder().bin_op("&&", std::move(inner_check), std::move(ig), bool_t())
-                        : std::move(ig);
-                }
-                a0.value = inner_check ? std::move(inner_check)
-                                       : builder().lit_bool(true, bool_t());
-                lir::EMatchArm a1;
-                a1.pat = make_pat_wild("_");
-                a1.value = builder().lit_bool(false, bool_t());
-                lir::EMatchExpr me;
-                me.scrut = builder().var_ref(synth, rt);
-                me.arms.push_back(std::move(a0));
-                me.arms.push_back(std::move(a1));
-                current_pat_refutable_guards_->push_back(
-                    builder().match_expr_v(std::move(me), bool_t()));
-                current_pat_nested_subs_->push_back({synth, sub});
-                return synth;
-            }
-            // G139-2: or-pattern inner `Some(A | B)`. Build the same
-            // `match synth { A | B => true, _ => false }` guard. Each alt must
-            // bind nothing (the guard returns bool — bindings would be lost).
-            if (sc == la::PAT_OR) {
-                if (!sub.has_key(la::ITEMS)) return std::string();
-                auto alts = arr_of(sub.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < alts.size(); ++i) {
-                    auto an = map_of(alts.get(i));
-                    int32_t ac = code_of(an);
-                    if (ac == la::PAT_VARIANT) continue;
-                    if (ac == la::PAT_VARIANT_DATA && !data_has_binding(an)) continue;
-                    if (ac == la::PAT_INT || ac == la::PAT_NEG_INT ||
-                        ac == la::PAT_BOOL || ac == la::PAT_CHAR) continue;
-                    // G144-2: a bindingless wildcard alt (`Some(0 | _)`) is a
-                    // catch-all — the guard `match synth { 0 | _ => true, _ =>
-                    // false }` evaluates to always-true, which is correct. A
-                    // NAMED wildcard would bind (lost through the guard) → reject.
-                    if (ac == la::PAT_WILD &&
-                        (!an.has_key(la::NAME) || str_of(an.get(la::NAME.code)) == "_"))
-                        continue;
-                    return std::string();  // binding/unsupported alt → fall to error
-                }
-            }
-            if (!current_pat_refutable_guards_) return std::string();
-            TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                ? ftype : error_t();
-            define(synth, rt);
-            lir::EMatchArm a0;
-            // Isolate any DEEPER refutable-inner guards produced while building
-            // the guard pattern (`Some(Some(None))` → the inner `None` test) so
-            // they become THIS guard arm's VALUE — `match synth { <sub> =>
-            // <inner_check>, _ => false }` — rather than leaking into the
-            // enclosing arm's guard list (where they'd reference synths bound
-            // only inside this guard match → wrong dispatch beyond 2 levels).
-            std::vector<lir::LExprPtr> bl_inner_guards;
-            std::vector<NestedPatSub> bl_inner_subs;   // discarded in a guard
-            auto* bl_sg = current_pat_refutable_guards_;
-            auto* bl_ssub = current_pat_nested_subs_;
-            current_pat_refutable_guards_ = &bl_inner_guards;
-            current_pat_nested_subs_ = &bl_inner_subs;
-            a0.pat = build_pattern(sub, rt);
-            current_pat_refutable_guards_ = bl_sg;
-            current_pat_nested_subs_ = bl_ssub;
-            lir::LExprPtr bl_check = nullptr;
-            for (auto& ig : bl_inner_guards) {
-                if (!ig) continue;
-                bl_check = bl_check
-                    ? builder().bin_op("&&", std::move(bl_check), std::move(ig), bool_t())
-                    : std::move(ig);
-            }
-            a0.value = bl_check ? std::move(bl_check)
-                                : builder().lit_bool(true, bool_t());
-            lir::EMatchArm a1;
-            a1.pat   = make_pat_wild("_");
-            a1.value = builder().lit_bool(false, bool_t());
-            lir::EMatchExpr me;
-            me.scrut = builder().var_ref(synth, rt);
-            me.arms.push_back(std::move(a0));
-            me.arms.push_back(std::move(a1));
-            current_pat_refutable_guards_->push_back(
-                builder().match_expr_v(std::move(me), bool_t()));
-            return synth;
-        }
-        // G162-1: range inner `Num(1..=5)` / `Num(n @ 1..=5)`. Bind the
-        // payload to `synth` (or the @-name) and gate the arm with
-        // `synth >= lo && synth <= hi` (exclusive `lo..hi` lowers to
-        // `lo..=(hi-1)`). Mirrors the PAT_RANGE handling in build_pattern.
-        if (sc == la::PAT_RANGE && sub.has_key(la::LHS) && sub.has_key(la::RHS)) {
-            int64_t lo = parse_int_literal(str_of(sub.get(la::LHS.code)));
-            int64_t hi = parse_int_literal(str_of(sub.get(la::RHS.code)));
-            if (sub.has_key(la::LO_NEG)) {
-                AnyVal av = sub.get(la::LO_NEG.code);
-                if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) lo = -lo;
-            }
-            if (sub.has_key(la::HI_NEG)) {
-                AnyVal av = sub.get(la::HI_NEG.code);
-                if (!av.is_null() && av.is_value() && av.as_value<uint8_t>()) hi = -hi;
-            }
-            bool inclusive = true;
-            if (sub.has_key(la::INCLUSIVE)) {
-                AnyVal av = sub.get(la::INCLUSIVE.code);
-                if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
-            }
-            if (!inclusive) hi = hi - 1;
-            if (current_pat_refutable_guards_) {
-                TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                    ? ftype : prim(LogosType::Kind::I64);
-                // T2-26: under match ergonomics the synth payload may bind
-                // by-reference (`&rt`); compare the POINTEE, not the pointer.
-                // The guard uses builder().bin_op directly (no auto-deref), so
-                // deref explicitly when the binding's real type is a reference.
-                auto synth_val = [&]() -> lir::LExprPtr {
-                    // The synth is defined by the caller AFTER this returns, so
-                    // lookup() is null here — derive its by-ref-ness from the
-                    // scrutinee mode. Under match ergonomics the payload binds
-                    // `&rt`; deref to compare the pointee.
-                    if (pat_scrut_by_ref || synth_forced_ref) {
-                        TypeRef rty = make_ref(false, rt);
-                        return builder().deref(builder().var_ref(synth, rty), rt);
-                    }
-                    return builder().var_ref(synth, rt);
-                };
-                auto lo_lit = builder().lit_int(lo, rt);
-                auto hi_lit = builder().lit_int(hi, rt);
-                auto ge = builder().bin_op(">=", synth_val(),
-                                           std::move(lo_lit), bool_t());
-                auto le = builder().bin_op("<=", synth_val(),
-                                           std::move(hi_lit), bool_t());
-                auto guard = builder().bin_op("&&", std::move(ge), std::move(le), bool_t());
-                current_pat_refutable_guards_->push_back(std::move(guard));
-            }
-            return synth;
-        }
-        // G162-1: `Num(n @ _)` — an @-binding with a wildcard sub binds the
-        // payload to the name with no guard (only meaningful with an explicit
-        // name; a bare synth `_` would be a plain wildcard).
-        if (sc == la::PAT_WILD && !explicit_name.empty() &&
-            (!sub.has_key(la::NAME) || str_of(sub.get(la::NAME.code)) == "_"))
-            return synth;
-        lir::LExprPtr value = nullptr;
-        if (sc == la::PAT_INT && sub.has_key(la::VALUE)) {
-            auto sv = str_of(sub.get(la::VALUE.code));
-            int64_t v = parse_int_literal(sv);
-            value = builder().lit_int(v,
-                (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                    ? ftype
-                    : prim(LogosType::Kind::I64));
-        } else if (sc == la::PAT_NEG_INT && sub.has_key(la::VALUE)) {
-            auto sv = str_of(sub.get(la::VALUE.code));
-            int64_t v = -parse_int_literal(sv);
-            value = builder().lit_int(v,
-                (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                    ? ftype
-                    : prim(LogosType::Kind::I64));
-        } else if (sc == la::PAT_BOOL && sub.has_key(la::VALUE)) {
-            bool b = sub.get(la::VALUE.code).as_value<int32_t>() != 0;
-            value = builder().lit_bool(b, bool_t());
-        } else if (sc == la::PAT_CHAR && sub.has_key(la::VALUE)) {
-            int64_t v = decode_char_lit_(str_of(sub.get(la::VALUE.code)));
-            value = builder().lit_int(v, prim(LogosType::Kind::Char));
-        } else {
-            return std::string();  // not a supported refutable
-        }
-        if (current_pat_refutable_guards_) {
-            TypeRef rt = (ftype && TypeRef(ftype).kind() != LogosType::Kind::Error)
-                ? ftype
-                : (value ? expr_type(value) : error_t());
-            auto vref = synth_forced_ref
-                ? builder().deref(builder().var_ref(synth, make_ref(false, rt)), rt)
-                : builder().var_ref(synth, rt);
-            auto guard = builder().bin_op("==", std::move(vref),
-                                          std::move(value), bool_t());
-            current_pat_refutable_guards_->push_back(std::move(guard));
-        }
-        return synth;
-    };
     // THE STRUCT-SHAPED PAYLOAD DOOR FILLS THE SAME THREE PARALLEL FLAG VECTORS
     // THE TUPLE DOOR DOES. Until 2026-09-16d it filled NONE of them: the loop
     // that fills binding_is_ref / binding_is_mut / binding_from_wild below is
@@ -4402,49 +4098,6 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         bp_is_ref[idx] = node_flag(sub, la::IS_REF);
                         bp_is_mut[idx] = node_flag(sub, la::IS_MUT);
                         bp_from_wild[idx] = bn != "_";
-                    } else if ((sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) &&
-                               current_pat_nested_subs_ && ast_pat_irrefutable(sub)) {
-                        // Same as the tuple-shape door: the payload binds to a
-                        // synth, the sub-pattern destructures it in the body.
-                        std::string synth = std::format("__pat_pld_{}_{}", pvname, tmp_var_count_++);
-                        by_pos[idx] = synth;
-                        bp_is_ref[idx] = variant_data_dbm_.ref;
-                        bp_is_mut[idx] = variant_data_dbm_.ref && variant_data_dbm_.mut_;
-                        bp_from_wild[idx] = false;
-                        current_pat_nested_subs_->push_back({synth, sub});
-                    } else if (sc == la::PAT_INT || sc == la::PAT_NEG_INT ||
-                               sc == la::PAT_BOOL || sc == la::PAT_CHAR ||
-                               sc == la::PAT_RANGE ||
-                               sc == la::PAT_VARIANT ||
-                               sc == la::PAT_VARIANT_DATA ||
-                               sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) {
-                        // P4-pm-01 / K4: refutable inner on a struct-shape
-                        // variant field — literal, range, unit variant, OR a
-                        // binding-carrying nested variant (`Move { x: Some(v),
-                        // .. }`). synth_refutable_inner synthesises the binding +
-                        // arm guard and (for binding variants) registers the
-                        // body let-else via the nested-subs channel that the arm
-                        // body consumes — same as the tuple-shape path.
-                        std::string synth = synth_refutable_inner(
-                            sub, pat_field_type(idx), fname);
-                        if (synth.empty()) {
-                            error(std::format(
-                                "pattern {}::{} field '{}': refutable inner "
-                                "pattern not yet supported in struct-shape "
-                                "variant patterns (use bind + body match)",
-                                pename, pvname, fname));
-                            by_pos[idx] = "_";
-                        } else {
-                            by_pos[idx] = std::move(synth);
-                            // Exactly the tuple door's treatment of a synth slot:
-                            // the nested-variant synth binds BY REFERENCE when
-                            // synth_refutable_inner says so, and is NOT a written
-                            // binder — so from_wild stays false and the
-                            // default-binding-mode wrap never touches it.
-                            bp_is_ref[idx] = synth_wants_ref;
-                            bp_is_mut[idx] = synth_wants_ref && pat_scrut_by_mut;
-                            bp_from_wild[idx] = false;
-                        }
                     } else {
                         error(std::format(
                             "pattern {}::{} field '{}': refutable inner "
@@ -4550,117 +4203,6 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         binding_is_mut.push_back(is_mut);
                         binding_from_wild.push_back(bname != "_");
                         continue;
-                    }
-                    // P4-pm-02: nested struct/tuple pattern inside
-                    // variant payload. Synth a payload slot binding;
-                    // the arm-body builder (which sees
-                    // current_pat_nested_subs_) emits an irrefutable
-                    // destructure `let <sub_pat> = __synth;` as a
-                    // body prologue. Refutable sub-patterns (nested
-                    // variant, range, …) still aren't supported here
-                    // — they need a nested-guard scheme.
-                    bool sub_is_irrefutable =
-                        (bc == la::PAT_STRUCT || bc == la::PAT_TUPLE) && ast_pat_irrefutable(bnode);
-                    if (sub_is_irrefutable && current_pat_nested_subs_) {
-                        std::string synth = std::format(
-                            "__pat_pld_{}_{}", pvname, tmp_var_count_++);
-                        bindings.push_back(synth);
-                        // Under a by-reference default binding mode the payload is
-                        // BORROWED, not moved: the synth binds `&P` and the body
-                        // destructure binds references into it (the payload stays
-                        // the scrutinee's; binding it by value dropped it twice).
-                        binding_is_ref.push_back(variant_data_dbm_.ref);
-                        binding_is_mut.push_back(variant_data_dbm_.ref && variant_data_dbm_.mut_);
-                        binding_from_wild.push_back(false);
-                        current_pat_nested_subs_->push_back({synth, bnode});
-                        continue;
-                    }
-                    // G162-1: `Num(n @ <sub>)` — an @-binding inside the
-                    // payload. Bind the payload to the @-name AND gate the arm
-                    // with the sub-pattern's refutable guard (range / literal /
-                    // variant), built against that name. PAT_WILD sub (`n @ _`)
-                    // binds with no guard.
-                    if (bc == la::PAT_AT && bnode.has_key(la::NAME) &&
-                        bnode.has_key(la::VALUE)) {
-                        auto atname = std::string(str_of(bnode.get(la::NAME.code)));
-                        auto subnode = map_of(bnode.get(la::VALUE.code));
-                        synth_forced_ref = bnode.has_key(la::IS_REF) &&
-                            bnode.get(la::IS_REF.code).is_value() &&
-                            bnode.get(la::IS_REF.code).as_value<uint8_t>() != 0;
-                        std::string r = synth_refutable_inner(
-                            subnode, pat_field_type(j),
-                            std::format("{}", j), atname);
-                        synth_forced_ref = false;
-                        if (!r.empty()) {
-                            auto atflag = [&](const la::Key& k) {
-                                return bnode.has_key(k) && bnode.get(k.code).is_value() &&
-                                       bnode.get(k.code).as_value<uint8_t>() != 0;
-                            };
-                            // Rust 2024 pat.binding.modifier-requires-move-mode at the
-                            // nested `@`-BINDING door. The `mut` spelling is already
-                            // refused downstream (`binding_is_mut` below feeds the
-                            // `bind_ref_modes` ask), but a written `ref` is not: the
-                            // push below forces `binding_is_ref` to false, so nothing
-                            // downstream can see the keyword at all. Asked here, where
-                            // the AST node still carries it.
-                            if (pat_scrut_by_ref && atflag(la::IS_REF))
-                                modifier_under_ref_scrutinee(atname, scrut_type, /*known_ref=*/true);
-                            bindings.push_back(atname);
-                            // `ref n @ sub` / `ref mut n @ sub` bind the payload BY
-                            // REFERENCE, as a `ref n` payload binder does.
-                            binding_is_ref.push_back(atflag(la::IS_REF));
-                            binding_is_mut.push_back(atflag(la::IS_MUT));
-                            binding_from_wild.push_back(true);  // named binding
-                            continue;
-                        }
-                        // `V(y @ W { .. })` / `V(t @ (a, _))`: an IRREFUTABLE
-                        // structural sub needs no guard. The `@` name takes the
-                        // payload exactly as the synth of a bare structural sub
-                        // (above), and the sub's own binders destructure from it.
-                        int32_t sc = code_of(subnode);
-                        if (sc == la::PAT_OR && subnode.has_key(la::ITEMS) &&
-                            arr_of(subnode.get(la::ITEMS.code)).size() == 1) {
-                            subnode = map_of(arr_of(subnode.get(la::ITEMS.code)).get(0));
-                            sc = code_of(subnode);
-                        }
-                        if ((sc == la::PAT_STRUCT || sc == la::PAT_TUPLE) && current_pat_nested_subs_ &&
-                            ast_pat_irrefutable(subnode)) {
-                            // A WRITTEN binder: under a `&` scrutinee the default
-                            // binding mode (below) makes it `&W`, as a bare name.
-                            bindings.push_back(atname);
-                            binding_is_ref.push_back(false);
-                            binding_is_mut.push_back(pat_byval_mut(bnode));
-                            binding_from_wild.push_back(true);
-                            current_pat_nested_subs_->push_back({atname, subnode});
-                            continue;
-                        }
-                    }
-                    // P4-pm-01 refutable inner (tuple-shape parallel) —
-                    // `Option::Some(1)` / `Result::Err(false)` / `Num(1..=5)`.
-                    // Synth a binding + emit `__refut_… == <value>` (or a range
-                    // `>= && <=`) as an arm guard.
-                    if (bc == la::PAT_INT || bc == la::PAT_NEG_INT ||
-                        bc == la::PAT_BOOL || bc == la::PAT_CHAR ||
-                        bc == la::PAT_RANGE ||
-                        bc == la::PAT_VARIANT || bc == la::PAT_VARIANT_DATA ||
-                        bc == la::PAT_OR || bc == la::PAT_STRUCT || bc == la::PAT_TUPLE) {
-                        std::string synth = synth_refutable_inner(
-                            bnode, pat_field_type(j),
-                            std::format("{}", j));
-                        if (!synth.empty()) {
-                            // By-ref ergonomics + a nested-variant synth
-                            // (`match &enum { Some(Some(v)) }`): the synth must
-                            // bind the payload slot BY REFERENCE so its `&Inner`
-                            // type (set in synth_refutable_inner) matches what
-                            // extract_payload stores (the slot address, not the
-                            // loaded value) and the guard's two-level deref is
-                            // correct. synth_refutable_inner sets the flag.
-                            bindings.push_back(std::move(synth));
-                            binding_is_ref.push_back(synth_wants_ref);
-                            binding_is_mut.push_back(synth_wants_ref && pat_scrut_by_mut);
-                            binding_from_wild.push_back(false);
-                            continue;
-                        }
                     }
                     error(std::format(
                         "pattern {}::{}: nested patterns inside enum-variant "
@@ -4838,15 +4380,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             bool is_mut = k < binding_is_mut.size() && binding_is_mut[k];
             // Rust 2024 pat.binding.modifier-requires-move-mode, the `ref` /
             // `ref mut` two thirds, at the VARIANT-PAYLOAD door.
-            // ⚠ TWO NAMES FOR ONE PREDICATE. `explicit_ref` alone REFUSES LEGAL
-            // CODE: `binding_is_ref` is also set by the compiler's OWN
-            // nested-variant synthesis (`synth_wants_ref`), so
-            // `match &e { Outer::W(Option::Some(a)) }` — no modifier written
-            // anywhere — would be blamed under the synthesized name
-            // `__refut_W_0_0`. The separating fact is `binding_from_wild[k]`:
-            // only a real WRITTEN binder sets it, the synth pushes false, and
-            // the `mut` third already asks it. Measured: no cost column in the
-            // harness separates the two forms — only a hand program does.
+            // Only a WRITTEN binder (`binding_from_wild[k]`) is blamed, as the
+            // `mut` third asks.
             if (default_ref &&
                 k < binding_from_wild.size() && binding_from_wild[k])
                 modifier_under_ref_scrutinee(bindings[k], scrut_type, /*known_ref=*/true);
@@ -5024,14 +4559,9 @@ lir::Pattern SemaChecker::build_pattern_or(TinyMapView pnode, TypeRef scrut_type
         por.alts.push_back(build_pattern(map_of(arr.get(i)), scrut_type));
     // NG4: validate that all alternatives bind the exact same set of names.
     namespace ps = lir_schema::pat;
-    // P4-pm-25: skip synth bindings introduced by P4-pm-01's refutable
-    // inner mechanism (`__refut_*`) and P4-pm-02's nested-pat synth
-    // (`__pat_pld_*`). They're per-alt unique by construction and would
-    // spuriously fail the same-name-set check.
-    auto is_synth = [](std::string_view n) {
-        return n.starts_with("__refut_") || n.starts_with("__pat_pld_") ||
-               n.starts_with("__sve_");
-    };
+    // Compiler-made binders (`__sve_*`) are per-alternative by construction
+    // and are not in the same-name-set check.
+    auto is_synth = [](std::string_view n) { return n.starts_with("__sve_"); };
     std::function<void(lir_view::PatRef, std::vector<std::string>&)> collect_names;
     collect_names = [&](lir_view::PatRef pr, std::vector<std::string>& out) {
         if (!pr) return;
@@ -9597,6 +9127,16 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // leaves it binds by value are moved, its `_` parts stay the owner's
     // (a whole-scrutinee mark leaked them: `let (d, _) = t`, a parameter
     // `(d, _): (D, D)`; and marked nothing under a nested array).
+    // A top-level or-pattern moves what its matched alternative moves: each
+    // alternative's marks (per-tag paths, or the same place).
+    if (pat && pat.kind() == ps::Code::Or) {
+        std::vector<lir_view::PatRef> alts;
+        lir_view::PatOrView{pat}.each_alt([&](lir_view::PatRef a) { alts.push_back(a); });
+        if (alts.size() > 1) {
+            for (auto a : alts) mark_match_scrutinee_moved(scrut, scrut_type, a, /*variant_exact=*/false);
+            return;
+        }
+    }
     const bool top_structural = pat &&
         (pat.kind() == ps::Code::Tuple || pat.kind() == ps::Code::Struct ||
          pat.kind() == ps::Code::At);
@@ -9715,6 +9255,11 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                         ++si; });
                     return;
                 }
+                case ps::Code::Or:
+                    // Each alternative's leaves: the paths are per tag (or the
+                    // same place), so only the matched alternative's are live.
+                    lir_view::PatOrView{sp}.each_alt([&](lir_view::PatRef a) { emit_moved_leaves(a, path, pty); });
+                    return;
                 default:
                     // RefBind / RefPat bind THROUGH a reference and move nothing; Variant /
                     // Int / Bool / Range bind nothing. A VariantData payload under an array
@@ -9834,87 +9379,6 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
         mark_moved_expr(expr_ref_of(scrut));
 }
 
-void SemaChecker::emit_nested_variant_lets(
-        const std::string& synth_name, TypeRef synth_t,
-        writ::TinyMapView sub_pat, std::vector<lir_view::StmtRef>& out) {
-    namespace ps = lir_schema::pat;
-    // Build `let <sub_pat> = synth else { loop {} }`. Capture any DEEPER
-    // refutable-inner guards / nested subs locally — the guards are dead
-    // (owning arm already gated), the subs are re-extracted recursively below.
-    std::vector<lir::LExprPtr> le_guards;
-    std::vector<NestedPatSub> deeper;
-    auto* sg = current_pat_refutable_guards_;
-    auto* ssub = current_pat_nested_subs_;
-    current_pat_refutable_guards_ = &le_guards;
-    current_pat_nested_subs_ = &deeper;
-    lir::Pattern lpat = build_pattern(sub_pat, synth_t);
-    current_pat_refutable_guards_ = sg;
-    current_pat_nested_subs_ = ssub;
-    // Define this pattern's bindings in the current (arm body) scope.
-    auto* pool = cur_prog_->type_pool.impl();
-    std::function<void(lir_view::PatRef)> define_binds = [&](lir_view::PatRef pr) {
-        if (!pr) return;
-        auto k = pr.kind();
-        if (k == ps::Code::VariantData) {
-            lir_view::PatVariantDataView v{pr};
-            std::vector<std::string_view> names; std::vector<TypeRef> types;
-            v.each_binding([&](std::string_view n){ names.push_back(n); });
-            v.each_binding_type(pool, [&](TypeRef t){ types.push_back(t); });
-            auto _vd_slots = v.bind_slots();  // Phase-1: reuse reserved slots
-            auto _vd_muts  = v.bind_byval_muts();  // the carried by-value `mut`
-            for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                if (names[i] != "_") define(std::string(names[i]), types[i],
-                                            i < _vd_muts.size() && _vd_muts[i] != 0u,
-                                            i < _vd_slots.size() ? _vd_slots[i] : 0xFFFFFFFFu);
-        } else if (k == ps::Code::Tuple) {
-            lir_view::PatTupleView v{pr};
-            std::vector<std::string_view> names; std::vector<TypeRef> types;
-            v.each_binding([&](std::string_view n){ names.push_back(n); });
-            v.each_binding_type(pool, [&](TypeRef t){ types.push_back(t); });
-            auto _tp_slots = v.bind_slots();  // Phase-1: reuse reserved slots
-            for (size_t i = 0; i < names.size() && i < types.size(); ++i)
-                if (names[i] != "_") define(std::string(names[i]), types[i], pat_mut_name(names[i]),
-                                            i < _tp_slots.size() ? _tp_slots[i] : 0xFFFFFFFFu);
-        } else if (k == ps::Code::Wild) {
-            lir_view::PatWildView wv{pr};
-            auto n = wv.name();
-            if (n != "_") define(std::string(n), synth_t, wv.is_mut(), wv.bind_slot());  // Phase-1
-        }
-    };
-    // A tuple / struct sub-pattern (routed here when refutable) introduces
-    // names at any depth: the general binder walks them in element order.
-    if (auto pk = pat_ref_of(lpat).kind(); pk == ps::Code::Tuple || pk == ps::Code::Struct)
-        bind_pattern_ref(pat_ref_of(lpat), synth_t);
-    else
-        define_binds(pat_ref_of(lpat));
-    // Emit the let-else. Its bindings OWN what they take by value: the synth
-    // is marked moved so the arm's end does not drop it a second time.
-    lir::SLetElse sle;
-    sle.scrut = builder().var_ref(synth_name, synth_t);
-    mark_match_scrutinee_moved(sle.scrut, synth_t, pat_ref_of(lpat));
-    sle.pat   = std::move(lpat);
-    std::vector<lir_view::StmtRef> eblk;
-    lir::SLoop lp; lp.body = lir_mirror_block(*cur_prog_, {});
-    eblk.push_back(make_stmt_emit(node_line_, std::move(lp)));
-    sle.else_block = lir_mirror_block(*cur_prog_, eblk);
-    // No guards: the owning arm's guard already proved the FULL nested match,
-    // so this let-else is a pure extraction (its own variant-tag check + the
-    // dead else suffice). Re-checking via `le_guards` would also spuriously
-    // re-bind inner names. Deeper bindings are extracted by the recursion below.
-    (void)le_guards;
-    out.push_back(make_stmt_emit(node_line_, std::move(sle)));
-    // Deeper nesting (`Some(Some(Some(w)))`): the inner let-else reads a
-    // binding bound by THIS one, so it must come after.
-    for (auto& d : deeper) {
-        const int32_t dc = code_of(d.sub_pat_node);
-        if (dc != la::PAT_VARIANT_DATA &&
-            !((dc == la::PAT_TUPLE || dc == la::PAT_STRUCT) && !ast_pat_irrefutable(d.sub_pat_node)))
-            continue;
-        TypeRef dt = lookup(d.synth_name);
-        if (!dt) continue;
-        emit_nested_variant_lets(d.synth_name, dt, d.sub_pat_node, out);
-    }
-}
 
 // ADR 0030 S3 (C-PAT): the one exhaustiveness verdict of a `match` (statement
 // or expression): the usefulness matrix over the unguarded arms. A decided
@@ -10398,201 +9862,6 @@ bool SemaChecker::ast_patterns_exhaustive(
     return res;
 }
 
-// Emit the body-prologue `let` destructures for nested sub-patterns inside an
-// enum-variant payload (`Some((a, b))`, `Some(Inner { f })`, `Some(Some(_))`),
-// collected by build_pattern into `nested_subs`. Shared by match arms and the
-// if-let / while-let lowerings so all three handle nested payload patterns
-// identically. `for_guard` suppresses the refutable nested-variant let-else
-// (which assumes the arm already matched) when building a guard prologue.
-void SemaChecker::emit_nested_pat_destructure(
-        const std::vector<NestedPatSub>& nested_subs,
-        std::vector<lir_view::StmtRef>& nested_destructure_stmts, bool for_guard) {
-    for (auto& nsub : nested_subs) {
-        logos::probe::census("s3.nested_destructure");
-        TypeRef synth_t = lookup(nsub.synth_name);
-        if (!synth_t) continue;
-        const int32_t nsc = code_of(nsub.sub_pat_node);
-        if (nsc == la::PAT_VARIANT_DATA ||
-            ((nsc == la::PAT_TUPLE || nsc == la::PAT_STRUCT) &&
-             !ast_pat_irrefutable(nsub.sub_pat_node))) {
-            // A nested-variant payload destructure uses a refutable
-            // `let … else { loop {} }` that ASSUMES the arm already
-            // matched (its own synth guard ran). It must NOT be hoisted
-            // into the guard (for_guard) — running it before the synth
-            // guard confirms the variant would hit `loop {}` on a
-            // non-matching scrutinee (infinite loop).
-            if (!for_guard)
-                emit_nested_variant_lets(nsub.synth_name, synth_t,
-                                         nsub.sub_pat_node, nested_destructure_stmts);
-            continue;
-        }
-        // B170: nested TUPLE sub-pattern in a variant payload
-        // (`Some((a, b))`, `Some((a, _))`, `Ok((a, (b, c)))`). The
-        // synth holds the payload tuple; emit `let <name> = __synth.<i>`
-        // element reads (recursing into nested tuples). Previously only
-        // PAT_STRUCT / PAT_VARIANT_DATA nested subs were destructured,
-        // so a tuple-payload binding was left undefined.
-        if (code_of(nsub.sub_pat_node) == la::PAT_TUPLE) {
-            std::function<void(lir::LExprPtr, TypeRef, writ::TinyMapView)>
-            emit_tuple_lets =
-                [&](lir::LExprPtr src, TypeRef tty, writ::TinyMapView tnode) {
-                // BY-REFERENCE source (`&(A, B)`): every leaf binds `&(*src).i`.
-                if (tty && (TypeRef(tty).kind() == LogosType::Kind::Ref ||
-                            TypeRef(tty).kind() == LogosType::Kind::MutRef) &&
-                    TypeRef(tty).pointee() && TypeRef(tty).pointee().kind() == LogosType::Kind::Tuple) {
-                    const bool rm = TypeRef(tty).kind() == LogosType::Kind::MutRef;
-                    TypeRef tup = TypeRef(tty).pointee();
-                    if (!tnode.has_key(la::ITEMS)) return;
-                    std::string stmp = std::format("__pat_tup_{}", tmp_var_count_++);
-                    define(stmp, tty);
-                    {
-                        lir::SLet sl0; sl0.name = stmp; sl0.type = tty; sl0.is_mut = false; sl0.value = std::move(src);
-                        nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl0)));
-                    }
-                    auto items = arr_of(tnode.get(la::ITEMS.code));
-                    auto elems = TypeRef(tup).tuple_elems();
-                    for (uint64_t i = 0; i < items.size() && i < elems.size(); ++i) {
-                        auto en = map_of(items.get(i));
-                        if (code_of(en) == la::PAT_OR && en.has_key(la::ITEMS)) {
-                            auto alts = arr_of(en.get(la::ITEMS.code));
-                            if (alts.size() == 1) en = map_of(alts.get(0));
-                        }
-                        TypeRef rt = make_ref(rm, elems[i]);
-                        auto addr = builder().addr_of_temp(
-                            builder().tuple_index(builder().deref(builder().var_ref(stmp, tty), tup),
-                                                  (uint32_t)i, elems[i]),
-                            rm, rt, lir_schema::expr::BorrowOrigin::Explicit);
-                        if (code_of(en) == la::PAT_TUPLE) { emit_tuple_lets(std::move(addr), rt, en); continue; }
-                        if (code_of(en) != la::PAT_WILD || !en.has_key(la::NAME)) continue;
-                        std::string nm(str_of(en.get(la::NAME.code)));
-                        if (nm == "_") continue;
-                        define(nm, rt, false);
-                        lir::SLet el; el.name = nm; el.type = rt; el.is_mut = false; el.value = std::move(addr);
-                        nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(el)));
-                    }
-                    return;
-                }
-                if (!tty || TypeRef(tty).kind() != LogosType::Kind::Tuple) return;
-                if (!tnode.has_key(la::ITEMS)) return;
-                auto items = arr_of(tnode.get(la::ITEMS.code));
-                auto elems = TypeRef(tty).tuple_elems();
-                // Spill the source to a temp so each element read
-                // references it once. The spill MOVES `src` — mark its place
-                // moved so the owner's scope-exit Drop is suppressed (else
-                // double-free): top level is var_ref(synth payload) → the whole
-                // tuple; a nested level is tuple_index(parent, i) → one element.
-                if (is_move_type(tty)) mark_moved_expr(expr_ref_of(src));
-                std::string stmp = std::format("__pat_tup_{}", tmp_var_count_++);
-                define(stmp, tty);
-                {
-                    lir::SLet s; s.name = stmp; s.type = tty;
-                    s.is_mut = false; s.value = std::move(src);
-                    nested_destructure_stmts.push_back(
-                        make_stmt_emit(node_line_, std::move(s)));
-                }
-                for (uint64_t i = 0; i < items.size() && i < elems.size(); ++i) {
-                    auto en = map_of(items.get(i));
-                    auto et = elems[i];
-                    auto elem_expr = builder().tuple_index(
-                        builder().var_ref(stmp, tty), (uint32_t)i, et);
-                    // Tuple elements are wrapped in a (usually single-alt)
-                    // PAT_OR by the grammar (`pat_single (PIPE pat_single)*`).
-                    // Unwrap a single alternative to reach the bare binding.
-                    if (code_of(en) == la::PAT_OR && en.has_key(la::ITEMS)) {
-                        auto alts = arr_of(en.get(la::ITEMS.code));
-                        if (alts.size() == 1) en = map_of(alts.get(0));
-                    }
-                    int32_t ec = code_of(en);
-                    if (ec == la::PAT_TUPLE) {
-                        emit_tuple_lets(std::move(elem_expr), et, en);
-                    } else if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
-                        std::string nm(str_of(en.get(la::NAME.code)));
-                        if (nm == "_") continue;
-                        const bool emut_ = pat_byval_mut(en);
-                        define(nm, et, emut_);
-                        // Binding moves the element OUT of stmp — mark stmp.<i>
-                        // moved so stmp's scope-exit Drop skips it (else double).
-                        if (is_move_type(et)) mark_moved_expr(expr_ref_of(elem_expr));
-                        lir::SLet el; el.name = nm; el.type = et;
-                        el.is_mut = emut_; el.value = std::move(elem_expr);
-                        nested_destructure_stmts.push_back(
-                            make_stmt_emit(node_line_, std::move(el)));
-                    }
-                    // Other element kinds (struct/refutable) inside a
-                    // payload tuple are handled by build_pattern's own
-                    // synth/guard channels, not here.
-                }
-            };
-            emit_tuple_lets(builder().var_ref(nsub.synth_name, synth_t),
-                            synth_t, nsub.sub_pat_node);
-            continue;
-        }
-        if (code_of(nsub.sub_pat_node) != la::PAT_STRUCT) continue;
-        // Field-by-field destructure: for each {name, optional sub-binding}
-        // emit `let <bind_name> = __synth.<field>;`. Sub-pat
-        // refutability already filtered by build_pattern.
-        if (!nsub.sub_pat_node.has_key(la::ITEMS)) continue;
-        auto fitems_av = nsub.sub_pat_node.get(la::ITEMS.code);
-        if (!fitems_av.is_pointer()) continue;
-        auto fitems_m = map_of(fitems_av);
-        if (!fitems_m.has_key(la::ITEMS)) continue;
-        auto fields = arr_of(fitems_m.get(la::ITEMS.code));
-        // A BY-REFERENCE synth (`&W`, default binding mode): bind `&(*synth).f`.
-        const bool s_ref = (TypeRef(synth_t).kind() == LogosType::Kind::Ref ||
-                            TypeRef(synth_t).kind() == LogosType::Kind::MutRef) &&
-                           TypeRef(synth_t).pointee();
-        const bool s_rm = s_ref && TypeRef(synth_t).kind() == LogosType::Kind::MutRef;
-        const TypeRef s_obj = s_ref ? TypeRef(synth_t).pointee() : synth_t;
-        // Look up struct info from synth's struct name.
-        std::string sname_s(TypeRef(s_obj).struct_name());
-        auto [_skpkg, sinfo] = find_struct_by_name(sname_s);
-        if (!sinfo) continue;
-        for (uint64_t k = 0; k < fields.size(); ++k) {
-            auto fnode = map_of(fields.get(k));
-            if (!fnode.has_key(la::NAME)) continue;
-            std::string fname(str_of(fnode.get(la::NAME.code)));
-            // Determine bind name: either NAME (shorthand) or
-            // sub-pat's NAME (if PAT_WILD with explicit rename).
-            std::string bind = fname;
-            if (fnode.has_key(la::VALUE)) {
-                auto sub = map_of(fnode.get(la::VALUE.code));
-                if (code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME))
-                    bind = std::string(str_of(sub.get(la::NAME.code)));
-            }
-            // Look up field type.
-            TypeRef ftype = error_t();
-            for (auto& sf : sinfo->fields)
-                if (sf.name == fname) { ftype = sf.type; break; }
-            const bool bmut_ =
-                (pat_byval_mut(fnode) ||
-                 (fnode.has_key(la::VALUE) && pat_byval_mut(map_of(fnode.get(la::VALUE.code)))));
-            if (s_ref) {
-                if (bind == "_") continue;
-                TypeRef rt = make_ref(s_rm, ftype);
-                define(bind, rt, false);
-                auto addr = builder().addr_of_temp(
-                    builder().field_read(builder().deref(builder().var_ref(nsub.synth_name, synth_t), s_obj),
-                                         fname, ftype),
-                    s_rm, rt, lir_schema::expr::BorrowOrigin::Explicit);
-                lir::SLet sl;
-                sl.name = bind; sl.type = rt; sl.is_mut = false; sl.value = std::move(addr);
-                nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                continue;
-            }
-            define(bind, ftype, bmut_);
-            auto sref = builder().var_ref(nsub.synth_name, synth_t);
-            auto fr = builder().field_read(std::move(sref), fname, ftype);
-            // The binding moves the field OUT of the synth — mark synth.<f>
-            // moved so the synth's scope-exit Drop skips it (the tuple branch
-            // above does the same for its elements; without it: double drop).
-            if (is_move_type(ftype)) mark_moved_expr(expr_ref_of(fr));
-            lir::SLet sl;
-            sl.name = bind; sl.type = ftype; sl.is_mut = bmut_;
-            sl.value = std::move(fr);
-            nested_destructure_stmts.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        }
-    }
-}
 
 bool SemaChecker::emit_for_pattern_destructure(
         writ::TinyMapView pat, const std::string& src_var, TypeRef src_type,
@@ -11044,9 +10313,6 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             // pat.writ.match-only: a Writ scalar pattern is legal in a WRITTEN
             // `match` arm only (the let forms carry PAT on the node).
             in_match_writ_ctx_ = has_writ_pat && !node.has_key(la::PAT);
-            std::vector<NestedPatSub> nested_subs;
-            auto* saved_pat_subs = current_pat_nested_subs_;
-            current_pat_nested_subs_ = &nested_subs;
             logos::compiler::StrSet mut_names;
             auto* saved_pat_muts = current_pat_mut_names_;
             current_pat_mut_names_ = &mut_names;
@@ -11056,7 +10322,6 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             lir::Pattern pat = arm.has_key(la::LHS)
                 ? build_pattern(map_of(arm.get(la::LHS.code)), scrut_type)
                 : make_pat_wild("_");
-            current_pat_nested_subs_ = saved_pat_subs;
             current_pat_refutable_guards_ = saved_pat_refut;
             in_match_writ_ctx_ = false;
 
@@ -11142,12 +10407,6 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             current_pat_mut_names_ = saved_pat_muts;
             // Writ @-pattern bindings are in scope for the body and the guard.
             for (const auto& b : body_binds) define(b.name, anyval_t, /*is_mut=*/false);
-            // P4-pm-02: field-by-field lets destructuring the synthesized
-            // payload slots. A GUARDED arm gets a SECOND, independent copy for
-            // the guard (B170-D/E): the block-expr's shadow-restore reverts a
-            // binding already in scope from a sibling fanned or-arm.
-            std::vector<lir_view::StmtRef> nested_destructure_stmts;
-            emit_nested_pat_destructure(nested_subs, nested_destructure_stmts, /*for_guard=*/false);
             const bool arm_has_user_guard = arm.has_key(la::GUARD);
 
             std::optional<lir::LExprPtr> guard;
@@ -11185,17 +10444,6 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                 if (!rg) continue;
                 guard = guard ? builder().bin_op("&&", std::move(*guard), std::move(rg), bool_t())
                               : std::move(rg);
-            }
-            // B170-D/E: a guarded arm with nested-payload destructure lets must
-            // compute those bindings BEFORE the guard runs — the guard block
-            // precedes the body. The SAFE (unconditional) destructure only.
-            if (guard && arm_has_user_guard) {
-                std::vector<lir_view::StmtRef> guard_destructure;
-                emit_nested_pat_destructure(nested_subs, guard_destructure, /*for_guard=*/true);
-                if (!guard_destructure.empty()) {
-                    TypeRef gt = expr_type(*guard);
-                    guard = builder().block_expr(lir_mirror_block(*cur_prog_, guard_destructure), std::move(*guard), gt);
-                }
             }
 
             // This arm OWNS what its pattern binds by value — on THIS arm's
@@ -11273,12 +10521,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                 error("match expression: arm has no body");
                 val = error_expr();
             }
-            // The nested-pattern destructure, then the Writ @-pattern
-            // prologue, wrap the arm value.
-            if (!nested_destructure_stmts.empty()) {
-                TypeRef vt = val ? expr_type(val) : error_t();
-                val = builder().block_expr(lir_mirror_block(*cur_prog_, nested_destructure_stmts), std::move(val), vt);
-            }
+            // The Writ @-pattern prologue wraps the arm value.
             if (!body_prologue.empty() || !body_binds.empty()) {
                 std::vector<lir_view::StmtRef> prologue = std::move(body_prologue);
                 for (const auto& b : body_binds) {

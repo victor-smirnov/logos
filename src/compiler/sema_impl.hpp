@@ -9924,38 +9924,12 @@ private:
     // explicitly handled by the caller (desugared to guard). Outside this
     // context, PAT_WRIT_* in build_pattern is a diagnostic.
     bool in_match_writ_ctx_ = false;
-    // P4-pm-02: side channel for build_pattern to register nested
-    // sub-pats that need irrefutable destructure in the arm-body prologue
-    // (e.g. `Some(A { foo: _x })` → synth `__pat_pld_*` binding for the
-    // payload slot, then `let A { foo: _x } = __pat_pld_*;` at body
-    // start). Caller wires this before build_pattern and consumes the
-    // entries when building the arm body.
-    struct NestedPatSub {
-        std::string                synth_name;
-        writ::TinyMapView        sub_pat_node;
-    };
-    std::vector<NestedPatSub>* current_pat_nested_subs_ = nullptr;
     // The default binding mode of the scrutinee a PAT_VARIANT_DATA door is built
     // for (build_pattern_impl peels one layer before handing it the type, so the
     // door cannot see it): the tuple-struct door `TS(a, b)` under `match &t`
     // binds `&T` like every other container door.
     struct DbmCtx { bool ref = false; bool mut_ = false; };
     DbmCtx variant_data_dbm_;
-    // K4: emit `let <variant-sub-pat> = synth else { loop {} }` body-prologue
-    // stmts (into `out`) that re-extract the bindings of a nested variant
-    // payload pattern (e.g. `Some(Some(v))`), defining them in the current
-    // scope. Recurses for deeper nesting. The owning arm's guard already
-    // ensured the match, so the else block is dead.
-    void emit_nested_variant_lets(const std::string& synth_name, TypeRef synth_t,
-                                  writ::TinyMapView sub_pat,
-                                  std::vector<lir_view::StmtRef>& out);
-    // Emit body-prologue `let` destructures for the nested sub-patterns
-    // collected in `nested_subs` (tuple/struct/variant payloads). Shared by
-    // match arms and if-let/while-let so all three handle nested payload
-    // patterns identically. `for_guard` skips the refutable nested-variant
-    // let-else (used when building a guard prologue, not the arm body).
-    void emit_nested_pat_destructure(const std::vector<NestedPatSub>& nested_subs,
-                                     std::vector<lir_view::StmtRef>& out, bool for_guard);
     // G-CONF-1: bind a `for PATTERN in iter` loop variable. `src_var` holds one
     // element (type `src_type`); defines the pattern's bindings in the current
     // scope and appends the destructure `let`s to `out`. Returns false (with a

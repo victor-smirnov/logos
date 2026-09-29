@@ -216,7 +216,10 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             {
                 auto sit = struct_types_.find(mlir_struct_key(lt));
                 if (sit != struct_types_.end() && sit->second.llvm_type) {
-                    auto fresh = create_entry_alloca(sit->second.llvm_type);
+                    // An or-pattern's alternatives copy into ONE storage per name.
+                    mlir::Value fresh;
+                    if (shared) { auto it = shared->find(bindings[bi]); if (it != shared->end()) fresh = it->second; }
+                    if (!fresh) fresh = create_entry_alloca(sit->second.llvm_type);
                     builder_.create<mlir::LLVM::MemcpyOp>(
                         loc_, fresh, fp, size_const(lt), /*isVolatile=*/false);
                     bind_ptr = fresh;
@@ -244,7 +247,9 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             {   // Copy types too, as the inline-struct case above.
                 auto tty = tuple_llvm_type(lt);
                 if (tty) {
-                    auto fresh = create_entry_alloca(tty);
+                    mlir::Value fresh;
+                    if (shared) { auto it = shared->find(bindings[bi]); if (it != shared->end()) fresh = it->second; }
+                    if (!fresh) fresh = create_entry_alloca(tty);
                     builder_.create<mlir::LLVM::MemcpyOp>(
                         loc_, fresh, fp, size_const(lt), /*isVolatile=*/false);
                     bind_ptr = fresh;
@@ -262,8 +267,15 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
         // var. A C-like enum (no TaggedEnumInfo) is an i32 — scalar-load below.
         if (lt && TypeRef(lt).kind() == LogosType::Kind::Enum &&
             resolve_tagged_enum(std::string(TypeRef(lt).enum_name()), lt)) {
+            // An or-pattern's alternatives copy the value into ONE storage.
+            mlir::Value at = fp;
+            if (shared)
+                if (auto it = shared->find(bindings[bi]); it != shared->end()) {
+                    builder_.create<mlir::LLVM::MemcpyOp>(loc_, it->second, fp, size_const(lt), /*isVolatile=*/false);
+                    at = it->second;
+                }
             evict_shapes(bindings[bi]);
-            scope_[bindings[bi]] = fp;
+            scope_[bindings[bi]] = at;
             let_vars_.insert(bindings[bi]);
             var_tagged_enum_.insert(bindings[bi]);
             added.push_back(bindings[bi]);
@@ -5549,6 +5561,8 @@ mlir::Value MLIRGenImpl::shared_binding_alloca(TypeRef bty) {
         if (sit != struct_types_.end()) em = sit->second.llvm_type;
     } else if (bty && TypeRef(bty).kind() == LogosType::Kind::Tuple) {
         em = tuple_llvm_type(bty);
+    } else if (bty && TypeRef(bty).kind() == LogosType::Kind::Enum) {
+        if (auto* te = resolve_tagged_enum(std::string(TypeRef(bty).enum_name()), bty)) em = te->llvm_type;
     }
     if (!em) em = bty ? logos_to_mlir(bty) : ptr_type();
     if (!em) em = ptr_type();
@@ -5571,6 +5585,11 @@ void MLIRGenImpl::register_shared_binding(const std::string& nm, mlir::Value slo
     if (is_struct(t) || (t && t.kind() == LogosType::Kind::Tuple)) {
         scope_[nm] = slot;
         if (is_struct(t)) var_struct_[nm] = mlir_struct_key(t); else var_tuple_.insert(nm);
+        return;
+    }
+    if (t && t.kind() == LogosType::Kind::Enum && resolve_tagged_enum(std::string(t.enum_name()), t)) {
+        scope_[nm] = slot;
+        var_tagged_enum_.insert(nm);
         return;
     }
     if (is_ref && ref_repr_of(t) == RefReprKind::ThinPtr && (is_struct(pt) || (pt && pt.kind() == LogosType::Kind::Tuple))) {

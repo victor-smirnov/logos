@@ -566,8 +566,25 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   (`str_len`) — a `()` cast to an integer, accepted and looping forever
   (fs_meta timed out); `() as <scalar>` is E0605 now (fixture
   cast_unit_block_to_int) and `str_len` reads `unsafe { s[n] }`.
-Next: S3.3b second half — retire the synthesized route, the guard channel and
-the K4 prologue, if the census shows them unreached.
+- S3.3b, second half (2026-09-29): the synthesized payload route
+  (`synth_refutable_inner`: a payload bound to a `__refut_*` synth, a guard
+  `match synth { <inner> => true, _ => false }` and the body re-extraction) and
+  the K4 prologue (`emit_nested_pat_destructure` / `emit_nested_variant_lets`,
+  the `__pat_pld_*` synths and the NestedPatSub channel) are deleted: census
+  `s3.synth.*` / `s3.nested_destructure` over the pass AND fail corpora = 0
+  after the first half (an uncarried sub-pattern is reachable only over an
+  Error / TypeVar field type, which binds nothing structural). −798 lines.
+  The guard channel (`current_pat_refutable_guards_`) stays for its last
+  producers, the `str` and byte-array const patterns. Holes the first half
+  left, found by the whole-corpus census run: an or's by-value struct / tuple
+  / tagged-enum payload binder copied into a storage of its own alternative
+  (the shared one stayed garbage: SIGSEGV in its drop), and sema marked no
+  moved leaf under an or (`Some(F::A(x) | F::B(x))` dropped the payload twice)
+  — each alternative's leaves are marked now (per-tag paths). Fixture
+  or_binders_move_drop (rustc twin).
+Next: const patterns as tester patterns (a `str` const is a PAT_STR test, a
+byte-array const an array of literals) — the guard channel goes; then the
+feature-interaction matrix re-run that closes S3.
 
 ## L0 status (2026-09-27)
 
