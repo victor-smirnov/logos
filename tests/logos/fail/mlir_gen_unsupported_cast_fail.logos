@@ -38,6 +38,9 @@
 // time). When sema learns to refuse it, THIS expectation changes to sema's
 // diagnostic and the gate needs a different unsupported cast — which is the
 // correct outcome, not a regression.
+// ⇒ 2026-09-29 (ADR 0030 S4.5): sema's cast table is a whitelist and refuses it (E0606).
+//   No `as` form reaches the backend's unsupported-cast arm any more; that arm keeps its
+//   self-diagnosis for a cast sema admits and codegen cannot lower.
 package test;
 
 fn main() -> i32 {

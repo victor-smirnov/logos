@@ -1,0 +1,10 @@
+// `as` admits every coercion: a non-capturing closure cast to its fn pointer is the closure-to-fn-pointer
+// coercion (ADR 0030 S4.5). It was a value cast of the closure's box, and the call through it segfaulted.
+// rustc 1.98.1 gives the same stdout.
+package cast_closure_to_fn_ptr;
+use logos.std.fmt;
+fn main() {
+    let f = (|x: i64| x + 1) as fn(i64) -> i64;
+    let g = (|a: i64, b: i64| a * b) as fn(i64, i64) -> i64;
+    println!("{} {}", f(1), g(6, 7));
+}

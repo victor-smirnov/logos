@@ -1,1 +1,1 @@
-mlir_gen: internal: unsupported cast: no lowering from
+casting `&[u8]` as `f64` is invalid (E0606)

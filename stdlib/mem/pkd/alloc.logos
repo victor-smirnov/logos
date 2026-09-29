@@ -264,8 +264,8 @@ impl PkdAlloc {
     pub fn data_mut(self: &mut PkdAlloc, idx: u32) -> &mut [u8] {
         assert(idx < self.elements(), "PkdAlloc::data_mut: bad slot index");
         return unsafe {
-            slice_from_raw::<u8>(self.get::<u8>(idx) as *const u8,
-                                 self.element_size(idx)) as &mut [u8]
+            slice_from_raw_mut::<u8>(self.get::<u8>(idx) as *mut u8,
+                                     self.element_size(idx))
         };
     }
 
@@ -284,9 +284,8 @@ impl PkdAlloc {
         -> &mut [S] {
         assert(idx < self.elements(), "PkdAlloc::cells_mut: bad slot index");
         return unsafe {
-            slice_from_raw::<S>(self.get::<S>(idx) as *const S,
-                                (self.element_size(idx) as i64) / sizeof::<S>())
-                as &mut [S]
+            slice_from_raw_mut::<S>(self.get::<S>(idx) as *mut S,
+                                    (self.element_size(idx) as i64) / sizeof::<S>())
         };
     }
 

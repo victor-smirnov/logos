@@ -72,14 +72,16 @@ if [ ! -s "$CTRL_OBJ" ]; then
 fi
 
 # ── THE SUBJECT ─────────────────────────────────────────────────────────────
-SUBJ="$FAILDIR/mlir_gen_unsupported_cast_fail.logos"
-if [ ! -f "$SUBJ" ]; then
-    echo "GATE BROKEN: $SUBJ does not exist."
-    exit 1
-fi
+# The control program again, with mlir-gen's cast arm forced to self-diagnose
+# (probe mlircastfault). Until 2026-09-29 the subject was
+# fail/mlir_gen_unsupported_cast_fail.logos (`str as f64`); sema's cast table is
+# a whitelist since ADR 0030 S4.5 and refuses that cast, so no program reaches
+# the unsupported arm by itself. Same program as the control, one variable: the
+# fault.
+SUBJ="$CTRL"
 OBJ="$TMPD/subject.o"
 set +e
-"$LOGOSC" "$SUBJ" -o "$OBJ" >"$TMPD/s.out" 2>"$TMPD/s.err"
+LOGOS_PROBE=mlircastfault "$LOGOSC" "$SUBJ" -o "$OBJ" >"$TMPD/s.out" 2>"$TMPD/s.err"
 subj_rc=$?
 set -e
 
@@ -306,6 +308,10 @@ fi
 # because a silent fall-through to the alloca would be an ADMITTED DANGLE —
 # borrow_check has already stopped refusing that borrow. One new `bug_null` in
 # mlir_gen_expr.cpp, 15 -> 16.
+# 2026-09-29, ADDING direction: the probe `mlircastfault` at the head of the
+# ECast lowering is a `bug_null` — PART 1's specimen, now that sema's cast table
+# (ADR 0030 S4.5) lets no program reach the unsupported arm. mlir_gen_expr.cpp
+# 16 -> 17.
 # 2026-08-23, moved DELIBERATELY and in the ADDING direction again: #120 gave
 # the FINAL-round trap demotion a report where it previously had a `mono: note`
 # and exit 0. mlir_gen_impl.hpp 10 -> 11.
@@ -317,7 +323,7 @@ fi
 # one disappearing.
 REPORT_PIN=$(cat <<'REPORTS'
 mlir_gen.cpp 5
-mlir_gen_expr.cpp 16
+mlir_gen_expr.cpp 17
 mlir_gen_impl.hpp 11
 mlir_gen_stmt.cpp 15
 mlir_gen_types.cpp 4

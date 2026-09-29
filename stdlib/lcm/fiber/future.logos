@@ -65,7 +65,7 @@ pub fn future_complete<T: Send>(slot: *mut FutureSlot<T>, val: T) {
             // exist without one, so a null here means a caller bug, not a path.
             let hook: i64 = unsafe { logos_xwake_get() };
             if hook != 0 as i64 {
-                let xwake: fn(i64, i64) -> () = hook as fn(i64, i64) -> ();
+                let xwake: fn(i64, i64) -> () = unsafe { hook as fn(i64, i64) -> () };
                 xwake(wt, waiter);
             }
         }

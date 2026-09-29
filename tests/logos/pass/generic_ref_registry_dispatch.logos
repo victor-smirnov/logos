@@ -83,13 +83,13 @@ fn main() -> i32 {
     let mut slot: u64 = 0u64;
     let fp_a_u64: u64 = registry_lookup(&reg, h_a);
     if fp_a_u64 == 0u64 { return 5; }
-    let fp_a: fn(*mut u64) -> () = fp_a_u64 as fn(*mut u64) -> ();
+    let fp_a: fn(*mut u64) -> () = unsafe { fp_a_u64 as fn(*mut u64) -> () };
     fp_a(&mut slot as *mut u64);
     if slot != h_a { return 6; }
 
     let fp_b_u64: u64 = registry_lookup(&reg, h_b);
     if fp_b_u64 == 0u64 { return 7; }
-    let fp_b: fn(*mut u64) -> () = fp_b_u64 as fn(*mut u64) -> ();
+    let fp_b: fn(*mut u64) -> () = unsafe { fp_b_u64 as fn(*mut u64) -> () };
     fp_b(&mut slot as *mut u64);
     if slot != h_b { return 8; }
 

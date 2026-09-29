@@ -82,7 +82,7 @@ pub fn slice_get_range_mut<T>(s: &mut [T], lo: i64, hi: i64) -> &mut [T] {
     unsafe {
         let base: *const T = s.as_ptr() as *const T;
         let start_p: *const T = (base as i64 + l0 * (sizeof::<T>() as i64)) as *const T;
-        return slice_from_raw::<T>(start_p, cnt) as &mut [T];
+        return slice_from_raw_mut::<T>(start_p as *mut T, cnt);
     }
 }
 
@@ -132,6 +132,14 @@ pub unsafe fn slice_from_raw<T>(ptr: *const T, len: i64) -> &[T] {
     // slips past the intercept, FAIL LOUDLY instead of returning an empty
     // slice (the old placeholder was a silent miscompile).
     panic("slice_from_raw: intrinsic call was not intercepted (compiler bug)");
+}
+
+/// Constructs an `&mut [T]` fat pointer from a raw pointer and element count.
+/// Compiler intrinsic (sema intercepts the call), the `&mut` twin of `slice_from_raw`.
+/// `ptr` must be valid for reads and writes of `len` elements, unaliased, for as long
+/// as the result is used.
+pub unsafe fn slice_from_raw_mut<T>(ptr: *mut T, len: i64) -> &mut [T] {
+    panic("slice_from_raw_mut: intrinsic call was not intercepted (compiler bug)");
 }
 
 // ── Chunks<T> — non-overlapping consecutive chunks of size `n` ───────────
@@ -437,8 +445,8 @@ impl<T> SliceMethods<T> for [T] {
         if mid < 0i64 || mid > n { panic("slice::split_at_mut: mid > len"); }
         unsafe {
             let p: *const T = self.as_ptr() as *const T;
-            return (slice_from_raw::<T>(p, mid) as &mut [T],
-                    slice_from_raw::<T>(p.add(mid), n - mid) as &mut [T]);
+            return (slice_from_raw_mut::<T>(p as *mut T, mid),
+                    slice_from_raw_mut::<T>(p.add(mid) as *mut T, n - mid));
         }
     }
     fn windows(&self, size: i64) -> Windows<T> {

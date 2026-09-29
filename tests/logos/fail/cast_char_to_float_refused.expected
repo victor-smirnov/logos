@@ -1,0 +1,1 @@
+casting `char` as `f64` is invalid (E0606)

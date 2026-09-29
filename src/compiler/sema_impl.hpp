@@ -2050,6 +2050,9 @@ private:
     // signature → that fn pointer; `&mut T` and `&T` → `&T`; a numeric literal
     // and a number → the number. Empty when there is none.
     TypeRef lub2_(TypeRef a, TypeRef b);
+    // `from as to` is in Rust's cast table (numeric, enum/bool/char to int,
+    // u8 to char, pointer/address, reference to pointer, fn to pointer/int).
+    bool cast_permitted_(TypeRef from, TypeRef to);
     // The one merge of if / match arms into their type. Each live arm is
     // coerced to `hint` (the position's expectation, BranchArm row); the type
     // is the arms' own when they agree, else `hint` when every arm reaches it,

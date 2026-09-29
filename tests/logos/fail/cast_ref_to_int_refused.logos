@@ -1,0 +1,4 @@
+// `&T as i64` is not in Rust's cast table (rustc E0606: casting `&i64` as `i64` is invalid); an `as` over a
+// reference read through to the pointee ("T2-26"). ADR 0030 S4.5: the cast table is a whitelist.
+package cast_ref_to_int_refused;
+fn main() { let x = 5i64; let r = &x; let _ = r as i64; }

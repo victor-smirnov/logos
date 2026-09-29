@@ -1230,6 +1230,54 @@ bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
     return true;
 }
 
+// Rust's cast table (the Reference, "Type cast expressions"), as a whitelist.
+// A type still open (a parameter, a projection, a hole, an error) is decided
+// after instantiation.
+bool SemaChecker::cast_permitted_(TypeRef from, TypeRef to) {
+    using K = LogosType::Kind;
+    if (types_equal(from, to)) return true;
+    auto open = [](TypeRef t) {
+        auto k = TypeRef(t).kind();
+        return k == K::TypeVar || k == K::AssocType || k == K::Error || k == K::InferredType ||
+               k == K::ConstVar || k == K::CfgSlotType;
+    };
+    if (open(from) || open(to) || !type_is_concrete(from) || !type_is_concrete(to)) return true;
+    const auto fk = TypeRef(from).kind(), tk = TypeRef(to).kind();
+    auto is_int = [](K k) { return (is_integer_kind(k) && k != K::Enum) || k == K::IntLit; };
+    auto is_num = [&](K k) { return is_int(k) || k == K::F32 || k == K::F64 || k == K::FloatLit; };
+    auto is_ref = [](K k) { return k == K::Ref || k == K::MutRef; };
+    if (is_num(fk) && is_num(tk)) return true;                              // numeric cast
+    if ((fk == K::Bool || fk == K::Char || fk == K::Enum) && is_int(tk)) return true;  // prim-int / enum
+    // Logos (ruling: `avg` over `bool`): `bool as f32/f64` is true -> 1.0, false -> 0.0.
+    if (fk == K::Bool && (tk == K::F32 || tk == K::F64)) return true;
+    if (tk == K::Char && (fk == K::U8 || fk == K::IntLit)) return true;     // u8-char
+    if (fk == K::Ptr && (tk == K::Ptr || is_int(tk))) return true;          // ptr-ptr, ptr-addr
+    if (is_int(fk) && tk == K::Ptr) return true;                            // addr-ptr
+    if (is_ref(fk) && tk == K::Ptr) return true;                            // &T -> *T (array-ptr)
+    // A borrowed trait object / slice is a fat reference: to its raw pointer.
+    if ((fk == K::TraitObject || fk == K::Slice) && tk == K::Ptr) return true;
+    // `&mut dyn Tr as *mut dyn Tr`: both are trait-object kinds in Logos.
+    if (fk == K::TraitObject && tk == K::TraitObject &&
+        TypeRef(from).trait_name() == TypeRef(to).trait_name()) return true;
+    if ((fk == K::FnItem || fk == K::FnPtr) && (tk == K::Ptr || is_int(tk))) return true;  // fptr
+    if (fk == K::FnItem && tk == K::FnPtr) return true;                     // fn item -> its pointer
+    // A raw fat pointer: from the same-kind fat reference (`&[T] as *const [T]`)
+    // or a thin raw pointer unsized (`*mut S as *mut dyn Tr`).
+    if (TypeRef(to).raw_fat() && (fk == tk || fk == K::Ptr)) return true;
+    // `Box<[T; N]> as Box<[T]>`: the owning slice unsize.
+    if (is_stdlib_box(from) && tk == K::Slice && TypeRef(to).slice_owning_kind() != TypeRef::OwningKind::Borrow)
+        return true;
+    // Logos: an address to a fn pointer inside `unsafe` stands for Rust's
+    // `transmute` (there is none).
+    if ((is_int(fk) || fk == K::Ptr) && tk == K::FnPtr && inside_unsafe_) return true;
+    // Logos: one struct type spelled from two packages (AnyVal), and the
+    // self-describing / DST reference forms.
+    if ((fk == K::Struct || fk == K::ZonedStruct) && (tk == K::Struct || tk == K::ZonedStruct) &&
+        TypeRef(from).struct_name() == TypeRef(to).struct_name()) return true;
+    if (fk == K::DstRef || tk == K::DstRef) return true;
+    return false;
+}
+
 lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     int32_t c = code_of(expr); (void)c;
     // `[] as [T; 0]` / `[a, b] as [T; 2]`: an array literal takes its element
@@ -1422,43 +1470,18 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         }
     }
 
-    // T2-26 (full RFC 2005): a `&T`/`&mut T` operand of an `as`-cast to a
-    // scalar (numeric/char/bool) auto-derefs to its pointee, mirroring the
-    // arithmetic auto-deref in lower_binop. Under match ergonomics a Copy
-    // payload now binds by-reference, so `n as i64` where `n: &f64` must
-    // cast the pointee, not the pointer's bits. Pointer→pointer casts and
-    // `&T as *T`/`as usize` reinterpretations are unaffected (target is a
-    // Ptr/Usize there, but a genuine reference *value* compared/converted as
-    // a scalar number is the cast we peel here).
-    if (inner && expr_type(inner) && target) {
-        TypeRef it(expr_type(inner)), tt(target);
-        bool src_ref = it.kind() == LogosType::Kind::Ref ||
-                       it.kind() == LogosType::Kind::MutRef;
-        bool tgt_num = tt.kind() == LogosType::Kind::I8  || tt.kind() == LogosType::Kind::U8  ||
-                       tt.kind() == LogosType::Kind::I16 || tt.kind() == LogosType::Kind::U16 ||
-                       tt.kind() == LogosType::Kind::I32 || tt.kind() == LogosType::Kind::U32 ||
-                       tt.kind() == LogosType::Kind::I64 || tt.kind() == LogosType::Kind::U64 ||
-                       tt.kind() == LogosType::Kind::I128|| tt.kind() == LogosType::Kind::U128||
-                       tt.kind() == LogosType::Kind::Usize || tt.kind() == LogosType::Kind::Isize ||
-                       tt.kind() == LogosType::Kind::F32 || tt.kind() == LogosType::Kind::F64 ||
-                       tt.kind() == LogosType::Kind::Char || tt.kind() == LogosType::Kind::Bool;
-        if (src_ref && tgt_num && it.pointee()) {
-            auto pk = TypeRef(it.pointee()).kind();
-            bool pointee_scalar =
-                pk == LogosType::Kind::I8  || pk == LogosType::Kind::U8  ||
-                pk == LogosType::Kind::I16 || pk == LogosType::Kind::U16 ||
-                pk == LogosType::Kind::I32 || pk == LogosType::Kind::U32 ||
-                pk == LogosType::Kind::I64 || pk == LogosType::Kind::U64 ||
-                pk == LogosType::Kind::I128|| pk == LogosType::Kind::U128||
-                pk == LogosType::Kind::Usize || pk == LogosType::Kind::Isize ||
-                pk == LogosType::Kind::F32 || pk == LogosType::Kind::F64 ||
-                pk == LogosType::Kind::Char || pk == LogosType::Kind::Bool;
-            if (pointee_scalar)
-                inner = builder().deref(std::move(inner), it.pointee());
-        }
+    // `as` admits every coercion (Rust's coercion-cast): a closure to its fn
+    // pointer, `&C` to `&dyn Tr`, `&[T; N]` to `&[T]`, deref, reborrow. What the
+    // coercion produces is the value; no value cast is left. A reference is NOT
+    // read through to a number (`&x as i64` is E0606, as in rustc).
+    if (inner && target && expr_type(inner) && !types_equal(expr_type(inner), target)) {
+        coerce_arg_to_param(inner, target, CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE | CFLAG_DYN_UPCAST |
+                                           CFLAG_ARG_TO_DYN | CFLAG_DEREF_COERCE | CFLAG_IMPLICIT_REBORROW);
+        if (expr_type(inner) && types_equal(expr_type(inner), target)) return inner;
     }
 
     // ── Ordinary numeric/pointer cast. ────────────────────────────────────
+    const size_t cast_diags_before = result_.diags.size();
     if (expr_type(inner) && target &&
         TypeRef(expr_type(inner)).kind() != LogosType::Kind::Error &&
         TypeRef(target).kind() != LogosType::Kind::Error) {
@@ -1582,6 +1605,12 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
                     type_str(expr_type(inner)), type_str(target)));
         }
     }
+    // Rust's cast table, as a whitelist: whatever no rule above named and the
+    // table does not list is refused (E0606), not handed to codegen.
+    if (result_.diags.size() == cast_diags_before && inner && expr_type(inner) && target &&
+        !cast_permitted_(expr_type(inner), target))
+        error(std::format("casting `{}` as `{}` is invalid (E0606)", type_str(expr_type(inner)),
+                          type_str(target)));
     // Unsize coercion `box_val as Box<dyn Trait>` CONSUMES the source Box —
     // ownership of the heap data transfers to the owning trait object. Mark the
     // operand moved so its own Box<T>::drop doesn't also free the data (else the
@@ -7459,7 +7488,10 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // mirror of `str_from_raw`. Both build a Slice fat-pointer; layout
     // is uniform across element types so we share the str_from_raw
     // codegen at mlir-gen.
-    if (callee == "slice_from_raw") {
+    // `slice_from_raw_mut` is the `*mut T` -> `&mut [T]` twin (no `&[T] as
+    // &mut [T]` cast: rustc refuses it, E0606).
+    if (callee == "slice_from_raw" || callee == "slice_from_raw_mut") {
+        const bool raw_mut = callee == "slice_from_raw_mut";
         auto ts = collect_type_args(node);
         std::vector<lir::LExprPtr> args;
         if (node.has_key(la::ARGS)) {
@@ -7490,7 +7522,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                   "(pass the turbofish)");
             return error_expr();
         }
-        auto slice_t = make_slice_type(ts[0]);
+        auto slice_t = make_slice_type(ts[0], raw_mut);
         lir::ECall ec;
         ec.callee = "str_from_raw";  // shared codegen — uniform fat-ptr layout
         for (auto& a : args) ec.args.push_back(std::move(a));
@@ -17314,8 +17346,9 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     if (types_compatible(normalize_assoc_eq(expr_type(e)), expected)) return true;
     }
     // An unsize the coercion did not perform because the erased type does not
-    // implement the trait: rustc's E0277, not a type mismatch.
-    if (unsize_left) {
+    // implement the trait: rustc's E0277, not a type mismatch. (`&Rc<dyn Tr>` /
+    // `&Box<dyn Tr>` at `&dyn Tr` have their own sentence below, naming `&*b`.)
+    if (unsize_left && !shared_owner_dyn) {
         TypeRef g(expr_type(e));
         TypeRef payload = is_stdlib_box(g) ? (g.type_args().size() == 1 ? g.type_args()[0] : TypeRef{})
                                            : g.pointee();

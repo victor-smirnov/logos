@@ -704,6 +704,27 @@ of 70 members.
   asserted that `[add1, sub1]` is E0308; rustc 1.98.1 accepts it (the LUB),
   and they now assert the assignment form (`let mut f = add1; f = sub1;`),
   which is E0308. Fixture lub_array_elems. S4.4a–c: −800 lines.
+- S4.5 (2026-09-29): the cast table is a whitelist (`cast_permitted_`:
+  numeric; bool / char / fieldless enum → integer; `u8` → char; pointer ↔
+  pointer and address; reference, borrowed slice and trait object → raw
+  pointer; fn → pointer / integer). A cast no rule names is E0606. `as`
+  admits every coercion first (a coercion-cast: the closure → fn pointer,
+  unsize, deref and reborrow steps), so `(|x| x + 1) as fn(i64) -> i64` is
+  the closure coercion — it was a value cast of the closure box and the call
+  through it segfaulted. `&x as i64` no longer reads through the reference
+  ("T2-26"; rustc E0606), and `char as f64`, `*const T as &T` are refused.
+  Raw fat pointers (`&[T] as *const [T]`, `*mut S as *mut dyn Tr`), fn item
+  → fn pointer and `Box<[T; N]> as Box<[T]>` are in the table. The stdlib cast `&[T]` to `&mut [T]` five times: it builds
+  the slice with the new `slice_from_raw_mut` intrinsic; four test programs
+  held a Rust-invalid cast (`n as i64` over `n: &f64`, `&[T] as &mut [T]`,
+  an address to a fn pointer outside `unsafe`) and say it the Rust way now.
+  Logos keeps three extensions, named in the table: `bool as f32/f64` (true
+  → 1.0; the `avg`-over-`bool` ruling), an address to a fn pointer inside
+  `unsafe` stands for `transmute` (there is none; two runtime sites), and a
+  borrowed slice casts to a thin raw pointer (`s as *const u8`, the data
+  pointer): refusing it is the stdlib's move to `.as_ptr()` at up to 887
+  sites, which belongs with the `str ≡ [u8]` boundary (#706). Fixtures
+  cast_closure_to_fn_ptr, cast_{ref_to_int,char_to_float,ptr_to_ref}_refused.
 
 S4 row (audit §4.1 C-COE), item by item:
 
@@ -717,7 +738,7 @@ S4 row (audit §4.1 C-COE), item by item:
 | `lub_arms`: one LUB for if / match | done, S4.4b; `break` has none (rustc) |
 | array literal elements under an element expectation (hand-rolled fn-ptr / slice / `&dyn` / `Box<dyn>` casts) | done, S4.4c |
 | `coercion_plan(from, to, mask)` → ordered adjustment list, explicit LIR per step | open |
-| cast whitelist (`as`) | open |
+| cast whitelist (`as`) | done, S4.5; slice → thin pointer kept: `str ≡ [u8]` boundary (#706) |
 | remaining lenient `types_compatible` arms | open |
 | mlir per-site `coerce_to_dyn` / `coerce_numeric` | open (after `coercion_plan`) |
 | closure escape at the unsize point | deferred: ADR 0029 S3/S4 |

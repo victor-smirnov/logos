@@ -7,6 +7,7 @@
 
 #include <logos/compiler/sha256.hpp>
 #include <logos/compiler/const_promote.hpp>   // #92 const promotion (shared predicate)
+#include <logos/compiler/probe.hpp>
 #include <logos/writ/compat.hpp>
 #include <logos/writ/compat.hpp>
 #include <logos/writ/compat.hpp>
@@ -4057,6 +4058,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ETupleIndexView v, TypeRef type
 mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     if (!v.operand()) return nullptr;
     TypeRef op_ty = v.operand().type(pool_impl());
+    // The exit-code gate's specimen (mlir_gen_exit_code_gate.sh): sema's cast
+    // table admits only casts this function lowers, so no program reaches the
+    // unsupported arm at the end; the probe sends a supported one there, to
+    // prove the report still reaches the exit code.
+    if (logos::probe::on("mlircastfault"))
+        return bug_null("unsupported cast: probe mlircastfault routed this cast to the unsupported arm");
     // Null-handle construct: `0 as *mut dyn` / `0 as &dyn` — an integer (null)
     // cast to a trait object. Under the uniform fat model a dyn value is a
     // 16-byte {data,vtable} pair; produce a ZEROED pair (data=null) so

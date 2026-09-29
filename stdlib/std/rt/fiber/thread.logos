@@ -177,7 +177,7 @@ fn drain_inbox(t: *mut Thread) -> bool {
             // Sentinel: re-enqueue a suspended fiber that was woken cross-thread.
             sched_enqueue(s, arg);
         } else {
-            let f: fn(i64) -> () = fn_ptr as fn(i64) -> ();
+            let f: fn(i64) -> () = unsafe { fn_ptr as fn(i64) -> () };
             spawn(f, arg);
         }
         got = true;
