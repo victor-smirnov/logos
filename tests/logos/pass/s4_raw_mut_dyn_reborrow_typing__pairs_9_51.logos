@@ -1,0 +1,8 @@
+// ADR 0030 S4 acceptance: feature-interaction audit cluster `raw-mut-dyn-reborrow-typing`, member pairs-9_51
+// (tests/interactions/clusters/raw-mut-dyn-reborrow-typing/pairs-9_51.logos); rustc 1.98.1 twin gives the same stdout and exit code.
+package m60;
+use logos.std.fmt;
+trait C { fn get(&self) -> i64; }
+struct A { n: i64 }
+impl C for A { fn get(&self) -> i64 { self.n } }
+fn main() { let mut a = A { n: 4 }; let p: *mut dyn C = &mut a as *mut dyn C; let r: &dyn C = unsafe { &*p }; println!("{}", r.get()); let q: *mut A = &mut a; let s: &A = unsafe { &*q }; println!("{}", s.n); }

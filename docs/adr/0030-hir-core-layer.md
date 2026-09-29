@@ -637,9 +637,27 @@ of 70 members.
   stdlib `char::from_u32`, `TryFrom<u32>`, the UTF-8 decoders and `String::pop`
   / `remove` build their checked scalar with `char::from_u32_unchecked`.
   S4 clusters 44 → 48 of 70.
-Next: S4.3 — closure escape decided at the unsize point; then the remaining
-S4 clusters (no-vtable-box-box-dyn, raw-mut-dyn-reborrow-typing,
-rangeinclusive-u8-contains, move-closure-capture-shares-slot).
+- S4.3 (2026-09-29): if / match arms that differ from each other but each
+  reach the expected type merge AT it (a `match` compared its arms only with
+  one another: two boxed closure literals under `-> Box<dyn Fn>` were
+  refused); an assignment's right-hand side carries the expectation into its
+  branches (`b = if c { rrx } else { b }`); `&*p` over a raw `*const/*mut dyn
+  Tr` is a borrow `&dyn Tr`, not the raw pointer again.
+  **The closure-escape half is NOT moved to the unsize point, for a named
+  reason (depends on another step): ADR 0029 S3/S4.** Escape is decided before
+  a closure literal is lowered (a `Box` formal, a returned node, a let whose
+  name is returned), and sema's capture lowering already branches on it (the
+  narrow-owned captures, the move-closure copies). The unsize point is reached
+  after that lowering, so moving the decision there needs the env to be the
+  closure type's own value (the lifted body with an env parameter), which is
+  ADR 0029's S3/S4. The remaining S4-tagged audit members belong to other
+  steps: generic-constructor argument expectations (`Box::new(Box::new(s))`
+  under `Box<Box<dyn Tr>>`, `Rc::new(RefCell::new(Box::new(s)))`) and literal
+  inference are S7; method calls through two boxes and a `Display for &T`
+  vtable are S8/S9; move-closure capture paths (`move || p.w` copies the
+  field, `move || *p` captures `p`) are C-CLO (S10); `&mut **rb` over
+  `&mut Box<dyn Tr>` is place typing (S6). S4 clusters 23 → 51 of 70.
+Next: S5 — C-OWN rest; retire the B8 flags.
 
 ## L0 status (2026-09-27)
 

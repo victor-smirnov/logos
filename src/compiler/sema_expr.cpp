@@ -4389,8 +4389,21 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 // fall to the address-of below and be typed `&&dyn` ("no vtable").
                 if (!operand_unsized &&
                     TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
-                    !TypeRef(op_t).owning_trait_object())
+                    !TypeRef(op_t).owning_trait_object()) {
+                    // `&*p` over a raw `*const/*mut dyn Tr`: the same fat pair,
+                    // now a borrow (`&dyn Tr`), not the raw pointer again.
+                    if (TypeRef(op_t).raw_fat()) {
+                        auto a = TypeRef(op_t).type_args();
+                        builder().retype_expr(operand,
+                            make_trait_object(TypeRef(op_t).trait_name(),
+                                              std::vector<TypeRef>(a.begin(), a.end()),
+                                              TraitOwningKind::Borrow,
+                                              TypeRef(op_t).trait_requires_send(),
+                                              TypeRef(op_t).trait_requires_sync(), {},
+                                              TypeRef(op_t).pkg_name()));
+                    }
                     return operand;
+                }
                 if (!operand_unsized &&
                     TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
                     TypeRef(op_t).owning_trait_object()) {

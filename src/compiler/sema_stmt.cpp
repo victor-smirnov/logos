@@ -3021,9 +3021,14 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
     auto saved_assign_hint = hint_enum_type_;
     if (var_type && TypeRef(var_type).kind() == LogosType::Kind::Enum)
         hint_enum_type_ = var_type;
+    // The assignment's right-hand side is a coercion site, and the
+    // expectation reaches its branches (`b = if c { rrx } else { b }`).
+    const TypeRef saved_expected = hint_expected_type_;
+    hint_expected_type_ = var_type;
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
+    hint_expected_type_ = saved_expected;
     hint_enum_type_ = saved_assign_hint;
     // Retype an incompletely-typed generic enum literal in `a = <enum-lit>`
     // to the LHS's concrete enum spec. A literal lowered without the expected
@@ -10515,7 +10520,16 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                         lubbed_to_fnptr = true;
                     }
                 }
-                if (!lubbed_to_fnptr) {
+                // Arms that differ from each other but each reach the expected
+                // type merge at it (the expectation is the coercion target).
+                const bool both_reach_hint = hint_expected_type_ &&
+                    !types_equal(result_type, expr_type(val)) &&
+                    (types_equal(result_type, hint_expected_type_) ||
+                     types_compatible(result_type, hint_expected_type_)) &&
+                    types_compatible(expr_type(val), hint_expected_type_);
+                if (both_reach_hint) {
+                    result_type = hint_expected_type_;
+                } else if (!lubbed_to_fnptr) {
                     if (!types_compatible(expr_type(val), result_type) &&
                         !types_compatible(result_type, expr_type(val)))
                         error(std::format(
