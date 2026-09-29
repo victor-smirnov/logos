@@ -2045,10 +2045,29 @@ private:
     // `at` names the slot ("call to 'f' arg 1").
     bool expect_arg_(lir::LExprPtr& e, TypeRef pt, CoercePos pos, const std::string& at,
                      TypeRef shown, TypeRef var_to);
+    // The least upper bound of two arm types (Rust's CoerceMany without an
+    // expectation): one type; fn items / non-capturing closures of one
+    // signature → that fn pointer; `&mut T` and `&T` → `&T`; a numeric literal
+    // and a number → the number. Empty when there is none.
+    TypeRef lub2_(TypeRef a, TypeRef b);
+    // The one merge of if / match arms into their type. Each live arm is
+    // coerced to `hint` (the position's expectation, BranchArm row); the type
+    // is the arms' own when they agree, else `hint` when every arm reaches it,
+    // else the LUB — closure arms are then cast to the fn pointer. A bare
+    // literal arm must fit an integer result (`<what> K: value V does not fit`).
+    // `refuse(i, acc, t)` reports arm i with no LUB against the arms before it;
+    // `label(i)` names arm i in a fit error. Fn-item and closure arms are cast
+    // to a fn-pointer result.
+    TypeRef lub_arms_(const std::vector<lir::LExprPtr*>& arms, TypeRef hint,
+                      const std::function<std::string(size_t)>& label,
+                      const std::function<void(size_t, TypeRef, TypeRef)>& refuse,
+                      LogosType::Kind parent = LogosType::Kind::Void);
     // "<at>: value V does not fit in T" for each unsuffixed literal of a
     // literal tree (scalar, array and tuple literals) whose slot in `t` is
-    // narrower than its value.
-    void lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::string& at, int tuple_depth = 0);
+    // narrower than its value. `parent` is the kind of the literal holding x:
+    // x's own elements are "sub-element"s under a parent of x's kind.
+    void lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::string& at,
+                        LogosType::Kind parent = LogosType::Kind::Void);
     // A value unsized to an expected `dyn` type by a cast (if/match arms, break
     // values, assignments). See the definition.
     TypeRef index_output_type_(TypeRef st);

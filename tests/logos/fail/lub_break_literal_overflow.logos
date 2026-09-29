@@ -1,0 +1,3 @@
+// An unsuffixed literal break value must fit the loop's integer type (rustc: literal out of range for `u8`).
+package lub_break_literal_overflow;
+fn main() { let c = 1; let x = loop { if c == 0 { break 1u8; } break 300; }; let _ = x; }

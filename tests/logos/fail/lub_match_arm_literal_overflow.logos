@@ -1,0 +1,3 @@
+// An unsuffixed literal arm must fit the match's merged integer type (rustc: literal out of range for `u8`).
+package lub_match_arm_literal_overflow;
+fn main() { let c = 2; let x = match c { 0 => 1u8, 1 => 2, _ => 300 }; let _ = x; }

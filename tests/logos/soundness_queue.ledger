@@ -443,5 +443,7 @@ let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_referenc
 
 len_returns_i64_not_usize 3 tests/soundness/open/len_returns_i64_not_usize refuses
 
-# TOTAL 133
-# SYNC-HASH a3286625b7e24ff93531df7710082208
+str_in_composite_annotation_resolves_to_u8_slice 3 tests/soundness/open/str_in_composite_annotation_resolves_to_u8_slice refuses
+
+# TOTAL 134
+# SYNC-HASH dcf1cfd2de68a2c7152ada3f39d156e0

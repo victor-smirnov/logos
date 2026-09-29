@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row str_in_composite_annotation_resolves_to_u8_slice (tier 3, `refuses`). `&str` written inside
+// a composite annotation — an array element (`[&str; 2]`), a tuple element (`(&str, i64)`) — resolves to `&[u8]`,
+// while a top-level `&str` is `str`. So a `&String` element is refused ("array element 0 expected &[u8], got
+// &String": String derefs to str, not to [u8]) and a `&str` binding placed in the array prints through `[u8]`
+// ("type '[u8]' does not implement trait 'Display'"). rustc 1.98.1 --edition 2024 runs it and prints
+// "ab cd ab 1". Found by the ADR 0030 S4.4c array-literal battery; also on the 09-27 binary (not a regression).
+package str_in_composite_annotation_resolves_to_u8_slice;
+use logos.std.fmt;
+fn main() {
+    let s = String::from("ab");
+    let xs: [&str; 2] = [&s, "cd"];
+    let t: (&str, i64) = (&s, 1);
+    println!("{} {} {} {}", xs[0], xs[1], t.0, t.1);
+}

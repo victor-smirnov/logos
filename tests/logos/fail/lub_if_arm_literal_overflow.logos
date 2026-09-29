@@ -1,0 +1,4 @@
+// An unsuffixed literal arm must fit the if-expression's merged integer type (rustc: literal out of range for
+// `u8`); it was truncated.
+package lub_if_arm_literal_overflow;
+fn main() { let c = 1; let x = if c == 0 { 1u8 } else { 300 }; let _ = x; }

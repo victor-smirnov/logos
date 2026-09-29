@@ -851,15 +851,25 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                     target->value_type = zonk_(target->value_type);
                     builder().retype_expr(bval, zonk_(expr_type(bval)));
                 }
-                if (!target->value_type) {
+                // Each break value coerces to the loop's type, which the first
+                // break fixed (rustc has no LUB here: `break &mut a; … break &b`
+                // and two fn items are E0308); only a literal type is refined.
+                TypeRef vt = target->value_type;
+                const bool lit_vt = vt && (TypeRef(vt).kind() == LogosType::Kind::IntLit ||
+                                           TypeRef(vt).kind() == LogosType::Kind::FloatLit);
+                if (vt && !lit_vt && !target->expected)
+                    coerce_arg_to_param(bval, vt, mask_for(CoercePos::BranchArm));
+                if (!vt) {
                     target->value_type = expr_type(bval);
-                } else if (!types_compatible(expr_type(bval), target->value_type) &&
-                           !types_compatible(target->value_type, expr_type(bval))) {
+                } else if (!types_compatible(expr_type(bval), vt) &&
+                           !(lit_vt && types_compatible(vt, expr_type(bval)))) {
                     error(std::format("loop break values have incompatible types: {} vs {}",
-                          type_str(target->value_type), type_str(expr_type(bval))));
+                          type_str(vt), type_str(expr_type(bval))));
                 } else {
-                    target->value_type = unify_numeric(target->value_type, expr_type(bval));
+                    target->value_type = unify_numeric(vt, expr_type(bval));
                 }
+                if (TypeRef(target->value_type).kind() != LogosType::Kind::IntLit)
+                    lit_fit_check_(expr_ref_of(bval), target->value_type, "break value");
             }
         } else {
             if (target && target->value_type)
@@ -10462,68 +10472,6 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                 TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
                 coerce_arg_to_param(val, hint_expected_type_, mask_for(CoercePos::BranchArm));
             }
-            // A diverging arm (`!`) contributes no type.
-            TypeRef& result_type = mc.result_type;
-            if (TypeRef(result_type).kind() == LogosType::Kind::Error ||
-                TypeRef(result_type).kind() == LogosType::Kind::Never) {
-                result_type = expr_type(val);
-            } else if (TypeRef(expr_type(val)).kind() == LogosType::Kind::Never) {
-                // keep result_type — this arm yields no value.
-            } else if (TypeRef(expr_type(val)).kind() != LogosType::Kind::Error) {
-                // The arms are ONE type: open inference variables unify.
-                if (!infer_solved_.empty() &&
-                    (has_infer_var_(result_type) || has_infer_var_(expr_type(val)))) {
-                    infer_unify_(result_type, expr_type(val));
-                    result_type = zonk_(result_type);
-                    builder().retype_expr(val, zonk_(expr_type(val)));
-                }
-                // logos-core 1.4: distinct FnItems of one signature LUB to
-                // the matching FnPtr, as Rust's LUB does for fn-item arms.
-                bool lubbed_to_fnptr = false;
-                if (TypeRef(result_type).kind() == LogosType::Kind::FnItem &&
-                    TypeRef(expr_type(val)).kind() == LogosType::Kind::FnItem) {
-                    LogosTypeBuilder fpt;
-                    fpt.kind = LogosType::Kind::FnPtr;
-                    for (auto p : TypeRef(expr_type(val)).closure_params())
-                        fpt.closure_params.push_back(p);
-                    fpt.closure_ret = TypeRef(expr_type(val)).closure_ret();
-                    TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
-                    if (types_compatible(result_type, fp) && types_compatible(expr_type(val), fp)) {
-                        result_type = fp;
-                        lubbed_to_fnptr = true;
-                    }
-                }
-                // Arms that differ from each other but each reach the expected
-                // type merge at it (the expectation is the coercion target).
-                const bool both_reach_hint = hint_expected_type_ &&
-                    !types_equal(result_type, expr_type(val)) &&
-                    (types_equal(result_type, hint_expected_type_) ||
-                     types_compatible(result_type, hint_expected_type_)) &&
-                    types_compatible(expr_type(val), hint_expected_type_);
-                if (both_reach_hint) {
-                    result_type = hint_expected_type_;
-                } else if (!lubbed_to_fnptr) {
-                    if (!types_compatible(expr_type(val), result_type) &&
-                        !types_compatible(result_type, expr_type(val)))
-                        error(std::format(
-                            "match expression: arm type '{}' is incompatible with '{}'",
-                            type_str(expr_type(val)), type_str(result_type)));
-                    else
-                        result_type = unify_numeric(result_type, expr_type(val));
-                }
-            }
-            // Upgrade an IntLit result to i64 if an arm literal overflows i32.
-            if (TypeRef(result_type).kind() == LogosType::Kind::IntLit && val) {
-                auto er = expr_ref_of(val);
-                // A divergent arm's BlockExpr has NO result.
-                if (er.kind() == lir_schema::expr::Code::BlockExpr)
-                    er = lir_view::EBlockExprView{er}.result();
-                if (er && er.kind() == lir_schema::expr::Code::LitInt) {
-                    int64_t v = lir_view::ELitIntView{er}.value();
-                    if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
-                        result_type = prim(LogosType::Kind::I64);
-                }
-            }
             // [[baghunt-match-arm-binding-no-drop]]: the arm-scope bindings
             // drop before the arm value escapes — the value is hoisted into
             // a temp, the drops run, the temp is yielded. Not for an Error
@@ -10565,6 +10513,16 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                                      : div == 1 ? BranchExit::Returns : BranchExit::LeavesLoop);
             if (div != 1) arm_slot.push_back(mc.arms.size());
             mc.arms.push_back(std::move(out));
+        }
+        if (!mc.arms.empty()) {
+            std::vector<lir::LExprPtr*> vals;
+            for (auto& a : mc.arms) vals.push_back(&a.value);
+            mc.result_type = lub_arms_(vals, hint_expected_type_,
+                                       [](size_t i) { return std::format("match arm {}", i + 1); },
+                                       [&](size_t, TypeRef acc, TypeRef t) {
+                error(std::format("match expression: arm type '{}' is incompatible with '{}'",
+                                  type_str(t), type_str(acc)));
+            });
         }
         join.merge();
         // #118 — arm the flags; `mc.arms` is stable now, so an arm's value is

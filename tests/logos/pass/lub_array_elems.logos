@@ -1,0 +1,18 @@
+// ADR 0030 S4.4c: array-literal elements merge like if / match arms. Without an element expectation distinct fn
+// items, distinct non-capturing closures, and a fn item beside a closure meet at the fn pointer (each refused as
+// "array literal: element 1 has type ..., expected ..."); under one, every element is coerced to it through the
+// ArrayElem row — deref included (`&b` with `b: Box<i64>` under `[&i64; 2]` was refused). rustc 1.98.1 gives the
+// same stdout.
+package lub_array_elems;
+use logos.std.fmt;
+fn inc(x: i64) -> i64 { x + 1 }
+fn dbl(x: i64) -> i64 { x * 2 }
+fn main() {
+    let a = [inc, dbl];
+    let b = [|x: i64| x + 1, |x: i64| x * 2];
+    let c = [inc, |x: i64| x * 3];
+    println!("{} {} {} {} {} {}", a[0](3), a[1](3), b[0](3), b[1](3), c[0](3), c[1](3));
+    let bx = Box::new(4i64);
+    let rs: [&i64; 2] = [&bx, &5];
+    println!("{}", rs[0] + rs[1]);
+}

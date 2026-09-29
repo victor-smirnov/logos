@@ -1,0 +1,22 @@
+// ADR 0030 S4.4b: if / match arms merge by one LUB. Distinct non-capturing closures, and a fn item beside
+// closures, meet at the fn pointer of their signature — `match` had no closure arm of this rule (refused as
+// "arm type '|i64| -> i64' is incompatible"), and `if` refused a fn item beside a closure. `&mut T` and `&T`
+// arms meet at `&T`. rustc 1.98.1 gives the same stdout.
+package lub_arms_fn_pointer;
+use logos.std.fmt;
+fn inc(x: i64) -> i64 { x + 1 }
+fn pick(c: i64) -> i64 {
+    let f = match c { 0 => |x: i64| x + 1, _ => |x: i64| x * 2 };
+    let g = match c { 0 => inc, 1 => |x: i64| x * 3, _ => |x: i64| x - 1 };
+    let h = if c == 0 { inc } else { |x: i64| x * 10 };
+    f(3) * 10000 + g(3) * 100 + h(3)
+}
+fn main() {
+    println!("{} {} {}", pick(0), pick(1), pick(2));
+    let mut a = 5i64; let b = 7i64;
+    let c = 1;
+    let r = match c { 0 => &mut a, _ => &b };
+    let mut d = 9i64;
+    let s = if c == 0 { &b } else { &mut d };
+    println!("{} {}", r, s);
+}

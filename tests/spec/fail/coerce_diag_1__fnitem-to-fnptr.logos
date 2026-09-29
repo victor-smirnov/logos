@@ -5,6 +5,10 @@ fn add1(x: i32) -> i32 { return x + 1i32; }
 fn sub1(x: i32) -> i32 { return x - 1i32; }
 
 fn main() -> i32 {
-    let _arr = [add1, sub1];
+    // An assignment is no LUB: `f` has `add1`'s fn-item type (rustc E0308). An array literal
+    // `[add1, sub1]` IS a LUB, both coerce to the fn pointer, and compiles (ADR 0030 S4.4c).
+    let mut f = add1;
+    f = sub1;
+    let _ = f;
     return 0i32;
 }

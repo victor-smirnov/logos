@@ -14728,383 +14728,60 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 break;
             }
         }
-    // T0-5: a CONCRETE scalar element hint (a `&[i64]` formal / annotation,
-    // via hint_arr_elem_type_) retypes an all-literal array's elements up
-    // front. Slices alias raw memory, so the buffer must be BUILT at the
-    // annotated width — the old flow let the lits default to i32 and the
-    // permissive slice coercion read garbage at i64 stride.
-    if (hint_arr_elem_type_) {
-        auto hk = TypeRef(hint_arr_elem_type_).kind();
-        bool hint_int = is_integer_kind(hk) &&
-                        hk != LogosType::Kind::IntLit &&
-                        hk != LogosType::Kind::Enum;
-        bool hint_float = hk == LogosType::Kind::F32 ||
-                          hk == LogosType::Kind::F64;
-        if (hint_int || hint_float) {
-            bool adoptable = true;
-            size_t ei = 0;
-            for (auto& e : elems) {
-                auto k = TypeRef(expr_type(e)).kind();
-                ++ei;
-                if (k == LogosType::Kind::Error) continue;
-                if (types_equal(expr_type(e), hint_arr_elem_type_)) continue;
-                if (hint_int && k == LogosType::Kind::IntLit) {
-                    if (auto v = get_intlit_value(e)) {
-                        if (intlit_fits(*v, hk)) continue;
-                        // Out-of-range literal for the annotated width is an
-                        // error, not a silent fall-back to the i32 default
-                        // (which the slice-aliasing check would then reject
-                        // with a misleading type-mismatch).
-                        error(std::format(
-                            "array literal: element {}: value {} does not fit in {}",
-                            ei - 1, *v, type_str(hint_arr_elem_type_)));
-                        continue;
-                    }
+    // The elements meet at one type. Under a concrete element expectation each
+    // is coerced to it, as at any coercion site (the ArrayElem row: fn pointer,
+    // slice decay, `&dyn` / `Box<dyn>` unsize, deref), its regions must be a
+    // subtype of it, and its literals must fit it; else the elements' LUB.
+    // A firm expectation: no hole, variable or literal type anywhere in it.
+    std::function<bool(TypeRef, int)> firm = [&](TypeRef t, int d) -> bool {
+        using K = LogosType::Kind;
+        if (!t || d > 12) return true;
+        switch (TypeRef(t).kind()) {
+        case K::TypeVar: case K::AssocType: case K::Error: case K::InferredType: case K::ConstVar:
+        case K::IntLit: case K::FloatLit: return false;
+        default: break;
+        }
+        if (has_infer_var_(t)) return false;
+        if (TypeRef(t).pointee() && !firm(TypeRef(t).pointee(), d + 1)) return false;
+        if (TypeRef(t).elem() && !firm(TypeRef(t).elem(), d + 1)) return false;
+        for (auto a : TypeRef(t).type_args()) if (!firm(a, d + 1)) return false;
+        for (auto e : TypeRef(t).tuple_elems()) if (!firm(e, d + 1)) return false;
+        return true;
+    };
+    const bool pack = elems.size() == 1 && expr_ref_of(elems[0]).kind() == lir_schema::expr::Code::PackExpand;
+    const bool hinted = arr_hint && !pack && firm(arr_hint, 0);
+    if (hinted) {
+        for (size_t i = 0; i < elems.size(); ++i) {
+            auto& e = elems[i];
+            if (!e || !expr_type(e) || TypeRef(expr_type(e)).kind() == LogosType::Kind::Error) continue;
+            // An unsuffixed literal element takes the element type (it must fit it).
+            lit_fit_check_(expr_ref_of(e), arr_hint, std::format("array literal: element {}", i),
+                           LogosType::Kind::Array);
+            stamp_literal_tree_(expr_ref_of(e), arr_hint);
+            if (expect_type(e, arr_hint, CoercePos::ArrayElem, std::format("array element {}", i)))
+                check_variance(expr_type(e), arr_hint, std::format("array element {}", i), /*permissive=*/false);
+        }
+    }
+    // The literal's type is its (coerced) elements' — the expectation's
+    // regions are the callee's names, not this value's (`pick([&V])` with
+    // `V: 'static` against `[&'a i64; 1]`).
+    if (!pack) {
+        std::vector<lir::LExprPtr*> ptrs;
+        for (auto& e : elems) ptrs.push_back(&e);
+        elem_type = lub_arms_(ptrs, nullptr, [](size_t i) { return std::format("array literal: element {}", i); },
+            [&](size_t i, TypeRef acc, TypeRef t) {
+                auto [es, gs] = type_str_pair(t, acc);
+                // Two instances of one generic spell alike by name; show the
+                // arguments that differ (`Result<bool, ?>` vs `Result<i64, ?>`).
+                if (es == gs) {
+                    es = type_str(t, true); gs = type_str(acc, true);
+                    // An argument no element fixed prints as Rust's `_`.
+                    for (auto* str : {&es, &gs})
+                        for (size_t p = str->find("<error>"); p != std::string::npos; p = str->find("<error>"))
+                            str->replace(p, 7, "_");
                 }
-                if (hint_float && k == LogosType::Kind::FloatLit) continue;
-                adoptable = false;
-                break;
-            }
-            if (adoptable) {
-                for (auto& e : elems) {
-                    auto k = TypeRef(expr_type(e)).kind();
-                    if (k == LogosType::Kind::IntLit ||
-                        k == LogosType::Kind::FloatLit)
-                        builder().retype_expr(e, hint_arr_elem_type_);
-                }
-                elem_type = hint_arr_elem_type_;
-            }
-        }
-    }
-    // logos-core 1.4: a `[fn(...) -> R; N]` annotation lets a heterogeneous
-    // array of distinct FnItems (each `fn-name` bare-ref) unify to a common
-    // FnPtr. Each FnItem → FnPtr coerces via types_compatible; adopt the
-    // hint as the element type so the homogeneity check below sees FnPtr,
-    // not the per-element FnItem.
-    // An array-literal ELEMENT is a coercion site like a call argument or a
-    // let-init: its type must be a subtype of the annotated element type in
-    // its REGIONS too (`[baz]` where `baz: for<'a> fn(&'a S) -> &'a S` under
-    // `[fn(&S) -> &'static S; 1]` is E0308). The element site was the one
-    // position that never asked.
-    if (hint_arr_elem_type_ && TypeRef(hint_arr_elem_type_).kind() != LogosType::Kind::Error) {
-        for (size_t ei = 0; ei < elems.size(); ++ei) {
-            TypeRef et = elems[ei] ? expr_type(elems[ei]) : TypeRef(nullptr);
-            if (!et || TypeRef(et).kind() == LogosType::Kind::Error) continue;
-            if (types_compatible(et, hint_arr_elem_type_))
-                check_variance(et, hint_arr_elem_type_, std::format("array element {}", ei),
-                               /*permissive=*/false);
-        }
-    }
-    // `[b1, b2]` under `[Box<dyn Tr>; N]`: each `Box<Concrete>` element is
-    // consumed and unsized, as the explicit `b as Box<dyn Tr>` does (the
-    // return position's rule, expect_type). Without it the literal kept the
-    // thin boxes and codegen had no vtable for `Box<D>` as `dyn Tr`.
-    if (hint_arr_elem_type_ && TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::TraitObject &&
-        TypeRef(hint_arr_elem_type_).owning_trait_object()) {
-        bool any = false;
-        for (size_t ei = 0; ei < elems.size(); ++ei) {
-            auto& e = elems[ei];
-            if (!e || !expr_type(e) || !is_stdlib_box(expr_type(e))) continue;
-            // The erased type must implement the trait (E0277), asked here —
-            // codegen would otherwise find no vtable.
-            auto bta = TypeRef(expr_type(e)).type_args();
-            TypeRef payload = bta.size() == 1 ? bta[0] : TypeRef(nullptr);
-            if (payload && TypeRef(payload).kind() != LogosType::Kind::TypeVar &&
-                TypeRef(payload).kind() != LogosType::Kind::TraitObject &&
-                !ref_arg_satisfies_dyn(make_ref(false, payload), hint_arr_elem_type_)) {
-                error(std::format("array element {}: the trait `{}` is not implemented for `{}` "
-                                  "(required for the unsize to `Box<dyn {}>`, E0277)", ei,
-                                  TypeRef(hint_arr_elem_type_).trait_name(), type_str(payload),
-                                  TypeRef(hint_arr_elem_type_).trait_name()));
-                continue;
-            }
-            mark_moved_expr(expr_ref_of(e));
-            e = builder().cast(std::move(e), hint_arr_elem_type_);
-            any = true;
-        }
-        if (any) elem_type = hint_arr_elem_type_;
-    }
-    bool fnptr_elem_hint = false;
-    if (hint_arr_elem_type_ &&
-        TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::FnPtr) {
-        // A non-capturing closure element coerces to the fn pointer, as at
-        // every other position with a fn-pointer expectation.
-        for (size_t ei = 0; ei < elems.size(); ++ei)
-            if (elems[ei] && TypeRef(expr_type(elems[ei])).kind() == LogosType::Kind::Closure)
-                expect_type(elems[ei], hint_arr_elem_type_, CoercePos::ArrayElem,
-                            std::format("array element {}", ei));
-        bool all_coerce = true;
-        for (auto& e : elems) {
-            TypeRef et = expr_type(e);
-            if (TypeRef(et).kind() == LogosType::Kind::Error) continue;
-            if (types_compatible(et, hint_arr_elem_type_)) continue;
-            all_coerce = false; break;
-        }
-        if (all_coerce) {
-            elem_type = hint_arr_elem_type_;
-            fnptr_elem_hint = true;
-            for (auto& e : elems) {
-                if (!e || TypeRef(expr_type(e)).kind() == LogosType::Kind::Error)
-                    continue;
-                if (types_equal(expr_type(e), hint_arr_elem_type_)) continue;
-                e = builder().cast(std::move(e), hint_arr_elem_type_);
-            }
-        }
-    }
-    // `[&arr3, &arr5]` under a `[&[T]; N]` annotation: each element decays to
-    // the hinted slice, exactly as it would at any other expected-type
-    // position. Without this the elements keep their per-length types and the
-    // literal is heterogeneous by construction.
-    if (hint_arr_elem_type_ &&
-        (TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::Slice ||
-         TypeRef(hint_arr_elem_type_).kind() == LogosType::Kind::UnsizedSlice)) {
-        bool any = false;
-        for (auto& e : elems) {
-            if (!e || TypeRef(expr_type(e)).kind() == LogosType::Kind::Error)
-                continue;
-            if (try_coerce_array_ref_to_slice(e, hint_arr_elem_type_)) any = true;
-        }
-        // elem_type was derived from element 0 BEFORE the decay; recompute it
-        // or the literal keeps the pre-decay per-length type and every other
-        // element mismatches against it.
-        if (any) elem_type = hint_arr_elem_type_;
-    }
-    // g6b: a `[&dyn Trait; N]` annotation lets a HETEROGENEOUS array of distinct
-    // `&Concrete` refs unify to `&dyn Trait`. When the expected element type is
-    // known and every element coerces to it (with at least one needing the
-    // `&Concrete → &dyn` unsize), adopt the hint as the element type and skip
-    // the homogeneity checks below — codegen builds each fat pointer per-element.
-    bool dyn_elem_hint = false;
-    if (hint_arr_elem_type_ &&
-        TypeRef(hint_arr_elem_type_).kind() != LogosType::Kind::Error) {
-        TypeRef he = hint_arr_elem_type_;
-        // ref_arg_satisfies_dyn wants the bare TraitObject; `he` is the ref form
-        // `&dyn Trait` (Ref→TraitObject) when from a `[&dyn Trait; N]` annotation.
-        TypeRef he_dyn = he;
-        if ((TypeRef(he).kind() == LogosType::Kind::Ref ||
-             TypeRef(he).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(he).pointee() &&
-            TypeRef(TypeRef(he).pointee()).kind() == LogosType::Kind::TraitObject)
-            he_dyn = TypeRef(he).pointee();
-        // A `[&dyn Trait; N]` hint (element type is a TraitObject) wants every
-        // element coerced to the fat `&dyn` pointer. Engage when each element is
-        // compatible with, or unsize-coercible to, that dyn element type.
-        bool he_is_dyn = TypeRef(he_dyn).kind() == LogosType::Kind::TraitObject;
-        if (he_is_dyn) {
-            bool all_coerce = true;
-            for (auto& e : elems) {
-                TypeRef et = expr_type(e);
-                if (TypeRef(et).kind() == LogosType::Kind::Error) continue;
-                if (types_compatible(et, he) || ref_arg_satisfies_dyn(et, he_dyn)) continue;
-                all_coerce = false; break;
-            }
-            if (all_coerce) {
-                elem_type = he;
-                dyn_elem_hint = true;
-                // Wrap each not-already-`&dyn` element in an explicit
-                // dyn-coercion cast so codegen builds the fat pointer (vtable)
-                // per element AND mono's scan collects the concrete coercion
-                // target (so its blanket method instantiates). Adopting the hint
-                // TYPE alone leaves a thin `&Concrete` in the `&dyn` slot —
-                // reading the (absent) vtable SIGSEGVs. The explicit-cast form
-                // (`&x as &dyn`) already produced this ECast; the implicit form
-                // (bare `&x` under a `[&dyn; N]` hint) did not.
-                for (auto& e : elems) {
-                    if (!e || TypeRef(expr_type(e)).kind() == LogosType::Kind::Error)
-                        continue;
-                    if (types_compatible(expr_type(e), he)) continue;  // already &dyn
-                    e = builder().cast(std::move(e), he);
-                }
-            }
-        }
-    }
-    for (uint64_t i = 1; !dyn_elem_hint && !fnptr_elem_hint && i < elems.size(); ++i) {
-        auto t = expr_type(elems[i]);
-        if (TypeRef(t).kind() != LogosType::Kind::Error && TypeRef(elem_type).kind() != LogosType::Kind::Error) {
-            if (!types_compatible(t, elem_type) && !types_compatible(elem_type, t)) {
-                { auto [es, gs] = type_str_pair(t, elem_type);
-                  // Two instances of one generic spell alike by name; show the
-                  // arguments that differ (`Result<bool, ?>` vs `Result<i64, ?>`).
-                  if (es == gs) {
-                      es = type_str(t, true); gs = type_str(elem_type, true);
-                      // An argument no element fixed prints as Rust's `_`.
-                      for (auto* str : {&es, &gs})
-                          for (size_t p = str->find("<error>"); p != std::string::npos; p = str->find("<error>"))
-                              str->replace(p, 7, "_");
-                  }
-                  error(std::format("array literal: element {} has type {}, expected {}",
-                      i, es, gs)); }
-            } else {
-                // If the concrete element type is narrow and this element is IntLit, check range.
-                if (TypeRef(t).kind() == LogosType::Kind::IntLit &&
-                    TypeRef(elem_type).kind() != LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(elems[i]))
-                        if (!intlit_fits(*v, TypeRef(elem_type).kind()))
-                            error(std::format("array literal: element {}: value {} does not fit in {}",
-                                  i, *v, type_str(elem_type)));
-                // Check array literal elements against narrow nested array element types.
-                if (TypeRef(elem_type).kind() == LogosType::Kind::Array && TypeRef(elem_type).elem() &&
-                    TypeRef(t).kind() == LogosType::Kind::Array) {
-                    auto vr = expr_ref_of(elems[i]);
-                    if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-                        lir_view::EArrLitView al{vr};
-                        for (uint64_t ei = 0; ei < al.count(); ++ei) {
-                            auto el = al.elem(ei);
-                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(el))
-                                    if (!intlit_fits(*v, TypeRef(elem_type).elem().kind()))
-                                        error(std::format("array literal: element {}: sub-element {}: value {} does not fit in {}",
-                                              i, ei, *v, type_str(TypeRef(elem_type).elem())));
-                        }
-                    }
-                }
-                // Check tuple literal elements against narrow nested tuple element types.
-                if (TypeRef(elem_type).kind() == LogosType::Kind::Tuple && TypeRef(t).kind() == LogosType::Kind::Tuple) {
-                    auto vr = expr_ref_of(elems[i]);
-                    if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-                        lir_view::ETupleLitView tl{vr};
-                        uint64_t ei = 0;
-                        tl.each_elem([&](lir_view::ExprRef el) {
-                            if (ei >= TypeRef(elem_type).tuple_elems().size()) { ++ei; return; }
-                            if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                if (auto v = get_intlit_value(el))
-                                    if (TypeRef(elem_type).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[ei]).kind()))
-                                        error(std::format("array literal: element {}: tuple element {}: value {} does not fit in {}",
-                                              i, ei, *v, type_str(TypeRef(elem_type).tuple_elems()[ei])));
-                            if (TypeRef(elem_type).tuple_elems()[ei] && TypeRef(TypeRef(elem_type).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                                TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                                el.kind() == lir_schema::expr::Code::ArrLit) {
-                                lir_view::EArrLitView ial{el};
-                                for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                                    auto iel = ial.elem(ii);
-                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(iel))
-                                            if (!intlit_fits(*v, TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem().kind()))
-                                                error(std::format("array literal: element {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                      i, ei, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).elem())));
-                                }
-                            }
-                            if (TypeRef(elem_type).tuple_elems()[ei] && TypeRef(TypeRef(elem_type).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                                el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                                el.kind() == lir_schema::expr::Code::TupleLit) {
-                                lir_view::ETupleLitView itl{el};
-                                uint64_t ii = 0;
-                                itl.each_elem([&](lir_view::ExprRef iel) {
-                                    if (ii >= TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
-                                    if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                        if (auto v = get_intlit_value(iel))
-                                            if (TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                                error(std::format("array literal: element {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                      i, ei, ii, *v, type_str(TypeRef(TypeRef(elem_type).tuple_elems()[ei]).tuple_elems()[ii])));
-                                    ++ii;
-                                });
-                            }
-                            ++ei;
-                        });
-                    }
-                }
-                elem_type = unify_numeric(elem_type, t);
-            }
-        }
-    }
-    // Element 0 retroactive check: the loop above only checks elements 1+.
-    // If a later element has a concrete narrow type, element 0 (which set
-    // elem_type initially) was never range-checked against it.
-    // Find the first concrete anchor from elements 1+ and check element 0.
-    if (!dyn_elem_hint && elems.size() > 1) {
-        // Locate the first element whose type is concrete (not purely IntLit-typed).
-        TypeRef anchor = nullptr;
-        for (size_t i = 1; i < elems.size() && !anchor; ++i) {
-            TypeRef ti = expr_type(elems[i]);
-            if (TypeRef(ti).kind() != LogosType::Kind::IntLit &&
-                !(TypeRef(ti).kind() == LogosType::Kind::Array && TypeRef(ti).elem() &&
-                  TypeRef(ti).elem().kind() == LogosType::Kind::IntLit))
-                anchor = ti;
-        }
-        if (anchor) {
-            auto e = elems[0];
-            auto t0 = expr_type(elems[0]);
-            // Scalar IntLit at element 0.
-            if (TypeRef(t0).kind() == LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(e))
-                    if (!intlit_fits(*v, TypeRef(anchor).kind()))
-                        error(std::format("array literal: element 0: value {} does not fit in {}",
-                              *v, type_str(anchor)));
-            // Array literal at element 0 (e.g. [[1,200,3], concrete_arr]).
-            if (TypeRef(anchor).kind() == LogosType::Kind::Array && TypeRef(anchor).elem() &&
-                TypeRef(t0).kind() == LogosType::Kind::Array) {
-                auto vr = expr_ref_of(e);
-                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView al{vr};
-                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
-                        auto el = al.elem(ei);
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (!intlit_fits(*v, TypeRef(anchor).elem().kind()))
-                                    error(std::format("array literal: element 0: sub-element {}: value {} does not fit in {}",
-                                          ei, *v, type_str(TypeRef(anchor).elem())));
-                    }
-                }
-            }
-            // Tuple literal at element 0 (tuple elements, including nested array/tuple).
-            if (TypeRef(anchor).kind() == LogosType::Kind::Tuple && TypeRef(t0).kind() == LogosType::Kind::Tuple) {
-                auto vr = expr_ref_of(e);
-                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView tl{vr};
-                    uint64_t ei = 0;
-                    tl.each_elem([&](lir_view::ExprRef el) {
-                        if (ei >= TypeRef(anchor).tuple_elems().size()) { ++ei; return; }
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (TypeRef(anchor).tuple_elems()[ei] && !intlit_fits(*v, TypeRef(TypeRef(anchor).tuple_elems()[ei]).kind()))
-                                    error(std::format("array literal: element 0: tuple element {}: value {} does not fit in {}",
-                                          ei, *v, type_str(TypeRef(anchor).tuple_elems()[ei])));
-                        if (TypeRef(anchor).tuple_elems()[ei] && TypeRef(TypeRef(anchor).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                            el.kind() == lir_schema::expr::Code::ArrLit) {
-                            lir_view::EArrLitView ial{el};
-                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                                auto iel = ial.elem(ii);
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (!intlit_fits(*v, TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem().kind()))
-                                            error(std::format("array literal: element 0: tuple element {}: array element {}: value {} does not fit in {}",
-                                                  ei, ii, *v, type_str(TypeRef(TypeRef(anchor).tuple_elems()[ei]).elem())));
-                            }
-                        }
-                        if (TypeRef(anchor).tuple_elems()[ei] && TypeRef(TypeRef(anchor).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                            el.kind() == lir_schema::expr::Code::TupleLit) {
-                            lir_view::ETupleLitView itl{el};
-                            uint64_t ii = 0;
-                            itl.each_elem([&](lir_view::ExprRef iel) {
-                                if (ii >= TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                            error(std::format("array literal: element 0: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                  ei, ii, *v, type_str(TypeRef(TypeRef(anchor).tuple_elems()[ei]).tuple_elems()[ii])));
-                                ++ii;
-                            });
-                        }
-                        ++ei;
-                    });
-                }
-            }
-        }
-    }
-    // For IntLit element type: upgrade to i64 if any value overflows i32.
-    // Keep IntLit (don't collapse to i32) so that annotation-based coercion
-    // ([i64; N] = [1, 2, 3]) can use types_compatible([IntLit;N], [i64;N]) → true.
-    if (TypeRef(elem_type).kind() == LogosType::Kind::IntLit) {
-        bool needs_i64 = false;
-        for (const auto& elem : elems) {
-            if (auto v = get_intlit_value(elem))
-                if (*v > (int64_t)INT32_MAX || *v < (int64_t)INT32_MIN)
-                    { needs_i64 = true; break; }
-        }
-        if (needs_i64) elem_type = prim(LogosType::Kind::I64);
-        // else: leave as IntLit — mlir_gen will see the annotation type
+                error(std::format("array literal: element {} has type {}, expected {}", i, es, gs));
+            }, LogosType::Kind::Array);
     }
 
     // Const-pack expansion: `[N...]` over a `<const N...: T>` pack. Build
@@ -15129,7 +14806,7 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     // `(i32, i32)` inside a `[(i32, i64); 3]`, and the read went through the
     // wrong layout). When element 0 is the literal, the first element with no
     // literal leaf anchors the type.
-    if (!dyn_elem_hint && !fnptr_elem_hint && elems.size() > 1) {
+    if (!hinted && elems.size() > 1) {
         std::function<bool(TypeRef)> lit_leaf = [&](TypeRef t) -> bool {
             if (!t) return false;
             auto k = TypeRef(t).kind();
@@ -15745,7 +15422,13 @@ lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
 
 lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     auto val_node = map_of(node.get(la::VALUE.code));
-    auto fill_val = lower_expr(val_node);
+    lir::LExprPtr fill_val;
+    {
+        // The value is lowered against this literal's element expectation
+        // (its own elements', if it is an array, are one level down).
+        ElemHintScope eh(*this, hint_arr_elem_type_);
+        fill_val = lower_expr(val_node);
+    }
     TypeRef elem_type = expr_type(fill_val);
     // ONE resolver, shared with the type position — which is what makes
     // `[v; K]` with a const-generic K work at last: the expression position
@@ -17389,7 +17072,9 @@ uint32_t SemaChecker::mask_for(CoercePos pos) {
                CFLAG_SLICE_TO_ARRAY | CFLAG_WIDEN_INT | CFLAG_DYN_UPCAST | CFLAG_ARG_TO_DYN |
                CFLAG_DEREF_COERCE;
     case CoercePos::ArrayElem:
-        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT |
+        // No integer widening: the literal is BUILT at its element type (an
+        // `i32` element under `[i64; N]` is E0308, as it was before S4.4c).
+        return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
                CFLAG_DYN_UPCAST | CFLAG_ARG_TO_DYN | CFLAG_DEREF_COERCE;
     case CoercePos::Return:
         return CFLAG_CLOSURE_TO_FNPTR | CFLAG_ARRAY_TO_SLICE |
@@ -17628,6 +17313,20 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     // is exactly the per-site drift this function exists to end.
     if (types_compatible(normalize_assoc_eq(expr_type(e)), expected)) return true;
     }
+    // An unsize the coercion did not perform because the erased type does not
+    // implement the trait: rustc's E0277, not a type mismatch.
+    if (unsize_left) {
+        TypeRef g(expr_type(e));
+        TypeRef payload = is_stdlib_box(g) ? (g.type_args().size() == 1 ? g.type_args()[0] : TypeRef{})
+                                           : g.pointee();
+        if (payload && TypeRef(payload).kind() != LogosType::Kind::TypeVar &&
+            !ref_arg_satisfies_dyn(make_ref(false, payload), expected)) {
+            error(std::format("{}{} the trait `{}` is not implemented for `{}` (required for the unsize "
+                              "to `{}`, E0277)", ctx, !ctx.empty() && ctx.back() == ':' ? "" : ":",
+                              TypeRef(expected).trait_name(), type_str(payload), type_str(expected)));
+            return false;
+        }
+    }
     if (std::getenv("LOGOS_DEBUG_ASSOC_MISMATCH")) {
         auto dump = [](const char* tag, TypeRef t) {
             std::fprintf(stderr, "  [%s] kind=%d trait='%s' assoc='%s' base_kind=%d base='%s'\n",
@@ -17834,29 +17533,146 @@ bool SemaChecker::expect_arg_(lir::LExprPtr& e, TypeRef pt, CoercePos pos, const
     return ok;
 }
 
-void SemaChecker::lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::string& at, int tuple_depth) {
+TypeRef SemaChecker::lub2_(TypeRef a, TypeRef b) {
+    using K = LogosType::Kind;
+    if (types_equal(a, b)) return a;
+    auto fnlike = [](TypeRef t) { return t.kind() == K::FnItem || t.kind() == K::Closure || t.kind() == K::FnPtr; };
+    if (fnlike(a) && fnlike(b)) {
+        auto pa = a.closure_params(), pb = b.closure_params();
+        if (pa.size() != pb.size() || !types_equal(a.closure_ret(), b.closure_ret())) return {};
+        for (size_t i = 0; i < pa.size(); ++i)
+            if (!types_equal(pa[i], pb[i])) return {};
+        if (a.kind() == K::FnPtr) return a;
+        if (b.kind() == K::FnPtr) return b;
+        LogosTypeBuilder fpt;
+        fpt.kind = K::FnPtr;
+        for (auto p : pa) fpt.closure_params.push_back(p);
+        fpt.closure_ret = a.closure_ret();
+        return fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
+    }
+    if (a.kind() == K::MutRef && b.kind() == K::Ref && types_equal(a.pointee(), b.pointee())) return b;
+    if (b.kind() == K::MutRef && a.kind() == K::Ref && types_equal(a.pointee(), b.pointee())) return a;
+    if (types_compatible(b, a) || types_compatible(a, b)) {
+        // The side with no literal leaf names the layout (`(200, 5)` beside a
+        // `(i8, i8)`).
+        std::function<bool(TypeRef, int)> lit_leaf = [&](TypeRef t, int d) -> bool {
+            if (!t || d > 12) return false;
+            if (t.kind() == K::IntLit || t.kind() == K::FloatLit) return true;
+            if (t.elem() && lit_leaf(t.elem(), d + 1)) return true;
+            for (auto e : t.tuple_elems()) if (lit_leaf(e, d + 1)) return true;
+            return false;
+        };
+        if (lit_leaf(a, 0) && !lit_leaf(b, 0)) return b;
+        return unify_numeric(a, b);
+    }
+    return {};
+}
+
+TypeRef SemaChecker::lub_arms_(const std::vector<lir::LExprPtr*>& arms, TypeRef hint,
+                               const std::function<std::string(size_t)>& label,
+                               const std::function<void(size_t, TypeRef, TypeRef)>& refuse,
+                               LogosType::Kind parent) {
+    using K = LogosType::Kind;
+    auto live = [&](lir::LExprPtr* a) {
+        return a && *a && expr_type(*a) && TypeRef(expr_type(*a)).kind() != K::Error &&
+               TypeRef(expr_type(*a)).kind() != K::Never;
+    };
+    if (hint)
+        for (auto* a : arms)
+            if (live(a)) coerce_arg_to_param(*a, hint, mask_for(CoercePos::BranchArm));
+    std::vector<lir::LExprPtr*> ls;
+    std::vector<size_t> li;
+    bool any_error = false;
+    for (size_t k = 0; k < arms.size(); ++k) {
+        auto* a = arms[k];
+        if (live(a)) { ls.push_back(a); li.push_back(k); }
+        else if (!a || !*a || TypeRef(expr_type(*a)).kind() != K::Never) any_error = true;
+    }
+    if (ls.empty()) return any_error ? error_t() : prim(K::Never);
+    // The arms are ONE type: their open inference variables unify.
+    if (!infer_solved_.empty())
+        for (size_t i = 1; i < ls.size(); ++i)
+            if (has_infer_var_(expr_type(*ls[0])) || has_infer_var_(expr_type(*ls[i]))) {
+                infer_unify_(expr_type(*ls[0]), expr_type(*ls[i]));
+                for (auto* a : ls) builder().retype_expr(*a, zonk_(expr_type(*a)));
+            }
+    bool agree = true;
+    for (auto* a : ls) agree &= types_equal(expr_type(*a), expr_type(*ls[0]));
+    TypeRef res = expr_type(*ls[0]);
+    if (!agree) {
+        auto reaches = [&](TypeRef t) {
+            return types_equal(t, hint) ||
+                   (types_compatible(t, hint) &&
+                    !(TypeRef(hint).kind() == K::TraitObject && TypeRef(t).kind() != K::TraitObject));
+        };
+        bool all_reach = hint != nullptr;
+        for (auto* a : ls) all_reach = all_reach && reaches(expr_type(*a));
+        if (all_reach) {
+            res = hint;
+        } else {
+            for (size_t i = 1; i < ls.size(); ++i) {
+                TypeRef l = lub2_(res, expr_type(*ls[i]));
+                if (!l) { refuse(li[i], res, expr_type(*ls[i])); return res; }
+                res = l;
+            }
+            // A branch `{ |x| … }` is a block with no statements around the
+            // literal: the literal itself is cast.
+            if (TypeRef(res).kind() == K::FnPtr)
+                for (size_t k = 0; k < ls.size(); ++k) {
+                    auto* a = ls[k];
+                    if (TypeRef(expr_type(*a)).kind() == K::FnItem) { *a = builder().cast(*a, res); continue; }
+                    if (TypeRef(expr_type(*a)).kind() != K::Closure) continue;
+                    lir::LExprPtr e = *a;
+                    while (e && e.kind() == lir_schema::expr::Code::BlockExpr) {
+                        lir_view::EBlockExprView bv{e};
+                        size_t n = 0;
+                        if (auto b = bv.block()) b.each_stmt([&](lir_view::StmtRef) { ++n; });
+                        if (n != 0 || !bv.result()) break;
+                        e = bv.result();
+                    }
+                    if (!try_coerce_closure_to_fnptr(e, res)) { refuse(li[k], res, expr_type(*a)); return res; }
+                    *a = e;
+                }
+        }
+    }
+    if (TypeRef(res).kind() != K::IntLit && TypeRef(res).kind() != K::Error)
+        for (size_t i = 0; i < arms.size(); ++i)
+            if (live(arms[i])) lit_fit_check_(expr_ref_of(*arms[i]), res, label(i), parent);
+    // An unsolved literal result widens to i64 when an arm's literal does not fit i32.
+    if (TypeRef(res).kind() == K::IntLit)
+        for (auto* a : ls)
+            if (auto v = get_intlit_value(expr_ref_of(*a)); v && !intlit_fits(*v, K::I32)) {
+                res = prim(K::I64);
+                break;
+            }
+    return res;
+}
+
+void SemaChecker::lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::string& at, LogosType::Kind parent) {
+    using K = LogosType::Kind;
     if (!t) return;
     TypeRef xt = x.type(cur_prog_->type_pool.impl());
-    if (xt.kind() == LogosType::Kind::IntLit) {
+    if (xt.kind() == K::IntLit) {
         if (auto v = get_intlit_value(x); v && !intlit_fits(*v, TypeRef(t).kind()))
             error(std::format("{}: value {} does not fit in {}", at, *v, type_str(t)));
         return;
     }
-    if (x.kind() == lir_schema::expr::Code::ArrLit && TypeRef(t).kind() == LogosType::Kind::Array &&
-        TypeRef(t).elem()) {
+    if (x.kind() == lir_schema::expr::Code::ArrLit && TypeRef(t).kind() == K::Array && TypeRef(t).elem()) {
         lir_view::EArrLitView al{x};
         for (uint64_t i = 0; i < al.count(); ++i)
-            lit_fit_check_(al.elem(i), TypeRef(t).elem(), std::format("{}: array element {}", at, i),
-                           tuple_depth);
+            lit_fit_check_(al.elem(i), TypeRef(t).elem(),
+                           std::format("{}: {} {}", at, parent == K::Array ? "sub-element" : "array element", i),
+                           K::Array);
         return;
     }
-    if (x.kind() == lir_schema::expr::Code::TupleLit && TypeRef(t).kind() == LogosType::Kind::Tuple) {
+    if (x.kind() == lir_schema::expr::Code::TupleLit && TypeRef(t).kind() == K::Tuple) {
         auto tes = TypeRef(t).tuple_elems();
         uint64_t i = 0;
         lir_view::ETupleLitView{x}.each_elem([&](lir_view::ExprRef el) {
             if (i < tes.size())
-                lit_fit_check_(el, tes[i], std::format("{}: {} {}", at, tuple_depth ? "sub-element" : "tuple element", i),
-                               tuple_depth + 1);
+                lit_fit_check_(el, tes[i],
+                               std::format("{}: {} {}", at, parent == K::Tuple ? "sub-element" : "tuple element", i),
+                               K::Tuple);
             ++i;
         });
     }
@@ -19721,125 +19537,14 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     // `expr_type(then_val)`; the rebuild preserves that type.
     join.finish();
 
-    // Determine result type: pick the more concrete type when IntLit vs concrete int.
-    // A diverging (Never) branch contributes no type — the if-expression's type
-    // is the OTHER arm (Never is `!`, a subtype of every type).
-    TypeRef result_type = expr_type(then_val);
-    if (TypeRef(expr_type(then_val)).kind() == LogosType::Kind::Error ||
-        TypeRef(expr_type(then_val)).kind() == LogosType::Kind::Never)
-        result_type = expr_type(else_val);
-    else if (TypeRef(expr_type(else_val)).kind() == LogosType::Kind::Never)
-        result_type = expr_type(then_val);
-    else if (TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Error) {
-        // logos-core 1.4: when both arms produce distinct FnItems (e.g.
-        // `if cond { foo } else { bar }` where foo / bar are bare fn
-        // names with the same FnPtr signature), LUB to the common FnPtr
-        // — Rust's classic fn-item-to-fn-pointer coercion at if-else
-        // joins. types_compatible(FnItem, FnItem) is intentionally
-        // false; lift both sides to FnPtr explicitly.
-        // The branches are ONE type: their open inference variables unify
-        // (`if c { pick() } else { None }`).
-        if (!infer_solved_.empty() && then_val && else_val &&
-            (has_infer_var_(expr_type(then_val)) || has_infer_var_(expr_type(else_val)))) {
-            infer_unify_(expr_type(then_val), expr_type(else_val));
-            builder().retype_expr(then_val, zonk_(expr_type(then_val)));
-            builder().retype_expr(else_val, zonk_(expr_type(else_val)));
-            result_type = zonk_(result_type);
-        }
-        bool lubbed_to_fnptr = false;
-        if (TypeRef(expr_type(then_val)).kind() == LogosType::Kind::FnItem &&
-            TypeRef(expr_type(else_val)).kind() == LogosType::Kind::FnItem) {
-            LogosTypeBuilder fpt;
-            fpt.kind = LogosType::Kind::FnPtr;
-            for (auto p : TypeRef(expr_type(else_val)).closure_params())
-                fpt.closure_params.push_back(p);
-            fpt.closure_ret = TypeRef(expr_type(else_val)).closure_ret();
-            TypeRef fp = fnptr_item_binders_(pool_->alloc(std::move(fpt)), nullptr);
-            if (types_compatible(expr_type(then_val), fp) &&
-                types_compatible(expr_type(else_val), fp)) {
-                result_type = fp;
-                lubbed_to_fnptr = true;
-            }
-        }
-        // Two DISTINCT non-capturing closure literals: Rust's LUB coerces both
-        // to the fn pointer of their shared signature (`if c { |x| x + 1 }
-        // else { |x| x * 2 }` under `-> impl Fn(i64) -> i64`).
-        if (!lubbed_to_fnptr &&
-            TypeRef(expr_type(then_val)).kind() == LogosType::Kind::Closure &&
-            TypeRef(expr_type(else_val)).kind() == LogosType::Kind::Closure &&
-            !types_equal(expr_type(then_val), expr_type(else_val))) {
-            TypeRef ct(expr_type(then_val));
-            TypeRef fp = make_fn_ptr_type(ct.closure_params(), ct.closure_ret());
-            // A branch `{ |x| … }` is a block with no statements around the
-            // literal: coerce the literal itself.
-            auto peel = [](lir::LExprPtr e) {
-                while (e && e.kind() == lir_schema::expr::Code::BlockExpr) {
-                    lir_view::EBlockExprView bv{e};
-                    size_t n = 0;
-                    if (auto b = bv.block()) b.each_stmt([&](lir_view::StmtRef) { ++n; });
-                    if (n != 0 || !bv.result()) break;
-                    e = bv.result();
-                }
-                return e;
-            };
-            lir::LExprPtr t2 = peel(then_val), e2 = peel(else_val);
-            if (try_coerce_closure_to_fnptr(t2, fp) && try_coerce_closure_to_fnptr(e2, fp) &&
-                types_compatible(expr_type(e2), fp)) {
-                then_val = t2; else_val = e2;
-                result_type = fp;
-                lubbed_to_fnptr = true;
-            }
-        }
-        if (!lubbed_to_fnptr) {
-            // Branches that disagree with each other may still both be
-            // coercible to what the surrounding position expects — the merge
-            // used to compare them ONLY against one another, so an expected
-            // type that both could reach was never consulted.
-            bool took_expected = false;
-            if (hint_expected_type_ && !types_equal(expr_type(then_val), expr_type(else_val))) {
-                // Each branch meets the expected type (a coercion site
-                // propagates into the branches); the merge takes it when both
-                // reach it.
-                coerce_arg_to_param(then_val, hint_expected_type_, mask_for(CoercePos::BranchArm));
-                coerce_arg_to_param(else_val, hint_expected_type_, mask_for(CoercePos::BranchArm));
-                auto reaches = [&](TypeRef t) {
-                    return TypeRef(t).kind() == LogosType::Kind::Never || types_equal(t, hint_expected_type_) ||
-                           (types_compatible(t, hint_expected_type_) &&
-                            !(TypeRef(hint_expected_type_).kind() == LogosType::Kind::TraitObject &&
-                              TypeRef(t).kind() != LogosType::Kind::TraitObject));
-                };
-                if (reaches(expr_type(then_val)) && reaches(expr_type(else_val))) {
-                    result_type = hint_expected_type_;
-                    took_expected = true;
-                }
-            }
-            if (took_expected) {
-                // the arms were coerced to the expected type above
-            } else if (!types_compatible(expr_type(then_val), expr_type(else_val)) &&
-                       !types_compatible(expr_type(else_val), expr_type(then_val))) {
-                // source form: two closure literals print one string otherwise
-                error(std::format("if-expression branches have incompatible types: {} vs {}",
-                      type_str(expr_type(then_val), true), type_str(expr_type(else_val), true)));
-            } else {
-                result_type = unify_numeric(expr_type(then_val), expr_type(else_val));
-            }
-        }
-    }
-    // If still IntLit, upgrade to i64 if any branch literal overflows i32.
-    if (TypeRef(result_type).kind() == LogosType::Kind::IntLit) {
-        auto intlit_overflow = [this](lir_view::ExprRef e) -> bool {
-            if (!e) return false;
-            auto er = expr_ref_of(e);
-            // Divergent branches are BlockExprs with NO result — null ref.
-            if (er.kind() == lir_schema::expr::Code::BlockExpr)
-                er = lir_view::EBlockExprView{er}.result();
-            if (!er || er.kind() != lir_schema::expr::Code::LitInt) return false;
-            int64_t v = lir_view::ELitIntView{er}.value();
-            return v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN;
-        };
-        if (intlit_overflow(then_val) || intlit_overflow(else_val))
-            result_type = prim(LogosType::Kind::I64);
-    }
+    // A diverging (Never) branch contributes no type.
+    TypeRef result_type = lub_arms_({&then_val, &else_val}, hint_expected_type_,
+        [](size_t i) { return std::format("if-expression branch {}", i + 1); },
+        [&](size_t, TypeRef a, TypeRef b) {
+            // source form: two closure literals print one string otherwise
+            error(std::format("if-expression branches have incompatible types: {} vs {}",
+                              type_str(a, true), type_str(b, true)));
+        });
 
     lir::EIfExpr eif;
     eif.cond      = std::move(cond);

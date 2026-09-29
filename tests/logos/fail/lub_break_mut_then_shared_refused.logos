@@ -1,0 +1,4 @@
+// Loop break values coerce to the type the first break fixed; rustc has no LUB there (E0308): a
+// `break &b` after `break &mut a` was admitted by a both-directions compatibility check.
+package lub_break_mut_then_shared_refused;
+fn main() { let c = 1; let mut a = 5i64; let b = 7i64; let r = loop { if c == 0 { break &mut a; } break &b; }; let _ = r; }

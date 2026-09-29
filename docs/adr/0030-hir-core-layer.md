@@ -671,6 +671,40 @@ of 70 members.
   static_call_array_literal_overflow, closure_call_literal_overflow.
   −455 lines.
 
+- S4.4b (2026-09-29): one merge. `if` and `match` arms go through
+  `lub_arms_`: each live arm is coerced to the expectation, the type is the
+  arms' own when they agree, the expectation when every arm reaches it, else
+  the LUB (`lub2_`: one type; fn items and non-capturing closures of one
+  signature → the fn pointer, closure arms cast; `&mut T` with `&T` → `&T`;
+  a literal with a number → the number). A literal arm must fit an integer
+  result. The two copies had drifted — `match` had no closure rule
+  (`match c { 0 => |x| x + 1, _ => |x| x * 2 }` refused), `if` refused a fn
+  item beside a closure. `break` values have no LUB in rustc: each coerces
+  to the type the first break fixed (a both-directions check admitted
+  `break &mut a; … break &b`, E0308). Literal arms and break values that
+  overflow the merged width (`if c { 1u8 } else { 300 }`) were truncated.
+  Fixtures lub_arms_fn_pointer, lub_break_mut_then_shared_refused,
+  lub_{if,match}_arm_literal_overflow, lub_break_literal_overflow.
+- S4.4c (2026-09-29): array-literal elements are the same merge. Under a
+  concrete element expectation each element goes through `expect_type`
+  (ArrayElem row), variance, and the literal-fit check; without one,
+  `lub_arms_`. The five hand-rolled per-kind blocks (scalar-literal
+  adoption, fn pointer, slice decay, `&dyn`, `Box<dyn>`), the homogeneity
+  loop and the element-0 retroactive range check are gone. `[inc, dbl]`,
+  `[|x| x + 1, |x| x * 2]`, `[inc, |x| x * 3]` and `[&boxed, &5]` under
+  `[&i64; 2]` agree with rustc. The battery found `&str` inside a composite
+  annotation resolving to `&[u8]` (squeue row
+  str_in_composite_annotation_resolves_to_u8_slice, #706; on the 09-27 binary
+  too). The literal's type is its coerced elements' (the expectation carries
+  the callee's region names: `pick([&V])` against `[&'a i64; 1]` lost
+  `'static`), a repeat literal's value is lowered against the element
+  expectation (`[[true]; 512]`), and an element is not integer-widened (an
+  `i32` element under `[i64; N]` stays E0308). An unsize left undone for want
+  of an impl is E0277 in `expect_type`, at every position. Two fixtures
+  asserted that `[add1, sub1]` is E0308; rustc 1.98.1 accepts it (the LUB),
+  and they now assert the assignment form (`let mut f = add1; f = sub1;`),
+  which is E0308. Fixture lub_array_elems. S4.4a–c: −800 lines.
+
 S4 row (audit §4.1 C-COE), item by item:
 
 | item | state |
@@ -679,8 +713,9 @@ S4 row (audit §4.1 C-COE), item by item:
 | `types_compatible` rewrites/acceptances rustc lacks (`&T→*mut`, `*T→&T`, `&Vec→&[T]`) | done, S4.2 |
 | arms merge at the expectation | done, S4.3 |
 | pre-coercions ahead of `expect_type` at argument sites; variance on the coerced type | done, S4.4a |
-| pre-coercions at hint sites (if/match arm, `break` value, tuple element) | with `lub_arms` |
-| `lub_arms`: one LUB for if / match / `break` / array literal | open |
+| pre-coercions at hint sites (if/match arm, `break` value, tuple element) | done, S4.4b (arms through `lub_arms_`; a `break` value and a tuple element coerce to their expectation, the verdict is the enclosing position's) |
+| `lub_arms`: one LUB for if / match | done, S4.4b; `break` has none (rustc) |
+| array literal elements under an element expectation (hand-rolled fn-ptr / slice / `&dyn` / `Box<dyn>` casts) | done, S4.4c |
 | `coercion_plan(from, to, mask)` → ordered adjustment list, explicit LIR per step | open |
 | cast whitelist (`as`) | open |
 | remaining lenient `types_compatible` arms | open |
