@@ -1,0 +1,4 @@
+// #704: a `()`-typed binding cast to an integer, in return position (mlir_gen discarded the RETURN).
+// rustc 1.98.1: E0605 "non-primitive cast: `()` as `i32`".
+package cast_unit_binding_refused;
+fn main() -> i32 { let u: () = (); return u as i32; }

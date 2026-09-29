@@ -1,0 +1,15 @@
+// #704: the loop-condition form: it lowered to undef and LLVM folded the loop into `jmp .`, deleting the exit guard in the body (the str_len hang).
+// rustc 1.98.1: E0605 "non-primitive cast: `()` as `i32`".
+package cast_unit_loop_cond_refused;
+fn len_semi(s: *const u8) -> i64 {
+    let mut n: i64 = 0;
+    while (unsafe { s[n]; } as i32) != 0 {
+        n = n + 1;
+        if n > 1000 { return -1; }
+    }
+    return n;
+}
+fn main() -> i32 {
+    let b: [u8; 4] = [104u8, 105u8, 0u8, 0u8];
+    return len_semi(&b[0] as *const u8) as i32;
+}
