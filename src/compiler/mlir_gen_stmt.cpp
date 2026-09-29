@@ -4856,13 +4856,28 @@ void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_pt
 // statement's and the match expression's) bound the prefix and suffix and
 // skipped the rest: the name read an unset slot.
 std::string MLIRGenImpl::bind_array_rest(lir_view::PatRef rest, mlir::Type arr_mlir, mlir::Type elem_mlir,
-                                         mlir::Value aptr, size_t pre, size_t len) {
+                                         mlir::Value aptr, size_t pre, size_t len, bool by_value) {
     namespace pc = lir_schema::pat;
     if (!rest || rest.kind() != pc::Code::Wild) return {};
     std::string rn(lir_view::PatWildView{rest}.name());
     if (rn.empty() || rn == "_") return {};
     auto rdata = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), arr_mlir, aptr,
         llvm::SmallVector<mlir::LLVM::GEPArg>{int32_t(0), int32_t(pre)});
+    // Over an array BY VALUE the rest is an ARRAY `[T; len]` (sema types it
+    // so): a copy the binding owns, registered as an array binder is.
+    if (by_value) {
+        auto arr_t = mlir::LLVM::LLVMArrayType::get(elem_mlir, len);
+        auto target = create_entry_alloca(arr_t);
+        auto szv = builder_.create<mlir::LLVM::ConstantOp>(
+            loc_, builder_.getI64Type(), builder_.getI64IntegerAttr((int64_t)mlir_abi_size(arr_t)));
+        builder_.create<mlir::LLVM::MemcpyOp>(loc_, target, rdata, szv, /*isVolatile=*/false);
+        evict_var_shapes(rn);
+        scope_[rn] = target;
+        let_vars_.insert(rn);
+        var_elem_types_[rn] = elem_mlir;
+        var_subscript_[rn]  = elem_mlir;
+        return rn;
+    }
     auto rlen = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)len, 64).getResult();
     auto sdtype = slice_llvm_type();
     auto sub = create_entry_alloca(sdtype);
@@ -5145,6 +5160,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         // `&[T; N]` the array is one load away; under a reference the element
         // binders are sema's RefBind subs and bind the element ADDRESS.
         TypeRef aty = ty;
+        const bool array_by_value = ty && TypeRef(ty).kind() == LogosType::Kind::Array;
         peel_thin_ref_slots(slot_ptr, aty);
         if (aty && TypeRef(aty).kind() == LogosType::Kind::Slice && TypeRef(aty).elem()) {
             bind_dyn_slice_elems(pat, slot_ptr, aty, shared);   // a dynamic `&[T]`
@@ -5168,7 +5184,7 @@ void MLIRGenImpl::pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef t
         sv.each_suffix([&](lir_view::PatRef sp){ at_idx(sp, sidx++); });
         if (auto rest = sv.rest())
             bind_array_rest(rest, arr_mlir, place_slot_type(elem_t), slot_ptr, (size_t)idx,
-                            total - (size_t)idx - sv.suffix_count());
+                            total - (size_t)idx - sv.suffix_count(), array_by_value);
         break;
     }
     case pc::Code::RefBind: {

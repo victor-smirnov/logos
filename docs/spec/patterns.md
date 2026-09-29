@@ -863,7 +863,7 @@ A struct pattern `S { f0: x, .. }` matches by binding each named field's sub-pat
 
 ### `pat.struct.field-exists` — Struct pattern field must exist
 
-Each named field in a struct pattern must be a declared field of the struct; an unknown field name is an error 'has no field'.
+Each named field in a struct pattern must be a declared field of the struct; an unknown field name is an error (rustc E0026: "struct `P` does not have a field named `z`").
 
 *Source: src/compiler/sema_stmt.cpp#L4881-L4889*
 

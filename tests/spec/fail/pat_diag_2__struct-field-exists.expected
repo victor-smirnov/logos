@@ -1,1 +1,1 @@
-has no field
+struct `P` does not have a field named `z` (E0026)

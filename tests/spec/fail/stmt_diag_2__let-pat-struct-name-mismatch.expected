@@ -1,1 +1,1 @@
-does not match rhs type
+mismatched types: expected `Point`, found `Other` (E0308)

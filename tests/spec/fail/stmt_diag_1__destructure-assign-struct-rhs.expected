@@ -1,1 +1,1 @@
-rhs must be a struct
+mismatched types: expected `i32`, found `Point` (E0308)

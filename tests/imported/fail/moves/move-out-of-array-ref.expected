@@ -1,1 +1,1 @@
-cannot move out of a value behind a reference / out of an index (E0507): this destructure moves an element out of a borrowed array
+cannot move out of 'a', which is behind a reference

@@ -1,1 +1,1 @@
-let array pattern: expected
+pattern requires 2 elements but array has 3 (E0527)

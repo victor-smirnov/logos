@@ -1,1 +1,1 @@
-let pattern: struct 'LedCur' does not match rhs type
+mismatched types: expected `Hs352959f3caf5b795Cur`, found `LedCur` (E0308)

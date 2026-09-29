@@ -1410,18 +1410,15 @@ lir_view::StmtRef SemaChecker::lower_let_pat_rhs(TinyMapView pat_node, lir::LExp
         sb.body = lir_mirror_block(*cur_prog_, at_pre);
         return make_stmt_emit(node_line_, std::move(sb));
     }
-    // A TEMPORARY rhs (not a place) of a droppable type under a tuple or struct
-    // pattern (the struct one then takes the structural lowering, which records
-    // leaf moves on the synth; the array shape spills its own): bind from a synth
-    // local and drop what the pattern did not take at the END OF THE
+    // A TEMPORARY rhs (not a place) of a droppable type, under any pattern: bind
+    // from a synth local and drop what the pattern did not take at the END OF THE
     // STATEMENT, as Rust drops a temporary (`let (d, _) = (mk(4), mk(5));`
     // drops the 5 before the next statement). Nothing owned it before: the
     // parts a pattern skipped leaked. A pattern with a `ref` binder extends
     // the temporary to the block instead (Rust's temporary lifetime
     // extension), so it keeps the synth local's block-end drop.
     if (rhs && rhs_type && is_move_type(rhs_type) &&
-        !lir_view::is_place_expr(expr_ref_of(rhs)) &&
-        (code_of(pat_node) == la::PAT_TUPLE || code_of(pat_node) == la::PAT_STRUCT)) {
+        !lir_view::is_place_expr(expr_ref_of(rhs))) {
         std::string tmp = std::format("__let_tmp_{}", tmp_var_count_++);
         define(tmp, rhs_type, /*is_mut=*/true);
         std::vector<lir_view::StmtRef> blk;
@@ -1429,9 +1426,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_rhs(TinyMapView pat_node, lir::LExp
             lir::SLet sl; sl.name = tmp; sl.type = rhs_type; sl.is_mut = true; sl.value = std::move(rhs);
             blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
-        force_structural_let_ = true;
         blk.push_back(lower_let_pat_bound(pat_node, builder().var_ref(tmp, rhs_type), rhs_type));
-        force_structural_let_ = false;
         if (!ast_pattern_has_ref_binder(pat_node)) {
             if (auto it = scope_.back().vars.find(tmp); it != scope_.back().vars.end())
                 if (auto d = make_drop_stmt(tmp, it->second)) blk.push_back(*d);
@@ -1465,977 +1460,29 @@ bool SemaChecker::ast_pattern_has_ref_binder(TinyMapView n) {
     return false;
 }
 
+// `let PAT = rhs` (ADR 0030 S3.4c): ONE lowering, the match core's pattern and
+// binding phase — lower_let_else_core with an unreachable else, the bindings in
+// the enclosing scope. A refutable pattern is E0005, as rustc says.
 lir_view::StmtRef SemaChecker::lower_let_pat_bound(TinyMapView pat_node,
                                                    lir::LExprPtr rhs,
                                                    TypeRef rhs_type) {
-    int32_t pc = code_of(pat_node);
-    // B-ts-01: `let Foo(a, b) = …` over a tuple-struct lowers via the
-    // PAT_STRUCT path with synth field names "0", "1", …. Rewrite the
-    // PAT_VARIANT_DATA pat-node's ARGS into an inline pat-field-list
-    // here would require allocating in the prog arena; instead, dispatch
-    // to a parallel block below.
-    bool is_tuple_struct_pat = false;
-    const SemaStructInfo* tsi_let = nullptr;
-    // P4-pm-01: `let E::V { f } = e;` over a single-variant enum (irrefutable
-    // by construction). Captures the variant/enum info for the dedicated
-    // lowering below.
-    bool is_single_variant_struct_pat = false;
-    const SemaVariantInfo* sve_vinfo = nullptr;
-    std::string sve_ename;
-    std::string sve_vname;
-    if (pc == la::PAT_VARIANT_DATA) {
-        auto pename_l = std::string(str_of(pat_node.get(la::NAME.code)));
-        auto pvname_l = std::string(str_of(pat_node.get(la::FIELD.code)));
-        if (pvname_l.empty()) {
-            auto [_pkg, _si] = find_struct_by_name(pename_l);
-            if (_si && _si->is_tuple_struct) {
-                is_tuple_struct_pat = true;
-                tsi_let = _si;
-            }
-        } else {
-            bool pat_is_struct_shape =
-                pat_node.has_key(la::variant::IS_STRUCT_SHAPE) &&
-                pat_node.get(la::variant::IS_STRUCT_SHAPE.code).as_value<int32_t>() != 0;
-            if (pat_is_struct_shape) {
-                auto [_epkg, _einfo] = find_enum_by_name(pename_l);
-                if (_einfo && _einfo->variants.size() == 1) {
-                    for (auto& v : _einfo->variants)
-                        if (v.name == pvname_l) { sve_vinfo = &v; break; }
-                    if (sve_vinfo && sve_vinfo->is_struct_shape) {
-                        is_single_variant_struct_pat = true;
-                        sve_ename  = pename_l;
-                        sve_vname  = pvname_l;
-                    }
-                }
-            }
-        }
-    }
-    // P4-pm-15: `let [a, b, c] = arr;` array destructure. Treated as
-    // irrefutable when scrut is a fixed-size array whose length
-    // matches the pattern's element count, and the pattern has no
-    // `..` rest (rest-form is refutable for slices and isn't useful
-    // for fixed arrays since shape is known). Lowered as a temp +
-    // per-index field-read sequence (parallel to the tuple-struct
-    // destructure path above).
-    bool is_array_slice_pat =
-        pc == la::PAT_SLICE &&
-        TypeRef(rhs_type).kind() == LogosType::Kind::Array &&
-        TypeRef(rhs_type).elem();
-    // A struct / tuple-struct pattern with a field that is not a plain binder
-    // (`t: (a, b)`, `ref mut x`, `w @ W { .. }`) binds through the let-else
-    // lowering, which reaches every nested kind (the field-by-field path
-    // below binds names only); a refutable one is E0005.
-    if (pc == la::PAT_STRUCT || is_tuple_struct_pat) {
-        auto flag = [](TinyMapView n, const la::Key& k) {
-            return n.has_key(k) && n.get(k.code).is_value() && n.get(k.code).as_value<uint8_t>() != 0;
-        };
-        auto list_of = [&](uint8_t key) -> ArrayView {
-            if (!pat_node.has_key(key)) return ArrayView{};
-            auto av = pat_node.get(key);
-            if (av.is_null() || !av.is_pointer()) return ArrayView{};
-            auto w = map_of(av);
-            return (!w.is_null() && w.has_key(la::ITEMS)) ? arr_of(w.get(la::ITEMS.code)) : arr_of(av);
-        };
-        bool nested = false;
-        auto items = list_of(is_tuple_struct_pat ? la::ARGS.code : la::ITEMS.code);
-        for (uint64_t i = 0; i < items.size() && !nested; ++i) {
-            auto f = map_of(items.get(i));
-            if (code_of(f) == la::PAT_REST) continue;
-            if (flag(f, la::IS_REF)) { nested = true; break; }
-            auto sub = is_tuple_struct_pat ? f
-                     : f.has_key(la::VALUE) ? map_of(f.get(la::VALUE.code)) : TinyMapView{};
-            if (sub.is_null()) continue;
-            if (code_of(sub) == la::PAT_OR && sub.has_key(la::ITEMS) &&
-                arr_of(sub.get(la::ITEMS.code)).size() == 1)
-                sub = map_of(arr_of(sub.get(la::ITEMS.code)).get(0));
-            if (code_of(sub) == la::PAT_REST) continue;
-            if (code_of(sub) != la::PAT_WILD || flag(sub, la::IS_REF)) nested = true;
-        }
-        // A GENERIC struct / tuple struct: the field-by-field path binds each
-        // name at the field's DECLARED type (`T`, `&'s i64`); the structural
-        // lowering builds the pattern against the instantiated scrutinee type,
-        // its lifetime arguments included.
-        TypeRef gst = rhs_type;
-        while (gst && (TypeRef(gst).kind() == LogosType::Kind::Ref ||
-                       TypeRef(gst).kind() == LogosType::Kind::MutRef) && TypeRef(gst).pointee())
-            gst = TypeRef(gst).pointee();
-        const bool generic_scrut = gst && TypeRef(gst).kind() == LogosType::Kind::Struct &&
-                                   (!TypeRef(gst).type_args().empty() ||
-                                    !TypeRef(gst).lifetime_args().empty());
-        if (nested || force_structural_let_ || generic_scrut) {
-            force_structural_let_ = false;   // this level only
-            lir::Pattern probe = build_pattern(pat_node, rhs_type);
-            if (!let_pattern_irrefutable_(pat_node, pat_ref_of(probe), rhs_type))
-                return refuse_refutable_let(probe, std::move(rhs), rhs_type);
-            return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
-        }
-    }
-    if (pc != la::PAT_STRUCT && !is_tuple_struct_pat && !is_array_slice_pat &&
-        !is_single_variant_struct_pat) {
-        // Any other IRREFUTABLE shape (a tuple, `(a, S { x, .. })`, …) binds
-        // through the let-else lowering with an unreachable else; a refutable
-        // one is E0005, as rustc says.
-        lir::Pattern probe = build_pattern(pat_node, rhs_type);
-        if (!let_pattern_irrefutable_(pat_node, pat_ref_of(probe), rhs_type)) {
-            return refuse_refutable_let(probe, std::move(rhs), rhs_type);
-        }
-        return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
-    }
-    if (is_single_variant_struct_pat) {
-        // P4-pm-01: `let E::V { f1, f2 } = rhs;` for a single-variant enum.
-        // Lower as one synthetic match per user binding, returning that
-        // field's value via match-as-expression:
-        //
-        //   let __dst = rhs;
-        //   let <bind_1> = match __dst { E::V { <fname_1>: __syn, .. } => __syn };
-        //   let <bind_2> = match __dst { E::V { <fname_2>: __syn, .. } => __syn };
-        //   …
-        //
-        // Match-as-expression with a single irrefutable arm avoids needing
-        // outer-scope uninit lets + SAssign (which would force `mut`).
-        // Bindings come in shorthand (`f` → bind name = field name) or
-        // `f: x` rename form.
-        std::vector<lir_view::StmtRef> blk;
-        std::string tmp = std::format("__dst_{}", destruct_counter_++);
-        define(tmp, rhs_type);
-        {
-            lir::SLet sl;
-            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
-            sl.value = std::move(rhs);
-            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        }
-        // Walk the user's PAT_FIELD list: per entry, validate the field
-        // exists in the variant and pick the user-visible binding name.
-        struct UserField { std::string fname; std::string bind; size_t idx; TypeRef ftype; bool is_mut; };
-        std::vector<UserField> ufields;
-        if (pat_node.has_key(la::ITEMS)) {
-            AnyVal iav = pat_node.get(la::ITEMS.code);
-            if (!iav.is_null() && iav.is_pointer()) {
-                auto fl = map_of(iav);
-                ArrayView fitems;
-                if (fl.has_key(la::ITEMS)) fitems = arr_of(fl.get(la::ITEMS.code));
-                else                        fitems = arr_of(iav);
-                for (uint64_t i = 0; i < fitems.size(); ++i) {
-                    auto fnode = map_of(fitems.get(i));
-                    int32_t fcode = code_of(fnode);
-                    if (fcode == la::PAT_REST) continue;  // irrelevant at let-pos
-                    if (!fnode.has_key(la::NAME)) continue;
-                    std::string fname(str_of(fnode.get(la::NAME.code)));
-                    size_t idx = sve_vinfo->payload_field_names.size();
-                    for (size_t k = 0; k < sve_vinfo->payload_field_names.size(); ++k)
-                        if (sve_vinfo->payload_field_names[k] == fname) { idx = k; break; }
-                    if (idx == sve_vinfo->payload_field_names.size()) {
-                        error(std::format("let {}::{}: no field named '{}'",
-                              sve_ename, sve_vname, fname));
-                        continue;
-                    }
-                    std::string bind = fname;  // shorthand default
-                    bool bmut = pat_byval_mut(fnode);
-                    if (fnode.has_key(la::VALUE)) {
-                        auto sub = map_of(fnode.get(la::VALUE.code));
-                        if (code_of(sub) == la::PAT_WILD) {
-                            bmut = bmut || pat_byval_mut(sub);
-                            bind = sub.has_key(la::NAME)
-                                ? std::string(str_of(sub.get(la::NAME.code)))
-                                : std::string("_");
-                        } else {
-                            error(std::format(
-                                "let {}::{} field '{}': only plain-identifier "
-                                "bindings supported at let-position",
-                                sve_ename, sve_vname, fname));
-                            bind = "_";
-                        }
-                    }
-                    ufields.push_back({fname, bind, idx, sve_vinfo->payload_types[idx], bmut});
-                }
-            }
-        }
-        // Emit per-binding synthetic match-as-expression.
-        for (auto& uf : ufields) {
-            if (uf.bind == "_") continue;
-            std::string syn = std::format("__sve_{}", tmp_var_count_++);
-            // Synthesize match arm pattern: E::V { fname_k: __syn, … } with
-            // every other position bound to "_".
-            std::vector<std::string> arm_bindings(
-                sve_vinfo->payload_field_names.size(), "_");
-            arm_bindings[uf.idx] = syn;
-            std::vector<TypeRef> arm_types;
-            for (auto pt : sve_vinfo->payload_types) arm_types.push_back(pt);
-            auto pat_off = lir_mirror_emit_pat_variant_data(
-                *cur_prog_, sve_ename, sve_vname,
-                (int64_t)sve_vinfo->value, arm_bindings, arm_types);
-            // Register synth binding in the surrounding scope so the arm
-            // value's VarRef sema-resolves to its type.
-            define(syn, uf.ftype);
-            lir::EMatchArm arm;
-            arm.pat.mirror_ptr_ = pat_off;
-            arm.value = builder().var_ref(syn, uf.ftype);
-            lir::EMatchExpr me;
-            me.scrut = builder().var_ref(tmp, rhs_type);
-            me.arms.push_back(std::move(arm));
-            auto match_expr = builder().match_expr_v(std::move(me), uf.ftype);
-            define(uf.bind, uf.ftype, uf.is_mut);
-            lir::SLet sl;
-            sl.name = uf.bind; sl.type = uf.ftype; sl.is_mut = uf.is_mut;
-            sl.value = std::move(match_expr);
-            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        }
-        lir::SBlock sb;
-        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
-        sb.body = lir_mirror_block(*cur_prog_, blk);
-        return make_stmt_emit(node_line_, std::move(sb));
-    }
-    if (is_array_slice_pat) {
-        // An element that is not a plain binder (`let [W { a: x, .. }] = arr`):
-        // the whole pattern binds through the let-else lowering, which reaches
-        // nested sub-patterns (pat_bind's Slice case); refutable is E0005.
-        {
-            bool nested = false;
-            if (pat_node.has_key(la::ITEMS)) {
-                auto items_av = pat_node.get(la::ITEMS.code);
-                if (!items_av.is_null() && items_av.is_pointer()) {
-                    auto elist = map_of(items_av);
-                    auto eitems = elist.has_key(la::ITEMS) ? arr_of(elist.get(la::ITEMS.code)) : arr_of(items_av);
-                    for (uint64_t i = 0; i < eitems.size(); ++i) {
-                        auto en = map_of(eitems.get(i));
-                        auto c = code_of(en);
-                        // a `ref` / `ref mut` binder borrows the element: not a plain copy-out
-                        const bool is_ref = en.has_key(la::IS_REF) && en.get(la::IS_REF.code).is_value() &&
-                                            en.get(la::IS_REF.code).as_value<uint8_t>() != 0;
-                        if ((c != la::PAT_WILD && c != la::PAT_REST) || is_ref) { nested = true; break; }
-                    }
-                }
-            }
-            if (nested) {
-                lir::Pattern probe = build_pattern(pat_node, rhs_type);
-                if (!let_pattern_irrefutable_(pat_node, pat_ref_of(probe), rhs_type)) {
-                    return refuse_refutable_let(probe, std::move(rhs), rhs_type);
-                }
-                return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
-            }
-        }
-        auto elem_t = TypeRef(rhs_type).elem();
-        size_t arr_n = (size_t)TypeRef(rhs_type).arr_size();
-        // A fixed-length array pattern is irrefutable with or without a `..`
-        // rest: names before the rest bind the low indices, names after it the
-        // tail (as the tuple destructure maps them). `sub_pats` is padded to the
-        // array's length with wildcards, so index j IS element j below.
-        std::vector<writ::TinyMapView> sub_pats;
-        std::vector<writ::TinyMapView> before, after;
-        bool has_rest = false;
-        // A NAMED rest over an array binds BY VALUE the sub-array `[T; N - k]`
-        // (Rust's typing at a let-position door; the match door's sub-slice
-        // is a different binding mode).
-        writ::TinyMapView rest_node{};
-        if (pat_node.has_key(la::ITEMS)) {
-            auto items_av = pat_node.get(la::ITEMS.code);
-            if (!items_av.is_null() && items_av.is_pointer()) {
-                auto elist = map_of(items_av);
-                if (elist.has_key(la::ITEMS)) {
-                    auto eitems = arr_of(elist.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < eitems.size(); ++i) {
-                        auto en = map_of(eitems.get(i));
-                        if (code_of(en) == la::PAT_REST) {
-                            if (has_rest) error("let array pattern: at most one `..` rest allowed");
-                            if (en.has_key(la::NAME)) rest_node = en;
-                            has_rest = true;
-                            continue;
-                        }
-                        (has_rest ? after : before).push_back(en);
-                    }
-                }
-            }
-        }
-        if (before.size() + after.size() > arr_n || (!has_rest && before.size() != arr_n)) {
-            error(std::format(
-                "let array pattern: expected {} elements, got {}",
-                arr_n, before.size() + after.size()));
-            return builder().stmt_expr(std::move(rhs), node_line_);
-        }
-        sub_pats = before;
-        while (sub_pats.size() + after.size() < arr_n) sub_pats.push_back(writ::TinyMapView{});
-        for (auto& en : after) sub_pats.push_back(en);
-        // E0507 for the array destructure: `let [_, e, _, _] = *a` where
-        // `a: &[D; N]` binds a move-typed element BY VALUE out of borrowed
-        // memory — the array behind the reference doesn't own the moved slot,
-        // so the move duplicates the owner (double-free at runtime). The scalar
-        // `let s = *r` form is guarded in lower_let; the slice/array destructure
-        // needs its own check. Only fires when the element is a move type AND at
-        // least one element is actually bound (all-`_` moves nothing).
-        if (rhs && is_move_type(elem_t) && is_unowned_move_source(rhs)) {
-            bool binds_by_value = false;
-            for (auto& en : sub_pats)
-                if (!en.is_null() && code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
-                    std::string(str_of(en.get(la::NAME.code))) != "_") {
-                    binds_by_value = true;
-                    break;
-                }
-            if (binds_by_value)
-                error("cannot move out of a value behind a reference / out of "
-                      "an index (E0507): this destructure moves an element out "
-                      "of a borrowed array");
-        }
-        std::vector<lir_view::StmtRef> blk;
-        std::string tmp = std::format("__dst_{}", destruct_counter_++);
-        // A FRESH rvalue source (`let [_, y] = mk(p);`) is a statement
-        // temporary (spec stmt.scope.temp-drop-at-stmt-end): the elements the
-        // pattern does not bind drop at the END OF THE LET, not at scope exit.
-        const bool temp_source = rhs && cur_stmt_temp_hoist_ && is_move_type(rhs_type) &&
-                                 is_hoistable_temp_rvalue(rhs);
-        if (temp_source) {
-            register_stmt_temp(tmp, rhs_type, std::move(rhs), false);
-        } else {
-            define(tmp, rhs_type);
-            // P4-pm-15 Drop case: when element type carries Drop, the bytewise
-            // slice_index reads below copy the bytes but transfer ownership
-            // into the per-element bindings. Suppress the temp's drop and
-            // also any source-var drop, otherwise the array's [T;N] tail-drop
-            // double-frees the same payload.
-            if (rhs) mark_moved_expr(expr_ref_of(rhs));
-            lir::SLet sl;
-            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
-            sl.value = std::move(rhs);
-            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        }
-        // MARK ONLY THE BOUND INDICES, NOT THE WHOLE TEMP (2026-09-16j-arrpath2).
-        // `mark_moved(tmp)` suppressed the spill temp's scope-exit drop ENTIRELY, so every
-        // element the pattern does not bind had no owner left and was never destroyed —
-        // soundness_queue let_array_pattern_field_base_unbound_elem_leak, and the plainer
-        // `let [_, y] = arr` over a local, which nobody had written. The per-index path is what
-        // the array drop walk already understands: the drop emitter strips the `<tmp>.` prefix
-        // into moved_fields, SDrop's K::Array branch forwards that set, and gen_drop_value's
-        // per-index loop skips exactly those elements and destroys the rest.
-        // ⚠ THE WHOLE-SOURCE `mark_moved_expr(rhs)` ABOVE STAYS. The array really does move into
-        // the temp, so the source owes nothing; marking the SOURCE per index instead would leave
-        // the source's drop destroying the same elements the temp destroys — a DOUBLE FREE, the
-        // opposite failure direction from the leak being fixed here.
-        for (size_t j = 0; j < sub_pats.size(); ++j) {
-            auto en = sub_pats[j];
-            if (en.is_null()) continue;   // covered by the `..` rest
-            if (code_of(en) == la::PAT_WILD && en.has_key(la::NAME) &&
-                std::string(str_of(en.get(la::NAME.code))) != "_" &&
-                is_move_type(elem_t))
-                mark_moved(tmp + "." + std::to_string(j));
-        }
-        for (size_t j = 0; j < sub_pats.size(); ++j) {
-            auto en = sub_pats[j];
-            if (en.is_null()) continue;   // covered by the `..` rest
-            int32_t ec = code_of(en);
-            if (ec == la::PAT_WILD && en.has_key(la::NAME)) {
-                auto vname = std::string(str_of(en.get(la::NAME.code)));
-                if (vname == "_") continue;
-                lir::SLet sl;
-                sl.name   = vname;
-                sl.type   = elem_t;
-                sl.is_mut = pat_byval_mut(en);
-                // 2026-05-13: previously used slice_index (fat-pointer
-                // GEP shape `{ptr, i64}`) on the temp slot. That worked
-                // accidentally because the (broken) let-rebind dropped a
-                // pointer-to-source-array into the temp's first 8 bytes,
-                // which lined up with the slice's data-ptr position. With
-                // the let-rebind memcpy fix, the temp now holds the
-                // actual array bytes — slice_index reads them as if they
-                // were a fat pointer and segfaults. Use index_read
-                // (array-shaped GEP) instead.
-                sl.value  = builder().index_read(
-                    builder().var_ref(tmp, rhs_type),
-                    builder().lit_int((int64_t)j, prim(LogosType::Kind::I64)),
-                    elem_t);
-                define(vname, elem_t, pat_byval_mut(en));
-                blk.push_back(
-                    make_stmt_emit(node_line_, std::move(sl)));
-            } else {
-                error(std::format(
-                    "let array pattern: only plain identifier bindings "
-                    "are supported at element {} (got non-PAT_WILD)", j));
-            }
-        }
-        if (!rest_node.is_null()) {
-            auto rname = std::string(str_of(rest_node.get(la::NAME.code)));
-            const size_t lo = before.size(), hi = arr_n - after.size();
-            if (rname != "_" && lo <= hi) {
-                std::vector<lir::LExprPtr> relems;
-                for (size_t j = lo; j < hi; ++j) {
-                    if (is_move_type(elem_t)) mark_moved(tmp + "." + std::to_string(j));
-                    relems.push_back(builder().index_read(
-                        builder().var_ref(tmp, rhs_type),
-                        builder().lit_int((int64_t)j, prim(LogosType::Kind::I64)), elem_t));
-                }
-                TypeRef rt = make_array(elem_t, (int64_t)(hi - lo));
-                lir::SLet sl;
-                sl.name   = rname;
-                sl.type   = rt;
-                sl.is_mut = pat_byval_mut(rest_node);
-                sl.value  = builder().arr_lit(std::move(relems), rt);
-                define(rname, rt, pat_byval_mut(rest_node));
-                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-            }
-        }
-        lir::SBlock sb;
-        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
-        sb.body = lir_mirror_block(*cur_prog_, blk);
-        return make_stmt_emit(node_line_, std::move(sb));
-    }
-    if (is_tuple_struct_pat) {
-        // Mini destructure path: temp = rhs; let a = temp.0; let b = temp.1; …
-        auto sname = std::string(str_of(pat_node.get(la::NAME.code)));
-        if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct ||
-            TypeRef(rhs_type).struct_name() != sname) {
-            error(std::format("let pattern: struct '{}' does not match rhs type '{}'",
-                  sname, type_str(rhs_type)));
-            return builder().stmt_expr(std::move(rhs), node_line_);
-        }
-        std::vector<lir_view::StmtRef> blk;
-        std::string tmp = std::format("__dst_{}", destruct_counter_++);
-        define(tmp, rhs_type);
-        {
-            // Spilling MOVES the rhs place into the temp — mark it so the source's
-            // scope-exit Drop is suppressed (double-free else), as the sibling
-            // tuple and array `let` destructures already do.
-            if (rhs && is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
-            lir::SLet sl;
-            sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
-            sl.value = std::move(rhs);
-            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        }
-        size_t arg_n = 0;
-        if (pat_node.has_key(la::ARGS)) {
-            auto aav = pat_node.get(la::ARGS.code);
-            if (!aav.is_null() && aav.is_pointer()) {
-                auto blist = map_of(aav);
-                if (blist.has_key(la::ITEMS)) {
-                    auto bitems = arr_of(blist.get(la::ITEMS.code));
-                    // G152-15: a single `..` rest (`let Foo(a, b, ..)` /
-                    // `Foo(.., z)` / `Foo(a, .., z)`) skips the unmatched middle
-                    // positions — names before the rest bind low fields, names
-                    // after bind the tail. (Match arms already support this,
-                    // G151-2; the `let` path didn't.)
-                    size_t arity = tsi_let->fields.size();
-                    int rest_idx = -1; size_t named = 0;
-                    for (uint64_t j = 0; j < bitems.size(); ++j) {
-                        if (code_of(map_of(bitems.get(j))) == la::PAT_REST) {
-                            if (rest_idx >= 0) error("tuple-struct `let` pattern: only one `..` allowed");
-                            rest_idx = (int)j;
-                        } else ++named;
-                    }
-                    arg_n = rest_idx < 0 ? bitems.size() : arity;
-                    if (named > arity)
-                        error(std::format("tuple-struct pattern '{}': {} bindings exceed {} fields",
-                                          sname, named, arity));
-                    size_t trailing = rest_idx < 0 ? 0 : (bitems.size() - 1 - (size_t)rest_idx);
-                    for (uint64_t j = 0; j < bitems.size(); ++j) {
-                        auto bnode = map_of(bitems.get(j));
-                        int32_t bc = code_of(bnode);
-                        if (bc == la::PAT_REST) continue;
-                        // Map pattern item j → field position (rest-aware).
-                        size_t fpos;
-                        if (rest_idx < 0 || (int)j < rest_idx) fpos = j;
-                        else fpos = arity - trailing + (j - (size_t)rest_idx - 1);
-                        if (fpos >= arity) continue;
-                        // PAT_WILD bindings only for now; underscore skips.
-                        if (bc == la::PAT_WILD && bnode.has_key(la::NAME)) {
-                            auto vname = std::string(str_of(bnode.get(la::NAME.code)));
-                            if (vname == "_") continue;
-                            auto ftype = tsi_let->fields[fpos].type;
-                            lir::SLet sl;
-                            sl.name   = vname;
-                            sl.type   = ftype;
-                            sl.is_mut = pat_byval_mut(bnode);
-                            auto fr_ = builder().field_read(
-                                builder().var_ref(tmp, rhs_type),
-                                std::to_string(fpos), ftype);
-                            // The binding moves the field OUT of the temp — mark
-                            // `tmp.<fpos>` so the temp's Drop skips it. Per FIELD,
-                            // so a `..`-skipped field still gets its destructor.
-                            if (is_move_type(ftype)) mark_moved_expr(expr_ref_of(fr_));
-                            sl.value  = std::move(fr_);
-                            define(vname, ftype, pat_byval_mut(bnode));
-                            blk.push_back(
-                                make_stmt_emit(node_line_, std::move(sl)));
-                        } else {
-                            error(std::format(
-                                "tuple-struct `let` pattern: only plain identifier "
-                                "bindings are supported (got nested pattern at field {})",
-                                fpos));
-                        }
-                    }
-                }
-            }
-        }
-        if (arg_n != tsi_let->fields.size())
-            error(std::format(
-                "tuple-struct pattern '{}': expected {} fields, got {}",
-                sname, tsi_let->fields.size(), arg_n));
-        lir::SBlock sb;
-        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
-        sb.body = lir_mirror_block(*cur_prog_, blk);
-        return make_stmt_emit(node_line_, std::move(sb));
-    }
-    // ── D1 round 7 / R7b: THE DESTRUCTURING LET IS THE LAST D2 DOOR ───────
-    //
-    // THE DEFECT (measured, and it REJECTS A CORRECT PROGRAM — not merely a
-    // degraded diagnostic). `let LedCur { found, lf, idx, at } = c.seek(0u64);`
-    // over an ADR-0021 factory-backed chain gives, in round 0:
-    //   let <struct-pat> = expr: rhs must be a struct, got '<error>'
-    //   undefined variable 'found' / 'idx' / 'at'      (the cascade)
-    // and the HARD error aborts the unit before the post-drain re-sema that
-    // would have typed the chain for real. The SAME rhs bound by an ordinary
-    // `let cu = c.seek(0u64);` and read field-by-field COMPILES — so this door
-    // is the only thing separating a compiling program from a refused one.
-    //
-    // THE FIX is exactly the one build_pattern_variant_data got in round 6:
-    // an Error-typed RHS is not "not a struct", it is NOT YET KNOWN. Bind the
-    // pattern's names at `error_t()` and stay silent; uses of an error-typed
-    // value are already silent, so round 0 emits nothing and the strict round
-    // types the destructure for real (a still-deferring round is escalated by
-    // the driver — the deferral cannot swallow a genuinely bad program).
-    // The names are given LIR lets too, so nothing downstream sees a name the
-    // pattern promised and no statement produced.
-    if (TypeRef(rhs_type).kind() == LogosType::Kind::Error) {
-        std::vector<lir_view::StmtRef> eblk;
-        std::string etmp = std::format("__dst_{}", destruct_counter_++);
-        define(etmp, rhs_type);
-        {
-            lir::SLet sl;
-            sl.name = etmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
-            sl.value = std::move(rhs);
-            eblk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        }
-        std::function<void(TinyMapView)> bind_deferred = [&](TinyMapView pat) {
-            if (!pat.has_key(la::ITEMS)) return;
-            auto items_av = pat.get(la::ITEMS.code);
-            if (!items_av.is_pointer()) return;
-            auto fitems = map_of(items_av);
-            if (!fitems.has_key(la::ITEMS)) return;
-            auto fields = arr_of(fitems.get(la::ITEMS.code));
-            for (uint64_t i = 0; i < fields.size(); ++i) {
-                auto fav = fields.get(i);
-                if (!fav.is_pointer()) continue;
-                auto fnode = map_of(fav);
-                int32_t fc = code_of(fnode);
-                std::string bind_name;
-                TinyMapView sub{};
-                bool has_sub = false;
-                if (fc == la::PAT_FIELD) {
-                    bind_name = std::string(str_of(fnode.get(la::NAME.code)));
-                    if (fnode.has_key(la::VALUE)) {
-                        sub = map_of(fnode.get(la::VALUE.code));
-                        has_sub = true;
-                    }
-                } else if (fc == la::PAT_WILD && fnode.has_key(la::NAME)) {
-                    bind_name = std::string(str_of(fnode.get(la::NAME.code)));
-                } else continue;   // PAT_REST and friends bind nothing
-                const bool bmut = pat_byval_mut(fnode) || (has_sub && pat_byval_mut(sub));
-                if (has_sub && code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME)) {
-                    bind_name = std::string(str_of(sub.get(la::NAME.code)));
-                    has_sub = false;   // simple alias
-                }
-                if (has_sub && code_of(sub) == la::PAT_STRUCT) {
-                    bind_deferred(sub);   // nested destructure, same deferral
-                    continue;
-                }
-                if (bind_name.empty() || bind_name == "_") continue;
-                define(bind_name, error_t(), bmut);
-                lir::SLet sl;
-                sl.name = bind_name; sl.type = error_t(); sl.is_mut = bmut;
-                sl.value = builder().var_ref(etmp, rhs_type);
-                eblk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-            }
-        };
-        bind_deferred(pat_node);
-        lir::SBlock sb;
-        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper
-        sb.body = lir_mirror_block(*cur_prog_, eblk);
-        return make_stmt_emit(node_line_, std::move(sb));
-    }
-    // `let S { a, b: x } = &s;` — the by-reference DEFAULT BINDING MODE (Rust):
-    // every binder is a reference into the borrowed struct, `&(*tmp).f`.
-    if ((TypeRef(rhs_type).kind() == LogosType::Kind::Ref ||
-         TypeRef(rhs_type).kind() == LogosType::Kind::MutRef) &&
-        TypeRef(rhs_type).pointee() &&
-        TypeRef(rhs_type).pointee().kind() == LogosType::Kind::Struct &&
-        std::string_view(TypeRef(rhs_type).pointee().struct_name()) ==
-            std::string_view(str_of(pat_node.get(la::NAME.code)))) {
-        const bool rm = TypeRef(rhs_type).kind() == LogosType::Kind::MutRef;
-        const TypeRef obj = TypeRef(rhs_type).pointee();
-        auto [opkg, osi] = struct_of(obj);
-        std::vector<lir_view::StmtRef> blk;
-        std::string tmp = std::format("__dst_{}", destruct_counter_++);
-        define(tmp, rhs_type);
-        {
-            lir::SLet sl; sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
-            sl.value = std::move(rhs);
-            blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-        }
-        if (osi && pat_node.has_key(la::ITEMS)) {
-            AnyVal iav = pat_node.get(la::ITEMS.code);
-            ArrayView fitems;
-            if (!iav.is_null() && iav.is_pointer()) {
-                auto fl = map_of(iav);
-                fitems = fl.has_key(la::ITEMS) ? arr_of(fl.get(la::ITEMS.code)) : arr_of(iav);
-            }
-            for (uint64_t i = 0; i < fitems.size(); ++i) {
-                auto fnode = map_of(fitems.get(i));
-                if (code_of(fnode) == la::PAT_REST || !fnode.has_key(la::NAME)) continue;
-                std::string fname(str_of(fnode.get(la::NAME.code)));
-                TypeRef ftype = nullptr;
-                for (auto& f : osi->fields) if (f.name == fname) { ftype = f.type; break; }
-                if (!ftype) { error(std::format("let pattern: struct '{}' has no field '{}'", type_str(obj), fname)); continue; }
-                std::string bind = fname;
-                writ::TinyMapView leaf = fnode;
-                if (fnode.has_key(la::VALUE)) {
-                    leaf = map_of(fnode.get(la::VALUE.code));
-                    if (code_of(leaf) == la::PAT_OR && leaf.has_key(la::ITEMS)) {
-                        auto a1 = arr_of(leaf.get(la::ITEMS.code));
-                        if (a1.size() == 1) leaf = map_of(a1.get(0));
-                    }
-                    if (code_of(leaf) != la::PAT_WILD || !leaf.has_key(la::NAME)) {
-                        error(std::format("let pattern over a reference: field '{}' supports a plain "
-                                          "binding only (bind the field and destructure it next)", fname));
-                        continue;
-                    }
-                    bind = std::string(str_of(leaf.get(la::NAME.code)));
-                }
-                auto lf = [&](writ::TinyMapView n, const la::Key& k) {
-                    return n.has_key(k) && n.get(k.code).is_value() && n.get(k.code).as_value<uint8_t>() != 0;
-                };
-                if (bind != "_" && (lf(fnode, la::IS_REF) || lf(fnode, la::IS_MUT) ||
-                                    lf(leaf, la::IS_REF) || lf(leaf, la::IS_MUT)))
-                    modifier_under_ref_scrutinee(bind, rhs_type, /*known_ref=*/true);
-                if (bind == "_") continue;
-                TypeRef rt = make_ref(rm, ftype);
-                define(bind, rt, false);
-                lir::SLet el; el.name = bind; el.type = rt; el.is_mut = false;
-                el.value = builder().addr_of_temp(
-                    builder().field_read(builder().deref(builder().var_ref(tmp, rhs_type), obj), fname, ftype),
-                    rm, rt, lir_schema::expr::BorrowOrigin::Explicit);
-                blk.push_back(make_stmt_emit(node_line_, std::move(el)));
-            }
-        }
-        lir::SBlock sb;
-        sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper
-        sb.body = lir_mirror_block(*cur_prog_, blk);
-        return make_stmt_emit(node_line_, std::move(sb));
-    }
-    if (TypeRef(rhs_type).kind() != LogosType::Kind::Struct &&
-        TypeRef(rhs_type).kind() != LogosType::Kind::ZonedStruct) {
-        // A reference to ANOTHER struct (the same struct took the branch above).
-        TypeRef pte = (TypeRef(rhs_type).kind() == LogosType::Kind::Ref ||
-                       TypeRef(rhs_type).kind() == LogosType::Kind::MutRef) ? TypeRef(rhs_type).pointee()
-                                                                              : TypeRef(nullptr);
-        if (pte && TypeRef(pte).kind() == LogosType::Kind::Struct)
-            error(std::format("let pattern: struct '{}' does not match rhs type '{}'",
-                  str_of(pat_node.get(la::NAME.code)), type_str(rhs_type)));
-        else
-        error(std::format("let <struct-pat> = expr: rhs must be a struct, got '{}'",
-              type_str(rhs_type)));
-        return builder().stmt_expr(std::move(rhs), node_line_);
-    }
-    auto sname = std::string(str_of(pat_node.get(la::NAME.code)));
-    if (sname != std::string_view(TypeRef(rhs_type).struct_name())) {
-        error(std::format("let pattern: struct '{}' does not match rhs type '{}'",
-              sname, type_str(rhs_type)));
-        return builder().stmt_expr(std::move(rhs), node_line_);
-    }
-    // §6.1 union let-pattern (Rust `items.union.pattern.safety`): an
-    // irrefutable `let U { f } = u;` destructure reads `u.f`'s bits through
-    // the named field — same hazard as a `match` arm. The match path gates
-    // this in build_pattern (PAT_STRUCT case); the let path bypasses that
-    // build_pattern and runs through `emit_destruct` directly, so it needs
-    // its own gate here. Also require exactly one named field (no `..`),
-    // mirroring `items.union.pattern.one-field` already enforced for match.
-    {
-        auto [up_pkg, up_si] = find_struct_by_name(sname);
-        (void)up_pkg;
-        if (up_si && up_si->is_union) {
-            if (!inside_unsafe_)
-                error(std::format(
-                    "`let` pattern on union `{}` requires `unsafe` block "
-                    "(Rust `items.union.pattern.safety` — destructure reads "
-                    "the named field's memory)",
-                    sname));
-            // count fields + check for rest in the pattern
-            size_t nf = 0;
-            bool has_rest = false;
-            if (pat_node.has_key(la::ITEMS)) {
-                auto items_av = pat_node.get(la::ITEMS.code);
-                if (items_av.is_pointer()) {
-                    auto fitems = map_of(items_av);
-                    if (fitems.has_key(la::ITEMS)) {
-                        auto fields = arr_of(fitems.get(la::ITEMS.code));
-                        for (uint64_t i = 0; i < fields.size(); ++i) {
-                            auto fav = fields.get(i);
-                            if (!fav.is_pointer()) continue;
-                            auto fn = map_of(fav);
-                            int32_t fc = code_of(fn);
-                            if (fc == la::PAT_REST) has_rest = true;
-                            else if (fc == la::PAT_FIELD) ++nf;
-                        }
-                    }
-                }
-            }
-            if (has_rest)
-                error(std::format(
-                    "`let` pattern on union `{}`: `..` is not allowed "
-                    "(Rust `items.union.pattern.one-field`)",
-                    sname));
-            if (nf != 1)
-                error(std::format(
-                    "`let` pattern on union `{}` must specify exactly one "
-                    "field, got {} (Rust `items.union.pattern.one-field`)",
-                    sname, nf));
-        }
-    }
-    std::vector<lir_view::StmtRef> blk;
-    std::string tmp = std::format("__dst_{}", destruct_counter_++);
-    define(tmp, rhs_type);
-    // E0507 at a destructuring `let`: only a BY-VALUE binding of a move-typed
-    // field moves out. `ref`/`_` exclusions and the refuted wider twins:
-    // PROBES.md 2026-09-02pat §7/§10, 2026-09-02land.
-    // UNOWNED SOURCE (`= *r`): `__dst` is a bit-copy of a place this scope does
-    // NOT own and must drop nothing; an OWNED source makes `__dst` the owner of
-    // every field the pattern does not take. PROBES.md 2026-09-04land root 2.
-    const bool unowned_src_ = is_unowned_move_source(rhs);
-    if (unowned_src_) {
-        std::string bn_;
-        // `ref v` / `_` are both PAT_WILD; IS_REF separates them.
-        auto by_ref_ = [&](TinyMapView n) {
-            return n.has_key(la::IS_REF) && n.get(la::IS_REF.code).is_value() &&
-                   n.get(la::IS_REF.code).as_value<uint8_t>() != 0;
-        };
-        std::function<bool(TinyMapView, TypeRef)> byval_move_;
-        byval_move_ = [&](TinyMapView p, TypeRef rt) -> bool {
-            if (!p.has_key(la::ITEMS)) return false;
-            auto iav = p.get(la::ITEMS.code);
-            if (!iav.is_pointer()) return false;
-            auto fi = map_of(iav);
-            if (!fi.has_key(la::ITEMS)) return false;
-            auto fs = arr_of(fi.get(la::ITEMS.code));
-            std::string sn_(TypeRef(rt).struct_name());
-            for (uint64_t i = 0; i < fs.size(); ++i) {
-                auto fav = fs.get(i);
-                if (!fav.is_pointer()) continue;
-                auto fn_ = map_of(fav);
-                int32_t fc_ = code_of(fn_);
-                // PAT_REST (`..`) names no field and binds nothing.
-                if (fc_ != la::PAT_FIELD &&
-                    !(fc_ == la::PAT_WILD && fn_.has_key(la::NAME))) continue;
-                std::string fname_(str_of(fn_.get(la::NAME.code)));
-                auto ft_ = field_type_of(sn_, fname_, TypeRef(rt).pkg_name());
-                if (!ft_) continue;
-                // The SHORTHAND spelling (`let A { s }` / `let A { ref s }`)
-                // carries the mode on the field node itself.
-                if (by_ref_(fn_)) continue;
-                std::string bind_ = fname_;
-                if (fc_ == la::PAT_FIELD && fn_.has_key(la::VALUE)) {
-                    auto sub_ = map_of(fn_.get(la::VALUE.code));
-                    if (code_of(sub_) == la::PAT_STRUCT)
-                        { if (byval_move_(sub_, ft_)) return true; continue; }
-                    if (code_of(sub_) == la::PAT_WILD) {
-                        if (by_ref_(sub_)) continue;
-                        if (sub_.has_key(la::NAME))
-                            bind_ = std::string(str_of(sub_.get(la::NAME.code)));
-                    }
-                }
-                if (bind_ == "_" || bind_.empty()) continue;
-                if (is_move_type(ft_)) { bn_ = bind_; return true; }
-            }
-            return false;
-        };
-        if (byval_move_(pat_node, rhs_type))
-            error(std::format(
-                "cannot move out of a value behind a reference / out of an "
-                "index (E0507): the pattern binds '{}' by value", bn_));
-    }
-    // `let __dst = rhs` consumes rhs — mark the source moved (lower_let does
-    // this for a plain `let`; this manual SLet must too, else the source AND
-    // the destructured field bindings both drop the same buffer → double-free).
-    if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
-    {
-        lir::SLet sl;
-        sl.name = tmp; sl.type = rhs_type; sl.is_mut = false; sl.destructure_tmp = true;
-        sl.value = std::move(rhs);
-        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-    }
-    // B98: helper that destructures a struct-pattern into the block.
-    // Recursive (handles nested PAT_STRUCT in field values).
-    std::function<void(TinyMapView, const std::string&, TypeRef, bool)> emit_destruct;
-    emit_destruct = [&](TinyMapView pat, const std::string& recv_var, TypeRef recv_type,
-                        bool unowned) {
-        if (!pat.has_key(la::ITEMS)) return;
-        auto items_av = pat.get(la::ITEMS.code);
-        if (!items_av.is_pointer()) return;
-        auto fitems = map_of(items_av);
-        if (!fitems.has_key(la::ITEMS)) return;
-        auto fields = arr_of(fitems.get(la::ITEMS.code));
-        std::string recv_sname(TypeRef(recv_type).struct_name());
-        // A field this pattern does NOT take by value stays the receiver's, so
-        // the receiver's own scope-exit Drop must still run for it.
-        std::vector<std::string> byval_taken_;
-        bool left_behind_ = false;
-        auto is_ref_bind_ = [&](TinyMapView n) {
-            return n.has_key(la::IS_REF) && n.get(la::IS_REF.code).is_value() &&
-                   n.get(la::IS_REF.code).as_value<uint8_t>() != 0;
-        };
-        for (uint64_t i = 0; i < fields.size(); ++i) {
-            auto fav = fields.get(i);
-            if (!fav.is_pointer()) continue;
-            auto fnode = map_of(fav);
-            int32_t fc = code_of(fnode);
-            if (fc == la::PAT_REST) { left_behind_ = true; continue; }
-            if (fc != la::PAT_FIELD) continue;
-            auto fname = std::string(str_of(fnode.get(la::NAME.code)));
-            std::string bind_name = fname;
-            // Pattern variants in field value: PAT_WILD (alias name),
-            // PAT_STRUCT (nested struct destructure), else error.
-            TinyMapView sub{};
-            bool has_sub = false;
-            if (fnode.has_key(la::VALUE)) {
-                sub = map_of(fnode.get(la::VALUE.code));
-                has_sub = true;
-            }
-            const bool bmut = pat_byval_mut(fnode) || (has_sub && pat_byval_mut(sub));
-            if (has_sub && code_of(sub) == la::PAT_WILD && sub.has_key(la::NAME)) {
-                bind_name = std::string(str_of(sub.get(la::NAME.code)));
-                has_sub = false;  // simple alias — treat as name bind
-            }
-            // THE FIELD'S BINDING MODE. `ref v` / `_` / `v` are three different
-            // answers to "who owns this field afterwards"; the shorthand carries
-            // the mode on the field node, the sub-pattern spelling on PAT_WILD.
-            bool by_ref_bind_ = is_ref_bind_(fnode);
-            if (fnode.has_key(la::VALUE)) {
-                auto sv_ = map_of(fnode.get(la::VALUE.code));
-                if (code_of(sv_) == la::PAT_WILD && is_ref_bind_(sv_)) by_ref_bind_ = true;
-            }
-            const bool wild_bind_ = !by_ref_bind_ && bind_name == "_" && !has_sub;
-            // ── D1 round 8 / S0: THE PATTERN PATH DROPPED THE pkg_hint ─────
-            //
-            // THE DEFECT (measured). `let Hs352959f3caf5b795Cur { found, .. } =
-            // c.seek(0u64);` errs «struct '…Cur': unknown field 'found'» on a
-            // PUB field, while the EXPR spelling of the same read (`let cur =
-            // c.seek(0u64); let f: bool = cur.found;`) resolves it. The two
-            // paths call the same lookup with different arity: the expr path
-            // (sema.cpp field_type_of_for_type) passes `struct_t.pkg_name()`,
-            // this one passed two args. Without the hint field_type_of falls
-            // back to find_struct_by_name, which is IMPORT-SCOPE dependent, so
-            // a struct defined in another package — every metaprog-EMITTED
-            // container type — is simply not found. An over-refusal, not a
-            // permissive hole: the receiver's own type already carries the
-            // package, and it is the same fact the expr path reads.
-            auto ft = field_type_of(recv_sname, fname, TypeRef(recv_type).pkg_name());
-            if (!ft) {
-                error(std::format("struct '{}': unknown field '{}'", recv_sname, fname));
-                continue;
-            }
-            // ── D1 round 7 / R7b RESIDUE: FIELD PRIVACY, ONE DOOR DOWN ────
-            //
-            // A PERMISSIVE defect, found because R7b's deferral let a probe
-            // REACH this path for the first time, and independent of it —
-            // MEASURED on a fully RESOLVED cross-package RHS (which never
-            // enters the deferral branch): `let String { data, nbytes, cap } =
-            // s;` compiled (rc=0) while the very same read spelled
-            // `s.nbytes` refuses with «'nbytes' is private to package
-            // 'logos.mem.string'». So privacy was enforced at the field READ
-            // (sema_expr's check_pub_access) and at the struct LITERAL, but a
-            // destructuring `let` walked straight past both. Same check, same
-            // helper, at the third door.
-            {
-                auto [fpkg, fsi] = find_struct_by_name(recv_sname);
-                (void)fpkg;
-                if (fsi)
-                    for (auto& f : fsi->fields)
-                        if (f.name == fname) {
-                            check_pub_access(f.is_pub, fsi->package, fname);
-                            break;
-                        }
-            }
-            // Substitute generic type-args.
-            {
-                auto [pkg, si] = struct_of(TypeRef(recv_type));
-                (void)pkg;
-                if (si && !si->type_params.empty()) {
-                    SemaSubst subst;
-                    auto tas = TypeRef(recv_type).type_args();
-                    for (size_t k = 0; k < si->type_params.size() && k < tas.size(); ++k)
-                        subst[si->type_params[k].name] = tas[k];
-                    ft = subst_type_sema(ft, subst);
-                }
-            }
-            // `_` TAKES NOTHING: emit no binding at all.
-            if (wild_bind_) { left_behind_ = true; continue; }
-            // `ref v` BORROWS: bind `&recv.field`, type `&T` (the rule
-            // `spec/pass/pat_2` states and the by-value read did not hold).
-            if (by_ref_bind_ && !has_sub) {
-                left_behind_ = true;
-                TypeRef rft = make_ref(false, ft);
-                define(bind_name, rft);
-                auto recv = builder().var_ref(recv_var, recv_type);
-                auto fr   = builder().field_read(std::move(recv), fname, ft);
-                lir::SLet sl;
-                sl.name = bind_name; sl.type = rft; sl.is_mut = false;
-                sl.value = builder().addr_of_temp(std::move(fr), false, rft, BorrowOrigin::Explicit);
-                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                continue;
-            }
-            // Emit a let with the field value.
-            std::string fvar = has_sub
-                ? std::format("__dst_{}_{}", destruct_counter_, fname)
-                : bind_name;
-            if (has_sub) ++destruct_counter_;
-            define(fvar, ft, bmut);
-            if (is_move_type(ft)) byval_taken_.push_back(fname);
-            {
-                auto recv = builder().var_ref(recv_var, recv_type);
-                auto fr   = builder().field_read(std::move(recv), fname, ft);
-                lir::SLet sl;
-                sl.name = fvar; sl.type = ft; sl.is_mut = bmut;
-                sl.value = std::move(fr);
-                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-            }
-            // If sub is a nested struct pattern, recurse.
-            if (has_sub && code_of(sub) == la::PAT_STRUCT) {
-                // The nested struct name must match `ft`'s struct.
-                auto sub_sname = str_of(sub.get(la::NAME.code));
-                if (TypeRef(ft).kind() != LogosType::Kind::Struct &&
-                    TypeRef(ft).kind() != LogosType::Kind::ZonedStruct) {
-                    error(std::format("nested pattern: field '{}' is not a struct", fname));
-                    continue;
-                }
-                if (sub_sname != std::string_view(TypeRef(ft).struct_name())) {
-                    error(std::format("nested pattern: expected '{}', got '{}'",
-                        std::string_view(TypeRef(ft).struct_name()), sub_sname));
-                    continue;
-                }
-                emit_destruct(sub, fvar, ft, /*unowned=*/false);
-            } else if (has_sub) {
-                error(std::format(
-                    "let struct-pattern field '{}': nested patterns of this kind not "
-                    "yet supported; bind to a name", fname));
-            }
-        }
-        // WHO OWNS WHAT IS LEFT. Each by-value binding owns its field; the receiver
-        // is marked moved WHOLESALE only when the pattern takes every field by value
-        // or owns nothing to begin with, else only the taken fields are marked and
-        // the receiver's own Drop still runs for the rest. A type with its own `drop`
-        // fn keeps the blanket mark: a partial receiver Drop would call that
-        // destructor on a half-moved value. PROBES.md 2026-09-04land root 2.
-        if (!is_move_type(recv_type)) return;
-        // A pattern that takes NOTHING by value (`let D { id, .. } = d` binding a
-        // Copy field) moves nothing: the receiver keeps all of itself, its own
-        // Drop included. The blanket mark below leaked a Drop type so matched.
-        // (Moving a field out of a Drop type is E0509 — BIR's.)
-        if (!unowned && byval_taken_.empty()) return;
-        if (unowned || !left_behind_ || !drop_fn_for(recv_type).empty()) {
-            mark_moved(recv_var);
-            return;
-        }
-        for (auto& f : byval_taken_) mark_moved(recv_var + "." + f);
+    auto error_count = [&] {
+        size_t n = 0;
+        for (auto& d : result_.diags) n += d.level == Diag::Level::Error;
+        return n;
     };
-    emit_destruct(pat_node, tmp, rhs_type, unowned_src_);
-    lir::SBlock sb;
-    sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
-    sb.body = lir_mirror_block(*cur_prog_, blk);
-    return make_stmt_emit(node_line_, std::move(sb));
+    const size_t errs_before = error_count();
+    lir::Pattern probe = build_pattern(pat_node, rhs_type);
+    // A pattern already refused while it was built (an array of the wrong
+    // length, an unknown field) is not "refutable" on top of it: one error,
+    // as rustc gives one.
+    if (error_count() > errs_before) {
+        bind_pattern_ref(pat_ref_of(probe), rhs_type);
+        return builder().stmt_expr(std::move(rhs), node_line_);
+    }
+    if (!let_pattern_irrefutable_(pat_node, pat_ref_of(probe), rhs_type))
+        return refuse_refutable_let(probe, std::move(rhs), rhs_type);
+    return lower_let_else_core(std::move(rhs), pat_node, TinyMapView{});
 }
 
 // E0005: a refutable pattern where an irrefutable one is required. The names
@@ -4675,6 +3722,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                                        + (j - (size_t)rest_idx - 1);
                             TypeRef ftype = pos < tsi_p->fields.size()
                                             ? tsi_p->fields[pos].type : nullptr;
+                            if (pos < tsi_p->fields.size())   // the privacy door, as the struct pattern's
+                                check_pub_access(tsi_p->fields[pos].is_pub, tsi_p->package, std::to_string(pos));
                             lir::PatFieldBinding fb;
                             fb.field_name = std::to_string(pos);
                             // Default binding mode (spec pat.binding.default-by-ref-mode),
@@ -4716,12 +3765,12 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                         }
                         if (rest_idx < 0 && non_rest != arity)
                             error(std::format(
-                                "tuple-struct pattern '{}': expected {} fields, got {}",
-                                pename, arity, non_rest));
+                                "this pattern has {} field{}, but the corresponding tuple struct '{}' has {} field{} (E0023)",
+                                non_rest, non_rest == 1 ? "" : "s", pename, arity, arity == 1 ? "" : "s"));
                         else if (rest_idx >= 0 && non_rest > arity)
                             error(std::format(
-                                "tuple-struct pattern '{}': {} fields exceed arity {}",
-                                pename, non_rest, arity));
+                                "this pattern has {} field{}, but the corresponding tuple struct '{}' has {} field{} (E0023)",
+                                non_rest, non_rest == 1 ? "" : "s", pename, arity, arity == 1 ? "" : "s"));
                     }
                 }
             }
@@ -7185,6 +6234,19 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         const SemaStructInfo* sinfo = nullptr;
         { auto [sp, si] = find_struct_by_name(sname); sinfo = si; }
         if (!sinfo) { auto [dp, di] = find_datatype_by_name(sname); sinfo = di; }
+        // The scrutinee's OWN struct when the pattern names it: a family type a
+        // metaprogram emitted into another package is not reachable by its bare
+        // name, but it is the type being matched.
+        if (!sinfo) {
+            TypeRef st0 = scrut_type;
+            while (st0 && (TypeRef(st0).kind() == LogosType::Kind::Ref ||
+                           TypeRef(st0).kind() == LogosType::Kind::MutRef) && TypeRef(st0).pointee())
+                st0 = TypeRef(st0).pointee();
+            if (st0 && (TypeRef(st0).kind() == LogosType::Kind::Struct ||
+                        TypeRef(st0).kind() == LogosType::Kind::ZonedStruct) &&
+                TypeRef(st0).struct_name() == sname)
+                if (auto [spk, ssi] = struct_of(TypeRef(st0)); ssi) sinfo = ssi;
+        }
         if (!sinfo) {
             // G152-10: a type alias used as a struct pattern (`type S2 = S;
             // match x { S2 { a, b } => … }`). Resolve the alias to its target
@@ -7204,7 +6266,12 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 }
             }
         }
-        if (!sinfo)
+        // A DEFERRED scrutinee (Error-typed — a factory-backed chain the
+        // post-drain round types for real) may name a struct no round has
+        // emitted yet: not "unknown", not yet known — silent, the names bind at
+        // error_t() and the strict round decides (build_pattern_variant_data's
+        // rule; the let-only destructure door had its own copy).
+        if (!sinfo && !(scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Error))
             error(std::format("struct pattern: unknown struct '{}'", sname));
         // Through references too: `match &p { Q { x } => … }` over `p: P` is E0308
         // (default binding modes peel the reference; the struct must still match).
@@ -7215,8 +6282,8 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (sst && TypeRef(sst).kind() != LogosType::Kind::Error &&
             TypeRef(sst).kind() == LogosType::Kind::Struct &&
             TypeRef(sst).struct_name() != sname && TypeRef(sst).struct_name() != "")
-            error(std::format("struct pattern: '{}' != scrutinee '{}'",
-                  sname, type_str(scrut_type)));
+            error(std::format("mismatched types: expected `{}`, found `{}` (E0308)",
+                  type_str(scrut_type), sname));
         // …and against a value that can never be a struct (a scalar, a tuple,
         // an array, a slice, an enum): rustc E0308.
         if (sst && sinfo) {
@@ -7227,8 +6294,8 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 sk == K::Bool || sk == K::IntLit || sk == K::FloatLit ||
                 sk == K::F32 || sk == K::F64 || (sk >= K::I32 && sk <= K::U128 && sk != K::Bool);
             if (never_struct)
-                error(std::format("struct pattern '{}': the matched value of type '{}' is not a struct",
-                                  sname, type_str(scrut_type)));
+                error(std::format("mismatched types: expected `{}`, found `{}` (E0308)",
+                                  type_str(scrut_type), sname));
         }
         lir::PatStruct ps;
         ps.struct_name = sname;
@@ -7272,9 +6339,16 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         if (sinfo) {
                             bool field_found = false;
                             for (auto& f : sinfo->fields)
-                                if (f.name == fname) { field_found = true; break; }
+                                if (f.name == fname) {
+                                    field_found = true;
+                                    // A pattern NAMES the field as a read does:
+                                    // the same privacy door (a destructuring
+                                    // `let` / match arm walked past it).
+                                    check_pub_access(f.is_pub, sinfo->package, fname);
+                                    break;
+                                }
                             if (!field_found)
-                                error(std::format("struct pattern: '{}' has no field '{}'",
+                                error(std::format("struct `{}` does not have a field named `{}` (E0026)",
                                       sname, fname));
                         }
                         lir::PatFieldBinding pfb;
@@ -7372,7 +6446,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                     sname, ps.fields.size()));
             if (!inside_unsafe_)
                 error(std::format(
-                    "match on union `{}` requires `unsafe` block "
+                    "pattern on union `{}` requires `unsafe` block "
                     "(Rust `items.union.pattern.safety` — pattern "
                     "matching reads the named field's memory)",
                     sname));
@@ -7384,7 +6458,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                 for (auto& pfb : ps.fields)
                     if (pfb.field_name == f.name) { covered = true; break; }
                 if (!covered)
-                    error(std::format("struct pattern: field '{}' not covered (add '..' to ignore remaining fields)",
+                    error(std::format("pattern does not mention field `{}` (E0027; add `..` to ignore the rest)",
                           f.name));
             }
         }
@@ -7439,7 +6513,13 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                                 enode.get(la::IS_REF.code).is_value() &&
                                 enode.get(la::IS_REF.code).as_value<uint8_t>() != 0)
                                 modifier_under_ref_scrutinee(rest_name, scrut_orig, /*known_ref=*/true);
-                            psl.rest.push_back(make_pat_wild(rest_name));
+                            // `mut xs @ ..`: the rest binds mutably (the side-set a binder
+                            // reads, and the pattern's own flag the borrow checker reads).
+                            const bool rest_mut = rest_name != "_" && enode.has_key(la::IS_MUT) &&
+                                enode.get(la::IS_MUT.code).is_value() &&
+                                enode.get(la::IS_MUT.code).as_value<uint8_t>() != 0;
+                            if (current_pat_mut_names_ && rest_mut) current_pat_mut_names_->insert(rest_name);
+                            psl.rest.push_back(make_pat_wild(rest_name, rest_mut));
                             continue;
                         }
                         lir::Pattern sub;   // default binding mode, SLICE door
@@ -7455,15 +6535,15 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
         if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Array && !found_rest) {
             size_t expected = (size_t)TypeRef(scrut_type).arr_size();
             if (psl.prefix.size() != expected)
-                error(std::format("slice pattern: expected {} elements, got {}",
-                      expected, psl.prefix.size()));
+                error(std::format("pattern requires {} elements but array has {} (E0527)",
+                      psl.prefix.size(), expected));
         }
         // S3: for fixed-size arrays with rest, prefix+suffix cannot exceed array size.
         if (scrut_type && TypeRef(scrut_type).kind() == LogosType::Kind::Array && found_rest) {
             size_t arr_size = (size_t)TypeRef(scrut_type).arr_size();
             if (psl.prefix.size() + psl.suffix.size() > arr_size)
-                error(std::format("slice pattern: {} + {} elements exceed array size {}",
-                      psl.prefix.size(), psl.suffix.size(), arr_size));
+                error(std::format("pattern requires at least {} elements but array has {} (E0528)",
+                      psl.prefix.size() + psl.suffix.size(), arr_size));
         }
         // G167-6a: suffix elements after `..` on a dynamic slice ARE supported —
         // codegen indexes them from the runtime length (`len - suf_n + i`) and
@@ -8409,6 +7489,13 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
         // (Slice kind), not an element. Anonymous `_` rest binds nothing.
         // Its ELEMENT type is the raw one: the mode wraps the element BINDING.
         TypeRef rest_slice_t = make_slice_type(elem_raw, sl_default_mut || sl_mut_slice);
+        // Over an array BY VALUE the rest is an ARRAY of what the pattern did
+        // not name (`let [a, rest @ ..] = arr;` — `rest: [T; N-1]`), as Rust
+        // types it: a copy the binding owns, writable when bound `mut`.
+        if (!sl_default_ref && sl_scrut && TypeRef(sl_scrut).kind() == LogosType::Kind::Array &&
+            TypeRef(sl_scrut).arr_size() >= int64_t(v.prefix_count() + v.suffix_count()))
+            rest_slice_t = make_array(elem_raw, uint64_t(TypeRef(sl_scrut).arr_size()) -
+                                                v.prefix_count() - v.suffix_count());
         v.each_rest  ([&](lir_view::PatRef p) { bind_pattern_ref(p, rest_slice_t); });
         v.each_suffix([&](lir_view::PatRef p) { bind_pattern_ref(p, elem_t); });
     } else if (k == ps::Code::Or) {
@@ -10666,7 +9753,8 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
     // still destroy the siblings. A whole-array mark LEAKS every element the pattern does not bind
     // (measured: `[_, y]` over `[D; 2]`). Only a PLAIN named binder marks: a nested destructuring
     // sub-pattern may move only part of its element, and marking the whole element would leak the
-    // rest. A named `rest` binds a sub-slice here, not the elements, so it marks nothing.
+    // rest. A named `rest` over the array by value is an array of the elements it
+    // covers, and moves each out (a rest under a reference binds a sub-slice).
     {
         if (scrut && scrut_type && pat &&
             ((pat.kind() == ps::Code::Slice &&
@@ -10699,6 +9787,11 @@ void SemaChecker::mark_match_scrutinee_moved(const lir::LExprPtr& scrut,
                     if (n >= sc)
                         emit_moved_leaves(sp, base + "." + std::to_string(n - sc + j), et);
                     ++j; });
+                // A named rest over the array BY VALUE owns its elements (it is
+                // an array `[T; n-i-sc]`, bind_pattern_ref): each moves out.
+                if (auto rest = sv.rest())
+                    for (uint64_t k = i; k + sc < n; ++k)
+                        emit_moved_leaves(rest, base + "." + std::to_string(k), et);
                 return;
             }
         }

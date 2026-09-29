@@ -6734,9 +6734,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11740 -> 11740 (+0), NOIMPORTED 7177 -> 7177 (+0), TIERCOMMIT 201 -> 198 (-3) — 2026-09-28: closed squeue rows refcell_replace_noncopy_refused, derive_default_nonpod_field_refused, receiver_chain_temp_dropped_after_borrowed_local_refused joined the nonglob pass half (their gate tests left).
 #                ALL 11740 -> 11741 (+1), NOIMPORTED 7177 -> 7178 (+1), TIERCOMMIT 198 -> 198 (+0) — 2026-09-28: +fail const_fn_not_parsed.
 #                ALL 11741 -> 11741 (+0), NOIMPORTED 7178 -> 7178 (+0), TIERCOMMIT 198 -> 197 (-1) — 2026-09-28: closed squeue inherent_impl_same_method_one_funcinfo_ice (#703) rejoined the nonglob pass half.
+#                ALL 11741 -> 11741 (+0), NOIMPORTED 7178 -> 7178 (+0), TIERCOMMIT 197 -> 196 (-1) — 2026-09-28: closed squeue let_ref_mut_binding_crash (#595) joined the nonglob pass half.
 REGISTRY-ALL         11741
 REGISTRY-NOIMPORTED  7178
-REGISTRY-TIERCOMMIT  197
+REGISTRY-TIERCOMMIT  196
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

@@ -1,1 +1,1 @@
-unknown field 'z'
+struct `Point` does not have a field named `z` (E0026)

@@ -531,8 +531,21 @@ S3.2 (in progress) — one pattern tester, carried sub-patterns.
   for a `!` type) and its dead merge is terminated. A `()` match over a
   hoisted temporary scrutinee dropped the temporary nowhere (leak). 17 pass /
   fail fixtures spelled a value as `{ x; }`; they say `{ x }` now.
-Next: S3.4c's second half — let / let-else on the core's arm phase (temporary
-hoist — squeue let_ref_mut_binding_crash); then S3.3b — or-patterns of binding
+- S3.4c, second half (2026-09-29): every `let PAT = e` lowers through the core's
+  pattern and binding phase (lower_let_else_core, unreachable else) — the
+  976-line per-shape destructure path (flat struct, tuple struct, array,
+  one-variant enum) is gone. A TEMPORARY droppable rhs is owned by a synthetic
+  local under ANY pattern: what the pattern did not take drops at the end of
+  the statement, and a `ref` binder extends it to the block (squeue
+  let_ref_mut_binding_crash closed; `let [x, _] = [mk(5), mk(6)]` dropped
+  nothing of 6). Found through the one door: a struct / tuple-struct pattern
+  never checked FIELD PRIVACY (a destructuring `let` over `String` compiled;
+  match arms too); a named rest over an array BY VALUE is an ARRAY
+  (`rest: [T; N-k]`, owning and moving its elements, `mut` honoured), as Rust
+  types it; a pattern error is one error (no "refutable" on top); the arity,
+  field and type-mismatch sentences are rustc's (E0527/E0528, E0023, E0026,
+  E0027, E0308).
+Next: S3.3b — or-patterns of binding
 alternatives in the tester (guarded arms retry the next alternative,
 alternative-dependent moves), retiring the fan-out, the synthesized route,
 the guard channel and the K4 prologue.

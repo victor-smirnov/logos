@@ -2308,7 +2308,7 @@ private:
     mlir::func::FuncOp memcmp_fn();
     void        bind_ref_name(const std::string& name, mlir::Value slot_ptr, TypeRef ty);
     std::string bind_array_rest(lir_view::PatRef rest, mlir::Type arr_mlir, mlir::Type elem_mlir,
-                                mlir::Value aptr, size_t pre, size_t len);
+                                mlir::Value aptr, size_t pre, size_t len, bool by_value = false);
     void        pat_bind(lir_view::PatRef pat, mlir::Value slot_ptr, TypeRef ty,
                          const std::unordered_map<std::string, mlir::Value>* shared = nullptr);
     // THE ONE PLACE a pattern's NAME is bound to a place. `n` (a PatWild) and

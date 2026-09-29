@@ -1,0 +1,19 @@
+// Closed squeue let_ref_mut_binding_crash (#595): ADR 0030 S3.4c: every let pattern lowers through the match core (lower_let_else_core), and a TEMPORARY droppable rhs is owned by a synthetic local under ANY pattern — dropped at the end of the statement, or (a ref binder) extended to the block, as Rust extends it; the temporary 'let ref mut a = mk(42)' borrows is now dropped at the block's end.
+package let_ref_mut_binding_crash;
+extern fn printf(fmt: *const u8, ...) -> i32;
+static mut DROPS: i64 = 0;
+struct D { name: i64 }
+impl Drop for D {
+    fn drop(self: &mut D) {
+        unsafe { DROPS += 1; printf("drop %ld\n".as_ptr(), self.name); }
+    }
+}
+fn mk(n: i64) -> D { return D{name:n}; }
+fn main() -> i32 {
+    {
+        let ref mut a = mk(42i64);
+        unsafe { printf("mid a=%ld\n".as_ptr(), a.name); }
+    }
+    unsafe { printf("after block\n".as_ptr()); }
+    if unsafe { DROPS } == 1 { 0i32 } else { 1i32 }
+}

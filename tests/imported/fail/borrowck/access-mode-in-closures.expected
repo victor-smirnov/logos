@@ -1,1 +1,1 @@
-cannot move out of a value behind a reference / out of an index (E0507): the pattern binds 'inner' by value
+cannot move out of 's', which is behind a reference
