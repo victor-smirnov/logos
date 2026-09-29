@@ -1070,7 +1070,6 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     pending_closure_capture_drops_.clear();
     pending_closure_deferred_moves_.clear();
     decl_uninit_vars_.clear();  // B8: reset declared-uninit tracking per fn
-    currently_uninit_vars_.clear();  // logos-core 2.7: reset definite-assignment tracker per fn
     infer_solved_.clear();      // local type inference is per function body
     pending_lit_lets_.clear();
     infer_node_vars_.clear();

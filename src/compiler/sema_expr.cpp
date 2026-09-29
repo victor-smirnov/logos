@@ -1070,8 +1070,8 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
         return error_expr();
     }
     // Use after move (E0382) and use of an uninitialised binding (E0381) are
-    // the borrow checker's: it judges them per CFG path. `moved_vars_` /
-    // `currently_uninit_vars_` remain sema's drop-elision bookkeeping.
+    // the borrow checker's: it judges them per CFG path. `moved_vars_`
+    // remains sema's drop-elision bookkeeping.
     // §6.2: reading a `static mut` requires `unsafe` (Rust spec
     // `items.static.mut.safety`). Skip when this var-ref is the LHS
     // of a place-assign (the write site emits its own gate, and we
@@ -2670,7 +2670,6 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // never READS `v` at statement level, which is the compound-assign
     // lowering's site and needs its own name.
     bool sc_fork = (op == "&&" || op == "||");
-    auto uninit_pre = currently_uninit_vars_;
     const auto owned_pre = closure_owned_drop_;
     const size_t hoist_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
     // A comparison's right operand is expected at the LEFT's type (Rust
@@ -2696,8 +2695,6 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // RESTORED after it. Strictly conservative — a name is only ever put BACK
     // into the uninit set, never taken out — and it is the same fork
     // `if` / `match` / loops already carry for this tracker.
-    if (sc_fork)
-        for (auto& n : uninit_pre) currently_uninit_vars_.insert(n);
     if (sc_fork && (moved_vars_ != rhs_pre || closure_owned_drop_ != owned_pre)) {
         size_t rm = flag_clear_log_.size();
         std::vector<CondMoveBranch> rb;
@@ -20218,99 +20215,31 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     lir::LExprPtr then_val = error_expr();
     lir::LExprPtr else_val = error_expr();
 
-    // #118 R2 — per-branch move tracking, the same save / restore / union
-    // merge `lower_match_expr` and `lower_if` (stmt form) already run. The
-    // arms are ALTERNATIVES: each starts from the pre-state, and the merge is
-    // the union over the non-diverging ones (a var moved on any reaching path
-    // is maybe-moved after).
-    auto ifx_pre_moves = moved_vars_;
-    const auto ifx_owned_pre = closure_owned_drop_;   // move-closure releases, merged below
-    std::set<std::string> ifx_owned_then = ifx_owned_pre, ifx_owned_else = ifx_owned_pre;
-    std::set<std::string> ifx_post_moves;
-    bool ifx_any_non_diverging = false;
-    std::set<std::string> ifx_then_moves, ifx_else_moves;
-    // #118 — the two arms as reaching paths, for drop-flag elaboration.
-    std::vector<CondMoveBranch> ifx_reaching;
-    size_t ifx_then_mark = flag_clear_log_.size(), ifx_then_end = ifx_then_mark;
-    size_t ifx_else_mark = ifx_then_mark,          ifx_else_end = ifx_then_mark;
-    bool ifx_then_div = false, ifx_else_div = false;
-    auto ifx_merge = [&](const lir::LExprPtr& v, std::set<std::string>& into) {
-        into = moved_vars_;
-        if (v && TypeRef(expr_type(v)).kind() == LogosType::Kind::Never) return true;
-        ifx_any_non_diverging = true;
-        for (auto& m : moved_vars_) ifx_post_moves.insert(m);
-        return false;
+    // Per-branch move tracking: the one join (JoinBuilder). The arms are
+    // ALTERNATIVES; a branch value is a MOVE (lower_block_expr leaves an outer
+    // local's mark to the consumer, as a match arm marks its own).
+    JoinBuilder join(*this);
+    auto lower_arm = [&](writ::TinyMapView n) -> lir::LExprPtr {
+        lir::LExprPtr v = code_of(n) == la::BLOCK ? lower_block_expr(n) : lower_expr_temp_scoped(n);
+        if (v && TypeRef(expr_type(v)).kind() != LogosType::Kind::Error &&
+            TypeRef(expr_type(v)).kind() != LogosType::Kind::Never)
+            mark_moved_in_expr_recursive(expr_ref_of(v));
+        return v;
     };
-
     if (node.has_key(la::THEN)) {
-        auto then_node = map_of(node.get(la::THEN.code));
-        moved_vars_ = ifx_pre_moves;
-        ifx_then_mark = flag_clear_log_.size();
-        if (code_of(then_node) == la::BLOCK) {
-            then_val = lower_block_expr(then_node);
-            // #118 R2: the branch value is a MOVE (lower_block_expr leaves an
-            // outer local's mark to the consumer, as a match arm marks its own).
-            if (then_val && TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Error &&
-                TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Never)
-                mark_moved_in_expr_recursive(expr_ref_of(then_val));
-        } else {
-            then_val = lower_expr_temp_scoped(then_node);
-            if (then_val &&
-                TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Error &&
-                TypeRef(expr_type(then_val)).kind() != LogosType::Kind::Never)
-                mark_moved_in_expr_recursive(expr_ref_of(then_val));
-        }
-        ifx_then_end = flag_clear_log_.size();
-        ifx_then_div = ifx_merge(then_val, ifx_then_moves);
-        ifx_owned_then = closure_owned_drop_;
-        closure_owned_drop_ = ifx_owned_pre;
+        join.begin();
+        then_val = lower_arm(map_of(node.get(la::THEN.code)));
+        join.end(nullptr, &then_val, value_exit_kind(then_val));
     } else {
-        ifx_then_moves = ifx_pre_moves;
-        ifx_any_non_diverging = true;
-        for (auto& m : ifx_pre_moves) ifx_post_moves.insert(m);
+        join.fall_through_unchanged();
     }
-
-    auto else_node = map_of(node.get(la::ELSE.code));
-    moved_vars_ = ifx_pre_moves;
-    ifx_else_mark = flag_clear_log_.size();
-    if (code_of(else_node) == la::BLOCK) {
-        else_val = lower_block_expr(else_node);
-        if (else_val && TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Error &&
-            TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Never)
-            mark_moved_in_expr_recursive(expr_ref_of(else_val));   // #118 R2, as the then branch
-    } else {
-        else_val = lower_expr_temp_scoped(else_node);
-        if (else_val &&
-            TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Error &&
-            TypeRef(expr_type(else_val)).kind() != LogosType::Kind::Never)
-            mark_moved_in_expr_recursive(expr_ref_of(else_val));
-    }
-    ifx_else_end = flag_clear_log_.size();
-    ifx_else_div = ifx_merge(else_val, ifx_else_moves);
-    ifx_owned_else = closure_owned_drop_;
-
-    moved_vars_ = ifx_any_non_diverging ? ifx_post_moves : ifx_pre_moves;
-
-    // #118 — a source moved by only ONE arm keeps its destructor, guarded.
-    // Both arms are value positions, so the clear is appended by rebuilding
-    // the arm value (`append_stmt_to_value`); this must happen BEFORE the
-    // result-type unification below reads `expr_type(then_val)`, and the
-    // rebuild preserves that type exactly.
-    // #122 — a `break`/`continue` arm is DIVERGING but still REACHING: it
-    // leaves the if-expression without a value, yet control arrives at the
-    // enclosing frame's scope-exit drops through the loop edge. Excluding it
-    // left `reaching` with one entry, `elaborate_cond_moves` bailed, and the
-    // union merge statically suppressed the drop the break path still needed
-    // (`loop { let k = if c { x } else { break; }; … }` — 1 created, 0
-    // dropped). Only a `return` arm is genuinely non-reaching; its moves are
-    // settled at its own unwind. Mirrors lower_if's `branch_div_kind != 1`.
-    if (!ifx_then_div || expr_arm_div_kind(then_val) == 2)
-        ifx_reaching.push_back({nullptr, &then_val, ifx_then_moves,
-                                ifx_then_mark, ifx_then_end, ifx_owned_then});
-    if (!ifx_else_div || expr_arm_div_kind(else_val) == 2)
-        ifx_reaching.push_back({nullptr, &else_val, ifx_else_moves,
-                                ifx_else_mark, ifx_else_end, ifx_owned_else});
-    elaborate_cond_moves(ifx_pre_moves, ifx_reaching, &ifx_owned_pre);
+    join.begin();
+    else_val = lower_arm(map_of(node.get(la::ELSE.code)));
+    join.end(nullptr, &else_val, value_exit_kind(else_val));
+    // The flag clears are appended by rebuilding an arm value
+    // (`append_stmt_to_value`), BEFORE the result-type unification below reads
+    // `expr_type(then_val)`; the rebuild preserves that type.
+    join.finish();
 
     // Determine result type: pick the more concrete type when IntLit vs concrete int.
     // A diverging (Never) branch contributes no type — the if-expression's type

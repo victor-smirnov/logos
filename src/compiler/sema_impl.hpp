@@ -4511,7 +4511,6 @@ private:
     // (the ones whose tail is a return/break/continue/panic) contribute nothing.
     // Loops are conservative: vars assigned only inside the body do not become
     // init at the outer scope. Closures get their own (saved+restored) tracker.
-    std::set<std::string> currently_uninit_vars_;
     // G156-7: vars moved into a `move` closure that nonetheless must still be
     // DROPPED at their scope exit. A move closure's env stores a POINTER to the
     // source's storage (borrows it; closures have no capture drop-glue), and the
@@ -5038,6 +5037,66 @@ private:
                               const std::set<std::string>* owned_pre = nullptr);
     void elaborate_cond_releases(const std::set<std::string>& owned_pre,
                                  std::vector<CondMoveBranch>& reaching);
+
+    // ── ONE JOIN (ADR 0030 S5.3) ─────────────────────────────────────────
+    // Every construct whose branches rejoin — `if` (statement and expression),
+    // `match` — tracks moves the same way: each branch starts from the state
+    // before the construct; a branch that falls through contributes its moves
+    // to the union; one that `return`s leaves the frame (no drop point sees
+    // it); one that `break`s / `continue`s reaches the loop's drops, so it
+    // still counts for the drop flags; the flags are then elaborated over the
+    // reaching branches. The branch lists / arm values it records must outlive
+    // `finish()`.
+    enum class BranchExit { FallsThrough, Returns, LeavesLoop };
+    struct JoinBuilder {
+        SemaChecker& s;
+        std::set<std::string> pre, post;
+        std::set<std::string> owned_pre;
+        std::vector<CondMoveBranch> reaching;
+        bool any_falls_through = false;
+        size_t mark = 0;
+        explicit JoinBuilder(SemaChecker& sc)
+            : s(sc), pre(sc.moved_vars_), owned_pre(sc.closure_owned_drop_) {}
+        void begin() {
+            s.moved_vars_ = pre;
+            mark = s.flag_clear_log_.size();
+        }
+        void end(std::vector<lir_view::StmtRef>* blk, lir::LExprPtr* val, BranchExit ex) {
+            if (ex != BranchExit::Returns)
+                reaching.push_back({blk, val, s.moved_vars_, mark, s.flag_clear_log_.size(),
+                                    s.closure_owned_drop_});
+            if (ex == BranchExit::FallsThrough) {
+                any_falls_through = true;
+                post.insert(s.moved_vars_.begin(), s.moved_vars_.end());
+            }
+            s.closure_owned_drop_ = owned_pre;
+        }
+        // A path that runs no branch (an `if` without `else`).
+        void fall_through_unchanged() {
+            size_t m = s.flag_clear_log_.size();
+            reaching.push_back({nullptr, nullptr, pre, m, m, owned_pre});
+            any_falls_through = true;
+            post.insert(pre.begin(), pre.end());
+        }
+        void merge() { s.moved_vars_ = any_falls_through ? post : pre; }
+        void elaborate() { s.elaborate_cond_moves(pre, reaching, &owned_pre); }
+        void finish() { merge(); elaborate(); }
+    };
+    // An arm VALUE's exit: `!` is a `return` (or panic) unless it leaves a loop.
+    BranchExit value_exit_kind(const lir::LExprPtr& v) const {
+        if (!v || TypeRef(expr_type(v)).kind() != LogosType::Kind::Never) return BranchExit::FallsThrough;
+        return expr_arm_div_kind(v) == 2 ? BranchExit::LeavesLoop : BranchExit::Returns;
+    }
+    BranchExit block_exit_kind(const std::vector<lir_view::StmtRef>& b) const {
+        if (b.empty()) return BranchExit::FallsThrough;
+        auto br = stmt_ref_of(b.back());
+        if (!br) return BranchExit::FallsThrough;
+        auto k = br.kind();
+        if (k == lir_schema::stmt::Code::Return) return BranchExit::Returns;
+        if (k == lir_schema::stmt::Code::Break || k == lir_schema::stmt::Code::Continue)
+            return BranchExit::LeavesLoop;
+        return BranchExit::FallsThrough;
+    }
 
     // #118 — append a statement AFTER an expression's evaluation without
     // changing its value: `{ let t = <v>; <s>; t }`. Used to clear a drop flag

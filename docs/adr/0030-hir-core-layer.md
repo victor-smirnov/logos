@@ -692,8 +692,16 @@ of 09-26 were lost; the battery is new).
   builds it (two ifexpr/match-arm fixtures SIGSEGVed in the first cut). A third
   battery (closures, collections, pattern partial moves, ten shapes) agreed
   with rustc throughout. Fixture own_uninit_let_flag.
-Next: S5.3 — `consume(place)` / join as one code (the per-construct
-save/restore/union copies), then S6.
+- S5.3 (2026-09-29): ONE join. `JoinBuilder` (begin / end with the branch's
+  exit — falls through, returns, leaves the loop / merge / elaborate) is the
+  move bookkeeping of the statement `if`, the expression `if` and `match`;
+  their three hand copies of save / restore / union / reaching-branch lists
+  are gone (a `match` guard's moves widen the join's pre-state; its arm values
+  are addressed after the arm vector is stable). `currently_uninit_vars_` —
+  the retired sema E0381's tracker, written in 12 places and read by none —
+  is deleted with its loop guards and the `&&`/`||` fork. −151 lines; the
+  36-program drop-counter battery agrees with rustc before and after.
+Next: S6 — HIR destructuring assignment; C-PLC in sema and mlir.
 
 ## L0 status (2026-09-27)
 

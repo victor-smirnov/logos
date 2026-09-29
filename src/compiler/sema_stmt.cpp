@@ -2065,7 +2065,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // B8: a `let x = v` (with value) re-declaration clears any stale
         // declared-uninit mark from an earlier `let x: T;` shadow.
         decl_uninit_vars_.erase(std::string(name));
-        currently_uninit_vars_.erase(std::string(name));  // logos-core 2.7
         pending_closure_capture_drops_.clear();  // claim only OUR direct closure RHS
         pending_closure_deferred_moves_.clear();
         auto rhs_node = map_of(node.get(la::VALUE.code));
@@ -2112,7 +2111,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // NOT drop-before-replace (the slot holds no live value yet, and a
         // conditional path may leave it uninit).
         decl_uninit_vars_.insert(std::string(name));
-        currently_uninit_vars_.insert(std::string(name));  // logos-core 2.7
         rhs      = nullptr;
         rhs_type = ann;
     } else {
@@ -3243,12 +3241,6 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
     }
     // Re-assignment revives the variable (the old value was already consumed).
     moved_vars_.erase(std::string(name));
-    // logos-core 2.7: definite-assignment — an assignment to `name` initialises
-    // the var at this point (no longer "currently uninit"). decl_uninit_vars_
-    // stays set (it's a permanent property of the declaration, governing the
-    // drop_old hint at every reassignment); only currently_uninit_vars_ tracks
-    // the CURRENT init state and is what var-read uses.
-    currently_uninit_vars_.erase(std::string(name));
     // RHS source consumed: `dst = src` for a move-type src moves src's bytes
     // into dst; src's scope-exit drop must be suppressed, else we double-free.
     track_write_move(rhs);
@@ -7149,77 +7141,20 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
         cond = error_expr();
     }
 
-    // Per-branch move tracking — same divergence-aware merge as match.
-    auto if_pre_moves = moved_vars_;
-    std::set<std::string> if_post_moves;
-    bool if_any_non_diverging = false;
-    // #118 — divergence is not one thing. `return` leaves the function, so the
-    // branch's moves never reach any later drop point and its state is simply
-    // discarded. `break`/`continue` leave the LOOP: control still arrives at
-    // the enclosing frame's scope-exit drops, so a move on that path must
-    // still be accounted for (cell H of the sweep: `if c { consume(a); break; }`
-    // double-freed `a` because this predicate lumped the two together).
-    //   0 = falls through   1 = return   2 = break/continue
-    auto branch_div_kind = [&](const std::vector<lir_view::StmtRef>& b) -> int {
-        if (b.empty()) return 0;
-        auto br = stmt_ref_of(b.back());
-        if (!br) return 0;
-        auto k = br.kind();
-        if (k == lir_schema::stmt::Code::Return) return 1;
-        if (k == lir_schema::stmt::Code::Break ||
-            k == lir_schema::stmt::Code::Continue) return 2;
-        return 0;
-    };
-    auto branch_diverges = [&](const std::vector<lir_view::StmtRef>& b) {
-        return branch_div_kind(b) != 0;
-    };
-    std::set<std::string> then_moves = if_pre_moves, else_moves = if_pre_moves;
-    int then_div = 0, else_div = 0;
-    size_t then_mark = flag_clear_log_.size(), then_end = then_mark;
-    size_t else_mark = then_mark,              else_end = then_mark;
-
-    // logos-core 2.7: definite-assignment merge across the if's branches.
-    // Snapshot before each branch; after non-diverging branches, union their
-    // currently_uninit_vars_ into if_post_uninit (var is uninit at merge if
-    // uninit on ANY incoming non-diverging path). Diverging branches
-    // contribute nothing (their tail is return/break/continue/panic so
-    // control doesn't fall through to the merge).
-    auto if_pre_uninit = currently_uninit_vars_;
-    std::set<std::string> if_post_uninit;
-    bool if_post_uninit_initialized = false;
-
-    const auto owned_pre = closure_owned_drop_;   // move-closure capture releases, merged below
-    std::set<std::string> owned_then = owned_pre, owned_else = owned_pre;
+    // Per-branch move tracking: the one join (JoinBuilder).
+    JoinBuilder join(*this);
     std::vector<lir_view::StmtRef> then_block;
     if (node.has_key(la::THEN)) {
-        moved_vars_ = if_pre_moves;
-        currently_uninit_vars_ = if_pre_uninit;
+        join.begin();
         lower_block(map_of(node.get(la::THEN.code))).each_stmt([&](lir_view::StmtRef s){ then_block.push_back(s); });
-        then_moves = moved_vars_;
-        then_end   = flag_clear_log_.size();
-        then_div = branch_div_kind(then_block);
-        owned_then = closure_owned_drop_;
-        closure_owned_drop_ = owned_pre;
-        if (!branch_diverges(then_block)) {
-            if_any_non_diverging = true;
-            for (auto& m : moved_vars_) if_post_moves.insert(m);
-            for (auto& v : currently_uninit_vars_) if_post_uninit.insert(v);
-            if_post_uninit_initialized = true;
-        }
+        join.end(&then_block, nullptr, block_exit_kind(then_block));
     } else {
-        // No then-block ≡ no body executed; behaves as non-diverging (just fall-through).
-        if_any_non_diverging = true;
-        for (auto& m : if_pre_moves) if_post_moves.insert(m);
-        for (auto& v : if_pre_uninit) if_post_uninit.insert(v);
-        if_post_uninit_initialized = true;
+        join.fall_through_unchanged();
     }
-
     std::optional<std::vector<lir_view::StmtRef>> else_opt;
     if (node.has_key(la::ELSE)) {
         auto else_node = map_of(node.get(la::ELSE.code));
-        moved_vars_ = if_pre_moves;
-        currently_uninit_vars_ = if_pre_uninit;
-        else_mark = flag_clear_log_.size();
+        join.begin();
         if (code_of(else_node) == la::BLOCK) {
             std::vector<lir_view::StmtRef> eb;
             lower_block(else_node).each_stmt([&](lir_view::StmtRef s){ eb.push_back(s); });
@@ -7228,49 +7163,15 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
             // else if: wrap the single statement in a block. It is an `if`, or
             // the MATCH an `else if let` became in the HIR pass — dispatch by
             // code, not by assuming an `if`.
-            auto inner_if = lower_stmt(else_node);
             std::vector<lir_view::StmtRef> b;
-            b.push_back(std::move(inner_if));
+            b.push_back(lower_stmt(else_node));
             else_opt = std::move(b);
         }
-        else_moves = moved_vars_;
-        else_end   = flag_clear_log_.size();
-        else_div = branch_div_kind(*else_opt);
-        owned_else = closure_owned_drop_;
-        closure_owned_drop_ = owned_pre;
-        if (!branch_diverges(*else_opt)) {
-            if_any_non_diverging = true;
-            for (auto& m : moved_vars_) if_post_moves.insert(m);
-            for (auto& v : currently_uninit_vars_) if_post_uninit.insert(v);
-            if_post_uninit_initialized = true;
-        }
+        join.end(&*else_opt, nullptr, block_exit_kind(*else_opt));
     } else {
-        // Else absent ≡ control falls through with pre-state.
-        if_any_non_diverging = true;
-        for (auto& m : if_pre_moves) if_post_moves.insert(m);
-        for (auto& v : if_pre_uninit) if_post_uninit.insert(v);
-        if_post_uninit_initialized = true;
+        join.fall_through_unchanged();
     }
-    moved_vars_ = if_any_non_diverging ? std::move(if_post_moves) : std::move(if_pre_moves);
-    currently_uninit_vars_ = if_any_non_diverging && if_post_uninit_initialized
-        ? std::move(if_post_uninit) : std::move(if_pre_uninit);
-
-    // #118 — arm drop flags for locals whose ownership now depends on which
-    // branch ran. Must come AFTER the merge above (so `moved_vars_` is the
-    // union the drop walk will consult) and BEFORE the block is mirrored.
-    {
-        std::vector<CondMoveBranch> reaching;
-        if (then_div != 1)
-            reaching.push_back({&then_block, nullptr, then_moves, then_mark, then_end, owned_then});
-        if (else_opt) {
-            if (else_div != 1)
-                reaching.push_back({&*else_opt, nullptr, else_moves, else_mark, else_end, owned_else});
-        } else {
-            // No `else` ≡ a fall-through path that moves (and releases) nothing.
-            reaching.push_back({nullptr, nullptr, if_pre_moves, then_mark, then_mark, owned_pre});
-        }
-        elaborate_cond_moves(if_pre_moves, reaching, &owned_pre);
-    }
+    join.finish();
 
     lir::SIf sif;
     sif.cond  = std::move(cond);
@@ -7282,13 +7183,6 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
 
 lir_view::StmtRef SemaChecker::lower_for(TinyMapView node) {
     const uint32_t for_line = node_line_;  // own line; body lowering moves node_line_
-    // logos-core 2.7: a for may not run at all; restore tracker on exit.
-    struct ForUninitGuard {
-        std::set<std::string>& slot;
-        std::set<std::string>  saved;
-        ForUninitGuard(std::set<std::string>& s) : slot(s), saved(s) {}
-        ~ForUninitGuard() { slot = std::move(saved); }
-    } _uninit_guard(currently_uninit_vars_);
     auto var_name = str_of(node.get(la::NAME.code));
     // `for mut i in lo..hi`: the header's binding modifier (grammar IS_MUT).
     bool hdr_mut = node.has_key(la::IS_MUT) && node.get(la::IS_MUT.code).is_value() &&
@@ -7382,13 +7276,6 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
     // (it was dropped here, so `break 'l` was "label not in scope").
     std::string my_label = std::move(pending_loop_label_);
     pending_loop_label_.clear();
-    // logos-core 2.7: for-each may not run at all; restore tracker on exit.
-    struct ForEachUninitGuard {
-        std::set<std::string>& slot;
-        std::set<std::string>  saved;
-        ForEachUninitGuard(std::set<std::string>& s) : slot(s), saved(s) {}
-        ~ForEachUninitGuard() { slot = std::move(saved); }
-    } _uninit_guard(currently_uninit_vars_);
     // G-CONF-1: `for PATTERN in iter`. A bare-ident loop var arrives as NAME
     // (fast path); a destructuring pattern (`for (a,b) in v`) arrives as PAT.
     // Bind a synthetic element var and destructure the pattern from it as a
@@ -8022,7 +7909,6 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
     // logos-core 2.7: loops are CONSERVATIVE — the body may run zero times,
     // so any var initialised only inside the body must stay "uninit" at the
     // outer scope. Snapshot pre-state; restore after to discard body inits.
-    auto loop_pre_uninit = currently_uninit_vars_;
     if (node.has_key(la::BODY)) {
         ++loop_depth_;
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
@@ -8038,7 +7924,6 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
         if (!my_label.empty()) active_loop_labels_.pop_back();
         --loop_depth_;
     }
-    currently_uninit_vars_ = std::move(loop_pre_uninit);
     // `loop { /* no break */ }` diverges: its expression form types as `!`
     // (logos-core 1.1). Communicated to the caller via last_loop_diverged_.
     last_loop_diverged_ = !frame_break_reached;
@@ -10286,20 +10171,12 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
         //   match it.next() { None => return acc, Some(v) => acc = f(acc, v) }
         // — and the post-match state is the union over the arms that fall
         // through (a variable moved on any falling-through path is moved).
-        auto pre_moves = moved_vars_;
-        const auto owned_pre_m = closure_owned_drop_;   // move-closure releases, merged per arm
+        JoinBuilder join(*this);   // the one join (S5.3)
         // Variants an EARLIER arm could match (for variant-exact payload moves).
         std::set<int64_t> earlier_discs; bool earlier_any = false;
         const size_t exact_mark = exact_variant_moves_.size();
-        std::set<std::string> post_moves;
-        auto pre_uninit = currently_uninit_vars_;
-        std::set<std::string> post_uninit;
-        bool post_uninit_initialized = false;
-        bool any_non_diverging = false;
-        // #118 — per-arm conditional-move bookkeeping: each arm that REACHES the
-        // enclosing frame's drops is one branch, its body (or value) the place a
-        // flag clear is spliced into.
-        std::vector<CondMoveBranch> arm_branches;
+        // #118 — each arm that REACHES the enclosing frame's drops is one branch
+        // of the join; its value is the place a flag clear is spliced into.
         std::vector<size_t> arm_slot;
         // Each arm is lowered at its own line: the guard is an expression, not
         // a statement, so nothing else moves node_line_ off the match's line.
@@ -10309,10 +10186,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             if (code_of(arm) != la::MATCH_ARM) continue;
             if (uint32_t al = get_line(arm)) node_line_ = al;
 
-            moved_vars_ = pre_moves;
-            closure_owned_drop_ = owned_pre_m;
-            currently_uninit_vars_ = pre_uninit;
-            size_t arm_clear_mark = flag_clear_log_.size();   // #118
+            join.begin();
 
             // Synthesized guard for Writ patterns (scalar + structural).
             lir::LExprPtr synth_guard = nullptr;
@@ -10452,7 +10326,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                     gb.push_back({nullptr, &*guard, moved_vars_, gm, gm});
                     gb.push_back({nullptr, nullptr, guard_pre, gm, gm});
                     elaborate_cond_moves(guard_pre, gb);
-                    for (auto& gmv_ : moved_vars_) pre_moves.insert(gmv_);
+                    join.pre.insert(moved_vars_.begin(), moved_vars_.end());
                 }
             }
             // The synthesized Writ guard goes FIRST, so `&&` short-circuits the
@@ -10656,29 +10530,17 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             out.value = std::move(val);
             out.pat = std::move(pat);
             out.guard = std::move(guard);
-            if (div == 0) {
-                any_non_diverging = true;
-                for (auto& m : moved_vars_) post_moves.insert(m);
-                for (auto& v : currently_uninit_vars_) post_uninit.insert(v);
-                post_uninit_initialized = true;
-            }
-            if (div != 1) {
-                arm_branches.push_back({nullptr, nullptr, moved_vars_,
-                                        arm_clear_mark, flag_clear_log_.size(), closure_owned_drop_});
-                arm_slot.push_back(mc.arms.size());
-            }
+            join.end(nullptr, nullptr, div == 0 ? BranchExit::FallsThrough
+                                     : div == 1 ? BranchExit::Returns : BranchExit::LeavesLoop);
+            if (div != 1) arm_slot.push_back(mc.arms.size());
             mc.arms.push_back(std::move(out));
         }
-        // Merge the per-arm contributions.
-        auto pre_moves_kept = pre_moves;   // #118: the ternary moves from pre_moves
-        moved_vars_ = any_non_diverging ? std::move(post_moves) : std::move(pre_moves);
-        currently_uninit_vars_ = (any_non_diverging && post_uninit_initialized)
-            ? std::move(post_uninit) : std::move(pre_uninit);
-        // #118 — arm the flags; `mc.arms` is stable now, so an arm's body (or
-        // value) is addressed and rebuilt in place.
-        for (size_t k = 0; k < arm_branches.size(); ++k) {
-            arm_branches[k].val = &mc.arms[arm_slot[k]].value;
-        }
+        join.merge();
+        // #118 — arm the flags; `mc.arms` is stable now, so an arm's value is
+        // addressed and rebuilt in place.
+        for (size_t k = 0; k < join.reaching.size(); ++k)
+            join.reaching[k].val = &mc.arms[arm_slot[k]].value;
+        auto& arm_branches = join.reaching;
         // Variant-exact payload moves are moved on EVERY path (static) — if
         // still moved at the end of an arm that moved them.
         for (size_t xi = exact_mark; xi < exact_variant_moves_.size(); ++xi) {
@@ -10690,7 +10552,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             for (auto& b : arm_branches) b.moves.insert(xp);
         }
         exact_variant_moves_.resize(exact_mark);
-        elaborate_cond_moves(pre_moves_kept, arm_branches, &owned_pre_m);
+        join.elaborate();
     }
 
     // Exhaustiveness: ONE verdict, the usefulness matrix (S3.1); the LIR-level
