@@ -50,6 +50,8 @@ impl Copy for f32   {}
 impl Copy for f64   {}
 impl Copy for bool  {}
 impl Copy for char  {}
+// `str` is the BORROWED string slice (Rust's `&str`), which is Copy.
+impl Copy for str   {}
 
 // Tuples of Copy / Clone elements are Copy / Clone (Rust's per-arity impls).
 impl<A: Copy, B: Copy> Copy for (A, B) {}

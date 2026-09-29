@@ -239,6 +239,12 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     for (auto& fn : in_.functions)
         if (fn && !fn.traitdecl_of().empty()) out_.trait_decls.push_back(fn);
     for (auto& fn : in_.trait_decls) out_.trait_decls.push_back(fn);
+    for (auto& sd : in_.structs)
+        if (sd && !sd.type_params_empty())
+            sd.each_method([&](lir_view::FunctionView m) {
+                if (m.impl_target_pattern(in_.type_pool.impl())) out_.method_templates.push_back(m);
+            });
+    for (auto& fn : in_.method_templates) out_.method_templates.push_back(fn);
     out_.impls               = std::move(in_.impls);
     out_.dispatch_entries    = std::move(in_.dispatch_entries);
     out_.inst_annotations    = std::move(in_.inst_annotations);

@@ -445,7 +445,5 @@ if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scru
 
 let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
 
-inherent_impl_same_method_one_funcinfo_ice 3 tests/soundness/open/inherent_impl_same_method_one_funcinfo_ice refuses
-
-# TOTAL 135
-# SYNC-HASH 96003873c3764edb90f1f901f85cdbf4
+# TOTAL 134
+# SYNC-HASH 265e07cc4af7161b57d9a55803f73ed6

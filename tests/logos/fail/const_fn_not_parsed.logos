@@ -1,0 +1,6 @@
+// `const fn` is a named exception to the Rust-superset grammar (spec grammar.rust-superset): Logos has no const
+// evaluation, compile-time values go through metacall. Parsing the qualifier and dropping it gave Rust's
+// syntax another meaning (a plain fn, callable nowhere a const is required), so it is not parsed.
+package const_fn_not_parsed;
+const fn sq(x: i64) -> i64 { x * x }
+fn main() -> i32 { sq(3) as i32 }

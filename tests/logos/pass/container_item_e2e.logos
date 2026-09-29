@@ -29,7 +29,7 @@ impl<T> VecCtr<T> {
     // UNBOUNDED — the canonical `container Vector<T> for VecCtr<T>` surface
     // is exercised verbatim; a bounded backing is the conuco fixture's job.
     pub fn get(self: &VecCtr<T>, i: i64) -> T {
-        unsafe { return *self.buf.at_const(i); }
+        unsafe { let p: *const T = self.buf.at_const(i); return logos.lang.ptr::read(p); }
     }
     pub fn push(self: &mut VecCtr<T>, v: T) { self.buf.push(v); }
 }

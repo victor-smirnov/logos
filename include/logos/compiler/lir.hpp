@@ -862,6 +862,10 @@ struct LProgram {
     // carried beside `functions` for the borrow checker — generic over `Self`,
     // they are no function codegen emits. Pre-mono they are in `functions`.
     std::vector<LFunctionPtr>    trait_decls;
+    // Post-mono: the METHOD TEMPLATES of generic structs (their impl target
+    // pattern free). The borrow checker reads a call's signature from one when
+    // mono left the call's instance to codegen.
+    std::vector<LFunctionPtr>    method_templates;
     std::vector<lir_view::ImplView> impls;
     std::vector<lir_view::InstAnnotView> inst_annotations; // explicit instantiation declarations (Stage E: decl mirrors)
     std::vector<lir_view::DispatchEntryView> dispatch_entries; // tag-dispatch table entries (Stage E: decl mirrors)

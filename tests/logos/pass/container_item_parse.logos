@@ -18,7 +18,7 @@ impl<T> VecCtr<T> {
     // Bitwise-copy read (Vec::get's own mechanics) — keeps the backing (and
     // the canonical container declaration) UNBOUNDED.
     pub fn get(self: &VecCtr<T>, i: i64) -> T {
-        unsafe { return *self.buf.at_const(i); }
+        unsafe { let p: *const T = self.buf.at_const(i); return logos.lang.ptr::read(p); }
     }
 }
 

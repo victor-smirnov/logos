@@ -1,10 +1,10 @@
-// Rust item syntax the grammar refused: `const fn` / `const unsafe fn`, `extern "C" fn` DEFINITIONS, `pub(crate)` /
+// Rust item syntax the grammar refused: `extern "C" fn` DEFINITIONS, `pub(crate)` /
 // `pub(self)` / `pub(in path)` (on fields too), a const-generic default, a `where` clause on a trait and on a GAT,
 // a trailing comma in `where`, `&'a self` / `&'a mut self`, and `unsafe extern "C" fn(..)` pointer types.
 package rust_item_syntax;
 use logos.std.fmt;
-pub const fn sq(x: i64) -> i64 { x * x }
-const unsafe fn raw_add(a: i64, b: i64) -> i64 { a + b }
+pub fn sq(x: i64) -> i64 { x * x }
+unsafe fn raw_add(a: i64, b: i64) -> i64 { a + b }
 pub(crate) extern "C" fn cb(x: i64) -> i64 { x + 1 }
 pub(crate) struct P { pub(crate) x: i64, pub(self) y: i64 }
 pub struct T2(pub(crate) i64, pub i64);

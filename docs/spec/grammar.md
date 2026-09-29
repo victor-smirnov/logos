@@ -6,9 +6,9 @@ Concrete-syntax rules for Logos source, Writ data literals, and the Hest RPC (hr
 
 ### `grammar.rust-superset` — the grammar is a syntactic superset of Rust
 
-Every construct of stable Rust parses, save the named exceptions below (user direction, 2026-09-28). A construct outside the list that fails to parse is a grammar defect. Parsed-but-meaningless qualifiers are read and dropped where Logos has no counterpart (`const` on `fn`: const evaluation is metacall's — DIVERGENCES A-row "replaced"). The census: `LOGOS_PARSE_ONLY=1 logosc F` stops after the input parses (a syntax error prints the furthest point reached), run over the top-level items of the Rust standard library sources.
+Every construct of stable Rust parses, save the named exceptions below (user direction, 2026-09-28). A construct outside the list that fails to parse is a grammar defect. The census: `LOGOS_PARSE_ONLY=1 logosc F` stops after the input parses (a syntax error prints the furthest point reached), run over the top-level items of the Rust standard library sources.
 
-Known exceptions: `mod` and paths THROUGH modules (`crate::`, `super::`, `self::`, `a::b::Item`, `use a::b::c`) — Logos has packages (DIVERGENCES A9); `macro_rules!` and procedural macros / `#[derive(..)]` (A3, metaprog); `async` / `.await` (green fibres, design model); unstable syntax (`box` patterns, negative impls, `const impl`).
+Known exceptions: `mod` and paths THROUGH modules (`crate::`, `super::`, `self::`, `a::b::Item`, `use a::b::c`) — Logos has packages (DIVERGENCES A9); `macro_rules!` and procedural macros / `#[derive(..)]` (A3, metaprog); `async` / `.await` (green fibres, design model); `const fn` / `const unsafe fn` — Logos has no const evaluation, compile-time values go through metacall (not parsed rather than parsed and dropped, which would give the syntax another meaning); unstable syntax (`box` patterns, negative impls, `const impl`).
 
 *Source:* `tools/peg_gen_cpp/grammars/logos.peg`; `src/compiler/module_loader.cpp` (`LOGOS_PARSE_ONLY`)
 

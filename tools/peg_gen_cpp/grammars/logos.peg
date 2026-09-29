@@ -1619,16 +1619,15 @@
                => { CODE: TYPE_PARAM, TYPE: $1, ITEMS: $... }
                 / type_param
 
-    // Rust's function qualifiers before `fn`: `const` (no meaning of its own
-    // here — const evaluation is metacall's, DIVERGENCES A-row "replaced") and
-    // an `extern "ABI"` on a DEFINED fn. `unsafe_kw` takes the `const` of
-    // `const unsafe fn`. A bare `extern "C" fn f();` declaration is
-    // extern_fn_def, tried first.
-    // (An action on each: a no-action alt returns its last value capture — the
-    // absent `KW_CONST?`, null — and a null result reads as a failed rule.)
-    fn_kw     <- KW_CONST? KW_EXTERN STRING? KW_FN => { }
-               / KW_CONST? KW_FN                   => { }
-    unsafe_kw <- KW_CONST? KW_UNSAFE               => { }
+    // Rust's `extern "ABI"` qualifier on a DEFINED fn. A bare `extern "C" fn
+    // f();` declaration is extern_fn_def, tried first. `const fn` is NOT
+    // parsed: Logos has no const evaluation (metacall replaces it), and a
+    // qualifier read and dropped would give Rust's syntax another meaning.
+    // (An action on each: a no-action alt returns its last value capture — an
+    // absent optional, null — and a null result reads as a failed rule.)
+    fn_kw     <- KW_EXTERN STRING? KW_FN => { }
+               / KW_FN                   => { }
+    unsafe_kw <- KW_UNSAFE               => { }
 
     // ── Public function ──────────────────────────────────────────
     // Antiquot alts (NAME_VAR holds an expr-TOM; only valid inside quote_*! body —
