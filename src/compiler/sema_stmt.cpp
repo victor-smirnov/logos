@@ -2561,6 +2561,10 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         scope_.back().vars[std::string(name)].regions_inferred = !names_region;
         scope_.back().vars[std::string(name)].deferred_init = (!rhs && ann);
     }
+    // `let x: T;` of a droppable T: a drop flag that starts CLEAR — each
+    // assignment drops the old value iff it is set and sets it; the scope exit
+    // drops iff it is set (one flag carrier, visible to the BIR).
+    if (!rhs && ann) (void)cond_move_flag_for(std::string(name), /*initially_live=*/false);
     if (rhs && expr_ref_of(rhs).kind() == lir_schema::expr::Code::ClosureBox && !scope_.empty())
         scope_.back().vars[std::string(name)].closure_id =
             std::string(lir_view::EClosureBoxView{expr_ref_of(rhs)}.closure_id());

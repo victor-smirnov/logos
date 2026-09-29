@@ -299,6 +299,7 @@ lir::LExprPtr SemaChecker::hoist_block_temp(lir::LExprPtr v, bool is_mut) {
     TypeRef rt = expr_type(v);
     if (route_ext_temp_(nm, rt)) {
         pending_ext_init_.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
+        arm_ext_temp_flag_(nm, pending_ext_init_);
         return builder().var_ref(nm, rt);
     }
     register_stmt_temp(nm, rt, std::move(v), is_mut);
@@ -308,9 +309,11 @@ lir::LExprPtr SemaChecker::autoref_block_temp(lir::LExprPtr v, bool is_mut, Type
                                               lir_schema::expr::BorrowOrigin origin) {
     std::string nm = std::format("__lit_temp_{}", destruct_counter_++);
     TypeRef rt = expr_type(v);
-    if (!route_ext_temp_(nm, rt)) register_stmt_temp(nm, rt, nullptr, is_mut);
+    const bool routed = route_ext_temp_(nm, rt);
+    if (!routed) register_stmt_temp(nm, rt, nullptr, is_mut);
     std::vector<lir_view::StmtRef> blk;
     blk.push_back(builder().stmt_assign(nm, std::move(v), node_line_));
+    if (routed) arm_ext_temp_flag_(nm, blk);
     auto addr = builder().addr_of_temp(builder().var_ref(nm, rt), is_mut, ref_type, origin);
     return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(addr), ref_type);
 }

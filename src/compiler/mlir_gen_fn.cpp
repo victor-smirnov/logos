@@ -793,15 +793,8 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     begin_fn_debug(func, fn);
 
     clear_var_shapes();
-    uninit_drop_flag_.clear();
-    uninit_flag_needed_.clear();
-    uninit_static_.clear();
-    uninit_assigned_.clear();
     shadow_slot_val_.clear();
     shadow_slot_of_val_.clear();
-    shadow_slot_uninit_.clear();
-    uninit_owner_slot_.clear();
-    shadow_frozen_assigned_.clear();
     loop_stack_.clear();
 
     // Bind parameters. The SSA index comes from make_fn_type's recorded map, not
@@ -851,12 +844,6 @@ bool MLIRGenImpl::gen_function_body(mlir::func::FuncOp func, lir_view::FunctionV
     cur_fn_name_ = link_name(fn);
     cur_fn_pkg_  = std::string(fn.package());   // G156-1: pkg-scoped const resolution
 
-    // B8 drop elaboration: decide which declared-uninit vars need a runtime drop
-    // flag (any conditional/loop assignment) BEFORE codegen — a flagged var must
-    // maintain its flag from its very first assignment, which is lowered before
-    // we'd otherwise discover a later conditional assignment.
-    { std::unordered_map<std::string, int> decl_depth;
-      prescan_uninit_flags(fn_body, 0, decl_depth); }
 
     gen_block(fn_body);
 

@@ -679,10 +679,21 @@ of 09-26 were lost; the battery is new).
   — a legal program refused as a use after move; found by a second battery of
   ten early-exit / loop / pattern shapes, the other nine agreeing with
   rustc). Fixtures own_* (7, rustc twins).
-Next: S5.2 — the consolidation proper: one `consume(place)` / `reinit` /
-join, the per-construct save/restore/union copies, and the mlir B8
-drop-before-replace (name-keyed, invisible to BIR) retired onto the one flag
-carrier.
+- S5.2 (2026-09-29): ONE drop-flag carrier. A declared-uninit `let x: T;`
+  of a droppable T gets sema's drop flag, starting clear; the reassignment
+  path of S5.1 (drop the old value iff set, then set) and the scope exit's
+  guarded drop do the rest. The mlir B8 machinery — a name-keyed i8 flag per
+  uninit local, a pre-scan deciding flag vs static tracking, the
+  slot-keyed shadow records and their snapshot/restore — is deleted
+  (~260 lines); the flag is a plain `bool` local the BIR sees. The other
+  population B8 had covered is sema's own: an extended temporary routed out
+  of a branch arm (`let k = if c { &W {..}.y } else { .. };`) is declared
+  uninit in the statement's frame — it gets the flag too, set where the arm
+  builds it (two ifexpr/match-arm fixtures SIGSEGVed in the first cut). A third
+  battery (closures, collections, pattern partial moves, ten shapes) agreed
+  with rustc throughout. Fixture own_uninit_let_flag.
+Next: S5.3 — `consume(place)` / join as one code (the per-construct
+save/restore/union copies), then S6.
 
 ## L0 status (2026-09-27)
 

@@ -728,11 +728,6 @@ private:
     // A binding's SLOT -> (name, value), registered where a name is bound; an SDrop resolves its binding by slot. PROBES.md 2026-09-14p-shadowslot.
     std::unordered_map<uint32_t, std::pair<std::string, mlir::Value>> shadow_slot_val_;
     llvm::DenseMap<mlir::Value, uint32_t> shadow_slot_of_val_;
-    // The B8 uninit drop state of a `let` by SLOT (an initialised let records none); the name-keyed maps below serve the owner.
-    struct ShadowUninit { mlir::Value flag; bool is_static = false; };
-    std::unordered_map<uint32_t, ShadowUninit> shadow_slot_uninit_;
-    std::unordered_map<std::string, uint32_t> uninit_owner_slot_;
-    std::unordered_map<uint32_t, bool> shadow_frozen_assigned_;
     void shadow_register_slot(uint32_t s, const std::string& n) {
         if (s == 0xFFFFFFFFu) return;
         auto it = scope_.find(n);
@@ -743,30 +738,6 @@ private:
     void shadow_register_pattern(lir_view::PatRef p);
     mlir::Value shadow_resolve_drop(uint32_t s, const std::string& n, mlir::Value cur);
     std::unordered_set<std::string>               let_vars_;
-    // B8 dynamic drop flags: a `let mut x: T;` declared WITHOUT an initializer
-    // gets a hidden i8 flag (0 = slot empty, 1 = holds a live value), like
-    // Rust's drop flags. Each assignment drops the OLD value only if the flag
-    // is set, then sets it; scope-exit/return drops only if set. This gives
-    // exact drop semantics for conditionally-initialized vars (`let mut x; if c
-    // { x = a; } x = b;` drops `a` iff c was true) that no static analysis can
-    // resolve. name → flag alloca.
-    std::unordered_map<std::string, mlir::Value>  uninit_drop_flag_;
-    // B8 drop elaboration (Rust-style): a declared-uninit var needs a RUNTIME
-    // drop flag ONLY if its init state is not statically determinable — i.e. it
-    // has an assignment nested inside a conditional/loop (deeper than its decl).
-    // Determined by a pre-scan of the fn body (prescan_uninit_flags). Vars whose
-    // every assignment statically dominates (straight-line) are flag-FREE: drops
-    // are placed statically via the `assigned` set tracked during codegen
-    // (uninit_static_ = needs static tracking, uninit_assigned_ = currently holds
-    // a live value at this codegen point). This elides the flag + branch for the
-    // common straight-line case, matching Rust's MIR drop elaboration.
-    std::unordered_set<std::string>               uninit_flag_needed_;
-    std::unordered_set<std::string>               uninit_static_;
-    std::unordered_set<std::string>               uninit_assigned_;
-    void prescan_uninit_flags(lir_view::BlockRef block, int depth,
-                              std::unordered_map<std::string, int>& decl_depth);
-    void prescan_uninit_expr(lir_view::ExprRef e, int depth,
-                             std::unordered_map<std::string, int>& decl_depth);
     // Per-function: let-vars bound directly from a container accessor returning
     // `*const/*mut dyn` (e.g. `let p = map.get(&k);` → `*const Box<dyn>`). Such a
     // var holds a pointer-INTO-storage, so `*p` must LOAD the stored handle —
@@ -820,22 +791,15 @@ private:
         std::unordered_set<std::string>               ref_params;
         std::unordered_set<std::string>               ptr_family;
         std::unordered_set<std::string>               ref_slot_vars;
-        // B8 uninit drop state: restored only for names RE-BOUND inside the
-        // scope — an outer binding's own assignment in a nested block persists.
-        std::unordered_map<std::string, mlir::Value>  uninit_flag;
-        std::unordered_set<std::string>               uninit_static;
-        std::unordered_set<std::string>               uninit_assigned;
-        std::unordered_map<std::string, uint32_t>     uninit_owner;
     };
     VarScopeSnapshot snapshot_var_scope() const {
         return { scope_, var_dyn_trait_, var_struct_, var_elem_types_, var_subscript_,
                  var_local_ptrs_, var_slice_, let_vars_, var_tuple_, var_tagged_enum_,
                  var_tagged_enum_ptr_, var_raw_dyn_, dyn_ptr_to_handle_vars_,
-                 ref_param_names_, ptr_family_param_, ref_slot_vars_,
-                 uninit_drop_flag_, uninit_static_, uninit_assigned_, uninit_owner_slot_ };
+                 ref_param_names_, ptr_family_param_, ref_slot_vars_ };
     }
-    // Clear every name-keyed SHAPE map (the snapshot's contents minus the B8
-    // uninit state): a new function or closure body starts with no bindings.
+    // Clear every name-keyed SHAPE map: a new function or closure body starts
+    // with no bindings.
     void clear_var_shapes() {
         scope_.clear(); var_dyn_trait_.clear(); var_struct_.clear();
         var_elem_types_.clear(); var_subscript_.clear(); var_local_ptrs_.clear();
@@ -847,23 +811,6 @@ private:
     // Restore by full assignment: erases bindings introduced inside the scope AND
     // re-instates any shadowed outer bindings — exact lexical-scope semantics.
     void restore_var_scope(const VarScopeSnapshot& s) {
-        // A name bound inside the scope (a shadow, or a fresh inner name) takes
-        // back the outer binding's uninit state: the inner `let x: T; x = …`
-        // must not read as the OUTER `x` being assigned.
-        for (auto& [n, v] : scope_) {
-            auto o = s.scope.find(n);
-            if (o != s.scope.end() && o->second == v) continue;
-            auto put_map = [&](auto& cur, const auto& old) {
-                if (auto f = old.find(n); f != old.end()) cur[n] = f->second; else cur.erase(n);
-            };
-            auto put_set = [&](auto& cur, const auto& old) {
-                if (old.count(n)) cur.insert(n); else cur.erase(n);
-            };
-            put_map(uninit_drop_flag_, s.uninit_flag);
-            put_set(uninit_static_, s.uninit_static);
-            put_set(uninit_assigned_, s.uninit_assigned);
-            put_map(uninit_owner_slot_, s.uninit_owner);
-        }
         scope_                  = s.scope;
         var_dyn_trait_          = s.dyn_trait;
         var_struct_             = s.var_struct;
@@ -891,8 +838,7 @@ private:
     // claiming its own shape (and AFTER generating its initializer, which may
     // legitimately read the OLD binding: `let x: u64 = x.field;`).
     // Deliberately does NOT touch scope_/let_vars_ (immediately overwritten by
-    // the caller) nor the uninit_* drop-elaboration state (B8 machinery resets
-    // it at declare-without-init sites; SDrop placement depends on it).
+    // the caller).
     void evict_var_shapes(const std::string& n) {
         var_struct_.erase(n);
         var_subscript_.erase(n);

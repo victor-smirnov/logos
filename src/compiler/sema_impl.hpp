@@ -4899,7 +4899,7 @@ private:
         }
     }
 
-    std::string cond_move_flag_for(const std::string& name) {
+    std::string cond_move_flag_for(const std::string& name, bool initially_live = true) {
         // #121 — A DOTTED PATH IS HALF THE KEYSPACE OF THE MAP THIS ELABORATES,
         // and it used to be dropped on the floor here (`if (name.find('.') !=
         // npos) return {}`), so `if c { consume(h.p); }` leaked `h.p` on the
@@ -4969,7 +4969,7 @@ private:
         sl.name = fl;
         sl.type = prim(LogosType::Kind::Bool);
         sl.is_mut = true;
-        sl.value = builder().lit_bool(true, prim(LogosType::Kind::Bool));
+        sl.value = builder().lit_bool(initially_live, prim(LogosType::Kind::Bool));
         pending_frame_lets_.emplace_back(target, make_stmt_emit(node_line_, std::move(sl)));
         fr.cond_move_flags[name] = fl;
         return fl;
@@ -10005,7 +10005,21 @@ private:
             fr.vars[nm] = {rt, true, false, next_slot_++};
         }
         decl_uninit_vars_.insert(nm);
+        // Assigned only on the arm that builds it: a drop flag, clear until then.
+        (void)cond_move_flag_for(nm, /*initially_live=*/false);
         return true;
+    }
+    // `flag = true` after a routed extended temporary's assignment.
+    void arm_ext_temp_flag_(const std::string& nm, std::vector<lir_view::StmtRef>& out) {
+        for (size_t fi = scope_.size(); fi-- > 0; ) {
+            if (auto it = scope_[fi].cond_move_flags.find(nm); it != scope_[fi].cond_move_flags.end()) {
+                lir::SAssign fa; fa.name = it->second;
+                fa.value = builder().lit_bool(true, prim(LogosType::Kind::Bool));
+                out.push_back(make_stmt_emit(node_line_, std::move(fa)));
+                return;
+            }
+            if (scope_[fi].vars.count(nm)) return;
+        }
     }
     // Hoist a fresh droppable rvalue into the active statement/expression
     // temp-scope: appends (name,type,value,is_mut) to the collector, defines the
