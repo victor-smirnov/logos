@@ -14204,17 +14204,19 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         sname, sname,
                         (bk == LogosType::Kind::Error) ? "?" : type_str(bt)));
             }
-            std::string base_var;
+            std::string base_var, base_path;   // a place base is read in place (see the non-generic path)
             {
                 auto er = expr_ref_of(base_expr);
                 if (er.kind() == lir_schema::expr::Code::VarRef)
                     base_var = std::string(lir_view::EVarRefView{er}.name());
+                else if (er.kind() == lir_schema::expr::Code::FieldRead && lir_view::is_place_expr(er))
+                    base_path = move_path_of(er);
             }
             // Evaluated once into a statement temporary, after the explicit
             // fields (see the non-generic path).
             TypeRef base_t = expr_type(base_expr);
             lir::LExprPtr pending_base = nullptr;
-            if (base_var.empty() && cur_stmt_temp_hoist_ && base_t) {
+            if (base_var.empty() && base_path.empty() && cur_stmt_temp_hoist_ && base_t) {
                 base_var = std::format("__rtmp_{}", destruct_counter_++);
                 register_stmt_temp(base_var, base_t, nullptr, false);
                 pending_base = std::move(base_expr);
@@ -14242,6 +14244,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                                                      ft ? ft : error_t());
                 }
                 if (ft && is_move_type(ft) && !base_var.empty()) mark_moved(base_var + "." + std::string(fname));
+                else if (ft && is_move_type(ft) && !base_path.empty()) mark_moved(base_path + "." + std::string(fname));
                 fields.push_back({std::string(fname), std::move(field_val)});
             }
         }
@@ -14491,10 +14494,16 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         }
         // Determine base variable name for EVarRef (simple case)
         std::string base_var;
+        // A PLACE base (`..h.inner`) is read in place: the fields taken move
+        // out of that place (`h.inner.q`) and its owner drops the rest. Copying
+        // it into a temporary left the owner holding the whole value too.
+        std::string base_path;
         {
             auto er = expr_ref_of(base_expr);
             if (er.kind() == lir_schema::expr::Code::VarRef)
                 base_var = std::string(lir_view::EVarRefView{er}.name());
+            else if (er.kind() == lir_schema::expr::Code::FieldRead && lir_view::is_place_expr(er))
+                base_path = move_path_of(er);
         }
         // A non-variable base (`..W { … }`, `..make()`) is evaluated ONCE into a
         // statement temporary, assigned inside the FIRST field taken from it —
@@ -14503,7 +14512,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // Re-lowering it per field built it N times and leaked each copy.
         TypeRef base_t = expr_type(base_expr);
         lir::LExprPtr pending_base = nullptr;
-        if (base_var.empty() && cur_stmt_temp_hoist_ && base_t) {
+        if (base_var.empty() && base_path.empty() && cur_stmt_temp_hoist_ && base_t) {
             base_var = std::format("__rtmp_{}", destruct_counter_++);
             register_stmt_temp(base_var, base_t, nullptr, false);
             pending_base = std::move(base_expr);
@@ -14528,6 +14537,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                                                      ft ? ft : error_t());
                 }
                 if (ft && is_move_type(ft) && !base_var.empty()) mark_moved(base_var + "." + fname);
+                else if (ft && is_move_type(ft) && !base_path.empty()) mark_moved(base_path + "." + fname);
                 fields.push_back({fname, std::move(field_val)});
             }
         }
@@ -20136,37 +20146,14 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
     }
     std::vector<lir_view::StmtRef> tail_drops;
     if (!blk_ends_with_terminator) {
-        // ⚠ THE MARK IS SCOPED TO THIS FRAME AND REVERTED AFTERWARDS. It exists
-        // only so `collect_drops` below skips a local this block yields; leaving
-        // it in `moved_vars_` also moves WHICH PASS reports an outer variable
-        // consumed by a block tail (`let y = { x } + x.dup();`), and sema's
-        // "use of moved variable" then pre-empts borrow_check's richer
-        // "moved value 'x' (moved on line N)" that two imported fail fixtures
-        // pin. Both spellings refuse; only one is the recorded sentence.
-        std::set<std::string> moved_before;
-        bool tail_marked = false;
+        // The tail value MOVES out of the block (`let y = { x };`): its mark
+        // stays, so `collect_drops` skips it here and the outer scope does not
+        // drop it again. (It was reverted for the retired sema E0382's message
+        // order; the BIR owns E0382.)
         if (result && TypeRef(expr_type(result)).kind() != LogosType::Kind::Error &&
-            TypeRef(expr_type(result)).kind() != LogosType::Kind::Never) {
-            moved_before = moved_vars_;
+            TypeRef(expr_type(result)).kind() != LogosType::Kind::Never)
             mark_moved_in_expr_recursive(expr_ref_of(result));
-            tail_marked = true;
-        }
         tail_drops = collect_drops();
-        // Revert ONLY what the tail's mark added. A tail that marked nothing (a
-        // `!` block — an expanded `panic!` / `unreachable!` — or an error) has
-        // an empty `moved_before`, and reverting against it erased every move
-        // an OUTER local had made: `let a = t.0;` then a let-else whose else is
-        // `unreachable!()` dropped `t.0` twice.
-        if (tail_marked) {
-            for (auto it = moved_vars_.begin(); it != moved_vars_.end(); ) {
-                std::string root = *it;
-                if (auto dot = root.find('.'); dot != std::string::npos)
-                    root = root.substr(0, dot);
-                if (!moved_before.count(*it) && !scope_.back().vars.count(root))
-                    it = moved_vars_.erase(it);
-                else ++it;
-            }
-        }
     }
     if (!tail_drops.empty() && result) {
         TypeRef vt0 = expr_type(result);

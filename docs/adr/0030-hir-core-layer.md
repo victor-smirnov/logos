@@ -657,7 +657,28 @@ of 70 members.
   vtable are S8/S9; move-closure capture paths (`move || p.w` copies the
   field, `move || *p` captures `p`) are C-CLO (S10); `&mut **rb` over
   `&mut Box<dyn Tr>` is place typing (S6). S4 clusters 23 → 51 of 70.
-Next: S5 — C-OWN rest; retire the B8 flags.
+
+## S5 status (2026-09-29)
+
+Discovery first: a drop-counter battery with rustc twins over the path
+inventory's move/drop rows confirmed four of its defects (the probe files
+of 09-26 were lost; the battery is new).
+
+- S5.1 (2026-09-29): a block's tail value MOVES out of the block — its mark
+  was reverted after the block (for the retired sema E0382's message order),
+  so `let y = { x };` dropped x twice. Reassigning a variable a branch may
+  have moved re-arms its drop flag and drops the old value iff the flag says
+  it is there (`{ let t = rhs; if flag { drop x } x = t; flag = true; }`): the
+  new value leaked, and so did an old value no branch had taken. A for-each
+  body may run zero times — the iterator, array and slice paths now merge
+  its moves with the zero-trip path as `for` over a range did. `..h.inner`
+  reads a place base in place and moves out only the fields taken (a copy
+  into a temporary left `h` owning all of `h.inner` too — two copies of that
+  code, both fixed). Fixtures own_* (6, rustc twins).
+Next: S5.2 — the consolidation proper: one `consume(place)` / `reinit` /
+join, the per-construct save/restore/union copies, and the mlir B8
+drop-before-replace (name-keyed, invisible to BIR) retired onto the one flag
+carrier.
 
 ## L0 status (2026-09-27)
 

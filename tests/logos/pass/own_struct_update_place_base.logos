@@ -1,0 +1,8 @@
+// ADR 0030 S5 (C-OWN): `..h.inner` reads the base in place: only the fields taken move out of h.
+// The exit code is the drop counter; rustc 1.98.1 twin exits 15.
+package own_struct_update_place_base;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+struct H { a: D, inner: I }
+struct I { p: D, q: D }
+fn main() -> i32 { let mut n: i64 = 0; let c: *mut i64 = &mut n; { let h = H { a: D { v: 1, c: c }, inner: I { p: D { v: 2, c: c }, q: D { v: 4, c: c } } }; let i2 = I { p: D { v: 8, c: c }, ..h.inner }; let _z = i2.q.v; } return unsafe { *c } as i32; }

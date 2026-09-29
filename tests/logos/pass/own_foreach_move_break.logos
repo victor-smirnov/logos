@@ -1,0 +1,7 @@
+// ADR 0030 S5 (C-OWN): the same body running: moved once, dropped once.
+// The exit code is the drop counter; rustc 1.98.1 twin exits 1.
+package own_foreach_move_break;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+fn eat(_d: D) {}
+fn main() -> i32 { let mut n: i64 = 0; let c: *mut i64 = &mut n; { let x = D { v: 1, c: c }; let v: [i64; 2] = [1, 2]; for _i in v.iter() { eat(x); break; } } return unsafe { *c } as i32; }

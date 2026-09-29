@@ -1,3 +1,5 @@
+// 2026-09-29 (ADR 0030 S4.2): `q: &r` became `q: &mut r` — a shared reference no
+// longer coerces to `*mut` (rustc E0308); the dangle it pins is unchanged.
 // hand battery: round 2026-09-17h-ptrland, program n1 — caught: verdict MOVED base(cc0, RAN 11, reading a dead local) -> landed(refused); an UNROWED use-after-scope carried by `*mut &'a mut i64`, found by the neighbour enumeration and closed by the SAME four-line change.
 // legality: MEASURED 2026-09-17 vs rustc 1.98.1 --edition 2024: REFUSED, error[E0515] cannot return value referencing local variable `v`.
 // The `&mut` half of the class. `bc_holds_mut_ref_type` is a SEPARATE walker that
@@ -10,8 +12,8 @@ fn firstm<'a>(h: MH<'a>) -> &'a mut i64 {
 }
 fn escape() -> &'static mut i64 {
     let mut v: i64 = 11i64;
-    let r: &mut i64 = &mut v;
-    let h: MH = MH { q: &r };
+    let mut r: &mut i64 = &mut v;
+    let h: MH = MH { q: &mut r };
     return firstm(h);
 }
 fn main() -> i32 {

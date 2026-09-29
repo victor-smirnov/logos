@@ -1,0 +1,6 @@
+// ADR 0030 S5 (C-OWN): a block's tail value moves out of the block: `let y = { x };` dropped x twice.
+// The exit code is the drop counter; rustc 1.98.1 twin exits 1.
+package own_block_tail_moves;
+struct D { v: i64, c: *mut i64 }
+impl Drop for D { fn drop(&mut self) { unsafe { *self.c = *self.c + self.v; } } }
+fn main() -> i32 { let mut n: i64 = 0; let c: *mut i64 = &mut n; { let x = D { v: 1, c: c }; let y = { x }; let _k = y.v; } return unsafe { *c } as i32; }

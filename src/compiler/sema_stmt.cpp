@@ -3211,6 +3211,16 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
         // as defense-in-depth so no path drops garbage even absent the flag.
         drop_old = droppable && !decl_uninit_vars_.count(nm) && !moved;
     }
+    // A variable a branch may have moved carries a drop flag (#118): its old
+    // value drops iff the flag says it is still there, and the write makes
+    // it live again — else the new value leaked (the flag still said moved)
+    // and so did an old value no branch had taken.
+    std::string reinit_flag;
+    for (size_t fi = scope_.size(); fi-- > 0 && reinit_flag.empty(); ) {
+        if (auto it = scope_[fi].cond_move_flags.find(std::string(name)); it != scope_[fi].cond_move_flags.end())
+            reinit_flag = it->second;
+        if (scope_[fi].vars.count(std::string(name)) || scope_[fi].closure_boundary) break;
+    }
     // Re-assignment revives the variable (the old value was already consumed).
     moved_vars_.erase(std::string(name));
     // logos-core 2.7: definite-assignment — an assignment to `name` initialises
@@ -3231,6 +3241,28 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
                                       make_ptr(smut, var_type));
         return builder().stmt_deref_write(std::move(addr), std::move(rhs),
                                           node_line_);
+    }
+    if (!reinit_flag.empty() && !is_module_static_unshadowed(name)) {
+        // `{ let t = rhs; if flag { drop x } x = t; flag = true; }` — the
+        // right-hand side runs before the old value drops, as in Rust.
+        const TypeRef rt = expr_type(rhs);
+        std::string tn = std::format("__rinit_{}", tmp_var_count_++);
+        std::vector<lir_view::StmtRef> blk;
+        lir::SLet tl; tl.name = tn; tl.type = rt; tl.is_mut = false; tl.value = std::move(rhs);
+        blk.push_back(make_stmt_emit(node_line_, std::move(tl)));
+        if (auto d = make_drop_stmt(std::string(name), VarInfo{var_type, true})) {
+            lir::SIf sif;
+            sif.cond  = builder().var_ref(reinit_flag, prim(LogosType::Kind::Bool));
+            sif.then_ = lir_mirror_block(*cur_prog_, {*d});
+            blk.push_back(make_stmt_emit(node_line_, std::move(sif)));
+        }
+        blk.push_back(builder().stmt_assign(std::string(name), builder().var_ref(tn, rt), node_line_, false));
+        lir::SAssign fa; fa.name = reinit_flag;
+        fa.value = builder().lit_bool(true, prim(LogosType::Kind::Bool));
+        blk.push_back(make_stmt_emit(node_line_, std::move(fa)));
+        lir::SExprStmt es;
+        es.expr = builder().block_expr(lir_mirror_block(*cur_prog_, blk), nullptr, void_t());
+        return make_stmt_emit(node_line_, std::move(es));
     }
     return builder().stmt_assign(std::string(name), std::move(rhs), node_line_, drop_old);
 }
@@ -7433,6 +7465,9 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         };
         std::vector<lir_view::StmtRef> body;
         if (node.has_key(la::BODY)) {
+            // The body may run zero times: its moves are conditional (#118).
+            const auto fe_pre_moves_ = moved_vars_;
+            const size_t fe_clear_mark_ = flag_clear_log_.size();
             ++loop_depth_;
             if (!my_label.empty()) active_loop_labels_.push_back(my_label);
             loop_break_frames_.push_back({my_label, nullptr, false, "for"});
@@ -7442,6 +7477,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             loop_break_frames_.pop_back();
             if (!my_label.empty()) active_loop_labels_.pop_back();
             --loop_depth_;
+            merge_loop_exit_moves(body, map_of(node.get(la::BODY.code)), fe_pre_moves_, fe_clear_mark_);
         } else {
             bind_loop_var();
         }
@@ -7474,6 +7510,9 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         auto pat_pro = build_for_pat(make_ref(for_mut_ref, elem_type));
         std::vector<lir_view::StmtRef> body;
         if (node.has_key(la::BODY)) {
+            // The body may run zero times: its moves are conditional (#118).
+            const auto fe_pre_moves_ = moved_vars_;
+            const size_t fe_clear_mark_ = flag_clear_log_.size();
             ++loop_depth_;
             if (!my_label.empty()) active_loop_labels_.push_back(my_label);
             loop_break_frames_.push_back({my_label, nullptr, false, "for"});
@@ -7482,6 +7521,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             loop_break_frames_.pop_back();
             if (!my_label.empty()) active_loop_labels_.pop_back();
             --loop_depth_;
+            merge_loop_exit_moves(body, map_of(node.get(la::BODY.code)), fe_pre_moves_, fe_clear_mark_);
         }
         prepend_for_pat(body, pat_pro);
         pop_scope();
@@ -7556,6 +7596,9 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             auto pat_pro = build_for_pat(make_ref(iter_mut, elem_t));
             std::vector<lir_view::StmtRef> body;
             if (node.has_key(la::BODY)) {
+                // The body may run zero times: its moves are conditional (#118).
+                const auto fe_pre_moves_ = moved_vars_;
+                const size_t fe_clear_mark_ = flag_clear_log_.size();
                 ++loop_depth_;
                 if (!my_label.empty()) active_loop_labels_.push_back(my_label);
             loop_break_frames_.push_back({my_label, nullptr, false, "for"});
@@ -7564,6 +7607,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
                 loop_break_frames_.pop_back();
             if (!my_label.empty()) active_loop_labels_.pop_back();
                 --loop_depth_;
+                merge_loop_exit_moves(body, map_of(node.get(la::BODY.code)), fe_pre_moves_, fe_clear_mark_);
             }
             prepend_for_pat(body, pat_pro);
             pop_scope();
@@ -7901,6 +7945,9 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         auto pat_pro = build_for_pat(elem_type);
         std::vector<lir_view::StmtRef> then_body;
         if (node.has_key(la::BODY)) {
+            // The body may run zero times: its moves are conditional (#118).
+            const auto fe_pre_moves_ = moved_vars_;
+            const size_t fe_clear_mark_ = flag_clear_log_.size();
             ++loop_depth_;
             if (!my_label.empty()) active_loop_labels_.push_back(my_label);
             loop_break_frames_.push_back({my_label, nullptr, false, "for"});
@@ -7908,6 +7955,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
             loop_break_frames_.pop_back();
             if (!my_label.empty()) active_loop_labels_.pop_back();
             --loop_depth_;
+            merge_loop_exit_moves(then_body, map_of(node.get(la::BODY.code)), fe_pre_moves_, fe_clear_mark_);
         }
         prepend_for_pat(then_body, pat_pro);
         for (auto& d : collect_drops()) then_body.push_back(std::move(d));
