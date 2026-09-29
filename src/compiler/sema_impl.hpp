@@ -8333,6 +8333,8 @@ private:
     void check_variance(TypeRef from, TypeRef to, const std::string& ctx,
                         bool permissive = true, TypeRef decl_form = {}) {
         if (!from || !to) return;
+        // Integer inference variables (C-LIT): this use fixes them too.
+        if (has_lit_var_(from) || has_lit_var_(to)) { lit_solve_struct_(from, to); from = lit_zonk_(from); to = lit_zonk_(to); }
         if (TypeRef(from).kind() == LogosType::Kind::Error ||
             TypeRef(to).kind() == LogosType::Kind::Error) return;
         // A FN POINTER WHOSE PARAMETER NAMES ONE OF THIS FUNCTION'S OWN LIFETIMES
@@ -8927,6 +8929,44 @@ private:
     }
     // Close the function: E0282 for an open variable, the solutions to mono.
     void infer_close_fn_(const std::string& fn_name);
+
+    // ── C-LIT: INTEGER INFERENCE VARIABLES (ADR 0030 S7.1) ──────────────
+    // An unsuffixed integer literal an unannotated `let` binds, or a generic
+    // argument an integer literal fixes (`Some(7)`, `v.push(1)`), is an
+    // `{integer}` NAMED `?lK`: every IntLit rule still applies to it, and the
+    // first use that fixes an integer type solves it — an expectation (an
+    // argument, an annotated `let`, a return), an arithmetic operand, another
+    // such variable. At the end of the function an unsolved one defaults to
+    // i32 (i64 when its literal does not fit), a solved one's literal must fit
+    // its type, and the solutions ride infer_substs to mono, which substitutes
+    // every node. Rust: `let mut t = 0; t += f_i64();` makes t an i64.
+    uint64_t lit_var_counter_ = 0;                          // program-wide
+    std::unordered_map<std::string, TypeRef> lit_solved_;   // ?lK -> an integer type or another ?lJ (null: open)
+    std::unordered_map<std::string, int64_t> lit_value_;    // ?lK -> the literal its let bound
+    std::unordered_map<std::string, std::vector<int64_t>> lit_more_values_;   // literals later written into it
+    std::vector<std::string> lit_fn_vars_;                  // this function's
+    static bool is_lit_var_(TypeRef t) {
+        return t && TypeRef(t).kind() == LogosType::Kind::IntLit &&
+               std::string_view(TypeRef(t).type_var_name()).starts_with("?l");
+    }
+    TypeRef mint_lit_var_(std::optional<int64_t> value);
+    TypeRef lit_resolve_(TypeRef t);       // a solved variable's integer type, else its root variable
+    TypeRef lit_zonk_(TypeRef t, int d = 0);  // every variable inside t resolved
+    bool lit_solve_(TypeRef a, TypeRef b); // a variable on either side takes the other's integer type
+    TypeRef lit_default_(TypeRef t);       // `{integer}` that must be concrete NOW: i32 (a variable is solved so)
+    bool has_lit_var_(TypeRef t, int d = 0) const {
+        if (!t || d > 24) return false;
+        if (is_lit_var_(t)) return true;
+        TypeRef tr(t);
+        if (tr.pointee() && has_lit_var_(tr.pointee(), d + 1)) return true;
+        if (tr.elem() && has_lit_var_(tr.elem(), d + 1)) return true;
+        for (auto a : tr.type_args()) if (has_lit_var_(a, d + 1)) return true;
+        for (auto e : tr.tuple_elems()) if (has_lit_var_(e, d + 1)) return true;
+        return false;
+    }
+    bool lit_solve_struct_(TypeRef a, TypeRef b, int d = 0);   // lit_solve_ at every matching position
+    void lit_refresh_scope_();
+    void lit_close_fn_(const std::string& fn_name);
     // g6b: expected ELEMENT type for an array/slice literal, from a `let
     // arr: [&dyn Trait; N] = [...]` annotation (or analogous context). Lets
     // lower_arr_lit type a HETEROGENEOUS `[&Sq, &Ci]` as `[&dyn Trait; N]` —

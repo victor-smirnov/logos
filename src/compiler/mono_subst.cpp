@@ -17,6 +17,12 @@ TypeRef Mono::localize_type(TypeRef tv) noexcept {
 
 TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
     if (!tv) return tv;
+    // An integer inference variable (`?lK`, ADR 0030 S7): the function's
+    // solution (sema's infer_substs), never `{integer}` past this point.
+    if (tv.kind() == LogosType::Kind::IntLit && !std::string_view(tv.type_var_name()).empty()) {
+        auto it = s.find(std::string(tv.type_var_name()));
+        return it != s.end() ? it->second : tv;
+    }
     // Phase 5.B step 3 NOTE: deliberately NO eager localize here. Eager
     // localize eats >1s on iterator-heavy compiles because every
     // recursive subst_type call would deep-copy types that are then

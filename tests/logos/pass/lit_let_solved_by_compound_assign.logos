@@ -1,0 +1,5 @@
+// ADR 0030 S7.1 (C-LIT): an unsuffixed integer literal is an inference variable its
+// uses solve — `let mut t = 0; t += f_i64();` — t is an i64 (it was i32 and the `+=` was refused). rustc 1.98.1 twin exits 40.
+package lit_let_solved_by_compound_assign;
+fn f() -> i64 { return 40000000000; }
+fn main() -> i32 { let mut t = 0; t += f(); return (t / 1000000000) as i32; }

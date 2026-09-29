@@ -191,8 +191,6 @@ str_slice_char_boundary_unchecked 2 tests/soundness/open/str_slice_char_boundary
 
 partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneous_rhs_refused refuses
 
-let_tuple_literal_width_from_later_use_refused 3 tests/soundness/open/let_tuple_literal_width_from_later_use_refused refuses
-
 # ── 2026-09-26 RUST-PARITY AUDIT (behaviour audit, 14 areas + FLS 1.98 paragraph-by-paragraph comparison, 58 units) ──
 assert_with_message_crash 1 tests/soundness/open/assert_with_message_crash refuses
 
@@ -443,5 +441,5 @@ if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scru
 
 let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
 
-# TOTAL 133
-# SYNC-HASH 5d515c3a102bea52a733b3916bbcef1a
+# TOTAL 132
+# SYNC-HASH f2650f2691156d88cbcceb6700fc25bb

@@ -1,0 +1,4 @@
+// ADR 0030 S7.1 (C-LIT): an unsuffixed integer literal is an inference variable its
+// uses solve — `let x = 3_000_000_000; let y: u64 = x;` — x is a u64. rustc 1.98.1 twin exits 3.
+package lit_let_big_solved_by_annotation;
+fn main() -> i32 { let x = 3_000_000_000; let y: u64 = x; return (y / 1000000000) as i32; }

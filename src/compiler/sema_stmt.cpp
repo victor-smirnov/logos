@@ -2441,15 +2441,11 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                 if (lt_is_minted(lt3_)) current_lt_binders().erase(lt3_);
             }
         }
-        if (TypeRef(var_type).kind() == LogosType::Kind::IntLit) {
-            // Default IntLit to i32; upgrade to i64 if the literal value overflows i32.
-            var_type = i32_t();
-            auto er = expr_ref_of(rhs);
-            if (er.kind() == lir_schema::expr::Code::LitInt) {
-                int64_t v = lir_view::ELitIntView{er}.value();
-                if (v > (int64_t)INT32_MAX || v < (int64_t)INT32_MIN)
-                    var_type = prim(LogosType::Kind::I64);
-            }
+        if (TypeRef(var_type).kind() == LogosType::Kind::IntLit && !is_lit_var_(var_type)) {
+            // C-LIT: an integer inference variable the binding's uses solve
+            // (i32 — i64 when the literal does not fit — if none does).
+            var_type = mint_lit_var_(get_intlit_value(expr_ref_of(rhs)));
+            builder().retype_expr(rhs, var_type);
         }
         if (TypeRef(var_type).kind() == LogosType::Kind::FloatLit) {
             // Default FloatLit to f64.
@@ -2460,10 +2456,11 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // (`let mut u = (Some(4), 3)`) was left `{integer}` in the binding's
         // type, so `&mut u` at `&mut (Option<i32>, i32)` failed invariance.
         if (TypeRef(var_type).kind() == LogosType::Kind::Tuple) {
+            // C-LIT: each unsuffixed integer leaf is an inference variable.
             std::function<TypeRef(TypeRef)> dflt = [&](TypeRef t) -> TypeRef {
                 if (!t) return t;
                 auto k = TypeRef(t).kind();
-                if (k == LogosType::Kind::IntLit) return i32_t();
+                if (k == LogosType::Kind::IntLit) return is_lit_var_(t) ? t : mint_lit_var_(std::nullopt);
                 if (k == LogosType::Kind::FloatLit) return prim(LogosType::Kind::F64);
                 if (k != LogosType::Kind::Tuple) return t;
                 std::vector<TypeRef> es;
@@ -2476,10 +2473,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                 return changed ? make_tuple_type(std::move(es)) : t;
             };
             TypeRef dt = dflt(var_type);
-            // A literal still awaiting its first use (pending_lit_lets_) keeps
-            // its `{integer}` leaves — they default at codegen exactly as the
-            // binding's type says — so that use can still stamp them.
-            if (dt != var_type && !ann && rhs && is_stampable_literal_(expr_ref_of(rhs)))
+            if (dt != var_type && !ann && rhs && stamp_literal_tree_(expr_ref_of(rhs), dt))
                 var_type = dt;
             else if (dt != var_type && expect_type(rhs, dt, CoercePos::LetInit, "let binding"))
                 var_type = expr_type(rhs);

@@ -1,0 +1,5 @@
+// ADR 0030 S7.1 (C-LIT): an unsuffixed integer literal is an inference variable its
+// uses solve — `let a = 200; take_u8(a)` — a is a u8. rustc 1.98.1 twin exits 100.
+package lit_let_solved_by_call_arg;
+fn take(x: u8) -> i64 { return x as i64; }
+fn main() -> i32 { let a = 200; let b = take(a); return (b - 100) as i32; }

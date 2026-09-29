@@ -728,8 +728,31 @@ battery with rustc twins over the path inventory's place/assignment rows
   `m[i][j]`, array-of-struct fields, slice fields, `RefCell::borrow_mut`,
   tuple paths) agreed with rustc throughout; out-of-bounds writes trap.
   −30 lines.
-Next: S7 — C-EXP + C-LIT + C-INF (one expected-type scope, literal
-inference variables defaulted once, one generic-argument inference).
+
+## S7 status (2026-09-29)
+
+Battery first (ten literal/inference shapes, rustc twins): seven refused or
+mistyped a legal program because an unannotated `let` fixed its literal to
+`i32` on the spot.
+
+- S7.1 (2026-09-29): C-LIT — integer inference variables. An unsuffixed
+  integer literal bound by an unannotated `let` (each leaf of a tuple let),
+  or fixing a generic argument (`Some(7)`, `v.push(1)`, an enum constructor's
+  payload), is an `{integer}` named `?lK` (IntLit + a name; the pool keys it
+  by the name). Every IntLit rule applies to it unchanged; the first use that
+  fixes an integer type solves it — `expect_type` (structurally), an
+  arithmetic operand (another variable joins it, a bare literal takes it),
+  the variance check. At the end of the function an unsolved one defaults to
+  i32 (i64 when a literal it holds does not fit), every literal it holds
+  must fit its type, and the solutions ride `infer_substs` to mono, whose
+  `subst_type` replaces `?lK` in every node. `let mut t = 0; t += f_i64();`,
+  `take_u8(a)`, `let y: u64 = x`, `Some(7)` read at `u16`, `(1, 2)` read at
+  `(u8, i64)`, `Vec::new()` + `push(1)` read at `u64` agree with rustc.
+  Fixtures lit_*.
+Next: S7.2 — retire the literal scaffolding the variables replace
+(`pending_lit_lets_` single-use stamping, the per-site `IntLit → i32`
+defaults onto `lit_default_`), then C-EXP (one expected-type scope) and
+C-INF.
 
 ## L0 status (2026-09-27)
 

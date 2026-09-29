@@ -1,0 +1,5 @@
+// ADR 0030 S7.1 (C-LIT): an unsuffixed integer literal is an inference variable its
+// uses solve — `Some(7)` then `let x: u16 = match o { Some(v) => v, .. }` — the payload is a u16. rustc 1.98.1 twin exits 7.
+package lit_generic_arg_solved_later;
+use logos.lang.option;
+fn main() -> i32 { let o = Option::Some(7); let x: u16 = match o { Option::Some(v) => v, Option::None => 0 }; return x as i32; }

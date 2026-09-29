@@ -1,0 +1,5 @@
+// ADR 0030 S7.1 (C-LIT): an unsuffixed integer literal is an inference variable its
+// uses solve — `v.push(1); let s: u64 = v[0] + v[1];` — the element type is u64. rustc 1.98.1 twin exits 3.
+package lit_vec_push_solved_later;
+use logos.mem.collections.vec;
+fn main() -> i32 { let mut v = Vec::new(); v.push(1); v.push(2); let s: u64 = v[0] + v[1]; return s as i32; }

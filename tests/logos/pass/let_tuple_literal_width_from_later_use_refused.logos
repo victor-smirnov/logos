@@ -1,0 +1,4 @@
+// Closed squeue let_tuple_literal_width_from_later_use_refused (#500): an unsuffixed literal in a let is an integer inference variable its later use solves (ADR 0030 S7.1, C-LIT); rustc exit 42.
+package let_tuple_literal_width_from_later_use_refused;
+fn g(t: (i64, i64)) -> i64 { return t.0 + t.1; }
+fn main() -> i32 { let t = (40, 2); return g(t) as i32; }

@@ -2702,6 +2702,22 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         rb.push_back({nullptr, nullptr, rhs_pre, rm, rm, owned_pre});              // short-circuited
         elaborate_cond_moves(rhs_pre, rb, &owned_pre);
     }
+    // C-LIT: an integer inference variable meets the other operand — an
+    // integer type solves it, another variable joins it, a bare literal takes
+    // it (so the result is the variable too).
+    if (lhs && rhs && (is_lit_var_(expr_type(lhs)) || is_lit_var_(expr_type(rhs)))) {
+        TypeRef la = lit_resolve_(expr_type(lhs)), ra = lit_resolve_(expr_type(rhs));
+        if (is_lit_var_(la) && TypeRef(ra).kind() == LogosType::Kind::IntLit && !is_lit_var_(ra))
+            builder().retype_expr(rhs, la);
+        else if (is_lit_var_(ra) && TypeRef(la).kind() == LogosType::Kind::IntLit && !is_lit_var_(la))
+            builder().retype_expr(lhs, ra);
+        else
+            lit_solve_(la, ra);
+        if (expr_type(lhs) && TypeRef(expr_type(lhs)).kind() == LogosType::Kind::IntLit)
+            builder().retype_expr(lhs, lit_resolve_(expr_type(lhs)));
+        if (expr_type(rhs) && TypeRef(expr_type(rhs)).kind() == LogosType::Kind::IntLit)
+            builder().retype_expr(rhs, lit_resolve_(expr_type(rhs)));
+    }
     auto lt = expr_type(lhs);
     auto rt = expr_type(rhs);
 
@@ -17007,9 +17023,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     if (auto h = hint_for_param(tvn)) {
                         inferred = h;                  // annotation wins
                         widen_int_expr(payload[i], h, builder());  // pin the literal too
+                    } else if (TypeRef(inferred).kind() == LogosType::Kind::FloatLit) {
+                        inferred = prim(LogosType::Kind::F64);
                     } else {
-                        inferred = TypeRef(inferred).kind() == LogosType::Kind::FloatLit
-                                   ? prim(LogosType::Kind::F64) : i32_t();
+                        // C-LIT: an integer variable a later use solves.
+                        if (!is_lit_var_(inferred)) inferred = mint_lit_var_(get_intlit_value(expr_ref_of(payload[i])));
+                        builder().retype_expr(payload[i], inferred);
                     }
                 }
                 // G168-A: when the hint pins this type-param to a trait object
@@ -17406,9 +17425,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                     if (psit != pre_subst.end() && psit->second) {
                         inferred = psit->second;
                         widen_int_expr(payload[i], inferred, builder());
+                    } else if (TypeRef(inferred).kind() == LogosType::Kind::FloatLit) {
+                        inferred = prim(LogosType::Kind::F64);
                     } else {
-                        inferred = TypeRef(inferred).kind() == LogosType::Kind::FloatLit
-                                   ? prim(LogosType::Kind::F64) : i32_t();
+                        if (!is_lit_var_(inferred)) inferred = mint_lit_var_(get_intlit_value(expr_ref_of(payload[i])));
+                        builder().retype_expr(payload[i], inferred);
                     }
                 }
                 // G168-A: when the hint (projected into pre_subst) pins this
@@ -17897,7 +17918,7 @@ bool SemaChecker::stamp_literal_tree_(lir_view::ExprRef e, TypeRef target) {
     switch (e.kind()) {
     case C::LitInt:
         if (TypeRef(et).kind() != K::IntLit || !is_integer_kind(tk) ||
-            tk == K::IntLit || tk == K::Enum) return false;
+            (tk == K::IntLit && !is_lit_var_(target)) || tk == K::Enum) return false;
         builder().retype_expr(e, target);
         return true;
     case C::LitFloat:
@@ -18063,6 +18084,21 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         if (has_infer_var_(expr_type(e))) builder().retype_expr(e, zonk_(expr_type(e)));
     }
     if (!e || !expected) return true;
+    // C-LIT: an integer inference variable on either side is solved by the other.
+    if (has_lit_var_(expr_type(e)) || has_lit_var_(expected)) {
+        lit_solve_struct_(expr_type(e), expected);
+        expected = lit_zonk_(expected);
+        if (TypeRef rv = lit_zonk_(expr_type(e)); rv != expr_type(e)) builder().retype_expr(e, rv);
+        // A bare literal written into a variable is one of its values: it
+        // takes the variable's type and must fit whatever that becomes.
+        if (is_lit_var_(expected) && TypeRef(expr_type(e)).kind() == LogosType::Kind::IntLit &&
+            !is_lit_var_(expr_type(e))) {
+            if (auto v = get_intlit_value(expr_ref_of(e)))
+                // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
+                lit_more_values_[std::string(TypeRef(expected).type_var_name())].push_back(*v);
+            builder().retype_expr(e, expected);
+        }
+    }
     if (TypeRef(expected).kind() == LogosType::Kind::Error) return true;
     // An unresolved formal (a type parameter or an un-normalized projection)
     // is skipped only where mono re-judges the concrete instantiation — the
@@ -28709,7 +28745,9 @@ bool SemaChecker::infer_unify_rec_(TypeRef a, TypeRef b, int d) {
         if (k == LogosType::Kind::InferredType || k == LogosType::Kind::Error) return false;
         if (open(t) && TypeRef(t).type_var_name() == TypeRef(v).type_var_name()) return false;
         std::string n(TypeRef(v).type_var_name());
-        if (k == LogosType::Kind::IntLit) t = prim(LogosType::Kind::I32);  // an unsuffixed literal's default
+        // An unsuffixed literal fixes the argument to an INTEGER variable
+        // (C-LIT), which a later use solves — `Some(7)` then `: Option<u16>`.
+        if (k == LogosType::Kind::IntLit && !is_lit_var_(t)) t = mint_lit_var_(std::nullopt);
         else if (k == LogosType::Kind::FloatLit) t = prim(LogosType::Kind::F64);
         else {
             std::function<bool(TypeRef, int)> occurs = [&](TypeRef x, int dd) -> bool {
@@ -28749,7 +28787,125 @@ lir::LExprPtr SemaChecker::lower_typed_const_(TinyMapView ast, TypeRef declared)
     return v;
 }
 
+// ── C-LIT (see sema_impl.hpp) ─────────────────────────────────────────────────
+TypeRef SemaChecker::mint_lit_var_(std::optional<int64_t> value) {
+    // KEY-IDENTITY: an INFERENCE VARIABLE's name, `?lK`, minted unique per
+    // program — no entity, no package to carry.
+    std::string n = "?l" + std::to_string(lit_var_counter_++);
+    lit_solved_[n] = nullptr;
+    if (value) lit_value_[n] = *value;
+    lit_fn_vars_.push_back(n);
+    LogosTypeBuilder b;
+    b.kind = LogosType::Kind::IntLit;
+    b.type_var_name = n;
+    return pool_->alloc(std::move(b));
+}
+
+TypeRef SemaChecker::lit_resolve_(TypeRef t) {
+    for (int i = 0; i < 64 && is_lit_var_(t); ++i) {
+        // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
+        auto it = lit_solved_.find(std::string(TypeRef(t).type_var_name()));
+        if (it == lit_solved_.end() || !it->second) return t;
+        t = it->second;
+    }
+    return t;
+}
+
+TypeRef SemaChecker::lit_zonk_(TypeRef t, int d) {
+    if (!t || d > 24 || lit_solved_.empty()) return t;
+    if (is_lit_var_(t)) return lit_resolve_(t);
+    TypeRef tr(t);
+    bool any = false;
+    auto walk = [&](TypeRef x) { if (x) { TypeRef z = lit_zonk_(x, d + 1); if (z != x) any = true; return z; } return x; };
+    auto b = tr.to_builder();
+    b.pointee = walk(b.pointee);
+    b.elem = walk(b.elem);
+    for (auto& a : b.type_args) a = walk(a);
+    for (auto& e : b.tuple_elems) e = walk(e);
+    for (auto& p : b.closure_params) p = walk(p);
+    b.closure_ret = walk(b.closure_ret);
+    if (!any) return t;
+    return pool_->alloc(std::move(b));
+}
+
+bool SemaChecker::lit_solve_(TypeRef a, TypeRef b) {
+    a = lit_resolve_(a); b = lit_resolve_(b);
+    if (!a || !b) return false;
+    if (!is_lit_var_(a)) std::swap(a, b);
+    if (!is_lit_var_(a)) return false;
+    const std::string n(TypeRef(a).type_var_name());
+    if (is_lit_var_(b)) {
+        if (TypeRef(b).type_var_name() == n) return false;
+        lit_solved_[n] = b;                       // one variable now
+        return true;
+    }
+    auto k = TypeRef(b).kind();
+    if (k == LogosType::Kind::IntLit || !is_integer_kind(k) || k == LogosType::Kind::Enum) return false;
+    lit_solved_[n] = b;
+    lit_refresh_scope_();
+    return true;
+}
+
+bool SemaChecker::lit_solve_struct_(TypeRef a, TypeRef b, int d) {
+    if (!a || !b || d > 24) return false;
+    a = lit_resolve_(a); b = lit_resolve_(b);
+    if (is_lit_var_(a) || is_lit_var_(b)) return lit_solve_(a, b);
+    bool any = false;
+    TypeRef ta(a), tb(b);
+    if (ta.pointee() && tb.pointee()) any |= lit_solve_struct_(ta.pointee(), tb.pointee(), d + 1);
+    if (ta.elem() && tb.elem()) any |= lit_solve_struct_(ta.elem(), tb.elem(), d + 1);
+    auto xa = ta.type_args(), xb = tb.type_args();
+    if (xa.size() == xb.size()) for (size_t i = 0; i < xa.size(); ++i) any |= lit_solve_struct_(xa[i], xb[i], d + 1);
+    auto ea = ta.tuple_elems(), eb = tb.tuple_elems();
+    if (ea.size() == eb.size()) for (size_t i = 0; i < ea.size(); ++i) any |= lit_solve_struct_(ea[i], eb[i], d + 1);
+    return any;
+}
+
+TypeRef SemaChecker::lit_default_(TypeRef t) {
+    if (!t || TypeRef(t).kind() != LogosType::Kind::IntLit) return t;
+    TypeRef r = lit_resolve_(t);
+    if (!is_lit_var_(r)) return TypeRef(r).kind() == LogosType::Kind::IntLit ? i32_t() : r;
+    lit_solve_(r, i32_t());
+    return i32_t();
+}
+
+void SemaChecker::lit_refresh_scope_() {
+    for (auto& fr : scope_)
+        for (auto& [nm, vi] : fr.vars)
+            if (vi.type) vi.type = lit_zonk_(vi.type);
+}
+
+void SemaChecker::lit_close_fn_(const std::string& fn_name) {
+    if (lit_fn_vars_.empty()) return;
+    std::vector<std::pair<std::string, TypeRef>> sols;
+    for (const auto& n : lit_fn_vars_) {
+        LogosTypeBuilder b; b.kind = LogosType::Kind::IntLit; b.type_var_name = n;
+        TypeRef t = lit_resolve_(pool_->alloc(std::move(b)));
+        std::vector<int64_t> vals;
+        if (auto vit = lit_value_.find(n); vit != lit_value_.end()) vals.push_back(vit->second);
+        if (auto mit = lit_more_values_.find(n); mit != lit_more_values_.end())
+            vals.insert(vals.end(), mit->second.begin(), mit->second.end());
+        if (is_lit_var_(t)) {
+            // Unsolved: i32, or i64 when a literal does not fit (Logos's default).
+            // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
+            const std::string root(TypeRef(t).type_var_name());
+            TypeRef d = i32_t();
+            for (auto v : vals) if (v > INT32_MAX || v < INT32_MIN) d = prim(LogosType::Kind::I64);
+            lit_solved_[root] = d;
+            t = d;
+        }
+        for (auto v : vals)
+            if (!intlit_fits(v, TypeRef(t).kind()))
+                error(std::format("literal out of range for `{}`: {}", type_str(t), v));
+        sols.emplace_back(n, t);
+    }
+    auto& dst = cur_prog_->infer_substs[fn_name];
+    for (auto& p : sols) dst.push_back(std::move(p));
+    lit_fn_vars_.clear();
+}
+
 void SemaChecker::infer_close_fn_(const std::string& fn_name) {
+    lit_close_fn_(fn_name);
     if (infer_solved_.empty()) return;
     std::vector<std::pair<std::string, TypeRef>> sols;
     for (auto& [n, v] : infer_solved_) {
@@ -28758,7 +28914,10 @@ void SemaChecker::infer_close_fn_(const std::string& fn_name) {
         error(std::format("type annotations needed: cannot infer {} (E0282)",
                           o != infer_origin_.end() ? o->second : std::string("a type argument")));
     }
-    if (!sols.empty()) cur_prog_->infer_substs[fn_name] = std::move(sols);
+    if (!sols.empty()) {
+        auto& dst = cur_prog_->infer_substs[fn_name];
+        for (auto& p : sols) dst.push_back(std::move(p));
+    }
     infer_solved_.clear();
     infer_origin_.clear();
     infer_node_vars_.clear();

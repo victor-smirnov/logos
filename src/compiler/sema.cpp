@@ -1012,6 +1012,8 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         // as the valueless literal, and `N` stayed unbound.
         put_u64(buf, t.const_val.has_value() ? 1u : 0u);
         put_u64(buf, uint64_t(t.const_val.value_or(0)));
+        // An integer INFERENCE VARIABLE (`?lK`, ADR 0030 S7) is its name.
+        put_str(buf, t.type_var_name);
         break;
     case K::WStaticLit:
         // Identity = the byte-hash stashed in const_val. Without this,
@@ -1166,6 +1168,8 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
     case K::CfgSlotType:
         return t.type_var_name == r.type_var_name() &&
                t.assoc_type_name == r.assoc_type_name();
+    case K::IntLit:   // a const value, or an inference variable's name
+        return t.const_val == r.const_val() && t.type_var_name == r.type_var_name();
     default:
         return true;  // primitives — kind alone is identity
     }

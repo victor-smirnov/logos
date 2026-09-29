@@ -1,0 +1,4 @@
+// ADR 0030 S7.1 (C-LIT): an unsuffixed integer literal is an inference variable its
+// uses solve — `let t = (1, 2); let (a, b): (u8, i64) = t;` — each leaf is its own variable. rustc 1.98.1 twin exits 3.
+package lit_tuple_let_solved_by_pattern;
+fn main() -> i32 { let t = (1, 2); let (a, b): (u8, i64) = t; return (a as i64 + b) as i32; }
