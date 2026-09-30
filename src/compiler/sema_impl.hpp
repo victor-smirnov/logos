@@ -4932,6 +4932,24 @@ private:
         }
     }
 
+    // The local a lowered place is rooted at, through fields, tuple elements,
+    // indices and derefs (`(*p).a[i].b` → `p`); empty for a place rooted at a
+    // call or a temporary.
+    std::string place_root_name_(lir_view::ExprRef e) const {
+        using C = lir_schema::expr::Code;
+        for (int d = 0; e && d < 64; ++d) {
+            switch (e.kind()) {
+            case C::VarRef: return std::string(lir_view::EVarRefView{e}.name());
+            case C::FieldRead: e = lir_view::EFieldReadView{e}.receiver(); continue;
+            case C::TupleIndex: e = lir_view::ETupleIndexView{e}.receiver(); continue;
+            case C::IndexRead: e = lir_view::EIndexReadView{e}.receiver(); continue;
+            case C::SliceIndex: e = lir_view::ESliceIndexView{e}.slice(); continue;
+            case C::Deref: e = lir_view::EDerefView{e}.operand(); continue;
+            default: return {};
+            }
+        }
+        return {};
+    }
     // A PLACE expression: a use of it reads (or moves) storage that lives on,
     // as opposed to an rvalue whose value is a fresh temporary.
     static bool is_place_expr_(lir_view::ExprRef e) {

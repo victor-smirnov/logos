@@ -1,0 +1,19 @@
+// ADR 0030 S6.4: a tuple index autoderefs as a field access and an index do. `b.0` over `Box<(i64, i64)>` or
+// `Box<TupleStruct>`, read and written, through `&mut Box<..>` too, and `r.0` over `Rc<(i64, i64)>`: each
+// was "tuple index on non-tuple type". rustc 1.98.1 gives the same stdout.
+package plc_tuple_index_through_deref;
+use logos.std.fmt;
+use logos.lang.rc;
+struct T(i64, i64);
+fn main() {
+    let mut b = Box::new((1i64, 2i64));
+    b.0 = 7; b.1 *= 3; (*b).1 += 1;
+    let mut t = Box::new(T(1, 2));
+    t.0 += 10; t.1 = t.0 * 2;
+    let mut v = vec![Box::new((1i64, 2i64))];
+    v[0].1 = 5;
+    let r = &mut v[0];
+    r.0 += 4;
+    let rc = Rc::new((3i64, 4i64));
+    println!("{} {} {} {} {} {} {}", b.0, b.1, t.0, t.1, v[0].0, v[0].1, rc.0 + rc.1);
+}

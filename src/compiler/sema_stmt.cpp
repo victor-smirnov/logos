@@ -3088,75 +3088,9 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
         can_widen_int(TypeRef(expr_type(rhs)).kind(), TypeRef(var_type).kind())) {
         widen_int_expr(rhs, var_type, builder());
     }
-    // Check IntLit literal fits in the variable's declared type.
-    if (TypeRef(expr_type(rhs)).kind() == LogosType::Kind::IntLit &&
-        TypeRef(var_type).kind() != LogosType::Kind::Error) {
-        if (auto v = get_intlit_value(rhs))
-            if (!intlit_fits(*v, TypeRef(var_type).kind()))
-                error(std::format("assignment to '{}': value {} does not fit in {}",
-                      name, *v, type_str(var_type)));
-    }
-    // Check array literal elements against narrow array variable type.
-    if (TypeRef(expr_type(rhs)).kind() == LogosType::Kind::Array &&
-        TypeRef(var_type).kind() == LogosType::Kind::Array && TypeRef(var_type).elem()) {
-        auto rhs_ref = expr_ref_of(rhs);
-        if (rhs_ref.kind() == lir_schema::expr::Code::ArrLit) {
-            lir_view::EArrLitView al{rhs_ref};
-            for (uint64_t i = 0; i < al.count(); ++i) {
-                auto el = al.elem(i);
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (!intlit_fits(*v, TypeRef(var_type).elem().kind()))
-                            error(std::format("assignment to '{}': array element {}: value {} does not fit in {}",
-                                  name, i, *v, type_str(TypeRef(var_type).elem())));
-            }
-        }
-    }
-    // Check tuple literal elements against narrow tuple variable element types.
-    if (TypeRef(expr_type(rhs)).kind() == LogosType::Kind::Tuple && TypeRef(var_type).kind() == LogosType::Kind::Tuple) {
-        auto rhs_ref = expr_ref_of(rhs);
-        if (rhs_ref.kind() == lir_schema::expr::Code::TupleLit) {
-            lir_view::ETupleLitView tl{rhs_ref};
-            uint64_t i = 0;
-            tl.each_elem([&](lir_view::ExprRef el) {
-                if (i >= TypeRef(var_type).tuple_elems().size()) { ++i; return; }
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (TypeRef(var_type).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(var_type).tuple_elems()[i]).kind()))
-                            error(std::format("assignment to '{}': tuple element {}: value {} does not fit in {}",
-                                  name, i, *v, type_str(TypeRef(var_type).tuple_elems()[i])));
-                if (TypeRef(var_type).tuple_elems()[i] && TypeRef(TypeRef(var_type).tuple_elems()[i]).kind() == LogosType::Kind::Array &&
-                    TypeRef(TypeRef(var_type).tuple_elems()[i]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                    el.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView ial{el};
-                    for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                        auto iel = ial.elem(ii);
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (!intlit_fits(*v, TypeRef(TypeRef(var_type).tuple_elems()[i]).elem().kind()))
-                                    error(std::format("assignment to '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                          name, i, ii, *v, type_str(TypeRef(TypeRef(var_type).tuple_elems()[i]).elem())));
-                    }
-                }
-                if (TypeRef(var_type).tuple_elems()[i] && TypeRef(TypeRef(var_type).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
-                    el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                    el.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView itl{el};
-                    uint64_t ii = 0;
-                    itl.each_elem([&](lir_view::ExprRef iel) {
-                        if (ii >= TypeRef(TypeRef(var_type).tuple_elems()[i]).tuple_elems().size()) { ++ii; return; }
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (TypeRef(TypeRef(var_type).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(var_type).tuple_elems()[i]).tuple_elems()[ii]).kind()))
-                                    error(std::format("assignment to '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                          name, i, ii, *v, type_str(TypeRef(TypeRef(var_type).tuple_elems()[i]).tuple_elems()[ii])));
-                        ++ii;
-                    });
-                }
-                ++i;
-            });
-        }
-    }
+    // Every unsuffixed literal in the value must fit the variable's type.
+    if (var_type && TypeRef(var_type).kind() != LogosType::Kind::Error)
+        lit_fit_check_(expr_ref_of(rhs), var_type, std::format("assignment to '{}'", name));
     // B8 drop-before-replace: if the LHS holds a live droppable value, its
     // destructor must run before being overwritten (Rust assignment semantics).
     // SOUND conditions (checked BEFORE the moved_vars_.erase below):
@@ -8684,23 +8618,11 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // whose elided regions are 'static. PROBES.md 2026-09-13d-staticdemand.
     bool place_in_static_mut = false;
     bool place_in_inferred_local = false;
-    for (auto cur = place_node; !cur.is_null();) {
-        const int32_t cc = code_of(cur);
-        if ((cc == la::FIELD_READ || cc == la::TUPLE_INDEX || cc == la::INDEX_READ) &&
-            cur.has_key(la::RECEIVER)) {
-            cur = unwrap_paren_node(map_of(cur.get(la::RECEIVER.code)));
-            continue;
-        }
-        if (cc == la::DEREF && cur.has_key(la::VALUE)) {
-            cur = unwrap_paren_node(map_of(cur.get(la::VALUE.code)));
-            continue;
-        }
-        if (cc == la::VAR_REF) {
-            std::string rn(str_of(cur.get(la::NAME.code)));
-            place_in_static_mut = names_static_mut(rn);
-            if (auto* vi = lookup_var_info(rn)) place_in_inferred_local = vi->regions_inferred;
-        }
-        break;
+    if (std::string rn = place_root_name_(expr_ref_of(place)); !rn.empty()) {
+        // A static is read through its address (`*__static_addr:<sym>`); a
+        // place rooted there that is written is a `static mut`'s.
+        place_in_static_mut = rn.starts_with("__static_addr:") || names_static_mut(rn);
+        if (auto* vi = lookup_var_info(rn)) place_in_inferred_local = vi->regions_inferred;
     }
     if (pt && val && !place_in_inferred_local)
         check_variance(expr_type(val),
@@ -8710,78 +8632,8 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                        /*permissive=*/false);
     // Overflow: an int literal RHS must fit the place's integer type (closes the
     // gap where the general place-write path skipped the fit-check).
-    if (pt && TypeRef(pt).kind() != LogosType::Kind::Error &&
-        val && TypeRef(expr_type(val)).kind() == LogosType::Kind::IntLit)
-        if (auto v = get_intlit_value(val))
-            if (!intlit_fits(*v, TypeRef(pt).kind()))
-                error(std::format("assignment to '{}': value {} does not fit in {}",
-                      render_place_node(place_node), *v, type_str(pt)));
-    // Array-literal RHS: each int-literal element must fit the place's narrow
-    // array element type (generalizes the retired deref_field_write check).
-    if (pt && TypeRef(pt).kind() == LogosType::Kind::Array && TypeRef(pt).elem() &&
-        val && TypeRef(expr_type(val)).kind() == LogosType::Kind::Array) {
-        auto vr = expr_ref_of(val);
-        if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-            lir_view::EArrLitView al{vr};
-            for (uint64_t i = 0; i < al.count(); ++i) {
-                auto el = al.elem(i);
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(el))
-                        if (!intlit_fits(*v, TypeRef(pt).elem().kind()))
-                            error(std::format("assignment to '{}': array element {}: value {} does not fit in {}",
-                                  render_place_node(place_node), i, *v, type_str(TypeRef(pt).elem())));
-            }
-        }
-    }
-    // Tuple-literal RHS: each int-literal element must fit the corresponding
-    // narrow tuple element type (generalizes the retired deref_field_write check).
-    if (pt && TypeRef(pt).kind() == LogosType::Kind::Tuple &&
-        val && TypeRef(expr_type(val)).kind() == LogosType::Kind::Tuple) {
-        auto vr = expr_ref_of(val);
-        if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-            lir_view::ETupleLitView tl{vr};
-            auto elems = TypeRef(pt).tuple_elems();
-            for (uint64_t i = 0; i < tl.count() && i < elems.size(); ++i) {
-                auto el = tl.elem(i);
-                TypeRef et = elems[i];
-                if (!et) continue;
-                if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit) {
-                    if (auto v = get_intlit_value(el))
-                        if (!intlit_fits(*v, TypeRef(et).kind()))
-                            error(std::format("assignment to '{}': tuple element {}: value {} does not fit in {}",
-                                  render_place_node(place_node), i, *v, type_str(et)));
-                }
-                // Nested: a tuple element that is itself an ARRAY literal.
-                else if (TypeRef(et).kind() == LogosType::Kind::Array && TypeRef(et).elem() &&
-                         el.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView ial{el};
-                    for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                        auto iel = ial.elem(ii);
-                        if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (!intlit_fits(*v, TypeRef(TypeRef(et).elem()).kind()))
-                                    error(std::format("assignment to '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                          render_place_node(place_node), i, ii, *v, type_str(TypeRef(et).elem())));
-                    }
-                }
-                // Nested: a tuple element that is itself a TUPLE literal.
-                else if (TypeRef(et).kind() == LogosType::Kind::Tuple &&
-                         el.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView itl{el};
-                    auto subelems = TypeRef(et).tuple_elems();
-                    for (uint64_t ii = 0; ii < itl.count() && ii < subelems.size(); ++ii) {
-                        auto iel = itl.elem(ii);
-                        if (subelems[ii] &&
-                            iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(iel))
-                                if (!intlit_fits(*v, TypeRef(subelems[ii]).kind()))
-                                    error(std::format("assignment to '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                          render_place_node(place_node), i, ii, *v, type_str(subelems[ii])));
-                    }
-                }
-            }
-        }
-    }
+    if (pt && val && TypeRef(pt).kind() != LogosType::Kind::Error)
+        lit_fit_check_(expr_ref_of(val), pt, std::format("assignment to '{}'", render_place_node(place_node)));
     widen_int_expr(val, pt, builder());
 
     // T1.5: the place's old value drops before the store iff it is a live

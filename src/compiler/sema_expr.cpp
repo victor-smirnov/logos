@@ -2594,6 +2594,28 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             if (!p0 || !(p0.kind() == LogosType::Kind::Ref || p0.kind() == LogosType::Kind::MutRef)) break;
             recv = builder().deref(std::move(recv), p0);
         }
+        // Rust autoderef at a tuple-index position: `b.0` over `Box<(A, B)>` or
+        // `Box<TupleStruct>`, through `&mut Box<..>` too, or any Deref to a tuple,
+        // steps through the Deref (a write position through DerefMut) — as a
+        // field access and an index already do.
+        auto tuple_struct_ = [&](TypeRef t) {
+            if (!t || TypeRef(t).kind() != LogosType::Kind::Struct) return false;
+            auto [p_, si_] = find_struct_by_name(std::string(TypeRef(t).struct_name()));
+            (void)p_;
+            return si_ && si_->is_tuple_struct;
+        };
+        for (int ad = 0; ad < 4 && recv && expr_type(recv); ++ad) {
+            TypeRef t(expr_type(recv));
+            if (is_ref_like(t.kind()) && t.pointee() && TypeRef(t.pointee()).kind() == LogosType::Kind::Struct &&
+                !tuple_struct_(t.pointee()))
+                t = t.pointee();
+            if (t.kind() != LogosType::Kind::Struct || tuple_struct_(t)) break;
+            lir::LExprPtr base = recv;
+            if (TypeRef(expr_type(recv)).kind() != LogosType::Kind::Struct) base = builder().deref(recv, t);
+            auto stepped = emit_generic_deref_step(base, /*want_mut=*/in_place_write_lhs_);
+            if (!stepped) break;
+            recv = std::move(*stepped);
+        }
         // Auto-deref: &(T) and &mut (T) -> use pointee type for index lookup
         TypeRef recv_tuple_type = expr_type(recv);
         TypeRef rrt(expr_type(recv));

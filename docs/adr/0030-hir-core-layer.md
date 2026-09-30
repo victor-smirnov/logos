@@ -887,6 +887,23 @@ battery with rustc twins over the path inventory's place/assignment rows
   `m[i][j]`, array-of-struct fields, slice fields, `RefCell::borrow_mut`,
   tuple paths) agreed with rustc throughout; out-of-bounds writes trap.
   −30 lines.
+- S6.3 (2026-09-30): the place assignment asks its root on the LOWERED
+  place (`place_root_name_`: through fields, tuple elements, indices and
+  derefs to the local) instead of a second walk of the AST, and both
+  assignment forms (to a place, to a variable) check their literals with the
+  one `lit_fit_check_` (−150 lines of copies). A 20-shape battery (fields
+  and indices through `&mut`, `Box`, `Vec` and `IndexMut` writes, tuple
+  paths, compound ops on every place kind, evaluation order) agrees with
+  rustc on stdout except `bb.0` through a `Box<(i64, i64)>`: auto-deref on
+  a field access through `Box` — `lower_place`'s overloaded-`Deref` step.
+  The battery also found a regression of S4.4c (nested annotated `vec!`),
+  fixed in 9cbe2b1d8. A static root is read through its address
+  (`*__static_addr:<sym>`), which the lowered-place walk names as such.
+- S6.4 (2026-09-30): a tuple index autoderefs as a field access and an
+  index do — through `Box<(A, B)>`, `Box<TupleStruct>`, `&mut Box<..>` and
+  `Rc`, read and written (`emit_generic_deref_step`, DerefMut at a write).
+  Each was "tuple index on non-tuple type". Fixture
+  plc_tuple_index_through_deref.
 
 ## S7 status (2026-09-29)
 
