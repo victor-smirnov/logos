@@ -998,7 +998,19 @@ mistyped a legal program because an unannotated `let` fixed its literal to
   it takes `-`); the closure-hint literal of a generic method call
   (`fold(0, ..)`) defaults through `lit_default_`. Fixture
   lit_not_literal_takes_use_type.
-Remaining on the S7 row: the per-site `IntLit → i32` defaults onto
+S7 row (audit §4.1 C-LIT / C-EXP / C-INF), item by item:
+
+| item | state |
+|---|---|
+| integer inference variables; the default at the fn's close | done, S7.1-2 |
+| the per-site `IntLit → i32` defaults onto `lit_default_` | done: two sites were left (`!5`, the `fold(0, ..)` closure hint), S7.5 |
+| ~100 range checks onto one | done, S7.3-4 (and S4.4a-c, S4.7a, S6.3): one `lit_fit_check_`; the operator-operand, pattern and variadic-arg checks are different questions (both operands; a pattern's range) and stay |
+| a literal written through `*r` truncated (l5) | done, S6.7 |
+| mlir's `IntLit → i32` fallback | measured: 29 of 4565 pass programs still bring an `{integer}` type to codegen — unused literals (a destructuring `_`) and a literal that fixes a generic argument behind `&` (`println!("{}", 5000000000)` prints 705032704; rustc refuses). The second is the generic-argument inference below (C-INF); then the fallback becomes an internal error |
+| C-EXP: one expected-type scope for the 7 hint members / 14 producers | open (the aggregate unsize of S4.7b waits on it) |
+| C-INF: one generic-argument inference for the 11 raw unify loops | open (`let x = vec![3, 4]; let y: Vec<i64> = x;` and the `&lit` generic argument wait on it) |
+
+Remaining on the S7 row (older note): the per-site `IntLit → i32` defaults onto
 `lit_default_` and the range checks onto the variable's close; a value
 stored through `*r = 5000000000` is refused as rustc refuses it
 (S6.7); C-EXP (one expected-type scope); C-INF (one generic-argument
