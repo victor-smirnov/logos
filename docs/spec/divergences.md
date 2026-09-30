@@ -2045,12 +2045,12 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Source**: `src/compiler/sema_impl.hpp#L876-L968`
 
 ### `coerce.int.implicit-widening` — Safe implicit integer widening
-- **Divergence**: Rust performs NO implicit integer widening at all (requires explicit `as`). Logos permits value-preserving implicit widening here.
+- **Divergence**: Rust performs NO implicit integer widening at all (requires explicit `as`). Logos permits value-preserving implicit widening here. **Blessed: DIVERGENCES.md A18 (2026-09-30).**
 - **Rule**: An implicit integer widening from `from` to `to` is permitted iff every value of `from` is representable in `to`: signed-&gt;signed and unsigned-&gt;unsigned require to_width &gt;= from_width; unsigned-&gt;signed requires to_width &gt; from_width; signed-&gt;unsigned is never permitted. usize/isize are distinct types: no implicit conversion between a pointer-sized integer and any fixed-width integer (only psize&lt;-&gt;psize among themselves). Either operand having undefined rank (IntLit/Enum/non-integer) blocks widening.
 - **Source**: `src/compiler/sema_impl.hpp#L4482-L4495`
 
 ### `coerce.let.implicit-int-widening` — Implicit safe integer widening at let-init
-- **Divergence**: Rust requires an explicit `as` cast for any integer width change; Logos performs implicit safe widening.
+- **Divergence**: Rust requires an explicit `as` cast for any integer width change; Logos performs implicit safe widening. **Blessed: DIVERGENCES.md A18 (2026-09-30).**
 - **Rule**: At a let-init coercion site, a concrete (non-IntLit, non-enum) integer RHS whose type can safely widen to the annotated integer type is implicitly widened (e.g. u32→i64, i32→i64, u8→u32) without an explicit `as`.
 - **Source**: `src/compiler/sema_stmt.cpp#L2054-L2061`
 
@@ -2090,7 +2090,7 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3274-L3279`
 
 ### `expr.compound-assign.int-widen` — Implicit integer widening in the compound-assign fallback
-- **Divergence**: Rust has no implicit integer widening on assignment.
+- **Divergence**: Rust has no implicit integer widening on assignment. **Blessed: DIVERGENCES.md A18 (2026-09-30).**
 - **Rule**: In the general (non-`*Assign`-impl) place-compound-assign path, the rhs is implicitly widened to the place's integer type before combining with the base operator.
 - **Source**: `src/compiler/sema_stmt.cpp#L2528`
 
@@ -2308,7 +2308,7 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Source**: `include/logos/compiler/outlives.hpp#L86-L102`
 
 ### `stmt.assign.int-widen` — Implicit integer widening on assignment
-- **Divergence**: Rust has no implicit integer widening on assignment.
+- **Divergence**: Rust has no implicit integer widening on assignment. **Blessed: DIVERGENCES.md A18 (2026-09-30).**
 - **Rule**: On assignment to an integer variable, a non-literal non-enum integer RHS of a narrower integer kind that can widen safely to the LHS kind is implicitly widened.
 - **Source**: `src/compiler/sema_stmt.cpp#L2647-L2653`
 
