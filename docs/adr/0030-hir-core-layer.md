@@ -904,6 +904,23 @@ battery with rustc twins over the path inventory's place/assignment rows
   `Rc`, read and written (`emit_generic_deref_step`, DerefMut at a write).
   Each was "tuple index on non-tuple type". Fixture
   plc_tuple_index_through_deref.
+- S6.5 (2026-09-30): ONE `*Assign` dispatch. `op_assign_call_` is the
+  compound assignment over a struct place — to a variable, to a place, to a
+  temporary-rooted place, and to an `IndexMut` element (which had none: its
+  struct element went to `bin_op`): the `<Op>Assign` method on `&mut place`,
+  the rhs judged as that method's argument, consumed when taken by value.
+  Rust has no `a = a op b` fallback: a struct without the impl is E0368 —
+  it desugared to `a = a + b` and, with no `Add` either, mlir-gen found no
+  `V__add`. The impl whose `Rhs` does not match the rhs's own type is found
+  when it is the type's only one, and the rhs coerces to it at the call. The
+  three hand copies are gone. `v[i] += &s` over `Vec<String>` still refuses:
+  `&str` as a generic argument (`AddAssign<&str>`) resolves to `&[u8]`, the
+  #706 knot. Enum and generic `op=` stay with the operator traits (S8/S9).
+  A `&mut [T; N]` returned by a call and indexed in place (`pick(&mut a)[2]
+  += 5`) indexed a spilled copy of the reference in codegen's lvalue path —
+  the write was silently lost (09-27 binary too); the reference value is the
+  base, as a raw pointer's already was. Fixtures
+  plc_compound_no_op_assign_refused, plc_index_through_returned_array_ref.
 
 ## S7 status (2026-09-29)
 

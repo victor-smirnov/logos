@@ -4932,6 +4932,15 @@ private:
         }
     }
 
+    // `place op= rhs` over a STRUCT place: the `<Op>Assign` impl's method on
+    // `&mut place` (`make_recv()` builds it, only when the impl exists). The rhs
+    // is a call argument of that method (`s += &t` derefs `&String` to `&str`)
+    // and is consumed when taken by value. Rust has no `place = place op rhs`
+    // fallback: a struct without the impl is E0368. nullopt: not a struct place
+    // (the primitive path applies); a null call: refused.
+    std::optional<lir::LExprPtr> op_assign_call_(TypeRef pt, const std::function<lir::LExprPtr()>& make_recv,
+                                                 lir::LExprPtr& rhs, std::string_view base_op,
+                                                 const std::string& what);
     // The local a lowered place is rooted at, through fields, tuple elements,
     // indices and derefs (`(*p).a[i].b` → `p`); empty for a place rooted at a
     // call or a temporary.

@@ -18,7 +18,7 @@ impl AddAssign for Acc { fn add_assign(&mut self, rhs: Acc) { self.v = self.v + 
 impl SubAssign for Acc { fn sub_assign(&mut self, rhs: Acc) { self.v = self.v - rhs.v; } }
 impl MulAssign for Acc { fn mul_assign(&mut self, rhs: Acc) { self.v = self.v * rhs.v; } }
 
-// Cnt has only Add (no AddAssign) -> `+=` must desugar to `Cnt = Cnt + Cnt`.
+// Cnt has only Add (no AddAssign): `+=` is E0368 (Rust has no desugar to `c = c + rhs`).
 struct Cnt { v: i32 }
 impl Add for Cnt { type Output = Cnt; fn add(self: Cnt, rhs: Cnt) -> Cnt { return Cnt { v: self.v + rhs.v }; } }
 
@@ -163,11 +163,11 @@ fn main() -> i64 {
 
     // @rule expr.compound-assign.base-op-strip
     // @rule expr.compound-assign.opassign-fallback-binop
-    // Cnt has no AddAssign, so `c += rhs` strips the `=` to the base op `+` and
-    // desugars to `c = c + rhs`, dispatching through Add (constructs a fresh Cnt).
+    // Cnt has no AddAssign: `c += rhs` is E0368, as in rustc (ADR 0030 S6.5;
+    // fail/plc_compound_no_op_assign_refused). The Rust spelling through Add:
     {
         let mut c: Cnt = Cnt { v: 5i32 };
-        c += Cnt { v: 3i32 };                    // c = c + rhs via Add::add
+        c = c + Cnt { v: 3i32 };                 // via Add::add
         if c.v != 8i32 { return 18; }
     }
 

@@ -2607,9 +2607,9 @@ For a place of struct type S, if an impl of the operator's *Assign trait exists 
 
 *Source:* `src/compiler/sema_stmt.cpp#L2318-L2360`, `src/compiler/sema_stmt.cpp#L2493-L2518`
 
-### `expr.compound-assign.opassign-fallback-binop` — Compound-assign without *Assign impl desugars to read-modify-write
+### `expr.compound-assign.opassign-fallback-binop` — Compound-assign without *Assign impl is refused (E0368)
 
-Absent a matching *Assign impl, `place op= rhs` desugars to `place = (place) op rhs` (read-twice / double-eval of the place), dispatching `op` through the corresponding binary-operator trait (Add/Sub/…), whose `Output` is assigned back to the place (see `expr.binop.operator-trait-rhs-output`).
+Over a struct place, `place op= rhs` is the `<Op>Assign` impl's method on `&mut place`; absent the impl it is E0368 ("binary assignment operation `op=` cannot be applied to type `T`"), as in rustc — there is no desugar to `place = place op rhs`, even when `Op` is implemented (ADR 0030 S6.5). A primitive place is the primitive operation.
 
 *Source:* `src/compiler/sema_stmt.cpp#L2313-L2314`, `src/compiler/sema_stmt.cpp#L2370-L2373`, `src/compiler/sema_stmt.cpp#L2520-L2534`
 

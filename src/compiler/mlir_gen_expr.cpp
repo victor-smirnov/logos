@@ -1627,8 +1627,16 @@ mlir::Value MLIRGenImpl::gen_lvalue_addr(lir_view::ExprRef e) {
         // A raw-pointer VALUE that is not a place (`m(q)[i]`, a call's
         // `*mut T`): the pointer itself is the base. Falling back to the
         // value-copy handler made `&mut m(q)[i]` borrow a COPY of the element.
+        // A `&` / `&mut` to an array returned by a call (`pick(&mut a)[i]`) is the
+        // same: the reference VALUE is the array's address — the value-copy
+        // fallback indexed a spilled copy, and `pick(&mut a)[2] += 5` was lost.
+        const bool ref_to_array_value_ =
+            recv_t && (TypeRef(recv_t).kind() == LogosType::Kind::Ref ||
+                       TypeRef(recv_t).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(recv_t).pointee() && TypeRef(TypeRef(recv_t).pointee()).kind() == LogosType::Kind::Array;
         if (recv && recv.kind() != ec::Code::VarRef && recv.kind() != ec::Code::FieldRead &&
-            recv_t && TypeRef(recv_t).kind() == LogosType::Kind::Ptr && TypeRef(recv_t).pointee()) {
+            recv_t && (TypeRef(recv_t).kind() == LogosType::Kind::Ptr || ref_to_array_value_) &&
+            TypeRef(recv_t).pointee()) {
             mlir::Value pbase = gen_expr(recv);
             if (!pbase) return nullptr;
             TypeRef pe = TypeRef(recv_t).pointee();

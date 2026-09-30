@@ -1,0 +1,14 @@
+// A `&mut [T; N]` returned by a call and indexed in place: the reference VALUE is the array's address. The
+// lvalue path indexed a spilled copy of the reference, so `pick(&mut a)[2] += 5` was silently lost (the plain
+// assignment took another path and worked; also on the 09-27 binary). ADR 0030 S6.5. rustc 1.98.1 gives the
+// same stdout.
+package plc_index_through_returned_array_ref;
+use logos.std.fmt;
+fn pick(a: &mut [i64; 3]) -> &mut [i64; 3] { a }
+fn main() {
+    let mut a = [1i64, 2, 3];
+    pick(&mut a)[2] += 5;
+    pick(&mut a)[0] *= 10;
+    pick(&mut a)[1] = 20;
+    println!("{:?}", a);
+}

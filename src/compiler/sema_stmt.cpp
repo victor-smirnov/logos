@@ -181,7 +181,17 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_op_assign_impl(const std::str
         fit = find_func_by_base_and_signature(mangled, {ref_t, self_t}, false);
     if (fit || !rhs_ty) return fit;
     const K rk = TypeRef(rhs_ty).kind();
-    if (rk != K::IntLit && rk != K::FloatLit) return nullptr;
+    if (rk != K::IntLit && rk != K::FloatLit) {
+        // The ONE `<Op>Assign` impl of the type: its parameter is the rhs's
+        // coercion target, judged at the call (`s += &t`: `&String` → `&str`).
+        const SemaFuncInfo* one = nullptr;
+        for (auto* c : find_func_candidates(mangled)) {
+            if (c->param_types.size() != 2 || !c->param_types[1]) continue;
+            if (one) return nullptr;   // several: the rhs's own type had to pick
+            one = c;
+        }
+        return one;
+    }
     const SemaFuncInfo* only = nullptr;
     for (auto* c : find_func_candidates(mangled)) {
         if (c->param_types.size() != 2 || !c->param_types[1]) continue;
@@ -2612,6 +2622,36 @@ static bool op_assign_trait_method(const std::string& base_op,
     return true;
 }
 
+std::optional<lir::LExprPtr> SemaChecker::op_assign_call_(TypeRef pt, const std::function<lir::LExprPtr()>& make_recv,
+                                                        lir::LExprPtr& rhs, std::string_view base_op,
+                                                        const std::string& what) {
+    if (!pt || TypeRef(pt).kind() != LogosType::Kind::Struct) return std::nullopt;
+    std::string atrait, amethod;
+    if (!op_assign_trait_method(std::string(base_op), atrait, amethod)) return std::nullopt;
+    auto type_name = concrete_struct_name(pt);
+    auto base_name = std::string(TypeRef(pt).struct_name());
+    const SemaFuncInfo* fit = nullptr;
+    std::string mangled = type_name + "__" + amethod;
+    auto mut_ref_t = make_ref(true, pt);
+    if (has_impl(atrait, type_name) || (!base_name.empty() && has_impl(atrait, base_name)))
+        fit = find_op_assign_impl(mangled, mut_ref_t, pt, rhs);
+    if (!fit) {
+        error(std::format("binary assignment operation `{}=` cannot be applied to type `{}` (E0368)",
+                          base_op, type_str(pt)));
+        return lir::LExprPtr{};
+    }
+    if (rhs && fit->param_types.size() == 2 && fit->param_types[1])
+        expect_arg_(rhs, fit->param_types[1], CoercePos::CallArg,
+                    std::format("compound assignment to '{}'", what), {}, {});
+    if (rhs && !(fit->param_types.size() == 2 && fit->param_types[1] &&
+                 is_ref_like(TypeRef(fit->param_types[1]).kind())))
+        mark_moved_expr(expr_ref_of(rhs));
+    std::vector<lir::LExprPtr> args;
+    args.push_back(make_recv());
+    args.push_back(std::move(rhs));
+    return builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name, {}, std::move(args), fit->ret_type);
+}
+
 lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     auto op_tok = str_of(node.get(la::OP.code));
     // Strip trailing '=' to get the base operator
@@ -2653,48 +2693,12 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     auto rhs = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
 
-    // User-defined *Assign dispatch: `x op= rhs` for a user-typed struct
-    // x with `impl OpAssign for X` → emit `X__op_assign(&mut x, rhs)` as
-    // a void-returning call (in-place mutation, no assign-back).
-    // Mirrors the unary-op / binary-op overload patterns. Without the
-    // impl, falls through to the existing `x = x op rhs` desugar that
-    // dispatches via Add/Sub/etc. (creates a fresh Self).
-    if (TypeRef(var_type).kind() == LogosType::Kind::Struct) {
-        std::string assign_trait, assign_method;
-        op_assign_trait_method(base_op, assign_trait, assign_method);
-        if (!assign_trait.empty()) {
-            auto type_name = concrete_struct_name(var_type);
-            auto base_name = std::string(TypeRef(var_type).struct_name());
-            bool impl_found = has_impl(assign_trait, type_name) ||
-                              (!base_name.empty() &&
-                               has_impl(assign_trait, base_name));
-            if (impl_found) {
-                auto mangled = type_name + "__" + assign_method;
-                auto mut_ref_t = make_ref(true, var_type);
-                auto recv = builder().addr_of(std::string(name), mut_ref_t, BorrowOrigin::CompoundAssign);
-                // G160-5: the `*Assign<Rhs>` method's second param is the
-                // trait's Rhs type-arg, which need NOT equal Self. Look it up by
-                // the actual rhs operand type (`x <<= 1u8` over `impl
-                // ShlAssign<u8> for Int` → `Int__shl_assign(&mut Int, u8)`).
-                // Fall back to the Self-RHS signature if the rhs-typed one
-                // doesn't resolve (covers an IntLit rhs against a Self-RHS impl).
-                auto fit = find_op_assign_impl(mangled, mut_ref_t, var_type, rhs);
-                if (fit) {
-                    std::vector<lir::LExprPtr> args;
-                    // A by-value rhs is consumed by the call. PROBES.md 2026-09-15f-consumeland.
-                    if (rhs &&
-                        !(fit->param_types.size() == 2 && fit->param_types[1] &&
-                          is_ref_like(TypeRef(fit->param_types[1]).kind())))
-                        mark_moved_expr(expr_ref_of(rhs));
-                    args.push_back(std::move(recv));
-                    args.push_back(std::move(rhs));
-                    auto call = builder().call(
-                        fit->symbol_name.empty() ? mangled : fit->symbol_name,
-                        {}, std::move(args), fit->ret_type);
-                    return builder().stmt_expr(std::move(call), node_line_);
-                }
-            }
-        }
+    // User-defined *Assign dispatch: `x op= rhs` over a struct x.
+    if (auto call = op_assign_call_(var_type, [&] {
+            return builder().addr_of(std::string(name), make_ref(true, var_type), BorrowOrigin::CompoundAssign);
+        }, rhs, base_op, std::string(name))) {
+        if (!*call) { lir::SExprStmt es; es.expr = error_expr(); return make_stmt_emit(node_line_, std::move(es)); }
+        return builder().stmt_expr(std::move(*call), node_line_);
     }
 
     // Type-check via the judgment. A compound assign's RHS is an OPERAND of
@@ -2777,6 +2781,20 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                         };
                         auto rhs2 = node.has_key(la::VALUE)
                             ? lower_expr(map_of(node.get(la::VALUE.code))) : error_expr();
+                        // A struct element: `<Op>Assign` on `IndexMut::index_mut(&mut a, i)`
+                        // (`v[i] += &s` over `Vec<String>` derefs `&String` to `&str`).
+                        if (auto call = op_assign_call_(out_t, [&] {
+                                std::vector<lir::LExprPtr> wa;
+                                wa.push_back(builder().addr_of(arr_name, make_ref(true, arr_type),
+                                                               BorrowOrigin::OperatorAutoref));
+                                wa.push_back(lower_idx(fit_im));
+                                return builder().call(fit_im->symbol_name.empty()
+                                                          ? (type_name + "__index_mut") : fit_im->symbol_name,
+                                                      {}, std::move(wa), ref_o);
+                            }, rhs2, base_op, arr_name + "[i]")) {
+                            if (!*call) { lir::SExprStmt es; es.expr = error_expr(); return make_stmt_emit(node_line_, std::move(es)); }
+                            return builder().stmt_expr(std::move(*call), node_line_);
+                        }
                         expect_type(rhs2, out_t, CoercePos::Operand,
                                     std::format("compound assignment to '{}[i]': type mismatch —",
                                                 arr_name));
@@ -2853,29 +2871,10 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                                builder().addr_of_temp(std::move(mp), /*is_mut=*/true, ref_t,
                                                       BorrowOrigin::CompoundAssign),
                                false);
-            if (TypeRef(pt1).kind() == LogosType::Kind::Struct) {
-                std::string atrait, amethod;
-                if (op_assign_trait_method(base_op, atrait, amethod)) {
-                    auto type_name = concrete_struct_name(pt1);
-                    auto base_name = std::string(TypeRef(pt1).struct_name());
-                    if (has_impl(atrait, type_name) ||
-                        (!base_name.empty() && has_impl(atrait, base_name))) {
-                        auto mangled = type_name + "__" + amethod;
-                        auto fit = find_op_assign_impl(mangled, ref_t, pt1, rhs1);
-                        if (fit) {
-                            if (rhs1 &&
-                                !(fit->param_types.size() == 2 && fit->param_types[1] &&
-                                  is_ref_like(TypeRef(fit->param_types[1]).kind())))
-                                mark_moved_expr(expr_ref_of(rhs1));
-                            std::vector<lir::LExprPtr> args;
-                            args.push_back(builder().var_ref(nm, ref_t));
-                            args.push_back(std::move(rhs1));
-                            auto call = builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name,
-                                                       {}, std::move(args), fit->ret_type);
-                            return builder().stmt_expr(std::move(call), node_line_);
-                        }
-                    }
-                }
+            if (auto call = op_assign_call_(pt1, [&] { return builder().var_ref(nm, ref_t); }, rhs1, base_op,
+                                            render_place_node(place_node))) {
+                if (!*call) { lir::SExprStmt es; es.expr = error_expr(); return make_stmt_emit(node_line_, std::move(es)); }
+                return builder().stmt_expr(std::move(*call), node_line_);
             }
             if (rhs1)
                 expect_type(rhs1, pt1, CoercePos::Operand,
@@ -2910,33 +2909,12 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
         rhs = compound_rhs_first(std::move(rhs), pt, map_of(node.get(la::VALUE.code)), false);
 
     // User-defined `*Assign` dispatch on a struct place → op_assign(&mut place, rhs).
-    if (pt && TypeRef(pt).kind() == LogosType::Kind::Struct) {
-        std::string atrait, amethod;
-        if (op_assign_trait_method(base_op, atrait, amethod)) {
-            auto type_name = concrete_struct_name(pt);
-            auto base_name = std::string(TypeRef(pt).struct_name());
-            if (has_impl(atrait, type_name) ||
-                (!base_name.empty() && has_impl(atrait, base_name))) {
-                auto mangled = type_name + "__" + amethod;
-                auto mut_ref_t = make_ref(true, pt);
-                auto fit = find_op_assign_impl(mangled, mut_ref_t, pt, rhs);
-                if (fit) {
-                    auto addr = builder().addr_of_temp(lower_mut_place(place_node),  // eval #2 — &mut place
-                                                       /*is_mut=*/true, mut_ref_t, BorrowOrigin::CompoundAssign);
-                    std::vector<lir::LExprPtr> args;
-                    // A by-value rhs is consumed by the call. PROBES.md 2026-09-15f-consumeland.
-                    if (rhs &&
-                        !(fit->param_types.size() == 2 && fit->param_types[1] &&
-                          is_ref_like(TypeRef(fit->param_types[1]).kind())))
-                        mark_moved_expr(expr_ref_of(rhs));
-                    args.push_back(std::move(addr));
-                    args.push_back(std::move(rhs));
-                    auto call = builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name,
-                                               {}, std::move(args), fit->ret_type);
-                    return builder().stmt_expr(std::move(call), node_line_);
-                }
-            }
-        }
+    if (auto call = op_assign_call_(pt, [&] {
+            return builder().addr_of_temp(lower_mut_place(place_node),  // eval #2 — &mut place
+                                          /*is_mut=*/true, make_ref(true, pt), BorrowOrigin::CompoundAssign);
+        }, rhs, base_op, render_place_node(place_node))) {
+        if (!*call) { lir::SExprStmt es; es.expr = error_expr(); return make_stmt_emit(node_line_, std::move(es)); }
+        return builder().stmt_expr(std::move(*call), node_line_);
     }
 
     // General: `*(&mut place) = (place) op rhs`.

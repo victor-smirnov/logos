@@ -1,0 +1,6 @@
+// `a += b` over a struct is its `AddAssign` impl; Rust has no `a = a + b` fallback, and a struct without the
+// impl is E0368 (rustc 1.98.1: binary assignment operation `+=` cannot be applied to type `V`). It desugared to
+// `a = a + b` and, with no `Add` either, mlir-gen found no `V__add` (ADR 0030 S6.5).
+package plc_compound_no_op_assign_refused;
+struct V { x: i64 }
+fn main() -> i32 { let mut a = V { x: 1 }; a += V { x: 5 }; return a.x as i32; }
