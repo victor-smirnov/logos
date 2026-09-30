@@ -978,6 +978,13 @@ mistyped a legal program because an unannotated `let` fixed its literal to
   (S6.3), and now `let` and `return` (a top-level scalar keeps the "literal
   value" wording those six fixtures pin). `let`'s float tuple-element
   retyping stays, and runs before the check. −160 lines of copies.
+- S7.4 (2026-09-30): a struct literal's fields (three copies of the
+  scalar / array / tuple fit checks) go through `lit_fit_check_`.
+- S7.5 (2026-09-30): `!5` is `{integer}`, solved by its use (the unary `!`
+  defaulted its literal to i32 at once; the literal-tree stamp takes `!` as
+  it takes `-`); the closure-hint literal of a generic method call
+  (`fold(0, ..)`) defaults through `lit_default_`. Fixture
+  lit_not_literal_takes_use_type.
 Remaining on the S7 row: the per-site `IntLit → i32` defaults onto
 `lit_default_` and the range checks onto the variable's close; a value
 stored through `*r = 5000000000` into a variable-typed place still

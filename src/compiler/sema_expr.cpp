@@ -4649,7 +4649,9 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             result_type = bool_t();
         } else if (is_integer_kind(TypeRef(vt).kind()) || TypeRef(vt).kind() == LogosType::Kind::IntLit) {
             // Bitwise NOT (~x) on integer types
-            result_type = (TypeRef(vt).kind() == LogosType::Kind::IntLit) ? i32_t() : vt;
+            // `!5` is still `{integer}` (Rust): the literal's own type, which a
+            // use solves (`let x: u8 = !5` is 250).
+            result_type = vt;
         } else {
             error(std::format("unary '!': operand must be bool or integer, got {}", type_str(vt)));
             result_type = bool_t();
@@ -11001,7 +11003,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     saved_ret && (ak == LogosType::Kind::IntLit ? is_integer_kind(TypeRef(saved_ret).kind())
                                                                  : (TypeRef(saved_ret).kind() == LogosType::Kind::F32 || TypeRef(saved_ret).kind() == LogosType::Kind::F64)))
                     want = saved_ret;
-                if (!want) want = ak == LogosType::Kind::IntLit ? i32_t() : prim(LogosType::Kind::F64);
+                if (!want) want = ak == LogosType::Kind::IntLit ? lit_default_(at) : prim(LogosType::Kind::F64);
                 at = want;
                 ak = TypeRef(at).kind();
             }
@@ -13748,12 +13750,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     check_variance(expr_type(fval), ft_cmp,
                                    std::format("struct literal '{}' field '{}'", sname, fname),
                                    /*permissive=*/true);
-                // Check IntLit field value fits in the declared field type.
-                if (ft && TypeRef(expr_type(fval)).kind() == LogosType::Kind::IntLit)
-                    if (auto v = get_intlit_value(fval))
-                        if (!intlit_fits(*v, TypeRef(ft).kind()))
-                            error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
-                                  sname, fname, *v, type_str(ft)));
+                if (ft && TypeRef(ft).kind() != LogosType::Kind::Error)
+                    lit_fit_check_(expr_ref_of(fval), ft, std::format("struct literal '{}' field '{}'", sname, fname));
             }
         }
         // G161-5: functional struct update `P { y: …, ..base }` over a GENERIC
@@ -13920,12 +13918,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         expect_type(fval, ft, CoercePos::StructLitField,
                                     std::format("struct literal '{}' field '{}':",
                                                 sname, fname));
-                    if (ft && TypeRef(ft).kind() != LogosType::Kind::Error &&
-                        TypeRef(expr_type(fval)).kind() == LogosType::Kind::IntLit)
-                        if (auto v = get_intlit_value(fval))
-                            if (!intlit_fits(*v, TypeRef(ft).kind()))
-                                error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
-                                      sname, fname, *v, type_str(ft)));
+                    if (ft && TypeRef(ft).kind() != LogosType::Kind::Error)
+                        lit_fit_check_(expr_ref_of(fval), ft, std::format("struct literal '{}' field '{}'", sname, fname));
                     break;
                 }
             }
@@ -13975,73 +13969,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
             // (`Holder { d: &not_send }` against `d: &dyn Trait + Send`).
             if (ft)
                 check_dyn_auto_bounds_at_coercion(fval, ft);
-            // Check IntLit field value fits in the declared field type.
-            if (ft && TypeRef(expr_type(fval)).kind() == LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(fval))
-                    if (!intlit_fits(*v, TypeRef(ft).kind()))
-                        error(std::format("struct literal '{}' field '{}': value {} does not fit in {}",
-                              sname, fname, *v, type_str(ft)));
-            // Check array literal elements against narrow array field type.
-            if (ft && TypeRef(ft).kind() == LogosType::Kind::Array && TypeRef(ft).elem() &&
-                TypeRef(expr_type(fval)).kind() == LogosType::Kind::Array) {
-                auto vr = expr_ref_of(fval);
-                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView al{vr};
-                    for (uint64_t i = 0; i < al.count(); ++i) {
-                        auto el = al.elem(i);
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (!intlit_fits(*v, TypeRef(ft).elem().kind()))
-                                    error(std::format("struct literal '{}' field '{}': array element {}: value {} does not fit in {}",
-                                          sname, fname, i, *v, type_str(TypeRef(ft).elem())));
-                    }
-                }
-            }
-            // Check tuple literal elements against narrow tuple field element types.
-            if (ft && TypeRef(ft).kind() == LogosType::Kind::Tuple && TypeRef(expr_type(fval)).kind() == LogosType::Kind::Tuple) {
-                auto vr = expr_ref_of(fval);
-                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView tl{vr};
-                    uint64_t i = 0;
-                    tl.each_elem([&](lir_view::ExprRef el) {
-                        if (i >= TypeRef(ft).tuple_elems().size()) { ++i; return; }
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (TypeRef(ft).tuple_elems()[i] && !intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).kind()))
-                                    error(std::format("struct literal '{}' field '{}': tuple element {}: value {} does not fit in {}",
-                                          sname, fname, i, *v, type_str(TypeRef(ft).tuple_elems()[i])));
-                        if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(ft).tuple_elems()[i]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                            el.kind() == lir_schema::expr::Code::ArrLit) {
-                            lir_view::EArrLitView ial{el};
-                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                                auto iel = ial.elem(ii);
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (!intlit_fits(*v, TypeRef(TypeRef(ft).tuple_elems()[i]).elem().kind()))
-                                            error(std::format("struct literal '{}' field '{}': tuple element {}: array element {}: value {} does not fit in {}",
-                                                  sname, fname, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).elem())));
-                            }
-                        }
-                        if (TypeRef(ft).tuple_elems()[i] && TypeRef(TypeRef(ft).tuple_elems()[i]).kind() == LogosType::Kind::Tuple &&
-                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                            el.kind() == lir_schema::expr::Code::TupleLit) {
-                            lir_view::ETupleLitView itl{el};
-                            uint64_t ii = 0;
-                            itl.each_elem([&](lir_view::ExprRef iel) {
-                                if (ii >= TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems().size()) { ++ii; return; }
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii]).kind()))
-                                            error(std::format("struct literal '{}' field '{}': tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                  sname, fname, i, ii, *v, type_str(TypeRef(TypeRef(ft).tuple_elems()[i]).tuple_elems()[ii])));
-                                ++ii;
-                            });
-                        }
-                        ++i;
-                    });
-                }
-            }
+            if (ft && TypeRef(ft).kind() != LogosType::Kind::Error)
+                lit_fit_check_(expr_ref_of(fval), ft, std::format("struct literal '{}' field '{}'", sname, fname));
         }
     }
     // Handle struct update syntax: Foo { x: 1, ..base }
@@ -17014,7 +16943,7 @@ bool SemaChecker::stamp_literal_tree_(lir_view::ExprRef e, TypeRef target) {
         return true;
     case C::Unary: {
         lir_view::EUnaryView u{e};
-        if (u.op() != "-" || !stamp_literal_tree_(u.operand(), target)) return false;
+        if ((u.op() != "-" && u.op() != "!") || !stamp_literal_tree_(u.operand(), target)) return false;
         builder().retype_expr(e, target);
         return true;
     }

@@ -1,0 +1,13 @@
+// C-LIT: `!5` is still `{integer}`, solved by its use: `let x: u8 = !5` is 250, `!0` under `i64` is -1, a call
+// argument `!7` at `u32` is 4294967288. The unary `!` defaulted its literal operand to i32 at once (ADR 0030
+// S7.5). rustc 1.98.1 gives the same stdout.
+package lit_not_literal_takes_use_type;
+use logos.std.fmt;
+fn f(a: u32) -> u32 { a }
+fn main() {
+    let x: u8 = !5;
+    let y: i64 = !0;
+    let z = !1;
+    let w: u16 = !(3 + 4);
+    println!("{} {} {} {} {} {}", x, y, z, w, f(!7), !255u8);
+}
