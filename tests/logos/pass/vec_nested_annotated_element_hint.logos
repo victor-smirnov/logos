@@ -1,0 +1,15 @@
+// An element of an array / `vec!` literal is lowered against the ELEMENT's expected type. The call-return hint
+// still held the enclosing `let`'s, so the inner `vec!` of `let b: Vec<Vec<i64>> = vec![vec![5, 6]]` took the
+// outer element type `Vec<i64>` as its own element type and refused `5` ("array element 0 expected Vec<i64>,
+// got {integer}"); the struct-field form too. A regression of ADR 0030 S4.4c (the array literal's elements are
+// judged against its expectation), absent on the 09-27 binary. rustc 1.98.1 gives the same stdout.
+package vec_nested_annotated_element_hint;
+use logos.std.fmt;
+struct S { a: Vec<Vec<i64>> }
+fn main() {
+    let b: Vec<Vec<i64>> = vec![vec![5, 6], vec![7]];
+    let mut s = S { a: vec![vec![1, 2], vec![3, 4]] };
+    s.a[1][0] = 30;
+    s.a[0][1] += s.a[1][0];
+    println!("{:?} {:?}", b, s.a);
+}

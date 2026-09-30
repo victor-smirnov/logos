@@ -14658,7 +14658,14 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         if (!expect && i > 0 && concrete_enum(expr_type(elems[0]))) expect = expr_type(elems[0]);
         {
             ElemHintScope eh(*this, expect);
+            // An element's expected type is the ELEMENT's: a `vec![..]` or generic
+            // call in it reads the call-return hint, which otherwise still held
+            // the enclosing `let`'s (`let b: Vec<Vec<i64>> = vec![vec![5, 6]]`
+            // gave the inner vec! the outer's element type, `Vec<i64>`).
+            auto saved_crt = hint_call_return_type_;
+            hint_call_return_type_ = expect;
             elems.push_back(lower_expr(map_of(items.get(i))));
+            hint_call_return_type_ = saved_crt;
         }
         mark_moved_expr(expr_ref_of(elems.back()));
     }
