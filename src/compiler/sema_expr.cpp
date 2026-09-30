@@ -1609,6 +1609,22 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     // table does not list is refused (E0606), not handed to codegen.
     // Logos (spec `coerce.cast.int-null-to-trait-object`): the literal `0` casts
     // to a raw trait object, the null handle `{null, null}`.
+    // An unsuffixed literal operand takes the cast's expectation (rustc's
+    // ExpectCastableToType): an integer target is its type (`300 as u8` is out
+    // of range), `char` makes it u8, and any
+    // other target leaves an integer variable to the default.
+    if (inner && target && TypeRef(expr_type(inner)).kind() == LogosType::Kind::IntLit &&
+        !is_lit_var_(expr_type(inner))) {
+        const auto tk = TypeRef(target).kind();
+        if (is_integer_kind(tk) && tk != LogosType::Kind::IntLit && tk != LogosType::Kind::Enum) {
+            lit_fit_check_(expr_ref_of(inner), target, "cast");
+            stamp_literal_tree_(expr_ref_of(inner), target);
+        } else if (tk == LogosType::Kind::Char) {
+            stamp_literal_tree_(expr_ref_of(inner), prim(LogosType::Kind::U8));
+        } else {
+            stamp_literal_tree_(expr_ref_of(inner), mint_lit_var_(std::nullopt));
+        }
+    }
     const bool null_dyn_handle = inner && target && TypeRef(target).kind() == LogosType::Kind::TraitObject &&
         TypeRef(target).raw_fat() && get_intlit_value(inner) == std::optional<int64_t>(0);
     if (result_.diags.size() == cast_diags_before && inner && expr_type(inner) && target &&
@@ -16224,6 +16240,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                         if (!is_lit_var_(inferred)) inferred = mint_lit_var_(get_intlit_value(expr_ref_of(payload[i])));
                         builder().retype_expr(payload[i], inferred);
                     }
+                } else if (!hint_for_param(tvn)) {
+                    // C-INF: a literal TREE payload (`Some((5, 9))`) takes a
+                    // variable at each `{integer}` leaf, which the use solves.
+                    TypeRef f = lit_freshen_(inferred);
+                    if (f != inferred && stamp_literal_tree_(expr_ref_of(payload[i]), f)) inferred = f;
                 }
                 // G168-A: when the hint pins this type-param to a trait object
                 // (`Option<Box<dyn Sh>>`) but the arg is a CONCRETE coercible
@@ -16545,6 +16566,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                         if (!is_lit_var_(inferred)) inferred = mint_lit_var_(get_intlit_value(expr_ref_of(payload[i])));
                         builder().retype_expr(payload[i], inferred);
                     }
+                } else if (!pre_subst.count(tvn) || !pre_subst.find(tvn)->second) {
+                    // C-INF: a literal TREE payload (`Some((5, 9))`) takes a
+                    // variable at each `{integer}` leaf, which the use solves.
+                    TypeRef f = lit_freshen_(inferred);
+                    if (f != inferred && stamp_literal_tree_(expr_ref_of(payload[i]), f)) inferred = f;
                 }
                 // G168-A: when the hint (projected into pre_subst) pins this
                 // type-param to a trait object (`Option<Box<dyn Sh>>`) but the
@@ -28001,7 +28027,7 @@ void SemaChecker::infer_close_fn_(const std::string& fn_name) {
     if (infer_solved_.empty()) return;
     std::vector<std::pair<std::string, TypeRef>> sols;
     for (auto& [n, v] : infer_solved_) {
-        if (v) { sols.emplace_back(n, zonk_(v)); continue; }
+        if (v) { sols.emplace_back(n, lit_zonk_(zonk_(v))); continue; }   // lit_close_fn_ ran: `?iN = Vec<?lK>` is concrete now
         auto o = infer_origin_.find(n);
         error(std::format("type annotations needed: cannot infer {} (E0282)",
                           o != infer_origin_.end() ? o->second : std::string("a type argument")));
