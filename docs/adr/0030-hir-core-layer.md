@@ -735,6 +735,22 @@ of 70 members.
   `Box<B>` beside `Box<dyn T>` agree with rustc; a non-implementing arm is
   E0277. Fixtures lub_dyn_arms, lub_dyn_arm_missing_impl.
 
+- S4.7a (2026-09-29): the census of what sema leaves implicit. mlir-gen's
+  `coerce_int` / `coerce_float` / `coerce_numeric` / `coerce_to_dyn` count a
+  value-changing call per CALL SITE under `LOGOS_CENSUS`
+  (`mlir.<helper>.<file>:<line>`); over the pass corpus (tests/logos/pass +
+  tests/spec/pass) the explicit-cast lowering and pattern constants dominate,
+  and ~200 events sat at value positions: an enum payload store (97), a match
+  arm result (40), an if arm (11), an assignment (16), a `*p = v` (10), a dyn
+  slot (13 + 8), a let (6), an array element (6). Closed here: an enum
+  payload is always judged (`expect_type` + the fit check, both constructor
+  paths — it was entered only on a type mismatch, so `E::A(3)` beside an
+  `i64` field kept `{integer}`), arms are coerced to the merged type,
+  `coerce_arg_to_param` solves integer variables against its target
+  (`Some(v) => v` under `u16`) and stamps a float literal. Payload 97 → 0,
+  match arm 40 → 16, if arm 11 → 8 (the rest are diverging arms, whose value
+  mlir-gen coerces as a placeholder).
+
 S4 row (audit §4.1 C-COE), item by item:
 
 | item | state |
@@ -749,7 +765,7 @@ S4 row (audit §4.1 C-COE), item by item:
 | `coercion_plan(from, to, mask)` → ordered adjustment list, explicit LIR per step | open |
 | cast whitelist (`as`) | done, S4.5; slice → thin pointer kept: `str ≡ [u8]` boundary (#706) |
 | remaining lenient `types_compatible` arms | open |
-| mlir per-site `coerce_to_dyn` / `coerce_numeric` | open (after `coercion_plan`) |
+| mlir per-site `coerce_to_dyn` / `coerce_numeric` | in progress: census S4.7a; each value site becomes an internal error once sema is explicit there |
 | closure escape at the unsize point | deferred: ADR 0029 S3/S4 |
 | variance checks outside argument sites (let / assign / return / struct and enum literals, receiver) | open |
 | slice-method arguments (`coerce_arg_to_param` before the generic finish) | C-INF (S7): their verdict is the generic finish's |

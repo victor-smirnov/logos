@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <source_location>
 #include "mlir_gen.hpp"
 
 #include <logos/compiler/lir.hpp>
@@ -1045,12 +1046,22 @@ private:
         return alloca;
     }
 
+    // LOGOS_CENSUS bucket per CALL SITE of a value-changing implicit coercion
+    // (ADR 0030 S4.7: the conversions sema left implicit).
+    static void coerce_census_(const char* what, const std::source_location& sl) {
+        if (!logos::probe::census_armed()) return;
+        std::string_view f(sl.file_name());
+        if (auto p = f.rfind('/'); p != std::string_view::npos) f.remove_prefix(p + 1);
+        logos::probe::census(std::format("mlir.{}.{}:{}", what, f, sl.line()));
+    }
     mlir::Value coerce_int(mlir::Value v, mlir::Type to,
-                           TypeRef src_lt = nullptr) {
+                           TypeRef src_lt = nullptr,
+                           std::source_location sl = std::source_location::current()) {
         if (!v || !to || v.getType() == to) return v;
         auto fi = mlir::dyn_cast<mlir::IntegerType>(v.getType());
         auto ti = mlir::dyn_cast<mlir::IntegerType>(to);
         if (!fi || !ti) return v;
+        if (fi.getWidth() != ti.getWidth()) coerce_census_("coerce_int", sl);
         if (ti.getWidth() > fi.getWidth()) {
             // Pick zero vs sign extend by *source* signedness when known.
             // Bool (i1) is always zero-extended.  Without src_lt, fall back
@@ -1067,8 +1078,10 @@ private:
         return v;
     }
 
-    mlir::Value coerce_float(mlir::Value v, mlir::Type to) {
+    mlir::Value coerce_float(mlir::Value v, mlir::Type to,
+                             std::source_location sl = std::source_location::current()) {
         if (!v || !to || v.getType() == to) return v;
+        coerce_census_("coerce_float", sl);
         auto fv = mlir::dyn_cast<mlir::FloatType>(v.getType());
         auto ft = mlir::dyn_cast<mlir::FloatType>(to);
         if (!fv || !ft) return v;
@@ -1081,14 +1094,17 @@ private:
     // Does NOT handle float→int (that requires an explicit cast).
     // src_lt: Logos source type — required for correct signed/unsigned int→float conversion.
     mlir::Value coerce_numeric(mlir::Value v, mlir::Type to,
-                               TypeRef src_lt = nullptr) {
+                               TypeRef src_lt = nullptr,
+                               std::source_location sl = std::source_location::current()) {
         if (!v || !to || v.getType() == to) return v;
         // int → int
         if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::IntegerType>(to))
-            return coerce_int(v, to, src_lt);
+            return coerce_int(v, to, src_lt, sl);
         // float → float (truncate or extend)
         if (mlir::isa<mlir::FloatType>(v.getType()) && mlir::isa<mlir::FloatType>(to))
-            return coerce_float(v, to);
+            return coerce_float(v, to, sl);
+        if (mlir::isa<mlir::IntegerType>(v.getType()) && mlir::isa<mlir::FloatType>(to))
+            coerce_census_("coerce_numeric.itof", sl);
         // int → float: use unsigned op for unsigned Logos types.
         //
         // ⚠ THE SAME QUESTION IS DECIDED IN `gen_expr_kind(ECastView, …)`
@@ -1924,7 +1940,8 @@ private:
     mlir::Value coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
                                std::string_view src_type_name,
                                TypeRef concrete_ty = {},
-                               std::string_view trait_pkg = {});
+                               std::string_view trait_pkg = {},
+                               std::source_location sl = std::source_location::current());
     // G168-A: unsize-coerce a concrete `Box<Concrete>` / `&Concrete` / struct
     // value into a fat `{data,vtable}` handle when the destination SLOT is a
     // trait object (`dyn`/`Box<dyn>`/`&dyn`) but the VALUE is still concrete —

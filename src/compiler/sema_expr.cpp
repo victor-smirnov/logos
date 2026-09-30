@@ -16332,97 +16332,17 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
               ename, vname, vinfo->payload_types.size(), payload.size()));
     } else if (!vinfo->is_variadic) {
         for (size_t i = 0; i < payload.size(); ++i) {
-            if (TypeRef(expr_type(payload[i])).kind() != LogosType::Kind::Error &&
-                resolved_payload_types[i] &&
-                TypeRef(resolved_payload_types[i]).kind() != LogosType::Kind::Error &&
-                // #95: `|| aggregate_unsize_pending(...)`. This guard asks
-                // types_compatible, which BLANKET-ACCEPTS a thin aggregate
-                // against a fat-`&dyn` one — so for exactly the #68/#95 shape
-                // `expect_type` was never entered, and with it neither the
-                // literal stamp (retype_aggregate_lit_to) nor the refusal.
-                // MEASURED: `E::Some((&a,7i64))` at `(&dyn Shape,i64)` wrote an
-                // object file and ran rc=139; the hoisted `E::Some(t)` twin the
-                // same. With the disjunct the literal COERCES (42) and the
-                // hoisted value is REFUSED.
-                (!types_compatible(expr_type(payload[i]), resolved_payload_types[i]) ||
-                 aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i])) ||
-                 literal_widths_pending_(payload[i], resolved_payload_types[i])))
-                // An enum payload is a constructed aggregate's FIELD, like the
-                // tuple-struct ctor arm above — not a CoercePos::Operand.
-                expect_type(payload[i], resolved_payload_types[i], CoercePos::StructLitField,
-                            std::format("{}::{} arg {}:", ename, vname, i));
-            // Check IntLit payload value fits in the declared payload type.
-            if (resolved_payload_types[i] && TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(payload[i]))
-                    if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).kind()))
-                        error(std::format("{}::{} arg {}: value {} does not fit in {}",
-                              ename, vname, i, *v, type_str(resolved_payload_types[i])));
-            // Check array literal elements against narrow array payload type.
-            if (resolved_payload_types[i] &&
-                TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Array &&
-                TypeRef(resolved_payload_types[i]).elem() &&
-                TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::Array) {
-                auto vr = expr_ref_of(payload[i]);
-                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView al{vr};
-                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
-                        auto el = al.elem(ei);
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).elem().kind()))
-                                    error(std::format("{}::{} arg {}: array element {}: value {} does not fit in {}",
-                                          ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).elem())));
-                    }
-                }
-            }
-            // Check tuple literal elements against narrow tuple payload type.
-            if (resolved_payload_types[i] &&
-                TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Tuple &&
-                TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::Tuple) {
-                auto vr = expr_ref_of(payload[i]);
-                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView tl{vr};
-                    uint64_t ei = 0;
-                    tl.each_elem([&](lir_view::ExprRef el) {
-                        if (ei >= TypeRef(resolved_payload_types[i]).tuple_elems().size()) { ++ei; return; }
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] &&
-                                    !intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind()))
-                                    error(std::format("{}::{} arg {}: tuple element {}: value {} does not fit in {}",
-                                          ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).tuple_elems()[ei])));
-                        if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                            el.kind() == lir_schema::expr::Code::ArrLit) {
-                            lir_view::EArrLitView ial{el};
-                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                                auto iel = ial.elem(ii);
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (!intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem().kind()))
-                                            error(std::format("{}::{} arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                  ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem())));
-                            }
-                        }
-                        if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                            el.kind() == lir_schema::expr::Code::TupleLit) {
-                            lir_view::ETupleLitView itl{el};
-                            uint64_t ii = 0;
-                            itl.each_elem([&](lir_view::ExprRef iel) {
-                                if (ii >= TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                            error(std::format("{}::{} arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                  ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii])));
-                                ++ii;
-                            });
-                        }
-                        ++ei;
-                    });
-                }
-            }
+            // An enum payload is a constructed aggregate's FIELD, like the
+            // tuple-struct ctor arm above — not a CoercePos::Operand. Always
+            // judged: a literal takes the field's type here (it was left
+            // `{integer}` beside an `i64` field and mlir-gen widened it).
+            if (TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::Error || !resolved_payload_types[i] ||
+                TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Error)
+                continue;
+            lit_fit_check_(expr_ref_of(payload[i]), resolved_payload_types[i],
+                           std::format("{}::{} arg {}", ename, vname, i));
+            expect_type(payload[i], resolved_payload_types[i], CoercePos::StructLitField,
+                        std::format("{}::{} arg {}:", ename, vname, i));
         }
     } else {
         // Variadic variant: match each arg against the pack's type (if it's not a generic expansion itself).
@@ -16757,98 +16677,17 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
               ename, vname, vinfo->payload_types.size(), payload.size()));
     } else if (!vinfo->is_variadic) {
         for (size_t i = 0; i < payload.size(); ++i) {
-            if (TypeRef(expr_type(payload[i])).kind() != LogosType::Kind::Error &&
-                resolved_payload_types[i] &&
-                TypeRef(resolved_payload_types[i]).kind() != LogosType::Kind::Error &&
-                // #95: `|| aggregate_unsize_pending(...)`. This guard asks
-                // types_compatible, which BLANKET-ACCEPTS a thin aggregate
-                // against a fat-`&dyn` one — so for exactly the #68/#95 shape
-                // `expect_type` was never entered, and with it neither the
-                // literal stamp (retype_aggregate_lit_to) nor the refusal.
-                // MEASURED: `E::Some((&a,7i64))` at `(&dyn Shape,i64)` wrote an
-                // object file and ran rc=139; the hoisted `E::Some(t)` twin the
-                // same. With the disjunct the literal COERCES (42) and the
-                // hoisted value is REFUSED.
-                (!types_compatible(expr_type(payload[i]), resolved_payload_types[i]) ||
-                 aggregate_unsize_pending(resolved_payload_types[i], expr_type(payload[i])) ||
-                 literal_widths_pending_(payload[i], resolved_payload_types[i])))
-                // An enum payload is a constructed aggregate's FIELD, like the
-                // tuple-struct ctor arm above — not a CoercePos::Operand.
-                expect_type(payload[i], resolved_payload_types[i], CoercePos::StructLitField,
-                            std::format("{}::{} arg {}:", ename, vname, i));
-            if (resolved_payload_types[i] &&
-                TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::IntLit)
-                if (auto v = get_intlit_value(payload[i]))
-                    if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).kind()))
-                        error(std::format("{}::{} arg {}: value {} does not fit in {}",
-                              ename, vname, i, *v,
-                              type_str(resolved_payload_types[i])));
-            // Check array literal elements against narrow array payload type.
-            if (resolved_payload_types[i] &&
-                TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Array &&
-                TypeRef(resolved_payload_types[i]).elem() &&
-                TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::Array) {
-                auto vr = expr_ref_of(payload[i]);
-                if (vr.kind() == lir_schema::expr::Code::ArrLit) {
-                    lir_view::EArrLitView al{vr};
-                    for (uint64_t ei = 0; ei < al.count(); ++ei) {
-                        auto el = al.elem(ei);
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (!intlit_fits(*v, TypeRef(resolved_payload_types[i]).elem().kind()))
-                                    error(std::format("{}::{} arg {}: array element {}: value {} does not fit in {}",
-                                          ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).elem())));
-                    }
-                }
-            }
-            // Check tuple literal elements against narrow tuple payload type.
-            if (resolved_payload_types[i] &&
-                TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Tuple &&
-                TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::Tuple) {
-                auto vr = expr_ref_of(payload[i]);
-                if (vr.kind() == lir_schema::expr::Code::TupleLit) {
-                    lir_view::ETupleLitView tl{vr};
-                    uint64_t ei = 0;
-                    tl.each_elem([&](lir_view::ExprRef el) {
-                        if (ei >= TypeRef(resolved_payload_types[i]).tuple_elems().size()) { ++ei; return; }
-                        if (el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                            if (auto v = get_intlit_value(el))
-                                if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] &&
-                                    !intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind()))
-                                    error(std::format("{}::{} arg {}: tuple element {}: value {} does not fit in {}",
-                                          ename, vname, i, ei, *v, type_str(TypeRef(resolved_payload_types[i]).tuple_elems()[ei])));
-                        if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Array &&
-                            TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem() && el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Array &&
-                            el.kind() == lir_schema::expr::Code::ArrLit) {
-                            lir_view::EArrLitView ial{el};
-                            for (uint64_t ii = 0; ii < ial.count(); ++ii) {
-                                auto iel = ial.elem(ii);
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (!intlit_fits(*v, TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem().kind()))
-                                            error(std::format("{}::{} arg {}: tuple element {}: array element {}: value {} does not fit in {}",
-                                                  ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).elem())));
-                            }
-                        }
-                        if (TypeRef(resolved_payload_types[i]).tuple_elems()[ei] && TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).kind() == LogosType::Kind::Tuple &&
-                            el.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::Tuple &&
-                            el.kind() == lir_schema::expr::Code::TupleLit) {
-                            lir_view::ETupleLitView itl{el};
-                            uint64_t ii = 0;
-                            itl.each_elem([&](lir_view::ExprRef iel) {
-                                if (ii >= TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems().size()) { ++ii; return; }
-                                if (iel.type(cur_prog_->type_pool.impl()).kind() == LogosType::Kind::IntLit)
-                                    if (auto v = get_intlit_value(iel))
-                                        if (TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii] && !intlit_fits(*v, TypeRef(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii]).kind()))
-                                            error(std::format("{}::{} arg {}: tuple element {}: sub-element {}: value {} does not fit in {}",
-                                                  ename, vname, i, ei, ii, *v, type_str(TypeRef(TypeRef(resolved_payload_types[i]).tuple_elems()[ei]).tuple_elems()[ii])));
-                                ++ii;
-                            });
-                        }
-                        ++ei;
-                    });
-                }
-            }
+            // An enum payload is a constructed aggregate's FIELD, like the
+            // tuple-struct ctor arm above — not a CoercePos::Operand. Always
+            // judged: a literal takes the field's type here (it was left
+            // `{integer}` beside an `i64` field and mlir-gen widened it).
+            if (TypeRef(expr_type(payload[i])).kind() == LogosType::Kind::Error || !resolved_payload_types[i] ||
+                TypeRef(resolved_payload_types[i]).kind() == LogosType::Kind::Error)
+                continue;
+            lit_fit_check_(expr_ref_of(payload[i]), resolved_payload_types[i],
+                           std::format("{}::{} arg {}", ename, vname, i));
+            expect_type(payload[i], resolved_payload_types[i], CoercePos::StructLitField,
+                        std::format("{}::{} arg {}:", ename, vname, i));
         }
     } else {
         if (!resolved_payload_types.empty()) {
@@ -17675,9 +17514,10 @@ TypeRef SemaChecker::lub_arms_(const std::vector<lir::LExprPtr*>& arms, TypeRef 
             // Every other arm is coerced to the merged type, as rustc coerces
             // each arm to the arms before it: `&b` beside `&a as &dyn T` is
             // unsized (E0277 without an impl) — it stayed a thin `&B` in a
-            // `&dyn T` slot and the call through it segfaulted.
+            // `&dyn T` slot and the call through it segfaulted; a literal arm
+            // beside an `i64` one takes `i64` (mlir-gen widened it).
             for (size_t k = 0; k < ls.size(); ++k)
-                if (!types_equal(expr_type(*ls[k]), res) && TypeRef(res).kind() == K::TraitObject)
+                if (!types_equal(expr_type(*ls[k]), res))
                     expect_type(*ls[k], res, CoercePos::BranchArm, label(li[k]));
         }
     }
@@ -17727,6 +17567,17 @@ void SemaChecker::lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::stri
 void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
                                        uint32_t flags) {
     if (!arg || !pt) return;
+    // C-LIT: a coercion to a target is a use that fixes an integer variable
+    // (a match arm `v` of an `Option<{integer}>` under a `u16` expectation).
+    if (has_lit_var_(expr_type(arg)) || has_lit_var_(pt)) {
+        lit_solve_struct_(expr_type(arg), pt);
+        if (TypeRef rv = lit_zonk_(expr_type(arg)); rv != expr_type(arg)) builder().retype_expr(arg, rv);
+        pt = lit_zonk_(pt);
+    }
+    // An unsuffixed float literal takes a float target (`1.0` beside `2.0f32`).
+    if (TypeRef(expr_type(arg)).kind() == LogosType::Kind::FloatLit &&
+        (TypeRef(pt).kind() == LogosType::Kind::F32 || TypeRef(pt).kind() == LogosType::Kind::F64))
+        stamp_literal_tree_(expr_ref_of(arg), pt);
     // Unconditional: an unsuffixed literal tree behind `&` takes the pointee's
     // leaf types at every coercion site (stamp_literal_behind_ref_).
     stamp_literal_behind_ref_(arg, pt);

@@ -1347,7 +1347,9 @@ std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
 mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view trait_name,
                                         std::string_view src_type_name,
                                         TypeRef concrete_ty,
-                                        std::string_view trait_pkg) {
+                                        std::string_view trait_pkg,
+                                        std::source_location sl) {
+    coerce_census_("coerce_to_dyn", sl);
     auto dyn_struct = dyn_llvm_type();
     // The {data,vtable} fat pair lives in a STACK alloca (value-fat-pair model,
     // like a slice) — `&dyn`/`*dyn`/`Box<dyn>` are all uniform 16-byte fat. The
