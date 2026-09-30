@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row static_call_resolves_homonym_type_fn_admits (tier 2, `admits`). `WAny::ref_to(..)` over a
+// LOCAL `enum WAny` that has no `ref_to` resolves to the stdlib `logos.lang.writ.anyval.WAny`'s `ref_to` and
+// returns THAT type — a look-alike, not an unresolved name (rustc 1.98.1: E0599 no function or associated item
+// named `ref_to` found for enum `WAny`). Found when ADR 0030 S6.7 made `*slot = v` judge its value:
+// pass/wany_niche_enum mixed the two enums through a `*zoned mut WAny`. An unresolved associated item must
+// be refused, never taken from a same-named type of another package.
+package static_call_resolves_homonym_type_fn_admits;
+enum WAny { A(i64), B }
+fn main() -> i32 {
+    let w = unsafe { WAny::ref_to(0 as *const u8) };
+    let _ = w;
+    return 0;
+}

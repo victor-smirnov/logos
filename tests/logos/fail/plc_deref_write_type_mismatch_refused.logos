@@ -1,0 +1,4 @@
+// `*r = v` judges v against the referent (rustc E0308). The deref-write arm only checked variance, so
+// `*r = true` over `r: &mut i64` compiled and wrote a byte (ADR 0030 S6.7; also on the 09-27 binary).
+package plc_deref_write_type_mismatch_refused;
+fn main() -> i32 { let mut x = 1i64; let r = &mut x; *r = true; return x as i32; }

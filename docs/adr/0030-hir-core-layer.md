@@ -925,6 +925,19 @@ battery with rustc twins over the path inventory's place/assignment rows
   the dispatch — goes through `op_assign_call_` too (`&mut *p`, a reborrow),
   and is E0368 without the impl.
 
+- S6.7 (2026-09-30): `*r = v` judges v against the referent, as every
+  place write does. The DEREF_WRITE arm only checked variance: `*r = true`
+  over `r: &mut i64` compiled and wrote a byte, `*r = 300` over `&mut u8`
+  stored 44 (both on the 09-27 binary). A literal written through `*r` into
+  an integer variable is one of its values (C-LIT): `let mut x = 1; ...; *r
+  = 5000000000;` is "literal out of range for `i32`", as in rustc — it
+  truncated (S7.1's open l5). Fixtures plc_deref_write_type_mismatch_refused,
+  plc_deref_write_literal_overflow. The new verdict found pass/wany_niche_enum
+  writing a stdlib `WAny` through a pointer to its LOCAL homonym: `WAny::ref_to`
+  over the local enum (which has none) resolved to the stdlib type's — squeue
+  row static_call_resolves_homonym_type_fn_admits (#707); the fixture builds
+  its local `WAny::Ref` now.
+
 S6 row (audit §4.1 C-PLC), item by item:
 
 | item | state |
@@ -987,8 +1000,8 @@ mistyped a legal program because an unannotated `let` fixed its literal to
   lit_not_literal_takes_use_type.
 Remaining on the S7 row: the per-site `IntLit → i32` defaults onto
 `lit_default_` and the range checks onto the variable's close; a value
-stored through `*r = 5000000000` into a variable-typed place still
-truncates; C-EXP (one expected-type scope); C-INF (one generic-argument
+stored through `*r = 5000000000` is refused as rustc refuses it
+(S6.7); C-EXP (one expected-type scope); C-INF (one generic-argument
 inference).
 
 ## L0 status (2026-09-27)

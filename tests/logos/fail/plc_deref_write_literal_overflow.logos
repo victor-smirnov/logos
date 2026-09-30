@@ -1,0 +1,4 @@
+// A literal written through `*r` must fit the referent (rustc: literal out of range for `u8`); `*r = 300`
+// over `&mut u8` stored 44 (ADR 0030 S6.7).
+package plc_deref_write_literal_overflow;
+fn main() -> i32 { let mut x = 1u8; let r = &mut x; *r = 300; return x as i32; }

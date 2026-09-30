@@ -445,5 +445,7 @@ len_returns_i64_not_usize 3 tests/soundness/open/len_returns_i64_not_usize refus
 
 str_in_composite_annotation_resolves_to_u8_slice 3 tests/soundness/open/str_in_composite_annotation_resolves_to_u8_slice refuses
 
-# TOTAL 134
-# SYNC-HASH dcf1cfd2de68a2c7152ada3f39d156e0
+static_call_resolves_homonym_type_fn_admits 2 tests/soundness/open/static_call_resolves_homonym_type_fn_admits admits
+
+# TOTAL 135
+# SYNC-HASH 0abe3f53aedd3c6d470b1c5a82a6dc61

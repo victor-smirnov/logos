@@ -1057,6 +1057,14 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                 if (auto* vi = lookup_var_info(lir_view::EVarRefView{r}.name()))
                     ptr_in_inferred_local = vi->regions_inferred;
         }
+        // The value is judged against the referent, as any place write is: it
+        // was only variance-checked, so `*r = true` over `r: &mut i64` compiled
+        // (and wrote a byte), and `*r = 300` over `&mut u8` stored 44.
+        if (val && TypeRef(pt).pointee() && TypeRef(TypeRef(pt).pointee()).kind() != LogosType::Kind::Error) {
+            const std::string at = std::format("assignment to '*{}'", render_place_node(map_of(stmt.get(la::NAME.code))));
+            lit_fit_check_(expr_ref_of(val), TypeRef(pt).pointee(), at);
+            expect_type(val, TypeRef(pt).pointee(), CoercePos::PlaceWrite, at + ": type mismatch —");
+        }
         if (val && TypeRef(pt).pointee() && !ptr_in_inferred_local)
             check_variance(expr_type(val), TypeRef(pt).pointee(),
                            "deref-write '*ptr = …'", /*permissive=*/false);
