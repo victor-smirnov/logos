@@ -961,35 +961,15 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             error("write through raw pointer requires unsafe context");
         if (TypeRef(pt).kind() == LogosType::Kind::Ptr && !TypeRef(pt).mut_ptr())
             error("deref-compound: cannot write through *const pointer (use *mut)");
-        // `*r op= v` on a struct with `impl OpAssign` → `op_assign(r, v)`: the
-        // operand once, then the RHS (Rust's order for a non-primitive).
-        if (TypeRef(elem).kind() == LogosType::Kind::Struct) {
-            std::string atrait, amethod;
-            if (op_assign_trait_method(base_op, atrait, amethod)) {
-                auto type_name = concrete_struct_name(elem);
-                auto base_name = std::string(TypeRef(elem).struct_name());
-                if (has_impl(atrait, type_name) ||
-                    (!base_name.empty() && has_impl(atrait, base_name))) {
-                    auto mangled = type_name + "__" + amethod;
-                    TypeRef ref_t = make_ref(true, elem);
-                    auto fit = find_op_assign_impl(mangled, ref_t, elem, rhs);
-                    if (fit) {
-                        if (rhs &&
-                            !(fit->param_types.size() == 2 && fit->param_types[1] &&
-                              is_ref_like(TypeRef(fit->param_types[1]).kind())))
-                            mark_moved_expr(expr_ref_of(rhs));
-                        std::vector<lir::LExprPtr> args;
-                        // `&mut *ptr`: a reborrow, so a `&mut` operand stays usable.
-                        args.push_back(builder().addr_of_temp(builder().deref(std::move(ptr), elem),
-                                                              /*is_mut=*/true, ref_t,
-                                                              BorrowOrigin::CompoundAssign));
-                        args.push_back(std::move(rhs));
-                        auto call = builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name,
-                                                   {}, std::move(args), fit->ret_type);
-                        return builder().stmt_expr(std::move(call), node_line_);
-                    }
-                }
-            }
+        // `*r op= v` over a struct: `op_assign(&mut *r, v)` — the operand once,
+        // then the RHS (Rust's order for a non-primitive); E0368 without the impl.
+        if (auto call = op_assign_call_(elem, [&] {
+                // `&mut *ptr`: a reborrow, so a `&mut` operand stays usable.
+                return builder().addr_of_temp(builder().deref(std::move(ptr), elem), /*is_mut=*/true,
+                                              make_ref(true, elem), BorrowOrigin::CompoundAssign);
+            }, rhs, base_op, render_place_node(ptr_node))) {
+            if (!*call) return builder().stmt_expr(error_expr(), node_line_);
+            return builder().stmt_expr(std::move(*call), node_line_);
         }
         if (eval_once) return write_once(std::move(ptr), elem, std::move(rhs), base_op);
         rhs = compound_rhs_first(std::move(rhs), elem, rhs_node, false);

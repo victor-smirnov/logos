@@ -921,6 +921,26 @@ battery with rustc twins over the path inventory's place/assignment rows
   the write was silently lost (09-27 binary too); the reference value is the
   base, as a raw pointer's already was. Fixtures
   plc_compound_no_op_assign_refused, plc_index_through_returned_array_ref.
+- S6.6 (2026-09-30): `*p op= v` (DEREF_COMPOUND) — the fourth hand copy of
+  the dispatch — goes through `op_assign_call_` too (`&mut *p`, a reborrow),
+  and is E0368 without the impl.
+
+S6 row (audit §4.1 C-PLC), item by item:
+
+| item | state |
+|---|---|
+| `lower_assignment`: value first | done, S6.1 (codegen evaluates the value, then the place, both doors) |
+| `lower_compound`: place once, `*Assign` by trait resolution, else E0368 | done, S6.5-6: one `op_assign_call_` (variable, place, temporary-rooted place, `IndexMut` element, `*p`); a place that calls is evaluated once (a pure place is read twice, unobservably); a primitive place is the primitive operation |
+| `h.p[i]`, DST stride, `recv.field[i]` base | done, S6.1-2 |
+| a place's root and literal fit checks off the lowered place | done, S6.3 |
+| autoderef at a tuple index | done, S6.4 |
+| index through a call's `&mut [T; N]` (EAddrOfTemp spill of a reference) | done, S6.5 |
+| G167-5 (IndexMut compound) | through `op_assign_call_` for a struct element, S6.5 |
+| mono BinOp compound rewrite | operator resolution after substitution — `x op= y` over a generic `T: <Op>Assign` desugars to `x = x op y` and mono calls `op`, not `op_assign`: the operator traits, S9 |
+| the AST-level place analysis (`resolve_place_type`, `place_write_supported`, `check_place_writable`, the drop-before-replace segment walk) | deferred, reason 2 (doors in series): it produces the STRING move path the move facts are keyed by (`moved_vars_`, drop flags); a structured place key replaces both at once — the S5 table's drop elaboration from BIR move facts. The analysis agrees with rustc on the 29-shape batteries |
+| mlir: 10 store ladders → one `store_to_place`, `var_elem_types_` | deferred, reason 3 (unpriced): sema's place assignment already emits the one form (`SDerefWrite(&mut place, v)`); the ladders serve the other write statement kinds (field / index / tuple / chain writes) and their drop semantics, with no failing witness |
+| `v[i] += &s` over `Vec<String>` | the `&str` generic argument resolves to `&[u8]`: #706 |
+
 
 ## S7 status (2026-09-29)
 
