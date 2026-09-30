@@ -985,7 +985,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                     TypeRef ref_t = make_ref(true, elem);
                     auto fit = find_op_assign_impl(mangled, ref_t, elem, rhs);
                     if (fit) {
-                        if (rhs && is_move_type(expr_type(rhs)) &&
+                        if (rhs &&
                             !(fit->param_types.size() == 2 && fit->param_types[1] &&
                               is_ref_like(TypeRef(fit->param_types[1]).kind())))
                             mark_moved_expr(expr_ref_of(rhs));
@@ -1259,16 +1259,8 @@ void SemaChecker::push_stmt_with_unwind(std::vector<lir_view::StmtRef>& out,
         auto drops = collect_all_drops();
         auto val_ref = lir_view::SReturnView{sref}.value();
         if (!drops.empty() && val_ref) {
-            TypeRef rt = val_ref.type(cur_prog_->type_pool.impl());
-            std::string tmp = "__ret_tmp_" + std::to_string(tmp_var_count_++);
-            lir::SLet sl;
-            sl.name = tmp; sl.type = rt; sl.is_mut = false;
-            sl.value = val_ref;
-            out.push_back(make_stmt_emit(node_line_, std::move(sl)));
-            for (auto& d : drops)
-                out.push_back(std::move(d));
-            out.push_back(
-                builder().stmt_return(builder().var_ref(tmp, rt), node_line_));
+            auto v = bind_then_drop_(val_ref, drops, out, "__ret_tmp_");
+            out.push_back(builder().stmt_return(std::move(v), node_line_));
             return;
         }
         for (auto& d : drops)
@@ -1294,13 +1286,8 @@ void SemaChecker::push_stmt_with_unwind(std::vector<lir_view::StmtRef>& out,
         if (!drops.empty() && sref.kind() == lir_schema::stmt::Code::Break) {
             lir_view::SBreakView bv{sref};
             if (auto val = bv.value()) {
-                TypeRef rt = expr_type(val);
-                std::string tmp = "__brk_tmp_" + std::to_string(tmp_var_count_++);
-                lir::SLet sl;
-                sl.name = tmp; sl.type = rt; sl.is_mut = false; sl.value = val;
-                out.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                for (auto& d : drops) out.push_back(std::move(d));
-                out.push_back(builder().stmt_break(builder().var_ref(tmp, rt), std::string(bv.label()), node_line_));
+                auto v = bind_then_drop_(val, drops, out, "__brk_tmp_");
+                out.push_back(builder().stmt_break(std::move(v), std::string(bv.label()), node_line_));
                 return;
             }
         }
@@ -1313,23 +1300,8 @@ void SemaChecker::push_stmt_with_unwind(std::vector<lir_view::StmtRef>& out,
 std::vector<lir_view::StmtRef> SemaChecker::make_return_with_drops(lir::LExprPtr val) {
     std::vector<lir_view::StmtRef> out;
     auto drops = collect_all_drops();
-    if (drops.empty() || !val) {
-        for (auto& d : drops)
-            out.push_back(std::move(d));
-        out.push_back(builder().stmt_return(std::move(val), node_line_));
-        return out;
-    }
-    TypeRef rt = expr_type(val);
-    std::string tmp = "__ret_tmp_" + std::to_string(tmp_var_count_++);
-    lir::SLet sl;
-    sl.name = tmp;
-    sl.type = rt;
-    sl.is_mut = false;
-    sl.value = std::move(val);
-    out.push_back(make_stmt_emit(node_line_, std::move(sl)));
-    for (auto& d : drops)
-        out.push_back(std::move(d));
-    out.push_back(builder().stmt_return(builder().var_ref(tmp, rt), node_line_));
+    auto v = bind_then_drop_(std::move(val), drops, out, "__ret_tmp_");
+    out.push_back(builder().stmt_return(std::move(v), node_line_));
     return out;
 }
 
@@ -1413,7 +1385,7 @@ lir_view::StmtRef SemaChecker::lower_let_pat_rhs(TinyMapView pat_node, lir::LExp
             // ⚠ The name TAKES the value: mark the source place moved or its
             // scope-exit drop runs a SECOND time on storage this binding owns.
             // mark_moved_expr self-gates to VarRef/FieldRead/TupleIndex.
-            if (is_move_type(rhs_type)) mark_moved_expr(expr_ref_of(rhs));
+            mark_moved_expr(expr_ref_of(rhs));
             define(an, rhs_type, amut);
             lir::SLet sl;
             sl.name = an; sl.type = rhs_type; sl.is_mut = amut;
@@ -2647,7 +2619,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     // move type, mark it moved. mark_moved_expr handles both VarRef and
     // nested FieldRead chains, recording dotted paths so make_drop_stmt
     // can suppress per-field auto-drop on the source struct.
-    if (rhs && is_move_type(rhs_type) && !self_rooted_move)
+    if (rhs && !self_rooted_move)
         mark_moved_expr(expr_ref_of(rhs));
 
     lir::SLet slet;
@@ -2749,7 +2721,7 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
                 if (fit) {
                     std::vector<lir::LExprPtr> args;
                     // A by-value rhs is consumed by the call. PROBES.md 2026-09-15f-consumeland.
-                    if (rhs && is_move_type(expr_type(rhs)) &&
+                    if (rhs &&
                         !(fit->param_types.size() == 2 && fit->param_types[1] &&
                           is_ref_like(TypeRef(fit->param_types[1]).kind())))
                         mark_moved_expr(expr_ref_of(rhs));
@@ -2930,7 +2902,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                         auto mangled = type_name + "__" + amethod;
                         auto fit = find_op_assign_impl(mangled, ref_t, pt1, rhs1);
                         if (fit) {
-                            if (rhs1 && is_move_type(expr_type(rhs1)) &&
+                            if (rhs1 &&
                                 !(fit->param_types.size() == 2 && fit->param_types[1] &&
                                   is_ref_like(TypeRef(fit->param_types[1]).kind())))
                                 mark_moved_expr(expr_ref_of(rhs1));
@@ -2992,7 +2964,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                                                        /*is_mut=*/true, mut_ref_t, BorrowOrigin::CompoundAssign);
                     std::vector<lir::LExprPtr> args;
                     // A by-value rhs is consumed by the call. PROBES.md 2026-09-15f-consumeland.
-                    if (rhs && is_move_type(expr_type(rhs)) &&
+                    if (rhs &&
                         !(fit->param_types.size() == 2 && fit->param_types[1] &&
                           is_ref_like(TypeRef(fit->param_types[1]).kind())))
                         mark_moved_expr(expr_ref_of(rhs));
@@ -7825,7 +7797,7 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         // another. `mark_moved_expr` self-gates to VarRef/FieldRead/TupleIndex,
         // so the `for x in v.iter()` / `for x in Some(..)` spellings (whose
         // scrutinee is a CALL, owning nothing named) are unaffected.
-        if (is_move_type(iter_type)) mark_moved_expr(expr_ref_of(iter));
+        mark_moved_expr(expr_ref_of(iter));
         std::string iter_var = "__for_iter_" + std::to_string(tmp_var_count_++);
         lir::SLet let_iter;
         let_iter.name   = iter_var;
@@ -10492,14 +10464,8 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                         for (auto& d : arm_drops) blk.push_back(std::move(d));
                         val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), error_expr(), vt);
                     } else {
-                        std::string tmp = "__match_arm_tmp_" + std::to_string(tmp_var_count_++);
-                        lir::SLet sl;
-                        sl.name = tmp; sl.type = vt; sl.is_mut = false;
-                        sl.value = std::move(val);
-                        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                        for (auto& d : arm_drops) blk.push_back(std::move(d));
-                        val = builder().block_expr(lir_mirror_block(*cur_prog_, blk),
-                                                   builder().var_ref(tmp, vt), vt);
+                        auto v = bind_then_drop_(std::move(val), arm_drops, blk, "__match_arm_tmp_");
+                        val = builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(v), vt);
                     }
                 }
             }

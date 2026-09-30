@@ -2065,7 +2065,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // must be marked moved, or its scope-exit drop double-frees the
         // extracted payload. mark_moved_expr self-gates to places of move
         // types (a Copy Result / rvalue operand is a no-op).
-        if (inner && inner_t && is_move_type(inner_t))
+        if (inner && inner_t)
             mark_moved_expr(expr_ref_of(inner));
 
         // Heterogeneous-E desugar (Result<T, E_inner> → Result<U, E_outer>).
@@ -3158,7 +3158,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             if (auto rf = find_func_by_base_and_signature(rmangled, {lt, rt}, false)) {
                 std::vector<lir::LExprPtr> args;
                 args.push_back(std::move(lhs));
-                if (rt && is_move_type(rt) && !is_ref_t(rt)) mark_moved_expr(expr_ref_of(rhs));
+                if (rt && !is_ref_t(rt)) mark_moved_expr(expr_ref_of(rhs));
                 args.push_back(std::move(rhs));
                 return builder().call(rf->symbol_name.empty() ? rmangled : rf->symbol_name, {}, std::move(args), rf->ret_type);
             }
@@ -3267,7 +3267,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                         }
                     }
                     // A by-value operand is consumed by the call. PROBES.md 2026-09-15f-consumeland.
-                    if (vty && is_move_type(vty)) mark_moved_expr(expr_ref_of(e));
+                    if (vty) mark_moved_expr(expr_ref_of(e));
                     args.push_back(std::move(e));
                 };
                 push_operand(std::move(lhs), lt, 0);
@@ -4260,8 +4260,8 @@ binop_bounded_tv:
                                  op == "&" || op == "|" || op == "^" || op == "<<" || op == ">>";
         auto is_tv = [](TypeRef t) { return t && TypeRef(t).kind() == LogosType::Kind::TypeVar; };
         if (by_value_op && (is_tv(lt) || is_tv(rt))) {
-            if (lhs && is_move_type(lt)) mark_moved_expr(expr_ref_of(lhs));
-            if (rhs && is_move_type(rt)) mark_moved_expr(expr_ref_of(rhs));
+            if (lhs) mark_moved_expr(expr_ref_of(lhs));
+            if (rhs) mark_moved_expr(expr_ref_of(rhs));
         }
     }
     return builder().bin_op(std::string(op), std::move(lhs), std::move(rhs), result_type);
@@ -4585,7 +4585,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             if (fit) {
                 std::vector<lir::LExprPtr> args;
                 // A by-value operand is consumed by the call. PROBES.md 2026-09-15f-consumeland.
-                if (is_move_type(vt) && !(fit->param_types.size() == 1 && fit->param_types[0] &&
+                if (!(fit->param_types.size() == 1 && fit->param_types[0] &&
                                           is_ref_like(TypeRef(fit->param_types[0]).kind())))
                     mark_moved_expr(expr_ref_of(operand));
                 args.push_back(std::move(operand));
@@ -13815,7 +13815,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // loop; this duplicate is required because the generic-struct
         // branch returns early (above this line) without falling through.
         for (auto& [fname, fval] : fields) {
-            if (fval && is_move_type(expr_type(fval)))
+            if (fval)
                 mark_moved_expr(expr_ref_of(fval));
         }
 
@@ -14103,7 +14103,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
 
     // Move semantics: mark Move-typed field values as consumed.
     for (auto& [fname, fval] : fields) {
-        if (fval && is_move_type(expr_type(fval)))
+        if (fval)
             mark_moved_expr(expr_ref_of(fval));
     }
 
@@ -15558,7 +15558,7 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
                               "copies its operand (use a `const` item, or build the array element by element)",
                               type_str(elem_type), n));
     }
-    if (n >= 1 && elem_type && is_move_type(elem_type))
+    if (n >= 1 && elem_type)
         for (auto& el : elems) mark_moved_expr(expr_ref_of(el));
     return builder().arr_lit(std::move(elems), make_array(elem_type, (size_t)n));
 }
@@ -16368,7 +16368,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
     // when both v's auto-Drop and the Option's payload-walk drop fire on
     // the same backing.
     for (auto& p : payload) {
-        if (p && is_move_type(expr_type(p)))
+        if (p)
             mark_moved_expr(expr_ref_of(p));
     }
 
@@ -16716,7 +16716,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
     // their sources live in the surrounding scope (silent leak before
     // mono SDrop sentinel→struct propagation; double-drop after).
     for (auto& p : payload) {
-        if (p && is_move_type(expr_type(p)))
+        if (p)
             mark_moved_expr(expr_ref_of(p));
     }
     return builder().enum_lit_data(std::string(ename), std::string(vname), vinfo->value, std::move(payload), result_type);
@@ -19353,16 +19353,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
             mark_moved_in_expr_recursive(expr_ref_of(result));
         tail_drops = collect_drops();
     }
-    if (!tail_drops.empty() && result) {
-        TypeRef vt0 = expr_type(result);
-        std::string vn = std::format("__btmp_{}", destruct_counter_++);
-        lir::SLet vl;
-        vl.name = vn; vl.type = vt0; vl.is_mut = false;
-        vl.value = std::move(result);
-        block.push_back(make_stmt_emit(node_line_, std::move(vl)));
-        result = builder().var_ref(vn, vt0);
-    }
-    for (auto& d : tail_drops) block.push_back(std::move(d));
+    result = bind_then_drop_(std::move(result), tail_drops, block, "__btmp_");
     pop_scope();
     if (!result && divergent_ret_t)
         return builder().block_expr(lir_mirror_block(*cur_prog_, block), nullptr, divergent_ret_t);

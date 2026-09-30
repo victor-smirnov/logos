@@ -4932,6 +4932,24 @@ private:
         }
     }
 
+    // An exit's value (a `return` / `break` operand, a match arm's value) is
+    // computed while the scope's locals live and they drop after: `let t = v;
+    // <drops>; t`. Appends the let and the drops to `out` and returns `t`'s
+    // reference; with no drops, the drops (none) and `v` itself.
+    lir::LExprPtr bind_then_drop_(lir::LExprPtr v, std::vector<lir_view::StmtRef>& drops,
+                                  std::vector<lir_view::StmtRef>& out, const char* prefix) {
+        if (drops.empty() || !v) {
+            for (auto& d : drops) out.push_back(std::move(d));
+            return v;
+        }
+        TypeRef t = expr_type(v);
+        std::string tmp = std::format("{}{}", prefix, tmp_var_count_++);
+        lir::SLet sl;
+        sl.name = tmp; sl.type = t; sl.is_mut = false; sl.value = std::move(v);
+        out.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        for (auto& d : drops) out.push_back(std::move(d));
+        return builder().var_ref(tmp, t);
+    }
     std::string cond_move_flag_for(const std::string& name, bool initially_live = true) {
         // #121 — A DOTTED PATH IS HALF THE KEYSPACE OF THE MAP THIS ELABORATES,
         // and it used to be dropped on the floor here (`if (name.find('.') !=

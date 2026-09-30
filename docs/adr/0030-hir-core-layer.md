@@ -849,6 +849,8 @@ S5 row (audit §4.1 C-OWN), item by item:
 | lower_block_expr tail revert | done, S5.1 |
 | `currently_uninit_vars_` | deleted, S5.3 |
 | `body_ever_moved_` | drop role retired S5.4; capture-mode role → C-CLO (S10) |
+| `consume(place)`: the pre-gates | S5.5: `mark_moved_expr` is the one consume door and judges the type itself (move type, owning `Box<dyn>`, an FnOnce-only callable); the 18 `is_move_type(...)` conjuncts ahead of it are gone (an FnOnce callable is now consumed at those positions too). The string move paths (`move_path_of`) become the structured place of C-PLC (S6 `lower_place`) |
+| 5 bind-drop-yield copies | S5.6: `bind_then_drop_` is the one `let t = v; <drops>; t` — `return` (both lowerings), `break v`, a match arm's value and a block's tail value use it |
 | 8 sema E0507 sites | measured: with them off (probe `semae0507off`) the BIR alone refuses 53 of the 55 E0507 fixtures; retiring them waits on two BIR paths (doors in series): a move through a `Box` field behind `&` (bc_mvchain_box_field_ref_fail) and a runtime-index move out of an array of a Drop type (move-out-of-array-1) |
 
 
