@@ -1008,7 +1008,7 @@ S7 row (audit §4.1 C-LIT / C-EXP / C-INF), item by item:
 | a literal written through `*r` truncated (l5) | done, S6.7 |
 | mlir's `IntLit → i32` fallback | measured: 29 of 4565 pass programs still bring an `{integer}` type to codegen — unused literals (a destructuring `_`) and a literal that fixes a generic argument behind `&` (`println!("{}", 5000000000)` prints 705032704; rustc refuses). The second is the generic-argument inference below (C-INF); then the fallback becomes an internal error |
 | C-EXP: one expected-type scope for the 7 hint members / 14 producers | open (the aggregate unsize of S4.7b waits on it) |
-| C-INF: one generic-argument inference for the 11 raw unify loops | open (`let x = vec![3, 4]; let y: Vec<i64> = x;` and the `&lit` generic argument wait on it) |
+| C-INF: one generic-argument inference for the 11 raw unify loops | open. A probe (2026-09-30, reverted) bound a literal-fixed type parameter to an integer variable (`unify_types` keeping `?l`; a bare / `&` literal argument minted one): the trait-bound check then saw `{integer}: Display` before any solution and refused `show(7)` — rustc defers obligations on `{integer}` to after the fallback. So C-INF needs, together: literal arguments as variables at every shape (bare, `&`, array / tuple leaves — `vec_from_arr([3, 4])`), bound checks on a variable deferred to its solution or default, and the format-macro path on the same inference |
 
 Remaining on the S7 row (older note): the per-site `IntLit → i32` defaults onto
 `lit_default_` and the range checks onto the variable's close; a value
