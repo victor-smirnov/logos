@@ -4,25 +4,25 @@
 // `*const u8` (low-bit-0, trusted aligned). Value form keeps the Ref absolute;
 // through a `*zoned` slot the Ref stores self-relative and materialises back.
 package wany_niche_enum;
-#[zoned] enum WAny { Ref(*const u8), Pod(u64) }
+#[zoned] enum NicheAny { Ref(*const u8), Pod(u64) }
 fn main() -> i32 {
     let obj: i64 = 7i64;
     let absobj: i64 = &obj as *const i64 as i64;
     let w: u64 = (42u64 << 8u64) | (1u64 << 1u64) | 1u64;
     let mut buf: [i64; 1] = [0i64];
     unsafe {
-        let slot: *zoned mut WAny = &mut buf[0] as *mut i64 as *zoned mut WAny;
+        let slot: *zoned mut NicheAny = &mut buf[0] as *mut i64 as *zoned mut NicheAny;
         // Ref at-rest → stored as a DELTA, materialises back to the absolute ptr.
-        *slot = WAny::Ref(&obj as *const i64 as *const u8);
+        *slot = NicheAny::Ref(&obj as *const i64 as *const u8);
         if buf[0] == absobj { return 60i32; }              // stored absolute → zoned off
         if buf[0] == 0i64 { return 61i32; }
-        let back: WAny = *slot;
-        match back { WAny::Ref(p) => { if (p as i64) != absobj { return 1i32; } } WAny::Pod(x) => { return 2i32; } }
+        let back: NicheAny = *slot;
+        match back { NicheAny::Ref(p) => { if (p as i64) != absobj { return 1i32; } } NicheAny::Pod(x) => { return 2i32; } }
         // Pod at-rest → stored RAW (position-independent, low-bit-1), round-trips.
-        *slot = WAny::Pod(w);
+        *slot = NicheAny::Pod(w);
         if (buf[0] & 1i64) != 1i64 { return 62i32; }
-        let back2: WAny = *slot;
-        match back2 { WAny::Pod(x) => { if (x >> 8u64) != 42u64 { return 3i32; } } WAny::Ref(p) => { return 4i32; } }
+        let back2: NicheAny = *slot;
+        match back2 { NicheAny::Pod(x) => { if (x >> 8u64) != 42u64 { return 3i32; } } NicheAny::Ref(p) => { return 4i32; } }
     }
     return 0i32;
 }

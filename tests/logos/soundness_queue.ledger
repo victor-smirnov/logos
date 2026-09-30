@@ -449,5 +449,9 @@ array_call_result_index_crash 3 tests/soundness/open/array_call_result_index_cra
 
 array_type_not_copy_refused 3 tests/soundness/open/array_type_not_copy_refused refuses
 
-# TOTAL 136
-# SYNC-HASH 71dafd2496b857ed8a9267ac09d1deb7
+mem_swap_is_unsafe_raw_pointer_refused 3 tests/soundness/open/mem_swap_is_unsafe_raw_pointer_refused refuses
+
+array_map_missing_refused 3 tests/soundness/open/array_map_missing_refused refuses
+
+# TOTAL 138
+# SYNC-HASH 10a5bff66143c5cb20fbb8dd82fadefa

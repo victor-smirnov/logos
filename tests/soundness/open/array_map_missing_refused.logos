@@ -1,0 +1,5 @@
+// SOUNDNESS QUEUE row array_map_missing_refused (tier 3, `refuses`). `[1i64, 2].map(|x| x * 2)` is "method call:
+// receiver is not a struct (got [i64; 2])": arrays have no `map` (Rust's `impl<T, const N> [T; N] { fn map }`).
+// rustc 1.98.1: exit 4. Found by the ADR 0030 C-INF battery (2026-09-30).
+package array_map_missing_refused;
+fn main() -> i32 { let a = [1i64, 2i64].map(|x| x * 2); return a[1] as i32; }

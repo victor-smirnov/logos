@@ -4893,7 +4893,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             SemaSubst subst;
             if (!tsinfo->type_params.empty()) {
                 for (size_t i = 0; i < arg_exprs.size(); ++i)
-                    unify_types(tsinfo->fields[i].type, expr_type(arg_exprs[i]), subst);
+                    unify_arg_(tsinfo->fields[i].type, expr_type(arg_exprs[i]), subst);
             }
             std::vector<std::pair<std::string, lir::LExprPtr>> fields;
             std::vector<TypeRef> pts;
@@ -6085,7 +6085,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
                          TypeRef(at).pointee())
                     at = TypeRef(at).pointee();
             }
-            unify_types(pt, at, binds);
+            unify_arg_(pt, at, binds);
         }
         // A candidate whose type-params stay unbound would fail inference
         // downstream anyway — don't let it outscore an inferable one. The
@@ -6238,15 +6238,22 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
     return best;
 }
 
+// C-INF: the one argument-to-formal unification of generic-argument
+// inference — an unsuffixed literal in the argument's type binds a fresh
+// integer variable (unify_types under unify_mint_lit_).
+void SemaChecker::unify_arg_(TypeRef formal, TypeRef actual, StrMap<TypeRef>& bindings) {
+    const bool saved = unify_mint_lit_;
+    unify_mint_lit_ = true;
+    unify_types(formal, actual, bindings);
+    unify_mint_lit_ = saved;
+}
+
 bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                          const std::vector<lir::LExprPtr>& arg_exprs,
                          std::vector<TypeRef>& out_type_args,
                          const SemaSubst& context,
                          size_t param_offset) {
     StrMap<TypeRef> bindings(context.begin(), context.end());
-    const bool saved_mint = unify_mint_lit_;
-    unify_mint_lit_ = true;
-    struct Restore { bool& f; bool v; ~Restore() { f = v; } } restore_mint{unify_mint_lit_, saved_mint};
     bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
     size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
     size_t fixed_params = fi.param_types.size() >= param_offset
@@ -6269,7 +6276,7 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
             literal_defaults.emplace_back(std::string(TypeRef(pt).type_var_name()), at);
             continue;
         }
-        unify_types(pt, at, bindings);
+        unify_arg_(pt, at, bindings);
     }
 
     // Fn-family bound propagation: when a fn type-param `F: Fn(X) -> Y`
@@ -6368,7 +6375,7 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
     }
 
     for (auto& [tvn, lit] : literal_defaults)
-        if (!bindings.count(tvn)) unify_types(make_typevar(tvn), lit, bindings);
+        if (!bindings.count(tvn)) unify_arg_(make_typevar(tvn), lit, bindings);
 
     // Build type_args: non-variadic params first
     out_type_args.clear();
@@ -6491,7 +6498,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     bindings[fi.type_params[i].name] = type_args[i];
             for (size_t i = 0; i < fi.param_types.size() && i < arg_exprs.size(); ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], bindings);
-                unify_types(pt, expr_type(arg_exprs[i]), bindings);
+                unify_arg_(pt, expr_type(arg_exprs[i]), bindings);
             }
             // Return-type-driven inference: when the let binding annotates a
             // type, unify the fn's return type against it. Closes the
@@ -8443,7 +8450,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                 subst[tsinfo->type_params[i].name] = targs[i];
             if (!tsinfo->type_params.empty())  // infer any not pinned by turbofish
                 for (size_t i = 0; i < arg_exprs.size(); ++i)
-                    unify_types(tsinfo->fields[i].type, expr_type(arg_exprs[i]), subst);
+                    unify_arg_(tsinfo->fields[i].type, expr_type(arg_exprs[i]), subst);
             std::vector<std::pair<std::string, lir::LExprPtr>> fields;
             for (size_t i = 0; i < arg_exprs.size(); ++i) {
                 auto pt = tsinfo->fields[i].type;
@@ -8953,7 +8960,7 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
         tv_bind[bi.target_typevar] = recv_inner;
         for (size_t i = 0; i + 1 < mfi->param_types.size() && i < arg_exprs.size(); ++i) {
             auto pt = subst_type_sema(mfi->param_types[i + 1], tv_bind);
-            unify_types(pt, expr_type(arg_exprs[i]), tv_bind);
+            unify_arg_(pt, expr_type(arg_exprs[i]), tv_bind);
         }
         if (hint_call_return_type_ && mfi->ret_type) {
             auto rt = subst_type_sema(mfi->ret_type, tv_bind);
@@ -9027,7 +9034,7 @@ lir::LExprPtr SemaChecker::try_blanket_static_dispatch(
         tv_bind[bi.target_typevar] = self_t;
         for (size_t i = 0; i < mfi->param_types.size(); ++i) {
             auto pt = subst_type_sema(mfi->param_types[i], tv_bind);
-            unify_types(pt, expr_type(arg_exprs[i]), tv_bind);
+            unify_arg_(pt, expr_type(arg_exprs[i]), tv_bind);
         }
         if (hint_call_return_type_ && mfi->ret_type) {
             auto rt = subst_type_sema(mfi->ret_type, tv_bind);
@@ -9269,7 +9276,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             at.push_back(expr_type(recv));
             for (auto& a : slc_args) at.push_back(expr_type(a));
             for (size_t i = 0; i < fi_ptr->param_types.size() && i < at.size(); ++i)
-                unify_types(fi_ptr->param_types[i], at[i], pb);
+                unify_arg_(fi_ptr->param_types[i], at[i], pb);
             // Ask the canonical bound check (check_type_bounds) as a PROBE: its
             // diagnostics are rolled back, and any error means the bounds miss.
             std::vector<TypeRef> targs;
@@ -9280,12 +9287,13 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
                 targs.push_back(it->second);
             }
             if (all_bound) {
-                const size_t mark = result_.diags.size();
+                const size_t mark = result_.diags.size(), dmark = lit_deferred_bounds_.size();
                 check_type_bounds(key, fi_ptr->type_params, targs);
                 bool fits = true;
                 for (size_t d = mark; d < result_.diags.size(); ++d)
                     if (result_.diags[d].level == Diag::Level::Error) fits = false;
                 result_.diags.resize(mark);
+                lit_deferred_bounds_.resize(dmark);   // a probe's deferred bounds roll back with it
                 if (!fits) continue;
             }
         }
@@ -9336,7 +9344,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             // parameters, the rest bind a METHOD-level one (`hash<H>(&self,
             // state: &mut H)` on a `str` receiver).
             for (size_t i = 0; i < fi_ptr->param_types.size() && i < pargs.size(); ++i)
-                unify_types(fi_ptr->param_types[i], expr_type(pargs[i]), binds);
+                unify_arg_(fi_ptr->param_types[i], expr_type(pargs[i]), binds);
             // A method-level turbofish (`s.parse::<i64>()`) names the LAST
             // parameters (the method's own, after the impl's).
             if (node.has_key(la::TYPE_PARAMS)) {
@@ -9948,7 +9956,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
     if (fi_ptr->impl_target_pattern) unify_types(fi_ptr->impl_target_pattern, arr_t, binds);
     // Method-level parameters bind from the remaining arguments.
     for (size_t i = 1; i < fi_ptr->param_types.size() && i - 1 < args.size(); ++i)
-        unify_types(fi_ptr->param_types[i], expr_type(args[i - 1]), binds);
+        unify_arg_(fi_ptr->param_types[i], expr_type(args[i - 1]), binds);
     SemaSubst subst;
     std::vector<TypeRef> targs;
     for (auto& tp : fi_ptr->type_params) {
@@ -10517,7 +10525,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                             if (i + 1 >= chosen_method->param_types.size()) break;
                             auto pt0 = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
-                            unify_types(pt0, expr_type(arg_exprs[i]), bindings);
+                            unify_arg_(pt0, expr_type(arg_exprs[i]), bindings);
                         }
                         for (auto& tp : chosen_method->type_params) {
                             auto it = bindings.find(tp.name);
@@ -10708,7 +10716,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 for (uint64_t i = 0; i < arg_exprs.size(); ++i) {
                     if (i + 1 >= chosen_method->param_types.size()) break;
                     auto pt0 = subst_type_sema(chosen_method->param_types[i + 1], self_subst);
-                    unify_types(pt0, expr_type(arg_exprs[i]), bindings);
+                    unify_arg_(pt0, expr_type(arg_exprs[i]), bindings);
                 }
                 for (auto& tp : chosen_method->type_params) {
                     auto it = bindings.find(tp.name);
@@ -16250,7 +16258,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 // bare TypeVar. Unify it against the actual arg type to extract
                 // the nested bindings (`Pair<T>` vs `Pair<i64>` → T=i64) so a
                 // turbofish/annotation isn't required for inference.
-                unify_types(pt, expr_type(payload[i]), subst);
+                unify_arg_(pt, expr_type(payload[i]), subst);
             }
         }
         // Fill any still-unresolved type params from hint (e.g. let e: Result<i32,i32> = Result::Err(-1))
@@ -16574,7 +16582,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                 // (`Full(Pair<T>)`) — unify against the actual arg type to
                 // extract nested bindings (`Pair<T>` vs `Pair<i64>` → T=i64) so
                 // pure inference (no turbofish/annotation) resolves them.
-                unify_types(pt, expr_type(payload[i]), subst);
+                unify_arg_(pt, expr_type(payload[i]), subst);
             }
         }
         // SL-sl-03 follow-up: when the let / return context hint says
@@ -26582,10 +26590,11 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
                     // in sema_collect.cpp (`if (!bounds_probe_)
                     // defer_factory_backed(concrete);`) and pin it with a
                     // trace-line count, not with an exit code.
-                    size_t diag_mark = result_.diags.size();
+                    size_t diag_mark = result_.diags.size(), dmark = lit_deferred_bounds_.size();
                     TypeRef rt = resolve_type(tnode);
                     if (result_.diags.size() > diag_mark)
                         result_.diags.resize(diag_mark);
+                    lit_deferred_bounds_.resize(dmark);
                     TypeRef core = rt;
                     if (core && (TypeRef(core).kind() == LogosType::Kind::Ref ||
                                  TypeRef(core).kind() == LogosType::Kind::MutRef))

@@ -9370,6 +9370,7 @@ private:
     TypeRef resolve_type_generic_inst(writ::TinyMapView node);
     TypeRef resolve_type_assoc_ref(writ::TinyMapView node);
     TypeRef resolve_type_cfg_slot(writ::TinyMapView node);
+    void unify_arg_(TypeRef formal, TypeRef actual, StrMap<TypeRef>& bindings);  // C-INF: argument -> formal
     void unify_types(TypeRef formal, TypeRef actual,
                      logos::compiler::StrMap<TypeRef>& bindings);
     bool infer_type_args(const SemaFuncInfo& fi,
