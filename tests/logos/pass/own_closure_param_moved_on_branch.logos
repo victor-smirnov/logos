@@ -1,0 +1,19 @@
+// ADR 0030 S5.4: a closure's by-value parameter moved on one branch. Moved on a branch that falls through, its
+// drop flag was declared in the ENCLOSING fn (the frame search crossed the closure boundary) and mlir-gen found
+// no `__df_0` in the lifted body; moved on a diverging branch, the closure epilogue's "moved anywhere, never
+// dropped" skip leaked it on the path that did not move it. rustc 1.98.1 gives the same stdout.
+package own_closure_param_moved_on_branch;
+use logos.std.fmt;
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+fn eat(d: D) { println!("eat {}", d.n); }
+fn main() {
+    let c = false;
+    let k = |x: D| { if c { eat(x); } println!("end k"); };
+    k(D { n: 3 });
+    let j = |x: D| { if c { eat(x); return; } println!("end j"); };
+    j(D { n: 4 });
+    let t = true;
+    let m = |x: D| { if t { eat(x); return; } println!("end m"); };
+    m(D { n: 5 });
+}

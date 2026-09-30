@@ -2106,7 +2106,8 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         // pervasive or ambiguous (documented in tier-reaudit-findings.md).
         if (rhs && !is_ref_bind && is_move_type(rhs_type) &&
             is_unowned_move_source(rhs))
-            error("cannot move out of a value behind a reference / out of an "
+            if (!logos::probe::on("semae0507off"))
+                error("cannot move out of a value behind a reference / out of an "
                   "index (E0507)");
     } else if (ann) {
         // B3-bg-01 / B3-bg-02: `let v: T;` / `let mut v: T;` —
@@ -3428,7 +3429,8 @@ lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vno
         // T1-12: dyn+auto bound at return coercion.
         check_dyn_auto_bounds_at_coercion(val, ret_type_);
         if (is_move_type(ret_type_) && is_unowned_move_source(val))
-            error("cannot move out of a value behind a reference / out of an index (E0507)");
+            if (!logos::probe::on("semae0507off"))
+                error("cannot move out of a value behind a reference / out of an index (E0507)");
     }
     // Retype float literal to concrete return type.
     if (ret_type_ && TypeRef(expr_type(val)).kind() == LogosType::Kind::FloatLit &&
@@ -6910,7 +6912,7 @@ void SemaChecker::bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type) {
                     default: return false;
                 }
             };
-            if (byval_(v.inner(), true))
+            if (byval_(v.inner(), true) && !logos::probe::on("semae0507off"))
                 error(std::format(
                     "cannot move out of a value behind a reference / out of an "
                     "index (E0507): the pattern binds '{}' by value", bn_));
@@ -10336,7 +10338,8 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                             return false;
                     }
                 };
-                if (std::string bn; byval_name(byval_name, pat_ref_of(pat), bn, /*wild_trusted=*/true))
+                if (std::string bn; byval_name(byval_name, pat_ref_of(pat), bn, /*wild_trusted=*/true) &&
+                    !logos::probe::on("semae0507off"))
                     error(std::format(
                         "cannot move out of a value behind a reference / out of "
                         "an index (E0507): the match arm binds '{}' by value", bn));

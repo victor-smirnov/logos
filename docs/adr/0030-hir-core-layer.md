@@ -828,6 +828,29 @@ of 09-26 were lost; the battery is new).
   the retired sema E0381's tracker, written in 12 places and read by none —
   is deleted with its loop guards and the `&&`/`||` fork. −151 lines; the
   36-program drop-counter battery agrees with rustc before and after.
+- S5.4 (2026-09-29): a closure's by-value parameter moved on a branch. The
+  drop flag's declaration frame was searched outward past the closure
+  boundary, so `__df_0` was declared in the enclosing fn and mlir-gen found
+  no such local in the lifted closure body (a compile failure, also on the
+  09-27 binary); the search stops at the boundary. The closure epilogue kept
+  lower_fn's retired "moved on any branch, never dropped" skip
+  (`body_ever_moved_`): a parameter moved on a DIVERGING branch leaked on the
+  path that did not move it. The skip is gone; `body_ever_moved_` is left
+  with one role, which outer variables a closure body moves (capture modes:
+  C-CLO, S10). Fixture own_closure_param_moved_on_branch.
+
+S5 row (audit §4.1 C-OWN), item by item:
+
+| item | state |
+|---|---|
+| `JoinBuilder` (one join) | done, S5.3 |
+| one drop-flag carrier; B8 retired | done, S5.2 |
+| `reinit(place, rhs)` | done, S5.1 (reassignment re-arms the flag and drops the old value iff set) |
+| lower_block_expr tail revert | done, S5.1 |
+| `currently_uninit_vars_` | deleted, S5.3 |
+| `body_ever_moved_` | drop role retired S5.4; capture-mode role → C-CLO (S10) |
+| 8 sema E0507 sites | measured: with them off (probe `semae0507off`) the BIR alone refuses 53 of the 55 E0507 fixtures; retiring them waits on two BIR paths (doors in series): a move through a `Box` field behind `&` (bc_mvchain_box_field_ref_fail) and a runtime-index move out of an array of a Drop type (move-out-of-array-1) |
+
 
 ## S6 status (2026-09-29)
 

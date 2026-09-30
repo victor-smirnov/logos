@@ -4956,9 +4956,15 @@ private:
         // below the loop it was armed once, and the first move leaked every
         // later item).
         size_t target = SIZE_MAX;
+        // Outward, but never past a closure boundary: a closure's params frame
+        // has no block below it inside the closure, and the enclosing fn's
+        // body block is another function (`__df_0` declared in `main`,
+        // cleared in the lifted closure body — an undefined local there).
         if (!(scope_[fi].loop_boundary && !scope_[fi].block_frame))
-            for (size_t j = fi + 1; j-- > 0; )
+            for (size_t j = fi + 1; j-- > 0; ) {
                 if (scope_[j].block_frame) { target = j; break; }
+                if (scope_[j].closure_boundary) break;
+            }
         if (target == SIZE_MAX)
             for (size_t j = fi + 1; j < scope_.size(); ++j)
                 if (scope_[j].block_frame) { target = j; break; }

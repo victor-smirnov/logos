@@ -17628,7 +17628,8 @@ void SemaChecker::coerce_arg_to_param(lir::LExprPtr& arg, TypeRef pt,
         pt && TypeRef(pt).kind() != LogosType::Kind::Ref &&
         TypeRef(pt).kind() != LogosType::Kind::MutRef &&
         is_move_type(pt) && is_unowned_move_source(arg))
-        error("cannot move out of a value behind a reference / out of an "
+        if (!logos::probe::on("semae0507off"))
+            error("cannot move out of a value behind a reference / out of an "
               "index (E0507)");
 }
 
@@ -19871,7 +19872,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // parameter of a VOID closure body was never destroyed: measured 0 for 1
     // at four spellings (`h_bv_void_*`) while the `-> i64` twins were correct,
     // because a `return` reaches `collect_all_drops` and a void body reaches
-    // nothing. Same arm, same conservative `body_ever_moved_` skip.
+    // nothing. Same arm; and, as lower_fn's, no `body_ever_moved_` skip: a
+    // param moved on a diverging branch is live at this fall-through end
+    // (the skip leaked it), and a conditionally moved one carries a flag.
     {
         bool body_terminated = false;
         if (!body.empty()) {
@@ -19885,7 +19888,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         }
         if (!body_terminated && !scope_.empty()) {
             std::vector<lir_view::StmtRef> epilogue_drops;
-            emit_frame_drops(scope_.back(), epilogue_drops, &body_ever_moved_);
+            emit_frame_drops(scope_.back(), epilogue_drops, nullptr);
             for (auto& d : epilogue_drops) body.push_back(d);
         }
     }
