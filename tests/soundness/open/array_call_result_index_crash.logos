@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row array_call_result_index_crash (tier 3, `refuses`). Indexing an array-typed CALL
+// RESULT in place — `mk()[1]`, `o.unwrap()[1]` — fails MLIR verification ("'llvm.getelementptr' op
+// operand #0 must be LLVM pointer type ... but got '!llvm.array<2 x i64>'"): the index takes the rvalue
+// array's value as its base instead of spilling it. `let a = mk(); a[1]` works. rustc 1.98.1: exit 2.
+// Found by the ADR 0030 C-INF battery (2026-09-30).
+package array_call_result_index_crash;
+fn mk() -> [i64; 2] { return [1i64, 2i64]; }
+fn main() -> i32 { return mk()[1] as i32; }

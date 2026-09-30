@@ -1912,6 +1912,12 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     if (hint_lit && expr_type(lit_expr) &&
                         TypeRef(expr_type(lit_expr)).kind() == LogosType::Kind::IntLit)
                         builder().retype_expr(lit_expr, hint_lit);
+                    // C-LIT: `let a = &7` borrows an integer VARIABLE its uses
+                    // solve (`sh(a)` for `T: Display` formats the literal's
+                    // width, i64 when it does not fit i32).
+                    if (expr_type(lit_expr) && TypeRef(expr_type(lit_expr)).kind() == LogosType::Kind::IntLit &&
+                        !is_lit_var_(expr_type(lit_expr)))
+                        builder().retype_expr(lit_expr, mint_lit_var_(get_intlit_value(expr_ref_of(lit_expr))));
                     TypeRef lit_type = expr_type(lit_expr);
                     auto ltk = lit_type ? TypeRef(lit_type).kind()
                                         : LogosType::Kind::Error;

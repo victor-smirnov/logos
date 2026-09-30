@@ -1050,6 +1050,25 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                            const std::vector<TypeParam>& type_params,
                            const std::vector<TypeRef>& args) {
     if (type_params.empty()) return;
+    // C-INF: an open integer variable in an argument defers the whole check to
+    // its solution (lit_close_fn_); a quiet probe judges the default, i32.
+    for (auto a : args) {
+        if (!has_lit_var_(a)) continue;
+        std::vector<TypeRef> z;
+        bool open = false;
+        for (auto b : args) {
+            b = lit_zonk_(b);
+            open = open || has_lit_var_(b);
+            z.push_back(b);
+        }
+        if (!open) return check_type_bounds(target_name, type_params, z);
+        if (!bounds_probe_) {
+            lit_deferred_bounds_.push_back({target_name, type_params, std::move(z), ctx_, file_, node_line_, node_span_});
+            return;
+        }
+        for (auto& b : z) b = lit_peek_default_(b);
+        return check_type_bounds(target_name, type_params, z);
+    }
     bool has_variadic = type_params.back().is_variadic;
     size_t non_variadic_count = type_params.size() - (has_variadic ? 1 : 0);
 

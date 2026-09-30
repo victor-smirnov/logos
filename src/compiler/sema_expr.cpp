@@ -5780,8 +5780,16 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
         formal.kind() == LogosType::Kind::Error) return;
 
     // Widen IntLit to i32 / FloatLit to f64 before any binding
+    // — except an integer VARIABLE, which binds as itself (a later use may
+    // solve it: `let a = 7; wid(a); let b: i64 = a;` instantiates wid<i64>),
+    // and, inside generic-argument inference, a literal, which binds a fresh
+    // variable (C-INF).
     TypeRef actual_norm = actual;
-    if (actual.kind() == LogosType::Kind::IntLit)
+    if (is_lit_var_(actual))
+        actual_norm = lit_resolve_(actual);
+    else if (unify_mint_lit_ && formal.kind() == LogosType::Kind::TypeVar)
+        actual_norm = lit_freshen_(actual);
+    else if (actual.kind() == LogosType::Kind::IntLit)
         actual_norm = TypeRef(prim(LogosType::Kind::I32));
     else if (actual.kind() == LogosType::Kind::FloatLit)
         actual_norm = TypeRef(prim(LogosType::Kind::F64));
@@ -6236,6 +6244,9 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                          const SemaSubst& context,
                          size_t param_offset) {
     StrMap<TypeRef> bindings(context.begin(), context.end());
+    const bool saved_mint = unify_mint_lit_;
+    unify_mint_lit_ = true;
+    struct Restore { bool& f; bool v; ~Restore() { f = v; } } restore_mint{unify_mint_lit_, saved_mint};
     bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
     size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
     size_t fixed_params = fi.param_types.size() >= param_offset
@@ -16929,12 +16940,17 @@ bool SemaChecker::stamp_literal_tree_(lir_view::ExprRef e, TypeRef target) {
     if (!e || !target) return false;
     TypeRef et(e.type(cur_prog_->type_pool.impl()));
     if (!et) return false;
-    if (types_equal(et, target)) return true;
+    // `{integer}` equals an integer variable to types_equal; the leaf still
+    // has to take the variable (and give it its value).
+    if (types_equal(et, target) && !(has_lit_var_(target) && !has_lit_var_(et))) return true;
     const auto tk = TypeRef(target).kind();
     switch (e.kind()) {
     case C::LitInt:
         if (TypeRef(et).kind() != K::IntLit || !is_integer_kind(tk) ||
             (tk == K::IntLit && !is_lit_var_(target)) || tk == K::Enum) return false;
+        // A leaf written into an integer variable is one of its values.
+        if (is_lit_var_(target))
+            if (auto v = get_intlit_value(e)) lit_note_value_(target, *v);
         builder().retype_expr(e, target);
         return true;
     case C::LitFloat:
@@ -16943,7 +16959,16 @@ bool SemaChecker::stamp_literal_tree_(lir_view::ExprRef e, TypeRef target) {
         return true;
     case C::Unary: {
         lir_view::EUnaryView u{e};
-        if ((u.op() != "-" && u.op() != "!") || !stamp_literal_tree_(u.operand(), target)) return false;
+        if (u.op() != "-" && u.op() != "!") return false;
+        if (is_lit_var_(target) && u.operand() && u.operand().kind() == C::LitInt &&
+            TypeRef(u.operand().type(cur_prog_->type_pool.impl())).kind() == K::IntLit) {
+            // `-128` is the variable's value, not `128`.
+            if (auto v = get_intlit_value(e)) lit_note_value_(target, *v);
+            builder().retype_expr(u.operand(), target);
+            builder().retype_expr(e, target);
+            return true;
+        }
+        if (!stamp_literal_tree_(u.operand(), target)) return false;
         builder().retype_expr(e, target);
         return true;
     }
@@ -17021,11 +17046,16 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         if (TypeRef rv = lit_zonk_(expr_type(e)); rv != expr_type(e)) builder().retype_expr(e, rv);
         // A bare literal written into a variable is one of its values: it
         // takes the variable's type and must fit whatever that becomes.
+        // A literal TREE (`[3, 4]`, `(1, 2)`) meeting variables takes them
+        // at its leaves (`vec![3, 4]` then `: Vec<i64>`).
+        if (has_lit_var_(expected) && !is_lit_var_(expected)) {
+            auto k = expr_ref_of(e).kind();
+            if (k == lir_schema::expr::Code::ArrLit || k == lir_schema::expr::Code::TupleLit)
+                stamp_literal_tree_(expr_ref_of(e), expected);
+        }
         if (is_lit_var_(expected) && TypeRef(expr_type(e)).kind() == LogosType::Kind::IntLit &&
             !is_lit_var_(expr_type(e))) {
-            if (auto v = get_intlit_value(expr_ref_of(e)))
-                // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
-                lit_more_values_[std::string(TypeRef(expected).type_var_name())].push_back(*v);
+            if (auto v = get_intlit_value(expr_ref_of(e))) lit_note_value_(expected, *v);
             builder().retype_expr(e, expected);
         }
     }
@@ -27805,6 +27835,11 @@ TypeRef SemaChecker::mint_lit_var_(std::optional<int64_t> value) {
     return pool_->alloc(std::move(b));
 }
 
+void SemaChecker::lit_note_value_(TypeRef var, int64_t v) {
+    // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
+    lit_more_values_[std::string(TypeRef(var).type_var_name())].push_back(v);
+}
+
 TypeRef SemaChecker::lit_resolve_(TypeRef t) {
     for (int i = 0; i < 64 && is_lit_var_(t); ++i) {
         // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
@@ -27862,7 +27897,41 @@ bool SemaChecker::lit_solve_struct_(TypeRef a, TypeRef b, int d) {
     if (xa.size() == xb.size()) for (size_t i = 0; i < xa.size(); ++i) any |= lit_solve_struct_(xa[i], xb[i], d + 1);
     auto ea = ta.tuple_elems(), eb = tb.tuple_elems();
     if (ea.size() == eb.size()) for (size_t i = 0; i < ea.size(); ++i) any |= lit_solve_struct_(ea[i], eb[i], d + 1);
+    auto pa = ta.closure_params(), pb = tb.closure_params();
+    if (pa.size() == pb.size()) for (size_t i = 0; i < pa.size(); ++i) any |= lit_solve_struct_(pa[i], pb[i], d + 1);
+    if (ta.closure_ret() && tb.closure_ret()) any |= lit_solve_struct_(ta.closure_ret(), tb.closure_ret(), d + 1);
     return any;
+}
+
+TypeRef SemaChecker::lit_freshen_(TypeRef t, int d) {
+    if (!t || d > 24) return t;
+    if (TypeRef(t).kind() == LogosType::Kind::IntLit && !is_lit_var_(t) && !TypeRef(t).const_val())
+        return mint_lit_var_(std::nullopt);
+    if (is_lit_var_(t)) return lit_resolve_(t);
+    auto b = TypeRef(t).to_builder();
+    bool any = false;
+    auto walk = [&](TypeRef x) { if (!x) return x; TypeRef z = lit_freshen_(x, d + 1); any |= z != x; return z; };
+    b.pointee = walk(b.pointee);
+    b.elem = walk(b.elem);
+    for (auto& a : b.type_args) a = walk(a);
+    for (auto& e : b.tuple_elems) e = walk(e);
+    return any ? pool_->alloc(std::move(b)) : t;
+}
+
+TypeRef SemaChecker::lit_peek_default_(TypeRef t, int d) {
+    if (!t || d > 24) return t;
+    t = lit_resolve_(t);
+    if (is_lit_var_(t)) return i32_t();
+    auto b = TypeRef(t).to_builder();
+    bool any = false;
+    auto walk = [&](TypeRef x) { if (!x) return x; TypeRef z = lit_peek_default_(x, d + 1); any |= z != x; return z; };
+    b.pointee = walk(b.pointee);
+    b.elem = walk(b.elem);
+    for (auto& a : b.type_args) a = walk(a);
+    for (auto& e : b.tuple_elems) e = walk(e);
+    for (auto& p : b.closure_params) p = walk(p);
+    b.closure_ret = walk(b.closure_ret);
+    return any ? pool_->alloc(std::move(b)) : t;
 }
 
 TypeRef SemaChecker::lit_default_(TypeRef t) {
@@ -27906,6 +27975,16 @@ void SemaChecker::lit_close_fn_(const std::string& fn_name) {
     auto& dst = cur_prog_->infer_substs[fn_name];
     for (auto& p : sols) dst.push_back(std::move(p));
     lit_fn_vars_.clear();
+    // C-INF: the bounds that waited for these variables, at their call sites.
+    auto deferred = std::move(lit_deferred_bounds_);
+    lit_deferred_bounds_.clear();
+    const auto sctx = ctx_; const auto sfile = file_; const auto sline = node_line_; const auto sspan = node_span_;
+    for (auto& d : deferred) {
+        for (auto& a : d.args) a = lit_zonk_(a);
+        ctx_ = d.ctx; file_ = d.file; node_line_ = d.line; node_span_ = d.span;
+        check_type_bounds(d.target, d.tps, d.args);
+    }
+    ctx_ = sctx; file_ = sfile; node_line_ = sline; node_span_ = sspan;
 }
 
 void SemaChecker::infer_close_fn_(const std::string& fn_name) {

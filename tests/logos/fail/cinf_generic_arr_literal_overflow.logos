@@ -1,0 +1,5 @@
+// ADR 0030 C-INF: a literal array argument's leaves are the type parameter's variable, so they must fit
+// what it becomes (rustc: literal out of range for `u8`); `id([3, 400])` then `: [u8; 2]` read an i32 array.
+package cinf_generic_arr_literal_overflow;
+fn id<T>(t: T) -> T { return t; }
+fn main() -> i32 { let a = id([3, 400]); let b: [u8; 2] = a; return b[0] as i32; }

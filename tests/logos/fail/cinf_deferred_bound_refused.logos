@@ -1,0 +1,7 @@
+// ADR 0030 C-INF: a trait bound on a literal-fixed type parameter is checked against what the variable
+// becomes (rustc E0277: the trait bound `u16: W` is not satisfied).
+package cinf_deferred_bound_refused;
+trait W { fn w(&self) -> i32; }
+impl W for i32 { fn w(&self) -> i32 { return 32; } }
+fn wid<T: W>(t: T) -> i32 { return t.w(); }
+fn main() -> i32 { let a = 7; let s = wid(a); let b: u16 = a; return s + b as i32; }

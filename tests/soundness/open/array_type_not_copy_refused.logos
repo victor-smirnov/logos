@@ -1,0 +1,7 @@
+// SOUNDNESS QUEUE row array_type_not_copy_refused (tier 3, `refuses`). `[T; N]` does not implement `Copy`
+// (nor, presumably, `Clone`) for `T: Copy`: `cp([1i64, 2i64])` with `fn cp<T: Copy>` is "type '[i64; 2]'
+// does not implement trait 'Copy'". rustc 1.98.1: arrays are Copy/Clone when the element is; exit 2.
+// Found by the ADR 0030 C-INF battery (2026-09-30).
+package array_type_not_copy_refused;
+fn cp<T: Copy>(t: T) -> T { return t; }
+fn main() -> i32 { let a = cp([1i64, 2i64]); return a[1] as i32; }

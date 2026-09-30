@@ -1,0 +1,16 @@
+// The element type of `vec![1, 2, 3]` comes from its use (ADR 0030 C-INF: the literal leaves are the
+// type parameter's integer variable, solved by `sum(&v)` to i64). Was squeue row
+// vec_literal_elem_type_ignores_call_site_wrong: refused "expected &[i64], got &Vec<i32>" (before
+// 2026-09-28 it compiled and read uninitialised memory). rustc twin: exit 6.
+package cinf_vec_literal_elem_from_use;
+use logos.mem.collections.vec;
+fn sum(s: &[i64]) -> i64 {
+    let mut total: i64 = 0;
+    for x in s { total += *x; }
+    return total;
+}
+fn main() -> i32 {
+    let v = vec![1, 2, 3];
+    let total = sum(&v);
+    return total as i32;
+}

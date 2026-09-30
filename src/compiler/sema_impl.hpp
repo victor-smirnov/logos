@@ -9058,14 +9058,28 @@ private:
     std::unordered_map<std::string, int64_t> lit_value_;    // ?lK -> the literal its let bound
     std::unordered_map<std::string, std::vector<int64_t>> lit_more_values_;   // literals later written into it
     std::vector<std::string> lit_fn_vars_;                  // this function's
+    // C-INF: a trait bound on a type argument that is still an open integer
+    // variable waits for the variable's solution or default (rustc defers
+    // obligations on `{integer}` past the fallback); lit_close_fn_ re-checks.
+    struct LitDeferredBound {
+        std::string target; std::vector<TypeParam> tps; std::vector<TypeRef> args;
+        std::string ctx, file; decltype(node_line_) line; int64_t span;
+    };
+    std::vector<LitDeferredBound> lit_deferred_bounds_;
+    // C-INF: inside generic-argument inference an unsuffixed literal fixes a
+    // type parameter to a fresh integer variable instead of i32.
+    bool unify_mint_lit_ = false;
     static bool is_lit_var_(TypeRef t) {
         return t && TypeRef(t).kind() == LogosType::Kind::IntLit &&
                std::string_view(TypeRef(t).type_var_name()).starts_with("?l");
     }
     TypeRef mint_lit_var_(std::optional<int64_t> value);
+    void lit_note_value_(TypeRef var, int64_t v);   // a literal written into variable `var` (must fit its solution)
     TypeRef lit_resolve_(TypeRef t);       // a solved variable's integer type, else its root variable
     TypeRef lit_zonk_(TypeRef t, int d = 0);  // every variable inside t resolved
     bool lit_solve_(TypeRef a, TypeRef b); // a variable on either side takes the other's integer type
+    TypeRef lit_freshen_(TypeRef t, int d = 0);  // every `{integer}` inside t a fresh variable (C-INF)
+    TypeRef lit_peek_default_(TypeRef t, int d = 0);  // t with every open variable read as i32, nothing solved
     TypeRef lit_default_(TypeRef t);       // `{integer}` that must be concrete NOW: i32 (a variable is solved so)
     bool has_lit_var_(TypeRef t, int d = 0) const {
         if (!t || d > 24) return false;
@@ -9075,6 +9089,8 @@ private:
         if (tr.elem() && has_lit_var_(tr.elem(), d + 1)) return true;
         for (auto a : tr.type_args()) if (has_lit_var_(a, d + 1)) return true;
         for (auto e : tr.tuple_elems()) if (has_lit_var_(e, d + 1)) return true;
+        for (auto p : tr.closure_params()) if (has_lit_var_(p, d + 1)) return true;
+        if (tr.closure_ret() && has_lit_var_(tr.closure_ret(), d + 1)) return true;
         return false;
     }
     bool lit_solve_struct_(TypeRef a, TypeRef b, int d = 0);   // lit_solve_ at every matching position

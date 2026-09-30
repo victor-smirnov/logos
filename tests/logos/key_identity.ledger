@@ -737,5 +737,5 @@ sema_expr.cpp	current_type_bounds_	D	1	type_str(base)
 sema_expr.cpp	current_type_bounds_	D	1	is_tv ? std::string(TypeRef(pointee).type_var_name()) : type_str(pointee)
 # 2026-09-29, ADR 0030 S7.1 (C-LIT): integer inference variables are keyed by their own minted name `?lK`
 # (mint_lit_var_, a program-wide counter) — no entity, no package; the same shape as the `?iN` rows.
-sema_expr.cpp	lit_more_values_	D	1	std::string(TypeRef(expected).type_var_name())
+sema_expr.cpp	lit_more_values_	D	1	std::string(TypeRef(var).type_var_name())
 sema_expr.cpp	lit_solved_	D	1	std::string(TypeRef(t).type_var_name())
