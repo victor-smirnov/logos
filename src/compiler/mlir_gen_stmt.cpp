@@ -1534,69 +1534,14 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
         std::set<std::string> moved;
         v.each_moved_field([&](std::string_view fn){ moved.emplace(fn); });
         auto k = st.kind();
-        if (k == K::Struct || k == K::ZonedStruct) {
-            std::string name = concrete_struct_name(st);
-            auto sdit = all_struct_defs_.end();
-            if (!st.pkg_name().empty())
-                sdit = all_struct_defs_.find(
-                    qualify_pkg(std::string(st.pkg_name()), name));
-            if (sdit == all_struct_defs_.end())
-                sdit = all_struct_defs_.find(name);
-            // ── A LOOKUP KEY IS NOT AN IDENTITY ──────────────────────────
-            // `all_struct_defs_` carries a BARE alias for every packaged
-            // struct on a documented FIRST-REGISTERED-WINS rule (mlir_gen.cpp
-            // pass 0). Falling straight from the concrete name to that alias
-            // is how a user `struct TypeId { v: Inner_ }` got the STDLIB
-            // TypeId's field list here: all-Copy, no droppable field, and the
-            // whole recursive field-drop step below emitted NOTHING. MEASURED
-            // 2026-08-21: the `Inner_` destructor ran zero times under the
-            // homonym and twice under a renamed control. Ask for the
-            // PACKAGE-QUALIFIED def before accepting the shared bare slot.
-            if (sdit == all_struct_defs_.end())
-                sdit = all_struct_defs_.find(std::string(st.struct_name()));
-            auto sit = struct_types_.find(mlir_struct_key(st));
-            if (sit == struct_types_.end()) sit = struct_types_.find(name);
-            if (sit == struct_types_.end()) sit = struct_types_.find(std::string(st.struct_name()));
-            if (sdit != all_struct_defs_.end() && sit != struct_types_.end()) {
-                auto& info = sit->second;
-                auto def   = sdit->second;
-                auto fields = def.fields();
-                // Declaration order — the twin of gen_drop_value's Struct loop.
-                // @rule expr.drop.struct-user-drop-then-fields
-                for (int i = 0; i < (int)fields.size(); ++i) {
-                    std::string fname(fields[i].name());
-                    std::set<std::string> child_skips;
-                    if (split_skip_paths(&moved, fname, child_skips)) continue;
-                    TypeRef ft(fields[i].type(pool_impl()));
-                    auto fk = ft ? TypeRef(ft).kind() : K::Error;
-                    if (!ft || fk == K::Ref || fk == K::MutRef || fk == K::Ptr) continue;
-                    if (!value_needs_drop(ft)) continue;
-                    auto fp = gep_field(it->second, info, fname);
-                    if (!fp) continue;
-                    // Enum value-repr: a nested enum field is inline — drop on the GEP.
-                    gen_drop_value(fp, ft, /*run_user_drop=*/true,
-                                   child_skips.empty() ? nullptr : &child_skips);
-                }
-            }
-        } else if (k == K::Tuple) {
-            auto ttype = tuple_llvm_type(st);
-            auto elems = st.tuple_elems();
-            if (ttype)
-                // Index order — the twin of gen_drop_value's Tuple loop.
-                // @rule expr.drop.tuple-array-index-order
-                for (int i = 0; i < (int)elems.size(); ++i) {
-                    std::set<std::string> child_skips;
-                    if (split_skip_paths(&moved, std::to_string(i), child_skips)) continue;
-                    TypeRef et(elems[i]);
-                    auto ek = et ? TypeRef(et).kind() : K::Error;
-                    if (!et || ek == K::Ref || ek == K::MutRef || ek == K::Ptr) continue;
-                    if (!value_needs_drop(et)) continue;
-                    llvm::SmallVector<mlir::LLVM::GEPArg> gi{int32_t(0), int32_t(i)};
-                    auto gep = builder_.create<mlir::LLVM::GEPOp>(loc_, ptr_type(), ttype, it->second, gi);
-                    // Enum value-repr: a nested enum element is inline — drop on the GEP.
-                    gen_drop_value(gep, et, /*run_user_drop=*/true,
-                                   child_skips.empty() ? nullptr : &child_skips);
-                }
+        if (k == K::Struct || k == K::ZonedStruct || k == K::Tuple) {
+            // The fields / elements, in declaration / index order — gen_drop_value's
+            // own walk (qualified-first def lookup, the moved paths skipped), not
+            // the value's own user drop: step 1 above ran it. This used to be a
+            // private copy of both loops.
+            // @rule expr.drop.struct-user-drop-then-fields
+            // @rule expr.drop.tuple-array-index-order
+            gen_drop_value(it->second, st, /*run_user_drop=*/false, moved.empty() ? nullptr : &moved);
         } else if (k == K::Enum) {
             // Enum value-repr: the slot IS the inline {disc,payload} storage
             // (one level, like a Struct). gen_drop_value does the variant-switch

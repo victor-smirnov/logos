@@ -567,10 +567,10 @@ mlir_gen_impl.hpp	all_struct_defs_	O	1	concrete_struct_name(t)
 mlir_gen_impl.hpp	struct_types_	O	1	concrete_struct_name(t)
 # 2026-09-27, ADR 0030 S1: the struct_types_ bare-name read in mlir_gen_impl.hpp left with the deleted
 # return-type ladder (fn_sig / ret_abi_type type returns from the TypeRef).
-mlir_gen_stmt.cpp	all_struct_defs_	O	1	std::string(st.struct_name())
+# 2026-09-29, ADR 0030 S5.7: SDrop's private struct field loop (and its bare `st.struct_name()` lookups
+#   into all_struct_defs_ / struct_types_) is gone; the field step is gen_drop_value's qualified-first walk.
 mlir_gen_stmt.cpp	all_struct_defs_	O	1	concrete_struct_name(ty)
 mlir_gen_stmt.cpp	struct_types_	O	1	concrete_struct_name(t.pointee())
-mlir_gen_stmt.cpp	struct_types_	O	1	std::string(st.struct_name())
 mlir_gen_types.cpp	all_struct_defs_	O	1	concrete_struct_name(e)
 mlir_gen_types.cpp	all_struct_defs_	O	1	concrete_struct_name(f.type)
 mlir_gen_types.cpp	struct_types_	O	1	std::string(TypeRef(lt).struct_name())

@@ -851,6 +851,13 @@ S5 row (audit §4.1 C-OWN), item by item:
 | `body_ever_moved_` | drop role retired S5.4; capture-mode role → C-CLO (S10) |
 | `consume(place)`: the pre-gates | S5.5: `mark_moved_expr` is the one consume door and judges the type itself (move type, owning `Box<dyn>`, an FnOnce-only callable); the 18 `is_move_type(...)` conjuncts ahead of it are gone (an FnOnce callable is now consumed at those positions too). The string move paths (`move_path_of`) become the structured place of C-PLC (S6 `lower_place`) |
 | 5 bind-drop-yield copies | S5.6: `bind_then_drop_` is the one `let t = v; <drops>; t` — `return` (both lowerings), `break v`, a match arm's value and a block's tail value use it |
+| the recursive move walker's VarRef arm | S5.8: `mark_moved_in_expr_recursive` hands a place to `mark_moved_expr` (its VarRef copy missed an owning `Box<dyn>`, an FnOnce-only callable and a location-anchored type) |
+| discard ×2 (`e;` / `let _ = e`) with private `is_place` | S5.7: one `is_place_expr_` and one `drop_discarded_rvalue_` (`{ let t = e; drop t }`) |
+| statement-temporary drops ignore flags | no witness: a hoisted temporary is used exactly where it is written, so it is moved on every path to its drop or on none (4-program battery with conditional takes, rustc twins) |
+| SDrop private struct / tuple field loops (mlir) | S5.7: SDrop's field step is `gen_drop_value(slot, T, no user drop, moved paths)`; the private copies (with their own def lookup) are gone |
+| `epilogue(frame)` | `emit_frame_drops` is the one frame epilogue; lower_fn's and the closure literal's now take the same arguments (S5.4) |
+| `exact_variant_moves_` loop copy | one loop left (the match join); the other went with S5.3 |
+| `DropInfo` per concrete type (the inline `needs_drop` predicates of sema, BIR, mlir) | deferred, reason 1 (no carrier): the answer depends on the post-mono instance (a generic `T`), so the table must be written by mono and read by BIR and mlir; sema's pre-mono predicate cannot be it. The audit's own long-term item (drop elaboration from BIR move facts) |
 | 8 sema E0507 sites | measured: with them off (probe `semae0507off`) the BIR alone refuses 53 of the 55 E0507 fixtures; retiring them waits on two BIR paths (doors in series): a move through a `Box` field behind `&` (bc_mvchain_box_field_ref_fail) and a runtime-index move out of an array of a Drop type (move-out-of-array-1) |
 
 

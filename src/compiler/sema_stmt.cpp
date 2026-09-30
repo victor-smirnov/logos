@@ -719,29 +719,8 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         // emit the drop immediately. Restricted to rvalue-producing expr kinds
         // (not place expressions like VarRef/FieldRead/Index/Deref), so a bare
         // `existing_var;` move isn't double-dropped against its scope drop.
-        if (e && expr_type(e) && is_move_type(expr_type(e))) {
-            namespace ec = lir_schema::expr;
-            auto ek = expr_ref_of(e).kind();
-            bool is_place = ek == ec::Code::VarRef || ek == ec::Code::FieldRead ||
-                            ek == ec::Code::IndexRead || ek == ec::Code::Deref ||
-                            ek == ec::Code::TupleIndex || ek == ec::Code::SliceIndex ||
-                            ek == ec::Code::SlicePtr || ek == ec::Code::AddrOf ||
-                            ek == ec::Code::AddrOfTemp;
-            if (!is_place) {
-                std::string synth = std::format("__stmt_tmp_{}", destruct_counter_++);
-                if (auto drop = make_drop_stmt(synth, VarInfo{expr_type(e), false})) {
-                    std::vector<lir_view::StmtRef> blk;
-                    lir::SLet sl;
-                    sl.name = synth; sl.type = expr_type(e); sl.is_mut = false;
-                    sl.value = std::move(e);
-                    blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                    blk.push_back(std::move(*drop));
-                    lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
-                    sb.transparent = true;  // TRANSPARENT: sema-synthesized wrapper (carried, see stmt_keys::TRANSPARENT)
-                    return make_stmt_emit(node_line_, std::move(sb));
-                }
-            }
-        }
+        if (e && expr_type(e) && !is_place_expr_(expr_ref_of(e)))
+            if (auto st = drop_discarded_rvalue_(e, expr_type(e))) return *st;
         return builder().stmt_expr(std::move(e), node_line_);
     }
     if (c == la::TAIL_EXPR) {
@@ -2499,12 +2478,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     const bool unit_ = vk_ == LogosType::Kind::Tuple && TypeRef(var_type).tuple_elems().empty();
     if (name == "_" && rhs && vk_ != LogosType::Kind::Never && vk_ != LogosType::Kind::Void &&
         vk_ != LogosType::Kind::Error && !unit_) {
-        namespace ec = lir_schema::expr;
-        auto ek = expr_ref_of(rhs).kind();
-        const bool is_place = ek == ec::Code::VarRef || ek == ec::Code::FieldRead ||
-                              ek == ec::Code::IndexRead || ek == ec::Code::Deref ||
-                              ek == ec::Code::TupleIndex || ek == ec::Code::SliceIndex;
-        if (is_place) {
+        if (is_place_expr_(expr_ref_of(rhs))) {
             // A FAKE READ of the place (MIR's `FakeRead(ForLet)`): it keeps the
             // borrows the place goes through live and conflicts with a `&mut`
             // of it (`let _ = *a;` after `&mut x.0` is E0502), but moves
@@ -2518,20 +2492,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                 builder().addr_of_temp(std::move(rhs), false, rt, lir_schema::expr::BorrowOrigin::Explicit),
                 node_line_);
         }
-        if (is_move_type(var_type)) {
-            std::string synth = std::format("__stmt_tmp_{}", destruct_counter_++);
-            if (auto drop = make_drop_stmt(synth, VarInfo{var_type, false})) {
-                std::vector<lir_view::StmtRef> blk;
-                lir::SLet sl;
-                sl.name = synth; sl.type = var_type; sl.is_mut = false;
-                sl.value = std::move(rhs);
-                blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
-                blk.push_back(std::move(*drop));
-                lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
-                sb.transparent = true;
-                return make_stmt_emit(node_line_, std::move(sb));
-            }
-        }
+        if (auto st = drop_discarded_rvalue_(rhs, var_type)) return *st;
         // A value with no destructor: when it dies is unobservable — the
         // ordinary `let` below is kept.
     }

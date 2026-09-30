@@ -4932,6 +4932,33 @@ private:
         }
     }
 
+    // A PLACE expression: a use of it reads (or moves) storage that lives on,
+    // as opposed to an rvalue whose value is a fresh temporary.
+    static bool is_place_expr_(lir_view::ExprRef e) {
+        using C = lir_schema::expr::Code;
+        if (!e) return false;
+        auto k = e.kind();
+        return k == C::VarRef || k == C::FieldRead || k == C::IndexRead || k == C::Deref ||
+               k == C::TupleIndex || k == C::SliceIndex;
+    }
+    // A DISCARDED rvalue (`make(p);`, `let _ = make(p);`) of a type with a
+    // destructor drops at the end of its statement (Rust): `{ let t = e; drop t }`,
+    // a transparent block. Empty when the type has none (its death is
+    // unobservable) — the caller keeps its ordinary lowering.
+    std::optional<lir_view::StmtRef> drop_discarded_rvalue_(lir::LExprPtr& e, TypeRef t) {
+        if (!e || !t || !is_move_type(t)) return std::nullopt;
+        std::string synth = std::format("__stmt_tmp_{}", destruct_counter_++);
+        auto drop = make_drop_stmt(synth, VarInfo{t, false});
+        if (!drop) return std::nullopt;
+        std::vector<lir_view::StmtRef> blk;
+        lir::SLet sl;
+        sl.name = synth; sl.type = t; sl.is_mut = false; sl.value = std::move(e);
+        blk.push_back(make_stmt_emit(node_line_, std::move(sl)));
+        blk.push_back(std::move(*drop));
+        lir::SBlock sb; sb.body = lir_mirror_block(*cur_prog_, blk);
+        sb.transparent = true;  // sema-synthesized wrapper (see stmt_keys::TRANSPARENT)
+        return make_stmt_emit(node_line_, std::move(sb));
+    }
     // An exit's value (a `return` / `break` operand, a match arm's value) is
     // computed while the scope's locals live and they drop after: `let t = v;
     // <drops>; t`. Appends the let and the drops to `out` and returns `t`'s
@@ -5621,10 +5648,10 @@ private:
         if (!er) return;
         using C = lir_schema::expr::Code;
         switch (er.kind()) {
+            // A place: the one consume door (its own copy of the VarRef rule
+            // missed an owning `Box<dyn>`, an FnOnce-only callable and a
+            // location-anchored type).
             case C::VarRef:
-                if (is_move_type(er.type(cur_prog_->type_pool.impl())))
-                    mark_moved(std::string(lir_view::EVarRefView{er}.name()));
-                return;
             case C::FieldRead:
                 mark_moved_expr(er);
                 return;
