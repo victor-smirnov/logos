@@ -17567,13 +17567,15 @@ TypeRef SemaChecker::lub_arms_(const std::vector<lir::LExprPtr*>& arms, TypeRef 
     return res;
 }
 
-void SemaChecker::lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::string& at, LogosType::Kind parent) {
+void SemaChecker::lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::string& at, LogosType::Kind parent,
+                                 bool literal_word) {
     using K = LogosType::Kind;
     if (!t) return;
     TypeRef xt = x.type(cur_prog_->type_pool.impl());
     if (xt.kind() == K::IntLit) {
         if (auto v = get_intlit_value(x); v && !intlit_fits(*v, TypeRef(t).kind()))
-            error(std::format("{}: value {} does not fit in {}", at, *v, type_str(t)));
+            error(std::format("{}: {} {} does not fit in {}", at, literal_word ? "literal value" : "value", *v,
+                              type_str(t)));
         return;
     }
     if (x.kind() == lir_schema::expr::Code::ArrLit && TypeRef(t).kind() == K::Array && TypeRef(t).elem()) {

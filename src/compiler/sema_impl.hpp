@@ -2069,8 +2069,10 @@ private:
     // literal tree (scalar, array and tuple literals) whose slot in `t` is
     // narrower than its value. `parent` is the kind of the literal holding x:
     // x's own elements are "sub-element"s under a parent of x's kind.
+    // `literal_word`: a top-level scalar says "literal value" (the let / return
+    // wording), an element says "value".
     void lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::string& at,
-                        LogosType::Kind parent = LogosType::Kind::Void);
+                        LogosType::Kind parent = LogosType::Kind::Void, bool literal_word = false);
     // A value unsized to an expected `dyn` type by a cast (if/match arms, break
     // values, assignments). See the definition.
     TypeRef index_output_type_(TypeRef st);

@@ -972,6 +972,12 @@ mistyped a legal program because an unannotated `let` fixed its literal to
   wider stride) — and the method selector admits the unsolved element (a
   method arg `&ys` over `&[u16]` reported "no method"). Fixture
   lit_array_var_unsizes_to_slice. −65 lines.
+- S7.3 (2026-09-30): the literal-fit check is one recursive
+  `lit_fit_check_` at every judged position: call arguments (S4.4a), arms
+  and array elements (S4.4b-c), enum payloads (S4.7a), both assignment forms
+  (S6.3), and now `let` and `return` (a top-level scalar keeps the "literal
+  value" wording those six fixtures pin). `let`'s float tuple-element
+  retyping stays, and runs before the check. −160 lines of copies.
 Remaining on the S7 row: the per-site `IntLit → i32` defaults onto
 `lit_default_` and the range checks onto the variable's close; a value
 stored through `*r = 5000000000` into a variable-typed place still
