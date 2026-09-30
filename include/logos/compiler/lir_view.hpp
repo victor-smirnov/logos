@@ -806,6 +806,17 @@ struct FunctionView {
         each_param([&](LParamView p) { out.push_back(p); });
         return out;
     }
+    // The solved inference variables sema recorded with the body (INFER_SUBSTS).
+    template <class F>
+    void each_infer_subst(F&& f) const noexcept {
+        auto av = self.mirror()->get(lir_schema::decl_keys::INFER_SUBSTS.code);
+        if (av.is_null()) return;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (!el.is_null()) f(LParamView{detail::make_sub_ref<DeclRef>(self, el)});
+        }
+    }
     LParamView param(uint64_t i) const noexcept {
         auto av = self.mirror()->get(lir_schema::decl_keys::PARAMS.code);
         auto* arr = av.as_ptr<const writ::ObjectArray>();

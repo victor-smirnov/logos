@@ -437,8 +437,6 @@ double_ref_receiver_collapsed_before_dispatch 1 tests/soundness/open/double_ref_
 
 if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scrutinee_temporary_dropped_after_else run 1
 
-let_bound_reference_to_literal_refused 3 tests/soundness/open/let_bound_reference_to_literal_refused refuses
-
 len_returns_i64_not_usize 3 tests/soundness/open/len_returns_i64_not_usize refuses
 
 str_in_composite_annotation_resolves_to_u8_slice 3 tests/soundness/open/str_in_composite_annotation_resolves_to_u8_slice refuses
@@ -453,5 +451,5 @@ mem_swap_is_unsafe_raw_pointer_refused 3 tests/soundness/open/mem_swap_is_unsafe
 
 array_map_missing_refused 3 tests/soundness/open/array_map_missing_refused refuses
 
-# TOTAL 138
-# SYNC-HASH 10a5bff66143c5cb20fbb8dd82fadefa
+# TOTAL 137
+# SYNC-HASH d0bc202e97df6ca18760005b072a0e58

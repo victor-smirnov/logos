@@ -9069,6 +9069,7 @@ private:
     // C-INF: inside generic-argument inference an unsuffixed literal fixes a
     // type parameter to a fresh integer variable instead of i32.
     bool unify_mint_lit_ = false;
+    int fn_body_depth_ = 0;   // lower_fn nesting: a literal is a variable only inside one
     static bool is_lit_var_(TypeRef t) {
         return t && TypeRef(t).kind() == LogosType::Kind::IntLit &&
                std::string_view(TypeRef(t).type_var_name()).starts_with("?l");

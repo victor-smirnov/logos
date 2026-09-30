@@ -1297,7 +1297,7 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     };
     std::vector<TemplateEntry> generic_fn_templates;
     std::vector<TemplateEntry> generic_method_templates;
-    auto stash_template = [](std::vector<TemplateEntry>& dst, lir_view::FunctionView fn) {
+    auto stash_template = [&prog](std::vector<TemplateEntry>& dst, lir_view::FunctionView fn) {
         if (fn.is_extern()) return;
         // Phase 5.B step 3 (Phase 5.C close-out): the prior
         // `if (fn.from_binary_module) return` here was wrong during the
@@ -1309,6 +1309,16 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
         // body never lowered locally → nothing to publish).
         auto b = fn.body();
         if (!b) return;
+        // The body carries the declaration's inference solutions across the
+        // arena boundary (stmt_keys::INFER_SUBSTS).
+        auto sav = fn.self.mirror()->get(lir_schema::decl_keys::INFER_SUBSTS.code);
+        if (!sav.is_null()) {
+            writ::AnyVal r;
+            r.set_ref(reinterpret_cast<const uint8_t*>(sav.as_ptr<const writ::ObjectArray>()));
+            (void) writ::TinyMapView(
+                reinterpret_cast<writ::TinyObjectMap*>(const_cast<uint8_t*>(b.addr())), prog.type_pool.holder())
+                .put(lir_schema::stmt_keys::INFER_SUBSTS.code, r);
+        }
         dst.push_back({std::string(fn.name()), b.addr()});
     };
     for (auto& fn : prog.functions) {

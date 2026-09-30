@@ -5035,7 +5035,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (!s.empty()) {
                 std::vector<std::string> ks;
                 ks.reserve(s.size());
-                for (auto& kv : s) ks.push_back(kv.first);
+                // Inference solutions (`?iN`, `?lK`) are the template's own,
+                // the same in every instance: they name no instantiation.
+                for (auto& kv : s) if (!kv.first.starts_with('?')) ks.push_back(kv.first);
                 std::sort(ks.begin(), ks.end());
                 for (auto& k : ks) {
                     auto it = s.find(k);
@@ -5653,6 +5655,14 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
     if (auto it = in_.infer_substs.find(std::string(fn.name())); it != in_.infer_substs.end())
         for (auto& [n, t] : it->second)
             if (!s.count(n)) s[n] = s_in.empty() ? t : subst_type(t, s_in);
+    // A template from a precompiled module carries its solutions on the decl.
+    // `s` now differs from `s_in` by inference solutions only; whether this is
+    // an INSTANCE (UNIT_KEY, DECL_RET_TYPE, INSTANCE_OF_BINARY) is `s_in`'s.
+    fn.each_infer_subst([&](lir_view::LParamView p) {
+        std::string n(p.name());
+        TypeRef t = p.type(out_.type_pool.impl());
+        if (t && !s.count(n)) s[n] = s_in.empty() ? t : subst_type(t, s_in);
+    });
     cur_packs_ = packs;  // make available to subst_expr
     // Stage E: read the template via its FunctionView mirror. Type reads MUST
     // use out_.type_pool.impl() — mono moved in_.type_pool into out_ at run()
@@ -5675,7 +5685,7 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
     // same declared function, carried through, so its declared owner carries
     // with it. Non-empty = a synthesized INSTANCE nobody declared, whose owner
     // must be derived from its referrers. Dropping the key is how it says so.
-    if (s.empty())        nf.str(dk::UNIT_KEY, fn.unit_key());
+    if (s_in.empty())        nf.str(dk::UNIT_KEY, fn.unit_key());
     if (fn.is_extern())   nf.flag(dk::IS_EXTERN, true);
     // Propagate visibility onto the instance: a `pub` template's instantiation
     // is itself part of the public ABI surface. Nothing in codegen keys on this
@@ -5705,13 +5715,13 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
     // checked by its library's pre-mono pass, which checks exactly the
     // functions with type parameters, their own or their impl's. A variadic
     // instance is not covered.
-    if (fn.from_binary_module() && !s.empty() && packs.empty() &&
+    if (fn.from_binary_module() && !s_in.empty() && packs.empty() &&
         (!fn.type_params_empty() || !fn.impl_type_params_empty()))
         nf.flag(dk::INSTANCE_OF_BINARY, true);
     nf.type(dk::RET_TYPE, subst_type(fn.ret_type(pool), s));
     // ADR 0028: keep the signature as DECLARED (before substitution) for the
     // borrow checker's elision; a clone of a clone keeps the first one.
-    if (!s.empty()) nf.type(dk::DECL_RET_TYPE, localize_type(fn.decl_ret_type(pool)));
+    if (!s_in.empty()) nf.type(dk::DECL_RET_TYPE, localize_type(fn.decl_ret_type(pool)));
     // B65: lifetime params + outlives bounds are preserved verbatim through
     // mono. Lifetime substitution is identity (lifetimes are not in the
     // SubstMap), so the original pairs remain valid on the cloned signature.
@@ -5727,7 +5737,7 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
         // parameter types (the borrow checker labels those regions `T:<name>:k`)
         // but loses its type parameters, and with them the bound (#462).
         std::vector<std::pair<std::string, std::string>> tp_los;
-        if (!s.empty())
+        if (!s_in.empty())
             for (auto tp : fn.type_params())
                 for (auto lt : tp.lifetime_outlives())
                     tp_los.emplace_back("T:" + std::string(tp.name()), std::string(lt));
@@ -5763,7 +5773,7 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
             } else {
                 pa.push_param({std::string(p.name()), subst_type(p.type(pool), s),
                                p.is_variadic(), p.owning_box_dyn(), p.slot(),
-                               s.empty() ? TypeRef{} : localize_type(p.decl_type(pool))});
+                               s_in.empty() ? TypeRef{} : localize_type(p.decl_type(pool))});
             }
         }
     }
@@ -5791,7 +5801,23 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
     if (!src_body) {
         src_body = fn.body();
     }
-    nf.block(dk::BODY, subst_block(src_body, s, packs));
+    // A template from a precompiled module: its body carries the solutions.
+    SubstMap sb = s;
+    if (src_body) {
+        auto sav = src_body.mirror()->get(lir_schema::stmt_keys::INFER_SUBSTS.code);
+        if (!sav.is_null()) {
+            auto* arr = sav.as_ptr<const writ::ObjectArray>();
+            for (uint64_t i = 0; i < arr->size(); ++i) {
+                auto el = arr->get(i);
+                if (el.is_null()) continue;
+                lir_view::LParamView p{lir_view::detail::make_sub_ref<lir_view::DeclRef>(src_body, el)};
+                std::string n(p.name());
+                TypeRef t = p.type(pool);
+                if (t && !sb.count(n)) sb[n] = s_in.empty() ? localize_type(t) : subst_type(localize_type(t), s_in);
+            }
+        }
+    }
+    nf.block(dk::BODY, subst_block(src_body, sb, packs));
     src_arena_ = saved_src_arena;
     // type_params left empty: instantiated functions are monomorphic
     return nf;

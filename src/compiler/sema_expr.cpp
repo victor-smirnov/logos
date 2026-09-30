@@ -708,7 +708,12 @@ lir::LExprPtr SemaChecker::lit_int_from_text(std::string_view sv, bool negate) {
             return error_expr();
         }
     }
-    TypeRef t = (suf != LogosType::Kind::Error) ? prim(suf) : intlit_t();
+    // C-INF: an unsuffixed literal in a function body is an integer variable
+    // carrying its value (rustc's `{integer}`); every expectation it meets
+    // solves it, lit_close_fn_ defaults the rest. Outside a function (a
+    // const's initializer) it stays `{integer}` for the declared type to take.
+    TypeRef t = (suf != LogosType::Kind::Error) ? prim(suf)
+              : fn_body_depth_ > 0 ? mint_lit_var_(v) : intlit_t();
     return builder().lit_int(v, t);
 }
 
@@ -2774,6 +2779,10 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // C-LIT: an integer inference variable meets the other operand — an
     // integer type solves it, another variable joins it, a bare literal takes
     // it (so the result is the variable too).
+    // Which operands were `{integer}` BEFORE the join below retypes them: the
+    // literal checks further down (fit, division by literal zero) ask this.
+    const bool lhs_lit = lhs && expr_type(lhs) && TypeRef(expr_type(lhs)).kind() == LogosType::Kind::IntLit;
+    const bool rhs_lit = rhs && expr_type(rhs) && TypeRef(expr_type(rhs)).kind() == LogosType::Kind::IntLit;
     if (lhs && rhs && (is_lit_var_(expr_type(lhs)) || is_lit_var_(expr_type(rhs)))) {
         TypeRef la = lit_resolve_(expr_type(lhs)), ra = lit_resolve_(expr_type(rhs));
         if (is_lit_var_(la) && TypeRef(ra).kind() == LogosType::Kind::IntLit && !is_lit_var_(ra))
@@ -3992,12 +4001,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         }
         // Detect comparisons against IntLit values that can't fit in the other operand.
         // E.g. x: i32 == 10000000000 — the literal can never equal any i32 value.
-        if (TypeRef(lt).kind() == LogosType::Kind::IntLit && is_integer_kind(TypeRef(rt).kind())) {
+        if (lhs_lit && !rhs_lit && is_integer_kind(TypeRef(rt).kind())) {
             if (auto v = get_intlit_value(lhs))
                 if (!intlit_fits(*v, TypeRef(rt).kind()))
                     error(std::format("operator '{}': literal value {} does not fit in {}",
                           op, *v, type_str(rt)));
-        } else if (TypeRef(rt).kind() == LogosType::Kind::IntLit && is_integer_kind(TypeRef(lt).kind())) {
+        } else if (rhs_lit && !lhs_lit && is_integer_kind(TypeRef(lt).kind())) {
             if (auto v = get_intlit_value(rhs))
                 if (!intlit_fits(*v, TypeRef(lt).kind()))
                     error(std::format("operator '{}': literal value {} does not fit in {}",
@@ -4112,7 +4121,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         // Restricted to untyped IntLit RHS so short-circuit guards like
         // `cond && (1i64 / 0i64 == 0i64)` aren't rejected at sema —
         // they're statically unreachable and never execute the divide.
-        if ((op == "/" || op == "%") && TypeRef(rt).kind() == LogosType::Kind::IntLit) {
+        if ((op == "/" || op == "%") && rhs_lit) {
             if (auto v = get_intlit_value(rhs))
                 if (*v == 0)
                     error(std::format("operator '{}': division by literal zero", op));
@@ -4150,7 +4159,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                     // per-type range violations like
                     // `let y: i32 = 2147483647 + 1` (folds to 2147483648,
                     // doesn't fit in i32).
-                    return builder().lit_int(result_v, intlit_t());
+                    return builder().lit_int(result_v, fn_body_depth_ > 0 ? mint_lit_var_(result_v) : intlit_t());
                 }
             }
         }
@@ -4180,12 +4189,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                       op, type_str(lt), type_str(rt)));
             result_type = unify_int(lt, rt);
             // Check IntLit operand fits in the concrete type of the other operand.
-            if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
+            if (lhs_lit && !rhs_lit)
                 if (auto v = get_intlit_value(lhs))
                     if (!intlit_fits(*v, TypeRef(rt).kind()))
                         error(std::format("operator '{}': left value {} does not fit in {}",
                               op, *v, type_str(rt)));
-            if (TypeRef(rt).kind() == LogosType::Kind::IntLit && TypeRef(lt).kind() != LogosType::Kind::IntLit)
+            if (rhs_lit && !lhs_lit)
                 if (auto v = get_intlit_value(rhs))
                     if (!intlit_fits(*v, TypeRef(lt).kind()))
                         error(std::format("operator '{}': right value {} does not fit in {}",
@@ -4272,12 +4281,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         else
             result_type = unify_int(lt, rt);
         // Check IntLit operand fits in the concrete type of the other operand.
-        if (TypeRef(lt).kind() == LogosType::Kind::IntLit && TypeRef(rt).kind() != LogosType::Kind::IntLit)
+        if (lhs_lit && !rhs_lit)
             if (auto v = get_intlit_value(lhs))
                 if (!intlit_fits(*v, TypeRef(rt).kind()))
                     error(std::format("operator '{}': left value {} does not fit in {}",
                           op, *v, type_str(rt)));
-        if (TypeRef(rt).kind() == LogosType::Kind::IntLit && TypeRef(lt).kind() != LogosType::Kind::IntLit)
+        if (rhs_lit && !lhs_lit)
             if (auto v = get_intlit_value(rhs))
                 if (!intlit_fits(*v, TypeRef(lt).kind()))
                     error(std::format("operator '{}': right value {} does not fit in {}",
@@ -11038,7 +11047,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     saved_ret && (ak == LogosType::Kind::IntLit ? is_integer_kind(TypeRef(saved_ret).kind())
                                                                  : (TypeRef(saved_ret).kind() == LogosType::Kind::F32 || TypeRef(saved_ret).kind() == LogosType::Kind::F64)))
                     want = saved_ret;
-                if (!want) want = ak == LogosType::Kind::IntLit ? lit_default_(at) : prim(LogosType::Kind::F64);
+                if (!want) want = ak == LogosType::Kind::IntLit ? lit_peek_default_(at) : prim(LogosType::Kind::F64);
                 at = want;
                 ak = TypeRef(at).kind();
             }
@@ -17093,6 +17102,15 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
             builder().retype_expr(e, expected);
         }
     }
+    // An unsuffixed literal tree lowered outside a function (a const's or a
+    // static's initializer, inlined at its use) takes the expectation it meets.
+    if (!has_lit_var_(expected) && !has_lit_var_(expr_type(e)) &&
+        TypeRef(expr_type(e)).kind() != LogosType::Kind::Error) {
+        auto k = expr_ref_of(e).kind();
+        if (k == lir_schema::expr::Code::LitInt || k == lir_schema::expr::Code::Unary ||
+            k == lir_schema::expr::Code::ArrLit || k == lir_schema::expr::Code::TupleLit)
+            stamp_literal_tree_(expr_ref_of(e), expected);
+    }
     if (TypeRef(expected).kind() == LogosType::Kind::Error) return true;
     // An unresolved formal (a type parameter or an un-normalized projection)
     // is skipped only where mono re-judges the concrete instantiation — the
@@ -17565,7 +17583,15 @@ void SemaChecker::lit_fit_check_(lir_view::ExprRef x, TypeRef t, const std::stri
     using K = LogosType::Kind;
     if (!t) return;
     TypeRef xt = x.type(cur_prog_->type_pool.impl());
-    if (xt.kind() == K::IntLit) {
+    // A literal keeps its value after its variable is solved and retyped —
+    // except a negative int64 under an unsigned type, which is the stored form
+    // of a literal at or past 2^63 (`18446744073709551615` as u64 / u128).
+    auto typed_lit = [&]() {
+        if (!is_integer_kind(xt.kind())) return false;
+        auto v = get_intlit_value(x);
+        return v && (*v >= 0 || !LogosType::is_unsigned_int_kind(xt.kind()));
+    };
+    if (xt.kind() == K::IntLit || typed_lit()) {
         if (auto v = get_intlit_value(x); v && !intlit_fits(*v, TypeRef(t).kind()))
             error(std::format("{}: {} {} does not fit in {}", at, literal_word ? "literal value" : "value", *v,
                               type_str(t)));
@@ -22031,7 +22057,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
     }
 
     auto null_u8_ptr = [&]() {
-        return builder().cast(builder().lit_int(0, intlit_t()), u8_ptr_t);
+        return builder().cast(builder().lit_int(0, usize_t()), u8_ptr_t);
     };
 
     lir::LExprPtr idents_blob_e = nullptr;
@@ -27985,26 +28011,41 @@ void SemaChecker::lit_refresh_scope_() {
 
 void SemaChecker::lit_close_fn_(const std::string& fn_name) {
     if (lit_fn_vars_.empty()) return;
-    std::vector<std::pair<std::string, TypeRef>> sols;
-    for (const auto& n : lit_fn_vars_) {
+    bool fn_has_error = false;
+    for (auto& d : result_.diags)
+        if (d.level == Diag::Level::Error && d.context == ctx_) { fn_has_error = true; break; }
+    auto var_of = [&](const std::string& n) {
         LogosTypeBuilder b; b.kind = LogosType::Kind::IntLit; b.type_var_name = n;
-        TypeRef t = lit_resolve_(pool_->alloc(std::move(b)));
+        return pool_->alloc(std::move(b));
+    };
+    auto vals_of = [&](const std::string& n) {
         std::vector<int64_t> vals;
         if (auto vit = lit_value_.find(n); vit != lit_value_.end()) vals.push_back(vit->second);
         if (auto mit = lit_more_values_.find(n); mit != lit_more_values_.end())
             vals.insert(vals.end(), mit->second.begin(), mit->second.end());
-        if (is_lit_var_(t)) {
-            // Unsolved: i32, or i64 when a literal does not fit (Logos's default).
-            // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
-            const std::string root(TypeRef(t).type_var_name());
-            TypeRef d = i32_t();
-            for (auto v : vals) if (v > INT32_MAX || v < INT32_MIN) d = prim(LogosType::Kind::I64);
-            lit_solved_[root] = d;
-            t = d;
-        }
-        for (auto v : vals)
-            if (!intlit_fits(v, TypeRef(t).kind()))
-                error(std::format("literal out of range for `{}`: {}", type_str(t), v));
+        return vals;
+    };
+    // Unsolved: i32, or i64 when a literal of the variable's CLASS does not fit
+    // (Logos's default) — `[1, 2, 10000000000]` is one variable of three.
+    std::unordered_map<std::string, bool> root_wide;
+    for (const auto& n : lit_fn_vars_) {
+        TypeRef t = lit_resolve_(var_of(n));
+        if (!is_lit_var_(t)) continue;
+        // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
+        bool& w = root_wide[std::string(TypeRef(t).type_var_name())];
+        for (auto v : vals_of(n)) if (v > INT32_MAX || v < INT32_MIN) w = true;
+    }
+    for (auto& [root, wide] : root_wide)
+        lit_solved_[root] = wide ? prim(LogosType::Kind::I64) : i32_t();
+    std::vector<std::pair<std::string, TypeRef>> sols;
+    for (const auto& n : lit_fn_vars_) {
+        TypeRef t = lit_resolve_(var_of(n));
+        // A value its site already refused ("does not fit in") is not
+        // reported twice: the close-time check is for values no site judged.
+        if (!fn_has_error)
+            for (auto v : vals_of(n))
+                if (!intlit_fits(v, TypeRef(t).kind()))
+                    error(std::format("literal out of range for `{}`: {}", type_str(t), v));
         sols.emplace_back(n, t);
     }
     auto& dst = cur_prog_->infer_substs[fn_name];

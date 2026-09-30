@@ -23831,7 +23831,8 @@ note: = ifletown + the while-let binding frame is the loop boundary (lower_for_e
 moved: 2026-09-27 — the site was lower_while, deleted by ADR 0030 (the HIR pass lowers `while let P = e { A }` to `loop { match e { P => A, _ => break } }`), so the while-let binding frame is now lower_loop's body around lower_match_expr. The measurement stands for its build; a re-price starts here.
 
 ## substructmv
-site: src/compiler/sema_stmt.cpp::emit_nested_pat_destructure
+was-site: src/compiler/sema_stmt.cpp::emit_nested_pat_destructure
+retired: 2026-09-30 — the subject is gone: ADR 0030 S3.3b (608500960) deleted the synthesized payload route; or-binders own one storage and there is no synth field left to mark.
 build: 1aec3641d967d168
 measured: 2026-09-06
 fires: 2

@@ -73,7 +73,14 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::Usize:  return cache_ret(builder_.getIntegerType(::logos::compiler::g_target_pointer_bits));
     case LogosType::Kind::Isize:  return cache_ret(builder_.getIntegerType(::logos::compiler::g_target_pointer_bits));
     case LogosType::Kind::Char:   return cache_ret(builder_.getI32Type());
-    case LogosType::Kind::IntLit:   return cache_ret(builder_.getI32Type());
+    case LogosType::Kind::IntLit:
+        // ADR 0030 C-INF: every unsuffixed literal is an integer variable that
+        // sema solves or defaults and mono substitutes; one reaching codegen
+        // is a lost solution, not a type to guess.
+        bug_printf("an unsolved integer literal type `{integer}`%s%s reached codegen (in fn %s)",
+                   tv.type_var_name().empty() ? "" : " ", std::string(tv.type_var_name()).c_str(),
+                   cur_fn_name_.c_str());
+        return cache_ret(builder_.getI32Type());
     case LogosType::Kind::FloatLit: return cache_ret(builder_.getF64Type());
     case LogosType::Kind::Enum: {
         if (resolve_tagged_enum(std::string(tv.enum_name()), tv))

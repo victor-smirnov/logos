@@ -308,6 +308,9 @@ fi
 # because a silent fall-through to the alloca would be an ADMITTED DANGLE —
 # borrow_check has already stopped refusing that borrow. One new `bug_null` in
 # mlir_gen_expr.cpp, 15 -> 16.
+# 2026-09-30, ADDING direction: an unsolved integer literal type reaching
+# codegen is a malfunction (ADR 0030 C-INF: every unsuffixed literal is an
+# integer variable sema solves or defaults); mlir_gen_types.cpp 4 -> 5.
 # 2026-09-29, ADDING direction: the probe `mlircastfault` at the head of the
 # ECast lowering is a `bug_null` — PART 1's specimen, now that sema's cast table
 # (ADR 0030 S4.5) lets no program reach the unsupported arm. mlir_gen_expr.cpp
@@ -326,7 +329,7 @@ mlir_gen.cpp 5
 mlir_gen_expr.cpp 17
 mlir_gen_impl.hpp 11
 mlir_gen_stmt.cpp 15
-mlir_gen_types.cpp 4
+mlir_gen_types.cpp 5
 REPORTS
 )
 report_measure() {

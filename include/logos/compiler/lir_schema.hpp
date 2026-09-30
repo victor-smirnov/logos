@@ -459,6 +459,10 @@ inline constexpr Key DESTRUCTURE_TMP   {"DESTRUCTURE_TMP", 43};   // bool (spars
 // = v;` from the initialiser, and a rule keyed on the type would treat that
 // inferred region as one the program demanded.
 inline constexpr Key ANNOT_LIFETIME    {"ANNOT_LIFETIME",  44};   // bool (sparse) — SLet
+// A published generic template's BODY block refers to its function's
+// INFER_SUBSTS array (decl_keys::INFER_SUBSTS): the body is what a consumer
+// reads cross-arena, the declaration is not.
+inline constexpr Key INFER_SUBSTS      {"INFER_SUBSTS",    45};   // RelPtr<Array<param sub-map>> (sparse) — SBlock
 } // namespace stmt_keys
 
 // ── Declaration variant codes (Stage E: LProgram decl layer → Writ mirror) ─
@@ -625,6 +629,11 @@ inline constexpr Key INSTANCE_OF_BINARY {"INSTANCE_OF_BINARY", 42}; // bool (spa
 // carry the method's bounds for. Read by the borrow checker's template pass
 // (what a call on `P` resolves to); mono does not gate on it.
 inline constexpr Key WHERE_PARAM_BOUNDS {"WHERE_PARAM_BOUNDS", 43}; // Array<RelPtr<fn_tparam sub-map>> (sparse)
+// The function's solved inference variables (`?iN`, `?lK`) as (name, type)
+// param sub-maps: the solutions ride WITH the body, so a template loaded from a
+// precompiled module is instantiated with them (LProgram::infer_substs does not
+// cross a module boundary).
+inline constexpr Key INFER_SUBSTS       {"INFER_SUBSTS",       44}; // Array<RelPtr<param sub-map>> (sparse)
 } // namespace decl_keys
 
 // Function PARAM sub-map keys (own small key space — distinct map schema).

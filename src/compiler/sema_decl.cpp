@@ -453,6 +453,10 @@ void SemaChecker::compute_fn_lifetime_outlives(
 DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                   std::vector<TypeParam>* out_type_params) {
     namespace dk = lir_schema::decl_keys;
+    // C-INF: literals minted as integer variables only inside a body that
+    // infer_close_fn_ closes.
+    ++fn_body_depth_;
+    struct FnDepth_ { int& d; ~FnDepth_() { --d; } } fn_depth_guard_{fn_body_depth_};
     auto raw_name = str_of(node.get(la::NAME.code));
     // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
     // Allowing `fn _()` would let `_(...)` be a valid call expression and
@@ -1677,6 +1681,17 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // Local type inference: E0282 for a variable nothing fixed; the solutions
     // go to mono under this function's LIR name.
     infer_close_fn_(std::string(fn_name));
+    if (auto it = cur_prog_->infer_substs.find(std::string(fn_name));
+        it != cur_prog_->infer_substs.end() && !it->second.empty()) {
+        namespace dk = lir_schema::decl_keys;
+        auto a = fn.array(dk::INFER_SUBSTS);
+        for (auto& [n, t] : it->second) {
+            lir::LParam p;
+            p.name = n;
+            p.type = t;
+            a.push_param(p);
+        }
+    }
     // Emit the values held in working locals into the mirror, now final.
     fn.str_always(dk::NAME, fn_name);
     // Carry the source-level `pub` visibility from the AST onto the LIR decl
@@ -2309,6 +2324,10 @@ SemaChecker::lower_const_def(TinyMapView node) {
     }
     if (node.has_key(la::VALUE)) {
         lc_value = lower_expr(map_of(node.get(la::VALUE.code)));
+        // An unsuffixed literal initializer takes the declared type (C-INF: no
+        // `{integer}` reaches codegen, which re-evaluates it at each use).
+        if (lc_value && lc_type && TypeRef(lc_type).kind() != LogosType::Kind::Error)
+            stamp_literal_tree_(expr_ref_of(lc_value), lc_type);
         // B-ca-02: typecheck initializer against declared const type at sema
         // so the diagnostic surfaces here rather than at MLIR-verifier time.
         if (lc_type && lc_value && expr_type(lc_value) &&
