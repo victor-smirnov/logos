@@ -751,6 +751,21 @@ of 70 members.
   match arm 40 → 16, if arm 11 → 8 (the rest are diverging arms, whose value
   mlir-gen coerces as a placeholder).
 
+- S4.7b (2026-09-29): `types_compatible`'s trait-object arm accepts only
+  the unsize SOURCES — `&S` / `&mut S`, `Box<S>` at an owning `Box<dyn>`,
+  `*const S` at a raw fat pointer. A struct VALUE at `&dyn Tr`
+  (`get_area(r)`) was accepted ("impl check deferred to codegen") and mlir-gen
+  took its address; rustc refuses it (E0308). Seven test programs passed a
+  value and pass `&x` now. The literal `0` as a raw trait object stays (spec
+  `coerce.cast.int-null-to-trait-object`, the null handle); S4.5's table had
+  refused it and spec/pass/coerce_1 was red on main, outside the sample.
+  The aggregate unsize (a tuple / array / enum literal stamped with the
+  expected `dyn` type, its elements unsized by mlir-gen: 20 of the census
+  events) is deferred to C-EXP (S7): the stamp is after the fact because the
+  expectation does not reach the literal's elements when they are built;
+  with one expected-type scope each element is coerced at construction, as
+  an array literal's already is (S4.4c).
+
 S4 row (audit §4.1 C-COE), item by item:
 
 | item | state |
@@ -762,12 +777,12 @@ S4 row (audit §4.1 C-COE), item by item:
 | pre-coercions at hint sites (if/match arm, `break` value, tuple element) | done, S4.4b (arms through `lub_arms_`; a `break` value and a tuple element coerce to their expectation, the verdict is the enclosing position's) |
 | `lub_arms`: one LUB for if / match | done, S4.4b; `break` has none (rustc) |
 | array literal elements under an element expectation (hand-rolled fn-ptr / slice / `&dyn` / `Box<dyn>` casts) | done, S4.4c |
-| `coercion_plan(from, to, mask)` → ordered adjustment list, explicit LIR per step | open |
+| `coercion_plan(from, to, mask)` → ordered adjustment list, explicit LIR per step | the ONE applier is `coerce_arg_to_param` in canonical order, entered through `expect_type` / `expect_arg_` / `lub_arms_` (and a `break` / tuple element / cast); each step it takes emits its LIR (cast, reborrow, closure→fn ptr, unsize ECast). No separate plan object: no consumer reads a plan apart from its application (rustc's adjustment table feeds MIR building; LIR carries the casts). Explicitness is measured by the S4.7a census, row below |
 | cast whitelist (`as`) | done, S4.5; slice → thin pointer kept: `str ≡ [u8]` boundary (#706) |
-| remaining lenient `types_compatible` arms | open |
-| mlir per-site `coerce_to_dyn` / `coerce_numeric` | in progress: census S4.7a; each value site becomes an internal error once sema is explicit there |
+| remaining lenient `types_compatible` arms | trait-object arm narrowed S4.7b; by-value integer widening = open user question; `&Closure → Closure`, `*T → TaggedPtr` are the representation (dyn Fn is a closure value; tagged pointers are raw) |
+| mlir per-site `coerce_to_dyn` / `coerce_numeric` | census S4.7a; enum payloads and arms made explicit (S4.7a). Left, each with its owner: aggregate unsize → C-EXP (S7, S4.7b entry); assignment and `*p = v` widths → C-PLC (S6 `lower_assignment`); a shift / mixed-width operator result → the operator core (S9); a diverging arm's placeholder is not a coercion. Converting the value sites to internal errors follows the last owner |
 | closure escape at the unsize point | deferred: ADR 0029 S3/S4 |
-| variance checks outside argument sites (let / assign / return / struct and enum literals, receiver) | open |
+| variance checks outside argument sites (let / assign / return / struct and enum literals, receiver) | done in effect: every site checks the COERCED value after `expect_type` (argument sites inside `expect_arg_`); the receiver and `Self`-spelled-literal checks are separate judgments (the instantiated receiver slot; the `Self` spelling), not coercions |
 | slice-method arguments (`coerce_arg_to_param` before the generic finish) | C-INF (S7): their verdict is the generic finish's |
 
 ## S5 status (2026-09-29)

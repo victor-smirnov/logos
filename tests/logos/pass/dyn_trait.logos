@@ -20,5 +20,5 @@ unsafe fn main() -> i32 {
     let s: Square = Square { s: 3 };
     // Direct coercion at call site — no let binding needed
     // 3*5 + 3*3 + 18 = 42
-    return get_area(r) + get_area(s) + 18;
+    return get_area(&r) + get_area(&s) + 18;
 }

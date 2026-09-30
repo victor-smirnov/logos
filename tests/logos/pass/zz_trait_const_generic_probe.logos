@@ -43,8 +43,8 @@ fn main() -> i32 {
     if wstatic_hash_of::<StoreA>() == wstatic_hash_of::<StoreB>() { return 5; }
 
     // Dyn dispatch under const-generic trait param.
-    if use_a(NodeA { v: 1u64 }) != 21u64 { return 1; }   // 10 + 10 + 1
-    if use_b(NodeB { v: 2u64 }) != 22u64 { return 2; }   // 10 * 2 + 2
+    if use_a(&NodeA { v: 1u64 }) != 21u64 { return 1; }   // 10 + 10 + 1
+    if use_b(&NodeB { v: 2u64 }) != 22u64 { return 2; }   // 10 * 2 + 2
 
     return 0;
 }

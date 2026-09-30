@@ -1607,8 +1607,12 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     }
     // Rust's cast table, as a whitelist: whatever no rule above named and the
     // table does not list is refused (E0606), not handed to codegen.
+    // Logos (spec `coerce.cast.int-null-to-trait-object`): the literal `0` casts
+    // to a raw trait object, the null handle `{null, null}`.
+    const bool null_dyn_handle = inner && target && TypeRef(target).kind() == LogosType::Kind::TraitObject &&
+        TypeRef(target).raw_fat() && get_intlit_value(inner) == std::optional<int64_t>(0);
     if (result_.diags.size() == cast_diags_before && inner && expr_type(inner) && target &&
-        !cast_permitted_(expr_type(inner), target))
+        !null_dyn_handle && !cast_permitted_(expr_type(inner), target))
         error(std::format("casting `{}` as `{}` is invalid (E0606)", type_str(expr_type(inner)),
                           type_str(target)));
     // Unsize coercion `box_val as Box<dyn Trait>` CONSUMES the source Box —

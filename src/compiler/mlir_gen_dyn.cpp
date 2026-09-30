@@ -1392,7 +1392,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
 }
 
 mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
-        mlir::Value val, TypeRef slot_lt, TypeRef val_lt) {
+        mlir::Value val, TypeRef slot_lt, TypeRef val_lt, std::source_location sl) {
     using K = LogosType::Kind;
     if (!val || !slot_lt || !val_lt) return val;
     auto unbox = [](TypeRef t) -> TypeRef {
@@ -1424,7 +1424,7 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
     // (`val` IS that pointer — Box<concrete> = {ptr}). No malloc(16) handle: the
     // pair is a stack alloca the consumer copies (Vec slot / return). Drop frees
     // `data` via vtable[0].
-    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name, vt_type, TypeRef(ptl).pkg_name());
+    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name, vt_type, TypeRef(ptl).pkg_name(), sl);
     return fat ? fat : val;
 }
 

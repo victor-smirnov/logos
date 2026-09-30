@@ -111,12 +111,12 @@ fn main() -> i64 {
     }
 
     // @rule coerce.cast.ref-to-scalar-autoderef
-    // Casting &f64 (scalar pointee) to i64 auto-derefs first: the pointee value
-    // is converted, not the pointer bits.
+    // A reference is not cast to a number: `p9 as i64` is E0606 (rustc, ADR 0030
+    // S4.5); the pointee is read explicitly.
     {
         let f9: f64 = 3.0f64;
         let p9: &f64 = &f9;
-        let x9: i64 = p9 as i64;
+        let x9: i64 = *p9 as i64;
         if x9 != 3i64 { return 9; }
     }
 

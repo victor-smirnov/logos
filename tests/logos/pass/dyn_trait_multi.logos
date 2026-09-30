@@ -16,5 +16,5 @@ unsafe fn main() -> i32 {
     let t: Tri   = Tri   { base: 4, height: 6 };   // 4*6/2 = 12
     let r: Rect2 = Rect2 { w: 5, h: 6 };            // 30
     // 12 + 30 = 42
-    return compute_area(t) + compute_area(r);
+    return compute_area(&t) + compute_area(&r);
 }

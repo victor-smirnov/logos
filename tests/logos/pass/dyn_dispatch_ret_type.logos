@@ -27,7 +27,7 @@ fn report(m: &dyn Measure) -> i64 {
 
 fn main() -> i32 {
     let t = BigThing { n: 42 };
-    let v: i64 = report(t);
+    let v: i64 = report(&t);
     if v == 42 {
         return 0;
     }

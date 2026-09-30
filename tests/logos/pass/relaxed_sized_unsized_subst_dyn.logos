@@ -19,7 +19,7 @@ fn pass_through<T: ?Sized>(x: &T) -> i32 {
 
 unsafe fn main() -> i32 {
     let sq: Square = Square { s: 4 };
-    let obj: &dyn Area = sq;
+    let obj: &dyn Area = &sq;
     // Explicit turbofish (uses Phase 1B-4 DYN_TYPE-at-unsized_ok path)
     let a: i32 = pass_through::<dyn Area>(obj);
     // Inference path (uses Phase 1B-4 unify TraitObject → UnsizedDyn)

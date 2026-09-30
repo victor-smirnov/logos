@@ -3886,12 +3886,12 @@ If the source value's representation equals the target representation, `E as T` 
 
 **Source:** `src/compiler/mlir_gen_expr.cpp#L3760-L3761`
 
-### `coerce.cast.ref-to-scalar-autoderef` — &T as scalar auto-derefs the reference
+### `coerce.cast.ref-to-scalar-autoderef` — &T as scalar is refused (E0606)
 
-When casting a value of type `&T`/`&mut T` (with scalar pointee T) to a scalar target (any integer/usize/isize/f32/f64/char/bool), the operand is auto-dereferenced before the cast, so the pointee value is converted, not the pointer bits. Pointer→pointer casts and `&T as *T`/`as usize` reinterpretations are unaffected.
+A value of type `&T`/`&mut T` does not cast to a scalar (integer, float, char, bool): `n as i64` for `n: &f64` is E0606, as in rustc; the pointee is read explicitly (`*n as i64`). The cast table is a whitelist (ADR 0030 S4.5). Until S4.5 the operand was auto-dereferenced.
 
 ```logos
-let n: &f64 = &1.0; let x = n as i64;
+let n: &f64 = &1.0; let x = *n as i64;
 ```
 
 **Source:** `src/compiler/sema_expr.cpp#L841-L875`

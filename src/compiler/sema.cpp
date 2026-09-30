@@ -2621,12 +2621,15 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
         TypeRef(from).pointee() &&
         TypeRef(from).pointee().kind() == LogosType::Kind::Closure)
         return types_compatible(TypeRef(from).pointee(), to);
-    // Struct → &dyn Trait coercion (impl check deferred to codegen).
-    // Also accept `&T` / `&mut T` over a struct (the natural unsize-coercion
-    // source form): `foo(&b)` where `foo` expects `&dyn Trait` and `b: T`.
+    // The unsize SOURCES of a trait object (the impl is expect_type's question,
+    // asked on the coerced value): `&S` / `&mut S` → `&dyn Tr`, `Box<S>` →
+    // `Box<dyn Tr>`, `*const S` → `*const dyn Tr`. A struct VALUE is not one
+    // (`get_area(r)` for `&dyn Area` is E0308, as in rustc), nor is a raw
+    // pointer at a borrowed trait object.
     if (TypeRef(to).kind() == LogosType::Kind::TraitObject &&
-        (TypeRef(from).kind() == LogosType::Kind::Struct ||
-         (TypeRef(from).kind() == LogosType::Kind::Ptr && TypeRef(from).pointee()) ||
+        ((TypeRef(from).kind() == LogosType::Kind::Struct && is_stdlib_box_type(from) &&
+          TypeRef(to).owning_trait_object()) ||
+         (TypeRef(from).kind() == LogosType::Kind::Ptr && TypeRef(from).pointee() && TypeRef(to).raw_fat()) ||
          ((TypeRef(from).kind() == LogosType::Kind::Ref ||
            TypeRef(from).kind() == LogosType::Kind::MutRef) &&
           TypeRef(from).pointee() &&

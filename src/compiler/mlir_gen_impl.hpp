@@ -1948,7 +1948,8 @@ private:
     // e.g. an enum-variant payload typed `Box<dyn>` constructed from a
     // `Box<Concrete>`. No-op when not applicable or already a trait object.
     mlir::Value coerce_value_to_dyn_if_needed(mlir::Value val, TypeRef slot_lt,
-                                              TypeRef val_lt);
+                                              TypeRef val_lt,
+                                              std::source_location sl = std::source_location::current());
     mlir::Value gen_dyn_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
     mlir::Value gen_tagged_dispatch(lir_view::EMethodCallView v, TypeRef ret_logos_type);
     // Normalise a `&dyn Trait` expression to a POINTER to its 16-byte

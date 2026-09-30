@@ -13,6 +13,6 @@ impl Tag for dyn Area {
 
 unsafe fn main() -> i32 {
     let sq: Square = Square { s: 4 };
-    let obj: &dyn Area = sq;
+    let obj: &dyn Area = &sq;
     return obj.name_id() - 42;
 }
