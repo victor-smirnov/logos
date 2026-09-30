@@ -9109,7 +9109,17 @@ private:
     // arms that are mutually incompatible but both coercible to the expected
     // type — `let x: &[T] = if c { &a3 } else { &a5 }` — had nothing to be
     // coerced TO and simply errored.
-    TypeRef hint_expected_type_ = nullptr;
+    // ADR 0030 C-EXP: `expected_` is the expectation of the expression being
+    // lowered — set only for the node it was given to (lower_expr takes
+    // `expect_next_` as its own and hands nothing on), forwarded explicitly by
+    // the positions that pass a value through (a block's tail, an `if` branch,
+    // a `match` arm), and absent in a statement.
+    TypeRef expected_ = nullptr;
+    TypeRef expect_next_ = nullptr;
+    lir::LExprPtr lower_expr_expecting(writ::TinyMapView n, TypeRef t) {
+        expect_next_ = t;
+        return lower_expr(n);
+    }
     // The position hints for ONE element of a literal whose element type is
     // known (`[T; N]` / `(A, B)` annotation, or an earlier array element):
     // enum (a nullary generic ctor `Option::None` takes its arguments from
@@ -9350,9 +9360,10 @@ private:
     // tail): `*b` over a move-typed Box<T> is Box's DerefMove there, as in a
     // `let` or `return` — else the dereferenced place, and the Box binder then
     // drops the content it already gave away (double drop: `Some(b) => *b`).
-    lir::LExprPtr lower_moved_operand_(writ::TinyMapView n, bool temp_scoped = false) {
+    lir::LExprPtr lower_moved_operand_(writ::TinyMapView n, bool temp_scoped = false, TypeRef expect = nullptr) {
         if (code_of(n) == sema_detail::la::DEREF)
             if (auto r = try_lower_box_deref_move(n)) return r;
+        expect_next_ = expect;
         return temp_scoped ? lower_expr_temp_scoped(n) : lower_expr(n);
     }
     lir::LExprPtr lower_call(writ::TinyMapView node);

@@ -567,6 +567,9 @@ bool SemaChecker::is_hoistable_temp_rvalue(lir_view::ExprRef e) {
 }
 
 lir_view::StmtRef SemaChecker::lower_stmt(TinyMapView stmt) {
+    // C-EXP: a statement has no expectation.
+    struct ExpectClear_ { TypeRef& e; TypeRef v; ~ExpectClear_() { e = v; } } expect_clear_{expected_, expected_};
+    expected_ = nullptr;
     // Install a temporary-scope collector for this statement (save/restore across
     // the recursion below — LABELED_LOOP and loop bodies re-enter lower_stmt).
     std::vector<std::tuple<std::string, TypeRef, lir::LExprPtr, bool>> hoisted;
@@ -1304,13 +1307,10 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     TypeRef ann = node.has_key(la::TYPE) ? resolve_type(map_of(node.get(la::TYPE.code))) : TypeRef(nullptr);
     const bool ann_hint = ann && TypeRef(ann).kind() != LogosType::Kind::Error && !type_has_inferred(ann);
     auto saved_tuple = hint_tuple_type_;
-    auto saved_expected = hint_expected_type_;
     auto saved_ret = hint_call_return_type_;
     auto saved_struct = hint_struct_type_;
     auto saved_enum = hint_enum_type_;
-    if (!ann_hint) hint_expected_type_ = nullptr;   // see lower_let
     if (ann_hint) {
-        hint_expected_type_ = ann;
         hint_call_return_type_ = ann;
         if (TypeRef(ann).kind() == LogosType::Kind::Tuple) hint_tuple_type_ = ann;
         if (TypeRef(ann).kind() == LogosType::Kind::Struct && !TypeRef(ann).type_args().empty())
@@ -1319,10 +1319,9 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
             hint_enum_type_ = ann;
     }
     lir::LExprPtr rhs = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        ? lower_expr_expecting(map_of(node.get(la::VALUE.code)), ann_hint ? ann : TypeRef(nullptr))
         : error_expr();
     hint_tuple_type_ = saved_tuple;
-    hint_expected_type_ = saved_expected;
     hint_call_return_type_ = saved_ret;
     hint_struct_type_ = saved_struct;
     hint_enum_type_ = saved_enum;
@@ -1795,15 +1794,11 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                 TypeRef(ann).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ann).type_args().empty())
         hint_struct_type_ = ann;
     auto saved_ret_hint = hint_call_return_type_;
-    auto saved_expected  = hint_expected_type_;
-    if (ann && !ann_has_hole && TypeRef(ann).kind() != LogosType::Kind::Error) {
-        hint_call_return_type_ = ann;
-        hint_expected_type_    = ann;
-    } else {
-        // An unannotated `let` has no expected type: the enclosing position's
-        // must not reach its initializer (`let r: &dyn Tr = { let q = ..; q }`).
-        hint_expected_type_ = nullptr;
-    }
+    // The annotation is the initializer's expected type (C-EXP); an
+    // unannotated `let` hands none on.
+    const TypeRef let_expect = (ann && !ann_has_hole && TypeRef(ann).kind() != LogosType::Kind::Error)
+                               ? ann : TypeRef(nullptr);
+    if (let_expect) hint_call_return_type_ = ann;
     // G151-3: a fn-ptr/closure-annotated let hints the closure formal so an
     // untyped closure literal (`let f: fn(i64)->i64 = |x| x+1`) infers its
     // param types (was `|<error>|`). Mirrors the call-arg + return paths.
@@ -1965,7 +1960,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         hint_enum_type_ = saved_hint;
                         hint_struct_type_ = saved_struct_hint;
                         hint_call_return_type_ = saved_ret_hint;
-                        hint_expected_type_    = saved_expected;
                         hint_closure_formal_ = saved_closure_hint;
                         hint_tuple_type_ = saved_tuple_hint;
                         return make_stmt_emit(node_line_, std::move(sl));
@@ -2006,7 +2000,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     hint_enum_type_ = saved_hint;
                     hint_struct_type_ = saved_struct_hint;
                     hint_call_return_type_ = saved_ret_hint;
-                        hint_expected_type_    = saved_expected;
                     hint_closure_formal_ = saved_closure_hint;
                     hint_tuple_type_ = saved_tuple_hint;
                     return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
@@ -2040,7 +2033,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         if (!is_ref_bind && code_of(rhs_node) == la::DEREF)
             rhs = try_lower_box_deref_move(rhs_node);
         if (!rhs)
-            rhs = lower_expr(rhs_node);
+            rhs = lower_expr_expecting(rhs_node, let_expect);
         rhs_type = expr_type(rhs);
         if (is_ref_bind) {
             // Wrap the lowered RHS in an addr-of-temp so it produces
@@ -2091,7 +2084,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     hint_enum_type_ = saved_hint;
     hint_struct_type_ = saved_struct_hint;
     hint_call_return_type_ = saved_ret_hint;
-                        hint_expected_type_    = saved_expected;
     hint_closure_formal_ = saved_closure_hint;
     hint_arr_elem_type_ = saved_arr_elem_hint;
     hint_tuple_type_ = saved_tuple_hint;
@@ -2906,12 +2898,9 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
         hint_enum_type_ = var_type;
     // The assignment's right-hand side is a coercion site, and the
     // expectation reaches its branches (`b = if c { rrx } else { b }`).
-    const TypeRef saved_expected = hint_expected_type_;
-    hint_expected_type_ = var_type;
     lir::LExprPtr rhs = node.has_key(la::VALUE)
-        ? lower_expr(map_of(node.get(la::VALUE.code)))
+        ? lower_expr_expecting(map_of(node.get(la::VALUE.code)), var_type)
         : error_expr();
-    hint_expected_type_ = saved_expected;
     hint_enum_type_ = saved_assign_hint;
     // Retype an incompletely-typed generic enum literal in `a = <enum-lit>`
     // to the LHS's concrete enum spec. A literal lowered without the expected
@@ -7647,7 +7636,7 @@ lir_view::StmtRef SemaChecker::lower_loop(TinyMapView node) {
         if (!my_label.empty()) active_loop_labels_.push_back(my_label);
         const bool is_while = hir_origin_(node) == hir::Origin::While;
         loop_break_frames_.push_back({my_label, nullptr, false, is_while ? "while" : nullptr,
-                                      is_while ? TypeRef(nullptr) : hint_expected_type_});
+                                      is_while ? TypeRef(nullptr) : expected_});
         pending_loop_body_scope_ = true;  // G167-4: tag the body frame
         lower_block(map_of(node.get(la::BODY.code))).each_stmt([&](lir_view::StmtRef s){ body.push_back(s); });
         frame_value_type    = loop_break_frames_.back().value_type;
@@ -10042,7 +10031,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                 // Arm values are CONDITIONALLY evaluated — own temporary
                 // scope (a statement-level hoist of a droppable temp
                 // receiver would evaluate EVERY arm eagerly).
-                val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)), /*temp_scoped=*/true);
+                val = lower_moved_operand_(map_of(arm.get(la::EXPR.code)), /*temp_scoped=*/true, expected_);   // an arm passes the match's expectation (C-EXP)
             } else if (arm.has_key(la::BODY)) {
                 auto body_node = map_of(arm.get(la::BODY.code));
                 // B-fn-06: a trailing TAIL_EXPR is the arm value, not an
@@ -10093,10 +10082,10 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             // Coerce EVERY arm to the expected type before the merge: a
             // selective coercion splits TYPE from REPRESENTATION (the merged
             // type the slice, an arm still a thin ref-to-array).
-            if (hint_expected_type_ && val &&
+            if (expected_ && val &&
                 TypeRef(expr_type(val)).kind() != LogosType::Kind::Error &&
                 TypeRef(expr_type(val)).kind() != LogosType::Kind::Never) {
-                coerce_arg_to_param(val, hint_expected_type_, mask_for(CoercePos::BranchArm));
+                coerce_arg_to_param(val, expected_, mask_for(CoercePos::BranchArm));
             }
             // [[baghunt-match-arm-binding-no-drop]]: the arm-scope bindings
             // drop before the arm value escapes — the value is hoisted into
@@ -10137,7 +10126,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
         if (!mc.arms.empty()) {
             std::vector<lir::LExprPtr*> vals;
             for (auto& a : mc.arms) vals.push_back(&a.value);
-            mc.result_type = lub_arms_(vals, hint_expected_type_,
+            mc.result_type = lub_arms_(vals, expected_,
                                        [](size_t i) { return std::format("match arm {}", i + 1); },
                                        [&](size_t, TypeRef acc, TypeRef t) {
                 error(std::format("match expression: arm type '{}' is incompatible with '{}'",
@@ -10197,10 +10186,10 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     const uint32_t match_line = node_line_;  // own line; arm lowering moves node_line_
     const bool tail = tail_match_nodes_.count(node.ptr()) &&
                       !(ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Void);
-    const TypeRef saved_hint = hint_expected_type_;
-    hint_expected_type_ = tail ? ret_type_ : TypeRef(nullptr);
+    const TypeRef saved_hint = expected_;
+    expected_ = tail ? ret_type_ : TypeRef(nullptr);
     MatchCore mc = lower_match_core(node, tail ? MatchForm::Tail : MatchForm::Stmt);
-    hint_expected_type_ = saved_hint;
+    expected_ = saved_hint;
     if (mc.schema_stmt) return mc.schema_stmt;
     lir::LExprPtr e = mc.refused ? error_expr() : match_expr_of_(mc);
     const auto k = TypeRef(expr_type(e)).kind();

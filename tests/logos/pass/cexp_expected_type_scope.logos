@@ -1,0 +1,28 @@
+// ADR 0030 C-EXP: the expected type belongs to the expression it was given to — a `let` annotation,
+// an argument's concrete formal — and reaches only the positions that pass a value through: a block's
+// tail, an `if` branch, a `match` arm. `first(if c { &a3 } else { &a5 })` against `&[i64]` merges its
+// branches at the slice (it was "incompatible types: &[i64; 3] vs &[i64; 5]"). rustc twin: same output.
+package cexp_expected_type_scope;
+use logos.std.fmt; use logos.mem.string;
+trait T { fn n(&self) -> i32; }
+struct A {} struct B {}
+impl T for A { fn n(&self) -> i32 { return 1; } }
+impl T for B { fn n(&self) -> i32 { return 2; } }
+fn big(s: &[i64]) -> bool { return s.len() > 1; }
+fn first(s: &[i64]) -> i64 { return s[0]; }
+fn id(x: i64) -> i64 { return x; }
+fn main() -> i32 {
+    let a = [1, 2, 3];
+    let x: &[i64] = if big(&a) { &a } else { &a };
+    println!("{}", x[2] + 5000000000);
+    let a3 = [1i64, 2, 3]; let a5 = [4i64, 5, 6, 7, 8];
+    println!("{}", first(if true { &a3 } else { &a5 }));
+    let v: i64 = { let t = id(5000000000); if t > 0 { t } else { 0 } };
+    println!("{}", v);
+    let aa = A {}; let bb = B {}; let c = 2;
+    let r: &dyn T = match c { 1 => &aa, _ => { &bb } };
+    println!("{}", r.n());
+    let q: &dyn T = { let p = &aa; p };
+    println!("{}", q.n());
+    return 0;
+}

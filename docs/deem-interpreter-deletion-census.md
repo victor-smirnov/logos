@@ -6768,8 +6768,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11844 -> 11849 (+5), NOIMPORTED 7281 -> 7286 (+5), TIERCOMMIT 198 -> 199 (+1) — 2026-09-30: ADR 0030 C-INF: +pass cinf_literal_generic_args, +pass cinf_vec_literal_elem_from_use (squeue row closed), +fail cinf_generic_arr_literal_overflow, +fail cinf_deferred_bound_refused, squeue +array_call_result_index_crash +array_type_not_copy_refused.
 #                ALL 11849 -> 11851 (+2), NOIMPORTED 7286 -> 7288 (+2), TIERCOMMIT 199 -> 201 (+2) — 2026-09-30: ADR 0030 C-INF (b): squeue +mem_swap_is_unsafe_raw_pointer_refused +array_map_missing_refused.
 #                ALL 11851 -> 11851 (+0), NOIMPORTED 7288 -> 7288 (+0), TIERCOMMIT 201 -> 200 (-1) — 2026-09-30: ADR 0030 C-INF: squeue let_bound_reference_to_literal_refused closed into pass cinf_let_bound_reference_to_literal.
-REGISTRY-ALL         11851
-REGISTRY-NOIMPORTED  7288
+#                ALL 11851 -> 11852 (+1), NOIMPORTED 7288 -> 7289 (+1), TIERCOMMIT 200 -> 200 (+0) — 2026-09-30: ADR 0030 C-EXP.1: +pass cexp_expected_type_scope.
+REGISTRY-ALL         11852
+REGISTRY-NOIMPORTED  7289
 REGISTRY-TIERCOMMIT  200
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

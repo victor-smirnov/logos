@@ -1654,6 +1654,12 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
 lir::LExprPtr SemaChecker::lower_expr(TinyMapView expr) {
     uint32_t saved_line = node_line_;
     int64_t  saved_span = node_span_;
+    // C-EXP: this node takes the expectation it was handed; its operands get
+    // none unless it hands them one.
+    const TypeRef saved_expected = expected_;
+    expected_ = expect_next_;
+    expect_next_ = nullptr;
+    struct ExpectRestore_ { TypeRef& e; TypeRef v; ~ExpectRestore_() { e = v; } } expect_restore_{expected_, saved_expected};
     // The operand list of this node, in evaluation order; every operand before
     // the LAST one that can exit must be owned while its later siblings run.
     if (cur_stmt_temp_hoist_ && !expr.is_null()) {
@@ -5344,7 +5350,14 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             if (TypeRef ah = slice_elem_hint_for((size_t)i))
                 hint_arr_elem_type_ = ah;
             const size_t arg_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
-            arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+            // A concrete formal is the argument's expected type (C-EXP), as at
+            // a method or static call: `first(if c { &a3 } else { &a5 })` against
+            // `&[i64]` merges its branches at the slice.
+            TypeRef arg_expect = nullptr;
+            if (hint_fi && i < hint_fi->param_types.size() && hint_fi->param_types[i] &&
+                type_is_concrete(hint_fi->param_types[i]))
+                arg_expect = hint_fi->param_types[i];
+            arg_exprs.push_back(lower_expr_expecting(map_of(args.get(i)), arg_expect));
             // Arguments run left to right: an earlier one with effects goes ahead
             // of the temporaries this argument hoisted (spill_before_hoist).
             if (cur_stmt_temp_hoist_ && cur_stmt_temp_hoist_->size() > arg_mark_) {
@@ -10988,13 +11001,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         TypeRef saved_struct  = hint_struct_type_;
         TypeRef saved_tuple   = hint_tuple_type_;
         TypeRef saved_ret     = hint_call_return_type_;
-        TypeRef saved_expect  = hint_expected_type_;
+        TypeRef arg_expect = nullptr;   // the argument's expected type (C-EXP)
         if (arg_idx < formals_hint.size() && formals_hint[arg_idx]) {
             TypeRef f = formals_hint[arg_idx];
             // A concrete formal is the argument's expected type, as at a
             // generic static call: `w.push(Vec::new())` on `Vec<Vec<i64>>`
             // builds a `Vec<i64>`.
-            if (type_is_concrete(f)) { hint_call_return_type_ = f; hint_expected_type_ = f; }
+            if (type_is_concrete(f)) { hint_call_return_type_ = f; arg_expect = f; }
             // Strip a single Ref/MutRef/Ptr wrapper for hint purposes;
             // bare variant literals don't carry a wrapper, but the formal
             // may (e.g. `fn or(&self, other: &Option<T>)`).
@@ -11021,14 +11034,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                      TypeRef(f).elem() && type_is_concrete(TypeRef(f).elem()))
                 hint_arr_elem_type_ = TypeRef(f).elem();
         }
-        auto out = lower_expr(arg_node);
+        auto out = lower_expr_expecting(arg_node, arg_expect);
         hint_arr_elem_type_  = saved_arr_elem;
         hint_closure_formal_ = saved_closure;
         hint_enum_type_      = saved_enum;
         hint_struct_type_    = saved_struct;
         hint_tuple_type_     = saved_tuple;
         hint_call_return_type_ = saved_ret;
-        hint_expected_type_    = saved_expect;
         // A non-closure argument binds the type params of its formal; later
         // Fn-bounded formals re-derive their closure hint with them (Rust
         // checks arguments left to right the same way).
@@ -13433,7 +13445,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // A CONCRETE field type is the value's expected type, as a `let`
                 // annotation is: `S { v: Vec::new() }` infers `Vec<i64>`.
                 auto saved_ret_h = hint_call_return_type_;
-                auto saved_exp_h = hint_expected_type_;
+                TypeRef fld_expect = nullptr;
                 // A GENERIC struct under an expected instance (`let g: G2<i64> =
                 // G2 { d: Vec::new() }`): the field type under its arguments.
                 TypeRef fld_hint_ty = fld_decl_ty;
@@ -13448,11 +13460,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 }
                 if (fld_hint_ty && type_is_concrete(fld_hint_ty)) {
                     hint_call_return_type_ = fld_hint_ty;
-                    hint_expected_type_ = fld_hint_ty;
+                    fld_expect = fld_hint_ty;
                 }
-                val = lower_expr(map_of(init.get(la::VALUE.code)));
+                val = lower_expr_expecting(map_of(init.get(la::VALUE.code)), fld_expect);
                 hint_call_return_type_ = saved_ret_h;
-                hint_expected_type_ = saved_exp_h;
                 hint_closure_formal_ = saved_ch;
                 hint_enum_type_ = saved_eh;
                 if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
@@ -16101,7 +16112,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             for (uint64_t i = 0; i < items.size(); ++i) {
                 TypeRef saved_hint = hint_enum_type_;
                 auto saved_rh = hint_call_return_type_;
-                auto saved_xh = hint_expected_type_;
+                TypeRef payload_expect = nullptr;
                 auto saved_ah = hint_arr_elem_type_;
                 auto saved_th = hint_tuple_type_;
                 if (i < vinfo->payload_types.size()) {
@@ -16118,14 +16129,13 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     // (`Option::Some(Vec::new())` under `Option<Vec<i64>>`).
                     if (pt_i && type_is_concrete(pt_i)) {
                         hint_call_return_type_ = pt_i;
-                        hint_expected_type_ = pt_i;
+                        payload_expect = pt_i;
                     }
                     if (TypeRef el = payload_arr_elem_hint_(pt_i)) hint_arr_elem_type_ = el;
                 }
-                auto e = lower_expr(map_of(items.get(i)));
+                auto e = lower_expr_expecting(map_of(items.get(i)), payload_expect);
                 hint_enum_type_ = saved_hint;
                 hint_call_return_type_ = saved_rh;
-                hint_expected_type_ = saved_xh;
                 hint_arr_elem_type_ = saved_ah;
                 hint_tuple_type_ = saved_th;
                 if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Void) continue;
@@ -16436,7 +16446,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                     // to a concrete enum via the pre-subst projection.
                     TypeRef saved_hint = hint_enum_type_;
                     auto saved_rh = hint_call_return_type_;
-                    auto saved_xh = hint_expected_type_;
+                    TypeRef payload_expect = nullptr;
                     auto saved_ah = hint_arr_elem_type_;
                     auto saved_th = hint_tuple_type_;
                     if (i < vinfo->payload_types.size()) {
@@ -16450,14 +16460,13 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                         // …and a CONCRETE payload type is the argument's expected type.
                         if (pt_i && type_is_concrete(pt_i)) {
                             hint_call_return_type_ = pt_i;
-                            hint_expected_type_ = pt_i;
+                            payload_expect = pt_i;
                         }
                         if (TypeRef el = payload_arr_elem_hint_(pt_i)) hint_arr_elem_type_ = el;
                     }
-                    payload.push_back(lower_expr(map_of(items.get(i))));
+                    payload.push_back(lower_expr_expecting(map_of(items.get(i)), payload_expect));
                     hint_enum_type_ = saved_hint;
                     hint_call_return_type_ = saved_rh;
-                    hint_expected_type_ = saved_xh;
                     hint_arr_elem_type_ = saved_ah;
                     hint_tuple_type_ = saved_th;
                 }
@@ -18593,12 +18602,10 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 auto items = arr_of(args.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     auto saved_rh = hint_call_return_type_;
-                    auto saved_eh2 = hint_expected_type_;
                     TypeRef ah = i < arg_hints_.size() ? arg_hints_[i] : TypeRef(nullptr);
-                    if (ah) { hint_call_return_type_ = ah; hint_expected_type_ = ah; }
-                    arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                    if (ah) hint_call_return_type_ = ah;
+                    arg_exprs.push_back(lower_expr_expecting(map_of(items.get(i)), ah));
                     hint_call_return_type_ = saved_rh;
-                    hint_expected_type_ = saved_eh2;
                     // An unsuffixed literal takes the width the expected result
                     // pins (`let b: Box<i64> = Box::new(5)` built a Box<i32>).
                     if (ah && arg_exprs.back() && expr_type(arg_exprs.back())) {
@@ -19356,7 +19363,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
                 }
                 // Rust 2024: a block's tail expression is a temporary scope —
                 // its temporaries drop BEFORE the block's locals.
-                result = lower_moved_operand_(val_node, /*temp_scoped=*/true);
+                result = lower_moved_operand_(val_node, /*temp_scoped=*/true, expected_);   // the tail passes the block's expectation (C-EXP)
                 continue;
             }
             // An `if` / if-let chain without `else` is a `()` expression
@@ -19365,7 +19372,7 @@ lir::LExprPtr SemaChecker::lower_block_expr(TinyMapView node) {
             if (lc != la::EXPR_STMT && lc != la::TAIL_EXPR
                 && lc != la::LET && lc != la::LET_PAT
                 && lc != la::RETURN && !is_stmt_only_code(lc) && !if_no_else) {
-                result = lower_expr(s);
+                result = lower_expr_expecting(s, expected_);
                 continue;
             }
             // A block ending in an exit never yields: its type is `!` (the
@@ -19459,6 +19466,8 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     // local's mark to the consumer, as a match arm marks its own).
     JoinBuilder join(*this);
     auto lower_arm = [&](writ::TinyMapView n) -> lir::LExprPtr {
+        // A branch passes the `if`'s expectation through (C-EXP).
+        if (code_of(n) != la::BLOCK) expect_next_ = expected_;
         lir::LExprPtr v = code_of(n) == la::BLOCK ? lower_block_expr(n) : lower_expr_temp_scoped(n);
         if (v && TypeRef(expr_type(v)).kind() != LogosType::Kind::Error &&
             TypeRef(expr_type(v)).kind() != LogosType::Kind::Never)
@@ -19481,7 +19490,7 @@ lir::LExprPtr SemaChecker::lower_if_expr(TinyMapView node) {
     join.finish();
 
     // A diverging (Never) branch contributes no type.
-    TypeRef result_type = lub_arms_({&then_val, &else_val}, hint_expected_type_,
+    TypeRef result_type = lub_arms_({&then_val, &else_val}, expected_,
         [](size_t i) { return std::format("if-expression branch {}", i + 1); },
         [&](size_t, TypeRef a, TypeRef b) {
             // source form: two closure literals print one string otherwise
