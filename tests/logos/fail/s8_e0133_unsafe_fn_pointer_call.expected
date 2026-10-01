@@ -1,0 +1,1 @@
+call to unsafe function 'unsafe fn() -> i32' requires unsafe context

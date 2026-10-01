@@ -44,6 +44,7 @@
 #include <memory>
 #include <optional>
 #include <set>
+#include <tuple>
 #include <string>
 #include <cstdlib>   // strtod — parse_float_literal
 #include <cerrno>
@@ -2809,8 +2810,36 @@ private:
     // re-implementation flips this to direct Writ-zone emission with no
     // caller change.
     LirBuilder builder() {
-        return LirBuilder(*cur_prog_);
+        return LirBuilder(*cur_prog_, &call_obs_);
     }
+    // ADR 0030 S8 row 1 — E0133 is judged on the CALL, once, where the builder
+    // emits it: every dispatch path (free, static, method on any receiver kind,
+    // generic, blanket) reaches it, and a re-lowered call is reported once.
+    static void on_call_thunk_(void* ctx, std::string_view callee, std::string_view method,
+                               std::string_view owner, TypeRef callee_type, bool is_method) {
+        static_cast<SemaChecker*>(ctx)->on_call_(callee, method, owner, callee_type, is_method);
+    }
+    void on_call_(std::string_view callee, std::string_view method, std::string_view owner,
+                  TypeRef callee_type, bool is_method);
+    // The one sentence for a call to an unsafe callee outside an unsafe context.
+    void require_unsafe_ctx_(const std::string& shown, bool is_method);
+    // A call the COMPILER synthesizes into an expansion (quote glue into the
+    // metaprog runtime's extern fns): the expansion's own unsafety, as rustc's
+    // `#[allow_internal_unsafe]` — not the user's context.
+    lir::LExprPtr glue_call_(std::string callee, std::vector<TypeRef> targs,
+                             std::vector<lir::LExprPtr> args, TypeRef ty) {
+        const bool was = inside_unsafe_;
+        inside_unsafe_ = true;
+        auto c = builder().call(std::move(callee), std::move(targs), std::move(args), ty);
+        inside_unsafe_ = was;
+        return c;
+    }
+    struct UnsafeCallee { std::string shown; bool is_method = false; };
+    const UnsafeCallee* unsafe_callee_(std::string_view symbol);
+    CallObserver call_obs_{this, &SemaChecker::on_call_thunk_};
+    std::unordered_map<std::string, UnsafeCallee> unsafe_index_;
+    size_t unsafe_index_n_ = 0;
+    std::set<std::tuple<std::string, std::string, uint32_t>> unsafe_reported_;
 
     // ── Mirror ref accessors (read-only view of just-built L-IR nodes) ──
     // Every LirBuilder-constructed node has mirror_ptr_ set, so these

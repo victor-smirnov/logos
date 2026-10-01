@@ -6777,8 +6777,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11858 -> 11890 (+32), NOIMPORTED 7297 -> 7329 (+32), TIERCOMMIT 203 -> 202 (-1) — 2026-10-01: S0-S7 gap round: +28 pass fixtures gap1001_* (27 cluster representatives + 1 admit twin) and deferred_let_without_type (squeue row closed, tier_commit -1); +4 fail fixtures gap1001_*.
 #                ALL 11890 -> 11894 (+4), NOIMPORTED 7329 -> 7333 (+4), TIERCOMMIT 202 -> 206 (+4) — 2026-10-01: +4 squeue rows (the S0-S7 gap audit's clusters outside ADR 0030: #716-#719).
 #                ALL 11894 -> 11896 (+2), NOIMPORTED 7333 -> 7337 (+4), TIERCOMMIT 206 -> 209 (+3) — 2026-10-01: long-red re-triage: 3 str _admit pins -> fail *_sig_fail, residency dangle fail -> pass (runtime #437); 3 holes -> squeue rows (tier_commit +3); +2 fail twins; -2 imported fail moved to squeue.
-REGISTRY-ALL         11896
-REGISTRY-NOIMPORTED  7337
+#                ALL 11896 -> 11902 (+6), NOIMPORTED 7337 -> 7343 (+6), TIERCOMMIT 209 -> 209 (+0) — 2026-10-01: S8 row 1 (E0133 on the call): +1 pass s8_unsafe_fn_pointer_admit, +5 fail s8_*.
+REGISTRY-ALL         11902
+REGISTRY-NOIMPORTED  7343
 REGISTRY-TIERCOMMIT  209
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

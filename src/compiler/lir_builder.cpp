@@ -154,6 +154,7 @@ lir_view::ExprRef LirBuilder::call(std::string callee,
                                 std::vector<TypeRef> type_args,
                                 std::vector<lir::LExprPtr> args,
                                 TypeRef ty) {
+    observe_(callee, {}, {}, nullptr, false);
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_call(p, t, callee, type_args, args); });
 }
@@ -230,6 +231,7 @@ lir_view::ExprRef LirBuilder::closure_call(lir::LExprPtr callee,
 lir_view::ExprRef LirBuilder::fn_ptr_call(lir::LExprPtr callee,
                                        std::vector<lir::LExprPtr> args,
                                        TypeRef ty) {
+    observe_({}, {}, {}, callee ? callee.type(prog_.type_pool.impl()) : TypeRef(nullptr), false);
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){ return lir_mirror_emit_fn_ptr_call(p, t, callee, args); });
 }
@@ -294,6 +296,7 @@ lir_view::ExprRef LirBuilder::method_call(lir::LExprPtr receiver, std::string me
                                        std::vector<TypeRef> type_args,
                                        std::vector<lir::LExprPtr> args,
                                        int32_t vtable_index, TypeRef ty) {
+    observe_(resolved_symbol, method, {}, nullptr, true);
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){
             return lir_mirror_emit_method_call(p, t, receiver, method, resolved_symbol,
@@ -349,6 +352,7 @@ lir_view::StmtRef LirBuilder::stmt_deref_write(lir::LExprPtr ptr, lir::LExprPtr 
 }
 
 lir_view::ExprRef LirBuilder::call_v(lir::ECall ec, TypeRef ty) {
+    observe_(ec.callee, {}, {}, nullptr, false);
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){
             return lir_mirror_emit_call(p, t, ec.callee, ec.type_args, ec.args);
@@ -356,6 +360,7 @@ lir_view::ExprRef LirBuilder::call_v(lir::ECall ec, TypeRef ty) {
 }
 
 lir_view::ExprRef LirBuilder::method_call_v(lir::EMethodCall mc, TypeRef ty) {
+    observe_(mc.resolved_symbol, mc.method, mc.resolved_type, nullptr, true);
     return direct(prog_, ty,
         [&](auto& p, TypeRef t){
             return lir_mirror_emit_method_call(p, t, mc.receiver, mc.method,

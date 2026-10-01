@@ -232,9 +232,11 @@ public:
         // A RAW TraitObject (ADR 0028) carries `*mut` vs `*const` here too.
         const bool raw_dyn_ = t.kind == LogosType::Kind::TraitObject &&
             (uint64_t(t.const_val.value_or(0)) & TypeRef::RAW_FAT_BIT);
+        // FnPtr / FnItem: an `unsafe fn` (ADR 0030 S8 row 1).
         if ((t.kind == LogosType::Kind::Ptr ||
              t.kind == LogosType::Kind::DstRef ||
-             t.kind == LogosType::Kind::Slice || raw_dyn_) && t.mut_ptr) {
+             t.kind == LogosType::Kind::Slice || raw_dyn_ ||
+             t.kind == LogosType::Kind::FnPtr || t.kind == LogosType::Kind::FnItem) && t.mut_ptr) {
             v_mut_ptr = writ::AnyVal::from_value<uint8_t>(1, writ::type_hash::Bool);
         }
         if (t.kind == LogosType::Kind::Array && t.arr_size != 0) {
@@ -916,6 +918,9 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_str(buf, t.struct_name);
         for (auto p : t.closure_params) put_sub(buf, impl, p);
         put_sub(buf, impl, t.closure_ret);
+        // `unsafe fn(..)` is another type (rustc); hashed only when set, so a
+        // safe fn pointer keeps its UID.
+        if (t.mut_ptr) put_byte(buf, 0x55);
         break;
     case K::Closure:
         for (auto p : t.closure_params) put_sub(buf, impl, p);
@@ -2415,8 +2420,19 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
     // caught by types_equal above; two DIFFERENT FnItems with the same
     // signature must NOT collapse — that's the distinction logos-core
     // 1.4 brings.
+    // `unsafe fn` → safe pointer is refused (rustc E0308); safe → `unsafe fn`
+    // pointer is the coercion rustc makes. Two fn pointers of one signature
+    // that differ only so.
+    if (from.kind() == LogosType::Kind::FnPtr && to.kind() == LogosType::Kind::FnPtr &&
+        !from.mut_ptr() && to.mut_ptr() && from.struct_name() == to.struct_name()) {
+        auto fp = from.closure_params(), tp = to.closure_params();
+        bool sig = fp.size() == tp.size() && types_equal(from.closure_ret(), to.closure_ret());
+        for (size_t i = 0; sig && i < fp.size(); ++i) sig = types_equal(fp[i], tp[i]);
+        if (sig) return true;
+    }
     if (from.kind() == LogosType::Kind::FnItem &&
         to.kind() == LogosType::Kind::FnPtr) {
+        if (from.mut_ptr() && !to.mut_ptr()) return false;
         auto fp = from.closure_params();
         auto tp = to.closure_params();
         if (fp.size() != tp.size()) return false;
@@ -2933,6 +2949,7 @@ std::string type_str(TypeRef t, bool source_form) {
         // T2-23: surface the extern ABI tag (struct_name; "" = default) so
         // an ABI mismatch reads `extern "C" fn() -> i32` vs `fn() -> i32`.
         std::string r;
+        if (TypeRef(t).mut_ptr()) r += "unsafe ";
         std::string_view abi = TypeRef(t).struct_name();
         if (!abi.empty()) { r += "extern \""; r += abi; r += "\" "; }
         r += "fn(";
@@ -2950,7 +2967,7 @@ std::string type_str(TypeRef t, bool source_form) {
         // so the user-facing surface still reads as FnPtr most of the
         // time; this form only surfaces when the FnItem identity itself
         // is a type error.
-        std::string r = "fn ITEM<";
+        std::string r = TypeRef(t).mut_ptr() ? "unsafe fn ITEM<" : "fn ITEM<";
         r += std::string(TypeRef(t).struct_name());
         if (!TypeRef(t).type_args().empty()) {
             r += "::<";
@@ -9476,6 +9493,13 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         // Reuse closure_params / closure_ret fields.
         LogosTypeBuilder t;
         t.kind = LogosType::Kind::FnPtr;
+        // G158-11 kept the `unsafe` qualifier only as a parsed key; it is the
+        // type's (calling one needs `unsafe`, E0133; a safe pointer coerces to
+        // it, not back).
+        if (node.has_key(la::IS_UNSAFE)) {
+            AnyVal uv = node.get(la::IS_UNSAFE.code);
+            t.mut_ptr = !uv.is_null() && uv.is_value() && uv.as_value<uint8_t>() != 0;
+        }
         // T2-23: `extern "ABI" fn(...)` carries the ABI on VALUE. The ABI is
         // part of the fn-pointer TYPE IDENTITY (Rust: `extern "C" fn()` ≠
         // `fn()`), stored in the FnPtr-unused `struct_name` slot and folded

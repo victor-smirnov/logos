@@ -1,0 +1,4 @@
+package s8_e0133_impl_for_ref_receiver;
+// ADR 0030 S8 row 1 (E0133 judged on the call, once): an unsafe method of `impl T for &S` called through `&S`.
+use logos.mem.collections.vec;
+trait T { unsafe fn m(&self) -> i32; } struct S {} impl T for &S { unsafe fn m(&self) -> i32 { return 1; } } fn main() -> i32 { let s = S {}; let r = &s; return r.m(); }

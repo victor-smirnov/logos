@@ -999,6 +999,7 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
             const SemaFuncInfo& fi = *cands[0];
             LogosTypeBuilder ft;
             ft.kind = LogosType::Kind::FnItem;
+            ft.mut_ptr = fi.is_unsafe;   // an `unsafe fn` item
             ft.struct_name = fi.symbol_name.empty() ? std::string(name)
                                                     : fi.symbol_name;
             for (auto pt : fi.param_types)
@@ -5644,8 +5645,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         auto ipts_ = inst_call_params_(exact_fi->param_types,
                                        exact_fi->lifetime_params, arg_exprs,
                                        exact_fi->ret_type);
-        if (exact_fi->is_unsafe && !inside_unsafe_)
-            error(std::format("call to unsafe function '{}' requires unsafe context", callee));
         if (exact_fi->is_vararg) {
             if (n_args < exact_fi->param_types.size()) {
                 error(std::format("call to vararg '{}': expected at least {} args, got {}",
@@ -5790,8 +5789,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     {
         const SemaFuncInfo* fi_chk = fi_sel;
         check_pub_access(fi_chk->is_pub, fi_chk->package, callee, fi_chk->is_module_only, fi_chk->module_id);
-        if (fi_chk->is_unsafe && !inside_unsafe_)
-            error(std::format("call to unsafe function '{}' requires unsafe context", callee));
     }
 
     // Determine if we should try inference
@@ -6662,6 +6659,55 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
     return true;
 }
 
+// ── ADR 0030 S8 row 1: E0133 on the call ────────────────────────────────
+// The unsafe callees by every symbol a call node can name them by (the
+// registry key and the link symbol), rebuilt when the registries grow.
+const SemaChecker::UnsafeCallee* SemaChecker::unsafe_callee_(std::string_view symbol) {
+    if (symbol.empty()) return nullptr;
+    const size_t n = funcs_.size() + generic_funcs_.size();
+    if (n != unsafe_index_n_) {
+        unsafe_index_.clear();
+        for (auto* reg : {&funcs_, &generic_funcs_})
+            for (auto& [key, fi] : *reg) {
+                if (!fi.is_unsafe) continue;
+                // Shown by its base name: `S__m` for a method, `f` for a free fn.
+                std::string shown = fi.base_name;
+                if (shown.empty()) {
+                    shown = key;
+                    if (auto d = shown.find_last_of("$."); d != std::string::npos) shown = shown.substr(d + 1);
+                    for (const char* sfx : {"__g__", "__f__"})
+                        if (auto p = shown.find(sfx); p != std::string::npos) shown.resize(p);
+                }
+                UnsafeCallee uc{shown, fi.is_method};
+                unsafe_index_[key] = uc;
+                if (!fi.symbol_name.empty()) unsafe_index_[fi.symbol_name] = uc;
+            }
+        unsafe_index_n_ = n;
+    }
+    auto it = unsafe_index_.find(std::string(symbol));
+    return it == unsafe_index_.end() ? nullptr : &it->second;
+}
+
+void SemaChecker::require_unsafe_ctx_(const std::string& shown, bool is_method) {
+    if (inside_unsafe_) return;
+    if (!unsafe_reported_.insert({ctx_, shown, node_line_}).second) return;   // a re-lowered call
+    error(std::format("call to unsafe {} '{}' requires unsafe context",
+                      is_method ? "method" : "function", shown));
+}
+
+void SemaChecker::on_call_(std::string_view callee, std::string_view /*method*/,
+                           std::string_view /*owner*/, TypeRef callee_type, bool /*is_method*/) {
+    if (inside_unsafe_) return;
+    if (const UnsafeCallee* uc = unsafe_callee_(callee)) {
+        require_unsafe_ctx_(uc->shown, uc->is_method);
+        return;
+    }
+    // A call through an `unsafe fn` pointer (or item value).
+    if (callee_type && LogosType::is_fn_value_kind(TypeRef(callee_type).kind()) &&
+        TypeRef(callee_type).mut_ptr())
+        require_unsafe_ctx_(type_str(callee_type), false);
+}
+
 lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                       const SemaFuncInfo& fi,
                                       std::vector<TypeRef> type_args,
@@ -6683,9 +6729,6 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     // Strip pkg prefix for user-facing diagnostic.
     if (auto d = callee_diag.rfind('$'); d != std::string::npos)
         callee_diag = callee_diag.substr(d + 1);
-    // Unsafe check: covers both inferred (lower_call) and explicit (lower_generic_call) paths.
-    if (fi.is_unsafe && !inside_unsafe_)
-        error(std::format("call to unsafe function '{}' requires unsafe context", callee_diag));
     bool has_variadic = !fi.type_params.empty() && fi.type_params.back().is_variadic;
     size_t non_variadic_count = fi.type_params.size() - (has_variadic ? 1 : 0);
 
@@ -9742,9 +9785,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
     for (size_t mi = 0; mi < tit->methods.size(); ++mi) {
         auto& m = tit->methods[mi];
         if (m.name != method_name) continue;
-        if (m.is_unsafe && !inside_unsafe_)
-            error(std::format("call to unsafe method '{}' requires unsafe context",
-                              std::string(method_name)));
+        if (m.is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // a trait item: no symbol
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args_node = arr_of(node.get(la::ARGS.code));
@@ -9971,9 +10012,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
             const std::string& owner_trait = vtab[mi].first;
             auto& m = *vtab[mi].second;
             if (m.name == method_name) {
-                if (m.is_unsafe && !inside_unsafe_)
-                    error(std::format("call to unsafe method '{}' requires unsafe context",
-                                      std::string(method_name)));
+                if (m.is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // a trait item: no symbol
                 std::vector<lir::LExprPtr> arg_exprs;
                 if (node.has_key(la::ARGS)) {
                     auto args = arr_of(node.get(la::ARGS.code));
@@ -10780,9 +10819,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
 
         if (chosen_method) {
-            if (chosen_method->is_unsafe && !inside_unsafe_)
-                error(std::format("call to unsafe method '{}' requires unsafe context",
-                                  std::string(method_name)));
+            if (chosen_method->is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // through a bound
 
             size_t expected_explicit = chosen_method->param_types.size() > 0
                 ? chosen_method->param_types.size() - 1 : 0;
@@ -11354,9 +11391,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             }
 
             if (fi_ptr && !fi_ptr->type_params.empty()) {
-                if (fi_ptr->is_unsafe && !inside_unsafe_)
-                    error(std::format("call to unsafe method '{}' requires unsafe context",
-                                      generic_key));
                 // CP-cm-12: route ALL enum-method dispatch through
                 // finish_generic_call. It emits the call with the canonical
                 // template-form callee + full type_args (receiver-level +
@@ -11640,8 +11674,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
 
         if (fi_ptr) {
-            if (fi_ptr->is_unsafe && !inside_unsafe_)
-                error(std::format("call to unsafe method '{}' requires unsafe context", mangled_prim));
             // Generic method on primitive receiver (e.g. i32::hash<H>): infer
             // method-level type args and route through finish_generic_call so
             // mono emits a concrete specialization.
@@ -12288,8 +12320,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     auto& fi = *fi_ptr;
     check_pub_access(fi.is_pub, fi.package, mangled, fi.is_module_only, fi.module_id);
-    if (fi.is_unsafe && !inside_unsafe_)
-        error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 
     // Build TypeVar→concrete substitution from the receiver's struct type args.
     // This lets us check e.g. Vec<i32>::push(val: T) with T resolved to i32.
@@ -19262,8 +19292,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     // Gap-A' multi-param-trait dispatch: emit `{}` type-args; mono
                     // does the arg-suffix retarget (`S__collect` → the concrete
                     // impl). Self → the type-param so `Self::X` stays an AssocType.
-                    if (m.is_unsafe && !inside_unsafe_)
-                        error(std::format("call to unsafe method '{}' requires unsafe context", mname_str));
+                    if (m.is_unsafe) require_unsafe_ctx_(mname_str, true);   // through a bound
                     SemaSubst self_subst;
                     self_subst["Self"] = current_type_params_.count(cname_str)
                         ? current_type_params_[cname_str] : make_typevar(cname_str);
@@ -19451,8 +19480,6 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
 
     auto& fi = *fi_ptr;
     check_pub_access(fi.is_pub, fi.package, mangled, fi.is_module_only, fi.module_id);
-    if (fi.is_unsafe && !inside_unsafe_)
-        error(std::format("call to unsafe method '{}' requires unsafe context", mangled));
 
     // If the static method is generic (has type params from the enclosing impl<T>),
     // infer the concrete type arguments and produce a direct call to the concrete
@@ -22427,7 +22454,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         pack_args.push_back(std::move(cast));
         pack_args.push_back(builder().lit_int(
             static_cast<int64_t>(N_idents), u64_ty));
-        auto pack_call = builder().call(
+        auto pack_call = glue_call_(
             "logos_qib_pack_idents", {}, std::move(pack_args), u8_ptr_t);
         std::string bname = "__qib_b_" + std::to_string(tmp_var_count_++);
         define(bname, u8_ptr_t);
@@ -22478,7 +22505,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         pack_args.push_back(std::move(cast));
         pack_args.push_back(builder().lit_int(
             static_cast<int64_t>(N_blobs), u64_ty));
-        auto pack_call = builder().call(
+        auto pack_call = glue_call_(
             "logos_qib_pack_blobs", {}, std::move(pack_args), u8_ptr_t);
         std::string bname = "__qib_bbs_" + std::to_string(tmp_var_count_++);
         define(bname, u8_ptr_t);
@@ -22554,7 +22581,7 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
         pack_args.push_back(std::move(dcast));
         pack_args.push_back(builder().lit_int(
             static_cast<int64_t>(N_cursors), u64_ty));
-        auto pack_call = builder().call(
+        auto pack_call = glue_call_(
             "logos_qib_pack_cursors", {}, std::move(pack_args), u8_ptr_t);
         std::string bname = "__qib_cs_" + std::to_string(tmp_var_count_++);
         define(bname, u8_ptr_t);
@@ -23401,7 +23428,7 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
     call_args.push_back(std::move(t_size));
     call_args.push_back(std::move(idents_pp));
     call_args.push_back(std::move(i_cnt));
-    auto subst_call = builder().call(
+    auto subst_call = glue_call_(
         "logos_quote_expr_subst",
         {},
         std::move(call_args),

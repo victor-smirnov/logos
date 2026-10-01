@@ -20,9 +20,22 @@
 
 namespace logos::compiler {
 
+// Every call the builder emits is shown to its producer once, at emission
+// (ADR 0030 S8 row 1): a check that belongs to the CALL — E0133, the unsafe
+// callee — is then made at the one point every dispatch path goes through.
+// `callee` is the Call's symbol or the MethodCall's resolved symbol (empty for
+// a virtual call); `method` / `owner` name a virtual call's trait item.
+// `callee_type` is a fn-pointer call's callee type (null otherwise).
+struct CallObserver {
+    void* ctx = nullptr;
+    void (*on_call)(void* ctx, std::string_view callee, std::string_view method,
+                    std::string_view owner, TypeRef callee_type, bool is_method) = nullptr;
+};
+
 class LirBuilder {
 public:
-    explicit LirBuilder(lir::LProgram& prog) noexcept : prog_(prog) {}
+    explicit LirBuilder(lir::LProgram& prog, const CallObserver* obs = nullptr) noexcept
+        : prog_(prog), obs_(obs) {}
 
     // ── Expression leaves ────────────────────────────────────────────────
 
@@ -192,6 +205,11 @@ public:
 
 private:
     lir::LProgram& prog_;  // reserved for Stage 3g (Writ zone access)
+    const CallObserver* obs_ = nullptr;
+    void observe_(std::string_view callee, std::string_view method, std::string_view owner,
+                  TypeRef callee_type, bool is_method) const {
+        if (obs_ && obs_->on_call) obs_->on_call(obs_->ctx, callee, method, owner, callee_type, is_method);
+    }
 };
 
 } // namespace logos::compiler

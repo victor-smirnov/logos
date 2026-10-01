@@ -381,6 +381,20 @@ Next: or-patterns / parameter patterns (sema already binds a parameter pattern
 through the `let` door), `..base`; tail → return stays sema's single judgment
 (a unit tail needs a type).
 
+## S8 (C-RES) — rows
+
+Resolution is one probe and one emission point; the callee it picks is a fact
+on the L-IR that later phases read instead of re-resolving.
+
+| row | content | retires |
+|---|---|---|
+| (1) E0133 | every call the L-IR builder emits (Call, MethodCall) is judged ONCE, at emission, against the callee's `unsafe` — any dispatch path, by construction; a call through an `unsafe fn` pointer likewise; the fn-pointer type keeps its `unsafe` (G158-11 parsed and dropped it) | the 8+ per-path copies (`requires unsafe context` in lower_call ×2, lower_static_call, lower_method_call ×4, try_method_on_dyn/tagged, finish_generic_call, the blanket/schema paths); the holes on `impl for &T`, slice, array receivers |
+| (2) divergence | a call diverges iff its callee returns `!` — read from the lowered call's type, not from a name scan | is_divergent_call_node + the stmt_always_returns / body_always_diverges_simple lambdas |
+| (3) operators | one `op_lang_item` table (operator → trait, method, assign twin) | the 4 op tables (lower_binop, compound assign, mono_clone BinOp, mlir) |
+| (4) MethodProbe | one receiver-step sequence (autoderef incl. Deref impls, then autoref `&` / `&mut`) producing candidates through `impl_keys_for(TypeRef)`; inherent before trait; the receiver ADJUSTMENT (deref steps, autoref mutability, reborrow) applied after the pick | try_method_on_{tuple,array,slice,dstref,raw_ptr} lookups, the primitive arm, the `$ref_` ladder, the main + base-name loops, the Deref-loop direct probe, the 3 wants-mut copies; moved here: `c.borrow_mut().kids.push(5)` (temporary-root DerefMut), squeue dst_method_receiver_no_reborrow_admits |
+| (5) callee identity | sema records the resolved callee (symbol, impl, trait item) on every call node; mono, mlir and BIR read it | mono subst MethodCall/BinOp/Unary/Call re-dispatch, the mlir name composer + suffix scan, the 4 BIR resolvers |
+| (6) trait items | `resolve_trait_item(trait id, self, name)` for UFCS `Trait::m(x)` / `<T as Trait>::m` and associated consts/types | the per-form UFCS lookups; moved here: parse-target-unresolved-ice (a type variable through a method chain) |
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

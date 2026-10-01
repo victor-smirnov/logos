@@ -1,7 +1,8 @@
 // pub type alias: fn-pointer alias declared with `pub`.
 package pub_type_alias_fnptr;
 
-pub type MemDestroyer = fn(*mut u8, i64) -> ();
+// `unsafe fn`: `noop` is an unsafe fn, which coerces only to an `unsafe fn` pointer (rustc E0308).
+pub type MemDestroyer = unsafe fn(*mut u8, i64) -> ();
 
 unsafe fn noop(p: *mut u8, n: i64) {
     // intentionally empty
