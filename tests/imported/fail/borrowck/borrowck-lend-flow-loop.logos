@@ -10,6 +10,10 @@
 // `*x = *x + 1` is at the TOP: textually earlier, LATER IN TIME across the back
 // edge. Its admit half is tests/logos/pass/bc_backedge_reassign_holder_admit —
 // this file with the `borrow(&v)` line deleted.
+// 2026-10-01: the reassignment is CONDITIONAL again, as upstream writes it
+// (`if cond2 { x = &mut v; }`). Unconditional, `x` is dead at `borrow(&v)` and
+// the program is legal Rust (rustc 1.98.1 compiles it) — the new checker had
+// stopped refusing the mis-port, correctly.
 package borrowck_lend_flow_loop;
 fn borrow(v: &i64) -> i64 { return *v; }
 fn main() -> i32 {
@@ -20,7 +24,7 @@ fn main() -> i32 {
     while i < 3i64 {
         *x = *x + 1i64;
         let _z: i64 = borrow(&v);
-        x = &mut v;
+        if i == 1i64 { x = &mut v; }   // upstream `if cond2` (the port had dropped it)
         i = i + 1i64;
     }
     return 0i32;

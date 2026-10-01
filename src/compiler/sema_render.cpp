@@ -2642,6 +2642,22 @@ std::string SemaChecker::render_type_src_syntactic_(TinyMapView node) {
             return "/* render_type: LIT_WSTATIC without VALUE */";
         return render_expr_src(map_of(node.get(la::VALUE.code)));
     }
+    // The elements of a `<…>` list that are not types — a region, a const
+    // argument, the quote-only pack / antiquote / repeat forms — reached
+    // through a type renderer's own walk (`QuoteDx<<ty:131>>`,
+    // `BtInsRet<u64, <ty:33>>` in the gen units): the use-position element
+    // renderer's spelling. Each is a case there, so this does not recurse.
+    case la::LIFETIME_PARAM:
+    case la::LIT_INT:
+    case la::PACK_EXPAND:
+    case la::ANTIQUOT_TYPE:
+    case la::ANTIQUOT_PACK:
+    case la::PAREN_EXPR:
+    case la::REPEAT_GROUP:
+        return render_type_arg_src_(node);
+    case la::PAREN_TYPE:   // `(T)`
+        return node.has_key(la::TYPE) ? "(" + recur(map_of(node.get(la::TYPE.code))) + ")"
+                                      : std::string("()");
     default:
         return std::format("<ty:{}>", c);
     }

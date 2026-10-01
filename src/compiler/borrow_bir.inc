@@ -237,9 +237,29 @@ static std::optional<std::vector<TypeRef>> bir_struct_fields(TypeRef t, const li
 // spelling yet, so the stand-in is the counter-based checker's
 // (BorrowChecker::drop_can_observe_borrow): DECLARED FIELDS only, never type
 // arguments. The two must answer alike until the attribute exists.
+static std::optional<std::vector<std::pair<std::string, TypeRef>>>
+bir_enum_named_payloads(TypeRef t, const lir::LProgram& prog, const TypeSets& ts);
+
 static bool bir_drop_observes_borrow(TypeRef t, const lir::LProgram& prog, const TypeSets& ts,
                                      int depth = 0) {
-    if (!t || depth > 4 || t.kind() != LogosType::Kind::Struct) return false;
+    if (!t || depth > 4) return false;
+    // A destructor observing a borrow can sit INSIDE an aggregate: an enum's
+    // payload (`Option<PeekMut<'_>>`, a match scrutinee dropped after the arm
+    // — rustc E0499 in borrowck/issue-85581), a tuple's or an array's element.
+    if (t.kind() == LogosType::Kind::Enum) {
+        if (auto ps = bir_enum_named_payloads(t, prog, ts))
+            for (auto& [_, pt] : *ps)
+                if (bir_drop_observes_borrow(pt, prog, ts, depth + 1)) return true;
+        return false;
+    }
+    if (t.kind() == LogosType::Kind::Tuple) {
+        for (auto e : t.tuple_elems())
+            if (bir_drop_observes_borrow(e, prog, ts, depth + 1)) return true;
+        return false;
+    }
+    if (t.kind() == LogosType::Kind::Array)
+        return bir_drop_observes_borrow(t.elem(), prog, ts, depth + 1);
+    if (t.kind() != LogosType::Kind::Struct) return false;
     if (!needs_drop(t, prog, ts)) return false;
     std::string want = concrete_struct_name(t);
     auto reaches_ref = [&](lir_view::StructView sd) -> bool {
@@ -460,6 +480,11 @@ public:
     // with what it was given.
     decltype(bir::Body::tv_bounds) parent_tv_bounds_;
     void set_parent_tv_bounds(const decltype(bir::Body::tv_bounds)& tb) { parent_tv_bounds_ = tb; }
+    // ... and its `T: Copy` parameters: `|x: &T| *x` inside `fn f<T: Copy>`
+    // copies (#434 is the enclosing fn's bound; the closure has none of its own).
+    std::unordered_set<std::string> parent_copy_tvs_;
+    void set_parent_copy_tvs(const std::unordered_set<std::string>& c) { parent_copy_tvs_ = c; }
+    const std::unordered_set<std::string>& copy_tvs() const { return copy_tvs_; }
     bir::Body build_closure(lir_view::ExprRef e) {
         lir_view::EClosureBoxView v{e};
         body_ = {};
@@ -467,7 +492,7 @@ public:
         body_.name = "closure " + std::string(v.closure_id());
         body_.is_closure = true;
         body_.ret_tied = v.ret_tied();
-        copy_tvs_.clear();
+        copy_tvs_ = parent_copy_tvs_;
         aliases_.clear();
         closures_.clear();
         new_local("_ret", bir::LocalKind::Return, v.ret_type(pool_), true, ~0u, 0);
@@ -3338,6 +3363,32 @@ private:
                 // `w.n`. Borrowing the whole scrutinee refused both.
                 std::vector<bir::Place> tested;
                 for (auto& a2 : arms) tested_places(sp, stype, a2.pat(), tested);
+                // ... and rustc's SHALLOW fake borrows of every prefix that is
+                // dereferenced on the way to a tested place: `match *y { false
+                // if { y = &true; .. } }` re-points what is matched (E0510). A
+                // shared borrow of the reference `y` itself is that conflict:
+                // assigning or `&mut`-borrowing `y` invalidates it, reading
+                // through it does not.
+                {
+                    auto same = [](const bir::Place& a, const bir::Place& b) {
+                        if (a.local != b.local || a.proj.size() != b.proj.size()) return false;
+                        for (size_t k = 0; k < a.proj.size(); ++k)
+                            if (a.proj[k].k != b.proj[k].k || a.proj[k].field != b.proj[k].field ||
+                                a.proj[k].index != b.proj[k].index ||
+                                a.proj[k].const_index != b.proj[k].const_index) return false;
+                        return true;
+                    };
+                    const size_t n0 = tested.size();
+                    for (size_t t = 0; t < n0; ++t)
+                        for (size_t k = 0; k < tested[t].proj.size(); ++k) {
+                            if (tested[t].proj[k].k != bir::Proj::K::Deref) continue;
+                            bir::Place pre; pre.local = tested[t].local;
+                            pre.proj.assign(tested[t].proj.begin(), tested[t].proj.begin() + (std::ptrdiff_t)k);
+                            bool dup = false;
+                            for (auto& q : tested) if (same(q, pre)) { dup = true; break; }
+                            if (!dup) tested.push_back(std::move(pre));
+                        }
+                }
                 std::vector<bir::LocalId> fakes;
                 for (auto& tp : tested) {
                     bir::LocalId fake = synth_ref_temp({}, false);
@@ -7160,6 +7211,7 @@ static BirVerdict bir_check(lir_view::FunctionView fn, const lir::LProgram& prog
     for (size_t qi = 0; qi < queue.size(); ++qi) {
         BirBuilder cb(prog, ts, idx, flows);
         cb.set_parent_tv_bounds(body.tv_bounds);
+        cb.set_parent_copy_tvs(builder.copy_tvs());
         bir::Body cbody = cb.build_closure(queue[qi]);
         // ⚠ «CONSERVATIVE» HAS A DIRECTION. A closure body this lowering cannot
         // express makes the ENCLOSING function's verdict incomplete too, so the

@@ -1,0 +1,22 @@
+// SOUNDNESS QUEUE row guard_closure_moves_ref_mut_binding_admits (tier 2, `admits`). a match guard moving a `ref mut` binding into a closure is admitted (rustc E0507 "cannot move out of `foo` in pattern guard")
+// Logos: compiles clean. BIR captures `foo` BY REFERENCE (`_t8 = & foo`); rustc captures it BY MOVE (`let bar = foo`).
+// rustc: refuses (see the original fixture's header below).
+// fix hint: owner ADR 0029 (closure capture mode); the S0-S7 gap triage 2026-10-01.
+// rustc nll/issue-27282-move-ref-mut-into-guard.rs — upstream E0507 cannot move out of `foo` in pattern guard
+// | imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
+// | shelf: fail — REFUSED since 2026-08-27 (a by-ref pattern binding now raises a loan on the scrutinee sub-place)
+// | t14 reduced: a `ref mut` pattern binding deposits no loan on the matched place
+// | 2026-10-01: the t14 reduction (`ref mut foo => { let n = v; }`, foo unused) is
+// | LEGAL Rust — rustc 1.98.1 compiles it: NLL ends foo's loan at its last use.
+// | Restored to upstream's construct: the guard MOVES the `ref mut` binding into
+// | a closure (E0507 "cannot move out of `foo` in pattern guard").
+package guard_closure_moves_ref_mut_binding_admits;
+use logos.lang.option;
+fn main() -> i32 {
+    let mut o: Option<i64> = Option::Some(4i64);
+    match o {
+        Option::None => { return 0i32; }
+        ref mut foo if { let c = || { let bar = foo; let _ = bar.take(); }; c(); false } => { return 1i32; }
+        Option::Some(s) => { return s as i32; }
+    }
+}

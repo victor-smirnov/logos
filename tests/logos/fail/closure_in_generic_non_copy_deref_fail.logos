@@ -1,0 +1,9 @@
+package closure_in_generic_non_copy_deref_fail;
+// Control twin of pass/closure_in_generic_two_insts: without `T: Copy` the closure's
+// `*x` moves out of a reference (rustc E0507). With the bound the enclosing fn's
+// Copy parameters reach the closure body (2026-10-01).
+fn once<T>(v: T) -> T {
+    let c = |x: &T| -> T { return *x; };
+    return c(&v);
+}
+fn main() -> i32 { let a: i64 = once(3i64); return (a - 3i64) as i32; }

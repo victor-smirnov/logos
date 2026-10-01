@@ -356,6 +356,12 @@ pub struct HeldAny { holder: Rc<dyn Resident>, raw: i64 }
 
 /// Pairs `v` with a clone of the container's residency holder — the escape form of a `WAny`.
 pub fn hold_any(h: &Rc<Writ>, v: WAny) -> HeldAny {
+    // The share kept is `h`'s: a Ref into ANOTHER container would outlive its
+    // arena (#437, the check every handle -> reference resolver makes).
+    let w: &Writ = &**h;
+    if v.is_ref() && !w.owns(v.resolve()) {
+        panic("hold_any: the WAny is a Ref into another container (#437)");
+    }
     let holder: Rc<dyn Resident> = h.clone_ref();
     return HeldAny { holder: holder, raw: v.raw() };
 }

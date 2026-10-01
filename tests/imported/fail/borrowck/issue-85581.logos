@@ -1,16 +1,22 @@
 // rustc borrowck/issue-85581.rs — upstream E0499 cannot borrow mutably twice
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: fail · root bck.B
+// 2026-10-01: upstream's `BinaryHeap::peek_mut` returns `PeekMut`, which has a
+// DESTRUCTOR — that is what keeps the scrutinee's borrow live through the arm.
+// The port returned `Option<&mut i64>` (no Drop) and the arm never used it: legal
+// Rust (rustc 1.98.1 compiles it). The guard type is restored with a Drop impl.
 package issue_85581;
 use logos.lang.option;
 struct Heap { v: i64 }
+struct PeekMut<'a> { r: &'a mut i64 }
+impl<'a> Drop for PeekMut<'a> { fn drop(&mut self) { *self.r = *self.r + 0i64; } }
 impl Heap {
-    fn peek_mut(self: &mut Heap) -> Option<&mut i64> { return Option::Some(&mut self.v); }
+    fn peek_mut(self: &mut Heap) -> Option<PeekMut<'_>> { return Option::Some(PeekMut { r: &mut self.v }); }
     fn pop(self: &mut Heap) -> i64 { return self.v; }
 }
 fn foo(heap: &mut Heap) -> i32 {
     match heap.peek_mut() {
-        Option::Some(g) => { let _ = heap.pop(); }   // ERROR: cannot borrow `*heap` mutably twice
+        Option::Some(_) => { let _ = heap.pop(); }   // ERROR: cannot borrow `*heap` mutably twice
         Option::None => {}
     }
     return 0i32;

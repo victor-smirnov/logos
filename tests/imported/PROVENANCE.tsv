@@ -763,8 +763,6 @@ tests/imported/fail/nll/issue-21232-partial-init-and-erroneous-use--c	tests/ui/n
 tests/imported/fail/nll/issue-21232-partial-init-and-erroneous-use--d	tests/ui/nll/issue-21232-partial-init-and-erroneous-use.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/nll/issue-21232-partial-init-and-use--a-use-uninit-field-assign	tests/ui/nll/issue-21232-partial-init-and-use.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/nll/issue-21232-partial-init-and-use--b-assign-to-part-of-moved	tests/ui/nll/issue-21232-partial-init-and-use.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
-tests/imported/fail/nll/issue-27282-move-match-input-into-guard	tests/ui/nll/issue-27282-move-match-input-into-guard.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
-tests/imported/fail/nll/issue-27282-move-ref-mut-into-guard	tests/ui/nll/issue-27282-move-ref-mut-into-guard.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/nll/issue-27282-mutate-before-diverging-arm-1	tests/ui/nll/issue-27282-mutate-before-diverging-arm-1.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/nll/issue-27282-mutate-before-diverging-arm-2--c-guard-mutate-noclosure	tests/ui/nll/issue-27282-mutate-before-diverging-arm-2.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
 tests/imported/fail/nll/issue-27282-mutate-before-diverging-arm-2--guard-mutate	tests/ui/nll/issue-27282-mutate-before-diverging-arm-2.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	no
@@ -4622,4 +4620,4 @@ tests/imported/pass/where-clauses/where-clauses-method-b146	tests/ui/where-claus
 tests/imported/pass/where-clauses/where-clauses-method-b149	tests/ui/where-clauses/where-clauses-method.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/pass/where-clauses/where-clauses-method-b151	tests/ui/where-clauses/where-clauses-method.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
 tests/imported/pass/where-clauses/where-clauses-method-wc4	tests/ui/where-clauses/where-clauses-method.rs	4b0c9d76ae7d387229caea55cfa73c280b08b8a7	header-path	high	yes
-# TOTAL 4592
+# TOTAL 4590

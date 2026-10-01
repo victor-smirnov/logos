@@ -1,3 +1,8 @@
+// 2026-10-01: REFUSED, as rustc refuses its twin — the verdict follows the SIGNATURE
+// (elision ties the result to the borrowed argument / to `&self`), not what the
+// callee's body happens to return. Was an `_admit` pin of the counter-based checker's
+// body-summary rule (result<-0); the new borrow checker (ADR 0028) is signature-based,
+// as rustc is, and there is no blessed divergence for the old rule.
 // #83 — ADMIT half of the mono-key door.
 //
 // ONE VARIABLE against fail/bc_esc_generic_monokey_dangle: which impl the
@@ -11,7 +16,7 @@
 // unresolvable receiver: the verdict follows the callee mono actually picked.
 // A conservative route keyed on "the receiver is a TypeVar" cannot tell these
 // two programs apart and would refuse both.
-package bc_esc_generic_monokey_admit;
+package bc_esc_generic_monokey_sig_fail;
 
 use logos.mem.string;
 

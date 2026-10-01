@@ -6776,9 +6776,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11858 -> 11858 (+0), NOIMPORTED 7296 -> 7297 (+1), TIERCOMMIT 202 -> 203 (+1) — 2026-09-30: ADR 0030 C-EXP.2d gate sample: imported fail borrowck/copy-suggestion-region-vid had gone silent -> squeue row.
 #                ALL 11858 -> 11890 (+32), NOIMPORTED 7297 -> 7329 (+32), TIERCOMMIT 203 -> 202 (-1) — 2026-10-01: S0-S7 gap round: +28 pass fixtures gap1001_* (27 cluster representatives + 1 admit twin) and deferred_let_without_type (squeue row closed, tier_commit -1); +4 fail fixtures gap1001_*.
 #                ALL 11890 -> 11894 (+4), NOIMPORTED 7329 -> 7333 (+4), TIERCOMMIT 202 -> 206 (+4) — 2026-10-01: +4 squeue rows (the S0-S7 gap audit's clusters outside ADR 0030: #716-#719).
-REGISTRY-ALL         11894
-REGISTRY-NOIMPORTED  7333
-REGISTRY-TIERCOMMIT  206
+#                ALL 11894 -> 11896 (+2), NOIMPORTED 7333 -> 7337 (+4), TIERCOMMIT 206 -> 209 (+3) — 2026-10-01: long-red re-triage: 3 str _admit pins -> fail *_sig_fail, residency dangle fail -> pass (runtime #437); 3 holes -> squeue rows (tier_commit +3); +2 fail twins; -2 imported fail moved to squeue.
+REGISTRY-ALL         11896
+REGISTRY-NOIMPORTED  7337
+REGISTRY-TIERCOMMIT  209
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
@@ -8537,7 +8538,7 @@ RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-fr
 #   tests/logos/fail/bc_esc_holder_reborrow_field_dangle.logos
 #   tests/logos/fail/bc_esc_holder_reborrow_container_dangle.logos
 #   tests/logos/fail/bc_esc_holder_index_assign_dangle.logos
-#   tests/logos/fail/bc_esc_holder_residency_pershare_dangle.logos
+#   tests/logos/pass/bc_esc_holder_residency_pershare_dangle.logos (since 2026-10-01 a runtime #437 panic)
 #   tests/logos/pass/bc_esc_holder_reborrow_field_admit.logos
 #   tests/logos/pass/bc_esc_holder_reborrow_container_admit.logos
 #   tests/logos/pass/bc_esc_holder_index_assign_admit.logos
@@ -8816,7 +8817,7 @@ RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-fr
 #   tests/logos/pass/bc_esc_holder_container_vec_struct_admit.logos
 #   tests/logos/pass/bc_esc_holder_container_outparam_admit.logos
 # CANARIES RE-MEASURED GREEN, not assumed: examples/writ_container_showcase.logos
-# (make_held_doc), tests/logos/pass/bc_argcomp_tvbuild_byvalue_fat_admit.logos,
+# (make_held_doc), tests/logos/fail/bc_argcomp_tvbuild_byvalue_fat_sig_fail.logos (was the _admit pin; refused since 2026-10-01, the signature verdict rustc gives),
 # all 33 `bc_esc_holder_*` / `bc_fatret_*` / `bc_d1r3_*` tests
 # (`ctest -R bc_esc_holder` 33/33, `ctest -R _bc_` 282/282,
 # `ctest -L fail` 1413/1413).
@@ -9014,7 +9015,7 @@ RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-fr
 #     tests/logos/fail/bc_esc_generic_outparam_dangle.logos
 #     tests/logos/pass/bc_esc_generic_recv_admit.logos
 #     tests/logos/pass/bc_esc_generic_uninst_admit.logos
-#     tests/logos/pass/bc_esc_generic_monokey_admit.logos
+#     tests/logos/fail/bc_esc_generic_monokey_sig_fail.logos (was the _admit pin; refused since 2026-10-01)
 #   CONTROLS, one variable each, logosc-only rebuild, restored between:
 #     (1) `if (true) return nullptr;` at the head of the mono-key fallback ->
 #         fail/bc_esc_generic_monokey_dangle rc 0 (defect back); the other six
@@ -9348,7 +9349,7 @@ RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-fr
 #     tests/logos/fail/bc_flowsum_rawtrip_outparam_dangle.logos
 #     tests/logos/pass/bc_flowsum_rawtrip_outparam_admit.logos
 #     tests/logos/fail/bc_fatret_nested_call_dangle.logos
-#     tests/logos/pass/bc_fatret_nested_call_admit.logos
+#     tests/logos/fail/bc_fatret_nested_call_sig_fail.logos (was the _admit pin; refused since 2026-10-01)
 #     tests/logos/fail/bc_fatret_methodarg_dangle.logos
 #     tests/logos/pass/bc_fatret_methodarg_admit.logos
 #   Each admit twin differs from its dangle twin by ONE VARIABLE — whether the
@@ -9676,7 +9677,7 @@ RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-fr
 #   one-level twin bc_d1res_r2_sliceform_dangle refused.
 #     tests/logos/fail/bc_argcomp_nested_call_dangle.logos
 #     tests/logos/pass/bc_argcomp_nested_call_admit.logos
-#     tests/logos/pass/bc_argcomp_tvbuild_byvalue_fat_admit.logos  (the
+#     tests/logos/fail/bc_argcomp_tvbuild_byvalue_fat_sig_fail.logos (was the _admit pin; refused since 2026-10-01, the signature verdict rustc gives)  (the
 #       by-value fat COPY exemption the per-arg filters exist for — before this
 #       task NOTHING under tests/ pinned it; grep found tv_build in exactly one
 #       stdlib file and zero tests, and no bc_* fixture mentioned as_str)

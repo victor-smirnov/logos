@@ -445,6 +445,24 @@ bodies after `hir_body_`, where an expression exit reaching lowering is the
 | `open-range-for-head-parse` | outside-grammar | outside ADR 0030 — squeue row open_range_for_head_parse_refused (#716); the parenthesised `for i in (0i64..)` runs since the L0 fix | `for i in 0.. { if i > 5 { break; } n += i; }` gives a syntax error in Logos; rustc prints 15. The parenthesised `for i in (0i64..)` parses but loops zero times (prints 0) |
 | `u16-mul-overflow-unchecked` | outside-other | outside ADR 0030 — not a defect: overflow traps by DIVERGENCES A13 (always checked, abort) — rustc debug panics, the same verdict by the blessed model | `b * 300` with b: u16 = 255 traps (SIGILL, rc=132); rustc debug panics (rc=101). Overflow IS checked: i64 and u16 overflow both trap. |
 
+### Long-red fixtures re-triaged (2026-10-01)
+
+Sixteen tests had been red since the new borrow checker (ADR 0028) became the
+default (lt runs 122+, 2026-09-21), carried as "pre-existing". Each was taken to
+rustc 1.98.1:
+
+| fixture | verdict | resolution |
+|---|---|---|
+| `borrowck-lend-flow-loop`, `issue-85581`, `issue-27282-move-ref-mut-into-guard` | MIS-PORTS — legal Rust as ported (a dropped `if cond2`; a guard type without its Drop; an unused `ref mut` binding) | upstream construct restored |
+| `match-guards-partially-borrow--b` | checker hole: no fake borrow of the prefix dereferenced to reach a tested place (E0510) | fixed in the extractor |
+| `issue-85581` (restored) | checker hole: a destructor inside an enum / tuple / array payload kept no loan live | fixed (`bir_drop_observes_borrow`) |
+| `closure_in_generic_two_insts` | over-refusal: a closure body did not inherit the enclosing fn's `T: Copy` | fixed; control twin `closure_in_generic_non_copy_deref_fail` |
+| `bc_esc_holder_residency_pershare_dangle` | use after free, no runtime check | `hold_any` asks `Writ::owns` (#437, design #464); now a runtime-panic pass fixture |
+| `expr_11`, `bc_recv_addroftemp_resv_admit` (case 3), `bc_{esc_generic_monokey,fatret_nested_call,argcomp_tvbuild_byvalue_fat}_admit` | the CHECKER was right (E0382, E0499, signature elision) | fixtures corrected / moved to fail (`*_sig_fail`) |
+| `issue-48238`, `bc_capret_move_addr_of_capture_fail`, `bc_capmovewalk_move_body_ret_capture_fail` | refused, new sentence closer to rustc's | `.expected` updated |
+| `issue-27282-move-match-input-into-guard`, the restored `issue-27282-move-ref-mut-into-guard` | hole: a guard's closure captures a `&mut`/`ref mut` used by value BY REFERENCE (rustc: by move) | MOVED to ADR 0029 — squeue rows `guard_closure_moves_*_admits` |
+| `sd_dst_view_blocks_mut_receiver` | hole: a DST method receiver is passed as `copy ar`, no reborrow, no loan | MOVED to S8 (the method probe's receiver adjustment) — squeue row `dst_method_receiver_no_reborrow_admits` |
+
 ## S0 status (2026-10-01)
 
 S0 had no record of being done when S7 was reached; it was taken then, by

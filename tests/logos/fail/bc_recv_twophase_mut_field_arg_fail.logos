@@ -1,0 +1,12 @@
+package bc_recv_twophase_mut_field_arg_fail;
+// A two-phase `&mut s` receiver reservation admits SHARED reads in the argument,
+// not a `&mut` of a field of `s`: rustc E0499 ("cannot borrow `s.b` as mutable more
+// than once at a time"). Was case 3 of pass/bc_recv_addroftemp_resv_admit.
+struct S { a: i64, b: i64 }
+impl S { fn setb(self: &mut S, k: i64) -> i64 { self.b = k; return k; } }
+fn bump_i(p: &mut i64) -> i64 { *p = *p + 1i64; return *p; }
+fn main() -> i32 {
+    let mut s: S = S { a: 1i64, b: 2i64 };
+    if s.setb(bump_i(&mut s.b)) != 3i64 { return 3i32; }
+    return 0i32;
+}

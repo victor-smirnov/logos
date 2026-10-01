@@ -1,7 +1,11 @@
+// SOUNDNESS QUEUE row dst_method_receiver_no_reborrow_admits (tier 2, `admits`). a #[self_describing] DST method call takes no loan of its receiver: a live `&[u8]` view of `ar` survives `ar.resize(..)` (rustc E0502)
+// Logos: compiles clean. BIR passes the receiver as `copy ar` — no `&*ar` / `&mut *ar` reborrow, so no loan is issued (try_method_on_dstref).
+// rustc: refuses (E0502 on the twin with an elided `&self -> &[u8]`).
+// fix hint: owner S8 (C-RES: the receiver adjustment is the method probe's); the S0-S7 gap triage 2026-10-01.
 // A #[self_describing] DST method call lowers to a plain Call with a DstRef
 // receiver arg — the elision tie + receiver conflict check must still apply:
 // a live slot view rejects a &mut-self call (pkd invalidation contract).
-package sd_dst_view_blocks_mut_receiver;
+package dst_method_receiver_no_reborrow_admits;
 use logos.lang.marker;
 use logos.lang.slice;
 

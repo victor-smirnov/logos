@@ -1,3 +1,8 @@
+// 2026-10-01: REFUSED, as rustc refuses its twin — the verdict follows the SIGNATURE
+// (elision ties the result to the borrowed argument / to `&self`), not what the
+// callee's body happens to return. Was an `_admit` pin of the counter-based checker's
+// body-summary rule (result<-0); the new borrow checker (ADR 0028) is signature-based,
+// as rustc is, and there is no blessed divergence for the old rule.
 // #71/#72 round, layer 2 — ADMIT half, and the ONE VARIABLE against the
 // dangle twin is whether the CALLEE RETAINS its argument. Everything else is
 // byte-identical: same fat `str` by-value argument, same `MethodCall` node,
@@ -11,7 +16,7 @@
 // callee DOES. The companion pin
 // tests/logos/pass/bc_argcomp_tvbuild_byvalue_fat_admit.logos holds the same
 // line for a `#[borrow_carrying]` result.
-package bc_fatret_nested_call_admit;
+package bc_fatret_nested_call_sig_fail;
 use logos.mem.string;
 
 pub fn my_as_str3(s: &str) -> str { return "abcde"; }

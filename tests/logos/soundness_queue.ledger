@@ -464,5 +464,12 @@ collect_into_option_refused 3 tests/soundness/open/collect_into_option_refused r
 
 array_by_value_into_iter_refused 3 tests/soundness/open/array_by_value_into_iter_refused refuses
 
-# TOTAL 143
-# SYNC-HASH d65488400515d034f5fa290de3a6c4e8
+# ── 2026-10-01 long-red fail fixtures re-triaged: holes owned by a later step
+guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_scrutinee_admits admits
+
+guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_moves_ref_mut_binding_admits admits
+
+dst_method_receiver_no_reborrow_admits 2 tests/soundness/open/dst_method_receiver_no_reborrow_admits admits
+
+# TOTAL 146
+# SYNC-HASH 8881809c2a073545855d71204c4fe9df

@@ -1,3 +1,8 @@
+// 2026-10-01: REFUSED, as rustc refuses its twin — the verdict follows the SIGNATURE
+// (elision ties the result to the borrowed argument / to `&self`), not what the
+// callee's body happens to return. Was an `_admit` pin of the counter-based checker's
+// body-summary rule (result<-0); the new borrow checker (ADR 0028) is signature-based,
+// as rustc is, and there is no blessed divergence for the old rule.
 // #70(a), ABUSE DIRECTION for an exemption that had NO test.
 // collect_ref_sources_paths' per-arg filters exclude FAT-typed arguments on
 // purpose: `tv_build(h, name.as_str(), …)` (stdlib/mem/writ/parser.logos, over
@@ -17,7 +22,7 @@
 // returns a `#[borrow_carrying]` value too. A fat by-value argument produced
 // by a MethodCall on a local that dies before the result is used must stay
 // ADMITTED even when the result COULD carry a borrow.
-package bc_argcomp_tvbuild_byvalue_fat_admit;
+package bc_argcomp_tvbuild_byvalue_fat_sig_fail;
 use logos.mem.string;
 
 #[borrow_carrying]

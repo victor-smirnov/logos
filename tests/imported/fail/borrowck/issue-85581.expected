@@ -1,1 +1,1 @@
-cannot borrow 'heap': 'heap' is already mutably borrowed
+cannot borrow '*heap' as mutable more than once at a time

@@ -1,0 +1,1 @@
+lifetime may not live long enough: returning data from 's' requires its region to outlive the elided result's

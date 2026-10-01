@@ -65,7 +65,7 @@ fn apply(f: fn(i64) -> i64, v: i64) -> i64 { return f(v); }
 // A generic struct with a generic static method (type-param from the impl):
 // callable with argument inference and with explicit turbofish type-args.
 struct Pair<T> { a: T, b: T }
-impl<T> Pair<T> {
+impl<T: Copy> Pair<T> {   // `x` is used twice: Copy (rustc E0382 otherwise)
     fn dup(x: T) -> Pair<T> { return Pair { a: x, b: x }; }
 }
 

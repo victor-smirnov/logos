@@ -1,3 +1,8 @@
+// 2026-10-01: HELD AT RUN TIME now, by the decided design (#464: a foreign arena is
+// a RUNTIME address-range check). `hold_any` asks `Writ::owns` like every other
+// handle -> reference resolver (#437) and panics: the Ref `e` is into `h`, the share
+// kept is `h2`'s. Was a fail fixture expecting a static refusal the new borrow
+// checker does not make (a type-level residency heuristic cannot see which arena).
 // #86 MISS-D — THE RESIDENCY NARROWING WAS WEAKER THAN ITS OWN STATED RULE.
 //
 // MEASURED rc 0, and the gate does not even open. `residency_exemption_holds`

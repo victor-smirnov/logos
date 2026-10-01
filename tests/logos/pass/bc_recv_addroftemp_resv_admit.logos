@@ -31,8 +31,9 @@ fn main() -> i32 {
     if s.set(s.get() + 1i64) != 2i64 { return 1i32; }
     // 2 two shared reads inside one `&mut self` receiver's arguments
     if s.set(s.get() + s.get()) != 4i64 { return 2i32; }
-    // 3 a `&mut` of a DISJOINT FIELD in the argument
-    if s.setb(bump_i(&mut s.b)) != 3i64 { return 3i32; }
+    // 3 (moved 2026-10-01 to fail/bc_recv_twophase_mut_field_arg_fail: a `&mut`
+    //   of a field in the argument conflicts with the reserved `&mut s` — rustc E0499)
+    s.b = 3i64;
     // 4 a SHARED read of a disjoint field in the argument
     if s.set(read_i(&s.b)) != 3i64 { return 4i32; }
     // 5 a zero-arg `&mut self` call — no sibling to conflict with

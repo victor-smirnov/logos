@@ -1,1 +1,1 @@
-cannot return reference to local variable 'orig': dangling reference
+borrowed data escapes outside of closure: 'orig'
