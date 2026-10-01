@@ -991,12 +991,12 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                         // Construct via lower_enum_lit_data_from_static
                         // so generic-enum hint propagation kicks in.
                         std::vector<TypeRef> ta;
-                        const bool hinted = hint_enum_type_ &&
-                            TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
-                            TypeRef(hint_enum_type_).enum_name() == vit->second &&
-                            TypeRef(hint_enum_type_).type_args().size() == esi->type_params.size();
+                        const bool hinted = enum_shape_() &&
+                            TypeRef(enum_shape_()).kind() == LogosType::Kind::Enum &&
+                            TypeRef(enum_shape_()).enum_name() == vit->second &&
+                            TypeRef(enum_shape_()).type_args().size() == esi->type_params.size();
                         for (size_t i = 0; i < esi->type_params.size(); ++i)
-                            ta.push_back(hinted ? TypeRef(TypeRef(hint_enum_type_).type_args()[i])
+                            ta.push_back(hinted ? TypeRef(TypeRef(enum_shape_()).type_args()[i])
                                                 : mint_infer_var_(std::format(
                                                       "the type argument `{}` of `{}` — give the binding a type",
                                                       esi->type_params[i].name, name)));
@@ -1020,18 +1020,18 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                 for (auto& v : esi->variants)
                     if (v.name == "None") { vinfo = &v; break; }
                 if (vinfo) {
-                    // Prefer hint_enum_type_ (let-annotation `Option<T>`)
+                    // Prefer enum_shape_() (let-annotation `Option<T>`)
                     // so `let r: Option<i32> = None.or(Some(x))` resolves
                     // T at receiver-construction time. Without this,
                     // None lowers as Option<TypeVar(T)>, method dispatch
                     // produces `Option__T__or__…` (unbound), and mlir-gen
                     // can't find the specialised symbol.
                     std::vector<TypeRef> ta;
-                    if (hint_enum_type_ &&
-                        TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
-                        TypeRef(hint_enum_type_).enum_name() == "Option" &&
-                        !TypeRef(hint_enum_type_).type_args().empty()) {
-                        ta.push_back(TypeRef(hint_enum_type_).type_args()[0]);
+                    if (enum_shape_() &&
+                        TypeRef(enum_shape_()).kind() == LogosType::Kind::Enum &&
+                        TypeRef(enum_shape_()).enum_name() == "Option" &&
+                        !TypeRef(enum_shape_()).type_args().empty()) {
+                        ta.push_back(TypeRef(enum_shape_()).type_args()[0]);
                     } else {
                         // Unconstrained here: an inference variable a later
                         // use solves (`let mut a = None; a = Some(1)`).
@@ -2566,7 +2566,6 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             lir::LExprPtr e;
             {
                 TypeRef he = i < hint_elems.size() ? hint_elems[i] : TypeRef(nullptr);
-                ElemHintScope eh(*this, he, /*scalar_arr=*/false);
                 e = lower_expr_expecting(map_of(items.get(i)), he && type_is_concrete(he) ? he : TypeRef(nullptr), he);
             }
             // Widen an int-literal element to the expected element type.
@@ -2766,13 +2765,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // instead of defaulting them and comparing two different layouts.
     const bool cmp_op_ = op == "==" || op == "!=" || op == "<" || op == "<=" ||
                          op == ">" || op == ">=";
-    std::optional<ElemHintScope> rhs_hint_;
     TypeRef rhs_shape = nullptr;
     if (cmp_op_ && lhs) {
         TypeRef lht = expr_type(lhs);
         if (lht && (TypeRef(lht).kind() == LogosType::Kind::Tuple ||
                     TypeRef(lht).kind() == LogosType::Kind::Enum)) {
-            rhs_hint_.emplace(*this, lht);
             rhs_shape = lht;
         }
     }
@@ -2780,7 +2777,6 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     auto rhs = sc_fork
         ? lower_expr_temp_scoped(map_of(node.get(la::RHS.code)))
         : lower_expr(map_of(node.get(la::RHS.code)));
-    rhs_hint_.reset();
     if (!sc_fork) spill_before_hoist(lhs, hoist_mark_);
     // LANDED 2026-08-30 (was `scinitcond`): an initialization performed in the
     // RHS is CONDITIONAL, so the names uninitialised before the RHS are
@@ -3697,7 +3693,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         TypeRef(lt).enum_name() == TypeRef(rt).enum_name()) {
         // A payload-less enum literal operand (`Option::None`) lowers to the
         // bare enum type (no type-args) when it has no local inference source
-        // (see lower_enum_lit's hint_enum_type_ path). The OTHER operand's
+        // (see lower_enum_lit's enum_shape_() path). The OTHER operand's
         // concrete type (`Option<i64>`) is exactly that source — re-lower the
         // bare operand with it as the enum-type hint so both sides carry the
         // same concrete heap layout the generic `eq` impl expects. Without
@@ -3710,10 +3706,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             if (TypeRef(sty).type_args().empty() &&
                 TypeRef(hint).kind() == LogosType::Kind::Enum &&
                 !TypeRef(hint).type_args().empty()) {
-                TypeRef saved = hint_enum_type_;
-                hint_enum_type_ = hint;
-                side = lower_expr(anode);
-                hint_enum_type_ = saved;
+                side = lower_expr_expecting(anode, nullptr, hint);
                 sty = expr_type(side);
             }
         };
@@ -5342,33 +5335,13 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             }
             return nullptr;
         };
-        // K4-root: a payload-carrying enum-literal argument
-        // (`take(Option::Some(Option::None))`) needs the formal parameter's
-        // concrete enum type as `hint_enum_type_` so nested payload-less
-        // variants pin their type-args and heap-allocate correctly. Without
-        // this the arg lowers hint-less → bare C-style enum → deref garbage.
-        auto enum_hint_for = [&](size_t formal_idx) -> TypeRef {
-            if (!hint_fi || formal_idx >= hint_fi->param_types.size()) return nullptr;
-            TypeRef pt = hint_fi->param_types[formal_idx];
-            // Only a FULLY CONCRETE enum formal is a valid hint. A generic
-            // formal like `Option<T>` (T a fn type-param) must be inferred from
-            // the actual arg, not pinned — hinting it would type `Some(2)`'s
-            // payload as `T` instead of `i32` and break inference downstream.
-            if (pt && TypeRef(pt).kind() == LogosType::Kind::Enum &&
-                !TypeRef(pt).type_args().empty() && !enum_arg_unresolved(pt))
-                return elide_sig_lts_(pt);
-            return nullptr;
-        };
         SemaSubst ret_binds;
         if (hint_fi && !hint_fi->type_params.empty() && hint_fi->ret_type && expected_ && type_is_concrete(expected_))
             unify_types(hint_fi->ret_type, expected_, ret_binds);
         for (uint64_t i = 0; i < args.size(); ++i) {
             TypeRef saved = hint_closure_formal_;
-            TypeRef saved_eh = hint_enum_type_;
             if (TypeRef h = closure_hint_for((size_t)i))
                 hint_closure_formal_ = h;
-            if (TypeRef eh = enum_hint_for((size_t)i))
-                hint_enum_type_ = eh;
             const size_t arg_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
             // A concrete formal is the argument's expected type (C-EXP), as at
             // a method or static call: `first(if c { &a3 } else { &a5 })` against
@@ -5377,8 +5350,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             // expectation fixes through its return type (rustc's expected
             // inputs for the expected output): `let g: G<..> = idg(G { .. })`.
             TypeRef arg_shape = hint_fi && i < hint_fi->param_types.size() ? hint_fi->param_types[i] : TypeRef(nullptr);
-            if (arg_shape && !ret_binds.empty()) arg_shape = subst_type_sema(arg_shape, ret_binds);
-            if (arg_shape) arg_shape = elide_sig_lts_(foreign_shape_(arg_shape, hint_fi->type_params));
+            if (arg_shape) arg_shape = elide_sig_lts_(formal_shape_(arg_shape, hint_fi->type_params, ret_binds));
             TypeRef arg_expect = arg_shape && type_is_concrete(arg_shape) ? arg_shape : TypeRef(nullptr);
             arg_exprs.push_back(lower_expr_expecting(map_of(args.get(i)), arg_expect, arg_shape));
             // Arguments run left to right: an earlier one with effects goes ahead
@@ -5392,7 +5364,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 }
             }
             hint_closure_formal_ = saved;
-            hint_enum_type_ = saved_eh;
         }
     }
     uint64_t n_args = arg_exprs.size();
@@ -5633,7 +5604,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         }
         // CP-cm-03: Rust-prelude shorthand — `Some(x)` / `Ok(x)` / `Err(x)`.
         // No `None` here; that's a bare-ident path. Route through
-        // lower_enum_lit_data_from_static so the hint_enum_type_ path
+        // lower_enum_lit_data_from_static so the enum_shape_() path
         // (`let r: Result<i32, i32> = Ok(42)`) substitutes both type
         // params correctly. Don't carry arg_exprs forward — the helper
         // re-lowers from the AST node; the second lowering is cheap
@@ -8536,7 +8507,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
         // CP-cm-03: Rust-prelude shorthand for Option/Result variant
         // construction. Routes through lower_enum_lit_data_from_static so
-        // hint_enum_type_ propagation (`let r: Result<i32, i32> = Ok(42)`
+        // enum_shape_() propagation (`let r: Result<i32, i32> = Ok(42)`
         // → type_args [i32, i32], not [i32, TypeVar(E)]) works correctly.
         // Only fires when the matching enum is in scope; user-defined
         // fn `Some(x)` still wins (fi_ptr lookup ran above).
@@ -8558,7 +8529,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         }
         // CP-cm-02: bare-variant ctor via `use Type.{V1, …};` alias map.
         // Routes through the same lower_enum_lit_data_from_static path used
-        // by prelude shorthand so hint_enum_type_ + payload typing work.
+        // by prelude shorthand so enum_shape_() + payload typing work.
         {
             auto vit = cur_imports_.variant_aliases.find(std::string(callee));
             if (vit != cur_imports_.variant_aliases.end()) {
@@ -8688,7 +8659,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
     if (!fi_ptr) {
         // G152-8: a turbofish on a no-payload enum variant in value position
         // (`None::<i64>`). Pin the enum's type-args from the turbofish via
-        // hint_enum_type_ and route to the enum-lit path — mirrors the
+        // enum_shape_() and route to the enum-lit path — mirrors the
         // Some/Ok/Err handling in lower_generic_call.
         auto try_variant = [&](const std::string& en, const std::string& vn)
                 -> lir::LExprPtr {
@@ -8705,11 +8676,11 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
                 for (uint64_t i = 0; i < items_size; ++i)
                     targs.push_back(resolve_type(map_of(items.get(i))));
             }
-            TypeRef saved = hint_enum_type_;
+            const TypeRef saved_shape = shape_;
             if (!targs.empty() && targs.size() == vesi->type_params.size())
-                hint_enum_type_ = make_generic_enum(en, std::move(targs));
+                shape_ = make_generic_enum(en, std::move(targs));   // the written arguments are this literal's shape
             auto e = lower_enum_lit_data_from_static(node, en, vn);
-            hint_enum_type_ = saved;
+            shape_ = saved_shape;
             return e;
         };
         if (callee == "None")      { if (auto e = try_variant("Option", "None")) return e; }
@@ -11015,7 +10986,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     std::vector<TypeRef> formals_hint = preload_formals();
     auto lower_arg_with_hint = [&](TinyMapView arg_node, size_t arg_idx) {
         TypeRef saved_closure = hint_closure_formal_;
-        TypeRef saved_enum    = hint_enum_type_;
         TypeRef arg_expect = nullptr;   // the argument's expected type (C-EXP)
         if (arg_idx < formals_hint.size() && formals_hint[arg_idx]) {
             TypeRef f = formals_hint[arg_idx];
@@ -11033,17 +11003,11 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             auto k = TypeRef(f).kind();
             if (LogosType::is_fn_value_kind(k) || k == LogosType::Kind::Closure)
                 hint_closure_formal_ = formals_hint[arg_idx];
-            else if (k == LogosType::Kind::Enum &&
-                     !TypeRef(f).type_args().empty())
-                hint_enum_type_ = elide_sig_lts_(f);
         }
         auto out = lower_expr_expecting(arg_node, arg_expect,
                                         arg_idx < formals_hint.size() && formals_hint[arg_idx]
-                                            ? elide_sig_lts_(hint_fi ? foreign_shape_(formals_hint[arg_idx], hint_fi->type_params)
-                                                                     : formals_hint[arg_idx])
-                                            : TypeRef(nullptr));
+                                            ? elide_sig_lts_(formals_hint[arg_idx]) : TypeRef(nullptr));
         hint_closure_formal_ = saved_closure;
-        hint_enum_type_      = saved_enum;
         // A non-closure argument binds the type params of its formal; later
         // Fn-bounded formals re-derive their closure hint with them (Rust
         // checks arguments left to right the same way).
@@ -13434,8 +13398,6 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 hir_gate_(init);
                 val = error_expr();
             } else if (init.has_key(la::VALUE)) {
-                TypeRef saved_eh = hint_enum_type_;
-                if (fld_concrete_enum) hint_enum_type_ = fld_decl_ty;
                 // G167-2: a field typed as an Fn-bounded type-param
                 // (`struct Holder<F: Fn(i64)->i64> { f: F }`) hints an untyped
                 // closure literal field value (`Holder { f: |x| .. }`) so it
@@ -13465,8 +13427,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 }
                 val = lower_expr_expecting(map_of(init.get(la::VALUE.code)), fld_expect);
                 hint_closure_formal_ = saved_ch;
-                hint_enum_type_ = saved_eh;
-                if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
+                    if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
             } else {
                 val = error_expr();
             }
@@ -14687,7 +14648,6 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         TypeRef expect = arr_hint;
         if (!expect && i > 0 && concrete_enum(expr_type(elems[0]))) expect = expr_type(elems[0]);
         {
-            ElemHintScope eh(*this, expect);
             // An element's expected type is the ELEMENT's: a `vec![..]` or generic
             // call in it reads the call-return hint, which otherwise still held
             // the enclosing `let`'s (`let b: Vec<Vec<i64>> = vec![vec![5, 6]]`
@@ -14710,9 +14670,8 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
                 if (t && t.kind() == LogosType::Kind::Enum && (t.type_args().empty() || open_type(t)) &&
                     t.enum_name() == TypeRef(conc).enum_name() &&
                     (code == la::ENUM_LIT || code == la::VAR_REF)) {
-                    ElemHintScope eh(*this, conc);
                     TypeRef old_t = t;
-                    elems[i] = lower_expr(map_of(items.get(i)));
+                    elems[i] = lower_expr_expecting(map_of(items.get(i)), conc, conc);
                     // The re-lowering REPLACES the first: its type solves the
                     // variables the discarded one minted.
                     if (elems[i] && has_infer_var_(old_t)) infer_unify_(old_t, expr_type(elems[i]));
@@ -15497,7 +15456,6 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
         // The value is lowered against this literal's element expectation
         // (its own elements', if it is an array, are one level down).
         TypeRef ae = arr_elem_shape_();
-        ElemHintScope eh(*this, ae);
         fill_val = lower_expr_expecting(val_node, ae && type_is_concrete(ae) ? ae : TypeRef(nullptr), ae);
     }
     TypeRef elem_type = expr_type(fill_val);
@@ -15816,19 +15774,19 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         }
     }
     // SL-sl-03: a payload-less variant (`Option::None`) on a generic enum
-    // has no inference source for its type-args. Consult `hint_enum_type_`
+    // has no inference source for its type-args. Consult `enum_shape_()`
     // (set by the call-site / let / deref-write context) so the resulting
     // type is `Option<i32>` instead of bare `Option` — mlir-gen needs the
     // concrete name to find the tagged-enum layout.
     TypeRef result_t = make_enum_type(ename, epkg_el);
     auto& einfo_for_hint = eit->second;
     if (!einfo_for_hint.type_params.empty() &&
-        hint_enum_type_ &&
-        TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
-        TypeRef(hint_enum_type_).enum_name() == std::string(ename) &&
-        TypeRef(hint_enum_type_).type_args().size() == einfo_for_hint.type_params.size()) {
+        enum_shape_() &&
+        TypeRef(enum_shape_()).kind() == LogosType::Kind::Enum &&
+        TypeRef(enum_shape_()).enum_name() == std::string(ename) &&
+        TypeRef(enum_shape_()).type_args().size() == einfo_for_hint.type_params.size()) {
         std::vector<TypeRef> targs;
-        for (auto a : TypeRef(hint_enum_type_).type_args()) targs.push_back(a);
+        for (auto a : TypeRef(enum_shape_()).type_args()) targs.push_back(a);
         std::vector<std::string> lt_args;
         for (auto& lp : einfo_for_hint.lifetime_params) {
             (void)lp;
@@ -16060,10 +16018,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 // of lowering as a bare C-style enum the heap-ptr slot mis-reads.
                 TypeRef fld_decl_ty = (idx < vinfo->payload_types.size())
                     ? vinfo->payload_types[idx] : TypeRef(nullptr);
-                if (fld_decl_ty && !eit->second.type_params.empty() && hint_enum_type_ &&
-                    TypeRef(hint_enum_type_).enum_name() == ename) {
+                if (fld_decl_ty && !eit->second.type_params.empty() && enum_shape_() &&
+                    TypeRef(enum_shape_()).enum_name() == ename) {
                     SemaSubst fs;
-                    auto hta = TypeRef(hint_enum_type_).type_args();
+                    auto hta = TypeRef(enum_shape_()).type_args();
                     for (size_t k = 0; k < eit->second.type_params.size() && k < hta.size(); ++k)
                         if (hta[k]) fs[eit->second.type_params[k].name] = hta[k];
                     if (!fs.empty()) fld_decl_ty = subst_type_sema(fld_decl_ty, fs);
@@ -16075,10 +16033,8 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                 lir::LExprPtr val = nullptr;
                 int32_t fcode = code_of(fnode);
                 if (fnode.has_key(la::VALUE)) {
-                    TypeRef saved_eh = hint_enum_type_;
-                    if (fld_concrete_enum) hint_enum_type_ = fld_decl_ty;
-                    val = lower_expr(map_of(fnode.get(la::VALUE.code)));
-                    hint_enum_type_ = saved_eh;
+                    val = lower_expr_expecting(map_of(fnode.get(la::VALUE.code)),
+                                               fld_concrete_enum ? fld_decl_ty : TypeRef(nullptr), fld_decl_ty);
                     if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
                 } else if (fcode == la::FIELD_SHORTHAND) {   // a FIELD_INIT by now (HIR)
                     hir_gate_(fnode);
@@ -16120,11 +16076,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // C-style enum and the outer slot (a heap-ptr) reads garbage at deref.
         // Mirrors lower_enum_lit_data_from_static's pre_subst narrowing.
         SemaSubst pre_subst;
-        if (hint_enum_type_ &&
-            TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
-            TypeRef(hint_enum_type_).enum_name() == std::string(ename) &&
+        if (enum_shape_() &&
+            TypeRef(enum_shape_()).kind() == LogosType::Kind::Enum &&
+            TypeRef(enum_shape_()).enum_name() == std::string(ename) &&
             !eit->second.type_params.empty()) {
-            auto hta = TypeRef(hint_enum_type_).type_args();
+            auto hta = TypeRef(enum_shape_()).type_args();
             for (size_t k = 0; k < eit->second.type_params.size() && k < hta.size(); ++k) {
                 if (!hta[k] || TypeRef(hta[k]).kind() == LogosType::Kind::Error) continue;
                 pre_subst[eit->second.type_params[k].name] = hta[k];
@@ -16132,15 +16088,12 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         }
         auto run = [&](auto items) {
             for (uint64_t i = 0; i < items.size(); ++i) {
-                TypeRef saved_hint = hint_enum_type_;
                 TypeRef payload_expect = nullptr, payload_shape = nullptr;
                 if (i < vinfo->payload_types.size()) {
                     TypeRef pt_i = vinfo->payload_types[i];
                     if (pt_i && !pre_subst.empty())
                         pt_i = subst_type_sema(pt_i, pre_subst);
-                    payload_shape = foreign_shape_(pt_i, eit->second.type_params);
-                    if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Enum)
-                        hint_enum_type_ = pt_i;
+                    payload_shape = formal_shape_(vinfo->payload_types[i], eit->second.type_params, pre_subst);
                     // A CONCRETE payload type is the argument's expected type
                     // (`Option::Some(Vec::new())` under `Option<Vec<i64>>`).
                     if (pt_i && type_is_concrete(pt_i)) {
@@ -16148,7 +16101,6 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     }
                 }
                 auto e = lower_expr_expecting(map_of(items.get(i)), payload_expect, payload_shape);
-                hint_enum_type_ = saved_hint;
                 if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Void) continue;
                 payload.push_back(std::move(e));
             }
@@ -16238,15 +16190,15 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // the enum's T to i32 and the annotation's i64 would be ignored, so
         // a downstream `impl<T> ... for MyOpt<T>` method instantiates at the
         // wrong T (root cause of G150-2's generic-enum-`==` blocker).
-        bool hint_matches = hint_enum_type_ &&
-            TypeRef(hint_enum_type_).enum_name() == std::string(ename) &&
-            !TypeRef(hint_enum_type_).type_args().empty();
+        bool hint_matches = enum_shape_() &&
+            TypeRef(enum_shape_()).enum_name() == std::string(ename) &&
+            !TypeRef(enum_shape_()).type_args().empty();
         auto hint_for_param = [&](std::string_view tvname) -> TypeRef {
             if (!hint_matches) return nullptr;
             for (size_t k = 0; k < einfo.type_params.size() &&
-                               k < TypeRef(hint_enum_type_).type_args().size(); ++k)
+                               k < TypeRef(enum_shape_()).type_args().size(); ++k)
                 if (einfo.type_params[k].name == tvname) {
-                    auto h = TypeRef(hint_enum_type_).type_args()[k];
+                    auto h = TypeRef(enum_shape_()).type_args()[k];
                     if (h && TypeRef(h).kind() != LogosType::Kind::Error) return h;
                     break;
                 }
@@ -16313,10 +16265,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             }
         }
         // Fill any still-unresolved type params from hint (e.g. let e: Result<i32,i32> = Result::Err(-1))
-        if (hint_enum_type_ && TypeRef(hint_enum_type_).enum_name() == std::string(ename)) {
-            for (size_t i = 0; i < einfo.type_params.size() && i < TypeRef(hint_enum_type_).type_args().size(); ++i) {
+        if (enum_shape_() && TypeRef(enum_shape_()).enum_name() == std::string(ename)) {
+            for (size_t i = 0; i < einfo.type_params.size() && i < TypeRef(enum_shape_()).type_args().size(); ++i) {
                 if (subst.find(einfo.type_params[i].name) == subst.end()) {
-                    auto hta = TypeRef(hint_enum_type_).type_args()[i];
+                    auto hta = TypeRef(enum_shape_()).type_args()[i];
                     if (hta && TypeRef(hta).kind() != LogosType::Kind::Error)
                         subst[einfo.type_params[i].name] = hta;
                 }
@@ -16437,11 +16389,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
     // payload-type formal to get a concrete expected type per arg.
     auto& einfo = eit->second;
     SemaSubst pre_subst;
-    if (hint_enum_type_ &&
-        TypeRef(hint_enum_type_).kind() == LogosType::Kind::Enum &&
-        TypeRef(hint_enum_type_).enum_name() == ename &&
+    if (enum_shape_() &&
+        TypeRef(enum_shape_()).kind() == LogosType::Kind::Enum &&
+        TypeRef(enum_shape_()).enum_name() == ename &&
         !einfo.type_params.empty()) {
-        auto hta = TypeRef(hint_enum_type_).type_args();
+        auto hta = TypeRef(enum_shape_()).type_args();
         for (size_t i = 0; i < einfo.type_params.size() && i < hta.size(); ++i) {
             if (!hta[i] || TypeRef(hta[i]).kind() == LogosType::Kind::Error) continue;
             pre_subst[einfo.type_params[i].name] = hta[i];
@@ -16453,24 +16405,20 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         if (!args_av.is_null()) {
             auto run = [&](auto items) {
                 for (uint64_t i = 0; i < items.size(); ++i) {
-                    // Push hint_enum_type_ if the payload slot resolves
+                    // Push enum_shape_() if the payload slot resolves
                     // to a concrete enum via the pre-subst projection.
-                    TypeRef saved_hint = hint_enum_type_;
                     TypeRef payload_expect = nullptr, payload_shape = nullptr;
                     if (i < vinfo->payload_types.size()) {
                         TypeRef pt_i = vinfo->payload_types[i];
                         if (pt_i && !pre_subst.empty())
                             pt_i = subst_type_sema(pt_i, pre_subst);
-                        payload_shape = foreign_shape_(pt_i, einfo.type_params);
-                        if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Enum)
-                            hint_enum_type_ = pt_i;
+                        payload_shape = formal_shape_(vinfo->payload_types[i], einfo.type_params, pre_subst);
                         // …and a CONCRETE payload type is the argument's expected type.
                         if (pt_i && type_is_concrete(pt_i)) {
                             payload_expect = pt_i;
                         }
                     }
                     payload.push_back(lower_expr_expecting(map_of(items.get(i)), payload_expect, payload_shape));
-                    hint_enum_type_ = saved_hint;
                 }
             };
             if (args_av.is_pointer()) {
@@ -16637,9 +16585,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
         // the hint's reference type if the inferred is its pointee. We
         // expect downstream addr_of to materialise the reference; the
         // hint disambiguates which Option spec to build.
-        if (hint_enum_type_ && TypeRef(hint_enum_type_).enum_name() == std::string(ename)) {
-            for (size_t i = 0; i < einfo.type_params.size() && i < TypeRef(hint_enum_type_).type_args().size(); ++i) {
-                auto hta = TypeRef(hint_enum_type_).type_args()[i];
+        if (enum_shape_() && TypeRef(enum_shape_()).enum_name() == std::string(ename)) {
+            for (size_t i = 0; i < einfo.type_params.size() && i < TypeRef(enum_shape_()).type_args().size(); ++i) {
+                auto hta = TypeRef(enum_shape_()).type_args()[i];
                 if (!hta || TypeRef(hta).kind() == LogosType::Kind::Error) continue;
                 auto sit = subst.find(einfo.type_params[i].name);
                 if (sit == subst.end()) {
@@ -27877,6 +27825,12 @@ bool SemaChecker::infer_unify_rec_(TypeRef a, TypeRef b, int d) {
     auto ea = ta.tuple_elems(), eb = tb.tuple_elems();
     if (ea.size() == eb.size())
         for (size_t i = 0; i < ea.size(); ++i) solved |= infer_unify_rec_(ea[i], eb[i], d + 1);
+    // A fn / closure type's signature: `fn(&?i) -> bool` against a fn item
+    // `fn(&i32) -> bool` solves ?i (`None.filter(is_even)`).
+    auto pa = ta.closure_params(), pb = tb.closure_params();
+    if (pa.size() == pb.size())
+        for (size_t i = 0; i < pa.size(); ++i) solved |= infer_unify_rec_(pa[i], pb[i], d + 1);
+    if (ta.closure_ret() && tb.closure_ret()) solved |= infer_unify_rec_(ta.closure_ret(), tb.closure_ret(), d + 1);
     return solved;
 }
 

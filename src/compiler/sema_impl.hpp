@@ -8928,7 +8928,6 @@ private:
     // contexts (match-arm-body, unsafe-block-as-expr, if-as-expr).
     bool tail_as_return_ = false;
     TypeRef impl_ret_type_inferred_ = nullptr;
-    TypeRef hint_enum_type_ = nullptr;
     // CP-cm-14: when lowering a closure-arg whose params lack type
     // annotations (`|x| body` rather than `|x: T| body`), check this
     // hint. Set by the call-site path (lower_call / lower_method_call)
@@ -8969,6 +8968,8 @@ private:
         if (tr.elem() && has_infer_var_(tr.elem(), d + 1)) return true;
         for (auto a : tr.type_args()) if (has_infer_var_(a, d + 1)) return true;
         for (auto e : tr.tuple_elems()) if (has_infer_var_(e, d + 1)) return true;
+        for (auto p : tr.closure_params()) if (has_infer_var_(p, d + 1)) return true;
+        if (tr.closure_ret() && has_infer_var_(tr.closure_ret(), d + 1)) return true;
         return false;
     }
     TypeRef mint_infer_var_(std::string origin) {
@@ -9124,8 +9125,11 @@ private:
                     : (shape_ && TypeRef(shape_).kind() == K::Slice) ? shape_ : TypeRef(nullptr);
     }
     TypeRef struct_shape_() const {
-        return shape_ && (TypeRef(shape_).kind() == LogosType::Kind::Struct ||
-                          TypeRef(shape_).kind() == LogosType::Kind::ZonedStruct) ? shape_ : TypeRef(nullptr);
+        if (!shape_ || (TypeRef(shape_).kind() != LogosType::Kind::Struct &&
+                        TypeRef(shape_).kind() != LogosType::Kind::ZonedStruct)) return nullptr;
+        for (auto a : TypeRef(shape_).type_args())   // a `_` argument fixes nothing (as enum_shape_)
+            if (!a || TypeRef(a).kind() == LogosType::Kind::InferredType) return nullptr;
+        return shape_;
     }
     // The shape a struct literal takes its REGION arguments from: only one
     // with type arguments (as the struct hint was). A region-only struct's
@@ -9140,51 +9144,29 @@ private:
         return shape_ && (TypeRef(shape_).kind() == LogosType::Kind::Array ||
                           TypeRef(shape_).kind() == LogosType::Kind::Slice) ? TypeRef(TypeRef(shape_).elem()) : TypeRef(nullptr);
     }
-    // A formal as an argument's SHAPE: the callee's own type parameters (and
-    // `Self`) become `_` holes — they are the callee's inference variables,
-    // not the caller's types (a caller's `T` may share the name).
-    TypeRef foreign_shape_(TypeRef t, const std::vector<TypeParam>& tps, int d = 0) {
-        if (!t || d > 24) return t;
-        if (TypeRef(t).kind() == LogosType::Kind::TypeVar) {
-            std::string_view n = TypeRef(t).type_var_name();
-            if (n == "Self") return inferred_t();
-            for (auto& tp : tps) if (tp.name == n) return inferred_t();
-            return t;
-        }
-        auto b = TypeRef(t).to_builder();
-        bool any = false;
-        auto walk = [&](TypeRef x) { if (!x) return x; TypeRef z = foreign_shape_(x, tps, d + 1); any |= z != x; return z; };
-        b.pointee = walk(b.pointee);
-        b.elem = walk(b.elem);
-        for (auto& a : b.type_args) a = walk(a);
-        for (auto& e : b.tuple_elems) e = walk(e);
-        for (auto& p : b.closure_params) p = walk(p);
-        b.closure_ret = walk(b.closure_ret);
-        return any ? pool_->alloc(std::move(b)) : t;
+    // An enum literal's expectation: the shape's enum, unless one of its
+    // arguments is a `_` hole (a hole fixes nothing; the arguments come from
+    // the payload then).
+    TypeRef enum_shape_() const {
+        if (!shape_ || TypeRef(shape_).kind() != LogosType::Kind::Enum) return nullptr;
+        for (auto a : TypeRef(shape_).type_args())
+            if (!a || TypeRef(a).kind() == LogosType::Kind::InferredType) return nullptr;
+        return shape_;
+    }
+    // A formal as an argument's SHAPE, in ONE substitution: the callee's
+    // parameters `bound` fixes take their types, the rest become `_` holes
+    // (the callee's inference variables). Substituting first and holing after
+    // would hole a caller's `T` that shares a callee parameter's name.
+    TypeRef formal_shape_(TypeRef formal, const std::vector<TypeParam>& tps, const SemaSubst& bound) {
+        if (!formal) return formal;
+        SemaSubst m = bound;
+        for (auto& tp : tps) if (!m.count(tp.name)) m[tp.name] = inferred_t();
+        if (!m.count("Self")) m["Self"] = inferred_t();
+        return subst_type_sema(formal, m);
     }
     TypeRef shape_of_kind_(LogosType::Kind k) const {
         return shape_ && TypeRef(shape_).kind() == k ? shape_ : TypeRef(nullptr);
     }
-    // The position hints for ONE element of a literal whose element type is
-    // known (`[T; N]` / `(A, B)` annotation, or an earlier array element):
-    // enum (a nullary generic ctor `Option::None` takes its arguments from
-    // it), tuple, array element. Restored on scope exit.
-    struct ElemHintScope {
-        SemaChecker& s;
-        TypeRef enum_;
-        // `scalar_arr`: also hint an array of primitive scalars. A tuple
-        // position does not: its own element check reports an out-of-range
-        // literal with the tuple context (`tuple element 0: array element 1`).
-        ElemHintScope(SemaChecker& sc, TypeRef expected, bool scalar_arr = true)
-            : s(sc), enum_(sc.hint_enum_type_) {
-            using K = LogosType::Kind;
-            TypeRef e = expected;
-            s.hint_enum_type_  = e && e.kind() == K::Enum ? e : TypeRef(nullptr);
-        }
-        ~ElemHintScope() {
-            s.hint_enum_type_ = enum_;
-        }
-    };
 
     // T2-28: when a call is written with an explicit package qualifier
     // (`logos.lang.mem::replace(...)`), this holds the dotted package

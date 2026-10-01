@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row struct_field_move_then_index_read_admits (tier 2, `admits`). rustc's
+// copy-suggestion-region-vid: `Helper { helpers: helpers, is_empty: helpers[0].a == 0 }` moves the
+// array of Drop values into the first field, then reads `helpers[0]` in the second — rustc 1.98.1:
+// E0382 borrow of moved value. Logos compiles it. Was imported fail/.../copy-suggestion-region-vid
+// ("use of moved value 'helpers'"), silent already on e6e0edcfe (2026-09-30); found by the gate
+// sample on 2026-10-01.
+package struct_field_move_then_index_read_admits;
+struct NC { a: i64 }
+impl Drop for NC { fn drop(self: &mut NC) {} }
+struct Helper { helpers: [NC; 2], is_empty: bool }
+fn main() -> i32 {
+    let helpers: [NC; 2] = [NC { a: 1i64 }, NC { a: 2i64 }];
+    let h = Helper { helpers: helpers, is_empty: helpers[0].a == 0i64 };
+    return 0i32;
+}

@@ -455,5 +455,7 @@ backedge_field_reborrow_conflict_admits 2 tests/soundness/open/backedge_field_re
 
 wf_self_type_impl_lifetime_mismatch_admits 2 tests/soundness/open/wf_self_type_impl_lifetime_mismatch_admits admits
 
-# TOTAL 139
-# SYNC-HASH 94c9916b3d6c7030252f3010e61e54fa
+struct_field_move_then_index_read_admits 2 tests/soundness/open/struct_field_move_then_index_read_admits admits
+
+# TOTAL 140
+# SYNC-HASH effea8cf28d6f49a8b714f12347b4296

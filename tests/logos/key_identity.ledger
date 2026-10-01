@@ -637,7 +637,11 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # 2026-09-26: count() 9 -> 10: lower_impl_block's default-method loop saves `current_type_params_.count("Self")` to
 #   restore it after each default — `Self` is the type-parameter slot's own name, the same key the struct-method
 #   save/restore in the same file already reads; no entity is resolved by it.
-#ARGSCAN count 10 3cd6b041
+# 2026-10-01: count() 10 -> 11: the `&K` const-promotion arm (ADR 0030 S0) skips a GENERIC const by
+#   `generic_consts_.count(kn)` — generic_consts_ is keyed by the bare const name already (the
+#   const-lowering path `generic_consts_.find(name)` in the same file reads it the same way); a
+#   generic const is not promoted, so a homonym can only send `&K` down the old (frame) path.
+#ARGSCAN count 11 f4ae94e0
 #ARGSCAN enum_lit 3 d49e815d
 #ARGSCAN enum_lit_data 3 1eae352f
 #ARGSCAN erase 9 ab9caa8e

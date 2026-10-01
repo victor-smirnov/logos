@@ -1014,15 +1014,11 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         // pointee type, so a bare `None` resolves to `Option<i32>` rather
         // than dropping to a discriminant-only constant (which then gets
         // stored straight into the &mut slot — corrupting it).
-        auto saved_enum_hint   = hint_enum_type_;
         TypeRef pe = ptr && TypeRef(expr_type(ptr)).pointee() ? TypeRef(TypeRef(expr_type(ptr)).pointee()) : TypeRef(nullptr);
-        if (pe && TypeRef(pe).kind() == LogosType::Kind::Enum && !TypeRef(pe).type_args().empty())
-            hint_enum_type_ = pe;
         // The referent is the written value's expectation (C-EXP).
         lir::LExprPtr val = stmt.has_key(la::VALUE)
             ? lower_expr_expecting(map_of(stmt.get(la::VALUE.code)), pe && type_is_concrete(pe) ? pe : TypeRef(nullptr), pe)
             : error_expr();
-        hint_enum_type_   = saved_enum_hint;
         auto pt = expr_type(ptr);
         // Writing through &mut T is safe; writing through raw *mut/*const T requires unsafe
         bool is_mut_ref = TypeRef(pt).kind() == LogosType::Kind::MutRef;
@@ -1300,15 +1296,11 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     // expected type) and the rhs must coerce to it.
     TypeRef ann = node.has_key(la::TYPE) ? resolve_type(map_of(node.get(la::TYPE.code))) : TypeRef(nullptr);
     const bool ann_hint = ann && TypeRef(ann).kind() != LogosType::Kind::Error && !type_has_inferred(ann);
-    auto saved_enum = hint_enum_type_;
     if (ann_hint) {
-        if (TypeRef(ann).kind() == LogosType::Kind::Enum && !TypeRef(ann).type_args().empty())
-            hint_enum_type_ = ann;
     }
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr_expecting(map_of(node.get(la::VALUE.code)), ann_hint ? ann : TypeRef(nullptr))
         : error_expr();
-    hint_enum_type_ = saved_enum;
     TypeRef rhs_type = expr_type(rhs);
     // The binders take the ANNOTATION's types (a `(i64, i64)` over an rhs of
     // unsuffixed literals binds i64s).
@@ -1768,10 +1760,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     // set no hint — the RHS infers freely and fill_inferred_from_rhs
     // resolves the binding type afterwards (logos-core 1.3).
     bool ann_has_hole = ann && type_has_inferred(ann);
-    auto saved_hint = hint_enum_type_;
-    if (ann && !ann_has_hole &&
-        TypeRef(ann).kind() == LogosType::Kind::Enum && !TypeRef(ann).type_args().empty())
-        hint_enum_type_ = ann;
     // The annotation is the initializer's expected type (C-EXP); an
     // unannotated `let` hands none on.
     const TypeRef let_expect = (ann && !ann_has_hole && TypeRef(ann).kind() != LogosType::Kind::Error)
@@ -1908,7 +1896,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         sl.type = ann ? ann : expr_type(rhs_e);
                         sl.is_mut = is_mut;
                         sl.value = std::move(rhs_e);
-                        hint_enum_type_ = saved_hint;
                         hint_closure_formal_ = saved_closure_hint;
                         return make_stmt_emit(node_line_, std::move(sl));
                     }
@@ -1944,8 +1931,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     sl_user.is_mut = is_mut;
                     sl_user.value  = std::move(addr);
                     blk.push_back(make_stmt_emit(node_line_, std::move(sl_user)));
-
-                    hint_enum_type_ = saved_hint;
                     hint_closure_formal_ = saved_closure_hint;
                     return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
                 }
@@ -2026,8 +2011,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
 
     // (Zone Step 4 pin: a by-value `#[rel_ptr]`-containing binding is rejected in
     // define() — the single by-value-slot registrar — which lower_let calls below.)
-
-    hint_enum_type_ = saved_hint;
     hint_closure_formal_ = saved_closure_hint;
 
     TypeRef var_type;
@@ -2835,15 +2818,11 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
     // derefs a bogus pointer → SIGSEGV. Setting the hint up front makes the
     // literal lower as the correct concrete enum spec from the start. (B170 —
     // rustc issue-41888: `status = None` in a loop, then re-matched.)
-    auto saved_assign_hint = hint_enum_type_;
-    if (var_type && TypeRef(var_type).kind() == LogosType::Kind::Enum)
-        hint_enum_type_ = var_type;
     // The assignment's right-hand side is a coercion site, and the
     // expectation reaches its branches (`b = if c { rrx } else { b }`).
     lir::LExprPtr rhs = node.has_key(la::VALUE)
         ? lower_expr_expecting(map_of(node.get(la::VALUE.code)), var_type)
         : error_expr();
-    hint_enum_type_ = saved_assign_hint;
     // Retype an incompletely-typed generic enum literal in `a = <enum-lit>`
     // to the LHS's concrete enum spec. A literal lowered without the expected
     // type carries either NO type-args (no-payload `Opt::VNone` → bare `Opt`)
@@ -3017,10 +2996,6 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
 // `fn f(t: String) -> String { t }` dropped `t` at scope exit AND returned it.
 lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     lir::LExprPtr val = nullptr;
-    // Set enum/struct hints from return type so literals can fill in unresolved type params
-    auto saved_hint = hint_enum_type_;
-    if (ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Enum && !TypeRef(ret_type_).type_args().empty())
-        hint_enum_type_ = ret_type_;
     // G151-3: when the return type is a fn-ptr/closure, hint it so an
     // untyped closure literal (`return |x| x + 1`) infers its param
     // types from the expected signature (mirrors the call-arg path).
@@ -3047,7 +3022,6 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
                              TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait;
     if (!val)
         val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr));
-    hint_enum_type_ = saved_hint;
     hint_closure_formal_ = saved_closure_hint;
     return val;
 }
@@ -8277,15 +8251,10 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
     // Propagate the place's type as an enum/struct RHS hint so a bare
     // `None` / struct-literal resolves to the slot's concrete type (mirrors
     // DEREF_WRITE).
-    auto saved_enum_hint   = hint_enum_type_;
-    if (pt && TypeRef(pt).kind() == LogosType::Kind::Enum &&
-        !TypeRef(pt).type_args().empty())
-        hint_enum_type_ = pt;
     // The place's type is the written value's expectation (C-EXP).
     lir::LExprPtr val = node.has_key(la::VALUE)
         ? lower_expr_expecting(map_of(node.get(la::VALUE.code)), pt && type_is_concrete(pt) ? pt : TypeRef(nullptr), pt)
         : error_expr();
-    hint_enum_type_   = saved_enum_hint;
 
     if (pt && val)
         expect_type(val, pt, CoercePos::PlaceWrite,
