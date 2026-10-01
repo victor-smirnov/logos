@@ -1,0 +1,24 @@
+// ADMIT: `match heap.peek_mut() { Some(g) => { heap.pop() } .. }` with `g` never used — NLL retires the
+// scrutinee's loan at `g`'s last use (its binding), so `heap.pop()` is legal. rustc 1.98.1 accepts
+// (warning: unused `g`), exit 252. This was fail/bc_aggscrutpair_temp_scrut_receiver_reuse, which pinned
+// "cannot borrow 'heap': already mutably borrowed" — a refusal rustc does not make; the checker
+// stopped making it before 2026-09-30 (found by the gate sample). The refusal half lives in
+// fail/bc_aggscrutpair_temp_scrut_binder_used_after_reuse (`g` read after `heap.pop()`: E0499).
+package bc_aggscrutpair_temp_scrut_receiver_reuse_admit;
+use logos.lang.option;
+struct Heap { v: i64 }
+impl Heap {
+    fn peek_mut(self: &mut Heap) -> Option<&mut i64> { return Option::Some(&mut self.v); }
+    fn pop(self: &mut Heap) -> i64 { return self.v; }
+}
+fn foo(heap: &mut Heap) -> i64 {
+    match heap.peek_mut() {
+        Option::Some(g) => { let k: i64 = heap.pop(); return k; }
+        Option::None => {}
+    }
+    return 0i64;
+}
+fn main() -> i32 {
+    let mut h = Heap { v: 1i64 };
+    return (foo(&mut h) - 5i64) as i32;
+}

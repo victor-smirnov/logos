@@ -451,5 +451,7 @@ mem_swap_is_unsafe_raw_pointer_refused 3 tests/soundness/open/mem_swap_is_unsafe
 
 array_map_missing_refused 3 tests/soundness/open/array_map_missing_refused refuses
 
-# TOTAL 137
-# SYNC-HASH d0bc202e97df6ca18760005b072a0e58
+const_item_borrow_returned_dangles_run 1 tests/soundness/open/const_item_borrow_returned_dangles_run run 88
+
+# TOTAL 138
+# SYNC-HASH acfa59655012ac978c942f8caa4a48cb

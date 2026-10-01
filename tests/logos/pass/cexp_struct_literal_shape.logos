@@ -1,0 +1,26 @@
+// ADR 0030 C-EXP: a struct literal takes its type arguments from its expectation's shape and its
+// fields coerce to them. Free-fn argument (`take(G { v: (&a, 7) })` — the argument's callee is
+// the LOCAL `take`, not the stdlib's `take<T>(*mut T)` the hint lookup used to pick), a generic call
+// whose expected output fixes its input (`idg(G { .. })`), a direct `&dyn` argument, two fields.
+// rustc twin: exit 42.
+package cexp_struct_literal_shape;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+struct G<T> { v: T }
+struct G2<T> { v: T, w: i64 }
+fn take(g: G<(&dyn Shape, i64)>) -> i64 { return g.v.0.area() + g.v.1; }
+fn take1(g: G<&dyn Shape>) -> i64 { return g.v.area(); }
+fn take2(g: G2<&dyn Shape>) -> i64 { return g.v.area() + g.w; }
+fn idg<U>(u: U) -> U { return u; }
+fn main() -> i32 {
+    let a = Sq { s: 4 };
+    if take(G { v: (&a, 7) }) != 23 { return 1; }
+    let g: G<(&dyn Shape, i64)> = idg(G { v: (&a, 7) });
+    if g.v.0.area() != 16 { return 2; }
+    if take1(G { v: &a }) != 16 { return 3; }
+    if take2(G2 { v: &a, w: 1 }) != 17 { return 4; }
+    let h: G2<&dyn Shape> = G2 { v: &a, w: 2 };
+    if take2(h) != 18 { return 5; }
+    return 42;
+}

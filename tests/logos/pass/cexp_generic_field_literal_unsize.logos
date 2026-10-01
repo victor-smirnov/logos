@@ -1,0 +1,16 @@
+// An expectation reaches a generic struct literal's field (ADR 0030 C-EXP): `G<(&dyn Shape, i64)>`
+// fixes T, and the tuple literal in the field coerces `&a` to `&dyn Shape` where it is built. This file
+// pinned the over-refusal ("aggregate slot `<0>.0`: expected &dyn Shape, got &Sq") as task #96; all
+// eleven contexts of the measured class compile now (let, call argument, return, struct field, array
+// element, tuple element, enum payload, match arm, assignment, generic argument, nested generic), and
+// the two-field / direct-`&dyn` shapes too. rustc twin: exit 16.
+package cexp_generic_field_literal_unsize;
+trait Shape { fn area(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { return self.s * self.s; } }
+struct G<T> { v: T }
+fn main() -> i32 {
+    let a: Sq = Sq { s: 4i64 };
+    let g: G<(&dyn Shape, i64)> = G { v: (&a, 7i64) };
+    return g.v.0.area() as i32;
+}

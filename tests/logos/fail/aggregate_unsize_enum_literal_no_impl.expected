@@ -1,1 +1,1 @@
-aggregate element 0: slot type &dyn Other needs an unsize from &Sq, but the type does not implement the trait
+Option::Some arg 0: the trait `Other` is not implemented for `Sq` (required for the unsize to `&dyn Other`, E0277)

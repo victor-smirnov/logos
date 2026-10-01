@@ -6769,9 +6769,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11849 -> 11851 (+2), NOIMPORTED 7286 -> 7288 (+2), TIERCOMMIT 199 -> 201 (+2) — 2026-09-30: ADR 0030 C-INF (b): squeue +mem_swap_is_unsafe_raw_pointer_refused +array_map_missing_refused.
 #                ALL 11851 -> 11851 (+0), NOIMPORTED 7288 -> 7288 (+0), TIERCOMMIT 201 -> 200 (-1) — 2026-09-30: ADR 0030 C-INF: squeue let_bound_reference_to_literal_refused closed into pass cinf_let_bound_reference_to_literal.
 #                ALL 11851 -> 11852 (+1), NOIMPORTED 7288 -> 7289 (+1), TIERCOMMIT 200 -> 200 (+0) — 2026-09-30: ADR 0030 C-EXP.1: +pass cexp_expected_type_scope.
-REGISTRY-ALL         11852
-REGISTRY-NOIMPORTED  7289
-REGISTRY-TIERCOMMIT  200
+#                ALL 11852 -> 11853 (+1), NOIMPORTED 7289 -> 7290 (+1), TIERCOMMIT 200 -> 200 (+0) — 2026-09-30: ADR 0030 C-EXP.2b: fail aggregate_unsize_generic_field_literal_overrefusal closed into pass cexp_generic_field_literal_unsize; +pass cexp_struct_literal_shape.
+#                ALL 11853 -> 11855 (+2), NOIMPORTED 7290 -> 7292 (+2), TIERCOMMIT 200 -> 201 (+1) — 2026-09-30: ADR 0030 C-EXP.2b: fail bc_aggscrutpair_temp_scrut_receiver_reuse -> pass ..._admit (rustc accepts), +fail bc_aggscrutpair_temp_scrut_binder_used_after_reuse, squeue +const_item_borrow_returned_dangles_run.
+REGISTRY-ALL         11855
+REGISTRY-NOIMPORTED  7292
+REGISTRY-TIERCOMMIT  201
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
@@ -8022,8 +8024,10 @@ RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-fr
 #     PERMISSIVE twin's hoisted half; fail/tuple_dyn_element_no_impl closed only
 #     the literal half, which reached a stamp attempt. This one needs no impl
 #     question at all.
-#   tests/logos/fail/aggregate_unsize_generic_field_literal_overrefusal.logos —
-#     ⚠ PINS AN OVER-REFUSAL ON PURPOSE. Rust accepts it; Logos does not
+#   fail/aggregate_unsize_generic_field_literal_overrefusal (now
+#     tests/logos/pass/cexp_generic_field_literal_unsize.logos: ADR 0030 C-EXP
+#     closed task #96 on 2026-09-30 and it went red as predicted) —
+#     ⚠ PINNED AN OVER-REFUSAL ON PURPOSE. Rust accepts it; Logos does not
 #     propagate the expectation through a generic struct literal's field, so no
 #     literal is in reach where the mismatch surfaces. It ran rc=139 before, so
 #     the refusal is strictly better than what it replaces; the fix is an

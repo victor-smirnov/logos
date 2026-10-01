@@ -1,0 +1,21 @@
+// The refusal twin of pass/bc_aggscrutpair_temp_scrut_receiver_reuse_admit: the arm READS `g` (the
+// scrutinee's `&mut` into `heap`) after `heap.pop()`, so the loan is live across the second borrow.
+// rustc 1.98.1: E0499 cannot borrow `*heap` as mutable more than once at a time.
+package bc_aggscrutpair_temp_scrut_binder_used_after_reuse;
+use logos.lang.option;
+struct Heap { v: i64 }
+impl Heap {
+    fn peek_mut(self: &mut Heap) -> Option<&mut i64> { return Option::Some(&mut self.v); }
+    fn pop(self: &mut Heap) -> i64 { return self.v; }
+}
+fn foo(heap: &mut Heap) -> i64 {
+    match heap.peek_mut() {
+        Option::Some(g) => { let k: i64 = heap.pop(); return k + *g; }
+        Option::None => {}
+    }
+    return 0i64;
+}
+fn main() -> i32 {
+    let mut h = Heap { v: 1i64 };
+    return (foo(&mut h) - 5i64) as i32;
+}

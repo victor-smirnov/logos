@@ -7745,7 +7745,7 @@ private:
     // hi: z }` for any `x`, `z`); the obligation lands where the type is named.
     bool struct_lit_regions_written_(sema_detail::TinyMapView node) {
         using namespace sema_detail;
-        if (hint_struct_type_ && !TypeRef(hint_struct_type_).lifetime_args().empty()) return true;
+        if (struct_region_shape_() && !TypeRef(struct_region_shape_()).lifetime_args().empty()) return true;
         if (!node.has_key(la::TYPE_PARAMS)) return false;
         AnyVal tpav = node.get(la::TYPE_PARAMS.code);
         if (tpav.is_null() || !tpav.is_pointer() || !map_of(tpav).has_key(la::ITEMS)) return false;
@@ -8923,13 +8923,6 @@ private:
     bool tail_as_return_ = false;
     TypeRef impl_ret_type_inferred_ = nullptr;
     TypeRef hint_enum_type_ = nullptr;
-    TypeRef hint_struct_type_ = nullptr;
-    // Expected TUPLE type for a tuple-literal in value position (a `(i64,i64)`
-    // param/let). Without it, untyped int-literal elements default to i32 — so
-    // `f((7, 2))` against a `(i64, i64)` param built an `{i32,i32}` buffer the
-    // callee then read as `{i64,i64}` (silent garbage). TUPLE_LIT lowering widens
-    // each element to the matching expected element type.
-    TypeRef hint_tuple_type_ = nullptr;
     // CP-cm-14: when lowering a closure-arg whose params lack type
     // annotations (`|x| body` rather than `|x: T| body`), check this
     // hint. Set by the call-site path (lower_call / lower_method_call)
@@ -9110,9 +9103,42 @@ private:
     // a `match` arm), and absent in a statement.
     TypeRef expected_ = nullptr;
     TypeRef expect_next_ = nullptr;
-    lir::LExprPtr lower_expr_expecting(writ::TinyMapView n, TypeRef t) {
+    // The SHAPE of the expectation: the type the literal-shaped projections
+    // read (a tuple literal's element types, an array literal's element, an
+    // enum / struct literal's arguments, a closure literal's signature). It
+    // may be what `expected_` may not — a formal still naming the callee's
+    // type parameters (`(T, i64)`, `F: Fn(i64)`). Taken and handed on with
+    // `expected_`.
+    TypeRef shape_ = nullptr;
+    TypeRef shape_next_ = nullptr;
+    lir::LExprPtr lower_expr_expecting(writ::TinyMapView n, TypeRef t, TypeRef shape = nullptr) {
         expect_next_ = t;
+        shape_next_ = shape ? shape : t;
         return lower_expr(n);
+    }
+    // `&e` / `&mut e`: the operand expects the pointee (a slice shape stays
+    // the shape: its element is what an array literal operand reads).
+    void expect_pointee_next_() {
+        using K = LogosType::Kind;
+        auto ref_like = [](TypeRef t) { return t && (t.kind() == K::Ref || t.kind() == K::MutRef || t.kind() == K::Ptr); };
+        expect_next_ = ref_like(expected_) ? TypeRef(TypeRef(expected_).pointee()) : TypeRef(nullptr);
+        shape_next_ = ref_like(shape_) ? TypeRef(TypeRef(shape_).pointee())
+                    : (shape_ && TypeRef(shape_).kind() == K::Slice) ? shape_ : TypeRef(nullptr);
+    }
+    TypeRef struct_shape_() const {
+        return shape_ && (TypeRef(shape_).kind() == LogosType::Kind::Struct ||
+                          TypeRef(shape_).kind() == LogosType::Kind::ZonedStruct) ? shape_ : TypeRef(nullptr);
+    }
+    // The shape a struct literal takes its REGION arguments from: only one
+    // with type arguments (as the struct hint was). A region-only struct's
+    // regions stay fresh — taking `Trip<'a, 'b, 'c>` from a return type as
+    // written would need the signature's implied bounds, which sema lacks.
+    TypeRef struct_region_shape_() const {
+        TypeRef t = struct_shape_();
+        return t && !TypeRef(t).type_args().empty() ? t : TypeRef(nullptr);
+    }
+    TypeRef shape_of_kind_(LogosType::Kind k) const {
+        return shape_ && TypeRef(shape_).kind() == k ? shape_ : TypeRef(nullptr);
     }
     // The position hints for ONE element of a literal whose element type is
     // known (`[T; N]` / `(A, B)` annotation, or an earlier array element):
@@ -9120,17 +9146,16 @@ private:
     // it), tuple, array element. Restored on scope exit.
     struct ElemHintScope {
         SemaChecker& s;
-        TypeRef enum_, tuple_, arr_;
+        TypeRef enum_, arr_;
         // `scalar_arr`: also hint an array of primitive scalars. A tuple
         // position does not: its own element check reports an out-of-range
         // literal with the tuple context (`tuple element 0: array element 1`).
         ElemHintScope(SemaChecker& sc, TypeRef expected, bool scalar_arr = true)
-            : s(sc), enum_(sc.hint_enum_type_), tuple_(sc.hint_tuple_type_),
+            : s(sc), enum_(sc.hint_enum_type_),
               arr_(sc.hint_arr_elem_type_) {
             using K = LogosType::Kind;
             TypeRef e = expected;
             s.hint_enum_type_  = e && e.kind() == K::Enum ? e : TypeRef(nullptr);
-            s.hint_tuple_type_ = e && e.kind() == K::Tuple ? e : TypeRef(nullptr);
             TypeRef ae = e && (e.kind() == K::Array || e.kind() == K::Slice) ? e.elem() : TypeRef(nullptr);
             if (ae && !scalar_arr &&
                 (is_integer_kind(ae.kind()) || ae.kind() == K::F32 || ae.kind() == K::F64 ||
@@ -9139,7 +9164,7 @@ private:
             s.hint_arr_elem_type_ = ae;
         }
         ~ElemHintScope() {
-            s.hint_enum_type_ = enum_; s.hint_tuple_type_ = tuple_; s.hint_arr_elem_type_ = arr_;
+            s.hint_enum_type_ = enum_; s.hint_arr_elem_type_ = arr_;
         }
     };
 
@@ -9354,10 +9379,12 @@ private:
     // tail): `*b` over a move-typed Box<T> is Box's DerefMove there, as in a
     // `let` or `return` — else the dereferenced place, and the Box binder then
     // drops the content it already gave away (double drop: `Some(b) => *b`).
-    lir::LExprPtr lower_moved_operand_(writ::TinyMapView n, bool temp_scoped = false, TypeRef expect = nullptr) {
+    lir::LExprPtr lower_moved_operand_(writ::TinyMapView n, bool temp_scoped = false, TypeRef expect = nullptr,
+                                       TypeRef shape = nullptr) {
         if (code_of(n) == sema_detail::la::DEREF)
             if (auto r = try_lower_box_deref_move(n)) return r;
         expect_next_ = expect;
+        shape_next_ = shape ? shape : expect;
         return temp_scoped ? lower_expr_temp_scoped(n) : lower_expr(n);
     }
     lir::LExprPtr lower_call(writ::TinyMapView node);
