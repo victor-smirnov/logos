@@ -1767,10 +1767,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     // G151-3: a fn-ptr/closure-annotated let hints the closure formal so an
     // untyped closure literal (`let f: fn(i64)->i64 = |x| x+1`) infers its
     // param types (was `|<error>|`). Mirrors the call-arg + return paths.
-    auto saved_closure_hint = hint_closure_formal_;
-    if (ann && (LogosType::is_fn_value_kind(TypeRef(ann).kind()) ||
-                TypeRef(ann).kind() == LogosType::Kind::Closure))
-        hint_closure_formal_ = ann;
 
     // C6-cc-04 + T0-4 (temporary lifetime extension): `let p = &<rvalue>;`
     // / `let p = &mut <rvalue>;` — Rust extends the temporary's lifetime
@@ -1896,7 +1892,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         sl.type = ann ? ann : expr_type(rhs_e);
                         sl.is_mut = is_mut;
                         sl.value = std::move(rhs_e);
-                        hint_closure_formal_ = saved_closure_hint;
                         return make_stmt_emit(node_line_, std::move(sl));
                     }
 
@@ -1931,7 +1926,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                     sl_user.is_mut = is_mut;
                     sl_user.value  = std::move(addr);
                     blk.push_back(make_stmt_emit(node_line_, std::move(sl_user)));
-                    hint_closure_formal_ = saved_closure_hint;
                     return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
                 }
             }
@@ -2011,7 +2005,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
 
     // (Zone Step 4 pin: a by-value `#[rel_ptr]`-containing binding is rejected in
     // define() — the single by-value-slot registrar — which lower_let calls below.)
-    hint_closure_formal_ = saved_closure_hint;
 
     TypeRef var_type;
     // Slice 7 of metaprog-quote: an ExprBlob-typed RHS marks a deferred
@@ -2999,13 +2992,9 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     // G151-3: when the return type is a fn-ptr/closure, hint it so an
     // untyped closure literal (`return |x| x + 1`) infers its param
     // types from the expected signature (mirrors the call-arg path).
-    auto saved_closure_hint = hint_closure_formal_;
-    // G167-3: also propagate the hint when the callable is WRAPPED
-    // (`-> Box<dyn Fn(..)>`), so `return box_new(|x| ..)` infers the
-    // closure's params from the inner Fn signature. peel_to_callable
-    // unwraps Box/&dyn; the closure-literal site peels again.
-    if (ret_type_ && peel_to_callable(ret_type_))
-        hint_closure_formal_ = ret_type_;
+    // G167-3: a returned closure literal takes its signature from the return
+    // type's callable, also WRAPPED (`-> Box<dyn Fn(..)>`, `-> impl Fn`): the
+    // return type is the value's shape below (closure_shape_ peels it).
     // A closure literal that IS the returned value outlives this frame
     // (`fn mk() -> impl Fn() { move || k }`): its env must be heap.
     auto saved_ret_value_ = returned_closure_node_;
@@ -3021,8 +3010,8 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
                              TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
                              TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait;
     if (!val)
-        val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr));
-    hint_closure_formal_ = saved_closure_hint;
+        val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr),
+                                   ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void ? ret_type_ : TypeRef(nullptr));
     return val;
 }
 

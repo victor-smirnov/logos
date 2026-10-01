@@ -8932,7 +8932,6 @@ private:
     // annotations (`|x| body` rather than `|x: T| body`), check this
     // hint. Set by the call-site path (lower_call / lower_method_call)
     // when the corresponding formal is a `fn(T,...)->R` / `Closure`.
-    TypeRef hint_closure_formal_ = nullptr;
     // The node lower_return is lowering as the returned VALUE: a closure
     // literal that IS it escapes the frame (heap env).
     const void* returned_closure_node_ = nullptr;
@@ -9110,10 +9109,22 @@ private:
     // `expected_`.
     TypeRef shape_ = nullptr;
     TypeRef shape_next_ = nullptr;
+    // SCAFFOLD until ADR 0029 (a closure is a type; escape decided at the
+    // unsize point): an expectation that boxes a callable (`Box<dyn Fn ..>`)
+    // marks its whole subtree, so a closure literal anywhere under it — the
+    // argument of `box_new(|x| ..)` — gets a heap env. The hint that leaked
+    // into every subexpression used to carry this; the expectation does not.
+    int boxed_callable_ctx_ = 0;
     lir::LExprPtr lower_expr_expecting(writ::TinyMapView n, TypeRef t, TypeRef shape = nullptr) {
         expect_next_ = t;
         shape_next_ = shape ? shape : t;
-        return lower_expr(n);
+        TypeRef sh = shape_next_;
+        const bool boxes = sh && (TypeRef(sh).kind() == LogosType::Kind::Struct ||
+                                  TypeRef(sh).kind() == LogosType::Kind::ZonedStruct) && peel_to_callable(sh);
+        if (boxes) ++boxed_callable_ctx_;
+        auto r = lower_expr(n);
+        if (boxes) --boxed_callable_ctx_;
+        return r;
     }
     // `&e` / `&mut e`: the operand expects the pointee (a slice shape stays
     // the shape: its element is what an array literal operand reads).
@@ -9164,6 +9175,9 @@ private:
         if (!m.count("Self")) m["Self"] = inferred_t();
         return subst_type_sema(formal, m);
     }
+    // A closure literal's expectation: the shape when a callable peels out of
+    // it (`fn(..)`, a closure type, `Box<dyn Fn>`, `&dyn Fn`, `impl Fn`).
+    TypeRef closure_shape_() { return shape_ && peel_to_callable(shape_) ? shape_ : TypeRef(nullptr); }
     TypeRef shape_of_kind_(LogosType::Kind k) const {
         return shape_ && TypeRef(shape_).kind() == k ? shape_ : TypeRef(nullptr);
     }

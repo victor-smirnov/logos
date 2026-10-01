@@ -5339,9 +5339,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         if (hint_fi && !hint_fi->type_params.empty() && hint_fi->ret_type && expected_ && type_is_concrete(expected_))
             unify_types(hint_fi->ret_type, expected_, ret_binds);
         for (uint64_t i = 0; i < args.size(); ++i) {
-            TypeRef saved = hint_closure_formal_;
-            if (TypeRef h = closure_hint_for((size_t)i))
-                hint_closure_formal_ = h;
             const size_t arg_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
             // A concrete formal is the argument's expected type (C-EXP), as at
             // a method or static call: `first(if c { &a3 } else { &a5 })` against
@@ -5351,6 +5348,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             // inputs for the expected output): `let g: G<..> = idg(G { .. })`.
             TypeRef arg_shape = hint_fi && i < hint_fi->param_types.size() ? hint_fi->param_types[i] : TypeRef(nullptr);
             if (arg_shape) arg_shape = elide_sig_lts_(formal_shape_(arg_shape, hint_fi->type_params, ret_binds));
+            // A formal that is a type parameter with an Fn bound shapes a closure
+            // literal by the bound's signature.
+            if (TypeRef h = closure_hint_for((size_t)i)) arg_shape = h;
             TypeRef arg_expect = arg_shape && type_is_concrete(arg_shape) ? arg_shape : TypeRef(nullptr);
             arg_exprs.push_back(lower_expr_expecting(map_of(args.get(i)), arg_expect, arg_shape));
             // Arguments run left to right: an earlier one with effects goes ahead
@@ -5363,7 +5363,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     at += cur_stmt_temp_hoist_->size() - before;
                 }
             }
-            hint_closure_formal_ = saved;
         }
     }
     uint64_t n_args = arg_exprs.size();
@@ -10985,7 +10984,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     };
     std::vector<TypeRef> formals_hint = preload_formals();
     auto lower_arg_with_hint = [&](TinyMapView arg_node, size_t arg_idx) {
-        TypeRef saved_closure = hint_closure_formal_;
         TypeRef arg_expect = nullptr;   // the argument's expected type (C-EXP)
         if (arg_idx < formals_hint.size() && formals_hint[arg_idx]) {
             TypeRef f = formals_hint[arg_idx];
@@ -11000,14 +10998,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                       TypeRef(f).kind() == LogosType::Kind::MutRef) &&
                 TypeRef(f).pointee())
                 f = TypeRef(f).pointee();
-            auto k = TypeRef(f).kind();
-            if (LogosType::is_fn_value_kind(k) || k == LogosType::Kind::Closure)
-                hint_closure_formal_ = formals_hint[arg_idx];
         }
         auto out = lower_expr_expecting(arg_node, arg_expect,
                                         arg_idx < formals_hint.size() && formals_hint[arg_idx]
                                             ? elide_sig_lts_(formals_hint[arg_idx]) : TypeRef(nullptr));
-        hint_closure_formal_ = saved_closure;
         // A non-closure argument binds the type params of its formal; later
         // Fn-bounded formals re-derive their closure hint with them (Rust
         // checks arguments left to right the same way).
@@ -13403,10 +13397,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // closure literal field value (`Holder { f: |x| .. }`) so it
                 // infers its param types from the bound, instead of leaving
                 // them `<error>` (which poisons the struct's type-arg + mono).
-                TypeRef saved_ch = hint_closure_formal_;
-                if (TypeRef ch = closure_hint_from_fn_bound(
-                        fld_decl_ty, sinfo.type_params, SemaSubst{}))
-                    hint_closure_formal_ = ch;
+                TypeRef fld_closure = closure_hint_from_fn_bound(fld_decl_ty, sinfo.type_params, SemaSubst{});
                 // A CONCRETE field type is the value's expected type, as a `let`
                 // annotation is: `S { v: Vec::new() }` infers `Vec<i64>`.
                 TypeRef fld_expect = nullptr;
@@ -13425,8 +13416,15 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (fld_hint_ty && type_is_concrete(fld_hint_ty)) {
                     fld_expect = fld_hint_ty;
                 }
-                val = lower_expr_expecting(map_of(init.get(la::VALUE.code)), fld_expect);
-                hint_closure_formal_ = saved_ch;
+                // The field's shape: its declared type under the literal's shape
+                // arguments, the struct's other parameters holes (C-EXP); an
+                // Fn-bounded parameter field shapes a closure by its bound.
+                SemaSubst fld_bound;
+                if (TypeRef ss = struct_shape_(); ss && TypeRef(ss).struct_name() == sname &&
+                    TypeRef(ss).type_args().size() == sinfo.type_params.size())
+                    for (size_t k = 0; k < sinfo.type_params.size(); ++k) fld_bound[sinfo.type_params[k].name] = TypeRef(ss).type_args()[k];
+                TypeRef fld_shape = fld_closure ? fld_closure : formal_shape_(fld_decl_ty, sinfo.type_params, fld_bound);
+                val = lower_expr_expecting(map_of(init.get(la::VALUE.code)), fld_expect, fld_shape);
                     if (fld_concrete_enum) try_retype_bare_enum_arg(val, fld_decl_ty);
             } else {
                 val = error_expr();
@@ -15765,11 +15763,10 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             auto clo = synth_node(la::CLOSURE_EXPR.code, ln,
                                   {{la::PARAMS.code, synth_node(la::BLOCK.code, ln, {{la::ITEMS.code, synth_array(params)}})},
                                    {la::VALUE.code, data}});
-            auto saved_hint = hint_closure_formal_;
-            if (!hint_closure_formal_ && eit->second.type_params.empty())
-                hint_closure_formal_ = make_fn_ptr_type(vi_->payload_types, make_enum_type(ename, epkg_el));
-            auto res = lower_expr(map_of(clo));
-            hint_closure_formal_ = saved_hint;
+            TypeRef clo_shape = closure_shape_();
+            if (!clo_shape && eit->second.type_params.empty())
+                clo_shape = make_fn_ptr_type(vi_->payload_types, make_enum_type(ename, epkg_el));
+            auto res = lower_expr_expecting(map_of(clo), nullptr, clo_shape);   // the closure IS this node
             return res;
         }
     }
@@ -19533,12 +19530,12 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // hint is set by lower_method_call / lower_call BEFORE
                 // lower_expr'ing the closure arg.
                 std::vector<TypeRef> hint_param_types;
-                if (hint_closure_formal_) {
+                if (closure_shape_()) {
                     // G167-3: peel Box<dyn Fn(..)> / &dyn Fn(..) wrappers so a
                     // closure literal in a wrapped expected-type context (e.g.
                     // `box_new(|x| ..)` returned as `Box<dyn Fn(..)>`) still
                     // infers its param types from the inner Fn signature.
-                    TypeRef h = peel_to_callable(hint_closure_formal_);
+                    TypeRef h = peel_to_callable(closure_shape_());
                     if (h && (LogosType::is_fn_value_kind(TypeRef(h).kind()) ||
                               TypeRef(h).kind() == LogosType::Kind::Closure)) {
                         for (auto pt : TypeRef(h).closure_params())
@@ -19673,8 +19670,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // region FROM that bound. src/compiler/PROBES.md 2026-09-04f.
     {
         TypeRef hret_;
-        if (hint_closure_formal_) {
-            TypeRef h_ = peel_to_callable(hint_closure_formal_);
+        if (closure_shape_()) {
+            TypeRef h_ = peel_to_callable(closure_shape_());
             if (h_ && (LogosType::is_fn_value_kind(TypeRef(h_).kind()) ||
                        TypeRef(h_).kind() == LogosType::Kind::Closure))
                 hret_ = TypeRef(h_).closure_ret();
@@ -19702,7 +19699,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 if (b) { lt = std::string(u.lifetime()); if (lt == "'_") lt.clear(); }
                 return b;
             };
-            TypeRef hc_ = hint_closure_formal_ ? peel_to_callable(hint_closure_formal_) : TypeRef{};
+            TypeRef hc_ = closure_shape_() ? peel_to_callable(closure_shape_()) : TypeRef{};
             std::string olt_;
             if (hc_ && (LogosType::is_fn_value_kind(TypeRef(hc_).kind()) ||
                         TypeRef(hc_).kind() == LogosType::Kind::Closure) &&
@@ -20570,16 +20567,17 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // G167-3b: a closure lowered where the expected type is `Box<…Fn…>` is
     // being BOXED — its captured env must live on the heap (boxing confers
     // heap lifetime; a stack env would dangle once the creating fn returns).
-    // The Box wrapper is detected via hint_closure_formal_ peeling to a
+    // The Box wrapper is detected via the closure's shape peeling to a
     // callable THROUGH a struct (Box) wrapper, NOT a bare/Ref-wrapped Fn
     // (those are borrowed/in-frame: iterator-adapter args keep a stack env).
-    if (hint_closure_formal_) {
-        TypeRef hk(hint_closure_formal_);
+    if (closure_shape_()) {
+        TypeRef hk(closure_shape_());
         if ((hk.kind() == LogosType::Kind::Struct ||
              hk.kind() == LogosType::Kind::ZonedStruct) &&
-            peel_to_callable(hint_closure_formal_))
+            peel_to_callable(closure_shape_()))
             ec->escapes = true;
     }
+    if (boxed_callable_ctx_ > 0) ec->escapes = true;
     // RETURNED as the function's value (`-> impl Fn`): the closure outlives the
     // frame whose locals its env would hold (row impl_fn_return_stack_env_dangles).
     if (returned_closure_node_ && returned_closure_node_ == node.ptr())
