@@ -66,7 +66,7 @@ bool SemaChecker::loop_has_targeting_break(TinyMapView loop_node) {
         if (found || n.is_null()) return;
         int32_t c = code_of(n);
         if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;   // fn boundary
-        if (c == la::BREAK || c == la::BREAK_EXPR) {
+        if (c == la::BREAK) {
             std::string lbl = n.has_key(la::LABEL)
                 ? std::string(str_of(n.get(la::LABEL.code))) : std::string();
             if (lbl.empty() ? (depth == 0)
@@ -122,7 +122,7 @@ bool SemaChecker::ast_has_exit(TinyMapView root) {
         if (found || n.is_null()) return;
         int32_t c = code_of(n);
         if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;
-        if (c == la::RETURN || c == la::RETURN_EXPR || c == la::TRY_EXPR) { found = true; return; }
+        if (c == la::RETURN || c == la::TRY_EXPR) { found = true; return; }
         uint64_t bm = n.bitmap();
         for (uint8_t key = 0; key < writ::TinyObjectMap::MAX_KEYS; ++key) {
             if (!(bm & (1ULL << key))) continue;
@@ -259,7 +259,7 @@ void SemaChecker::collect_returned_closure_lets_(TinyMapView body) {
         if (n.is_null()) return;
         int32_t c = code_of(n);
         if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;
-        if ((c == la::RETURN || c == la::RETURN_EXPR) && n.has_key(la::VALUE))
+        if (c == la::RETURN && n.has_key(la::VALUE))
             if (auto nm = var_name(n.get(la::VALUE.code)); !nm.empty()) returned.insert(nm);
         if (c == la::LET && n.has_key(la::VALUE) && n.has_key(la::NAME)) {
             auto v = unwrap_paren_node(map_of(n.get(la::VALUE.code)));
@@ -303,7 +303,7 @@ bool SemaChecker::ast_has_break_or_continue(TinyMapView root) {
         if (found || n.is_null()) return;
         int32_t c = code_of(n);
         if (c == la::CLOSURE_EXPR || c == la::NESTED_FN) return;
-        if (c == la::BREAK || c == la::BREAK_EXPR || c == la::CONTINUE || c == la::CONTINUE_EXPR) {
+        if (c == la::BREAK || c == la::CONTINUE) {
             found = true; return;
         }
         uint64_t bm = n.bitmap();
@@ -357,8 +357,6 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
         int32_t ec = code_of(e);
         if (ec == la::BLOCK) return block_always_returns(e);
         if (ec == la::IF || ec == la::MATCH) return stmt_always_returns(e);
-        if (ec == la::RETURN_EXPR || ec == la::BREAK_EXPR || ec == la::CONTINUE_EXPR)
-            return true;
     }
     // B-fn-06: TAIL_EXPR (no-SEMI trailing expression) is treated as an
     // implicit return ONLY at fn-body context, signalled by tail_as_return_.
@@ -385,8 +383,7 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
     if (c == la::LET && stmt.has_key(la::VALUE)) {
         auto e = map_of(stmt.get(la::VALUE.code));
         int32_t ec = code_of(e);
-        if (ec == la::RETURN_EXPR || ec == la::BREAK_EXPR ||
-            ec == la::CONTINUE_EXPR || is_divergent_call_node(e))
+        if (is_divergent_call_node(e))
             return true;
         if (ec == la::BLOCK) return block_always_returns(e);
         if (ec == la::IF || ec == la::MATCH) return stmt_always_returns(e);
@@ -431,8 +428,7 @@ bool SemaChecker::stmt_always_returns(TinyMapView stmt) {
                 if (!tail_match_nodes_.count(stmt.ptr())) {
                     auto e = unwrap_paren_node(map_of(arm.get(la::EXPR.code)));
                     const int32_t ec = code_of(e);
-                    if (!(ec == la::RETURN_EXPR || ec == la::BREAK_EXPR ||
-                          ec == la::CONTINUE_EXPR || is_divergent_call_node(e) ||
+                    if (!(is_divergent_call_node(e) ||
                           (ec == la::BLOCK && block_always_returns(e))))   // `{ return e; }` (HIR)
                         all_ret = false;
                 }
@@ -489,8 +485,7 @@ bool SemaChecker::stmt_always_diverts(TinyMapView stmt) {
                 // lost its value (a `{ match k { .. } }` arm yielded 0).
                 auto e = unwrap_paren_node(map_of(arm.get(la::EXPR.code)));
                 const int32_t ec = code_of(e);
-                if (!(ec == la::RETURN_EXPR || ec == la::BREAK_EXPR || ec == la::CONTINUE_EXPR ||
-                      is_divergent_call_node(e) ||
+                if (!(is_divergent_call_node(e) ||
                       (ec == la::BLOCK && block_always_diverts(e))))   // `{ return e; }` (HIR)
                     all_d = false;
             } else {

@@ -1,0 +1,6 @@
+// SOUNDNESS QUEUE row open_range_for_head_parse_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster open-range-for-head-parse (outside ADR 0030: grammar): `for i in 0.. { .. }` does not parse
+// Logos: syntax error at the `for` head; the parenthesised `for i in (0i64..)` runs correctly since the 2026-10-01 L0 fix (RangeOfFrom).
+// rustc: compiles, exit 15.
+// fix hint: grammar: a `for` head's expression (no-struct-literal context) admits a range with no end before the body's `{`.
+package open_range_for_head_parse_refused;
+fn main() -> i32 { let mut n = 0i64; for i in 0.. { if i > 5 { break; } n += i; } return n as i32; }

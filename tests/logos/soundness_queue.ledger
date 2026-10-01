@@ -455,5 +455,14 @@ wf_self_type_impl_lifetime_mismatch_admits 2 tests/soundness/open/wf_self_type_i
 
 struct_field_move_then_index_read_admits 2 tests/soundness/open/struct_field_move_then_index_read_admits admits
 
-# TOTAL 139
-# SYNC-HASH 106ffed72bf2dbf1d99cca042000e48a
+# ── 2026-10-01 ADR 0030 S0-S7 gap audit: the clusters OUTSIDE ADR 0030 (grammar / metaprog / stdlib)
+open_range_for_head_parse_refused 3 tests/soundness/open/open_range_for_head_parse_refused refuses
+
+derive_debug_c_field_cstr_refused 3 tests/soundness/open/derive_debug_c_field_cstr_refused refuses
+
+collect_into_option_refused 3 tests/soundness/open/collect_into_option_refused refuses
+
+array_by_value_into_iter_refused 3 tests/soundness/open/array_by_value_into_iter_refused refuses
+
+# TOTAL 143
+# SYNC-HASH d65488400515d034f5fa290de3a6c4e8

@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row collect_into_option_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster collect-into-result-option (outside ADR 0030: stdlib): `collect::<Option<Vec<T>>>()` is refused
+// Logos: `type 'Option' does not implement trait 'FromIterator'` (also `Result: Sum` and `Option: Clone` missing in the same cluster).
+// rustc: prints `None`.
+// fix hint: stdlib: `impl<A, V: FromIterator<A>> FromIterator<Option<A>> for Option<V>` (and the Result twin, Sum/Product for Result, Clone for Option).
+package collect_into_option_refused;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn main() { let v = vec![Some(1i32), None]; let r = v.into_iter().collect::<Option<Vec<i32>>>(); println!("{:?}", r); }

@@ -394,8 +394,10 @@ step must provide.
 S1 (C-REPR ABI): the retirement list is met (one `fn_sig` / `ret_abi_type`,
 the static-global tuple patch and the per-path return typing are gone).
 S2 (HIR exits): met — expression-position exits and labels are the pass's;
-tail → return is sema's one judgment by decision (HIR status). Left: the
-`*_EXPR` codes still named in sema_stmt's pre-scans (dead once the pass ran).
+tail → return is sema's one judgment by decision (HIR status). The `*_EXPR`
+codes sema_stmt's pre-scans still named are gone (2026-10-01): the pre-scans walk
+bodies after `hir_body_`, where an expression exit reaching lowering is the
+`hir_gate_` ICE.
 
 | cluster | owner | state | observed |
 |---|---|---|---|
@@ -437,11 +439,11 @@ tail → return is sema's one judgment by decision (HIR status). Left: the
 | `move-closure-capture-shares-slot/box-capture-block-tail` | ADR0029 | MOVED to ADR0029 | A move closure owning a Box/Rc, built in a block and returned as the block's value, reads freed memory: `{ let c = Box::new(5); move \|k\| *c + k }` then `inc(1)` gives garbage (ru |
 | `move-closure-capture-shares-slot/raw-ptr-escaping` | ADR0029 | MOVED to ADR0029 | An escaping move closure (returned `impl Fn` or `Box<dyn Fn>`) capturing a raw-pointer or reference PARAM stores a pointer to a heap COPY of the pointee: `move \|\| p as u64` retur |
 | `untyped-closure-param-from-later-call-wrong` | ADR0029 | CLOSED 2026-10-01 by the S7 gap round (hole completion through the bound; untyped closure parameter = type variable) | `let add1 = \|b\| b + 1; println!("{}", add1(2));` gives mlir "internal: `let __fmt0_a0` initializer produced no value" (COMPILE FAILED); rustc prints 3. The sibling `let m = \|c\| |
-| `collect-into-result-option` | outside-stdlib | outside ADR 0030 | Logos refuses `opts.iter().cloned().collect::<Option<Vec<i32>>>()` ('Option' does not implement Clone / FromIterator), `.sum::<Result<i64,_>>()` (Result not Sum) and `iter().flatte |
-| `const-N-not-inferred-from-array/array-by-value-into_iter` | outside-stdlib | outside ADR 0030 | `[4i64, 5].into_iter().map(\|x\| x+1).sum::<i64>()` -> 'method call: receiver is not a struct (got [i64; 2])'; rustc OK. `for x in a`, `a.iter()` and a user `impl<T, const N: i64>  |
-| `derive-debug-c-field-lexed-cstr` | outside-metaprog | outside ADR 0030 | #[derive_debug] on a struct with any field whose name starts with 'c' (c, cents, count, cb) fails: `DebugStruct__field arg 2: expected &[u8], got &'static CStr`. rustc prints `A {  |
-| `open-range-for-head-parse` | outside-grammar | outside ADR 0030 | `for i in 0.. { if i > 5 { break; } n += i; }` gives a syntax error in Logos; rustc prints 15. The parenthesised `for i in (0i64..)` parses but loops zero times (prints 0) |
-| `u16-mul-overflow-unchecked` | outside-other | outside ADR 0030 | `b * 300` with b: u16 = 255 traps (SIGILL, rc=132); rustc debug panics (rc=101). Overflow IS checked: i64 and u16 overflow both trap. |
+| `collect-into-result-option` | outside-stdlib | outside ADR 0030 — squeue row collect_into_option_refused (#718) | Logos refuses `opts.iter().cloned().collect::<Option<Vec<i32>>>()` ('Option' does not implement Clone / FromIterator), `.sum::<Result<i64,_>>()` (Result not Sum) and `iter().flatte |
+| `const-N-not-inferred-from-array/array-by-value-into_iter` | outside-stdlib | outside ADR 0030 — squeue row array_by_value_into_iter_refused (#719) | `[4i64, 5].into_iter().map(\|x\| x+1).sum::<i64>()` -> 'method call: receiver is not a struct (got [i64; 2])'; rustc OK. `for x in a`, `a.iter()` and a user `impl<T, const N: i64>  |
+| `derive-debug-c-field-lexed-cstr` | outside-metaprog | outside ADR 0030 — squeue row derive_debug_c_field_cstr_refused (#717) | #[derive_debug] on a struct with any field whose name starts with 'c' (c, cents, count, cb) fails: `DebugStruct__field arg 2: expected &[u8], got &'static CStr`. rustc prints `A {  |
+| `open-range-for-head-parse` | outside-grammar | outside ADR 0030 — squeue row open_range_for_head_parse_refused (#716); the parenthesised `for i in (0i64..)` runs since the L0 fix | `for i in 0.. { if i > 5 { break; } n += i; }` gives a syntax error in Logos; rustc prints 15. The parenthesised `for i in (0i64..)` parses but loops zero times (prints 0) |
+| `u16-mul-overflow-unchecked` | outside-other | outside ADR 0030 — not a defect: overflow traps by DIVERGENCES A13 (always checked, abort) — rustc debug panics, the same verdict by the blessed model | `b * 300` with b: u16 = 255 traps (SIGILL, rc=132); rustc debug panics (rc=101). Overflow IS checked: i64 and u16 overflow both trap. |
 
 ## S0 status (2026-10-01)
 

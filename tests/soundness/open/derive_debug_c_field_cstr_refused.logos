@@ -1,0 +1,8 @@
+// SOUNDNESS QUEUE row derive_debug_c_field_cstr_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster derive-debug-c-field-lexed-cstr (outside ADR 0030: metaprog): #[derive_debug] on a struct with a field whose name starts with `c` is refused
+// Logos: `DebugStruct__field arg 1: expected &[u8], got &'static CStr` in the generated A__fmt — the field-name string `"c"` is spliced so that it lexes as a C-string literal `c"..."`.
+// rustc: #[derive(Debug)] prints `A { c: 3 }`.
+// fix hint: metaprog: the derive emits the field name as a string token that cannot fuse with a preceding identifier `c` (quote the name as one token).
+package derive_debug_c_field_cstr_refused;
+use logos.std.fmt;
+#[derive_debug] struct A { c: i32 }
+fn main() { println!("{:?}", A { c: 3 }); }
