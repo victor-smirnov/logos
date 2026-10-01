@@ -308,6 +308,10 @@ fi
 # because a silent fall-through to the alloca would be an ADMITTED DANGLE —
 # borrow_check has already stopped refusing that borrow. One new `bug_null` in
 # mlir_gen_expr.cpp, 15 -> 16.
+# 2026-10-01, ADDING direction: an implicit aggregate unsize (a thin value at a
+# `dyn` slot of a tuple / enum payload / array-in-field) is a malfunction — sema
+# coerces each element where the aggregate is built (ADR 0030 C-EXP); census 0
+# over the pass corpora. mlir_gen_dyn.cpp 0 -> 1.
 # 2026-09-30, ADDING direction: an unsolved integer literal type reaching
 # codegen is a malfunction (ADR 0030 C-INF: every unsuffixed literal is an
 # integer variable sema solves or defaults); mlir_gen_types.cpp 4 -> 5.
@@ -326,6 +330,7 @@ fi
 # one disappearing.
 REPORT_PIN=$(cat <<'REPORTS'
 mlir_gen.cpp 5
+mlir_gen_dyn.cpp 1
 mlir_gen_expr.cpp 17
 mlir_gen_impl.hpp 11
 mlir_gen_stmt.cpp 15

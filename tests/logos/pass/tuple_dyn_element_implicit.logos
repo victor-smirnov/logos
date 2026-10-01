@@ -63,12 +63,11 @@ fn main() -> i32 {
     let m2: (&dyn Shape, i64) = match k { 0i64 => (&a, 7i64), _ => (&a2, 9i64) };
     if m2.1 != 9i64 { return 18i32; }
     if m2.0.area() != 25i64 { return 31i32; }
-    // ⚠ NOT SPELLABLE, and not this round's class: arms of DIFFERENT concrete
-    // types (`(&a, …)` vs `(&tri, …)`) are refused by the match arm-compat
-    // check, which runs at match lowering with no expectation in hand
-    // ("arm type '(&Tri, i64)' is incompatible with '(&Sq, i64)'"). The stamp
-    // is downstream of that refusal, so a heterogeneous match still needs the
-    // explicit `as &dyn Shape` in each arm.
+    // Arms of DIFFERENT concrete types: the expectation reaches each arm (ADR 0030
+    // C-EXP), so `(&a, …)` and `(&b, …)` both coerce to `(&dyn Shape, i64)` (this
+    // was refused at match lowering, which had no expectation in hand).
+    let hm: (&dyn Shape, i64) = match k { 0i64 => (&a, 7i64), _ => (&b, 9i64) };
+    if hm.0.area() + hm.1 != 114i64 { return 32i32; }
     // (5) IF-EXPRESSION arm — same wrapper walk as the match.
     let ie: (&dyn Shape, i64) = if k == 1i64 { (&a, 2i64) } else { (&a2, 3i64) };
     if ie.1 != 2i64 { return 19i32; }

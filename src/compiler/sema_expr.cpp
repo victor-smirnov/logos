@@ -8606,8 +8606,20 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             auto args_list = map_of(args_av);
             if (args_list.has_key(la::ITEMS)) {
                 auto items = arr_of(args_list.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < items.size(); ++i)
-                    arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                // The written arguments fix the formals: each argument expects
+                // its formal under them (C-EXP), `ident::<(&dyn Sh, i64)>((&a, 7))`.
+                SemaSubst written;
+                for (size_t k = 0; k < type_args.size() && k < fi_ptr->type_params.size(); ++k)
+                    if (type_args[k] && TypeRef(type_args[k]).kind() != LogosType::Kind::TypeVar &&
+                        TypeRef(type_args[k]).kind() != LogosType::Kind::Error)
+                        written[fi_ptr->type_params[k].name] = type_args[k];
+                for (uint64_t i = 0; i < items.size(); ++i) {
+                    TypeRef shape = i < fi_ptr->param_types.size() && fi_ptr->param_types[i]
+                        ? elide_sig_lts_(formal_shape_(fi_ptr->param_types[i], fi_ptr->type_params, written))
+                        : TypeRef(nullptr);
+                    arg_exprs.push_back(lower_expr_expecting(map_of(items.get(i)),
+                                                             shape && type_is_concrete(shape) ? shape : TypeRef(nullptr), shape));
+                }
             }
         }
     }

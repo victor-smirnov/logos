@@ -1424,6 +1424,12 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
     // (`val` IS that pointer — Box<concrete> = {ptr}). No malloc(16) handle: the
     // pair is a stack alloca the consumer copies (Vec slot / return). Drop frees
     // `data` via vtable[0].
+    // ADR 0030 C-EXP: sema coerces an aggregate element to its slot where the
+    // aggregate is built (the expectation reaches the element); a thin value
+    // arriving at a `dyn` slot here is an unsize sema did not record.
+    bug_printf("an aggregate slot of type `%s` received a `%s` value without its unsize — "
+               "sema owes the coercion at the element (ADR 0030 C-EXP)",
+               type_str(slot_lt).c_str(), type_str(val_lt).c_str());
     auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name, vt_type, TypeRef(ptl).pkg_name(), sl);
     return fat ? fat : val;
 }
