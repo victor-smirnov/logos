@@ -714,6 +714,7 @@ lir::LExprPtr SemaChecker::lit_int_from_text(std::string_view sv, bool negate) {
     // const's initializer) it stays `{integer}` for the declared type to take.
     TypeRef t = (suf != LogosType::Kind::Error) ? prim(suf)
               : fn_body_depth_ > 0 ? mint_lit_var_(v) : intlit_t();
+    if (is_lit_var_(t) && (negate || (!sv.empty() && sv[0] == '-'))) lit_note_negated_(t);
     return builder().lit_int(v, t);
 }
 
@@ -1618,6 +1619,13 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     // ExpectCastableToType): an integer target is its type (`300 as u8` is out
     // of range), `char` makes it u8, and any
     // other target leaves an integer variable to the default.
+    if (inner && target && is_lit_var_(lit_resolve_(expr_type(inner)))) {
+        const auto tk = TypeRef(target).kind();
+        if (is_integer_kind(tk) && tk != LogosType::Kind::IntLit && tk != LogosType::Kind::Enum) {
+            lit_solve_(expr_type(inner), target);
+            builder().retype_expr(inner, target);
+        }
+    }
     if (inner && target && TypeRef(expr_type(inner)).kind() == LogosType::Kind::IntLit &&
         !is_lit_var_(expr_type(inner))) {
         const auto tk = TypeRef(target).kind();
@@ -4364,6 +4372,28 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     // & — address-of or array-to-slice
     if (op == "&") {
         auto child = map_of(node.get(la::VALUE.code));
+        // `&K` for a const item borrows the const's VALUE (Rust promotes a
+        // constant expression): the operand is the initializer under the
+        // declared type, so the promotion predicate the checkers and the emitter
+        // share sees a constant. A const reference was a frame materialisation
+        // the checker took for promoted — `return &K` returned a dead slot.
+        if (code_of(child) == la::VAR_REF) {
+            std::string kn(str_of(child.get(la::NAME.code)));
+            if (!is_local_binding_(kn) && !is_module_static_unshadowed(kn) && !generic_consts_.count(kn)) {
+                std::string ck = resolve_const_key(kn);
+                auto cit = ck.empty() ? module_consts_.end() : module_consts_.find(ck);
+                auto vit = ck.empty() ? module_const_values_.end() : module_const_values_.find(ck);
+                if (cit != module_consts_.end() && vit != module_const_values_.end() && cit->second &&
+                    TypeRef(cit->second).kind() != LogosType::Kind::Error) {
+                    auto val = lower_typed_const_(vit->second, cit->second);
+                    if (val && expr_type(val) && const_promote::is_const_value(
+                            expr_ref_of(val), cur_prog_->type_pool.impl(), [this](TypeRef t) { return needs_drop(t); }))
+                        return builder().addr_of_temp(std::move(val), false,
+                                                      make_ref(false, expr_type(val), std::string("static")),
+                                                      BorrowOrigin::Explicit);
+                }
+            }
+        }
         // A path that names no local (a unit struct `&U`, a const, an
         // undefined name) takes the general `&<expr>` path below, which
         // resolves it the way a bare use would — and reports it the same way.
@@ -4676,6 +4706,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // B-ex-04: unary minus on an unsigned type wraps silently. Reject —
         // the user must cast to a signed type explicitly if that's intended.
         auto vk = TypeRef(vt).kind();
+        if (is_lit_var_(vt)) lit_note_negated_(vt);   // judged when the variable is solved
         if (LogosType::is_unsigned_int_kind(vk)) {
             error(std::format(
                 "unary '-': operand has unsigned type {}; negation would wrap silently — "
@@ -28045,6 +28076,19 @@ void SemaChecker::lit_close_fn_(const std::string& fn_name) {
     }
     for (auto& [root, wide] : root_wide)
         lit_solved_[root] = wide ? prim(LogosType::Kind::I64) : i32_t();
+    // E0600: a negated variable solved to an unsigned type.
+    for (const auto& n : lit_fn_vars_) {
+        auto nit = lit_negated_.find(n);
+        if (nit == lit_negated_.end()) continue;
+        TypeRef t = lit_resolve_(var_of(n));
+        if (LogosType::is_unsigned_int_kind(TypeRef(t).kind())) {
+            const auto sl = node_line_; const auto ss = node_span_;
+            node_line_ = nit->second; node_span_ = 0;
+            error(std::format("cannot apply unary operator `-` to type `{}` (E0600)", type_str(t)));
+            node_line_ = sl; node_span_ = ss;
+        }
+        lit_negated_.erase(nit);
+    }
     std::vector<std::pair<std::string, TypeRef>> sols;
     for (const auto& n : lit_fn_vars_) {
         TypeRef t = lit_resolve_(var_of(n));

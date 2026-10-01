@@ -2246,6 +2246,9 @@ bool SemaChecker::is_divergent_call_node(writ::TinyMapView node) {
     }
     if (cc != la::CALL.code && cc != la::FN_MACRO_CALL.code) return false;
     auto callee = str_of(node.get(la::CALLEE.code));
+    // A local binding of the name is what the call calls (a closure `die`
+    // shadowing `fn die() -> !`): it does not diverge.
+    if (lookup(callee)) return false;
     // `panic(msg)` by name: depending on import order the user-facing `panic`
     // symbol may not be visible yet at the call site; the Never-return check
     // below handles every other diverging callee.

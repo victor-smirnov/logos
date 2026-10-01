@@ -1,0 +1,9 @@
+// `return &K` for a const item is the promoted constant, not a frame slot: a call that reuses the stack
+// after `f()` returns must not change `*r` (ADR 0030 S0, 2026-10-01). Was squeue row
+// const_item_borrow_returned_dangles_run (run 88: codegen materialised K in f's frame while BIR took
+// the borrow for the promoted constant). rustc twin: exit 5.
+package s0_const_item_borrow_promoted;
+const K: i64 = 5i64;
+fn f() -> &'static i64 { return &K; }
+fn clobber(a: i64, b: i64, c: i64, d: i64) -> i64 { let x = [a, b, c, d, a + b, c + d, 77, 88]; return x[6] + x[7]; }
+fn main() -> i32 { let r: &i64 = f(); let z = clobber(91, 92, 93, 94); if z != 165 { return 9; } return *r as i32; }

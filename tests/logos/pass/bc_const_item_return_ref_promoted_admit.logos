@@ -1,0 +1,12 @@
+// ADMIT: `return &K` for a const item borrows the PROMOTED constant (rustc: `&K` is a constant
+// expression in static storage). This was fail/bc_const_item_return_ref_fail ("a const is materialised
+// into the frame at each use"); the refusal went silent while codegen still materialised K in the frame
+// (squeue const_item_borrow_returned_dangles_run). ADR 0030 S0 (2026-10-01): `&K` lowers to the
+// promoted initializer, one predicate for the checkers and the emitter.
+package bc_const_item_return_ref_promoted_admit;
+
+const K: i64 = 5i64;
+
+fn f() -> &i64 { return &K; }
+
+fn main() -> i64 { let r: &i64 = f(); return *r; }

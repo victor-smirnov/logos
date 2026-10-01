@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row wf_self_type_impl_lifetime_mismatch_admits (tier 2, `admits`). rustc's
+// nll/wf-self-type: `fn xmute(a: &'b i64) -> &'a i64` in `impl<'a, 'b> Foo<'a, 'b>` (Foo holds
+// `&'a &'b i64`, so `'b: 'a` is implied there) called from `foo<'a, 'b>` where nothing implies it —
+// rustc 1.98.1: lifetime may not live long enough. Logos compiles it. Was imported
+// fail/nll/wf-self-type ("lifetime mismatch: return type has lifetime 'a but 'u' has lifetime 'b"),
+// silent already on e6e0edcfe (2026-09-30); found by the gate sample on 2026-10-01.
+package wf_self_type_impl_lifetime_mismatch_admits;
+struct Foo<'a, 'b> { r: &'a &'b i64 }
+impl<'a, 'b> Foo<'a, 'b> {
+  fn xmute(a: &'b i64) -> &'a i64 { return a; }
+}
+fn foo<'a, 'b>(u: &'b i64) -> &'a i64 { return Foo::<'a,'b>::xmute(u); }
+fn main() -> i32 { return 0i32; }

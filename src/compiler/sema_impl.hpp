@@ -5887,6 +5887,12 @@ private:
         return nullptr;
     }
 
+    bool is_local_binding_(std::string_view name) const {
+        for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
+            if (it->vars.count(std::string(name))) return true;
+        return false;
+    }
+
     // Phase-1: resolve a NAME to its current in-scope variable slot (innermost
     // wins → shadowing-correct). Returns UINT32_MAX for names that aren't a
     // local binding (module consts, unresolved/synthesized refs); such EVarRefs
@@ -9045,6 +9051,14 @@ private:
     std::unordered_map<std::string, int64_t> lit_value_;    // ?lK -> the literal its let bound
     std::unordered_map<std::string, std::vector<int64_t>> lit_more_values_;   // literals later written into it
     std::vector<std::string> lit_fn_vars_;                  // this function's
+    // A variable a unary `-` was applied to (a folded `-1` or `-a`), with the
+    // line: solved to an unsigned type it is E0600, as rustc judges `-` on u64.
+    std::unordered_map<std::string, uint32_t> lit_negated_;
+    void lit_note_negated_(TypeRef var) {
+        TypeRef r = lit_resolve_(var);
+        // KEY-IDENTITY: an integer inference variable's name `?lK` (mint_lit_var_), unique per program
+        if (is_lit_var_(r)) lit_negated_.emplace(std::string(TypeRef(r).type_var_name()), node_line_);
+    }
     // C-INF: a trait bound on a type argument that is still an open integer
     // variable waits for the variable's solution or default (rustc defers
     // obligations on `{integer}` past the fallback); lit_close_fn_ re-checks.

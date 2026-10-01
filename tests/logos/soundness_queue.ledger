@@ -451,7 +451,9 @@ mem_swap_is_unsafe_raw_pointer_refused 3 tests/soundness/open/mem_swap_is_unsafe
 
 array_map_missing_refused 3 tests/soundness/open/array_map_missing_refused refuses
 
-const_item_borrow_returned_dangles_run 1 tests/soundness/open/const_item_borrow_returned_dangles_run run 88
+backedge_field_reborrow_conflict_admits 2 tests/soundness/open/backedge_field_reborrow_conflict_admits admits
 
-# TOTAL 138
-# SYNC-HASH acfa59655012ac978c942f8caa4a48cb
+wf_self_type_impl_lifetime_mismatch_admits 2 tests/soundness/open/wf_self_type_impl_lifetime_mismatch_admits admits
+
+# TOTAL 139
+# SYNC-HASH 94c9916b3d6c7030252f3010e61e54fa

@@ -5358,7 +5358,9 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
     case SCode::Loop: {
         lir_view::SLoopView v{sref};
         auto body = subst_child_block(v.body());
-        TypeRef result_type = v.result_type(pool);
+        // The loop's value type is the template's: `loop { break t }` in `g<T>`
+        // is a T loop, an i64 one in `g::<i64>`.
+        TypeRef result_type = subst_type(v.result_type(pool), s);
         std::string break_slot(v.break_slot());
         std::string label(v.label());
         ns.mirror_ptr_ = lir_mirror_emit_loop(

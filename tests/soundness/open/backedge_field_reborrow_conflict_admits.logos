@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row backedge_field_reborrow_conflict_admits (tier 2, `admits`). `r = &mut s.a` at the
+// end of a loop body, `*r` written at the top of the next iteration, `&s.a` read in between: the read
+// conflicts with the loan carried over the back edge (rustc 1.98.1: E0503/E0502). Logos compiles it.
+// Was fail/bc_backedge_field_lend_flow_refuse ("cannot use 's.a' while 's.a' is mutably borrowed"),
+// silent already on e6e0edcfe (2026-09-30); found by the gate sample on 2026-10-01.
+package backedge_field_reborrow_conflict_admits;
+struct S { a: i64, b: i64 }
+fn readit(v: &i64) -> i64 { return *v; }
+fn main() -> i32 {
+    let mut s: S = S { a: 0i64, b: 0i64 };
+    let mut t: S = S { a: 0i64, b: 0i64 };
+    let mut r: &mut i64 = &mut t.a;
+    let mut i: i64 = 0i64;
+    while i < 3i64 {
+        *r = *r + 1i64;
+        let _z: i64 = readit(&s.a);
+        r = &mut s.a;
+        i = i + 1i64;
+    }
+    return 0i32;
+}

@@ -381,6 +381,28 @@ Next: or-patterns / parameter patterns (sema already binds a parameter pattern
 through the `let` door), `..base`; tail → return stays sema's single judgment
 (a unit tail needs a type).
 
+## S0 status (2026-10-01)
+
+S0 had no record of being done when S7 was reached; it was taken then, by
+the item list of path inventory §4.2. The probe programs were gone (they
+lived in /tmp), so each item got a fresh rustc twin from its description
+(stdout + exit compared). Item by item:
+
+| item | state |
+|---|---|
+| `intlit_fits` U64/I64 negative | DONE: a negated unsuffixed literal records its sign on its integer variable; solved to an unsigned type it is E0600 (let, argument, cast — a folded `-1` is indistinguishable from u64::MAX as an int64). `lit as T` solves an open variable to an integer target. Fixture s0_negated_literal_unsigned_refused |
+| `is_stmt_only_code` + DEREF_COMPOUND; tail assignment vanishes | closed before S0 (S2/S6): `if c { x = 5 } else { x = 6 }`, `{ *p += 4 }` as a tail — twins agree |
+| refuse on any decided-non-exhaustive type | closed by S3 (int / `&Enum` / `&[T]` refuse, E0004) |
+| `pat_test` dyn-slice suffix | closed before S0: `[a, .., z]`, `[.., y, z]` over slices agree |
+| mono `SLoop` result_type substitution | DONE: `loop { break t }` in `g<T>` failed in mlir (the loop kept `T`); fixture s0_generic_loop_break_value |
+| `merge_loop_exit_moves` in for-each | closed before S0: a conditional move inside a for-each over an empty array / Vec drops once |
+| closure epilogue fall-through state | closed before S0: a by-value closure parameter is dropped |
+| `lower_block_expr`'s tail-move revert | done before S0 (the block-tail value keeps its move mark) |
+| `is_divergent_call` consults the scope | DONE: a local binding shadows a diverging fn (`let die = \|x\| ..; { die(3) }` was typed `!`); fixture s0_local_shadows_diverging_fn |
+| BREAK_EXPR mark_moved | closed by S2 (`loop { break s }` drops once) |
+| `Kind::Ptr` → `ref_repr_of` in the FieldRead index copies | not reproduced: `h.p[i]` over `&[T; N]` / `&mut [T; N]` / `&[T]` / `&Vec<T>` / nested `&S` fields agree |
+| (found by the gate sample) `return &K` for a const item | DONE: `&K` lowers to the promoted initializer under the declared type, one predicate for the checkers and the emitter; codegen had materialised K in the frame while BIR took the borrow as promoted (run 88, rustc 5). squeue const_item_borrow_returned_dangles_run closed |
+
 ## S3 status (2026-09-27)
 
 S3.1 — ONE exhaustiveness verdict. The usefulness matrix

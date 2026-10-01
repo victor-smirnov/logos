@@ -1,0 +1,5 @@
+// ADR 0030 S0: a `loop { break t }` in a generic fn is a T loop, an i64 one in the i64 instance (mono
+// substitutes the loop's result type; it kept `T` and mlir dropped the return). rustc twin: exit 10.
+package s0_generic_loop_break_value;
+fn g<T: Copy>(t: T) -> T { let mut i = 0; return loop { i += 1; if i > 2 { break t; } }; }
+fn main() -> i32 { return g(7i64) as i32 + g(3u8) as i32; }

@@ -6771,9 +6771,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11851 -> 11852 (+1), NOIMPORTED 7288 -> 7289 (+1), TIERCOMMIT 200 -> 200 (+0) — 2026-09-30: ADR 0030 C-EXP.1: +pass cexp_expected_type_scope.
 #                ALL 11852 -> 11853 (+1), NOIMPORTED 7289 -> 7290 (+1), TIERCOMMIT 200 -> 200 (+0) — 2026-09-30: ADR 0030 C-EXP.2b: fail aggregate_unsize_generic_field_literal_overrefusal closed into pass cexp_generic_field_literal_unsize; +pass cexp_struct_literal_shape.
 #                ALL 11853 -> 11855 (+2), NOIMPORTED 7290 -> 7292 (+2), TIERCOMMIT 200 -> 201 (+1) — 2026-09-30: ADR 0030 C-EXP.2b: fail bc_aggscrutpair_temp_scrut_receiver_reuse -> pass ..._admit (rustc accepts), +fail bc_aggscrutpair_temp_scrut_binder_used_after_reuse, squeue +const_item_borrow_returned_dangles_run.
-REGISTRY-ALL         11855
-REGISTRY-NOIMPORTED  7292
-REGISTRY-TIERCOMMIT  201
+#                ALL 11855 -> 11858 (+3), NOIMPORTED 7292 -> 7295 (+3), TIERCOMMIT 201 -> 200 (-1) — 2026-09-30: ADR 0030 S0: +pass s0_generic_loop_break_value, s0_local_shadows_diverging_fn, s0_const_item_borrow_promoted (squeue closed), bc_const_item_return_ref_promoted_admit (was fail); +fail s0_negated_literal_unsigned_refused.
+#                ALL 11858 -> 11858 (+0), NOIMPORTED 7295 -> 7296 (+1), TIERCOMMIT 200 -> 202 (+2) — 2026-09-30: ADR 0030 S0 gate sample: fail bc_backedge_field_lend_flow_refuse + imported fail nll/wf-self-type had gone silent -> squeue rows.
+REGISTRY-ALL         11858
+REGISTRY-NOIMPORTED  7296
+REGISTRY-TIERCOMMIT  202
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

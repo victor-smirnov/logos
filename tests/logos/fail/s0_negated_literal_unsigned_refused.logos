@@ -1,0 +1,6 @@
+// ADR 0030 S0: a negated unsuffixed literal solved to an unsigned type is E0600, as rustc judges unary
+// `-` on u64 — at a `let`, an argument and a cast (`-1` folded to an int64 is indistinguishable from
+// u64::MAX, so the sign is recorded on the literal's variable). They compiled to u64::MAX.
+package s0_negated_literal_unsigned_refused;
+fn f(x: u64) -> u64 { return x % 7; }
+fn main() -> i32 { let a: u64 = -1; let b = f(-2); let c = (-3) as u64; return (a + b + c) as i32; }

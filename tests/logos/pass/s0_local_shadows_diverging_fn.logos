@@ -1,0 +1,5 @@
+// ADR 0030 S0: a local binding shadows a diverging fn of the same name — `{ die(3) }` calls the closure
+// `die`, not `fn die() -> !` (the block was typed `!`: "casting `!` as `i32` is invalid"). rustc twin: exit 4.
+package s0_local_shadows_diverging_fn;
+fn die(x: i64) -> ! { loop {} }
+fn main() -> i32 { let die = |x: i64| x + 1; let v = { die(3) }; return v as i32; }
