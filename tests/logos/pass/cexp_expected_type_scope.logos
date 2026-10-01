@@ -1,9 +1,9 @@
 // ADR 0030 C-EXP: the expected type belongs to the expression it was given to — a `let` annotation,
 // an argument's concrete formal — and reaches only the positions that pass a value through: a block's
-// tail, an `if` branch, a `match` arm. `first(if c { &a3 } else { &a5 })` against `&[i64]` merges its
+// tail, an `if` branch, a `match` arm, parentheses, a macro's expansion; `return e` expects the return type. `first(if c { &a3 } else { &a5 })` against `&[i64]` merges its
 // branches at the slice (it was "incompatible types: &[i64; 3] vs &[i64; 5]"). rustc twin: same output.
 package cexp_expected_type_scope;
-use logos.std.fmt; use logos.mem.string;
+use logos.std.fmt; use logos.mem.string; use logos.mem.collections.vec;
 trait T { fn n(&self) -> i32; }
 struct A {} struct B {}
 impl T for A { fn n(&self) -> i32 { return 1; } }
@@ -11,6 +11,7 @@ impl T for B { fn n(&self) -> i32 { return 2; } }
 fn big(s: &[i64]) -> bool { return s.len() > 1; }
 fn first(s: &[i64]) -> i64 { return s[0]; }
 fn id(x: i64) -> i64 { return x; }
+fn pick<'a>(c: bool, a: &'a [i64; 3], b: &'a [i64; 5]) -> &'a [i64] { return if c { a } else { b }; }
 fn main() -> i32 {
     let a = [1, 2, 3];
     let x: &[i64] = if big(&a) { &a } else { &a };
@@ -24,5 +25,7 @@ fn main() -> i32 {
     println!("{}", r.n());
     let q: &dyn T = { let p = &aa; p };
     println!("{}", q.n());
+    let ve: Vec<i64> = (vec![]);
+    println!("{} {} {}", ve.len(), pick(true, &a3, &a5).len(), pick(false, &a3, &a5)[4]);
     return 0;
 }

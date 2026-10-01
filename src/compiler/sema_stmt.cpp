@@ -1307,11 +1307,9 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
     TypeRef ann = node.has_key(la::TYPE) ? resolve_type(map_of(node.get(la::TYPE.code))) : TypeRef(nullptr);
     const bool ann_hint = ann && TypeRef(ann).kind() != LogosType::Kind::Error && !type_has_inferred(ann);
     auto saved_tuple = hint_tuple_type_;
-    auto saved_ret = hint_call_return_type_;
     auto saved_struct = hint_struct_type_;
     auto saved_enum = hint_enum_type_;
     if (ann_hint) {
-        hint_call_return_type_ = ann;
         if (TypeRef(ann).kind() == LogosType::Kind::Tuple) hint_tuple_type_ = ann;
         if (TypeRef(ann).kind() == LogosType::Kind::Struct && !TypeRef(ann).type_args().empty())
             hint_struct_type_ = ann;
@@ -1322,7 +1320,6 @@ lir_view::StmtRef SemaChecker::lower_let_pat(TinyMapView node) {
         ? lower_expr_expecting(map_of(node.get(la::VALUE.code)), ann_hint ? ann : TypeRef(nullptr))
         : error_expr();
     hint_tuple_type_ = saved_tuple;
-    hint_call_return_type_ = saved_ret;
     hint_struct_type_ = saved_struct;
     hint_enum_type_ = saved_enum;
     TypeRef rhs_type = expr_type(rhs);
@@ -1793,12 +1790,10 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         (TypeRef(ann).kind() == LogosType::Kind::Struct ||
                 TypeRef(ann).kind() == LogosType::Kind::ZonedStruct) && !TypeRef(ann).type_args().empty())
         hint_struct_type_ = ann;
-    auto saved_ret_hint = hint_call_return_type_;
     // The annotation is the initializer's expected type (C-EXP); an
     // unannotated `let` hands none on.
     const TypeRef let_expect = (ann && !ann_has_hole && TypeRef(ann).kind() != LogosType::Kind::Error)
                                ? ann : TypeRef(nullptr);
-    if (let_expect) hint_call_return_type_ = ann;
     // G151-3: a fn-ptr/closure-annotated let hints the closure formal so an
     // untyped closure literal (`let f: fn(i64)->i64 = |x| x+1`) infers its
     // param types (was `|<error>|`). Mirrors the call-arg + return paths.
@@ -1900,10 +1895,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         hint_lit = TypeRef(ann).pointee();
                     if (ext_dbl && hint_lit && is_ref_like(TypeRef(hint_lit).kind()))
                         hint_lit = TypeRef(hint_lit).pointee();
-                    auto saved_lit_hint = hint_call_return_type_;
-                    if (hint_lit) hint_call_return_type_ = hint_lit;
-                    auto lit_expr = lower_expr(inner);
-                    hint_call_return_type_ = saved_lit_hint;
+                    auto lit_expr = lower_expr_expecting(inner, hint_lit);
                     if (hint_lit && expr_type(lit_expr) &&
                         TypeRef(expr_type(lit_expr)).kind() == LogosType::Kind::IntLit)
                         builder().retype_expr(lit_expr, hint_lit);
@@ -1959,7 +1951,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         sl.value = std::move(rhs_e);
                         hint_enum_type_ = saved_hint;
                         hint_struct_type_ = saved_struct_hint;
-                        hint_call_return_type_ = saved_ret_hint;
                         hint_closure_formal_ = saved_closure_hint;
                         hint_tuple_type_ = saved_tuple_hint;
                         return make_stmt_emit(node_line_, std::move(sl));
@@ -1999,7 +1990,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
 
                     hint_enum_type_ = saved_hint;
                     hint_struct_type_ = saved_struct_hint;
-                    hint_call_return_type_ = saved_ret_hint;
                     hint_closure_formal_ = saved_closure_hint;
                     hint_tuple_type_ = saved_tuple_hint;
                     return make_stmt_emit(node_line_, lir::SBlock{lir_mirror_block(*cur_prog_, blk), /*transparent=*/true});
@@ -2083,7 +2073,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
 
     hint_enum_type_ = saved_hint;
     hint_struct_type_ = saved_struct_hint;
-    hint_call_return_type_ = saved_ret_hint;
     hint_closure_formal_ = saved_closure_hint;
     hint_arr_elem_type_ = saved_arr_elem_hint;
     hint_tuple_type_ = saved_tuple_hint;
@@ -3122,8 +3111,12 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     // Box DerefMove in return position: `return *b;`.
     if (code_of(vnode) == la::DEREF)
         val = try_lower_box_deref_move(vnode);
+    // The return type is the returned value's expected type (C-EXP).
+    const bool ret_expects = ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void &&
+                             TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
+                             TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait;
     if (!val)
-        val = lower_expr(vnode);
+        val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr));
     hint_tuple_type_ = saved_tuple_hint;
     hint_enum_type_ = saved_hint;
     hint_struct_type_ = saved_struct_hint;

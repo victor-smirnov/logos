@@ -8930,12 +8930,6 @@ private:
     // callee then read as `{i64,i64}` (silent garbage). TUPLE_LIT lowering widens
     // each element to the matching expected element type.
     TypeRef hint_tuple_type_ = nullptr;
-    // Set by lower_let when the let binding has an explicit type annotation,
-    // so a generic-call rhs with insufficient turbofish can unify the fn's
-    // return type against the expected type and fill missing type-args.
-    // Closes the gap for `let x: Foo<T> = make_foo();` where T appears only
-    // in the return type.
-    TypeRef hint_call_return_type_ = nullptr;
     // CP-cm-14: when lowering a closure-arg whose params lack type
     // annotations (`|x| body` rather than `|x: T| body`), check this
     // hint. Set by the call-site path (lower_call / lower_method_call)
