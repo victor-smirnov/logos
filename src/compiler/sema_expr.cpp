@@ -1293,10 +1293,7 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
     TypeRef target = arr_lit_operand ? resolve_type(map_of(expr.get(la::TYPE.code))) : TypeRef(nullptr);
     lir::LExprPtr inner;
     if (arr_lit_operand && target && TypeRef(target).kind() == LogosType::Kind::Array) {
-        TypeRef saved = hint_arr_elem_type_;
-        hint_arr_elem_type_ = TypeRef(target).elem();
-        inner = lower_expr(map_of(expr.get(la::VALUE.code)));
-        hint_arr_elem_type_ = saved;
+        inner = lower_expr_expecting(map_of(expr.get(la::VALUE.code)), nullptr, target);
         if (inner && types_equal(expr_type(inner), target)) return inner;   // identity cast
     } else {
         inner = expr.has_key(la::VALUE)
@@ -5362,36 +5359,16 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 return elide_sig_lts_(pt);
             return nullptr;
         };
-        // T0-5: a CONCRETE slice/array formal hints a literal-array arg's
-        // element type (`sum(&[1, 2, 3])` against `&[i64]` adopts i64 —
-        // pre-fix the lits defaulted to i32 and the slice aliasing read
-        // garbage). TypeVar elems stay un-hinted (inference handles them).
-        auto slice_elem_hint_for = [&](size_t formal_idx) -> TypeRef {
-            if (!hint_fi || formal_idx >= hint_fi->param_types.size()) return nullptr;
-            TypeRef pt = hint_fi->param_types[formal_idx];
-            if (!pt) return nullptr;
-            if (TypeRef(pt).kind() == LogosType::Kind::Slice ||
-                TypeRef(pt).kind() == LogosType::Kind::Array) {
-                TypeRef et = TypeRef(pt).elem();
-                if (et && TypeRef(et).kind() != LogosType::Kind::TypeVar &&
-                    TypeRef(et).kind() != LogosType::Kind::Error)
-                    return et;
-            }
-            return nullptr;
-        };
         SemaSubst ret_binds;
         if (hint_fi && !hint_fi->type_params.empty() && hint_fi->ret_type && expected_ && type_is_concrete(expected_))
             unify_types(hint_fi->ret_type, expected_, ret_binds);
         for (uint64_t i = 0; i < args.size(); ++i) {
             TypeRef saved = hint_closure_formal_;
             TypeRef saved_eh = hint_enum_type_;
-            TypeRef saved_ah = hint_arr_elem_type_;
             if (TypeRef h = closure_hint_for((size_t)i))
                 hint_closure_formal_ = h;
             if (TypeRef eh = enum_hint_for((size_t)i))
                 hint_enum_type_ = eh;
-            if (TypeRef ah = slice_elem_hint_for((size_t)i))
-                hint_arr_elem_type_ = ah;
             const size_t arg_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
             // A concrete formal is the argument's expected type (C-EXP), as at
             // a method or static call: `first(if c { &a3 } else { &a5 })` against
@@ -5401,6 +5378,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             // inputs for the expected output): `let g: G<..> = idg(G { .. })`.
             TypeRef arg_shape = hint_fi && i < hint_fi->param_types.size() ? hint_fi->param_types[i] : TypeRef(nullptr);
             if (arg_shape && !ret_binds.empty()) arg_shape = subst_type_sema(arg_shape, ret_binds);
+            if (arg_shape) arg_shape = elide_sig_lts_(foreign_shape_(arg_shape, hint_fi->type_params));
             TypeRef arg_expect = arg_shape && type_is_concrete(arg_shape) ? arg_shape : TypeRef(nullptr);
             arg_exprs.push_back(lower_expr_expecting(map_of(args.get(i)), arg_expect, arg_shape));
             // Arguments run left to right: an earlier one with effects goes ahead
@@ -5415,7 +5393,6 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             }
             hint_closure_formal_ = saved;
             hint_enum_type_ = saved_eh;
-            hint_arr_elem_type_ = saved_ah;
         }
     }
     uint64_t n_args = arg_exprs.size();
@@ -9408,10 +9385,8 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
                         TypeRef fe = TypeRef(f).kind() == LogosType::Kind::Slice ? TypeRef(f).elem()
                                    : (TypeRef(f).pointee() && TypeRef(TypeRef(f).pointee()).kind() == LogosType::Kind::Array)
                                          ? TypeRef(TypeRef(f).pointee()).elem() : TypeRef(nullptr);
-                        TypeRef saved_ah = hint_arr_elem_type_;
-                        if (fe) hint_arr_elem_type_ = fe;
-                        pargs[i] = lower_expr(an);
-                        hint_arr_elem_type_ = saved_ah;
+                        (void)fe;
+                        pargs[i] = lower_expr_expecting(an, nullptr, f);
                     }
                 }
                 coerce_arg_to_param(pargs[i], f, CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT);
@@ -11039,7 +11014,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     };
     std::vector<TypeRef> formals_hint = preload_formals();
     auto lower_arg_with_hint = [&](TinyMapView arg_node, size_t arg_idx) {
-        TypeRef saved_arr_elem = hint_arr_elem_type_;
         TypeRef saved_closure = hint_closure_formal_;
         TypeRef saved_enum    = hint_enum_type_;
         TypeRef arg_expect = nullptr;   // the argument's expected type (C-EXP)
@@ -11062,16 +11036,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             else if (k == LogosType::Kind::Enum &&
                      !TypeRef(f).type_args().empty())
                 hint_enum_type_ = elide_sig_lts_(f);
-            // `v.extend_from_slice(&[5, 6])` on a `Vec<i64>`: the literal must be
-            // built at the formal's element width (it was built i32 and read at
-            // i64 stride), as a free-fn call's slice_elem_hint_for does.
-            else if ((k == LogosType::Kind::Slice || k == LogosType::Kind::Array) &&
-                     TypeRef(f).elem() && type_is_concrete(TypeRef(f).elem()))
-                hint_arr_elem_type_ = TypeRef(f).elem();
         }
         auto out = lower_expr_expecting(arg_node, arg_expect,
-                                        arg_idx < formals_hint.size() ? formals_hint[arg_idx] : TypeRef(nullptr));
-        hint_arr_elem_type_  = saved_arr_elem;
+                                        arg_idx < formals_hint.size() && formals_hint[arg_idx]
+                                            ? elide_sig_lts_(hint_fi ? foreign_shape_(formals_hint[arg_idx], hint_fi->type_params)
+                                                                     : formals_hint[arg_idx])
+                                            : TypeRef(nullptr));
         hint_closure_formal_ = saved_closure;
         hint_enum_type_      = saved_enum;
         // A non-closure argument binds the type params of its formal; later
@@ -13512,8 +13482,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 return nullptr;
             for (size_t i = 0; i < sinfo.type_params.size(); ++i)
                 if (sinfo.type_params[i].name == tv_name &&
-                    i < TypeRef(struct_shape_()).type_args().size())
-                    return TypeRef(struct_shape_()).type_args()[i];
+                    i < TypeRef(struct_shape_()).type_args().size()) {
+                    TypeRef h = TypeRef(struct_shape_()).type_args()[i];
+                    return h && TypeRef(h).kind() == LogosType::Kind::InferredType ? TypeRef(nullptr) : h;   // a `_` hole fixes nothing
+                }
             return nullptr;
         };
 
@@ -13670,7 +13642,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         for (auto& tp : sinfo.type_params) {
             if (!inferred.count(tp.name)) {
                 auto h = hint_for_tv(tp.name);
-                if (h && TypeRef(h).kind() != LogosType::Kind::Error)
+                if (h && TypeRef(h).kind() != LogosType::Kind::Error && TypeRef(h).kind() != LogosType::Kind::InferredType)
                     inferred[tp.name] = h;
             }
         }
@@ -13691,7 +13663,8 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (it != inferred.end()) {
                     args.push_back(it->second);
                     h_idx++;
-                } else if (struct_shape_() && TypeRef(struct_shape_()).struct_name() == std::string(sname) && h_idx < TypeRef(struct_shape_()).type_args().size()) {
+                } else if (struct_shape_() && TypeRef(struct_shape_()).struct_name() == std::string(sname) && h_idx < TypeRef(struct_shape_()).type_args().size() &&
+                           TypeRef(TypeRef(struct_shape_()).type_args()[h_idx]).kind() != LogosType::Kind::InferredType) {
                     args.push_back(TypeRef(struct_shape_()).type_args()[h_idx++]);
                 } else {
                     args.push_back(error_t());
@@ -14667,7 +14640,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
 lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     // Empty array literal `[]` / `&[]`. The element type is unknown from the
     // literal itself, but a `[T; N]` / `[T]` / `&[T]` annotation (or return
-    // type) supplies it via hint_arr_elem_type_. Build an empty `[T; 0]` so a
+    // type) supplies it through the shape (arr_elem_shape_). Build an empty `[T; 0]` so a
     // borrow coerces to an empty slice `&[T]` (Rust `let s: &[u64] = &[];`).
     // Without a hint there is genuinely nothing to infer → keep the warning.
     bool no_items = !node.has_key(la::ITEMS);
@@ -14676,9 +14649,9 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
         no_items = (items0.size() == 0);
     }
     if (no_items) {
-        if (hint_arr_elem_type_ &&
-            TypeRef(hint_arr_elem_type_).kind() != LogosType::Kind::Error) {
-            auto ty = make_array(hint_arr_elem_type_, 0);
+        if (TypeRef ae = arr_elem_shape_(); ae && TypeRef(ae).kind() != LogosType::Kind::Error &&
+            TypeRef(ae).kind() != LogosType::Kind::InferredType) {
+            auto ty = make_array(ae, 0);
             return builder().arr_lit(std::vector<lir::LExprPtr>{}, ty);
         }
         warn("empty array literal: element type unknown");
@@ -14692,7 +14665,8 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     // generic_array_lit_typevar_elems_double_drop, array_lit_index_elem_move_out_admits).
     // Each element is lowered against the expected element type: the
     // annotation's, else element 0's once it is concrete (`[Some(1), None]`).
-    const TypeRef arr_hint = hint_arr_elem_type_;
+    TypeRef arr_hint = arr_elem_shape_();
+    if (arr_hint && TypeRef(arr_hint).kind() == LogosType::Kind::InferredType) arr_hint = nullptr;
     // An element type another element can be inferred from: an enum whose
     // arguments are all known — no type variable (a bare `None` lowers to
     // `Option<T>`), no error hole.
@@ -15522,8 +15496,9 @@ lir::LExprPtr SemaChecker::lower_arr_fill_lit(TinyMapView node) {
     {
         // The value is lowered against this literal's element expectation
         // (its own elements', if it is an array, are one level down).
-        ElemHintScope eh(*this, hint_arr_elem_type_);
-        fill_val = lower_expr(val_node);
+        TypeRef ae = arr_elem_shape_();
+        ElemHintScope eh(*this, ae);
+        fill_val = lower_expr_expecting(val_node, ae && type_is_concrete(ae) ? ae : TypeRef(nullptr), ae);
     }
     TypeRef elem_type = expr_type(fill_val);
     // ONE resolver, shared with the type position — which is what makes
@@ -16159,12 +16134,11 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
             for (uint64_t i = 0; i < items.size(); ++i) {
                 TypeRef saved_hint = hint_enum_type_;
                 TypeRef payload_expect = nullptr, payload_shape = nullptr;
-                auto saved_ah = hint_arr_elem_type_;
                 if (i < vinfo->payload_types.size()) {
                     TypeRef pt_i = vinfo->payload_types[i];
                     if (pt_i && !pre_subst.empty())
                         pt_i = subst_type_sema(pt_i, pre_subst);
-                    payload_shape = pt_i;
+                    payload_shape = foreign_shape_(pt_i, eit->second.type_params);
                     if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Enum)
                         hint_enum_type_ = pt_i;
                     // A CONCRETE payload type is the argument's expected type
@@ -16172,11 +16146,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
                     if (pt_i && type_is_concrete(pt_i)) {
                         payload_expect = pt_i;
                     }
-                    if (TypeRef el = payload_arr_elem_hint_(pt_i)) hint_arr_elem_type_ = el;
                 }
                 auto e = lower_expr_expecting(map_of(items.get(i)), payload_expect, payload_shape);
                 hint_enum_type_ = saved_hint;
-                hint_arr_elem_type_ = saved_ah;
                 if (TypeRef(expr_type(e)).kind() == LogosType::Kind::Void) continue;
                 payload.push_back(std::move(e));
             }
@@ -16485,23 +16457,20 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
                     // to a concrete enum via the pre-subst projection.
                     TypeRef saved_hint = hint_enum_type_;
                     TypeRef payload_expect = nullptr, payload_shape = nullptr;
-                    auto saved_ah = hint_arr_elem_type_;
                     if (i < vinfo->payload_types.size()) {
                         TypeRef pt_i = vinfo->payload_types[i];
                         if (pt_i && !pre_subst.empty())
                             pt_i = subst_type_sema(pt_i, pre_subst);
-                        payload_shape = pt_i;
+                        payload_shape = foreign_shape_(pt_i, einfo.type_params);
                         if (pt_i && TypeRef(pt_i).kind() == LogosType::Kind::Enum)
                             hint_enum_type_ = pt_i;
                         // …and a CONCRETE payload type is the argument's expected type.
                         if (pt_i && type_is_concrete(pt_i)) {
                             payload_expect = pt_i;
                         }
-                        if (TypeRef el = payload_arr_elem_hint_(pt_i)) hint_arr_elem_type_ = el;
                     }
                     payload.push_back(lower_expr_expecting(map_of(items.get(i)), payload_expect, payload_shape));
                     hint_enum_type_ = saved_hint;
-                    hint_arr_elem_type_ = saved_ah;
                 }
             };
             if (args_av.is_pointer()) {
@@ -24320,10 +24289,8 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
                 error("vec!: expected `vec![a, b, …]` or `vec![elem; n]`");
                 return error_expr();
             }
-            auto saved_arr_elem = hint_arr_elem_type_;
-            if (elem_hint) hint_arr_elem_type_ = elem_hint;
+            (void)elem_hint;
             auto r = lower_expr_expecting(TinyMapView(call, holder_), expected_, shape_);   // the expansion IS this node
-            hint_arr_elem_type_ = saved_arr_elem;
             return r;
         }
     }

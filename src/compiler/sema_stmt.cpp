@@ -1783,23 +1783,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
     if (ann && (LogosType::is_fn_value_kind(TypeRef(ann).kind()) ||
                 TypeRef(ann).kind() == LogosType::Kind::Closure))
         hint_closure_formal_ = ann;
-    // g6b: `[T; N]` / `[T]` annotation hints the array literal's element type
-    // so a heterogeneous `[&dyn Trait]` (distinct concrete refs) is accepted.
-    auto saved_arr_elem_hint = hint_arr_elem_type_;
-    {
-        // Peel a `&[T]` / `&mut [T]` annotation to the underlying slice/array so
-        // a borrowed array literal (`let s: &[u64] = &[];`) gets its element
-        // hint too — not just a bare `[T; N]` / `[T]` annotation.
-        TypeRef ah = ann;
-        if (ah && (TypeRef(ah).kind() == LogosType::Kind::Ref ||
-                   TypeRef(ah).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(ah).pointee())
-            ah = TypeRef(ah).pointee();
-        if (ah && (TypeRef(ah).kind() == LogosType::Kind::Array ||
-                   TypeRef(ah).kind() == LogosType::Kind::Slice) &&
-            TypeRef(ah).elem())
-            hint_arr_elem_type_ = TypeRef(ah).elem();
-    }
 
     // C6-cc-04 + T0-4 (temporary lifetime extension): `let p = &<rvalue>;`
     // / `let p = &mut <rvalue>;` — Rust extends the temporary's lifetime
@@ -1995,7 +1978,8 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         if (!is_ref_bind && code_of(rhs_node) == la::DEREF)
             rhs = try_lower_box_deref_move(rhs_node);
         if (!rhs)
-            rhs = lower_expr_expecting(rhs_node, let_expect);
+            rhs = lower_expr_expecting(rhs_node, let_expect,
+                                       ann && TypeRef(ann).kind() != LogosType::Kind::Error ? ann : TypeRef(nullptr));
         rhs_type = expr_type(rhs);
         if (is_ref_bind) {
             // Wrap the lowered RHS in an addr-of-temp so it produces
@@ -2045,7 +2029,6 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
 
     hint_enum_type_ = saved_hint;
     hint_closure_formal_ = saved_closure_hint;
-    hint_arr_elem_type_ = saved_arr_elem_hint;
 
     TypeRef var_type;
     // Slice 7 of metaprog-quote: an ExprBlob-typed RHS marks a deferred
@@ -3053,21 +3036,6 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     auto saved_ret_value_ = returned_closure_node_;
     returned_closure_node_ = unwrap_paren_node(vnode).ptr();
     struct RetValGuard_ { const void*& f; const void* v; ~RetValGuard_() { f = v; } } ret_val_guard_{returned_closure_node_, saved_ret_value_};
-    // Element-type hint for an array literal returned where a slice/array
-    // (possibly behind `&`) is expected, so `return &[];` builds an empty
-    // `[T; 0]` instead of an untyped-element error.
-    auto saved_arr_elem_hint = hint_arr_elem_type_;
-    {
-        TypeRef rh = ret_type_;
-        if (rh && (TypeRef(rh).kind() == LogosType::Kind::Ref ||
-                   TypeRef(rh).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(rh).pointee())
-            rh = TypeRef(rh).pointee();
-        if (rh && (TypeRef(rh).kind() == LogosType::Kind::Array ||
-                   TypeRef(rh).kind() == LogosType::Kind::Slice) &&
-            TypeRef(rh).elem())
-            hint_arr_elem_type_ = TypeRef(rh).elem();
-    }
     // A tuple return type hints a tuple literal's elements, as a `let`
     // annotation does (`return ([4, 5], 1)` under `-> ([i64; 2], i64)`).
     // Box DerefMove in return position: `return *b;`.
@@ -3081,7 +3049,6 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
         val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr));
     hint_enum_type_ = saved_hint;
     hint_closure_formal_ = saved_closure_hint;
-    hint_arr_elem_type_ = saved_arr_elem_hint;
     return val;
 }
 

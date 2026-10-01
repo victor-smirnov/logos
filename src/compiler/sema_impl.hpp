@@ -2018,7 +2018,7 @@ private:
         if (!t || d > 12) return true;
         const auto k = TypeRef(t).kind();
         if (k == LogosType::Kind::TypeVar || k == LogosType::Kind::AssocType ||
-            k == LogosType::Kind::Error) return false;
+            k == LogosType::Kind::Error || k == LogosType::Kind::InferredType) return false;   // a `_` hole is not a type yet
         if (TypeRef(t).pointee() && !type_is_concrete(TypeRef(t).pointee(), d + 1)) return false;
         if ((k == LogosType::Kind::Array || k == LogosType::Kind::Slice) &&
             !type_is_concrete(TypeRef(t).elem(), d + 1)) return false;
@@ -9012,8 +9012,6 @@ private:
     bool infer_unify_(TypeRef a, TypeRef b);
     bool infer_unify_rec_(TypeRef a, TypeRef b, int d);
     lir::LExprPtr lower_typed_const_(sema_detail::TinyMapView ast, TypeRef declared);
-    // The element a payload's concrete array/slice type (behind `&` too) gives an
-    // array literal in that position (`Some([])` under `Option<[i64; 0]>`).
     // `&[E; N]` payload under a hint that pins the parameter to `&[E]`: the
     // payload is coerced (unsized) to the hint; true when it was.
     bool unsize_payload_to_hint_(lir::LExprPtr& e, TypeRef inferred, TypeRef hint) {
@@ -9024,14 +9022,6 @@ private:
             TypeRef(it.pointee()).kind() != LogosType::Kind::Array) return false;
         coerce_arg_to_param(e, hint, mask_for(CoercePos::LetInit));
         return TypeRef(expr_type(e)).kind() == LogosType::Kind::Slice;
-    }
-    TypeRef payload_arr_elem_hint_(TypeRef pt) {
-        if (!pt || !type_is_concrete(pt)) return nullptr;
-        TypeRef t(pt);
-        if ((t.kind() == LogosType::Kind::Ref || t.kind() == LogosType::Kind::MutRef) && t.pointee())
-            t = t.pointee();
-        if (t.kind() == LogosType::Kind::Array || t.kind() == LogosType::Kind::Slice) return t.elem();
-        return nullptr;
     }
     // Close the function: E0282 for an open variable, the solutions to mono.
     void infer_close_fn_(const std::string& fn_name);
@@ -9098,12 +9088,6 @@ private:
     bool lit_solve_struct_(TypeRef a, TypeRef b, int d = 0);   // lit_solve_ at every matching position
     void lit_refresh_scope_();
     void lit_close_fn_(const std::string& fn_name);
-    // g6b: expected ELEMENT type for an array/slice literal, from a `let
-    // arr: [&dyn Trait; N] = [...]` annotation (or analogous context). Lets
-    // lower_arr_lit type a HETEROGENEOUS `[&Sq, &Ci]` as `[&dyn Trait; N]` —
-    // coercing each `&Concrete` to `&dyn Trait` (the unsize coercion done
-    // per-element at codegen) instead of rejecting on element-type mismatch.
-    TypeRef hint_arr_elem_type_ = nullptr;
     // The EXPECTED type of the expression currently being lowered, when the
     // surrounding position knows it (an annotated `let`, a `return`). Branch
     // merges need it: `if`/`match` arms are unified against EACH OTHER, so
@@ -9151,6 +9135,33 @@ private:
         TypeRef t = struct_shape_();
         return t && !TypeRef(t).type_args().empty() ? t : TypeRef(nullptr);
     }
+    // An array literal's element expectation: the shape's array / slice element.
+    TypeRef arr_elem_shape_() const {
+        return shape_ && (TypeRef(shape_).kind() == LogosType::Kind::Array ||
+                          TypeRef(shape_).kind() == LogosType::Kind::Slice) ? TypeRef(TypeRef(shape_).elem()) : TypeRef(nullptr);
+    }
+    // A formal as an argument's SHAPE: the callee's own type parameters (and
+    // `Self`) become `_` holes — they are the callee's inference variables,
+    // not the caller's types (a caller's `T` may share the name).
+    TypeRef foreign_shape_(TypeRef t, const std::vector<TypeParam>& tps, int d = 0) {
+        if (!t || d > 24) return t;
+        if (TypeRef(t).kind() == LogosType::Kind::TypeVar) {
+            std::string_view n = TypeRef(t).type_var_name();
+            if (n == "Self") return inferred_t();
+            for (auto& tp : tps) if (tp.name == n) return inferred_t();
+            return t;
+        }
+        auto b = TypeRef(t).to_builder();
+        bool any = false;
+        auto walk = [&](TypeRef x) { if (!x) return x; TypeRef z = foreign_shape_(x, tps, d + 1); any |= z != x; return z; };
+        b.pointee = walk(b.pointee);
+        b.elem = walk(b.elem);
+        for (auto& a : b.type_args) a = walk(a);
+        for (auto& e : b.tuple_elems) e = walk(e);
+        for (auto& p : b.closure_params) p = walk(p);
+        b.closure_ret = walk(b.closure_ret);
+        return any ? pool_->alloc(std::move(b)) : t;
+    }
     TypeRef shape_of_kind_(LogosType::Kind k) const {
         return shape_ && TypeRef(shape_).kind() == k ? shape_ : TypeRef(nullptr);
     }
@@ -9160,25 +9171,18 @@ private:
     // it), tuple, array element. Restored on scope exit.
     struct ElemHintScope {
         SemaChecker& s;
-        TypeRef enum_, arr_;
+        TypeRef enum_;
         // `scalar_arr`: also hint an array of primitive scalars. A tuple
         // position does not: its own element check reports an out-of-range
         // literal with the tuple context (`tuple element 0: array element 1`).
         ElemHintScope(SemaChecker& sc, TypeRef expected, bool scalar_arr = true)
-            : s(sc), enum_(sc.hint_enum_type_),
-              arr_(sc.hint_arr_elem_type_) {
+            : s(sc), enum_(sc.hint_enum_type_) {
             using K = LogosType::Kind;
             TypeRef e = expected;
             s.hint_enum_type_  = e && e.kind() == K::Enum ? e : TypeRef(nullptr);
-            TypeRef ae = e && (e.kind() == K::Array || e.kind() == K::Slice) ? e.elem() : TypeRef(nullptr);
-            if (ae && !scalar_arr &&
-                (is_integer_kind(ae.kind()) || ae.kind() == K::F32 || ae.kind() == K::F64 ||
-                 ae.kind() == K::Bool || ae.kind() == K::Char) && ae.kind() != K::Enum)
-                ae = nullptr;
-            s.hint_arr_elem_type_ = ae;
         }
         ~ElemHintScope() {
-            s.hint_enum_type_ = enum_; s.hint_arr_elem_type_ = arr_;
+            s.hint_enum_type_ = enum_;
         }
     };
 
