@@ -1,0 +1,34 @@
+package gap1001_closure_param_ref_to_fat_pointer_6;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `closure-param-ref-to-fat-pointer` (pairs-12#6); rustc twin: the cluster .rs.
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+fn main() {
+    let v: Vec<i64> = vec![1, 5, 2, 7];
+    let a: Vec<i64> = v.windows(2).map(|w| w[0] * 10 + w[1]).collect();
+    println!("{:?}", a);
+    let mut b: Vec<i64> = Vec::new();
+    for w in v.windows(2).filter(|w| { println!("see {} {}", w[0], w[1]); w[0] < w[1] }) { b.push(w[1]); }
+    println!("{:?}", b);
+    let c: Vec<i64> = v.chunks(2).filter(|c| c[0] < 3).map(|c| c[1]).collect();
+    println!("{:?}", c);
+}

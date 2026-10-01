@@ -1,0 +1,34 @@
+package gap1001_closure_param_ref_to_fat_pointer_5;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `closure-param-ref-to-fat-pointer` (pairs-12#5); rustc twin: the cluster .rs.
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+trait Tag { fn tag(&self) -> i32; }
+struct A(i32);
+impl Tag for A { fn tag(&self) -> i32 { return self.0; } }
+fn g(x: &Box<dyn Tag>) -> i32 { return x.tag(); }
+fn main() {
+    let b: Box<dyn Tag> = Box::new(A(1));
+    println!("fn {}", g(&b));
+    let f = |x: &Box<dyn Tag>| -> i32 { return x.tag(); };
+    println!("cl {}", f(&b));
+}

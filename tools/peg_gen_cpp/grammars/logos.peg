@@ -2926,6 +2926,11 @@
              => { CODE: LET, NAME: $2, TYPE: $4 }
               / KW_LET IDENT ASSIGN expr SEMI
              => { CODE: LET, NAME: $2, VALUE: $4 }
+              // `let k;` — declared, typed by its later assignments.
+              / KW_LET KW_MUT IDENT SEMI
+             => { CODE: LET, IS_MUT: true, NAME: $3 }
+              / KW_LET IDENT SEMI
+             => { CODE: LET, NAME: $2 }
               // B-pt-02: irrefutable destructure with full pattern
               // (struct, enum-variant, tuple-pattern with non-IDENT subs).
               // Tried last because the IDENT-prefixed alts above cover the

@@ -8483,7 +8483,10 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 if (sp_kind != TypeRef::OwningKind::Rc &&
                     sp_kind != TypeRef::OwningKind::Arc &&
                     inner && (TypeRef(inner).kind() == LogosType::Kind::TraitObject ||
-                              TypeRef(inner).kind() == LogosType::Kind::UnsizedDyn)) {
+                              TypeRef(inner).kind() == LogosType::Kind::UnsizedDyn) &&
+                    // An OWNING `Box<dyn S>` is itself a TraitObject: `Box<Box<dyn S>>`
+                    // is a box OF it, not the same type one level down.
+                    !TypeRef(inner).owning_trait_object()) {
                     TypeRef ti(inner);
                     // type_args() is a fresh vector per call — materialise once.
                     std::vector<TypeRef> targs = ti.type_args();

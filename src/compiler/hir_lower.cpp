@@ -763,16 +763,23 @@ AnyVal Lowering::format_expansion(TinyMapView at, std::string_view callee, std::
         stmts.push_back(let(buf_n, type("String"), static_call("String", "new", {}), true));
     // The value arguments, each borrowed once, in order; the borrow takes the
     // ARGUMENT's position, so a diagnostic on it points into the argument.
+    // They are ONE expression, `match (&a0, &a1, ..) { (n0, n1, ..) => body }`
+    // (format_args!'s shape), so a temporary inside an argument lives to the
+    // end of the enclosing statement, past the print, and the arguments'
+    // temporaries drop in reverse order. Per-argument `let`s dropped each at
+    // its own `;`, before the formatting.
     std::vector<std::string> names;
+    std::vector<AnyVal> borrows, binds;
     for (size_t vi = fmt_pos + 1; vi < args.size(); ++vi) {
         std::string an = std::format("{}a{}", pfx, vi - fmt_pos - 1);
         TinyMapView av = map_of(args[vi]);
-        stmts.push_back(let(an, AnyVal{},
-                            node(la::UNARY.code, line_of(av) ? av : at, o,
-                                 {{la::OP.code, str("&")}, {la::VALUE.code, args[vi]}}),
-                            false));
+        borrows.push_back(node(la::UNARY.code, line_of(av) ? av : at, o,
+                               {{la::OP.code, str("&")}, {la::VALUE.code, args[vi]}}));
+        binds.push_back(node(la::PAT_WILD.code, at, o, {{la::NAME.code, str(an)}}));
         names.push_back(std::move(an));
     }
+    std::vector<AnyVal> outer;
+    if (!names.empty()) { outer = std::move(stmts); stmts.clear(); }
     // The Formatter over the buffer is made after the arguments, so an
     // argument cannot observe the buffer.
     if (!write_family)
@@ -821,7 +828,15 @@ AnyVal Lowering::format_expansion(TinyMapView at, std::string_view callee, std::
         tail = call("ok", {});
     }
     stmts.push_back(node(la::TAIL_EXPR.code, at, o, {{la::VALUE.code, tail}}));
-    return block(stmts, at, o);
+    if (names.empty()) return block(stmts, at, o);
+    const bool one = names.size() == 1;
+    AnyVal scrut = one ? borrows[0] : node(la::TUPLE_LIT.code, at, o, {{la::ITEMS.code, array(borrows)}});
+    AnyVal pat = one ? binds[0] : node(la::PAT_TUPLE.code, at, o, {{la::ITEMS.code, array(binds)}});
+    AnyVal arm = node(la::MATCH_ARM.code, at, o, {{la::LHS.code, pat}, {la::BODY.code, block(stmts, at, o)}});
+    outer.push_back(node(la::TAIL_EXPR.code, at, o,
+                         {{la::VALUE.code, node(la::MATCH.code, at, o,
+                                                {{la::VALUE.code, scrut}, {la::ITEMS.code, array({arm})}})}}));
+    return block(outer, at, o);
 }
 
 // ── loop exits ──────────────────────────────────────────────────────────────

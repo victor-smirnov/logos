@@ -1,0 +1,5 @@
+stdout:
+show 2 5
+drop 1
+t 4
+drop 2

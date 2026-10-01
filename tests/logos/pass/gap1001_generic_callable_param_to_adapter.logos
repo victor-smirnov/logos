@@ -1,0 +1,8 @@
+package gap1001_generic_callable_param_to_adapter;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `generic-callable-param-to-adapter` (pairs-11#54); rustc twin: the cluster .rs.
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.std.compiler.metaprog;
+fn map_all<U, F: Fn(&i32) -> U>(v: &Vec<i32>, f: F) -> Vec<U> { let r: Vec<U> = v.iter().map(f).collect(); return r; }
+fn main() { let v = vec![1, 2]; let w = map_all(&v, |x| x * 3); println!("{:?}", w); }

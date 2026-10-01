@@ -289,6 +289,17 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             added.push_back(bindings[bi]);
             continue;
         }
+        // A fat SLICE / CLOSURE payload (`Some(s)` of an `Option<&[T]>` or
+        // `Option<&str>`) bound by value: the one binder a local of that kind
+        // uses — it took the payload's ADDRESS as the value (`x` printed empty,
+        // `s[0]` read a pointer).
+        if (lt && (TypeRef(lt).kind() == LogosType::Kind::Slice ||
+                   TypeRef(lt).kind() == LogosType::Kind::Closure)) {
+            evict_shapes(bindings[bi]);
+            bind_name_at_slot(bindings[bi], fp, lt, shared);
+            added.push_back(bindings[bi]);
+            continue;
+        }
         // Trait-object payload (e.g. `Option<&dyn T>`'s Some arm): bind the
         // 8-byte handle directly (mirrors extract_payload / gen_let).
         bool is_ref_to_trait = lt &&
@@ -299,14 +310,11 @@ void MLIRGenImpl::bind_enum_payload(mlir::Value enum_ptr,
             TypeRef(TypeRef(lt).pointee()).kind() == LogosType::Kind::TraitObject;
         bool is_bare_trait = lt &&
             TypeRef(lt).kind() == LogosType::Kind::TraitObject;
-        // Inline aggregate payload (Tuple/Slice/Closure): the bytes live in
+        // Inline aggregate payload (Tuple): the bytes live in
         // the payload area; the slot ADDRESS is the value (no load — loading
         // would read the first 8 bytes as the value). Mirrors the match-stmt
         // extract_payload convention.
-        bool is_inline_aggregate = lt &&
-            (TypeRef(lt).kind() == LogosType::Kind::Tuple ||
-             TypeRef(lt).kind() == LogosType::Kind::Slice ||
-             TypeRef(lt).kind() == LogosType::Kind::Closure);
+        bool is_inline_aggregate = lt && TypeRef(lt).kind() == LogosType::Kind::Tuple;
         mlir::Value bound_val;
         if (is_inline_aggregate || is_bare_trait) {
             bound_val = fp;

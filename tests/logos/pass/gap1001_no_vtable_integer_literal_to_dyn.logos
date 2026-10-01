@@ -1,0 +1,6 @@
+package gap1001_no_vtable_integer_literal_to_dyn;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `no-vtable-integer-literal-to-dyn` (pairs-3#36); rustc twin: the cluster .rs.
+use logos.std.fmt; use logos.mem.fmt; use logos.std.io; use logos.std.compiler.metaprog; use logos.mem.collections.vec; use logos.mem.string; use logos.lang.iter; use logos.lang.option; use logos.lang.result; use logos.lang.cmp; use logos.lang.ops; use logos.mem.boxed; use logos.lang.rc; use logos.lang.str; use logos.lang.clone;
+trait Num { fn as_i64(&self) -> i64; }
+impl Num for u8 { fn as_i64(&self) -> i64 { *self as i64 } }
+fn main() { let m: &dyn Num = &5; println!("{}", m.as_i64()); }

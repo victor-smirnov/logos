@@ -1,0 +1,9 @@
+package gap1001_parse_target_through_question;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `parse-target-through-question` (pairs-8#41); rustc twin: the cluster .rs.
+use logos.lang.result;
+use logos.lang.str;
+use logos.lang.num.parse;
+use logos.lang.num.error;
+use logos.std.fmt;
+fn p(s: &str) -> Result<i64, ParseIntError> { let n: i64 = s.parse()?; return Ok(n + 1); }
+fn main() { println!("{}", p("41").unwrap()); }

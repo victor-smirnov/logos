@@ -1,0 +1,4 @@
+package gap1001_deferred_let_no_type_parse;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `deferred-let-no-type-parse` (triples-types#44); rustc twin: the cluster .rs.
+use logos.std.fmt;
+fn main() { let k; k = 5i64; println!("{}", k); }

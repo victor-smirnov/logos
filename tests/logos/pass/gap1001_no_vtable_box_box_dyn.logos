@@ -1,0 +1,13 @@
+package gap1001_no_vtable_box_box_dyn;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `no-vtable-box-box-dyn` (pairs-11#21); rustc twin: the cluster .rs.
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+trait Speak { fn say(&self) -> String; }
+struct Loud(String);
+impl Speak for Loud { fn say(&self) -> String { format!("{}!", self.0) } }
+fn main() {
+    let b: Box<dyn Speak> = Box::new(Loud(String::from("a")));
+    let bb: Box<Box<dyn Speak>> = Box::new(b);
+    println!("{}", bb.say());
+}

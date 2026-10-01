@@ -442,6 +442,40 @@ bool SemaChecker::place_chain_has_index_(TinyMapView n) {
     return false;
 }
 
+// A projection chain (field / tuple index / deref, at least one step) over a
+// plain variable: a pure place, so lowering it again in the mutable-use context
+// repeats no effect.
+bool SemaChecker::place_chain_over_var_(TinyMapView n) {
+    bool projected = false;
+    for (int d = 0; d < 32 && !n.is_null(); ++d) {
+        auto c = code_of(n);
+        if (c == la::PAREN_EXPR) { n = map_of(n.get(la::VALUE.code)); continue; }
+        if (c == la::FIELD_READ || c == la::TUPLE_INDEX) {
+            projected = true; n = map_of(n.get(la::RECEIVER.code)); continue;
+        }
+        if (c == la::DEREF) { projected = true; n = map_of(n.get(la::VALUE.code)); continue; }
+        return projected && c == la::VAR_REF;
+    }
+    return false;
+}
+
+// The index operand is the argument of `index(&self, Idx)`, judged as one
+// (E0308: `g[true]` with `Index<usize>`). An integer operand of an integer
+// `Idx` keeps the integer-index conversion (the stdlib's `Index<i64>` is
+// indexed with any integer type).
+void SemaChecker::index_operand_(lir::LExprPtr& idx, TypeRef want) {
+    if (!want || TypeRef(want).kind() == LogosType::Kind::TypeVar || !idx) {
+        widen_int_expr(idx, want, builder());
+        return;
+    }
+    const TypeRef have = expr_type(idx);
+    if (is_integer(want) && (is_integer(have) || is_lit_var_(have))) {
+        widen_int_expr(idx, want, builder());
+        return;
+    }
+    expect_arg_(idx, want, CoercePos::CallArg, "index operand", {}, {});
+}
+
 lir::LExprPtr SemaChecker::lower_mut_place(TinyMapView n) {
     mut_place_ctx_ = is_place_node(n);
     auto e = lower_expr(n);
@@ -1304,6 +1338,27 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         target = expr.has_key(la::TYPE)
             ? resolve_type(map_of(expr.get(la::TYPE.code)))
             : error_t();
+    // A hole in the target (`&mut x as *mut _`) is filled: from the
+    // expectation when it is concrete and has the target's head, else
+    // structurally from the source (a pointer's pointee from the source
+    // reference's / pointer's); a hole left over is E0282.
+    if (target && inner && type_has_inferred(target)) {
+        TypeRef tt(target);
+        if (expected_ && type_is_concrete(expected_) && TypeRef(expected_).kind() == tt.kind() &&
+            tt.kind() != LogosType::Kind::InferredType)
+            target = expected_;
+        else if (tt.kind() == LogosType::Kind::Ptr && tt.pointee() &&
+                 TypeRef(tt.pointee()).kind() == LogosType::Kind::InferredType) {
+            TypeRef st(expr_type(inner));
+            if (st && (is_ref_like(st.kind()) || st.kind() == LogosType::Kind::Ptr) && st.pointee())
+                target = make_ptr(tt.mut_ptr(), st.pointee());
+        }
+        if (type_has_inferred(target) && TypeRef(target).kind() != LogosType::Kind::InferredType) {
+            error(std::format("type annotations needed: cannot infer the `_` in cast target `{}` (E0282)",
+                              type_str(target)));
+            return error_expr();
+        }
+    }
 
     // Struct → struct unsize coercion (Rust CoerceUnsized): `Rc<A> as Rc<dyn
     // Tr>` rebuilds the target struct, unsizing the changed field. Shared with
@@ -1991,6 +2046,12 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         ext_borrow_place_ctx_ = false;
         mut_place_ctx_ = saved_mut_place;
         if (TypeRef(expr_type(inner)).kind() == LogosType::Kind::Error) return error_expr();
+        // `&mut a[1..]` — the twin of the shared arm's collapse: indexing by
+        // RANGE yields the place `[T]`, and `&mut` of it IS the `&mut [T]`.
+        if (code_of(child) == la::INDEX_READ && child.has_key(la::VALUE) &&
+            code_of(map_of(child.get(la::VALUE.code))) == la::RANGE_EXPR &&
+            TypeRef(expr_type(inner)).kind() == LogosType::Kind::Slice)
+            return inner;
         auto __ty_inner = make_ref(true, expr_type(inner),
                                    place_base_region(inner));
         // `&mut o.f` / `&mut a[i]` / `&mut <temp>` over a `#[zone_mut]` value:
@@ -2015,8 +2076,20 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // expr? — two flavours:
         //   Result<T, E>  →  extract Ok(v), early-return Err(e) in a fn : Result<?, E>
         //   Option<T>     →  extract Some(v), early-return None in a fn : Option<?>
+        // The operand's shape is the fn's carrier around this node's
+        // expectation: `Ok(s.parse()?)` under `-> Result<i64, E>` reads
+        // `Result<i64, _>` (rustc infers `parse::<F>`'s F through `?`).
+        TypeRef try_shape = nullptr;
+        if (shape_ && ret_type_) {
+            if (type_is_lang_item(ret_type_, "Result") && TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
+                try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {shape_, inferred_t()}, {},
+                                              TypeRef(ret_type_).pkg_name());
+            else if (type_is_lang_item(ret_type_, "Option") && TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
+                try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {shape_}, {},
+                                              TypeRef(ret_type_).pkg_name());
+        }
         auto inner = expr.has_key(la::VALUE)
-            ? lower_expr(map_of(expr.get(la::VALUE.code)))
+            ? lower_expr_expecting(map_of(expr.get(la::VALUE.code)), nullptr, try_shape)
             : error_expr();
         auto inner_t = expr_type(inner);
         // The lang items (ADR 0030 L0): a user `enum Result` is not `?`'s.
@@ -2330,17 +2403,71 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         // `lo..hi` / `lo..=hi` — synthesise a stdlib `RangeI64` /
         // `RangeI32` struct construction. Picks RangeI64 if either bound
         // is wider than 32 bits or any literal overflows i32.
-        auto lo = expr.has_key(la::LHS) ? lower_expr(map_of(expr.get(la::LHS.code))) : error_expr();
-        auto hi = expr.has_key(la::RHS) ? lower_expr(map_of(expr.get(la::RHS.code))) : error_expr();
         bool inclusive = false;
         if (expr.has_key(la::INCLUSIVE)) {
             AnyVal av = expr.get(la::INCLUSIVE.code);
             if (!av.is_null() && av.is_value()) inclusive = av.as_value<uint8_t>() != 0;
         }
+        // The range ctors are the STDLIB's (a lang item, like Rust's
+        // `core::ops::Range`): a user fn that happens to be named `range_i32`
+        // must not be what `0..5` calls.
+        auto stdlib_range_cands = [&](const std::string& nm) {
+            const std::string saved_q = call_pkg_qualifier_;
+            call_pkg_qualifier_ = "logos.lang.range";
+            auto own = find_func_candidates(nm);
+            call_pkg_qualifier_ = saved_q;
+            return own.empty() ? find_func_candidates(nm) : own;
+        };
+        // An open-ended member of the family (`lo..`, `..hi`, `..=hi`, `..`):
+        // the generic `RangeOfFrom<T>` / `RangeOfTo<T>` / `RangeOfToIncl<T>` /
+        // `RangeOfFull` (`5..` was `range_i32(5, <error>)`, an empty range).
+        if (!expr.has_key(la::LHS) || !expr.has_key(la::RHS)) {
+            if (expr.has_key(la::LHS) && inclusive) {
+                error("inclusive range with no end (E0586)");
+                return error_expr();
+            }
+            const bool has_bound = expr.has_key(la::LHS) || expr.has_key(la::RHS);
+            const std::string ctor = expr.has_key(la::LHS) ? "range_from_of"
+                                   : !has_bound            ? "range_full_of"
+                                   : inclusive             ? "range_to_incl_of"
+                                                           : "range_to_of";
+            auto cands = stdlib_range_cands(ctor);
+            if (cands.empty()) {
+                error("range expression: stdlib `" + ctor + "` not in scope "
+                      "(missing `use logos.lang.range`)");
+                return error_expr();
+            }
+            const SemaFuncInfo* rfi = cands[0];
+            const std::string sym = rfi->symbol_name.empty() ? ctor : rfi->symbol_name;
+            if (!has_bound) return builder().call(sym, {}, {}, rfi->ret_type);
+            auto b = lower_expr(map_of(expr.get((expr.has_key(la::LHS) ? la::LHS : la::RHS).code)));
+            TypeRef bt = expr_type(b);
+            if (TypeRef(bt).kind() == LogosType::Kind::Error) return error_expr();
+            if (!is_integer(bt) && !is_lit_var_(bt)) {
+                error(std::format("range bound must be integer, got {}", type_str(bt)));
+                return error_expr();
+            }
+            std::vector<lir::LExprPtr> rargs;
+            rargs.push_back(std::move(b));
+            return finish_generic_call(sym, *rfi, {bt}, std::move(rargs));
+        }
+        auto lo = lower_expr(map_of(expr.get(la::LHS.code)));
+        auto hi = lower_expr(map_of(expr.get(la::RHS.code)));
         if (!is_integer(expr_type(lo)) && TypeRef(expr_type(lo)).kind() != LogosType::Kind::Error)
             error(std::format("range start must be integer, got {}", type_str(expr_type(lo))));
         if (!is_integer(expr_type(hi)) && TypeRef(expr_type(hi)).kind() != LogosType::Kind::Error)
             error(std::format("range end must be integer, got {}", type_str(expr_type(hi))));
+        // `lo..=hi` is the generic `RangeOfIncl<T>`, T the bounds' type
+        // (`97u8..=122u8` is over u8; `{integer}` bounds stay a variable a
+        // later use solves). Distinct concrete bounds take the wider (A18).
+        TypeRef incl_t = nullptr;
+        if (inclusive) {
+            TypeRef lt = expr_type(lo), ht = expr_type(hi);
+            if (is_lit_var_(lt) && is_lit_var_(ht)) { lit_solve_(lt, ht); incl_t = lt; }
+            else if (is_lit_var_(lt) && is_integer(ht)) { lit_solve_(lt, ht); incl_t = ht; }
+            else if (is_lit_var_(ht) && is_integer(lt)) { lit_solve_(ht, lt); incl_t = lt; }
+            else if (lt && ht && is_integer(lt) && types_equal(lt, ht)) incl_t = lt;
+        }
         auto width = [](LogosType::Kind k) -> int {
             switch (k) {
                 case LogosType::Kind::I64: case LogosType::Kind::U64: return 64;
@@ -2356,25 +2483,17 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             };
             if (overflows(lo) || overflows(hi)) need_64 = true;
         }
-        TypeRef bound_t = need_64 ? prim(LogosType::Kind::I64) : i32_t();
-        widen_int_expr(lo, bound_t, builder());
-        widen_int_expr(hi, bound_t, builder());
+        TypeRef bound_t = incl_t ? incl_t : need_64 ? prim(LogosType::Kind::I64) : i32_t();
+        if (!incl_t) {
+            widen_int_expr(lo, bound_t, builder());
+            widen_int_expr(hi, bound_t, builder());
+        }
         // T2-17: inclusive `lo..=hi` desugars to the GENERIC `RangeOfIncl<T>`
         // (range_incl_of), which stores the REAL end and stops via a `done`
         // flag (range.logos:78). The previous hi+1 hack made `.end`
         // observable as hi+1 AND overflowed at the type's max (`0..=i64::MAX`
         // → MAX+1 wraps to MIN, yielding an empty range). RangeOfIncl impls
         // Iterator<T>, so for-loops over it work unchanged.
-        // The range ctors are the STDLIB's (a lang item, like Rust's
-        // `core::ops::Range`): a user fn that happens to be named `range_i32`
-        // must not be what `0..5` calls.
-        auto stdlib_range_cands = [&](const std::string& nm) {
-            const std::string saved_q = call_pkg_qualifier_;
-            call_pkg_qualifier_ = "logos.lang.range";
-            auto own = find_func_candidates(nm);
-            call_pkg_qualifier_ = saved_q;
-            return own.empty() ? find_func_candidates(nm) : own;
-        };
         if (inclusive) {
             std::string ctor = "range_incl_of";
             auto cands = stdlib_range_cands(ctor);
@@ -2789,6 +2908,23 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         rb.push_back({nullptr, &rhs, moved_vars_, rm, rm, closure_owned_drop_});   // RHS evaluated
         rb.push_back({nullptr, nullptr, rhs_pre, rm, rm, owned_pre});              // short-circuited
         elaborate_cond_moves(rhs_pre, rb, &owned_pre);
+    }
+    // An open type variable (an untyped closure parameter) meeting a
+    // primitive operand takes its type: the built-in operator is homogeneous
+    // (`|a: i64, b| a + b` fixes b: i64).
+    if (lhs && rhs && !infer_solved_.empty()) {
+        auto prim_like = [this](TypeRef t) {
+            return t && (is_integer(t) || is_lit_var_(t) || TypeRef(t).kind() == LogosType::Kind::F64 ||
+                         TypeRef(t).kind() == LogosType::Kind::F32 || TypeRef(t).kind() == LogosType::Kind::Bool);
+        };
+        TypeRef lz = zonk_(expr_type(lhs)), rz = zonk_(expr_type(rhs));
+        const bool lopen = lz && TypeRef(lz).kind() == LogosType::Kind::TypeVar && has_infer_var_(lz);
+        const bool ropen = rz && TypeRef(rz).kind() == LogosType::Kind::TypeVar && has_infer_var_(rz);
+        if (lopen != ropen && prim_like(lopen ? rz : lz)) {
+            infer_unify_(lz, rz);
+            builder().retype_expr(lhs, zonk_(expr_type(lhs)));
+            builder().retype_expr(rhs, zonk_(expr_type(rhs)));
+        }
     }
     // C-LIT: an integer inference variable meets the other operand — an
     // integer type solves it, another variable joins it, a bare literal takes
@@ -4741,6 +4877,10 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
     if (ext_here && cur_stmt_temp_hoist_ && operand && expr_type(operand) &&
         is_move_type(expr_type(operand)) && is_hoistable_temp_rvalue(operand))
         operand = hoist_block_temp(std::move(operand), mut_ctx);
+    else if (cur_stmt_temp_hoist_ && operand && expr_type(operand) &&
+             TypeRef(expr_type(operand)).kind() == LogosType::Kind::Struct &&
+             is_move_type(expr_type(operand)) && is_hoistable_temp_rvalue(operand))
+        operand = hoist_stmt_temp(std::move(operand), mut_ctx);
     // The operand is itself `*x` over a `&dyn` / `Box<dyn>` / `&[T]`: it is the
     // UNSIZED place, which has no `*` (E0614). The type cannot say so — `dyn Tr`
     // and `&dyn Tr` are one Kind — so the inner deref reports it.
@@ -5314,6 +5454,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             if (fit.size() == 1) hint_fi = fit[0];
             else if (fit.empty() && cands.size() == 1) hint_fi = cands[0];
         }
+        // A formal that is a type parameter with an Fn bound — bare or behind
+        // `&` / `&mut` (`f: &F`) — shapes a closure literal by the bound's
+        // signature (the same reading as the method path).
         auto closure_hint_for = [&](size_t formal_idx) -> TypeRef {
             if (!hint_fi || formal_idx >= hint_fi->param_types.size()) return nullptr;
             TypeRef pt = hint_fi->param_types[formal_idx];
@@ -5321,23 +5464,17 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             auto k = TypeRef(pt).kind();
             if (LogosType::is_fn_value_kind(k) || k == LogosType::Kind::Closure)
                 return pt;
-            if (k == LogosType::Kind::TypeVar) {
-                auto tvn = TypeRef(pt).type_var_name();
-                for (auto& tp : hint_fi->type_params) {
-                    if (tp.name != tvn) continue;
-                    for (auto& b : tp.bounds)
-                        if (b.is_fn_family) {
-                            std::vector<TypeRef> ps = b.fn_params;
-                            return make_closure_type(std::move(ps),
-                                                     b.fn_ret ? b.fn_ret : void_t());
-                        }
-                }
+            if ((k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef) && TypeRef(pt).pointee()) {
+                if (TypeRef ch = closure_hint_from_fn_bound(TypeRef(pt).pointee(), hint_fi->type_params, {}))
+                    return make_ref(k == LogosType::Kind::MutRef, ch);
+                return nullptr;
             }
-            return nullptr;
+            return closure_hint_from_fn_bound(pt, hint_fi->type_params, {});
         };
         SemaSubst ret_binds;
         if (hint_fi && !hint_fi->type_params.empty() && hint_fi->ret_type && expected_ && type_is_concrete(expected_))
             unify_types(hint_fi->ret_type, expected_, ret_binds);
+        SemaSubst arg_binds = ret_binds;
         for (uint64_t i = 0; i < args.size(); ++i) {
             const size_t arg_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
             // A concrete formal is the argument's expected type (C-EXP), as at
@@ -5346,13 +5483,23 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             // A generic callee's formals first take what the call's own
             // expectation fixes through its return type (rustc's expected
             // inputs for the expected output): `let g: G<..> = idg(G { .. })`.
+            // The earlier arguments bind too (rustc checks arguments left to
+            // right): `ap(5i64, |x| x * 10)` with `F: Fn(T) -> i64` shapes the
+            // closure as `|i64| -> i64` once arg 0 fixed T.
             TypeRef arg_shape = hint_fi && i < hint_fi->param_types.size() ? hint_fi->param_types[i] : TypeRef(nullptr);
-            if (arg_shape) arg_shape = elide_sig_lts_(formal_shape_(arg_shape, hint_fi->type_params, ret_binds));
+            if (arg_shape) arg_shape = elide_sig_lts_(formal_shape_(arg_shape, hint_fi->type_params, arg_binds));
             // A formal that is a type parameter with an Fn bound shapes a closure
-            // literal by the bound's signature.
-            if (TypeRef h = closure_hint_for((size_t)i)) arg_shape = h;
+            // literal by the bound's signature, under the same bindings.
+            if (TypeRef h = closure_hint_for((size_t)i)) arg_shape = formal_shape_(h, hint_fi->type_params, arg_binds);
             TypeRef arg_expect = arg_shape && type_is_concrete(arg_shape) ? arg_shape : TypeRef(nullptr);
             arg_exprs.push_back(lower_expr_expecting(map_of(args.get(i)), arg_expect, arg_shape));
+            if (hint_fi && i < hint_fi->param_types.size() && hint_fi->param_types[i] && arg_exprs.back() &&
+                expr_type(arg_exprs.back())) {
+                TypeRef at = expr_type(arg_exprs.back());
+                const auto ak = TypeRef(at).kind();
+                if (ak != LogosType::Kind::Closure && !LogosType::is_fn_value_kind(ak) && ak != LogosType::Kind::Error)
+                    unify_types(hint_fi->param_types[i], at, arg_binds);
+            }
             // Arguments run left to right: an earlier one with effects goes ahead
             // of the temporaries this argument hoisted (spill_before_hoist).
             if (cur_stmt_temp_hoist_ && cur_stmt_temp_hoist_->size() > arg_mark_) {
@@ -5964,6 +6111,12 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
                 lt.kind = LogosType::Kind::IntLit;
                 lt.const_val = static_cast<int64_t>(actual_norm.arr_size());
                 bindings[asv] = pool_->alloc(std::move(lt));
+            } else if (!asv.empty() && asv.rfind(ARR_LEN_EXPR_PFX, 0) != 0 && !bindings.count(asv) &&
+                       !actual_norm.arr_size_var().empty() &&
+                       current_type_params_.count(std::string(actual_norm.arr_size_var()))) {
+                // A SYMBOLIC actual length — the caller's own const parameter
+                // (`g(a)` inside `fn f<const N>(a: [T; N])`) — binds N to it.
+                bindings[asv] = current_type_params_[std::string(actual_norm.arr_size_var())];
             } else if (asv.empty() && formal.arr_size() != actual_norm.arr_size()) {
                 // Two CONCRETE lengths that disagree. Unification used to say
                 // nothing here, so `[T; 3]` accepted a `[T; 5]` and the
@@ -6270,10 +6423,55 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
 // C-INF: the one argument-to-formal unification of generic-argument
 // inference — an unsuffixed literal in the argument's type binds a fresh
 // integer variable (unify_types under unify_mint_lit_).
+// The `Deref` target of `t` at the type level (Box<T> → T, Vec<T> → [T],
+// a user `Deref` impl's target), or null.
+TypeRef SemaChecker::deref_target_type_(TypeRef t) {
+    if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
+               TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return nullptr;
+    auto it = impls_.find(impl_key("Deref", concrete_struct_name(t)));
+    if (it == impls_.end()) it = impls_.find(impl_key("Deref", std::string(TypeRef(t).struct_name())));
+    if (it == impls_.end() || it->second.trait_type_args.empty()) return nullptr;
+    TypeRef tgt = it->second.trait_type_args[0];
+    if (it->second.target_typeref) {
+        StrMap<TypeRef> b;
+        unify_types(it->second.target_typeref, t, b);
+        tgt = subst_type_sema(tgt, SemaSubst(b.begin(), b.end()));
+    }
+    return tgt;
+}
+
 void SemaChecker::unify_arg_(TypeRef formal, TypeRef actual, StrMap<TypeRef>& bindings) {
     const bool saved = unify_mint_lit_;
     unify_mint_lit_ = true;
     unify_types(formal, actual, bindings);
+    // A `&U` formal against a `&V` actual whose heads differ: the argument
+    // will deref-coerce (`&Vec<i32>` at `&[T]`, `&Box<W<i32>>` at `&W<T>`), so
+    // inference reads the formal against the first deref step with U's head.
+    // (`&[T]` is the Slice kind itself, the fat reference.)
+    const bool formal_slice = formal && TypeRef(formal).kind() == LogosType::Kind::Slice;
+    if (formal && actual && (is_ref_like(TypeRef(formal).kind()) || formal_slice) &&
+        is_ref_like(TypeRef(actual).kind()) &&
+        (formal_slice || TypeRef(formal).pointee()) && TypeRef(actual).pointee()) {
+        TypeRef fp = formal_slice ? formal : TypeRef(TypeRef(formal).pointee());
+        auto head_eq = [](TypeRef a, TypeRef b) {
+            using K = LogosType::Kind;
+            auto ka = TypeRef(a).kind(), kb = TypeRef(b).kind();
+            auto slice = [](K k) { return k == K::Slice || k == K::UnsizedSlice; };
+            if (slice(ka) && slice(kb)) return true;
+            if (ka != kb) return false;
+            if (ka == K::Struct || ka == K::ZonedStruct) return TypeRef(a).struct_name() == TypeRef(b).struct_name();
+            return true;
+        };
+        const auto fk = TypeRef(fp).kind();
+        if (fk != LogosType::Kind::TypeVar && fk != LogosType::Kind::InferredType &&
+            !head_eq(fp, TypeRef(actual).pointee())) {
+            TypeRef cur = TypeRef(actual).pointee();
+            for (int step = 0; step < 6 && cur; ++step) {
+                cur = deref_target_type_(cur);
+                if (cur && head_eq(fp, cur)) { unify_types(fp, cur, bindings); break; }
+            }
+        }
+    }
     unify_mint_lit_ = saved;
 }
 
@@ -6317,24 +6515,32 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
     // signature so X and Y get inferred too. Without this,
     // `fn iter_fold<I, T, B, F: FnMut(B,T)->B>(it: I, init: B, f: F)`
     // can't deduce B/T from f when init is also generic.
-    for (size_t i = 0; i + param_offset < fi.param_types.size(); ++i) {
-        if (i >= arg_exprs.size()) break;
-        auto formal = fi.param_types[param_offset + i];
-        if (!formal || TypeRef(formal).kind() != LogosType::Kind::TypeVar) continue;
-        std::string tv_name(TypeRef(formal).type_var_name());
-        const TypeParam* tp_ptr = nullptr;
-        for (auto& tp : fi.type_params) {
-            if (tp.name == tv_name) { tp_ptr = &tp; break; }
-        }
-        if (!tp_ptr) continue;
-        auto bit = bindings.find(tv_name);
-        if (bit == bindings.end()) continue;
+    // The callable is read through `&` / `&mut` (`f: &F`, or `&g` for a
+    // `F` formal: `impl Fn for &F`), and a caller's own type parameter
+    // `G: Fn(..)` is its bound's signature.
+    for (auto& tp : fi.type_params) {
+        auto bit = bindings.find(tp.name);
+        if (bit == bindings.end() || !bit->second) continue;
         TypeRef actual = bit->second;
+        for (int g = 0; g < 4 && actual && is_ref_like(TypeRef(actual).kind()) && TypeRef(actual).pointee(); ++g)
+            actual = TypeRef(actual).pointee();
+        if (actual && TypeRef(actual).kind() == LogosType::Kind::TypeVar) {
+            // KEY-IDENTITY: a type-parameter name of the signature being checked, as the rows beside it.
+            auto cb = current_type_bounds_.find(std::string(TypeRef(actual).type_var_name()));
+            TypeRef synth = nullptr;
+            if (cb != current_type_bounds_.end())
+                for (auto& b : cb->second)
+                    if (b.is_fn_family) {
+                        synth = make_closure_type(b.fn_params, b.fn_ret ? b.fn_ret : void_t());
+                        break;
+                    }
+            actual = synth;
+        }
         if (!actual ||
             (TypeRef(actual).kind() != LogosType::Kind::Closure &&
              !LogosType::is_fn_value_kind(TypeRef(actual).kind())))
             continue;
-        for (auto& b : tp_ptr->bounds) {
+        for (auto& b : tp.bounds) {
             if (!b.is_fn_family) continue;
             auto ap = TypeRef(actual).closure_params();
             for (size_t k = 0; k < b.fn_params.size() && k < ap.size(); ++k)
@@ -6383,6 +6589,20 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                 if (b.type_args[k] && ta)
                     unify_types(b.type_args[k], ta, bindings);
             }
+            // A binding with HOLES (`collect::<Vec<_>>()`) is completed the
+            // other way: the bound's known arguments fix the impl's params
+            // (`impl<T> FromIterator<T> for Vec<T>` with Item = i64 gives
+            // T = i64), and the binding becomes the impl's target under them.
+            if (type_has_inferred(actual) && imp.target_typeref) {
+                for (size_t k = 0; k < b.type_args.size() && k < imp.trait_type_args.size(); ++k)
+                    if (b.type_args[k] && imp.trait_type_args[k]) {
+                        TypeRef want = subst_type_sema(b.type_args[k],
+                                                       SemaSubst(bindings.begin(), bindings.end()));
+                        if (type_is_concrete(want)) unify_types(imp.trait_type_args[k], want, impl_bind);
+                    }
+                TypeRef filled = subst_type_sema(imp.target_typeref, SemaSubst(impl_bind.begin(), impl_bind.end()));
+                if (filled && type_is_concrete(filled)) tbit->second = filled;
+            }
         }
     }
     };
@@ -6392,11 +6612,11 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
     // unify the fn's return type against the expected type. Captures
     // type-params that appear only in the return position (e.g. a no-arg
     // factory `f<T>() -> Foo<T>`).
-    if (expected_ && fi.ret_type) {
+    if (ret_hint_() && fi.ret_type) {
         auto rt = fi.ret_type;
         if (!bindings.empty()) rt = subst_type_sema(rt, bindings);
         size_t before = bindings.size();
-        unify_types(rt, expected_, bindings);
+        unify_types(rt, ret_hint_(), bindings);
         // A param the hint just bound can drive the ones only its bounds
         // mention (`unzip::<A, B, FromA: Extend<A>, …>` from
         // `let (a, b): (Vec<i32>, Vec<i32>) = …`).
@@ -6532,9 +6752,9 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             // Return-type-driven inference: when the let binding annotates a
             // type, unify the fn's return type against it. Closes the
             // arg-less generic-call case (e.g. `let s: Store<X> = open();`).
-            if (expected_ && fi.ret_type) {
+            if (ret_hint_() && fi.ret_type) {
                 auto rt = subst_type_sema(fi.ret_type, bindings);
-                unify_types(rt, expected_, bindings);
+                unify_types(rt, ret_hint_(), bindings);
             }
             // Fill interior `_` holes (rewrite in place) + append inferred tail.
             for (size_t i = 0; i < fi.type_params.size(); ++i) {
@@ -9003,9 +9223,9 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
             auto pt = subst_type_sema(mfi->param_types[i + 1], tv_bind);
             unify_arg_(pt, expr_type(arg_exprs[i]), tv_bind);
         }
-        if (expected_ && mfi->ret_type) {
+        if (ret_hint_() && mfi->ret_type) {
             auto rt = subst_type_sema(mfi->ret_type, tv_bind);
-            unify_types(rt, expected_, tv_bind);
+            unify_types(rt, ret_hint_(), tv_bind);
         }
         // Auto-ref: if method expects &self / &mut self but recv is a
         // value, take its address.
@@ -9077,9 +9297,9 @@ lir::LExprPtr SemaChecker::try_blanket_static_dispatch(
             auto pt = subst_type_sema(mfi->param_types[i], tv_bind);
             unify_arg_(pt, expr_type(arg_exprs[i]), tv_bind);
         }
-        if (expected_ && mfi->ret_type) {
+        if (ret_hint_() && mfi->ret_type) {
             auto rt = subst_type_sema(mfi->ret_type, tv_bind);
-            unify_types(rt, expected_, tv_bind);
+            unify_types(rt, ret_hint_(), tv_bind);
         }
         std::vector<TypeRef> type_args;
         bool any_unbound = false;
@@ -9402,8 +9622,8 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
                 }
             }
             // …else the expected type of the call (`let r: Result<i64, E> = s.parse()`).
-            if (expected_ && fi_ptr->ret_type)
-                unify_types(fi_ptr->ret_type, expected_, binds);
+            if (ret_hint_() && fi_ptr->ret_type)
+                unify_types(fi_ptr->ret_type, ret_hint_(), binds);
             std::vector<TypeRef> m_type_args;
             for (auto& tp : fi_ptr->type_params) {
                 if (auto bit2 = binds.find(tp.name); bit2 != binds.end())
@@ -10033,7 +10253,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // and handed the method a place behind `&`. The receiver is a pure place,
     // so lowering it again in the mutable context repeats no effect; a first
     // lowering that already reported is not repeated.
-    if (recv && result_.diags.size() == diags_before && place_chain_has_index_(recv_node)) {
+    // The same holds for a FIELD place reached through an overloaded `Deref`
+    // (`m.kids.push(5)` with `m: RefMut<N>`): DerefMut at a mutable use.
+    if (recv && result_.diags.size() == diags_before &&
+        (place_chain_has_index_(recv_node) || place_chain_over_var_(recv_node))) {
         TypeRef et = expr_type(recv);
         while (et && is_ref_like(TypeRef(et).kind()) && TypeRef(et).pointee())
             et = TypeRef(et).pointee();
@@ -10246,6 +10469,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             }
         }
         bool want_mut = target_method_wants_mut_self(probe_target, m);
+        // A fresh droppable rvalue (`make(7).hi()` with `make() -> Box<B>`)
+        // consumed by the deref step needs a statement-temporary owner, or it
+        // is never dropped.
+        if (cur_stmt_temp_hoist_ && recv && expr_type(recv) && is_move_type(expr_type(recv)) &&
+            is_hoistable_temp_rvalue(recv))
+            recv = hoist_stmt_temp(std::move(recv), want_mut);
         auto stepped = emit_generic_deref_step(recv, want_mut);
         if (!stepped) break;
         recv = *stepped;
@@ -10303,15 +10532,30 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // its temporary: `mkarr(p).len()` must call mkarr and drop the array at the end
         // of the statement (row array_len_builtin_discards_receiver_run). Hoisting binds
         // it to a statement-scope local; the yielded constant is unchanged.
-        if (cur_stmt_temp_hoist_ && recv && is_move_type(expr_type(recv)) &&
+        const TypeRef arr_t = expr_type(recv);
+        lir::LExprPtr place_use;
+        if (cur_stmt_temp_hoist_ && recv && is_move_type(arr_t) &&
             is_hoistable_temp_rvalue(recv))
             (void)hoist_stmt_temp(std::move(recv), false);
+        else if (recv && !is_hoistable_temp_rvalue(recv))
+            // A PLACE receiver is still used: `arr.len()` autorefs `arr` (the
+            // value is discarded), so a moved-out or uninitialised `arr` is
+            // refused (E0382 / E0381) as at every other use.
+            place_use = builder().addr_of_temp(std::move(recv), false, make_ref(false, arr_t),
+                                               BorrowOrigin::OperatorAutoref);
         // A SYMBOLIC length (`[T; N]` in a `<const N>` body) is the const
         // parameter's value, baked per instance by mono — its arr_size() is 0.
-        if (std::string_view asv = TypeRef(expr_type(recv)).arr_size_var(); !asv.empty() && sz == 0 &&
+        lir::LExprPtr len;
+        if (std::string_view asv = TypeRef(arr_t).arr_size_var(); !asv.empty() && sz == 0 &&
             std::all_of(asv.begin(), asv.end(), [](char c) { return std::isalnum((unsigned char)c) || c == '_'; }))
-            return builder().var_ref("__const_param:" + std::string(asv), prim(LogosType::Kind::I64));
-        return builder().lit_int(sz, prim(LogosType::Kind::I64));
+            len = builder().var_ref("__const_param:" + std::string(asv), prim(LogosType::Kind::I64));
+        else
+            len = builder().lit_int(sz, prim(LogosType::Kind::I64));
+        if (!place_use) return len;
+        std::vector<lir_view::StmtRef> blk;
+        blk.push_back(builder().stmt_expr(std::move(place_use), node_line_));
+        return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(len),
+                                    prim(LogosType::Kind::I64));
     }
 
     // Phase 1B-15: method call on a DstRef receiver. The impl method's
@@ -10953,9 +11197,24 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (iit != impls_.end() && tit) {
                     auto& tps   = tit->type_params;
                     auto& targs = iit->second.trait_type_args;
+                    // The impl's trait args are written over the IMPL's params
+                    // (`impl<I, T> Iterator<T> for Copied<I, &T>`): read them
+                    // through the receiver (target unified with `rst`).
+                    SemaSubst impl_binds;
+                    if (iit->second.target_typeref) {
+                        logos::compiler::StrMap<TypeRef> b;
+                        unify_types(iit->second.target_typeref, rst, b);
+                        impl_binds = SemaSubst(b.begin(), b.end());
+                    }
                     for (size_t i = 0; i < tps.size() && i < targs.size(); ++i)
                         if (targs[i] && !recv_subst.count(tps[i].name))
-                            recv_subst[tps[i].name] = targs[i];
+                            recv_subst[tps[i].name] = impl_binds.empty()
+                                ? targs[i] : subst_type_sema(targs[i], impl_binds);
+                    // A default method cloned into the impl names the IMPL's
+                    // params (`FnMut(Acc, T)` in `Copied<I, &T>`'s clone): bind
+                    // them too.
+                    for (auto& [k, v] : impl_binds)
+                        if (v && !recv_subst.count(k)) recv_subst[k] = v;
                 }
             }
         }
@@ -13563,6 +13822,19 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 return field_type_of(std::string(sname), fname);
             }();
             if (!raw_ft) continue;
+            // A const parameter that is an array field's length (`c: [i64; N]`)
+            // is inferred from the value's length.
+            if (TypeRef(raw_ft).kind() == LogosType::Kind::Array && expr_type(fval) &&
+                TypeRef(expr_type(fval)).kind() == LogosType::Kind::Array) {
+                std::string asv(TypeRef(raw_ft).arr_size_var());
+                bool own = false;
+                for (auto& tp : sinfo.type_params) if (tp.name == asv) own = true;
+                if (own && !inferred.count(asv)) {
+                    StrMap<TypeRef> nb;
+                    unify_types(raw_ft, expr_type(fval), nb);
+                    if (auto it = nb.find(asv); it != nb.end()) inferred[asv] = it->second;
+                }
+            }
             if (TypeRef(raw_ft).kind() == LogosType::Kind::TypeVar) {
                 auto tv = TypeRef(raw_ft).type_var_name();
                 if (!inferred.count(tv)) {
@@ -13581,6 +13853,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // [T; N] field — infer T from element type of the value.
                 auto tv = TypeRef(raw_ft).elem().type_var_name();
                 TypeRef fvt(expr_type(fval));
+
                 if (!inferred.count(tv) && fvt && fvt.kind() == LogosType::Kind::Array &&
                     fvt.elem()) {
                     auto vt = fvt.elem();
@@ -13616,6 +13889,33 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 if (h && TypeRef(h).kind() != LogosType::Kind::Error && TypeRef(h).kind() != LogosType::Kind::InferredType)
                     inferred[tp.name] = h;
             }
+        }
+        // The FRU base has the literal's type (Rust: same struct, same
+        // arguments): it is lowered after the explicit fields, against the
+        // arguments known so far (`_` for the rest), and fills the rest
+        // (`R { tag: 2, ..b }` with `b: R<u8>` fixes S).
+        lir::LExprPtr early_base;
+        if (node.has_key(la::BASE)) {
+            bool variadic = false;
+            std::vector<TypeRef> part;
+            for (auto& tp : sinfo.type_params) {
+                if (tp.is_variadic) { variadic = true; break; }
+                auto it = inferred.find(tp.name);
+                part.push_back(it != inferred.end() ? it->second : inferred_t());
+            }
+            TypeRef bshape = variadic || slit_is_zoned ? TypeRef(nullptr)
+                                                       : make_generic_struct(std::string(sname), part);
+            early_base = lower_expr_expecting(map_of(node.get(la::BASE.code)),
+                                              bshape && type_is_concrete(bshape) ? bshape : TypeRef(nullptr),
+                                              bshape);
+            TypeRef bt = expr_type(early_base);
+            if (!variadic && bt && TypeRef(bt).kind() == LogosType::Kind::Struct &&
+                TypeRef(bt).struct_name() == std::string_view(sname) &&
+                TypeRef(bt).type_args().size() == sinfo.type_params.size())
+                for (size_t i = 0; i < sinfo.type_params.size(); ++i)
+                    if (!inferred.count(sinfo.type_params[i].name) && TypeRef(bt).type_args()[i] &&
+                        TypeRef(TypeRef(bt).type_args()[i]).kind() != LogosType::Kind::Error)
+                        inferred[sinfo.type_params[i].name] = TypeRef(bt).type_args()[i];
         }
         std::vector<TypeRef> args;
         for (size_t i = 0, h_idx = 0; i < sinfo.type_params.size(); ++i) {
@@ -13810,7 +14110,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // the struct's type-params into the carried field's declared type.
         if (node.has_key(la::BASE)) {
             auto base_node = map_of(node.get(la::BASE.code));
-            auto base_expr = lower_expr(base_node);
+            auto base_expr = std::move(early_base);
             if (expr_type(base_expr)) {
                 TypeRef bt = expr_type(base_expr);
                 auto bk = bt.kind();
@@ -14026,7 +14326,17 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
     // For any field not explicitly set, read it from the base expression.
     if (node.has_key(la::BASE)) {
         auto base_node = map_of(node.get(la::BASE.code));
-        auto base_expr = lower_expr(base_node);
+        // The base has the literal's type: `..Default::default()` resolves
+        // its Self against it.
+        TypeRef base_expect = nullptr;
+        if (!slit_is_zoned) {
+            LogosTypeBuilder bt_b;
+            bt_b.kind = LogosType::Kind::Struct;
+            bt_b.struct_name = std::string(sname);
+            if (auto rp = resolve_struct_pkg_(sname); !rp.empty()) bt_b.pkg_name = std::move(rp);
+            base_expect = pool_->alloc(std::move(bt_b));
+        }
+        auto base_expr = lower_expr_expecting(base_node, base_expect, base_expect);
         // Sprint 3.4: enforce that `..base` carries the same struct type as
         // the constructor (closes B-li-03 — Foo+..bar silently spread foreign
         // bytes into Bar).
@@ -14278,7 +14588,7 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
     lir::LExprPtr idx = node.has_key(la::VALUE)
         ? lower_expr(map_of(node.get(la::VALUE.code)))
         : error_expr();
-    widen_int_expr(idx, fit->param_types[1], builder());
+    index_operand_(idx, fit->param_types[1]);
 
     // Receiver address: for a plain variable take the REAL slot address
     // (`&mut f`), not a spilled copy — otherwise index_mut writes into a
@@ -14366,18 +14676,47 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     if (node.has_key(la::VALUE)) {
         auto idx_node = map_of(node.get(la::VALUE.code));
         if (code_of(idx_node) == la::RANGE_EXPR) {
-            // Coerce receiver to `&[T]`: arrays decay to a slice; a `&[T]` /
-            // str is used directly. (Vec → `.as_slice()` is a follow-up.)
+            // `x[range]` is the place `[T]` (C-PLC): the receiver reaches a
+            // slice by autoderef — through `&` / `&mut` to an array, through a
+            // struct's `Deref` / `DerefMut` (Vec) — and in a mutable-use
+            // position the sub-slice is `&mut [T]` (`slice_get_range_mut`).
+            for (int rg = 0; rg < 8 && arr_type &&
+                             is_ref_like(TypeRef(arr_type).kind()) && TypeRef(arr_type).pointee() &&
+                             (TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Array ||
+                              TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Struct); ++rg) {
+                arr_type = TypeRef(arr_type).pointee();
+                recv = builder().deref(std::move(recv), arr_type);
+            }
+            for (int ad = 0; ad < 4 && TypeRef(arr_type).kind() == LogosType::Kind::Struct; ++ad) {
+                bool deref_only = false;
+                auto stepped = emit_generic_deref_call(std::move(recv), /*want_mut=*/mut_ctx, &deref_only);
+                if (!stepped) break;
+                if (mut_ctx && deref_only) { refuse_deref_only(arr_type); return error_expr(); }
+                TypeRef rt2 = expr_type(*stepped);
+                if (TypeRef(rt2).kind() == LogosType::Kind::Slice) {
+                    recv = std::move(*stepped);
+                    arr_type = rt2;
+                    break;
+                }
+                TypeRef tgt = TypeRef(rt2).pointee() ? TypeRef(rt2).pointee() : rt2;
+                recv = builder().deref(std::move(*stepped), tgt);
+                arr_type = expr_type(recv);
+            }
             TypeRef elem = nullptr;
             auto rk = TypeRef(arr_type).kind();
             if (rk == LogosType::Kind::Slice) {
                 elem = TypeRef(arr_type).elem();
+                if (mut_ctx && !TypeRef(arr_type).mut_ptr()) {
+                    error(std::format("cannot borrow data in a `&` reference as mutable (E0596): "
+                                      "`{}`", type_str(arr_type)));
+                    return error_expr();
+                }
             } else if (rk == LogosType::Kind::Array) {
                 elem = TypeRef(arr_type).elem();
-                // Array value → `&[T;N]` (addr-of) → `&[T]` (slice decay).
-                recv = autoref_operand(std::move(recv), /*is_mut=*/false,
-                                       make_ref(false, arr_type), BorrowOrigin::OperatorAutoref);
-                try_coerce_array_ref_to_slice(recv, make_slice_type(elem ? elem : i32_t()));
+                // Array value → `&[mut] [T;N]` (addr-of) → `&[mut] [T]` (slice decay).
+                recv = autoref_operand(std::move(recv), /*is_mut=*/mut_ctx,
+                                       make_ref(mut_ctx, arr_type), BorrowOrigin::OperatorAutoref);
+                try_coerce_array_ref_to_slice(recv, make_slice_type(elem ? elem : i32_t(), mut_ctx));
             } else if ((rk == LogosType::Kind::Ref || rk == LogosType::Kind::MutRef) &&
                        TypeRef(arr_type).pointee() &&
                        TypeRef(TypeRef(arr_type).pointee()).kind() == LogosType::Kind::Slice) {
@@ -14404,20 +14743,20 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             } else {
                 hi = builder().lit_int(INT64_MAX, i64t);  // open end → clamp to len
             }
-            auto cands = find_func_candidates("slice_get_range");
+            const std::string getter = mut_ctx ? "slice_get_range_mut" : "slice_get_range";
+            auto cands = find_func_candidates(getter);
             const SemaFuncInfo* sgr = cands.empty() ? nullptr : cands[0];
             if (!sgr) {
-                error("range index: stdlib `slice_get_range` not in scope "
+                error("range index: stdlib `" + getter + "` not in scope "
                       "(missing `use logos.lang.slice`)");
                 return error_expr();
             }
-            TypeRef ret_t = make_slice_type(elem);
+            TypeRef ret_t = make_slice_type(elem, mut_ctx);
             std::vector<lir::LExprPtr> args;
             args.push_back(std::move(recv));
             args.push_back(std::move(lo));
             args.push_back(std::move(hi));
-            std::string sym = sgr->symbol_name.empty() ? std::string("slice_get_range")
-                                                       : sgr->symbol_name;
+            std::string sym = sgr->symbol_name.empty() ? getter : sgr->symbol_name;
             if (!sgr->type_params.empty())
                 return finish_generic_call(sym, *sgr, {elem}, std::move(args));
             return builder().call(sym, {}, std::move(args), ret_t);
@@ -14507,7 +14846,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
                 if (c->param_types.size() == 2) { fit = c; break; }
             }
             if (fit) {
-                widen_int_expr(idx, fit->param_types[1], builder());
+                index_operand_(idx, fit->param_types[1]);
                 auto recv_ref = materialize_recv_ref(std::move(recv), mut_ctx, ref_t, BorrowOrigin::OperatorAutoref);
                 std::vector<lir::LExprPtr> args;
                 args.push_back(std::move(recv_ref));
@@ -14555,7 +14894,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
                 TypeRef idx_t = subst_type_sema(ii->trait_type_args[0], subst);
                 TypeRef out_t = subst_type_sema(out_from_method ? out_from_method : ii->trait_type_args[1], subst);
                 if (idx_t && TypeRef(idx_t).kind() != LogosType::Kind::TypeVar)
-                    widen_int_expr(idx, idx_t, builder());
+                    index_operand_(idx, idx_t);
                 lir::EMethodCall mc;
                 mc.receiver = materialize_recv_ref(std::move(recv), mut_ctx, ref_t, BorrowOrigin::OperatorAutoref);
                 mc.method = mut_ctx ? "index_mut" : "index";
@@ -17050,6 +17389,7 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
         if (has_infer_var_(expr_type(e))) builder().retype_expr(e, zonk_(expr_type(e)));
     }
     if (!e || !expected) return true;
+    lit_select_for_dyn_(e, expected);
     // C-LIT: an integer inference variable on either side is solved by the other.
     if (has_lit_var_(expr_type(e)) || has_lit_var_(expected)) {
         lit_solve_struct_(expr_type(e), expected);
@@ -17982,8 +18322,24 @@ bool SemaChecker::coerce_dyn_upcast(lir::LExprPtr& arg, TypeRef pt) {
 // wrapper struct's CoerceUnsized — when C implements Tr (E0277 otherwise, the
 // judgment's verdict). types_compatible accepts a struct at a dyn slot for
 // dispatch scoring; that acceptance is not the coercion, so it is not asked.
+// `&{integer}` unsized to `&dyn Tr` / `Box<dyn Tr>`: the variable takes the
+// one integer type implementing Tr (rustc's selection before fallback), else
+// the default i32 — the vtable needs a type.
+void SemaChecker::lit_select_for_dyn_(lir::LExprPtr& e, TypeRef expected) {
+    if (!e || !expected || TypeRef(expected).kind() != LogosType::Kind::TraitObject || !expr_type(e)) return;
+    TypeRef g(expr_type(e));
+    TypeRef p = is_ref_like(g.kind()) ? g.pointee()
+              : (is_stdlib_box(g) && g.type_args().size() == 1) ? g.type_args()[0] : TypeRef(nullptr);
+    if (!p || !is_lit_var_(lit_resolve_(p))) return;
+    TypeRef v = lit_resolve_(p);
+    TypeRef sel = lit_select_by_trait_(std::string(TypeRef(expected).trait_name()));
+    lit_solve_(v, sel ? sel : i32_t());
+    builder().retype_expr(e, lit_zonk_(g));
+}
+
 bool SemaChecker::coerce_arg_to_dyn(lir::LExprPtr& arg, TypeRef pt) {
     if (!arg || !pt) return false;
+    lit_select_for_dyn_(arg, pt);
     TypeRef at(expr_type(arg));
     if (!at || at.kind() == LogosType::Kind::Error || at.kind() == LogosType::Kind::Never) return false;
     if (types_equal(at, pt)) return false;
@@ -19563,6 +19919,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     if (!p.has_key(la::TYPE) &&
                         i < hint_param_types.size() && hint_param_types[i])
                         ptype = hint_param_types[i];
+                    // No annotation and no expected signature: a type variable,
+                    // solved by the body and the calls (`let f = |b| b; f(3)`);
+                    // one left open is E0282 at the fn's close.
+                    else if (!p.has_key(la::TYPE) && fn_body_depth_ > 0 && !p.has_key(la::PAT))
+                        ptype = mint_infer_var_(std::format("the type of closure parameter '{}'", pname));
                     // Census of the closure-parameter population itself —
                     // PROBES.md 2026-09-03clos §2 sized the whole question on it.
                     {
@@ -27979,6 +28340,21 @@ void SemaChecker::lit_refresh_scope_() {
             if (vi.type) vi.type = lit_zonk_(vi.type);
 }
 
+// The one integer type implementing `trait`, if exactly one does.
+TypeRef SemaChecker::lit_select_by_trait_(const std::string& trait) {
+    using K = LogosType::Kind;
+    static const K kinds[] = {K::I8, K::I16, K::I32, K::I64, K::I128, K::Isize,
+                              K::U8, K::U16, K::U32, K::U64, K::U128, K::Usize};
+    TypeRef found = nullptr;
+    for (auto k : kinds) {
+        TypeRef t = prim(k);
+        if (!has_impl(trait, type_str(t))) continue;
+        if (found) return nullptr;
+        found = t;
+    }
+    return found;
+}
+
 void SemaChecker::lit_close_fn_(const std::string& fn_name) {
     if (lit_fn_vars_.empty()) return;
     bool fn_has_error = false;
@@ -27995,6 +28371,18 @@ void SemaChecker::lit_close_fn_(const std::string& fn_name) {
             vals.insert(vals.end(), mit->second.begin(), mit->second.end());
         return vals;
     };
+    // Before the default: a variable a deferred bound names directly
+    // (`f(5)` with `T: Num`) takes the one integer type implementing the
+    // bound's trait (rustc's selection before integer fallback).
+    for (auto& d : lit_deferred_bounds_)
+        for (size_t i = 0; i < d.tps.size() && i < d.args.size(); ++i) {
+            TypeRef v = lit_resolve_(d.args[i]);
+            if (!is_lit_var_(v)) continue;
+            for (auto& b : d.tps[i].bounds) {
+                if (b.is_fn_family) continue;
+                if (TypeRef sel = lit_select_by_trait_(b.trait_name)) { lit_solve_(v, sel); break; }
+            }
+        }
     // Unsolved: i32, or i64 when a literal of the variable's CLASS does not fit
     // (Logos's default) — `[1, 2, 10000000000]` is one variable of three.
     std::unordered_map<std::string, bool> root_wide;

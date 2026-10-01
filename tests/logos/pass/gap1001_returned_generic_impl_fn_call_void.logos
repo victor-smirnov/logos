@@ -1,0 +1,14 @@
+package gap1001_returned_generic_impl_fn_call_void;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `returned-generic-impl-fn-call-void` (triples-types#23); rustc twin: the cluster .rs.
+use logos.std.fmt; use logos.mem.collections.vec; use logos.lang.iter; use logos.mem.string; use logos.lang.option; use logos.lang.result; use logos.lang.ops; use logos.lang.cmp; use logos.lang.str; use logos.mem.boxed;
+struct W<T> { f: T }
+impl<T: Copy + Mul<Output = T>> W<T> {
+    fn owned(self) -> impl Fn(T) -> T { let f = self.f; move |x| x * f }
+}
+fn main() {
+    let g = W { f: 2i64 }.owned();
+    let a: i64 = g(5);
+    println!("{}", a);
+    let v: Vec<i64> = (1i64..4).map(|x| g(x)).collect();
+    println!("{:?}", v);
+}

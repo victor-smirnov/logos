@@ -1,0 +1,9 @@
+package gap1001_rangeinclusive_u8_contains;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `rangeinclusive-u8-contains` (pairs-8#18); rustc twin: the cluster .rs.
+use logos.std.fmt;
+fn main() {
+    let r = 97u8..=122u8;
+    let a: u8 = 101; let b: u8 = 100; let c: u8 = 65;
+    println!("{} {} {}", r.contains(&a), r.contains(&b), r.contains(&c));
+    println!("{} {}", (1i64..=10).contains(&5), (1i32..=10).contains(&5));
+}

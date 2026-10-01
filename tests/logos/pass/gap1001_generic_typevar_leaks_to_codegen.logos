@@ -1,0 +1,7 @@
+package gap1001_generic_typevar_leaks_to_codegen;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `generic-typevar-leaks-to-codegen` (pairs-2#28); rustc twin: the cluster .rs.
+use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash;
+fn map_opt<T, U, F: Fn(T) -> U>(o: Option<T>, f: F) -> Option<U> { match o { Some(x) => Some(f(x)), None => None } }
+fn main() {
+    println!("{:?}", map_opt(Some(5i64), |x| x * 10));
+}

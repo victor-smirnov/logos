@@ -101,8 +101,8 @@ fn main() -> i64 {
         let mut arr: [i64; 3] = [1i64, 2i64, 3i64];
         let ar: &mut [i64; 3] = &mut arr;   // whole-array ref (typed [i64;3])
         (*ar)[1u64] = 20i64;
-        if arr[1u64] != 20i64 { return 11; }
         if (*ar).len() != 3i64 { return 38; }   // whole array, not a single elem
+        if arr[1u64] != 20i64 { return 11; }    // `ar`'s last use is above (E0503 otherwise)
     }
 
     // @rule expr.addr-of.mut-deref-reborrow

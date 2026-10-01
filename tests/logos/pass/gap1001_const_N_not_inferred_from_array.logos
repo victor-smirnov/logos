@@ -1,0 +1,6 @@
+package gap1001_const_N_not_inferred_from_array;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `const-N-not-inferred-from-array` (pairs-9#58); rustc twin: the cluster .rs.
+use logos.std.fmt;
+struct V<const N: i64> { c: [i64; N] }
+impl<const N: i64> V<N> { fn n(&self) -> i64 { N } }
+fn main() { let a = V { c: [1i64, 2, 3] }; println!("{}", a.n()); }

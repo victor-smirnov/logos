@@ -1,0 +1,11 @@
+package gap1001_closure_param_from_generic_bound_sibling;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `closure-param-from-generic-bound-sibling` (pairs-6#52); rustc twin: the cluster .rs.
+fn apply<F: Fn(&mut u32)>(x: &mut u32, f: F) { f(x); }
+fn apply2<T, F: Fn(&mut T)>(x: &mut T, f: F) { f(x); }
+fn main() -> i32 {
+    let mut k = 3u32;
+    apply(&mut k, |v| { *v = *v * *v; });
+    apply2(&mut k, |v: &mut u32| { *v = *v + 1; });
+    apply2(&mut k, |v| { *v = *v + 1; });
+    return k as i32;
+}

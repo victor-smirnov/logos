@@ -1,0 +1,16 @@
+package gap1001_array_len_and_index_operand_admit;
+// Admit twins of gap1001_partial_move_array_len_accepted / gap1001_user_index_operand_unchecked:
+// `arr.len()` BEFORE the move is a use of a live array; an integer index operand is judged and accepted.
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+struct Grid { cells: Vec<i32> }
+impl Index<usize> for Grid { type Output = i32; fn index(&self, p: usize) -> &i32 { &self.cells[p] } }
+fn main() {
+    let arr = [String::from("p"), String::from("q")];
+    let n = arr.len();
+    let [a, _] = arr;
+    let g = Grid { cells: vec![1, 2, 3, 4] };
+    let i: usize = 2;
+    println!("{} {} {}", n, a, g[i]);
+}

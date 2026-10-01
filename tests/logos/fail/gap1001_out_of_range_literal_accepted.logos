@@ -1,0 +1,5 @@
+package gap1001_out_of_range_literal_accepted;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `out-of-range-literal-accepted`; rustc refuses (the cluster .rs).
+use logos.std.fmt;
+const K: u8 = 300;
+fn main() { println!("{}", K); }

@@ -387,8 +387,6 @@ closure_return_region_of_param_refused 3 tests/soundness/open/closure_return_reg
 
 const_in_fn_body_refused 3 tests/soundness/open/const_in_fn_body_refused refuses
 
-deferred_let_without_type_refused 3 tests/soundness/open/deferred_let_without_type_refused refuses
-
 derive_lifetime_generic_struct_refused 3 tests/soundness/open/derive_lifetime_generic_struct_refused refuses
 
 derived_impl_invisible_in_impl_block_refused 3 tests/soundness/open/derived_impl_invisible_in_impl_block_refused refuses
@@ -457,5 +455,5 @@ wf_self_type_impl_lifetime_mismatch_admits 2 tests/soundness/open/wf_self_type_i
 
 struct_field_move_then_index_read_admits 2 tests/soundness/open/struct_field_move_then_index_read_admits admits
 
-# TOTAL 140
-# SYNC-HASH effea8cf28d6f49a8b714f12347b4296
+# TOTAL 139
+# SYNC-HASH 106ffed72bf2dbf1d99cca042000e48a

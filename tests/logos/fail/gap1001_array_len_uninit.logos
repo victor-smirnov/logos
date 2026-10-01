@@ -1,0 +1,4 @@
+package gap1001_array_len_uninit;
+// `arr.len()` uses `arr`: an uninitialised array is refused (rustc E0381), as at every other use.
+use logos.mem.string;
+fn main() -> i32 { let arr: [String; 2]; return arr.len() as i32; }

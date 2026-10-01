@@ -1,0 +1,10 @@
+// Was SOUNDNESS QUEUE row deferred_let_without_type_refused (tier 3); closed 2026-10-01 by the ADR 0030 S7 gap round:
+// `let k;` parses and takes an inference variable its assignments solve (rustc: deferred initialization).
+package deferred_let_without_type;
+fn main() -> i32 {
+    let k;
+    let c = true;
+    if c { k = 5i64; } else { k = 7; }
+    if k != 5 { return 3; }
+    return 0;
+}

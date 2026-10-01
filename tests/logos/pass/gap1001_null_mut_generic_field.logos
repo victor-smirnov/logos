@@ -1,0 +1,33 @@
+package gap1001_null_mut_generic_field;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `null-mut-generic-field` (pairs-12#38); rustc twin: the cluster .rs.
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.set;
+use logos.mem.collections.btree;
+use logos.mem.collections.btreeset;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.std.fmt;
+use logos.std.io;
+use logos.lang.cmp;
+use logos.lang.rc;
+use logos.lang.iter;
+use logos.mem.boxed;
+use logos.lang.ops;
+use logos.lang.mem;
+use logos.lang.hash;
+use logos.lang.cell;
+use logos.lang.ptr;
+struct S { p: *mut i32 }
+struct G<T> { p: *mut T }
+fn mk<T>() -> G<T> { return G { p: logos.lang.ptr::null_mut() }; }
+fn main() {
+    let a: *mut i32 = logos.lang.ptr::null_mut();
+    let s = S { p: logos.lang.ptr::null_mut() };
+    let g: G<i64> = mk();
+    println!("{} {} {}", a.is_null(), s.p.is_null(), g.p.is_null());
+}

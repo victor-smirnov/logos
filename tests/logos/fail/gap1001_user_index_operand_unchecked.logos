@@ -1,0 +1,7 @@
+package gap1001_user_index_operand_unchecked;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `user-index-operand-unchecked`; rustc refuses (the cluster .rs).
+use logos.std.fmt;
+
+struct Grid { cells: Vec<i32> }
+impl Index<usize> for Grid { type Output = i32; fn index(&self, p: usize) -> &i32 { &self.cells[p] } }
+fn main() { let g = Grid { cells: vec![1, 2, 3, 4] }; let i: bool = true; println!("{}", g[i]); }

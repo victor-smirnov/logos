@@ -3433,6 +3433,11 @@ private:
     std::optional<lir_view::StmtRef> lower_temp_rooted_place_assign_(writ::TinyMapView node,
                                                                     writ::TinyMapView place);
     writ::AnyVal synth_str(std::string_view text);
+    // `place op= v` over a type parameter bounded by `<Op>Assign`: the trait
+    // method call `place.op_assign(v)` (it desugared to `place = place op v`,
+    // which calls `Op` — another method, or a refusal without Copy).
+    std::optional<lir_view::StmtRef> typevar_op_assign_(TypeRef t, writ::AnyVal recv_av, writ::AnyVal val_av,
+                                                        const std::string& base_op);
     writ::AnyVal synth_block(const std::vector<writ::AnyVal>& stmts, uint32_t line);
 
     int32_t code_of(writ::TinyMapView node) noexcept {
@@ -8844,6 +8849,10 @@ private:
     // an error so unsized types never slip into value positions silently.
     bool unsized_ok_ = false;
     TypeRef ret_type_ = nullptr;
+    // `-> impl Fn(A) -> R`: the ImplTrait keeps only the trait name; the
+    // signature is the returned value's SHAPE (a closure literal's params).
+    // Valid while ret_type_ is still `ret_shape_of_`.
+    TypeRef ret_shape_ = nullptr, ret_shape_of_ = nullptr;
     // B64/B65: outlives graph of the currently-lowering fn, used by the
     // variance-aware subtype check at coercion sites.
     std::vector<std::pair<std::string, std::string>> current_outlives_;
@@ -9109,6 +9118,9 @@ private:
     // `expected_`.
     TypeRef shape_ = nullptr;
     TypeRef shape_next_ = nullptr;
+    // The type a call's return is inferred against: the expectation, else its
+    // shape (holes bind nothing: `let r: Result<i64, _> = s.parse()`).
+    TypeRef ret_hint_() const { return expected_ ? expected_ : shape_; }
     // SCAFFOLD until ADR 0029 (a closure is a type; escape decided at the
     // unsize point): an expectation that boxes a callable (`Box<dyn Fn ..>`)
     // marks its whole subtree, so a closure literal anywhere under it — the
@@ -10436,6 +10448,11 @@ private:
     lir::LExprPtr lower_mut_place(writ::TinyMapView n);
     // A place chain (`a.b[i].c`, `*p`) that goes through an INDEX anywhere.
     bool place_chain_has_index_(writ::TinyMapView n);
+    bool place_chain_over_var_(writ::TinyMapView n);
+    void index_operand_(lir::LExprPtr& idx, TypeRef want);
+    TypeRef lit_select_by_trait_(const std::string& trait);
+    void lit_select_for_dyn_(lir::LExprPtr& e, TypeRef expected);
+    TypeRef deref_target_type_(TypeRef t);
 
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);

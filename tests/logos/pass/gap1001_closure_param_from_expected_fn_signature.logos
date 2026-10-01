@@ -1,0 +1,5 @@
+package gap1001_closure_param_from_expected_fn_signature;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `closure-param-from-expected-fn-signature` (pairs-9#39); rustc twin: the cluster .rs.
+use logos.std.fmt;
+fn scaled(k: i64) -> impl Fn(i64) -> i64 { move |x| x * k }
+fn main() { let f = scaled(3); println!("{}", f(4)); }

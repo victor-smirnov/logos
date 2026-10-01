@@ -946,6 +946,19 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // to simplify concrete AssocType nodes (e.g. i32::Item -> bool).
     TypeRef ret_type = mint_ret_ ? mint_ret_ : subst_type_sema(fi_ptr->ret_type, {});
     ret_type_      = ret_type;
+    ret_shape_ = ret_shape_of_ = nullptr;
+    if (node.has_key(la::RET_TYPE) && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait) {
+        auto rn = map_of(node.get(la::RET_TYPE.code));
+        if (code_of(rn) == la::IMPL_TYPE) {
+            TraitBound tb;
+            tb.trait_name = std::string(str_of(rn.get(la::NAME.code)));
+            read_trait_bound_args(rn, tb);
+            if (tb.is_fn_family) {
+                ret_shape_ = make_closure_type(tb.fn_params, tb.fn_ret ? tb.fn_ret : void_t());
+                ret_shape_of_ = ret_type;
+            }
+        }
+    }
     // Working param list: built incrementally (self detection, variadic, tuple/
     // pattern/mut desugar) then emitted to PARAMS at the end.
     std::vector<lir::LParam> params;
@@ -2289,6 +2302,12 @@ std::pair<DeclBuilder, lir_view::ExprRef>
 SemaChecker::lower_const_def(TinyMapView node) {
     namespace dk = lir_schema::decl_keys;
     auto name = std::string(str_of(node.get(la::NAME.code)));
+    // Diagnostics name the const and its line, not the last fn lowered.
+    const auto saved_ctx = ctx_; const auto saved_line = node_line_;
+    struct CtxGuard_ { std::string& c; decltype(node_line_)& l; std::string sc; decltype(node_line_) sl;
+                       ~CtxGuard_() { c = sc; l = sl; } } ctx_guard_{ctx_, node_line_, saved_ctx, saved_line};
+    ctx_ = std::format("const {}", name);
+    node_line_ = get_line(node);
     DeclBuilder lc(*cur_prog_, lir_schema::decl::Code::Const, /*cap=*/12);
     lc.str_always(dk::NAME, name);
     // G156-1: package-scoped consts — carry the owning package so mlir_gen keys
@@ -2326,8 +2345,12 @@ SemaChecker::lower_const_def(TinyMapView node) {
         lc_value = lower_expr(map_of(node.get(la::VALUE.code)));
         // An unsuffixed literal initializer takes the declared type (C-INF: no
         // `{integer}` reaches codegen, which re-evaluates it at each use).
-        if (lc_value && lc_type && TypeRef(lc_type).kind() != LogosType::Kind::Error)
+        if (lc_value && lc_type && TypeRef(lc_type).kind() != LogosType::Kind::Error) {
             stamp_literal_tree_(expr_ref_of(lc_value), lc_type);
+            // ... and must fit it (`const K: u8 = 300;`: literal out of range).
+            lit_fit_check_(expr_ref_of(lc_value), lc_type, std::format("const '{}'", name),
+                           LogosType::Kind::Void, /*literal_word=*/true);
+        }
         // B-ca-02: typecheck initializer against declared const type at sema
         // so the diagnostic surfaces here rather than at MLIR-verifier time.
         if (lc_type && lc_value && expr_type(lc_value) &&

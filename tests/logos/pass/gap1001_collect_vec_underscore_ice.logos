@@ -1,0 +1,5 @@
+package gap1001_collect_vec_underscore_ice;
+// ADR 0030 S0-S7 gap audit 2026-10-01, cluster `collect-vec-underscore-ice` (pairs-8#24); rustc twin: the cluster .rs.
+use logos.mem.collections.vec;
+use logos.std.fmt;
+fn main() { let a: Vec<i64> = vec![1, 2]; let v = a.iter().map(|x| x * 2).collect::<Vec<_>>(); println!("{:?}", v); }

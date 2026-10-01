@@ -911,6 +911,15 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             return builder().stmt_deref_write(builder().var_ref(nm, ptt), std::move(bin), node_line_);
         };
         auto ptr   = lower_mut_place(ptr_node);
+        {
+            auto op0 = str_of(stmt.get(la::OP.code));
+            std::string bop0 = (op0.size() >= 2 && op0.back() == '=') ? std::string(op0.substr(0, op0.size() - 1))
+                                                                       : std::string(op0);
+            TypeRef pe0 = ptr && expr_type(ptr) && TypeRef(expr_type(ptr)).pointee()
+                ? TypeRef(TypeRef(expr_type(ptr)).pointee()) : TypeRef(nullptr);
+            if (auto st = typevar_op_assign_(pe0, stmt.get(la::NAME.code), stmt.get(la::VALUE.code), bop0))
+                return *st;
+        }
         auto rhs   = lower_expr(map_of(stmt.get(la::VALUE.code)));
         auto op_tok = str_of(stmt.get(la::OP.code));
         std::string base_op = (op_tok.size() >= 2 && op_tok.back() == '=')
@@ -1885,6 +1894,11 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         auto rhs_e = builder().addr_of_temp(
                             std::move(lit_expr), ext_mut,
                             make_ref(ext_mut, lit_type), BorrowOrigin::Explicit);
+                        // The annotation is judged, as at every let (`let m:
+                        // &dyn Num = &5` unsizes, and needs an impl).
+                        if (ann && TypeRef(ann).kind() != LogosType::Kind::Error)
+                            expect_type(rhs_e, ann, CoercePos::LetInit,
+                                        std::format("let '{}': type mismatch —", name));
                         define(std::string(name), ann ? ann : expr_type(rhs_e),
                                is_mut);
                         lir::SLet sl;
@@ -1998,9 +2012,11 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         rhs      = nullptr;
         rhs_type = ann;
     } else {
-        error(std::format("let '{}': missing value", name));
-        rhs      = error_expr();
-        rhs_type = error_t();
+        // `let k;` — no annotation, no value: an inference variable, solved by
+        // the assignments that initialise it (`k = 5i64;`).
+        decl_uninit_vars_.insert(std::string(name));
+        rhs      = nullptr;
+        rhs_type = mint_infer_var_(std::format("let '{}'", name));
     }
 
     // (Zone Step 4 pin: a by-value `#[rel_ptr]`-containing binding is rejected in
@@ -2368,12 +2384,12 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                 if (!l.empty() && l[0] != '\x01' && l != "'_" && !lt_is_minted(l)) { names_region = true; break; }
         }
         scope_.back().vars[std::string(name)].regions_inferred = !names_region;
-        scope_.back().vars[std::string(name)].deferred_init = (!rhs && ann);
+        scope_.back().vars[std::string(name)].deferred_init = !rhs && !node.has_key(la::VALUE);
     }
     // `let x: T;` of a droppable T: a drop flag that starts CLEAR — each
     // assignment drops the old value iff it is set and sets it; the scope exit
     // drops iff it is set (one flag carrier, visible to the BIR).
-    if (!rhs && ann) (void)cond_move_flag_for(std::string(name), /*initially_live=*/false);
+    if (!rhs && !node.has_key(la::VALUE)) (void)cond_move_flag_for(std::string(name), /*initially_live=*/false);
     if (rhs && expr_ref_of(rhs).kind() == lir_schema::expr::Code::ClosureBox && !scope_.empty())
         scope_.back().vars[std::string(name)].closure_id =
             std::string(lir_view::EClosureBoxView{expr_ref_of(rhs)}.closure_id());
@@ -2489,6 +2505,30 @@ std::optional<lir::LExprPtr> SemaChecker::op_assign_call_(TypeRef pt, const std:
     return builder().call(fit->symbol_name.empty() ? mangled : fit->symbol_name, {}, std::move(args), fit->ret_type);
 }
 
+std::optional<lir_view::StmtRef> SemaChecker::typevar_op_assign_(TypeRef t, writ::AnyVal recv_av, writ::AnyVal val_av,
+                                                                const std::string& base_op) {
+    if (!t || TypeRef(t).kind() != LogosType::Kind::TypeVar || recv_av.is_null() || val_av.is_null())
+        return std::nullopt;
+    std::string atrait, amethod;
+    if (!op_assign_trait_method(base_op, atrait, amethod)) return std::nullopt;
+    // KEY-IDENTITY: a type-parameter name of the signature being checked, as the rows beside it.
+    auto it = current_type_bounds_.find(std::string(TypeRef(t).type_var_name()));
+    if (it == current_type_bounds_.end()) return std::nullopt;
+    bool bounded = false;
+    for (auto& b : it->second) {
+        std::string_view tn = b.trait_name;
+        if (auto p = tn.rfind(':'); p != std::string_view::npos) tn.remove_prefix(p + 1);
+        if (auto p = tn.rfind('.'); p != std::string_view::npos) tn.remove_prefix(p + 1);
+        if (tn == atrait) { bounded = true; break; }
+    }
+    if (!bounded) return std::nullopt;
+    auto call = synth_node(la::METHOD_CALL.code, node_line_,
+                           {{la::RECEIVER.code, recv_av}, {la::NAME.code, synth_str(amethod)},
+                            {la::ARGS.code, synth_array({val_av})}});
+    auto e = lower_expr(map_of(call));
+    return builder().stmt_expr(std::move(e), node_line_);
+}
+
 lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     auto op_tok = str_of(node.get(la::OP.code));
     // Strip trailing '=' to get the base operator
@@ -2525,6 +2565,8 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     if (!lookup_is_mut(name))
         error(std::format("compound assignment to immutable variable '{}'", name));
 
+    if (auto st = typevar_op_assign_(var_type, node.get(la::RECEIVER.code), node.get(la::VALUE.code), base_op))
+        return *st;
     // Desugar: `x op= expr` → `x = x op expr`
     auto lhs_ref = builder().var_ref(std::string(name), var_type);
     auto rhs = node.has_key(la::VALUE)
@@ -2738,6 +2780,14 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
     // a narrower `&`-only one is deliberate: a second, weaker notion of
     // writability beside this one is how the gap opened in the first place.
     check_place_writable(place_node);
+    // A place of a type parameter bounded by `<Op>Assign` calls the trait
+    // method (`self.v += x` with `T: AddAssign`); the read below would move it.
+    {
+        auto probe = lower_mut_place(place_node);
+        if (auto st = typevar_op_assign_(probe ? expr_type(probe) : TypeRef(nullptr), node.get(la::RECEIVER.code),
+                                         node.get(la::VALUE.code), base_op))
+            return *st;
+    }
     auto place_read = lower_expr(place_node);    // eval #1 — current value
     TypeRef pt = expr_type(place_read);
     auto rhs = node.has_key(la::VALUE)
@@ -3009,9 +3059,10 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     const bool ret_expects = ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void &&
                              TypeRef(ret_type_).kind() != LogosType::Kind::Error &&
                              TypeRef(ret_type_).kind() != LogosType::Kind::ImplTrait;
+    TypeRef ret_shape = ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void ? ret_type_ : TypeRef(nullptr);
+    if (ret_shape && ret_shape == ret_shape_of_ && ret_shape_) ret_shape = ret_shape_;
     if (!val)
-        val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr),
-                                   ret_type_ && TypeRef(ret_type_).kind() != LogosType::Kind::Void ? ret_type_ : TypeRef(nullptr));
+        val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr), ret_shape);
     return val;
 }
 
