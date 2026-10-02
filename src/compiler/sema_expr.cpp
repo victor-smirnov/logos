@@ -6445,7 +6445,15 @@ TypeRef SemaChecker::deref_target_type_(TypeRef t) {
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return nullptr;
     auto it = impls_.find(impl_key("Deref", concrete_struct_name(t)));
     if (it == impls_.end()) it = impls_.find(impl_key("Deref", std::string(TypeRef(t).struct_name())));
-    if (it == impls_.end() || it->second.trait_type_args.empty()) return nullptr;
+    if (it == impls_.end()) return nullptr;
+    if (it->second.trait_type_args.empty()) {
+        // `type Target = B;` — read it off `deref`'s return `&B`.
+        for (const std::string& k : {concrete_struct_name(t), std::string(TypeRef(t).struct_name())})
+            for (auto* fi : find_func_candidates(k + "__deref"))
+                if (fi && fi->ret_type && is_ref_like(TypeRef(fi->ret_type).kind()) && fi->type_params.empty())
+                    return TypeRef(fi->ret_type).pointee();
+        return nullptr;
+    }
     TypeRef tgt = it->second.trait_type_args[0];
     if (it->second.target_typeref) {
         StrMap<TypeRef> b;
@@ -6784,11 +6792,18 @@ std::vector<std::string> SemaChecker::impl_lookup_keys_(TypeRef t) {
         if (!pt) break;
         const std::string pfx = TypeRef(t).kind() == K::MutRef ? "$mut_ref_" : "$ref_";
         for (auto& k : impl_lookup_keys_(pt)) push(pfx + k);
+        // `impl Tr for &i64` keys the reference type's spelling; `impl<T> Tr
+        // for &T` keys `$ref_$T`.
+        push(pfx + type_str_regions_erased(t));
+        push(pfx + "$T");
         break;
     }
+    case K::TraitObject: case K::UnsizedDyn:
+        push("$dyn$" + std::string(TypeRef(t).trait_name()));
+        break;
     default:
         if (is_integer(t) || TypeRef(t).kind() == K::Bool || TypeRef(t).kind() == K::F64 ||
-            TypeRef(t).kind() == K::F32 || TypeRef(t).kind() == K::Char)
+            TypeRef(t).kind() == K::F32 || TypeRef(t).kind() == K::Char || TypeRef(t).kind() == K::Void)
             push(type_str(t));
         break;
     }
@@ -6813,8 +6828,27 @@ static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
         return false;
     }
     if ((fk == K::Struct || fk == K::ZonedStruct || fk == K::DstRef) &&
-        (ak == K::Struct || ak == K::ZonedStruct || ak == K::DstRef))
-        return TypeRef(formal).struct_name() == TypeRef(actual).struct_name();
+        (ak == K::Struct || ak == K::ZonedStruct || ak == K::DstRef)) {
+        if (TypeRef(formal).struct_name() != TypeRef(actual).struct_name()) return false;
+        // Same name in two packages is two types (a user `Vec` is not the stdlib's).
+        const auto fp = TypeRef(formal).pkg_name(), ap = TypeRef(actual).pkg_name();
+        if (!fp.empty() && !ap.empty() && fp != ap) return false;
+        // `impl Pin<Box<T>>` is not `impl Pin<&mut T>`: a written argument's head counts.
+        // Only a TYPE argument of a structural kind is compared — a const or a
+        // config-slot argument is not a head.
+        auto structural = [](TypeRef x) {
+            const auto k = TypeRef(x).kind();
+            return k == K::Struct || k == K::ZonedStruct || k == K::Enum || k == K::Ref ||
+                   k == K::MutRef || k == K::Ptr;
+        };
+        const auto fa = TypeRef(formal).type_args(), aa = TypeRef(actual).type_args();
+        if (fa.size() == aa.size())
+            for (size_t i = 0; i < fa.size(); ++i)
+                if (fa[i] && aa[i] && structural(fa[i]) && structural(aa[i]) &&
+                    !probe_self_head_match_(fa[i], aa[i]))
+                    return false;
+        return true;
+    }
     if (fk == K::Enum && ak == K::Enum) return TypeRef(formal).enum_name() == TypeRef(actual).enum_name();
     if ((fk == K::Slice || fk == K::UnsizedSlice) && (ak == K::Slice || ak == K::UnsizedSlice)) return true;
     if (fk == K::Array && ak == K::Array) return true;
@@ -6825,55 +6859,84 @@ static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
 
 SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_view name) {
     using K = LogosType::Kind;
-    // rustc's steps: each autoderef step by value, then `&`, then `&mut`.
-    // Autoref never makes a raw pointer.
-    {
-        TypeRef cur = recv_t;
-        for (int d = 0; d < 8 && cur; ++d) {
-            for (int ar = 0; ar < 3; ++ar) {
-                const auto ck = TypeRef(cur).kind();
-                // `&[T]` is the Slice kind: its by-value step IS the `&self` step.
-                if (ar > 0 && (ck == K::Slice || ck == K::UnsizedSlice)) break;
-                TypeRef want = ar == 0 ? cur : make_ref(ar == 2, cur);
-                std::vector<std::string> keys = impl_lookup_keys_(cur);
-                if (ar == 1 || ar == 2) for (auto& k : impl_lookup_keys_(want)) keys.push_back(k);
-                // A user type's methods are its package's (a user `Vec` is not the stdlib's).
-                std::string tpkg;
-                if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum) tpkg = std::string(TypeRef(cur).pkg_name());
-                ProbePick pick;
-                int best_rank = 0;
-                for (auto& k : keys) {
-                    const std::string mk = k + "__" + std::string(name);
-                    std::vector<const SemaFuncInfo*> cands = find_func_candidates(mk);
-                    if (auto* g = find_generic_func(mk))
-                        if (std::find(cands.begin(), cands.end(), g) == cands.end()) cands.push_back(g);
-                    for (auto* fi : cands) {
-                        if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
-                        TypeRef f0 = fi->param_types[0];
-                        if (TypeRef(f0).kind() == K::Ptr && ck != K::Ptr) continue;
-                        if (!probe_self_head_match_(f0, want)) continue;
-                        // Inherent before trait; at one rank the type's own package's
-                        // method before an extension elsewhere (a user `Vec` is not the
-                        // stdlib's; `WAny::as_array` lives in another stdlib package).
-                        const int rank = (fi->trait_name.empty() ? 0 : 2) +
-                                         (!tpkg.empty() && !fi->package.empty() && fi->package != tpkg ? 1 : 0);
-                        if (!pick.fi || rank < best_rank) {
-                            pick = {fi, d, ar, mk, {fi}}; best_rank = rank;
-                        } else if (rank == best_rank &&
-                                   std::find(pick.tied.begin(), pick.tied.end(), fi) == pick.tied.end()) {
-                            pick.tied.push_back(fi);
-                        }
-                    }
-                }
-                if (pick.fi) return pick;
+    // rustc's probe: the candidates are the methods of every type on the
+    // receiver's autoderef chain; then at each step, by value, then `&`, then
+    // `&mut`, a candidate applies iff its declared self is that receiver type
+    // (`u8::m(&self)` applies at the step `&u8` by value). Autoref never makes
+    // a raw pointer.
+    std::vector<TypeRef> steps;
+    for (TypeRef cur = recv_t; cur && steps.size() < 8;) {
+        steps.push_back(cur);
+        // A raw pointer is never autoderef'd: a method on what it points to is `(*p).m()`.
+        const auto ck = TypeRef(cur).kind();
+        if ((ck == K::Ref || ck == K::MutRef) && TypeRef(cur).pointee()) cur = TypeRef(cur).pointee();
+        else if (ck == K::Struct || ck == K::ZonedStruct) cur = deref_target_type_(cur);
+        else if (ck == K::Array) cur = make_unsized_slice_type(TypeRef(cur).elem());
+        else break;
+    }
+    // A candidate and, for `impl<T: B> Tr for T`, the step type its `T` is.
+    struct Cand { const SemaFuncInfo* fi; std::string key; TypeRef blanket_self; std::string tv; };
+    std::vector<Cand> cands;
+    std::unordered_set<const SemaFuncInfo*> seen;
+    auto add_key = [&](const std::string& k, TypeRef bself, const std::string& tv) {
+        const std::string mk = k + "__" + std::string(name);
+        std::vector<const SemaFuncInfo*> fs = find_func_candidates(mk);
+        if (auto* g = find_generic_func(mk))
+            if (std::find(fs.begin(), fs.end(), g) == fs.end()) fs.push_back(g);
+        for (auto* fi : fs)
+            if (fi && !fi->param_types.empty() && fi->param_types[0] && (bself || seen.insert(fi).second))
+                cands.push_back({fi, mk, bself, tv});
+    };
+    for (TypeRef st : steps) {
+        for (auto& k : impl_lookup_keys_(st)) add_key(k, nullptr, {});
+        for (bool m : {false, true})
+            for (auto& k : impl_lookup_keys_(make_ref(m, st))) add_key(k, nullptr, {});
+        const auto ck = TypeRef(st).kind();
+        if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum || is_integer(st) ||
+            ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
+            const std::string tn = ck == K::Struct || ck == K::ZonedStruct ? concrete_struct_name(st)
+                                 : ck == K::Enum ? std::string(TypeRef(st).enum_name()) : type_str(st);
+            for (size_t bi : viable_blanket_impls(name, tn, /*report=*/false)) {
+                const auto& b = blanket_impls_[bi];
+                const std::string sfx = "__" + std::string(name);
+                if (b.mangled_name.size() > sfx.size() && b.mangled_name.ends_with(sfx))
+                    add_key(b.mangled_name.substr(0, b.mangled_name.size() - sfx.size()), st, b.target_typevar);
             }
-            // One deref step. A raw pointer is never autoderef'd (rustc): a
-            // method on what it points to is `(*p).m()`.
-            const auto ck = TypeRef(cur).kind();
-            if ((ck == K::Ref || ck == K::MutRef) && TypeRef(cur).pointee()) { cur = TypeRef(cur).pointee(); continue; }
-            if (ck == K::Struct || ck == K::ZonedStruct) { cur = deref_target_type_(cur); continue; }
-            if (ck == K::Array) { cur = make_unsized_slice_type(TypeRef(cur).elem()); continue; }
-            break;
+        }
+    }
+    for (size_t d = 0; d < steps.size(); ++d) {
+        const TypeRef cur = steps[d];
+        const auto ck = TypeRef(cur).kind();
+        // A user type's methods are its package's (a user `Vec` is not the stdlib's).
+        std::string tpkg;
+        if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum) tpkg = std::string(TypeRef(cur).pkg_name());
+        for (int ar = 0; ar < 3; ++ar) {
+            // `&[T]` is the Slice kind: its by-value step IS the `&self` step.
+            if (ar > 0 && (ck == K::Slice || ck == K::UnsizedSlice)) break;
+            const TypeRef want = ar == 0 ? cur : make_ref(ar == 2, cur);
+            ProbePick pick;
+            int best_rank = 0;
+            for (auto& c : cands) {
+                TypeRef f0 = c.fi->param_types[0];
+                if (TypeRef(f0).kind() == K::Ptr && ck != K::Ptr) continue;
+                if (c.blanket_self) {
+                    SemaSubst bs{{c.tv, c.blanket_self}, {"Self", c.blanket_self}};
+                    f0 = subst_type_sema(f0, bs);
+                }
+                if (!probe_self_head_match_(f0, want)) continue;
+                // Inherent before trait; at one rank the type's own package's
+                // method before an extension elsewhere (a user `Vec` is not the
+                // stdlib's; `WAny::as_array` lives in another stdlib package).
+                const int rank = (c.fi->trait_name.empty() ? 0 : 2) +
+                                 (!tpkg.empty() && !c.fi->package.empty() && c.fi->package != tpkg ? 1 : 0);
+                if (!pick.fi || rank < best_rank) {
+                    pick = {c.fi, (int)d, ar, c.key, {c.fi}}; best_rank = rank;
+                } else if (rank == best_rank &&
+                           std::find(pick.tied.begin(), pick.tied.end(), c.fi) == pick.tied.end()) {
+                    pick.tied.push_back(c.fi);
+                }
+            }
+            if (pick.fi) return pick;
         }
     }
     return {};
@@ -9345,7 +9408,7 @@ lir::LExprPtr SemaChecker::lower_invoke_on(lir::LExprPtr recv, std::vector<lir::
 }
 
 std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_name,
-                                                      const std::string& type_name) {
+                                                      const std::string& type_name, bool report) {
     // Strip a generic suffix (`Vec$i32` → `Vec`); primitives have none.
     std::string base_name(type_name);
     if (auto d = base_name.find('$'); d != std::string::npos)
@@ -9384,7 +9447,7 @@ std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_na
         if (!extra_eqs_ok) continue;
         viable_blanket_idxs.push_back(bi_idx);
     }
-    if (viable_blanket_idxs.size() >= 2) {
+    if (report && viable_blanket_idxs.size() >= 2) {
         // Distinct blanket impls of the same trait both apply — overlap.
         // (Multiple entries from one blanket with several methods are
         // disambiguated by method_name; here all entries already passed

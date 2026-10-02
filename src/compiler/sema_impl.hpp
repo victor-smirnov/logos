@@ -9544,7 +9544,7 @@ private:
     // Blanket impls providing `method_name` whose bounds `type_name` meets;
     // ≥2 distinct ones is an overlap error.
     std::vector<size_t> viable_blanket_impls(std::string_view method_name,
-                                             const std::string& type_name);
+                                             const std::string& type_name, bool report = true);
     lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
     lir::LExprPtr lower_invoke_on(lir::LExprPtr recv, std::vector<lir::LExprPtr> arg_exprs);
     bool finish_call_targs_written_ = false;   // lower_generic_call → finish_generic_call
