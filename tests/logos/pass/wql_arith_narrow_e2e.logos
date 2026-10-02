@@ -1,91 +1,88 @@
-// WQL — ARITHMETIC COMPUTES IN THE EL's REPRESENTATIVE, AND THE OPERANDS ARE
-// NORMALIZED INTO IT EXACTLY ONCE.
+// WQL — AN INTEGER ARITHMETIC NODE HAS ITS OPERANDS' TYPE, AS IN LOGOS (Rust typing).
 //
-// `el_add`/`el_sub`/… take i64 and return i64; float arithmetic is IEEE infix in
-// f64. So an arithmetic node's EMITTED type is the class's representative whatever
-// the query named its operands, and each operand reaches it through the EL's own
-// normalization. Two things used to be wrong about that at once, and they were
-// wrong in opposite directions:
+// `s.w + 1` over a `u32` column is a `u32`: the literal takes its type from the
+// other side, and the node's type is what Logos would give the same expression.
+// The node is COMPUTED in its tower (`el_add`/… over i64) and brought back into
+// its own type by a range check per node (`el_fit_i`), so a value outside the
+// type is an `ElError` — never a wrapped value, and never a silently wider one.
 //
-//   • `infer_ty_name` said `u32` for `s.w + 1` (arithmetic "keeps the operands'
-//     type"), so the projection's element type was `Vec<u32>` while the body's
-//     type was i64 → `method 'Vec__push' arg 1: expected u32, got i64`;
-//   • the operands were printed raw and the literal took the COLUMN's spelling →
-//     `el_add((s.w), (1u32))` → `call to 'el_add' arg 1: expected i64, got u32`.
+// Until 2026-10-02 the node's type was the tower's (`i64`): `s.w + 1` returned
+// `Vec<i64>`, `u32 + u32` past u32::MAX answered with the exact i64 sum, and
+// `-s.w` over a `u32` was a negative i64. That was SQL-style promotion; the EL now
+// types like the language it is embedded in, so all three changed meaning:
 //
-// Both measured at the parent commit, on `select s.w + 1` over a `u32` column.
-// Neither diagnostic named the column or the reason: they were type errors in
-// generated lines for a query the compiler had accepted.
+//   1. `u32 + literal`: a `u32`, exact while it fits;
+//   2. `u32 + u32` past u32::MAX: `Err(Overflow)` — the sum no longer widens;
+//   3. `(i8 + 100) - 100`: `Err(Overflow)` on the INTERMEDIATE value, because the
+//      check runs per node, not once at the end;
+//   4. `u8 - 1` below zero: `Err(Underflow)`, the unsigned floor crossed;
+//   5. `order by` an arithmetic key: the key vector is the node's type (`u32`);
+//   6. `f32 * float literal` still computes in f64 — the float half of Rust typing
+//      is the next slice, and this claim moves with it.
 //
-// This fixture pins the widths whose normalization INTO i64 keeps every value —
-// the i64 tower's own population, which is what every claim below is about.
-//
-// ⚠ "THE CLASS'S REPRESENTATIVE" IS THE i64 TOWER'S REPRESENTATIVE, AND SINCE
-// 2026-08-09 THERE IS A SECOND TOWER. A 64-bit UNSIGNED column's arithmetic
-// computes in u64 (`el_addu`/`el_subu`/`el_mulu`/`el_divu`/`el_remu`), takes no
-// cast at all, and emits `u64` — `tests/logos/pass/wql_arith_u64_tower_e2e`.
-// Nothing in THIS file moves under that: u8..u32, i8..i32, i24/u24, i56/u56 and
-// isize all have `ElTy.fits`, so their tower is and remains the i64 one, and
-// claim 4's key vector is `i64` because that node's TOWER is i64 — not because
-// every integer node's is. The header used to say the refused half was
-// "u64/usize reinterpret, u128/i128 truncate"; only `u128`/`i128` are refused
-// now, and they are refused for having NO tower rather than for reinterpreting
-// into one (wql_arith_wide_int_fail). A node MIXING the two towers is
-// wql_arith_mixed_tower_fail.
-//
-//   1. `u32 + literal` above the i32 range: the result is i64 and is exact;
-//   2. `u32 + u32` — BOTH operands normalized (neither is a literal that could
-//      have taken the other's spelling), and the sum beyond u32's range;
-//   3. `f32 * float literal`: computed in f64 (`f32 * 2.5f64` does not type-check,
-//      so the f32 side is widened exactly once);
-//   4. `order by` an arithmetic key: the key vector is i64 because the NODE is
-//      i64 — this is the one place the key's type is NOT the column's, and the
-//      admission has to notice;
-//   5. `-` (unary) over a u32 column: `el_neg` is the i64 tower too.
+// `-s.w` over an unsigned column is refused, as Rust refuses it:
+// wql_arith_unsigned_neg_fail (u32) and wql_arith_u64_neg_fail (u64).
 package test;
 
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
+use logos.std.wql.el;    // ElError — the faults are asserted by NAME
 
-struct Rec { pub id: i64, pub w: u32, pub f: f32 }
+struct Rec { pub id: i64, pub w: u32, pub f: f32, pub s: i8, pub b: u8 }
 
-pub deem plus(src: &[Rec])  { from src s select s.w + 1 }
-pub deem prod(src: &[Rec])  { from src s select s.w + s.w }
+pub deem plus(src: &[Rec])   { from src s select s.w + 1 }
+pub deem twice(src: &[Rec])  { from src s select s.w + s.w }
+pub deem roundt(src: &[Rec]) { from src s select (s.s + 100) - 100 }
+pub deem dec(src: &[Rec])    { from src s select s.b - 1 }
 pub deem scaled(src: &[Rec]) { from src s select s.f * 2.0 }
 pub deem by_sum(src: &[Rec]) { from src s select s.id order by s.w + 1 }
-pub deem negd(src: &[Rec])  { from src s select -s.w }
 
 fn main() -> i32 {
     let rs: [Rec; 2] = [
-        Rec { id: 1i64, w: 4000000000u32, f: 1.5f32 },
-        Rec { id: 2i64, w: 7u32,          f: 0.5f32 },
+        Rec { id: 1i64, w: 4000000000u32, f: 1.5f32, s: 100i8, b: 0u8 },
+        Rec { id: 2i64, w: 7u32,          f: 0.5f32, s: 1i8,   b: 9u8 },
     ];
+    let small: [Rec; 1] = [ Rec { id: 3i64, w: 7u32, f: 0.5f32, s: 1i8, b: 9u8 } ];
 
-    // 1. u32 + 1 above the i32 range, exact in i64.
-    let a: Vec<i64> = plus(&rs[..]).unwrap();
+    // 1. u32 + 1: a u32, exact.
+    let a: Vec<u32> = plus(&rs[..]).unwrap();
     if a.len() != 2i64              { return 1i32; }
-    if a.get(0i64) != 4000000001i64 { return 2i32; }
-    if a.get(1i64) != 8i64          { return 3i32; }
+    if a.get(0i64) != 4000000001u32 { return 2i32; }
+    if a.get(1i64) != 8u32          { return 3i32; }
 
-    // 2. u32 + u32 — the sum does not fit u32 and is exact in i64.
-    let b: Vec<i64> = prod(&rs[..]).unwrap();
-    if b.get(1i64) != 14i64         { return 4i32; }
-    if b.get(0i64) != 8000000000i64 { return 5i32; }
+    // 2. u32 + u32: 14 when it fits, Overflow when it does not.
+    let b: Vec<u32> = twice(&small[..]).unwrap();
+    if b.get(0i64) != 14u32 { return 4i32; }
+    match twice(&rs[..]) {
+        Result::Err(ElError::Overflow) => { }
+        _ => { return 5i32; }
+    }
 
-    // 3. f32 * 2.0 computed in f64.
+    // 3. the intermediate i8 value 200 overflows even though the result would fit.
+    let r: Vec<i8> = roundt(&small[..]).unwrap();
+    if r.get(0i64) != 1i8 { return 12i32; }
+    match roundt(&rs[..]) {
+        Result::Err(ElError::Overflow) => { }
+        _ => { return 13i32; }
+    }
+
+    // 4. u8 0 - 1 crosses the floor.
+    let d1: Vec<u8> = dec(&small[..]).unwrap();
+    if d1.get(0i64) != 8u8 { return 14i32; }
+    match dec(&rs[..]) {
+        Result::Err(ElError::Underflow) => { }
+        _ => { return 15i32; }
+    }
+
+    // 6. f32 * 2.0 computed in f64 (the float slice moves this claim).
     let c: Vec<f64> = scaled(&rs[..]).unwrap();
     if c.get(0i64) != 3.0f64 { return 6i32; }
     if c.get(1i64) != 1.0f64 { return 7i32; }
 
-    // 4. an arithmetic sort key — the vector is i64 because the node is.
+    // 5. an arithmetic sort key of the node's type.
     let d: Vec<i64> = by_sum(&rs[..]).unwrap();
     if d.get(0i64) != 2i64 { return 8i32; }
     if d.get(1i64) != 1i64 { return 9i32; }
-
-    // 5. unary minus over a u32 column, through `el_neg`.
-    let e: Vec<i64> = negd(&rs[..]).unwrap();
-    if e.get(0i64) != -4000000000i64 { return 10i32; }
-    if e.get(1i64) != -7i64          { return 11i32; }
 
     return 0i32;
 }

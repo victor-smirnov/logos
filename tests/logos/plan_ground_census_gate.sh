@@ -987,7 +987,7 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 610   # (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
+EXPECT_OUTQ       = 611   # (2026-10-02 Rust typing: +1, wql_arith_narrow_e2e 5 -> 6 queries; R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
                           #  S5-direct: +1 deem_direct_stream_pull;
                           #  V2-M1: +1 deem_direct_fallible_buffered — a REFUSED
                           #  door still has a `_run` landing, which is why this
@@ -1023,7 +1023,7 @@ EXPECT_RLND       = EXPECT_OUTR
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 482, "query output bounded by limit": 16,
+EXPECT_OUTHEAD    = {"query output": 483,  # 2026-10-02: +1 wql_arith_narrow_e2e "query output bounded by limit": 16,
                      # D7 #62: "query output" 478 -> 479, the new fixture's one
                      # unbounded scan seam. The other four heads did not move.
                      # S5-direct: 479 -> 480, `deem_direct_stream_pull`'s one
@@ -1070,7 +1070,7 @@ EXPECT_OUTHEAD    = {"query output": 482, "query output bounded by limit": 16,
 # no `#[borrow_carrying] pub struct …Dx` backs is the failure this catches, and
 # it is exactly the failure a plan-only pin would call green.
 EXPECT_DIRECT     = 10
-EXPECT_REFUSED    = 493  # task #85: 492 -> 493
+EXPECT_REFUSED    = 494  # task #85: 492 -> 493; 2026-10-02: 494, wql_arith_narrow_e2e +1 query
 # ── THE REFUSAL CENSUS, PER CLAUSE (ADR 0025 §12; re-derived 2026-08-19) ─────
 # FIRST-REASON counts over an `else if` CASCADE — see the note beside `DXWHY`.
 # A query true of three clauses is counted once, under the first one asked, so
@@ -1105,7 +1105,7 @@ EXPECT_DXWHY = {
     "borrows"     :  19,   # task #85: 18 -> 19
     "sel_prelude" :   1,
     "whr_prelude" :   0,
-    "fallible"    :  29,
+    "fallible"    :  30,   # 2026-10-02: 29 -> 30 — wql_arith_narrow_e2e: negd left (refused, unsigned neg), twice/roundt/dec came; all checked arithmetic
     "slice"       :  55,
     "notfwd"      :  50,
 }

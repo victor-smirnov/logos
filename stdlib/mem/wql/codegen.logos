@@ -314,37 +314,22 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
 /// unknown name is the lattice baseline, and the HOST COMPILER is the oracle for
 /// whether the emitted push type-checks.
 ///
-/// ⚠ MEASURED, and it is not a hypothetical. `ElTypes`' flat dict is keyed on the
-/// field NAME, so two sources with a same-named field share one entry and the last
-/// write wins: in wql_join_order_key_fidelity_e2e claim 6, `E.n: i64` and `F.n: P`
-/// collide and `n` resolves to the STRUCT `P`. Printing that name emits
-/// `Vec<P>::push(i64)`. The class view was masking the collision by flattening `P`
-/// to the baseline; keeping the leniency HERE and the strictness at the licence
-/// keeps both answers right while the flat dict remains imprecise — which is its
-/// own arc, not this one.
+/// ⚠ A FIELD STEP WITH AN OWNER NEVER READS THE FLAT DICT. `field_ty_name` keys
+/// it on (row var, column) or (struct type, column), so two joined sources with a
+/// same-named field of different types keep their own types (re-measured
+/// 2026-10-02: `a.n: u64` beside `b.n: i32` emits `Vec<u64>` and `Vec<i32>`). The
+/// flat dict is reached only by a BARE name.
 ///
-/// ⚠ AN ARITHMETIC NODE IS NOT ITS OPERANDS' TYPE, whatever the query named it.
-/// The EL's checked integer arithmetic is `el_add`/`el_sub`/… — i64 in, i64 out —
-/// and `-x` is `el_neg`, so the type the emitter prints for such a node is the
-/// class's REPRESENTATIVE and nothing else. `infer_ty_name` says `u64` for
-/// `s.v + 1` because that is what the query named; the generated line is
-/// `el_add(((s.v) as i64), (1i64))?` and its type is i64. Keeping the operands'
-/// name here is what made `select s.v + 1` over a `u64` column emit
-/// `Vec<u64>::push(i64)`.
-///
-/// ⚠ AND "THE CLASS'S REPRESENTATIVE" IS NOW A LIE FOR ONE HALF OF THE INTEGER
-/// CLASS, WHICH IS WHY THE ARITHMETIC ARM ASKS THE TOWER INSTEAD. There are two
-/// integer towers (`el::el_arith_tower`), and an arithmetic node computing in the
-/// unsigned one emits `el_addu`/`el_divu`/… — u64 in, u64 out. Its emitted type
-/// is `u64`, not the class representative, and answering `i64` here is exactly
-/// what made `order by (s.u / 3u64)` unreachable: `key_norm_ok` was handed the
-/// pair (`u64` named, `i64` emitted) and refused a normalization the emitter was
-/// never going to write. The FLOAT and STRING arms are unchanged — those classes
-/// have one tower each.
+/// ⚠ AN INTEGER ARITHMETIC NODE HAS ITS OPERANDS' TYPE (`arith_node_ty`), as in
+/// Logos — `s.w + 1` over a `u32` is a `u32` — even though it is COMPUTED in its
+/// tower (`el_add`/… over i64, `el_addu`/… over u64): the emitter range-checks
+/// the tower result back into the node's type. Until 2026-10-02 this answered the
+/// tower's type (SQL-style promotion), and `select s.w + 1` was a `Vec<i64>`.
+/// FLOAT arithmetic still answers the class representative (`f64`).
 pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> str {
     if el_computes_in_repr(e) {
         let c: i32 = infer_ty(e, t);
-        if c == EL_TY_INT() { return el_tower_repr(arith_node_tower(e, t)); }
+        if c == EL_TY_INT() { return arith_node_ty(e, t); }
         return el_class_repr(c);
     }
     let n: str = infer_ty_name(e, t);
@@ -403,6 +388,93 @@ pub fn arith_node_tower(e: SExpr, t: &ElTypes) -> i32 {
         }
         _ => { return EL_TOW_I64(); }
     }
+}
+
+/// THE TYPE OF AN INTEGER ARITHMETIC NODE — its operands' type, as in Logos.
+///
+/// `r.s + 100` over an `i8` column is an `i8`: a literal takes its type from the
+/// other side and contributes none of its own, and a nested arithmetic node
+/// contributes ITS type, so the answer is the one Logos would give the same
+/// expression. The node is still COMPUTED in its tower (`arith_node_tower`) and
+/// brought back into this type by a range check per node (`el_fit_i`/`el_fit_u`,
+/// written by `emit_arith_fit_open`/`_close`; the unsigned tower holds only
+/// 64-bit types, so it never needs one), so an excursion outside the type
+/// is an `ElError`, not a wrapped value and not a silently wider one.
+///
+/// The tower's own type is the answer when nothing names a type (`1 + 2`), and,
+/// for now, when the two operands name DIFFERENT types (`i32 + i64`): Rust
+/// refuses that node, and the refusal is the next slice — until it lands, such a
+/// node keeps the promotion it always had rather than picking a side.
+pub fn arith_node_ty(e: SExpr, t: &ElTypes) -> str {
+    let tw: i32 = arith_node_tower(e, t);
+    let rep: str = el_tower_repr(tw);
+    let mut n: str = "";
+    match e {
+        SExpr::Bin(b) => {
+            let ln: str = arith_operand_ty(b.lhs_expr(), t);
+            let rn: str = arith_operand_ty(b.rhs_expr(), t);
+            if ln.len() > 0i64 && rn.len() > 0i64 && !str_eq(ln, rn) { return rep; }
+            n = if ln.len() > 0i64 { ln } else { rn };
+        }
+        SExpr::Un(u) => { n = arith_operand_ty(u.arg_expr(), t); }
+        _ => { }
+    }
+    if n.len() == 0i64 { return rep; }
+    let nt: ElTy = el_ty(n);
+    if nt.cls != EL_TY_INT() { return rep; }
+    if el_arith_tower(n) != tw { return rep; }
+    return n;
+}
+
+/// The type ONE operand names for `arith_node_ty` — "" for a literal (it has
+/// none of its own), the node's own type for a nested arithmetic node, and the
+/// declared type for everything else.
+fn arith_operand_ty(e: SExpr, t: &ElTypes) -> str {
+    match e {
+        SExpr::Lit(_) => { return ""; }
+        _ => { }
+    }
+    if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_INT() { return arith_node_ty(e, t); }
+    return infer_ty_name(e, t);
+}
+
+/// The range check that brings a tower result back into the node's type — the
+/// OPENING half, written before the checked tower call. Nothing is written when
+/// the node's type IS its tower's (`i64`, `u64`) or spans the whole tower
+/// (`isize`, `usize`, which only need the closing `as`).
+pub fn emit_arith_fit_open(out: &mut String, nt: str, tw: i32) {
+    if str_eq(nt, el_tower_repr(tw)) { return; }
+    out.push_str("((");
+    let ty: ElTy = el_ty(nt);
+    if ty.bits >= 64i64 { out.push_str("("); return; }
+    out.push_str("el_fit_i(");
+}
+
+/// The CLOSING half: the range literals, the `?`, and the cast into the node's
+/// type — exact, because the check has just proved the value is in range.
+pub fn emit_arith_fit_close(out: &mut String, nt: str, tw: i32) {
+    if str_eq(nt, el_tower_repr(tw)) { return; }
+    let ty: ElTy = el_ty(nt);
+    if ty.bits >= 64i64 {
+        out.push_str(")) as ");
+        out.push_str(nt);
+        out.push_str(")");
+        return;
+    }
+    let one: i64 = 1i64;
+    let mut lo: i64 = 0i64;
+    let mut hi: i64 = (one << ty.bits) - 1i64;
+    if ty.signed {
+        lo = 0i64 - (one << (ty.bits - 1i64));
+        hi = (one << (ty.bits - 1i64)) - 1i64;
+    }
+    out.push_str(", ");
+    out.push_i64(lo);
+    out.push_str("i64, ");
+    out.push_i64(hi);
+    out.push_str("i64)?) as ");
+    out.push_str(nt);
+    out.push_str(")");
 }
 
 /// True iff the EL emits `e` through its own computation type rather than
@@ -699,14 +771,17 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
     // `el_neg` computes in i64 and there is no `el_negu`, because negation is not
     // an operation on an unsigned value: every non-zero u64 has no image. This is
     // a refusal about the OPERATOR, so it names the operator.
-    if ntw == EL_TOW_U64() && is_neg_node(parent) {
+    // Every unsigned type, not only the u64 tower's: under Rust typing `-r.b`
+    // over a `u8` column is a `u8`, and a `u8` has no negative image either.
+    let nty: ElTy = el_ty(n);
+    if is_neg_node(parent) && nty.cls == EL_TY_INT() && !nty.signed {
         let mut m2: String = String::new();
         m2.push_str(ctx);
         m2.push_str(": unary `-` applied to `");
         sexpr_display(&mut m2, e);
         m2.push_str("`, a value of type `");
         m2.push_str(n);
-        m2.push_str("` — negation is not an operation on an unsigned value (every non-zero one has no image in the type), and the EL's `el_neg` computes in i64, where this type's values above i64::MAX are a different number. The remedy is to subtract from a bound (`0u64 - x` is refused for the same reason; `hi - x` over u64 columns is not), or to declare the column signed");
+        m2.push_str("` — negation is not an operation on an unsigned type: the result has the operand's type, and every non-zero value has no image in it (Rust refuses `-x` on an unsigned value for the same reason). The remedy is to subtract from a bound (`hi - x`), or to declare the column signed");
         error(string_as_str(&m2));
         return false;
     }
@@ -1208,15 +1283,19 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 // not to i64, and no cast is written for the column at all. The
                 // tower is a property of the NODE — a node mixing the two is
                 // refused at `check_arith_operand`, so exactly one applies here.
-                let tw: i32 = el_tower_join(arith_operand_tower(lhs, t),
-                                            arith_operand_tower(rhs, t));
+                let tw: i32 = arith_node_tower(e, t);
                 let ir: str = el_tower_repr(tw);
+                // The node's OWN type (Rust typing): computed in the tower, then
+                // range-checked back into it.
+                let nt: str = arith_node_ty(e, t);
+                emit_arith_fit_open(out, nt, tw);
                 out.push_str(el_int_op_fn(op, tw));
                 out.push_str("(");
                 emit_norm_operand(out, lhs, t, var, ir);
                 out.push_str(", ");
                 emit_norm_operand(out, rhs, t, var, ir);
                 out.push_str(")?");
+                emit_arith_fit_close(out, nt, tw);
                 return;
             }
             // FLOAT arithmetic is IEEE infix and computes in the class's
@@ -1254,9 +1333,12 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             // negation is an Overflow error, not a trap). `!` and FLT negation
             // stay infix (bool / IEEE, no trap).
             if op == OP_NEG() && infer_ty(arg, t) == EL_TY_INT() {
+                let nt: str = arith_node_ty(e, t);
+                emit_arith_fit_open(out, nt, EL_TOW_I64());
                 out.push_str("el_neg(");
                 emit_norm_operand(out, arg, t, var, el_class_repr(EL_TY_INT()));
                 out.push_str(")?");
+                emit_arith_fit_close(out, nt, EL_TOW_I64());
                 return;
             }
             out.push_str("(");

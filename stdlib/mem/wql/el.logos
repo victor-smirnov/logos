@@ -127,6 +127,25 @@ pub fn el_neg(a: i64) -> Result<i64, ElError> {
     match a.checked_neg() { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
 }
 
+/// THE RANGE CHECK THAT TYPES AN ARITHMETIC NODE (ADR 0024, Rust typing).
+///
+/// An arithmetic node has its operands' type, as in Logos: `r.s + 100` over an
+/// `i8` column is an `i8`, and `100i8 + 100i8` overflows. The node is computed in
+/// its tower (i64 here) and then brought back into its own type through this
+/// check, ONCE PER NODE, so `(r.s + 100) - 100` faults on the intermediate value
+/// exactly where Rust does. `[lo, hi]` is the node type's range, written by the
+/// emitter as literals. Below a zero floor is the unsigned floor being crossed
+/// (`Underflow`, the same answer `el_subu` gives); every other excursion is
+/// `Overflow`.
+pub fn el_fit_i(v: i64, lo: i64, hi: i64) -> Result<i64, ElError> {
+    if v > hi { return Result::Err(ElError::Overflow); }
+    if v < lo {
+        if lo == 0i64 { return Result::Err(ElError::Underflow); }
+        return Result::Err(ElError::Overflow);
+    }
+    return Result::Ok(v);
+}
+
 /// `el_add`'s SIBLING FOR A `u64` ACCUMULATOR — the same shape, the same error
 /// value, the other overflow predicate.
 ///
