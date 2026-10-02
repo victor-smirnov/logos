@@ -1,0 +1,12 @@
+package s8_generic_bitwise_operator_struct;
+// ADR 0030 S8 row 3 (one operator table): a bitwise operator in a generic body over a
+// struct re-dispatches to the trait method at the instance — mono's copy of the
+// table knew no bitwise operator and emitted `arith.andi` on a pointer.
+use logos.lang.ops;
+#[derive_copy]
+struct M { v: i64 }
+impl BitAnd for M { type Output = M; fn bitand(self, o: M) -> M { return M { v: self.v & o.v }; } }
+impl BitXor for M { type Output = M; fn bitxor(self, o: M) -> M { return M { v: self.v ^ o.v }; } }
+fn band<T: BitAnd<Output = T>>(a: T, b: T) -> T { return a & b; }
+fn bxor<T: BitXor<Output = T>>(a: T, b: T) -> T { return a ^ b; }
+fn main() -> i32 { let x = band(M { v: 12 }, M { v: 10 }); let y = bxor(M { v: 12 }, M { v: 10 }); return (x.v * 100 + y.v) as i32 - 806; }

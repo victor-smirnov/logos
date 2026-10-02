@@ -1,5 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
+#include <logos/compiler/op_lang_items.hpp>
 #include "sema_impl.hpp"
 #include <logos/compiler/probe.hpp>
 #include "ctfe.hpp"
@@ -2456,17 +2457,10 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
 // and general-place compound paths.
 static bool op_assign_trait_method(const std::string& base_op,
                                    std::string& trait, std::string& method) {
-    if      (base_op == "+")  { trait = "AddAssign";    method = "add_assign"; }
-    else if (base_op == "-")  { trait = "SubAssign";    method = "sub_assign"; }
-    else if (base_op == "*")  { trait = "MulAssign";    method = "mul_assign"; }
-    else if (base_op == "/")  { trait = "DivAssign";    method = "div_assign"; }
-    else if (base_op == "%")  { trait = "RemAssign";    method = "rem_assign"; }
-    else if (base_op == "&")  { trait = "BitAndAssign"; method = "bitand_assign"; }
-    else if (base_op == "|")  { trait = "BitOrAssign";  method = "bitor_assign"; }
-    else if (base_op == "^")  { trait = "BitXorAssign"; method = "bitxor_assign"; }
-    else if (base_op == "<<") { trait = "ShlAssign";    method = "shl_assign"; }
-    else if (base_op == ">>") { trait = "ShrAssign";    method = "shr_assign"; }
-    else return false;
+    const OpLangItem* oi = binary_op_item(base_op);
+    if (!oi || !oi->has_output()) return false;
+    trait  = std::string(oi->assign_trait);
+    method = std::string(oi->assign_method);
     return true;
 }
 

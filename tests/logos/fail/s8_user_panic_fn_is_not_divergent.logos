@@ -1,0 +1,7 @@
+package s8_user_panic_fn_is_not_divergent;
+// ADR 0030 S8 row 2: a call diverges iff its callee returns `!` — a user
+// `fn panic(m: i64) -> i64` called as a statement is a value, and the body falls
+// off its end (rustc E0308). The name `panic` decided it before: SIGSEGV.
+fn panic(m: i64) -> i64 { return m; }
+fn f(c: bool) -> i32 { if c { return 1; } panic(3); }
+fn main() -> i32 { return f(false); }

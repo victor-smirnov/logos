@@ -1,5 +1,6 @@
 // Logos project — https://github.com/victor-smirnov/logos
 
+#include <logos/compiler/op_lang_items.hpp>
 #include "sema_impl.hpp"
 #include <logos/compiler/const_promote.hpp>
 #include "ctfe.hpp"
@@ -3345,12 +3346,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     if (is_ref_t(lt) && TypeRef(lt).pointee() &&
         (TypeRef(lt).pointee().kind() == LogosType::Kind::Struct ||
          TypeRef(lt).pointee().kind() == LogosType::Kind::ZonedStruct)) {
-        static const std::pair<const char*, const char*> kOpMethod[] = {
-            {"+", "add"}, {"-", "sub"}, {"*", "mul"}, {"/", "div"}, {"%", "rem"},
-            {"&", "bitand"}, {"|", "bitor"}, {"^", "bitxor"}, {"<<", "shl"}, {">>", "shr"},
-            {"==", "eq"}, {"!=", "ne"}, {"<", "lt"}, {"<=", "le"}, {">", "gt"}, {">=", "ge"}};
-        for (auto& [o, m] : kOpMethod) {
-            if (op != o) continue;
+        if (const OpLangItem* oi = binary_op_item(op)) {
+            const std::string m(oi->method);
             std::string rmangled = std::string(TypeRef(lt).kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") +
                                    concrete_struct_name(TypeRef(lt).pointee()) + "__" + m;
             if (auto rf = find_func_by_base_and_signature(rmangled, {lt, rt}, false)) {
@@ -3384,25 +3381,10 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     if (TypeRef(lt_sv).kind() == LogosType::Kind::Struct) {
         // Map operator to trait name and method
         std::string trait_name, method_name;
-        if      (op == "+")  { trait_name = "Add"; method_name = "add"; }
-        else if (op == "-")  { trait_name = "Sub"; method_name = "sub"; }
-        else if (op == "*")  { trait_name = "Mul"; method_name = "mul"; }
-        else if (op == "/")  { trait_name = "Div"; method_name = "div"; }
-        else if (op == "%")  { trait_name = "Rem"; method_name = "rem"; }
-        // Bitwise / shift operator overloading on user structs (parallel to the
-        // arithmetic ops above) — was missing, so `a ^ b` on a struct errored
-        // "left must be integer or bool" despite a BitXor impl existing.
-        else if (op == "&")  { trait_name = "BitAnd"; method_name = "bitand"; }
-        else if (op == "|")  { trait_name = "BitOr";  method_name = "bitor"; }
-        else if (op == "^")  { trait_name = "BitXor"; method_name = "bitxor"; }
-        else if (op == "<<") { trait_name = "Shl";    method_name = "shl"; }
-        else if (op == ">>") { trait_name = "Shr";    method_name = "shr"; }
-        else if (op == "==") { trait_name = "Eq";  method_name = "eq"; }
-        else if (op == "!=") { trait_name = "Eq";  method_name = "ne"; }
-        else if (op == "<")  { trait_name = "Ord"; method_name = "lt"; }
-        else if (op == "<=") { trait_name = "Ord"; method_name = "le"; }
-        else if (op == ">")  { trait_name = "Ord"; method_name = "gt"; }
-        else if (op == ">=") { trait_name = "Ord"; method_name = "ge"; }
+        if (const OpLangItem* oi = binary_op_item(op)) {
+            trait_name  = std::string(oi->trait);
+            method_name = std::string(oi->method);
+        }
         if (!trait_name.empty()) {
             auto type_name = concrete_struct_name(lt_sv);
             auto mangled = type_name + "__" + method_name;
@@ -4320,12 +4302,9 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             // If one side is TypeVar and the other is IntLit, result is the TypeVar
             // — or, for a by-value operator trait the TypeVar is bounded by, its
             // `Output` (op_output_type_).
-            static const std::pair<const char*, const char*> kOpTrait[] = {
-                {"+", "Add"}, {"-", "Sub"}, {"*", "Mul"}, {"/", "Div"}, {"%", "Rem"},
-                {"&", "BitAnd"}, {"|", "BitOr"}, {"^", "BitXor"}, {"<<", "Shl"}, {">>", "Shr"}};
             TypeRef op_out = nullptr;
-            for (auto& [o, tr] : kOpTrait)
-                if (op == o) { op_out = op_output_type_(lt, tr); break; }
+            if (const OpLangItem* oi = binary_op_item(op); oi && oi->has_output())
+                op_out = op_output_type_(lt, oi->trait);
             if (op_out) result_type = op_out;
             else if (TypeRef(lt).kind() == LogosType::Kind::TypeVar) result_type = lt;
             else if (TypeRef(rt).kind() == LogosType::Kind::TypeVar) result_type = rt;
@@ -4369,9 +4348,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         deref_if_ref_scalar(rhs, rt);
         // Over a type parameter bounded by the operator trait, the operator is
         // the trait method and the result its `Output` (op_output_type_).
-        const char* bit_trait = op == "&" ? "BitAnd" : op == "|" ? "BitOr" : op == "^" ? "BitXor"
-                              : op == "<<" ? "Shl" : "Shr";
-        if (TypeRef bit_out = op_output_type_(lt, bit_trait)) {
+        const OpLangItem* bit_oi = binary_op_item(op);
+        if (TypeRef bit_out = bit_oi ? op_output_type_(lt, bit_oi->trait) : TypeRef(nullptr)) {
             result_type = bit_out;
             goto binop_bounded_tv;
         }
@@ -4792,10 +4770,10 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     // Unary operator overloading for struct types
     if (TypeRef(vt).kind() == LogosType::Kind::Struct) {
         std::string trait_name, method_name;
-        if      (op == "-") { trait_name = "Neg"; method_name = "neg"; }
-        // T2-15: the trait method is `fn not(self) -> Self` (ops.logos:61);
-        // the dispatch named `not_` so `impl Not` could never bind — fixed.
-        else if (op == "!") { trait_name = "Not"; method_name = "not"; }
+        if (const OpLangItem* oi = unary_op_item(op)) {
+            trait_name  = std::string(oi->trait);
+            method_name = std::string(oi->method);
+        }
         if (!trait_name.empty()) {
             auto type_name = concrete_struct_name(vt);
             auto mangled = type_name + "__" + method_name;

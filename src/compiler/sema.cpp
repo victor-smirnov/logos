@@ -2254,15 +2254,17 @@ bool SemaChecker::is_divergent_call_node(writ::TinyMapView node) {
     // A local binding of the name is what the call calls (a closure `die`
     // shadowing `fn die() -> !`): it does not diverge.
     if (lookup(callee)) return false;
-    // `panic(msg)` by name: depending on import order the user-facing `panic`
-    // symbol may not be visible yet at the call site; the Never-return check
-    // below handles every other diverging callee.
-    if (callee == "panic") return true;
-    for (auto* fi : find_func_candidates(std::string(callee)))
+    // The callee's return type decides: `-> !` diverges, anything else does
+    // not — a user `fn panic(m: i64) -> i64` called as a statement is a value,
+    // and counting it as divergent let a body fall off its end (SIGSEGV).
+    auto cands = find_func_candidates(std::string(callee));
+    for (auto* fi : cands)
         if (fi && fi->ret_type &&
             TypeRef(fi->ret_type).kind() == LogosType::Kind::Never)
             return true;
-    return false;
+    // `panic(msg)` with NO candidate visible yet (the prelude's symbol before
+    // its import is processed) is the lang panic.
+    return cands.empty() && callee == "panic";
 }
 
 const SemaChecker::SemaFuncInfo* SemaChecker::resolve_function_call(

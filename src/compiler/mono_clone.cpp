@@ -2,6 +2,7 @@
 //
 // mono_clone.cpp — Expression/statement substitution and function/type cloning.
 
+#include <logos/compiler/op_lang_items.hpp>
 #include <cstdio>
 #include "mono_impl.hpp"
 #include "logos/compiler/sha256.hpp"
@@ -1224,8 +1225,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto vt = new_op ? new_op.type(out_.type_pool.impl()) : TypeRef{};
             if (vt && TypeRef(vt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
-                if      (op == "-") method_name = "neg";
-                else if (op == "!") method_name = "not";   // T2-15: was "not_"
+                if (const OpLangItem* oi = unary_op_item(op)) method_name = std::string(oi->method);
                 if (!method_name.empty()) {
                     std::string bare = concrete_struct_name(vt) + "__" + method_name;
                     std::string pkg{vt.pkg_name()};
@@ -1252,17 +1252,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto lt = new_lhs ? new_lhs.type(out_.type_pool.impl()) : TypeRef{};
             if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct) {
                 std::string method_name;
-                if      (op == "+")  method_name = "add";
-                else if (op == "-")  method_name = "sub";
-                else if (op == "*")  method_name = "mul";
-                else if (op == "/")  method_name = "div";
-                else if (op == "%")  method_name = "rem";
-                else if (op == "==") method_name = "eq";
-                else if (op == "!=") method_name = "ne";
-                else if (op == "<")  method_name = "lt";
-                else if (op == "<=") method_name = "le";
-                else if (op == ">")  method_name = "gt";
-                else if (op == ">=") method_name = "ge";
+                if (const OpLangItem* oi = binary_op_item(op)) method_name = std::string(oi->method);
                 if (!method_name.empty()) {
                     std::string bare = concrete_struct_name(lt) + "__" + method_name;
                     std::string pkg{lt.pkg_name()};
