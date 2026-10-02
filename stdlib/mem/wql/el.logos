@@ -337,14 +337,25 @@ pub fn EL_TY_STR()  -> i32 { return 1i32; }
 pub fn EL_TY_BOOL() -> i32 { return 2i32; }
 pub fn EL_TY_FLT()  -> i32 { return 3i32; }
 
+/// A NAMED type: a struct or enum the module declares with no type parameters,
+/// carried in its own type and never normalized (2026-10-02).
+///
+/// ⚠ A TYPE OUTSIDE THE LATTICE WAS AN INTEGER, and that was false the moment
+/// such a value was a key: `join … on l.sku == p.sku`, `group by l.sku` and
+/// `select distinct l.sku` over a user struct `Sku` were emitted as
+/// `HashMap<i64, …>` / `Vec<i64>` and refused by the host compiler on the
+/// generated blob (`cannot cast 'Sku' to 'i64'`). Only a name the module DECLARES
+/// as a plain struct/enum is NAMED (`ElTypes::named`, filled by
+/// `reflect::stamp_udfs_from_module`): reflection hands a field's type out as a
+/// bare name, so `Wrap<i64>` arrives as `Wrap`, which is not a printable type —
+/// such names keep the lenient INT below, which is what they always had.
+pub fn EL_TY_NAMED() -> i32 { return 4i32; }
+
 // Map a Logos type NAME (as written in the surface) to an EL value-type tag.
 // `str`/`String` → STR, `bool` → BOOL, `f64`/`f32` → FLT, everything else →
-// INT (the integer family is rendered identically by `push_i64`). Unknown
-// names default to INT.
+// INT. This holds no module view, so it cannot know a NAMED type; a caller with
+// an `ElTypes` asks `ElTypes::class_of_name`, which can.
 pub fn el_ty_of_name(name: str) -> i32 {
-    // LENIENT policy over the same table: an unknown FIELD name is a nested
-    // struct the EL never reads scalars from, so INT is the harmless default.
-    // The strict policy (`el_ret_class`) reports instead — see there.
     let c: i32 = el_class_lookup(name);
     if c < 0i32 { return EL_TY_INT(); }
     return c;
@@ -1688,6 +1699,9 @@ pub struct ElTypes {
     pub ovf_var:      str,   // "" when the dropped key had no row var
     pub ovf_key:      str,
     pub ovf_reported: bool,
+    // The NAMED types (`EL_TY_NAMED`): the plain structs/enums the module
+    // declares. OWNED for the same reason `tns` is.
+    pub named: Vec<String>,
 }
 
 /// Access codes for `ElTypes.rb_idx`. A tuple component is its own index, so
@@ -1732,6 +1746,7 @@ pub fn el_types_new() -> ElTypes {
         ovf_var:      "",
         ovf_key:      "",
         ovf_reported: false,
+        named:  vec_new::<String>(),
     };
 }
 
@@ -1744,7 +1759,31 @@ impl ElTypes {
     // column came back out as `i64`. There is now one column, the TYPE, and the
     // class is a view of it.
     pub fn ty_of(self: &ElTypes, name: str) -> i32 {
-        return el_ty_of_name(self.ty_name_of(name));
+        return self.class_of_name(self.ty_name_of(name));
+    }
+
+    /// The class of a type NAME: the lattice's, `EL_TY_NAMED` for a declared
+    /// plain struct/enum, the lenient INT otherwise.
+    pub fn class_of_name(self: &ElTypes, ty: str) -> i32 {
+        let c: i32 = el_class_lookup(ty);
+        if c >= 0i32 { return c; }
+        if self.is_named(ty) { return EL_TY_NAMED(); }
+        return EL_TY_INT();
+    }
+
+    pub fn is_named(self: &ElTypes, ty: str) -> bool {
+        if ty.len() == 0i64 { return false; }
+        let mut i: i64 = 0i64;
+        while i < self.named.len() {
+            if str_eq(string_as_str(&self.named[i]), ty) { return true; }
+            i = i + 1i64;
+        }
+        return false;
+    }
+
+    pub fn note_named(self: &mut ElTypes, ty: str) {
+        if self.is_named(ty) { return; }
+        self.named.push(String::from_str(ty));
     }
 
     // Record / overwrite `name` by CLASS (idempotent by name). The recorded type
@@ -1980,7 +2019,7 @@ impl ElTypes {
     pub fn rel_col_ty(self: &ElTypes, var: str, col: str) -> i32 {
         let e: i64 = self.find_col(CB_VAR(), var, col);
         if e < 0i64 { return -1i32; }
-        return el_ty_of_name(self.rb_tn[e]);
+        return self.class_of_name(self.rb_tn[e]);
     }
 
     // True iff `var` is a rel-bound row var (any column bound under it).

@@ -862,7 +862,7 @@ fail = []
 # UNMOVED and worth saying so: EXPECT_FIXTURES (191 either way — the population
 # was never the thing that was missing), DRAIN_SORT, IT, RDB, RSB, KS, PERM,
 # FRAME, CPHEAD, CPT, IWHEAD, DIRECT (10).
-EXPECT_FIXTURES   = 191  # V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
+EXPECT_FIXTURES   = 192  # 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct);  V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
                          # `deem_direct_fallible_buffered` — the fixture that
                          # witnesses the CHECKED-ARITHMETIC refusal clause. It is
                          # a container walk whose `select` does arithmetic, so it
@@ -902,15 +902,15 @@ EXPECT_IT         = 12    # `let mut __it_…` prelude bindings in the artifacts
 # Measured on the R-F tree: 7 + 5 == 12 == EXPECT_IT, no fixture mixing.
 EXPECT_RDB        = 7     # `let mut __rdb_<r>: Buffer<…>` — the Drain node's landing
 EXPECT_RSB        = 5     # `let mut __rsb_<r>: Buffer<…>` — the Sort node's landing
-EXPECT_ARRANGE    = 602   # Arrange nodes (R-D: +1) — S2d: == EXPECT_INDEX, exactly
-EXPECT_HASHJOIN   = 499   # (R-D: +1) `hash join on` strategy decisions (nest 0 + pre-decided)
-EXPECT_INDEX      = 602   # (R-D: +1) emitted `__hm`/`__hs`/`__bt` bindings
+EXPECT_ARRANGE    = 603   # 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct); Arrange nodes (R-D: +1) — S2d: == EXPECT_INDEX, exactly
+EXPECT_HASHJOIN   = 500   # 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct) — `hash join on Sku`; (R-D: +1) `hash join on` strategy decisions (nest 0 + pre-decided)
+EXPECT_INDEX      = 603   # 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct); (R-D: +1) emitted `__hm`/`__hs`/`__bt` bindings
 EXPECT_KS         = 129   # emitted `__ks` sort-key vectors == `key vector` lines  (S4: +2, `wql_group_single_pass_fold_e2e`; R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
 # S3e — THE PERMUTATION VECTORS, PINNED BUT NOT ATTRIBUTED TO A SORT NODE.
 # 311 `let mut __ix<k>` across 89 fixtures. This is a COUNT, not an equality
 # against the node layer, and the header says why: 85 of the 311, in 39
 # fixtures, are emitted where there is no sort at all.
-EXPECT_PERM       = 321   # (R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
+EXPECT_PERM       = 322   # 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct); (R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
 # S5-PIPELINE: readonce 19 -> 21. `deem_pipeline_chain` chains TWO deems onto one
 # streamed source (`q2_head` bounded, `q2_all` the unbounded control), and each
 # contributes one `read once, consumed where it stands` — the ground that IS the
@@ -959,7 +959,8 @@ EXPECT_FPACC      = 85   # task #85: 84 -> 85
 # `__g_row` for the representative class), so one number would let a family
 # vanish while another grew — which is precisely how `elided` used to hide
 # inside `readonce`.
-EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
+EXPECT_FRAME      = {"gkey": 153, "gacc": 209,  # 2026-10-02 wql_named_key_e2e: `group by l.sku` (Vec<Sku>)
+                     "gcnt": 13, "grow": 7}
 # ── ADR 0025 R-B — THE OUTPUT SEAM (FACT J) ─────────────────────────────────
 # The query output was the criterion-1 worklist's largest class (650 bindings,
 # unowned) and had no plan node at all. R-B2 gave it one — FIVE heads, not one,
@@ -987,7 +988,7 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 611   # (2026-10-02 Rust typing: +1, wql_arith_narrow_e2e 5 -> 6 queries; R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
+EXPECT_OUTQ       = 615   # (2026-10-02 wql_named_key_e2e: +4 landings, three queries plus the group query's snapshot; (2026-10-02 Rust typing: +1, wql_arith_narrow_e2e 5 -> 6 queries; R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
                           #  S5-direct: +1 deem_direct_stream_pull;
                           #  V2-M1: +1 deem_direct_fallible_buffered — a REFUSED
                           #  door still has a `_run` landing, which is why this
@@ -1023,7 +1024,11 @@ EXPECT_RLND       = EXPECT_OUTR
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 483,  # 2026-10-02: +1 wql_arith_narrow_e2e "query output bounded by limit": 16,
+EXPECT_OUTHEAD    = {"query output": 485, "query output bounded by limit": 16,
+                     # 2026-10-02: 482 -> 483 wql_arith_narrow_e2e (+1 query); 483 -> 485 wql_named_key_e2e
+                     # (its join and group-by queries). ⚠ The line above lost the "bounded by
+                     # limit" key to a mid-line comment in the 483 edit, and the gate stayed
+                     # green: it compares only the keys present. Restored.
                      # D7 #62: "query output" 478 -> 479, the new fixture's one
                      # unbounded scan seam. The other four heads did not move.
                      # S5-direct: 479 -> 480, `deem_direct_stream_pull`'s one
@@ -1037,8 +1042,8 @@ EXPECT_OUTHEAD    = {"query output": 483,  # 2026-10-02: +1 wql_arith_narrow_e2e
                      # unbounded scan seam — again the heads do not move, only
                      # the sentence, which now names the CHECKED-ARITHMETIC
                      # refusal.
-                     "query output distinct carrier": 5,
-                     "incremental snapshot output": 107, "rel result": 46}
+                     "query output distinct carrier": 6,   # 2026-10-02: +1 wql_named_key_e2e skus
+                     "incremental snapshot output": 108, "rel result": 46}  # 2026-10-02: 107 -> 108, wql_named_key_e2e per_sku
 
 # ── ADR 0025 §12 `direct` — THE DOOR CENSUS (S5-direct, this stage) ──────────
 #
@@ -1070,7 +1075,7 @@ EXPECT_OUTHEAD    = {"query output": 483,  # 2026-10-02: +1 wql_arith_narrow_e2e
 # no `#[borrow_carrying] pub struct …Dx` backs is the failure this catches, and
 # it is exactly the failure a plan-only pin would call green.
 EXPECT_DIRECT     = 10
-EXPECT_REFUSED    = 494  # task #85: 492 -> 493; 2026-10-02: 494, wql_arith_narrow_e2e +1 query
+EXPECT_REFUSED    = 497  # 2026-10-02 wql_named_key_e2e +3 (join, aggregate, distinct first reasons); task #85: 492 -> 493; 2026-10-02: 494, wql_arith_narrow_e2e +1 query
 # ── THE REFUSAL CENSUS, PER CLAUSE (ADR 0025 §12; re-derived 2026-08-19) ─────
 # FIRST-REASON counts over an `else if` CASCADE — see the note beside `DXWHY`.
 # A query true of three clauses is counted once, under the first one asked, so
@@ -1096,10 +1101,10 @@ EXPECT_REFUSED    = 494  # task #85: 492 -> 493; 2026-10-02: 494, wql_arith_narr
 # assertion that checks the rest: a 0 that starts firing reds here.
 EXPECT_DXWHY = {
     "singlerow"   :   0,
-    "aggregate"   : 152,
-    "join"        : 113,
+    "aggregate"   : 153,   # 2026-10-02: +1 wql_named_key_e2e per_sku
+    "join"        : 114,   # 2026-10-02: +1 wql_named_key_e2e total
     "sort"        :  62,
-    "distinct"    :   4,
+    "distinct"    :   5,   # 2026-10-02: +1 wql_named_key_e2e skus
     "limit"       :   7,
     "generic"     :   1,
     "borrows"     :  19,   # task #85: 18 -> 19

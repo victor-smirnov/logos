@@ -3018,6 +3018,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
     if !check_calls(proj_sexpr, &ty, "wql!: `select`") { return false; }
+    if !check_projection_copy(proj_sexpr, &ty, "wql!: `select`") { return false; }
 
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     let mut body: String = String::new();
@@ -4883,6 +4884,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 
     // Validate every clause's calls (select / where / order / per-step on).
     if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
+    if !check_projection_copy(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
     if has_where {
         if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
         if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
@@ -5474,7 +5476,28 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         return false;
     }
     if !key_norm_ok(string_as_str(&key_tn3s), key_ty, "wql!: `group by`") { return false; }
-    if el_ty(string_as_str(&key_tn3s)).cls < 0i32 && !el_eq_hash(key_ety) {
+    // A NAMED key (a declared struct/enum) groups by its own `==`: the frame is a
+    // linear scan over `__g_key: Vec<K>`, so it needs equality and a key that can
+    // be copied out of the row — asked of the impls, and the missing one named.
+    if key_ety == EL_TY_NAMED() {
+        let kn: str = string_as_str(&key_tn3s);
+        let mut miss: str = "";
+        if !named_has_eq_strict(kn) { miss = "`Eq` — the groups are found by the frame's `==`, which compares keys through `Eq` (`PartialEq` alone is not enough here)"; }
+        else if !named_is_copy(kn) { miss = "`Copy` — each group's key is copied out of its first row"; }
+        if miss.len() > 0i64 {
+            let mut mn: String = String::new();
+            mn.push_str("wql!: a `group by` key of type `");
+            mn.push_str(kn);
+            mn.push_str("` needs ");
+            mn.push_str(miss);
+            mn.push_str("; derive or implement it on `");
+            mn.push_str(kn);
+            mn.push_str("`");
+            error(string_as_str(&mn));
+            return false;
+        }
+    }
+    if key_ety != EL_TY_NAMED() && el_ty(string_as_str(&key_tn3s)).cls < 0i32 && !el_eq_hash(key_ety) {
         // The out-of-lattice fallback: no NAME to ask, so the class is all there is.
         // The DECISION is the shared table; only the WORDING branches, because the
         // f64 case has a named mechanism worth stating and an unadmitted class does
@@ -5527,6 +5550,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     // Validate clause calls (select / where / on preds; the key is validated above).
     if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
+    if !check_projection_copy(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
     if has_where {
         if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
         if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }

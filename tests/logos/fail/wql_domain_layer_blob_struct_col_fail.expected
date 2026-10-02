@@ -1,1 +1,1 @@
-error [fn q_run]: method 'Buffer__push' arg 1: expected i64, got DH
+wql!: `select`: `s.x` projects a value of type `DH`, which is copied out of its row and so must be `Copy`

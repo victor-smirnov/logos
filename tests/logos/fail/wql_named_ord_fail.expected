@@ -1,0 +1,1 @@
+wql!: `where`: `(l.sku < l.sku)` applies `<` to a value of type `Sku`, which needs `Ord`

@@ -116,7 +116,7 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
             // THE CLASS IS THE VIEW OF THE NAME — one resolution, not two, so a
             // column cannot be one class here and another type there.
             let fn0: str = field_ty_name(f, t);
-            if fn0.len() > 0i64 { return el_ty_of_name(fn0); }
+            if fn0.len() > 0i64 { return t.class_of_name(fn0); }
             return t.ty_of(f.name);
         }
         SExpr::Bin(b) => {
@@ -342,6 +342,9 @@ pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> str {
     }
     let n: str = infer_ty_name(e, t);
     if el_class_lookup(n) >= 0i32 { return n; }
+    // A NAMED type is printed as itself (`HashMap<Sku, …>`), never as a class
+    // representative.
+    if infer_ty(e, t) == EL_TY_NAMED() && n.len() > 0i64 { return n; }
     return el_class_repr(infer_ty(e, t));
 }
 
@@ -898,23 +901,37 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
     if op == OP_OR() || op == OP_AND() { return true; }
     let ln: str = operand_named_ty(l, t);
     let rn: str = operand_named_ty(r, t);
-    let lc: i32 = el_ty(ln).cls;
-    let rc: i32 = el_ty(rn).cls;
-    // Two named NUMERIC types that differ — `i32 + i64`, `key + avg(x)` (an
-    // integer and an `f64`), `f32 + f64` — and a literal of the other class
-    // (`r.s + 1.5`, `s.f * 2`): Rust refuses all of them, and its remedy, `as`,
-    // is in the EL (step 4).
-    let lnum: bool = lc == EL_TY_INT() || lc == EL_TY_FLT();
-    let rnum: bool = rc == EL_TY_INT() || rc == EL_TY_FLT();
-    let mut bad: bool = false;
-    if ln.len() > 0i64 && rn.len() > 0i64 && lnum && rnum && !str_eq(ln, rn) { bad = true; }
+    let lc: i32 = if ln.len() > 0i64 { t.class_of_name(ln) } else { -1i32 };
+    let rc: i32 = if rn.len() > 0i64 { t.class_of_name(rn) } else { -1i32 };
     let mut lk: str = ln;
     let mut rk: str = rn;
-    if ln.len() == 0i64 && rnum && lit_class(l) >= 0i32 && lit_class(l) != rc {
-        bad = true; lk = lit_class_name(lit_class(l));
-    }
-    if rn.len() == 0i64 && lnum && lit_class(r) >= 0i32 && lit_class(r) != lc {
-        bad = true; rk = lit_class_name(lit_class(r));
+    let mut bad: bool = false;
+    if lc == EL_TY_NAMED() || rc == EL_TY_NAMED() {
+        // A NAMED value meets only its own type: never a literal, never another
+        // type (there is no conversion between a struct and anything else).
+        if ln.len() == 0i64 && is_lit_operand(l) { bad = true; lk = "a literal"; }
+        if rn.len() == 0i64 && is_lit_operand(r) { bad = true; rk = "a literal"; }
+        if ln.len() > 0i64 && rn.len() > 0i64 && !str_eq(ln, rn) { bad = true; }
+        if !bad { return check_named_operator(node, if lc == EL_TY_NAMED() { ln } else { rn }, op, ctx); }
+    } else {
+        // Two named NUMERIC types that differ — `i32 + i64`, `key + avg(x)` (an
+        // integer and an `f64`), `f32 + f64` — and a literal of the other class
+        // (`r.s + 1.5`, `s.f * 2`): Rust refuses all of them, and its remedy, `as`,
+        // is in the EL (step 4).
+        // Judged on the LATTICE class: a name reflection could not resolve
+        // (`Wrap` for `Wrap<i64>`) has the lenient INT in `class_of_name` but is
+        // not known to be a number, and must not be called a mismatch.
+        let lnc: i32 = el_ty(ln).cls;
+        let rnc: i32 = el_ty(rn).cls;
+        let lnum: bool = lnc == EL_TY_INT() || lnc == EL_TY_FLT();
+        let rnum: bool = rnc == EL_TY_INT() || rnc == EL_TY_FLT();
+        if ln.len() > 0i64 && rn.len() > 0i64 && lnum && rnum && !str_eq(ln, rn) { bad = true; }
+        if ln.len() == 0i64 && rnum && lit_class(l) >= 0i32 && lit_class(l) != rnc {
+            bad = true; lk = lit_class_name(lit_class(l));
+        }
+        if rn.len() == 0i64 && lnum && lit_class(r) >= 0i32 && lit_class(r) != lnc {
+            bad = true; rk = lit_class_name(lit_class(r));
+        }
     }
     if !bad { return true; }
     let mut m: String = String::new();
@@ -931,7 +948,83 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
     m.push_str(rk);
     m.push_str("`; the operands of `");
     m.push_str(str_trim(emit_binop(op)));
-    m.push_str("` must have one type, as in Rust, and the EL no longer widens one of them silently — convert one side with `as` (e.g. `x as f64`)");
+    m.push_str("` must have one type, as in Rust");
+    if lc == EL_TY_NAMED() || rc == EL_TY_NAMED() {
+        m.push_str(" — a struct or enum compares only with a value of its own type");
+    } else {
+        m.push_str(", and the EL no longer widens one of them silently — convert one side with `as` (e.g. `x as f64`)");
+    }
+    error(string_as_str(&m));
+    return false;
+}
+
+/// A PROJECTED NAMED VALUE IS COPIED OUT OF ITS ROW, so its type must be `Copy`
+/// — asked of the root and of each component of a tuple projection. Without the
+/// check the host compiler refuses the generated push ("cannot move out of a
+/// borrow"), naming no clause.
+pub fn check_projection_copy(e: SExpr, t: &ElTypes, ctx: str) -> bool {
+    match e {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if !check_projection_copy(items.arg_at(i), t, ctx) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => { }
+    }
+    if infer_ty(e, t) != EL_TY_NAMED() { return true; }
+    let nm: str = infer_ty_name(e, t);
+    if named_is_copy(nm) { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": `");
+    sexpr_display(&mut m, e);
+    m.push_str("` projects a value of type `");
+    m.push_str(nm);
+    m.push_str("`, which is copied out of its row and so must be `Copy` — derive or implement `Copy` (and `Clone`) on `");
+    m.push_str(nm);
+    m.push_str("`");
+    error(string_as_str(&m));
+    return false;
+}
+
+/// True iff `e` is a literal operand (`N`, `N.M`, a string, a bool, or `-N`).
+fn is_lit_operand(e: SExpr) -> bool {
+    match e {
+        SExpr::Lit(_) => { return true; }
+        SExpr::Un(u)  => { if u.op == OP_NEG() { return is_lit_operand(u.arg_expr()); } return false; }
+        _ => { return false; }
+    }
+}
+
+/// AN OPERATOR ON A NAMED VALUE IS A TRAIT QUESTION. `==`/`!=` need `PartialEq`
+/// or `Eq`, `<`…`>=` need `Ord`, and there is no arithmetic at all — each refused
+/// at the clause with the missing impl named, rather than as a host error on a
+/// generated line.
+fn check_named_operator(node: SExpr, nm: str, op: i32, ctx: str) -> bool {
+    let mut need: str = "";
+    if el_computes_in_repr_op(op) {
+        need = "no arithmetic — the EL has none for a struct or enum";
+    } else if op == OP_EQ() || op == OP_NE() {
+        if !named_has_eq(nm) { need = "`PartialEq` (or `Eq`) for `==`/`!=`"; }
+    } else if op == OP_LT() || op == OP_LE() || op == OP_GT() || op == OP_GE() {
+        if !named_has_ord(nm) { need = "`Ord` for an ordering comparison"; }
+    }
+    if need.len() == 0i64 { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": `");
+    sexpr_display(&mut m, node);
+    m.push_str("` applies `");
+    m.push_str(str_trim(emit_binop(op)));
+    m.push_str("` to a value of type `");
+    m.push_str(nm);
+    if el_computes_in_repr_op(op) { m.push_str("`, and there is "); } else { m.push_str("`, which needs "); }
+    m.push_str(need);
+    if !el_computes_in_repr_op(op) { m.push_str(" — derive or implement it"); }
     error(string_as_str(&m));
     return false;
 }
@@ -955,6 +1048,28 @@ fn lit_class_name(c: i32) -> str {
     if c == EL_TY_FLT() { return "a float literal"; }
     return "an integer literal";
 }
+
+// ── WHAT A NAMED TYPE CAN DO — asked of its impls (#340) ───────────────────
+// A NAMED value (`EL_TY_NAMED`: a struct/enum the module declares) has no class
+// facts; every operation on it is a trait question. Here rather than in
+// `join_sel` because the operand checks below need it and `join_sel` imports
+// this module.
+fn TRAIT_PEQ()  -> str { return "logos.lang.cmp::PartialEq"; }
+fn TRAIT_EQ()   -> str { return "logos.lang.cmp::Eq"; }
+fn TRAIT_ORD()  -> str { return "logos.lang.cmp::Ord"; }
+fn TRAIT_COPY() -> str { return "logos.lang.clone::Copy"; }
+
+/// `==` exists when the type implements `PartialEq` or `Eq` — in Logos each
+/// declares its own `eq`, and deriving both is refused today (squeue #682).
+pub fn named_has_eq(name: str) -> bool {
+    return has_trait_named(TRAIT_PEQ(), name) || has_trait_named(TRAIT_EQ(), name);
+}
+/// `Eq` itself — what a group key and a tuple `==` (`variadic__eq`) require.
+pub fn named_has_eq_strict(name: str) -> bool { return has_trait_named(TRAIT_EQ(), name); }
+pub fn named_has_ord(name: str) -> bool { return has_trait_named(TRAIT_ORD(), name); }
+/// A NAMED value is copied out of a borrowed row — into an index, a group key
+/// vector, an output buffer — only when it is `Copy`.
+pub fn named_is_copy(name: str) -> bool { return has_trait_named(TRAIT_COPY(), name); }
 
 /// True iff `op` is one of the arithmetic operators (the binary half of
 /// `el_computes_in_repr`, for a caller that holds only the op id).

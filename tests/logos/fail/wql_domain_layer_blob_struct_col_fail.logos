@@ -1,22 +1,16 @@
-// ⚠ THE EXPECTATION IN THIS FILE IS THE DEFECT. A `#[derive_hash]` STRUCT IS A
-// LEGAL `rel` COLUMN AND IS REFUSED IN AN EXPRESSION BY THE HOST COMPILER, FROM
-// INSIDE GENERATED CODE, NAMING A FUNCTION NOBODY WROTE.
+// ⚠ REWRITTEN 2026-10-02, AS THIS HEADER ASKED: THE REFUSAL MOVED TO DEEM.
+// Until then the expectation pinned the DEFECT: a `#[derive_hash]` struct
+// column projected by `select` was refused by the host compiler inside generated
+// code (`method 'Buffer__push' arg 1: expected i64, got DH`), because
+// `el_ty_of_name` laundered every out-of-lattice name to INT. A declared struct
+// is now a NAMED type (`EL_TY_NAMED`), carried as itself, and the projection asks
+// its impls: `DH` is not `Copy`, so the refusal names the clause, the column and
+// the missing capability — the front-end diagnostic this file said a fix would be.
 //
-// ⚠⚠ WHEN THIS IS FIXED THIS FILE GOES RED AND MUST BE REWRITTEN, NOT DELETED.
-// The refusal is correct; the LAYER is not. What a fix looks like is a Deem
-// front-end diagnostic naming the deem, the clause, the column and the missing
-// capability — at which point the string below stops matching and this file
-// should assert the new one. That is exactly what happened to
-// `tests/logos/fail/wql_agg_avg_struct_arg_fail.logos`, whose own header pinned
-// a `<metaprog-blob-subst>` message for months and said so.
-//
-// THE MECHANISM, MEASURED. `el_ty_of_name` (stdlib/mem/wql/el.logos:174-181)
-// launders every name the 21-row lattice does not admit to `EL_TY_INT` — the
-// documented lenient default. So a struct-typed column reaches emission spelled
-// INT, the emitter builds `Vec<i64>` for the projection, and the type error
-// surfaces where the generated `push` is type-checked. Nothing between the
-// `deem` and that push asks whether the column has the capability the clause
-// needs.
+// The paragraphs below describe the mechanism as it was; the fieldless-enum half
+// is now asked of the enum's impls too (wql_column_decl_fieldless_enum_e2e), and
+// the `Option<i64>` half is still open — a generic type arrives from reflection
+// as a bare name with no arguments, so it stays on the lenient INT path.
 //
 // ⚠ AND THE SAME LAUNDERING IS SILENT WHEN THE SHAPE HAPPENS TO FIT. Measured
 // in the same survey: a FIELDLESS ENUM column passes `group by` and `order by`

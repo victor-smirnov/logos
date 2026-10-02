@@ -114,11 +114,22 @@ pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
 fn KEY_HASH_TRAIT() -> str { return "logos.lang.hash::Hash"; }
 fn KEY_EQ_TRAIT()   -> str { return "logos.lang.cmp::Eq"; }
 fn KEY_ORD_TRAIT()  -> str { return "logos.lang.cmp::Ord"; }
+
 pub fn join_key_caps_named(name: str) -> KeyCaps {
     let t: ElTy = el_ty(name);
     if t.cls < 0i32 {
-        // DEFAULT-DENY on a name this lattice does not enumerate.
-        return KeyCaps { hash: false, ord: false, eq: false };
+        // A type outside the scalar lattice: every conjunct is asked of its impls.
+        // An index stores its keys BY VALUE (copied out of the row), so both index
+        // tiers also need `Copy`; the loop tier needs `==` only. A name with no
+        // impls at all — including one reflection could not resolve (`Wrap` for
+        // `Wrap<i64>`) — answers no to every query, which is the default-deny it
+        // always had.
+        let eq: bool = named_has_eq(name);
+        let cp: bool = named_is_copy(name);
+        return KeyCaps { hash: eq && cp && has_trait_named(KEY_HASH_TRAIT(), name)
+                                       && has_trait_named(KEY_EQ_TRAIT(), name),
+                         ord:  cp && named_has_ord(name),
+                         eq:   eq };
     }
     let idx: bool = el_index_key_borrow_ok(name);
     return KeyCaps { hash: t.self_ident == EL_ID_OK() && idx && has_trait_named(KEY_HASH_TRAIT(), name)

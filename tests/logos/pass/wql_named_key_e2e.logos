@@ -1,0 +1,52 @@
+// WQL — A USER STRUCT IS A KEY IN ITS OWN TYPE (Rust typing, 2026-10-02).
+//
+// `Sku` is a NAMED type: a struct the module declares with no type parameters.
+// The EL carries its values as `Sku` — never normalized — and asks its impls
+// (`has_trait_named`, #340) what each operation needs:
+//   • `join … on l.sku == p.sku` — a HASH join keyed `Sku` (Hash + Eq + Copy);
+//   • `group by l.sku` — the frame's key vector is `Vec<Sku>` (Eq + Copy);
+//   • `select distinct l.sku` — a `Vec<Sku>` answer (== + Copy).
+// Before, a type outside the scalar lattice was an INTEGER to the EL: all three
+// were emitted as `i64` and refused by the host compiler on the generated blob
+// (`cannot cast 'Sku' to 'i64'`). The refusals for a missing impl are the
+// wql_named_* / wql_group_named_key_no_eq fail fixtures.
+//
+// The impls are hand-written: `has_trait_named` does not yet see impls that a
+// `#[derive_*]` synthesizes in the same round (filed for the compiler side).
+package test;
+use logos.std.wql.wql;
+use logos.std.compiler.metaprog;
+use logos.mem.collections.vec;
+use logos.lang.hash;
+use logos.lang.cmp;
+use logos.lang.result;
+
+pub struct Sku { pub a: i64, pub b: i64 }
+impl Eq for Sku { fn eq(&self, o: &Sku) -> bool { return self.a == o.a && self.b == o.b; } }
+impl Clone for Sku { fn clone(&self) -> Sku { return Sku { a: self.a, b: self.b }; } }
+impl Copy for Sku {}
+impl Hash for Sku { fn hash<H: Hasher>(&self, h: &mut H) { self.a.hash(h); self.b.hash(h); } }
+
+pub struct Line { pub sku: Sku, pub qty: i64 }
+pub struct Price { pub sku: Sku, pub cents: i64 }
+
+pub deem total(ls: &[Line], ps: &[Price]) { from ls l join ps p on l.sku == p.sku select l.qty * p.cents }
+pub deem per_sku(ls: &[Line]) { from ls l group by l.sku aggregate n = sum(l.qty) select n }
+pub deem skus(ls: &[Line]) { from ls l select distinct l.sku }
+
+fn main() -> i32 {
+    let x: Sku = Sku { a: 1i64, b: 2i64 };
+    let y: Sku = Sku { a: 3i64, b: 4i64 };
+    let ls: [Line; 3] = [ Line { sku: x, qty: 2i64 }, Line { sku: y, qty: 5i64 }, Line { sku: x, qty: 1i64 } ];
+    let ps: [Price; 2] = [ Price { sku: x, cents: 100i64 }, Price { sku: y, cents: 10i64 } ];
+    let t: Vec<i64> = total(&ls[..], &ps[..]).unwrap();
+    let mut s: i64 = 0i64; let mut i: i64 = 0i64;
+    while i < t.len() { s = s + t.get(i); i = i + 1i64; }
+    if s != 350i64 { return 1i32; }
+    let g: Vec<i64> = per_sku(&ls[..]).unwrap();
+    if g.len() != 2i64 { return 2i32; }
+    if g.get(0i64) + g.get(1i64) != 8i64 { return 3i32; }
+    let d: Vec<Sku> = skus(&ls[..]).unwrap();
+    if d.len() != 2i64 { return 4i32; }
+    return 0i32;
+}

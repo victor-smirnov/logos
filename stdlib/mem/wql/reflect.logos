@@ -670,6 +670,14 @@ pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
                 t.udf_add(nm, el_ret_class(rn), rn, fn_param_count(view, item));
             }
         }
+        // A plain struct/enum (no type parameters) is a NAMED type: printable as
+        // its bare name, so the EL can carry its values in their own type.
+        let code: u64 = view.ast_node_code(item) & (0xFFFF as u64);
+        if (code == LA_STRUCT() || code == LA_ENUM())
+           && view.ast_type_param_count(item) == (0 as u64) {
+            let snm: str = sview_str(view.ast_node_name(item));
+            if snm.len() > 0i64 { t.note_named(snm); }
+        }
         i = i + (1 as u64);
     }
 }
