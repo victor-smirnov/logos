@@ -19,11 +19,11 @@ use logos.lang.panic;
 // sibling slots move when earlier streams grow) ─────────────────────────────
 
 unsafe fn st_pdt(a: *mut PkdAlloc, s: u32) -> PdtBuf {
-    return pdtbuf_adopt(a.get::<u8>(s));
+    return pdtbuf_adopt((*a).get::<u8>(s));
 }
 
 unsafe fn st_seq(a: *mut PkdAlloc, s: u32) -> PkdSsrle {
-    return pkd_ssrle_adopt(a.get::<u8>(s));
+    return pkd_ssrle_adopt((*a).get::<u8>(s));
 }
 
 // ── node formatting ─────────────────────────────────────────────────────────
@@ -37,14 +37,14 @@ pub unsafe fn alg_fmt_node(a: *mut PkdAlloc, sch: &NodeSchema) {
         let kind: u32 = sch.streams.borrow(s as i64).kind;
         if kind == SK_SSRLE {
             let need: u32 = pkd_ssrle_empty_size();
-            let p: *mut u8 = match a.allocate(s, need, SlotKind::Allocatable) {
+            let p: *mut u8 = match (*a).allocate(s, need, SlotKind::Allocatable) {
                 Result::Ok(q) => q,
                 Result::Err(_e) => {
                     assert(false, "alg: structure-stream slot allocation failed");
                     return;
                 }
             };
-            let bsz: u32 = a.element_size(s);
+            let bsz: u32 = (*a).element_size(s);
             match pkd_ssrle_format(p, bsz, sch.streams.borrow(s as i64).alphabet) {
                 Result::Ok(_q) => {}
                 Result::Err(_e) => {
@@ -52,7 +52,7 @@ pub unsafe fn alg_fmt_node(a: *mut PkdAlloc, sch: &NodeSchema) {
                 }
             }
             let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-            inner.set_allocator(a as *const PkdAlloc);
+            (*inner).set_allocator(a as *const PkdAlloc);
         } else {
             let mut ord: u32 = PDT_ORD_UNORDERED;
             if sch.streams.borrow(s as i64).ordered {
@@ -69,14 +69,14 @@ pub unsafe fn alg_fmt_node(a: *mut PkdAlloc, sch: &NodeSchema) {
             }
             let zero: Vec<u64> = pdt_payload_zero(&dsc);
             let need: u32 = pdtbuf_compute_block_size(&dsc, 0u64, &zero);
-            let p: *mut u8 = match a.allocate(s, need, SlotKind::Allocatable) {
+            let p: *mut u8 = match (*a).allocate(s, need, SlotKind::Allocatable) {
                 Result::Ok(q) => q,
                 Result::Err(_e) => {
                     assert(false, "alg: stream slot allocation failed");
                     return;
                 }
             };
-            let bsz: u32 = a.element_size(s);
+            let bsz: u32 = (*a).element_size(s);
             match pdtbuf_format(p, bsz, &dsc) {
                 Result::Ok(_b) => {}
                 Result::Err(_e) => {
@@ -84,7 +84,7 @@ pub unsafe fn alg_fmt_node(a: *mut PkdAlloc, sch: &NodeSchema) {
                 }
             }
             let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-            inner.set_allocator(a as *const PkdAlloc);
+            (*inner).set_allocator(a as *const PkdAlloc);
         }
         s = s + 1u32;
     }
@@ -100,7 +100,7 @@ unsafe fn alg_price_op(a: *mut PkdAlloc, sch: &NodeSchema, op: &NodeOp,
     let kind: u32 = sch.streams.borrow(op.stream as i64).kind;
     if kind == SK_SSRLE {
         let seq: PkdSsrle = st_seq(a, op.stream);
-        let cur: u32 = a.element_size(op.stream);
+        let cur: u32 = (*a).element_size(op.stream);
         if op.op == OP_INS {
             let us: SsrleUpdate = seq.plan_insert(op.pos, &d.cols.borrow(op.datum as i64).runs);
             if us.block_size > cur {
@@ -313,7 +313,7 @@ pub unsafe fn alg_apply(a: *mut PkdAlloc, sch: &NodeSchema, b: &NodeBatch,
             return false;
         }
     };
-    if price > a.free_space() {
+    if price > (*a).free_space() {
         return false;
     }
     let mut i: i64 = 0i64;

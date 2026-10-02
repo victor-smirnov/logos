@@ -111,7 +111,7 @@ pub fn leaf_find<K: Container + ContainerOrd, V: Container, const STORE_CFG: Wri
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = leaf.keys.get(i);
-            match phantom.cmp_views(kv, key) {
+            match (*phantom).cmp_views(kv, key) {
                 Ordering::Equal => { return i as i64; }
                 _ => { }
             }
@@ -131,7 +131,7 @@ pub fn leaf_lower_bound<K: Container + ContainerOrd, V: Container, const STORE_C
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = leaf.keys.get(i);
-            match phantom.cmp_views(kv, key) {
+            match (*phantom).cmp_views(kv, key) {
                 Ordering::Less => { i = i + 1u64; }
                 _ => { return i; }
             }
@@ -151,7 +151,7 @@ pub fn leaf_upper_bound<K: Container + ContainerOrd, V: Container, const STORE_C
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = leaf.keys.get(i);
-            match phantom.cmp_views(kv, key) {
+            match (*phantom).cmp_views(kv, key) {
                 Ordering::Greater => { return i; }
                 _ => { i = i + 1u64; }
             }
@@ -180,7 +180,7 @@ pub fn branch_descend_idx<K: Container + ContainerOrd, const STORE_CFG: WritStat
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = branch.keys.get(i);
-            match phantom.cmp_views(kv, key) {
+            match (*phantom).cmp_views(kv, key) {
                 Ordering::Less => { i = i + 1u64; }
                 _ => { return i; }     // keys[i] ≥ key
             }
@@ -367,7 +367,7 @@ pub unsafe fn bt_upper_bound<K: Container + ContainerOrd, V: Container, const ST
         let phantom: *const K = 0 as *const K;
         while i < n {
             let kv: K::ViewInStore = br.keys.get(i);
-            match phantom.cmp_views(kv, key) {
+            match (*phantom).cmp_views(kv, key) {
                 Ordering::Greater => { idx = i; break; }
                 _ => { i = i + 1u64; }
             }

@@ -990,12 +990,12 @@ pub unsafe fn pdtbuf_format(mem: *mut u8, block_size: u32, descr: &PdtDescr)
     assert(slots <= 64u32, "pdtbuf_format: slot count exceeds the PkdAlloc bitmap word");
     let a: *mut PkdAlloc = pkd_format(mem, block_size, slots);
     let dim_count: u32 = descr.dim_count();
-    a.allocate(PDT_SLOT_METADATA, pdt_meta_bytes(dim_count), SlotKind::Raw)?;
+    (*a).allocate(PDT_SLOT_METADATA, pdt_meta_bytes(dim_count), SlotKind::Raw)?;
     let mut flags: u32 = 0u32;
     if descr.indexed {
         flags = flags | PDT_FLAG_INDEXED;
     }
-    let m: *mut PdtMeta = a.get::<PdtMeta>(PDT_SLOT_METADATA);
+    let m: *mut PdtMeta = (*a).get::<PdtMeta>(PDT_SLOT_METADATA);
     *m = PdtMeta {
         size: 0u32,
         capacity: 0u32,
@@ -1012,10 +1012,10 @@ pub unsafe fn pdtbuf_format(mem: *mut u8, block_size: u32, descr: &PdtDescr)
         *table.add(i as u32) = *descr.dims.borrow(i);
         i = i + 1i64;
     }
-    a.set_block_type(PDT_SLOT_INDEX, SlotKind::Raw);
+    (*a).set_block_type(PDT_SLOT_INDEX, SlotKind::Raw);
     let mut s: u32 = PDT_LAST_HEADER_BLOCK;
     while s < slots {
-        a.set_block_type(s, SlotKind::Raw);
+        (*a).set_block_type(s, SlotKind::Raw);
         s = s + 1u32;
     }
     // A VLE dimension's OFFSETS table is never empty: a buffer of `capacity`
@@ -1034,8 +1034,8 @@ pub unsafe fn pdtbuf_format(mem: *mut u8, block_size: u32, descr: &PdtDescr)
             let d: &PdtDim = descr.dims.borrow(i as i64);
             if d.kind == PDT_DIM_VLE {
                 let blk: u32 = b.block_of(c, i, 1u32);
-                a.allocate(blk, pdt_dim_block_size(d, 1u32, 0u64, 0u64), SlotKind::Raw)?;
-                let offs: *mut u32 = a.get::<u32>(blk);
+                (*a).allocate(blk, pdt_dim_block_size(d, 1u32, 0u64, 0u64), SlotKind::Raw)?;
+                let offs: *mut u32 = (*a).get::<u32>(blk);
                 *offs = 0u32;
             }
             i = i + 1u32;
@@ -1047,7 +1047,7 @@ pub unsafe fn pdtbuf_format(mem: *mut u8, block_size: u32, descr: &PdtDescr)
 
 // The dims table lives in the METADATA slot right behind the fixed header.
 unsafe fn pdt_dims_table(a: *mut PkdAlloc) -> *mut PdtDim {
-    let base: *mut u8 = a.get::<u8>(PDT_SLOT_METADATA);
+    let base: *mut u8 = (*a).get::<u8>(PDT_SLOT_METADATA);
     return base.byte_add(round_up_bytes(sizeof::<PdtMeta>() as u32)) as *mut PdtDim;
 }
 
@@ -1127,7 +1127,7 @@ impl PdtBuf {
     }
 
     unsafe fn meta(self: &PdtBuf) -> *mut PdtMeta {
-        return self.alc().get::<PdtMeta>(PDT_SLOT_METADATA);
+        return (*self.alc()).get::<PdtMeta>(PDT_SLOT_METADATA);
     }
 
     // ── descriptor read-back (the block is self-describing) ───────────────
@@ -1198,7 +1198,7 @@ impl PdtBuf {
             if (*self.meta()).ordering != PDT_ORD_SUM {
                 return false;
             }
-            return self.alc().element_size(PDT_SLOT_INDEX) > 0u32;
+            return (*self.alc()).element_size(PDT_SLOT_INDEX) > 0u32;
         }
     }
 
@@ -1211,7 +1211,7 @@ impl PdtBuf {
     pub fn index(self: &PdtBuf) -> PdtBuf {
         assert(self.has_index(), "PdtBuf::index: no index is materialized");
         unsafe {
-            return pdtbuf_adopt(self.alc().get::<u8>(PDT_SLOT_INDEX));
+            return pdtbuf_adopt((*self.alc()).get::<u8>(PDT_SLOT_INDEX));
         }
     }
 
@@ -1334,13 +1334,13 @@ impl PdtBuf {
     /// [0, size] are live.
     pub unsafe fn offsets(self: &PdtBuf, column: u32, dim: u32) -> *mut u32 {
         self.assert_vle(dim);
-        return self.alc().get::<u32>(self.block_of(column, dim, 1u32));
+        return (*self.alc()).get::<u32>(self.block_of(column, dim, 1u32));
     }
 
     /// The payload block of (column, dim).
     pub unsafe fn payload(self: &PdtBuf, column: u32, dim: u32) -> *mut u8 {
         self.assert_vle(dim);
-        return self.alc().get::<u8>(self.block_of(column, dim, 0u32));
+        return (*self.alc()).get::<u8>(self.block_of(column, dim, 0u32));
     }
 
     /// Payload byte CAPACITY of (column, dim) — DERIVED, byte for byte, from
@@ -1349,7 +1349,7 @@ impl PdtBuf {
     pub fn payload_capacity(self: &PdtBuf, column: u32, dim: u32) -> u64 {
         self.assert_vle(dim);
         unsafe {
-            return self.alc().element_size(self.block_of(column, dim, 0u32)) as u64;
+            return (*self.alc()).element_size(self.block_of(column, dim, 0u32)) as u64;
         }
     }
 
@@ -1417,7 +1417,7 @@ impl PdtBuf {
     pub fn consumed_bytes(self: &PdtBuf) -> u32 {
         unsafe {
             let a: *mut PkdAlloc = self.alc();
-            return PkdAlloc::empty_size_for(a.elements()) + a.allocated();
+            return PkdAlloc::empty_size_for((*a).elements()) + (*a).allocated();
         }
     }
 
@@ -1437,7 +1437,7 @@ impl PdtBuf {
 
     pub fn block_bytes(self: &PdtBuf) -> u32 {
         unsafe {
-            return self.alc().block_size();
+            return (*self.alc()).block_size();
         }
     }
 
@@ -1485,7 +1485,7 @@ impl PdtBuf {
             let a: *mut PkdAlloc = self.alc();
             // ── probe, cumulatively ───────────────────────────────────────
             let mut want_total: u32 = want_index;
-            let mut have_total: u32 = a.element_size(PDT_SLOT_INDEX);
+            let mut have_total: u32 = (*a).element_size(PDT_SLOT_INDEX);
             let mut c: u32 = 0u32;
             while c < cols {
                 let mut i: u32 = 0u32;
@@ -1503,7 +1503,7 @@ impl PdtBuf {
                         }
                         want_total = want_total
                             + round_up_bytes(pdt_dim_block_size(&d, sub, capacity, p));
-                        have_total = have_total + a.element_size(blk);
+                        have_total = have_total + (*a).element_size(blk);
                         sub = sub + 1u32;
                     }
                     i = i + 1u32;
@@ -1517,8 +1517,8 @@ impl PdtBuf {
                 let dlast: PdtDim = self.dim_at(dims - 1u32);
                 let probe: u32 = self.block_of(cols - 1u32, dims - 1u32,
                                                pdt_dim_width(&dlast) - 1u32);
-                let need: u32 = a.element_size(probe) + (want_total - have_total);
-                if !a.try_allocation(probe, need) {
+                let need: u32 = (*a).element_size(probe) + (want_total - have_total);
+                if !(*a).try_allocation(probe, need) {
                     return Result::Err(PkdError::OutOfMem);
                 }
             }
@@ -1528,13 +1528,13 @@ impl PdtBuf {
             // discipline as a data block.
             let mut pass: u32 = 0u32;
             while pass < 2u32 {
-                let have_i: u32 = a.element_size(PDT_SLOT_INDEX);
+                let have_i: u32 = (*a).element_size(PDT_SLOT_INDEX);
                 if want_index != have_i && (pass == 0u32) == (want_index < have_i) {
                     if want_index == 0u32 {
-                        a.free_at(PDT_SLOT_INDEX);
-                        a.set_block_type(PDT_SLOT_INDEX, SlotKind::Raw);
+                        (*a).free_at(PDT_SLOT_INDEX);
+                        (*a).set_block_type(PDT_SLOT_INDEX, SlotKind::Raw);
                     } else {
-                        match a.resize_block_at(PDT_SLOT_INDEX, want_index) {
+                        match (*a).resize_block_at(PDT_SLOT_INDEX, want_index) {
                             Result::Ok(_) => {}
                             Result::Err(e) => {
                                 return Result::Err(e);
@@ -1556,10 +1556,10 @@ impl PdtBuf {
                                 p2 = payload.get(self.payload_slot(c2, i2));
                             }
                             let want2: u32 = pdt_dim_block_size(&d2, sub2, capacity, p2);
-                            let have2: u32 = a.element_size(blk2);
+                            let have2: u32 = (*a).element_size(blk2);
                             let shrinking: bool = want2 < have2;
                             if (pass == 0u32) == shrinking && want2 != have2 {
-                                match a.resize_block_at(blk2, want2) {
+                                match (*a).resize_block_at(blk2, want2) {
                                     Result::Ok(_) => {}
                                     Result::Err(e) => {
                                         return Result::Err(e);
@@ -1581,9 +1581,9 @@ impl PdtBuf {
             // resize heals the nested allocator's back-reference (btfl's
             // leaf-symbol slot is the same idiom, one nesting level up).
             if want_index > 0u32 {
-                a.set_block_type(PDT_SLOT_INDEX, SlotKind::Allocatable);
-                let p: *mut u8 = a.get::<u8>(PDT_SLOT_INDEX);
-                let bsz: u32 = a.element_size(PDT_SLOT_INDEX);
+                (*a).set_block_type(PDT_SLOT_INDEX, SlotKind::Allocatable);
+                let p: *mut u8 = (*a).get::<u8>(PDT_SLOT_INDEX);
+                let bsz: u32 = (*a).element_size(PDT_SLOT_INDEX);
                 match pdtbuf_format(p, bsz, &descr) {
                     Result::Ok(_) => {}
                     Result::Err(e) => {
@@ -1591,7 +1591,7 @@ impl PdtBuf {
                     }
                 }
                 let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-                inner.set_allocator(a as *const PkdAlloc);
+                (*inner).set_allocator(a as *const PkdAlloc);
                 let mut ib: PdtBuf = pdtbuf_adopt(p);
                 // Exact by construction: bsz was priced as
                 // pdtbuf_compute_block_size(descr, spans), which is precisely
@@ -1683,7 +1683,7 @@ impl PdtBuf {
     pub unsafe fn cell_ptr(self: &PdtBuf, column: u32, dim: u32, row: u64) -> *mut u8 {
         let d: PdtDim = self.dim_at(dim);
         let blk: u32 = self.block_of(column, dim, 0u32);
-        let base: *mut u8 = self.alc().get::<u8>(blk);
+        let base: *mut u8 = (*self.alc()).get::<u8>(blk);
         if d.kind == PDT_DIM_VLE {
             return base.byte_add(self.row_offset(column, dim, row) as i64);
         }
@@ -1708,7 +1708,7 @@ impl PdtBuf {
         assert(d.elem_size == 8u32, "PdtBuf::values: P0 narrows cells to u64");
         let blk: u32 = self.block_of(column, 0u32, 0u32);
         unsafe {
-            return self.alc().cells::<u64>(blk);
+            return (*self.alc()).cells::<u64>(blk);
         }
     }
 
@@ -1726,7 +1726,7 @@ impl PdtBuf {
         assert(d.elem_size == 8u32, "PdtBuf::set: P0 narrows cells to u64");
         let blk: u32 = self.block_of(column, 0u32, 0u32);
         unsafe {
-            let base: *mut u64 = self.alc().get::<u64>(blk);
+            let base: *mut u64 = (*self.alc()).get::<u64>(blk);
             *base.add(row as u32) = v;
         }
     }
@@ -2462,14 +2462,14 @@ impl PdtBuf {
     pub fn update_fits(self: &PdtBuf, us: &PdtUpdate) -> bool {
         unsafe {
             let a: *mut PkdAlloc = self.alc();
-            let bs: u32 = a.block_size();
+            let bs: u32 = (*a).block_size();
             if us.prepared_bytes <= bs {
                 return true;
             }
-            if a.has_allocator() {
+            if (*a).has_allocator() {
                 // headroom of the PARENT chain only (our own free space is
                 // already counted inside bs)
-                let chain: u32 = a.total_free_space() - a.free_space();
+                let chain: u32 = (*a).total_free_space() - (*a).free_space();
                 return chain >= us.prepared_bytes - bs;
             }
             return false;
@@ -3334,7 +3334,7 @@ impl PdtBuf {
                                                                target.get(slot));
                             let mut have: u32 = 0u32;
                             unsafe {
-                                have = self.alc().element_size(blk);
+                                have = (*self.alc()).element_size(blk);
                             }
                             let growing: bool = want > have;
                             if (pass == 1u32) == growing {
@@ -3371,7 +3371,7 @@ impl PdtBuf {
     // total, and this pass never exceeds it.
     fn resize_payload(self: &mut PdtBuf, blk: u32, want: u32) {
         unsafe {
-            match self.alc().resize_block_at(blk, want) {
+            match (*self.alc()).resize_block_at(blk, want) {
                 Result::Ok(_) => {}
                 Result::Err(_) => {
                     assert(false,
@@ -3693,7 +3693,7 @@ impl PdtBuf {
                     let mut sub: u32 = 0u32;
                     while sub < w {
                         let blk: u32 = self.block_of(c, j, sub);
-                        if blk < PDT_LAST_HEADER_BLOCK || blk >= a.elements() {
+                        if blk < PDT_LAST_HEADER_BLOCK || blk >= (*a).elements() {
                             return 4i32;
                         }
                         let mut p: u64 = 0u64;
@@ -3701,7 +3701,7 @@ impl PdtBuf {
                             p = caps.get(self.payload_slot(c, j));
                         }
                         let want: u32 = pdt_dim_block_size(&d2, sub, self.capacity(), p);
-                        if a.element_size(blk) != want {
+                        if (*a).element_size(blk) != want {
                             return 5i32;
                         }
                         sub = sub + 1u32;
@@ -3766,7 +3766,7 @@ impl PdtBuf {
         // the lockstep assertion. A slot sized from `size` while priced from
         // `capacity` (the C++ arrangement) fails here, which is the point.
         unsafe {
-            if self.alc().element_size(PDT_SLOT_INDEX)
+            if (*self.alc()).element_size(PDT_SLOT_INDEX)
                 != pdtbuf_index_block_size(&d, self.capacity()) {
                 return 7i32;
             }

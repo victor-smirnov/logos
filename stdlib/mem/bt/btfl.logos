@@ -143,7 +143,7 @@ const BTFL_ALPHABET: u32 = 2u32;
 fn lf_pdt(nv: &NodeView, s: u32) -> ColRef { return nv.col(s); }
 
 unsafe fn lf_pdt_raw(a: *mut PkdAlloc, s: u32) -> PdtBuf {
-    return pdtbuf_adopt(a.get::<u8>(s));
+    return pdtbuf_adopt((*a).get::<u8>(s));
 }
 
 // Stream KIND CODES (8a2.3): the per-stream entry kind, a DESIGN CONSTANT of
@@ -179,14 +179,14 @@ unsafe fn btfl_leaf_format_slot(a: *mut PkdAlloc, s: u32, d: &PdtDescr) {
     // byte-for-byte what pdtbuf_format allocates (its own contract).
     let zero: Vec<u64> = pdt_payload_zero(d);
     let dneed: u32 = pdtbuf_compute_block_size(d, 0u64, &zero);
-    let dp: *mut u8 = match a.allocate(s, dneed, SlotKind::Allocatable) {
+    let dp: *mut u8 = match (*a).allocate(s, dneed, SlotKind::Allocatable) {
         Result::Ok(q) => q,
         Result::Err(_e) => {
             assert(false, "btfl: leaf stream slot allocation failed");
             return;
         }
     };
-    let dbsz: u32 = a.element_size(s);
+    let dbsz: u32 = (*a).element_size(s);
     match pdtbuf_format(dp, dbsz, d) {
         Result::Ok(_b) => {}
         Result::Err(_e) => {
@@ -194,7 +194,7 @@ unsafe fn btfl_leaf_format_slot(a: *mut PkdAlloc, s: u32, d: &PdtDescr) {
         }
     }
     let dinner: *mut PkdAlloc = dp as *mut PkdAlloc;
-    dinner.set_allocator(a as *const PkdAlloc);
+    (*dinner).set_allocator(a as *const PkdAlloc);
 }
 
 // The symbol stream lives in slot N — the one geometry fact that needs the
@@ -243,14 +243,14 @@ fn btfl_leaf_new<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes
             s = s + 1u32;
         }
         let need: u32 = pkd_ssrle_empty_size();
-        let p: *mut u8 = match a.allocate(N, need, SlotKind::Allocatable) {
+        let p: *mut u8 = match (*a).allocate(N, need, SlotKind::Allocatable) {
             Result::Ok(q) => q,
             Result::Err(_e) => {
                 assert(false, "btfl: leaf syms slot allocation failed");
                 return node;
             }
         };
-        let bsz: u32 = a.element_size(N);
+        let bsz: u32 = (*a).element_size(N);
         match pkd_ssrle_format(p, bsz, N) {
             Result::Ok(_s) => {}
             Result::Err(_e) => {
@@ -258,7 +258,7 @@ fn btfl_leaf_new<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, leaf_bytes
             }
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-        inner.set_allocator(a as *const PkdAlloc);
+        (*inner).set_allocator(a as *const PkdAlloc);
         node_set_ssrle_slot(node, N);       // declare the symbol-sequence slot (dump/check)
         return node;
     }
@@ -283,14 +283,14 @@ fn btfl_leaf_new_shaped<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, lea
             s = s + 1u32;
         }
         let need: u32 = pkd_ssrle_empty_size();
-        let p: *mut u8 = match a.allocate(N, need, SlotKind::Allocatable) {
+        let p: *mut u8 = match (*a).allocate(N, need, SlotKind::Allocatable) {
             Result::Ok(q) => q,
             Result::Err(_e) => {
                 assert(false, "btfl: leaf syms slot allocation failed");
                 return node;
             }
         };
-        let bsz: u32 = a.element_size(N);
+        let bsz: u32 = (*a).element_size(N);
         match pkd_ssrle_format(p, bsz, N) {
             Result::Ok(_s) => {}
             Result::Err(_e) => {
@@ -298,7 +298,7 @@ fn btfl_leaf_new_shaped<const N: u32, P: NodeProfile>(snap: &MemorySnapshot, lea
             }
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-        inner.set_allocator(a as *const PkdAlloc);
+        (*inner).set_allocator(a as *const PkdAlloc);
         node_set_ssrle_slot(node, N);       // declare the symbol-sequence slot (dump/check)
         return node;
     }
@@ -329,14 +329,14 @@ fn btfl_leaf_new_like<const N: u32, P: NodeProfile>(snp: u64, leaf_bytes: u32,
             s = s + 1u32;
         }
         let need: u32 = pkd_ssrle_empty_size();
-        let p: *mut u8 = match a.allocate(N, need, SlotKind::Allocatable) {
+        let p: *mut u8 = match (*a).allocate(N, need, SlotKind::Allocatable) {
             Result::Ok(q) => q,
             Result::Err(_e) => {
                 assert(false, "btfl: leaf syms slot allocation failed");
                 return node;
             }
         };
-        let bsz: u32 = a.element_size(N);
+        let bsz: u32 = (*a).element_size(N);
         match pkd_ssrle_format(p, bsz, N) {
             Result::Ok(_s) => {}
             Result::Err(_e) => {
@@ -344,7 +344,7 @@ fn btfl_leaf_new_like<const N: u32, P: NodeProfile>(snp: u64, leaf_bytes: u32,
             }
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-        inner.set_allocator(a as *const PkdAlloc);
+        (*inner).set_allocator(a as *const PkdAlloc);
         node_set_ssrle_slot(node, N);       // declare the symbol-sequence slot (dump/check)
         return node;
     }
@@ -365,14 +365,14 @@ fn btfl_branch_new_raw<const N: u32, P: NodeProfile>(snp: u64, branch_bytes: u32
         let a: *mut PkdAlloc = P::pkd(node);
         let d: PdtDescr = btfl_branch_descr::<N>();
         let need: u32 = pdtbuf_empty_size(&d);
-        let p: *mut u8 = match a.allocate(BR_PDT, need, SlotKind::Allocatable) {
+        let p: *mut u8 = match (*a).allocate(BR_PDT, need, SlotKind::Allocatable) {
             Result::Ok(q) => q,
             Result::Err(_e) => {
                 assert(false, "btfl: branch pdt slot allocation failed");
                 return node;
             }
         };
-        let bsz: u32 = a.element_size(BR_PDT);
+        let bsz: u32 = (*a).element_size(BR_PDT);
         match pdtbuf_format(p, bsz, &d) {
             Result::Ok(_b) => {}
             Result::Err(_e) => {
@@ -380,7 +380,7 @@ fn btfl_branch_new_raw<const N: u32, P: NodeProfile>(snp: u64, branch_bytes: u32
             }
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-        inner.set_allocator(a as *const PkdAlloc);
+        (*inner).set_allocator(a as *const PkdAlloc);
         let cd: PdtDescr = pdt_descr_fse(1u32, 8u32, PDT_ORD_UNORDERED, false);
         btfl_leaf_format_slot(a, BR_CHILD, &cd);
         return node;

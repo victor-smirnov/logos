@@ -39,7 +39,7 @@ pub fn shuttle_sum_u64(slots: *const PrimVec<u64>, target: u64) -> ShuttleResult
         let mut prefix: u64 = 0u64;
         let mut i: u64 = 0u64;
         while i < n {
-            let s: u64 = slots.get(i);
+            let s: u64 = (*slots).get(i);
             if prefix + s > target {
                 return ShuttleResult { idx: i, remainder: target - prefix };
             }
@@ -59,7 +59,7 @@ pub fn shuttle_max_u64(slots: *const PrimVec<u64>, target: u64) -> ShuttleResult
         let n: u64 = slots.len;
         let mut i: u64 = 0u64;
         while i < n {
-            let s: u64 = slots.get(i);
+            let s: u64 = (*slots).get(i);
             if s >= target {
                 return ShuttleResult { idx: i, remainder: target };
             }
@@ -78,12 +78,12 @@ pub fn shuttle_max_k<K: Container + ContainerOrd>(
     slots: *const Buffer<K>, target: K::ViewInStore
 ) -> ShuttleResult {
     unsafe {
-        let n: u64 = slots.len();
+        let n: u64 = (*slots).len();
         let mut i: u64 = 0u64;
         let phantom: *const K = 0 as *const K;
         while i < n {
-            let kv: K::ViewInStore = slots.get(i);
-            match phantom.cmp_views(kv, target) {
+            let kv: K::ViewInStore = (*slots).get(i);
+            match (*phantom).cmp_views(kv, target) {
                 Ordering::Less => { i = i + 1u64; }
                 _ => { return ShuttleResult { idx: i, remainder: 0u64 }; }
             }

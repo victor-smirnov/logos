@@ -39,7 +39,7 @@ impl<DT: HasPrim<P = i32>> Foo for DT {
 struct K { pub x: i32, }
 impl Primitive for K { type Prim = i32; }
 
-fn use_foo<T: Foo>(t: *const T) -> i32 { unsafe { return t.foo(); } }
+fn use_foo<T: Foo>(t: *const T) -> i32 { unsafe { return (*t).foo(); } }
 
 fn main() -> i32 {
     let k: K = K { x: 1 };

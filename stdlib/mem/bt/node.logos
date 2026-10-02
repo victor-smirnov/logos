@@ -126,7 +126,7 @@ pub const META_SLOTS: u32 = 2u32;
 /// the trailing metadata slots. A node cloned from `src` is allocated with
 /// `node_ncols(src)`; a walk over "every column" stops here.
 pub unsafe fn node_ncols(base: *mut u8) -> u32 {
-    return node_pkd(base).elements() - META_SLOTS;
+    return (*node_pkd(base)).elements() - META_SLOTS;
 }
 
 /// The index of this node's SYSTEM-metadata slot — Memoria's `METADATA`
@@ -139,7 +139,7 @@ pub unsafe fn node_ncols(base: *mut u8) -> u32 {
 /// write/read/migrate, and the documents themselves — lives in
 /// `logos.mem.bt.meta`; this module only owns where they sit.
 pub unsafe fn node_meta_slot(base: *mut u8) -> u32 {
-    return node_pkd(base).elements() - 2u32;
+    return (*node_pkd(base)).elements() - 2u32;
 }
 
 /// The index of this node's USER-metadata slot: the container's OWN document,
@@ -148,7 +148,7 @@ pub unsafe fn node_meta_slot(base: *mut u8) -> u32 {
 /// and the client's (anything at all) — and they are kept in separate slots so
 /// neither can disturb the other.
 pub unsafe fn node_user_slot(base: *mut u8) -> u32 {
-    return node_pkd(base).elements() - 1u32;
+    return (*node_pkd(base)).elements() - 1u32;
 }
 
 /// GROW a node block to `total` bytes (the whole DST footprint). The block is
@@ -167,7 +167,7 @@ pub unsafe fn node_grow(base: *mut u8, total: u32) -> *mut u8 {
     let n: *mut MemNode = mn(nb);
     (*n).block_size = total;
     let region: u32 = total - (offset_of!(MemNode, alc) as u32);
-    node_pkd(nb).set_block_size(region);
+    (*node_pkd(nb)).set_block_size(region);
     return nb;
 }
 
@@ -250,7 +250,7 @@ pub unsafe fn tree_release(root: *mut u8, level: u32) {
             let cs: u32 = node_child_slot(root);
             assert(cs != NODE_NO_CHILDREN,
                    "tree_release: a branch node never declared its child slot");
-            let ch: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+            let ch: PdtBuf = pdtbuf_adopt((*a).get::<u8>(cs));
             let n: u64 = ch.size();
             let mut i: u64 = 0u64;
             while i < n {
@@ -263,7 +263,7 @@ pub unsafe fn tree_release(root: *mut u8, level: u32) {
             // A directory leaf: release every container root it references,
             // each at the level stamped in the root's own header.
             let a2: *mut PkdAlloc = node_pkd(root);
-            let vc: PdtBuf = pdtbuf_adopt(a2.get::<u8>(vrs));
+            let vc: PdtBuf = pdtbuf_adopt((*a2).get::<u8>(vrs));
             let m: u64 = vc.size();
             let mut j: u64 = 0u64;
             while j < m {
@@ -293,7 +293,7 @@ pub unsafe fn node_privatize(root: *mut u8, level: u32, cur: u64) -> *mut u8 {
     if node_snapshot(root) == cur { return root; }
     let sa: *mut PkdAlloc = node_pkd(root);
     let n: *mut u8 = node_alloc(node_block_size(root), node_ncols(root), cur);
-    copy_bytes(node_pkd(n) as *mut u8, sa as *const u8, sa.block_size() as i64);
+    copy_bytes(node_pkd(n) as *mut u8, sa as *const u8, (*sa).block_size() as i64);
     node_set_child_slot(n, node_child_slot(root));
     node_set_value_ref_slot(n, node_value_ref_slot(root));
     node_set_ssrle_slot(n, node_ssrle_slot(root));
@@ -301,7 +301,7 @@ pub unsafe fn node_privatize(root: *mut u8, level: u32, cur: u64) -> *mut u8 {
     // the clone acquires its own share of everything the original referenced
     let cs: u32 = node_child_slot(root);
     if cs != NODE_NO_CHILDREN {
-        let ch: PdtBuf = pdtbuf_adopt(sa.get::<u8>(cs));
+        let ch: PdtBuf = pdtbuf_adopt((*sa).get::<u8>(cs));
         let cn: u64 = ch.size();
         let mut i: u64 = 0u64;
         while i < cn {
@@ -311,7 +311,7 @@ pub unsafe fn node_privatize(root: *mut u8, level: u32, cur: u64) -> *mut u8 {
     }
     let vrs: u32 = node_value_ref_slot(root);
     if vrs != NODE_NO_CHILDREN {
-        let vc: PdtBuf = pdtbuf_adopt(sa.get::<u8>(vrs));
+        let vc: PdtBuf = pdtbuf_adopt((*sa).get::<u8>(vrs));
         let vn: u64 = vc.size();
         let mut j: u64 = 0u64;
         while j < vn {

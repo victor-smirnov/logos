@@ -138,7 +138,7 @@ fn my_size() -> u32 { return sizeof::<PkdAlloc>() as u32; }
 pub unsafe fn pkd_format(mem: *mut u8, block_size: u32, blocks: u32) -> *mut PkdAlloc {
     let a: *mut PkdAlloc = mem as *mut PkdAlloc;
     a.able.set_top_level();
-    a.init(block_size, blocks);
+    (*a).init(block_size, blocks);
     return a;
 }
 
@@ -186,7 +186,7 @@ impl PkdAlloc {
     pub unsafe fn total_free_space(self: &mut PkdAlloc) -> u32 {
         let mut space: u32 = self.free_space();
         let parent: *mut PkdAlloc = self.able.allocator_or_null();
-        if (parent as i64) != 0i64 { space = space + parent.total_free_space(); }
+        if (parent as i64) != 0i64 { space = space + (*parent).total_free_space(); }
         return space;
     }
 
@@ -415,8 +415,8 @@ impl PkdAlloc {
                 if self.able.allocator_offset() > 0u32 {
                     let parent: *mut PkdAlloc = self.able.allocator();
                     let sp: *const PkdAlloc = self as *const PkdAlloc;
-                    let my_idx: u32 = parent.find_element(sp as *const u8);
-                    return parent.try_allocation(my_idx, delta - free);
+                    let my_idx: u32 = (*parent).find_element(sp as *const u8);
+                    return (*parent).try_allocation(my_idx, delta - free);
                 }
                 return false;
             }
@@ -441,7 +441,7 @@ impl PkdAlloc {
         if self.able.allocator_offset() > 0 {
             let parent: *mut PkdAlloc = self.able.allocator();
             let sp: *const PkdAlloc = self as *const PkdAlloc;
-            self.block_size = parent.resize_block(sp as *const u8, new_size)?;
+            self.block_size = (*parent).resize_block(sp as *const u8, new_size)?;
         } else if new_size > self.block_size {
             return Result::Err(PkdError::OutOfMem);   // top-level OOM
         }
@@ -482,8 +482,8 @@ impl PkdAlloc {
         let need = PkdAlloc::empty_size_for(slots) + round_up_bytes(extra);
         let p = self.allocate(idx, need, SlotKind::Allocatable)?;
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-        inner.init(self.element_size(idx), slots);
-        inner.set_allocator(self as *const PkdAlloc);
+        (*inner).init(self.element_size(idx), slots);
+        (*inner).set_allocator(self as *const PkdAlloc);
         return Result::Ok(inner);
     }
 
@@ -512,12 +512,12 @@ impl PkdAlloc {
     pub unsafe fn import_block(self: &mut PkdAlloc, idx: u32,
                                src: *const PkdAlloc, src_idx: u32)
         -> Result<(), PkdError> {
-        let ssize = src.element_size(src_idx);
-        let src_allocatable = src.is_allocatable(src_idx);
+        let ssize = (*src).element_size(src_idx);
+        let src_allocatable = (*src).is_allocatable(src_idx);
         self.resize_block_at(idx, ssize)?;
         self.set_block_type(idx, if src_allocatable { SlotKind::Allocatable }
                                  else { SlotKind::Raw });
-        let sp: *const u8 = src.base().byte_add(src.element_offset(src_idx)) as *const u8;
+        let sp: *const u8 = (*src).base().byte_add((*src).element_offset(src_idx)) as *const u8;
         let tp: *mut u8 = self.base().byte_add(self.element_offset(idx));
         move_bytes(tp, sp, ssize);
         if ssize > 0 && src_allocatable {

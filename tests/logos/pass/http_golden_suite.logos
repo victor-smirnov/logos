@@ -34,10 +34,10 @@ let TEST_PORT: u16 = 48407 as u16;
 fn body_eq_str(body: &Vec<u8>, want: str) -> bool {
     unsafe {
         let bp: *mut Vec<u8> = body as *const Vec<u8> as *mut Vec<u8>;
-        if bp.length() != want.len() { return false; }
+        if (*bp).length() != want.len() { return false; }
         let mut i: i64 = 0 as i64;
         while i < want.len() {
-            if bp.get(i) != want.as_ptr()[i] { return false; }
+            if (*bp).get(i) != want.as_ptr()[i] { return false; }
             i = i + 1;
         }
     }

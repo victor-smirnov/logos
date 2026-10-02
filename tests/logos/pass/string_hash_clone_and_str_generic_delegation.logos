@@ -16,7 +16,7 @@ fn main() -> i32 {
         let pm: *mut HashMap<String, i64> = &mut m;
         pm.insert(String::from("one"), 1i64);
         pm.insert(String::from("two"), 2i64);
-        println!("{} {} {}", pm.len(), pm.contains_key(&String::from("one")), pm.contains_key(&String::from("three")));
+        println!("{} {} {}", (*pm).len(), pm.contains_key(&String::from("one")), pm.contains_key(&String::from("three")));
     }
     let a = String::from("hi");
     let mut b = a.clone();

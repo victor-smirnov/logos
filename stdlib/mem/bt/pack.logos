@@ -553,7 +553,7 @@ fn pk_private<P: NodeProfile>(snap: &MemorySnapshot, node: *mut u8, cur: u64, is
         // itself, so a clone asks for the source's COLUMN count (else every
         // CoW generation would grow the node one empty slot).
         let n: *mut u8 = P::alloc(P::block_size(node), P::ncols(node), cur);
-        copy_bytes(P::pkd(n) as *mut u8, sa as *const u8, sa.block_size() as i64);
+        copy_bytes(P::pkd(n) as *mut u8, sa as *const u8, (*sa).block_size() as i64);
         P::set_child_slot(n, P::child_slot(node));
         if is_branch {
             // E0716 — see btvec_node_total: bind the view the ColRef borrows.
@@ -617,7 +617,7 @@ fn pk_merged_val_span<P: NodeProfile>(m: &PkMerged, i: u64) -> &[u8] {
         // NOTE: this reader alternates between a NODE column and the STAGING
         // heap buffer, so it speaks raw PdtBuf on purpose (the staging block has
         // no siblings — nothing can shift it).
-        let mut b: PdtBuf = unsafe { pdtbuf_adopt(node_view_at(m.leaf).raw().get::<u8>(1u32)) };
+        let mut b: PdtBuf = unsafe { pdtbuf_adopt((*node_view_at(m.leaf).raw()).get::<u8>(1u32)) };
         let mut r: u64 = i;
         if i >= m.split && i < m.split + m.bcount {
             b = pdtbuf_adopt(m.vbuf);

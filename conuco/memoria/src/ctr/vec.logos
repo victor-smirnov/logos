@@ -54,17 +54,17 @@ impl<T: Copy + Fst + StableLayout> VecCtr<T> {
         let d: PdtDescr = pdt_descr_fse(1u32, sizeof::<T>() as u32, PDT_ORD_UNORDERED, false);
         let zero: Vec<u64> = pdt_payload_zero(&d);
         let need: u32 = pdtbuf_compute_block_size(&d, 0u64, &zero);
-        let p: *mut u8 = match a.allocate(0u32, need, SlotKind::Allocatable) {
+        let p: *mut u8 = match (*a).allocate(0u32, need, SlotKind::Allocatable) {
             Result::Ok(q) => q,
             Result::Err(_e) => { assert(false, "VecCtr: element slot"); return; }
         };
-        let bsz: u32 = a.element_size(0u32);
+        let bsz: u32 = (*a).element_size(0u32);
         match pdtbuf_format(p, bsz, &d) {
             Result::Ok(_b) => {}
             Result::Err(_e) => { assert(false, "VecCtr: element col format"); }
         }
         let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-        inner.set_allocator(a as *const PkdAlloc);
+        (*inner).set_allocator(a as *const PkdAlloc);
     }
 
     // Element-column view — re-resolved per call (never cached: block
@@ -72,7 +72,7 @@ impl<T: Copy + Fst + StableLayout> VecCtr<T> {
     fn vb(self: &VecCtr<T>) -> PdtBuf {
         unsafe {
             let a: *mut PkdAlloc = self.mem as *mut PkdAlloc;
-            return pdtbuf_adopt(a.get::<u8>(0u32));
+            return pdtbuf_adopt((*a).get::<u8>(0u32));
         }
     }
 
@@ -96,7 +96,7 @@ impl<T: Copy + Fst + StableLayout> VecCtr<T> {
                 Result::Err(_e) => { return false; }
             };
             let a: *mut PkdAlloc = self.mem as *mut PkdAlloc;
-            if us.grow_bytes() > a.free_space() {
+            if us.grow_bytes() > (*a).free_space() {
                 return false;
             }
             let mut cell: u64 = 0u64;
@@ -133,7 +133,7 @@ impl<T: Copy + Fst + StableLayout> VecCtr<T> {
             let ob: PdtBuf = self.vb();
             let n: u64 = ob.size();
             if n > 0u64 {
-                let nb: PdtBuf = pdtbuf_adopt(na.get::<u8>(0u32));
+                let nb: PdtBuf = pdtbuf_adopt((*na).get::<u8>(0u32));
                 let us: PdtUpdate = match nb.prepare_insert(0u64, n, PDT_CAP_KEEP) {
                     Result::Ok(u) => u,
                     Result::Err(_e) => { assert(false, "VecCtr::grow: copy prepare"); return; }
@@ -144,7 +144,7 @@ impl<T: Copy + Fst + StableLayout> VecCtr<T> {
                     cells.push(ob.get(0u32, i));
                     i = i + 1u64;
                 }
-                let mut nb2: PdtBuf = pdtbuf_adopt(na.get::<u8>(0u32));
+                let mut nb2: PdtBuf = pdtbuf_adopt((*na).get::<u8>(0u32));
                 nb2.commit_insert(&us, &cells);
             }
             dealloc(self.mem);

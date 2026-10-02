@@ -75,7 +75,7 @@ fn run_all() -> i32 {
 
         // keys: 500, 600, 700
         {
-            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
             if kb.size() != 3u64 { return 4i32; }
             if kb.get(0u32, 0u64) != 500u64 { return 5i32; }
             if kb.get(0u32, 1u64) != 600u64 { return 6i32; }
@@ -83,7 +83,7 @@ fn run_all() -> i32 {
         }
         // values: lens 4, 5, 6
         {
-            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            let vb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(1u32));
             if vb.size() != 3u64 { return 8i32; }
             if vb.row_span(0u32, 0u32, 0u64).len() != 4i64 { return 9i32; }
             if vb.row_span(0u32, 0u32, 1u64).len() != 5i64 { return 10i32; }
@@ -92,7 +92,7 @@ fn run_all() -> i32 {
         // structure: 3 entries of (0,1) → 6 symbols, rank_eq checks the
         // projection homomorphism (law 5): 3 zeros, 3 ones
         {
-            let sq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(2u32));
+            let sq: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(2u32));
             if sq.size() != 6u64 { return 12i32; }
             if sq.rank_eq_all(0u64) != 3u64 { return 13i32; }
             if sq.rank_eq_all(1u64) != 3u64 { return 14i32; }
@@ -107,7 +107,7 @@ fn run_all() -> i32 {
             let mut bu: NodeBatch = node_batch_new();
             bu.ops.push(op_upd(0u32, 1u64, 0u32));
             if !alg_apply(a, &sch, &bu, &du) { return 15i32; }
-            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
             if kb.get(0u32, 1u64) != 601u64 { return 16i32; }
             if kb.size() != 3u64 { return 17i32; }
         }
@@ -128,7 +128,7 @@ fn run_all() -> i32 {
             let mut bv: NodeBatch = node_batch_new();
             bv.ops.push(op_upd(1u32, 1u64, 0u32));
             if !alg_apply(a, &sch, &bv, &dv) { return 18i32; }
-            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            let vb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(1u32));
             if vb.size() != 3u64 { return 19i32; }
             if vb.row_span(0u32, 0u32, 1u64).len() != 9i64 { return 20i32; }
             let sp1: &[u8] = vb.row_span(0u32, 0u32, 1u64);
@@ -146,10 +146,10 @@ fn run_all() -> i32 {
             bd.ops.push(op_del(1u32, 1u64, 1u64));
             bd.ops.push(op_del(2u32, 2u64, 2u64));
             if !alg_apply(a, &sch, &bd, &dd) { return 24i32; }
-            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
             if kb.size() != 2u64 { return 25i32; }
             if kb.get(0u32, 1u64) != 700u64 { return 26i32; }
-            let sq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(2u32));
+            let sq: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(2u32));
             if sq.size() != 4u64 { return 27i32; }
         }
 
@@ -173,9 +173,9 @@ fn run_all() -> i32 {
             // it must reject before 64 and the node must stay CONSISTENT:
             // every stream still carries exactly `applied` entries
             if applied >= 64i64 { return 28i32; }
-            let kb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(0u32));
-            let vb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(1u32));
-            let sq2: PkdSsrle = pkd_ssrle_adopt(a2.get::<u8>(2u32));
+            let kb2: PdtBuf = pdtbuf_adopt((*a2).get::<u8>(0u32));
+            let vb2: PdtBuf = pdtbuf_adopt((*a2).get::<u8>(1u32));
+            let sq2: PkdSsrle = pkd_ssrle_adopt((*a2).get::<u8>(2u32));
             if kb2.size() != applied as u64 { return 29i32; }
             if vb2.size() != applied as u64 { return 30i32; }
             if sq2.size() != 2u64 * (applied as u64) { return 31i32; }

@@ -23,7 +23,7 @@ fn handler(req: &Request) -> Response {
     unsafe {
         let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
         let mut i: i64 = 0;
-        while i < body.len() { bp.push(body.as_ptr()[i]); i = i + 1; }
+        while i < body.len() { (*bp).push(body.as_ptr()[i]); i = i + 1; }
     }
     return resp;
 }
@@ -41,10 +41,10 @@ fn client_fiber(arg: i64) {
             let expected: str = "hello";
             unsafe {
                 let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
-                if bp.length() != expected.len() { *rp = 11; return; }
+                if (*bp).length() != expected.len() { *rp = 11; return; }
                 let mut i: i64 = 0;
                 while i < expected.len() {
-                    if bp.get(i) != expected.as_ptr()[i] { *rp = 12; return; }
+                    if (*bp).get(i) != expected.as_ptr()[i] { *rp = 12; return; }
                     i = i + 1;
                 }
                 *rp = 42;

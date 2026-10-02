@@ -79,7 +79,7 @@ unsafe fn descend_leftmost<K: Container + ContainerOrd, V: Container, const STOR
         let br: *mut BranchNode<K, STORE_CFG, CFG> = dp as *mut BranchNode<K, STORE_CFG, CFG>;
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(0i64);
         let next_arc: NodeARC<STORE_CFG> = next_child.clone();
-        path.push(IterFrame::<K, STORE_CFG, CFG> {
+        (*path).push(IterFrame::<K, STORE_CFG, CFG> {
             branch_arc: cur, branch_p: br, idx: 0u64,
         });
         cur = next_arc;
@@ -102,7 +102,7 @@ unsafe fn descend_rightmost<K: Container + ContainerOrd, V: Container, const STO
         let last: i64 = br.children.len() - 1i64;
         let next_child: &NodeARC<STORE_CFG> = br.children.borrow(last);
         let next_arc: NodeARC<STORE_CFG> = next_child.clone();
-        path.push(IterFrame::<K, STORE_CFG, CFG> {
+        (*path).push(IterFrame::<K, STORE_CFG, CFG> {
             branch_arc: cur, branch_p: br, idx: last as u64,
         });
         cur = next_arc;

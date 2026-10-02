@@ -333,7 +333,7 @@ fn walk_dir_into(path: str, out: *mut Vec<DirEntry>) {
         let dir_flag: i32 = logos_path_is_dir(path_buf.as_ptr());
         let mut name: String = String::new();
         name.push_str(path);
-        out.push(DirEntry { name: name, is_dir: dir_flag == 1 });
+        (*out).push(DirEntry { name: name, is_dir: dir_flag == 1 });
         if dir_flag != 1 { return; }
 
         let h: *mut u8 = logos_opendir(path_buf.as_ptr());

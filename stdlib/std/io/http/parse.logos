@@ -238,7 +238,7 @@ pub fn body_length(h: &Headers) -> i64 {
         let cln: i64 = cl_name.len();
         let clp: *const u8 = cl_name.as_ptr();
         while ei < total {
-            let hdr: Header = ep.get(ei);
+            let hdr: Header = (*ep).get(ei);
             let np: *const u8 = bp.byte_add(hdr.name_off as i64);
             if ascii_ieq(np, hdr.name_len as i64, clp, cln) {
                 let vp: *const u8 = bp.byte_add(hdr.value_off as i64);

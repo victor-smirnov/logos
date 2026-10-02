@@ -47,9 +47,9 @@ pub unsafe fn sd_mod_probe() -> u64 {
     let m: *mut u8 = malloc(64i64);
     let a: *mut SdArr<u64> = m as *mut SdArr<u64>;
     a.init(2u32);
-    a.set(0u32, 40u64);
-    a.set(1u32, 2u64);
-    return a.get(0u32) + a.get(1u32);
+    (*a).set(0u32, 40u64);
+    (*a).set(1u32, 2u64);
+    return (*a).get(0u32) + (*a).get(1u32);
 }
 
 // ── slice-pattern partial spec (the PkdArray FSE/VLE unification model) ──────
@@ -87,9 +87,9 @@ impl<E> SdVle<[E]> {
     }
     pub unsafe fn bump(self: &mut SdVle<[E]>, d: u32) -> u32 {
         let sp: *mut SdVle<[E]> = self as *mut SdVle<[E]>;
-        let c: u32 = sp.count();
+        let c: u32 = (*sp).count();
         sp.cnt = c + d;
-        return sp.count();
+        return (*sp).count();
     }
 }
 
@@ -103,7 +103,7 @@ pub unsafe fn sd_vle_probe() -> u32 {
     let v: *mut SdVle<[u8]> = sd_vle_format::<u8>(m);
     (*v).hdr = 0u32;
     (*v).cnt = 40u32;
-    return v.bump(2u32);
+    return (*v).bump(2u32);
 }
 
 // ── bound-discriminated spec (module-mode regression) ───────────────────────

@@ -82,7 +82,7 @@ fn main() -> i32 {
 
     // Walk: should yield the root + 3 subdirs = 4 entries.
     let mut entries: Vec<DirEntry> = walk_dir("/tmp/__lforge_fs_test__");
-    let count: i64 = unsafe { (&entries as *const Vec<DirEntry>).length() };
+    let count: i64 = unsafe { (*(&entries as *const Vec<DirEntry>)).length() };
     let mut dirs: i32 = 0;
     let mut i: i64 = 0 as i64;
     while i < count {

@@ -48,13 +48,13 @@ unsafe fn subtree_max_key(node: *mut u8, level: u32) -> u64 {
         let a: *mut PkdAlloc = node_pkd(n);
         let cs: u32 = node_child_slot(n);
         if cs == NODE_NO_CHILDREN { return 0u64; }
-        let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+        let cb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(cs));
         let cnt: u64 = cb.size();
         if cnt == 0u64 { return 0u64; }
         n = cb.get(0u32, cnt - 1u64) as *mut u8;
         lv = lv - 1u32;
     }
-    let kb: PdtBuf = pdtbuf_adopt(node_pkd(n).get::<u8>(0u32));
+    let kb: PdtBuf = pdtbuf_adopt((*node_pkd(n)).get::<u8>(0u32));
     let m: u64 = kb.size();
     if m == 0u64 { return 0u64; }
     return kb.get(0u32, m - 1u64);
@@ -90,16 +90,16 @@ unsafe fn check_ssrle(pk: &PkdSsrle, node: *mut u8, out: &mut String) -> u64 {
 unsafe fn check_node_slots(node: *mut u8, out: &mut String) -> u64 {
     let a: *mut PkdAlloc = node_pkd(node);
     let sq: u32 = node_ssrle_slot(node);
-    let nslots: u32 = a.elements();
+    let nslots: u32 = (*a).elements();
     let mut v: u64 = 0u64;
     let mut s: u32 = 0u32;
     while s < nslots {
-        if a.is_allocatable(s) {
+        if (*a).is_allocatable(s) {
             if s == sq {
-                let pk: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(s));
+                let pk: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(s));
                 v = v + check_ssrle(&pk, node, out);
             } else {
-                let buf: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
+                let buf: PdtBuf = pdtbuf_adopt((*a).get::<u8>(s));
                 let rc: i32 = buf.check();
                 if rc != 0i32 {
                     viol_i(out, node, "PdtBuf.check failed (index inconsistent)", s as u64, rc as u64, 0u64);
@@ -116,16 +116,16 @@ unsafe fn check_node_slots(node: *mut u8, out: &mut String) -> u64 {
 /// single-column SUM count slot summed. The base of the SUM inter-node check.
 unsafe fn subtree_entry_count(node: *mut u8, level: u32) -> u64 {
     if level == 0u32 {
-        return pdtbuf_adopt(node_pkd(node).get::<u8>(0u32)).size();
+        return pdtbuf_adopt((*node_pkd(node)).get::<u8>(0u32)).size();
     }
     // find the branch's single-column SUM count slot
     let a: *mut PkdAlloc = node_pkd(node);
     let cs: u32 = node_child_slot(node);
-    let nslots: u32 = a.elements();
+    let nslots: u32 = (*a).elements();
     let mut s: u32 = 0u32;
     while s < nslots {
-        if s != cs && a.is_allocatable(s) {
-            let buf: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
+        if s != cs && (*a).is_allocatable(s) {
+            let buf: PdtBuf = pdtbuf_adopt((*a).get::<u8>(s));
             if buf.ordering() == PDT_ORD_SUM && buf.columns() == 1u32 {
                 return buf.sum_all(0u32);
             }
@@ -137,7 +137,7 @@ unsafe fn subtree_entry_count(node: *mut u8, level: u32) -> u64 {
 
 // slot-0 strictly increasing (keys/separators are a MAX-ordered, unique set).
 unsafe fn check_ordered(node: *mut u8, out: &mut String) -> u64 {
-    let kb: PdtBuf = pdtbuf_adopt(node_pkd(node).get::<u8>(0u32));
+    let kb: PdtBuf = pdtbuf_adopt((*node_pkd(node)).get::<u8>(0u32));
     let n: u64 = kb.size();
     let mut v: u64 = 0u64;
     let mut i: u64 = 1u64;
@@ -168,17 +168,17 @@ pub fn check_tree(root: *mut u8, level: u32, out: &mut String) -> u64 {
         let a: *mut PkdAlloc = node_pkd(root);
         let cs: u32 = node_child_slot(root);
         if cs == NODE_NO_CHILDREN { viol(out, root, "branch has no child_slot"); return v + 1u64; }
-        let seps: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
-        let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+        let seps: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
+        let cb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(cs));
         // the branch's single-column SUM count slot (stream-size), if any — its
         // cell i must equal the entry count of child i's subtree (inter-node SUM).
         let mut sumslot: u32 = NODE_NO_CHILDREN;
         {
-            let ntot: u32 = a.elements();
+            let ntot: u32 = (*a).elements();
             let mut ss: u32 = 0u32;
             while ss < ntot {
-                if ss != cs && ss != 0u32 && a.is_allocatable(ss) {
-                    let b2: PdtBuf = pdtbuf_adopt(a.get::<u8>(ss));
+                if ss != cs && ss != 0u32 && (*a).is_allocatable(ss) {
+                    let b2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(ss));
                     if b2.ordering() == PDT_ORD_SUM && b2.columns() == 1u32 { sumslot = ss; }
                 }
                 ss = ss + 1u32;
@@ -224,7 +224,7 @@ pub fn check_tree(root: *mut u8, level: u32, out: &mut String) -> u64 {
             }
             if sumslot != NODE_NO_CHILDREN {
                 let ecnt: u64 = subtree_entry_count(child, level - 1u32);
-                let claimed: u64 = pdtbuf_adopt(a.get::<u8>(sumslot)).get(0u32, i);
+                let claimed: u64 = pdtbuf_adopt((*a).get::<u8>(sumslot)).get(0u32, i);
                 if claimed != ecnt {
                     viol_i(out, root, "SUM count != child subtree entry count", i, claimed, ecnt);
                     v = v + 1u64;

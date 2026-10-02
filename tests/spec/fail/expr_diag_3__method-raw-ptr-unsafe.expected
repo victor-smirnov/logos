@@ -1,1 +1,1 @@
-method call through raw pointer requires unsafe context
+dereference of raw pointer requires unsafe context

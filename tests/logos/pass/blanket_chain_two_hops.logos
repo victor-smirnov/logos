@@ -32,7 +32,7 @@ pub struct K { pub x: i32, }
 impl Primitive for K { type Prim = i32; }
 
 fn use_foo<T: Foo>(t: *const T) -> i32 {
-    unsafe { return t.foo_id(); }
+    unsafe { return (*t).foo_id(); }
 }
 
 fn main() -> i32 {

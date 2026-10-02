@@ -96,7 +96,7 @@ pub unsafe fn make_action_key(inputs: &Vec<FileNode>, args: &Vec<String>) -> Act
     let mut i: i64 = 0 as i64;
     let ip: *const Vec<FileNode> = inputs as *const Vec<FileNode>;
     while i < nin {
-        let f: *const FileNode = ip.at_const(i);
+        let f: *const FileNode = (*ip).at_const(i);
         buf.push_bytes((*f).hash.as_ptr(), (*f).hash.len());
         buf.push_u8(10 as u8);
         i = i + 1 as i64;
@@ -106,7 +106,7 @@ pub unsafe fn make_action_key(inputs: &Vec<FileNode>, args: &Vec<String>) -> Act
     let ap: *const Vec<String> = args as *const Vec<String>;
     let mut k: i64 = 0 as i64;
     while k < nar {
-        let s: *const String = ap.at_const(k);
+        let s: *const String = (*ap).at_const(k);
         buf.push_bytes((*s).as_ptr(), (*s).len());
         buf.push_u8(10 as u8);
         k = k + 1 as i64;

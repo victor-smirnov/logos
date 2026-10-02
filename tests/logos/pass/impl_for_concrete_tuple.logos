@@ -1,0 +1,6 @@
+// Was squeue row impl_for_concrete_tuple_refused (#678); closed 2026-10-02: the grammar had
+// `impl T for (tuple)` only with a type-parameter list or trait arguments.
+package impl_for_concrete_tuple;
+trait T { fn f(&self) -> i64; }
+impl T for (i64, i64) { fn f(&self) -> i64 { return self.0 - self.1; } }
+fn main() -> i32 { let p: (i64, i64) = (3, 3); return p.f() as i32; }

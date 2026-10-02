@@ -24,8 +24,8 @@ fn handler(req: &Request) -> Response {
     (&mut resp.headers).append("Connection", "close");
     unsafe {
         let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
-        bp.push(111 as u8);   // 'o'
-        bp.push(107 as u8);   // 'k'
+        (*bp).push(111 as u8);   // 'o'
+        (*bp).push(107 as u8);   // 'k'
     }
     return resp;
 }
@@ -52,9 +52,9 @@ fn client_fiber(arg: i64) {
             if resp.status != 200 as i32 { unsafe { *rp = 0 - 1 as i64; } return; }
             unsafe {
                 let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
-                if bp.length() != 2 as i64 { *rp = 0 - 2 as i64; return; }
-                if bp.get(0 as i64) != 111 as u8 { *rp = 0 - 3 as i64; return; }
-                if bp.get(1 as i64) != 107 as u8 { *rp = 0 - 4 as i64; return; }
+                if (*bp).length() != 2 as i64 { *rp = 0 - 2 as i64; return; }
+                if (*bp).get(0 as i64) != 111 as u8 { *rp = 0 - 3 as i64; return; }
+                if (*bp).get(1 as i64) != 107 as u8 { *rp = 0 - 4 as i64; return; }
                 *rp = 1 as i64;
             }
         }

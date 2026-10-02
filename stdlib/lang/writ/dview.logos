@@ -148,18 +148,18 @@ impl DView {
     /// Returns whether the view's tag equals `T`'s `Datum` tag.
     pub fn is_a<T: Datum>(&self) -> bool {
         let phantom: *const T = 0 as *const T;
-        return self.tag == unsafe { phantom.datum_tag() };
+        return self.tag == unsafe { (*phantom).datum_tag() };
     }
     /// Materializes a `T` from the view if the tag matches; `None` on a tag mismatch.
     pub fn try_to<T: Datum>(&self) -> Option<T> { // checked materialize
         let phantom: *const T = 0 as *const T;
-        if self.tag != unsafe { phantom.datum_tag() } { return Option::None; }
-        return Option::Some(unsafe { phantom.from_datum(*self) });
+        if self.tag != unsafe { (*phantom).datum_tag() } { return Option::None; }
+        return Option::Some(unsafe { (*phantom).from_datum(*self) });
     }
     /// Materializes a `T` from the view without a tag check; a mismatched tag reads garbage.
     pub fn to<T: Datum>(&self) -> T {              // asserted materialize
         let phantom: *const T = 0 as *const T;
-        return unsafe { phantom.from_datum(*self) };
+        return unsafe { (*phantom).from_datum(*self) };
     }
     // runtime-dispatched (over self.tag, via the shared layer):
     /// Compares two views' object bytes via the shared tag-keyed layer (`htag_cmp`).

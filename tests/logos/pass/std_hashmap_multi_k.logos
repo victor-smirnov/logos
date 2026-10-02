@@ -10,7 +10,7 @@ fn main() -> i32 {
         pmu.insert(1000 as u64, 1);
         pmu.insert(2000 as u64, 2);
         pmu.insert(3000 as u64, 3);
-        if pmu.len() != 3 as i64 { return 1; }
+        if (*pmu).len() != 3 as i64 { return 1; }
         let k2: u64 = 2000 as u64;
         let p: *const i32 = pmu.get(&k2);
         if p == 0 as *const i32 { return 2; }
@@ -21,7 +21,7 @@ fn main() -> i32 {
         let pmb: *mut HashMap<bool, i32> = &mut mb;
         pmb.insert(true, 111);
         pmb.insert(false, 222);
-        if pmb.len() != 2 as i64 { return 4; }
+        if (*pmb).len() != 2 as i64 { return 4; }
         let t: bool = true;
         let pt: *const i32 = pmb.get(&t);
         if *pt != 111 { return 5; }

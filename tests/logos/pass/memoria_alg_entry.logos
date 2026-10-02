@@ -62,12 +62,12 @@ fn run_all() -> i32 {
 
         // keys 100, 200, 300; values in ENTRY order: A0 A0 | C0 C0 C0 | B0
         {
-            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
             if kb.size() != 3u64 { return 4i32; }
             if kb.get(0u32, 0u64) != 100u64 { return 5i32; }
             if kb.get(0u32, 1u64) != 200u64 { return 6i32; }
             if kb.get(0u32, 2u64) != 300u64 { return 7i32; }
-            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            let vb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(1u32));
             if vb.size() != 6u64 { return 8i32; }
             let s0: &[u8] = vb.row_span(0u32, 0u32, 0u64);
             if s0[0i64] != 0xA0u8 { return 9i32; }
@@ -75,7 +75,7 @@ fn run_all() -> i32 {
             if s2[0i64] != 0xC0u8 { return 10i32; }
             let s5: &[u8] = vb.row_span(0u32, 0u32, 5u64);
             if s5[0i64] != 0xB0u8 { return 11i32; }
-            let sq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(2u32));
+            let sq: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(2u32));
             if sq.size() != 9u64 { return 12i32; }        // 3 + (2+1+3) syms
             if sq.rank_eq_all(0u64) != 3u64 { return 13i32; }
             if sq.rank_eq_all(1u64) != 6u64 { return 14i32; }
@@ -87,7 +87,7 @@ fn run_all() -> i32 {
             // stream 0 untouched on a value-only set: empty its col
             ds.cols.borrow_mut(0i64).cells.clear();
             if !alg_entry_set(a, &sch, 1u64, &ds) { return 15i32; }
-            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            let vb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(1u32));
             if vb.size() != 6u64 { return 16i32; }
             let s2b: &[u8] = vb.row_span(0u32, 0u32, 2u64);
             if s2b[0i64] != 0xD0u8 { return 17i32; }
@@ -103,12 +103,12 @@ fn run_all() -> i32 {
         // ── ENTRY_DEL: drop entry 1 (200, 3 vals) whole ──
         {
             if !alg_entry_del(a, &sch, 1u64) { return 21i32; }
-            let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+            let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
             if kb.size() != 2u64 { return 22i32; }
             if kb.get(0u32, 1u64) != 300u64 { return 23i32; }
-            let vb: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+            let vb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(1u32));
             if vb.size() != 3u64 { return 24i32; }
-            let sq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(2u32));
+            let sq: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(2u32));
             if sq.size() != 5u64 { return 25i32; }        // 0 1 1 | 0 1
             if sq.rank_eq_all(1u64) != 3u64 { return 26i32; }
         }
@@ -142,15 +142,15 @@ fn run_all() -> i32 {
         let mut en: LeafBatchDatum = leaf_batch_datum_new();
         if !alg_entry_apply(a2, &msch, 0u64, ET_NOOP, &mut en) { return 29i32; }
         {
-            let kb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(0u32));
-            let vb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(1u32));
+            let kb2: PdtBuf = pdtbuf_adopt((*a2).get::<u8>(0u32));
+            let vb2: PdtBuf = pdtbuf_adopt((*a2).get::<u8>(1u32));
             if kb2.size() != 1u64 { return 30i32; }
             if kb2.get(0u32, 0u64) != 42u64 { return 31i32; }
             if vb2.get(0u32, 0u64) != 4300u64 { return 32i32; }
         }
         if !alg_entry_apply(a2, &msch, 0u64, ET_DEL, &mut en) { return 33i32; }
         {
-            let kb2: PdtBuf = pdtbuf_adopt(a2.get::<u8>(0u32));
+            let kb2: PdtBuf = pdtbuf_adopt((*a2).get::<u8>(0u32));
             if kb2.size() != 0u64 { return 34i32; }
         }
         dealloc(mem2);
@@ -185,10 +185,10 @@ fn run_all() -> i32 {
             fv1.spans.push_span(sb1.as_slice());
             f1.cols.push(fv1);
             if !alg_entry_apply(a3, &vsch, 0u64, ET_SET, &mut f1) { return 36i32; }
-            let vb3: PdtBuf = pdtbuf_adopt(a3.get::<u8>(1u32));
+            let vb3: PdtBuf = pdtbuf_adopt((*a3).get::<u8>(1u32));
             if vb3.size() != 1u64 { return 37i32; }
             if vb3.row_span(0u32, 0u32, 0u64).len() != 7i64 { return 38i32; }
-            let kb3: PdtBuf = pdtbuf_adopt(a3.get::<u8>(0u32));
+            let kb3: PdtBuf = pdtbuf_adopt((*a3).get::<u8>(0u32));
             if kb3.get(0u32, 0u64) != 10u64 { return 39i32; }
         }
         dealloc(mem3);
@@ -219,21 +219,21 @@ fn run_all() -> i32 {
             c2.push(4u64); c2.push(9u64);
             let r2: LeafBatchDatum = branch_datum_lower(&bsch, &branch_datum(150u64, c2, 0xAAu64));
             if !alg_entry_set(a4, &bsch, 0u64, &r2) { return 42i32; }
-            let mk: PdtBuf = pdtbuf_adopt(a4.get::<u8>(0u32));
+            let mk: PdtBuf = pdtbuf_adopt((*a4).get::<u8>(0u32));
             if mk.size() != 2u64 { return 43i32; }
             if mk.get(0u32, 0u64) != 150u64 { return 44i32; }
             if mk.get(0u32, 1u64) != 200u64 { return 45i32; }
-            let n0: PdtBuf = pdtbuf_adopt(a4.get::<u8>(1u32));
+            let n0: PdtBuf = pdtbuf_adopt((*a4).get::<u8>(1u32));
             if n0.get(0u32, 0u64) != 4u64 { return 46i32; }
-            let n1: PdtBuf = pdtbuf_adopt(a4.get::<u8>(2u32));
+            let n1: PdtBuf = pdtbuf_adopt((*a4).get::<u8>(2u32));
             if n1.get(0u32, 0u64) != 9u64 { return 47i32; }
             if n1.get(0u32, 1u64) != 11u64 { return 48i32; }
-            let cb: PdtBuf = pdtbuf_adopt(a4.get::<u8>(3u32));
+            let cb: PdtBuf = pdtbuf_adopt((*a4).get::<u8>(3u32));
             if cb.get(0u32, 0u64) != 0xAAu64 { return 49i32; }
             if cb.get(0u32, 1u64) != 0xBBu64 { return 50i32; }
             // row removal
             if !alg_entry_del(a4, &bsch, 0u64) { return 51i32; }
-            let mk2: PdtBuf = pdtbuf_adopt(a4.get::<u8>(0u32));
+            let mk2: PdtBuf = pdtbuf_adopt((*a4).get::<u8>(0u32));
             if mk2.size() != 1u64 { return 52i32; }
             if mk2.get(0u32, 0u64) != 200u64 { return 53i32; }
         }

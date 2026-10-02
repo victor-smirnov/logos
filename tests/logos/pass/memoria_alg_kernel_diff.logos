@@ -47,16 +47,16 @@ fn mm_datum(key: u64, vals: i64, tag: u8) -> LeafBatchDatum {
 
 // stream-by-stream agreement of two nodes under the multimap schema
 unsafe fn mm_agree(x: *mut PkdAlloc, y: *mut PkdAlloc) -> bool {
-    let kx: PdtBuf = pdtbuf_adopt(x.get::<u8>(0u32));
-    let ky: PdtBuf = pdtbuf_adopt(y.get::<u8>(0u32));
+    let kx: PdtBuf = pdtbuf_adopt((*x).get::<u8>(0u32));
+    let ky: PdtBuf = pdtbuf_adopt((*y).get::<u8>(0u32));
     if kx.size() != ky.size() { return false; }
     let mut i: u64 = 0u64;
     while i < kx.size() {
         if kx.get(0u32, i) != ky.get(0u32, i) { return false; }
         i = i + 1u64;
     }
-    let vx: PdtBuf = pdtbuf_adopt(x.get::<u8>(1u32));
-    let vy: PdtBuf = pdtbuf_adopt(y.get::<u8>(1u32));
+    let vx: PdtBuf = pdtbuf_adopt((*x).get::<u8>(1u32));
+    let vy: PdtBuf = pdtbuf_adopt((*y).get::<u8>(1u32));
     if vx.size() != vy.size() { return false; }
     let mut r: u64 = 0u64;
     while r < vx.size() {
@@ -70,8 +70,8 @@ unsafe fn mm_agree(x: *mut PkdAlloc, y: *mut PkdAlloc) -> bool {
         }
         r = r + 1u64;
     }
-    let qx: PkdSsrle = pkd_ssrle_adopt(x.get::<u8>(2u32));
-    let qy: PkdSsrle = pkd_ssrle_adopt(y.get::<u8>(2u32));
+    let qx: PkdSsrle = pkd_ssrle_adopt((*x).get::<u8>(2u32));
+    let qy: PkdSsrle = pkd_ssrle_adopt((*y).get::<u8>(2u32));
     if qx.size() != qy.size() { return false; }
     let mut p: u64 = 0u64;
     while p <= qx.size() {
@@ -104,7 +104,7 @@ fn run_all() -> i32 {
             let key: u64 = 100u64 * (t as u64) + 7u64;
             let vals: i64 = (t * 3i64 + 1i64) % 4i64;    // 1,0,3,2,...
             let tag: u8 = (0x40i64 + t) as u8;
-            let count: u64 = pdtbuf_adopt(ka.get::<u8>(0u32)).size();
+            let count: u64 = pdtbuf_adopt((*ka).get::<u8>(0u32)).size();
             let mut i0: u64 = 0u64;
             if t % 3i64 == 0i64 {
                 i0 = count;                                // append
@@ -184,10 +184,10 @@ fn run_all() -> i32 {
             u = u + 1u64;
         }
         {
-            let kx: PdtBuf = pdtbuf_adopt(ke.get::<u8>(0u32));
-            let ky: PdtBuf = pdtbuf_adopt(ifn.get::<u8>(0u32));
-            let vx: PdtBuf = pdtbuf_adopt(ke.get::<u8>(1u32));
-            let vy: PdtBuf = pdtbuf_adopt(ifn.get::<u8>(1u32));
+            let kx: PdtBuf = pdtbuf_adopt((*ke).get::<u8>(0u32));
+            let ky: PdtBuf = pdtbuf_adopt((*ifn).get::<u8>(0u32));
+            let vx: PdtBuf = pdtbuf_adopt((*ke).get::<u8>(1u32));
+            let vy: PdtBuf = pdtbuf_adopt((*ifn).get::<u8>(1u32));
             if kx.size() != 32u64 || ky.size() != 32u64 { return 11i32; }
             let mut w: u64 = 0u64;
             while w < 32u64 {

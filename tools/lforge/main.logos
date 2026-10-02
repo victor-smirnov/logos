@@ -210,7 +210,7 @@ fn main() -> i32 {
             let idx: i64 = find_target_index(&m.targets, target_arg);
             if idx >= 0 as i64 {
                 let tp: *const Vec<Target> = (&m.targets) as *const Vec<Target>;
-                let t: *const Target = tp.at_const(idx);
+                let t: *const Target = (*tp).at_const(idx);
                 match (*t).kind {
                     TargetKind::Bin => { sel_target = target_arg; start_k = 2; }
                     TargetKind::Lib => {
@@ -225,7 +225,7 @@ fn main() -> i32 {
             let a: str = positional(k);
             let mut copy: String = String::new();
             copy.push_str(a);
-            rap.push(copy);
+            (*rap).push(copy);
             k = k + 1;
         }
         return cmd_run_named(&m, profile, sel_target, &run_args);

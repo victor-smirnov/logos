@@ -16,10 +16,10 @@ fn main() -> i32 {
         let m: *mut u8 = malloc(64i64);
         let a: *mut SdArr<u32> = m as *mut SdArr<u32>;
         a.init(3u32);
-        a.set(0u32, 7u32);
-        a.set(1u32, 14u32);
-        a.set(2u32, 21u32);
-        if a.get(0u32) + a.get(1u32) + a.get(2u32) != 42u32 { return 2i32; }
+        (*a).set(0u32, 7u32);
+        (*a).set(1u32, 14u32);
+        (*a).set(2u32, 21u32);
+        if (*a).get(0u32) + (*a).get(1u32) + (*a).get(2u32) != 42u32 { return 2i32; }
 
         // materialized reference receiver crosses back into the same methods
         let r: &SdArr<u32> = &*a;
@@ -32,11 +32,11 @@ fn main() -> i32 {
         let v: *mut SdVle<[u16]> = sd_vle_format::<u16>(m2);
         (*v).hdr = 0u32;
         (*v).cnt = 20u32;
-        if v.bump(1u32) != 21u32 { return 5i32; }
+        if (*v).bump(1u32) != 21u32 { return 5i32; }
         // base (sized) family of the same NAME still works
         let f: *mut SdVle<u64> = m2 as *mut SdVle<u64>;
         (*f).count = 7u32;
-        if f.count() != 7u32 { return 6i32; }
+        if (*f).count() != 7u32 { return 6i32; }
     }
     // bound-discriminated spec across the module boundary: in-module probe +
     // fresh instantiations of both families (u32 = spec; i64 = primary)

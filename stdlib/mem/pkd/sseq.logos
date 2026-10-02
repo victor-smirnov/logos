@@ -197,10 +197,10 @@ pub unsafe fn pkd_ssrle_format(mem: *mut u8, block_size: u32, alphabet_size: u32
         bps: bps,
         alphabet_size: alphabet_size,
     };
-    a.allocate_cell::<SsrleMeta>(PkdSsrle::SLOT_METADATA, meta)?;
-    a.set_block_type(PkdSsrle::SLOT_SIZE_INDEX, SlotKind::Raw);
-    a.set_block_type(PkdSsrle::SLOT_SUM_INDEX, SlotKind::Raw);
-    a.set_block_type(PkdSsrle::SLOT_SYMBOLS, SlotKind::Raw);
+    (*a).allocate_cell::<SsrleMeta>(PkdSsrle::SLOT_METADATA, meta)?;
+    (*a).set_block_type(PkdSsrle::SLOT_SIZE_INDEX, SlotKind::Raw);
+    (*a).set_block_type(PkdSsrle::SLOT_SUM_INDEX, SlotKind::Raw);
+    (*a).set_block_type(PkdSsrle::SLOT_SYMBOLS, SlotKind::Raw);
     return Result::Ok(PkdSsrle { mem: mem });
 }
 
@@ -331,7 +331,7 @@ impl PkdSsrle {
     }
 
     unsafe fn meta(self: &PkdSsrle) -> *mut SsrleMeta {
-        return self.alc().get::<SsrleMeta>(PkdSsrle::SLOT_METADATA);
+        return (*self.alc()).get::<SsrleMeta>(PkdSsrle::SLOT_METADATA);
     }
 
     // ── metadata accessors ───────────────────────────────────────────────
@@ -366,7 +366,7 @@ impl PkdSsrle {
     /// units too — element_size / sizeof(CodeUnitT)).
     pub fn symbols_block_units(self: &PkdSsrle) -> u64 {
         unsafe {
-            return (self.alc().element_size(PkdSsrle::SLOT_SYMBOLS) as u64) / 2u64;
+            return ((*self.alc()).element_size(PkdSsrle::SLOT_SYMBOLS) as u64) / 2u64;
         }
     }
 
@@ -379,7 +379,7 @@ impl PkdSsrle {
     pub fn unit_at(self: &PkdSsrle, i: u64) -> u16 {
         assert(i < self.code_units(), "pkd_ssrle: unit index out of range");
         unsafe {
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let units: &[u16] = (*self.alc()).cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             return units[i as i64];
         }
     }
@@ -388,13 +388,13 @@ impl PkdSsrle {
     /// probes — true once reindex has materialized the flat arrays.
     pub fn has_size_index(self: &PkdSsrle) -> bool {
         unsafe {
-            return self.alc().element_size(PkdSsrle::SLOT_SIZE_INDEX) > 0u32;
+            return (*self.alc()).element_size(PkdSsrle::SLOT_SIZE_INDEX) > 0u32;
         }
     }
 
     pub fn has_sum_index(self: &PkdSsrle) -> bool {
         unsafe {
-            return self.alc().element_size(PkdSsrle::SLOT_SUM_INDEX) > 0u32;
+            return (*self.alc()).element_size(PkdSsrle::SLOT_SUM_INDEX) > 0u32;
         }
     }
 
@@ -412,7 +412,7 @@ impl PkdSsrle {
     /// the flat-array analog of C++ size_index()->size().
     pub fn index_blocks(self: &PkdSsrle) -> u64 {
         unsafe {
-            return (self.alc().element_size(PkdSsrle::SLOT_SIZE_INDEX) as u64) / 8u64;
+            return ((*self.alc()).element_size(PkdSsrle::SLOT_SIZE_INDEX) as u64) / 8u64;
         }
     }
 
@@ -420,7 +420,7 @@ impl PkdSsrle {
     pub fn index_size_at(self: &PkdSsrle, b: u64) -> u64 {
         assert(b < self.index_blocks(), "pkd_ssrle: index block out of range");
         unsafe {
-            let cells: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+            let cells: &[u64] = (*self.alc()).cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
             return cells[b as i64];
         }
     }
@@ -430,7 +430,7 @@ impl PkdSsrle {
         assert(b < self.index_blocks(), "pkd_ssrle: index block out of range");
         assert(sym < self.alphabet_size() as u64, "pkd_ssrle: index symbol out of alphabet");
         unsafe {
-            let cells: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+            let cells: &[u64] = (*self.alc()).cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
             return cells[(b * (self.alphabet_size() as u64) + sym) as i64];
         }
     }
@@ -447,24 +447,24 @@ impl PkdSsrle {
         unsafe {
             let a: *mut PkdAlloc = self.alc();
             // shrink pass
-            if size_bytes < a.element_size(PkdSsrle::SLOT_SIZE_INDEX) {
-                a.resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, size_bytes)?;
+            if size_bytes < (*a).element_size(PkdSsrle::SLOT_SIZE_INDEX) {
+                (*a).resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, size_bytes)?;
             }
-            if sum_bytes < a.element_size(PkdSsrle::SLOT_SUM_INDEX) {
-                a.resize_block_at(PkdSsrle::SLOT_SUM_INDEX, sum_bytes)?;
+            if sum_bytes < (*a).element_size(PkdSsrle::SLOT_SUM_INDEX) {
+                (*a).resize_block_at(PkdSsrle::SLOT_SUM_INDEX, sum_bytes)?;
             }
-            if sym_bytes < a.element_size(PkdSsrle::SLOT_SYMBOLS) {
-                a.resize_block_at(PkdSsrle::SLOT_SYMBOLS, sym_bytes)?;
+            if sym_bytes < (*a).element_size(PkdSsrle::SLOT_SYMBOLS) {
+                (*a).resize_block_at(PkdSsrle::SLOT_SYMBOLS, sym_bytes)?;
             }
             // grow pass
-            if sym_bytes > a.element_size(PkdSsrle::SLOT_SYMBOLS) {
-                a.resize_block_at(PkdSsrle::SLOT_SYMBOLS, sym_bytes)?;
+            if sym_bytes > (*a).element_size(PkdSsrle::SLOT_SYMBOLS) {
+                (*a).resize_block_at(PkdSsrle::SLOT_SYMBOLS, sym_bytes)?;
             }
-            if size_bytes > a.element_size(PkdSsrle::SLOT_SIZE_INDEX) {
-                a.resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, size_bytes)?;
+            if size_bytes > (*a).element_size(PkdSsrle::SLOT_SIZE_INDEX) {
+                (*a).resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, size_bytes)?;
             }
-            if sum_bytes > a.element_size(PkdSsrle::SLOT_SUM_INDEX) {
-                a.resize_block_at(PkdSsrle::SLOT_SUM_INDEX, sum_bytes)?;
+            if sum_bytes > (*a).element_size(PkdSsrle::SLOT_SUM_INDEX) {
+                (*a).resize_block_at(PkdSsrle::SLOT_SUM_INDEX, sum_bytes)?;
             }
         }
         return Result::Ok(());
@@ -479,9 +479,9 @@ impl PkdSsrle {
             (*m).size = 0u64;
             (*m).code_units = 0u64;
             let a: *mut PkdAlloc = self.alc();
-            let _ = a.resize_block_at(PkdSsrle::SLOT_SYMBOLS, 0u32);
-            let _ = a.resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, 0u32);
-            let _ = a.resize_block_at(PkdSsrle::SLOT_SUM_INDEX, 0u32);
+            let _ = (*a).resize_block_at(PkdSsrle::SLOT_SYMBOLS, 0u32);
+            let _ = (*a).resize_block_at(PkdSsrle::SLOT_SIZE_INDEX, 0u32);
+            let _ = (*a).resize_block_at(PkdSsrle::SLOT_SUM_INDEX, 0u32);
         }
     }
 
@@ -537,7 +537,7 @@ impl PkdSsrle {
             // Fill the WHOLE symbols slot: stream first, zero the 8-align pad
             // tail (zero units decode as null runs = EOS; also keeps the slot
             // fully initialized).
-            let cells: &mut [u16] = a.cells_mut::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let cells: &mut [u16] = (*a).cells_mut::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let ncells: i64 = cells.len();
             let mut c: i64 = 0i64;
             while c < ncells {
@@ -549,13 +549,13 @@ impl PkdSsrle {
                 c = c + 1i64;
             }
             if blocks > 0i64 {
-                let size_cells: &mut [u64] = a.cells_mut::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+                let size_cells: &mut [u64] = (*a).cells_mut::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
                 let mut b: i64 = 0i64;
                 while b < blocks {
                     size_cells[b] = sizes.get(b);
                     b = b + 1i64;
                 }
-                let sum_cells: &mut [u64] = a.cells_mut::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+                let sum_cells: &mut [u64] = (*a).cells_mut::<u64>(PkdSsrle::SLOT_SUM_INDEX);
                 let nsum: i64 = sums.length();
                 let mut k: i64 = 0i64;
                 while k < nsum {
@@ -587,7 +587,7 @@ impl PkdSsrle {
     /// Decode the stream back to its run vector (C++ iterator().as_vector()).
     pub fn as_runs(self: &PkdSsrle) -> Vec<SsrleRun> {
         unsafe {
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let units: &[u16] = (*self.alc()).cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             return ssrle_decode_runs_units(self.bps(), units, self.code_units());
         }
     }
@@ -599,7 +599,7 @@ impl PkdSsrle {
     // used by do_access :1539 / rank_fn :1215 / find_run :1600). Requires
     // pos < size — the block always exists.
     unsafe fn idx_locate_pos(self: &PkdSsrle, pos: u64, prefix_out: &mut u64) -> u64 {
-        let sizes: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+        let sizes: &[u64] = (*self.alc()).cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
         let n: i64 = sizes.len();
         let mut sum: u64 = 0u64;
         let mut b: i64 = 0i64;
@@ -623,7 +623,7 @@ impl PkdSsrle {
     // sum_all_fn :1062).
     unsafe fn idx_rank_prefix(self: &PkdSsrle, upto: u64, sym: u64) -> u64 {
         let alphabet: u64 = self.alphabet_size() as u64;
-        let sums: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+        let sums: &[u64] = (*self.alc()).cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
         let mut acc: u64 = 0u64;
         let mut b: u64 = 0u64;
         while b < upto {
@@ -649,7 +649,7 @@ impl PkdSsrle {
                 let b: u64 = self.idx_locate_pos(pos, &mut sum);
                 idx = b * ssrle_atoms_per_block(bps);
             }
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let units: &[u16] = (*self.alc()).cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
                 let len: u64 = run.full_run_length();
@@ -690,7 +690,7 @@ impl PkdSsrle {
                     return self.idx_rank_prefix(self.index_blocks(), sym);
                 }
             }
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let units: &[u16] = (*self.alc()).cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             let mut going: bool = true;
             while going && ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
@@ -731,7 +731,7 @@ impl PkdSsrle {
                 let alphabet: u64 = self.alphabet_size() as u64;
                 let blocks: u64 = self.index_blocks();
                 {
-                    let sums: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+                    let sums: &[u64] = (*self.alc()).cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
                     let mut b: u64 = 0u64;
                     let mut going: bool = true;
                     while going && b < blocks {
@@ -749,7 +749,7 @@ impl PkdSsrle {
                             rank: rank_sum,
                         };
                     }
-                    let size_cells: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+                    let size_cells: &[u64] = (*self.alc()).cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
                     let mut i: u64 = 0u64;
                     while i < b {
                         size_sum = size_sum + size_cells[i as i64];
@@ -758,7 +758,7 @@ impl PkdSsrle {
                     idx = b * ssrle_atoms_per_block(bps);
                 }
             }
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let units: &[u16] = (*self.alc()).cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
                 let run_rank: u64 = run.full_rank_eq(bps, sym);
@@ -793,7 +793,7 @@ impl PkdSsrle {
     // flat-array form of the C++ column loops.
     unsafe fn idx_cols_sum(self: &PkdSsrle, b_lo: u64, b_hi: u64, c_lo: u64, c_hi: u64) -> u64 {
         let alphabet: u64 = self.alphabet_size() as u64;
-        let sums: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
+        let sums: &[u64] = (*self.alc()).cells::<u64>(PkdSsrle::SLOT_SUM_INDEX);
         let mut acc: u64 = 0u64;
         let mut b: u64 = b_lo;
         while b < b_hi {
@@ -856,7 +856,7 @@ impl PkdSsrle {
                     return self.idx_op_sum(0u64, self.index_blocks(), sym, op);
                 }
             }
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let units: &[u16] = (*self.alc()).cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             let mut going: bool = true;
             while going && ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
@@ -921,7 +921,7 @@ impl PkdSsrle {
                     s = s + 1u64;
                 }
             }
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let units: &[u16] = (*self.alc()).cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             let mut going: bool = true;
             while going && ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
@@ -971,7 +971,7 @@ impl PkdSsrle {
                         rank: rank_sum,
                     };
                 }
-                let size_cells: &[u64] = self.alc().cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
+                let size_cells: &[u64] = (*self.alc()).cells::<u64>(PkdSsrle::SLOT_SIZE_INDEX);
                 let mut i: u64 = 0u64;
                 while i < b {
                     size_sum = size_sum + size_cells[i as i64];
@@ -979,7 +979,7 @@ impl PkdSsrle {
                 }
                 idx = b * ssrle_atoms_per_block(bps);
             }
-            let units: &[u16] = self.alc().cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
+            let units: &[u16] = (*self.alc()).cells::<u16>(PkdSsrle::SLOT_SYMBOLS);
             let mut run: SsrleRun = ssrle_make_null();
             while ssrle_next_run(bps, units, limit, &mut idx, &mut run) {
                 let run_rank: u64 = run.full_rank_op(bps, sym, op);
@@ -1165,14 +1165,14 @@ impl PkdSsrle {
     pub fn update_fits(self: &PkdSsrle, us: &SsrleUpdate) -> bool {
         unsafe {
             let a: *mut PkdAlloc = self.alc();
-            let bs: u32 = a.block_size();
+            let bs: u32 = (*a).block_size();
             if us.block_size <= bs {
                 return true;
             }
-            if a.has_allocator() {
+            if (*a).has_allocator() {
                 // headroom of the PARENT chain only (own free space is
                 // already inside bs)
-                let chain: u32 = a.total_free_space() - a.free_space();
+                let chain: u32 = (*a).total_free_space() - (*a).free_space();
                 return chain >= us.block_size - bs;
             }
             return false;

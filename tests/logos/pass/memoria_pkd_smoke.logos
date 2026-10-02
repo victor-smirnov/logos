@@ -21,73 +21,73 @@ fn run_all() -> i32 {
     unsafe {
         let mem: *mut u8 = alloc(4096i64);
         let a: *mut PkdAlloc = pkd_format(mem, 4096u32, 4u32);
-        if a.block_size() != 4096u32 { return 1i32; }
-        if a.elements() < 4u32 { return 2i32; }
-        if a.has_allocator() { return 3i32; }          // top-level
-        if a.allocated() != 0u32 { return 4i32; }
-        let ca: u32 = a.client_area();
+        if (*a).block_size() != 4096u32 { return 1i32; }
+        if (*a).elements() < 4u32 { return 2i32; }
+        if (*a).has_allocator() { return 3i32; }          // top-level
+        if (*a).allocated() != 0u32 { return 4i32; }
+        let ca: u32 = (*a).client_area();
         if ca != 4096u32 - 16u32 - 24u32 - 8u32 { return 5i32; }  // hdr+layout(6×4)+bitmap
 
         // RAW element in slot 0; write/read through it
-        let r0: *mut u8 = match a.allocate(0, 10, SlotKind::Raw) {
+        let r0: *mut u8 = match (*a).allocate(0, 10, SlotKind::Raw) {
             Result::Ok(p) => p, Result::Err(_) => { return 6i32; }
         };
-        if a.element_size(0u32) != 16u32 { return 7i32; }    // 8-aligned
-        if a.is_allocatable(0u32) { return 8i32; }
+        if (*a).element_size(0u32) != 16u32 { return 7i32; }    // 8-aligned
+        if (*a).is_allocatable(0u32) { return 8i32; }
         *r0 = 0xABu8;
 
         // ALLOCATABLE nested allocator in slot 1
         // one call: allocate + init + parent wiring
-        let inner: *mut PkdAlloc = match a.allocate_nested(1, 2, 64) {
+        let inner: *mut PkdAlloc = match (*a).allocate_nested(1, 2, 64) {
             Result::Ok(p) => p, Result::Err(_) => { return 9i32; }
         };
-        if !a.is_allocatable(1u32) { return 10i32; }
-        if !inner.has_allocator() { return 11i32; }
-        if (inner.allocator() as i64) != (a as i64) { return 12i32; }
+        if !(*a).is_allocatable(1u32) { return 10i32; }
+        if !(*inner).has_allocator() { return 11i32; }
+        if ((*inner).allocator() as i64) != (a as i64) { return 12i32; }
 
         // a RAW element INSIDE the nested allocator
-        let ir: *mut u8 = match inner.allocate(0, 24, SlotKind::Raw) {
+        let ir: *mut u8 = match (*inner).allocate(0, 24, SlotKind::Raw) {
             Result::Ok(p) => p, Result::Err(_) => { return 13i32; }
         };
         *ir = 0xCDu8;
 
         // ── recursive growth: the nested allocator can't fit a bigger
         // element → it asks the PARENT to enlarge it, siblings shift ──
-        let before_parent_free: u32 = a.free_space();
-        let big: u32 = inner.client_area() + 64u32;          // beyond inner's space
-        let ir2: *mut u8 = match inner.allocate(1, big, SlotKind::Raw) {
+        let before_parent_free: u32 = (*a).free_space();
+        let big: u32 = (*inner).client_area() + 64u32;          // beyond inner's space
+        let ir2: *mut u8 = match (*inner).allocate(1, big, SlotKind::Raw) {
             Result::Ok(p) => p, Result::Err(_) => { return 14i32; }
         };
-        if a.free_space() >= before_parent_free { return 15i32; }  // parent paid
+        if (*a).free_space() >= before_parent_free { return 15i32; }  // parent paid
         if *ir != 0xCDu8 { return 16i32; }                   // survived its own grow
         if *r0 != 0xABu8 { return 17i32; }                   // raw sibling intact
 
         // slot 2 AFTER the nested one: growing IT shifts nothing below,
         // but growing slot 0 shifts the NESTED allocator — back-ref must heal
-        let r2: *mut u8 = match a.allocate(2, 8, SlotKind::Raw) {
+        let r2: *mut u8 = match (*a).allocate(2, 8, SlotKind::Raw) {
             Result::Ok(p) => p, Result::Err(_) => { return 18i32; }
         };
         *r2 = 0x77u8;
-        if a.resize_block_at(0, 64).is_err() { return 19i32; }
-        let inner_moved: *mut PkdAlloc = a.get::<PkdAlloc>(1u32);
-        if (inner_moved.allocator() as i64) != (a as i64) { return 20i32; }  // healed
-        if *(a.get::<u8>(0u32)) != 0xABu8 { return 21i32; }
-        let ir_moved: *mut u8 = inner_moved.get::<u8>(0u32);
+        if (*a).resize_block_at(0, 64).is_err() { return 19i32; }
+        let inner_moved: *mut PkdAlloc = (*a).get::<PkdAlloc>(1u32);
+        if ((*inner_moved).allocator() as i64) != (a as i64) { return 20i32; }  // healed
+        if *((*a).get::<u8>(0u32)) != 0xABu8 { return 21i32; }
+        let ir_moved: *mut u8 = (*inner_moved).get::<u8>(0u32);
         if *ir_moved != 0xCDu8 { return 22i32; }             // nested content intact
-        if *(a.get::<u8>(2u32)) != 0x77u8 { return 23i32; }
+        if *((*a).get::<u8>(2u32)) != 0x77u8 { return 23i32; }
 
         // try_allocation probes the chain honestly
-        if !inner_moved.try_allocation(0u32, 32u32) { return 24i32; }
-        if inner_moved.try_allocation(0u32, 100000u32) { return 25i32; }
+        if !(*inner_moved).try_allocation(0u32, 32u32) { return 24i32; }
+        if (*inner_moved).try_allocation(0u32, 100000u32) { return 25i32; }
 
         // free_at compacts; total accounting stays consistent
-        let alloc_before: u32 = a.allocated();
-        a.free_at(2u32);
-        if a.element_size(2u32) != 0u32 { return 26i32; }
-        if a.allocated() >= alloc_before { return 27i32; }
+        let alloc_before: u32 = (*a).allocated();
+        (*a).free_at(2u32);
+        if (*a).element_size(2u32) != 0u32 { return 26i32; }
+        if (*a).allocated() >= alloc_before { return 27i32; }
 
         // top-level OOM: growing beyond the block fails with the sentinel
-        if a.resize_block_at(0, 100000).is_ok() { return 28i32; }
+        if (*a).resize_block_at(0, 100000).is_ok() { return 28i32; }
 
         // ── relocatability: byte-copy the block; ALL views (incl. nested
         // back-refs) work at the new address ──
@@ -98,10 +98,10 @@ fn run_all() -> i32 {
             i = i + 1i64;
         }
         let ca2: *mut PkdAlloc = copy as *mut PkdAlloc;
-        if *(ca2.get::<u8>(0u32)) != 0xABu8 { return 30i32; }
-        let cinner: *mut PkdAlloc = ca2.get::<PkdAlloc>(1u32);
-        if (cinner.allocator() as i64) != (ca2 as i64) { return 31i32; }
-        if *(cinner.get::<u8>(0u32)) != 0xCDu8 { return 32i32; }
+        if *((*ca2).get::<u8>(0u32)) != 0xABu8 { return 30i32; }
+        let cinner: *mut PkdAlloc = (*ca2).get::<PkdAlloc>(1u32);
+        if ((*cinner).allocator() as i64) != (ca2 as i64) { return 31i32; }
+        if *((*cinner).get::<u8>(0u32)) != 0xCDu8 { return 32i32; }
         dealloc(copy);
         dealloc(mem);
     }

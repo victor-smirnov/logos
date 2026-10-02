@@ -35,10 +35,10 @@ pub fn write_i64_decimal(v: i64, out: &mut Vec<u8>) {
 fn write_headers(h: &Headers, out: &mut Vec<u8>) {
     unsafe {
         let ep: *mut Vec<Header> = &h.entries as *const Vec<Header> as *mut Vec<Header>;
-        let total: i64 = ep.length();
+        let total: i64 = (*ep).length();
         let mut i: i64 = 0;
         while i < total {
-            let e: Header = ep.get(i);
+            let e: Header = (*ep).get(i);
             let np: *const u8 = (&h.buf).as_ptr().byte_add(e.name_off as i64);
             let vp: *const u8 = (&h.buf).as_ptr().byte_add(e.value_off as i64);
             let mut k: i64 = 0;

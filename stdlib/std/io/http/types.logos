@@ -23,7 +23,7 @@ use logos.std.io.net.url;
 pub fn vec_push_u8(v: &mut Vec<u8>, b: u8) {
     unsafe {
         let p: *mut Vec<u8> = v;
-        p.push(b);
+        (*p).push(b);
     }
 }
 
@@ -31,7 +31,7 @@ pub fn vec_push_u8(v: &mut Vec<u8>, b: u8) {
 pub fn vec_len_u8(v: &Vec<u8>) -> i64 {
     unsafe {
         let p: *mut Vec<u8> = v as *const Vec<u8> as *mut Vec<u8>;
-        return p.length();
+        return (*p).length();
     }
 }
 
@@ -39,7 +39,7 @@ pub fn vec_len_u8(v: &Vec<u8>) -> i64 {
 pub fn vec_get_u8(v: &Vec<u8>, i: i64) -> u8 {
     unsafe {
         let p: *mut Vec<u8> = v as *const Vec<u8> as *mut Vec<u8>;
-        return p.get(i);
+        return (*p).get(i);
     }
 }
 
@@ -47,7 +47,7 @@ pub fn vec_get_u8(v: &Vec<u8>, i: i64) -> u8 {
 pub fn vec_at_const_u8(v: &Vec<u8>, i: i64) -> *const u8 {
     unsafe {
         let p: *mut Vec<u8> = v as *const Vec<u8> as *mut Vec<u8>;
-        return p.at_const(i) as *const u8;
+        return (*p).at_const(i) as *const u8;
     }
 }
 
@@ -215,7 +215,7 @@ impl Headers {
         };
         unsafe {
             let p: *mut Vec<Header> = &mut self.entries;
-            p.push(h);
+            (*p).push(h);
         }
     }
 
@@ -228,7 +228,7 @@ impl Headers {
         unsafe {
             let ep: *mut Vec<Header> = &self.entries as *const Vec<Header> as *mut Vec<Header>;
             while i < total {
-                let h: Header = ep.get(i);
+                let h: Header = (*ep).get(i);
                 if ascii_ieq(self.name_ptr(h), h.name_len as i64, nptr, nlen) {
                     return true;
                 }
@@ -247,7 +247,7 @@ impl Headers {
         unsafe {
             let ep: *mut Vec<Header> = &self.entries as *const Vec<Header> as *mut Vec<Header>;
             while i < total {
-                let h: Header = ep.get(i);
+                let h: Header = (*ep).get(i);
                 if ascii_ieq(self.name_ptr(h), h.name_len as i64, nptr, nlen) {
                     let s: String = String::from_bytes(
                         self.value_ptr(h), h.value_len as i64);
@@ -269,7 +269,7 @@ impl Headers {
         unsafe {
             let ep: *mut Vec<Header> = &mut self.entries;
             while i < total {
-                let h: Header = ep.get(i);
+                let h: Header = (*ep).get(i);
                 if ascii_ieq(self.name_ptr(h), h.name_len as i64, nptr, nlen) {
                     let buf_ref: &mut String = &mut self.buf;
                     let name_off: i32 = buf_ref.len() as i32;
@@ -278,7 +278,7 @@ impl Headers {
                     let value_off: i32 = buf_ref.len() as i32;
                     buf_ref.push_str(value);
                     buf_ref.push_u8(0 as u8);
-                    ep.set(i, Header {
+                    (*ep).set(i, Header {
                         name_off:  name_off,
                         name_len:  name.len() as i32,
                         value_off: value_off,
@@ -300,10 +300,10 @@ impl Headers {
         let mut i: i64 = 0;
         unsafe {
             let ep: *mut Vec<Header> = &mut self.entries;
-            while i < ep.length() {
-                let h: Header = ep.get(i);
+            while i < (*ep).length() {
+                let h: Header = (*ep).get(i);
                 if ascii_ieq(self.name_ptr(h), h.name_len as i64, nptr, nlen) {
-                    ep.remove(i);
+                    (*ep).remove(i);
                     removed = removed + 1;
                 } else {
                     i = i + 1;

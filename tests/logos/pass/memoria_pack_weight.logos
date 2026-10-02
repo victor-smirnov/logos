@@ -321,13 +321,13 @@ unsafe fn region_case(lcg: &mut Lcg) -> i32 {
         let a: *mut PkdAlloc = pkd_format(mem, total, slots);
         i = 0u32;
         while i < slots {
-            match a.allocate(i, ws.get(i as i64), SlotKind::Raw) {
+            match (*a).allocate(i, ws.get(i as i64), SlotKind::Raw) {
                 Result::Ok(_p) => {}
                 Result::Err(_e) => { return 41i32; }   // region price rejected a priced slot
             }
             i = i + 1u32;
         }
-        if a.free_space() != 0u32 {
+        if (*a).free_space() != 0u32 {
             return 42i32;   // the price must be EXACT, not merely sufficient
         }
         dealloc(mem);

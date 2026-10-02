@@ -396,8 +396,8 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
             // Columns are single-column PdtBufs (the PkdArray retirement):
             // keys MAX-ordered FSE64; vals FSE64 or VLE per the Canon verdict
             // (the descriptor is stored in the block — self-describing).
-            unsafe fn kc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(0u32)); }
-            unsafe fn vc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(1u32)); }
+            unsafe fn kc(self: &#nm) -> PdtBuf { return pdtbuf_adopt((*self.a()).get::<u8>(0u32)); }
+            unsafe fn vc(self: &#nm) -> PdtBuf { return pdtbuf_adopt((*self.a()).get::<u8>(1u32)); }
             // Format slot `slot` as a single-column PdtBuf at the capacity-0
             // geometry, wired to the node allocator (nested-block discipline).
             static unsafe fn fmt_slot(a: *mut PkdAlloc, slot: u32, vle: bool, ordered: bool) {
@@ -733,7 +733,7 @@ fn emit_leaf_node(name: str, kty: str, vty: str, policy: str, cow: bool) {
                         return #nm { mem: base, cap: #(lbs) };
                     }
                 }
-                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }
+                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (*(mem as *mut PkdAlloc)).block_size() } }; }
                 unsafe fn a(self: &#nm) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
                 pub fn free(self: #nm) { unsafe { dealloc(self.mem); } }
             }
@@ -785,9 +785,9 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
             pub fn block(self: &#nm) -> *mut u8 { return self.mem; }
             // All three columns are single-column FSE64 PdtBufs (the PkdArray
             // retirement); slot 2 is the uniform release-walk child column.
-            unsafe fn sep(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(0u32)); }
-            unsafe fn szc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(1u32)); }
-            unsafe fn ptrc(self: &#nm) -> PdtBuf { return pdtbuf_adopt(self.a().get::<u8>(2u32)); }
+            unsafe fn sep(self: &#nm) -> PdtBuf { return pdtbuf_adopt((*self.a()).get::<u8>(0u32)); }
+            unsafe fn szc(self: &#nm) -> PdtBuf { return pdtbuf_adopt((*self.a()).get::<u8>(1u32)); }
+            unsafe fn ptrc(self: &#nm) -> PdtBuf { return pdtbuf_adopt((*self.a()).get::<u8>(2u32)); }
             static unsafe fn fmt_col(a: *mut PkdAlloc, slot: u32, ordered: bool) {
                 btss_fmt_slot(a, slot, false, ordered);
             }
@@ -962,7 +962,7 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                         return #nm { mem: base, cap: #(bbs) };
                     }
                 }
-                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (mem as *mut PkdAlloc).block_size() } }; }
+                pub static fn adopt(mem: *mut u8) -> #nm { return #nm { mem: mem, cap: unsafe { (*(mem as *mut PkdAlloc)).block_size() } }; }
                 unsafe fn a(self: &#nm) -> *mut PkdAlloc { return self.mem as *mut PkdAlloc; }
                 pub fn free_children(self: #nm) {
                     let n: u32 = self.child_count();

@@ -442,7 +442,7 @@ impl<T> Drop for PrimVec<T> {
     fn drop(self: &mut PrimVec<T>) {
         unsafe {
             let sp: *mut PrimVec<T> = (self as *const PrimVec<T>) as *mut PrimVec<T>;
-            sp.clear();
+            (*sp).clear();
         }
     }
 }
@@ -457,13 +457,13 @@ impl<T> Storage for PrimVec<T> {
         unsafe { return s.len; }
     }
     fn storage_get(s: *const PrimVec<T>, idx: u64) -> T {
-        unsafe { return s.get(idx); }
+        unsafe { return (*s).get(idx); }
     }
 }
 
 impl<T> OwningStorage for PrimVec<T> {
     fn storage_drop(s: *mut PrimVec<T>) {
-        unsafe { s.clear(); }
+        unsafe { (*s).clear(); }
     }
 }
 
@@ -472,19 +472,19 @@ impl<T> DynamicStorage for PrimVec<T> {
         return PrimVec::<T>::empty();
     }
     fn storage_push(s: *mut PrimVec<T>, v: T) {
-        unsafe { s.push(v); }
+        unsafe { (*s).push(v); }
     }
     fn storage_clear(s: *mut PrimVec<T>) {
-        unsafe { s.clear(); }
+        unsafe { (*s).clear(); }
     }
     fn storage_set(s: *mut PrimVec<T>, idx: u64, v: T) {
-        unsafe { s.set(idx, v); }
+        unsafe { (*s).set(idx, v); }
     }
     fn storage_insert_at(s: *mut PrimVec<T>, idx: u64, v: T) {
-        unsafe { s.insert_at(idx, v); }
+        unsafe { (*s).insert_at(idx, v); }
     }
     fn storage_remove_at(s: *mut PrimVec<T>, idx: u64) {
-        unsafe { s.remove_at(idx); }
+        unsafe { (*s).remove_at(idx); }
     }
 }
 
@@ -502,13 +502,13 @@ impl<DT: Primitive> Container for DT {
     type Store       = PrimVec<DT::Prim>;
     type ViewInStore = DT::Prim;
     fn new_store() -> PrimVec<DT::Prim> { return PrimVec::<DT::Prim>::empty(); }
-    fn drop_store(s: *mut PrimVec<DT::Prim>) { unsafe { s.clear(); } }
+    fn drop_store(s: *mut PrimVec<DT::Prim>) { unsafe { (*s).clear(); } }
     fn store_len(s: *const PrimVec<DT::Prim>) -> u64 { unsafe { return s.len; } }
-    fn store_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) { unsafe { s.push(v); } }
-    fn store_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim { unsafe { return s.get(idx); } }
-    fn store_set(s: *mut PrimVec<DT::Prim>, idx: u64, v: DT::Prim) { unsafe { s.set(idx, v); } }
-    fn store_insert_at(s: *mut PrimVec<DT::Prim>, idx: u64, v: DT::Prim) { unsafe { s.insert_at(idx, v); } }
-    fn store_remove_at(s: *mut PrimVec<DT::Prim>, idx: u64) { unsafe { s.remove_at(idx); } }
+    fn store_push(s: *mut PrimVec<DT::Prim>, v: DT::Prim) { unsafe { (*s).push(v); } }
+    fn store_get(s: *const PrimVec<DT::Prim>, idx: u64) -> DT::Prim { unsafe { return (*s).get(idx); } }
+    fn store_set(s: *mut PrimVec<DT::Prim>, idx: u64, v: DT::Prim) { unsafe { (*s).set(idx, v); } }
+    fn store_insert_at(s: *mut PrimVec<DT::Prim>, idx: u64, v: DT::Prim) { unsafe { (*s).insert_at(idx, v); } }
+    fn store_remove_at(s: *mut PrimVec<DT::Prim>, idx: u64) { unsafe { (*s).remove_at(idx); } }
 }
 
 // ---------------------------------------------------------------------------
@@ -526,10 +526,10 @@ impl<DT: PodRef> Container for DT {
     type Store       = PrimVec<DT>;
     type ViewInStore = *const DT;
     fn new_store() -> PrimVec<DT> { return PrimVec::<DT>::empty(); }
-    fn drop_store(s: *mut PrimVec<DT>) { unsafe { s.clear(); } }
+    fn drop_store(s: *mut PrimVec<DT>) { unsafe { (*s).clear(); } }
     fn store_len(s: *const PrimVec<DT>) -> u64 { unsafe { return s.len; } }
     fn store_push(s: *mut PrimVec<DT>, v: *const DT) {
-        unsafe { s.push(logos.lang.ptr::read(v)); }   // #463: a read out of `*const DT`
+        unsafe { (*s).push(logos.lang.ptr::read(v)); }   // #463: a read out of `*const DT`
     }
     fn store_get(s: *const PrimVec<DT>, idx: u64) -> *const DT {
         unsafe {
@@ -538,13 +538,13 @@ impl<DT: PodRef> Container for DT {
         }
     }
     fn store_set(s: *mut PrimVec<DT>, idx: u64, v: *const DT) {
-        unsafe { s.set(idx, logos.lang.ptr::read(v)); }
+        unsafe { (*s).set(idx, logos.lang.ptr::read(v)); }
     }
     fn store_insert_at(s: *mut PrimVec<DT>, idx: u64, v: *const DT) {
-        unsafe { s.insert_at(idx, logos.lang.ptr::read(v)); }
+        unsafe { (*s).insert_at(idx, logos.lang.ptr::read(v)); }
     }
     fn store_remove_at(s: *mut PrimVec<DT>, idx: u64) {
-        unsafe { s.remove_at(idx); }
+        unsafe { (*s).remove_at(idx); }
     }
 }
 

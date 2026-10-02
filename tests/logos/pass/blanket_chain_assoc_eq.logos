@@ -38,7 +38,7 @@ impl<DT: A<Item = i32>> Foo for DT {
 struct K {}
 impl B for K {}
 
-fn use_foo<T: Foo>(t: *const T) -> i32 { unsafe { return t.foo(); } }
+fn use_foo<T: Foo>(t: *const T) -> i32 { unsafe { return (*t).foo(); } }
 
 fn main() -> i32 {
     let k: K = K {};

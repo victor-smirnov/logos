@@ -15,16 +15,16 @@ fn main() -> i32 {
         let pd: *mut Vec<i32> = &mut doubled;
         let pe: *mut Vec<i32> = &mut even_sq;
 
-        if pd.length() != 5 as i64 { return 1; }
-        if pe.length() != 2 as i64 { return 2; }
+        if (*pd).length() != 5 as i64 { return 1; }
+        if (*pe).length() != 2 as i64 { return 2; }
 
         // doubled = [2, 4, 6, 8, 10]
-        if pd.get(0) != 2  { return 3; }
-        if pd.get(4) != 10 { return 4; }
+        if (*pd).get(0) != 2  { return 3; }
+        if (*pd).get(4) != 10 { return 4; }
 
         // even_sq = [4, 16]
-        if pe.get(0) != 4  { return 5; }
-        if pe.get(1) != 16 { return 6; }
+        if (*pe).get(0) != 4  { return 5; }
+        if (*pe).get(1) != 16 { return 6; }
     }
 
     return 42;

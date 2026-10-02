@@ -1,9 +1,0 @@
-// SOUNDNESS QUEUE row impl_for_concrete_tuple_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster impl-for-concrete-tuple-parse: `impl Tr for (i64, i64)` does not parse without a non-empty impl generic list
-// Logos: error: syntax error near 'impl' at line 8 col 1.
-// rustc: compiles and runs, exit 0 — reproduced with rustc 1.98.1 --edition 2024 on the twin.
-// corpus: tests/interactions/clusters/impl-for-concrete-tuple-parse/
-// fix hint: grammar: impl header `impl Trait for <type>` must accept a tuple type as the self type with no generic list.
-package impl_for_concrete_tuple_refused;
-trait T { fn f(&self) -> i64; }
-impl T for (i64, i64) { fn f(&self) -> i64 { return self.0 - self.1; } }
-fn main() -> i32 { let p: (i64, i64) = (3, 3); return p.f() as i32; }

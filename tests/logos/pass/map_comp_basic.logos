@@ -15,8 +15,8 @@ fn main() -> i32 {
         let ps: *mut HashMap<i32, i32> = &mut sq;
         let pe: *mut HashMap<i32, i32> = &mut ev;
 
-        if ps.len() != 5 as i64 { return 1; }
-        if pe.len() != 2 as i64 { return 2; }
+        if (*ps).len() != 5 as i64 { return 1; }
+        if (*pe).len() != 2 as i64 { return 2; }
 
         let k1: i32 = 3;
         let p = ps.get(&k1);

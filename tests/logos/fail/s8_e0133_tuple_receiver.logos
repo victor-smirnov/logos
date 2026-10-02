@@ -1,0 +1,4 @@
+package s8_e0133_tuple_receiver;
+// ADR 0030 S8 row 1 (E0133 on the call): an unsafe method of `impl T for (i64, i64)` called on a tuple.
+use logos.mem.collections.vec;
+trait T { unsafe fn m(&self) -> i32; } impl T for (i64, i64) { unsafe fn m(&self) -> i32 { return 1; } } fn main() -> i32 { let a = (1i64, 2i64); return a.m(); }

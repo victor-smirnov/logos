@@ -1132,14 +1132,14 @@ unsafe fn ser_walk(bp: MemBlockPtr, ids: *mut HashMap<u64, u64>, order: &mut Vec
     ids.insert(a, order.len() as u64);          // ids are 1-based (0 = none)
     let cs: u32 = bp.child_slot();
     if cs != NODE_NO_CHILDREN {
-        let cb: PdtBuf = pdtbuf_adopt(bp.pkd().get::<u8>(cs));
+        let cb: PdtBuf = pdtbuf_adopt((*bp.pkd()).get::<u8>(cs));
         let n: u64 = cb.size();
         let mut i: u64 = 0u64;
         while i < n { ser_walk(block_from_addr(cb.get(0u32, i) as *mut u8), ids, order); i = i + 1u64; }
     }
     let vr: u32 = bp.value_ref_slot();
     if vr != NODE_NO_CHILDREN {
-        let vb: PdtBuf = pdtbuf_adopt(bp.pkd().get::<u8>(vr));
+        let vb: PdtBuf = pdtbuf_adopt((*bp.pkd()).get::<u8>(vr));
         let m: u64 = vb.size();
         let mut j: u64 = 0u64;
         while j < m {
@@ -1166,7 +1166,7 @@ unsafe fn ser_map_refs(img: *mut u8, ids: *mut HashMap<u64, u64>, to_id: bool,
     let mut k: i64 = 0i64;
     while k < slots.len() {
         let slot: u32 = slots.get(k);
-        let mut b: PdtBuf = pdtbuf_adopt(node_pkd(img).get::<u8>(slot));
+        let mut b: PdtBuf = pdtbuf_adopt((*node_pkd(img)).get::<u8>(slot));
         let n: u64 = b.size();
         let mut i: u64 = 0u64;
         while i < n {

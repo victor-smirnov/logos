@@ -159,11 +159,11 @@ fn ak_pos(ss: i64, dord: i64, off: i64) -> ExprBlob {
     let dsym: ExprBlob = ak_lit(dord, "u64");
     if off == 0i64 {
         return quote_expr! {
-            pkd_ssrle_adopt(a.get::<u8>(#ssu)).rank_eq(alg_entry_anchor(a, #ssu, i0), #dsym)
+            pkd_ssrle_adopt((*a).get::<u8>(#ssu)).rank_eq(alg_entry_anchor(a, #ssu, i0), #dsym)
         };
     }
     return quote_expr! {
-        pkd_ssrle_adopt(a.get::<u8>(#ssu)).rank_eq(alg_entry_anchor(a, #ssu, i0 + 1u64), #dsym)
+        pkd_ssrle_adopt((*a).get::<u8>(#ssu)).rank_eq(alg_entry_anchor(a, #ssu, i0 + 1u64), #dsym)
     };
 }
 
@@ -193,7 +193,7 @@ fn ak_driver(out: &mut ItemList, drv: Ident, pfrags: Vec<ExprBlob>, cfrags: Vec<
                 }
                 tot = tot + g;
             } )*
-            if tot > a.free_space() as u64 {
+            if tot > (*a).free_space() as u64 {
                 return false;
             }
             #( #cfrags; )*
@@ -229,10 +229,10 @@ fn ak_ins_price(kind: u32, s: i64, ss: i64, dord: i64,
         return quote_expr! {
             {
                 let rows: Vec<u64> = #rows_arr;
-                let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#slu));
+                let seq: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(#slu));
                 let runs: Vec<SsrleRun> = alg_runs_from_rows(seq.bps(), &rows);
                 let us: SsrleUpdate = seq.plan_insert(alg_entry_anchor(a, #slu, i0), &runs);
-                let cur: u32 = a.element_size(#slu);
+                let cur: u32 = (*a).element_size(#slu);
                 if us.block_size > cur { (us.block_size - cur) as u64 } else { 0u64 }
             }
         };
@@ -243,7 +243,7 @@ fn ak_ins_price(kind: u32, s: i64, ss: i64, dord: i64,
             {
                 let n: u64 = d.cols.borrow(#sli).spans.lens.length() as u64;
                 if n == 0u64 { 0u64 } else {
-                    let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                    let pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                     match pb2.prepare_insert_vals(#pos, n, PDT_CAP_KEEP, &d.cols.borrow(#sli).spans) {
                         Result::Ok(u) => { u.grow_bytes() as u64 }
                         Result::Err(_e) => { 0xFFFFFFFFFFFFFFFFu64 }
@@ -256,7 +256,7 @@ fn ak_ins_price(kind: u32, s: i64, ss: i64, dord: i64,
         {
             let n: u64 = d.cols.borrow(#sli).cells.length() as u64;
             if n == 0u64 { 0u64 } else {
-                let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                let pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                 match pb2.prepare_insert(#pos, n, PDT_CAP_KEEP) {
                     Result::Ok(u) => { u.grow_bytes() as u64 }
                     Result::Err(_e) => { 0xFFFFFFFFFFFFFFFFu64 }
@@ -275,10 +275,10 @@ fn ak_ins_commit(kind: u32, s: i64, ss: i64, dord: i64,
         return quote_expr! {
             {
                 let rows: Vec<u64> = #rows_arr;
-                let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#slu));
+                let seq: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(#slu));
                 let runs: Vec<SsrleRun> = alg_runs_from_rows(seq.bps(), &rows);
                 let us: SsrleUpdate = seq.plan_insert(alg_entry_anchor(a, #slu, i0), &runs);
-                let mut seq2: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#slu));
+                let mut seq2: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(#slu));
                 seq2.commit(&us);
             }
         };
@@ -289,12 +289,12 @@ fn ak_ins_commit(kind: u32, s: i64, ss: i64, dord: i64,
             {
                 let n: u64 = d.cols.borrow(#sli).spans.lens.length() as u64;
                 if n > 0u64 {
-                    let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                    let pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                     let us: PdtUpdate = match pb2.prepare_insert_vals(#pos, n, PDT_CAP_KEEP, &d.cols.borrow(#sli).spans) {
                         Result::Ok(u) => u,
                         Result::Err(_e) => { panic("alg kernel: priced VLE insert failed at commit"); }
                     };
-                    let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                    let mut pb3: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                     pb3.commit_insert_vals(&us, &d.cols.borrow(#sli).spans);
                 }
                 let _fin: u32 = 0u32;
@@ -305,12 +305,12 @@ fn ak_ins_commit(kind: u32, s: i64, ss: i64, dord: i64,
         {
             let n: u64 = d.cols.borrow(#sli).cells.length() as u64;
             if n > 0u64 {
-                let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                let pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                 let us: PdtUpdate = match pb2.prepare_insert(#pos, n, PDT_CAP_KEEP) {
                     Result::Ok(u) => u,
                     Result::Err(_e) => { panic("alg kernel: priced FSE insert failed at commit"); }
                 };
-                let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                let mut pb3: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                 pb3.commit_insert(&us, &d.cols.borrow(#sli).cells);
             }
             let _fin: u32 = 0u32;
@@ -326,9 +326,9 @@ fn ak_del_price(kind: u32, s: i64, ss: i64, dord: i64) -> ExprBlob {
                 let p0: u64 = alg_entry_anchor(a, #slu, i0);
                 let p1: u64 = alg_entry_anchor(a, #slu, i0 + 1u64);
                 if p1 <= p0 { 0u64 } else {
-                    let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#slu));
+                    let seq: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(#slu));
                     let us: SsrleUpdate = seq.plan_remove(p0, p1);
-                    let cur: u32 = a.element_size(#slu);
+                    let cur: u32 = (*a).element_size(#slu);
                     if us.block_size > cur { (us.block_size - cur) as u64 } else { 0u64 }
                 }
             }
@@ -341,7 +341,7 @@ fn ak_del_price(kind: u32, s: i64, ss: i64, dord: i64) -> ExprBlob {
             let w0: u64 = #v0;
             let w1: u64 = #v1;
             if w1 <= w0 { 0u64 } else {
-                let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                let pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                 match pb2.prepare_remove(w0, w1, PDT_CAP_KEEP) {
                     Result::Ok(u) => { u.grow_bytes() as u64 }
                     Result::Err(_e) => { 0xFFFFFFFFFFFFFFFFu64 }
@@ -359,9 +359,9 @@ fn ak_del_commit(kind: u32, s: i64, ss: i64, dord: i64) -> ExprBlob {
                 let p0: u64 = alg_entry_anchor(a, #slu, i0);
                 let p1: u64 = alg_entry_anchor(a, #slu, i0 + 1u64);
                 if p1 > p0 {
-                    let seq: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#slu));
+                    let seq: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(#slu));
                     let us: SsrleUpdate = seq.plan_remove(p0, p1);
-                    let mut seq2: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(#slu));
+                    let mut seq2: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(#slu));
                     seq2.commit(&us);
                 }
                 let _fin: u32 = 0u32;
@@ -375,12 +375,12 @@ fn ak_del_commit(kind: u32, s: i64, ss: i64, dord: i64) -> ExprBlob {
             let w0: u64 = #v0;
             let w1: u64 = #v1;
             if w1 > w0 {
-                let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                let pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                 let us: PdtUpdate = match pb2.prepare_remove(w0, w1, PDT_CAP_KEEP) {
                     Result::Ok(u) => u,
                     Result::Err(_e) => { panic("alg kernel: priced remove failed at commit"); }
                 };
-                let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                let mut pb3: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                 pb3.commit_remove(&us);
             }
             let _fin: u32 = 0u32;
@@ -398,7 +398,7 @@ fn ak_set_price(kind: u32, s: i64, ss: i64, dord: i64) -> ExprBlob {
             {
                 let n: u64 = d.cols.borrow(#sli).spans.lens.length() as u64;
                 if n == 0u64 { 0u64 } else {
-                    let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                    let pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                     match pb2.prepare_insert_vals(#pos, n, PDT_CAP_KEEP, &d.cols.borrow(#sli).spans) {
                         Result::Ok(u) => { u.grow_bytes() as u64 }
                         Result::Err(_e) => { 0xFFFFFFFFFFFFFFFFu64 }
@@ -423,20 +423,20 @@ fn ak_set_commit(kind: u32, s: i64, ss: i64, dord: i64) -> ExprBlob {
                 if n > 0u64 {
                     let v: u64 = #pos;
                     {
-                        let pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                        let pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                         let ur: PdtUpdate = match pb2.prepare_remove(v, v + n, PDT_CAP_KEEP) {
                             Result::Ok(u) => u,
                             Result::Err(_e) => { panic("alg kernel: VLE replace remove failed at commit"); }
                         };
-                        let mut pb3: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                        let mut pb3: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                         pb3.commit_remove(&ur);
                     }
-                    let pb4: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                    let pb4: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                     let ui: PdtUpdate = match pb4.prepare_insert_vals(v, n, PDT_CAP_KEEP, &d.cols.borrow(#sli).spans) {
                         Result::Ok(u) => u,
                         Result::Err(_e) => { panic("alg kernel: pre-remove-priced VLE insert failed at commit"); }
                     };
-                    let mut pb5: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                    let mut pb5: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                     pb5.commit_insert_vals(&ui, &d.cols.borrow(#sli).spans);
                 }
                 let _fin: u32 = 0u32;
@@ -448,7 +448,7 @@ fn ak_set_commit(kind: u32, s: i64, ss: i64, dord: i64) -> ExprBlob {
             let n: u64 = d.cols.borrow(#sli).cells.length() as u64;
             if n > 0u64 {
                 let v: u64 = #pos;
-                let mut pb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(#slu));
+                let mut pb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(#slu));
                 let mut j: u64 = 0u64;
                 while j < n {
                     pb2.set(0u32, v + j, d.cols.borrow(#sli).cells.get(j as i64));

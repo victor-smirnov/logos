@@ -223,7 +223,7 @@ pub fn node_dump(node: *mut u8, out: &mut String, ind: u32) {
         out.push_str("\n");
 
         let a: *mut PkdAlloc = node_pkd(node);
-        let nslots: u32 = a.elements();
+        let nslots: u32 = (*a).elements();
         // The trailing slot is the container's SCHEMA document (a root carries
         // one; every other node leaves it empty). Print WHAT the container is
         // before printing its data — a node dump that cannot say which
@@ -242,14 +242,14 @@ pub fn node_dump(node: *mut u8, out: &mut String, ind: u32) {
         while s < nslots {
             if s == ms {
                 s = s + 1u32;          // the schema slot, printed above
-            } else if s == sq && a.is_allocatable(s) {
+            } else if s == sq && (*a).is_allocatable(s) {
                 // a nested symbol sequence — decode as a 2D table, not a column
                 push_indent(out, ind + 1u32);
                 out.push_str("slot"); out.push_u64(s as u64); out.push_str(" [SSRLE]:\n");
-                let pk: PkdSsrle = pkd_ssrle_adopt(a.get::<u8>(s));
+                let pk: PkdSsrle = pkd_ssrle_adopt((*a).get::<u8>(s));
                 ssrle_dump(&pk, out, ind + 2u32);
-            } else if a.is_allocatable(s) {
-                let buf: PdtBuf = pdtbuf_adopt(a.get::<u8>(s));
+            } else if (*a).is_allocatable(s) {
+                let buf: PdtBuf = pdtbuf_adopt((*a).get::<u8>(s));
                 let rows: u64 = buf.size();
                 let cols: u32 = buf.columns();
                 let vle: bool = buf.vle_dim_count() > 0u32;
@@ -300,7 +300,7 @@ pub fn tree_dump(root: *mut u8, level: u32, out: &mut String, ind: u32) {
             let a: *mut PkdAlloc = node_pkd(root);
             let cs: u32 = node_child_slot(root);
             if cs != NODE_NO_CHILDREN {
-                let ch: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+                let ch: PdtBuf = pdtbuf_adopt((*a).get::<u8>(cs));
                 let n: u64 = ch.size();
                 let mut i: u64 = 0u64;
                 while i < n {
@@ -331,7 +331,7 @@ pub fn tree_dump_string(root: *mut u8, level: u32) -> String {
 /// clamped to the last child.
 unsafe fn generic_child_index(node: *mut u8, key: u64) -> u32 {
     let a: *mut PkdAlloc = node_pkd(node);
-    let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+    let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
     let n: u64 = kb.size();
     let mut i: u64 = 0u64;
     while i < n {
@@ -358,7 +358,7 @@ pub fn path_dump(root: *mut u8, level: u32, key: u64, keep: u32, out: &mut Strin
             let a: *mut PkdAlloc = node_pkd(node);
             let cs: u32 = node_child_slot(node);
             if cs == NODE_NO_CHILDREN { break; }
-            let cb: PdtBuf = pdtbuf_adopt(a.get::<u8>(cs));
+            let cb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(cs));
             node = cb.get(0u32, ci as u64) as *mut u8;
             lvl = lvl - 1u32;
         }

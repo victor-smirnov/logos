@@ -37,7 +37,7 @@ fn stride_of<T: PkdElem + ?Sized>() -> i64 {
     // cast is a plain thin pointer and the pair is simply unused.)
     let z: (i64, i64) = (0i64, 0i64);
     let p: *const T = ((&z as *const (i64, i64)) as i64) as *const T;
-    return unsafe { p.stride() };
+    return unsafe { (*p).stride() };
 }
 
 fn main() -> i32 {

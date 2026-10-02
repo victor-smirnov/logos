@@ -6781,9 +6781,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11902 -> 11903 (+1), NOIMPORTED 7343 -> 7344 (+1), TIERCOMMIT 209 -> 209 (+0) — 2026-10-01: S8 row 2: +1 fail s8_user_panic_fn_is_not_divergent.
 #                ALL 11903 -> 11904 (+1), NOIMPORTED 7344 -> 7345 (+1), TIERCOMMIT 209 -> 209 (+0) — 2026-10-01: S8 row 3: +1 pass s8_generic_bitwise_operator_struct.
 #                ALL 11904 -> 11907 (+3), NOIMPORTED 7345 -> 7348 (+3), TIERCOMMIT 209 -> 208 (-1) — 2026-10-01: S8 row 4: +3 pass s8_probe_*; squeue row dst_method_receiver_no_reborrow_admits (#722) closed -> fail/sd_dst_view_blocks_mut_receiver (tier_commit -1).
-REGISTRY-ALL         11907
-REGISTRY-NOIMPORTED  7348
-REGISTRY-TIERCOMMIT  208
+#                ALL 11907 -> 11909 (+2), NOIMPORTED 7348 -> 7350 (+2), TIERCOMMIT 208 -> 207 (-1) — 2026-10-01: +2 pass impl_for_concrete_tuple (squeue #678 closed, tier_commit -1) / impl_trait_for_tuple_no_type_params; +1 fail s8_e0133_tuple_receiver.
+REGISTRY-ALL         11909
+REGISTRY-NOIMPORTED  7350
+REGISTRY-TIERCOMMIT  207
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

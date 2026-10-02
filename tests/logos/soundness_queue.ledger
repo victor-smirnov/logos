@@ -399,8 +399,6 @@ float_exp_format_c_style_wrong 3 tests/soundness/open/float_exp_format_c_style_w
 
 hashmap_iter_tuple_refused 3 tests/soundness/open/hashmap_iter_tuple_refused refuses
 
-impl_for_concrete_tuple_refused 3 tests/soundness/open/impl_for_concrete_tuple_refused refuses
-
 option_combinators_take_fn_pointers_refused 3 tests/soundness/open/option_combinators_take_fn_pointers_refused refuses
 
 owned_return_from_ref_param_keeps_loan_refused 3 tests/soundness/open/owned_return_from_ref_param_keeps_loan_refused refuses
@@ -469,5 +467,5 @@ guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_
 
 guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_moves_ref_mut_binding_admits admits
 
-# TOTAL 145
-# SYNC-HASH 5d58b093050b2d13eaa0e2e52912e6f4
+# TOTAL 144
+# SYNC-HASH a9ea71d1b3d9cf6ba1fbb425d2386356

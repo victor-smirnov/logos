@@ -62,16 +62,16 @@ fn mm_set_datum(vals: i64, tag: u8) -> LeafBatchDatum {
 }
 
 unsafe fn mm_agree(x: *mut PkdAlloc, y: *mut PkdAlloc) -> bool {
-    let kx: PdtBuf = pdtbuf_adopt(x.get::<u8>(0u32));
-    let ky: PdtBuf = pdtbuf_adopt(y.get::<u8>(0u32));
+    let kx: PdtBuf = pdtbuf_adopt((*x).get::<u8>(0u32));
+    let ky: PdtBuf = pdtbuf_adopt((*y).get::<u8>(0u32));
     if kx.size() != ky.size() { return false; }
     let mut i: u64 = 0u64;
     while i < kx.size() {
         if kx.get(0u32, i) != ky.get(0u32, i) { return false; }
         i = i + 1u64;
     }
-    let vx: PdtBuf = pdtbuf_adopt(x.get::<u8>(1u32));
-    let vy: PdtBuf = pdtbuf_adopt(y.get::<u8>(1u32));
+    let vx: PdtBuf = pdtbuf_adopt((*x).get::<u8>(1u32));
+    let vy: PdtBuf = pdtbuf_adopt((*y).get::<u8>(1u32));
     if vx.size() != vy.size() { return false; }
     let mut r: u64 = 0u64;
     while r < vx.size() {
@@ -85,8 +85,8 @@ unsafe fn mm_agree(x: *mut PkdAlloc, y: *mut PkdAlloc) -> bool {
         }
         r = r + 1u64;
     }
-    let qx: PkdSsrle = pkd_ssrle_adopt(x.get::<u8>(2u32));
-    let qy: PkdSsrle = pkd_ssrle_adopt(y.get::<u8>(2u32));
+    let qx: PkdSsrle = pkd_ssrle_adopt((*x).get::<u8>(2u32));
+    let qy: PkdSsrle = pkd_ssrle_adopt((*y).get::<u8>(2u32));
     if qx.size() != qy.size() { return false; }
     let mut p: u64 = 0u64;
     while p <= qx.size() {
@@ -116,7 +116,7 @@ fn run_all() -> i32 {
             let key: u64 = 50u64 * (t as u64) + 5u64;
             let vals: i64 = (t + 1i64) % 3i64 + 1i64;      // 2,3,1,2
             let tag: u8 = (0x60i64 + t) as u8;
-            let cnt: u64 = pdtbuf_adopt(ka.get::<u8>(0u32)).size();
+            let cnt: u64 = pdtbuf_adopt((*ka).get::<u8>(0u32)).size();
             let i0: u64 = if t % 2i64 == 0i64 { cnt } else { cnt / 2u64 };
             let dk: LeafBatchDatum = mm_datum(key, vals, tag);
             if !FmK_entry_ins(ka, i0, &dk) { return 1i32; }
@@ -130,7 +130,7 @@ fn run_all() -> i32 {
         let mut e: u64 = 0u64;
         while e < 4u64 {
             // current arity of entry e (via the interpreter twin's ranks)
-            let sq: PkdSsrle = pkd_ssrle_adopt(ib.get::<u8>(2u32));
+            let sq: PkdSsrle = pkd_ssrle_adopt((*ib).get::<u8>(2u32));
             let p0: u64 = alg_entry_anchor(ib, 2u32, e);
             let p1: u64 = alg_entry_anchor(ib, 2u32, e + 1u64);
             let m: i64 = (sq.rank_eq(p1, 1u64) - sq.rank_eq(p0, 1u64)) as i64;
@@ -210,10 +210,10 @@ fn run_all() -> i32 {
         }
         // twins agree cell-for-cell: keys 20,30; vals 999,300
         {
-            let kx: PdtBuf = pdtbuf_adopt(kc.get::<u8>(0u32));
-            let ky: PdtBuf = pdtbuf_adopt(id.get::<u8>(0u32));
-            let vx: PdtBuf = pdtbuf_adopt(kc.get::<u8>(1u32));
-            let vy: PdtBuf = pdtbuf_adopt(id.get::<u8>(1u32));
+            let kx: PdtBuf = pdtbuf_adopt((*kc).get::<u8>(0u32));
+            let ky: PdtBuf = pdtbuf_adopt((*id).get::<u8>(0u32));
+            let vx: PdtBuf = pdtbuf_adopt((*kc).get::<u8>(1u32));
+            let vy: PdtBuf = pdtbuf_adopt((*id).get::<u8>(1u32));
             if kx.size() != 2u64 || ky.size() != 2u64 { return 21i32; }
             let mut w: u64 = 0u64;
             while w < 2u64 {

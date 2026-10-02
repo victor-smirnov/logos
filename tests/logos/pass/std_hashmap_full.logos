@@ -13,7 +13,7 @@ fn main() -> i32 {
             pm.insert(i, i * 10);
             i = i + 1;
         }
-        if pm.len() != 50 as i64 { return 1; }
+        if (*pm).len() != 50 as i64 { return 1; }
 
         // Read everything back.
         let mut j: i32 = 0;
@@ -41,7 +41,7 @@ fn main() -> i32 {
 
         // Overwrite via insert — len unchanged.
         pm.insert(5, 999);
-        if pm.len() != 50 as i64 { return 8; }
+        if (*pm).len() != 50 as i64 { return 8; }
         let p3: *const i32 = pm.get(&k3);
         if *p3 != 999 { return 9; }
 
@@ -53,7 +53,7 @@ fn main() -> i32 {
             }
             r = r + 1;
         }
-        if pm.len() != 25 as i64 { return 11; }
+        if (*pm).len() != 25 as i64 { return 11; }
 
         // Removed keys absent, odd keys still present.
         let mut c: i32 = 0;
@@ -71,19 +71,19 @@ fn main() -> i32 {
         // Re-insert a removed key through a tombstone slot.
         let k4: i32 = 4;
         pm.insert(k4, 444);
-        if pm.len() != 26 as i64 { return 14; }
+        if (*pm).len() != 26 as i64 { return 14; }
         let p4: *const i32 = pm.get(&k4);
         if *p4 != 444 { return 15; }
 
         // Clear resets len but keeps capacity.
         pm.clear();
-        if !pm.is_empty() { return 16; }
-        if pm.capacity() < 16 as i64 { return 17; }
+        if !(*pm).is_empty() { return 16; }
+        if (*pm).capacity() < 16 as i64 { return 17; }
 
         // Reinsert after clear works.
         pm.insert(1, 100);
         pm.insert(2, 200);
-        if pm.len() != 2 as i64 { return 18; }
+        if (*pm).len() != 2 as i64 { return 18; }
         let one: i32 = 1;
         let pp: *const i32 = pm.get(&one);
         if *pp != 100 { return 19; }
@@ -92,14 +92,14 @@ fn main() -> i32 {
         // ignored), len unchanged; the returned pointer mutates in place.
         let goi1: *mut i32 = pm.get_or_insert(1, 777);
         if *goi1 != 100 { return 20; }
-        if pm.len() != 2 as i64 { return 21; }
+        if (*pm).len() != 2 as i64 { return 21; }
         *goi1 = *goi1 + 1;
         if *pm.get(&one) != 101 { return 22; }
 
         // get_or_insert on an ABSENT key: inserts the default, len grows.
         let goi2: *mut i32 = pm.get_or_insert(9, 900);
         if *goi2 != 900 { return 23; }
-        if pm.len() != 3 as i64 { return 24; }
+        if (*pm).len() != 3 as i64 { return 24; }
 
         return 42;
     }

@@ -27,7 +27,7 @@ fn test_new_and_count() {
     unsafe {
         let mut r: Rc<i32> = rc_new::<i32>(10i32);
         let pr: *mut Rc<i32> = &mut r;
-        assert!(pr.strong_count() == 1);
+        assert!((*pr).strong_count() == 1);
         assert!(*pr.get() == 10i32);
         pr.drop_rc();
     }
@@ -41,13 +41,13 @@ fn test_clone_shares() {
         let p1: *mut Rc<i32> = &mut r1;
         let mut r2: Rc<i32> = p1.clone_rc();
         let p2: *mut Rc<i32> = &mut r2;
-        assert!(p1.strong_count() == 2);
-        assert!(p2.strong_count() == 2);
+        assert!((*p1).strong_count() == 2);
+        assert!((*p2).strong_count() == 2);
         // mutate through one handle, observe through the other (shared data).
         *p1.get_mut_raw() = 77i32;
         assert!(*p2.get() == 77i32);
         p2.drop_rc();
-        assert!(p1.strong_count() == 1);
+        assert!((*p1).strong_count() == 1);
         p1.drop_rc();
     }
 }
@@ -62,12 +62,12 @@ fn test_drop_sequence() {
         let pb: *mut Rc<i32> = &mut b;
         let mut c: Rc<i32> = pb.clone_rc();
         let pc: *mut Rc<i32> = &mut c;
-        assert!(pa.strong_count() == 3);
+        assert!((*pa).strong_count() == 3);
         pc.drop_rc();
-        assert!(pa.strong_count() == 2);
+        assert!((*pa).strong_count() == 2);
         assert!(pc.is_null());
         pb.drop_rc();
-        assert!(pa.strong_count() == 1);
+        assert!((*pa).strong_count() == 1);
         pa.drop_rc();
         assert!(pa.is_null());
     }

@@ -41,11 +41,11 @@ use logos.lang.panic;
 pub unsafe fn vec_arc_insert_at<const STORE_CFG: WritStatic>(
     v: *mut Vec<NodeARC<STORE_CFG>>, idx: i64, new_arc: NodeARC<STORE_CFG>
 ) {
-    v.push(new_arc);
-    let mut i: i64 = v.len() - 1i64;
+    (*v).push(new_arc);
+    let mut i: i64 = (*v).len() - 1i64;
     while i > idx {
-        let a: *mut NodeARC<STORE_CFG> = v.at(i);
-        let b: *mut NodeARC<STORE_CFG> = v.at(i - 1i64);
+        let a: *mut NodeARC<STORE_CFG> = (*v).at(i);
+        let b: *mut NodeARC<STORE_CFG> = (*v).at(i - 1i64);
         swap::<NodeARC<STORE_CFG>>(a, b);
         i = i - 1i64;
     }
@@ -194,7 +194,7 @@ pub unsafe fn insert_rec<K: Container + ContainerOrd, V: Container, const STORE_
         if pos < leaf.keys.len() {
             let kv: K::ViewInStore = leaf.keys.get(pos);
             let phantom: *const K = 0 as *const K;
-            match phantom.cmp_views(kv, qkey) {
+            match (*phantom).cmp_views(kv, qkey) {
                 Ordering::Equal => {
                     leaf.vals.set(pos, val);
                     return InsertOutcome::<K, STORE_CFG, CFG> {

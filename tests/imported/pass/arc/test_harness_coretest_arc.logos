@@ -22,7 +22,7 @@ fn test_new_and_count() {
     unsafe {
         let mut a: Arc<i32> = arc_new::<i32>(100i32);
         let pa: *mut Arc<i32> = &mut a;
-        assert!(pa.strong_count() == 1);
+        assert!((*pa).strong_count() == 1);
         assert!(*pa.get() == 100i32);
         pa.drop_arc();
     }
@@ -35,12 +35,12 @@ fn test_clone_shares() {
         let p1: *mut Arc<i32> = &mut a1;
         let mut a2: Arc<i32> = p1.clone_arc();
         let p2: *mut Arc<i32> = &mut a2;
-        assert!(p1.strong_count() == 2);
+        assert!((*p1).strong_count() == 2);
         // Both handles see the same shared allocation.
         assert!(*p1.get() == 7i32);
         assert!(*p2.get() == 7i32);
         p2.drop_arc();
-        assert!(p1.strong_count() == 1);
+        assert!((*p1).strong_count() == 1);
         p1.drop_arc();
     }
 }
@@ -52,9 +52,9 @@ fn test_drop_sequence() {
         let pa: *mut Arc<i32> = &mut a;
         let mut b: Arc<i32> = pa.clone_arc();
         let pb: *mut Arc<i32> = &mut b;
-        assert!(pa.strong_count() == 2);
+        assert!((*pa).strong_count() == 2);
         pb.drop_arc();
-        assert!(pa.strong_count() == 1);
+        assert!((*pa).strong_count() == 1);
         pa.drop_arc();
     }
 }

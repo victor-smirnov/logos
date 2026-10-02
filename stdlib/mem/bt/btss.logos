@@ -35,14 +35,14 @@ pub unsafe fn btss_fmt_slot(a: *mut PkdAlloc, slot: u32, vle: bool, ordered: boo
     }
     let zero: Vec<u64> = pdt_payload_zero(&d);
     let need: u32 = pdtbuf_compute_block_size(&d, 0u64, &zero);
-    let p: *mut u8 = match a.allocate(slot, need, SlotKind::Allocatable) {
+    let p: *mut u8 = match (*a).allocate(slot, need, SlotKind::Allocatable) {
         Result::Ok(q) => q,
         Result::Err(_e) => {
             assert(false, "btss: leaf col slot");
             return;
         }
     };
-    let bsz: u32 = a.element_size(slot);
+    let bsz: u32 = (*a).element_size(slot);
     match pdtbuf_format(p, bsz, &d) {
         Result::Ok(_b) => {}
         Result::Err(_e) => {
@@ -50,16 +50,16 @@ pub unsafe fn btss_fmt_slot(a: *mut PkdAlloc, slot: u32, vle: bool, ordered: boo
         }
     }
     let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-    inner.set_allocator(a as *const PkdAlloc);
+    (*inner).set_allocator(a as *const PkdAlloc);
 }
 
 /// Two-phase split of column `slot` at row `at` into the (freshly formatted)
 /// right leaf — a VLE column reserves the moving payload bytes through the
 /// right side's own nested chain first (the P7 discipline).
 pub unsafe fn btss_split_col(a: *mut PkdAlloc, ra: *mut PkdAlloc, slot: u32, at: u32) {
-    let mut lb: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
+    let mut lb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
     let n: u64 = lb.size();
-    let mut rb: PdtBuf = pdtbuf_adopt(ra.get::<u8>(slot));
+    let mut rb: PdtBuf = pdtbuf_adopt((*ra).get::<u8>(slot));
     if rb.vle_dim_count() > 0u32 {
         let moving: u64 = lb.payload_used(0u32, 0u32)
                         - lb.row_offset(0u32, 0u32, at as u64);
@@ -79,8 +79,8 @@ pub unsafe fn btss_split_col(a: *mut PkdAlloc, ra: *mut PkdAlloc, slot: u32, at:
             }
         }
     }
-    let mut lb2: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
-    let mut rb2: PdtBuf = pdtbuf_adopt(ra.get::<u8>(slot));
+    let mut lb2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
+    let mut rb2: PdtBuf = pdtbuf_adopt((*ra).get::<u8>(slot));
     let sp: PdtSplit = match lb2.prepare_split_to(&rb2, at as u64, PDT_CAP_KEEP) {
         Result::Ok(x) => x,
         Result::Err(_e) => {
@@ -93,7 +93,7 @@ pub unsafe fn btss_split_col(a: *mut PkdAlloc, ra: *mut PkdAlloc, slot: u32, at:
 
 /// Entry count of a leaf (its key column's row count).
 pub unsafe fn btss_count(a: *mut PkdAlloc) -> u32 {
-    return pdtbuf_adopt(a.get::<u8>(0u32)).size() as u32;
+    return pdtbuf_adopt((*a).get::<u8>(0u32)).size() as u32;
 }
 
 // btss_upsert_at / btss_upsert_vals_at died into the node stream-CRUD
@@ -109,7 +109,7 @@ pub unsafe fn btss_split_index_volume(a: *mut PkdAlloc) -> u32 {
     if n <= 1u32 {
         return n;
     }
-    let vb8: PdtBuf = pdtbuf_adopt(a.get::<u8>(1u32));
+    let vb8: PdtBuf = pdtbuf_adopt((*a).get::<u8>(1u32));
     let total: u32 = n * 8u32 + (vb8.row_offset(0u32, 0u32, n as u64) as u32);
     let half: u32 = total / 2u32;
     let mut lo: u32 = 1u32;
@@ -136,7 +136,7 @@ pub unsafe fn btss_split_index_volume(a: *mut PkdAlloc) -> u32 {
 /// the key type's verdict — a blind u64 compare would invert negative i64
 /// keys, so the signed twin below exists and nothing here guesses.
 pub unsafe fn btss_lower_bound_u64(a: *mut PkdAlloc, key: u64) -> u32 {
-    let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+    let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
     let n: u32 = kb.size() as u32;
     let mut i: u32 = 0u32;
     while i < n {
@@ -150,7 +150,7 @@ pub unsafe fn btss_lower_bound_u64(a: *mut PkdAlloc, key: u64) -> u32 {
 
 /// lower_bound over the key column, SIGNED domain (cells reinterpreted i64).
 pub unsafe fn btss_lower_bound_i64(a: *mut PkdAlloc, key: i64) -> u32 {
-    let kb: PdtBuf = pdtbuf_adopt(a.get::<u8>(0u32));
+    let kb: PdtBuf = pdtbuf_adopt((*a).get::<u8>(0u32));
     let n: u32 = kb.size() as u32;
     let mut i: u32 = 0u32;
     while i < n {
@@ -165,7 +165,7 @@ pub unsafe fn btss_lower_bound_i64(a: *mut PkdAlloc, key: i64) -> u32 {
 /// A one-cell two-phase append/insert into column `slot` (priced by the
 /// caller — branch rows are inserted only after a fits check).
 pub unsafe fn btss_put_cell(a: *mut PkdAlloc, slot: u32, pos: u32, v: u64) {
-    let b: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
+    let b: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
     let us: PdtUpdate = match b.prepare_insert(pos as u64, 1u64, PDT_CAP_KEEP) {
         Result::Ok(u) => u,
         Result::Err(_e) => {
@@ -173,7 +173,7 @@ pub unsafe fn btss_put_cell(a: *mut PkdAlloc, slot: u32, pos: u32, v: u64) {
             return;
         }
     };
-    let mut b2: PdtBuf = pdtbuf_adopt(a.get::<u8>(slot));
+    let mut b2: PdtBuf = pdtbuf_adopt((*a).get::<u8>(slot));
     let mut row: Vec<u64> = vec_new::<u64>();
     row.push(v);
     b2.commit_insert(&us, &row);
@@ -186,7 +186,7 @@ pub unsafe fn btss_fits_row(a: *mut PkdAlloc, slots: u32) -> bool {
     let mut total: u32 = 0u32;
     let mut c: u32 = 0u32;
     while c < slots {
-        let b: PdtBuf = pdtbuf_adopt(a.get::<u8>(c));
+        let b: PdtBuf = pdtbuf_adopt((*a).get::<u8>(c));
         let us: PdtUpdate = match b.prepare_insert(b.size(), 1u64, PDT_CAP_KEEP) {
             Result::Ok(u) => u,
             Result::Err(_e) => {
@@ -196,5 +196,5 @@ pub unsafe fn btss_fits_row(a: *mut PkdAlloc, slots: u32) -> bool {
         total = total + us.grow_bytes();
         c = c + 1u32;
     }
-    return total <= a.free_space();
+    return total <= (*a).free_space();
 }

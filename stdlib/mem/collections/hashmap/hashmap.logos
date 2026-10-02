@@ -87,7 +87,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     // Returns (index, found) where found=true if the key is already there.
     unsafe fn probe(self: *mut HashMap<K, V>, key: &K) -> (i64, bool) {
         let mask: i64 = self.cap - 1 as i64;
-        let mut idx: i64 = self.slot_index(key);
+        let mut idx: i64 = (*self).slot_index(key);
         let mut first_tomb: i64 = -1 as i64;
         loop {
             let st: u8 = self.states[idx];

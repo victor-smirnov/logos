@@ -1,0 +1,5 @@
+package impl_trait_for_tuple_no_type_params;
+// `impl T for (i32, i32)` with no type-parameter list parsed only in its generic and
+// trait-argument forms; a method on it is called on a tuple value (rustc exit 5).
+trait T { fn s(&self) -> i32; } impl T for (i32, i32) { fn s(&self) -> i32 { return self.0 + self.1; } }
+fn main() -> i32 { let t = (2i32, 3i32); return t.s(); }

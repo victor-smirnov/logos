@@ -83,19 +83,19 @@ impl NodeView {
 
     /// The nested symbol sequence in slot `idx` (BTFL's structure stream).
     pub fn ssrle(self: &NodeView, idx: u32) -> PkdSsrle {
-        return unsafe { pkd_ssrle_adopt(self.a.get::<u8>(idx)) };
+        return unsafe { pkd_ssrle_adopt((*self.a).get::<u8>(idx)) };
     }
 
     /// Slot count of the region.
-    pub fn slots(self: &NodeView) -> u32 { return unsafe { self.a.elements() }; }
+    pub fn slots(self: &NodeView) -> u32 { return unsafe { (*self.a).elements() }; }
 
     /// Is slot `idx` allocated?
     pub fn has(self: &NodeView, idx: u32) -> bool {
-        return unsafe { self.a.is_allocatable(idx) };
+        return unsafe { (*self.a).is_allocatable(idx) };
     }
 
     /// The region's total block size.
-    pub fn block_size(self: &NodeView) -> u32 { return unsafe { self.a.block_size() }; }
+    pub fn block_size(self: &NodeView) -> u32 { return unsafe { (*self.a).block_size() }; }
 
     /// Format slot `s` from an EXPLICIT descriptor (the donor-shape form of
     /// fmt_slot). Allocates ⇒ `&mut`.
@@ -103,17 +103,17 @@ impl NodeView {
         unsafe {
             let zero: Vec<u64> = pdt_payload_zero(d);
             let need: u32 = pdtbuf_compute_block_size(d, 0u64, &zero);
-            let p: *mut u8 = match self.a.allocate(s, need, SlotKind::Allocatable) {
+            let p: *mut u8 = match (*self.a).allocate(s, need, SlotKind::Allocatable) {
                 Result::Ok(q) => q,
                 Result::Err(_e) => { assert(false, "NodeView: slot allocation failed"); return; }
             };
-            let bsz: u32 = self.a.element_size(s);
+            let bsz: u32 = (*self.a).element_size(s);
             match pdtbuf_format(p, bsz, d) {
                 Result::Ok(_b) => {}
                 Result::Err(_e) => { assert(false, "NodeView: slot format failed"); }
             }
             let inner: *mut PkdAlloc = p as *mut PkdAlloc;
-            inner.set_allocator(self.a as *const PkdAlloc);
+            (*inner).set_allocator(self.a as *const PkdAlloc);
         }
     }
 
@@ -131,12 +131,12 @@ impl NodeView {
 
     /// Byte size of slot `idx`'s backing block (the SSRLE growth budget).
     pub fn element_size(self: &NodeView, idx: u32) -> u32 {
-        return unsafe { self.a.element_size(idx) };
+        return unsafe { (*self.a).element_size(idx) };
     }
 
     /// Free space left in the region — the budget the weight calculus prices
     /// against. A read, so it composes with live column views.
-    pub fn free_space(self: &NodeView) -> u32 { return unsafe { self.a.free_space() }; }
+    pub fn free_space(self: &NodeView) -> u32 { return unsafe { (*self.a).free_space() }; }
 
     // ── RAW slots (blobs, not columns) ──────────────────────────────────────
     //
@@ -148,17 +148,17 @@ impl NodeView {
     /// Slot `idx`'s payload as raw bytes. Borrows the node SHARED: holding the
     /// slice across any `&mut NodeView` call is a compile error.
     pub fn raw(self: &NodeView, idx: u32) -> &[u8] {
-        return unsafe { self.a.data(idx) };
+        return unsafe { (*self.a).data(idx) };
     }
 
     /// (Re)allocate slot `idx` to `n` RAW bytes, discarding any previous
     /// content, and hand back the writable payload. `&mut` — the region moves.
     pub fn raw_alloc(self: &mut NodeView, idx: u32, n: u32) -> bool {
         unsafe {
-            if self.a.element_size(idx) > 0u32 {
-                self.a.free_at(idx);
+            if (*self.a).element_size(idx) > 0u32 {
+                (*self.a).free_at(idx);
             }
-            match self.a.allocate(idx, n, SlotKind::Raw) {
+            match (*self.a).allocate(idx, n, SlotKind::Raw) {
                 Result::Ok(_p) => { return true; }
                 Result::Err(_e) => { return false; }
             }
@@ -167,13 +167,13 @@ impl NodeView {
 
     /// Slot `idx`'s payload as writable raw bytes (after `raw_alloc`).
     pub fn raw_mut(self: &mut NodeView, idx: u32) -> &mut [u8] {
-        return unsafe { self.a.data_mut(idx) };
+        return unsafe { (*self.a).data_mut(idx) };
     }
 
     /// Release slot `idx`'s payload entirely (size back to 0).
     pub fn raw_free(self: &mut NodeView, idx: u32) {
         unsafe {
-            if self.a.element_size(idx) > 0u32 { self.a.free_at(idx); }
+            if (*self.a).element_size(idx) > 0u32 { (*self.a).free_at(idx); }
         }
     }
 
@@ -233,7 +233,7 @@ impl ColRef {
     // The payload, RE-RESOLVED. Never cached: that is what makes a stale view
     // inexpressible rather than merely unlikely.
     fn buf(self: &ColRef) -> PdtBuf {
-        return unsafe { pdtbuf_adopt(self.a.get::<u8>(self.idx)) };
+        return unsafe { pdtbuf_adopt((*self.a).get::<u8>(self.idx)) };
     }
 
     pub fn size(self: &ColRef) -> u64 { return self.buf().size(); }
@@ -268,7 +268,7 @@ impl ColRef {
     }
     /// Byte size of the slot backing this column.
     pub fn element_size(self: &ColRef) -> u32 {
-        return unsafe { self.a.element_size(self.idx) };
+        return unsafe { (*self.a).element_size(self.idx) };
     }
     /// The payload as a raw PdtBuf for a read-only helper that still speaks
     /// PdtBuf. Safe: the value is derived fresh and used within the call.
@@ -307,7 +307,7 @@ impl ColRef {
 
 impl ColMut {
     fn buf(self: &ColMut) -> PdtBuf {
-        return unsafe { pdtbuf_adopt(self.a.get::<u8>(self.idx)) };
+        return unsafe { pdtbuf_adopt((*self.a).get::<u8>(self.idx)) };
     }
 
     // reads (an exclusive view can read too)

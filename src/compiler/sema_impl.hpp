@@ -10483,6 +10483,18 @@ private:
     TypeRef lit_select_by_trait_(const std::string& trait);
     void lit_select_for_dyn_(lir::LExprPtr& e, TypeRef expected);
     TypeRef deref_target_type_(TypeRef t);
+    // ADR 0030 S8 row 4 — THE method probe (rustc's): receiver steps by
+    // value, `&`, `&mut`, then one deref (reference, Box / user Deref, array
+    // unsize); at a step inherent before trait. `impl_lookup_keys_` is every
+    // impl-registry target key a concrete type is found under.
+    // `autoref`: 0 by value, 1 `&`, 2 `&mut`, 3 `*const`, 4 `*mut` (the last two
+    // only in the B-it-09 fallback pass). `tied`: every candidate of the best
+    // rank — overloads by argument type are select_overload's, not the probe's.
+    struct ProbePick { const SemaFuncInfo* fi = nullptr; int derefs = 0; int autoref = 0; std::string key;
+                       std::vector<const SemaFuncInfo*> tied; };
+    std::vector<std::string> impl_lookup_keys_(TypeRef t);
+    ProbePick probe_method_(TypeRef recv_t, std::string_view name);
+    std::string last_call_sym_;   // the symbol the builder emitted last (probe census)
     // A method candidate's place in rustc's probe order at one receiver step:
     // by value (0) before autoref (2); inherent before trait (+1).
     static int recv_pick_rank_(const SemaFuncInfo* c, bool needs_autoref) {

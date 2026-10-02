@@ -6715,6 +6715,7 @@ void SemaChecker::require_unsafe_ctx_(const std::string& shown, bool is_method) 
 
 void SemaChecker::on_call_(std::string_view callee, std::string_view /*method*/,
                            std::string_view /*owner*/, TypeRef callee_type, bool /*is_method*/) {
+    last_call_sym_ = std::string(callee);
     if (inside_unsafe_) return;
     if (const UnsafeCallee* uc = unsafe_callee_(callee)) {
         require_unsafe_ctx_(uc->shown, uc->is_method);
@@ -6724,6 +6725,145 @@ void SemaChecker::on_call_(std::string_view callee, std::string_view /*method*/,
     if (callee_type && LogosType::is_fn_value_kind(TypeRef(callee_type).kind()) &&
         TypeRef(callee_type).mut_ptr())
         require_unsafe_ctx_(type_str(callee_type), false);
+}
+
+// ── ADR 0030 S8 row 4: the method probe ─────────────────────────────────
+std::vector<std::string> SemaChecker::impl_lookup_keys_(TypeRef t) {
+    std::vector<std::string> keys;
+    if (!t) return keys;
+    using K = LogosType::Kind;
+    auto push = [&](std::string k) {
+        if (!k.empty() && std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(std::move(k));
+    };
+    switch (TypeRef(t).kind()) {
+    case K::Struct: case K::ZonedStruct: case K::DstRef:
+        push(concrete_struct_name(t));
+        push(std::string(TypeRef(t).struct_name()));
+        break;
+    case K::Enum:
+        push(std::string(TypeRef(t).enum_name()));
+        break;
+    case K::Slice: case K::UnsizedSlice:
+        if (TypeRef(t).elem() && TypeRef(TypeRef(t).elem()).kind() == K::U8) push("str");   // `str` ≡ `[u8]`
+        if (TypeRef(t).elem()) push("$slice$" + type_str_regions_erased(TypeRef(t).elem()));
+        push("$slice$T");
+        break;
+    case K::Ptr:
+        if (TypeRef(t).pointee()) for (auto& k : impl_lookup_keys_(TypeRef(t).pointee())) push(k);
+        break;
+    case K::Array:
+        for (auto& k : array_impl_lookup_keys(t)) push(k);
+        break;
+    case K::Tuple: {
+        auto es = TypeRef(t).tuple_elems();
+        std::string k = "$tuple$" + std::to_string(es.size());
+        std::string full = k;
+        for (auto e : es) { full += "$"; full += e ? type_str(e) : std::string("?"); }
+        push(full);
+        push(k);
+        break;
+    }
+    case K::Ref: case K::MutRef: {
+        TypeRef pt = TypeRef(t).pointee();
+        if (!pt) break;
+        const std::string pfx = TypeRef(t).kind() == K::MutRef ? "$mut_ref_" : "$ref_";
+        for (auto& k : impl_lookup_keys_(pt)) push(pfx + k);
+        break;
+    }
+    default:
+        if (is_integer(t) || TypeRef(t).kind() == K::Bool || TypeRef(t).kind() == K::F64 ||
+            TypeRef(t).kind() == K::F32 || TypeRef(t).kind() == K::Char)
+            push(type_str(t));
+        break;
+    }
+    return keys;
+}
+
+// Does a candidate's declared self accept `actual` at its head (a template's
+// self names its own parameters: `&W<T>` takes `&W<i64>`)?
+static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
+    using K = LogosType::Kind;
+    if (!formal || !actual) return false;
+    const auto fk = TypeRef(formal).kind(), ak = TypeRef(actual).kind();
+    if (fk == K::TypeVar) return ak != K::Ref && ak != K::MutRef && ak != K::Ptr;
+    if (fk == K::Ptr) {
+        // `*const Self` takes a `*mut` too; `*mut Self` only a `*mut`.
+        return ak == K::Ptr && (!TypeRef(formal).mut_ptr() || TypeRef(actual).mut_ptr()) &&
+               probe_self_head_match_(TypeRef(formal).pointee(), TypeRef(actual).pointee());
+    }
+    if (fk == K::Ref || fk == K::MutRef) {
+        if (ak == fk) return probe_self_head_match_(TypeRef(formal).pointee(), TypeRef(actual).pointee());
+        // `&[T]` / `&mut [T]` canonicalise to the Slice kind itself.
+        return false;
+    }
+    if ((fk == K::Struct || fk == K::ZonedStruct || fk == K::DstRef) &&
+        (ak == K::Struct || ak == K::ZonedStruct || ak == K::DstRef))
+        return TypeRef(formal).struct_name() == TypeRef(actual).struct_name();
+    if (fk == K::Enum && ak == K::Enum) return TypeRef(formal).enum_name() == TypeRef(actual).enum_name();
+    if ((fk == K::Slice || fk == K::UnsizedSlice) && (ak == K::Slice || ak == K::UnsizedSlice)) return true;
+    if (fk == K::Array && ak == K::Array) return true;
+    if (fk == K::Tuple && ak == K::Tuple)
+        return TypeRef(formal).tuple_elems().size() == TypeRef(actual).tuple_elems().size();
+    return fk == ak;
+}
+
+SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_view name) {
+    using K = LogosType::Kind;
+    // Pass 0: rustc's steps. Pass 1 (B-it-09, not Rust): a raw-pointer self
+    // reached by taking the receiver's address — the last resort, only when no
+    // step of pass 0 had a method.
+    for (int pass = 0; pass < 2; ++pass) {
+        TypeRef cur = recv_t;
+        for (int d = 0; d < 8 && cur; ++d) {
+            const int ar_lo = pass == 0 ? 0 : 3, ar_hi = pass == 0 ? 3 : 5;
+            for (int ar = ar_lo; ar < ar_hi; ++ar) {
+                const auto ck = TypeRef(cur).kind();
+                // `&[T]` is the Slice kind: its by-value step IS the `&self` step.
+                if (ar > 0 && ar < 3 && (ck == K::Slice || ck == K::UnsizedSlice)) break;
+                if (ar >= 3 && (ck == K::Ptr || ck == K::Ref || ck == K::MutRef)) break;
+                TypeRef want = ar == 0 ? cur : ar <= 2 ? make_ref(ar == 2, cur) : make_ptr(ar == 4, cur);
+                std::vector<std::string> keys = impl_lookup_keys_(cur);
+                if (ar == 1 || ar == 2) for (auto& k : impl_lookup_keys_(want)) keys.push_back(k);
+                // A user type's methods are its package's (a user `Vec` is not the stdlib's).
+                std::string tpkg;
+                if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum) tpkg = std::string(TypeRef(cur).pkg_name());
+                ProbePick pick;
+                int best_rank = 0;
+                for (auto& k : keys) {
+                    const std::string mk = k + "__" + std::string(name);
+                    std::vector<const SemaFuncInfo*> cands = find_func_candidates(mk);
+                    if (auto* g = find_generic_func(mk))
+                        if (std::find(cands.begin(), cands.end(), g) == cands.end()) cands.push_back(g);
+                    for (auto* fi : cands) {
+                        if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
+                        TypeRef f0 = fi->param_types[0];
+                        if (TypeRef(f0).kind() == K::Ptr && ck != K::Ptr && ar < 3) continue;
+                        if (!probe_self_head_match_(f0, want)) continue;
+                        // Inherent before trait; at one rank the type's own package's
+                        // method before an extension elsewhere (a user `Vec` is not the
+                        // stdlib's; `WAny::as_array` lives in another stdlib package).
+                        const int rank = (fi->trait_name.empty() ? 0 : 2) +
+                                         (!tpkg.empty() && !fi->package.empty() && fi->package != tpkg ? 1 : 0);
+                        if (!pick.fi || rank < best_rank) {
+                            pick = {fi, d, ar, mk, {fi}}; best_rank = rank;
+                        } else if (rank == best_rank &&
+                                   std::find(pick.tied.begin(), pick.tied.end(), fi) == pick.tied.end()) {
+                            pick.tied.push_back(fi);
+                        }
+                    }
+                }
+                if (pick.fi) return pick;
+            }
+            // One deref step. A raw pointer is never autoderef'd (rustc): a
+            // method on what it points to is `(*p).m()`.
+            const auto ck = TypeRef(cur).kind();
+            if ((ck == K::Ref || ck == K::MutRef) && TypeRef(cur).pointee()) { cur = TypeRef(cur).pointee(); continue; }
+            if (ck == K::Struct || ck == K::ZonedStruct) { cur = deref_target_type_(cur); continue; }
+            if (ck == K::Array) { cur = make_unsized_slice_type(TypeRef(cur).elem()); continue; }
+            break;
+        }
+    }
+    return {};
 }
 
 lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
@@ -10325,6 +10465,27 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 ? scope_[cur_stmt_temp_hoist_frame_].var_order.size() : 0;
     const size_t mark_ext = pending_ext_init_.size();
     auto recv = lower_expr(recv_node);
+    // Probe census (LOGOS_PROBE_DIFF): the new probe's pick against the symbol
+    // this path ends up emitting, compared at exit.
+    struct ProbeCensus_ {
+        SemaChecker* s; std::string want; bool on;
+        ~ProbeCensus_() {
+            if (!on) return;
+            const std::string& got = s->last_call_sym_;
+            if (want.empty()) { if (!got.empty()) std::fprintf(stderr, "PROBENONE %s:%u got=%s recv=%s\n", s->ctx_.c_str(), s->node_line_, got.c_str(), rt.c_str()); return; }
+            if (std::find(tied.begin(), tied.end(), got) == tied.end())
+                std::fprintf(stderr, "PROBEDIFF %s:%u probe=%s old=%s\n", s->ctx_.c_str(), s->node_line_, want.c_str(), got.c_str());
+        }
+        std::vector<std::string> tied;
+        std::string rt;
+    } probe_census_{this, {}, std::getenv("LOGOS_PROBE_DIFF") != nullptr, {}, {}};
+    if (probe_census_.on && recv && expr_type(recv)) {
+        probe_census_.rt = type_str(expr_type(recv));
+        auto pk = probe_method_(expr_type(recv), method_name);
+        if (pk.fi) probe_census_.want = pk.fi->symbol_name.empty() ? pk.key : pk.fi->symbol_name;
+        for (auto* t : pk.tied) probe_census_.tied.push_back(t->symbol_name.empty() ? pk.key : t->symbol_name);
+        last_call_sym_.clear();
+    }
     // An INDEXED place receiving a `&mut self` method is a mutable use, so
     // the index is `IndexMut` (Rust's rule for a method receiver): `v[0].bump()`
     // and `vs[0].push(x)` with `vs: Vec<&mut Vec<_>>` took the SHARED `index`
@@ -10695,6 +10856,25 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     //   p.byte_offset_from(q)          — i64 byte distance
     //   p.offset_from(q)               — i64 element distance
     if (auto r = try_method_on_raw_ptr(node, recv, method_name)) return *r;
+
+    // A raw-pointer receiver is not autoderef'd (rustc E0599): the method must
+    // take the pointer itself (`self: *mut Self`); a method of the pointee is
+    // `(*p).m()`, in unsafe.
+    if (TypeRef rp(expr_type(recv)); rp && rp.kind() == LogosType::Kind::Ptr) {
+        auto pk = probe_method_(rp, method_name);
+        if (!(pk.fi && pk.derefs == 0 && pk.autoref == 0)) {
+            error(std::format("no method named `{}` found for raw pointer `{}` (E0599): "
+                              "a raw pointer is not dereferenced implicitly — write `(*p).{}(..)`",
+                              method_name, type_str(rp), method_name));
+            if (node.has_key(la::ARGS) && node.get(la::ARGS.code).is_pointer()) {
+                auto args_av = node.get(la::ARGS.code);
+                auto am = map_of(args_av);
+                auto items = (!am.is_null() && am.has_key(la::ITEMS)) ? arr_of(am.get(la::ITEMS.code)) : arr_of(args_av);
+                for (uint64_t i = 0; i < items.size(); ++i) (void)lower_expr(map_of(items.get(i)));
+            }
+            return error_expr();
+        }
+    }
 
     // *mut dyn Trait / *const dyn Trait method dispatch: peel the Ptr to
     // expose the underlying TraitObject so the existing vtable-call branch
@@ -25454,7 +25634,7 @@ void SemaChecker::emit_token_macro_item_site(
                 "    let mut i: i64 = 0i64;\n"
                 "    while i < n {{\n"
                 "        let p: *const QuoteItemBlob = unsafe {{\n"
-                "            (&__il.blobs as *const Vec<QuoteItemBlob>).at_const(i)\n"
+                "            (*(&__il.blobs as *const Vec<QuoteItemBlob>)).at_const(i)\n"
                 "        }};\n"
                 "        unsafe {{ logos_emit_item_blob_subst(p); }}\n"
                 "        unsafe {{ logos_qib_free_idents((*p).idents_blob); }}\n"
@@ -27870,7 +28050,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             "    let mut i: i64 = 0i64;\n"
             "    while i < n {{\n"
             "        let p: *const QuoteItemBlob = unsafe {{\n"
-            "            (&__il.blobs as *const Vec<QuoteItemBlob>).at_const(i)\n"
+            "            (*(&__il.blobs as *const Vec<QuoteItemBlob>)).at_const(i)\n"
             "        }};\n"
             "        unsafe {{ logos_emit_item_blob_subst(p); }}\n"
             "        unsafe {{ logos_qib_free_idents((*p).idents_blob); }}\n"
@@ -28190,7 +28370,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
             "    let mut i: i64 = 0i64;\n"
             "    while i < n {{\n"
             "        let p: *const QuoteItemBlob = unsafe {{\n"
-            "            (&__il.blobs as *const Vec<QuoteItemBlob>).at_const(i)\n"
+            "            (*(&__il.blobs as *const Vec<QuoteItemBlob>)).at_const(i)\n"
             "        }};\n"
             "        unsafe {{ logos_emit_item_blob_subst(p); }}\n"
             "        unsafe {{ logos_qib_free_idents((*p).idents_blob); }}\n"

@@ -427,7 +427,7 @@ pub fn json_field_index(fields: &Vec<JsonField>, key: str) -> i64 {
     unsafe {
         let fp: *const Vec<JsonField> = fields as *const Vec<JsonField>;
         while i < n {
-            let f: *const JsonField = fp.at_const(i);
+            let f: *const JsonField = (*fp).at_const(i);
             if (*f).key.eq_str(key) { return i; }
             i = i + 1 as i64;
         }

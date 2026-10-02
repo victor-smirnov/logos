@@ -9,6 +9,6 @@ impl S {
 fn main() -> i32 {
     let s: S = S { x: 1i32 };
     let p: *const S = &s;
-    let _v: i32 = p.val();
+    let _v: i32 = (*p).val();
     return 0i32;
 }
