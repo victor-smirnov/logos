@@ -10495,6 +10495,10 @@ private:
     std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
     std::string last_call_sym_;   // the symbol the builder emitted last (probe census)
+    // Symbols of the methods whose self is a raw pointer (B-it-09 detection).
+    bool raw_self_symbol_(std::string_view sym);
+    std::unordered_set<std::string> raw_self_index_;
+    size_t raw_self_index_n_ = SIZE_MAX;
     // A method candidate's place in rustc's probe order at one receiver step:
     // by value (0) before autoref (2); inherent before trait (+1).
     static int recv_pick_rank_(const SemaFuncInfo* c, bool needs_autoref) {

@@ -25,8 +25,9 @@ WHAT IS HASHED, and why each part is here:
   lib/logos/**             the stdlib: passed as a `-L` search path, so its
                            CONTENTS decide what every program links against
   tests/logos/*.a          the fixture archives some tests link
-The set is not a guess: `ctest -N -V` prints each registered test's real command
-line, and these are the only paths under the build directory those commands name.
+The set is not a guess: lt's discovery (scripts/lt_discover.py --json) gives each
+registered test's real command line, and these are the only paths under the build
+directory those commands name.
 
 Prints `<16-hex> <n files>` — the hash, and how many files went into it, because
 a hash over an unexpectedly small set is the failure this file is about.

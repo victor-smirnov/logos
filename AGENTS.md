@@ -32,8 +32,11 @@ once, then run its levels:
 L0, L1 and L2 are disjoint and together are the whole suite. Groups live in
 `tests/groups.rules`. Every result, with its duration and output, is kept in
 `build/testdb.sqlite`: `scripts/lt show TEST --output`, `scripts/lt last --failed`,
-`scripts/lt run --failed`. `ctest` and `tests/logos/test-levels.sh` are
-deprecated (CMake still describes the tests; `lt` imports and runs them).
+`scripts/lt run --failed`. **ctest is retired**: CMake builds and registers no
+test (a bare `ctest` fails with a pointer here). `lt` discovers the tests from
+the tree — `scripts/lt_discover.py`, with the data (suites, per-test arguments,
+the gate and lint singletons) in `tests/lt_registry.py` — so a new fixture is a
+test the moment its files exist; a new gate or lint is one entry in the registry.
 
 **Work of one kind goes in a series** (e.g. ten borrow-checker defects from the
 tracker). A series is a branch; while it is open, each task runs only its L0

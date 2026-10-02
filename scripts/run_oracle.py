@@ -13,7 +13,7 @@ LINKED and EXECUTED:
     runrc   the compiled program's exit code
     sha     sha256 of its stdout
 
-The population is `ctest -N -V -L pass`, read from the registered command lines
+The population is lt's discovery filtered `-L pass`, read from the registered command lines
 for the same reason fail_text_oracle.py reads them: the label is decided in
 CMake and a glob here would be a drifting second copy.
 """
@@ -32,25 +32,27 @@ def archives():
 ARCH = archives()
 
 def population():
-    out = subprocess.run(["ctest", "--test-dir", BUILD, "-N", "-V"] + SEL,
-                         capture_output=True, text=True).stdout
-    rows, cmd, env = [], None, {}
-    for l in out.splitlines():
-        if "Test command:" in l:
-            cmd = shlex.split(l.split("Test command:", 1)[1].strip()); env = {}
-        m = re.match(r'\s*\d+:\s+(LOGOS_\w+)=(.*)$', l)
-        if m: env[m.group(1)] = m.group(2)
-        m = re.match(r'\s*Test\s+#\d+:\s+(\S+)\s*$', l)
-        if m and cmd:
-            # run_test.sh MODE LOGOSC TEST_LOGOS EXPECTED EXTRA...
-            # ⚠ `>= 6` HERE READ 220 OF 6269. A pass fixture with no EXTRA flags
-            # has a FIVE-element command line, and the bound written for the
-            # fail oracle's shape silently dropped 96% of the population — a
-            # filter is not a population, and a smaller one still returns a
-            # confident number.
-            if len(cmd) >= 5 and cmd[1] == "pass":
-                rows.append((m.group(1), cmd[3], cmd[5:], dict(env)))
-            cmd = None
+    # The registry is lt's discovery (scripts/lt_discover.py); ctest is retired.
+    # LOGOS_RUN_ORACLE_SEL keeps its meaning: `-L RE` / `-LE RE` label filters.
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import lt_discover
+    tests = lt_discover.discover(ROOT, BUILD)
+    sel = list(SEL)
+    while sel:
+        flag, rx = sel[0], sel[1] if len(sel) > 1 else ""
+        sel = sel[2:]
+        if flag == "-L":
+            tests = [t for t in tests if any(re.search(rx, l) for l in t["labels"])]
+        elif flag == "-LE":
+            tests = [t for t in tests if not any(re.search(rx, l) for l in t["labels"])]
+    rows = []
+    for t in tests:
+        cmd = t["command"]
+        env = dict(kv.split("=", 1) for kv in t.get("env", []) if kv.startswith("LOGOS_") and "=" in kv)
+        # run_test.sh MODE LOGOSC TEST_LOGOS EXPECTED EXTRA... (a pass fixture
+        # with no EXTRA flags has a FIVE-element command line).
+        if len(cmd) >= 5 and cmd[1] == "pass":
+            rows.append((t["name"], cmd[3], cmd[5:], env))
     return rows
 
 def one(row):

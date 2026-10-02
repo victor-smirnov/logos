@@ -6727,6 +6727,22 @@ void SemaChecker::on_call_(std::string_view callee, std::string_view /*method*/,
         require_unsafe_ctx_(type_str(callee_type), false);
 }
 
+bool SemaChecker::raw_self_symbol_(std::string_view sym) {
+    const size_t n = funcs_.size() + generic_funcs_.size();
+    if (n != raw_self_index_n_) {
+        raw_self_index_.clear();
+        for (auto* reg : {&funcs_, &generic_funcs_})
+            for (auto& [key, fi] : *reg)
+                if (fi.is_method && !fi.param_types.empty() && fi.param_types[0] &&
+                    TypeRef(fi.param_types[0]).kind() == LogosType::Kind::Ptr) {
+                    raw_self_index_.insert(key);
+                    if (!fi.symbol_name.empty()) raw_self_index_.insert(fi.symbol_name);
+                }
+        raw_self_index_n_ = n;
+    }
+    return raw_self_index_.count(std::string(sym)) > 0;
+}
+
 // ── ADR 0030 S8 row 4: the method probe ─────────────────────────────────
 std::vector<std::string> SemaChecker::impl_lookup_keys_(TypeRef t) {
     std::vector<std::string> keys;
@@ -10479,6 +10495,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         std::vector<std::string> tied;
         std::string rt;
     } probe_census_{this, {}, std::getenv("LOGOS_PROBE_DIFF") != nullptr, {}, {}};
+    // B-it-09 (not Rust): a raw-pointer self reached by taking the address of
+    // a receiver that is not a raw pointer. rustc's autoref never makes one.
+    struct RawSelfGuard_ {
+        SemaChecker* s; bool recv_is_ptr; std::string mname;
+        ~RawSelfGuard_() {
+            if (recv_is_ptr || s->last_call_sym_.empty()) return;
+            // Measurement only until the stdlib's raw-self methods take
+            // `&self` / `&mut self` (S8 row 4, B-it-09 removal).
+            if (s->raw_self_symbol_(s->last_call_sym_) && std::getenv("LOGOS_RAWSELF_MEASURE"))
+                std::fprintf(stderr, "RAWSELF %s\n", s->last_call_sym_.c_str());
+        }
+    } raw_self_guard_{this, recv && expr_type(recv) && TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ptr,
+                      std::string(method_name)};
+    last_call_sym_.clear();
     if (probe_census_.on && recv && expr_type(recv)) {
         probe_census_.rt = type_str(expr_type(recv));
         auto pk = probe_method_(expr_type(recv), method_name);

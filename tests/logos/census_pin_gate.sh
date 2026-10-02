@@ -134,10 +134,10 @@
 # is the original defect one level up.
 set -u
 
-ROOT=${1:?usage: census_pin_gate.sh <repo root> <census.md> <ctest> <build dir>}
-CENSUS=${2:?usage: census_pin_gate.sh <repo root> <census.md> <ctest> <build dir>}
-CTEST=${3:?usage: census_pin_gate.sh <repo root> <census.md> <ctest> <build dir>}
-BUILD=${4:?usage: census_pin_gate.sh <repo root> <census.md> <ctest> <build dir>}
+ROOT=${1:?usage: census_pin_gate.sh <repo root> <census.md> <lt_discover.py> <build dir>}
+CENSUS=${2:?usage: census_pin_gate.sh <repo root> <census.md> <lt_discover.py> <build dir>}
+DISCOVER=${3:?usage: census_pin_gate.sh <repo root> <census.md> <lt_discover.py> <build dir>}
+BUILD=${4:?usage: census_pin_gate.sh <repo root> <census.md> <lt_discover.py> <build dir>}
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
@@ -466,17 +466,15 @@ check_all() {
   filename in the census missing."
 
 # ── the registry measurement, once ───────────────────────────────────────────
+# The registry is lt's discovery (scripts/lt_discover.py); ctest is retired.
 ctest_count() {
-    local out rc
-    out=$("$CTEST" --test-dir "$BUILD" -N "$@" 2>/dev/null); rc=$?
-    [ "$rc" = 0 ] || return 1
-    printf '%s\n' "$out" | sed -nE 's/^Total Tests: ([0-9]+)$/\1/p'
+    python3 "$DISCOVER" --src "$ROOT" --build "$BUILD" --count "$@" 2>/dev/null
 }
-CT_ALL=$(ctest_count)      || broken "\`$CTEST --test-dir $BUILD -N\` failed."
-CT_NOIMP=$(ctest_count -LE imported)   || broken "ctest -N -LE imported failed."
-CT_TIER=$(ctest_count -L '^tier_commit$') || broken "ctest -N -L tier_commit failed."
+CT_ALL=$(ctest_count)      || broken "\`$DISCOVER --count\` failed."
+CT_NOIMP=$(ctest_count --label-exclude imported)   || broken "lt_discover --label-exclude imported failed."
+CT_TIER=$(ctest_count --label '^tier_commit$') || broken "lt_discover --label tier_commit failed."
 [ -n "$CT_ALL" ] && [ "$CT_ALL" -gt 100 ] 2>/dev/null || \
-    broken "ctest -N reported '$CT_ALL' tests. A tiny or unparsable total means
+    broken "lt_discover reported '$CT_ALL' tests. A tiny or unparsable total means
   the reader is wrong, not that the registry emptied — and FACT 5 would then
   'pass' against any census."
 

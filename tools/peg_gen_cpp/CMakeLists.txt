@@ -84,39 +84,6 @@ add_custom_target(peg_ast_regen
     DEPENDS peg_gen_cpp ${LOGOS_PEG}
     COMMENT "Regenerating include/logos/compiler/ast.hpp from logos.peg")
 
-# Tier audit for this directory's tests (cmake/LogosTestTiers.cmake): every
-# test here must declare exactly one tier label, or the configure fails.
-logos_require_tier_labels()
-
-add_test(NAME peg_ast_header_fresh
-    COMMAND ${CMAKE_COMMAND}
-            -DPEG=$<TARGET_FILE:peg_gen_cpp>
-            -DGRAMMAR=${LOGOS_PEG}
-            -DHEADER=${LOGOS_AST_HEADER}
-            -DWORK=${CMAKE_CURRENT_BINARY_DIR}/ast_fresh_check
-            -P ${CMAKE_CURRENT_SOURCE_DIR}/check_ast_header.cmake)
-set_tests_properties(peg_ast_header_fresh PROPERTIES LABELS "lint;tier_full")
-
-# ── The other mirror: %schema blocks vs the ADR-0011 `schema` items ──────────
-# el.peg's %schema restates stdlib/mem/wql/ir.logos, wql.peg's restates
-# plan.logos. The grammar declares only the fields it writes, and the .logos
-# files also carry schema enums, helpers and the fan-cap fns — so the .peg
-# cannot GENERATE the items. But every field it DOES declare must agree, or the
-# generated parser writes the wrong TOM slot. Until now el.peg merely ASKED, in
-# a comment, that "types MUST match the field types in ir.logos exactly".
-set(WQL_GRAMMARS ${CMAKE_SOURCE_DIR}/stdlib/mem/wql/grammars)
-set(WQL_SCHEMAS  ${CMAKE_SOURCE_DIR}/stdlib/mem/wql)
-
-add_test(NAME peg_schema_mirror_el
-    COMMAND $<TARGET_FILE:peg_gen_cpp> ${WQL_GRAMMARS}/el.peg
-            --check-schema ${WQL_SCHEMAS}/ir.logos)
-add_test(NAME peg_schema_mirror_wql
-    COMMAND $<TARGET_FILE:peg_gen_cpp> ${WQL_GRAMMARS}/wql.peg
-            --check-schema ${WQL_SCHEMAS}/plan.logos
-            --check-schema ${WQL_SCHEMAS}/ir.logos)
-set_tests_properties(peg_schema_mirror_el peg_schema_mirror_wql
-    PROPERTIES LABELS "lint;tier_full")
-
 # EL cross-BACKEND oracle — the check that makes "one dialect, two backends" a
 # fact rather than a hope: parse one EL corpus with the parser peg_gen_cpp
 # generates from el.peg AND with the parser peg_gen_logos generates from the SAME

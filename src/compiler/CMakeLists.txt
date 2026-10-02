@@ -127,13 +127,6 @@ add_executable(trait_engine_test
     trait_engine.cpp
     trait_engine_test.cpp
 )
-# Tier audit for this directory's tests (cmake/LogosTestTiers.cmake): every
-# test here must declare exactly one tier label, or the configure fails.
-logos_require_tier_labels()
-
-add_test(NAME trait_engine_test COMMAND trait_engine_test
-         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
-set_tests_properties(trait_engine_test PROPERTIES LABELS "trait_engine;cpp;tier_full")
 
 # ---------------------------------------------------------------------------
 # logos_dl — the Datalog engine of ADR 0028 (#419). No dependency on the rest
@@ -166,20 +159,6 @@ target_link_libraries(logos-dl PRIVATE logos_dl)
 
 add_executable(dl_test dl/dl_test.cpp)
 target_link_libraries(dl_test PRIVATE logos_dl)
-
-add_test(NAME dl_test COMMAND dl_test)
-set_tests_properties(dl_test PROPERTIES LABELS "dl;cpp;tier_commit")
-
-# Souffle is the oracle; without it the test reports SKIPPED (rc 77), never
-# passed.
-add_test(NAME dl_souffle_oracle
-         COMMAND bash ${CMAKE_SOURCE_DIR}/tests/dl/oracle.sh
-                 $<TARGET_FILE:logos-dl>
-                 ${CMAKE_SOURCE_DIR}/tests/dl/cases
-                 ${CMAKE_CURRENT_SOURCE_DIR}/dl/rules)
-set_tests_properties(dl_souffle_oracle PROPERTIES
-    LABELS "dl;cpp;tier_commit"
-    SKIP_RETURN_CODE 77)
 
 # Verifies TypeRef/lir_view cross-arena dispatch (ExternalRef detection +
 # ArenaPool resolution end-to-end). See docs/internals/multi-arena-ir.md.

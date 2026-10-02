@@ -210,9 +210,6 @@ NOT_GATES = {
     "facts_fold.sh":           "a sourced bash LIBRARY (one function, no main); "
                                "its verdict is pronounced by the three "
                                "logos_09_* census gates that source it",
-    # Reporters. They pronounce no verdict at all — this is also written down in
-    # verdict.py's gate census.
-    "ctest-summary.sh":        "reports a ctest run; asserts nothing",
     # ADR 0028's shadow MEASUREMENT loop, not a gate. `rerun.sh` compiles a list
     # of inputs with LOGOS_DL_SHADOW=bc and appends a census; it asserts nothing
     # and has no pass/fail — the numbers are read by summ.py/top.py and quoted in
@@ -221,18 +218,6 @@ NOT_GATES = {
     # a measurement, not the tree.
     "rerun.sh":                "ADR 0028 shadow-census driver: appends a census "
                                "over an input list, asserts nothing",
-    # TWO BARRIERS AND AN AUDITOR, added 2026-08-28 after Victor's point that an
-    # instruction agents can read is not an instruction they execute — measured,
-    # 6 builds for a batch of 9 probes where the protocol says ONE, and `L4 bc`
-    # run 3 and 2 times where the ladder says once. None of the three is a gate:
-    # `probe-batch.sh` prices ONE batch of hypotheses, so there is no population
-    # to register it over (same ground as change-budget.sh and ceiling-probe.sh);
-    # `workflow-audit.py` reads a workflow transcript, which is not a property of
-    # the tree at all — it grades a RUN, and a run has no committed state to
-    # assert against.
-    "probe-batch.sh":          "installs one batch of probes, builds ONCE and "
-                               "prices them; a hand-run tool for one hypothesis "
-                               "set, with no population to register it over",
     # THE TWO POPULATIONS `ceiling-probe.sh` COULD NOT SEE, added 2026-08-30.
     # Same ground as ceiling-probe.sh itself: each prices ONE hypothesis over a
     # population that exists only while a probe is armed, so there is nothing
@@ -260,53 +245,6 @@ NOT_GATES = {
     "gate-state.sh":           "reads the verdict a previous L4 recorded for "
                                "this exact tree state; asserts nothing, and "
                                "distinguishes STALE from ABSENT",
-    # THE RECORD AND ITS RUNNER, 2026-08-28. `gate-run.sh` runs a ctest filter
-    # ONCE per (test set × compiler) and records the result; `gate_db.py` is the
-    # SQLite store behind it. Neither asserts anything about the tree: the runner
-    # returns whatever ctest returned, and the store answers questions ("what
-    # failed", "when did this test last pass") that no fixed verdict could stand
-    # in for. The KEY is the enumerated test list plus a content hash of logosc,
-    # because an argument-keyed cache is wrong in both directions and an
-    # mtime-keyed one throws away identical rebuilds.
-    "gate-run.sh":             "runs a ctest filter once per (test set x "
-                               "compiler) and records it; its own verdict is "
-                               "ctest's, and it asserts nothing of its own",
-    "gate_db.py":              "the SQLite store behind gate-run.sh; a reader "
-                               "and a writer, with no verdict of its own",
-    # A HAND-RUN CEILING PROBE, and it must not become a gate for the same
-    # reason change-budget.sh must not: it answers a question about ONE
-    # hypothesis, so there is no population to register it over. It reports how
-    # many `bc_admits.ledger` rows a DELIBERATELY WRONG edit could close — the
-    # edit ignores exemptions, over-refuses, and is never landed — so the number
-    # is an UPPER BOUND used to decide what to fund, not a verdict about the
-    # tree. Registering it would assert that some ceiling is the right one.
-    # It does carry `--selftest`, whose verdict IS fixed (the sabotage probe
-    # must close every row, which is what caught a broken reader on its first
-    # run); that is the instrument grading itself, exactly like
-    # tools/dlog/selftest.sh, and it is run by hand beside a probe session.
-    "ceiling-probe.sh":        "a hand-run CEILING PROBE for one hypothesis at "
-                               "a time; its number is an upper bound to spend "
-                               "against, not a verdict, and there is no "
-                               "population to register it over",
-    # THE SIBLING OF ceiling-probe.sh, exempt for the same ground and one more.
-    # ceiling-probe.sh reads closures off the acceptance ledger, where a
-    # probe-induced FAILURE is good news because every row asserts the defect is
-    # still there. Among programs that COMPILE there is no such assertion: an
-    # armed probe's failures MIX programs wrongly admitted (the finding) with
-    # legal programs wrongly refused (the cost), and NOTHING IN A COMPILE'S EXIT
-    # CODE SEPARATES THEM. This script ranks them by which population asserted
-    # the program legal — rustc's own verdict, the stdlib build, a fixture
-    # author's word — and hands back the residue UNSORTED, on purpose. So it has
-    # no fixed verdict about the tree and no population to be registered over,
-    # twice over: the sort is a ranking for a human, not a claim. Its
-    # `--selftest` verdict IS fixed and hand-run beside a probe session — two
-    # poles, `selftest_refuse` must change hundreds of programs and
-    # `selftest_inert` (a pure observer at the same site) must change none.
-    "pass-probe.sh":           "a hand-run PROBE READER over the pass corpus and "
-                               "the stdlib; it RANKS changed programs by whose "
-                               "assertion of legality they rest on and leaves "
-                               "the residue unsorted, so it pronounces no "
-                               "verdict and has no population to register over",
     # A HAND-RUN MEASURING TOOL, and the one thing it must not become is a gate.
     # It reports the SIZE of a change (files / logic lines / new names / new
     # branches) against a budget the author declared BEFORE writing it — the
@@ -384,9 +322,6 @@ NOT_GATES = {
                                "answers it cannot separate, so it pronounces no "
                                "verdict and there is no floor on coverage it "
                                "could be registered to hold",
-    "perf-slow.sh":            "lists the slowest tests; asserts nothing",
-    "test-levels.sh":          "DRIVES ctest (L0–L4); being a ctest test would "
-                               "be a recursion",
     # Gates that run OUTSIDE ctest, by the commit procedure. Each does pronounce
     # a verdict; what ctest cannot give them is their input.
     "abi-check.sh":            "the ABI gate — step 4 of the commit procedure; "
@@ -475,30 +410,27 @@ class CannotLook(Exception):
 
 
 def ctest_shell_commands(build_dir, root):
-    """Every `.sh` ctest invokes, repo-relative. THE ARTIFACT IS ASKED.
-
-    `--show-only=json-v1` runs no test; it prints the registered command line of
-    each, which is the only place that knows what the suite is. A CMakeLists
-    grep would find the strings somebody wrote, not the commands cmake built:
-    an `add_test` behind an `if()` that is false registers nothing and greps the
-    same."""
+    """Every `.sh` a registered test invokes, repo-relative. THE ARTIFACT IS
+    ASKED: lt's discovery (scripts/lt_discover.py over tests/lt_registry.py) is
+    the only place that knows what the suite is — ctest is retired and CMake
+    registers no test. A registry grep would find the strings somebody wrote,
+    not the commands discovery builds (a family that globs an empty directory
+    registers nothing and greps the same)."""
+    import importlib.util
+    path = os.path.join(root, "scripts", "lt_discover.py")
+    if not os.path.isfile(path):
+        raise CannotLook(f"no test discovery at {path}")
     try:
-        p = subprocess.run(["ctest", "--show-only=json-v1"], cwd=build_dir,
-                           capture_output=True, text=True, timeout=180)
-    except (OSError, subprocess.SubprocessError) as e:
-        raise CannotLook(f"could not run ctest in {build_dir}: {e}")
-    if p.returncode != 0:
-        raise CannotLook(f"ctest --show-only failed in {build_dir} "
-                         f"(exit {p.returncode}): {p.stderr.strip()[:300]}")
-    try:
-        d = json.loads(p.stdout)
-    except ValueError as e:
-        raise CannotLook(f"ctest's json was not parseable: {e}")
-    tests = d.get("tests")
+        spec = importlib.util.spec_from_file_location("lt_discover_for_gate_lint", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        tests = mod.discover(root, build_dir)
+    except Exception as e:
+        raise CannotLook(f"lt discovery failed for {root}: {e}")
     if not tests:
-        raise CannotLook("ctest reported ZERO tests — a configured build "
-                         "registers thousands, so this is a build directory "
-                         "that has not been configured, not an empty suite.")
+        raise CannotLook("lt discovery reported ZERO tests — the tree registers "
+                         "thousands, so this is a broken discovery, not an empty "
+                         "suite.")
     out = {}
     for t in tests:
         for a in t.get("command", []):
@@ -1078,54 +1010,46 @@ CANARIES = [
 
 
 def _selftest_r5(broken, fired, silent):
-    """R5 now compares two SETS, so its canary is two sets: one script ctest
-    invokes and one it does not. Without this R5 would be the one rule nothing
+    """R5 now compares two SETS, so its canary is two sets: one script a registered
+    test invokes and one it does not. Without this R5 would be the one rule nothing
     proves is alive, which this file forbids."""
     on_disk = {"tests/logos/registered_gate.sh", "tests/logos/orphan_gate.sh",
-               "tests/logos/ctest-summary.sh"}
+               "tests/logos/facts_fold.sh"}
     registered = {"tests/logos/registered_gate.sh": {"t"}}
     got = {f.path for f in r5_unregistered_gates(on_disk, registered)}
     fired.add("r5_unregistered_gates")
     silent.add("r5_unregistered_gates")
     if "tests/logos/orphan_gate.sh" not in got:
-        broken.append("  r5_unregistered_gates: a script ctest does not invoke "
+        broken.append("  r5_unregistered_gates: a script no registered test invokes "
                       "read as registered.")
     if "tests/logos/registered_gate.sh" in got:
         broken.append("  r5_unregistered_gates: flagged a script that IS a "
-                      "ctest command.")
-    if "tests/logos/ctest-summary.sh" in got:
+                      "registered test's command.")
+    if "tests/logos/facts_fold.sh" in got:
         broken.append("  r5_unregistered_gates: flagged a declared NOT_GATES "
                       "reporter, so the grounded exception does not hold.")
 
 
 def _selftest_derivation(broken):
     """THE DERIVATION ITSELF, PROVED ABLE TO FAIL. Every number this program
-    floors comes from `ctest --show-only`; if that call could silently yield an
-    empty or unparseable answer and be read as a small population, the whole
-    conversion would be decoration. Three broken answers, each of which MUST
-    raise CannotLook rather than return a short list."""
+    floors comes from lt's discovery; if it could silently yield an empty or
+    failed answer and be read as a small population, the whole conversion
+    would be decoration. Broken answers, each of which MUST raise CannotLook
+    rather than return a short list."""
     import tempfile
     cases = [
-        ("a directory with no CMakeCache", None),
-        ("ctest answering with zero tests", '{"tests": []}'),
-        ("ctest answering with non-json", 'Total Tests: 0\n'),
+        ("a root with no scripts/lt_discover.py", None),
+        ("a discovery answering with zero tests",
+         "def discover(src, build):\n    return []\n"),
+        ("a discovery that raises",
+         "def discover(src, build):\n    raise RuntimeError('broken registry')\n"),
     ]
-    for label, payload in cases:
+    for label, body in cases:
         with tempfile.TemporaryDirectory() as td:
-            if payload is not None:
-                # A fake `ctest` on PATH that prints the broken answer and
-                # succeeds — the shape that would otherwise read as a real,
-                # small population.
-                bindir = os.path.join(td, "bin")
-                os.makedirs(bindir)
-                fake = os.path.join(bindir, "ctest")
-                with open(fake, "w") as fh:
-                    fh.write("#!/bin/sh\ncat <<'XEOF'\n" + payload + "\nXEOF\n")
-                os.chmod(fake, 0o755)
-                saved = os.environ["PATH"]
-                os.environ["PATH"] = bindir + os.pathsep + saved
-            else:
-                saved = None
+            if body is not None:
+                os.makedirs(os.path.join(td, "scripts"))
+                with open(os.path.join(td, "scripts", "lt_discover.py"), "w") as fh:
+                    fh.write(body)
             try:
                 ctest_shell_commands(td, td)
             except CannotLook:
@@ -1134,10 +1058,6 @@ def _selftest_derivation(broken):
                 broken.append(f"  ctest_shell_commands: {label} did NOT raise "
                               f"CannotLook — a failed derivation would be read "
                               f"as a small population.")
-            finally:
-                if saved is not None:
-                    os.environ["PATH"] = saved
-
 
 def selftest():
     broken = []
@@ -1316,7 +1236,7 @@ def main(argv):
                   for k, v in sorted(NOT_GATES.items())))
     sys.stderr.write(
         f"[gate-lint] population DERIVED, not listed: {census['sh_registered']} "
-        f"shell scripts are the command of a ctest test (out of "
+        f"shell scripts are the command of a registered test (out of "
         f"{census['ctest_tests']} tests), {census['sh_on_disk']} are on disk "
         f"under {'/ '.join(SHELL_ROOTS)}, {census['sh']} were scanned.\n"
         f"[gate-lint] OK — {census['sh']} gate scripts, {census['py']} gate "

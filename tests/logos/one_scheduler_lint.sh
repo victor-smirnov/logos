@@ -50,8 +50,13 @@ set -u
 ROOT="${1:-.}"
 T="$ROOT/tests/logos"
 [ -d "$T" ] || { echo "FAIL(2): no tests/logos under $ROOT — nothing to measure."; exit 2; }
-CM="$T/CMakeLists.txt"
-[ -f "$CM" ] || { echo "FAIL(2): $CM does not resolve — registration is unreadable."; exit 2; }
+# The registration is lt's discovery (scripts/lt_discover.py): CMake registers
+# no test. Every `.sh` a discovered test's command names is "registered".
+DISC="$ROOT/scripts/lt_discover.py"
+[ -f "$DISC" ] || { echo "FAIL(2): $DISC does not resolve — registration is unreadable."; exit 2; }
+CM=$(mktemp)
+trap 'rm -f "$CM"' EXIT
+python3 "$DISC" --src "$ROOT" --json 2>/dev/null > "$CM" || { echo "FAIL(2): lt discovery failed — registration is unreadable."; exit 2; }
 
 # ── OPEN ROWS: registered gates that still fan out, each with its task ───────
 # These are the residue of the 2026-08-21 conversion round, which converted the
@@ -105,9 +110,9 @@ for s in "${REG[@]}"; do
     if [ -n "$hits" ]; then
         found=$((found + 1))
         if [ -z "$open" ]; then
-            echo "FAIL: $s is registered as a ctest test AND fans out its own workers:"
+            echo "FAIL: $s is a registered test AND fans out its own workers:"
             printf '%s\n' "$hits" | sed 's/^/         /'
-            echo "      ctest is already the scheduler. Two nested schedulers cannot"
+            echo "      lt is already the scheduler. Two nested schedulers cannot"
             echo "      see each other: under the full suite this oversubscribes (that"
             echo "      was #82), and under a narrow -R it goes SERIAL for nothing (two"
             echo "      logosc on a 32-core box). Emit per-fixture facts from the"
@@ -132,7 +137,7 @@ fi
 
 if [ "$rc" = 0 ]; then
     echo "one-scheduler lint: ${#REG[@]} registered scripts; every fan-out site is a"
-    echo "  declared OPEN row (#101). ctest is the only scheduler for the rest."
+    echo "  declared OPEN row (#101). lt is the only scheduler for the rest."
 fi
 # `rc` is a LITERAL, set to 0 once and to 1 at the two sites above — never a
 # captured process status, so the 8-bit ceiling that turns `exit 256` green is

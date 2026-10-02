@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""lt — the Logos test runner (replaces ctest as the runner).
+"""lt — the Logos test runner (ctest is retired).
 
-CMake still DESCRIBES the tests (command, environment, timeout, fixtures); `lt`
-imports those descriptions once (`ctest --show-only=json-v1`) and does
-everything else itself: selection, levels, parallel execution, and a run
-database that keeps every result with its duration and output.
+`lt` DISCOVERS the tests itself: scripts/lt_discover.py walks the tree, the
+data CMake used to hard-code (suites, per-test arguments, the gate and lint
+singletons) is tests/lt_registry.py, and a new fixture is a test the moment
+its files exist. It does everything else too: selection, levels, parallel
+execution, and a run database that keeps every result with its duration and
+output. CMake builds; it registers no test.
 
 Levels are computed for a TASK:
   L0  the task's own tests: its direct coverage (named tests, patterns).
@@ -113,7 +115,7 @@ def meta_get(con, k, default=None):
 def meta_set(con, k, v):
     con.execute("INSERT OR REPLACE INTO meta(k,v) VALUES(?,?)", (k, v))
 
-# ── sync: CMake descriptions -> tests, rules -> groups ──────────────────────
+# ── sync: discovered tests -> tests, rules -> groups ──────────────────────
 
 def test_source(cmd):
     for a in cmd:
@@ -145,25 +147,26 @@ def load_rules():
     return rules
 
 def sync(build, con, quiet=False):
-    out = subprocess.run(["ctest", "--show-only=json-v1"], cwd=build,
-                         capture_output=True, text=True)
-    if out.returncode != 0:
-        sys.exit("lt: `ctest --show-only=json-v1` failed; is the build configured?\n" + out.stderr)
-    data = json.loads(out.stdout)
+    # The tests are DISCOVERED from the tree (scripts/lt_discover.py, data in
+    # tests/lt_registry.py) — CMake registers none; ctest is retired.
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import lt_discover
+    try:
+        data = lt_discover.discover(ROOT, build)
+    except Exception as e:
+        sys.exit(f"lt: test discovery failed: {e}")
     seen = set()
     con.execute("UPDATE tests SET present=0")
-    for t in data["tests"]:
-        props = {p["name"]: p["value"] for p in t.get("properties", [])}
-        cmd = t.get("command") or []
+    for t in data:
         name = t["name"]
         seen.add(name)
         con.execute("""INSERT OR REPLACE INTO tests VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,1)""", (
-            name, json.dumps(cmd), json.dumps(props.get("ENVIRONMENT", [])),
-            props.get("WORKING_DIRECTORY", build), float(props.get("TIMEOUT", DEFAULT_TIMEOUT)),
-            json.dumps(props.get("LABELS", [])), test_source(cmd),
-            1 if props.get("DISABLED") else 0, int(props.get("PROCESSORS", 1)),
-            props.get("SKIP_RETURN_CODE"), json.dumps(props.get("FIXTURES_SETUP", [])),
-            json.dumps(props.get("FIXTURES_REQUIRED", [])), json.dumps(props.get("DEPENDS", []))))
+            name, json.dumps(t["command"]), json.dumps(t.get("env", [])),
+            t.get("workdir") or build, float(t.get("timeout", DEFAULT_TIMEOUT)),
+            json.dumps(t.get("labels", [])), t.get("source", ""),
+            1 if t.get("disabled") else 0, int(t.get("processors", 1)),
+            t.get("skip_rc"), json.dumps(t.get("fixtures_setup", [])),
+            json.dumps(t.get("fixtures_required", [])), json.dumps(t.get("depends", []))))
     gone = [r[0] for r in con.execute("SELECT name FROM tests WHERE present=0")]
     # groups are recomputed from the rules every sync
     rules = load_rules()
@@ -184,18 +187,9 @@ def sync(build, con, quiet=False):
               + (": " + ", ".join(gone[:10]) + (" …" if len(gone) > 10 else "") if gone else ""))
 
 def ensure_synced(build, con):
-    # Re-import whenever CMake's registration (any CTestTestfile.cmake) is newer
-    # than the last import.
-    newest = 0.0
-    for dp, dns, fs in os.walk(build):
-        if dp.count(os.sep) - build.count(os.sep) >= 3:
-            dns[:] = []
-        if "CTestTestfile.cmake" in fs:
-            newest = max(newest, os.path.getmtime(os.path.join(dp, "CTestTestfile.cmake")))
-    if meta_get(con, "synced_mtime") != repr(newest):
-        sync(build, con, quiet=True)
-        meta_set(con, "synced_mtime", repr(newest))
-        con.commit()
+    # Discovery is cheap (~0.6 s) and LIVE: every invocation re-reads the tree,
+    # so a new fixture is a test the moment its files exist.
+    sync(build, con, quiet=True)
 
 # ── selection ────────────────────────────────────────────────────────────────
 
