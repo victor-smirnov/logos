@@ -7,14 +7,14 @@ struct Vec<T> {
 }
 
 impl<T: Copy> Vec<T> {
-    unsafe fn push(self: *mut Vec<T>, val: T) {
+    unsafe fn push(&mut self, val: T) {
         self.data[self.len as u64] = val;
         self.len = self.len + 1;
     }
-    unsafe fn get(self: *mut Vec<T>, i: i64) -> T {
+    unsafe fn get(&mut self, i: i64) -> T {
         return self.data[i as u64];
     }
-    unsafe fn len(self: *mut Vec<T>) -> i64 {
+    unsafe fn len(&mut self) -> i64 {
         return self.len;
     }
 }

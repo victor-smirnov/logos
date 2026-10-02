@@ -21,9 +21,9 @@ fn main() -> i32 {
     unsafe {
         let pm: *mut HashMap<String, i32> = &mut m;
         let k = String::from("a");
-        if *pm.get(&k) != 20 { return 2; }
+        if *(*pm).get(&k) != 20 { return 2; }
         let kb = String::from("b");
-        if *pm.get(&kb) != 60 { return 3; }
+        if *(*pm).get(&kb) != 60 { return 3; }
     }
     for p in m.iter_mut() { *p.second += 1; }
     for (k, v) in m { total += v; if k.len() != 1 { return 4; } }

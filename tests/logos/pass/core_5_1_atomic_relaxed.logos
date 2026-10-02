@@ -6,7 +6,7 @@ use logos.lang.atomic;
 fn main() -> i32 {
     let mut a: AtomicI64 = atomic_i64_new(42i64);
     let p: *mut AtomicI64 = &mut a as *mut AtomicI64;
-    unsafe { p.store_ordered(101i64, Ordering::Relaxed); }
+    unsafe { (*p).store_ordered(101i64, Ordering::Relaxed); }
     if a.load_ordered(Ordering::Relaxed) != 101i64 { return 1i32; }
     return 0i32;
 }

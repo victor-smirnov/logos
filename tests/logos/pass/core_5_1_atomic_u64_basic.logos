@@ -6,7 +6,7 @@ use logos.lang.atomic;
 fn main() -> i32 {
     let mut a: AtomicU64 = atomic_u64_new(0xDEADBEEFu64);
     let p: *mut AtomicU64 = &mut a as *mut AtomicU64;
-    unsafe { p.store(0xCAFEBABEu64); }
+    unsafe { (*p).store(0xCAFEBABEu64); }
     if a.load() != 0xCAFEBABEu64 { return 1i32; }
     return 0i32;
 }

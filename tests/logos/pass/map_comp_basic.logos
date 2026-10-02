@@ -19,17 +19,17 @@ fn main() -> i32 {
         if (*pe).len() != 2 as i64 { return 2; }
 
         let k1: i32 = 3;
-        let p = ps.get(&k1);
+        let p = (*ps).get(&k1);
         if p == 0 as *const i32 { return 3; }
         unsafe { if *p != 9 { return 4; } }
 
         let k2: i32 = 4;
-        let pv = pe.get(&k2);
+        let pv = (*pe).get(&k2);
         if pv == 0 as *const i32 { return 5; }
         unsafe { if *pv != 40 { return 6; } }
 
         let k3: i32 = 3;
-        if pe.contains_key(&k3) { return 7; }
+        if (*pe).contains_key(&k3) { return 7; }
     }
 
     return 42;

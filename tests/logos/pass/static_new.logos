@@ -9,7 +9,7 @@ impl Point {
     static fn new(x: i32, y: i32) -> Point {
         return Point { x: x, y: y };
     }
-    unsafe fn dist2(self: *mut Point) -> i32 {
+    unsafe fn dist2(&mut self) -> i32 {
         return self.x * self.x + self.y * self.y;
     }
 }

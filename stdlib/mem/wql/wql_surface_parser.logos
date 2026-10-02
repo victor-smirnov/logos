@@ -783,13 +783,13 @@ fn rule_query(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
-        let hp: *const WqMemoCell = mp.get(&mk);
+        let hp: *const WqMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_query_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; (*mp).insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 
@@ -1622,13 +1622,13 @@ fn rule_gsteps(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
-        let hp: *const WqMemoCell = mp.get(&mk);
+        let hp: *const WqMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_gsteps_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; (*mp).insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 
@@ -1821,13 +1821,13 @@ fn rule_join_steps(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
-        let hp: *const WqMemoCell = mp.get(&mk);
+        let hp: *const WqMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_join_steps_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; (*mp).insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 
@@ -1853,13 +1853,13 @@ fn rule_where_clause(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
-        let hp: *const WqMemoCell = mp.get(&mk);
+        let hp: *const WqMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_where_clause_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; (*mp).insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 
@@ -1906,13 +1906,13 @@ fn rule_order_clause(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
-        let hp: *const WqMemoCell = mp.get(&mk);
+        let hp: *const WqMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_order_clause_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; (*mp).insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 
@@ -1939,13 +1939,13 @@ fn rule_result_clause(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
-        let hp: *const WqMemoCell = mp.get(&mk);
+        let hp: *const WqMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_result_clause_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; (*mp).insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 
@@ -2001,13 +2001,13 @@ fn rule_sel_body(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
-        let hp: *const WqMemoCell = mp.get(&mk);
+        let hp: *const WqMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_sel_body_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; (*mp).insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 
@@ -2039,13 +2039,13 @@ fn rule_on_body(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = WqNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo;
-        let hp: *const WqMemoCell = mp.get(&mk);
+        let hp: *const WqMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const WqMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_on_body_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; mp.insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, WqMemoCell> = &mut lex.memo; (*mp).insert(mk, WqMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 

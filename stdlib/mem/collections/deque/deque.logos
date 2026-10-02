@@ -45,13 +45,13 @@ impl<T> VecDeque<T> {
 
     /// Returns the element at logical index `i` (0 = front), by value.
     /// Does not bounds-check `i` against `len`; out-of-range `i` reads stale/foreign slots.
-    pub unsafe fn get(self: *const VecDeque<T>, i: i64) -> T {
+    pub unsafe fn get(&self, i: i64) -> T {
         let mask: i64 = self.cap - 1 as i64;
         return self.buf[(self.head + i) & mask];
     }
 
     /// Appends `val` to the back, growing the ring buffer (doubling capacity) if full.
-    pub unsafe fn push_back(self: *mut VecDeque<T>, val: T) {
+    pub unsafe fn push_back(&mut self, val: T) {
         if self.len == self.cap { self.grow(); }
         let mask: i64 = self.cap - 1 as i64;
         let idx: i64 = (self.head + self.len) & mask;
@@ -60,7 +60,7 @@ impl<T> VecDeque<T> {
     }
 
     /// Prepends `val` to the front, growing the ring buffer (doubling capacity) if full.
-    pub unsafe fn push_front(self: *mut VecDeque<T>, val: T) {
+    pub unsafe fn push_front(&mut self, val: T) {
         if self.len == self.cap { self.grow(); }
         let mask: i64 = self.cap - 1 as i64;
         self.head = (self.head - 1 as i64 + self.cap) & mask;
@@ -69,7 +69,7 @@ impl<T> VecDeque<T> {
     }
 
     /// Removes and returns the front element, or `Option::None` if the deque is empty.
-    pub unsafe fn pop_front(self: *mut VecDeque<T>) -> Option<T> {
+    pub unsafe fn pop_front(&mut self) -> Option<T> {
         if self.len == 0 as i64 { return Option::None; }
         let mask: i64 = self.cap - 1 as i64;
         let val: T = self.buf[self.head];
@@ -79,7 +79,7 @@ impl<T> VecDeque<T> {
     }
 
     /// Removes and returns the back element, or `Option::None` if the deque is empty.
-    pub unsafe fn pop_back(self: *mut VecDeque<T>) -> Option<T> {
+    pub unsafe fn pop_back(&mut self) -> Option<T> {
         if self.len == 0 as i64 { return Option::None; }
         let mask: i64 = self.cap - 1 as i64;
         let back_idx: i64 = (self.head + self.len - 1 as i64) & mask;
@@ -89,7 +89,7 @@ impl<T> VecDeque<T> {
     }
 
     // Linearise the ring into a fresh 2× buffer.
-    unsafe fn grow(self: *mut VecDeque<T>) {
+    unsafe fn grow(&mut self) {
         let new_cap: i64 = self.cap * 2 as i64;
         let new_raw: *mut u8 = alloc(new_cap * sizeof::<T>());
         let new_buf: *mut T = new_raw as *mut T;
@@ -141,7 +141,7 @@ impl<T> Iterator<T> for VecDequeIntoIter<T> {
     fn next(self: &mut VecDequeIntoIter<T>) -> Option<T> {
         unsafe {
             let p: *mut VecDeque<T> = &mut self.dq as *mut VecDeque<T>;
-            return p.pop_front();
+            return (*p).pop_front();
         }
     }
 }
@@ -157,7 +157,7 @@ impl<T> DoubleEndedIterator<T> for VecDequeIntoIter<T> {
     fn next_back(self: &mut VecDequeIntoIter<T>) -> Option<T> {
         unsafe {
             let p: *mut VecDeque<T> = &mut self.dq as *mut VecDeque<T>;
-            return p.pop_back();
+            return (*p).pop_back();
         }
     }
 }

@@ -10487,15 +10487,14 @@ private:
     // value, `&`, `&mut`, then one deref (reference, Box / user Deref, array
     // unsize); at a step inherent before trait. `impl_lookup_keys_` is every
     // impl-registry target key a concrete type is found under.
-    // `autoref`: 0 by value, 1 `&`, 2 `&mut`, 3 `*const`, 4 `*mut` (the last two
-    // only in the B-it-09 fallback pass). `tied`: every candidate of the best
+    // `autoref`: 0 by value, 1 `&`, 2 `&mut` — never a raw pointer. `tied`: every candidate of the best
     // rank — overloads by argument type are select_overload's, not the probe's.
     struct ProbePick { const SemaFuncInfo* fi = nullptr; int derefs = 0; int autoref = 0; std::string key;
                        std::vector<const SemaFuncInfo*> tied; };
     std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
     std::string last_call_sym_;   // the symbol the builder emitted last (probe census)
-    // Symbols of the methods whose self is a raw pointer (B-it-09 detection).
+    // Symbols of the methods whose self is a raw pointer (autoref never reaches one).
     bool raw_self_symbol_(std::string_view sym);
     std::unordered_set<std::string> raw_self_index_;
     size_t raw_self_index_n_ = SIZE_MAX;

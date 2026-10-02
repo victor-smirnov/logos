@@ -181,8 +181,8 @@ fn main() -> i64 {
             let pm: *mut HashMap<i64, i64> = &mut m;
             let k2: i64 = 2i64;
             let k3: i64 = 3i64;
-            if *pm.get(&k2) != 4i64 { return 23; }
-            if *pm.get(&k3) != 9i64 { return 24; }
+            if *(*pm).get(&k2) != 4i64 { return 23; }
+            if *(*pm).get(&k3) != 9i64 { return 24; }
         }
     }
 

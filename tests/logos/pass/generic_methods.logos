@@ -4,7 +4,7 @@ package generic_methods;
 struct Pair<T: Copy> {
     first: T,
     second: T,
-    unsafe fn swap(self: *const Pair<T>) -> Pair<T> {
+    unsafe fn swap(&self) -> Pair<T> {
         return Pair { first: self.second, second: self.first };
     }
 }

@@ -2745,7 +2745,7 @@ fn out_node_rel(subject: str, elem_ty: str) {
 // carrier" would conclude the rel helper rescans its output, which it does not.
 fn out_node_rel_dedup(subject: str, elem_ty: str) {
     plan_trace(subject, "rel dedup set", elem_ty,
-               "the one-shot rel helper's NOVELTY set — `rel_push_frag`'s gate is `if __rsp.insert(row) { __out.push(row) }`, so this HashSet and not the landing is what decides a derived row is new; it is a second collection beside `__rout` rather than the landing rescanned, so the test is O(1) and exactly one exists per rel result");
+               "the one-shot rel helper's NOVELTY set — `rel_push_frag`'s gate is `if (*__rsp).insert(row) { __out.push(row) }`, so this HashSet and not the landing is what decides a derived row is new; it is a second collection beside `__rout` rather than the landing rescanned, so the test is O(1) and exactly one exists per rel result");
 }
 
 // ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SEAMS, SIX NODES ───────────────────
@@ -2806,7 +2806,7 @@ fn out_node_rel_dedup(subject: str, elem_ty: str) {
 // changes the sentence becomes FALSE and must be rewritten — see each below.
 fn MG_FP_DELTA() -> str { return "the epoch's DRIVING frontier — the semi-naive rewriting reads this delta where a naive round would read the accumulated total; it LANDS rather than streams because every in-SCC occurrence of every body rescans it within the round, so it is read k times for k occurrences"; }
 fn MG_FP_NEXT() -> str { return "rows DERIVED this epoch and not yet folded into the total — a landing separate from the driving delta because the round APPENDS here while still scanning `__dl_*`, and the swap at the round boundary is what keeps the fixpoint monotone; merging the two would have the round read its own output"; }
-fn MG_FP_NOVELTY_SET() -> str { return "the member's NOVELTY structure, SET semantics — `rel_push_frag`'s gate is `if __rsp.insert(row) { __out.push(row) }`, so this HashSet is what decides a derived row is new and the next delta is exactly its accepted inserts; it shadows the accumulated total's membership, one entry per derived row"; }
+fn MG_FP_NOVELTY_SET() -> str { return "the member's NOVELTY structure, SET semantics — `rel_push_frag`'s gate is `if (*__rsp).insert(row) { __out.push(row) }`, so this HashSet is what decides a derived row is new and the next delta is exactly its accepted inserts; it shadows the accumulated total's membership, one entry per derived row"; }
 fn MG_FP_NOVELTY_LAT() -> str { return "the member's NOVELTY structure, LATTICE semantics — for a recursive min/max member novelty is IMPROVEMENT and not membership, so a best-per-key map replaces the shadow set and the gate is the `__imp` comparison; a row that ties the incumbent is derived and NOT novel, which a set could not express"; }
 fn MG_FP_LAT_KEYS() -> str { return "the lattice map's KEY ROSTER — the best-per-key map has no ordered enumeration surface, so the post-loop argmin/argmax materialization of the total walks this vector instead; it exists for lattice members only and would be deletable the day the map gains an iterator"; }
 fn MG_OD_SET() -> str { return "the DRed OVER-DELETION distinct set — `__odn_<m> = __os_<m>.len()` IS the over-deletion count phase 1 checks against `__tot_.len() - __keep_<m>` before mutating anything; it is a SET because phase 1a can reach one row by many derivations and the count must be of ROWS, not of reachings"; }
@@ -3994,21 +3994,21 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
     // when the source streams.
     let mut ins: ExprBlob = quote_block! { };
     if set_form {
-        ins = quote_block! { unsafe { let _nb: bool = #n_sp.insert(#n_k); } };
+        ins = quote_block! { unsafe { let _nb: bool = (*#n_sp).insert(#n_k); } };
     } else if strat == JS_HASH() {
         let p1: ExprBlob = payload_ty_frag(streams, ty);
         let p2: ExprBlob = payload_ty_frag(streams, ty);
         if streams {
             ins = quote_block! {
                 unsafe {
-                    let #n_vp: *mut Vec<#(p1)> = #n_mp.get_or_insert(#n_k, Vec::<#(p2)>::new());
+                    let #n_vp: *mut Vec<#(p1)> = (*#n_mp).get_or_insert(#n_k, Vec::<#(p2)>::new());
                     (&mut *#n_vp).push(#n_br);
                 }
             };
         } else {
             ins = quote_block! {
                 unsafe {
-                    let #n_vp: *mut Vec<#(p1)> = #n_mp.get_or_insert(#n_k, Vec::<#(p2)>::new());
+                    let #n_vp: *mut Vec<#(p1)> = (*#n_mp).get_or_insert(#n_k, Vec::<#(p2)>::new());
                     (&mut *#n_vp).push(#n_b);
                 }
             };
@@ -4021,11 +4021,11 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
         if streams {
             ins = quote_block! {
                 unsafe {
-                    let #n_vp: *mut Vec<#(p1)> = #n_tp.get_mut(&#n_k);
+                    let #n_vp: *mut Vec<#(p1)> = (*#n_tp).get_mut(&#n_k);
                     if #n_vp == (0i64 as *mut Vec<#(p2)>) {
                         let mut #n_nv: Vec<#(p3)> = Vec::<#(p4)>::new();
                         #n_nv.push(#n_br);
-                        #n_tp.insert(#n_k, #n_nv);
+                        (*#n_tp).insert(#n_k, #n_nv);
                     } else {
                         (&mut *#n_vp).push(#n_br);
                     }
@@ -4034,11 +4034,11 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
         } else {
             ins = quote_block! {
                 unsafe {
-                    let #n_vp: *mut Vec<#(p1)> = #n_tp.get_mut(&#n_k);
+                    let #n_vp: *mut Vec<#(p1)> = (*#n_tp).get_mut(&#n_k);
                     if #n_vp == (0i64 as *mut Vec<#(p2)>) {
                         let mut #n_nv: Vec<#(p3)> = Vec::<#(p4)>::new();
                         #n_nv.push(#n_b);
-                        #n_tp.insert(#n_k, #n_nv);
+                        (*#n_tp).insert(#n_k, #n_nv);
                     } else {
                         (&mut *#n_vp).push(#n_b);
                     }
@@ -4193,10 +4193,10 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
     let s_tp: String = nk_str("__tp", s);   let n_tp: Ident = Ident::new(string_as_str(&s_tp));
     let s_pk: String = nk_str("__pk", s);   let n_pk: Ident = Ident::new(string_as_str(&s_pk));
     if strat == JS_HASH() {
-        return quote_block! { unsafe { #n_bp = #n_mp.get(&#n_pk); } };
+        return quote_block! { unsafe { #n_bp = (*#n_mp).get(&#n_pk); } };
     }
     let p1: ExprBlob = payload_ty_frag(streams, ty);
-    return quote_block! { unsafe { #n_bp = #n_tp.get_mut(&#n_pk) as *const Vec<#(p1)>; } };
+    return quote_block! { unsafe { #n_bp = (*#n_tp).get_mut(&#n_pk) as *const Vec<#(p1)>; } };
 }
 
 // ── One step of the nest: WRAP the inner body ────────────────────────────────
@@ -4299,7 +4299,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
             // Pure absence test: HashSet contains / BTreeMap keyed lookup
             // (through the once-taken container pointer).
             if strat == JS_HASH() {
-                matched = quote_block! { unsafe { #n_m = #n_sp.contains(&#n_pk); } };
+                matched = quote_block! { unsafe { #n_m = (*#n_sp).contains(&#n_pk); } };
             } else {
                 // The null sentinel must be typed by the BUCKET, and the
                 // bucket's payload is the ROW when the source streams — the
@@ -4309,7 +4309,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
                 // — which is exactly what that toggle exists to catch.
                 let p1: ExprBlob = payload_ty_frag(streams, ty);
                 matched = quote_block! {
-                    unsafe { #n_m = #n_tp.get_mut(&#n_pk) != (0i64 as *mut Vec<#(p1)>); }
+                    unsafe { #n_m = (*#n_tp).get_mut(&#n_pk) != (0i64 as *mut Vec<#(p1)>); }
                 };
             }
         } else {
@@ -7069,11 +7069,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             let ins_e: ExprBlob = parse_expr(if is_fl
                 { "(__nc, if (__cp as i64) == 0i64 { f64_to_bits(__v) } else { (*__cp).1 })" }
                 else { "__nc" });
-            // ⚠ THE LOOKUP GOES THROUGH `__mp`, THE `*mut`, BECAUSE `get` IS
-            // DECLARED ON `*mut HashMap` — `__mc` (the `*const` the iterator
-            // needs) has no `get`. Same map, no mutation, and the key came from
+            // ⚠ THE LOOKUP GOES THROUGH `__mp`, THE `*mut`, BECAUSE `get` TAKES
+            // `&mut self` — `__mc` (the `*const` the iterator needs) cannot
+            // lend one. Same map, no mutation, and the key came from
             // that map's own live keys, so the pointer is never null here.
-            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(unsafe { (*(__mp.get(__kp))).1 })" } else { "*__kp" });
+            let vok_e: ExprBlob = parse_expr(if is_fl { "f64_from_bits(unsafe { (*((*__mp).get(__kp))).1 })" } else { "*__kp" });
             let ko_e:  ExprBlob = parse_expr(if is_fl { "f64_data_key(__kv)" } else { "__kv" });
             let impr:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__vo < __bo" }  else { "__vo > __bo" });
             let rcmp:  ExprBlob = parse_expr(if fnid == AGG_MIN() { "__ko < __nbo" } else { "__ko > __nbo" });
@@ -7091,7 +7091,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     let __b: #(vt0) = __h.#n_ga.get(__gi);
                     let __bk: #(mkty) = (#(kb_e));
                     let __mp: #(pmap) = unsafe { __h.#n_gm.at(__gi) };
-                    let __cp: *const #(mvty) = unsafe { __mp.get(&__mk) };
+                    let __cp: *const #(mvty) = unsafe { (*__mp).get(&__mk) };
                     let __cur: i64 = if (__cp as i64) == 0i64 { 0i64 } else { unsafe { #(cnt_e) } };
                     let __nc: i64 = __cur + __w;
                     // ⚠ STRICTLY `< 0`, AND THE STRICTNESS IS THE WHOLE CONTENT.
@@ -7114,10 +7114,10 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     if __nc < 0i64 { return Result::Err(ElError::RetractAbsent); }
                     let mut __rb: bool = false;
                     if __nc <= 0i64 {
-                        unsafe { __mp.remove(&__mk); }
+                        unsafe { (*__mp).remove(&__mk); }
                         if __bk == __mk { __rb = true; }
                     } else {
-                        unsafe { __mp.insert(__mk, #(ins_e)); }
+                        unsafe { (*__mp).insert(__mk, #(ins_e)); }
                     }
                     if __nc > 0i64 && __cur <= 0i64 {
                         let __mc0: #(cmap) = unsafe { __h.#n_gm.at_const(__gi) };
@@ -7136,7 +7136,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                             let mut __nb: #(vt0) = #(zv);
                             let mut __nbo: #(orty) = #(zo);
                             let mut __f1: bool = true;
-                            let mut __it: #(kits) = unsafe { __mc.keys() };
+                            let mut __it: #(kits) = unsafe { (*__mc).keys() };
                             loop {
                                 match __it.next() {
                                     Option::Some(__kp) => {
@@ -10402,7 +10402,7 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
 // retracted — `_i`'s round 0 runs a full naïve pass over (S × PRES), every row
 // it produces is already in S, every one is dropped by the dedup gate, and an
 // accept counter reads 0 while the machine did work linear in |S|. Counting on
-// the WRONG side of `if __rsp.insert(…)` is the difference between a sensor and
+// the WRONG side of `if (*__rsp).insert(…)` is the difference between a sensor and
 // a decoration.
 //
 // ⚠ THE INCREMENT IS *BEFORE* THE PROBE, not inside its `true` arm, and not
@@ -10421,7 +10421,7 @@ fn rel_push_frag(row_ty: str, proj: ExprBlob) -> ExprBlob {
     return quote_block! {
         let __rv: #(rt) = (#(proj));
         unsafe { *__wcp = *__wcp + 1i64; }
-        if unsafe { __rsp.insert(__rv) } { __out.push(__rv); }
+        if unsafe { (*__rsp).insert(__rv) } { __out.push(__rv); }
     };
 }
 
@@ -10453,11 +10453,11 @@ fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
         // wave that improves nothing still shows the work it did.
         unsafe { *__wcp = *__wcp + 1i64; }
         unsafe {
-            let __cp: *const #(vty2) = (#n_bp).get(&__ak);
+            let __cp: *const #(vty2) = (*#n_bp).get(&__ak);
             let mut __imp: bool = false;
             if __cp == (0i64 as *const #(vty2)) { __imp = true; #n_ks.push(__ak); }
             else { if #(cmp) { __imp = true; } }
-            if __imp { (#n_bp).insert(__ak, __av); __out.push((__ak, __av)); }
+            if __imp { (*#n_bp).insert(__ak, __av); __out.push((__ak, __av)); }
         }
     };
 }
@@ -11011,7 +11011,7 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
         // exactly, one layer down: the artifact already carried the
         // distinction, and the name is what refused to carry it.
         // ⚠ THE POINTER KEEPS ITS NAME. `__rsp` is bound CONTEXTUALLY by
-        // `rel_push_frag`'s gate (`if __rsp.insert(row) { __out.push(row) }`)
+        // `rel_push_frag`'s gate (`if (*__rsp).insert(row) { __out.push(row) }`)
         // in BOTH tiers, which is what lets the push fragment stay one
         // fragment; renaming it would fork that fragment in two. A pointer is
         // not a landing and D2 never counted it, so nothing is hidden by
@@ -11165,7 +11165,7 @@ fn set_occ_src(body_any: WAny, o: &OccList, w: i64, name: str, h: &Writ) {
 // are defects if omitted — each was derived from the body this fn already emits:
 //
 //  (1) THE SHADOW SET IS SEEDED FROM THE TOTAL. `__rs_<m>` is declared FRESH,
-//      and `rel_push_frag`'s gate is `if __rsp.insert(row) { __out.push(row) }`
+//      and `rel_push_frag`'s gate is `if (*__rsp).insert(row) { __out.push(row) }`
 //      while `promote` appends `__dl` into `__tot` UNCONDITIONALLY. Re-entering
 //      with a non-empty total and an empty set therefore re-admits every row the
 //      previous epoch already derived and appends a SECOND COPY — and a rel is a
@@ -11416,7 +11416,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                         let __sp: *mut HashSet<#(rt7)> = &mut #n_rs;
                         let mut __sk: i64 = 0i64;
                         while __sk < #n_tt1.len() {
-                            unsafe { (__sp).insert(#n_tt1.get(__sk)); }
+                            unsafe { (*__sp).insert(#n_tt1.get(__sk)); }
                             __sk = __sk + 1i64;
                         }
                     }
@@ -11641,7 +11641,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                     while __mk < #n_ks.len() {
                         let __kk: #(ktyt) = #n_ks[__mk];
                         unsafe {
-                            let __vp: *const #(vtyt) = (#n_bp).get(&__kk);
+                            let __vp: *const #(vtyt) = (*#n_bp).get(&__kk);
                             #n_tt.push((__kk, *__vp));
                         }
                         __mk = __mk + 1i64;
@@ -12265,7 +12265,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                 let __sp: *mut HashSet<#(ct7)> = &mut #n_rs;
                 let mut __sk: i64 = 0i64;
                 while __sk < #n_od.len() {
-                    unsafe { (__sp).insert(#n_od.get(__sk)); }
+                    unsafe { (*__sp).insert(#n_od.get(__sk)); }
                     #n_dl.push(#n_od.get(__sk));
                     __sk = __sk + 1i64;
                 }
@@ -12484,7 +12484,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                 let __sp: *mut HashSet<#(kt3)> = &mut #n_os;
                 let mut __k: i64 = 0i64;
                 while __k < #n_od.len() {
-                    unsafe { (__sp).insert(#n_od[__k]); }
+                    unsafe { (*__sp).insert(#n_od[__k]); }
                     __k = __k + 1i64;
                 }
             }
@@ -12495,7 +12495,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                 let mut __r: i64 = 0i64;
                 while __r < #n_tt.len() {
                     let __row: #(kt5) = #n_tt.get(__r);
-                    let __hit: bool = unsafe { (__sp2).contains(&__row) };
+                    let __hit: bool = unsafe { (*__sp2).contains(&__row) };
                     if !__hit { #n_kp = #n_kp + 1i64; }
                     __r = __r + 1i64;
                 }
@@ -12529,7 +12529,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                 let mut __r2: i64 = 0i64;
                 while __r2 < #n_tt.len() {
                     let __row2: #(lt2) = #n_tt.get(__r2);
-                    let __hit2: bool = unsafe { (__sp3).contains(&__row2) };
+                    let __hit2: bool = unsafe { (*__sp3).contains(&__row2) };
                     if !__hit2 {
                         #n_tt.set(__w, __row2);
                         __w = __w + 1i64;

@@ -185,8 +185,6 @@ fnonce_generic_consume_skips_capture_drop 2 tests/soundness/open/fnonce_generic_
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 iterator_trait_item_assoc_type_refused 3 tests/soundness/open/iterator_trait_item_assoc_type_refused refuses
 
-hashmap_str_key_borrow_escapes_admitted 2 tests/soundness/open/hashmap_str_key_borrow_escapes_admitted admits
-
 str_slice_char_boundary_unchecked 2 tests/soundness/open/str_slice_char_boundary_unchecked run 0
 
 partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneous_rhs_refused refuses
@@ -467,5 +465,5 @@ guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_
 
 guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_moves_ref_mut_binding_admits admits
 
-# TOTAL 144
-# SYNC-HASH a9ea71d1b3d9cf6ba1fbb425d2386356
+# TOTAL 143
+# SYNC-HASH c9a56533d153d9b4eb7efdfcd6772c43

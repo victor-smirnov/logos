@@ -1,6 +1,6 @@
 // `impl Trait for <primitive>` with method dispatch via dot-call.
 // Both `&self` (ref) and `self: *const Self` (raw pointer) styles work;
-// receiver is auto-addr'd to match the method's first-param type.
+// A raw-pointer receiver is never made by autoref (as rustc): pass one explicitly.
 package impl_trait_for_primitive;
 
 trait DoubledRef { fn doubled_ref(&self) -> i32; }
@@ -11,6 +11,6 @@ impl DoubledPtr for i32 { fn doubled_ptr(self: *const i32) -> i32 { unsafe { ret
 
 fn main() -> i32 {
     let x: i32 = 7;
-    return x.doubled_ref() + x.doubled_ptr();
+    return x.doubled_ref() + unsafe { (&x as *const i32).doubled_ptr() };
     // 14 + 14 = 28
 }

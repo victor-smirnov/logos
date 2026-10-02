@@ -6825,19 +6825,16 @@ static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
 
 SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_view name) {
     using K = LogosType::Kind;
-    // Pass 0: rustc's steps. Pass 1 (B-it-09, not Rust): a raw-pointer self
-    // reached by taking the receiver's address — the last resort, only when no
-    // step of pass 0 had a method.
-    for (int pass = 0; pass < 2; ++pass) {
+    // rustc's steps: each autoderef step by value, then `&`, then `&mut`.
+    // Autoref never makes a raw pointer.
+    {
         TypeRef cur = recv_t;
         for (int d = 0; d < 8 && cur; ++d) {
-            const int ar_lo = pass == 0 ? 0 : 3, ar_hi = pass == 0 ? 3 : 5;
-            for (int ar = ar_lo; ar < ar_hi; ++ar) {
+            for (int ar = 0; ar < 3; ++ar) {
                 const auto ck = TypeRef(cur).kind();
                 // `&[T]` is the Slice kind: its by-value step IS the `&self` step.
-                if (ar > 0 && ar < 3 && (ck == K::Slice || ck == K::UnsizedSlice)) break;
-                if (ar >= 3 && (ck == K::Ptr || ck == K::Ref || ck == K::MutRef)) break;
-                TypeRef want = ar == 0 ? cur : ar <= 2 ? make_ref(ar == 2, cur) : make_ptr(ar == 4, cur);
+                if (ar > 0 && (ck == K::Slice || ck == K::UnsizedSlice)) break;
+                TypeRef want = ar == 0 ? cur : make_ref(ar == 2, cur);
                 std::vector<std::string> keys = impl_lookup_keys_(cur);
                 if (ar == 1 || ar == 2) for (auto& k : impl_lookup_keys_(want)) keys.push_back(k);
                 // A user type's methods are its package's (a user `Vec` is not the stdlib's).
@@ -6853,7 +6850,7 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
                     for (auto* fi : cands) {
                         if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
                         TypeRef f0 = fi->param_types[0];
-                        if (TypeRef(f0).kind() == K::Ptr && ck != K::Ptr && ar < 3) continue;
+                        if (TypeRef(f0).kind() == K::Ptr && ck != K::Ptr) continue;
                         if (!probe_self_head_match_(f0, want)) continue;
                         // Inherent before trait; at one rank the type's own package's
                         // method before an extension elsewhere (a user `Vec` is not the
@@ -10495,16 +10492,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         std::vector<std::string> tied;
         std::string rt;
     } probe_census_{this, {}, std::getenv("LOGOS_PROBE_DIFF") != nullptr, {}, {}};
-    // B-it-09 (not Rust): a raw-pointer self reached by taking the address of
-    // a receiver that is not a raw pointer. rustc's autoref never makes one.
+    // A raw-pointer self is never reached from a receiver that is not a raw
+    // pointer: rustc's autoref never makes one. The backstop for any lookup
+    // path that still finds such a callee.
     struct RawSelfGuard_ {
         SemaChecker* s; bool recv_is_ptr; std::string mname;
         ~RawSelfGuard_() {
             if (recv_is_ptr || s->last_call_sym_.empty()) return;
-            // Measurement only until the stdlib's raw-self methods take
-            // `&self` / `&mut self` (S8 row 4, B-it-09 removal).
-            if (s->raw_self_symbol_(s->last_call_sym_) && std::getenv("LOGOS_RAWSELF_MEASURE"))
-                std::fprintf(stderr, "RAWSELF %s\n", s->last_call_sym_.c_str());
+            if (s->raw_self_symbol_(s->last_call_sym_))
+                s->error(std::format("no method named `{}` found for this receiver (E0599): `{}` takes "
+                                     "`self: *mut/*const Self`, and autoref never makes a raw pointer — "
+                                     "pass one explicitly (`(&mut x as *mut _).{}(..)`)",
+                                     mname, s->last_call_sym_, mname));
         }
     } raw_self_guard_{this, recv && expr_type(recv) && TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ptr,
                       std::string(method_name)};
@@ -10762,25 +10761,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     probe_target = subst_type_sema(probe_target, s);
                 }
             }
-        }
-        // A raw-pointer-self method of THIS type (B-it-09: `Box::get(self: *mut
-        // Box<T>)` reached as `b.get()`) is the last resort: it is taken only
-        // when the Deref target has no method of the name to step to.
-        if (!find_func_candidates(sname_d + "__" + m).empty() ||
-            (!base_d.empty() && !find_func_candidates(base_d + "__" + m).empty())) {
-            bool target_has = false;
-            if (probe_target) {
-                TypeRef tt = probe_target;
-                if (TypeRef(tt).kind() == LogosType::Kind::Struct ||
-                    TypeRef(tt).kind() == LogosType::Kind::ZonedStruct) {
-                    const std::string tb(TypeRef(tt).struct_name());
-                    target_has = has_receiver_method(concrete_struct_name(tt) + "__" + m) ||
-                                 (!tb.empty() && has_receiver_method(tb + "__" + m));
-                } else {
-                    target_has = has_receiver_method(type_str(tt) + "__" + m);
-                }
-            }
-            if (!target_has) break;
         }
         bool want_mut = target_method_wants_mut_self(probe_target, m);
         // A fresh droppable rvalue (`make(7).hi()` with `make() -> Box<B>`)
@@ -11727,14 +11707,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                         auto __ty_recv = make_ref(is_mut, expr_type(recv));
                         auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv, BorrowOrigin::Autoref);
                         recv = std::move(addr);
-                    } else if (formal0 && TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                               expr_type(recv) &&
-                               TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr &&
-                               !is_ref_like(TypeRef(expr_type(recv)).kind())) {
-                        bool is_mut = TypeRef(formal0).mut_ptr();
-                        auto __ty_recv = make_ptr(is_mut, expr_type(recv));
-                        auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv, BorrowOrigin::Autoref);
-                        recv = std::move(addr);
                     }
                 }
                 std::vector<lir::LExprPtr> pargs;
@@ -11802,19 +11774,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (!fi_ptr) {
                 auto types_mut = types; types_mut[0] = make_ref(true, expr_type(recv));
                 if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_mut, false))
-                    fi_ptr = pfit;
-            }
-            // B-it-09: also try *const T / *mut T receiver — `impl Trait for i32`
-            // declared with `self: *const Self` is otherwise unreachable from
-            // dot-call.
-            if (!fi_ptr) {
-                auto types_cptr = types; types_cptr[0] = make_ptr(false, expr_type(recv));
-                if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_cptr, false))
-                    fi_ptr = pfit;
-            }
-            if (!fi_ptr) {
-                auto types_mptr = types; types_mptr[0] = make_ptr(true, expr_type(recv));
-                if (auto pfit = find_func_by_base_and_signature(mangled_prim, types_mptr, false))
                     fi_ptr = pfit;
             }
             // Phase 1B-7: receiver of type `&T` / `&mut T` where T is a
@@ -12045,15 +12004,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
                     auto __ty_recv = make_ref(is_mut, expr_type(recv));
 
-                    auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv, BorrowOrigin::Autoref);
-                    recv = std::move(addr);
-                }
-                // B-it-09: also auto-addr when method expects *const Self / *mut Self.
-                else if (formal0 && TypeRef(formal0).kind() == LogosType::Kind::Ptr && expr_type(recv) &&
-                         TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr &&
-                         !is_ref_like(TypeRef(expr_type(recv)).kind())) {
-                    bool is_mut = TypeRef(formal0).mut_ptr();
-                    auto __ty_recv = make_ptr(is_mut, expr_type(recv));
                     auto addr = materialize_recv_ref(std::move(recv), is_mut, __ty_recv, BorrowOrigin::Autoref);
                     recv = std::move(addr);
                 }

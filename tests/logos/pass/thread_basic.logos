@@ -10,7 +10,7 @@ fn worker(arg: *mut u8) -> *mut u8 {
         let counter: *mut AtomicI64 = arg as *mut AtomicI64;
         let mut i: i32 = 0;
         while i < 1000 {
-            counter.fetch_add(1 as i64);
+            (*counter).fetch_add(1 as i64);
             i = i + 1;
         }
     }

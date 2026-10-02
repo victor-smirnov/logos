@@ -7,7 +7,7 @@ fn main() -> i32 {
     loop {
         let cur: i32 = a.load();
         let nxt: i32 = cur + 1i32;
-        let ok: bool = unsafe { p.compare_exchange(cur, nxt) };
+        let ok: bool = unsafe { (*p).compare_exchange(cur, nxt) };
         if ok { break; }
         iters = iters + 1i32;
         if iters > 100i32 { return 1i32; }

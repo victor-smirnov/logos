@@ -7,7 +7,7 @@ use logos.mem.collections.set;
 use logos.lang.str;
 
 fn ins(rsp: *mut HashSet<(i64, i64)>, x: i64, y: i64) -> bool {
-    return unsafe { rsp.insert((x, y)) };
+    return unsafe { (*rsp).insert((x, y)) };
 }
 
 fn count(rs: &HashSet<(i64, i64)>) -> i64 {

@@ -7,7 +7,7 @@ use logos.lang.atomic;
 fn main() -> i32 {
     let mut a: AtomicU32 = atomic_u32_new(7u32);
     let p: *mut AtomicU32 = &mut a as *mut AtomicU32;
-    unsafe { p.store(13u32); }
+    unsafe { (*p).store(13u32); }
     if a.load() != 13u32 { return 1i32; }
     return 0i32;
 }

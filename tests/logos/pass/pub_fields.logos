@@ -18,7 +18,7 @@ impl Counter {
     static fn new(step: i32) -> Counter {
         return Counter { value: 0, step: step };
     }
-    unsafe fn tick(self: *mut Counter) {
+    unsafe fn tick(&mut self) {
         self.value = self.value + self.step;
     }
 }

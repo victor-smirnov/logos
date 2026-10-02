@@ -11,13 +11,13 @@ fn main() -> i32 {
 
         let mut i: i32 = 0;
         while i < 10 {
-            pm.insert(i, i * 100);
+            (*pm).insert(i, i * 100);
             i = i + 1;
         }
 
         // Sum of all keys: 0+1+...+9 = 45.
         let pc: *const HashMap<i32, i32> = &m;
-        let mut ks: HashMapKeys<i32, i32> = pc.keys();
+        let mut ks: HashMapKeys<i32, i32> = (*pc).keys();
         let mut ksum: i32 = 0;
         loop {
             match ks.next() {
@@ -28,7 +28,7 @@ fn main() -> i32 {
         if ksum != 45 { return 1; }
 
         // Sum of all values: 100*(0+..+9) = 4500.
-        let mut vs: HashMapValues<i32, i32> = pc.values();
+        let mut vs: HashMapValues<i32, i32> = (*pc).values();
         let mut vsum: i32 = 0;
         loop {
             match vs.next() {
@@ -39,7 +39,7 @@ fn main() -> i32 {
         if vsum != 4500 { return 2; }
 
         // iter: count entries + check invariant val == key * 100.
-        let mut it: HashMapIter<i32, i32> = pc.iter();
+        let mut it: HashMapIter<i32, i32> = (*pc).iter();
         let mut n: i32 = 0;
         loop {
             match it.next() {

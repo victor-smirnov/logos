@@ -196,9 +196,9 @@ fn ts_descend(child: WAny, out: &mut RowSet, seen: &mut HashMap<u64, i64>) {
     if !ts_is_container(child) { return; }
     let hw: u64 = child.raw() as u64;
     let sp: *mut HashMap<u64, i64> = seen;
-    let hit: *const i64 = unsafe { sp.get(&hw) };
+    let hit: *const i64 = unsafe { (*sp).get(&hw) };
     if (hit as i64) != 0i64 { return; }        // already expanded (DAG/cycle)
-    unsafe { let _s: *mut i64 = sp.get_or_insert(hw, 1i64); }
+    unsafe { let _s: *mut i64 = (*sp).get_or_insert(hw, 1i64); }
     ts_walk(child, out, seen);
 }
 
@@ -288,7 +288,7 @@ fn ts_scan(var: str, root_w: i64, scratch: &Writ) -> RowSet {
     ts_edge_row(&mut out, WG_ROOT_PARENT, WG_ROOT_KEY, WG_ROOT_IDX, root, WG_ROOT_ORD);
     let mut seen: HashMap<u64, i64> = hashmap_new::<u64, i64>();
     let sp: *mut HashMap<u64, i64> = &mut seen;
-    unsafe { let _r: *mut i64 = sp.get_or_insert(root.raw() as u64, 1i64); }
+    unsafe { let _r: *mut i64 = (*sp).get_or_insert(root.raw() as u64, 1i64); }
     ts_walk(root, &mut out, &mut seen);
     return out;
 }

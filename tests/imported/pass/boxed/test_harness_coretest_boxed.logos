@@ -22,9 +22,9 @@ use logos.mem.boxed;
 fn test_box_roundtrip() {
     unsafe {
         let mut b: Box<i32> = box_new::<i32>(42i32);
-        assert!(*b.get() == 42i32);
-        *b.get_mut() = 99i32;
-        assert!(*b.get() == 99i32);
+        assert!(*Box::as_ptr(&b) == 42i32);
+        *Box::as_mut_ptr(&mut b) = 99i32;
+        assert!(*Box::as_ptr(&b) == 99i32);
     }
 }
 
@@ -33,8 +33,8 @@ fn test_box_roundtrip() {
 fn test_box_i64() {
     unsafe {
         let mut b: Box<i64> = box_new::<i64>(1234567890i64);
-        assert!(*b.get() == 1234567890i64);
-        *b.get_mut() = 0i64;
-        assert!(*b.get() == 0i64);
+        assert!(*Box::as_ptr(&b) == 1234567890i64);
+        *Box::as_mut_ptr(&mut b) = 0i64;
+        assert!(*Box::as_ptr(&b) == 0i64);
     }
 }

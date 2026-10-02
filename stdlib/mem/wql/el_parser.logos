@@ -444,13 +444,13 @@ fn rule_expr(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = ElNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, ElMemoCell> = &mut lex.memo;
-        let hp: *const ElMemoCell = mp.get(&mk);
+        let hp: *const ElMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const ElMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_expr_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, ElMemoCell> = &mut lex.memo; mp.insert(mk, ElMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, ElMemoCell> = &mut lex.memo; (*mp).insert(mk, ElMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 
@@ -951,13 +951,13 @@ fn rule_unary(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut hok: bool = false; let mut hr: *const u8 = ElNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, ElMemoCell> = &mut lex.memo;
-        let hp: *const ElMemoCell = mp.get(&mk);
+        let hp: *const ElMemoCell = (*mp).get(&mk);
         if hp != (0i64 as *const ElMemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }
     }
     if hok { lex.reset(hep, hel); return hr; }
     let r: *const u8 = rule_unary_impl(lex, doc);
     let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();
-    unsafe { let mp: *mut HashMap<i64, ElMemoCell> = &mut lex.memo; mp.insert(mk, ElMemoCell { res: r, endpos: ep, endline: el }); }
+    unsafe { let mp: *mut HashMap<i64, ElMemoCell> = &mut lex.memo; (*mp).insert(mk, ElMemoCell { res: r, endpos: ep, endline: el }); }
     return r;
 }
 

@@ -126,7 +126,7 @@ fn run_all() -> i32 {
     let mut e: u64 = 0u64;
     unsafe {
         while e < 500u64 {
-            (&mut side as *mut BTreeMap<u64, u64>).insert(e, e + 1000u64);
+            (*(&mut side as *mut BTreeMap<u64, u64>)).insert(e, e + 1000u64);
             e = e + 2u64;
         }
     }

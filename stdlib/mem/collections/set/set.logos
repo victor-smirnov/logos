@@ -37,29 +37,29 @@ impl<K: Hash + Eq> HashSet<K> {
     pub fn is_empty(&self) -> bool { return self.inner.is_empty(); }
 
     /// Inserts `key`; returns `true` if it was newly added, `false` if it already existed.
-    pub unsafe fn insert(self: *mut HashSet<K>, key: K) -> bool {
+    pub unsafe fn insert(&mut self, key: K) -> bool {
         let already: bool = self.inner.contains_key(&key);
         self.inner.insert(key, 0 as u8);
         return !already;
     }
 
     /// Returns `true` if `key` is present in the set.
-    pub unsafe fn contains(self: *mut HashSet<K>, key: &K) -> bool {
+    pub unsafe fn contains(&mut self, key: &K) -> bool {
         return self.inner.contains_key(key);
     }
 
     /// Removes `key`; returns `true` if it was present.
-    pub unsafe fn remove(self: *mut HashSet<K>, key: &K) -> bool {
+    pub unsafe fn remove(&mut self, key: &K) -> bool {
         return self.inner.remove(key).is_some();
     }
 
     /// Removes all elements from the set.
-    pub unsafe fn clear(self: *mut HashSet<K>) {
+    pub unsafe fn clear(&mut self) {
         self.inner.clear();
     }
 
     /// Returns an iterator over the set's elements, yielding `&K`.
-    pub unsafe fn iter<'a>(self: *const HashSet<K>) -> HashSetIter<'a, K> {
+    pub unsafe fn iter<'a>(&self) -> HashSetIter<'a, K> {
         return HashSetIter { inner: self.inner.keys() };
     }
 }
@@ -94,7 +94,7 @@ impl<K: Hash + Eq> HashSet<K> {
     fn has(&self, key: &K) -> bool {
         unsafe {
             let p: *mut HashSet<K> = self as *const HashSet<K> as *mut HashSet<K>;
-            return p.contains(key);
+            return (*p).contains(key);
         }
     }
 
@@ -102,8 +102,8 @@ impl<K: Hash + Eq> HashSet<K> {
     pub fn union<'a>(self: &'a HashSet<K>, other: &'a HashSet<K>) -> VecIntoIter<&'a K> {
         let mut out: Vec<&'a K> = Vec::new();
         unsafe {
-            for k in (self as *const HashSet<K>).iter() { out.push(k); }
-            for k in (other as *const HashSet<K>).iter() { if !self.has(k) { out.push(k); } }
+            for k in (*(self as *const HashSet<K>)).iter() { out.push(k); }
+            for k in (*(other as *const HashSet<K>)).iter() { if !self.has(k) { out.push(k); } }
         }
         return out.into_iter();
     }
@@ -112,7 +112,7 @@ impl<K: Hash + Eq> HashSet<K> {
     pub fn intersection<'a>(self: &'a HashSet<K>, other: &'a HashSet<K>) -> VecIntoIter<&'a K> {
         let mut out: Vec<&'a K> = Vec::new();
         unsafe {
-            for k in (self as *const HashSet<K>).iter() { if other.has(k) { out.push(k); } }
+            for k in (*(self as *const HashSet<K>)).iter() { if other.has(k) { out.push(k); } }
         }
         return out.into_iter();
     }
@@ -121,7 +121,7 @@ impl<K: Hash + Eq> HashSet<K> {
     pub fn difference<'a>(self: &'a HashSet<K>, other: &'a HashSet<K>) -> VecIntoIter<&'a K> {
         let mut out: Vec<&'a K> = Vec::new();
         unsafe {
-            for k in (self as *const HashSet<K>).iter() { if !other.has(k) { out.push(k); } }
+            for k in (*(self as *const HashSet<K>)).iter() { if !other.has(k) { out.push(k); } }
         }
         return out.into_iter();
     }
@@ -130,8 +130,8 @@ impl<K: Hash + Eq> HashSet<K> {
     pub fn symmetric_difference<'a>(self: &'a HashSet<K>, other: &'a HashSet<K>) -> VecIntoIter<&'a K> {
         let mut out: Vec<&'a K> = Vec::new();
         unsafe {
-            for k in (self as *const HashSet<K>).iter() { if !other.has(k) { out.push(k); } }
-            for k in (other as *const HashSet<K>).iter() { if !self.has(k) { out.push(k); } }
+            for k in (*(self as *const HashSet<K>)).iter() { if !other.has(k) { out.push(k); } }
+            for k in (*(other as *const HashSet<K>)).iter() { if !self.has(k) { out.push(k); } }
         }
         return out.into_iter();
     }
@@ -139,7 +139,7 @@ impl<K: Hash + Eq> HashSet<K> {
     /// `true` if every element of `self` is in `other`.
     pub fn is_subset(&self, other: &HashSet<K>) -> bool {
         unsafe {
-            for k in (self as *const HashSet<K>).iter() { if !other.has(k) { return false; } }
+            for k in (*(self as *const HashSet<K>)).iter() { if !other.has(k) { return false; } }
         }
         return true;
     }
@@ -150,7 +150,7 @@ impl<K: Hash + Eq> HashSet<K> {
     /// `true` if `self` and `other` share no element.
     pub fn is_disjoint(&self, other: &HashSet<K>) -> bool {
         unsafe {
-            for k in (self as *const HashSet<K>).iter() { if other.has(k) { return false; } }
+            for k in (*(self as *const HashSet<K>)).iter() { if other.has(k) { return false; } }
         }
         return true;
     }
