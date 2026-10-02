@@ -900,14 +900,22 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
     let rn: str = operand_named_ty(r, t);
     let lc: i32 = el_ty(ln).cls;
     let rc: i32 = el_ty(rn).cls;
-    // ⚠ INTEGER AGAINST INTEGER ONLY, FOR NOW. An integer meeting a float
-    // (`key + avg(x)`, `r.s + 1.5`) is refused by Rust too, but Rust's remedy is
-    // `as`, which the EL grammar does not have yet; refusing it first would make
-    // a legitimate query inexpressible (measured: wql_aggregate_e2e). That half
-    // lands with `as` (step 4).
+    // Two named NUMERIC types that differ — `i32 + i64`, `key + avg(x)` (an
+    // integer and an `f64`), `f32 + f64` — and a literal of the other class
+    // (`r.s + 1.5`, `s.f * 2`): Rust refuses all of them, and its remedy, `as`,
+    // is in the EL (step 4).
+    let lnum: bool = lc == EL_TY_INT() || lc == EL_TY_FLT();
+    let rnum: bool = rc == EL_TY_INT() || rc == EL_TY_FLT();
     let mut bad: bool = false;
-    if ln.len() > 0i64 && rn.len() > 0i64 && lc == EL_TY_INT() && rc == EL_TY_INT()
-       && !str_eq(ln, rn) { bad = true; }
+    if ln.len() > 0i64 && rn.len() > 0i64 && lnum && rnum && !str_eq(ln, rn) { bad = true; }
+    let mut lk: str = ln;
+    let mut rk: str = rn;
+    if ln.len() == 0i64 && rnum && lit_class(l) >= 0i32 && lit_class(l) != rc {
+        bad = true; lk = lit_class_name(lit_class(l));
+    }
+    if rn.len() == 0i64 && lnum && lit_class(r) >= 0i32 && lit_class(r) != lc {
+        bad = true; rk = lit_class_name(lit_class(r));
+    }
     if !bad { return true; }
     let mut m: String = String::new();
     m.push_str(ctx);
@@ -916,16 +924,36 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
     m.push_str("` — `");
     sexpr_display(&mut m, l);
     m.push_str("` is `");
-    m.push_str(ln);
+    m.push_str(lk);
     m.push_str("` and `");
     sexpr_display(&mut m, r);
     m.push_str("` is `");
-    m.push_str(rn);
+    m.push_str(rk);
     m.push_str("`; the operands of `");
     m.push_str(str_trim(emit_binop(op)));
-    m.push_str("` must have one type, as in Rust, and the EL no longer widens one of them silently");
+    m.push_str("` must have one type, as in Rust, and the EL no longer widens one of them silently — convert one side with `as` (e.g. `x as f64`)");
     error(string_as_str(&m));
     return false;
+}
+
+/// The numeric class of a literal operand (`N`, `N.M`, or either negated) —
+/// EL_TY_INT / EL_TY_FLT — or -1 when `e` is not a numeric literal.
+fn lit_class(e: SExpr) -> i32 {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_float() { return EL_TY_FLT(); }
+            if v.is_string() || v.is_bool() { return -1i32; }
+            return EL_TY_INT();
+        }
+        SExpr::Un(u) => { if u.op == OP_NEG() { return lit_class(u.arg_expr()); } return -1i32; }
+        _ => { return -1i32; }
+    }
+}
+
+fn lit_class_name(c: i32) -> str {
+    if c == EL_TY_FLT() { return "a float literal"; }
+    return "an integer literal";
 }
 
 /// True iff `op` is one of the arithmetic operators (the binary half of

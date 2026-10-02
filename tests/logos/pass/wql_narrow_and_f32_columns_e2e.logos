@@ -29,8 +29,9 @@ struct N { pub a: i24, pub b: u24, pub id: i64 }
 
 pub deem f_lt(fs: &[F])  { from fs s where s.k < 2.5f32 select s.id }
 pub deem f_ge(fs: &[F])  { from fs s where s.k >= 2.5f32 select s.id }
-// an INTEGER literal against a float column — the promotion's target is f32
-pub deem f_gt0(fs: &[F]) { from fs s where s.k > 0 select s.id }
+// a float literal against an f32 column takes the column's type (`0.0f32`); an
+// INTEGER literal here is `mismatched types` under Rust typing (2026-10-02)
+pub deem f_gt0(fs: &[F]) { from fs s where s.k > 0.0 select s.id }
 pub deem f_ord(fs: &[F]) { from fs s select s.id order by s.k }
 
 pub deem n_sel(ns: &[N])  { from ns s select s.a }
