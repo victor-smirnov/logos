@@ -1,0 +1,29 @@
+// WQL — A SUFFIX THAT MATCHES IS A TYPED OPERAND, AND IT KEEPS ITS TYPE (#724).
+//
+// `r.f * 1.5f32` over an `f32` column and `r.n > 5i64` over an `i64` agree; a
+// pure-literal `2.0f32 * 1.5` is an `f32` node (the suffix names the type and the
+// bare literal takes it). The optimizer does not fold a suffixed literal — a fold
+// in i64/f64 would lose the type (`100i8 + 100i8` is an i8 overflow in Rust).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R { pub f: f32, pub n: i64 }
+
+pub deem scaled(rs: &[R]) { from rs r select r.f * 1.5f32 }
+pub deem big(rs: &[R])    { from rs r where r.n > 5i64 select r.n + 1i64 }
+pub deem lit(rs: &[R])    { from rs r select 2.0f32 * 1.5 }
+
+fn main() -> i32 {
+    let rs: [R; 2] = [ R { f: 2.0f32, n: 3i64 }, R { f: 4.0f32, n: 9i64 } ];
+    let a: Vec<f32> = scaled(&rs[..]).unwrap();
+    if a.get(0i64) != 3.0f32 { return 1i32; }
+    if a.get(1i64) != 6.0f32 { return 2i32; }
+    let b: Vec<i64> = big(&rs[..]).unwrap();
+    if b.len() != 1i64 { return 3i32; }
+    if b.get(0i64) != 10i64 { return 4i32; }
+    let c: Vec<f32> = lit(&rs[..]).unwrap();
+    if c.get(0i64) != 3.0f32 { return 5i32; }
+    return 0i32;
+}

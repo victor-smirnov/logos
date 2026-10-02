@@ -458,12 +458,24 @@ pub fn float_node_ty(e: SExpr, t: &ElTypes) -> str {
     return "f64";
 }
 
-/// The type ONE operand names for `arith_node_ty` — "" for a literal (it has
-/// none of its own), the node's own type for a nested arithmetic node, and the
-/// declared type for everything else.
+/// THE TYPE A SUFFIXED LITERAL NAMES (#724) — `5i32` is an `i32`, `1.0f64` an
+/// `f64` — or "" for an unsuffixed one (or `-N` over either). A suffix makes a
+/// literal a TYPED operand like a column: `r.f * 1.0f64` over an `f32` is a
+/// mismatch, as in Rust, instead of the suffix being dropped.
+pub fn lit_suffix(e: SExpr) -> str {
+    match e {
+        SExpr::Lit(l) => { return l.suffix(); }
+        SExpr::Un(u) => { if u.op == OP_NEG() { return lit_suffix(u.arg_expr()); } return ""; }
+        _ => { return ""; }
+    }
+}
+
+/// The type ONE operand names for `arith_node_ty` — a literal's suffix ("" when
+/// it has none: it takes the other side's), the node's own type for a nested
+/// arithmetic node, and the declared type for everything else.
 fn arith_operand_ty(e: SExpr, t: &ElTypes) -> str {
     match e {
-        SExpr::Lit(_) => { return ""; }
+        SExpr::Lit(_) => { return lit_suffix(e); }
         _ => { }
     }
     if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_INT() { return arith_node_ty(e, t); }
@@ -857,9 +869,15 @@ fn int_lit_value(e: SExpr, out_v: &mut i64) -> bool {
 fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> bool {
     let mut v: i64 = 0i64;
     if !int_lit_value(lit, &mut v) { return true; }
+    // A SUFFIXED literal is checked against its own type (`300i8`); an
+    // unsuffixed one against the type it takes from the other side.
+    let sfx: str = lit_suffix(lit);
     let mut ov: i64 = 0i64;
-    if int_lit_value(other, &mut ov) { return true; }   // literal vs literal: no type
-    let on: str = if el_computes_in_repr(other) && infer_ty(other, t) == EL_TY_INT()
+    if sfx.len() == 0i64 && int_lit_value(other, &mut ov) && lit_suffix(other).len() == 0i64 {
+        return true;   // two bare literals: no type to check against
+    }
+    let on: str = if sfx.len() > 0i64 { sfx }
+                  else if el_computes_in_repr(other) && infer_ty(other, t) == EL_TY_INT()
                   { arith_node_ty(other, t) } else { infer_ty_name(other, t) };
     let ty: ElTy = el_ty(on);
     if ty.cls != EL_TY_INT() { return true; }
@@ -882,6 +900,11 @@ fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> b
     m.push_i64(v);
     m.push_str("` is out of range for `");
     m.push_str(on);
+    if sfx.len() > 0i64 {
+        m.push_str("`, the type its own suffix names (Rust refuses the same literal). The remedy is a value inside the range, or another suffix");
+        error(string_as_str(&m));
+        return false;
+    }
     m.push_str("` — it takes that type from `");
     sexpr_display(&mut m, other);
     m.push_str("`, the other side of `");
@@ -898,9 +921,10 @@ fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> b
 /// declared type otherwise.
 fn operand_named_ty(e: SExpr, t: &ElTypes) -> str {
     let mut v: i64 = 0i64;
-    if int_lit_value(e, &mut v) { return ""; }
+    if int_lit_value(e, &mut v) { return lit_suffix(e); }
     match e {
-        SExpr::Lit(_) => { return ""; }
+        SExpr::Lit(_) => { return lit_suffix(e); }
+        SExpr::Un(u) => { if u.op == OP_NEG() && is_lit_operand(e) { return lit_suffix(e); } }
         _ => { }
     }
     if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_INT() { return arith_node_ty(e, t); }
@@ -1245,6 +1269,11 @@ pub fn sexpr_display(out: &mut String, e: SExpr) {
         SExpr::Param(p) => { out.push_str(":"); out.push_str(p.name); }
         SExpr::Lit(l)   => {
             let v: WAny = l.val;
+            // A parsed number is shown as WRITTEN (`1.5`, `5i32`) — `txt` is the
+            // token (#724); a literal the optimizer built has none and is shown
+            // from its value.
+            let tx: str = l.txt;
+            if tx.len() > 0i64 && !v.is_string() && !v.is_bool() { out.push_str(tx); return; }
             if v.is_string() { out.push_str("\""); emit_str_escaped(out, v.as_wstr()); out.push_str("\""); return; }
             if v.is_bool()   { if v.as_bool() { out.push_str("true"); } else { out.push_str("false"); } return; }
             if v.is_float()  { push_f64_lit(out, v.as_f64()); return; }

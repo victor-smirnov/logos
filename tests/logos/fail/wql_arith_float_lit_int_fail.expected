@@ -1,1 +1,1 @@
-wql!: `select`: mismatched types in `(r.s + 1.5f64)` — `r.s` is `i8` and `1.5f64` is `a float literal`
+wql!: `select`: mismatched types in `(r.s + 1.5)` — `r.s` is `i8` and `1.5` is `a float literal`

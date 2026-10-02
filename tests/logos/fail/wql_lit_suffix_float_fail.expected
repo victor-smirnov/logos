@@ -1,0 +1,1 @@
+wql!: `select`: mismatched types in `(r.f * 1.0f64)` — `r.f` is `f32` and `1.0f64` is `f64`

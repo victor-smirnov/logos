@@ -106,7 +106,7 @@
     // `doc.make::<S>()` stamps the type code); the C++ backend has no second pass
     // and must bake them in. Carrying them HERE is what makes this file the single
     // source of truth for both backends, instead of a hand-checked mirror.
-    SLit     : code(0x0010_0000_0000_0000) cap(2) { val: "WAny" = 0, soff: "i64" = 1 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
+    SLit     : code(0x0010_0000_0000_0000) cap(3) { val: "WAny" = 0, soff: "i64" = 1, txt: "str" = 2 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
     SParam   : code(0x0010_0000_0000_0001) cap(2) { name: "str" = 0, soff: "i64" = 1 }    // $name — captured IDENT
     SVar     : code(0x0010_0000_0000_0002) cap(2) { name: "str" = 0, soff: "i64" = 1 }    // loop var — captured IDENT
     SField   : code(0x0010_0000_0000_0003) cap(3) { base: "ref SExpr" = 0, name: "str" = 1, soff: "i64" = 2 }   // field NAME — captured IDENT
@@ -285,8 +285,8 @@
              / TRUE    => { CODE: "SLit", val: true }
              / FALSE   => { CODE: "SLit", val: false }
              / STRING  => { CODE: "SLit", val: $1 }   // faithful: interned WString ref
-             / FLOAT   => { CODE: "SLit", val: $1 }    // token->f64 decode: doc.float(wstr_decode_f64($1))
-             / INTEGER => { CODE: "SLit", val: $1 }    // token->i64 decode: doc.int(wstr_decode_i64($1))
+             / FLOAT   => { CODE: "SLit", val: $1, txt: $1 }   // txt: the token as written, suffix included (#724)    // token->f64 decode: doc.float(wstr_decode_f64($1))
+             / INTEGER => { CODE: "SLit", val: $1, txt: $1 }    // token->i64 decode: doc.int(wstr_decode_i64($1))
              / DOLLAR IDENT => { CODE: "SParam", name: $2 }            // $name — captured IDENT
              / IDENT LPAREN arglist RPAREN => { CODE: "SCall", fn_name: $1, args: $3 }  // call NAME — captured IDENT
              / IDENT   => { CODE: "SField", base: NULLBASE, name: $1 } // bare field-root; captured IDENT

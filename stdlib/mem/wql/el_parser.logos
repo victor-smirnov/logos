@@ -1153,6 +1153,7 @@ fn alt_primary_6(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let node: SLit = doc.make::<SLit>();
     node.val = doc.float(wstr_decode_f64(cap1));
+    node.txt = wstr_as_str(cap1);
     node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }
@@ -1167,6 +1168,7 @@ fn alt_primary_7(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
     let node: SLit = doc.make::<SLit>();
     node.val = doc.int(wstr_decode_i64(cap1));
+    node.txt = wstr_as_str(cap1);
     node.soff = fstart;
     return node.as_ref().raw() as *const u8;
 }

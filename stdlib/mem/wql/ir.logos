@@ -145,7 +145,7 @@ impl SExprArr {
 // view" + the seam's "backends trust the IR". A separate name→type dictionary
 // (built by the handler from schema reflection + the macro param list)
 // supplies value-types.
-pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0, soff: i64 = 1 }                                  // literal, value verbatim
+pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0, soff: i64 = 1, txt: str = 2 }                                  // literal, value verbatim
 pub schema SParam : code(0x0010_0000_0000_0001) { name: str = 0, soff: i64 = 1 }                                  // bound parameter (prepared-stmt arg) — by NAME
 pub schema SVar   : code(0x0010_0000_0000_0002) { name: str = 0, soff: i64 = 1 }                                  // comprehension-bound row variable — by NAME
 pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: str = 1, soff: i64 = 2 }           // ONE field / edge step — field NAME
@@ -189,6 +189,33 @@ pub schema enum SExpr : category(0x0010_0000_0000_0000) {
 // the TOM in the Writ arena (which outlives the view), so it is NOT a dangling
 // reference to the local view — mirrors static_view.logos's WAny::Ref pattern.
 impl SLit     { pub fn as_ref(self: SLit)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+
+/// The type a NUMBER literal's suffix names — `5i32` → "i32", `1.0f64` → "f64" —
+/// or "" when it has none (or is not a number, or was built by the optimizer,
+/// which records no token). `txt` is the token as written (#724).
+impl SLit {
+    pub fn suffix(self: SLit) -> str {
+        let v: WAny = self.val;
+        if v.is_string() || v.is_bool() { return ""; }
+        let tx: str = self.txt;
+        if tx.len() == 0i64 { return ""; }
+        // The INTEGER/FLOAT tokens admit exactly these suffixes (el.peg); the
+        // longer ones are asked first so `i16` is not read as ending in `6`.
+        if str_ends_with(tx, "usize") { return "usize"; }
+        if str_ends_with(tx, "isize") { return "isize"; }
+        if str_ends_with(tx, "i16") { return "i16"; }
+        if str_ends_with(tx, "i32") { return "i32"; }
+        if str_ends_with(tx, "i64") { return "i64"; }
+        if str_ends_with(tx, "u16") { return "u16"; }
+        if str_ends_with(tx, "u32") { return "u32"; }
+        if str_ends_with(tx, "u64") { return "u64"; }
+        if str_ends_with(tx, "f32") { return "f32"; }
+        if str_ends_with(tx, "f64") { return "f64"; }
+        if str_ends_with(tx, "i8") { return "i8"; }
+        if str_ends_with(tx, "u8") { return "u8"; }
+        return "";
+    }
+}
 impl SParam   { pub fn as_ref(self: SParam)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl SVar     { pub fn as_ref(self: SVar)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl SField   { pub fn as_ref(self: SField)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
