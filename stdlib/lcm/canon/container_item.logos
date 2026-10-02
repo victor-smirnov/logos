@@ -2701,7 +2701,7 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
                 self.leaf_bytes = leaf_bytes;
                 self.branch_bytes = branch_bytes;
             }
-            pub fn insert(self: &mut #nm, key: u64, vals: &Vec<u64>) -> bool {
+            pub fn insert(self: &#nm, key: u64, vals: &Vec<u64>) -> bool {
                 unsafe {
                     let mut t: Btfl<2, #nd> = self.tree_mut();
                     // multimap container: one key entry + `vals` as stream 1
@@ -2769,8 +2769,11 @@ fn emit_btfl_family(name: str, cs: &ContainerSpec, vm: &WMap<WString, WAny>,
         // ── the dyn BOUNDARY (S3): the family handle behind trait objects ──
         // Deem holds `&dyn Ctr` (uniform plane) / `&mut dyn Multimap` (typed
         // family surface); inside sits THIS monomorphized handle. The impl
-        // bodies delegate to the inherent methods (same names — inherent wins
-        // at dispatch, which is exactly the delegation we want).
+        // bodies delegate to the inherent methods (same names and the same
+        // `&self` receiver, so the inherent method is the one the call reaches —
+        // rustc's probe takes the receiver step first, then inherent before
+        // trait; an inherent `&mut self` would lose to this `&self` impl and the
+        // delegation would recurse).
         impl Ctr for #nm {
             fn size(self: &#nm) -> u64 { return self.count(0u64); }
         }
