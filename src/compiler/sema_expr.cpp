@@ -12213,10 +12213,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         mwhy_ = MWHY_ARG; mwhy_argi_ = i; mwhy_exp_ = exp; mwhy_act_ = act;
     };
     const SemaFuncInfo* fi_ptr = nullptr;
-    bool auto_ref_recv = false;
-    int pick_rank = 0;   // recv_pick_rank_ of fi_ptr while candidates are compared
-    bool auto_ref_mut = false;
-    bool auto_deref_recv = false;
     SemaSubst recv_struct_subst;
     {
         TypeRef rst = expr_type(recv);
@@ -12274,8 +12270,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::stable_sort(tied.begin(), tied.end(), [&](auto* x, auto* y) { return specificity(x) > specificity(y); });
             for (auto* c : tied) {
                 if (c->param_types.size() != arg_exprs.size() + 1) {
-                    if (std::getenv("LOGOS_PROBE_FALLBACK"))
-                        std::fprintf(stderr, "PROBEREJ %s arity %zu vs %zu\n", pk.key.c_str(), c->param_types.size(), arg_exprs.size() + 1);
+                    mwhy_arity_(c->param_types.size(), arg_exprs.size() + 1);
                     continue;
                 }
                 bool ok = true;
@@ -12284,9 +12279,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (!recv_struct_subst.empty()) pt = subst_type_sema(pt, recv_struct_subst);
                     TypeRef at = expr_type(arg_exprs[a - 1]);
                     ok = at && pt && arg_compatible_for_dispatch(arg_exprs[a - 1], at, pt);
-                    if (!ok && std::getenv("LOGOS_PROBE_FALLBACK"))
-                        std::fprintf(stderr, "PROBEREJ %s arg%zu pt=%s at=%s\n", pk.key.c_str(), a,
-                                     pt ? type_str(pt).c_str() : "-", at ? type_str(at).c_str() : "-");
+                    if (!ok) mwhy_arg_(a, pt, at);
                 }
                 if (!ok) continue;
                 fi_ptr = c;
@@ -12305,6 +12298,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 break;
             }
         }
+        // `&mut self` through a `&T` receiver: the method is found, the receiver
+        // cannot be made — say so (`expected &mut S, got &S`).
+        if (!fi_ptr && pk.fi && !blanket && pk.derefs == 1 && pk.autoref == 2 &&
+            TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ref)
+            mwhy_recv_(make_ref(true, TypeRef(expr_type(recv)).pointee()), expr_type(recv));
+        if (!fi_ptr && pk.fi && pk.key.starts_with("$blanket$") && pk.derefs == 0)
+            if (auto e = try_blanket_method_dispatch(recv, arg_exprs, method_name, std::string(sname)))
+                return e;
         if (std::getenv("LOGOS_PROBE_FALLBACK") && !fi_ptr)
             std::fprintf(stderr, "PROBEFALLBACK %s:%u %s.%s pick=%s\n", ctx_.c_str(), node_line_,
                          type_str(expr_type(recv)).c_str(), std::string(method_name).c_str(),
@@ -12413,257 +12414,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                   {}, std::move(pargs), ret);
         }
     }
-    if (!fi_ptr) {
-        std::vector<TypeRef> types;
-        types.push_back(expr_type(recv));
-        for (auto& a : arg_exprs) types.push_back(expr_type(a));
-        // G158-5: a by-value-`self` method reached only by auto-dereffing the
-        // receiver is LOWER priority than any exact / auto-ref match (Rust's
-        // autoderef order: try `T`/`&T`/`&mut T` at the current deref level
-        // before stepping to the next deref). Record the first deref-only
-        // candidate and only fall back to it if no non-deref candidate matched
-        // (otherwise e.g. a `&Foo` receiver would wrongly pick inherent
-        // `val(self: Foo)` over trait `val(self: &Foo)`).
-        const SemaFuncInfo* deref_fallback = nullptr;
-        for (auto* cand : find_func_candidates(mangled)) {
-            if (!cand || !cand->type_params.empty()) continue;
-            if (cand->param_types.size() != types.size()) {
-                mwhy_arity_(cand->param_types.size(), types.size());
-                continue;
-            }
-            bool ok = true;
-            bool needs_ref = false;
-            bool needs_mut = false;
-            bool needs_deref = false;
-            auto formal0 = cand->param_types[0];
-            if (!recv_struct_subst.empty())
-                formal0 = subst_type_sema(formal0, recv_struct_subst);
-            auto actual0 = expr_type(recv);
-            if (actual0 && formal0 && !types_equal(actual0, formal0)) {
-                if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
-                    TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
-                    TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                    is_ref_like(TypeRef(formal0).kind()) && TypeRef(formal0).pointee() &&
-                    types_equal(actual0, TypeRef(formal0).pointee())) {
-                    needs_ref = true;
-                    needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-                } else if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
-                           TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
-                           TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                           TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                           TypeRef(formal0).pointee() &&
-                           types_equal(actual0, TypeRef(formal0).pointee())) {
-                    needs_ref = true;
-                    needs_mut = false;
-                } else if (TypeRef(actual0).kind() == LogosType::Kind::Ptr &&
-                           TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                           TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
-                           types_equal(TypeRef(actual0).pointee(), TypeRef(formal0).pointee())) {
-                    // const/mut pointer receivers are compatible if pointees match.
-                } else if ((is_ref_like(TypeRef(actual0).kind()) ||
-                            TypeRef(actual0).kind() == LogosType::Kind::Ptr) &&
-                           TypeRef(actual0).pointee() &&
-                           !is_ref_like(TypeRef(formal0).kind()) &&
-                           TypeRef(formal0).kind() != LogosType::Kind::Ptr &&
-                           types_equal(TypeRef(actual0).pointee(), formal0)) {
-                    // G158-5: receiver is `&T`/`&mut T`/`*T` but the method
-                    // takes `self` BY VALUE — auto-deref the receiver (mirrors
-                    // the explicit `(*recv).method()` workaround / Rust's
-                    // autoderef-then-by-value-self). The by-value self copies
-                    // (or moves) out of the reference; borrow-check enforces
-                    // Copy/move-out soundness downstream.
-                    needs_deref = true;
-                } else if ([&]() -> bool {
-                    // #[self_describing] receiver leniency: every reference
-                    // form over such a struct (raw pointer, &/&mut,
-                    // DstRef-canonicalised self) is ONE thin repr, so any
-                    // pairing is compatible when the struct identities match.
-                    auto dst_name = [&](TypeRef t) -> std::string {
-                        if (!t) return {};
-                        TypeRef u = t;
-                        auto k = u.kind();
-                        if ((k == LogosType::Kind::Ptr ||
-                             k == LogosType::Kind::Ref ||
-                             k == LogosType::Kind::MutRef) && u.pointee())
-                            u = u.pointee();
-                        auto uk = TypeRef(u).kind();
-                        if (uk == LogosType::Kind::Struct ||
-                            uk == LogosType::Kind::ZonedStruct ||
-                            uk == LogosType::Kind::DstRef)
-                            return std::string(TypeRef(u).struct_name());
-                        return {};
-                    };
-                    std::string an = dst_name(actual0), fn2 = dst_name(formal0);
-                    if (an.empty() || an != fn2) return false;
-                    auto [dp, dsi] = find_struct_by_name(an);
-                    (void)dp;
-                    return dsi && dsi->self_describing;
-                }()) {
-                    // compatible — thin one-repr receiver forms.
-                } else if (!types_compatible(actual0, formal0)) {
-                    ok = false;
-                    mwhy_recv_(formal0, actual0);
-                }
-            }
-            for (size_t i = 1; ok && i < cand->param_types.size(); ++i) {
-                auto at = types[i];
-                auto pt = cand->param_types[i];
-                if (!recv_struct_subst.empty())
-                    pt = subst_type_sema(pt, recv_struct_subst);
-                if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1], at, pt)) {
-                    ok = false;
-                    mwhy_arg_(i, pt, at);
-                    break;
-                }
-            }
-            if (!ok) continue;
-            if (needs_deref) {
-                // Defer: a non-deref candidate later in the list takes
-                // priority. Keep only the first deref-only match.
-                if (!deref_fallback) deref_fallback = cand;
-                continue;
-            }
-            // rustc's probe order at one receiver step: the receiver BY VALUE
-            // before its autoref, and an inherent method before a trait's
-            // (`impl S { fn f(self) }` wins over `impl T for S { fn f(&self) }`).
-            if (const int r = recv_pick_rank_(cand, needs_ref); !fi_ptr || r < pick_rank) {
-                fi_ptr = cand;
-                auto_ref_recv = needs_ref;
-                auto_ref_mut = needs_mut;
-                pick_rank = r;
-            }
-        }
-        if (!fi_ptr && deref_fallback) {
-            fi_ptr = deref_fallback;
-            auto_deref_recv = true;
-        }
-        if (!fi_ptr) {
-            fi_ptr = find_generic_func_for_args(mangled, types,
-                                                /*is_method_recv=*/true);
-            if (!fi_ptr) fi_ptr = find_generic_func(mangled);
-        }
-    }
-    // G158-5: auto-deref a `&T`/`*T` receiver for a by-value-`self` method.
-    if (fi_ptr && auto_deref_recv && expr_type(recv) &&
-        (is_ref_like(TypeRef(expr_type(recv)).kind()) ||
-         TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ptr) &&
-        TypeRef(expr_type(recv)).pointee()) {
-        auto pointee = TypeRef(expr_type(recv)).pointee();
-        recv = builder().deref(std::move(recv), pointee);
-    }
-    if (fi_ptr && auto_ref_recv && expr_type(recv) &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ref &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::MutRef &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr) {
-        auto __ty_recv = make_ref(auto_ref_mut, expr_type(recv));
-
-        auto addr = materialize_recv_ref(std::move(recv), auto_ref_mut, __ty_recv, BorrowOrigin::Autoref);
-        recv = std::move(addr);
-    }
-
-    // Fallback: for generic structs (Foo$G1$i32), methods may be registered under base name (Foo).
-    if (!fi_ptr) {
-        std::string base_sname(sname);
-        if (auto d = base_sname.find('$'); d != std::string::npos)
-            base_sname = base_sname.substr(0, d);
-        if (base_sname != sname) {
-            auto base_mangled = base_sname + "__" + std::string(method_name);
-            std::vector<TypeRef> types;
-            types.push_back(expr_type(recv));
-            for (auto& a : arg_exprs) types.push_back(expr_type(a));
-            for (auto* cand : find_func_candidates(base_mangled)) {
-                if (!cand || !cand->type_params.empty()) continue;
-                if (cand->param_types.size() != types.size()) {
-                    mwhy_arity_(cand->param_types.size(), types.size());
-                    continue;
-                }
-                bool ok = true;
-                bool needs_ref = false;
-                bool needs_mut = false;
-                auto formal0 = cand->param_types[0];
-                if (!recv_struct_subst.empty())
-                    formal0 = subst_type_sema(formal0, recv_struct_subst);
-                auto actual0 = expr_type(recv);
-                if (actual0 && formal0 && !types_equal(actual0, formal0)) {
-                    if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
-                        TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
-                        TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                        is_ref_like(TypeRef(formal0).kind()) && TypeRef(formal0).pointee() &&
-                        types_equal(actual0, TypeRef(formal0).pointee())) {
-                        needs_ref = true;
-                        needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-                    } else if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
-                               TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
-                               TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                               TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                               TypeRef(formal0).pointee() &&
-                               types_equal(actual0, TypeRef(formal0).pointee())) {
-                        needs_ref = true;
-                        needs_mut = false;
-                    } else if (TypeRef(actual0).kind() == LogosType::Kind::Ptr &&
-                               TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                               TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
-                               types_equal(TypeRef(actual0).pointee(), TypeRef(formal0).pointee())) {
-                        // const/mut pointer receivers are compatible if pointees match.
-                    } else if (sd_thin_compatible(actual0, formal0)) {
-                        // compatible — thin one-repr receiver forms.
-                    } else if (!types_compatible(actual0, formal0)) {
-                        ok = false;
-                        mwhy_recv_(formal0, actual0);
-                    }
-                }
-                for (size_t i = 1; ok && i < cand->param_types.size(); ++i) {
-                    auto at = types[i];
-                    auto pt = cand->param_types[i];
-                    if (!recv_struct_subst.empty())
-                        pt = subst_type_sema(pt, recv_struct_subst);
-                    if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1], at, pt)) {
-                        ok = false;
-                        mwhy_arg_(i, pt, at);
-                        break;
-                    }
-                }
-                if (!ok) {
-                    if (std::getenv("LOGOS_DBG_DISP") &&
-                        base_mangled.find("PkdAlloc__") != std::string::npos)
-                        std::fprintf(stderr, "[disp-dbg] %s cand rejected: a0k=%d f0k=%d nparams=%zu ntypes=%zu\n",
-                            base_mangled.c_str(),
-                            types[0] ? (int)TypeRef(types[0]).kind() : -1,
-                            cand->param_types[0] ? (int)TypeRef(cand->param_types[0]).kind() : -1,
-                            cand->param_types.size(), types.size());
-                    continue;
-                }
-                if (const int r = recv_pick_rank_(cand, needs_ref); !fi_ptr || r < pick_rank) {
-                    fi_ptr = cand;
-                    auto_ref_recv = needs_ref;
-                    auto_ref_mut = needs_mut;
-                    mangled = base_mangled;
-                    pick_rank = r;
-                }
-            }
-            if (!fi_ptr) {
-                if (auto sfit = find_generic_func_for_args(
-                        base_mangled, types, /*is_method_recv=*/true)) {
-                    fi_ptr = sfit;
-                    mangled = base_mangled;
-                } else if (auto fit = find_generic_func(base_mangled)) {
-                    fi_ptr = fit;
-                    mangled = base_mangled;
-                }
-            }
-        }
-    }
-
-    if (fi_ptr && auto_ref_recv && expr_type(recv) &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ref &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::MutRef &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr) {
-        auto __ty_recv = make_ref(auto_ref_mut, expr_type(recv));
-
-        auto addr = materialize_recv_ref(std::move(recv), auto_ref_mut, __ty_recv, BorrowOrigin::Autoref);
-        recv = std::move(addr);
-    }
-
     if (!fi_ptr) {
         // Blanket-impl fallback: `impl<T: Bound> Trait for T { fn method … }`
         // provides method on any T satisfying Bound. Shared with the
