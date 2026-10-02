@@ -1,0 +1,18 @@
+// WQL — THE OPERANDS OF A NUMERIC OPERATOR HAVE ONE TYPE (Rust typing, step 3c).
+//
+// `a.x + b.y` over an `i32` and an `i64` is refused by Rust (`mismatched types`).
+// Until 2026-10-02 the EL promoted both to i64 and answered; a join key compared
+// across two widths was accepted the same way. The refusal names the node and
+// both types. An integer meeting a FLOAT is refused once the EL has `as`, which
+// is Rust's remedy for both.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct A { pub k: i64, pub x: i32 }
+struct B { pub k: i64, pub y: i64 }
+
+pub deem q(as_: &[A], bs: &[B]) { from as_ a join bs b on a.k == b.k select a.x + b.y }
+
+fn main() -> i32 { return 0i32; }

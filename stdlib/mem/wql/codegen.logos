@@ -401,10 +401,10 @@ pub fn arith_node_tower(e: SExpr, t: &ElTypes) -> i32 {
 /// 64-bit types, so it never needs one), so an excursion outside the type
 /// is an `ElError`, not a wrapped value and not a silently wider one.
 ///
-/// The tower's own type is the answer when nothing names a type (`1 + 2`), and,
-/// for now, when the two operands name DIFFERENT types (`i32 + i64`): Rust
-/// refuses that node, and the refusal is the next slice — until it lands, such a
-/// node keeps the promotion it always had rather than picking a side.
+/// The tower's own type is the answer when nothing names a type (`1 + 2`). Two
+/// operands naming DIFFERENT integer types (`i32 + i64`) are refused before any
+/// of this is asked (`check_operand_types_agree`); the tower answer for them below
+/// is what a caller that skipped the check would get, not a typing rule.
 pub fn arith_node_ty(e: SExpr, t: &ElTypes) -> str {
     let tw: i32 = arith_node_tower(e, t);
     let rep: str = el_tower_repr(tw);
@@ -855,6 +855,66 @@ fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> b
     m.push_str("`, and a value outside the type cannot be ");
     if el_computes_in_repr_op(op) { m.push_str("an operand of it"); } else { m.push_str("compared with it"); }
     m.push_str(" (Rust refuses the same literal). The remedy is a literal inside the range, or a wider column");
+    error(string_as_str(&m));
+    return false;
+}
+
+/// The type an operand of a binary node NAMES for the agreement check — "" for a
+/// literal (it takes the other side's), a nested arithmetic node's own type, a
+/// declared type otherwise.
+fn operand_named_ty(e: SExpr, t: &ElTypes) -> str {
+    let mut v: i64 = 0i64;
+    if int_lit_value(e, &mut v) { return ""; }
+    match e {
+        SExpr::Lit(_) => { return ""; }
+        _ => { }
+    }
+    if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_INT() { return arith_node_ty(e, t); }
+    return infer_emit_ty(e, t);
+}
+
+/// THE TWO OPERANDS OF A NUMERIC OPERATOR HAVE ONE TYPE (Rust typing, step 3c).
+///
+/// `a.x + b.y` over an `i32` and an `i64`, `r.s + 1.5` over an `i8`, and `a.k ==
+/// b.k` over two widths are refused by Rust (`mismatched types`, `cannot add a
+/// float to an integer`), and the EL now types like the language it is embedded
+/// in. Before, such a node was silently promoted to i64, so its value and its
+/// type were the tower's, not anything the query named.
+///
+/// Only the NUMERIC classes are asked: `&&`/`||` are bool by construction, and a
+/// `String` column compared with a `str` value is one comparison through its view.
+/// A literal names no type and is checked by `check_lit_fits` instead.
+fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTypes,
+                             ctx: str) -> bool {
+    if op == OP_OR() || op == OP_AND() { return true; }
+    let ln: str = operand_named_ty(l, t);
+    let rn: str = operand_named_ty(r, t);
+    let lc: i32 = el_ty(ln).cls;
+    let rc: i32 = el_ty(rn).cls;
+    // ⚠ INTEGER AGAINST INTEGER ONLY, FOR NOW. An integer meeting a float
+    // (`key + avg(x)`, `r.s + 1.5`) is refused by Rust too, but Rust's remedy is
+    // `as`, which the EL grammar does not have yet; refusing it first would make
+    // a legitimate query inexpressible (measured: wql_aggregate_e2e). That half
+    // lands with `as` (step 4).
+    let mut bad: bool = false;
+    if ln.len() > 0i64 && rn.len() > 0i64 && lc == EL_TY_INT() && rc == EL_TY_INT()
+       && !str_eq(ln, rn) { bad = true; }
+    if !bad { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": mismatched types in `");
+    sexpr_display(&mut m, node);
+    m.push_str("` — `");
+    sexpr_display(&mut m, l);
+    m.push_str("` is `");
+    m.push_str(ln);
+    m.push_str("` and `");
+    sexpr_display(&mut m, r);
+    m.push_str("` is `");
+    m.push_str(rn);
+    m.push_str("`; the operands of `");
+    m.push_str(str_trim(emit_binop(op)));
+    m.push_str("` must have one type, as in Rust, and the EL no longer widens one of them silently");
     error(string_as_str(&m));
     return false;
 }
@@ -1699,6 +1759,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
         SExpr::Bin(b)  => {
             if !check_arith_operand(e, b.lhs_expr(), t, ctx) { return false; }
             if !check_arith_operand(e, b.rhs_expr(), t, ctx) { return false; }
+            if !check_operand_types_agree(e, b.lhs_expr(), b.rhs_expr(), b.op, t, ctx) { return false; }
             if !check_lit_fits(b.lhs_expr(), b.rhs_expr(), b.op, t, ctx) { return false; }
             if !check_lit_fits(b.rhs_expr(), b.lhs_expr(), b.op, t, ctx) { return false; }
             return check_calls(b.lhs_expr(), t, ctx) && check_calls(b.rhs_expr(), t, ctx);
