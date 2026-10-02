@@ -10653,11 +10653,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // binding (reference payload under a `&E` scrutinee) peels its EXTRA
     // reference layers with explicit derefs, leaving a single `&T` for the
     // autoref/autoderef machinery below. `r.m()` for r:&&T ≡ `(*r).m()`.
-    // Raw pointers are left untouched (no binding-mode role).
+    // Raw pointers are left untouched (no binding-mode role). A layer a method
+    // applies to as it stands is a probe step, not peeled (`(&r).show()` with
+    // `impl Show for &i32` takes `&&i32`, rustc's first step).
+    auto applies_here = [&]() {
+        if (std::getenv("LOGOS_PROBE_OFF")) return false;
+        ProbePick pk = probe_method_(expr_type(recv), method_name);
+        return pk.fi && pk.derefs == 0;
+    };
     while (recv && expr_type(recv) &&
            is_ref_like(TypeRef(expr_type(recv)).kind()) &&
            TypeRef(expr_type(recv)).pointee() &&
-           is_ref_like(TypeRef(TypeRef(expr_type(recv)).pointee()).kind())) {
+           is_ref_like(TypeRef(TypeRef(expr_type(recv)).pointee()).kind()) && !applies_here()) {
         TypeRef inner = TypeRef(expr_type(recv)).pointee();
         recv = builder().deref(std::move(recv), inner);
     }
@@ -10667,7 +10674,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     if (recv && expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind()) &&
         TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr &&
         TypeRef(expr_type(recv)).pointee() &&
-        TypeRef(TypeRef(expr_type(recv)).pointee()).kind() == LogosType::Kind::Slice) {
+        TypeRef(TypeRef(expr_type(recv)).pointee()).kind() == LogosType::Kind::Slice && !applies_here()) {
         TypeRef inner = TypeRef(expr_type(recv)).pointee();
         recv = builder().deref(std::move(recv), inner);
     }
@@ -11788,7 +11795,61 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         auto mangled_prim = tname + "__" + std::string(method_name);
         bool generic_via_pointee = false;   // fi_ptr found generically by a `&T` receiver's pointee name
         const SemaFuncInfo* fi_ptr = nullptr;
-        {
+        // ADR 0030 S8 row 4 — THE probe picks (as on the struct path). A generic
+        // pick is autoref'd by the emission below, after inference reads `Self`
+        // off the receiver as it stands.
+        if (expr_type(recv) && !std::getenv("LOGOS_PROBE_OFF")) {
+            ProbePick pk = probe_method_(expr_type(recv), method_name);
+            const auto rk = TypeRef(expr_type(recv)).kind();
+            const bool reborrow = pk.derefs == 1 && pk.autoref > 0 && is_ref_like(rk) &&
+                                  (pk.autoref == 1 || rk == LogosType::Kind::MutRef);
+            const bool adj_ok = pk.fi && !pk.key.starts_with("$blanket$") &&
+                (pk.derefs == 0 || reborrow || (pk.derefs == 1 && pk.autoref == 0 && is_ref_like(rk)));
+            for (auto* c : adj_ok ? pk.tied : std::vector<const SemaFuncInfo*>{}) {
+                if (c->is_vararg || c->param_types.size() != arg_exprs.size() + 1) continue;
+                const bool generic = !c->type_params.empty();
+                if (generic && pk.derefs == 0 && pk.autoref > 0 && is_ref_like(rk)) continue;
+                // `impl<T> Tr for &T` binds its `T` in the `$ref_$T` arm below.
+                if (generic && (pk.key.starts_with("$ref_") || pk.key.starts_with("$mut_ref_"))) continue;
+                bool ok = true;
+                for (size_t a = 1; ok && !generic && a < c->param_types.size(); ++a) {
+                    TypeRef at = expr_type(arg_exprs[a - 1]);
+                    ok = at && arg_compatible_for_dispatch(expr_ref_of(arg_exprs[a - 1]), at, c->param_types[a]);
+                }
+                if (!ok) continue;
+                fi_ptr = c;
+                mangled_prim = pk.key;
+                // A generic method reached through a reference reads `Self` and the
+                // type's own arguments off the referent.
+                if (generic && is_ref_like(TypeRef(expr_type(recv)).kind()) && pk.derefs == 0)
+                    generic_via_pointee = true;
+                // An unsuffixed literal argument takes the chosen parameter's width.
+                for (size_t a = 0; !generic && a < arg_exprs.size(); ++a) {
+                    TypeRef pt = c->param_types[a + 1];
+                    auto ak = TypeRef(expr_type(arg_exprs[a])).kind();
+                    if (ak == LogosType::Kind::IntLit)
+                        widen_int_expr(arg_exprs[a], pt, builder());
+                    else if (ak == LogosType::Kind::FloatLit &&
+                             (TypeRef(pt).kind() == LogosType::Kind::F64 || TypeRef(pt).kind() == LogosType::Kind::F32))
+                        arg_exprs[a] = builder().cast(std::move(arg_exprs[a]), pt);
+                }
+                if (reborrow) {
+                    // the receiver as is
+                } else if (pk.derefs == 1) {
+                    recv = builder().deref(std::move(recv), TypeRef(expr_type(recv)).pointee());
+                } else if (pk.autoref > 0 && !generic) {
+                    const bool m = pk.autoref == 2;
+                    recv = materialize_recv_ref(std::move(recv), m, make_ref(m, expr_type(recv)),
+                                                BorrowOrigin::Autoref);
+                }
+                break;
+            }
+            if (std::getenv("LOGOS_PROBE_FALLBACK") && !fi_ptr)
+                std::fprintf(stderr, "PROBEFALLBACK %s:%u %s.%s pick=%s\n", ctx_.c_str(), node_line_,
+                             type_str(expr_type(recv)).c_str(), std::string(method_name).c_str(),
+                             pk.fi ? pk.key.c_str() : "-");
+        }
+        if (!fi_ptr) {
             std::vector<TypeRef> types;
             types.push_back(expr_type(recv));
             for (auto& a : arg_exprs) types.push_back(expr_type(a));
