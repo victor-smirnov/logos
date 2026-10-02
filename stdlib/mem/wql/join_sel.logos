@@ -31,12 +31,12 @@
 //   • `step_equi_key` — which term supplies the join key.
 //   • `step_cascade`  — the key's capabilities select the strategy.
 //
-// `join_key_caps` remains the single capability seam: the structural-key
-// version (ADR 0024 S1/S6) swaps its body for metaprog `has_trait` queries
-// without touching anything that reads it.
+// `join_key_caps` remains the single capability seam; its instance conjuncts
+// are metaprog `has_trait_named` queries (#340), so nothing that reads it
+// changes when a type gains or loses an impl.
 package logos.std.wql.join_sel;
 
-use logos.std.compiler.metaprog;  // error
+use logos.std.compiler.metaprog;  // error, has_trait_named
 use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.std.wql.ir;             // SExpr / SBin / WRef
@@ -78,9 +78,8 @@ pub fn js_reads_once(s: i32) -> bool {
 
 // ── The key-capability table — THE selector seam ──────────────────────────
 // ONE function maps an EL value-type to its {hash, ord, eq} capability row;
-// the strategy cascade reads ONLY this. The future structural-key version
-// swaps the body for metaprog has_trait queries (Hash / Ord / PartialEq over
-// the key's schema type) without touching the cascade.
+// the strategy cascade reads ONLY this. Its instance conjuncts are metaprog
+// `has_trait_named` queries over the key's type name (#340).
 pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
 
 // ⚠ THE ROWS ARE NOT WRITTEN HERE ANY MORE — they are READ OFF THE TYPE. This
@@ -98,34 +97,33 @@ pub struct KeyCaps { pub hash: bool, pub ord: bool, pub eq: bool }
 // type travels on `StepKey` now (`ktn`), so the capability row is the type's own:
 // `hash` is `self_ident` (the map is keyed IN this type — `==` there is the type's
 // own equality) AND the backend having a `Hash`/`Eq` instance for it; `ord` is
-// `self_ord` AND THE SAME SECOND CONJUNCT; `eq` is admission to the lattice.
+// `self_ord` AND an `Ord` instance; `eq` is admission to the lattice.
 //
-// ⚠ `hash` HAS TWO CONJUNCTS AND THE SECOND IS NOT ABOUT THE TYPE'S SEMANTICS —
-// it is what the stdlib provides. Keeping it as its own conjunct is what lets the
-// cascade fall to a lower tier instead of refusing, and what made admitting the
-// 128-bit and packed widths (2026-08-05, once their `Hash`/`Eq`/`Ord` impls
-// landed) a widening of `el_index_key_ok` rather than a re-derivation here.
+// ⚠ THE INSTANCE CONJUNCTS ARE ASKED OF THE IMPLS (#340). `hash` needs a
+// `HashMap<K, V>` instance — `K: Hash + Eq`; `ord` needs `K: Ord`. Both used to be
+// one hand-written list (`el_index_key_ok`, "the instances, as of logos.lang.hash +
+// logos.lang.cmp"), which also made the ORD tier ride on the Hash list. Now each is
+// its own query by the key's type NAME (`has_trait_named`, answered from the impl
+// facts of the programs the compiler has lowered), so a type that gains one
+// instance without the other moves exactly one tier. A missing fact is a deny: the
+// cascade falls to a lower tier, never to an index the stdlib cannot satisfy.
 //
-// ⚠ `ord` CARRIES THAT SECOND CONJUNCT TOO, AND THE LINE ABOVE USED TO DENY IT.
-// It read "`ord` is `self_ord`" while the code has always been
-// `self_ord && el_index_key_ok(name)` — so a widening of a predicate documented
-// as "does the stdlib have Hash+Eq" also admits the ORD tier. Nothing has ever
-// caught the mismatch because the two populations coincide over the lattice:
-// every row `el_index_key_ok` admits also has an `Ord` instance, before this
-// change (12 rows) and after it (18). WHETHER THE TWO SHOULD BE ONE PREDICATE
-// IS OPEN — an
-// Ord-key predicate and a Hash-key predicate are different questions and would
-// diverge the moment a type gains one instance without the other. Recorded here
-// as a mismatch now REMOVED FROM THE COMMENT rather than silently kept; splitting
-// them is a design decision, not a bug fix.
+// The one non-trait conjunct is `el_index_key_borrow_ok` — the emitted index
+// borrows its keys from the row, so `String` (hashable, ordered) stays on the loop
+// tier; its ground is stated there.
+fn KEY_HASH_TRAIT() -> str { return "logos.lang.hash::Hash"; }
+fn KEY_EQ_TRAIT()   -> str { return "logos.lang.cmp::Eq"; }
+fn KEY_ORD_TRAIT()  -> str { return "logos.lang.cmp::Ord"; }
 pub fn join_key_caps_named(name: str) -> KeyCaps {
     let t: ElTy = el_ty(name);
     if t.cls < 0i32 {
         // DEFAULT-DENY on a name this lattice does not enumerate.
         return KeyCaps { hash: false, ord: false, eq: false };
     }
-    return KeyCaps { hash: t.self_ident == EL_ID_OK() && el_index_key_ok(name),
-                     ord:  t.self_ord   == EL_ORD_OK() && el_index_key_ok(name),
+    let idx: bool = el_index_key_borrow_ok(name);
+    return KeyCaps { hash: t.self_ident == EL_ID_OK() && idx && has_trait_named(KEY_HASH_TRAIT(), name)
+                                                         && has_trait_named(KEY_EQ_TRAIT(), name),
+                     ord:  t.self_ord   == EL_ORD_OK() && idx && has_trait_named(KEY_ORD_TRAIT(), name),
                      eq:   true };
 }
 

@@ -133,6 +133,13 @@ const uint8_t* logos_metaprog_gensym(const uint8_t* pref, uint64_t pref_len,
 }
 
 __attribute__((weak))
+int32_t logos_metaprog_has_impl(const uint8_t* trait, uint64_t trait_len,
+                                const uint8_t* ty, uint64_t ty_len) {
+    (void)trait; (void)trait_len; (void)ty; (void)ty_len;
+    metaprog_unavailable("logos_metaprog_has_impl");
+}
+
+__attribute__((weak))
 const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
     (void)site_id; (void)arg_idx;
     metaprog_unavailable("logos_macro_arg");

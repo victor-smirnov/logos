@@ -14790,6 +14790,7 @@ sym	logos_mem.logos.std.compiler.metaprog$error__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$error_at__f__u32__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$error_located__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$gensym__f__slice_u8
+sym	logos_mem.logos.std.compiler.metaprog$has_trait_named__f__slice_u8__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$is_array__f__Type
 sym	logos_mem.logos.std.compiler.metaprog$is_bool_kind__f__Type
 sym	logos_mem.logos.std.compiler.metaprog$is_enum__f__Type

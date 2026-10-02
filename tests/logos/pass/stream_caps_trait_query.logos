@@ -17,16 +17,11 @@
 // is why this fixture can be written at all: the family's stream type has no
 // name a human can spell, and `typeof(c.leaf_batches())` is the only door.
 //
-// S1 MUST LIFT IT TO A NAME-KEYED FORM. `join_key_caps_named(name: str)` — the
+// THE NAME-KEYED FORM EXISTS (#340). `join_key_caps_named(name: str)` — the
 // seam the ADR names — holds a type NAME (`StepKey.ktn`, a `str` carried on
-// the IR node), not a type, and there is no query that takes one: neither
-// `has_trait::<T, Tr>()` (needs a spelled type) nor `has_trait_of::<Tr>(t:
-// Type)` (needs a `Type` value, which mono recovers only from a
-// `__type_uid_of__` literal — again a spelled type). So S1 owes either a
-// `has_trait_named(name: str, Trait)` query or a `Type`-valued type
-// environment on the plan IR. Until then the capability rows in
-// `join_key_caps_named` stay a hand-written table, and this fixture is the
-// closest layer that CAN ask.
+// the IR node), not a type; it asks metaprog's `has_trait_named(trait, name)`,
+// answered from the compiler's impl facts at metaprog run time. This fixture
+// stays on the mono-time `has_trait` fold, the layer for a spelled type.
 //
 // ── A MEASURED HOLE IN THE SEAM, RECORDED HERE RATHER THAN PINNED GREEN ────
 //

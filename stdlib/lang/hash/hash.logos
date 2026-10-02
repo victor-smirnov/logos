@@ -120,8 +120,8 @@ impl Hash for isize {
 // These six were held out by a comment on this line claiming `impl Eq for u128`
 // SIGSEGVs on call. RE-MEASURED 2026-08-05 at c6c212c7 and the claim does not
 // reproduce, including its own stated probe; the paragraph was a name list
-// wearing a reason. `logos.lang.cmp` carries the `Eq` half now, and
-// `el::el_index_key_ok` admits all six as index keys.
+// wearing a reason. `logos.lang.cmp` carries the `Eq` half now, and the WQL
+// planner admits all six as index keys by asking for these impls (#340).
 //
 // ⚠ A 128-BIT VALUE MUST FEED BOTH HALVES, AND THAT IS NOT A CORRECTNESS FACT —
 // which is exactly why it needs its own assertion. `Hasher` has no `write_u128`,

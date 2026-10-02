@@ -365,10 +365,6 @@ SINGLETONS = {
         T('logos_09_join_order_key_fidelity',
           ['{tsrc}/join_order_key_fidelity_gate.sh', '{logosc}', '{tsrc}/pass/wql_join_order_key_fidelity_e2e.logos'],
           'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
-        # HASHABLE-KEY AGREEMENT (ADR 0024 S6 — the value domain, tier 1 vs tier 2).
-        T('logos_09_el_hashable_agreement',
-          ['{tsrc}/el_hashable_agreement_gate.sh', '{logosc}', '{libdir}'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # WIDE-KEY INDEX TIER (ADR 0024 S6 — the value domain, the decision side).
         T('logos_09_wide_key_index_tier',
           ['{tsrc}/wide_key_index_tier_gate.sh', '{logosc}', '{tsrc}/pass/wql_join_wide_key_e2e.logos'],

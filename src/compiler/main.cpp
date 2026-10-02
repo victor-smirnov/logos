@@ -2587,6 +2587,24 @@ extern "C" void logos_qib_free_cursors(const uint8_t* blob) {
 // for the rest of the compilation (host owns them in a global vector
 // of unique_ptr<string> so addresses stay stable across pushes).
 // Counter is process-global; uniqueness across the whole compile.
+// Name-keyed trait query for metaprog code (#340): the concrete impl facts
+// (trait identity, target spelling) of every program the discovery loop has
+// lowered so far. A union: a later round's delta sema re-lowers only new items,
+// and an impl never disappears. Blanket and negative impls are not facts here —
+// a type they alone cover answers false (deny is the conservative answer).
+static std::set<std::pair<std::string, std::string>> g_metaprog_impl_facts;
+static void note_metaprog_impl_facts(const logos::compiler::lir::LProgram& prog) {
+    for (auto& impl : prog.impls)
+        if (!impl.is_blanket() && !impl.is_negative() && !impl.identity_trait().empty())
+            g_metaprog_impl_facts.emplace(std::string(impl.identity_trait()), std::string(impl.target_type()));
+}
+extern "C" int32_t logos_metaprog_has_impl(const uint8_t* trait, uint64_t trait_len,
+                                           const uint8_t* ty, uint64_t ty_len) {
+    std::pair<std::string, std::string> k{std::string(reinterpret_cast<const char*>(trait), trait_len),
+                                          std::string(reinterpret_cast<const char*>(ty), ty_len)};
+    return g_metaprog_impl_facts.count(k) ? 1 : 0;
+}
+
 static std::vector<std::unique_ptr<std::string>> g_gensym_buf;
 static uint64_t                                  g_gensym_counter = 0;
 extern "C" const uint8_t* logos_metaprog_gensym(const uint8_t* pref,
@@ -3632,6 +3650,7 @@ static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
         && bind("logos_qib_pack_cursors",          reinterpret_cast<void*>(&logos_qib_pack_cursors))
         && bind("logos_qib_free_cursors",          reinterpret_cast<void*>(&logos_qib_free_cursors))
         && bind("logos_metaprog_gensym",           reinterpret_cast<void*>(&logos_metaprog_gensym))
+        && bind("logos_metaprog_has_impl",         reinterpret_cast<void*>(&logos_metaprog_has_impl))
         && bind("logos_metacall_freeze2",          reinterpret_cast<void*>(&logos_metacall_freeze2))
         && bind("logos_metaprog_test_module_blob", reinterpret_cast<void*>(&logos_metaprog_test_module_blob))
         && bind("logos_test_make_bin_op_blob",     reinterpret_cast<void*>(&logos_test_make_bin_op_blob))
@@ -3976,6 +3995,7 @@ int run_metaprog_dispatch(
         // them. This is the only program in which this round's metacall sites
         // are visible; the next sema sees the spliced items instead.
         if (opts.order_facts) opts.order_facts->note_program(prog);
+        note_metaprog_impl_facts(prog);
         stat_step(_t, "sema_lower", iter);
         retry_deferred = retry_deferred || prog.has_pending() || prog.deferred_plan_work;
         report(iter == 0 ? "sema+lower" : "sema+lower (re-run)");

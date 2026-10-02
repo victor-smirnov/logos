@@ -174,6 +174,20 @@ extern fn logos_metaprog_gensym(pref_ptr: *const u8, pref_len: u64,
 
 extern fn logos_macro_arg(site_id: u64, arg_idx: u64) -> *const u8;
 
+extern fn logos_metaprog_has_impl(trait_ptr: *const u8, trait_len: u64,
+                                  ty_ptr: *const u8, ty_len: u64) -> i32;
+
+/// Does the type spelled `type_name` implement the trait `trait_q`, by a concrete impl?
+///
+/// The name-keyed form of `has_trait::<T, Tr>()` for a caller that holds a type NAME (`"i64"`,
+/// `"str"`), not a spelled type. `trait_q` is the trait's qualified identity
+/// (`"logos.lang.hash::Hash"`). Only concrete impls of the programs lowered so far are facts: a type
+/// covered by a blanket impl alone answers false.
+pub fn has_trait_named(trait_q: str, type_name: str) -> bool {
+    return unsafe { logos_metaprog_has_impl(trait_q.as_ptr(), trait_q.len() as u64,
+                                            type_name.as_ptr(), type_name.len() as u64) } != 0i32;
+}
+
 /// Returns a fresh hygienic identifier `<prefix>__hyg_<N>`, unique across the whole compile.
 ///
 /// The bytes are host-owned and stay valid for the rest of the compilation.
