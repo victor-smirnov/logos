@@ -1,0 +1,1 @@
+wql!: `where`: literal `-1` is out of range for `u8` — it takes that type from `r.b`, the other side of `==`

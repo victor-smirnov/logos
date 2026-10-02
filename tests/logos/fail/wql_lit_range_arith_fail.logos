@@ -1,0 +1,17 @@
+// WQL — A LITERAL TAKES ITS TYPE FROM A NESTED ARITHMETIC NODE TOO.
+//
+// An integer literal takes its type from the other side of its operator (Rust
+// typing, 2026-10-02), so it must fit that type; Deem says so at the clause,
+// naming the column. Before, this reached either the host compiler on a generated
+// blob (comparison: `300i8 is out of range for its suffix type`) or every row as
+// `Err(Overflow)` (arithmetic).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R { pub s: i8, pub b: u8 }
+
+pub deem q(rs: &[R]) { from rs r select (r.s + 1) * 200 }
+
+fn main() -> i32 { return 0i32; }

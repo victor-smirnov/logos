@@ -788,6 +788,84 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
     return true;
 }
 
+/// The value of an integer literal operand — `N` or `-N` — or false when `e` is
+/// not one. `-N` is a negation NODE over a literal in the EL's IR, and it is the
+/// spelling a negative bound always has, so it is read as the literal it means.
+fn int_lit_value(e: SExpr, out_v: &mut i64) -> bool {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_string() || v.is_bool() || v.is_float() { return false; }
+            *out_v = v.as_i64();
+            return true;
+        }
+        SExpr::Un(u) => {
+            if u.op != OP_NEG() { return false; }
+            let mut a: i64 = 0i64;
+            if !int_lit_value(u.arg_expr(), &mut a) { return false; }
+            *out_v = 0i64 - a;
+            return true;
+        }
+        _ => { return false; }
+    }
+}
+
+/// AN INTEGER LITERAL MUST FIT THE TYPE IT TAKES FROM THE OTHER SIDE — the Deem
+/// half of Rust's "literal out of range for `i8`".
+///
+/// A literal has no type of its own: beside `r.s` (an `i8`) it IS an `i8`, in an
+/// arithmetic node and in a comparison alike. Without this check a literal that
+/// does not fit reached one of two bad ends, both measured 2026-10-02: in a
+/// comparison the emitter printed `300i8` and the HOST compiler refused the
+/// generated blob (`integer literal '300i8' is out of range for its suffix type`,
+/// naming no clause and no column), and in arithmetic the query compiled and
+/// failed with `Overflow` on every row.
+fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> bool {
+    let mut v: i64 = 0i64;
+    if !int_lit_value(lit, &mut v) { return true; }
+    let mut ov: i64 = 0i64;
+    if int_lit_value(other, &mut ov) { return true; }   // literal vs literal: no type
+    let on: str = if el_computes_in_repr(other) && infer_ty(other, t) == EL_TY_INT()
+                  { arith_node_ty(other, t) } else { infer_ty_name(other, t) };
+    let ty: ElTy = el_ty(on);
+    if ty.cls != EL_TY_INT() { return true; }
+    let mut fits: bool = true;
+    if !ty.signed && v < 0i64 { fits = false; }
+    if ty.bits < 64i64 {
+        let one: i64 = 1i64;
+        let mut lo: i64 = 0i64;
+        let mut hi: i64 = (one << ty.bits) - 1i64;
+        if ty.signed {
+            lo = 0i64 - (one << (ty.bits - 1i64));
+            hi = (one << (ty.bits - 1i64)) - 1i64;
+        }
+        if v < lo || v > hi { fits = false; }
+    }
+    if fits { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": literal `");
+    m.push_i64(v);
+    m.push_str("` is out of range for `");
+    m.push_str(on);
+    m.push_str("` — it takes that type from `");
+    sexpr_display(&mut m, other);
+    m.push_str("`, the other side of `");
+    m.push_str(str_trim(emit_binop(op)));
+    m.push_str("`, and a value outside the type cannot be ");
+    if el_computes_in_repr_op(op) { m.push_str("an operand of it"); } else { m.push_str("compared with it"); }
+    m.push_str(" (Rust refuses the same literal). The remedy is a literal inside the range, or a wider column");
+    error(string_as_str(&m));
+    return false;
+}
+
+/// True iff `op` is one of the arithmetic operators (the binary half of
+/// `el_computes_in_repr`, for a caller that holds only the op id).
+fn el_computes_in_repr_op(op: i32) -> bool {
+    return op == OP_ADD() || op == OP_SUB() || op == OP_MUL()
+        || op == OP_DIV() || op == OP_MOD();
+}
+
 /// THE TWO BRANCHES OF A TERNARY MUST HAVE ONE TYPE, AND THE WQL LAYER IS WHERE
 /// THAT IS SAID — because it is the only layer that still knows the clause and
 /// the columns.
@@ -1621,6 +1699,8 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
         SExpr::Bin(b)  => {
             if !check_arith_operand(e, b.lhs_expr(), t, ctx) { return false; }
             if !check_arith_operand(e, b.rhs_expr(), t, ctx) { return false; }
+            if !check_lit_fits(b.lhs_expr(), b.rhs_expr(), b.op, t, ctx) { return false; }
+            if !check_lit_fits(b.rhs_expr(), b.lhs_expr(), b.op, t, ctx) { return false; }
             return check_calls(b.lhs_expr(), t, ctx) && check_calls(b.rhs_expr(), t, ctx);
         }
         SExpr::Un(u)   => {
