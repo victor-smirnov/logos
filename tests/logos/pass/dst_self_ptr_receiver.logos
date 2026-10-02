@@ -40,7 +40,7 @@ impl Hdr {
     pub fn ref_n(self: &Hdr) -> i64 { return self.n * 10i64; }
 }
 
-pub fn via_raw(p: *const Hdr) -> i64 { return unsafe { (*p).raw_n() }; }
+pub fn via_raw(p: *const Hdr) -> i64 { return unsafe { p.raw_n() }; }
 pub fn via_ref(p: *const Hdr) -> i64 { return unsafe { (*p).ref_n() }; }
 
 fn main() -> i32 {

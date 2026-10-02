@@ -11,8 +11,8 @@ fn main() -> i32 {
     unsafe {
         let pa: *mut HashSet<i32> = &mut a;
         let pb: *mut HashSet<i32> = &mut b;
-        pa.insert(1); pa.insert(2);
-        pb.insert(2); pb.insert(3);
+        (*pa).insert(1); (*pa).insert(2);
+        (*pb).insert(2); (*pb).insert(3);
     }
     let u = a.union(&b).count();
     if u != 3 { return 1; }
@@ -28,7 +28,7 @@ fn main() -> i32 {
     for x in a { total += x; }
     if total != 3 { return 6; }
     let mut ss: HashSet<String> = HashSet::new();
-    unsafe { let p: *mut HashSet<String> = &mut ss; p.insert(String::from("x")); p.insert(String::from("yy")); }
+    unsafe { let p: *mut HashSet<String> = &mut ss; (*p).insert(String::from("x")); (*p).insert(String::from("yy")); }
     let mut l: i64 = 0;
     for s in ss { l += s.len(); }
     if l != 3 { return 7; }

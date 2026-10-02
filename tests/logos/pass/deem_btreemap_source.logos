@@ -28,9 +28,9 @@ pub deem above_1(m: &BTreeMap<i64, i64>) { from m e where e.key > 1 select (e.ke
 fn main() -> i32 {
     let mut m: BTreeMap<i64, i64> = btreemap_new::<i64, i64>();
     unsafe {
-        (&mut m as *mut BTreeMap<i64, i64>).insert(1i64, 10i64);
-        (&mut m as *mut BTreeMap<i64, i64>).insert(2i64, 20i64);
-        (&mut m as *mut BTreeMap<i64, i64>).insert(3i64, 30i64);
+        (*(&mut m as *mut BTreeMap<i64, i64>)).insert(1i64, 10i64);
+        (*(&mut m as *mut BTreeMap<i64, i64>)).insert(2i64, 20i64);
+        (*(&mut m as *mut BTreeMap<i64, i64>)).insert(3i64, 30i64);
     }
     let a: Vec<(i64, i64)> = match at_key(&m)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };

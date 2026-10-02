@@ -66,14 +66,14 @@ pub fn mutex_new<T: Send>(data: T) -> Mutex<T> {
 impl<T: Send> Mutex<T> {
     /// Acquires the lock, blocking until available; returns a mutable pointer to the data.
     /// The caller releases it with `unlock` (the RAII form is `lock`).
-    pub unsafe fn lock_raw(self: *mut Mutex<T>) -> *mut T {
+    pub unsafe fn lock_raw(&self) -> *mut T {
         pthread_mutex_lock(self.raw);
         return self.data.get();
     }
 
     /// Tries to acquire the lock without blocking.
     /// Returns `Some` pointer to the data on success, `None` on contention.
-    pub unsafe fn try_lock_raw(self: *mut Mutex<T>) -> Option<*mut T> {
+    pub unsafe fn try_lock_raw(&self) -> Option<*mut T> {
         let rc: i32 = pthread_mutex_trylock(self.raw);
         if rc == 0 {
             return Option::Some(self.data.get());
@@ -82,7 +82,7 @@ impl<T: Send> Mutex<T> {
     }
 
     /// Releases a previously acquired lock.
-    pub unsafe fn unlock(self: *mut Mutex<T>) {
+    pub unsafe fn unlock(&self) {
         pthread_mutex_unlock(self.raw);
     }
 }
@@ -141,13 +141,13 @@ pub fn rwlock_new<T: Send + Sync>(data: T) -> RwLock<T> {
 
 impl<T: Send + Sync> RwLock<T> {
     /// Acquires a shared (reader) lock, blocking until available; returns a const pointer.
-    pub unsafe fn read_lock(self: *mut RwLock<T>) -> *const T {
+    pub unsafe fn read_lock(&self) -> *const T {
         pthread_rwlock_rdlock(self.raw);
         return self.data.get() as *const T;
     }
 
     /// Tries to acquire a reader lock without blocking; `None` on contention.
-    pub unsafe fn try_read_lock(self: *mut RwLock<T>) -> Option<*const T> {
+    pub unsafe fn try_read_lock(&self) -> Option<*const T> {
         let rc: i32 = pthread_rwlock_tryrdlock(self.raw);
         if rc == 0 {
             return Option::Some(self.data.get() as *const T);
@@ -156,13 +156,13 @@ impl<T: Send + Sync> RwLock<T> {
     }
 
     /// Acquires an exclusive (writer) lock, blocking until available; returns a mutable pointer.
-    pub unsafe fn write_lock(self: *mut RwLock<T>) -> *mut T {
+    pub unsafe fn write_lock(&self) -> *mut T {
         pthread_rwlock_wrlock(self.raw);
         return self.data.get();
     }
 
     /// Tries to acquire a writer lock without blocking; `None` on contention.
-    pub unsafe fn try_write_lock(self: *mut RwLock<T>) -> Option<*mut T> {
+    pub unsafe fn try_write_lock(&self) -> Option<*mut T> {
         let rc: i32 = pthread_rwlock_trywrlock(self.raw);
         if rc == 0 {
             return Option::Some(self.data.get());
@@ -171,7 +171,7 @@ impl<T: Send + Sync> RwLock<T> {
     }
 
     /// Releases any lock (reader or writer) currently held by the caller.
-    pub unsafe fn unlock(self: *mut RwLock<T>) {
+    pub unsafe fn unlock(&self) {
         pthread_rwlock_unlock(self.raw);
     }
 }

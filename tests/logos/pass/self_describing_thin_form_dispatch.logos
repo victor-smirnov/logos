@@ -52,10 +52,10 @@ unsafe fn main() -> i32 {
 
     // materialized references cross back to ptr-receiver methods
     let r: &Blk = &*b;
-    if r.tag() != 40i64 { return 3i32; }
-    if r.get::<i64>(1i64) != 41i64 { return 4i32; }
+    if (r as *const Blk).tag() != 40i64 { return 3i32; }
+    if (r as *const Blk).get::<i64>(1i64) != 41i64 { return 4i32; }
     let m: &mut Blk = &mut *b;
-    m.bump(2i64);                               // &mut where *mut declared
+    (m as *mut Blk).bump(2i64);                               // &mut where *mut declared
     if b.tag() != 42i64 { return 5i32; }
 
     // call-arg positions: thin ptr ↔ reference spellings

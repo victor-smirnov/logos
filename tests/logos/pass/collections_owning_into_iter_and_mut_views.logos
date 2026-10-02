@@ -15,11 +15,11 @@ fn main() -> i32 {
     let mut d: VecDeque<String> = VecDeque::new();
     unsafe {
         let pm: *mut HashMap<i32, String> = &mut m;
-        pm.insert(1, String::from("a")); pm.insert(2, String::from("bb"));
+        (*pm).insert(1, String::from("a")); (*pm).insert(2, String::from("bb"));
         let pb: *mut BTreeMap<i32, String> = &mut b;
-        pb.insert(2, String::from("x")); pb.insert(1, String::from("yy")); pb.insert(3, String::from("zzz"));
+        (*pb).insert(2, String::from("x")); (*pb).insert(1, String::from("yy")); (*pb).insert(3, String::from("zzz"));
         let pd: *mut VecDeque<String> = &mut d;
-        pd.push_back(String::from("q")); pd.push_front(String::from("pp"));
+        (*pd).push_back(String::from("q")); (*pd).push_front(String::from("pp"));
     }
     let mut total: i64 = 0;
     for (k, v) in m { total += k as i64 * v.len(); }
@@ -31,10 +31,10 @@ fn main() -> i32 {
     for s in d { first = s.len(); break; }
     if first != 2 { return 3; }
     let mut hs: HashSet<String> = HashSet::new();
-    unsafe { let p: *mut HashSet<String> = &mut hs; p.insert(String::from("k")); }
+    unsafe { let p: *mut HashSet<String> = &mut hs; (*p).insert(String::from("k")); }
     for s in hs { if s.len() != 1 { return 4; } }
     let mut bm: BTreeMap<i32, i32> = BTreeMap::new();
-    unsafe { let p: *mut BTreeMap<i32, i32> = &mut bm; p.insert(1, 10); p.insert(2, 20); }
+    unsafe { let p: *mut BTreeMap<i32, i32> = &mut bm; (*p).insert(1, 10); (*p).insert(2, 20); }
     for v in bm.values_mut() { *v += 1; }
     for p in bm.iter_mut() { *p.second += 1; }
     match bm.first_key_value() { Option::Some(kv) => { let (k, v) = kv; if *k != 1 || *v != 12 { return 5; } } Option::None => { return 5; } }

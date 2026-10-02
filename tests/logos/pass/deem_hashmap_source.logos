@@ -45,9 +45,9 @@ pub deem above(m: &HashMap<i64, i64>)  { from m e where e.key > 1 select (e.key,
 fn main() -> i32 {
     let mut m: HashMap<i64, i64> = hashmap_new::<i64, i64>();
     unsafe {
-        (&mut m as *mut HashMap<i64, i64>).insert(1i64, 10i64);
-        (&mut m as *mut HashMap<i64, i64>).insert(2i64, 20i64);
-        (&mut m as *mut HashMap<i64, i64>).insert(3i64, 30i64);
+        (*(&mut m as *mut HashMap<i64, i64>)).insert(1i64, 10i64);
+        (*(&mut m as *mut HashMap<i64, i64>)).insert(2i64, 20i64);
+        (*(&mut m as *mut HashMap<i64, i64>)).insert(3i64, 30i64);
     }
     // The narrowed path: one probe, no filter — and the answer must still be
     // exactly the matching row.

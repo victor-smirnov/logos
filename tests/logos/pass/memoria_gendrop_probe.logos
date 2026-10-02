@@ -13,7 +13,7 @@ use logos.std.io;
 #[self_describing]
 pub struct GLeaf<K: ?Sized> { alc: PkdAlloc }
 impl<K: ?Sized> SelfDescribing for GLeaf<K> {
-    fn dst_len(self: *const GLeaf<K>) -> i64 { return unsafe { (*self).alc.dst_len() }; }
+    fn dst_len(self: *const GLeaf<K>) -> i64 { return unsafe { (&(*self).alc as *const PkdAlloc).dst_len() }; }
 }
 impl<K: ?Sized> GLeaf<K> {
     pub unsafe fn format(alc: *mut PkdAlloc, idx: u32) -> Result<*mut GLeaf<K>, PkdError> {

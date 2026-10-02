@@ -454,7 +454,7 @@ impl Drop for MemorySnapshot {
     fn drop(self: &mut MemorySnapshot) {
         unsafe {
             if self.desc == (0 as *mut SnapDesc) { return; }
-            let old: i32 = (&mut (*self.desc).wrappers as *mut AtomicI32).fetch_sub(1);
+            let old: i32 = (*(&mut (*self.desc).wrappers as *mut AtomicI32)).fetch_sub(1);
             if old != 1i32 { return; }              // not the last wrapper
             let st: u32 = (*self.desc).status;
             if st == SNAP_COMMITTED { return; }     // history entry lives on
@@ -668,7 +668,7 @@ impl MemoryStore {
                     if (*d).status != SNAP_COMMITTED {
                         return 0 as *mut SnapDesc;
                     }
-                    let _ = (&mut (*d).wrappers as *mut AtomicI32).fetch_add(1);
+                    let _ = (*(&mut (*d).wrappers as *mut AtomicI32)).fetch_add(1);
                     return d;
                 }
             }
@@ -1127,9 +1127,9 @@ pub const STORE_FORMAT:  u32 = 1u32;
 // no container knowledge.
 unsafe fn ser_walk(bp: MemBlockPtr, ids: *mut HashMap<u64, u64>, order: &mut Vec<u64>) {
     let a: u64 = bp.id();
-    if ids.contains_key(&a) { return; }
+    if (*ids).contains_key(&a) { return; }
     order.push(a);
-    ids.insert(a, order.len() as u64);          // ids are 1-based (0 = none)
+    (*ids).insert(a, order.len() as u64);          // ids are 1-based (0 = none)
     let cs: u32 = bp.child_slot();
     if cs != NODE_NO_CHILDREN {
         let cb: PdtBuf = pdtbuf_adopt((*bp.pkd()).get::<u8>(cs));
@@ -1173,7 +1173,7 @@ unsafe fn ser_map_refs(img: *mut u8, ids: *mut HashMap<u64, u64>, to_id: bool,
             let cell: u64 = b.get(0u32, i);
             if cell != 0u64 {
                 if to_id {
-                    let p: *const u64 = ids.get(&cell);
+                    let p: *const u64 = (*ids).get(&cell);
                     assert(p != (0 as *const u64), "store_save: unvisited block reference");
                     b.set(0u32, i, *p);
                 } else {

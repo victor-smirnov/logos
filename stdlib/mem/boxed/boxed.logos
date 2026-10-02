@@ -86,6 +86,18 @@ impl<T> Box<T> {
     pub unsafe fn get_mut(self: *mut Box<T>) -> *mut T {
         return self.ptr;
     }
+    /// Returns a `*const T` to the boxed value (Rust's `Box::as_ptr`): an
+    /// ASSOCIATED function, `Box::as_ptr(&b)`, so it never shadows a method of
+    /// the boxed value at `b.m()`.
+    pub fn as_ptr(b: &Box<T>) -> *const T {
+        return b.ptr as *const T;
+    }
+
+    /// Returns a `*mut T` to the boxed value (Rust's `Box::as_mut_ptr`), as an
+    /// associated function for the same reason.
+    pub fn as_mut_ptr(b: &mut Box<T>) -> *mut T {
+        return b.ptr;
+    }
 }
 
 // Deref / DerefMut (Rust parity): `*b`, and auto-deref `b.field` / `b.method()`

@@ -1295,10 +1295,10 @@ pub fn el_key_reaches(n: str, kv: str) -> bool {
 /// Can the emitted KEY VECTOR hold this type — `Vec<K>` filled per row, read back
 /// by value with `get`, compared with `<` and `==`?
 ///
-/// ⚠ A DIFFERENT QUESTION FROM `el_index_key_ok`, AND THE ANSWERS DIFFER. The
-/// vector path uses the LANGUAGE's `<`/`==` on the element, so it works for every
-/// scalar including the 128-bit ones (measured: a `Vec<u128>` sort ranks
-/// u128::MAX last). What it cannot do is hold a NON-`Copy` element: `Vec::get`
+/// ⚠ A DIFFERENT QUESTION FROM `el_index_key_borrow_ok`, though today the same
+/// population. The vector path uses the LANGUAGE's `<`/`==` on the element, so it
+/// works for every scalar including the 128-bit ones (measured: a `Vec<u128>` sort
+/// ranks u128::MAX last). What it cannot do is hold a NON-`Copy` element: `Vec::get`
 /// refuses to move a `String` out, and the `str` view that would avoid the move
 /// borrows the row var, which dies with the loop body. So `String` is the one
 /// lattice type this denies — and it is denied HERE rather than in the identity
@@ -1310,77 +1310,23 @@ pub fn el_vec_key_ok(name: str) -> bool {
     return true;
 }
 
-// ── CAN THE BACKEND BUILD AN INDEX KEYED IN THIS TYPE? ────────────────────
-// A DIFFERENT KIND OF FACT from everything above it, and that is why it is its
-// own function rather than a clause inside one. Every other row here is a
-// THEOREM about a conversion — it follows from the width, the signedness and the
-// class, and no amount of stdlib work can change it. This one is a fact about
-// what the STDLIB CURRENTLY PROVIDES: `HashMap<K, V>` requires `K: Hash + Eq`,
-// and `logos.lang.hash` / `logos.lang.cmp` enumerate their instances.
+// ── CAN AN INDEX KEYED IN THIS TYPE BORROW ITS KEYS FROM THE ROW? ─────────
+// The trait half of "may this type key an index" — `HashMap<K, V>` needs
+// `K: Hash + Eq`, the tree tier `K: Ord` — is no longer a list here: it is asked
+// of the impls themselves (`join_sel::join_key_caps_named` through metaprog's
+// `has_trait_named`, #340), so a type gains its row by gaining the impl and loses
+// it by losing the impl, with nothing to edit here.
 //
-// ⚠ SO IT IS THE ONE ROW THAT IS ALLOWED TO BE A LIST — it is a list of impls
-// that exist, read off the two files that declare them, and a type gains its
-// entry by gaining the impl. Deriving it from the width instead would be exactly
-// the mistake this table was built to stop: a claim about the emitted code
-// inferred from a property of the type.
-//
-// The instances, as of `logos.lang.hash` + `logos.lang.cmp`: EVERY INTEGER TYPE
-// THE LATTICE ENUMERATES — i8/i16/i32/i64, u8/u16/u32/u64, isize/usize, the
-// packed i24/u24/i56/u56, the 128-bit i128/u128 — plus bool and str.
-//
-// ⚠ THE 128-BIT AND PACKED EXCLUSIONS ARE GONE AND SO ARE THE TWO REASONS THAT
-// KEPT THEM. This function used to say "128-bit is excluded and the reason is a
-// MEASURED SIGSEGV" (`impl Eq for u128` dying at the call) and, on the width
-// heuristic below, "Writ's packed widths are a storage encoding, not a Logos
-// type a `HashMap` can be instantiated over". RE-MEASURED 2026-08-05 at c6c212c7,
-// before any impl was written: neither reproduces. The claimed segfault does not
-// fire — not user-placed, not stdlib-placed, and not from the probe the comment
-// itself named — and `HashMap<u56, i64>` / `<i24, i64>` / `<u128, i64>` all
-// instantiate, deduplicate on overwrite and retrieve at the width extremes. Two
-// independent name lists, each wearing a reason that did not hold.
-//
-// ⚠ AND THE PREDICATE IS NO LONGER A WIDTH HEURISTIC. It asked
-// `(bits & (bits-1)) == 0 && bits <= 64`, which is an arithmetic re-derivation of
-// a list of impls — precisely the shape this table exists to refuse. It asks the
-// lattice's own class rows now, so nothing here can drift from the impls except
-// by an impl being deleted, and `logos_09_el_hashable_agreement` (tier 1 = the
-// LANGUAGE, via the rel-column check; tier 2 = this function) fails naming the
-// type on the next run if one is.
-//
-// ⚠ THE FLOATS GET NO CLAUSE OF THEIR OWN HERE, and the comment that used to sit
-// on this line said they were "not excluded", which the code below contradicts:
-// `f64` is neither BOOL nor STR nor INT, so the class test denies it. Both facts
-// are true and the sentence had collapsed them — `logos.lang.hash` declares NO
-// `impl Hash for f64`, so the honest answer here IS false, and separately the
-// reason a float key is refused (a NaN is equal to nothing) lives in
-// `self_ident` / `self_ord` where the ground is stated. What must not happen is a
-// float-specific clause here restating that ground a second time.
-//
-// ⚠ `String` IS EXCLUDED, and this is the honest half of the String story. An
-// index keyed in `String` would have to OWN each key; the emitted shape borrows
-// the row's bytes, and the borrow does not outlive the loop body the row var is
-// bound in (measured: E0597, `'s' does not live long enough`). So a `String`
-// equi-key falls to the LOOP tier, where the comparison is `String == String`
-// through `impl Eq for String` and is exact. No index, correct answer, and the
-// cascade says which capability was missing.
-//
-// ⚠ WHAT WOULD DELETE THESE TWO REFUSALS, stated because a refusal that cannot
-// say that is a name list again — which is what the 128-bit and packed rows had
-// become. `f32`/`f64`: an `impl Hash`/`impl Eq` for a float, which cannot be
-// written while `NaN != NaN` (their ground is in `self_ident`, not here).
-// `String`: an index that OWNS its keys, at which point the E0597 above stops
-// being a fact about the emitted shape. Both are EXERCISED, not merely asserted —
-// `logos_09_el_hashable_agreement` asks the LANGUAGE for a `rel` column of each
-// name on every run, and fails naming the type the moment either side moves.
-pub fn el_index_key_ok(name: str) -> bool {
+// What is left is NOT a trait fact. The emitted index BORROWS the row's bytes, and
+// a `String`-keyed index would have to OWN each key (measured: E0597, `'s' does not
+// live long enough`, on the emitted shape), so a `String` equi-key falls to the LOOP
+// tier, where `String == String` is exact. No index, correct answer. What deletes
+// this clause: an index that owns its keys.
+pub fn el_index_key_borrow_ok(name: str) -> bool {
     let t: ElTy = el_ty(name);
-    if t.cls == EL_TY_BOOL() { return true; }
-    if t.cls == EL_TY_STR()  { return str_eq(name, "str"); }   // not `String` — see above
-    // EVERY INTEGER ROW. `logos.lang.hash` + `logos.lang.cmp` carry `Hash`/`Eq`
-    // for all of them, so there is no width test left to write: a new integer
-    // row added to the lattice without its impls is caught by the agreement gate
-    // rather than by an arithmetic guess made here.
-    return t.cls == EL_TY_INT();
+    if t.cls < 0i32          { return false; }
+    if t.cls == EL_TY_STR()  { return str_eq(name, "str"); }   // not `String`
+    return true;
 }
 
 // ── WHICH TOWER DOES THE EL COMPUTE THIS TYPE'S ARITHMETIC IN? ────────────

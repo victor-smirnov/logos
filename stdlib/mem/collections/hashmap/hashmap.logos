@@ -85,7 +85,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
     // Probe for the slot where `key` lives or where it would be inserted.
     // Returns (index, found) where found=true if the key is already there.
-    unsafe fn probe(self: *mut HashMap<K, V>, key: &K) -> (i64, bool) {
+    unsafe fn probe(&mut self, key: &K) -> (i64, bool) {
         let mask: i64 = self.cap - 1 as i64;
         let mut idx: i64 = (*self).slot_index(key);
         let mut first_tomb: i64 = -1 as i64;
@@ -107,7 +107,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
     /// Inserts `key` → `val`, overwriting the value if `key` is already present.
     /// Resizes (x2) when the post-insert load factor would exceed 0.75.
-    pub unsafe fn insert(self: *mut HashMap<K, V>, key: K, val: V) -> Option<V> {
+    pub unsafe fn insert(&mut self, key: K, val: V) -> Option<V> {
         // Resize when load factor exceeds 0.75.
         // (self.len + 1) * 4 > self.cap * 3  ⇔  load > 0.75 after insert.
         if (self.len + 1 as i64) * 4 as i64 > self.cap * 3 as i64 {
@@ -131,13 +131,13 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 
     /// Returns `true` if the map contains `key`.
-    pub unsafe fn contains_key(self: *mut HashMap<K, V>, key: &K) -> bool {
+    pub unsafe fn contains_key(&mut self, key: &K) -> bool {
         let (idx, found) = self.probe(key);
         return found;
     }
 
     /// Returns a pointer to the value for `key`, or null if absent.
-    pub unsafe fn get(self: *mut HashMap<K, V>, key: &K) -> *const V {
+    pub unsafe fn get(&mut self, key: &K) -> *const V {
         let (idx, found) = self.probe(key);
         if !found { return 0 as *const V; }
         let e: *mut Slot<K, V> = &mut self.entries[idx];
@@ -145,7 +145,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 
     /// Returns a mutable pointer to the value for `key`, or null if absent.
-    pub unsafe fn get_mut(self: *mut HashMap<K, V>, key: &K) -> *mut V {
+    pub unsafe fn get_mut(&mut self, key: &K) -> *mut V {
         let (idx, found) = self.probe(key);
         if !found { return 0 as *mut V; }
         let e: *mut Slot<K, V> = &mut self.entries[idx];
@@ -156,7 +156,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     /// Single-probe find-or-insert (Rust's `entry().or_insert()`): ONE probe + ONE hash vs
     /// get-then-insert's two of each — the idiomatic count/accumulate path
     /// (`*m.get_or_insert(k, 0) += 1`). If `key` is already present, `default` is dropped.
-    pub unsafe fn get_or_insert(self: *mut HashMap<K, V>, key: K, default: V) -> *mut V {
+    pub unsafe fn get_or_insert(&mut self, key: K, default: V) -> *mut V {
         if (self.len + 1 as i64) * 4 as i64 > self.cap * 3 as i64 {
             self.resize(self.cap * 2 as i64);
         }
@@ -172,7 +172,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 
     /// Removes `key` from the map, returning its value if it was present; the stored key is dropped.
-    pub unsafe fn remove(self: *mut HashMap<K, V>, key: &K) -> Option<V> {
+    pub unsafe fn remove(&mut self, key: &K) -> Option<V> {
         // Rust's `remove`: the value is returned, the stored key dropped (both leaked before).
         let (idx, found) = self.probe(key);
         if !found { return Option::None; }
@@ -186,7 +186,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
 
     /// Removes and drops all entries, resetting every slot (tombstones included) to empty.
     /// Capacity is retained.
-    pub unsafe fn clear(self: *mut HashMap<K, V>) {
+    pub unsafe fn clear(&mut self) {
         let mut i: i64 = 0;
         while i < self.cap {
             if self.states[i] == SLOT_OCCUPIED {
@@ -201,7 +201,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 
     // Rebuild into a larger table (always a power of two).
-    unsafe fn resize(self: *mut HashMap<K, V>, new_cap: i64) {
+    unsafe fn resize(&mut self, new_cap: i64) {
         let old_states:  *mut u8 = self.states;
         let old_entries: *mut Slot<K, V> = self.entries;
         let old_cap:     i64 = self.cap;
@@ -323,7 +323,7 @@ impl<'a, K: Hash + Eq, V> Iterator<&'a V> for HashMapValues<'a, K, V> {
 impl<K: Hash + Eq, V> HashMap<K, V> {
     /// Returns an iterator yielding `ZipPair<&K, &V>` for each occupied entry.
     /// Order is arbitrary (table order). Do not insert while iterating.
-    pub unsafe fn iter<'a>(self: *const HashMap<K, V>) -> HashMapIter<'a, K, V> {
+    pub unsafe fn iter<'a>(&self) -> HashMapIter<'a, K, V> {
         return HashMapIter {
             states:  self.states as *const u8,
             entries: self.entries as *const Slot<K, V>,
@@ -333,7 +333,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 
     /// Returns an iterator over the map's keys, in arbitrary order.
-    pub unsafe fn keys<'a>(self: *const HashMap<K, V>) -> HashMapKeys<'a, K, V> {
+    pub unsafe fn keys<'a>(&self) -> HashMapKeys<'a, K, V> {
         return HashMapKeys {
             states:  self.states as *const u8,
             entries: self.entries as *const Slot<K, V>,
@@ -343,7 +343,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
     }
 
     /// Returns an iterator over the map's values, in arbitrary order.
-    pub unsafe fn values<'a>(self: *const HashMap<K, V>) -> HashMapValues<'a, K, V> {
+    pub unsafe fn values<'a>(&self) -> HashMapValues<'a, K, V> {
         return HashMapValues {
             states:  self.states as *const u8,
             entries: self.entries as *const Slot<K, V>,
@@ -390,9 +390,9 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         unsafe {
             let p: *mut HashMap<K, V> = self as *mut HashMap<K, V>;
             if (p.len + 1 as i64) * 4 as i64 > p.cap * 3 as i64 {
-                p.resize(p.cap * 2 as i64);
+                (*p).resize(p.cap * 2 as i64);
             }
-            let (idx, found) = p.probe(&key);
+            let (idx, found) = (*p).probe(&key);
             return Entry { map: p, idx: idx, found: found, key: key, _inv: PhantomData::<&'a mut V> {} };
         }
     }
@@ -650,7 +650,7 @@ impl<K: Hash + Eq, V> FromIterator<(K, V)> for HashMap<K, V> {
 pub fn hashmap_rows<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>) -> Vec<(K, V)> {
     let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
     unsafe {
-        let mut it: HashMapIter<K, V> = (m as *const HashMap<K, V>).iter();
+        let mut it: HashMapIter<K, V> = (*(m as *const HashMap<K, V>)).iter();
         loop {
             match it.next() {
                 Option::Some(p) => { out.push((*p.first, *p.second)); }
@@ -666,7 +666,7 @@ pub fn hashmap_rows<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>) -> Vec<(K, 
 pub fn hashmap_at<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>, k: K) -> Vec<(K, V)> {
     let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
     unsafe {
-        let p: *const V = (m as *const HashMap<K, V> as *mut HashMap<K, V>).get(&k);
+        let p: *const V = (*(m as *const HashMap<K, V> as *mut HashMap<K, V>)).get(&k);
         if p != (0 as *const V) { out.push((k, *p)); }
     }
     return out;

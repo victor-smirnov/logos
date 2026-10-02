@@ -7,10 +7,10 @@ package datatype_impl;
 }
 
 impl Point {
-    pub unsafe fn sum(self: *const Point) -> i32 {
+    pub unsafe fn sum(&self) -> i32 {
         return self.x + self.y;
     }
-    pub unsafe fn scale(self: *mut Point, factor: i32) {
+    pub unsafe fn scale(&mut self, factor: i32) {
         self.x = self.x * factor;
         self.y = self.y * factor;
     }

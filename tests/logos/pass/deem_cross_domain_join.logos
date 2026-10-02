@@ -65,9 +65,9 @@ fn main() -> i32 {
 
     let mut h: HashMap<i64, i64> = hashmap_new::<i64, i64>();
     unsafe {
-        (&mut h as *mut HashMap<i64, i64>).insert(1i64, 100i64);
-        (&mut h as *mut HashMap<i64, i64>).insert(3i64, 300i64);
-        (&mut h as *mut HashMap<i64, i64>).insert(4i64, 400i64);
+        (*(&mut h as *mut HashMap<i64, i64>)).insert(1i64, 100i64);
+        (*(&mut h as *mut HashMap<i64, i64>)).insert(3i64, 300i64);
+        (*(&mut h as *mut HashMap<i64, i64>)).insert(4i64, 400i64);
     }
 
     // Keys present on BOTH sides are 1, 3, 4; the filter keeps 3 and 4. Key 1

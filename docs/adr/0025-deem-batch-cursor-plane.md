@@ -1254,9 +1254,11 @@ scan shape; every other cell is declared, not silently absent.
   * **The query needs a type SPELLED at the call site.** `has_trait::<T, Tr>()`
     takes a type, `has_trait_of::<Tr>(t: Type)` takes a `Type` mono can only
     recover from a spelled type — and `join_key_caps_named`, the seam §3 names,
-    holds a type NAME (`StepKey.ktn`, a `str`). S1 owes a name-keyed query or a
-    `Type`-valued type environment on the plan IR; until then the capability
-    rows there stay a hand-written table.
+    holds a type NAME (`StepKey.ktn`, a `str`). DONE 2026-10-02 (#340): metaprog
+    `has_trait_named(trait, name)` answers from the compiler's concrete impl
+    facts at metaprog run time; `join_key_caps_named` asks it for `Hash`+`Eq`
+    and `Ord`, and the hand-written instance list (`el_index_key_ok`) is gone.
+    A type covered only by a blanket impl answers false (a deny).
   * **`has_trait` answers 0 for a generic type whose bare name is AMBIGUOUS
     tree-wide** — which `Buffer` is (`logos.mem.stream` vs
     `logos.lang.fabric`). G156-1 folds a module fingerprint into the type's

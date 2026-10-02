@@ -8,11 +8,11 @@ struct Point {
     x: i32,
     y: i32,
 
-    unsafe fn sum(self: *const Point) -> i32 {
+    unsafe fn sum(&self) -> i32 {
         return self.x + self.y;
     }
 
-    unsafe fn product(self: *const Point) -> i32 {
+    unsafe fn product(&self) -> i32 {
         return self.x * self.y;
     }
 }

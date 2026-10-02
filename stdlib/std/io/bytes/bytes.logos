@@ -89,25 +89,25 @@ pub fn bytes_from_str(s: str) -> Bytes {
 
 impl Bytes {
     /// Returns the length of this view in bytes.
-    pub unsafe fn len(self: *mut Bytes) -> i64 { return self.len; }
+    pub unsafe fn len(&mut self) -> i64 { return self.len; }
 
     /// Returns `true` if this view has zero length.
-    pub unsafe fn is_empty(self: *mut Bytes) -> bool { return self.len == 0 as i64; }
+    pub unsafe fn is_empty(&mut self) -> bool { return self.len == 0 as i64; }
 
     /// Returns a pointer to the first byte of the view; null when the handle owns no buffer.
-    pub unsafe fn as_ptr(self: *mut Bytes) -> *const u8 {
+    pub unsafe fn as_ptr(&mut self) -> *const u8 {
         if self.inner == 0 as *mut BytesInner { return 0 as *const u8; }
         return (self.inner.data as i64 + self.offset) as *const u8;
     }
 
     /// Returns a new handle to the same buffer and range (refcount bump; no copy).
-    pub unsafe fn clone_bytes(self: *mut Bytes) -> Bytes {
+    pub unsafe fn clone_bytes(&mut self) -> Bytes {
         if self.inner != 0 as *mut BytesInner { inner_retain(self.inner); }
         return Bytes { inner: self.inner, offset: self.offset, len: self.len };
     }
 
     /// Returns a zero-copy sub-view over `[start, end)`; indices are clamped to the slice.
-    pub unsafe fn slice(self: *mut Bytes, start: i64, end: i64) -> Bytes {
+    pub unsafe fn slice(&mut self, start: i64, end: i64) -> Bytes {
         let mut lo: i64 = start;
         let mut hi: i64 = end;
         if lo < 0 as i64 { lo = 0 as i64; }
@@ -123,7 +123,7 @@ impl Bytes {
 
     /// Releases this handle and resets it to empty; frees the buffer when the last handle drops.
     /// Idempotent: calling again on the emptied handle is a no-op.
-    pub unsafe fn drop_bytes(self: *mut Bytes) {
+    pub unsafe fn drop_bytes(&mut self) {
         inner_release(self.inner);
         self.inner  = 0 as *mut BytesInner;
         self.offset = 0 as i64;
@@ -132,7 +132,7 @@ impl Bytes {
 
     /// Returns the byte at index `i`. No bounds check: `i` outside `[0, len)` or an
     /// empty handle is undefined behavior.
-    pub unsafe fn get(self: *mut Bytes, i: i64) -> u8 {
+    pub unsafe fn get(&mut self, i: i64) -> u8 {
         let p: *const u8 = (self.inner.data as i64 + self.offset + i) as *const u8;
         return p[0];
     }
@@ -160,30 +160,30 @@ pub fn bytes_mut_new() -> BytesMut { return bytes_mut_with_capacity(0 as i64); }
 
 impl BytesMut {
     /// Returns the number of bytes written so far.
-    pub unsafe fn len(self: *mut BytesMut) -> i64 { return self.len; }
+    pub unsafe fn len(&mut self) -> i64 { return self.len; }
 
     /// Returns the current allocated capacity in bytes.
-    pub unsafe fn capacity(self: *mut BytesMut) -> i64 {
+    pub unsafe fn capacity(&mut self) -> i64 {
         if self.inner == 0 as *mut BytesInner { return 0 as i64; }
         return self.inner.cap;
     }
 
     /// Returns a read pointer to the buffer start; null when nothing is allocated.
-    pub unsafe fn as_ptr(self: *mut BytesMut) -> *const u8 {
+    pub unsafe fn as_ptr(&mut self) -> *const u8 {
         if self.inner == 0 as *mut BytesInner { return 0 as *const u8; }
         return self.inner.data as *const u8;
     }
 
     /// Returns a write pointer to the buffer start; null when nothing is allocated.
     /// Invalidated by any growing call (`reserve`, `push_byte`, `extend_*`).
-    pub unsafe fn as_mut_ptr(self: *mut BytesMut) -> *mut u8 {
+    pub unsafe fn as_mut_ptr(&mut self) -> *mut u8 {
         if self.inner == 0 as *mut BytesInner { return 0 as *mut u8; }
         return self.inner.data;
     }
 
     /// Ensures capacity for at least `additional` more bytes beyond the current length.
     /// Grows geometrically (doubling, minimum 8), reallocating the buffer in place.
-    pub unsafe fn reserve(self: *mut BytesMut, additional: i64) {
+    pub unsafe fn reserve(&mut self, additional: i64) {
         let need: i64 = self.len + additional;
         let mut cur_cap: i64 = 0 as i64;
         if self.inner != 0 as *mut BytesInner { cur_cap = self.inner.cap; }
@@ -200,7 +200,7 @@ impl BytesMut {
     }
 
     /// Appends a single byte, growing the buffer if needed.
-    pub unsafe fn push_byte(self: *mut BytesMut, b: u8) {
+    pub unsafe fn push_byte(&mut self, b: u8) {
         self.reserve(1 as i64);
         let p: *mut u8 = (self.inner.data as i64 + self.len) as *mut u8;
         p[0] = b;
@@ -208,7 +208,7 @@ impl BytesMut {
     }
 
     /// Appends `n` bytes copied from `src`, growing the buffer if needed; `n <= 0` is a no-op.
-    pub unsafe fn extend_from_slice(self: *mut BytesMut, src: *const u8, n: i64) {
+    pub unsafe fn extend_from_slice(&mut self, src: *const u8, n: i64) {
         if n <= 0 as i64 { return; }
         self.reserve(n);
         let dst: *mut u8 = (self.inner.data as i64 + self.len) as *mut u8;
@@ -217,18 +217,18 @@ impl BytesMut {
     }
 
     /// Appends the contents of `s`.
-    pub unsafe fn extend_from_string(self: *mut BytesMut, s: &String) {
+    pub unsafe fn extend_from_string(&mut self, s: &String) {
         self.extend_from_slice(s.as_ptr(), s.len());
     }
 
     /// Appends the contents of `s`.
-    pub unsafe fn extend_from_str(self: *mut BytesMut, s: str) {
+    pub unsafe fn extend_from_str(&mut self, s: str) {
         self.extend_from_slice(s.as_ptr(), s.len());
     }
 
     /// Hands out an immutable `Bytes` view covering the populated region.
     /// Consumes the `BytesMut` (caller must not reuse it; it is reset to empty).
-    pub unsafe fn freeze(self: *mut BytesMut) -> Bytes {
+    pub unsafe fn freeze(&mut self) -> Bytes {
         let b: Bytes = Bytes { inner: self.inner, offset: 0 as i64, len: self.len };
         self.inner = 0 as *mut BytesInner;
         self.len   = 0 as i64;
@@ -237,7 +237,7 @@ impl BytesMut {
 
     /// Releases the underlying buffer and resets this handle to empty; frees the buffer
     /// when the last handle drops.
-    pub unsafe fn drop_mut(self: *mut BytesMut) {
+    pub unsafe fn drop_mut(&mut self) {
         inner_release(self.inner);
         self.inner = 0 as *mut BytesInner;
         self.len   = 0 as i64;

@@ -1,0 +1,14 @@
+// Was squeue row hashmap_str_key_borrow_escapes_admitted; closed by ADR 0030 S8 row 4:
+// HashMap's API takes `&mut self` (B-it-09 retired), so the inserted `str` key's region
+// reaches the map and outlives the block-local `String` (E0597, as rustc).
+package hashmap_str_key_borrow_escapes;
+use logos.mem.collections.hashmap;
+use logos.mem.string;
+fn main() -> i32 {
+    let mut m: HashMap<str, i64> = hashmap_new::<str, i64>();
+    {
+        let key: String = String::from("hello");
+        unsafe { m.insert(key.as_str(), 42i64); }
+    }
+    return m.len() as i32;
+}

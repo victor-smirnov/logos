@@ -7,19 +7,19 @@ fn main() -> i32 {
     unsafe {
         // ── i32 ──────────────────────────────────────────────────────────────
         let mut b: Box<i32> = box_new::<i32>(42);
-        let p: *const i32 = b.get();
+        let p: *const i32 = Box::as_ptr(&b);
         if *p != 42 { return 1; }
 
-        let pm: *mut i32 = b.get_mut();
+        let pm: *mut i32 = Box::as_mut_ptr(&mut b);
         *pm = 99;
-        if *b.get() != 99 { return 2; }
+        if *Box::as_ptr(&b) != 99 { return 2; }
 
 
         // ── i64 — larger type ────────────────────────────────────────────────
         let mut b64: Box<i64> = box_new::<i64>(1234567890 as i64);
-        if *b64.get() != 1234567890 as i64 { return 3; }
-        *b64.get_mut() = 0 as i64;
-        if *b64.get() != 0 as i64 { return 4; }
+        if *Box::as_ptr(&b64) != 1234567890 as i64 { return 3; }
+        *Box::as_mut_ptr(&mut b64) = 0 as i64;
+        if *Box::as_ptr(&b64) != 0 as i64 { return 4; }
     }
     return 42;
 }

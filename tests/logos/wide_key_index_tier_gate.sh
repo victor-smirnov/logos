@@ -7,7 +7,7 @@
 # `wql_join_wide_key_e2e.logos` asserts the ANSWERS of seven equi-joins. What it
 # cannot assert is which tier produced them: a correct hash join and a nested loop
 # return the same pairs by construction. Before 2026-08-05 those six joins took the
-# LOOP tier — `el_index_key_ok` refused the 128-bit and packed widths — and every
+# LOOP tier — a hand list (then `el_index_key_ok`) refused the 128-bit and packed widths — and every
 # assertion in that fixture already passed. So the fixture is blind to the whole
 # change, and this is where the change is visible.
 #
@@ -94,9 +94,9 @@ check_step q String "loop join"
 if [ "$fail" -ne 0 ]; then
     echo ""
     echo "  The tier is \`join_sel::step_cascade\`, whose \`hash\` conjunct is"
-    echo "  \`self_ident == EL_ID_OK && el::el_index_key_ok(name)\`. A widened type"
-    echo "  that reports \`loop join\` has lost its \`Hash\`/\`Eq\` instance or been"
-    echo "  refused by \`el_index_key_ok\` again; one that reports \`hash join on i64\`"
+    echo "  \`self_ident == EL_ID_OK && el_index_key_borrow_ok(name) && has_trait_named(Hash/Eq, name)\`."
+    echo "  A widened type that reports \`loop join\` has lost its \`Hash\`/\`Eq\` instance,"
+    echo "  or the name-keyed trait query no longer answers; one that reports \`hash join on i64\`"
     echo "  is being indexed in the CLASS REPRESENTATIVE, which drops the high bits"
     echo "  of a 128-bit key and matches rows that are not equal."
     exit 1

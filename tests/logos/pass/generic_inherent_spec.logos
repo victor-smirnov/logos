@@ -6,11 +6,11 @@ package generic_inherent_spec;
 pub struct Foo<T> { pub x: i32 }
 
 impl<T> Foo<T> {
-    pub fn tag(self: *const Foo<T>) -> i32 { return 1; }
+    pub fn tag(&self) -> i32 { return 1; }
 }
 
 impl Foo<i32> {
-    pub fn tag(self: *const Foo<i32>) -> i32 { return 42; }
+    pub fn tag(&self) -> i32 { return 42; }
 }
 
 fn main() -> i32 {

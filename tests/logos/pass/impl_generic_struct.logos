@@ -9,15 +9,15 @@ struct Stack<T> {
 }
 
 impl<T: Copy> Stack<T> {
-    unsafe fn push(self: *mut Stack<T>, val: T) {
+    unsafe fn push(&mut self, val: T) {
         self.data[self.top as u64] = val;
         self.top = self.top + 1;
     }
-    unsafe fn pop(self: *mut Stack<T>) -> T {
+    unsafe fn pop(&mut self) -> T {
         self.top = self.top - 1;
         return self.data[self.top as u64];
     }
-    unsafe fn size(self: *mut Stack<T>) -> i32 {
+    unsafe fn size(&mut self) -> i32 {
         return self.top;
     }
 }

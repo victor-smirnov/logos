@@ -97,11 +97,11 @@ fn main() -> i32 {
 
     let mut h: HashMap<i64, i64> = hashmap_new::<i64, i64>();
     unsafe {
-        (&mut h as *mut HashMap<i64, i64>).insert(0i64, 900i64);
-        (&mut h as *mut HashMap<i64, i64>).insert(1i64, 100i64);
-        (&mut h as *mut HashMap<i64, i64>).insert(3i64, 300i64);
-        (&mut h as *mut HashMap<i64, i64>).insert(4i64, 400i64);
-        (&mut h as *mut HashMap<i64, i64>).insert(5i64, 500i64);
+        (*(&mut h as *mut HashMap<i64, i64>)).insert(0i64, 900i64);
+        (*(&mut h as *mut HashMap<i64, i64>)).insert(1i64, 100i64);
+        (*(&mut h as *mut HashMap<i64, i64>)).insert(3i64, 300i64);
+        (*(&mut h as *mut HashMap<i64, i64>)).insert(4i64, 400i64);
+        (*(&mut h as *mut HashMap<i64, i64>)).insert(5i64, 500i64);
     }
 
     // container {0..5} ⋈ writ-int-leaves {0,3,5} ⋈ hash {0,1,3,4,5}, key >= 1

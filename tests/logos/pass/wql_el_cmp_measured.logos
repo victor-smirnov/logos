@@ -34,8 +34,8 @@
 //
 // and, for every type the lattice licenses as an INDEX key, calls the `Hash` and
 // `Eq` instances: equal values must hash equal and `Eq::eq` must agree with `==`.
-// That call is also the proof the instances EXIST — a type `el_index_key_ok`
-// admits without a `Hash` impl does not compile here.
+// That call is also the proof the instances EXIST. (The planner's index admission
+// no longer reads a table here: it asks the impls by name, #340.)
 //
 // ⚠ THE VALUES COME FROM CALLS, never from literals in the comparison, so nothing
 // under test can be folded away before the backend picks a predicate.
@@ -591,7 +591,7 @@ fn main() -> i32 {
         bad = bad + cmp_field(&mut b, "ord",   expect_ord(m, r, t.bits, t.cls), t.ord, true);
         bad = bad + cmp_field(&mut b, "ident", expect_ident(m, r), t.ident, false);
         bad = bad + cmp_bool(&mut b, "fits",  m.inj && m.keeps, t.fits);
-        bad = bad + cmp_bool(&mut b, "index", m.hashed, el_index_key_ok(t.name));
+        b.push_str(" index="); b.push_str(yn(m.hashed));   // measured; the planner asks the impls (#340)
         emit(&mut b);
         i = i + 1i64;
     }
