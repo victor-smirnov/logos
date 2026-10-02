@@ -242,7 +242,7 @@
 // ── COMPILE CANNOT BE A PASS TEST ───────────────────────────────────────────
 //   a UDF returning `u64` → tests/logos/fail/wql_udf_wide_int_ret_fail
 //   an `f32` aggregate argument → tests/logos/fail/wql_agg_f32_arg_fail
-//   `u128`/`i128` arithmetic → tests/logos/fail/wql_arith_wide_int_fail
+//   `u128`/`i128` arithmetic → tests/logos/pass/wql_arith_128_tower_e2e (own tower since 2026-10-02)
 //   a MIXED signed/unsigned arithmetic node → fail/wql_arith_mixed_tower_fail
 //   unary `-` over an unsigned value → fail/wql_arith_u64_neg_fail
 //   a ternary whose branches disagree → fail/wql_cond_branch_types_fail

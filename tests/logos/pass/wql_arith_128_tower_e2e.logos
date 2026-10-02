@@ -1,0 +1,35 @@
+// WQL — 128-BIT ARITHMETIC COMPUTES IN ITS OWN TYPE (Rust typing, 2026-10-02).
+//
+// `i128`/`u128` had no tower: the EL's checked sets were i64 and u64, either
+// one drops bits, and arithmetic over them was refused for that reason
+// (fail/wql_arith_wide_int_fail, whose own header said "a refusal about a missing
+// tower is repaired by writing the tower"). Under Rust typing a node has its
+// operands' type, so a 128-bit node computes in 128 bits and needs only the checked
+// set itself: `el_addq`/`el_subq`/`el_mulq`/`el_divq`/`el_remq`/`el_negq` and the
+// unsigned `el_addqu`/… (overflow detected on the wrapped result). This file pins
+// the answers at the type's edges:
+//   • i128::MAX + 1 → Overflow; -(-5) = 5; small values exact;
+//   • u128::MAX * 2 → Overflow; u128::MAX / 3 exact;
+//   • `order by` a u128 column orders by the u128 value.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.std.wql.el;
+struct R { pub q: i128, pub u: u128 }
+pub deem qplus(rs: &[R])  { from rs r select r.q + 1 }
+pub deem qneg(rs: &[R])   { from rs r select -r.q }
+pub deem umul(rs: &[R])   { from rs r select r.u * 2 }
+pub deem udiv(rs: &[R])   { from rs r select r.u / 3 }
+pub deem uord(rs: &[R])   { from rs r select r.q order by r.u desc }
+fn main() -> i32 {
+    let big: [R; 1] = [ R { q: 170141183460469231731687303715884105727i128, u: 340282366920938463463374607431768211455u128 } ];
+    let sm: [R; 2] = [ R { q: -5i128, u: 9u128 }, R { q: 7i128, u: 300000000000000000000000u128 } ];
+    match qplus(&big[..]) { Result::Err(ElError::Overflow) => { } _ => { return 1i32; } }
+    if qplus(&sm[..]).unwrap().get(0i64) != -4i128 { return 2i32; }
+    if qneg(&sm[..]).unwrap().get(0i64) != 5i128 { return 3i32; }
+    match umul(&big[..]) { Result::Err(ElError::Overflow) => { } _ => { return 4i32; } }
+    if udiv(&big[..]).unwrap().get(0i64) != 113427455640312821154458202477256070485u128 { return 5i32; }
+    let o: Vec<i128> = uord(&sm[..]).unwrap();
+    if o.get(0i64) != 7i128 { return 6i32; }
+    return 0i32;
+}

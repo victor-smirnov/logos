@@ -1,1 +1,0 @@
-wql!: `select`: arithmetic over a value of type `u128` — the EL computes integer arithmetic in one of two towers, i64 (`el_add`/`el_sub`/…) or u64 (`el_addu`/`el_subu`/…), and this type fits NEITHER: it is wider than both, so reaching either drops bits

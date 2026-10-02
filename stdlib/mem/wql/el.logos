@@ -20,6 +20,7 @@ use logos.mem.collections.vec;   // ElTypes.tns
 use logos.lang.option;  // Option — checked_* return type (el_add/…/el_neg)
 use logos.lang.result;  // Result — the error-returning el_* arithmetic
 use logos.lang.cmp;     // i64 checked_add/sub/mul/div/rem/neg
+use logos.lang.arith;   // wrapping_* — the 128-bit towers detect overflow on the wrapped result
 
 // ── Operator ids (CEL canon; stable across backends) ──────────────────────
 // SBin op ids.
@@ -144,6 +145,72 @@ pub fn el_fit_i(v: i64, lo: i64, hi: i64) -> Result<i64, ElError> {
         return Result::Err(ElError::Overflow);
     }
     return Result::Ok(v);
+}
+
+// ── THE 128-BIT TOWERS — `i128` and `u128` compute in their own type ───────
+//
+// Until 2026-10-02 `i128`/`u128` had no tower: arithmetic over them was refused
+// because reaching i64 or u64 drops bits. Under Rust typing a node has its
+// operands' type, so a 128-bit node computes IN 128 bits and needs only the
+// checked set itself. The stdlib has `checked_*` for four widths only, so these
+// detect overflow on the wrapped result, the way `u64::checked_add` does.
+pub fn el_addq(a: i128, b: i128) -> Result<i128, ElError> {
+    let r: i128 = wrapping_add::<i128>(a, b);
+    if (a >= 0i128) == (b >= 0i128) && (r >= 0i128) != (a >= 0i128) { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+pub fn el_subq(a: i128, b: i128) -> Result<i128, ElError> {
+    let r: i128 = wrapping_sub::<i128>(a, b);
+    if (a >= 0i128) != (b >= 0i128) && (r >= 0i128) != (a >= 0i128) { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+fn el_i128_min() -> i128 { return 0i128 - 170141183460469231731687303715884105727i128 - 1i128; }
+pub fn el_mulq(a: i128, b: i128) -> Result<i128, ElError> {
+    if a == 0i128 || b == 0i128 { return Result::Ok(0i128); }
+    // MIN * -1 and -1 * MIN are the one product whose check below would itself trap.
+    if (a == -1i128 && b == el_i128_min()) || (b == -1i128 && a == el_i128_min()) {
+        return Result::Err(ElError::Overflow);
+    }
+    let r: i128 = wrapping_mul::<i128>(a, b);
+    if r / b != a { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+pub fn el_divq(a: i128, b: i128) -> Result<i128, ElError> {
+    if b == 0i128 { return Result::Err(ElError::DivByZero); }
+    if a == el_i128_min() && b == -1i128 { return Result::Err(ElError::Overflow); }
+    return Result::Ok(a / b);
+}
+pub fn el_remq(a: i128, b: i128) -> Result<i128, ElError> {
+    if b == 0i128 { return Result::Err(ElError::DivByZero); }
+    if a == el_i128_min() && b == -1i128 { return Result::Err(ElError::Overflow); }
+    return Result::Ok(a % b);
+}
+pub fn el_negq(a: i128) -> Result<i128, ElError> {
+    if a == el_i128_min() { return Result::Err(ElError::Overflow); }
+    return Result::Ok(0i128 - a);
+}
+pub fn el_addqu(a: u128, b: u128) -> Result<u128, ElError> {
+    let r: u128 = wrapping_add::<u128>(a, b);
+    if r < a { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+pub fn el_subqu(a: u128, b: u128) -> Result<u128, ElError> {
+    if b > a { return Result::Err(ElError::Underflow); }
+    return Result::Ok(a - b);
+}
+pub fn el_mulqu(a: u128, b: u128) -> Result<u128, ElError> {
+    if a == 0u128 || b == 0u128 { return Result::Ok(0u128); }
+    let r: u128 = wrapping_mul::<u128>(a, b);
+    if r / a != b { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+pub fn el_divqu(a: u128, b: u128) -> Result<u128, ElError> {
+    if b == 0u128 { return Result::Err(ElError::DivByZero); }
+    return Result::Ok(a / b);
+}
+pub fn el_remqu(a: u128, b: u128) -> Result<u128, ElError> {
+    if b == 0u128 { return Result::Err(ElError::DivByZero); }
+    return Result::Ok(a % b);
 }
 
 /// `el_add`'s SIBLING FOR A `u64` ACCUMULATOR — the same shape, the same error
@@ -1380,6 +1447,8 @@ pub fn EL_TOW_NONE() -> i32 { return 0i32; }
 pub fn EL_TOW_I64()  -> i32 { return 1i32; }
 pub fn EL_TOW_U64()  -> i32 { return 2i32; }
 pub fn EL_TOW_DENY() -> i32 { return 3i32; }
+pub fn EL_TOW_I128() -> i32 { return 4i32; }   // `i128` — `el_addq`/…/`el_negq`
+pub fn EL_TOW_U128() -> i32 { return 5i32; }   // `u128` — `el_addqu`/…
 
 pub fn el_arith_tower(name: str) -> i32 {
     let t: ElTy = el_ty(name);
@@ -1392,13 +1461,19 @@ pub fn el_arith_tower(name: str) -> i32 {
     // a u64 accumulator. A packed unsigned width added later joins both by its
     // row, not by an edit here.
     if !t.signed && t.bits <= 64i64 { return EL_TOW_U64(); }
-    return EL_TOW_DENY();                              // u128 / i128 — no tower
+    if t.bits == 128i64 {
+        if t.signed { return EL_TOW_I128(); }
+        return EL_TOW_U128();
+    }
+    return EL_TOW_DENY();
 }
 
 /// The type the tower's operations take and return — what the emitter prints for
 /// an arithmetic node computing in it, and what its operands are normalized to.
 pub fn el_tower_repr(tw: i32) -> str {
-    if tw == EL_TOW_U64() { return "u64"; }
+    if tw == EL_TOW_U64()  { return "u64"; }
+    if tw == EL_TOW_I128() { return "i128"; }
+    if tw == EL_TOW_U128() { return "u128"; }
     return el_class_repr(EL_TY_INT());
 }
 

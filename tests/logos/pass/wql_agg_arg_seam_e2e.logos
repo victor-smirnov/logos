@@ -37,9 +37,8 @@ package wql_agg_arg_seam_e2e;
 //   • every `el_ty_stored` INT row with bits < 64 — i8/i16/i32, u8/u16/u32,
 //     i24/u24, i56/u56 — aggregated and ANSWERED, one deem each;
 //   • both canonical representatives, i64 and f64;
-//   • the remedy the f32 diagnostic names — an argument expression that already
-//     computes in f64 — so that the message is not asserting something no gate
-//     has run.
+//   • the remedy the f32 diagnostic names — an explicit `as f64` — so that the
+//     message is not asserting something no gate has run.
 // The population is the lattice's rows, not the types someone remembered:
 // wql_narrow_and_f32_columns_e2e closed this same class for `where` / `order by`
 // / `select` and had no `aggregate` clause at all, which is exactly how the
@@ -86,13 +85,13 @@ pub deem m_a32(rs: &[R]) { from rs s
 // The f64 canon: no conversion anywhere on the route.
 pub deem s_f64(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.f64c) select t : f64 }
 
-// THE REMEDY THE f32 DIAGNOSTIC NAMES. `s.g32 * 1.0f64` is an arithmetic node,
-// so the ARITHMETIC seam normalizes its operands (`emit_norm_operand`) and the
-// text that reaches the accumulator is already f64. Multiplying by 1.0 is exact
-// and 1.5 / 2.5 / 4.0 are exactly representable in both widths, so a difference
-// here would be a misread, not a rounding artefact.
-pub deem s_g32(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.g32 * 1.0f64) select t : f64 }
-pub deem n_g32(rs: &[R]) { from rs s group by s.k aggregate t = min(s.g32 * 1.0f64) select t : f64 }
+// THE REMEDY THE f32 DIAGNOSTIC NAMES: an explicit `as f64`. Until 2026-10-02 it
+// was `s.g32 * 1.0f64`, an arithmetic node that computed in f64; under Rust typing
+// that node is an `f32` (its operand's type), so the widening has to be asked for
+// by name. 1.5 / 2.5 / 4.0 are exactly representable in both widths, so a
+// difference here would be a misread, not a rounding artefact.
+pub deem s_g32(rs: &[R]) { from rs s group by s.k aggregate t = sum(s.g32 as f64) select t : f64 }
+pub deem n_g32(rs: &[R]) { from rs s group by s.k aggregate t = min(s.g32 as f64) select t : f64 }
 
 fn main() -> i32 {
     // Written as TYPED LITERALS rather than through a cast helper: a cast is

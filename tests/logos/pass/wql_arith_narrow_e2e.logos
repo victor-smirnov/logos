@@ -17,8 +17,7 @@
 //      check runs per node, not once at the end;
 //   4. `u8 - 1` below zero: `Err(Underflow)`, the unsigned floor crossed;
 //   5. `order by` an arithmetic key: the key vector is the node's type (`u32`);
-//   6. `f32 * float literal` still computes in f64 — the float half of Rust typing
-//      is the next slice, and this claim moves with it.
+//   6. `f32 * float literal` is an `f32` (until 2026-10-02 it computed in f64).
 //
 // `-s.w` over an unsigned column is refused, as Rust refuses it:
 // wql_arith_unsigned_neg_fail (u32) and wql_arith_u64_neg_fail (u64).
@@ -74,10 +73,10 @@ fn main() -> i32 {
         _ => { return 15i32; }
     }
 
-    // 6. f32 * 2.0 computed in f64 (the float slice moves this claim).
-    let c: Vec<f64> = scaled(&rs[..]).unwrap();
-    if c.get(0i64) != 3.0f64 { return 6i32; }
-    if c.get(1i64) != 1.0f64 { return 7i32; }
+    // 6. f32 * 2.0 is an f32.
+    let c: Vec<f32> = scaled(&rs[..]).unwrap();
+    if c.get(0i64) != 3.0f32 { return 6i32; }
+    if c.get(1i64) != 1.0f32 { return 7i32; }
 
     // 5. an arithmetic sort key of the node's type.
     let d: Vec<i64> = by_sum(&rs[..]).unwrap();

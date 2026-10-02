@@ -338,6 +338,7 @@ pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> str {
     if el_computes_in_repr(e) {
         let c: i32 = infer_ty(e, t);
         if c == EL_TY_INT() { return arith_node_ty(e, t); }
+        if c == EL_TY_FLT() { return float_node_ty(e, t); }
         return el_class_repr(c);
     }
     let n: str = infer_ty_name(e, t);
@@ -437,6 +438,26 @@ pub fn arith_node_ty(e: SExpr, t: &ElTypes) -> str {
     return n;
 }
 
+/// THE TYPE OF A FLOAT ARITHMETIC NODE — its operands' type, as in Logos: `s.f *
+/// 2.0` over an `f32` column is an `f32`, computed in f32 (IEEE, no check). The
+/// operands agree by the time this is asked (`f32 + f64` is refused by
+/// `check_operand_types_agree`); a node naming no type (`1.5 * 2.0`) is `f64`.
+/// Until 2026-10-02 every float node computed in f64 and an `f32` operand was
+/// widened into it.
+pub fn float_node_ty(e: SExpr, t: &ElTypes) -> str {
+    let mut n: str = "";
+    match e {
+        SExpr::Bin(b) => {
+            n = arith_operand_ty(b.lhs_expr(), t);
+            if n.len() == 0i64 { n = arith_operand_ty(b.rhs_expr(), t); }
+        }
+        SExpr::Un(u) => { n = arith_operand_ty(u.arg_expr(), t); }
+        _ => { }
+    }
+    if str_eq(n, "f32") { return "f32"; }
+    return "f64";
+}
+
 /// The type ONE operand names for `arith_node_ty` — "" for a literal (it has
 /// none of its own), the node's own type for a nested arithmetic node, and the
 /// declared type for everything else.
@@ -446,6 +467,7 @@ fn arith_operand_ty(e: SExpr, t: &ElTypes) -> str {
         _ => { }
     }
     if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_INT() { return arith_node_ty(e, t); }
+    if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_FLT() { return float_node_ty(e, t); }
     return infer_ty_name(e, t);
 }
 
@@ -1421,13 +1443,11 @@ pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: str, fname: str, ctx: str)
         m.push_str(want);
         m.push_str("`. The remedy is a column of type `");
         m.push_str(want);
-        m.push_str("`, or an argument expression that already computes in `");
-        m.push_str(want);
-        m.push_str("` — `");
+        m.push_str("`, or an explicit conversion — `");
         m.push_str(fname);
-        m.push_str("(x * 1.0");
+        m.push_str("(x as ");
         m.push_str(want);
-        m.push_str(")` normalizes at the arithmetic seam, where the widening is the query's own request");
+        m.push_str(")`, where the widening is the query's own request");
     } else {
         // UNREACHABLE BY CONSTRUCTION, AND IT SAYS SO RATHER THAN GUESSING. An
         // INT whose `fits` is true is admitted by `el_agg_arg_reaches` above, so
@@ -1629,11 +1649,11 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 emit_arith_fit_close(out, nt, tw);
                 return;
             }
-            // FLOAT arithmetic is IEEE infix and computes in the class's
-            // representative too, so an `f32` operand is widened exactly once,
-            // here — `f32 * 2.5f64` does not type-check and never did.
+            // FLOAT arithmetic is IEEE infix in the NODE's type (`float_node_ty`):
+            // `f32` operands stay `f32`, and a float literal beside them is
+            // printed `2.5f32` by the same normalization path.
             if is_arith && (lt == EL_TY_FLT() || rt == EL_TY_FLT()) {
-                let fr: str = el_class_repr(EL_TY_FLT());
+                let fr: str = float_node_ty(e, t);
                 out.push_str("(");
                 emit_norm_operand(out, lhs, t, var, fr);
                 out.push_str(emit_binop(op));
@@ -1664,12 +1684,15 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             // negation is an Overflow error, not a trap). `!` and FLT negation
             // stay infix (bool / IEEE, no trap).
             if op == OP_NEG() && infer_ty(arg, t) == EL_TY_INT() {
+                // Signed only (unsigned negation is refused at the check), so the
+                // tower is i64 or i128.
                 let nt: str = arith_node_ty(e, t);
-                emit_arith_fit_open(out, nt, EL_TOW_I64());
-                out.push_str("el_neg(");
-                emit_norm_operand(out, arg, t, var, el_class_repr(EL_TY_INT()));
+                let tw: i32 = if arith_node_tower(e, t) == EL_TOW_I128() { EL_TOW_I128() } else { EL_TOW_I64() };
+                emit_arith_fit_open(out, nt, tw);
+                if tw == EL_TOW_I128() { out.push_str("el_negq("); } else { out.push_str("el_neg("); }
+                emit_norm_operand(out, arg, t, var, el_tower_repr(tw));
                 out.push_str(")?");
-                emit_arith_fit_close(out, nt, EL_TOW_I64());
+                emit_arith_fit_close(out, nt, tw);
                 return;
             }
             out.push_str("(");
@@ -2159,6 +2182,20 @@ pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
 // two places for "which ops does the EL have", which is how the unsigned set came
 // to be missing two of five in the first place.
 pub fn el_int_op_fn(op: i32, tw: i32) -> str {
+    if tw == EL_TOW_I128() {
+        if op == OP_ADD() { return "el_addq"; }
+        if op == OP_SUB() { return "el_subq"; }
+        if op == OP_MUL() { return "el_mulq"; }
+        if op == OP_DIV() { return "el_divq"; }
+        return "el_remq";
+    }
+    if tw == EL_TOW_U128() {
+        if op == OP_ADD() { return "el_addqu"; }
+        if op == OP_SUB() { return "el_subqu"; }
+        if op == OP_MUL() { return "el_mulqu"; }
+        if op == OP_DIV() { return "el_divqu"; }
+        return "el_remqu";
+    }
     if tw == EL_TOW_U64() {
         if op == OP_ADD() { return "el_addu"; }
         if op == OP_SUB() { return "el_subu"; }
