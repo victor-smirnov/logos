@@ -194,6 +194,25 @@ pub fn plan_trace_on() -> bool {
     unsafe { return getenv(c.as_ptr()) != 0 as *const u8; }
 }
 
+/// `LOGOS_TRACE_PLAN=facts` — besides the `[plan]` sentences, each decision that
+/// records its ground as facts prints them machine-readable (`[facts] …`), so a
+/// fixture asserts the rule and the failed antecedents, not a substring of prose.
+pub fn plan_trace_facts_on() -> bool {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_TRACE_PLAN");
+    c.push_u8(0u8);
+    unsafe {
+        let v: *const u8 = getenv(c.as_ptr());
+        if v == 0 as *const u8 { return false; }
+        return str_eq(str_from_cstr(v), "facts");
+    }
+}
+
+/// One already-composed trace line, as is.
+pub fn plan_trace_raw(ln: str) {
+    unsafe { write(2i32, ln.as_ptr(), ln.len()); }
+}
+
 /// One decision: what was concluded, about what, and the antecedent that
 /// decided it — which for a fallback is also the remedy.
 pub fn plan_trace(subject: str, verdict: str, about: str, why: str) {

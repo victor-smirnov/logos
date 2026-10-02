@@ -3872,7 +3872,7 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
                 // Traced HERE because this is where it was decided. A step the
                 // planner decided was already traced there, and echoing it
                 // would put the same decision in the log twice.
-                plan_trace(ch.var[i], js_name(strat), ktn, ss.why);
+                trace_step(ch.var[i], &ss);
             } else if sel >= 0i64 {
                 let stt: StepTerms = step_terms(onr, h);
                 if sel < stt.tl.n {

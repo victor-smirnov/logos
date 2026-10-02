@@ -1,0 +1,37 @@
+// WQL — A STRUCT KEY WITH `PartialEq` BUT NO `Eq` JOINS ON THE LOOP TIER.
+//
+// The hash tier needs `Hash` AND `Eq` (a HashMap's key bound); `Sku` here has
+// `Hash`, `PartialEq`, `Copy` — so the strategy rule that fires is `loop_eq`, and
+// the negative explanation of `hash` is exactly `[Eq]`. Pinned by
+// `join_ground_facts_gate.sh` on the facts channel (`LOGOS_TRACE_PLAN=facts`);
+// this file pins that the loop tier answers correctly.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.hash;
+use logos.lang.cmp;
+use logos.lang.clone;
+
+pub struct Sku { pub a: i64, pub b: i64 }
+impl PartialEq for Sku { fn eq(&self, o: &Sku) -> bool { return self.a == o.a && self.b == o.b; } }
+impl Clone for Sku { fn clone(&self) -> Sku { return Sku { a: self.a, b: self.b }; } }
+impl Copy for Sku {}
+impl Hash for Sku { fn hash<H: Hasher>(&self, h: &mut H) { self.a.hash(h); self.b.hash(h); } }
+
+pub struct Line { pub sku: Sku, pub qty: i64 }
+pub struct Price { pub sku: Sku, pub cents: i64 }
+
+pub deem total(ls: &[Line], ps: &[Price]) { from ls l join ps p on l.sku == p.sku select l.qty * p.cents }
+
+fn main() -> i32 {
+    let x: Sku = Sku { a: 1i64, b: 2i64 };
+    let y: Sku = Sku { a: 3i64, b: 4i64 };
+    let ls: [Line; 3] = [ Line { sku: x, qty: 2i64 }, Line { sku: y, qty: 5i64 }, Line { sku: x, qty: 1i64 } ];
+    let ps: [Price; 2] = [ Price { sku: x, cents: 100i64 }, Price { sku: y, cents: 10i64 } ];
+    let t: Vec<i64> = total(&ls[..], &ps[..]).unwrap();
+    let mut s: i64 = 0i64; let mut i: i64 = 0i64;
+    while i < t.len() { s = s + t.get(i); i = i + 1i64; }
+    if s != 350i64 { return 1i32; }
+    return 0i32;
+}

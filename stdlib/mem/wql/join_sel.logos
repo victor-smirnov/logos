@@ -47,6 +47,7 @@ use logos.std.wql.params;         // MacroParams — the rel registry, for NAMIN
 use logos.std.wql.access_plan;    // MG_JOIN_BUILD — the Arrange node's ground (ADR 0025 §4, S2d)
 use logos.mem.string;             // String — the key-vector line's why is composed
 use logos.lang.str;
+use logos.std.wql.why;             // JoinGround / JA_* / JR_* — the strategy's ground as rules over facts
 
 // ── The three shapes ──────────────────────────────────────────────────────
 // 0 is NOT one of them: it is "undecided", the value an IR node carries before
@@ -115,27 +116,48 @@ fn KEY_HASH_TRAIT() -> str { return "logos.lang.hash::Hash"; }
 fn KEY_EQ_TRAIT()   -> str { return "logos.lang.cmp::Eq"; }
 fn KEY_ORD_TRAIT()  -> str { return "logos.lang.cmp::Ord"; }
 
-pub fn join_key_caps_named(name: str) -> KeyCaps {
+/// THE FACTS ABOUT A KEY TYPE, asked once and recorded on `g` — the only place the
+/// key's capabilities are computed. `KeyCaps` and the strategy rule are both read
+/// off these answers, so the decision and its ground cannot come from two
+/// computations.
+pub fn join_key_facts(name: str, g: &mut JoinGround) {
     let t: ElTy = el_ty(name);
     if t.cls < 0i32 {
         // A type outside the scalar lattice: every conjunct is asked of its impls.
         // An index stores its keys BY VALUE (copied out of the row), so both index
-        // tiers also need `Copy`; the loop tier needs `==` only. A name with no
+        // tiers need `Copy`; the loop tier needs `==` only. Its own `==`/`<` ARE its
+        // impls, so the lattice's faithfulness facts hold trivially. A name with no
         // impls at all — including one reflection could not resolve (`Wrap` for
-        // `Wrap<i64>`) — answers no to every query, which is the default-deny it
-        // always had.
-        let eq: bool = named_has_eq(name);
-        let cp: bool = named_is_copy(name);
-        return KeyCaps { hash: eq && cp && has_trait_named(KEY_HASH_TRAIT(), name)
-                                       && has_trait_named(KEY_EQ_TRAIT(), name),
-                         ord:  cp && named_has_ord(name),
-                         eq:   eq };
+        // `Wrap<i64>`) — answers no to every query: the default-deny it always had.
+        jg_fact(g, JA_EQUALITY(), named_has_eq(name));
+        jg_fact(g, JA_KEY_STORE(), named_is_copy(name));
+        jg_fact(g, JA_SELF_IDENT(), true);
+        jg_fact(g, JA_SELF_ORD(), true);
+    } else {
+        jg_fact(g, JA_EQUALITY(), true);
+        jg_fact(g, JA_KEY_STORE(), el_index_key_borrow_ok(name));
+        jg_fact(g, JA_SELF_IDENT(), t.self_ident == EL_ID_OK());
+        jg_fact(g, JA_SELF_ORD(), t.self_ord == EL_ORD_OK());
     }
-    let idx: bool = el_index_key_borrow_ok(name);
-    return KeyCaps { hash: t.self_ident == EL_ID_OK() && idx && has_trait_named(KEY_HASH_TRAIT(), name)
-                                                         && has_trait_named(KEY_EQ_TRAIT(), name),
-                     ord:  t.self_ord   == EL_ORD_OK() && idx && has_trait_named(KEY_ORD_TRAIT(), name),
-                     eq:   true };
+    jg_fact(g, JA_HASH(), has_trait_named(KEY_HASH_TRAIT(), name));
+    jg_fact(g, JA_EQ(),   has_trait_named(KEY_EQ_TRAIT(), name));
+    jg_fact(g, JA_ORD(),  has_trait_named(KEY_ORD_TRAIT(), name));
+}
+
+fn held(g: &JoinGround, a: i32) -> bool { return (g.held & ja_bit(a)) != 0i32; }
+
+/// The capability row, read off the facts.
+pub fn key_caps_of(g: &JoinGround) -> KeyCaps {
+    return KeyCaps { hash: held(g, JA_HASH()) && held(g, JA_EQ()) && held(g, JA_KEY_STORE())
+                           && held(g, JA_SELF_IDENT()),
+                     ord:  held(g, JA_ORD()) && held(g, JA_KEY_STORE()) && held(g, JA_SELF_ORD()),
+                     eq:   held(g, JA_EQUALITY()) };
+}
+
+pub fn join_key_caps_named(name: str) -> KeyCaps {
+    let mut g: JoinGround = jg_new(name);
+    join_key_facts(name, &mut g);
+    return key_caps_of(&g);
 }
 
 /// The CLASS-keyed view, kept for the callers that hold only a class (the
@@ -254,35 +276,41 @@ pub fn step_key_ty_of(be: SExpr, pe: SExpr, t: &ElTypes, cls: i32) -> str {
 }
 
 // ── The cascade ───────────────────────────────────────────────────────────
-/// A join step's chosen strategy AND what entailed it. The cascade always
-/// produced the choice; recording the ground alongside it is what makes a plan
-/// explainable instead of merely reproducible — and now the ground travels ON
-/// the plan, so the emitter's trace and the planner's are the same sentence.
-pub struct StepSel { pub strat: i32, pub key_ty: i32, pub key_tn: str, pub sel: i64, pub why: str }
+/// A join step's chosen strategy AND what entailed it. `g` is the rule that fired
+/// and the facts it fired on (`why::JoinGround`); its sentence is `jg_render(&s.g)`,
+/// produced at the edge — the trace, the plan's IR, `explain` — and nowhere else.
+pub struct StepSel { pub strat: i32, pub key_ty: i32, pub key_tn: str, pub sel: i64, pub g: JoinGround }
 
+/// The strategy cascade as RULES over FACTS: ask the facts, then take the first rule
+/// whose body holds — hash, the forced tree, tree, loop on equality — in the order
+/// the cascade has always preferred. No rule holding is the refusal it always was.
 pub fn step_cascade(k: StepKey) -> StepSel {
-    if k.sel < 0i64 {
-        return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: -1i64,
-                         why: "no equi-join key — a nested loop is the only shape left" };
+    let mut g: JoinGround = jg_new(k.ktn);
+    if !jg_fact(&mut g, JA_EQUI_KEY(), k.sel >= 0i64) {
+        g.rule = JR_LOOP_NOKEY();
+        return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: -1i64, g: g };
     }
-    let caps: KeyCaps = join_key_caps_named(k.ktn);
-    if caps.hash && !join_force_tree() {
-        return StepSel { strat: JS_HASH(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel,
-                         why: "the key type is hashable — build once, probe per row" };
+    join_key_facts(k.ktn, &mut g);
+    jg_fact(&mut g, JA_FORCE_TREE(), join_force_tree());
+    if jr_holds(&g, JR_HASH()) {
+        g.rule = JR_HASH();
+        return StepSel { strat: JS_HASH(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel, g: g };
     }
-    if caps.ord {
-        return StepSel { strat: JS_TREE(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel,
-                         why: if join_force_tree()
-                              { "the tree tier is forced (LOGOS_JOIN_TREE) — the key is hashable but ordered access is being exercised" }
-                              else { "the key type is ordered but not hashable — a sorted index, not a hash one" } };
+    if jr_holds(&g, JR_TREE_FORCED()) {
+        g.rule = JR_TREE_FORCED();
+        return StepSel { strat: JS_TREE(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel, g: g };
     }
-    if caps.eq {
-        return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel,
-                         why: "the key type has equality only — no index can be built, so every pair is tested" };
+    if jr_holds(&g, JR_TREE()) {
+        g.rule = JR_TREE();
+        return StepSel { strat: JS_TREE(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel, g: g };
     }
+    if jr_holds(&g, JR_LOOP_EQ()) {
+        g.rule = JR_LOOP_EQ();
+        return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: k.sel, g: g };
+    }
+    g.rule = JR_REFUSE();
     error("wql!: join key type supports neither Hash, Ord, nor equality — cannot execute this join step (scalar i64/str/bool/f64 keys only today)");
-    return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: -1i64,
-                     why: "the key type has no usable capability" };
+    return StepSel { strat: JS_LOOP(), key_ty: k.kty, key_tn: k.ktn, sel: -1i64, g: g };
 }
 
 /// The whole decision for one classic (non-traversal) step.
@@ -297,8 +325,24 @@ pub fn decide_join_step(on: WRef<SExpr>, new_var: str, t: &ElTypes, h: &Writ) ->
 /// decision anyway so that "why is this a loop" has an answer on the plan
 /// rather than only in a comment.
 pub fn traversal_step_sel() -> StepSel {
-    return StepSel { strat: JS_LOOP(), key_ty: EL_TY_INT(), key_tn: "", sel: -1i64,
-                     why: "a traversal step ranges over a field path of an outer row — the source is re-derived per bound row, so no index can be built over it" };
+    let mut g: JoinGround = jg_new("");
+    g.rule = JR_TRAVERSAL();
+    return StepSel { strat: JS_LOOP(), key_ty: EL_TY_INT(), key_tn: "", sel: -1i64, g: g };
+}
+
+/// The `[plan]` line of a strategy decision, and under `LOGOS_TRACE_PLAN=facts`
+/// the facts it was decided on, machine-readable.
+pub fn trace_step(subject: str, s: &StepSel) {
+    plan_trace(subject, js_name(s.strat), s.key_tn, jg_render(s.g.rule));
+    if plan_trace_facts_on() {
+        let mut ln: String = String::new();
+        ln.push_str("[facts] ");
+        ln.push_str(subject);
+        ln.push_str(" join ");
+        jg_push_facts(&s.g, &mut ln);
+        ln.push_str("\n");
+        plan_trace_raw(string_as_str(&ln));
+    }
 }
 
 /// THE ARRANGE NODE, AUTHORED WHERE THE INDEX IS EMITTED (ADR 0025 §4, S2d).

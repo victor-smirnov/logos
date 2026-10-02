@@ -864,3 +864,187 @@ pub fn why_push_sizes(w: &Why, out: &mut String) {
         i = i + 1i64;
     }
 }
+
+// ══ THE JOIN STRATEGY'S GROUND — RULES AND FACTS, NOT SENTENCES (2026-10-02) ══
+//
+// The join-ORDER verdict above became a record in S4o; the per-step STRATEGY
+// (hash / tree / loop) did not: `StepSel.why` was a sentence chosen by the branch
+// that returned it, so nothing tied the words to the antecedents the branch had
+// actually tested. Following the provenance design of Datalog engines (Soufflé's
+// `explain`/`explainnegation`), the strategy is now a RULE over FACTS:
+//
+//   • an ANTECEDENT (`JA_*`) is one question the cascade asks about the step and its
+//     key type — "is there an equi key", "does the key type implement Hash";
+//   • a RULE (`JR_*`) is a conclusion with a BODY: the antecedents that must hold
+//     (`jr_pos`) and those that must not (`jr_neg`). The cascade tries the rules in
+//     order and records the first whose body holds;
+//   • the GROUND (`JoinGround`) is the rule that fired plus the facts: which
+//     antecedents were ASKED, which of those HELD. Two masks — the cascade's own
+//     answers, never recomputed for display;
+//   • `jg_failed(g, r)` is the negative explanation: for ANY rule, the asked
+//     antecedents its body needed and did not get. "Why not a hash join" is
+//     `jg_failed(g, JR_HASH())`, read off the same facts the decision used.
+//
+// The sentences are the renderer's (`jg_render`), and only the renderer's.
+pub fn JA_EQUI_KEY() -> i32   { return 0i32; }  // the step has an equi-join key
+pub fn JA_HASH() -> i32       { return 1i32; }  // K: Hash
+pub fn JA_EQ() -> i32         { return 2i32; }  // K: Eq
+pub fn JA_ORD() -> i32        { return 3i32; }  // K: Ord
+pub fn JA_EQUALITY() -> i32   { return 4i32; }  // K has `==` at all (PartialEq or Eq; every lattice type)
+pub fn JA_KEY_STORE() -> i32  { return 5i32; }  // the index can hold K (borrowed from the row, or Copy)
+pub fn JA_SELF_IDENT() -> i32 { return 6i32; }  // K's own `==` is faithful (no NaN): EL_ID_OK
+pub fn JA_SELF_ORD() -> i32   { return 7i32; }  // K's own `<` is faithful: EL_ORD_OK
+pub fn JA_FORCE_TREE() -> i32 { return 8i32; }  // the tree tier is forced (a test knob)
+pub fn JA_N() -> i32          { return 9i32; }
+
+pub fn ja_bit(a: i32) -> i32 { return 1i32 << a; }
+
+pub fn JR_UNSET() -> i32      { return 0i32; }
+pub fn JR_LOOP_NOKEY() -> i32 { return 1i32; }  // no equi key: a nested loop is the only shape
+pub fn JR_HASH() -> i32       { return 2i32; }
+pub fn JR_TREE_FORCED() -> i32 { return 3i32; }
+pub fn JR_TREE() -> i32       { return 4i32; }
+pub fn JR_LOOP_EQ() -> i32    { return 5i32; }  // equality only: every pair is tested
+pub fn JR_REFUSE() -> i32     { return 6i32; }  // no capability at all: the step is refused
+pub fn JR_TRAVERSAL() -> i32  { return 7i32; }  // a traversal step: a loop by construction
+
+/// The antecedents a rule's body needs TRUE.
+pub fn jr_pos(r: i32) -> i32 {
+    let k: i32 = ja_bit(JA_EQUI_KEY());
+    let idx: i32 = ja_bit(JA_KEY_STORE());
+    if r == JR_HASH() {
+        return k | idx | ja_bit(JA_HASH()) | ja_bit(JA_EQ()) | ja_bit(JA_SELF_IDENT());
+    }
+    if r == JR_TREE_FORCED() || r == JR_TREE() {
+        let t: i32 = k | idx | ja_bit(JA_ORD()) | ja_bit(JA_SELF_ORD());
+        if r == JR_TREE_FORCED() { return t | ja_bit(JA_FORCE_TREE()); }
+        return t;
+    }
+    if r == JR_LOOP_EQ() { return k | ja_bit(JA_EQUALITY()); }
+    if r == JR_REFUSE()  { return k; }
+    return 0i32;
+}
+
+/// The antecedents a rule's body needs FALSE.
+pub fn jr_neg(r: i32) -> i32 {
+    if r == JR_LOOP_NOKEY() { return ja_bit(JA_EQUI_KEY()); }
+    if r == JR_HASH()       { return ja_bit(JA_FORCE_TREE()); }
+    if r == JR_REFUSE()     { return ja_bit(JA_EQUALITY()); }
+    return 0i32;
+}
+
+/// The facts and the rule they entailed. `asked`/`held` are masks over `JA_*`;
+/// `key_tn` is the operand the key antecedents were asked of.
+pub struct JoinGround { pub rule: i32, pub asked: i32, pub held: i32, pub key_tn: str }
+
+pub fn jg_new(key_tn: str) -> JoinGround {
+    return JoinGround { rule: JR_UNSET(), asked: 0i32, held: 0i32, key_tn: key_tn };
+}
+
+/// Record one answer. The cascade's only write of a fact.
+pub fn jg_fact(g: &mut JoinGround, a: i32, v: bool) -> bool {
+    g.asked = g.asked | ja_bit(a);
+    if v { g.held = g.held | ja_bit(a); }
+    return v;
+}
+
+/// Does rule `r`'s body hold on the facts? An antecedent not ASKED does not hold —
+/// a rule cannot fire on a question nobody asked.
+pub fn jr_holds(g: &JoinGround, r: i32) -> bool {
+    let pos: i32 = jr_pos(r);
+    let neg: i32 = jr_neg(r);
+    if (pos & g.asked) != pos { return false; }
+    if (pos & g.held) != pos { return false; }
+    if (neg & g.held) != 0i32 { return false; }
+    return true;
+}
+
+/// THE NEGATIVE EXPLANATION: the antecedents of rule `r` that were asked and came
+/// out wrong for it (a needed one false, a forbidden one true), as a `JA_*` mask.
+pub fn jg_failed(g: &JoinGround, r: i32) -> i32 {
+    return (jr_pos(r) & g.asked & !g.held) | (jr_neg(r) & g.held);
+}
+
+pub fn ja_words(a: i32) -> str {
+    if a == JA_EQUI_KEY()   { return "an equi-join key"; }
+    if a == JA_HASH()       { return "Hash"; }
+    if a == JA_EQ()         { return "Eq"; }
+    if a == JA_ORD()        { return "Ord"; }
+    if a == JA_EQUALITY()   { return "equality (`==`)"; }
+    if a == JA_KEY_STORE()  { return "an index that can hold the key (borrowed from the row, or Copy)"; }
+    if a == JA_SELF_IDENT() { return "a faithful `==` (no NaN)"; }
+    if a == JA_SELF_ORD()   { return "a faithful `<`"; }
+    if a == JA_FORCE_TREE() { return "the forced tree tier"; }
+    return "an unnamed antecedent";
+}
+
+pub fn jr_name(r: i32) -> str {
+    if r == JR_LOOP_NOKEY()  { return "loop_nokey"; }
+    if r == JR_HASH()        { return "hash"; }
+    if r == JR_TREE_FORCED() { return "tree_forced"; }
+    if r == JR_TREE()        { return "tree"; }
+    if r == JR_LOOP_EQ()     { return "loop_eq"; }
+    if r == JR_REFUSE()      { return "refuse"; }
+    if r == JR_TRAVERSAL()   { return "traversal"; }
+    return "unset";
+}
+
+/// THE ONE RENDERER of a join-strategy ground — the sentence each rule has always
+/// produced, now a function of the rule that fired rather than of the branch that
+/// returned. `JR_UNSET` is named as the defect it is. It takes the RULE, not the
+/// record: the sentence is a literal of the rule, so nothing of the record is
+/// borrowed into it.
+pub fn jg_render(r: i32) -> str {
+    if r == JR_LOOP_NOKEY()  { return "no equi-join key — a nested loop is the only shape left"; }
+    if r == JR_HASH()        { return "the key type is hashable — build once, probe per row"; }
+    if r == JR_TREE_FORCED() { return "the tree tier is forced (LOGOS_JOIN_TREE) — the key is hashable but ordered access is being exercised"; }
+    if r == JR_TREE()        { return "the key type is ordered but not hashable — a sorted index, not a hash one"; }
+    if r == JR_LOOP_EQ()     { return "the key type has equality only — no index can be built, so every pair is tested"; }
+    if r == JR_REFUSE()      { return "the key type has no usable capability"; }
+    if r == JR_TRAVERSAL()   { return "a traversal step ranges over a field path of an outer row — the source is re-derived per bound row, so no index can be built over it"; }
+    return "UNSET JOIN GROUND — a decision recorded no rule (a defect, not a reason)";
+}
+
+/// The FACTS, machine-readable: `rule=<r> key=<K> held=[…] failed(hash)=[…]` —
+/// what `LOGOS_TRACE_PLAN=facts` prints, so a fixture can assert the rule and the
+/// failed antecedents instead of a substring of a sentence.
+pub fn jg_push_facts(g: &JoinGround, out: &mut String) {
+    out.push_str("rule="); out.push_str(jr_name(g.rule));
+    out.push_str(" key="); out.push_str(g.key_tn);
+    out.push_str(" held=[");
+    push_ja_mask(out, g.held);
+    out.push_str("] asked=[");
+    push_ja_mask(out, g.asked);
+    out.push_str("]");
+    if g.rule != JR_HASH() && g.rule != JR_TRAVERSAL() && g.rule != JR_LOOP_NOKEY() {
+        out.push_str(" not_hash=[");
+        push_ja_mask(out, jg_failed(g, JR_HASH()));
+        out.push_str("]");
+    }
+}
+
+fn push_ja_mask(out: &mut String, m: i32) {
+    let mut a: i32 = 0i32;
+    let mut first: bool = true;
+    while a < JA_N() {
+        if (m & ja_bit(a)) != 0i32 {
+            if !first { out.push_str(","); }
+            out.push_str(ja_code(a));
+            first = false;
+        }
+        a = a + 1i32;
+    }
+}
+
+fn ja_code(a: i32) -> str {
+    if a == JA_EQUI_KEY()   { return "equi_key"; }
+    if a == JA_HASH()       { return "Hash"; }
+    if a == JA_EQ()         { return "Eq"; }
+    if a == JA_ORD()        { return "Ord"; }
+    if a == JA_EQUALITY()   { return "eq_op"; }
+    if a == JA_KEY_STORE()  { return "key_store"; }
+    if a == JA_SELF_IDENT() { return "self_ident"; }
+    if a == JA_SELF_ORD()   { return "self_ord"; }
+    if a == JA_FORCE_TREE() { return "force_tree"; }
+    return "?";
+}

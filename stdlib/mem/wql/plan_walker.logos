@@ -84,6 +84,7 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.std.wql.srcloc;         // the query as a source — located diagnostics (ADR 0024 S0)
 use logos.std.wql.access_plan;    // AccessPlan — the plan as an object (ADR 0024 S4)
+use logos.std.wql.why;            // jg_render — the join strategy ground, rendered at the edge
 use logos.std.wql.join_sel;       // the JOIN-STEP decision — decided here, read by the emitter
 
 // ── The walker entry: entry RQuery plan → RExpr algebra → emitted native fn ──
@@ -2162,20 +2163,20 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView,
         if st.is_edge {
             let ts: StepSel = traversal_step_sel();
             st.jstrat = ts.strat; st.jkey = ts.key_ty;
-            st.jsel = -1i32;      st.jwhy = ts.why;
+            st.jsel = -1i32;      st.jwhy = jg_render(ts.g.rule);
             return;               // and every step after it stays undecided
         }
         let ss: StepSel = decide_join_step(st.on, st.var_name, &t, h);
         st.jstrat = ss.strat;
         st.jkey   = ss.key_ty;
         st.jsel   = ss.sel as i32;
-        st.jwhy   = ss.why;
+        st.jwhy   = jg_render(ss.g.rule);
         // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read
         // `el_class_repr(ss.key_ty)` — the class's representative — so a `u64`
         // key was announced as `hash join on i64` while the emitted map is
         // `HashMap<u64, …>`. A justification that names a type the code does not
         // use is not a justification of that code.
-        plan_trace(st.var_name, js_name(ss.strat), ss.key_tn, ss.why);
+        trace_step(st.var_name, &ss);
         k = k + 1i64;
     }
 }

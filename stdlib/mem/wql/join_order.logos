@@ -742,7 +742,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     cst[sj] = ss.strat;
                     cky[sj] = ss.key_ty;
                     csl[sj] = ss.sel;
-                    cwy[sj] = ss.why;
+                    cwy[sj] = jg_render(ss.g.rule);
                 }
                 if rej == RJ_NONE() {
                     if js_reads_once(cst[sj]) { crl[sj] = JC_INDEX(); } else { crl[sj] = JC_RESCAN(); }
