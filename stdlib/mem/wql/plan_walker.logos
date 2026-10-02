@@ -627,6 +627,7 @@ fn no_scalar_field(e: SExpr, sv: &[str; 9], n: i64) -> bool {
         }
         SExpr::Bin(b)  => { return no_scalar_field(b.lhs_expr(), sv, n) && no_scalar_field(b.rhs_expr(), sv, n); }
         SExpr::Un(u)   => { return no_scalar_field(u.arg_expr(), sv, n); }
+        SExpr::Cast(c) => { return no_scalar_field(c.arg_expr(), sv, n); }
         SExpr::Cond(c) => {
             return no_scalar_field(c.cond_expr(), sv, n)
                 && no_scalar_field(c.then_expr(), sv, n)
@@ -1015,6 +1016,7 @@ fn sx_has_fresh(e: SExpr) -> bool {
         }
         SExpr::Bin(b)  => { return sx_has_fresh(b.lhs_expr()) || sx_has_fresh(b.rhs_expr()); }
         SExpr::Un(u)   => { return sx_has_fresh(u.arg_expr()); }
+        SExpr::Cast(c) => { return sx_has_fresh(c.arg_expr()); }
         SExpr::Cond(c) => { return sx_has_fresh(c.cond_expr()) || sx_has_fresh(c.then_expr()) || sx_has_fresh(c.else_expr()); }
         SExpr::Tuple(tp) => {
             let it: SExprArr = tp.items_arr();
@@ -1390,6 +1392,7 @@ fn ward_sel_idents_ok(sel: SExpr, vars: &[str; 9], nv: i64,
         }
         SExpr::Bin(b)  => { return ward_sel_idents_ok(b.lhs_expr(), vars, nv, prm, rel_name) && ward_sel_idents_ok(b.rhs_expr(), vars, nv, prm, rel_name); }
         SExpr::Un(u)   => { return ward_sel_idents_ok(u.arg_expr(), vars, nv, prm, rel_name); }
+        SExpr::Cast(c) => { return ward_sel_idents_ok(c.arg_expr(), vars, nv, prm, rel_name); }
         SExpr::Cond(c) => {
             return ward_sel_idents_ok(c.cond_expr(), vars, nv, prm, rel_name)
                 && ward_sel_idents_ok(c.then_expr(), vars, nv, prm, rel_name)

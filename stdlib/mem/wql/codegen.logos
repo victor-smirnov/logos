@@ -140,6 +140,13 @@ pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
             if infer_ty(u.arg_expr(), t) == EL_TY_FLT() { return EL_TY_FLT(); }
             return EL_TY_INT();
         }
+        // `x as T` is a `T`: the class of the target (a target outside the
+        // lattice is refused by `check_cast` before anything reads this).
+        SExpr::Cast(c) => {
+            let k: i32 = el_class_lookup(c.ty);
+            if k < 0i32 { return EL_TY_INT(); }
+            return k;
+        }
         SExpr::Cond(c) => { return infer_ty(c.then_expr(), t); }
         SExpr::Call(c) => {
             let bfn: i32 = builtin_of_name(c.fn_name);
@@ -298,6 +305,7 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
             if u.op == OP_NOT() { return "bool"; }
             return infer_ty_name(u.arg_expr(), t);
         }
+        SExpr::Cast(c) => { return c.ty; }
         SExpr::Cond(c) => { return infer_ty_name(c.then_expr(), t); }
         _ => { return el_class_repr(infer_ty(e, t)); }
     }
@@ -608,6 +616,7 @@ pub fn sexpr_over_group_names(e: SExpr, names: &[str; 8], nn: i64) -> bool {
         SExpr::Bin(b)   => { return sexpr_over_group_names(b.lhs_expr(), names, nn)
                                  && sexpr_over_group_names(b.rhs_expr(), names, nn); }
         SExpr::Un(u)    => { return sexpr_over_group_names(u.arg_expr(), names, nn); }
+        SExpr::Cast(c)  => { return sexpr_over_group_names(c.arg_expr(), names, nn); }
         SExpr::Cond(c)  => { return sexpr_over_group_names(c.cond_expr(), names, nn)
                                  && sexpr_over_group_names(c.then_expr(), names, nn)
                                  && sexpr_over_group_names(c.else_expr(), names, nn); }
@@ -926,6 +935,40 @@ fn el_computes_in_repr_op(op: i32) -> bool {
         || op == OP_DIV() || op == OP_MOD();
 }
 
+/// `x as T` IS ONE OF RUST'S NUMERIC CONVERSIONS, OR IT IS REFUSED HERE.
+///
+/// The target must be a numeric type the EL knows (an integer or a float), and
+/// the source a number or a `bool` — and a `bool` converts to an integer only, as
+/// in Rust (`true as f64` is refused there too). Anything else would reach the
+/// host compiler as an `as` on a generated line, which is the anti-diagnostic this
+/// layer exists to prevent.
+fn check_cast(c: SCast, t: &ElTypes, ctx: str) -> bool {
+    let to: ElTy = el_ty(c.ty);
+    let from_n: str = infer_emit_ty(c.arg_expr(), t);
+    let fc: i32 = el_class_lookup(from_n);
+    let mut why: str = "";
+    if to.cls != EL_TY_INT() && to.cls != EL_TY_FLT() {
+        why = "the target is not a numeric type the EL knows (an integer `i8`…`u128`/`isize`/`usize` or a float `f32`/`f64`)";
+    } else if fc == EL_TY_BOOL() && to.cls != EL_TY_INT() {
+        why = "a `bool` converts to an integer only (as in Rust)";
+    } else if fc != EL_TY_INT() && fc != EL_TY_FLT() && fc != EL_TY_BOOL() {
+        why = "only a number or a `bool` can be converted with `as`";
+    }
+    if why.len() == 0i64 { return true; }
+    let mut m: String = String::new();
+    m.push_str(ctx);
+    m.push_str(": cannot convert `");
+    sexpr_display(&mut m, c.arg_expr());
+    m.push_str("` of type `");
+    m.push_str(from_n);
+    m.push_str("` with `as ");
+    m.push_str(c.ty);
+    m.push_str("` — ");
+    m.push_str(why);
+    error(string_as_str(&m));
+    return false;
+}
+
 /// THE TWO BRANCHES OF A TERNARY MUST HAVE ONE TYPE, AND THE WQL LAYER IS WHERE
 /// THAT IS SAID — because it is the only layer that still knows the clause and
 /// the columns.
@@ -1053,6 +1096,13 @@ pub fn sexpr_display(out: &mut String, e: SExpr) {
         SExpr::Un(u)    => {
             if u.op == OP_NOT() { out.push_str("!"); } else { out.push_str("-"); }
             sexpr_display(out, u.arg_expr());
+        }
+        SExpr::Cast(c)  => {
+            out.push_str("(");
+            sexpr_display(out, c.arg_expr());
+            out.push_str(" as ");
+            out.push_str(c.ty);
+            out.push_str(")");
         }
         SExpr::Cond(c)  => {
             out.push_str("(");
@@ -1484,6 +1534,17 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             emit_sexpr(out, arg, t, var);
             out.push_str(")");
         }
+        // `x as T` — Logos's own `as`, which is Rust's: int↔int truncates or
+        // extends, float→int saturates, int→float rounds, `bool` → int is 0/1.
+        // The argument is emitted in its OWN type (no literal hint from `T`: in
+        // Rust `300 as u8` is a `{integer}` defaulted first, then converted).
+        SExpr::Cast(c) => {
+            out.push_str("((");
+            emit_sexpr(out, c.arg_expr(), t, var);
+            out.push_str(") as ");
+            out.push_str(c.ty);
+            out.push_str(")");
+        }
         SExpr::Call(c) => { emit_call(out, c, t, var); }
         SExpr::Cond(c) => {
             // ternary `cond ? then : else` → Logos `if` EXPRESSION.
@@ -1644,6 +1705,7 @@ pub fn call_diagnostic(e: SExpr, t: &ElTypes) -> bool {
         }
         SExpr::Bin(b)  => { return call_diagnostic(b.lhs_expr(), t) || call_diagnostic(b.rhs_expr(), t); }
         SExpr::Un(u)   => { return call_diagnostic(u.arg_expr(), t); }
+        SExpr::Cast(c) => { return call_diagnostic(c.arg_expr(), t); }
         SExpr::Cond(c) => {
             return call_diagnostic(c.cond_expr(), t)
                 || call_diagnostic(c.then_expr(), t)
@@ -1767,6 +1829,10 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
         SExpr::Un(u)   => {
             if !check_arith_operand(e, u.arg_expr(), t, ctx) { return false; }
             return check_calls(u.arg_expr(), t, ctx);
+        }
+        SExpr::Cast(c) => {
+            if !check_calls(c.arg_expr(), t, ctx) { return false; }
+            return check_cast(c, t, ctx);
         }
         SExpr::Cond(c) => {
             if !check_calls(c.cond_expr(), t, ctx) { return false; }

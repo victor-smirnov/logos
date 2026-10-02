@@ -1079,6 +1079,13 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             return CTy { t: CT_INT, code: 0u64,
                          ordw: b.ordw, lit: ct_join_lit(lt, rt) };
         }
+        // `x as T` is a STATIC-tier conversion; the template evaluator has no
+        // typed integers to convert between, so it is refused here rather than
+        // answered `Null` by the evaluator's default arm.
+        SExpr::Cast(_) => {
+            chk_fail(chk, "`as` is not supported in a template expression", "", "", "", "");
+            return ct(CT_UNKNOWN);
+        }
         SExpr::Un(u) => {
             let at: CTy = check_expr(u.arg_expr(), cat, env, strict, lb, chk, reg);
             if chk.failed { return ct(CT_UNKNOWN); }

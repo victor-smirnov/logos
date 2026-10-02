@@ -173,11 +173,12 @@ pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: str = 0, args: WRef<S
 pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2, soff: i64 = 3 }  // ternary
 pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1, var: str = 2, soff: i64 = 3 }   // comprehension → list value; `var` = loop-var NAME
 pub schema STuple : code(0x0010_0000_0000_0009) { items: WRef<SExprArr> = 0, soff: i64 = 1 }                       // tuple projection `(a, b, …)` — ≥2 components
+pub schema SCast  : code(0x0010_0000_0000_000B) { arg: WRef<SExpr> = 0, ty: str = 1, soff: i64 = 2 }        // `arg as ty` — Rust's numeric conversion; `ty` = the target type NAME
 
 pub schema enum SExpr : category(0x0010_0000_0000_0000) {
     Lit(SLit), Param(SParam), Var(SVar), Field(SField),
     Bin(SBin), Un(SUn), Call(SCall), Cond(SCond), Comp(SComp),
-    Tuple(STuple),
+    Tuple(STuple), Cast(SCast),
 }
 
 // Node → erased edge handle. A node's `as_ref` yields the `WAny` self-relative
@@ -197,6 +198,7 @@ impl SCall    { pub fn as_ref(self: SCall)    -> WAny { return unsafe { WAny::re
 impl SCond    { pub fn as_ref(self: SCond)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl SComp    { pub fn as_ref(self: SComp)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl STuple   { pub fn as_ref(self: STuple)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SCast    { pub fn as_ref(self: SCast)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl SExprArr { pub fn as_ref(self: SExprArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // ── RAgg — one aggregate SPEC `out = fn(arg)` of an RAggr (ADR 0012 §2/§8) ────
@@ -342,6 +344,7 @@ impl RDistinct { pub fn as_ref(self: RDistinct) -> WAny { return unsafe { WAny::
 // through this CU.
 impl SField { pub fn base_expr(self: SField) -> SExpr { return self.base.any().view::<SExpr>(); } }
 impl SUn    { pub fn arg_expr(self: SUn)      -> SExpr { return self.arg.any().view::<SExpr>(); } }
+impl SCast  { pub fn arg_expr(self: SCast)    -> SExpr { return self.arg.any().view::<SExpr>(); } }
 impl SBin   {
     pub fn lhs_expr(self: SBin) -> SExpr { return self.lhs.any().view::<SExpr>(); }
     pub fn rhs_expr(self: SBin) -> SExpr { return self.rhs.any().view::<SExpr>(); }
