@@ -469,7 +469,5 @@ guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_
 
 guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_moves_ref_mut_binding_admits admits
 
-dst_method_receiver_no_reborrow_admits 2 tests/soundness/open/dst_method_receiver_no_reborrow_admits admits
-
-# TOTAL 146
-# SYNC-HASH 8881809c2a073545855d71204c4fe9df
+# TOTAL 145
+# SYNC-HASH 5d58b093050b2d13eaa0e2e52912e6f4

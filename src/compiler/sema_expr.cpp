@@ -477,6 +477,46 @@ void SemaChecker::index_operand_(lir::LExprPtr& idx, TypeRef want) {
     expect_arg_(idx, want, CoercePos::CallArg, "index operand", {}, {});
 }
 
+// A projection chain (at least one field / tuple-index / deref step) over a
+// CALL (`c.borrow_mut().kids`) whose subtree lowers no closure literal: lowered
+// again after a rewind of what the first lowering registered (its statement
+// temporaries), the second lowering is the only one the program keeps.
+bool SemaChecker::place_chain_over_call_(TinyMapView n) {
+    bool projected = false;
+    for (int d = 0; d < 32 && !n.is_null(); ++d) {
+        auto c = code_of(n);
+        if (c == la::PAREN_EXPR) { n = map_of(n.get(la::VALUE.code)); continue; }
+        if (c == la::FIELD_READ || c == la::TUPLE_INDEX) {
+            projected = true; n = map_of(n.get(la::RECEIVER.code)); continue;
+        }
+        if (c == la::DEREF) { projected = true; n = map_of(n.get(la::VALUE.code)); continue; }
+        if (!projected || (c != la::METHOD_CALL && c != la::CALL && c != la::STATIC_CALL)) return false;
+        bool closure = false;
+        std::function<void(TinyMapView)> walk = [&](TinyMapView m) {
+            if (closure || m.is_null()) return;
+            const int32_t mc = code_of(m);
+            if (mc == la::CLOSURE_EXPR || mc == la::NESTED_FN) { closure = true; return; }
+            const uint64_t bm = m.bitmap();
+            for (uint8_t key = 0; key < writ::TinyObjectMap::MAX_KEYS; ++key) {
+                if (!(bm & (1ULL << key))) continue;
+                AnyVal av = m.get(key);
+                if (av.is_null() || !av.is_pointer()) continue;
+                const uint8_t* pv = av.resolve();
+                if (!pv) continue;
+                const uint64_t tc = logos::writ::TypeTag::read_before(pv).type_code();
+                if (tc == logos::writ::type_hash::TinyObjectMap) walk(map_of(av));
+                else if (tc == logos::writ::type_hash::Array) {
+                    auto arr = arr_of(av);
+                    for (uint64_t i = 0; i < arr.size() && !closure; ++i) walk(map_of(arr.get(i)));
+                }
+            }
+        };
+        walk(n);
+        return !closure;
+    }
+    return false;
+}
+
 lir::LExprPtr SemaChecker::lower_mut_place(TinyMapView n) {
     mut_place_ctx_ = is_place_node(n);
     auto e = lower_expr(n);
@@ -9860,6 +9900,21 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dstref(
         dfi = pick;
     }
     if (dfi) {
+        // The receiver adjustment (S8 row 4): a place receiver is REBORROWED
+        // for the call, `&*ar` / `&mut *ar` at the self's mutability, so the
+        // call holds a loan of `*ar` — a copy of `ar` held none, and a live
+        // `&[u8]` view of `ar` survived `ar.resize(..)` (rustc E0502).
+        if (!dfi->param_types.empty() && recv && lir_view::is_place_expr(expr_ref_of(recv))) {
+            TypeRef p0 = dfi->param_types[0];
+            const bool m = TypeRef(p0).kind() == LogosType::Kind::MutRef ||
+                           (TypeRef(p0).kind() == LogosType::Kind::DstRef && TypeRef(p0).mut_ptr());
+            TypeRef rt = expr_type(recv);
+            auto ra = TypeRef(rt).type_args();
+            TypeRef st = make_generic_struct(std::string(TypeRef(rt).struct_name()),
+                                             std::vector<TypeRef>(ra.begin(), ra.end()), {},
+                                             TypeRef(rt).pkg_name());
+            recv = builder().addr_of_temp(builder().deref(std::move(recv), st), m, rt, BorrowOrigin::Autoref);
+        }
         std::vector<lir::LExprPtr> pargs;
         pargs.push_back(std::move(recv));
         for (auto& a : d_args) pargs.push_back(std::move(a));
@@ -10263,6 +10318,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     auto method_name = str_of(node.get(la::NAME.code));
     const auto recv_node = map_of(node.get(la::RECEIVER.code));
     const size_t diags_before = result_.diags.size();
+    // What the receiver's first lowering registers, for a rewind before the
+    // mutable-use lowering below (a temporary-rooted chain).
+    const size_t mark_hoist = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
+    const size_t mark_frame = cur_stmt_temp_hoist_frame_ < scope_.size()
+                                ? scope_[cur_stmt_temp_hoist_frame_].var_order.size() : 0;
+    const size_t mark_ext = pending_ext_init_.size();
     auto recv = lower_expr(recv_node);
     // An INDEXED place receiving a `&mut self` method is a mutable use, so
     // the index is `IndexMut` (Rust's rule for a method receiver): `v[0].bump()`
@@ -10272,8 +10333,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // lowering that already reported is not repeated.
     // The same holds for a FIELD place reached through an overloaded `Deref`
     // (`m.kids.push(5)` with `m: RefMut<N>`): DerefMut at a mutable use.
+    // A chain over a TEMPORARY (`c.borrow_mut().kids.push(5)`) likewise, after
+    // its statement temporaries are rewound (rustc fixes up the receiver's
+    // overloaded derefs to DerefMut once the method is picked).
+    const bool temp_rooted = !place_chain_has_index_(recv_node) && !place_chain_over_var_(recv_node) &&
+                             place_chain_over_call_(recv_node);
     if (recv && result_.diags.size() == diags_before &&
-        (place_chain_has_index_(recv_node) || place_chain_over_var_(recv_node))) {
+        (place_chain_has_index_(recv_node) || place_chain_over_var_(recv_node) || temp_rooted)) {
         TypeRef et = expr_type(recv);
         while (et && is_ref_like(TypeRef(et).kind()) && TypeRef(et).pointee())
             et = TypeRef(et).pointee();
@@ -10290,6 +10356,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             const std::string sb(TypeRef(et).struct_name());
             if (wants_mut(concrete_struct_name(et) + "__" + m) ||
                 (!sb.empty() && wants_mut(sb + "__" + m))) {
+                if (temp_rooted) {
+                    if (cur_stmt_temp_hoist_ && cur_stmt_temp_hoist_->size() > mark_hoist)
+                        cur_stmt_temp_hoist_->resize(mark_hoist);
+                    if (cur_stmt_temp_hoist_frame_ < scope_.size()) {
+                        auto& fr = scope_[cur_stmt_temp_hoist_frame_];
+                        for (size_t k = mark_frame; k < fr.var_order.size(); ++k) fr.vars.erase(fr.var_order[k]);
+                        if (fr.var_order.size() > mark_frame) fr.var_order.resize(mark_frame);
+                    }
+                    if (pending_ext_init_.size() > mark_ext) pending_ext_init_.resize(mark_ext);
+                }
                 recv = lower_mut_place(recv_node);
                 // An `Index`-only base is refused right there (E0596's
                 // IndexMut sentence); nothing further to say about the call.
@@ -10425,6 +10501,17 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (!sb.empty() && probe_cands(sb + "__" + std::string(m))) return true;
         return false;
     };
+    // A candidate stops the autoderef walk only if it can take THIS receiver by
+    // value or by autoref (rustc's probe): a method whose self is a raw pointer
+    // (`self: *mut Box<T>`) is never reached by autoref, and a static fn is not
+    // a method — `b.get()` on a `Box<S>` is `S::get`, not `Box::get` (S8 row 4).
+    auto has_receiver_method = [&](const std::string& key) {
+        for (auto* fi : find_func_candidates(key))
+            if (fi && !fi->param_types.empty() && fi->param_types[0] &&
+                TypeRef(fi->param_types[0]).kind() != LogosType::Kind::Ptr)
+                return true;
+        return false;
+    };
     for (int deref_guard = 0; deref_guard < 16; ++deref_guard) {
         TypeRef rt = expr_type(recv);
         // Autoderef peels a REFERENCE layer first: a `&Arc<T>` / `&mut Arc<T>`
@@ -10443,8 +10530,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             auto pn = concrete_struct_name(pt);
             auto pb = std::string(TypeRef(pt).struct_name());
             std::string pm(method_name);
-            bool pdirect = !find_func_candidates(pn + "__" + pm).empty() ||
-                           (!pb.empty() && !find_func_candidates(pb + "__" + pm).empty());
+            bool pdirect = has_receiver_method(pn + "__" + pm) ||
+                           (!pb.empty() && has_receiver_method(pb + "__" + pm));
             // A method provided ON THE REFERENCE TYPE ITSELF
             // (`impl Trait for &T` → the $ref_/$mut_ref_ registry) must keep
             // the reference receiver — peeling would steal it.
@@ -10460,8 +10547,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         auto sname_d = concrete_struct_name(rt);
         auto base_d  = std::string(TypeRef(rt).struct_name());
         std::string m(method_name);
-        bool direct = !find_func_candidates(sname_d + "__" + m).empty() ||
-                      (!base_d.empty() && !find_func_candidates(base_d + "__" + m).empty());
+        bool direct = has_receiver_method(sname_d + "__" + m) ||
+                      (!base_d.empty() && has_receiver_method(base_d + "__" + m));
         if (direct) break;
         // Peek the Deref target type without committing — probe whether
         // it has a candidate method that requires &mut self. If yes,
@@ -10484,6 +10571,25 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     probe_target = subst_type_sema(probe_target, s);
                 }
             }
+        }
+        // A raw-pointer-self method of THIS type (B-it-09: `Box::get(self: *mut
+        // Box<T>)` reached as `b.get()`) is the last resort: it is taken only
+        // when the Deref target has no method of the name to step to.
+        if (!find_func_candidates(sname_d + "__" + m).empty() ||
+            (!base_d.empty() && !find_func_candidates(base_d + "__" + m).empty())) {
+            bool target_has = false;
+            if (probe_target) {
+                TypeRef tt = probe_target;
+                if (TypeRef(tt).kind() == LogosType::Kind::Struct ||
+                    TypeRef(tt).kind() == LogosType::Kind::ZonedStruct) {
+                    const std::string tb(TypeRef(tt).struct_name());
+                    target_has = has_receiver_method(concrete_struct_name(tt) + "__" + m) ||
+                                 (!tb.empty() && has_receiver_method(tb + "__" + m));
+                } else {
+                    target_has = has_receiver_method(type_str(tt) + "__" + m);
+                }
+            }
+            if (!target_has) break;
         }
         bool want_mut = target_method_wants_mut_self(probe_target, m);
         // A fresh droppable rvalue (`make(7).hi()` with `make() -> Box<B>`)
@@ -11923,6 +12029,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
     const SemaFuncInfo* fi_ptr = nullptr;
     bool auto_ref_recv = false;
+    int pick_rank = 0;   // recv_pick_rank_ of fi_ptr while candidates are compared
     bool auto_ref_mut = false;
     bool auto_deref_recv = false;
     SemaSubst recv_struct_subst;
@@ -12055,10 +12162,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (!deref_fallback) deref_fallback = cand;
                 continue;
             }
-            fi_ptr = cand;
-            auto_ref_recv = needs_ref;
-            auto_ref_mut = needs_mut;
-            break;
+            // rustc's probe order at one receiver step: the receiver BY VALUE
+            // before its autoref, and an inherent method before a trait's
+            // (`impl S { fn f(self) }` wins over `impl T for S { fn f(&self) }`).
+            if (const int r = recv_pick_rank_(cand, needs_ref); !fi_ptr || r < pick_rank) {
+                fi_ptr = cand;
+                auto_ref_recv = needs_ref;
+                auto_ref_mut = needs_mut;
+                pick_rank = r;
+            }
         }
         if (!fi_ptr && deref_fallback) {
             fi_ptr = deref_fallback;
@@ -12160,11 +12272,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             cand->param_types.size(), types.size());
                     continue;
                 }
-                fi_ptr = cand;
-                auto_ref_recv = needs_ref;
-                auto_ref_mut = needs_mut;
-                mangled = base_mangled;
-                break;
+                if (const int r = recv_pick_rank_(cand, needs_ref); !fi_ptr || r < pick_rank) {
+                    fi_ptr = cand;
+                    auto_ref_recv = needs_ref;
+                    auto_ref_mut = needs_mut;
+                    mangled = base_mangled;
+                    pick_rank = r;
+                }
             }
             if (!fi_ptr) {
                 if (auto sfit = find_generic_func_for_args(

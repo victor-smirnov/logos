@@ -1,0 +1,4 @@
+package s8_probe_inherent_by_value_before_trait_autoref;
+// ADR 0030 S8 row 4 (MethodProbe): inherent `fn f(self)` at the by-value step wins over a trait `f(&self)` at the autoref step (rustc exit 1).
+trait T { fn f(&self) -> i32; } struct S {} impl T for S { fn f(&self) -> i32 { return 2; } } impl S { fn f(self) -> i32 { return 1; } }
+fn main() -> i32 { let s = S {}; return s.f(); }

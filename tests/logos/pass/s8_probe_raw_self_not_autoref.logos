@@ -1,0 +1,5 @@
+package s8_probe_raw_self_not_autoref;
+// ADR 0030 S8 row 4 (MethodProbe): `b.get()` on a `Box<S>` is `S::get` — `Box::get(self: *mut Box<T>)` is never reached by autoref (rustc exit 7).
+use logos.mem.boxed;
+struct S { v: i32 } impl S { fn get(&self) -> i32 { return self.v; } }
+fn main() -> i32 { let b = Box::new(S { v: 7 }); return b.get(); }

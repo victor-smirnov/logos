@@ -10478,10 +10478,16 @@ private:
     // A place chain (`a.b[i].c`, `*p`) that goes through an INDEX anywhere.
     bool place_chain_has_index_(writ::TinyMapView n);
     bool place_chain_over_var_(writ::TinyMapView n);
+    bool place_chain_over_call_(writ::TinyMapView n);
     void index_operand_(lir::LExprPtr& idx, TypeRef want);
     TypeRef lit_select_by_trait_(const std::string& trait);
     void lit_select_for_dyn_(lir::LExprPtr& e, TypeRef expected);
     TypeRef deref_target_type_(TypeRef t);
+    // A method candidate's place in rustc's probe order at one receiver step:
+    // by value (0) before autoref (2); inherent before trait (+1).
+    static int recv_pick_rank_(const SemaFuncInfo* c, bool needs_autoref) {
+        return (needs_autoref ? 2 : 0) + (c && !c->trait_name.empty() ? 1 : 0);
+    }
 
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);

@@ -1,0 +1,5 @@
+package s8_probe_temp_root_derefmut;
+// ADR 0030 S8 row 4 (MethodProbe): `c.borrow_mut().k.push(5)`: a temporary-rooted receiver chain takes DerefMut for a `&mut self` method (rustc exit 1).
+use logos.lang.cell; use logos.mem.collections.vec;
+struct N { k: Vec<i64> }
+fn main() -> i32 { let c = RefCell::new(N { k: vec![] }); c.borrow_mut().k.push(5); return c.borrow().k.len() as i32; }
