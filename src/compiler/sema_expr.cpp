@@ -9712,14 +9712,14 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
         TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8) {
         return std::move(recv);
     }
-    // Logos-only `&str` methods forwarded to stdlib free fns. The Rust
-    // surface (find / contains / starts_with / trim / split / chars ...)
-    // is a real `impl str` in logos.lang.str and resolves below.
+    // Logos-only `&str` methods forwarded to stdlib free fns (no Rust
+    // method of the name; `cmp` is `Ord::cmp`). The Rust surface (find /
+    // contains / starts_with / trim / split / chars ...) is a real `impl str`
+    // in logos.lang.str, selected by the probe.
     if (TypeRef(expr_type(recv)).elem() &&
         TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8) {
         const std::pair<std::string_view, std::string_view> forwards[] = {
             {"eq_str",       "str_eq"},
-            {"cmp",          "str_cmp"},
             {"index_of",     "str_index_of"},
         };
         for (auto& [m, sym] : forwards) {
@@ -9738,216 +9738,9 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
             }
         }
     }
-    // Phase 1B-10: user-defined `impl Trait for [T]` methods. Dispatch
-    // path mirrors the `$ref$T` blanket from 1B-8 but keyed by the
-    // slice-impl sentinel `$slice$T` (generic) / `$slice$<elem>` (concrete).
-    // Receiver is already Kind::Slice; no autoref needed since the impl
-    // method's `self: &Self` (= &UnsizedSlice<T>) canonicalises to the same
-    // Kind::Slice ABI.
-    std::vector<lir::LExprPtr> slc_args;
-    // CP-cm-08b: track each arg's AST so a second-pass re-lower can strip a
-    // UNARY-& wrapper if the impl wants flat `Slice` rather than `Ref<Slice>`.
-    std::vector<TinyMapView> slc_arg_asts = collect_arg_asts(node);
-    for (auto an : slc_arg_asts) slc_args.push_back(lower_expr(an));
-    std::string elem_name = type_str(TypeRef(expr_type(recv)).elem());
-    std::vector<std::string> keys;
-    // `str` IS `[u8]` in Logos: a u8 receiver tries the `str` method first
-    // (`s.contains('x')` is `str::contains<P: Pattern>`, not `[u8]::contains(&u8)`),
-    // and falls through to the slice method when the arguments do not satisfy
-    // the str method's bounds (`bytes.contains(&b)` — `&u8` is no Pattern).
-    const bool u8_recv = TypeRef(expr_type(recv)).elem() &&
-        TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8;
-    if (u8_recv) keys.push_back("str__" + std::string(method_name));
-    keys.push_back("$slice$" + elem_name + "__" + std::string(method_name));
-    keys.push_back("$slice$T__" + std::string(method_name));  // generic blanket
-    for (auto& key : keys) {
-        const SemaFuncInfo* fi_ptr = nullptr;
-        std::vector<TypeRef> mtypes;
-        mtypes.push_back(expr_type(recv));
-        for (auto& a : slc_args) mtypes.push_back(expr_type(a));
-        if (auto fit = find_func_by_base_and_signature(key, mtypes, false)) {
-            fi_ptr = fit;
-        } else if (auto git = find_generic_func(key)) {
-            fi_ptr = git;
-        }
-        // CP-cm-08b: impl-for-str's `&Self`=&UnsizedSlice<u8> canonicalises to
-        // Slice<u8>. User-written `s.eq(&t)` lowers `&t` to Ref<Slice> for
-        // t:str (the slice canonicalisation only fires on UnsizedSlice). Retry
-        // with each Ref<Slice<U>> arg flattened — if the impl is found that
-        // way, re-lower the strip-& AST so ABI matches.
-        std::vector<size_t> flat_idxs;
-        if (!fi_ptr) {
-            std::vector<TypeRef> mt2 = mtypes;
-            bool changed = false;
-            for (size_t i = 1; i < mt2.size(); ++i) {
-                auto tr = TypeRef(mt2[i]);
-                if (tr.kind() == LogosType::Kind::Ref &&
-                    tr.pointee() &&
-                    TypeRef(tr.pointee()).kind() == LogosType::Kind::Slice) {
-                    mt2[i] = tr.pointee();
-                    flat_idxs.push_back(i);
-                    changed = true;
-                }
-            }
-            if (changed) {
-                if (auto fit = find_func_by_base_and_signature(key, mt2, false))
-                    fi_ptr = fit;
-                else if (auto git = find_generic_func(key))
-                    fi_ptr = git;
-            }
-        }
-        // Re-lower the &-wrapped slice args to their inner slice value.
-        for (auto idx : flat_idxs) {
-            size_t arg_i = idx - 1;
-            if (arg_i >= slc_arg_asts.size()) continue;
-            auto an = slc_arg_asts[arg_i];
-            // Strip outer UNARY with op "&" / ADDR_OF.
-            if (code_of(an) == la::UNARY) {
-                auto op_s = str_of(an.get(la::OP.code));
-                if (op_s == "&" && an.has_key(la::VALUE)) {
-                    slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
-                    continue;
-                }
-            }
-            if (code_of(an) == la::ADDR_OF_MUT && an.has_key(la::VALUE)) {
-                slc_args[arg_i] = lower_expr(map_of(an.get(la::VALUE.code)));
-            }
-        }
-        // An exact-signature miss because of an untyped literal argument
-        // (`s.repeat(3)`, `s.is_char_boundary(1)`): accept the single
-        // non-generic candidate whose formals the arguments are compatible
-        // with, and widen the literals to them.
-        if (!fi_ptr) {
-            const SemaFuncInfo* only = nullptr;
-            int n_fit = 0;
-            for (auto* c : find_func_candidates(key)) {
-                if (!c->type_params.empty() || c->is_vararg) continue;
-                if (c->param_types.size() != mtypes.size()) continue;
-                bool ok = types_equal(c->param_types[0], mtypes[0]);
-                for (size_t i = 1; ok && i < mtypes.size(); ++i)
-                    ok = c->param_types[i] && mtypes[i] &&
-                         types_compatible(mtypes[i], c->param_types[i]);
-                if (ok) { only = c; ++n_fit; }
-            }
-            if (n_fit == 1) {
-                fi_ptr = only;
-                for (size_t i = 1; i < mtypes.size(); ++i)
-                    widen_int_expr(slc_args[i - 1], only->param_types[i], builder());
-            }
-        }
-        if (!fi_ptr) continue;
-        if (u8_recv && key.rfind("str__", 0) == 0 && !fi_ptr->type_params.empty()) {
-            // A str method whose bounds the arguments miss is not this call's.
-            StrMap<TypeRef> pb;
-            std::vector<TypeRef> at;
-            at.push_back(expr_type(recv));
-            for (auto& a : slc_args) at.push_back(expr_type(a));
-            for (size_t i = 0; i < fi_ptr->param_types.size() && i < at.size(); ++i)
-                unify_arg_(fi_ptr->param_types[i], at[i], pb);
-            // Ask the canonical bound check (check_type_bounds) as a PROBE: its
-            // diagnostics are rolled back, and any error means the bounds miss.
-            std::vector<TypeRef> targs;
-            bool all_bound = true;
-            for (auto& tp : fi_ptr->type_params) {
-                auto it = pb.find(tp.name);
-                if (it == pb.end() || !it->second) { all_bound = false; break; }
-                targs.push_back(it->second);
-            }
-            if (all_bound) {
-                const size_t mark = result_.diags.size(), dmark = lit_deferred_bounds_.size();
-                check_type_bounds(key, fi_ptr->type_params, targs);
-                bool fits = true;
-                for (size_t d = mark; d < result_.diags.size(); ++d)
-                    if (result_.diags[d].level == Diag::Level::Error) fits = false;
-                result_.diags.resize(mark);
-                lit_deferred_bounds_.resize(dmark);   // a probe's deferred bounds roll back with it
-                if (!fits) continue;
-            }
-        }
-        std::vector<lir::LExprPtr> pargs;
-        pargs.push_back(std::move(recv));
-        for (auto& a : slc_args) pargs.push_back(std::move(a));
-        // The arguments were lowered with no formal to aim at: an unsuffixed
-        // `&[11, 3]` for a `&[i64]` parameter built an i32 array the callee then
-        // read at i64 stride. Coerce each against its formal, with the impl's
-        // element parameter bound from the receiver.
-        {
-            StrMap<TypeRef> b0;
-            if (!fi_ptr->param_types.empty() && fi_ptr->param_types[0])
-                unify_types(fi_ptr->param_types[0], expr_type(pargs[0]), b0);
-            SemaSubst s0(b0.begin(), b0.end());
-            for (size_t i = 1; i < pargs.size() && i < fi_ptr->param_types.size(); ++i) {
-                TypeRef f = fi_ptr->param_types[i];
-                if (!f) continue;
-                if (!s0.empty()) f = subst_type_sema(f, s0);
-                if (!type_is_concrete(f)) continue;
-                // An array literal (`&[11, 3]`) was BUILT at its default element
-                // width; rebuild it aimed at the formal (a literal is pure).
-                if (i - 1 < slc_arg_asts.size() && pargs[i] && expr_type(pargs[i]) &&
-                    !types_equal(expr_type(pargs[i]), f)) {
-                    auto an = slc_arg_asts[i - 1];
-                    auto inner = an;
-                    if (code_of(inner) == la::UNARY && inner.has_key(la::VALUE))
-                        inner = map_of(inner.get(la::VALUE.code));
-                    if (code_of(inner) == la::ARR_LIT || code_of(inner) == la::ARR_FILL_LIT) {
-                        TypeRef fe = TypeRef(f).kind() == LogosType::Kind::Slice ? TypeRef(f).elem()
-                                   : (TypeRef(f).pointee() && TypeRef(TypeRef(f).pointee()).kind() == LogosType::Kind::Array)
-                                         ? TypeRef(TypeRef(f).pointee()).elem() : TypeRef(nullptr);
-                        (void)fe;
-                        pargs[i] = lower_expr_expecting(an, nullptr, f);
-                    }
-                }
-                coerce_arg_to_param(pargs[i], f, CFLAG_ARRAY_TO_SLICE | CFLAG_WIDEN_INT);
-            }
-        }
-        if (!fi_ptr->type_params.empty()) {
-            // Bind the impl's params by UNIFYING the formal receiver against
-            // the actual slice — the old name-keyed "T" special case broke
-            // any impl<E> Trait for [E] whose param isn't literally T.
-            StrMap<TypeRef> binds;
-            // Every formal against its argument: the receiver binds the impl's
-            // parameters, the rest bind a METHOD-level one (`hash<H>(&self,
-            // state: &mut H)` on a `str` receiver).
-            for (size_t i = 0; i < fi_ptr->param_types.size() && i < pargs.size(); ++i)
-                unify_arg_(fi_ptr->param_types[i], expr_type(pargs[i]), binds);
-            // A method-level turbofish (`s.parse::<i64>()`) names the LAST
-            // parameters (the method's own, after the impl's).
-            if (node.has_key(la::TYPE_PARAMS)) {
-                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-                if (tplist.has_key(la::ITEMS)) {
-                    auto items = arr_of(tplist.get(la::ITEMS.code));
-                    const size_t np = fi_ptr->type_params.size();
-                    if (items.size() <= np) {
-                        bool was_ok = unsized_ok_;
-                        unsized_ok_ = true;
-                        for (uint64_t k = 0; k < items.size(); ++k)
-                            binds[fi_ptr->type_params[np - items.size() + k].name] =
-                                resolve_type(map_of(items.get(k)));
-                        unsized_ok_ = was_ok;
-                    }
-                }
-            }
-            // …else the expected type of the call (`let r: Result<i64, E> = s.parse()`).
-            if (ret_hint_() && fi_ptr->ret_type)
-                unify_types(fi_ptr->ret_type, ret_hint_(), binds);
-            std::vector<TypeRef> m_type_args;
-            for (auto& tp : fi_ptr->type_params) {
-                if (auto bit2 = binds.find(tp.name); bit2 != binds.end())
-                    m_type_args.push_back(bit2->second);
-                else if (tp.name == "T")
-                    m_type_args.push_back(TypeRef(expr_type(pargs[0])).elem());
-                else m_type_args.push_back(error_t());
-            }
-            return finish_generic_call(
-                fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
-                *fi_ptr, std::move(m_type_args), std::move(pargs));
-        }
-        return builder().call(
-            fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
-            {}, std::move(pargs), fi_ptr->ret_type);
-    }
-    error(std::format("slice has no method '{}'", method_name));
-    return error_expr();
+    // Every other slice method — `impl … for [T]`, `impl str` — is the
+    // probe's pick on the common selection and never reaches this arm.
+    return std::nullopt;
 }
 
 // Raw-pointer built-in arithmetic methods: byte_add/byte_sub/add/sub (offset)
@@ -11700,6 +11493,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             if (TypeRef(expr_type(recv)).kind() == LogosType::Kind::DstRef)
                 error(std::format("DstStruct '{}' has no method '{}'",
                                   TypeRef(expr_type(recv)).struct_name(), method_name));
+            else if (TypeRef(expr_type(recv)).kind() == LogosType::Kind::Slice)
+                error(std::format("slice has no method '{}'", method_name));
             else
                 error(std::format("method call: receiver is not a struct (got {})",
                       type_str(expr_type(recv))));
