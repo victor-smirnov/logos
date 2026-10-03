@@ -10357,102 +10357,6 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
     return error_expr();
 }
 
-// SL-sl-08: tuple receiver — dispatch user-defined `impl Trait for (A,B,…)`
-// methods. Mirrors the slice path (sentinel-name lookup against `$tuple$N`
-// generic blanket / `$tuple$N$<t1>$<t2>…` concrete forms). Also handles
-// `&Tuple` / `&mut Tuple` receivers for trait methods that take `&Self`
-// (e.g. Eq.eq). Returns nullopt if the receiver is not a (ref-to-)tuple, or
-// if no tuple impl matched — downstream gets the standard "not a struct"
-// diagnostic at the bottom of lower_method_call.
-std::optional<lir::LExprPtr> SemaChecker::try_method_on_tuple(
-        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
-    if (!(expr_type(recv) && (TypeRef(expr_type(recv)).kind() == LogosType::Kind::Tuple ||
-        (is_ref_like(TypeRef(expr_type(recv)).kind()) &&
-         TypeRef(expr_type(recv)).pointee() &&
-         TypeRef(TypeRef(expr_type(recv)).pointee()).kind() == LogosType::Kind::Tuple))))
-        return std::nullopt;
-    TypeRef tup_t = expr_type(recv);
-    bool recv_is_ref = false;
-    if (is_ref_like(TypeRef(tup_t).kind())) {
-        recv_is_ref = true;
-        tup_t = TypeRef(tup_t).pointee();
-    }
-    std::vector<lir::LExprPtr> tup_args = lower_call_args(node);
-    auto elems = TypeRef(tup_t).tuple_elems();
-    size_t arity = elems.size();
-    std::vector<std::string> keys;
-    {
-        std::string concrete_key = "$tuple$" + std::to_string(arity);
-        for (auto e : elems) {
-            concrete_key += "$";
-            concrete_key += (e ? type_str(e) : std::string("?"));
-        }
-        concrete_key += "__" + std::string(method_name);
-        keys.push_back(std::move(concrete_key));
-    }
-    keys.push_back("$tuple$" + std::to_string(arity)
-                   + "__" + std::string(method_name));
-    for (auto& key : keys) {
-        const SemaFuncInfo* fi_ptr = nullptr;
-        // Try multiple receiver shapes since `&Self` / `Self` / `&mut Self`
-        // all need to match.
-        std::vector<TypeRef> recv_shapes;
-        recv_shapes.push_back(tup_t);                  // Self (by value)
-        recv_shapes.push_back(make_ref(false, tup_t)); // &Self
-        recv_shapes.push_back(make_ref(true,  tup_t)); // &mut Self
-        for (auto rs : recv_shapes) {
-            std::vector<TypeRef> mtypes;
-            mtypes.push_back(rs);
-            for (auto& a : tup_args) mtypes.push_back(expr_type(a));
-            if (auto fit = find_func_by_base_and_signature(key, mtypes, false)) {
-                fi_ptr = fit; break;
-            }
-        }
-        if (!fi_ptr) {
-            if (auto git = find_generic_func(key)) fi_ptr = git;
-        }
-        if (!fi_ptr) continue;
-
-        // Coerce recv to the formal receiver shape.
-        TypeRef formal0 = !fi_ptr->param_types.empty()
-            ? fi_ptr->param_types[0] : TypeRef(nullptr);
-        // Substitute method type-params to get concrete formal recv.
-        SemaSubst tup_subst;
-        for (size_t i = 0; i < fi_ptr->type_params.size() && i < arity; ++i)
-            tup_subst[fi_ptr->type_params[i].name] = elems[i];
-        if (formal0)
-            formal0 = subst_type_sema(formal0, tup_subst);
-        bool formal_is_ref = formal0 && is_ref_like(TypeRef(formal0).kind());
-        if (formal_is_ref && !recv_is_ref) {
-            bool is_mut = (TypeRef(formal0).kind() == LogosType::Kind::MutRef);
-            auto rty = make_ref(is_mut, tup_t);
-            recv = materialize_recv_ref(std::move(recv), is_mut, rty, BorrowOrigin::Autoref);
-        } else if (!formal_is_ref && recv_is_ref) {
-            recv = builder().deref(std::move(recv), tup_t);
-        }
-
-        std::vector<lir::LExprPtr> pargs;
-        pargs.push_back(std::move(recv));
-        for (auto& a : tup_args) pargs.push_back(std::move(a));
-        if (!fi_ptr->type_params.empty()) {
-            std::vector<TypeRef> m_type_args;
-            size_t tp_idx = 0;
-            for (auto& tp : fi_ptr->type_params) {
-                if (tp_idx < arity) m_type_args.push_back(elems[tp_idx]);
-                else m_type_args.push_back(error_t());
-                ++tp_idx;
-                (void)tp;
-            }
-            return finish_generic_call(
-                fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
-                *fi_ptr, std::move(m_type_args), std::move(pargs));
-        }
-        return builder().call(
-            fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name,
-            {}, std::move(pargs), fi_ptr->ret_type);
-    }
-    return std::nullopt;
-}
 
 // `impl … for [E; N]` methods: the `$array$` keys, most specific first
 // (array_impl_lookup_keys); the impl's parameters bind by unifying its target
@@ -10879,15 +10783,26 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // `x.child::<S>()` (S a schema view type). Intercept before generic dispatch.
     if (auto r = try_schema_method(recv, method_name, user_type_args)) return std::move(*r);
 
-    // SL-sl-08: tuple receiver — dispatch user-defined `impl Trait for
-    // (A,B,…)` methods. Mirrors the slice path (sentinel-name lookup
-    // against `$tuple$N` generic blanket / `$tuple$N$<t1>$<t2>…`
-    // concrete forms). Also handles `&Tuple` / `&mut Tuple` receivers
-    // for trait methods that take `&Self` (e.g. Eq.eq).
-    if (auto r = try_method_on_tuple(node, recv, method_name)) return *r;
+    // ADR 0030 S8 row 4: a receiver the probe resolves goes to the common
+    // selection below; the per-kind arms answer only what it does not.
+    const bool probe_applies = [&] {
+        if (std::getenv("LOGOS_PROBE_OFF") || !recv || !expr_type(recv)) return false;
+        ProbePick pk = probe_method_(expr_type(recv), method_name);
+        // The selection below applies the receiver as is or one deref through a
+        // reference; an array's unsizing step stays with the array arm, and a
+        // slice receiver with the slice arm (it reconciles `str` = `&[u8]` with a
+        // `&str` argument, a boundary the common selection does not model yet).
+        TypeRef rt = expr_type(recv);
+        if (is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee()) rt = TypeRef(rt).pointee();
+        if (TypeRef(rt).kind() == LogosType::Kind::Slice || TypeRef(rt).kind() == LogosType::Kind::UnsizedSlice)
+            return false;
+        return pk.fi && !pk.key.starts_with("$blanket$") && !pk.key.starts_with("$ref_") &&
+               !pk.key.starts_with("$mut_ref_") &&
+               (pk.derefs == 0 || (pk.derefs == 1 && is_ref_like(TypeRef(expr_type(recv)).kind())));
+    }();
 
-    if (auto r = try_method_on_array(node, recv, method_name)) return *r;
-    if (auto r = try_method_on_slice(node, recv, method_name)) return *r;
+    if (!probe_applies) if (auto r = try_method_on_array(node, recv, method_name)) return *r;
+    if (!probe_applies) if (auto r = try_method_on_slice(node, recv, method_name)) return *r;
 
     // §1 Wave 9 (a43/h08) — `[T; N].len()`: built-in for a raw fixed
     // array. The length is the array's compile-time size; no runtime
@@ -11912,6 +11827,20 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                 for (size_t i = 0; i < ssi->type_params.size() && i < TypeRef(st).type_args().size(); ++i)
                                     seed[ssi->type_params[i].name] = TypeRef(st).type_args()[i];
                         }
+                    }
+                    // Parameters that appear only in the receiver formal (a tuple
+                    // impl's element types, a slice impl's `T`): unify the formal
+                    // against the receiver, through the pending autoref.
+                    if (!fi_ptr->param_types.empty() && fi_ptr->param_types[0] && expr_type(recv)) {
+                        TypeRef f0 = fi_ptr->param_types[0];
+                        TypeRef a0 = expr_type(recv);
+                        if (is_ref_like(TypeRef(f0).kind()) && TypeRef(f0).pointee() &&
+                            !is_ref_like(TypeRef(a0).kind()) && TypeRef(a0).kind() != LogosType::Kind::Ptr)
+                            f0 = TypeRef(f0).pointee();
+                        StrMap<TypeRef> rb;
+                        unify_types(f0, a0, rb);
+                        for (auto& [rk, rv] : rb)
+                            if (!seed.count(rk)) seed[rk] = rv;
                     }
                     if (!infer_type_args(*fi_ptr, arg_exprs, m_type_args, seed, 1)) {
                         error(std::format("could not infer type arguments for generic method '{}'",
