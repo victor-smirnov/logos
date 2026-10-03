@@ -1,0 +1,32 @@
+// Trama — AN INTEGER RENDERS AND BINDS IN ITS OWN TYPE (#370, Rust typing).
+//
+// `{{ r.big }}` over a `u64` above i64::MAX renders its decimal value (through
+// `push_u64`, not a reinterpreting `push_i64`); `{{ r.small + 1 }}` over a `u8` is
+// a `u8` node; `{% set t = r.neg * 2 %}` over an `i16` binds an `i16`. Until the
+// body moved to the quote channel, `set` bound `: i64` for every integer and every
+// integer rendered through `push_i64` — a `u8` field reached the host compiler as
+// a type mismatch on a generated line, and a `u64` printed negative.
+package test;
+use logos.std.wql.trama_render;
+use logos.mem.string;
+use logos.lang.str;
+
+struct Row { pub big: u64, pub small: u8, pub neg: i16 }
+
+resource show = trama!(r: &Row){
+big={{ r.big }} small={{ r.small + 1 }} {% set t = r.neg * 2 %}t={{ t }}
+};
+
+fn streq(s: &String, want: str) -> bool {
+    if s.len() != want.len() { return false; }
+    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let mut i: i64 = 0i64;
+    while i < want.len() { if str_byte_at(sv, i) != str_byte_at(want, i) { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn main() -> i32 {
+    let r: Row = Row { big: 18446744073709551615u64, small: 41u8, neg: -7i16 };
+    if !streq(&show(&r).unwrap(), "big=18446744073709551615 small=42 t=-14") { return 1i32; }
+    return 0i32;
+}
