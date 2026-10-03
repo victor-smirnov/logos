@@ -1,0 +1,94 @@
+// wql_str_lit_escape_e2e — an EL string literal is its SPELLING, and every
+// consumer gets the value Rust would give it.
+//
+// Both generated EL parsers strip the quotes and process no escapes, so a
+// literal arrives as the text between the quotes (Rust's `proc_macro::Literal`
+// holds it the same way). Code generation must re-emit that spelling, not
+// escape it again; an evaluator must decode it. Before #353's fixture caught
+// it, `where e.vs == "p\\g"` was emitted as `"p\\\\g"` (two backslashes at run
+// time) and matched nothing.
+//
+//   (a) deem `where`: `\\`, `\"`, `\t`, `\u{e9}`, `\x41` match the document's
+//       decoded values;
+//   (b) deem `select` of a literal: the projected value has the decoded bytes;
+//   (c) Trama: a literal in `{{ … }}` renders decoded;
+//   (d) the runtime Tpl evaluator: the same literal renders decoded.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;
+use logos.std.wql.wql;
+use logos.std.wql.el;
+use logos.std.wql.catalog_macro;
+use logos.std.wql.trama_render;
+use logos.mem.deem;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.result;
+use logos.lang.str;
+
+// (a)
+pub deem bs(g: &Writ)   { from g * e where e.vs == "p\\g" select e.key : str }
+pub deem qt(g: &Writ)   { from g * e where e.vs == "say \"hi\"" select e.key : str }
+pub deem tab(g: &Writ)  { from g * e where e.vs == "a\tb" select e.key : str }
+pub deem uni(g: &Writ)  { from g * e where e.vs == "caf\u{e9}" select e.key : str }
+pub deem hex(g: &Writ)  { from g * e where e.vs == "\x41BC" select e.key : str }
+// (b)
+pub deem lit(g: &Writ)  { from g * e where e.key == "b" select "x\\y\n" : str }
+
+// (c)
+struct Unit { pub n: i64 }
+resource tr = trama!(u: &Unit){ `{{ "p\\g" }}|{{ "q\"r" }}` };
+
+pub schema Nil : code(0x0B14_0000_0000_0D01) { n: i64 = 0 }
+resource cat = schema_catalog!{ Nil };
+
+fn sview(s: &String) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
+
+fn one(r: Result<Vec<str>, ElError>, want: str) -> bool {
+    match r {
+        Result::Ok(v) => { return v.len() == 1i64 && str_eq(v.get(0i64), want); }
+        Result::Err(_e) => { return false; }
+    }
+}
+
+fn main() -> i32 {
+    // The document's values, decoded by the Writ parser (JSON escapes).
+    let doc: Writ = parse_writ(r#"{ a: "p\\g", b: "say \"hi\"", c: "a\tb", d: "café", e: "ABC", f: "pg" }"#);
+    if doc.root().is_null() { return 90i32; }
+
+    // (a)
+    if !one(bs(&doc), "a")  { return 1i32; }
+    if !one(qt(&doc), "b")  { return 2i32; }
+    if !one(tab(&doc), "c") { return 3i32; }
+    if !one(uni(&doc), "d") { return 4i32; }
+    if !one(hex(&doc), "e") { return 5i32; }
+
+    // (b) x, backslash, y, newline: four bytes
+    let l: Vec<str> = match lit(&doc) { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if l.len() != 1i64 { return 7i32; }
+    let lv: str = l.get(0i64);
+    if lv.len() != 4i64 { return 8i32; }
+    if str_byte_at(lv, 1i64) != 92u8 || str_byte_at(lv, 3i64) != 10u8 { return 9i32; }
+
+    // (c)
+    let t: String = tr(&Unit { n: 0i64 }).unwrap();
+    if !str_eq(sview(&t), "p\\g|q\"r") { return 10i32; }
+
+    // (d)
+    let c: SchemaCatalog = cat();
+    let tp: Tpl = match Tpl::compile("{{ \"p\\\\g\" }}|{{ \"q\\\"r\" }}", &c) {
+        Result::Ok(v) => { v }
+        Result::Err(_e) => { return 11i32; }
+    };
+    let env: QEnv = QEnv::new();
+    let s: String = match tp.render(&env) {
+        Result::Ok(v) => { v }
+        Result::Err(_e) => { return 12i32; }
+    };
+    if !str_eq(sview(&s), "p\\g|q\"r") { return 13i32; }
+    return 0i32;
+}

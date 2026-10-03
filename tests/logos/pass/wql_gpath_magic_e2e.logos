@@ -1,0 +1,120 @@
+// wql_gpath_magic_e2e — `**` evaluates its reach relation ON DEMAND (ADR 0016
+// M6, #349): the magic-sets rewrite of the adorned `reach^bf`, as Soufflé's
+// MST does it. Each `**` site adds one SEED body to `__mreach_<src>` (the path
+// prefix before the `**`, projecting the node it stands on), and
+// `__reach_<src>` starts from those seeds instead of from every node.
+//
+// The oracle is INDEPENDENT of the rewrite: `full` below is the naive
+// descendant-or-self closure written by hand, the shape `__reach_<src>` had
+// before M6. Two properties are asserted:
+//   (1) results ≡ full walk: every `**` query answers what the same query over
+//       `full` answers;
+//   (2) derived tuples strictly fewer: |__reach_g| < |full| for a demand that
+//       does not cover the document, and = |full restricted to the seeds|.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;        // parse_writ
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.wql;
+
+// ── (1) results: `**` vs the hand-written closure ──────────────────────────
+pub deem db_engines(g: &Writ) {
+    from g .db ** .engine e select e.vs : str
+}
+pub deem db_engines_full(g: &Writ) {
+    rel full(a: i64, b: i64) {
+        from g e select (e.parent, e.parent);
+        from g e select (e.child, e.child);
+        from full r join g e on e.parent == r.b select (r.a, e.child);
+    }
+    from g .db d join full f on f.a == d.child join g e on e.parent == f.b
+    where e.key == "engine" select e.vs : str
+}
+pub deem any_engines(g: &Writ) {
+    from g ** .engine e select e.vs : str
+}
+pub deem any_engines_full(g: &Writ) {
+    rel full(a: i64, b: i64) {
+        from g e select (e.parent, e.parent);
+        from g e select (e.child, e.child);
+        from full r join g e on e.parent == r.b select (r.a, e.child);
+    }
+    from g __ga join full f on f.a == __ga.child join g e on e.parent == f.b
+    where __ga.parent == 0 && e.key == "engine" select e.vs : str
+}
+// two `**` in one path: the second site's seed body reads `__reach_g` itself
+// (the magic and reach rels are one SCC)
+pub deem pool_leaves(g: &Writ) {
+    from g ** .pool ** v {i64} select v.vi order by v.vi
+}
+
+// ── (2) sizes: the reach relation each program derived ─────────────────────
+pub deem full_size(g: &Writ) {
+    rel full(a: i64, b: i64) {
+        from g e select (e.parent, e.parent);
+        from g e select (e.child, e.child);
+        from full r join g e on e.parent == r.b select (r.a, e.child);
+    }
+    from full r select r.a
+}
+pub deem db_reach_size(g: &Writ) {
+    rel hit(v: str) {
+        from g .db ** .engine e select e.vs;
+    }
+    from __reach_g r select r.a
+}
+pub deem db_seeds(g: &Writ) {
+    rel hit(v: str) {
+        from g .db ** .engine e select e.vs;
+    }
+    from __mreach_g m select m.c
+}
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(
+        r#"{
+            db:    { engine: "pg", pool: { min: 2, max: 16 } },
+            ports: [8080, 8443],
+            cache: { engine: "redis", pool: { min: 1 } },
+            misc:  { a: { b: { c: 1 } }, d: [1, 2, 3] }
+        }"#);
+    if doc.root().is_null() { return 90i32; }
+
+    // (1) results ≡ full walk
+    let r1: Vec<str> = match db_engines(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    let f1: Vec<str> = match db_engines_full(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 2i32; } };
+    if r1.len() != 1i64 || f1.len() != 1i64 { return 3i32; }
+    if !str_eq(r1.get(0i64), "pg") || !str_eq(f1.get(0i64), "pg") { return 4i32; }
+
+    let r2: Vec<str> = match any_engines(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    let f2: Vec<str> = match any_engines_full(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
+    if r2.len() != 2i64 || f2.len() != 2i64 { return 7i32; }
+
+    let r3: Vec<i64> = match pool_leaves(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
+    if r3.len() != 3i64 { return 9i32; }
+    if r3.get(0i64) != 1i64 || r3.get(1i64) != 2i64 || r3.get(2i64) != 16i64 { return 10i32; }
+
+    // (2) derived tuples: the demanded closure is strictly smaller
+    let full: Vec<i64> = match full_size(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    let dem: Vec<i64> = match db_reach_size(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 12i32; } };
+    let seeds: Vec<i64> = match db_seeds(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
+    // one seed: the `db` node
+    if seeds.len() != 1i64 { return 14i32; }
+    // the db subtree has 5 nodes (db, engine, pool, min, max): descendant-or-
+    // self pairs from the one seed = 5
+    if dem.len() != 5i64 { return 15i32; }
+    if dem.len() >= full.len() { return 16i32; }
+    return 0i32;
+}

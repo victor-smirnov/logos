@@ -1,0 +1,1 @@
+wql!: `select`: mismatched types in `(r.n + r.f)` — `r.n` is `i64` and `r.f` is `f64`

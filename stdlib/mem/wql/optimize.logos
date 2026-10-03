@@ -76,6 +76,11 @@ pub fn sexpr_const(e: SExpr) -> ConstVal {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
             if v.is_bool()  { return const_bool(v.as_bool()); }
+            // A SUFFIXED number is a typed operand (#724): `100i8 + 100i8` is an
+            // `i8` overflow in Rust, and a fold in i64/f64 would both lose the
+            // type and answer 200. Only bare literals — `{integer}`/`{float}`,
+            // i64/f64 in a pure-literal expression — are folded.
+            if l.suffix().len() > 0i64 { return const_none(); }
             if v.is_float() { return const_float(v.as_f64()); }
             if v.is_int()   { return const_int(v.as_i64()); }
             return const_none();
@@ -387,6 +392,8 @@ pub fn simplify_sexpr(e: SExpr, h: &Writ) -> WRef<SExpr> {
         SExpr::Var(v)   => { return WRef::<SExpr>::from_any(v.as_ref()); }
         SExpr::Call(c)  => { return WRef::<SExpr>::from_any(c.as_ref()); }
         SExpr::Comp(cp) => { return WRef::<SExpr>::from_any(cp.as_ref()); }
+        // `x as T` is not folded (a constant conversion is the host's to do).
+        SExpr::Cast(c)  => { return WRef::<SExpr>::from_any(c.as_ref()); }
     }
 }
 
@@ -726,6 +733,7 @@ pub fn refs_mask(e: SExpr, new_var: str) -> i32 {
         }
         SExpr::Bin(b)  => { return refs_mask(b.lhs_expr(), new_var) | refs_mask(b.rhs_expr(), new_var); }
         SExpr::Un(u)   => { return refs_mask(u.arg_expr(), new_var); }
+        SExpr::Cast(c) => { return refs_mask(c.arg_expr(), new_var); }
         SExpr::Cond(c) => {
             return refs_mask(c.cond_expr(), new_var)
                  | refs_mask(c.then_expr(), new_var)

@@ -166,8 +166,19 @@ if ! grep -q 'no fact reports selectivity' "$TMPD/err"; then
     echo "FAIL: the cost model does not name its selectivity assumption"
     fail=1
 fi
-if ! grep -q 'pinned steps are unpriced' "$TMPD/err"; then
-    echo "FAIL: the cost model does not disclose what it charges nothing for"
+# #347 (2026-10-03): pinned steps are PRICED by the rows reaching them; what the
+# model still cannot know is a pinned step's OUTPUT fraction, and it must say so —
+# and it must no longer claim to charge them nothing.
+if ! grep -q 'a PINNED step (anti, traversal) 1 per row reaching it' "$TMPD/err"; then
+    echo "FAIL: the cost model does not state the price of a pinned step"
+    fail=1
+fi
+if ! grep -q 'no fact reports its fraction' "$TMPD/err"; then
+    echo "FAIL: the cost model does not name its pinned-step assumption (the output fraction)"
+    fail=1
+fi
+if grep -q 'pinned steps are unpriced' "$TMPD/err"; then
+    echo "FAIL: the cost model still claims pinned steps are unpriced"
     fail=1
 fi
 

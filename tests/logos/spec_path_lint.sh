@@ -119,8 +119,10 @@ canary() {                                        # canary <name> <sed program>
 }
 
 canary moved-path  's#stdlib/mem/wql/el\.logos#stdlib/mem/wql/el_GONE.logos#'
-canary gone-live   's#<!-- spec-gone: stdlib/mem/deem/query\.logos#<!-- spec-gone: stdlib/mem/deem/deem.logos#'
-canary gone-mute   's#(<!-- spec-gone: stdlib/mem/deem/query\.logos)[^>]*-->#\1 -->#'
+# Re-pointed 2026-10-03 (#353): the `query.logos` marker left with the
+# runtime-artifacts clause it annotated; `exec.logos` is the same kind of marker.
+canary gone-live   's#<!-- spec-gone: stdlib/mem/deem/exec\.logos#<!-- spec-gone: stdlib/mem/deem/deem.logos#'
+canary gone-mute   's#(<!-- spec-gone: stdlib/mem/deem/exec\.logos)[^>]*-->#\1 -->#'
 
 # ── the real check ──────────────────────────────────────────────────────────
 fail=0

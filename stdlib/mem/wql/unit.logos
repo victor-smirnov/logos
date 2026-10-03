@@ -1,0 +1,18 @@
+// logos.std.wql.unit — the one-row relation a FROM-less `select` reads.
+//
+// A rel body or entry `select S` with no `from` is a FACT: one row, the way
+// SQL's FROM-less SELECT is (Soufflé spells the same thing `r(1, 2).`). The
+// handler desugars it to `from __unit __u select S` and registers `__unit` as
+// a native source whose materializer is this fn, so the planner, the emitter
+// and the explanations all see an ordinary one-row source and need no arm of
+// their own.
+package logos.std.wql.unit;
+
+use logos.mem.collections.vec;
+
+/// The rows of `__unit(u: i64)`: exactly one.
+pub fn wql_unit_rows() -> Vec<i64> {
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    v.push(0i64);
+    return v;
+}

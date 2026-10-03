@@ -145,7 +145,7 @@ impl SExprArr {
 // view" + the seam's "backends trust the IR". A separate name→type dictionary
 // (built by the handler from schema reflection + the macro param list)
 // supplies value-types.
-pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0, soff: i64 = 1 }                                  // literal, value verbatim
+pub schema SLit   : code(0x0010_0000_0000_0000) { val: WAny = 0, soff: i64 = 1, txt: str = 2 }                                  // literal, value verbatim
 pub schema SParam : code(0x0010_0000_0000_0001) { name: str = 0, soff: i64 = 1 }                                  // bound parameter (prepared-stmt arg) — by NAME
 pub schema SVar   : code(0x0010_0000_0000_0002) { name: str = 0, soff: i64 = 1 }                                  // comprehension-bound row variable — by NAME
 pub schema SField : code(0x0010_0000_0000_0003) { base: WRef<SExpr> = 0, name: str = 1, soff: i64 = 2 }           // ONE field / edge step — field NAME
@@ -173,11 +173,12 @@ pub schema SCall  : code(0x0010_0000_0000_0006) { fn_name: str = 0, args: WRef<S
 pub schema SCond  : code(0x0010_0000_0000_0007) { c: WRef<SExpr> = 0, t: WRef<SExpr> = 1, e: WRef<SExpr> = 2, soff: i64 = 3 }  // ternary
 pub schema SComp  : code(0x0010_0000_0000_0008) { plan: WRef<RExpr> = 0, head: WRef<SExpr> = 1, var: str = 2, soff: i64 = 3 }   // comprehension → list value; `var` = loop-var NAME
 pub schema STuple : code(0x0010_0000_0000_0009) { items: WRef<SExprArr> = 0, soff: i64 = 1 }                       // tuple projection `(a, b, …)` — ≥2 components
+pub schema SCast  : code(0x0010_0000_0000_000B) { arg: WRef<SExpr> = 0, ty: str = 1, soff: i64 = 2 }        // `arg as ty` — Rust's numeric conversion; `ty` = the target type NAME
 
 pub schema enum SExpr : category(0x0010_0000_0000_0000) {
     Lit(SLit), Param(SParam), Var(SVar), Field(SField),
     Bin(SBin), Un(SUn), Call(SCall), Cond(SCond), Comp(SComp),
-    Tuple(STuple),
+    Tuple(STuple), Cast(SCast),
 }
 
 // Node → erased edge handle. A node's `as_ref` yields the `WAny` self-relative
@@ -188,6 +189,33 @@ pub schema enum SExpr : category(0x0010_0000_0000_0000) {
 // the TOM in the Writ arena (which outlives the view), so it is NOT a dangling
 // reference to the local view — mirrors static_view.logos's WAny::Ref pattern.
 impl SLit     { pub fn as_ref(self: SLit)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+
+/// The type a NUMBER literal's suffix names — `5i32` → "i32", `1.0f64` → "f64" —
+/// or "" when it has none (or is not a number, or was built by the optimizer,
+/// which records no token). `txt` is the token as written (#724).
+impl SLit {
+    pub fn suffix(self: SLit) -> str {
+        let v: WAny = self.val;
+        if v.is_string() || v.is_bool() { return ""; }
+        let tx: str = self.txt;
+        if tx.len() == 0i64 { return ""; }
+        // The INTEGER/FLOAT tokens admit exactly these suffixes (el.peg); the
+        // longer ones are asked first so `i16` is not read as ending in `6`.
+        if str_ends_with(tx, "usize") { return "usize"; }
+        if str_ends_with(tx, "isize") { return "isize"; }
+        if str_ends_with(tx, "i16") { return "i16"; }
+        if str_ends_with(tx, "i32") { return "i32"; }
+        if str_ends_with(tx, "i64") { return "i64"; }
+        if str_ends_with(tx, "u16") { return "u16"; }
+        if str_ends_with(tx, "u32") { return "u32"; }
+        if str_ends_with(tx, "u64") { return "u64"; }
+        if str_ends_with(tx, "f32") { return "f32"; }
+        if str_ends_with(tx, "f64") { return "f64"; }
+        if str_ends_with(tx, "i8") { return "i8"; }
+        if str_ends_with(tx, "u8") { return "u8"; }
+        return "";
+    }
+}
 impl SParam   { pub fn as_ref(self: SParam)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl SVar     { pub fn as_ref(self: SVar)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl SField   { pub fn as_ref(self: SField)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
@@ -197,6 +225,7 @@ impl SCall    { pub fn as_ref(self: SCall)    -> WAny { return unsafe { WAny::re
 impl SCond    { pub fn as_ref(self: SCond)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl SComp    { pub fn as_ref(self: SComp)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl STuple   { pub fn as_ref(self: STuple)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
+impl SCast    { pub fn as_ref(self: SCast)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl SExprArr { pub fn as_ref(self: SExprArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // ── RAgg — one aggregate SPEC `out = fn(arg)` of an RAggr (ADR 0012 §2/§8) ────
@@ -290,11 +319,12 @@ pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, sel: 
 // looked at this node; `jkey` — the equi-key's value class; `jsel` — WHICH term
 // of the const-folded `on` conjunction supplies the key (-1 = none), so the
 // emitter composes build/probe/residual without re-running the selection rule;
-// `jwhy` — the ground, travelling with the decision. Lowering copies these off
+// `jground` — the ground (rule + facts, why.logos `jg_pack`), travelling with
+// the decision; its sentence is rendered at the edge. Lowering copies these off
 // the surface step; the relational peephole passes the join subtree through
 // unchanged, so they survive to the emitter.
-pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jkey: i32 = 4, jsel: i32 = 5, jwhy: str = 6 }
-pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jkey: i32 = 4, jsel: i32 = 5, jwhy: str = 6 }
+pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jsel: i32 = 5, jground: i64 = 6 }
+pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jsel: i32 = 5, jground: i64 = 6 }
 pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, aggs: WRef<RAggArr> = 2 } // γ — single group key + agg specs
 pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: WRef<RExpr> = 1 }      // fixpoint — DECLARED, NOT impl in queue 1
 // ── ORDER/LIMIT/DISTINCT tier (`select [distinct] S [order by O [desc]] [limit …]`) ──
@@ -342,6 +372,7 @@ impl RDistinct { pub fn as_ref(self: RDistinct) -> WAny { return unsafe { WAny::
 // through this CU.
 impl SField { pub fn base_expr(self: SField) -> SExpr { return self.base.any().view::<SExpr>(); } }
 impl SUn    { pub fn arg_expr(self: SUn)      -> SExpr { return self.arg.any().view::<SExpr>(); } }
+impl SCast  { pub fn arg_expr(self: SCast)    -> SExpr { return self.arg.any().view::<SExpr>(); } }
 impl SBin   {
     pub fn lhs_expr(self: SBin) -> SExpr { return self.lhs.any().view::<SExpr>(); }
     pub fn rhs_expr(self: SBin) -> SExpr { return self.rhs.any().view::<SExpr>(); }

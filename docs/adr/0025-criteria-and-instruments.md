@@ -1489,6 +1489,22 @@ any batch source on a build side dies there (`expected Option, got Option`: the
 annotation is the ROW type, the pull yields a BATCH), and no corpus query puts
 one there, so it is invisible to a green corpus by construction.
 
+> **RESOLVED 2026-10-03 (#330, Victor): D-C2-a EXTENDS TO THE BUILD SIDE.** Two
+> facts moved after this paragraph was written. (1) The batch half closed: a
+> streamed BATCH source on a build side takes `build_phase_frag`'s `rel_batch`
+> arm (a `next_batch()` pull, R-D) and a declared slice param takes the R-A wrap
+> (R-F), both landed with `deem_batch_build_side_join`; neither reaches the row
+> pull. (2) What does reach it is therefore only an ITERATOR producer — measured:
+> the three sites are the `impl Iterator` sources of `deem_join_base_streams`,
+> `deem_join_step_reread` and `deem_join_step_streams`. D-C2-a's ground ("row-pull
+> IS this source kind's protocol", and the `Buffer` wrap measured as the
+> materialization criterion 1 forbids) does not depend on where the source is
+> read, so the three are on-plane by the same declaration. `pull_shape_gate`'s
+> `next_join_build` stays a measured, pinned class (3), now DECLARED rather than
+> open; `deem_join_step_streams` pins the one-pass read (pull count = n). The
+> undecided remainder of the `.next()` plane is **0**. *Would reopen*: the
+> D-C2-a condition — a non-materializing `next_batch()` for iterators.
+
 #### The rest of the remainder, restated
 
 * **the output plane** — 606 `__out` + 45 `__rout` + 1 String. ⚠ ~~`(b′)`

@@ -1,0 +1,11 @@
+// wql_rel_fact_type_fail — a FACT (`select S` with no `from`) is typed like any
+// other rel body: its components must match the declared columns.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Edge { pub src: i64, pub dst: i64 }
+pub deem bad(es: &[Edge]) {
+    rel r(n: i64) { select "x"; }
+    from r x select x.n
+}
+fn main() -> i32 { return 0i32; }

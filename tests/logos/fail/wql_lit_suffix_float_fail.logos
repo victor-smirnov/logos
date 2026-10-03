@@ -1,0 +1,15 @@
+// WQL — AN f64-SUFFIXED LITERAL BESIDE AN f32 COLUMN.
+//
+// #724: a SUFFIXED literal names its type, like a column (`SLit.txt` keeps the
+// token as written). Until then the suffix was dropped and the literal silently
+// took the other side's type; Rust refuses the same expression.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R { pub f: f32, pub n: i64 }
+
+pub deem q(rs: &[R]) { from rs r select r.f * 1.0f64 }
+
+fn main() -> i32 { return 0i32; }

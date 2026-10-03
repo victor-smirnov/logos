@@ -377,12 +377,11 @@ A mapping's scalar params (`floor: i64`) bind at the consumption site by NAME ID
 
 *Evidence:* `tests/logos/pass/wql_mapping_scalar_e2e.logos`
 
-### `deem.mapping.runtime-artifacts` — `<M>__rules()` / `<M>__src()` and `compile_with_mapping`
+### `deem.mapping.runtime-artifacts` — none
 
-Mappings are STATIC-ONLY items; the dynamic side only CONSUMES them. Each mapping emits two artifacts — `<M>__rules() -> str` (canonical rel-list text) and `<M>__src() -> str` (its source-param name) — and `Query::compile_with_mapping(text, &cat, bind_as, rules, src)` fuses them into a dynamically-compiled query with the same parse/graft/rename machinery; the source bound via `bind_source_tree(bind_as, root)`. ⚠ **Both are GONE**: `Query::compile_with_mapping` died with the interpreter at P5, and `bind_source_tree` was removed at task 24 (exported, zero callers, sole writer of `QB_TSRC`). The STATIC mapping artifacts `<M>__rules()` / `<M>__src()` survive and are consumed by the static tier.
+A mapping emits no items. Its rules reach a consumer only by static fusion: the compiler's `mappings_` pre-scan records each mapping's canonical rule text and splices it into the consuming `deem`'s program. The former runtime artifacts `<M>__rules() -> str` / `<M>__src() -> str` were read only by the dynamic `Query::compile_with_mapping`, which P5 deleted with the interpreter; they were removed in #353 (2026-10-03).
 
-*Evidence:* `stdlib/mem/deem/query.logos` (compile_with_mapping), `tests/logos/pass/query_mapping_runtime_e2e.logos` (parity with the static twin)
-<!-- spec-gone: stdlib/mem/deem/query.logos — deleted at P5 (a4028326): Query/QRows, the runtime query-compilation entry point. The rules citing it describe a surface the language no longer has -->
+*Evidence:* `stdlib/mem/wql/mapping_item.logos` (the handler emits nothing), `tests/logos/pass/wql_mapping_rules_escape_e2e.logos` (rule text with `"`, `\` and newlines survives the splice)
 
 ## rel blocks and Datalog
 
@@ -393,6 +392,24 @@ A `rel` block declares a named derived relation with SET semantics: `cols` are d
 *Divergence:* Datalog rules (multiple bodies = a disjunction of rules with the same head); the set/union semantics are the Datalog default.
 
 *Evidence:* `stdlib/mem/wql/grammars/wql.peg#L239-L267`; validation `stdlib/mem/wql/plan_walker.logos#L11-L51`
+
+### `deem.datalog.fact` — a FROM-less `select` is one row
+
+`select S [: RTy]` with no `from` is a FACT: exactly one row, whatever the sources hold. It is legal as a rel body (an inline table, or a seed such as `select start;` for a scalar parameter) and as the entry query. The handler rewrites it to `from __unit __u select S`, where `__unit(u: i64)` is a native source of one row (`logos.std.wql.unit::wql_unit_rows`), registered only when a program has a fact; it counts toward the 8-rel limit.
+
+*Divergence:* SQL's FROM-less `SELECT`; Soufflé writes the same thing as a fact clause `r(1, 2).`
+
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`simple_query`'s third alternative); `stdlib/mem/wql/lower.logos` (`desugar_program_facts`); `tests/logos/pass/wql_rel_fact_e2e.logos`
+
+### `deem.datalog.demand` — a rel read with a bound column is evaluated on demand
+
+When the entry query's base source is a rel `R` and its WHERE has a conjunct `x.c == K` (K a literal or one of the deem's scalar parameters), `R` is rewritten by magic sets (Soufflé's MST, adornment = column `c`): a rel `__m_R(c)` holds `K` as a fact, every body of `R` that does not read `R` joins `__m_R` on its column `c`, and every body that reads `R` once either passes `c` through from that occurrence (`select (r.c, …)`) or, in the two-atom shape `R t ⋈ u on t.c == u.f` with head column `c` = `u.g`, also joins `__m_R` and adds the recursive magic rule `__m_R(u.f) :- __m_R(u.g), u` (the right-linear closure; a left-linear closure bound on its second column, i.e. ancestors). Either way the restriction carries into the fixpoint. The answer is unchanged; the rows derived are those reachable from the demand. The rewrite is declined, and `[plan] demand -> fully materialized` names the rule, when `R` has another reader, a body negates or aggregates, a body reads `R` twice, a recursive body moves `c` in a wider shape (more atoms, or a WHERE), a body of `R` or the entry's WHERE/ON contains checked arithmetic (it could fail on a row outside the demand, so restricting rows could turn an `Err` into an `Ok`; Soufflé excludes order-dependent functors for the same reason), a base body computes `c` instead of copying a column, or a rel or join-step slot is missing.
+
+A demand-driven rel's SCC reads `__m_<rel>`, so the internal DRed helpers of that SCC are not emitted; no public surface depends on them for these shapes (measured over every corpus program the rewrite touches). `LOGOS_DEEM_NO_DEMAND` (at compile time) turns the rewrite off; the value `moving` keeps it but declines the shapes that need a recursive magic rule.
+
+*Divergence:* Soufflé applies MST on request (`--magic-transform`); here it applies whenever the conditions hold, the plan trace records the decision, and an environment switch turns it off.
+
+*Evidence:* `stdlib/mem/wql/lower.logos` (`magic_program`); `stdlib/mem/wql/why.logos` (`MS_*`); `tests/logos/pass/wql_rel_demand_e2e.logos`
 
 ### `deem.datalog.rel-columns` — rel columns are i64/str/bool (Hash+Eq)
 

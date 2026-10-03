@@ -114,13 +114,64 @@ pub fn code_writer_new() -> CodeWriter {
     return CodeWriter { buf: String::new(), indent: 0i64 };
 }
 
+/// True iff `s` holds `pat` at byte `at`.
+fn bytes_at(s: str, at: i64, pat: str) -> bool {
+    if at < 0i64 || at + pat.len() > s.len() { return false; }
+    let mut k: i64 = 0i64;
+    while k < pat.len() {
+        if str_byte_at(s, at + k) != str_byte_at(pat, k) { return false; }
+        k = k + 1i64;
+    }
+    return true;
+}
+
+/// Append `text`, wrapping every `WAny::ref_to(…)` call in `unsafe { … }`.
+///
+/// `WAny::ref_to` is `unsafe` since #327 (any raw pointer becomes a `Ref`), and
+/// the committed parsers were wrapped by hand in that sweep while this generator
+/// went on emitting the bare call — so regenerating a parser (`wql_peg_regen`)
+/// produced code that no longer compiled. The call is assembled from pieces at
+/// twenty-odd sites, so the wrap is applied here, where every emitted line passes,
+/// rather than at each site. A call already written inside `unsafe { ` is copied
+/// as it is.
+fn push_wrapping_ref_to(buf: &mut String, text: str) {
+    let pat: str = "WAny::ref_to(";
+    let pre: str = "unsafe { ";
+    let n: i64 = text.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if bytes_at(text, i, pat) && !bytes_at(text, i - pre.len(), pre) {
+            buf.push_str(pre);
+            // Copy through the call's matching `)`.
+            let mut depth: i64 = 0i64;
+            let mut j: i64 = i;
+            let mut done: bool = false;
+            while j < n && !done {
+                let c: u8 = str_byte_at(text, j);
+                buf.push_u8(c);
+                if c == 40u8 { depth = depth + 1i64; }              // '('
+                if c == 41u8 {                                       // ')'
+                    depth = depth - 1i64;
+                    if depth == 0i64 { done = true; }
+                }
+                j = j + 1i64;
+            }
+            buf.push_str(" }");
+            i = j;
+        } else {
+            buf.push_u8(str_byte_at(text, i));
+            i = i + 1i64;
+        }
+    }
+}
+
 impl CodeWriter {
     // Emit one line at the current indent (empty `text` → a blank line, no indent).
     pub fn line(self: &mut CodeWriter, text: str) {
         if text.len() > 0i64 {
             let mut i: i64 = 0i64;
             while i < self.indent { self.buf.push_str("    "); i = i + 1i64; }
-            self.buf.push_str(text);
+            push_wrapping_ref_to(&mut self.buf, text);
         }
         self.buf.push_u8(10u8);   // '\n'
     }
@@ -2731,7 +2782,7 @@ fn emit_rule(cg: &mut Codegen, w: &mut CodeWriter, ridx: i64) {
         w.line("    let mut hok: bool = false; let mut hr: *const u8 = NULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;");
         w.line("    unsafe {");
         w.line("        let mp: *mut HashMap<i64, MemoCell> = &mut lex.memo;");
-        w.line("        let hp: *const MemoCell = mp.get(&mk);");
+        w.line("        let hp: *const MemoCell = (*mp).get(&mk);");
         w.line("        if hp != (0i64 as *const MemoCell) { hok = true; hr = (*hp).res; hep = (*hp).endpos; hel = (*hp).endline; }");
         w.line("    }");
         w.line("    if hok { lex.reset(hep, hel); return hr; }");
@@ -2739,7 +2790,7 @@ fn emit_rule(cg: &mut Codegen, w: &mut CodeWriter, ridx: i64) {
         cl.push_str("    let r: *const u8 = rule_"); cl.push_str(rname.as_str()); cl.push_str("_impl(lex, doc);");
         w.line(cl.as_str());
         w.line("    let ep: i64 = lex.save_pos(); let el: i64 = lex.save_line();");
-        w.line("    unsafe { let mp: *mut HashMap<i64, MemoCell> = &mut lex.memo; mp.insert(mk, MemoCell { res: r, endpos: ep, endline: el }); }");
+        w.line("    unsafe { let mp: *mut HashMap<i64, MemoCell> = &mut lex.memo; (*mp).insert(mk, MemoCell { res: r, endpos: ep, endline: el }); }");
         w.line("    return r;");
         w.line("}");
     }

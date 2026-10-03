@@ -78,6 +78,12 @@ fn eq_sexpr(a: SExpr, b: SExpr) -> bool {
                 _ => { return false; }
             }
         }
+        SExpr::Cast(ca) => {
+            match b {
+                SExpr::Cast(cb) => { if !str_eq(ca.ty, cb.ty) { return false; } return eq_sexpr(edge_expr(ca.arg), edge_expr(cb.arg)); }
+                _ => { return false; }
+            }
+        }
         SExpr::Un(ua) => {
             match b {
                 SExpr::Un(ub) => { if ua.op != ub.op { return false; } return eq_sexpr(edge_expr(ua.arg), edge_expr(ub.arg)); }

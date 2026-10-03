@@ -313,6 +313,12 @@ pub struct MacroParams {
     // produced; the walker's context is what every check already has in hand.
     // Null for surfaces that have no query root (trama!/catalog).
     pub src_root:    WAny,
+    // ── the Soufflé oracle (LOGOS_DEEM_ORACLE builds only) ───────────────
+    // The statements the facade runs after `_run` to dump the query's inputs
+    // and its answer for `/usr/bin/souffle` (`dl_export::dl_export` builds them
+    // beside the `.dl` text). Empty in every ordinary build, and then nothing
+    // is emitted and `native_use_at` lists no oracle module.
+    pub oracle_dump: String,
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -399,6 +405,7 @@ pub fn macro_params_new() -> MacroParams {
         op_n:     0i64,
         tparams:     "",
         src_root:    nul,
+        oracle_dump: String::new(),
     };
 }
 
@@ -503,10 +510,15 @@ impl MacroParams {
                     if str_eq(emitted.get(j2), iter_mod) { dup2 = true; break; }
                     j2 = j2 + 1i64;
                 }
-                if !dup2 && seen == k { return iter_mod; }
+                if !dup2 {
+                    if seen == k { return iter_mod; }
+                    seen = seen + 1i64;
+                }
                 it = self.rel_n;
             } else { it = it + 1i64; }
         }
+        // The oracle's runtime helpers, last, and only in an oracle build.
+        if self.oracle_dump.len() > 0i64 && seen == k { return "logos.std.wql.oracle_rt"; }
         return "";
     }
 

@@ -19,7 +19,8 @@
 //   equality := compare ( ('=='|'!=') compare )*     // → SBin(OP_EQ/OP_NE)
 //   compare  := add ( ('<='|'>='|'<'|'>') add )*     // → SBin(OP_LT..OP_GE)
 //   add      := mul ( ('+'|'-') mul )*               // → SBin(OP_ADD/OP_SUB)
-//   mul      := unary ( ('*'|'/'|'%') unary )*       // → SBin(OP_MUL/DIV/MOD)
+//   mul      := cast ( ('*'|'/'|'%') cast )*         // → SBin(OP_MUL/DIV/MOD)
+//   cast     := unary ( 'as' ident )*                // → SCast (numeric conversion)
 //   unary    := ('!'|'-') unary | postfix            // → SUn(OP_NOT/OP_NEG)
 //   postfix  := primary ( '.' ident )*               // field access → SField
 //   primary  := float | int | bool | string | '$' ident | ident ( '(' args ')' )?
@@ -105,7 +106,7 @@
     // `doc.make::<S>()` stamps the type code); the C++ backend has no second pass
     // and must bake them in. Carrying them HERE is what makes this file the single
     // source of truth for both backends, instead of a hand-checked mirror.
-    SLit     : code(0x0010_0000_0000_0000) cap(2) { val: "WAny" = 0, soff: "i64" = 1 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
+    SLit     : code(0x0010_0000_0000_0000) cap(3) { val: "WAny" = 0, soff: "i64" = 1, txt: "str" = 2 }    // GAP:val for INT still (STRING/BOOL exact); int-value decode TBD
     SParam   : code(0x0010_0000_0000_0001) cap(2) { name: "str" = 0, soff: "i64" = 1 }    // $name — captured IDENT
     SVar     : code(0x0010_0000_0000_0002) cap(2) { name: "str" = 0, soff: "i64" = 1 }    // loop var — captured IDENT
     SField   : code(0x0010_0000_0000_0003) cap(3) { base: "ref SExpr" = 0, name: "str" = 1, soff: "i64" = 2 }   // field NAME — captured IDENT
@@ -123,6 +124,7 @@
     SCond    : code(0x0010_0000_0000_0007) cap(4) { c: "ref SExpr" = 0, t: "ref SExpr" = 1, e: "ref SExpr" = 2, soff: "i64" = 3 }
     SComp    : code(0x0010_0000_0000_0008) cap(4) { plan: "ref RExpr" = 0, head: "ref SExpr" = 1, var: "str" = 2, soff: "i64" = 3 }
     STuple   : code(0x0010_0000_0000_0009) cap(2) { items: "ref SExprArr" = 0, soff: "i64" = 1 }   // tuple projection `(a, b, …)`
+    SCast    : code(0x0010_0000_0000_000B) cap(3) { arg: "ref SExpr" = 0, ty: "str" = 1, soff: "i64" = 2 }   // `arg as ty` — target type NAME captured IDENT
 
     // The materialized argument list. A fan-out field spreads an ARRAY_CAPTURE
     // ($...) of parsed arg edges into the node's fixed slots — multi-arg calls
@@ -184,6 +186,7 @@
     KW_FOR   = "for"
     KW_IN    = "in"
     KW_IF    = "if"
+    KW_AS    = "as"
     TRUE     = "true"
     FALSE    = "false"
 
@@ -245,11 +248,17 @@
            )*
 
     // mul := unary ( ('*'|'/'|'%') unary )*   → SBin(OP_MUL=11 / DIV=12 / MOD=13)
-    mul <- unary
-           ( STAR    unary => { CODE: "SBin", op: 11, lhs: $0, rhs: $2 }
-           / SLASH   unary => { CODE: "SBin", op: 12, lhs: $0, rhs: $2 }
-           / PERCENT unary => { CODE: "SBin", op: 13, lhs: $0, rhs: $2 }
+    mul <- cast
+           ( STAR    cast => { CODE: "SBin", op: 11, lhs: $0, rhs: $2 }
+           / SLASH   cast => { CODE: "SBin", op: 12, lhs: $0, rhs: $2 }
+           / PERCENT cast => { CODE: "SBin", op: 13, lhs: $0, rhs: $2 }
            )*
+
+    // cast := unary ( 'as' ident )*           → SCast (Rust precedence: tighter
+    // than `*`, looser than unary — `-x as i64` is `(-x) as i64`; left-assoc,
+    // so `x as i32 as i64` folds left like Rust's).
+    cast <- unary
+            ( KW_AS IDENT => { CODE: "SCast", arg: $0, ty: $2 } )*
 
     // unary := ('!'|'-') unary | postfix      → SUn(OP_NOT=1 / OP_NEG=2)
     unary <- BANG  unary => { CODE: "SUn", op: 1, arg: $2 }
@@ -276,8 +285,8 @@
              / TRUE    => { CODE: "SLit", val: true }
              / FALSE   => { CODE: "SLit", val: false }
              / STRING  => { CODE: "SLit", val: $1 }   // faithful: interned WString ref
-             / FLOAT   => { CODE: "SLit", val: $1 }    // token->f64 decode: doc.float(wstr_decode_f64($1))
-             / INTEGER => { CODE: "SLit", val: $1 }    // token->i64 decode: doc.int(wstr_decode_i64($1))
+             / FLOAT   => { CODE: "SLit", val: $1, txt: $1 }   // txt: the token as written, suffix included (#724)    // token->f64 decode: doc.float(wstr_decode_f64($1))
+             / INTEGER => { CODE: "SLit", val: $1, txt: $1 }    // token->i64 decode: doc.int(wstr_decode_i64($1))
              / DOLLAR IDENT => { CODE: "SParam", name: $2 }            // $name — captured IDENT
              / IDENT LPAREN arglist RPAREN => { CODE: "SCall", fn_name: $1, args: $3 }  // call NAME — captured IDENT
              / IDENT   => { CODE: "SField", base: NULLBASE, name: $1 } // bare field-root; captured IDENT

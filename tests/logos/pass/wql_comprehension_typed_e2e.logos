@@ -1,0 +1,21 @@
+// WQL — A COMPREHENSION'S ELEMENTS HAVE THE HEAD'S TYPE (E4.4, 2026-10-02).
+//
+// `[n * 2 for n in nums if n > lo]` over `nums: &[u8]` is a `Vec<u8>`: the loop
+// variable has the slice's element type (`stamp_comp_vars`), the head's
+// arithmetic has its operand's type (Rust typing), and the element type is the
+// head's TYPE. It was the head's CLASS representative — `Vec<i64>` — and the
+// loop variable had no recorded type at all (the `i64` baseline).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Driver { pub k: i64 }
+pub deem doubles(rows: &[Driver], nums: &[u8], lo: u8) { from rows r select [ n * 2 for n in nums if n > lo ] }
+fn main() -> i32 {
+    let drivers: [Driver; 1] = [ Driver { k: 0i64 } ];
+    let nums: [u8; 3] = [ 1u8, 3u8, 7u8 ];
+    let rows: Vec<Vec<u8>> = doubles(&drivers[..], &nums[..], 2u8).unwrap();
+    let inner: &Vec<u8> = rows.borrow(0i64);
+    if inner.len() != 2i64 { return 2i32; }
+    if inner.get(1i64) != 14u8 { return 4i32; }
+    return 0i32;
+}

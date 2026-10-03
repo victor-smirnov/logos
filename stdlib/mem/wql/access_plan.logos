@@ -27,6 +27,7 @@ use logos.lang.str;
 use logos.mem.string;
 use logos.std.wql.params;    // MacroParams — rel names, the declared op table
 use logos.std.wql.codegen;   // plan_trace / string_as_str — the ONE decision channel (S4a)
+use logos.std.wql.why;       // AccessGround — the access path's ground as rules over facts (E2)
 
 // ── Access kinds ──────────────────────────────────────────────────────────
 // How the source will be read. A SCAN asks for every row; a POINT probe asks
@@ -418,7 +419,9 @@ pub struct AccessPlan {
     pub col: [String; 8],
     pub cmp: [String; 8],   // the DEMAND this access answers
     pub exact: [bool; 8],  // its rows are precisely the demand's matches
-    pub why: [String; 8],
+    // The access path's GROUND per rel (why.logos `ag_pack`): the rule that fired
+    // and the facts it fired on. It was the rendered sentence until 2026-10-02.
+    pub ground: [i64; 8],
     /// STREAM instead of materialize (ADR 0024 S4). The producer hands back an
     /// iterator AND the plan consumes it exactly once, so no `Vec` is built at
     /// all: a `find` over a million rows stops at the first match, and a scan
@@ -432,7 +435,9 @@ pub struct AccessPlan {
     /// is an eagerly-drained one — never the reverse — which is why draining is
     /// always available as the fallback.
     pub stream: [bool; 8],
-    pub swhy: [String; 8],
+    // The MODE ground per rel (why.logos `MA_*`/`MR_*`, packed as `ag_pack`):
+    // stream or materialize, and on what. A sentence until 2026-10-02.
+    pub mground: [i64; 8],
     /// ADR 0025 S3 — THE ELISION, decided by the walk and recorded ONCE. The
     /// query has an `order by` over exactly the column this source declares its
     /// rows already arrive sorted by, so no Sort node was inserted and the walk
@@ -517,7 +522,8 @@ pub struct AccessPlan {
     /// walk. `size_at` naming ONE binding per rel is what holds that.
     pub size_fn: [String; 8],
     pub size_at: [String; 8],
-    pub size_why: [String; 8],
+    // The SIZE ground per rel (`ZA_SIZE` / `ZR_*`).
+    pub zground: [i64; 8],
     pub n:     i64,
     /// The residual filter is redundant and will be dropped. A property of the
     /// QUERY, not of a rel: the filter belongs to the query node, and only an
@@ -535,9 +541,9 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         col:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         cmp:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         exact: [false; 8],
-        why:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        ground: [0i64; 8],
         stream: [false; 8],
-        swhy:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        mground: [0i64; 8],
         ord_noop: [false; 8],
         ord_rev:  [false; 8],
         mgnd:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
@@ -548,8 +554,7 @@ pub fn access_plan_new(n: i64) -> AccessPlan {
         nd_n:    0i64,
         size_fn: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         size_at: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        size_why: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
-                   String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        zground: [0i64; 8],
         n: n,
         drop_where: false,
     };
@@ -702,8 +707,12 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
     while ri < ap.n {
         let offers: bool = ap_offers(ap, prm, ri);
         let nx: i64 = ap.prelude_ix(ri);
+        let mut g: AccessGround = ag_new();
+        ag_fact(&mut g, MA_ITER(), offers);
+        ag_fact(&mut g, MA_ORDERED(), ap.ord_noop[ri]);
+        ag_fact(&mut g, MA_DRAIN(), nx >= 0i64);
         if !offers {
-            ap.swhy[ri] = String::from_str("materialized: the producer returns a container, not an iterator");
+            g.rule = MR_CONTAINER();
             // The node question is answered by the PRODUCER here, whatever the
             // walk concluded about second reads: a container is a buffer
             // already, so no node was inserted (`ap_drain` refuses one) and the
@@ -717,11 +726,11 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
             // reader comparing two plans needs the access line to name the
             // reason it stopped.
             ap.stream[ri] = true;
-            if ap.ord_rev[ri] {
-                ap.swhy[ri] = String::from_str("streamed BACKWARD: the producer is an iterator over the column the rows already arrive sorted by, the plan reads it once, and `desc` is one landing at the end plus a backward pull");
+            if ag_fact(&mut g, MA_DESC(), ap.ord_rev[ri]) {
+                g.rule = MR_ORDERED_REV();
                 ap.mgnd[ri] = String::from_str(MG_ORDERED_SOURCE_REV());
             } else {
-                ap.swhy[ri] = String::from_str("streamed: the producer is an iterator, the plan reads it once, and the `order by` is over the column the rows already arrive sorted by");
+                g.rule = MR_ORDERED();
                 ap.mgnd[ri] = String::from_str(MG_ORDERED_SOURCE());
             }
         } else if nx >= 0i64 {
@@ -729,11 +738,12 @@ pub fn access_plan_decide_mode(ap: &mut AccessPlan, prm: &MacroParams) {
             // `nd_why` used to be written from `owhy` independently and could
             // report a materialization two ways; now the per-rel line in
             // `explain()` and the node line quote one string.
-            ap.swhy[ri] = String::from_str(string_as_str(&ap.nd_why[nx]));
+            g.rule = MR_DRAINED();
         } else {
             ap.stream[ri] = true;
-            ap.swhy[ri] = String::from_str("streamed: the producer is an iterator and the plan reads it once");
+            g.rule = MR_STREAM();
         }
+        ap.mground[ri] = ag_pack(&g);
         ri = ri + 1i64;
     }
 }
@@ -755,10 +765,11 @@ pub fn access_plan_ask_size(ap: &mut AccessPlan, prm: &MacroParams) {
         if prm.rel_size_fn[ri].len() > 0i64 {
             ap.size_fn[ri] = String::from_str(prm.rel_size_fn[ri]);
             ap.size_at[ri] = String::from_str(string_as_str(&prm.rel_size_at[ri]));
-            ap.size_why[ri] = String::from_str("measured: the source reports its size, read once before the first row");
-        } else {
-            ap.size_why[ri] = String::from_str("unmeasured: the source declares no size operation, so the cardinality ORDINAL is all this plan has");
         }
+        let mut zg: AccessGround = ag_new();
+        zg.rule = if ag_fact(&mut zg, ZA_SIZE(), prm.rel_size_fn[ri].len() > 0i64)
+                  { ZR_MEASURED() } else { ZR_UNMEASURED() };
+        ap.zground[ri] = ag_pack(&zg);
         ri = ri + 1i64;
     }
 }
@@ -766,7 +777,7 @@ pub fn access_plan_ask_size(ap: &mut AccessPlan, prm: &MacroParams) {
 impl AccessPlan {
     /// Record the chosen operation for rel `ri`.
     pub fn choose(self: &mut AccessPlan, ri: i64, oi: i64, fnm: str, arg: str,
-                  col: str, cmp: str, op_cmp: str, exact: bool, why: str) {
+                  col: str, cmp: str, op_cmp: str, exact: bool, g: &AccessGround) {
         if ri < 0i64 || ri >= 8i64 { return; }
         self.op[ri]    = oi;
         self.fnm[ri] = String::from_str(fnm);
@@ -776,13 +787,15 @@ impl AccessPlan {
         self.kind[ri]  = ap_kind_of_cmp(op_cmp);
         self.card[ri]  = ap_card_of_cmp(op_cmp);
         self.exact[ri] = exact;
-        self.why[ri] = String::from_str(why);
+        self.ground[ri] = ag_pack(g);
     }
 
-    /// Record that rel `ri` is read whole, and the antecedent that decided it.
-    pub fn scan(self: &mut AccessPlan, ri: i64, why: str) {
+    /// Record that rel `ri` is read whole: the rule that decided it, on the facts
+    /// gathered so far.
+    pub fn scan(self: &mut AccessPlan, ri: i64, g: &mut AccessGround, rule: i32) {
+        g.rule = rule;
         if ri < 0i64 || ri >= 8i64 { return; }
-        self.why[ri] = String::from_str(why);
+        self.ground[ri] = ag_pack(g);
     }
 }
 
@@ -797,18 +810,37 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
         if ap.op[ri] < 0i64 { vb.push_str("scan"); }
         else { vb.push_str(string_as_str(&ap.fnm[ri])); }
         vb.push_str(" ["); vb.push_str(ap_card_name(ap.card[ri])); vb.push_str("]");
-        let w: str = if string_as_str(&ap.why[ri]).len() > 0i64 { string_as_str(&ap.why[ri]) }
-                     else { "no filter reaches this rel" };
-        plan_trace(prm.rel_names[ri], string_as_str(&vb), string_as_str(&ap.col[ri]), w);
-        if string_as_str(&ap.swhy[ri]).len() > 0i64 {
+        // The sentence is the ground's rendering; an unset ground (no filter
+        // reached this rel) renders as exactly that.
+        let ag: AccessGround = ag_unpack(ap.ground[ri]);
+        plan_trace(prm.rel_names[ri], string_as_str(&vb), string_as_str(&ap.col[ri]), ag_render(ag.rule));
+        if plan_trace_facts_on() {
+            let mut fl: String = String::new();
+            fl.push_str("[facts] "); fl.push_str(prm.rel_names[ri]); fl.push_str(" access ");
+            ag_push_facts(&ag, &mut fl);
+            fl.push_str("\n");
+            plan_trace_raw(string_as_str(&fl));
+        }
+        let mg: AccessGround = ag_unpack(ap.mground[ri]);
+        if mg.rule != MR_UNSET() {
+            let nxw: i64 = ap.prelude_ix(ri);
+            let nodew: str = if nxw >= 0i64 { string_as_str(&ap.nd_why[nxw]) } else { "" };
             plan_trace(prm.rel_names[ri],
                        if ap.stream[ri] { "stream" } else { "materialize" },
-                       "", string_as_str(&ap.swhy[ri]));
+                       "", mr_render(mg.rule, nodew));
+            if plan_trace_facts_on() {
+                let mut fm: String = String::new();
+                fm.push_str("[facts] "); fm.push_str(prm.rel_names[ri]); fm.push_str(" mode ");
+                mg_push_facts(&mg, &mut fm);
+                fm.push_str("\n");
+                plan_trace_raw(string_as_str(&fm));
+            }
         }
         // The SIZE the plan asked for, or the absence of one. Reported for every
         // rel, like the access: a plan that only speaks when it got a number
         // leaves "no line" meaning both "did not ask" and "asked and got none".
-        if string_as_str(&ap.size_why[ri]).len() > 0i64 {
+        let zg2: AccessGround = ag_unpack(ap.zground[ri]);
+        if zg2.rule != ZR_UNSET() {
             let mut sb: String = String::new();
             if string_as_str(&ap.size_fn[ri]).len() > 0i64 {
                 sb.push_str(string_as_str(&ap.size_fn[ri]));
@@ -818,7 +850,7 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             }
             plan_trace(prm.rel_names[ri],
                        if string_as_str(&ap.size_fn[ri]).len() > 0i64 { "size" } else { "size unknown" },
-                       string_as_str(&sb), string_as_str(&ap.size_why[ri]));
+                       string_as_str(&sb), zr_render(zg2.rule));
         }
         // WHAT THIS PLAN BUILDS OVER THIS REL, or the fact that it builds
         // nothing (ADR 0025 §4). Reported per rel and POSITIVELY in both

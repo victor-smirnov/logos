@@ -1,0 +1,1 @@
+wql!: `where`: mismatched types in `(l.sku == 5)` — `l.sku` is `Sku` and `5` is `a literal`

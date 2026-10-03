@@ -1,0 +1,50 @@
+// logos.std.wql.oracle_rt — what a deem compiled with LOGOS_DEEM_ORACLE calls
+// to dump its inputs and its answer for the Soufflé oracle (see dl_export).
+//
+// Soufflé's fact format: one row per line, columns separated by a TAB, a
+// number in decimal, a symbol as its raw bytes. A tab or newline inside a
+// string would split a row; the exporter's gate compares such rows as unequal
+// rather than this writer escaping them, since Soufflé would not unescape.
+package logos.std.wql.oracle_rt;
+
+use logos.lang.str;
+use logos.mem.string;
+
+extern fn open(path: *const u8, flags: i32, mode: i32) -> i32;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+extern fn close(fd: i32) -> i32;
+
+/// Create (truncate) `path` for writing; −1 on failure, which every writer
+/// below tolerates.
+pub fn wql_oracle_open(path: str) -> i32 {
+    let mut p: String = String::new();
+    p.push_str(path);
+    p.push_u8(0u8);
+    return unsafe { open(p.as_ptr(), 577i32, 420i32) };   // O_WRONLY|O_CREAT|O_TRUNC, 0644
+}
+
+fn wql_oracle_bytes(fd: i32, s: str) {
+    if fd < 0i32 { return; }
+    unsafe { write(fd, s.as_ptr(), s.len()); }
+}
+
+pub fn wql_oracle_i64(fd: i32, v: i64) {
+    let mut b: String = String::new();
+    b.push_i64(v);
+    wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
+}
+
+pub fn wql_oracle_bool(fd: i32, v: bool) {
+    if v { wql_oracle_bytes(fd, "1"); } else { wql_oracle_bytes(fd, "0"); }
+}
+
+pub fn wql_oracle_str(fd: i32, v: str) { wql_oracle_bytes(fd, v); }
+
+pub fn wql_oracle_tab(fd: i32) { wql_oracle_bytes(fd, "\t"); }
+
+pub fn wql_oracle_nl(fd: i32) { wql_oracle_bytes(fd, "\n"); }
+
+pub fn wql_oracle_close(fd: i32) {
+    if fd < 0i32 { return; }
+    unsafe { close(fd); }
+}

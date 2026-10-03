@@ -9,8 +9,9 @@
 // Covered:
 //   • i64 UDF in `where`            (weight)      — plain call in a predicate;
 //   • f64 UDF in `select`           (taxed)       — FLT lattice projection;
-//   • i32-returning UDF             (half32)      — INT family narrower than
-//     i64 widens with an emitted `as i64` cast;
+//   • i32-returning UDF             (half32)      — the call keeps its declared
+//     type: `half32(x.qty) + 100` is an `i32` node (Rust typing, E4.5 — it was
+//     widened with an emitted `as i64` and answered `Vec<i64>`);
 //   • String-returning UDF projected (label)      — the returns-String
 //     treatment: result element promotes to an OWNED String (Vec<String>).
 package test;
@@ -43,7 +44,7 @@ pub deem taxed_prices(xs: &[Item]) { from xs x
       where weight(x.qty) >= 6
       select taxed(x.price) : f64 }
 
-// i32-returning UDF: emitted as ((half32(x.qty)) as i64) inside i64 arithmetic.
+// i32-returning UDF: the call is an `i32`, and so is the arithmetic over it.
 pub deem halves(xs: &[Item]) { from xs x select half32(x.qty) + 100 }
 
 // String-returning UDF projected → Vec<String> (owned elements).
@@ -63,11 +64,11 @@ fn main() -> i32 {
     if tp.get(1i64) != 60.0f64 { return 3i32; }
 
     // half32: 2/2=1, 3/2=1, 4/2=2 → +100 → 101, 101, 102.
-    let hv: Vec<i64> = halves(&xs[..]).unwrap();
+    let hv: Vec<i32> = halves(&xs[..]).unwrap();
     if hv.len() != 3i64 { return 4i32; }
-    if hv.get(0i64) != 101i64 { return 5i32; }
-    if hv.get(1i64) != 101i64 { return 6i32; }
-    if hv.get(2i64) != 102i64 { return 7i32; }
+    if hv.get(0i64) != 101i32 { return 5i32; }
+    if hv.get(1i64) != 101i32 { return 6i32; }
+    if hv.get(2i64) != 102i32 { return 7i32; }
 
     // Only qty 4 passes → ["#c"] as owned Strings.
     let lb: Vec<String> = labels(&xs[..]).unwrap();

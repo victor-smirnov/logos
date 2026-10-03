@@ -1058,14 +1058,26 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     db.push_str(string_as_str(&prepc));
     db.push_str("(");
     push_param_args(&mut db, prm);
-    db.push_str(");\n    return ");
+    db.push_str(");\n");
+    // The Soufflé oracle (LOGOS_DEEM_ORACLE builds only): keep the answer,
+    // dump the inputs and it, then return it. `dl_export` built the statements.
+    let oracle: bool = prm.oracle_dump.len() > 0i64;
+    if oracle {
+        db.push_str("    let __r: ");
+        db.push_str(ret_ty);
+        db.push_str(" = ");
+    } else {
+        db.push_str("    return ");
+    }
     db.push_str(string_as_str(&runc));
     db.push_str("(&__pl");
     if prm.n > 0i64 {
         db.push_str(", ");
         push_param_args(&mut db, prm);
     }
-    db.push_str(");\n}\n");
+    db.push_str(");\n");
+    if oracle { db.push_str(string_as_str(&prm.oracle_dump)); }
+    db.push_str("}\n");
     emit_fn_quote_blob(fn_name, params_text, tps, ret_ty,
                        parse_block(string_as_str(&db)), prm);
 
@@ -1602,10 +1614,40 @@ fn tuple_result(proj: SExpr, t: &ElTypes, has_result_ty: bool, distinct: bool,
     return 1i32;
 }
 
-fn comp_head_ty(e: SExpr, t: &ElTypes) -> i32 {
+/// A comprehension's loop variable has the ELEMENT type of the slice it ranges
+/// over (`n` in `[n * 2 for n in nums]` with `nums: &[u8]` is a `u8`). Slice
+/// params are not in the binding table (only scalar ones are), so without this
+/// the variable typed as the `i64` baseline and the head's arithmetic with it
+/// (E4.4). Recorded in the same table the emitter reads.
+fn stamp_comp_vars(e: SExpr, ty: &mut ElTypes, prm: &MacroParams) {
     match e {
-        SExpr::Comp(cp) => { return infer_ty(cp.head_expr(), t); }
-        _ => { return EL_TY_INT(); }
+        SExpr::Comp(cp) => {
+            let mut src: str = "";
+            match cp.plan_expr() {
+                RExpr::Scan(sc) => { src = sc.src_name; }
+                RExpr::Filter(fl) => {
+                    match fl.input_expr() {
+                        RExpr::Scan(sc2) => { src = sc2.src_name; }
+                        _ => { }
+                    }
+                }
+                _ => { }
+            }
+            let pi: i64 = prm.index_of(src);
+            if pi >= 0i64 && prm.is_slice[pi] { ty.set_ty_named(cp.var, prm.tys[pi]); }
+            stamp_comp_vars(cp.head_expr(), ty, prm);
+        }
+        _ => { }
+    }
+}
+
+/// The element TYPE of a comprehension projection — its head's own type, as the
+/// emitter prints it (E4.4: it was the head's class representative, so a `u8`
+/// head made a `Vec<i64>`).
+fn comp_head_ty(e: SExpr, t: &ElTypes) -> str {
+    match e {
+        SExpr::Comp(cp) => { return infer_emit_ty(cp.head_expr(), t); }
+        _ => { return "i64"; }
     }
 }
 
@@ -2052,6 +2094,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     stamp_types_from_schema(&view, &mut ty, row_ty, sc.var_name);
     stamp_rel_source(&mut ty, &view, prm, sc.src_name, sc.var_name);
     apply_scalar_params(&mut ty, &view, prm);
+    stamp_comp_vars(sel.any().view::<SExpr>(), &mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
@@ -2070,7 +2113,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
     let is_comp: bool = is_comp_root(proj_opt);
     if !has_result_ty && is_comp {
-        result_ty = el_class_repr(comp_head_ty(proj_opt, &ty));
+        result_ty = comp_head_ty(proj_opt, &ty);
     }
     let mut elem_ty: String = String::new();
     if is_comp {
@@ -3013,11 +3056,13 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     stamp_types_from_schema(&view, &mut ty, row_ty, var_name);
     stamp_rel_source(&mut ty, &view, prm, src_name, var_name);
     apply_scalar_params(&mut ty, &view, prm);
+    stamp_comp_vars(sel.any().view::<SExpr>(), &mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
     if !check_calls(proj_sexpr, &ty, "wql!: `select`") { return false; }
+    if !check_projection_copy(proj_sexpr, &ty, "wql!: `select`") { return false; }
 
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     let mut body: String = String::new();
@@ -3039,7 +3084,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
     let is_comp: bool = is_comp_root(proj_opt);
     if !has_result_ty && is_comp {
-        result_ty = el_class_repr(comp_head_ty(proj_opt, &ty));
+        result_ty = comp_head_ty(proj_opt, &ty);
     }
     let mut elem_ty: String = String::new();
     if is_comp {
@@ -3626,7 +3671,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 // `on` — containment IS the join). `byval[i]` — the step binds a SCALAR
 // element (Vec<str> → `let s: str = (e.skills)[j]`) by VALUE (Copy lattice),
 // not by reference.
-// `jstrat`/`jkey`/`jsel`/`jwhy` — the PLAN'S DECISION, carried off the node
+// `jstrat`/`jkey`/`jsel`/`jground` — the PLAN'S DECISION, carried off the node
 // (`JS_NONE` = no planner reached it; see analyze_chain).
 struct JChain {
     base_src: str,
@@ -3641,9 +3686,8 @@ struct JChain {
     edge:  [bool; 8],
     byval: [bool; 8],
     jstrat: [i32; 8],
-    jkey:   [i32; 8],
     jsel:   [i64; 8],
-    jwhy:   [str; 8],
+    jground: [i64; 8],
 }
 
 fn jchain_new() -> JChain {
@@ -3656,9 +3700,8 @@ fn jchain_new() -> JChain {
                     edge:  [false; 8],
                     byval: [false; 8],
                     jstrat: [0i32; 8],
-                    jkey:   [0i32; 8],
                     jsel:   [-1i64; 8],
-                    jwhy:   ["", "", "", "", "", "", "", ""] };
+                    jground: [0i64; 8] };
 }
 
 // ── WAS THERE AN ORDER AXIS AT ALL? (ADR 0024 S4p) ───────────────────────────
@@ -3702,9 +3745,8 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.anti[ch.n] = false;
                 ch.onw[ch.n]  = jn.on.any().raw();
                 ch.jstrat[ch.n] = jn.jstrat;
-                ch.jkey[ch.n]   = jn.jkey;
                 ch.jsel[ch.n]   = jn.jsel as i64;
-                ch.jwhy[ch.n]   = jn.jwhy;
+                ch.jground[ch.n] = jn.jground;
                 ch.n = ch.n + 1i64;
             }
             return;
@@ -3719,9 +3761,8 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.anti[ch.n] = true;
                 ch.onw[ch.n]  = an.on.any().raw();
                 ch.jstrat[ch.n] = an.jstrat;
-                ch.jkey[ch.n]   = an.jkey;
                 ch.jsel[ch.n]   = an.jsel as i64;
-                ch.jwhy[ch.n]   = an.jwhy;
+                ch.jground[ch.n] = an.jground;
                 ch.n = ch.n + 1i64;
             }
             return;
@@ -3858,26 +3899,25 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
         } else {
             let onr: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(ch.onw[i] as *const u8) });
             let mut strat: i32 = ch.jstrat[i];
-            let mut kty: i32   = ch.jkey[i];
             let mut sel: i64   = ch.jsel[i];
             // The key's EMITTED type — the index map's key type and the type both
             // key expressions must reach. Re-derived from the SAME term index the
             // plan recorded, so the pre-decided path and the decide-here path
             // cannot disagree: `step_key_ty_of` is a function of that term.
-            let mut ktn: str = el_class_repr(kty);
+            let mut ktn: str = "i64";
             if strat == JS_NONE() {
                 let ss: StepSel = decide_join_step(onr, ch.var[i], t, h);
-                strat = ss.strat; kty = ss.key_ty; sel = ss.sel; ktn = ss.key_tn;
+                strat = ss.strat; sel = ss.sel; ktn = ss.key_tn;
                 // Traced HERE because this is where it was decided. A step the
                 // planner decided was already traced there, and echoing it
                 // would put the same decision in the log twice.
-                plan_trace(ch.var[i], js_name(strat), ktn, ss.why);
+                trace_step(ch.var[i], &ss);
             } else if sel >= 0i64 {
                 let stt: StepTerms = step_terms(onr, h);
                 if sel < stt.tl.n {
                     let sd2: EquiSides = equi_term_sides(sexpr_of_word(stt.tl.w[sel]), ch.var[i]);
                     if sd2.bw != 0i64 {
-                        ktn = step_key_ty_of(sexpr_of_word(sd2.bw), sexpr_of_word(sd2.pw), t, kty);
+                        ktn = step_key_ty_of(sexpr_of_word(sd2.bw), sexpr_of_word(sd2.pw), t);
                     }
                 }
             }
@@ -4506,9 +4546,8 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
             o.byval[k] = false;
             o.onw[k]    = jo.conw[b + j];
             o.jstrat[k] = jo.cstrat[b + j];
-            o.jkey[k]   = jo.ckey[b + j];
             o.jsel[k]   = jo.csel[b + j];
-            o.jwhy[k]   = jo.cwhy[b + j];
+            o.jground[k] = jo.cground[b + j];
             k = k + 1i64;
         }
         let mut pi: i64 = 0i64;
@@ -4523,9 +4562,8 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
                 o.byval[k] = ch.byval[q];
                 o.onw[k]    = ch.onw[q];
                 o.jstrat[k] = ch.jstrat[q];
-                o.jkey[k]   = ch.jkey[q];
                 o.jsel[k]   = ch.jsel[q];
-                o.jwhy[k]   = ch.jwhy[q];
+                o.jground[k] = ch.jground[q];
                 k = k + 1i64;
             }
             pi = pi + 1i64;
@@ -4568,9 +4606,8 @@ fn jch_of(ch: &JChain) -> JCh {
             c.anti[s]  = ch.anti[s - 1i64];
             c.edge[s]  = ch.edge[s - 1i64];
             c.strat[s] = ch.jstrat[s - 1i64];
-            c.key[s]   = ch.jkey[s - 1i64];
             c.sel[s]   = ch.jsel[s - 1i64];
-            c.swhy[s]  = ch.jwhy[s - 1i64];
+            c.sground[s] = ch.jground[s - 1i64];
         }
         s = s + 1i64;
     }
@@ -4601,6 +4638,16 @@ fn push_jctable(out: &mut String, jo: &JoinOrder) {
         out.push_i64(jo.crole[r]);
         out.push_str("i64");
         r = r + 1i64;
+    }
+    out.push_str("], npin: ");
+    out.push_i64(jo.npin);
+    out.push_str("i64, pin_after: [");
+    let mut q: i64 = 0i64;
+    while q < 8i64 {
+        if q > 0i64 { out.push_str(", "); }
+        out.push_i64(jo.pin_after[q]);
+        out.push_str("i64");
+        q = q + 1i64;
     }
     out.push_str("] }");
 }
@@ -4883,6 +4930,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 
     // Validate every clause's calls (select / where / order / per-step on).
     if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
+    if !check_projection_copy(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
     if has_where {
         if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
         if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
@@ -5474,7 +5522,28 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         return false;
     }
     if !key_norm_ok(string_as_str(&key_tn3s), key_ty, "wql!: `group by`") { return false; }
-    if el_ty(string_as_str(&key_tn3s)).cls < 0i32 && !el_eq_hash(key_ety) {
+    // A NAMED key (a declared struct/enum) groups by its own `==`: the frame is a
+    // linear scan over `__g_key: Vec<K>`, so it needs equality and a key that can
+    // be copied out of the row — asked of the impls, and the missing one named.
+    if key_ety == EL_TY_NAMED() {
+        let kn: str = string_as_str(&key_tn3s);
+        let mut miss: str = "";
+        if !named_has_eq_strict(kn) { miss = "`Eq` — the groups are found by the frame's `==`, which compares keys through `Eq` (`PartialEq` alone is not enough here)"; }
+        else if !named_is_copy(kn) { miss = "`Copy` — each group's key is copied out of its first row"; }
+        if miss.len() > 0i64 {
+            let mut mn: String = String::new();
+            mn.push_str("wql!: a `group by` key of type `");
+            mn.push_str(kn);
+            mn.push_str("` needs ");
+            mn.push_str(miss);
+            mn.push_str("; derive or implement it on `");
+            mn.push_str(kn);
+            mn.push_str("`");
+            error(string_as_str(&mn));
+            return false;
+        }
+    }
+    if key_ety != EL_TY_NAMED() && el_ty(string_as_str(&key_tn3s)).cls < 0i32 && !el_eq_hash(key_ety) {
         // The out-of-lattice fallback: no NAME to ask, so the class is all there is.
         // The DECISION is the shared table; only the WORDING branches, because the
         // f64 case has a named mechanism worth stating and an unadmitted class does
@@ -5496,9 +5565,8 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut uda_fin: [bool; 8] = [false; 8];
     let mut uda_acc: [str; 8]  = ["", "", "", "", "", "", "", ""];
     let mut uda_ret: [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut aret:    [i32; 8]  = [0i32; 8];
     if !resolve_aggs(&view, &aggs, acount, &mut uda, &mut uda_fin,
-                     &mut uda_acc, &mut uda_ret, &mut aret) { return false; }
+                     &mut uda_acc, &mut uda_ret) { return false; }
     // ── THE ACCUMULATOR'S TYPE, DECIDED ONCE AND ABOVE EVERYTHING THAT READS IT
     // ⚠ THIS CALL USED TO SIT 70 LINES BELOW, BESIDE THE BATCH FOLD, AND THAT
     // POSITION IS WHAT MADE THE `u64` CELL LOOK LIKE A ONE-LINE FIX. Three
@@ -5521,12 +5589,13 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // `emit_incremental` rather than recomputed there.
     let mut acc: [str; 8] = ["", "", "", "", "", "", "", ""];
     compute_acc_tys(&aggs, acount, &ty, h, &uda, &agg_flt, &mut acc);
-    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &aret, &acc, &mut ty);
+    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &uda_ret, &acc, &mut ty);
     let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
-    compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &acc, &mut act);
+    compute_agg_col_tys(acount, &agg_flt, &uda, &uda_ret, &acc, &mut act);
 
     // Validate clause calls (select / where / on preds; the key is validated above).
     if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
+    if !check_projection_copy(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
     if has_where {
         if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
         if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
@@ -5588,11 +5657,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let pure_group: bool = agg_group_frame_pure(&aggs, acount, proj_opt, having_ref,
                                                 has_having, mods);
     if pure_group {
-        plan_trace("aggclass", "PURE", fn_name,
-                   "`select`/`having`/`order by` are over `key` + aggregate outputs only — the group frame is the whole answer");
+        aggclass_trace(fn_name, AC_PURE());
     } else {
-        plan_trace("aggclass", "REP", fn_name,
-                   "a clause above the group names a SOURCE ROW — the group must carry a representative base row");
+        aggclass_trace(fn_name, AC_REP());
     }
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -6385,14 +6452,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // axis avoids by not tracing before eligibility.
     if rel_m >= 0i64 && !retr {
         if dred {
-            plan_trace("rel dred driver", "EMITTED", bare,
-                       "the four-phase DRed epoch driver `__wql_<q>_scc<c>_dred` — `_od` then `_odp` then `_cpt` then `_i`, on driver-local state, with `DE ⊆ __edb` enforced EXACTLY against the accumulated input before phase 1a and a SIGNED group fold (`__rm_<m>` at −1, the post-`_cpt` suffix at +1). ATOMIC AT THE HANDLE: every phase runs on a full local copy and the caller's handle is written once, at the end, so an `Err` from any phase or either fold half leaves it byte-identical. THE PUBLIC RETRACTION SURFACE FOLLOWS — `<q>_retract(&mut h, de, …)`, `<q>_epoch`'s signature exactly, forwarding here; `incr_retract_eligible` still declines (`retr` stays false, so no `<q>_apply` and no `__wd`) and the surface is emitted from this admission instead. ⚠ AND IT IS A PESSIMIZATION THE CALLER PAYS FOR: measured 1.15-1.9x a from-scratch recompute over the survivors, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range — the repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations");
+            dred_trace(bare, "EMITTED", DR_EMIT());
         } else if !retract_ok(aggs, acount, acc) {
-            plan_trace("rel dred driver", "declined", bare,
-                       "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and the driver's NEGATIVE fold is exactly the `(S+x)-x != S` arithmetic that is Victor's OPEN decision D4 — the same `retract_ok` derivation `incr_retract_eligible` reads, asked of a rel-backed query for the first time");
+            dred_trace(bare, "declined", DR_FLOAT());
         } else {
-            plan_trace("rel dred driver", "declined", bare,
-                       "an aggregate is `min`/`max` — it retracts by RESCAN over a per-(group, aggregate) value→multiplicity MAP, and that map is a handle field built only on the RETRACTION surface (`want_map = retr && is_mm`), which a rel-backed query does not have; the −1 fold would have nothing to rescan. A MISSING STATE refusal, not an arithmetic one");
+            dred_trace(bare, "declined", DR_MINMAX());
         }
     }
 
@@ -8987,7 +9051,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     let mut rsi: i64 = 0i64;
     while rsi < ch.n {
         if incr_src_is_derived_rel(prm, ch.src[rsi]) {
-            return incr_decline(qn, "a JOIN-POSITION source is a DECLARED `rel` — the handle's joined side is stored as a weighted Z-set (`__s<k>`/`__s<k>w`) and a derived rel has no multiplicity to store: its rows come out of a set-semantics fixpoint over the ACCUMULATED input, which is state the join arm does not own");
+            return incr_decline_r(qn, IR_JOIN_SRC_REL());
         }
         rsi = rsi + 1i64;
     }
@@ -8996,14 +9060,14 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // A rel in BASE position AND a join step: the epoch would have to
         // maintain the fixpoint total AND a weighted Z-set side in one call.
         if ch.n > 0i64 {
-            return incr_decline(qn, "the BASE source is a declared `rel` and the query also JOINS — one epoch would have to extend a set-semantics fixpoint total and integrate a weighted Z-set side, and the source TAG that tells them apart lives on `<q>_apply`, which a rel-backed query does not emit");
+            return incr_decline_r(qn, IR_BASE_REL_JOINS());
         }
         // THE SHAPE, DERIVED ONCE, IN `stamp_rel_incr_shape`. The ground travels
         // with the flag — see the note on `rel_incr_why`. ⚠ This is also what
         // keeps the admission and the ARTIFACT in step: `emit_rel_fns` emits the
         // `_i` driver under the same flag, so an admission that disagreed would
         // call a function that does not exist.
-        if !prm.rel_incr_ok[rel_m] { return incr_decline(qn, prm.rel_incr_why[rel_m]); }
+        if !prm.rel_incr_ok[rel_m] { return incr_decline_dyn(qn, IR_REL_NOT_INCR(), prm.rel_incr_why[rel_m]); }
         // ── THE ACCUMULATED INPUT MUST BE OWNABLE AND IDENTIFIABLE ──────────
         // The handle keeps the rel's EDB — every fact ever applied — because the
         // fixpoint is a function of the ACCUMULATED input and nothing else. That
@@ -9025,10 +9089,10 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             pk = pk + 1i64;
         }
         if nsl != 1i64 {
-            return incr_decline(qn, "a rel-backed query must have EXACTLY ONE slice parameter — `<q>_epoch` keeps the parameter list verbatim, so with two the caller passes both on every call and nothing says which is the delta; the join arm answers that with a source TAG on `<q>_apply`, which a rel-backed query does not emit");
+            return incr_decline_r(qn, IR_REL_SLICE_COUNT());
         }
         if !incr_row_ty_ok(ty, prm.tys[spi]) {
-            return incr_decline(qn, "the rel's INPUT ROW TYPE is not OWNABLE AND IDENTIFIABLE field by field — the handle accumulates every fact ever applied, so a `str` field is a borrow of source bytes it does not own and an `f64` field has no `==` that is identity (NaN != NaN, -0.0 == +0.0) for the insert presence gate to search on");
+            return incr_decline_r(qn, IR_REL_ROW_TY());
         }
         // The rel's own ROW type is stored too (the fixpoint total). Its columns
         // are the rel's DECLARED ones, so the question is asked of the column
@@ -9039,7 +9103,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         while ci2 < prm.rel_ccnt[rel_m] {
             let ct: str = prm.relc_ty[coff + ci2];
             if !incr_ty_ok(ct) || el_class_lookup(ct) == EL_TY_FLT() || el_class_lookup(ct) < 0i32 {
-                return incr_decline(qn, "a rel COLUMN is `str` or `f64` — the handle owns the fixpoint TOTAL, and a `str` column is a borrow while an `f64` column has no `==` that is identity for the shadow set that makes the fixpoint terminate");
+                return incr_decline_r(qn, IR_REL_COL_TY());
             }
             ci2 = ci2 + 1i64;
         }
@@ -9065,7 +9129,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // step there is ONE `on` predicate and NO placement question, and the nest
     // is two loops in either direction — which is why the line falls here and
     // not at "arbitrary chain".
-    if ch.n > 1i64 { return incr_decline(qn, "the input is a JOIN CHAIN OF TWO OR MORE STEPS — rooting the nest at a step other than the base re-splits every equi-term's build/probe halves and re-places every floating predicate, which is `decide_join_orders`' derivation and this emitter does not run it"); }
+    if ch.n > 1i64 { return incr_decline_r(qn, IR_CHAIN_LONG()); }
     if ch.n == 1i64 {
         // A delta must name its SOURCE, and the tag lives in `<q>_apply`'s
         // signature — which exists only on the RETRACTING surface. The two axes
@@ -9074,20 +9138,20 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // would need a THIRD emitted signature, `<q>_apply(&mut h, __src, …)`
         // with no weight. Named, not hidden — and it is reached only by a query
         // whose aggregate list already lost retraction to D4.
-        if !retr { return incr_decline(qn, "the query JOINS and keeps the INSERT-ONLY surface (an aggregate accumulates in `f64` — decision D4), and the source TAG a join delta must carry lives on `<q>_apply`, which only the retracting surface emits"); }
+        if !retr { return incr_decline_r(qn, IR_JOIN_INSERT_ONLY()); }
         // An ANTI step is a MATCHCOUNT, not a product: a base row's membership
         // in the output flips when its match count crosses 0, so a delta on the
         // anti side must EMIT A RETRACTION of a row that itself did not change.
         // That is a second state machine (the dynamic engine spends
         // `incr.logos:1149-1251` on it) and it is not this fold.
-        if ch.anti[0] { return incr_decline(qn, "the join step is ANTI — anti is a MATCHCOUNT whose 0↔positive crossing must emit a retraction of a row that never changed, which is a second state machine and not the product rule"); }
+        if ch.anti[0] { return incr_decline_r(qn, IR_JOIN_ANTI()); }
         // A TRAVERSAL step's source is a field-path expression re-derived per
         // BOUND ROW (`a.children`), so there is no standalone relation for the
         // handle to own and no tag that could name one.
-        if ch.edge[0] { return incr_decline(qn, "the join step is a TRAVERSAL (`edge`) — its source is re-derived per bound row, so there is no standalone relation for the handle to own or for a source tag to name"); }
+        if ch.edge[0] { return incr_decline_r(qn, IR_JOIN_EDGE()); }
         // A BY-VALUE binding is the streamed/iterator shape's; the stored side is
         // a `Vec` this emitter indexes by reference.
-        if ch.byval[0] { return incr_decline(qn, "the join step binds its row BY VALUE — the handle's stored side is a `Vec` this emitter binds by reference, and the two spellings are not interchangeable in the emitted predicate"); }
+        if ch.byval[0] { return incr_decline_r(qn, IR_JOIN_BYVAL()); }
         // A STREAMED source yields its rows ONCE. The handle would have to be
         // that single reader and would then own a relation the caller can no
         // longer re-present as a delta.
@@ -9097,7 +9161,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // readings became `rel_src_unmaterialized` (the plan's node); this one
         // is a decision and stays on the decision's boolean.
         if prm.rel_src_streams(ch.base_src) || prm.rel_src_streams(ch.src[0]) {
-            return incr_decline(qn, "a join source STREAMS — an iterator yields its rows once, so the handle would have to be its only reader and the caller could never re-present it as a delta");
+            return incr_decline_r(qn, IR_JOIN_STREAMS());
         }
         // A SELF-JOIN puts ONE relation in TWO chain positions, so one tag would
         // have to feed both — and integrating the delta once while folding it
@@ -9105,7 +9169,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // same-epoch double count this slice's fixture exists to catch. The
         // dynamic engine refuses it too (`incr.logos:1780`).
         if str_eq(ch.base_src, ch.src[0]) {
-            return incr_decline(qn, "the join is a SELF-JOIN — one relation in two chain positions, so one source tag would feed both, and folding a delta against a state that must already contain it is the double count this rule exists to avoid");
+            return incr_decline_r(qn, IR_SELF_JOIN());
         }
         // THE HANDLE OWNS ITS STORED SIDES, ROW BY ROW AND FIELD BY FIELD.
         // ⚠⚠ THIS CLAUSE IS NOT A FORMALITY AND THE COMPILER DOES NOT ENFORCE
@@ -9118,31 +9182,31 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // the group key, of every accumulator column and of every projected
         // component — and never of the ROW, because until now no row was stored.
         if !incr_row_ty_ok(ty, ch.base_ty) || !incr_row_ty_ok(ty, ch.ty[0]) {
-            return incr_decline(qn, "a join source's ROW TYPE is not OWNABLE AND IDENTIFIABLE field by field — the handle stores whole rows of both sides, so a `str` field is a borrow of source bytes it does not own, a struct field is an ownership question this clause does not walk, and an `f64` field has no `==` that is identity (NaN != NaN, -0.0 == +0.0) for the Z-set's normal form to search on");
+            return incr_decline_r(qn, IR_JOIN_ROW_TY());
         }
     }
     // A PRE-GROUP `where` is admissible in principle and is refused here for the
     // same reason the dynamic engine refuses it: it has never been folded through
     // the incremental path, so admitting it would be an untested arm. `having`
     // sits ABOVE the group and IS admitted — it is re-evaluated per snapshot.
-    if has_where { return incr_decline(qn, "a PRE-GROUP `where` filters rows before the fold, and that arm has never been folded incrementally — `having`, which sits above the group, IS admitted"); }
+    if has_where { return incr_decline_r(qn, IR_PRE_WHERE()); }
     // `order by` / `limit` / `distinct` all act on the SNAPSHOT rather than on
     // the fold, so they are cheap to add later and are excluded now only to keep
     // the emitted surface to what a fixture in this slice actually asserts.
-    if mods.has_sort || mods.has_limit || mods.distinct { return incr_decline(qn, "`order by` / `limit` / `distinct` act on the SNAPSHOT rather than on the fold — cheap to add, excluded here so the emitted surface stays what a fixture asserts"); }
+    if mods.has_sort || mods.has_limit || mods.distinct { return incr_decline_r(qn, IR_MODIFIERS()); }
     // A generic `deem` would need the handle TYPE to carry the same type
     // parameters, which is a second emitted-surface question (they would ride
     // every one of the three fns as well). Named deferral.
-    if prm.tparams.len() > 0i64 { return incr_decline(qn, "the query is GENERIC — the handle type would have to carry the same type parameters and so would all three derived fns"); }
+    if prm.tparams.len() > 0i64 { return incr_decline_r(qn, IR_GENERIC()); }
     let mut i: i64 = 0i64;
     while i < acount {
         // A UDA threads the user's `A` and its own `_step`; its accumulator is
         // outside `agg_acc_ty`'s domain by construction, and the dynamic engine's
         // algebra gate refuses it too.
-        if uda[i] { return incr_decline(qn, "a USER AGGREGATE threads its own accumulator type through `_step`, which is outside `agg_acc_ty`'s domain"); }
+        if uda[i] { return incr_decline_r(qn, IR_UDA()); }
         // THE HANDLE OWNS ITS CELLS. A `str` accumulator column would be a BORROW
         // of a source row, and the source is exactly what a handle does not keep.
-        if !incr_ty_ok(act[i]) { return incr_decline(qn, "an aggregate COLUMN is `str`/`String` — a handle owns its cells and a `str` cell is a borrow of a source row it does not keep"); }
+        if !incr_ty_ok(act[i]) { return incr_decline_r(qn, IR_AGG_STR()); }
         i = i + 1i64;
     }
     // The group KEY is stored by value for the handle's whole life, so the same
@@ -9150,8 +9214,8 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // not an oversight: the dynamic engine solves it by interning every string
     // into its own Writ arena, which would put a Writ back into a path whose
     // whole thesis is that it needs none.
-    if !incr_ty_ok(key_ty) { return incr_decline(qn, "the GROUP KEY is `str`/`String` — the dynamic engine solves this by interning into its own Writ, which is the one thing a typed handle exists not to need"); }
-    if tres == 0i32 && !incr_ty_ok(result_ty) { return incr_decline(qn, "the RESULT element type is `str`/`String`"); }
+    if !incr_ty_ok(key_ty) { return incr_decline_r(qn, IR_KEY_STR()); }
+    if tres == 0i32 && !incr_ty_ok(result_ty) { return incr_decline_r(qn, IR_RESULT_STR()); }
     // `select` and `having` must be evaluable from the GROUP ROW alone — no
     // source row (its index is meaningless across epochs) and no scalar
     // parameter (it is a per-call value, and `<q>_snapshot` takes none).
@@ -9159,25 +9223,25 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     let mut j: i64 = 0i64;
     while j < acount { onames[j] = aggs.agg_at(j).out; j = j + 1i64; }
     if !sexpr_over_group_names(proj_e, &onames, acount) {
-        return incr_decline(qn, "`select` reaches a name that is neither `key` nor an aggregate output — a source row (its index means nothing across epochs) or a scalar parameter (`<q>_snapshot` takes none)");
+        return incr_decline_r(qn, IR_SELECT_NAME());
     }
     if has_having && !sexpr_over_group_names(having_ref.any().view::<SExpr>(), &onames, acount) {
-        return incr_decline(qn, "`having` reaches a name that is neither `key` nor an aggregate output");
+        return incr_decline_r(qn, IR_HAVING_NAME());
     }
     // Every projected COMPONENT must be a value the handle can hand back without
     // borrowing anything it does not own.
     if !incr_proj_ty_ok(proj_e, ty) {
-        return incr_decline(qn, "a projected COMPONENT is a `str`/`String` value, which the handle cannot hand back without borrowing something it does not own");
+        return incr_decline_r(qn, IR_PROJ_STR());
     }
     if ch.n == 1i64 {
-        plan_trace("incremental", "EMITTED", qn, "one join step over two owned relations, group by, weighted aggregates over self-contained types");
+        incr_emit(qn, IR_EMIT_JOIN());
         return true;
     }
     if rel_m >= 0i64 {
-        plan_trace("incremental", "EMITTED", qn, "one bare scan over a RECURSIVE `rel`, group by, insert-only aggregates — the handle owns the accumulated input and the fixpoint TOTAL, and each epoch EXTENDS that total through the cross-epoch semi-naive driver");
+        incr_emit(qn, IR_EMIT_REL());
         return true;
     }
-    plan_trace("incremental", "EMITTED", qn, "one bare scan, group by, insert-only aggregates over self-contained types");
+    incr_emit(qn, IR_EMIT_SCAN());
     return true;
 }
 
@@ -9280,6 +9344,35 @@ fn incr_src_is_derived_rel(prm: &MacroParams, src: str) -> bool {
 fn incr_decline(qn: str, why: str) -> bool {
     plan_trace("incremental", "declined", qn, why);
     return false;
+}
+
+/// A refusal named by its RULE (why.logos `IR_*`): the sentence is the rule's
+/// rendering, and `[facts]` names the rule — the antecedent that failed (E3).
+fn incr_decline_r(qn: str, r: i32) -> bool {
+    plan_trace("incremental", "declined", qn, ir_render(r));
+    incr_facts(qn, r);
+    return false;
+}
+
+/// The one refusal whose sentence is an OPERAND — the rel registry's own ground
+/// for a rel that cannot be accumulated (`rel_incr_why`), under one rule.
+fn incr_decline_dyn(qn: str, r: i32, why: str) -> bool {
+    plan_trace("incremental", "declined", qn, why);
+    incr_facts(qn, r);
+    return false;
+}
+
+fn incr_emit(qn: str, r: i32) {
+    plan_trace("incremental", "EMITTED", qn, ir_render(r));
+    incr_facts(qn, r);
+}
+
+fn incr_facts(qn: str, r: i32) {
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" incremental rule=");
+    fl.push_str(ir_name(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
 }
 
 // ══ MAY THIS QUERY'S HANDLE BE RUN BACKWARDS? ══════════════════════════════
@@ -9414,21 +9507,57 @@ fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8],
     // below is unchanged for the same reason: what is missing is still the
     // mechanism, not a preference.
     if rel_backed {
-        return incr_no_retract(qn, "the query is backed by a RECURSIVE `rel` — a derived fact may support ITSELF through a cycle, so there is no amount to subtract; the correct mechanism is DRed (over-delete, compact, re-derive), a provenance state machine and not an inverse fold. \u26a0 AND DRed IS A PESSIMIZATION TODAY: measured 1.15-1.9x a from-scratch recompute, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range \u2014 so admitting this shape is not a free capability, and the price must be named to the caller at the moment it becomes reachable. The repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations");
+        return incr_no_retract_r(qn, RT_REC_REL());
     }
     if !retract_ok(aggs, acount, acc) {
-        return incr_no_retract(qn, "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take");
+        return incr_no_retract_r(qn, RT_FLOAT_ACC());
     }
-    plan_trace("retraction", "EMITTED", qn, "every aggregate in the list runs backwards exactly — `count` and integer `sum` invert exactly under their own checked predicate, `min`/`max` rescan a typed value→multiplicity map");
+    plan_trace("retraction", "EMITTED", qn, rt_render(RT_EXACT()));
+    retract_facts(qn, RT_EXACT());
     return true;
 }
 
 /// One query that keeps the INSERT-ONLY surface, traced with its GROUND.
 /// A separate channel name from `incr_decline`'s because it is a different
 /// answer: the query DOES get a handle, it does not get a `<q>_retract`.
+/// The DRed driver's verdict, named by its rule (why.logos `DR_*`, E3).
+fn dred_trace(bare: str, verdict: str, r: i32) {
+    plan_trace("rel dred driver", verdict, bare, dr_render(r));
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(bare); fl.push_str(" dred rule=");
+    fl.push_str(dr_name(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
+}
+
+/// The aggregate's group-frame class, named by its rule (why.logos `AC_*`, E3).
+fn aggclass_trace(fn_name: str, r: i32) {
+    plan_trace("aggclass", ac_verdict(r), fn_name, ac_render(r));
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(fn_name); fl.push_str(" aggclass rule=");
+    fl.push_str(ac_verdict(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
+}
+
 fn incr_no_retract(qn: str, why: str) -> bool {
     plan_trace("retraction", "declined", qn, why);
     return false;
+}
+
+/// The refusal named by its rule (why.logos `RT_*`, E3).
+fn incr_no_retract_r(qn: str, r: i32) -> bool {
+    plan_trace("retraction", "declined", qn, rt_render(r));
+    retract_facts(qn, r);
+    return false;
+}
+
+fn retract_facts(qn: str, r: i32) {
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" retraction rule=");
+    fl.push_str(rt_name(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
 }
 
 /// May a value of this type be OWNED by a handle that outlives the call that
@@ -9695,8 +9824,7 @@ fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &[str; 8],
         let act_f: ExprBlob = parse_type(act[gi]);
         if uda[gi] {
             let acc_read: ExprBlob = quote_expr! { #n_ga.get(#(idx)) };
-            let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gi],
-                                                  uda_fin_cast(uda_ret[gi]));
+            let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gi], "");
             binds.push(quote_block! { let #n_out: #(act_f) = #(fin); });
         } else if fnid == AGG_AVG() && has_cnt {
             binds.push(quote_block! {
@@ -9803,15 +9931,17 @@ fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
 // aggregate outputs. A UDA and a float still go by class: `aret` is a reflected
 // CLASS with no name to carry, and `f64` IS the float representative.
 fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
-                       uda: &[bool; 8], aret: &[i32; 8], acc: &[str; 8],
+                       uda: &[bool; 8], uda_ret: &[str; 8], acc: &[str; 8],
                        ty: &mut ElTypes) {
     let mut i: i64 = 0i64;
     while i < acount {
         let a: RAgg = aggs.agg_at(i);
         if uda[i] {
-            ty.set_ty(a.out, aret[i]);
+            // A user aggregate's output is its declared result TYPE `R` (E4.4) —
+            // it was R's class representative, so a `u8` R read back as i64.
+            ty.set_ty_named(a.out, uda_ret[i]);
         } else if agg_flt[i] {
-            ty.set_ty(a.out, EL_TY_FLT());
+            ty.set_ty_named(a.out, "f64");
         } else {
             ty.set_ty_named(a.out, acc[i]);
         }
@@ -10011,12 +10141,11 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
 // All of this is METACALL-TIME data only — the IR keeps just `RAgg.fn_name`
 // (queue-2: an interpreter re-resolves the same names against its registry).
 // Outputs (parallel to the spec list): `uda` (is-UDA), `uda_fin` (has _fin),
-// `uda_acc` (A, verbatim), `uda_ret` (R, verbatim), `aret` (R's EL class).
+// `uda_acc` (A, verbatim), `uda_ret` (R, verbatim — the output's type).
 // False (error surfaced) on a convention violation.
 fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
                 uda: &mut [bool; 8], uda_fin: &mut [bool; 8],
-                uda_acc: &mut [str; 8], uda_ret: &mut [str; 8],
-                aret: &mut [i32; 8]) -> bool {
+                uda_acc: &mut [str; 8], uda_ret: &mut [str; 8]) -> bool {
     let mut i: i64 = 0i64;
     while i < acount {
         let a: RAgg = aggs.agg_at(i);
@@ -10130,7 +10259,6 @@ fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
                 uda_fin[i] = has_fin;
                 uda_acc[i] = acc_ty;
                 uda_ret[i] = ret_ty;
-                aret[i]    = cls;
             }
             i = i + 1i64;
         }
@@ -10151,11 +10279,11 @@ fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
 // column would turn the answer `sum{2^62, 2^62} = 2^63` — the very value the
 // widening exists to produce — back into a wrong number.
 fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
-                       aret: &[i32; 8], acc: &[str; 8], act: &mut [str; 8]) {
+                       uda_ret: &[str; 8], acc: &[str; 8], act: &mut [str; 8]) {
     let mut i: i64 = 0i64;
     while i < acount {
         if i < 8i64 {
-            if uda[i] { act[i] = el_class_repr(aret[i]); }
+            if uda[i] { act[i] = uda_ret[i]; }
             else if agg_flt[i] { act[i] = "f64"; }
             else { act[i] = acc[i]; }
         }
@@ -10163,21 +10291,6 @@ fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
     }
 }
 
-// The finalize-expression CAST TARGET for a UDA output: R narrower than the
-// i64 lattice baseline widens to `i64`; an f32 R widens to `f64`; everything
-// else needs none. Empty string = no cast.
-// ⚠ This used to return the SUFFIX text (`" as i64)"`, closing a paren its
-// caller had opened) — a half-expression that only made sense inside a
-// particular concatenation. A fragment builder takes the TYPE and shapes the
-// cast itself.
-// ⚠ AND IT IS THE SAME RULE `codegen::emit_udf_call` APPLIES, which is why it is
-// no longer written twice: a value is normalized exactly when its type is not the
-// type the EL computes in (`el::el_norm_cast`). `col_ty` was never a second
-// condition — it is `el_class_repr` of `ret_ty`'s own class by construction
-// (`compute_agg_col_tys`), so testing it tested the consequent.
-fn uda_fin_cast(ret_ty: str) -> str {
-    return el_norm_cast(ret_ty);
-}
 
 // The finalize EXPRESSION for a UDA spec, over the accumulator fragment `acc`
 // (a local name or a Vec-cell read): `<name>_fin(<acc>)` when the triple

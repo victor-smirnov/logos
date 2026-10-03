@@ -1,0 +1,17 @@
+// WQL — UNARY `-` OVER A NARROW UNSIGNED COLUMN IS REFUSED TOO.
+//
+// The twin of wql_arith_u64_neg_fail for a width whose tower is the SIGNED one:
+// `u32` computes in i64, so `el_neg` could answer, and until 2026-10-02 it did —
+// `-s.w` returned a negative i64. Under Rust typing the node is a `u32`, and the
+// refusal is about the TYPE having no negative values, not about which tower
+// would compute it.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Rec { pub id: i64, pub w: u32 }
+
+pub deem negd(src: &[Rec]) { from src s select -s.w }
+
+fn main() -> i32 { return 0i32; }

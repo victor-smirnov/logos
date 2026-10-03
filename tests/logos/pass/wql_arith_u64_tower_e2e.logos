@@ -56,7 +56,7 @@
 // refuse.
 //
 // ── WHAT IS STILL REFUSED, AND WHERE ────────────────────────────────────────
-//   `u128`/`i128` arithmetic (NO tower)        → fail/wql_arith_wide_int_fail
+//   `u128`/`i128` arithmetic (own 128-bit tower since 2026-10-02) → pass/wql_arith_128_tower_e2e
 //   a node MIXING signed and unsigned columns  → fail/wql_arith_mixed_tower_fail
 //   unary `-` over an unsigned value           → fail/wql_arith_u64_neg_fail
 //   a ternary whose branches disagree          → fail/wql_cond_branch_types_fail

@@ -410,7 +410,7 @@ tower; `el_divu` / `el_remu` were written; `el_int_op_fn` takes the tower. Witne
 * `tests/logos/pass/wql_arith_u64_tower_e2e.logos` — division, remainder, a computed `order by` key, the u64
   overflow / underflow / div-by-zero arms and a `sum` over an arithmetic argument, all at 2^63 and
   2^64−1 where the signed reading gives a **different** answer, with an i64 control block;
-* `tests/logos/fail/wql_arith_wide_int_fail.logos` — rewritten to `u128`, the only remaining towerless case;
+* the fail fixture `wql_arith_wide_int_fail` — rewritten to `u128`, the only remaining towerless case (RETIRED 2026-10-03: `u128`/`i128` gained their own checked towers, now `pass/wql_arith_128_tower_e2e`);
 * `tests/logos/fail/wql_arith_mixed_tower_fail.logos`, `tests/logos/fail/wql_arith_u64_neg_fail.logos` — the two refusals the
   second tower creates (a node mixing signednesses; unary `-` over an unsigned value);
 * `tests/logos/fail/wql_cond_branch_types_fail.logos` — row 58's over-carry half, which reached the HOST
@@ -477,7 +477,7 @@ built tree, not read off the old file:
 | F | a BOOL cell in a projection | `wql_domain_static_carrier_positions` block F |
 | G | the SORT KEY | `tests/logos/pass/wql_arith_u64_tower_e2e.logos` — `by_div` |
 | H | the JOIN KEY, computed | `wql_domain_static_carrier_positions` block H |
-| I | a UDF ARGUMENT | `wql_domain_static_carrier_positions` block I. ⚠ RE-MEASURED: the first probe used a UDF with a `u64` RETURN and was refused, which would have entered this table as "position I is refused" — the refusal is about the RETURN (pinned separately at `tests/logos/fail/wql_udf_wide_int_ret_fail.logos`) and says nothing about the argument. With an `i64` return the argument position is ADMITTED and computes unsigned |
+| I | a UDF ARGUMENT | `wql_domain_static_carrier_positions` block I. ⚠ RE-MEASURED: the first probe used a UDF with a `u64` RETURN and was refused, which would have entered this table as "position I is refused" — the refusal is about the RETURN (pinned separately by the fail fixture `wql_udf_wide_int_ret_fail`, RETIRED 2026-10-03 when a UDF result began keeping its declared type — now `pass/wql_udf_wide_ret_e2e`) and says nothing about the argument. With an `i64` return the argument position is ADMITTED and computes unsigned |
 | J | the TEMPLATE tier | the dynamic tier's own position; gone with it |
 | K | the INCREMENTAL tier | the dynamic tier's own position; gone with it |
 | L | the claim is DROPPED where operands disagree | REFUSED — `tests/logos/fail/wql_arith_mixed_tower_fail.logos`, which names both columns and both signednesses |
@@ -6785,13 +6785,19 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11907 -> 11909 (+2), NOIMPORTED 7348 -> 7350 (+2), TIERCOMMIT 208 -> 207 (-1) — 2026-10-01: +2 pass impl_for_concrete_tuple (squeue #678 closed, tier_commit -1) / impl_trait_for_tuple_no_type_params; +1 fail s8_e0133_tuple_receiver.
 #                ALL 11909 -> 11909 (+0), NOIMPORTED 7350 -> 7350 (+0), TIERCOMMIT 207 -> 206 (-1) — 2026-10-01: squeue hashmap_str_key_borrow_escapes_admitted closed -> fail/hashmap_str_key_borrow_escapes (S8 row 4, B-it-09 retired).
 #                ALL 11909 -> 11908 (-1), NOIMPORTED 7350 -> 7349 (-1), TIERCOMMIT 206 -> 206 (+0) — 2026-10-02: gate el_hashable_agreement retired: #340 derives the index admission from the impls.
-#                ALL 11908 -> 11908 (+0), NOIMPORTED 7349 -> 7349 (+0), TIERCOMMIT 206 -> 205 (-1) — 2026-10-03: squeue double_ref_receiver_collapsed_before_dispatch closed -> pass/double_ref_receiver_through_ref_impl (S8 rows 4-5).
-#                ALL 11908 -> 11909 (+1), NOIMPORTED 7349 -> 7350 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: +1 pass s8_ufcs_two_traits (S8 row 6, UFCS through resolve_trait_item_).
-#                ALL 11909 -> 11910 (+1), NOIMPORTED 7350 -> 7351 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: +1 pass has_trait_named_sees_derives (#723).
-#                ALL 11910 -> 11914 (+4), NOIMPORTED 7351 -> 7355 (+4), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: #726 deem_source_distinct (pass), deem_source_distinct_bad_{col,ty} (fail), logos_09_plan_distinct_declared (gate).
-#                ALL 11914 -> 11916 (+2), NOIMPORTED 7355 -> 7357 (+2), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: #352 mapping_hidden_rel_cross_pkg_e2e (pass), wql_mapping_hidden_rel_fail (fail).
-REGISTRY-ALL         11916
-REGISTRY-NOIMPORTED  7357
+#                ALL 11908 -> 11930 (+22), NOIMPORTED 7349 -> 7371 (+22), TIERCOMMIT 206 -> 206 (+0) — 2026-10-03, branch `deem` (Rust typing + explanations): +23 pass/fail fixtures, -2 retired fail fixtures (wql_arith_wide_int_fail, wql_udf_wide_int_ret_fail), +1 gate plan_ground_facts.
+#                ALL 11930 -> 11931 (+1), NOIMPORTED 7371 -> 7372 (+1), TIERCOMMIT 206 -> 206 (+0) — 2026-10-03, branch `deem` E8 (#349): +1 pass wql_gpath_magic_e2e.
+#                ALL 11931 -> 11932 (+1), NOIMPORTED 7372 -> 7373 (+1), TIERCOMMIT 206 -> 206 (+0) — 2026-10-03, branch `deem` (#353): +1 pass wql_str_lit_escape_e2e.
+#                ALL 11932 -> 11934 (+2), NOIMPORTED 7373 -> 7375 (+2), TIERCOMMIT 206 -> 206 (+0) — 2026-10-03, branch `deem` E9a (facts): +1 pass wql_rel_fact_e2e, +1 fail wql_rel_fact_type_fail.
+#                ALL 11934 -> 11935 (+1), NOIMPORTED 7375 -> 7376 (+1), TIERCOMMIT 206 -> 206 (+0) — 2026-10-03, branch `deem` E9b (demand): +1 pass wql_rel_demand_e2e.
+#                ALL 11935 -> 11935 (+0), NOIMPORTED 7376 -> 7376 (+0), TIERCOMMIT 206 -> 205 (-1) — 2026-10-03 (main, merged into `deem`): squeue double_ref_receiver_collapsed_before_dispatch closed -> pass/double_ref_receiver_through_ref_impl (S8 rows 4-5).
+#                ALL 11935 -> 11936 (+1), NOIMPORTED 7376 -> 7377 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03 (main, merged into `deem`): +1 pass s8_ufcs_two_traits (S8 row 6, UFCS through resolve_trait_item_).
+#                ALL 11936 -> 11937 (+1), NOIMPORTED 7377 -> 7378 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03, branch `deem`: +1 gate souffle_oracle (Soufflé as an independent oracle for Deem's Datalog).
+#                ALL 11937 -> 11938 (+1), NOIMPORTED 7378 -> 7379 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03 (main, merged into `deem`): +1 pass has_trait_named_sees_derives (#723).
+#                ALL 11938 -> 11942 (+4), NOIMPORTED 7379 -> 7383 (+4), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: #726 deem_source_distinct (pass), deem_source_distinct_bad_{col,ty} (fail), logos_09_plan_distinct_declared (gate).
+#                ALL 11942 -> 11944 (+2), NOIMPORTED 7383 -> 7385 (+2), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: #352 mapping_hidden_rel_cross_pkg_e2e (pass), wql_mapping_hidden_rel_fail (fail).
+REGISTRY-ALL         11944
+REGISTRY-NOIMPORTED  7385
 REGISTRY-TIERCOMMIT  205
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

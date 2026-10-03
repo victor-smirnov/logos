@@ -1,0 +1,943 @@
+// logos.std.wql.dl_export — a Deem program as a Soufflé program, for the
+// DIFFERENTIAL ORACLE (#349 follow-up; Victor 10-03: Soufflé is an
+// architectural oracle, not a template).
+//
+// `LOGOS_DEEM_ORACLE=<dir>` at compile time writes `<dir>/<deem>.dl` for every
+// deem whose program lies in the fragment the two engines share; the runtime
+// half (the generated fn dumping its inputs and its answer) and the gate that
+// runs `/usr/bin/souffle` on them and compares are separate pieces. The export
+// is of the program the USER wrote: it runs before the demand rewrite and the
+// gpath desugar, so the oracle checks semantics, not our rewrites of it.
+//
+// The fragment, and the mapping:
+//   a slice param `p: &[T]`   → `.decl p(f1: τ1, …)` + `.input p`, the fields of
+//                               T in declaration order (reflection)
+//   a scalar param `k: τ`     → `.decl __p_k(v: τ)` + `.input __p_k` (one row),
+//                               joined into every clause that names `k`
+//   a `rel r(c: τ, …)`        → `.decl r(c: τ, …)`, one clause per body
+//   the entry query           → `.decl __out(…)` + `.output __out`
+//   `from s v` / `join s v`   → the atom `s(v_f1, …)`; `on`/`where` conjuncts
+//                               → constraints
+//   `anti join s v on …`      → `!s(…)`, each column bound by an `s.f == e`
+//                               conjunct, `_` otherwise
+//   a FROM-less `select`      → a body over the one-row `__unit`
+//   types: i8..i64/isize → number, str/String → symbol, bool → number (0/1)
+// Outside it (the export is skipped, never approximated): aggregates, `first`,
+// `find`, `limit`, `||`, `!` on an expression, calls, casts, comprehensions,
+// unsigned or float columns, non-slice sources (graph params, natives).
+package logos.std.wql.dl_export;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;
+use logos.std.compiler.metaprog;   // OView, oview_module_ast
+use logos.std.wql.ir;
+use logos.std.wql.plan;
+use logos.std.wql.el;              // OP_*
+use logos.std.wql.params;          // MacroParams
+use logos.std.wql.reflect;         // find_struct_decl / resolve_alias_name / reflect_field_*
+use logos.std.wql.lower;           // null_sref
+
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn open(path: *const u8, flags: i32, mode: i32) -> i32;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+extern fn close(fd: i32) -> i32;
+extern fn mkdir(path: *const u8, mode: i32) -> i32;
+
+fn dx_view(s: &String) -> str { return unsafe { str_from_raw(s.as_ptr(), s.len()) }; }
+
+// A Logos type name as a Soufflé attribute type ("" = outside the fragment).
+fn dl_ty(tn: str) -> str {
+    if str_eq(tn, "i64") || str_eq(tn, "i32") || str_eq(tn, "i16") || str_eq(tn, "i8")
+       || str_eq(tn, "isize") || str_eq(tn, "bool") {
+        return "number";
+    }
+    if str_eq(tn, "str") || str_eq(tn, "String") || str_eq(tn, "&str") { return "symbol"; }
+    return "";
+}
+
+// How the dump writes a value of Logos type `tn`: 'i' integer (as i64), 'b'
+// bool (0/1), 's' a `str` view; "" = not dumpable. A `String` FIELD is not:
+// indexing a slice row would move it out.
+fn dx_kind(tn: str) -> str {
+    if str_eq(tn, "bool") { return "b"; }
+    if str_eq(tn, "str") || str_eq(tn, "&str") { return "s"; }
+    if str_eq(dl_ty(tn), "number") { return "i"; }
+    return "";
+}
+
+// One dump cell: `wql_oracle_<k>(__od, <expr>);`
+fn dx_cell(out: &mut String, kind: str, expr: str) {
+    if str_eq(kind, "i") { out.push_str("wql_oracle_i64(__od, (("); out.push_str(expr); out.push_str(") as i64)); "); }
+    else if str_eq(kind, "b") { out.push_str("wql_oracle_bool(__od, "); out.push_str(expr); out.push_str("); "); }
+    else { out.push_str("wql_oracle_str(__od, "); out.push_str(expr); out.push_str("); "); }
+}
+
+// The fields of a struct row type, in declaration order.
+struct DxCols { pub n: i64, pub names: [str; 16], pub tys: [str; 16] }
+fn dx_struct_cols(view: &OView, tn: str) -> DxCols {
+    let mut c: DxCols = DxCols { n: 0i64, names: [""; 16], tys: [""; 16] };
+    if view.holder == (0 as *mut u8) { return c; }
+    let decl: WAny = find_struct_decl(view, tn);
+    if decl.is_null() { return c; }
+    let nf: u64 = view.ast_struct_field_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nf && c.n < 16i64 {
+        let fld: WAny = view.ast_struct_field(decl, i);
+        c.names[c.n] = reflect_field_name(view, fld);
+        c.tys[c.n] = resolve_alias_name(view, reflect_field_type_name(view, fld));
+        c.n = c.n + 1i64;
+        i = i + (1 as u64);
+    }
+    return c;
+}
+
+/// What the exporter knows about each source name of the program.
+pub struct DxEnv {
+    pub n: i64,
+    pub src: [str; 16],     // a source name (slice param or rel)
+    pub cn: [i64; 16],      // its column count, names and Logos types
+    pub cnames: [[str; 16]; 16],
+    pub ctys: [[str; 16]; 16],
+    pub scalars: [str; 16], // scalar param names
+    pub stys: [str; 16],    // their Soufflé types
+    pub sltys: [str; 16],   // and their Logos types
+    pub ns: i64,
+}
+
+fn dx_find(env: &DxEnv, nm: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < env.n {
+        if str_eq(env.src[i], nm) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn dx_is_scalar(env: &DxEnv, nm: str) -> bool {
+    let mut i: i64 = 0i64;
+    while i < env.ns {
+        if str_eq(env.scalars[i], nm) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// One clause being built: the atoms (in order), the constraints, the scalar
+// params it names, and the row vars it binds (var → source index).
+struct DxClause {
+    pub body: String,
+    pub ok: bool,
+    pub nv: i64,
+    pub vars: [str; 16],
+    pub vsrc: [i64; 16],
+    pub nparams: i64,
+    pub params: [str; 16],
+    // names an aggregate head binds (`key`, the aggregate outputs) → variable
+    pub nal: i64,
+    pub al_names: [str; 16],
+    pub al_vars: [str; 16],
+    pub al_tys: [str; 16],    // their Soufflé types (entry typing only)
+    pub al_kinds: [str; 16],  // their dump kinds
+}
+
+fn dx_new_clause() -> DxClause {
+    return DxClause { body: String::new(), ok: true, nv: 0i64, vars: [""; 16], vsrc: [0i64; 16],
+                      nparams: 0i64, params: [""; 16], nal: 0i64, al_names: [""; 16], al_vars: [""; 16],
+                      al_tys: [""; 16], al_kinds: [""; 16] };
+}
+
+fn dx_alias(cl: &DxClause, nm: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < cl.nal {
+        if str_eq(cl.al_names[i], nm) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn dx_bind(cl: &mut DxClause, v: str, si: i64) {
+    if cl.nv < 16i64 { cl.vars[cl.nv] = v; cl.vsrc[cl.nv] = si; cl.nv = cl.nv + 1i64; }
+}
+
+fn dx_var_src(cl: &DxClause, v: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < cl.nv {
+        if str_eq(cl.vars[i], v) { return cl.vsrc[i]; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn dx_note_param(cl: &mut DxClause, p: str) {
+    let mut i: i64 = 0i64;
+    while i < cl.nparams {
+        if str_eq(cl.params[i], p) { return; }
+        i = i + 1i64;
+    }
+    if cl.nparams < 16i64 { cl.params[cl.nparams] = p; cl.nparams = cl.nparams + 1i64; }
+}
+
+// The Soufflé variable of row var `v`'s column `c`.
+fn dx_push_var(out: &mut String, v: str, c: str) {
+    out.push_str("v_"); out.push_str(v); out.push_str("_"); out.push_str(c);
+}
+
+// An EL term. Returns false outside the fragment.
+fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_null() { return false; }
+            if v.is_string() {
+                out.push_str("\""); out.push_str(v.as_wstr()); out.push_str("\"");
+                return true;
+            }
+            if v.is_bool() { if v.as_bool() { out.push_str("1"); } else { out.push_str("0"); } return true; }
+            if v.is_float() { return false; }
+            out.push_i64(v.as_i64());
+            return true;
+        }
+        SExpr::Param(p) => {
+            if !dx_is_scalar(env, p.name) { return false; }
+            dx_note_param(cl, p.name);
+            out.push_str("p_"); out.push_str(p.name);
+            return true;
+        }
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() {
+                let ai: i64 = dx_alias(cl, f.name);
+                if ai >= 0i64 {
+                    out.push_str(cl.al_vars[ai]);
+                    if str_eq(cl.al_vars[ai], "a_") { out.push_str(cl.al_names[ai]); }
+                    return true;
+                }
+                if !dx_is_scalar(env, f.name) { return false; }
+                dx_note_param(cl, f.name);
+                out.push_str("p_"); out.push_str(f.name);
+                return true;
+            }
+            let b: SExpr = br.any().view::<SExpr>();
+            match b {
+                SExpr::Field(bf) => {
+                    let bb: WRef<SExpr> = bf.base;
+                    if !bb.any().is_null() { return false; }
+                    if dx_var_src(cl, bf.name) < 0i64 { return false; }
+                    dx_push_var(out, bf.name, f.name);
+                    return true;
+                }
+                _ => { return false; }
+            }
+        }
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            if op != OP_ADD() && op != OP_SUB() && op != OP_MUL() && op != OP_DIV() && op != OP_MOD() {
+                return false;
+            }
+            out.push_str("(");
+            if !dx_term(out, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
+            if op == OP_ADD() { out.push_str(" + "); }
+            else if op == OP_SUB() { out.push_str(" - "); }
+            else if op == OP_MUL() { out.push_str(" * "); }
+            else if op == OP_DIV() { out.push_str(" / "); }
+            else { out.push_str(" % "); }
+            if !dx_term(out, b.rhs.any().view::<SExpr>(), env, cl) { return false; }
+            out.push_str(")");
+            return true;
+        }
+        SExpr::Un(u) => {
+            if u.op != OP_NEG() { return false; }
+            out.push_str("(-");
+            if !dx_term(out, u.arg.any().view::<SExpr>(), env, cl) { return false; }
+            out.push_str(")");
+            return true;
+        }
+        _ => { return false; }
+    }
+}
+
+// A predicate as constraints, conjunct by conjunct.
+fn dx_pred(e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
+    match e {
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            if op == OP_AND() {
+                if !dx_pred(b.lhs.any().view::<SExpr>(), env, cl) { return false; }
+                return dx_pred(b.rhs.any().view::<SExpr>(), env, cl);
+            }
+            let mut sym: str = "";
+            if op == OP_EQ() { sym = " = "; }
+            else if op == OP_NE() { sym = " != "; }
+            else if op == OP_LT() { sym = " < "; }
+            else if op == OP_LE() { sym = " <= "; }
+            else if op == OP_GT() { sym = " > "; }
+            else if op == OP_GE() { sym = " >= "; }
+            else { return false; }
+            let mut t: String = String::new();
+            if !dx_term(&mut t, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
+            t.push_str(sym);
+            if !dx_term(&mut t, b.rhs.any().view::<SExpr>(), env, cl) { return false; }
+            cl.body.push_str(", ");
+            cl.body.push_str(dx_view(&t));
+            return true;
+        }
+        SExpr::Lit(l) => {
+            // `where true` folds away; `where false` keeps the clause empty
+            let v: WAny = l.val;
+            if v.is_bool() {
+                if !v.as_bool() { cl.body.push_str(", 0 = 1"); }
+                return true;
+            }
+            return false;
+        }
+        _ => { return false; }
+    }
+}
+
+// A positive atom `s(v_v_f1, …)` for row var `v` over source `s`.
+fn dx_atom(cl: &mut DxClause, env: &DxEnv, src: str, v: str) -> bool {
+    let si: i64 = dx_find(env, src);
+    if si < 0i64 { return false; }
+    dx_bind(cl, v, si);
+    if cl.body.len() > 0i64 { cl.body.push_str(", "); }
+    cl.body.push_str(src);
+    cl.body.push_str("(");
+    let mut k: i64 = 0i64;
+    while k < env.cn[si] {
+        if k > 0i64 { cl.body.push_str(", "); }
+        dx_push_var(&mut cl.body, v, env.cnames[si][k]);
+        k = k + 1i64;
+    }
+    cl.body.push_str(")");
+    return true;
+}
+
+// The column `s.f` an equality conjunct of `on` binds for the negated row var
+// `v`: the other side's term, or "" when no conjunct binds it.
+fn dx_neg_arg(on: SExpr, v: str, col: str, env: &DxEnv, cl: &mut DxClause, out: &mut String) -> bool {
+    match on {
+        SExpr::Bin(b) => {
+            if b.op == OP_AND() {
+                if dx_neg_arg(b.lhs.any().view::<SExpr>(), v, col, env, cl, out) { return true; }
+                return dx_neg_arg(b.rhs.any().view::<SExpr>(), v, col, env, cl, out);
+            }
+            if b.op != OP_EQ() { return false; }
+            let le: SExpr = b.lhs.any().view::<SExpr>();
+            let re: SExpr = b.rhs.any().view::<SExpr>();
+            if dx_is_col(le, v, col) { return dx_term(out, re, env, cl); }
+            if dx_is_col(re, v, col) { return dx_term(out, le, env, cl); }
+            return false;
+        }
+        _ => { return false; }
+    }
+}
+
+fn dx_is_col(e: SExpr, v: str, col: str) -> bool {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() || !str_eq(f.name, col) { return false; }
+            let b: SExpr = br.any().view::<SExpr>();
+            match b {
+                SExpr::Field(bf) => { return bf.base.any().is_null() && str_eq(bf.name, v); }
+                _ => { return false; }
+            }
+        }
+        _ => { return false; }
+    }
+}
+
+// Every conjunct of an anti join's `on` must be an equality on one of the
+// negated source's columns: Soufflé's `!s(…)` binds by position only.
+fn dx_neg_only_eqs(on: SExpr, v: str) -> bool {
+    match on {
+        SExpr::Bin(b) => {
+            if b.op == OP_AND() {
+                return dx_neg_only_eqs(b.lhs.any().view::<SExpr>(), v)
+                    && dx_neg_only_eqs(b.rhs.any().view::<SExpr>(), v);
+            }
+            if b.op != OP_EQ() { return false; }
+            return dx_names_var(b.lhs.any().view::<SExpr>(), v) != dx_names_var(b.rhs.any().view::<SExpr>(), v);
+        }
+        _ => { return false; }
+    }
+}
+
+fn dx_names_var(e: SExpr, v: str) -> bool {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { return false; }
+            let b: SExpr = br.any().view::<SExpr>();
+            match b {
+                SExpr::Field(bf) => { return bf.base.any().is_null() && str_eq(bf.name, v); }
+                _ => { return false; }
+            }
+        }
+        _ => { return false; }
+    }
+}
+
+// The head: `name(t1, …)` from the select. `arity` must match.
+fn dx_head(name: str, sel: SExpr, arity: i64, env: &DxEnv, cl: &mut DxClause, out: &mut String) -> bool {
+    out.push_str(name);
+    out.push_str("(");
+    match sel {
+        SExpr::Tuple(t) => {
+            let items: SExprArr = t.items.any().view::<SExprArr>();
+            if items.len() != arity { return false; }
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if i > 0i64 { out.push_str(", "); }
+                if !dx_term(out, items.arg_at(i), env, cl) { return false; }
+                i = i + 1i64;
+            }
+        }
+        _ => {
+            if arity != 1i64 { return false; }
+            if !dx_term(out, sel, env, cl) { return false; }
+        }
+    }
+    out.push_str(")");
+    return true;
+}
+
+// One query → one clause `head :- body.` appended to `out`.
+fn dx_clause(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String) -> bool {
+    let mut cl: DxClause = dx_new_clause();
+    let mut hd: String = String::new();
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => {
+            if s.has_gpath || s.sel_first || s.has_limit { return false; }
+            if s.src_name.len() == 0i64 {
+                cl.body.push_str("__unit(_)");
+            } else if !dx_atom(&mut cl, env, s.src_name, s.var_name) { return false; }
+            if s.has_where && !dx_pred(s.where_pred.any().view::<SExpr>(), env, &mut cl) { return false; }
+            if !dx_head(head, s.select.any().view::<SExpr>(), arity, env, &mut cl, &mut hd) { return false; }
+        }
+        RQuery::Join(j) => {
+            if j.has_gpath || j.sel_first || j.has_limit { return false; }
+            if !dx_join_body(&mut cl, env, j.a_name, j.x_var, j.steps.any(), j.has_where, j.where_pred) { return false; }
+            if !dx_head(head, j.select.any().view::<SExpr>(), arity, env, &mut cl, &mut hd) { return false; }
+        }
+        RQuery::Aggr(g) => {
+            if g.has_gpath || g.sel_first || g.has_limit { return false; }
+            return dx_aggr_clause(g, head, arity, env, out);
+        }
+        _ => { return false; }
+    }
+    dx_param_atoms(&mut cl);
+    out.push_str(dx_view(&hd));
+    out.push_str(" :- ");
+    out.push_str(dx_view(&cl.body));
+    out.push_str(".\n");
+    return true;
+}
+
+// The scalar params a clause names, each from its one-row relation.
+fn dx_param_atoms(cl: &mut DxClause) {
+    let mut p: i64 = 0i64;
+    while p < cl.nparams {
+        cl.body.push_str(", __p_"); cl.body.push_str(cl.params[p]);
+        cl.body.push_str("(p_"); cl.body.push_str(cl.params[p]); cl.body.push_str(")");
+        p = p + 1i64;
+    }
+}
+
+// `from a x (join|anti join …)* [where P]` as atoms and constraints.
+fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAny,
+                has_where: bool, where_pred: WRef<SExpr>) -> bool {
+    if !dx_atom(cl, env, a_name, x_var) { return false; }
+    if !sa.is_null() {
+        let steps: RQJoinStepArr = sa.view::<RQJoinStepArr>();
+        let mut i: i64 = 0i64;
+        while i < steps.len() {
+            let st: RQJoinStep = steps.step_at(i);
+            if st.is_edge { return false; }
+            if st.is_anti {
+                if !st.has_on { return false; }
+                let si: i64 = dx_find(env, st.src_name);
+                if si < 0i64 { return false; }
+                let on: SExpr = st.on.any().view::<SExpr>();
+                if !dx_neg_only_eqs(on, st.var_name) { return false; }
+                cl.body.push_str(", !");
+                cl.body.push_str(st.src_name);
+                cl.body.push_str("(");
+                let mut k: i64 = 0i64;
+                while k < env.cn[si] {
+                    if k > 0i64 { cl.body.push_str(", "); }
+                    let mut a: String = String::new();
+                    if dx_neg_arg(on, st.var_name, env.cnames[si][k], env, cl, &mut a) {
+                        cl.body.push_str(dx_view(&a));
+                    } else {
+                        cl.body.push_str("_");
+                    }
+                    k = k + 1i64;
+                }
+                cl.body.push_str(")");
+            } else {
+                if !dx_atom(cl, env, st.src_name, st.var_name) { return false; }
+                if st.has_on && !dx_pred(st.on.any().view::<SExpr>(), env, cl) { return false; }
+            }
+            i = i + 1i64;
+        }
+    }
+    if has_where && !dx_pred(where_pred.any().view::<SExpr>(), env, cl) { return false; }
+    return true;
+}
+
+// A grouped aggregate (Deem's `group by K aggregate a = f(e), …`), as
+//   __gk_<head>(K) :- B.
+//   head(…) :- __gk_<head>(gk), a_a = f e : { B, K = gk }, …[, having].
+// `key` and the aggregate names in select/having are the variables gk / a_<a>.
+fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut String) -> bool {
+    let key: SExpr = g.key_expr();
+    match key { SExpr::Tuple(_t) => { return false; } _ => { } }
+    // __gk_<head>: the group keys
+    let mut kb: DxClause = dx_new_clause();
+    if !dx_join_body(&mut kb, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return false; }
+    let mut kt: String = String::new();
+    if !dx_term(&mut kt, key, env, &mut kb) { return false; }
+    let kty: str = dx_term_ty(key, env, &kb);
+    if kty.len() == 0i64 { return false; }
+    dx_param_atoms(&mut kb);
+    let mut gk: String = String::new();
+    gk.push_str("__gk_"); gk.push_str(head);
+    out.push_str(".decl "); out.push_str(dx_view(&gk)); out.push_str("(k: "); out.push_str(kty); out.push_str(")\n");
+    out.push_str(dx_view(&gk)); out.push_str("("); out.push_str(dx_view(&kt)); out.push_str(") :- ");
+    out.push_str(dx_view(&kb.body)); out.push_str(".\n");
+    // the head clause
+    let mut hb: String = String::new();
+    hb.push_str(dx_view(&gk)); hb.push_str("(gk)");
+    let mut hcl: DxClause = dx_new_clause();
+    hcl.al_names[0] = "key"; hcl.al_vars[0] = "gk"; hcl.nal = 1i64;
+    let aggs: RQAggArr = g.aggs_arr();
+    let mut i: i64 = 0i64;
+    while i < aggs.len() {
+        let ag: RQAgg = aggs.agg_at(i);
+        let f: str = ag.fn_name;
+        if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") { return false; }
+        if hcl.nal >= 16i64 { return false; }
+        let mut av: String = String::new();
+        av.push_str("a_"); av.push_str(ag.name);
+        // the aggregate's own copy of the body, its row vars local to the braces
+        let mut ab: DxClause = dx_new_clause();
+        if !dx_join_body(&mut ab, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return false; }
+        let mut kt2: String = String::new();
+        if !dx_term(&mut kt2, key, env, &mut ab) { return false; }
+        ab.body.push_str(", "); ab.body.push_str(dx_view(&kt2)); ab.body.push_str(" = gk");
+        let mut argt: String = String::new();
+        if !str_eq(f, "count") {
+            if !ag.has_arg { return false; }
+            if !dx_term(&mut argt, ag.arg_expr(), env, &mut ab) { return false; }
+            let aty: str = dx_term_ty(ag.arg_expr(), env, &ab);
+            if !str_eq(aty, "number") { return false; }
+        }
+        dx_param_atoms(&mut ab);
+        hb.push_str(", "); hb.push_str(dx_view(&av)); hb.push_str(" = "); hb.push_str(f);
+        if argt.len() > 0i64 { hb.push_str(" "); hb.push_str(dx_view(&argt)); }
+        hb.push_str(" : { "); hb.push_str(dx_view(&ab.body)); hb.push_str(" }");
+        hcl.al_names[hcl.nal] = ag.name;
+        hcl.al_vars[hcl.nal] = "a_";   // rendered as a_<name>
+        hcl.nal = hcl.nal + 1i64;
+        i = i + 1i64;
+    }
+    hcl.body.push_str(dx_view(&hb));
+    if g.has_having && !dx_pred(g.having_expr(), env, &mut hcl) { return false; }
+    let mut hd: String = String::new();
+    if !dx_head(head, g.select_expr(), arity, env, &mut hcl, &mut hd) { return false; }
+    dx_param_atoms(&mut hcl);
+    out.push_str(dx_view(&hd));
+    out.push_str(" :- ");
+    out.push_str(dx_view(&hcl.body));
+    out.push_str(".\n");
+    return true;
+}
+
+// The entry's output arity and column types, from its select ("" = unknown).
+fn dx_out_cols(sel: SExpr, env: &DxEnv, cl: &DxClause, out: &mut String) -> i64 {
+    match sel {
+        SExpr::Tuple(t) => {
+            let items: SExprArr = t.items.any().view::<SExprArr>();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if i > 0i64 { out.push_str(", "); }
+                out.push_str("c"); out.push_i64(i); out.push_str(": ");
+                let ty: str = dx_term_ty(items.arg_at(i), env, cl);
+                if ty.len() == 0i64 { return -1i64; }
+                out.push_str(ty);
+                i = i + 1i64;
+            }
+            return items.len();
+        }
+        _ => {
+            out.push_str("c0: ");
+            let ty0: str = dx_term_ty(sel, env, cl);
+            if ty0.len() == 0i64 { return -1i64; }
+            out.push_str(ty0);
+            return 1i64;
+        }
+    }
+}
+
+// A term's Soufflé type: a column's declared type, a literal's kind, number
+// for arithmetic.
+fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
+    match e {
+        SExpr::Lit(l) => {
+            if l.val.is_string() { return "symbol"; }
+            if l.val.is_float() { return ""; }
+            return "number";
+        }
+        SExpr::Bin(_b) => { return "number"; }
+        SExpr::Un(_u) => { return "number"; }
+        SExpr::Param(p) => { return dx_scalar_ty(env, p.name); }
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() {
+                let ai: i64 = dx_alias(cl, f.name);
+                // static literals (dl_ty's), re-viewed so the answer does not borrow `cl`
+                if ai >= 0i64 { let t: str = cl.al_tys[ai]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
+                return dx_scalar_ty(env, f.name);
+            }
+            let b: SExpr = br.any().view::<SExpr>();
+            match b {
+                SExpr::Field(bf) => {
+                    let si: i64 = dx_var_src(cl, bf.name);
+                    if si < 0i64 { return ""; }
+                    let mut k: i64 = 0i64;
+                    while k < env.cn[si] {
+                        if str_eq(env.cnames[si][k], f.name) { return dl_ty(env.ctys[si][k]); }
+                        k = k + 1i64;
+                    }
+                    return "";
+                }
+                _ => { return ""; }
+            }
+        }
+        _ => { return ""; }
+    }
+}
+
+// A term's dump kind (see dx_kind): literals by their value, arithmetic as
+// integers, a column or a parameter by its Logos type.
+fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
+    match e {
+        SExpr::Lit(l) => {
+            if l.val.is_string() { return "s"; }
+            if l.val.is_bool() { return "b"; }
+            if l.val.is_float() { return ""; }
+            return "i";
+        }
+        SExpr::Bin(_b) => { return "i"; }
+        SExpr::Un(_u) => { return "i"; }
+        SExpr::Param(p) => { return dx_kind(dx_scalar_lty(env, p.name)); }
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() {
+                let ai: i64 = dx_alias(cl, f.name);
+                if ai >= 0i64 { let k: str = cl.al_kinds[ai]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
+                return dx_kind(dx_scalar_lty(env, f.name));
+            }
+            let b: SExpr = br.any().view::<SExpr>();
+            match b {
+                SExpr::Field(bf) => {
+                    let si: i64 = dx_var_src(cl, bf.name);
+                    if si < 0i64 { return ""; }
+                    let mut k: i64 = 0i64;
+                    while k < env.cn[si] {
+                        if str_eq(env.cnames[si][k], f.name) {
+                            // a rel column's `String` is a value in the answer row
+                            if str_eq(env.ctys[si][k], "String") { return "s"; }
+                            return dx_kind(env.ctys[si][k]);
+                        }
+                        k = k + 1i64;
+                    }
+                    return "";
+                }
+                _ => { return ""; }
+            }
+        }
+        _ => { return ""; }
+    }
+}
+
+fn dx_scalar_lty<'a>(env: &'a DxEnv, nm: str) -> &'a str {
+    let mut i: i64 = 0i64;
+    while i < env.ns {
+        if str_eq(env.scalars[i], nm) { return env.sltys[i]; }
+        i = i + 1i64;
+    }
+    return "";
+}
+
+fn dx_scalar_ty<'a>(env: &'a DxEnv, nm: str) -> &'a str {
+    let mut i: i64 = 0i64;
+    while i < env.ns {
+        if str_eq(env.scalars[i], nm) { return env.stys[i]; }
+        i = i + 1i64;
+    }
+    return "";
+}
+
+// The entry's row vars bound (types for `.decl __out` need them).
+fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => { let si: i64 = dx_find(env, s.src_name); if si >= 0i64 { dx_bind(cl, s.var_name, si); } }
+        RQuery::Join(j) => {
+            let si: i64 = dx_find(env, j.a_name);
+            if si >= 0i64 { dx_bind(cl, j.x_var, si); }
+            let steps: RQJoinStepArr = j.steps_arr();
+            let mut i: i64 = 0i64;
+            while i < steps.len() {
+                let st: RQJoinStep = steps.step_at(i);
+                let sj: i64 = dx_find(env, st.src_name);
+                if sj >= 0i64 && !st.is_anti { dx_bind(cl, st.var_name, sj); }
+                i = i + 1i64;
+            }
+        }
+        RQuery::Aggr(g) => {
+            let si: i64 = dx_find(env, g.a_name);
+            if si >= 0i64 { dx_bind(cl, g.x_var, si); }
+            if g.has_steps() {
+                let steps: RQJoinStepArr = g.steps_arr();
+                let mut i: i64 = 0i64;
+                while i < steps.len() {
+                    let st: RQJoinStep = steps.step_at(i);
+                    let sj: i64 = dx_find(env, st.src_name);
+                    if sj >= 0i64 && !st.is_anti { dx_bind(cl, st.var_name, sj); }
+                    i = i + 1i64;
+                }
+            }
+            // `key` and the aggregate outputs, typed for `.decl __out` and the dump
+            let kty: str = dx_term_ty(g.key_expr(), env, cl);
+            let kkd: str = dx_term_kind(g.key_expr(), env, cl);
+            cl.al_names[0] = "key"; cl.al_vars[0] = "gk"; cl.al_tys[0] = kty; cl.al_kinds[0] = kkd;
+            cl.nal = 1i64;
+            let aggs: RQAggArr = g.aggs_arr();
+            let mut a: i64 = 0i64;
+            while a < aggs.len() && cl.nal < 16i64 {
+                let ag: RQAgg = aggs.agg_at(a);
+                let mut aty: str = "number";
+                let mut akd: str = "i";
+                if (str_eq(ag.fn_name, "min") || str_eq(ag.fn_name, "max")) && ag.has_arg {
+                    aty = dx_term_ty(ag.arg_expr(), env, cl);
+                    akd = dx_term_kind(ag.arg_expr(), env, cl);
+                }
+                cl.al_names[cl.nal] = ag.name; cl.al_vars[cl.nal] = "a_";
+                cl.al_tys[cl.nal] = aty; cl.al_kinds[cl.nal] = akd;
+                cl.nal = cl.nal + 1i64;
+                a = a + 1i64;
+            }
+        }
+        _ => { }
+    }
+}
+
+fn dx_tuple_item(sel: SExpr, i: i64) -> SExpr {
+    match sel {
+        SExpr::Tuple(t) => { return t.items.any().view::<SExprArr>().arg_at(i); }
+        _ => { return sel; }
+    }
+}
+
+// Does the entry name a result type (`select … : Row`)? A struct row has no
+// positional fields for the dump to read.
+fn dx_entry_struct_result(qany: WAny) -> bool {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => { return s.has_result_ty; }
+        RQuery::Join(j) => { return j.has_result_ty; }
+        RQuery::Aggr(g) => { return g.has_result_ty; }
+        _ => { return true; }
+    }
+}
+
+fn dx_entry_select(qany: WAny) -> WRef<SExpr> {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => { return s.select; }
+        RQuery::Join(j) => { return j.select; }
+        RQuery::Aggr(g) => { return g.select; }
+        _ => { return null_sref(); }
+    }
+}
+
+/// Render the program as Soufflé text into `out`; false = outside the fragment.
+pub fn dl_render(root: WAny, prm: &MacroParams, out: &mut String, dump: &mut String,
+                 ddir: str) -> bool {
+    let view: OView = oview_module_ast();
+    let mut env: DxEnv = DxEnv { n: 0i64, src: [""; 16], cn: [0i64; 16], cnames: [[""; 16]; 16],
+                                 ctys: [[""; 16]; 16], scalars: [""; 16], stys: [""; 16], sltys: [""; 16], ns: 0i64 };
+    // params
+    let mut i: i64 = 0i64;
+    while i < prm.n {
+        if prm.is_slice[i] {
+            let c: DxCols = dx_struct_cols(&view, prm.tys[i]);
+            if c.n == 0i64 || env.n >= 16i64 { return false; }
+            out.push_str(".decl "); out.push_str(prm.names[i]); out.push_str("(");
+            let mut k: i64 = 0i64;
+            while k < c.n {
+                let ty: str = dl_ty(c.tys[k]);
+                if ty.len() == 0i64 { return false; }
+                if k > 0i64 { out.push_str(", "); }
+                out.push_str(c.names[k]); out.push_str(": "); out.push_str(ty);
+                k = k + 1i64;
+            }
+            out.push_str(")\n.input "); out.push_str(prm.names[i]); out.push_str("\n");
+            // the input's dump: one line per row, fields in declaration order
+            dump.push_str("    { let __od: i32 = wql_oracle_open(\"");
+            dump.push_str(ddir); dump.push_str("/"); dump.push_str(prm.names[i]);
+            dump.push_str(".facts\"); let mut __oi: i64 = 0i64; while __oi < (");
+            dump.push_str(prm.names[i]); dump.push_str(").len() { ");
+            let mut kc: i64 = 0i64;
+            while kc < c.n {
+                let fk: str = dx_kind(c.tys[kc]);
+                if fk.len() == 0i64 { return false; }
+                if kc > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
+                let mut fx: String = String::new();
+                fx.push_str("("); fx.push_str(prm.names[i]); fx.push_str(")[__oi].");
+                fx.push_str(c.names[kc]);
+                dx_cell(dump, fk, dx_view(&fx));
+                kc = kc + 1i64;
+            }
+            dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
+            env.src[env.n] = prm.names[i];
+            env.cn[env.n] = c.n;
+            let mut kk: i64 = 0i64;
+            while kk < c.n { env.cnames[env.n][kk] = c.names[kk]; env.ctys[env.n][kk] = c.tys[kk]; kk = kk + 1i64; }
+            env.n = env.n + 1i64;
+        } else {
+            let st: str = dl_ty(prm.tys[i]);
+            if st.len() == 0i64 || env.ns >= 16i64 { return false; }
+            out.push_str(".decl __p_"); out.push_str(prm.names[i]); out.push_str("(v: ");
+            out.push_str(st); out.push_str(")\n.input __p_"); out.push_str(prm.names[i]); out.push_str("\n");
+            env.scalars[env.ns] = prm.names[i];
+            env.stys[env.ns] = st;
+            env.sltys[env.ns] = prm.tys[i];
+            let sk: str = dx_kind(prm.tys[i]);
+            if sk.len() == 0i64 { return false; }
+            dump.push_str("    { let __od: i32 = wql_oracle_open(\"");
+            dump.push_str(ddir); dump.push_str("/__p_"); dump.push_str(prm.names[i]);
+            dump.push_str(".facts\"); ");
+            dx_cell(dump, sk, prm.names[i]);
+            dump.push_str("wql_oracle_nl(__od); wql_oracle_close(__od); }\n");
+            env.ns = env.ns + 1i64;
+        }
+        i = i + 1i64;
+    }
+    out.push_str(".decl __unit(u: number)\n__unit(0).\n");
+    // rels: declarations first (a body may read a rel declared after it)
+    let prog: RQProgram = root.view::<RQProgram>();
+    if prog.has_rels() {
+        let rels: RQRelArr = prog.rels_arr();
+        let mut r: i64 = 0i64;
+        while r < rels.len() {
+            let rel: RQRel = rels.rel_at(r);
+            let rc: RQRelColArr = rel.cols_arr();
+            if env.n >= 16i64 { return false; }
+            out.push_str(".decl "); out.push_str(rel.name); out.push_str("(");
+            let mut k: i64 = 0i64;
+            while k < rc.len() && k < 16i64 {
+                let col: RQRelCol = rc.col_at(k);
+                let ty: str = dl_ty(col.ty_name);
+                if ty.len() == 0i64 { return false; }
+                if k > 0i64 { out.push_str(", "); }
+                out.push_str(col.name); out.push_str(": "); out.push_str(ty);
+                env.cnames[env.n][k] = col.name; env.ctys[env.n][k] = col.ty_name;
+                k = k + 1i64;
+            }
+            out.push_str(")\n");
+            env.src[env.n] = rel.name;
+            env.cn[env.n] = k;
+            env.n = env.n + 1i64;
+            r = r + 1i64;
+        }
+        r = 0i64;
+        while r < rels.len() {
+            let rel2: RQRel = rels.rel_at(r);
+            let bodies: RQBodyArr = rel2.bodies_arr();
+            let mut b: i64 = 0i64;
+            while b < bodies.len() {
+                if !dx_clause(bodies.body_any(b), rel2.name, rel2.cols_arr().len(), &env, out) { return false; }
+                b = b + 1i64;
+            }
+            r = r + 1i64;
+        }
+    }
+    // the entry
+    let entry: WAny = prog.entry_any();
+    let sel: WRef<SExpr> = dx_entry_select(entry);
+    if sel.any().is_null() { return false; }
+    let mut cl0: DxClause = dx_new_clause();
+    dx_entry_vars(entry, &env, &mut cl0);
+    let mut cols: String = String::new();
+    let arity: i64 = dx_out_cols(sel.any().view::<SExpr>(), &env, &cl0, &mut cols);
+    if arity < 1i64 { return false; }
+    if dx_entry_struct_result(entry) && arity > 1i64 { return false; }
+    out.push_str(".decl __out("); out.push_str(dx_view(&cols)); out.push_str(")\n.output __out\n");
+    // the answer's dump: `__r` is `_run`'s Result; an Err leaves a marker
+    dump.push_str("    match __r {\n        Result::Ok(__ov) => {\n            { let __od: i32 = wql_oracle_open(\"");
+    dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.get(__oi); ");
+    let sel0: SExpr = sel.any().view::<SExpr>();
+    let mut a: i64 = 0i64;
+    while a < arity {
+        let item: SExpr = if arity == 1i64 { sel0 } else { dx_tuple_item(sel0, a) };
+        let kd: str = dx_term_kind(item, &env, &cl0);
+        if kd.len() == 0i64 { return false; }
+        if a > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
+        let mut ox: String = String::new();
+        if arity == 1i64 { ox.push_str("__orow"); }
+        else { ox.push_str("(__orow)."); ox.push_i64(a); }
+        dx_cell(dump, kd, dx_view(&ox));
+        a = a + 1i64;
+    }
+    dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
+    dump.push_str("            return Result::Ok(__ov);\n        }\n        Result::Err(__oe) => {\n            wql_oracle_close(wql_oracle_open(\"");
+    dump.push_str(ddir); dump.push_str("/deem.err\"));\n            return Result::Err(__oe);\n        }\n    }\n");
+    return dx_clause(entry, "__out", arity, &env, out);
+}
+
+/// `LOGOS_DEEM_ORACLE=<dir>`: write `<dir>/<name>.dl` when the program is in
+/// the fragment. Nothing is written (and nothing is said) outside it: the
+/// gate counts which deems it could check.
+pub fn dl_export(root: WAny, name: str, prm: &mut MacroParams) {
+    let mut ev: String = String::new();
+    ev.push_str("LOGOS_DEEM_ORACLE");
+    ev.push_u8(0u8);
+    let dir: *const u8 = unsafe { getenv(ev.as_ptr()) };
+    if dir == 0 as *const u8 { return; }
+    let mut dl: i64 = 0i64;
+    while unsafe { *(((dir as i64) + dl) as *const u8) } != 0u8 { dl = dl + 1i64; }
+    // `<dir>/<name>/` holds this deem's dumped facts and answer
+    let mut ddir: String = String::new();
+    ddir.push_str(unsafe { str_from_raw(dir, dl) });
+    ddir.push_str("/");
+    ddir.push_str(name);
+    let mut text: String = String::new();
+    let mut dump: String = String::new();
+    text.push_str("// deem "); text.push_str(name); text.push_str("\n");
+    if !dl_render(root, prm, &mut text, &mut dump, dx_view(&ddir)) { return; }
+    let mut dz: String = String::new();
+    dz.push_str(dx_view(&ddir));
+    dz.push_u8(0u8);
+    unsafe { mkdir(dz.as_ptr(), 493i32); }   // 0755; an existing dir is fine
+    prm.oracle_dump = dump;
+    let mut path: String = String::new();
+    path.push_str(unsafe { str_from_raw(dir, dl) });
+    path.push_str("/");
+    path.push_str(name);
+    path.push_str(".dl");
+    path.push_u8(0u8);
+    let fd: i32 = unsafe { open(path.as_ptr(), 577i32, 420i32) };   // O_WRONLY|O_CREAT|O_TRUNC, 0644
+    if fd < 0i32 { return; }
+    unsafe {
+        write(fd, text.as_ptr(), text.len());
+        close(fd);
+    }
+}

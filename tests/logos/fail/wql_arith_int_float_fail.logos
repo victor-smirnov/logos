@@ -1,0 +1,15 @@
+// WQL — AN INTEGER COLUMN PLUS A FLOAT COLUMN.
+//
+// Rust typing (2026-10-02): the operands of a numeric operator have one type, and
+// an integer meeting a float is `mismatched types` in Rust. Until then the EL
+// promoted the integer side to f64 silently. The remedy is `as`.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R { pub s: i8, pub n: i64, pub f: f64 }
+
+pub deem q(rs: &[R]) { from rs r select r.n + r.f }
+
+fn main() -> i32 { return 0i32; }

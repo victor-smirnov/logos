@@ -20,11 +20,15 @@
 // (one payload variant, same file shape, two groups where three are right) and
 // fail/wql_column_decl_option_col_fail.
 //
-// ⚠ WHAT IS STILL WRONG HERE AND IS NOT THIS FILE'S CLAIM: `select s.e` yields
-// `Vec<i64>`, not `Vec<E>`. That is the type-PRESERVATION gap
-// wql_domain_static_extremes pins for the twenty lattice types and pins for
-// nothing outside them — a different defect, in a different file, and not a
-// wrong answer.
+// ⚠ REVISED 2026-10-02 (Rust typing): `E` is now a NAMED type — carried as an
+// `E`, never as its discriminant — so grouping by it asks `E`'s impls the way
+// Rust's `==` does: the key needs `Eq` (the frame compares through it) and `Copy`
+// (it is copied out of the first row). Without them the query is refused at the
+// clause, naming the missing impl (wql_group_named_key_no_eq_fail); before, it
+// was admitted through the discriminant with no capability checked. The impls
+// are DERIVED (#723: `has_trait_named` sees same-round derives; they were
+// hand-written until then). The old
+// type-preservation gap (`select r.e` yielding `Vec<i64>`) closes with this.
 //
 // The `i64` control column in the same struct answers the same count, so a
 // regression that broke enum grouping while leaving i64 grouping alone is
@@ -33,7 +37,10 @@ package test;
 
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
+use logos.lang.cmp;
+use logos.lang.clone;
 
+#[derive_eq] #[derive_copy] #[derive_clone]
 enum E { A, B, C }
 
 struct Row { pub e: E, pub c: i64, pub id: i64 }

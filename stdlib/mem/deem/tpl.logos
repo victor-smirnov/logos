@@ -217,7 +217,16 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
-            if v.is_string() { return RtVal::S(wany_str(v)); }
+            // The literal's text is its SPELLING (the parsers process no
+            // escapes); the evaluator needs the VALUE, interned in `scratch`.
+            if v.is_string() {
+                let sp: str = wany_str(v);
+                if !str_contains(sp, "\\") { return RtVal::S(sp); }
+                let mut dv: String = String::new();
+                el_str_unescape(sp, &mut dv);
+                let wv: WAny = WAny::from(scratch.wstring(unsafe { str_from_raw(dv.as_ptr(), dv.len()) }));
+                return RtVal::S(wany_str(wv));
+            }
             if v.is_bool()   { return RtVal::B(v.as_bool()); }
             if v.is_float()  { return RtVal::F(v.as_f64()); }
             if v.is_null()   { return RtVal::Null; }
@@ -1078,6 +1087,13 @@ fn check_expr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, strict: bool,
             b.ordw = ct_join_ordw(lt, rt);
             return CTy { t: CT_INT, code: 0u64,
                          ordw: b.ordw, lit: ct_join_lit(lt, rt) };
+        }
+        // `x as T` is a STATIC-tier conversion; the template evaluator has no
+        // typed integers to convert between, so it is refused here rather than
+        // answered `Null` by the evaluator's default arm.
+        SExpr::Cast(_) => {
+            chk_fail(chk, "`as` is not supported in a template expression", "", "", "", "");
+            return ct(CT_UNKNOWN);
         }
         SExpr::Un(u) => {
             let at: CTy = check_expr(u.arg_expr(), cat, env, strict, lb, chk, reg);

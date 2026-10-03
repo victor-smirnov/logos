@@ -49,7 +49,7 @@ box_rc	tests/(logos|spec)/(pass|fail)/[^/]*(box|_rc|rc_|arc)
 # ── stdlib subsystems ───────────────────────────────────────────────────────
 writ	tests/(logos|spec)/(pass|fail)/[^/]*(writ|wmap|warray|wany|datatype)
 deem	tests/(logos|spec)/(pass|fail)/[^/]*(deem|wql|query|plan_)
-deem	^logos_09_(plan|incr|order|group|ctr|el_|layout)
+deem	^logos_09_(plan|incr|order|group|ctr|el_|layout|souffle)
 memoria	tests/(logos|spec)/(pass|fail)/[^/]*(memoria|btree|bt_|pdt|ssrle|btfl)
 vec_collections	tests/(logos|spec)/(pass|fail)/[^/]*(vec|hashmap|hash_|slice|array)
 

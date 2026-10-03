@@ -20,6 +20,7 @@ use logos.mem.collections.vec;   // ElTypes.tns
 use logos.lang.option;  // Option — checked_* return type (el_add/…/el_neg)
 use logos.lang.result;  // Result — the error-returning el_* arithmetic
 use logos.lang.cmp;     // i64 checked_add/sub/mul/div/rem/neg
+use logos.lang.arith;   // wrapping_* — the 128-bit towers detect overflow on the wrapped result
 
 // ── Operator ids (CEL canon; stable across backends) ──────────────────────
 // SBin op ids.
@@ -125,6 +126,91 @@ pub fn el_rem(a: i64, b: i64) -> Result<i64, ElError> {
 }
 pub fn el_neg(a: i64) -> Result<i64, ElError> {
     match a.checked_neg() { Option::Some(v) => { return Result::Ok(v); } Option::None => { return Result::Err(ElError::Overflow); } }
+}
+
+/// THE RANGE CHECK THAT TYPES AN ARITHMETIC NODE (ADR 0024, Rust typing).
+///
+/// An arithmetic node has its operands' type, as in Logos: `r.s + 100` over an
+/// `i8` column is an `i8`, and `100i8 + 100i8` overflows. The node is computed in
+/// its tower (i64 here) and then brought back into its own type through this
+/// check, ONCE PER NODE, so `(r.s + 100) - 100` faults on the intermediate value
+/// exactly where Rust does. `[lo, hi]` is the node type's range, written by the
+/// emitter as literals. Below a zero floor is the unsigned floor being crossed
+/// (`Underflow`, the same answer `el_subu` gives); every other excursion is
+/// `Overflow`.
+pub fn el_fit_i(v: i64, lo: i64, hi: i64) -> Result<i64, ElError> {
+    if v > hi { return Result::Err(ElError::Overflow); }
+    if v < lo {
+        if lo == 0i64 { return Result::Err(ElError::Underflow); }
+        return Result::Err(ElError::Overflow);
+    }
+    return Result::Ok(v);
+}
+
+// ── THE 128-BIT TOWERS — `i128` and `u128` compute in their own type ───────
+//
+// Until 2026-10-02 `i128`/`u128` had no tower: arithmetic over them was refused
+// because reaching i64 or u64 drops bits. Under Rust typing a node has its
+// operands' type, so a 128-bit node computes IN 128 bits and needs only the
+// checked set itself. The stdlib has `checked_*` for four widths only, so these
+// detect overflow on the wrapped result, the way `u64::checked_add` does.
+pub fn el_addq(a: i128, b: i128) -> Result<i128, ElError> {
+    let r: i128 = wrapping_add::<i128>(a, b);
+    if (a >= 0i128) == (b >= 0i128) && (r >= 0i128) != (a >= 0i128) { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+pub fn el_subq(a: i128, b: i128) -> Result<i128, ElError> {
+    let r: i128 = wrapping_sub::<i128>(a, b);
+    if (a >= 0i128) != (b >= 0i128) && (r >= 0i128) != (a >= 0i128) { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+fn el_i128_min() -> i128 { return 0i128 - 170141183460469231731687303715884105727i128 - 1i128; }
+pub fn el_mulq(a: i128, b: i128) -> Result<i128, ElError> {
+    if a == 0i128 || b == 0i128 { return Result::Ok(0i128); }
+    // MIN * -1 and -1 * MIN are the one product whose check below would itself trap.
+    if (a == -1i128 && b == el_i128_min()) || (b == -1i128 && a == el_i128_min()) {
+        return Result::Err(ElError::Overflow);
+    }
+    let r: i128 = wrapping_mul::<i128>(a, b);
+    if r / b != a { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+pub fn el_divq(a: i128, b: i128) -> Result<i128, ElError> {
+    if b == 0i128 { return Result::Err(ElError::DivByZero); }
+    if a == el_i128_min() && b == -1i128 { return Result::Err(ElError::Overflow); }
+    return Result::Ok(a / b);
+}
+pub fn el_remq(a: i128, b: i128) -> Result<i128, ElError> {
+    if b == 0i128 { return Result::Err(ElError::DivByZero); }
+    if a == el_i128_min() && b == -1i128 { return Result::Err(ElError::Overflow); }
+    return Result::Ok(a % b);
+}
+pub fn el_negq(a: i128) -> Result<i128, ElError> {
+    if a == el_i128_min() { return Result::Err(ElError::Overflow); }
+    return Result::Ok(0i128 - a);
+}
+pub fn el_addqu(a: u128, b: u128) -> Result<u128, ElError> {
+    let r: u128 = wrapping_add::<u128>(a, b);
+    if r < a { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+pub fn el_subqu(a: u128, b: u128) -> Result<u128, ElError> {
+    if b > a { return Result::Err(ElError::Underflow); }
+    return Result::Ok(a - b);
+}
+pub fn el_mulqu(a: u128, b: u128) -> Result<u128, ElError> {
+    if a == 0u128 || b == 0u128 { return Result::Ok(0u128); }
+    let r: u128 = wrapping_mul::<u128>(a, b);
+    if r / a != b { return Result::Err(ElError::Overflow); }
+    return Result::Ok(r);
+}
+pub fn el_divqu(a: u128, b: u128) -> Result<u128, ElError> {
+    if b == 0u128 { return Result::Err(ElError::DivByZero); }
+    return Result::Ok(a / b);
+}
+pub fn el_remqu(a: u128, b: u128) -> Result<u128, ElError> {
+    if b == 0u128 { return Result::Err(ElError::DivByZero); }
+    return Result::Ok(a % b);
 }
 
 /// `el_add`'s SIBLING FOR A `u64` ACCUMULATOR — the same shape, the same error
@@ -318,14 +404,25 @@ pub fn EL_TY_STR()  -> i32 { return 1i32; }
 pub fn EL_TY_BOOL() -> i32 { return 2i32; }
 pub fn EL_TY_FLT()  -> i32 { return 3i32; }
 
+/// A NAMED type: a struct or enum the module declares with no type parameters,
+/// carried in its own type and never normalized (2026-10-02).
+///
+/// ⚠ A TYPE OUTSIDE THE LATTICE WAS AN INTEGER, and that was false the moment
+/// such a value was a key: `join … on l.sku == p.sku`, `group by l.sku` and
+/// `select distinct l.sku` over a user struct `Sku` were emitted as
+/// `HashMap<i64, …>` / `Vec<i64>` and refused by the host compiler on the
+/// generated blob (`cannot cast 'Sku' to 'i64'`). Only a name the module DECLARES
+/// as a plain struct/enum is NAMED (`ElTypes::named`, filled by
+/// `reflect::stamp_udfs_from_module`): reflection hands a field's type out as a
+/// bare name, so `Wrap<i64>` arrives as `Wrap`, which is not a printable type —
+/// such names keep the lenient INT below, which is what they always had.
+pub fn EL_TY_NAMED() -> i32 { return 4i32; }
+
 // Map a Logos type NAME (as written in the surface) to an EL value-type tag.
 // `str`/`String` → STR, `bool` → BOOL, `f64`/`f32` → FLT, everything else →
-// INT (the integer family is rendered identically by `push_i64`). Unknown
-// names default to INT.
+// INT. This holds no module view, so it cannot know a NAMED type; a caller with
+// an `ElTypes` asks `ElTypes::class_of_name`, which can.
 pub fn el_ty_of_name(name: str) -> i32 {
-    // LENIENT policy over the same table: an unknown FIELD name is a nested
-    // struct the EL never reads scalars from, so INT is the harmless default.
-    // The strict policy (`el_ret_class`) reports instead — see there.
     let c: i32 = el_class_lookup(name);
     if c < 0i32 { return EL_TY_INT(); }
     return c;
@@ -643,6 +740,63 @@ pub fn el_class_lookup(name: str) -> i32 { return el_ty(name).cls; }
 
 /// STRICT classification: an out-of-lattice name is reported, not guessed.
 pub fn el_ret_class(name: str) -> i32 { return el_class_lookup(name); }
+
+// ── A STRING LITERAL'S VALUE ─────────────────────────────────────────────
+fn el_hex_digit(c: u8) -> i64 {
+    if c >= 48u8 && c <= 57u8  { return (c as i64) - 48i64; }
+    if c >= 97u8 && c <= 102u8 { return (c as i64) - 87i64; }
+    if c >= 65u8 && c <= 70u8  { return (c as i64) - 55i64; }
+    return -1i64;
+}
+
+/// The VALUE of an EL string literal from its SPELLING (the text between the
+/// quotes, which is what both generated EL parsers store: they process no
+/// escapes). Rust's escape set: `\n \r \t \\ \0 \' \"`, `\xHH` (≤ 0x7F) and
+/// `\u{H…}`. An escape outside the set is kept as written, backslash and all —
+/// the host compiler is the one that refuses it when the literal is emitted.
+/// Code generation re-emits the spelling (`codegen::emit_str_spelling`); this is
+/// for the evaluators that need the value itself.
+pub fn el_str_unescape(s: str, out: &mut String) {
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c != 92u8 || i + 1i64 >= n { out.push_u8(c); i = i + 1i64; continue; }
+        let e: u8 = str_byte_at(s, i + 1i64);
+        if e == 110u8 { out.push_u8(10u8); i = i + 2i64; continue; }   // \n
+        if e == 114u8 { out.push_u8(13u8); i = i + 2i64; continue; }   // \r
+        if e == 116u8 { out.push_u8(9u8);  i = i + 2i64; continue; }   // \t
+        if e == 48u8  { out.push_u8(0u8);  i = i + 2i64; continue; }   // \0
+        if e == 92u8 || e == 39u8 || e == 34u8 { out.push_u8(e); i = i + 2i64; continue; }
+        if e == 120u8 && i + 3i64 < n {                                 // \xHH
+            let h1: i64 = el_hex_digit(str_byte_at(s, i + 2i64));
+            let h2: i64 = el_hex_digit(str_byte_at(s, i + 3i64));
+            if h1 >= 0i64 && h2 >= 0i64 && h1 * 16i64 + h2 <= 127i64 {
+                out.push_u8((h1 * 16i64 + h2) as u8);
+                i = i + 4i64;
+                continue;
+            }
+        }
+        if e == 117u8 && i + 2i64 < n && str_byte_at(s, i + 2i64) == 123u8 {   // \u{…}
+            let mut j: i64 = i + 3i64;
+            let mut cp: i64 = 0i64;
+            let mut nd: i64 = 0i64;
+            while j < n && el_hex_digit(str_byte_at(s, j)) >= 0i64 && nd < 6i64 {
+                cp = cp * 16i64 + el_hex_digit(str_byte_at(s, j));
+                nd = nd + 1i64;
+                j = j + 1i64;
+            }
+            if nd > 0i64 && j < n && str_byte_at(s, j) == 125u8 && cp <= 1114111i64
+               && (cp < 55296i64 || cp > 57343i64) {
+                out.push_char(cp as u32);
+                i = j + 1i64;
+                continue;
+            }
+        }
+        out.push_u8(c);
+        i = i + 1i64;
+    }
+}
 
 // ── THE NUMERIC NORMALIZATION, in one place ───────────────────────────────
 /// The cast the emitter must wrap a value of type `name` in so it lands in the
@@ -1350,6 +1504,8 @@ pub fn EL_TOW_NONE() -> i32 { return 0i32; }
 pub fn EL_TOW_I64()  -> i32 { return 1i32; }
 pub fn EL_TOW_U64()  -> i32 { return 2i32; }
 pub fn EL_TOW_DENY() -> i32 { return 3i32; }
+pub fn EL_TOW_I128() -> i32 { return 4i32; }   // `i128` — `el_addq`/…/`el_negq`
+pub fn EL_TOW_U128() -> i32 { return 5i32; }   // `u128` — `el_addqu`/…
 
 pub fn el_arith_tower(name: str) -> i32 {
     let t: ElTy = el_ty(name);
@@ -1362,13 +1518,19 @@ pub fn el_arith_tower(name: str) -> i32 {
     // a u64 accumulator. A packed unsigned width added later joins both by its
     // row, not by an edit here.
     if !t.signed && t.bits <= 64i64 { return EL_TOW_U64(); }
-    return EL_TOW_DENY();                              // u128 / i128 — no tower
+    if t.bits == 128i64 {
+        if t.signed { return EL_TOW_I128(); }
+        return EL_TOW_U128();
+    }
+    return EL_TOW_DENY();
 }
 
 /// The type the tower's operations take and return — what the emitter prints for
 /// an arithmetic node computing in it, and what its operands are normalized to.
 pub fn el_tower_repr(tw: i32) -> str {
-    if tw == EL_TOW_U64() { return "u64"; }
+    if tw == EL_TOW_U64()  { return "u64"; }
+    if tw == EL_TOW_I128() { return "i128"; }
+    if tw == EL_TOW_U128() { return "u128"; }
     return el_class_repr(EL_TY_INT());
 }
 
@@ -1639,7 +1801,6 @@ pub struct ElTypes {
                               // so a view here would make the table borrow itself.
     pub n:      i64,
     pub udf_names: [str; 32],
-    pub udf_ret:   [i32; 32],
     pub udf_rets:  [str; 32],
     pub udf_arity: [i64; 32],
     pub udf_n:     i64,
@@ -1669,6 +1830,9 @@ pub struct ElTypes {
     pub ovf_var:      str,   // "" when the dropped key had no row var
     pub ovf_key:      str,
     pub ovf_reported: bool,
+    // The NAMED types (`EL_TY_NAMED`): the plain structs/enums the module
+    // declares. OWNED for the same reason `tns` is.
+    pub named: Vec<String>,
 }
 
 /// Access codes for `ElTypes.rb_idx`. A tuple component is its own index, so
@@ -1698,7 +1862,6 @@ pub fn el_types_new() -> ElTypes {
         n:      0i64,
         udf_names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        udf_ret:   [0i32; 32],
         udf_rets:  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         udf_arity: [0i64; 32],
@@ -1713,6 +1876,7 @@ pub fn el_types_new() -> ElTypes {
         ovf_var:      "",
         ovf_key:      "",
         ovf_reported: false,
+        named:  vec_new::<String>(),
     };
 }
 
@@ -1725,16 +1889,31 @@ impl ElTypes {
     // column came back out as `i64`. There is now one column, the TYPE, and the
     // class is a view of it.
     pub fn ty_of(self: &ElTypes, name: str) -> i32 {
-        return el_ty_of_name(self.ty_name_of(name));
+        return self.class_of_name(self.ty_name_of(name));
     }
 
-    // Record / overwrite `name` by CLASS (idempotent by name). The recorded type
-    // is the class's representative — which is not a fallback here but the truth:
-    // the callers that reach this hold a value the EL has already normalized (a
-    // group key vector, an aggregate output column), and the representative IS
-    // what the emitted code holds.
-    pub fn set_ty(self: &mut ElTypes, name: str, ty: i32) {
-        self.set_ty_named(name, el_class_repr(ty));
+    /// The class of a type NAME: the lattice's, `EL_TY_NAMED` for a declared
+    /// plain struct/enum, the lenient INT otherwise.
+    pub fn class_of_name(self: &ElTypes, ty: str) -> i32 {
+        let c: i32 = el_class_lookup(ty);
+        if c >= 0i32 { return c; }
+        if self.is_named(ty) { return EL_TY_NAMED(); }
+        return EL_TY_INT();
+    }
+
+    pub fn is_named(self: &ElTypes, ty: str) -> bool {
+        if ty.len() == 0i64 { return false; }
+        let mut i: i64 = 0i64;
+        while i < self.named.len() {
+            if str_eq(string_as_str(&self.named[i]), ty) { return true; }
+            i = i + 1i64;
+        }
+        return false;
+    }
+
+    pub fn note_named(self: &mut ElTypes, ty: str) {
+        if self.is_named(ty) { return; }
+        self.named.push(String::from_str(ty));
     }
 
     // Record `name` with its LOGOS TYPE NAME. THE setter: everything a consumer
@@ -1802,15 +1981,19 @@ impl ElTypes {
 
     // Register a reflected user fn (first registration wins — module items are
     // walked in declaration order and names are unique per module anyway).
-    pub fn udf_add(self: &mut ElTypes, name: str, ret_el: i32, ret_name: str, arity: i64) {
+    pub fn udf_add(self: &mut ElTypes, name: str, ret_name: str, arity: i64) {
         if self.udf_find(name) >= 0i64 { return; }
         if self.udf_n >= 32i64 { return; }
         self.udf_names[self.udf_n] = name;
-        self.udf_ret[self.udf_n]   = ret_el;
         self.udf_rets[self.udf_n]  = ret_name;
         self.udf_arity[self.udf_n] = arity;
         self.udf_n = self.udf_n + 1i64;
     }
+
+    /// The CLASS of UDF `i`'s return — a view of its declared return TYPE
+    /// (`el_ret_class`, STRICT: -1 for a type outside the lattice). It was a
+    /// second array beside `udf_rets`, written from the same name (E4.2).
+    pub fn udf_class(self: &ElTypes, i: i64) -> i32 { return el_ret_class(self.udf_rets[i]); }
 
     // True iff `name` resolves to a UDF returning an OWNED `String` (the
     // returns-String treatment: `.as_str()` borrow / owned result element).
@@ -1961,7 +2144,7 @@ impl ElTypes {
     pub fn rel_col_ty(self: &ElTypes, var: str, col: str) -> i32 {
         let e: i64 = self.find_col(CB_VAR(), var, col);
         if e < 0i64 { return -1i32; }
-        return el_ty_of_name(self.rb_tn[e]);
+        return self.class_of_name(self.rb_tn[e]);
     }
 
     // True iff `var` is a rel-bound row var (any column bound under it).

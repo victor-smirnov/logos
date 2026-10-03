@@ -67,6 +67,9 @@ use logos.std.wql.params;                // MacroParams / parse_macro_params —
 use logos.std.wql.wql_surface_parser;    // parse_program — the GENERATED surface parser
 use logos.std.wql.plan_walker;           // walk_program_params — the program walker-emitter
 use logos.std.wql.lower;                 // desugar_program_gpaths — graph-path sugar (M2a)
+use logos.std.wql.codegen;               // plan_trace — the demand decision on the [plan] channel
+use logos.std.wql.dl_export;             // dl_export — the Soufflé oracle's program text
+use logos.std.wql.why;                   // ms_render / ms_name — the demand decision's words
 use logos.mem.string;                    // String — the desugar error buffer
 use logos.lang.str;                      // str_from_raw — error-text view
 // PAIR-HALF (ADR 0025 S3a). Not used by any name in THIS file — it is here to
@@ -82,6 +85,8 @@ use logos.mem.stream;                    // Buffer<R> — the Drain node's landi
 // trigger-module load beside the `use logos.lang.stream;` literal in
 // `emit_fn_quote_blob`'s two quotes.
 use logos.lang.stream;                   // SliceStream<R> — the slice param's batch door (R-A)
+
+extern fn getenv(name: *const u8) -> *const u8;   // LOGOS_DEEM_NO_DEMAND
 
 // ── The resource handler ───────────────────────────────────────────────────
 // `#[token_macro]` 3-arg form: receives the `resource` binding name, the raw
@@ -209,6 +214,46 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
         error(gp_err_str(&gperr));
         return out;
     }
-    let _ok: bool = walk_program_params(root, name, params, natspec, &mut prm, &h);
+    // DEMAND (#349): the rel the entry reads with a bound column is evaluated
+    // on demand (magic sets). Before the fact desugar: its seed is a fact.
+    // `LOGOS_DEEM_NO_DEMAND` turns it off: the rewrite never changes an answer
+    // (MS_FALLIBLE keeps it so), so the switch is for measuring it.
+    // ORACLE: `LOGOS_DEEM_ORACLE=<dir>` writes the program as Soufflé text,
+    // before any rewrite of ours (the oracle checks what the user wrote).
+    dl_export(root, name, &mut prm);
+    let mut msd: MsDecision = MsDecision { rel: "", col: "", rule: 0i32 };
+    let mut nd: String = String::new();
+    nd.push_str("LOGOS_DEEM_NO_DEMAND");
+    nd.push_u8(0u8);
+    // `=moving` keeps the rewrite but declines the shapes that need a
+    // recursive magic rule (what the first cut did), to measure that rule alone.
+    let ndv: *const u8 = unsafe { getenv(nd.as_ptr()) };
+    let mut demand_off: bool = ndv != 0 as *const u8;
+    let mut allow_moving: bool = true;
+    if demand_off {
+        let mut vl: i64 = 0i64;
+        while unsafe { *(((ndv as i64) + vl) as *const u8) } != 0u8 { vl = vl + 1i64; }
+        if str_eq(unsafe { str_from_raw(ndv, vl) }, "moving") {
+            demand_off = false;
+            allow_moving = false;
+        }
+    }
+    if !demand_off && magic_program(root, &h, &prm, allow_moving, &mut msd) > 0i64 {
+        plan_trace("demand", ms_verdict(msd.rule), msd.rel, ms_render(msd.rule));
+        if plan_trace_facts_on() {
+            let mut fl: String = String::new();
+            fl.push_str("[facts] "); fl.push_str(msd.rel); fl.push_str(" demand col=");
+            fl.push_str(msd.col); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule));
+            fl.push_str("\n");
+            plan_trace_raw(unsafe { str_from_raw(fl.as_ptr(), fl.len()) });
+        }
+    }
+    // FACTS: a FROM-less `select` reads the one-row `__unit` relation, which
+    // registers as one more native source.
+    let mut nat: String = String::new();
+    nat.push_str(natspec);
+    if desugar_program_facts(root, &h) { nat.push_str(UNIT_NATSPEC()); }
+    let natspec2: str = unsafe { str_from_raw(nat.as_ptr(), nat.len()) };
+    let _ok: bool = walk_program_params(root, name, params, natspec2, &mut prm, &h);
     return out;
 }

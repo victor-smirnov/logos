@@ -45,6 +45,12 @@ fn sview_str(sv: SView) -> str {
     return unsafe { str_from_raw(sv.ptr, sv.len as i64) };
 }
 
+/// A struct field node's NAME (for readers outside the type stamping, e.g. the
+/// `.dl` exporter, which needs the fields in declaration order).
+pub fn reflect_field_name(view: &OView, fld: WAny) -> str { return sview_str(view.ast_field_name(fld)); }
+/// A struct field node's declared TYPE NAME, unresolved.
+pub fn reflect_field_type_name(view: &OView, fld: WAny) -> str { return sview_str(view.ast_field_type_name(fld)); }
+
 // Find the top-level MODULE item whose NAME equals `struct_name` — ANY item, of any
 // kind: a struct, a schema, a `type` alias, an enum. Returns its AST node handle (a
 // `WAny` Ref), or a null WAny if not found. Walks the module ITEMS array directly
@@ -667,8 +673,16 @@ pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
                 // an i64, and `el_ret_class` on the spelling would have reported an
                 // out-of-lattice return and refused the call at its use site.
                 let rn: str = resolve_alias_name(view, fn_ret_type_name(view, item));
-                t.udf_add(nm, el_ret_class(rn), rn, fn_param_count(view, item));
+                t.udf_add(nm, rn, fn_param_count(view, item));
             }
+        }
+        // A plain struct/enum (no type parameters) is a NAMED type: printable as
+        // its bare name, so the EL can carry its values in their own type.
+        let code: u64 = view.ast_node_code(item) & (0xFFFF as u64);
+        if (code == LA_STRUCT() || code == LA_ENUM())
+           && view.ast_type_param_count(item) == (0 as u64) {
+            let snm: str = sview_str(view.ast_node_name(item));
+            if snm.len() > 0i64 { t.note_named(snm); }
         }
         i = i + (1 as u64);
     }

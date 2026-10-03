@@ -1,38 +1,24 @@
-// wql_mapping_rules_escape_e2e — the `mapping` item's `<M>__rules()` literal,
-// pinned BYTE FOR BYTE over rule text that needs escaping.
+// wql_mapping_rules_escape_e2e — a `mapping` whose rule text needs escaping,
+// consumed through static fusion.
 //
-// WHY THIS EXISTS. `__mapping_item` emits `<M>__rules() -> str` whose body is a
-// string LITERAL holding the mapping's rel text verbatim. Three bytes cannot
-// appear raw in a Logos literal — `"`, `\` and a newline — so the emitter
-// escapes them, and since ADR 0024 S5 the escaped literal is REIFIED
-// (`parse_expr`) and spliced into a quoted item instead of being pushed as
-// source text. That makes the compiler's own lexer responsible for turning the
-// escapes back into bytes, which is a round trip the corpus did not exercise at
-// all: NO mapping anywhere in it has a `"` or a `\` inside a rel body (the
-// quotes in the other mapping tests are all in CONSUMER deems), so the only
-// escape ever run was the newline.
+// WHY THIS EXISTS. A mapping's rel bodies reach a consumer as TEXT: the
+// compiler's `mappings_` pre-scan records each mapping's canonical rule text
+// and splices it into the consumer's program, which is parsed again there.
+// Three bytes cannot appear raw in a Logos string literal — `"`, `\` and a
+// newline — and NO other mapping in the corpus has a `"` or a `\` inside a
+// rel body (the quotes in the other mapping tests are all in CONSUMER deems).
+// So this file puts all three in one mapping and consumes both rels:
+//   §A `backslash` — its literal spells `p\\g` in the source, so it matches the
+//      document value `p\g` only if the backslash survives the splice as ONE
+//      backslash. A doubled or dropped one matches nothing (the doc also holds
+//      `pg`, so a dropped backslash matches the wrong row).
+//   §B `pg` — the plain quote case.
 //
-// So this file puts all three in one mapping and checks two independent things:
-//   §A `Esc__rules()` equals the expected text EXACTLY — one `str_eq` against a
-//      literal written out here, which fails on a single wrong byte. A
-//      round-trip that dropped a backslash or doubled a quote would still
-//      produce a *plausible* string, so the count/shape assertions the other
-//      mapping tests make would not see it.
-//   §B the mapping still MEANS what it meant: the static twin `s_pg` compiles
-//      the same rel at the item seam and returns the one owner.
-//
-// ⚠ P5 — ONE CLAIM IS LOST HERE AND IT IS NAMED, NOT QUIETLY DROPPED. §B used to
-// be the ROUND TRIP: `Query::compile_with_mapping` reparsed the very bytes
-// `Esc__rules()` emits, so the escaped literal was proved COMPILABLE and not
-// merely equal to a string written out here. `compile_with_mapping` is an API of
-// the deleted `stdlib/mem/deem/query.logos`, and the static twin does NOT consume
-// the rules TEXT — it is compiled from the item AST at the `mapping` seam — so
-// after the cut nothing in the tree parses `<M>__rules()` back. §A's byte compare
-// survives whole and is the stronger half (it fails on a single wrong byte); what
-// is gone is the second opinion that those bytes are a program. The
-// `backslash` rel loses its only consumer with it and is kept in the mapping
-// because §A pins its ESCAPED SPELLING, which is the byte the emitter gets wrong.
-// Exit codes 5–11 named the dynamic consumer; retired, not reused.
+// HISTORY (#353, 2026-10-03). §A used to compare the emitted `Esc__rules()`
+// literal byte for byte, and before P5 a dynamic consumer reparsed it. Both the
+// artifact fns and their reader are gone; what is checked now is the path the
+// rule text actually takes into a query. Exit codes 1, 2 and 5–11 are retired,
+// not reused.
 package test;
 
 use logos.lang.writ.container;
@@ -44,9 +30,7 @@ use logos.lang.str;
 use logos.std.io;
 
 // A `"` (the string literals), a `\` (inside one of them) and newlines (the
-// bodies span lines) — the full escape set in one mapping. The indentation is
-// load-bearing: the rel text travels VERBATIM, so §A's expected literal
-// reproduces these exact leading spaces.
+// bodies span lines) — the full escape set in one mapping.
 pub mapping Esc(g: &Writ) {
     pub rel pg(owner: i64) {
         from g ** .engine e where e.vs == "pg" select e.parent;
@@ -56,24 +40,20 @@ pub mapping Esc(g: &Writ) {
     }
 }
 
-// the static twin — the same rel, compiled at the item seam.
+// the consumers — each rel compiled at the item seam and fused.
 pub deem s_pg(w: Esc) { from pg p select p.owner }
+pub deem s_bs(w: Esc) { from backslash p select p.owner }
 
 fn main() -> i32 {
-    // ── §A the literal, byte for byte ──────────────────────────────────────
-    // `\"` here is a quote IN the rules text; `\\\\` is the two characters
-    // backslash-backslash that the mapping source itself spells.
-    let want: str = "rel pg(owner: i64) {\n        from g ** .engine e where e.vs == \"pg\" select e.parent;\n    }\nrel backslash(owner: i64) {\n        from g ** .engine e where e.vs == \"p\\\\g\" select e.parent;\n    }\n";
-    if !str_eq(Esc__rules(), want) {
-        println("§A rules text mismatch; got:");
-        println(Esc__rules());
-        return 1i32;
-    }
-    if !str_eq(Esc__src(), "g") { return 2i32; }
+    let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" }, odd: { engine: "p\\g" } }"#);
 
-    // ── §B the mapping still means what it meant, at the item seam ─────────
-    let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
+    // ── §A the backslash survives the splice as one byte ───────────────────
+    let bs: Vec<i64> = match s_bs(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
+    if bs.len() != 1i64 { return 14i32; }
+    if bs.get(0i64) == 0i64 { return 15i32; }
 
+    // ── §B the plain quote case ────────────────────────────────────────────
     let st: Vec<i64> = match s_pg(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
     if st.len() != 1i64 { return 4i32; }
@@ -84,6 +64,8 @@ fn main() -> i32 {
     // spelling of this line and it FAILED at exit 12 when written as `== 0`, so
     // the assertion is reading a real projected word and not a default.
     if st.get(0i64) == 0i64 { return 12i32; }
+    // the two owners are different nodes
+    if st.get(0i64) == bs.get(0i64) { return 16i32; }
 
     return 0i32;
 }

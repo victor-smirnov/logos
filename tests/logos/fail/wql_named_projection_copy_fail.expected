@@ -1,0 +1,1 @@
+wql!: `select`: `l.sku` projects a value of type `Sku`, which is copied out of its row and so must be `Copy`

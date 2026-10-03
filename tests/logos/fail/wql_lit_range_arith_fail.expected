@@ -1,0 +1,1 @@
+wql!: `select`: literal `200` is out of range for `i8` — it takes that type from `(r.s + 1)`, the other side of `*`

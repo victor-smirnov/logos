@@ -1,0 +1,22 @@
+// WQL — A `group by` KEY OF A STRUCT TYPE NEEDS `Eq`, NOT ONLY `PartialEq`.
+//
+// A NAMED type (a struct the module declares) is carried in its own type, and
+// every operation on it is asked of its impls (Rust typing, 2026-10-02). This
+// refusal names the missing piece at the clause, where the host compiler would
+// have refused a generated line.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.cmp;
+use logos.lang.clone;
+
+pub struct Sku { pub a: i64, pub b: i64 }
+impl PartialEq for Sku { fn eq(&self, o: &Sku) -> bool { return self.a == o.a && self.b == o.b; } }
+impl Clone for Sku { fn clone(&self) -> Sku { return Sku { a: self.a, b: self.b }; } }
+impl Copy for Sku {}
+pub struct Line { pub sku: Sku, pub qty: i64 }
+
+pub deem q(ls: &[Line]) { from ls l group by l.sku aggregate n = count() select n }
+
+fn main() -> i32 { return 0i32; }

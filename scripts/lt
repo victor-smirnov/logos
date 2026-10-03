@@ -273,6 +273,9 @@ class Runner:
         self.con, self.build, self.jobs, self.run_id, self.verbose = con, build, jobs, run_id, verbose
         self.lock = threading.Lock()
         self.slots = threading.Semaphore(jobs)
+        # A test needing k > 1 slots takes them under this lock, so two such tests
+        # can never each hold part of the pool and wait on each other.
+        self.acquire_lock = threading.Lock()
         self.done = 0
         self.failed = []
         self.status = {}
@@ -287,8 +290,9 @@ class Runner:
         procs = max(1, min(int(procs or 1), self.jobs))
         if disabled:
             return self.record(name, "disabled", None, 0.0, b"", total)
-        for _ in range(procs):
-            self.slots.acquire()
+        with self.acquire_lock:
+            for _ in range(procs):
+                self.slots.acquire()
         try:
             if self.stop:
                 return self.record(name, "notrun", None, 0.0, b"", total)
@@ -370,7 +374,17 @@ def run_set(con, build, names, args, task, label):
     ready = [n for n in sel if not req.get(n, ([], []))[0] and not req.get(n, ([], []))[1]]
     later = [n for n in sel if n not in ready]
     ready.sort(key=lambda n: -(dur.get(n) or 1.0))
+    # Tests that declare several slots (a gate running its own `-P N`) go FIRST,
+    # one after another, while the pool is empty. Submitted with the rest, such
+    # a test was handed a slot or two, then collected every slot freed after that
+    # and drained the pool to one or two tests until it had all of them — measured
+    # 2026-10-02: plan_independence (12 slots) left 2 of 12 busy for minutes.
+    procs_of = dict(con.execute("SELECT name, processors FROM tests"))
+    wide = [n for n in ready if int(procs_of.get(n) or 1) > 1]
+    ready = [n for n in ready if n not in set(wide)]
     t0 = time.monotonic()
+    for n in wide:
+        r.one(n, len(sel))
     with ThreadPoolExecutor(max_workers=jobs) as ex:
         list(ex.map(lambda n: r.one(n, len(sel)), ready))
     for n in later:   # fixture / DEPENDS consumers: after everything they could need
