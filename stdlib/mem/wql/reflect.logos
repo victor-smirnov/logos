@@ -667,7 +667,7 @@ pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
                 // an i64, and `el_ret_class` on the spelling would have reported an
                 // out-of-lattice return and refused the call at its use site.
                 let rn: str = resolve_alias_name(view, fn_ret_type_name(view, item));
-                t.udf_add(nm, el_ret_class(rn), rn, fn_param_count(view, item));
+                t.udf_add(nm, rn, fn_param_count(view, item));
             }
         }
         // A plain struct/enum (no type parameters) is a NAMED type: printable as

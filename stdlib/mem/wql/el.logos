@@ -1744,7 +1744,6 @@ pub struct ElTypes {
                               // so a view here would make the table borrow itself.
     pub n:      i64,
     pub udf_names: [str; 32],
-    pub udf_ret:   [i32; 32],
     pub udf_rets:  [str; 32],
     pub udf_arity: [i64; 32],
     pub udf_n:     i64,
@@ -1806,7 +1805,6 @@ pub fn el_types_new() -> ElTypes {
         n:      0i64,
         udf_names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        udf_ret:   [0i32; 32],
         udf_rets:  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
                     "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         udf_arity: [0i64; 32],
@@ -1859,15 +1857,6 @@ impl ElTypes {
     pub fn note_named(self: &mut ElTypes, ty: str) {
         if self.is_named(ty) { return; }
         self.named.push(String::from_str(ty));
-    }
-
-    // Record / overwrite `name` by CLASS (idempotent by name). The recorded type
-    // is the class's representative — which is not a fallback here but the truth:
-    // the callers that reach this hold a value the EL has already normalized (a
-    // group key vector, an aggregate output column), and the representative IS
-    // what the emitted code holds.
-    pub fn set_ty(self: &mut ElTypes, name: str, ty: i32) {
-        self.set_ty_named(name, el_class_repr(ty));
     }
 
     // Record `name` with its LOGOS TYPE NAME. THE setter: everything a consumer
@@ -1935,15 +1924,19 @@ impl ElTypes {
 
     // Register a reflected user fn (first registration wins — module items are
     // walked in declaration order and names are unique per module anyway).
-    pub fn udf_add(self: &mut ElTypes, name: str, ret_el: i32, ret_name: str, arity: i64) {
+    pub fn udf_add(self: &mut ElTypes, name: str, ret_name: str, arity: i64) {
         if self.udf_find(name) >= 0i64 { return; }
         if self.udf_n >= 32i64 { return; }
         self.udf_names[self.udf_n] = name;
-        self.udf_ret[self.udf_n]   = ret_el;
         self.udf_rets[self.udf_n]  = ret_name;
         self.udf_arity[self.udf_n] = arity;
         self.udf_n = self.udf_n + 1i64;
     }
+
+    /// The CLASS of UDF `i`'s return — a view of its declared return TYPE
+    /// (`el_ret_class`, STRICT: -1 for a type outside the lattice). It was a
+    /// second array beside `udf_rets`, written from the same name (E4.2).
+    pub fn udf_class(self: &ElTypes, i: i64) -> i32 { return el_ret_class(self.udf_rets[i]); }
 
     // True iff `name` resolves to a UDF returning an OWNED `String` (the
     // returns-String treatment: `.as_str()` borrow / owned result element).

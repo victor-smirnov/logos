@@ -286,7 +286,7 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
             if bfn != BFN_UNKNOWN() { return el_class_repr(builtin_ret_ty(bfn)); }
             let ui: i64 = t.udf_find(c.fn_name);
             if ui >= 0i64 {
-                let r: i32 = t.udf_ret[ui];
+                let r: i32 = t.udf_class(ui);
                 if r >= 0i32 { return el_class_repr(r); }
             }
             return "i64";
@@ -1830,7 +1830,7 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
 fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
                  t: &ElTypes, var: str) {
     let ui: i64 = t.udf_find(name);
-    if ui < 0i64 || argc != t.udf_arity[ui] || t.udf_ret[ui] < 0i32 {
+    if ui < 0i64 || argc != t.udf_arity[ui] || t.udf_class(ui) < 0i32 {
         out.push_str("0i64");
         return;
     }
@@ -1873,7 +1873,7 @@ pub fn call_diagnostic(e: SExpr, t: &ElTypes) -> bool {
                 let ui: i64 = t.udf_find(c.fn_name);
                 if ui < 0i64 { return true; }
                 if args.len() != t.udf_arity[ui] { return true; }
-                if t.udf_ret[ui] < 0i32 { return true; }
+                if t.udf_class(ui) < 0i32 { return true; }
             } else {
                 if args.len() != builtin_arity(bfn) { return true; }
             }
@@ -1943,7 +1943,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     error(string_as_str(&m2));
                     return false;
                 }
-                if t.udf_ret[ui] < 0i32 {
+                if t.udf_class(ui) < 0i32 {
                     let mut m3: String = String::new();
                     m3.push_str(ctx);
                     m3.push_str(": user function '");
@@ -1966,7 +1966,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                 // not the sort's: the same cast feeds `select`, `where`, `group by`
                 // and an aggregate argument, and each of them would need its own
                 // copy of this check. One use-site refusal closes all of them.
-                if t.udf_ret[ui] == EL_TY_INT() && !el_int_fits_i64(t.udf_rets[ui]) {
+                if t.udf_class(ui) == EL_TY_INT() && !el_int_fits_i64(t.udf_rets[ui]) {
                     let mut m5: String = String::new();
                     m5.push_str(ctx);
                     m5.push_str(": user function '");

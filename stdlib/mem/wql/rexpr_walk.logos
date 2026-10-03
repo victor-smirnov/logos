@@ -9893,9 +9893,9 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
     while i < acount {
         let a: RAgg = aggs.agg_at(i);
         if uda[i] {
-            ty.set_ty(a.out, aret[i]);
+            ty.set_ty_named(a.out, el_class_repr(aret[i]));
         } else if agg_flt[i] {
-            ty.set_ty(a.out, EL_TY_FLT());
+            ty.set_ty_named(a.out, "f64");
         } else {
             ty.set_ty_named(a.out, acc[i]);
         }
