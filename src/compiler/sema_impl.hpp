@@ -10492,6 +10492,8 @@ private:
                        std::vector<const SemaFuncInfo*> tied; bool via_arm = false; bool dyn_mut = false; };
     std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
+    const SemaFuncInfo* resolve_trait_item_(std::string_view trait, TypeRef self, std::string_view name,
+                                            std::string* key_out = nullptr);
     void reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal);
     lir::LExprPtr method_call_resolved_(lir::EMethodCall mc, TypeRef ret);
     lir::LExprPtr method_call_named_(lir::LExprPtr recv, std::string method,

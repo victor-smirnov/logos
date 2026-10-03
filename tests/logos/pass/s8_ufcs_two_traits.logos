@@ -1,0 +1,15 @@
+// ADR 0030 S8 row 6: UFCS through resolve_trait_item_ — two traits with a same-named method on one
+// type, `Trait::m(x)`, `<T as Trait>::m(x)`, a primitive receiver. Output as rustc: 6 105 105 6 42.
+package s8_ufcs_two_traits;
+use logos.std.fmt;
+trait A { fn f(&self) -> i32; }
+trait B { fn f(&self) -> i32; }
+struct S { v: i32 }
+impl A for S { fn f(&self) -> i32 { self.v + 1 } }
+impl B for S { fn f(&self) -> i32 { self.v + 100 } }
+impl A for i64 { fn f(&self) -> i32 { (*self as i32) * 2 } }
+fn main() {
+    let s = S { v: 5 };
+    let n: i64 = 21;
+    println!("{} {} {} {} {}", A::f(&s), B::f(&s), <S as B>::f(&s), <S as A>::f(&s), A::f(&n));
+}

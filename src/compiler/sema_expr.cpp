@@ -6916,6 +6916,52 @@ static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
     return fk == ak;
 }
 
+// ADR 0030 S8 row 6 — THE trait-item resolver: the method `name` of the impl
+// of `trait` for `self` (a concrete impl keyed by self's lookup keys, or a
+// blanket impl whose bounds self meets). The candidate's trait is matched by
+// identity (name + declaring package), never inferred from a composed key.
+// `key_out` receives the registry key the candidate was found under.
+const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_view trait, TypeRef self,
+                                                     std::string_view name, std::string* key_out) {
+    using K = LogosType::Kind;
+    if (!self) return nullptr;
+    const SemaTraitInfo* ti = find_trait_iter_scoped(trait);
+    if (!ti) return nullptr;
+    const std::string tbare = ti->name.substr(ti->name.rfind('.') == std::string::npos ? 0 : ti->name.rfind('.') + 1);
+    auto same_trait = [&](const SemaFuncInfo* fi) {
+        if (!fi || fi->trait_name.empty()) return false;
+        std::string fb = fi->trait_name;
+        if (auto d = fb.rfind('.'); d != std::string::npos) fb = fb.substr(d + 1);
+        if (fb != tbare) return false;
+        return fi->trait_package.empty() || ti->package.empty() || fi->trait_package == ti->package;
+    };
+    std::vector<std::string> keys = impl_lookup_keys_(self);
+    const auto ck = TypeRef(self).kind();
+    if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum || is_integer(self) ||
+        ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
+        const std::string tn = ck == K::Struct || ck == K::ZonedStruct ? concrete_struct_name(self)
+                             : ck == K::Enum ? std::string(TypeRef(self).enum_name()) : type_str(self);
+        for (size_t bi : viable_blanket_impls(name, tn, /*report=*/false)) {
+            const auto& b = blanket_impls_[bi];
+            const std::string sfx = "__" + std::string(name);
+            if (b.mangled_name.size() > sfx.size() && b.mangled_name.ends_with(sfx))
+                keys.push_back(b.mangled_name.substr(0, b.mangled_name.size() - sfx.size()));
+        }
+    }
+    for (const auto& k : keys)
+        for (const std::string& mk : {k + "__" + tbare + "__" + std::string(name), k + "__" + std::string(name)}) {
+            std::vector<const SemaFuncInfo*> fs = find_func_candidates(mk);
+            if (auto* g = find_generic_func(mk))
+                if (std::find(fs.begin(), fs.end(), g) == fs.end()) fs.push_back(g);
+            for (auto* fi : fs)
+                if (same_trait(fi)) {
+                    if (key_out) *key_out = mk;
+                    return fi;
+                }
+        }
+    return nullptr;
+}
+
 SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_view name) {
     using K = LogosType::Kind;
     // rustc's probe: the candidates are the methods of every type on the
@@ -18488,21 +18534,12 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 // The impl `impl Doubler for i64` mangles to `i64__dbl`.
                 rname = type_str(rt);
         }
-        // Only commit the rewrite when the concrete `<recv-type>__<method>`
-        // actually resolves — otherwise leave `mangled` for the normal
-        // resolution paths (and a clean error) instead of a spurious miss.
-        if (!rname.empty()) {
-            // The TRAIT-QUALIFIED symbol first: when two traits the type
-            // implements share the method name, each impl's method is minted
-            // `<type>__<Trait>__<method>` and the plain base names only one.
-            for (std::string cand : {rname + "__" + std::string(class_name) + "__" + std::string(method_name),
-                                     rname + "__" + std::string(method_name)}) {
-                if (!find_func_candidates(cand).empty() || find_generic_func(cand)) {
-                    resolved_class = rname;
-                    mangled = cand;
-                    break;
-                }
-            }
+        // The impl of THIS trait for the receiver's type names the method
+        // (resolve_trait_item_); nothing is composed from the spelling.
+        std::string key;
+        if (rt && resolve_trait_item_(class_name, rt, method_name, &key)) {
+            resolved_class = rname.empty() ? type_str(rt) : rname;
+            mangled = key;
         }
     }
 
@@ -18513,10 +18550,14 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         auto tq = map_of(node.get(la::TYPE.code));
         std::string tname(str_of(tq.get(la::NAME.code)));
         if (!tname.empty()) {
-            std::string cand = std::string(class_name) + "__" + tname + "__" + std::string(method_name);
-            if (!find_func_candidates(cand).empty() || find_generic_func(cand)) {
+            // The impl of the named trait for the qualified type.
+            TypeRef qt = nullptr;
+            if (auto [sp, ssi] = find_struct_by_name(std::string(class_name)); ssi)
+                qt = make_generic_struct(std::string(class_name), {}, {}, sp);
+            std::string key;
+            if (qt && resolve_trait_item_(tname, qt, method_name, &key)) {
                 resolved_class = std::string(class_name);
-                mangled = cand;
+                mangled = key;
             }
         }
     }
