@@ -928,6 +928,91 @@ fn ms_neg_agg(qany: WAny) -> bool {
     }
 }
 
+// Does `e` contain an operation that can return an `ElError`: integer
+// arithmetic is checked (`el_add(..)?`, `el_div(..)?`, `el_neg(..)?`), and the
+// types are not known before the walk, so every arithmetic node counts. A
+// comprehension carries a plan of its own and counts too.
+fn ms_fallible(w: WRef<SExpr>) -> bool {
+    if w.any().is_null() { return false; }
+    let e: SExpr = w.any().view::<SExpr>();
+    match e {
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            if op == OP_ADD() || op == OP_SUB() || op == OP_MUL() || op == OP_DIV() || op == OP_MOD() {
+                return true;
+            }
+            return ms_fallible(b.lhs) || ms_fallible(b.rhs);
+        }
+        SExpr::Un(u) => {
+            if u.op == OP_NEG() { return true; }
+            return ms_fallible(u.arg);
+        }
+        SExpr::Field(f) => { return ms_fallible(f.base); }
+        SExpr::Call(c) => { return ms_fallible_arr(c.args); }
+        SExpr::Tuple(t) => { return ms_fallible_arr(t.items); }
+        SExpr::Cond(c) => { return ms_fallible(c.c) || ms_fallible(c.t) || ms_fallible(c.e); }
+        SExpr::Cast(c) => { return ms_fallible(c.arg); }
+        SExpr::Comp(_c) => { return true; }
+        _ => { return false; }
+    }
+}
+
+fn ms_fallible_arr(a: WRef<SExprArr>) -> bool {
+    if a.any().is_null() { return false; }
+    let arr: SExprArr = a.any().view::<SExprArr>();
+    let n: i64 = arr.len();
+    if n > 0i64 && ms_fallible(arr.a0) { return true; }
+    if n > 1i64 && ms_fallible(arr.a1) { return true; }
+    if n > 2i64 && ms_fallible(arr.a2) { return true; }
+    if n > 3i64 && ms_fallible(arr.a3) { return true; }
+    if n > 4i64 && ms_fallible(arr.a4) { return true; }
+    if n > 5i64 && ms_fallible(arr.a5) { return true; }
+    if n > 6i64 && ms_fallible(arr.a6) { return true; }
+    if n > 7i64 && ms_fallible(arr.a7) { return true; }
+    return false;
+}
+
+fn ms_steps_fallible(sa: WAny) -> bool {
+    if sa.is_null() { return false; }
+    let steps: RQJoinStepArr = sa.view::<RQJoinStepArr>();
+    let mut i: i64 = 0i64;
+    while i < steps.len() {
+        let st: RQJoinStep = steps.step_at(i);
+        if st.has_on && ms_fallible(st.on) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+// A rel body's fallibility: its select, WHERE and every ON.
+fn ms_body_fallible(qany: WAny) -> bool {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => { return ms_fallible(s.select) || (s.has_where && ms_fallible(s.where_pred)); }
+        RQuery::Join(j) => {
+            return ms_fallible(j.select) || (j.has_where && ms_fallible(j.where_pred))
+                || ms_steps_fallible(j.steps.any());
+        }
+        _ => { return true; }
+    }
+}
+
+// The entry's filter side: its WHERE and every ON (the select runs only on
+// rows that passed, so it sees the same rows either way).
+fn ms_entry_fallible(qany: WAny) -> bool {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => { return s.has_where && ms_fallible(s.where_pred); }
+        RQuery::Join(j) => { return (j.has_where && ms_fallible(j.where_pred)) || ms_steps_fallible(j.steps.any()); }
+        RQuery::Aggr(g) => {
+            let mut f: bool = g.has_where && ms_fallible(g.where_pred);
+            if g.has_steps() && ms_steps_fallible(g.steps.any()) { f = true; }
+            return f;
+        }
+        RQuery::Find(_f) => { return true; }
+    }
+}
+
 // The row var a body binds its one occurrence of `nm` to ("" when none).
 fn ms_occ_var(qany: WAny, nm: str) -> str {
     let q: RQuery = qany.view::<RQuery>();
@@ -1140,10 +1225,58 @@ fn ms_restrict_body(qany: WAny, mrel: str, v: str, f: str, h: &Writ) -> i64 {
     }
 }
 
+// A recursive body that MOVES the bound column (the right-linear shape, or a
+// left-linear one bound on its other column): exactly two atoms — the one
+// occurrence `t` of R and one other atom `u` — joined by one equality
+// `t.c == u.f` on the bound column c, no WHERE, and the head's column c a
+// plain column `u.g`. Then the occurrence's demand is `u.f` for every `u`
+// whose `u.g` is demanded: the recursive magic rule
+//   __m_R(u.f) :- __m_R(u.g), u
+// (Soufflé's MST derives the same rule for this sideways-information pass).
+struct MsMove { pub ok: bool, pub src: str, pub var: str, pub g: str, pub f: str }
+fn ms_moving(qany: WAny, rel: str, col: str, item: MsCol) -> MsMove {
+    let no: MsMove = MsMove { ok: false, src: "", var: "", g: "", f: "" };
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Join(j) => {
+            if j.has_where { return no; }
+            let steps: RQJoinStepArr = j.steps_arr();
+            if steps.len() != 1i64 { return no; }
+            let st: RQJoinStep = steps.step_at(0i64);
+            if st.is_anti || st.is_edge || !st.has_on { return no; }
+            let mut tv: str = "";
+            let mut us: str = "";
+            let mut uv: str = "";
+            if str_eq(j.a_name, rel) { tv = j.x_var; us = st.src_name; uv = st.var_name; }
+            else if str_eq(st.src_name, rel) { tv = st.var_name; us = j.a_name; uv = j.x_var; }
+            else { return no; }
+            if !str_eq(item.var, uv) { return no; }
+            let on: SExpr = st.on.any().view::<SExpr>();
+            match on {
+                SExpr::Bin(b) => {
+                    if b.op != OP_EQ() { return no; }
+                    let l: MsCol = ms_col_ref(b.lhs.any().view::<SExpr>());
+                    let r: MsCol = ms_col_ref(b.rhs.any().view::<SExpr>());
+                    if str_eq(l.var, tv) && str_eq(l.fld, col) && str_eq(r.var, uv) {
+                        return MsMove { ok: true, src: us, var: uv, g: item.fld, f: r.fld };
+                    }
+                    if str_eq(r.var, tv) && str_eq(r.fld, col) && str_eq(l.var, uv) {
+                        return MsMove { ok: true, src: us, var: uv, g: item.fld, f: l.fld };
+                    }
+                    return no;
+                }
+                _ => { return no; }
+            }
+        }
+        _ => { return no; }
+    }
+}
+
 /// Apply the demand rewrite to the rel the entry reads with a bound column
 /// (at most one: the entry's base). Fills `out` with the decision, if any
 /// rel was considered; returns the number of decisions (0 or 1).
-pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecision) -> i64 {
+pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool,
+                     out: &mut MsDecision) -> i64 {
     let prog: RQProgram = root.view::<RQProgram>();
     if !prog.has_rels() { return 0i64; }
     let me: MsEntry = ms_entry(prog.entry_any());
@@ -1167,6 +1300,7 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecisi
     out.col = bind.col;
     // ── the antecedents, each its own rule ──
     if ms_reads(prog.entry_any(), rel.name) != 1i64 { out.rule = MS_SHARED(); return 1i64; }
+    if ms_entry_fallible(prog.entry_any()) { out.rule = MS_FALLIBLE(); return 1i64; }
     let nr: i64 = rels.len();
     let mut j: i64 = 0i64;
     while j < nr {
@@ -1182,16 +1316,23 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecisi
     }
     let bodies: RQBodyArr = rel.bodies_arr();
     let nb: i64 = bodies.len();
+    let mut nmove: i64 = 0i64;   // recursive bodies that need a magic rule
     let mut b: i64 = 0i64;
     while b < nb {
         let ba: WAny = bodies.body_any(b);
         if ms_neg_agg(ba) { out.rule = MS_NEG_AGG(); return 1i64; }
+        if ms_body_fallible(ba) { out.rule = MS_FALLIBLE(); return 1i64; }
         let k: i64 = ms_reads(ba, rel.name);
         if k > 1i64 { out.rule = MS_NONLINEAR(); return 1i64; }
         let item: MsCol = ms_col_ref(ms_sel_item(ms_select(ba), ci, nc));
         if k == 1i64 {
             if !str_eq(item.var, ms_occ_var(ba, rel.name)) || !str_eq(item.fld, bind.col) {
-                out.rule = MS_MOVES_COL(); return 1i64;
+                // not passed through: admitted only in the two-atom shape
+                // whose occurrence demand is one column of the other atom
+                let mv: MsMove = ms_moving(ba, rel.name, bind.col, item);
+                if !mv.ok { out.rule = MS_MOVES_COL(); return 1i64; }
+                if !allow_moving { out.rule = MS_MOVING_OFF(); return 1i64; }
+                nmove = nmove + 1i64;
             }
         } else {
             if item.var.len() == 0i64 { out.rule = MS_SEL_SHAPE(); return 1i64; }
@@ -1205,7 +1346,7 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecisi
         }
         b = b + 1i64;
     }
-    if nr >= RQREL_MAX() { out.rule = MS_CAP(); return 1i64; }
+    if nr >= RQREL_MAX() || nmove + 1i64 > RQBODY_MAX() { out.rule = MS_CAP(); return 1i64; }
     // ── the rewrite ──
     let mut mn: String = String::new();
     mn.push_str("__m_");
@@ -1234,11 +1375,44 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecisi
     mbm.set_body(0i64, seed.as_ref());
     mbm.set_len(1i64);
     mrel.bodies = WRef::<RQBodyArr>::from_any(mbm.as_ref());
+    let mut nmb: i64 = 1i64;   // magic bodies so far (the seed)
     b = 0i64;
     while b < nb {
         let ba2: WAny = bodies.body_any(b);
-        if ms_reads(ba2, rel.name) == 0i64 {
-            let item2: MsCol = ms_col_ref(ms_sel_item(ms_select(ba2), ci, nc));
+        let item2: MsCol = ms_col_ref(ms_sel_item(ms_select(ba2), ci, nc));
+        let k2: i64 = ms_reads(ba2, rel.name);
+        let passes: bool = k2 == 1i64 && str_eq(item2.var, ms_occ_var(ba2, rel.name))
+                           && str_eq(item2.fld, bind.col);
+        if !passes {
+            if k2 == 1i64 {
+                // the recursive magic rule: from u join __m_R on __mm.c == u.g select u.f
+                let mv2: MsMove = ms_moving(ba2, rel.name, bind.col, item2);
+                let mst: RQJoinStep = h.make::<RQJoinStep>();
+                mst.is_anti = false;
+                mst.is_edge = false;
+                mst.has_on = true;
+                mst.src_name = mrel.name;
+                mst.var_name = "__mm";
+                mst.on = gp_bin(h, OP_EQ(), gp_field(h, "__mm", "c"), gp_field(h, mv2.var, mv2.g));
+                let msa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+                let mut msam: RQJoinStepArr = msa;
+                msam.set_step(0i64, mst.as_ref());
+                msam.set_len(1i64);
+                let mj: RQJoin = h.make::<RQJoin>();
+                mj.a_name = mv2.src;
+                mj.x_var = mv2.var;
+                mj.steps = WRef::<RQJoinStepArr>::from_any(msam.as_ref());
+                mj.has_where = false;
+                mj.select = gp_field(h, mv2.var, mv2.f);
+                mj.sel_first = false;
+                mj.distinct = false;
+                mj.has_order = false;
+                mj.has_limit = false;
+                mj.has_result_ty = false;
+                mj.has_gpath = false;
+                mbm.set_body(nmb, mj.as_ref());
+                nmb = nmb + 1i64;
+            }
             let nq: i64 = ms_restrict_body(ba2, mrel.name, item2.var, item2.fld, h);
             if nq != 0i64 {
                 let mut fb: RQBodyArr = rq_fat_bodies(rel.bodies.any(), h);
@@ -1247,6 +1421,7 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecisi
         }
         b = b + 1i64;
     }
+    mbm.set_len(nmb);
     if !gp_rel_append(root, mrel, h) { out.rule = MS_CAP(); return 1i64; }
     out.rule = MS_DEMAND();
     return 1i64;

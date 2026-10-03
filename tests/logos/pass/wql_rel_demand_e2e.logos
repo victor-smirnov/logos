@@ -10,8 +10,12 @@
 //       binding, and a mapping rel consumed through fusion;
 //   (2) visits strictly fewer: `tick` counts the recursive body's derivations
 //       (a `static mut` bumped by a UDF in its select).
-// A right-linear rel moves the bound column inside the fixpoint and is
-// declined (MS_MOVES_COL); it must still answer the same.
+// A recursive body that MOVES the bound column gets a recursive magic rule
+// (`__m(u.f) :- __m(u.g), u`): the right-linear closure and the left-linear one
+// bound on its second column (ancestors). A wider moving body (three atoms) is
+// declined (MS_MOVES_COL) and must still answer the same.
+// Checked arithmetic in a body is declined (MS_FALLIBLE): a division by zero
+// on a row OUTSIDE the demand is still an `Err`, as in the full walk.
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
@@ -53,13 +57,44 @@ pub deem reach_all(es: &[Edge]) {
     }
     from tc t select (t.a, t.b)
 }
-// right-linear: declined, same answer
+// right-linear: a recursive magic rule
 pub deem reach_rl(es: &[Edge], start: i64) {
     rel tc(a: i64, b: i64) {
         from es e select (e.src, e.dst);
-        from es e join tc t on t.a == e.dst select (e.src, t.b);
+        from es e join tc t on t.a == e.dst select (e.src, tick(t.b));
     }
     from tc t where t.a == start select t.b order by t.b
+}
+pub deem reach_rl_all(es: &[Edge]) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from es e join tc t on t.a == e.dst select (e.src, tick(t.b));
+    }
+    from tc t select (t.a, t.b)
+}
+// ancestors: left-linear, bound on the second column
+pub deem anc(es: &[Edge], x: i64) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc t join es e on e.src == t.b select (tick(t.a), e.dst);
+    }
+    from tc t where t.b == x select t.a order by t.a
+}
+// three atoms in the moving body: declined, same answer
+pub deem reach_wide(es: &[Edge], start: i64) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from es e join tc t on t.a == e.dst join es f on f.src == e.src select (e.src, t.b);
+    }
+    from tc t where t.a == start select t.b order by t.b
+}
+
+// a body that fails on a row outside the demand
+pub deem div_guard(es: &[Edge], start: i64) {
+    rel q(a: i64, b: i64) {
+        from es e select (e.src, 100 / (e.dst - 99));
+    }
+    from q x where x.a == start select x.b
 }
 
 // a mapping rel, consumed with a binding: demand-driven mapping bodies
@@ -103,12 +138,39 @@ fn main() -> i32 {
     if l.len() != 2i64 || l.get(1i64) != 12i64 { return 5i32; }
     if ticks() >= t_all { return 6i32; }
 
-    // start = 1 → {2, 3, 4, 5}; the declined right-linear shape agrees
+    // start = 1 → {2, 3, 4, 5}; the right-linear and the declined wide shape agree
     let d1: Vec<i64> = reach_d(&es[..], 1i64).unwrap();
+    reset();
+    let rla: Vec<(i64, i64)> = reach_rl_all(&es[..]).unwrap();
+    let t_rla: i64 = ticks();
+    reset();
     let r1: Vec<i64> = reach_rl(&es[..], 1i64).unwrap();
-    if d1.len() != 4i64 || r1.len() != 4i64 { return 7i32; }
+    let t_rl: i64 = ticks();
+    let w1: Vec<i64> = reach_wide(&es[..], 1i64).unwrap();
+    if d1.len() != 4i64 || r1.len() != 4i64 || w1.len() != 4i64 || rla.len() != 13i64 { return 7i32; }
     i = 0i64;
-    while i < 4i64 { if d1.get(i) != r1.get(i) { return 8i32; } i = i + 1i64; }
+    while i < 4i64 { if d1.get(i) != r1.get(i) || d1.get(i) != w1.get(i) { return 8i32; } i = i + 1i64; }
+    // the recursive magic rule: start = 10 derives only in its component
+    reset();
+    let r10: Vec<i64> = reach_rl(&es[..], 10i64).unwrap();
+    if r10.len() != 2i64 || ticks() >= t_rla { return 11i32; }
+    if t_rl > t_rla { return 12i32; }
+
+    // ancestors of 4 → {1, 2, 3}, of 12 → {10, 11}; fewer derivations than all
+    reset();
+    let a4: Vec<i64> = anc(&es[..], 4i64).unwrap();
+    if a4.len() != 3i64 || a4.get(0i64) != 1i64 || a4.get(2i64) != 3i64 { return 13i32; }
+    reset();
+    let a12: Vec<i64> = anc(&es[..], 12i64).unwrap();
+    if a12.len() != 2i64 || a12.get(0i64) != 10i64 { return 14i32; }
+    if ticks() >= t_all { return 15i32; }
+
+    // the full walk divides by zero at the edge 50 -> 99; so must the demand
+    let bad: [Edge; 2] = [ Edge { src: 1i64, dst: 2i64 }, Edge { src: 50i64, dst: 99i64 } ];
+    match div_guard(&bad[..], 1i64) {
+        Result::Ok(_v) => { return 16i32; }
+        Result::Err(_e) => { }
+    }
 
     // the mapping consumer
     let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);

@@ -270,8 +270,8 @@ PIN = {
     #   +1  `deem_direct_stream_pull`'s `_run` body batch pull (the new fixture)
     #   +10 one `(self.w).next_batch()` per DIRECT DOOR
     # and the door count is 10, cross-pinned four ways below.
-    'nb_all'           : 1058,  # 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # = nb_pull + nb_forward + 0
-    'nb_pull'          : 1048,  # 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # R-F: 165 -> 1018; D7 #62: +1; S5-direct: +11; V2-M1: +1
+    'nb_all'           : 1078,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +20 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # = nb_pull + nb_forward + 0
+    'nb_pull'          : 1068,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +20 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # R-F: 165 -> 1018; D7 #62: +1; S5-direct: +11; V2-M1: +1
     'nb_forward'       : 10,     # S5-direct: 0 -> 10, one per direct door
     'nb_residual'      : 0,
 
@@ -312,8 +312,8 @@ PIN = {
     # loop with the outer `loop` removed, so it carries exactly one `__bj`
     # loop per pull. The forwards add none, which is the correspondence clause
     # doing its job rather than a coincidence.
-    'batch_loop_while' : 1048,  # 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
-    'batch_loop_decl'  : 1048,  # 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
+    'batch_loop_while' : 1068,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +20 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
+    'batch_loop_decl'  : 1068,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +20 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
     # ⚠ THE FOURTH `__bj` DECLARATION SHAPE, pinned APART so it cannot absorb
     # a member of the population above. `let mut __bj0: u64 = __bn0;` seeds the
     # cursor at the END of the batch — the descending elision's backward walk
@@ -329,9 +329,9 @@ PIN = {
     # emits `SliceStream`, from ONE function (`rexpr_walk::batch_scan_frag`),
     # so all three are 1:1 by construction — and that is exactly why they are
     # worth asserting: the day they disagree, a second emitter has appeared.
-    'slicestream_ty'   : 1019,  # 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
-    'slicestream_decl' : 1019,  # 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
-    'slicestream_pull' : 1019,  # 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e (its two `es` scans);  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
+    'slicestream_ty'   : 1039,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +20 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
+    'slicestream_decl' : 1039,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +20 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e; 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
+    'slicestream_pull' : 1039,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +20 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +20 wql_rel_demand_e2e, -24 the four rewritten recursive programs (6 each: their internal DRed helpers are no longer emitted; the queries' own scans keep their batch pulls); 2026-10-03 E9a facts: +2 wql_rel_fact_e2e (its two `es` scans);  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
 
     # ── ROW-AT-A-TIME PULLS, THE 4-WAY PARTITION ────────────────────────────
     # 65 since the audit, unmoved by R-A, R-B, R-F, R-G and (b′) — five stages,
@@ -380,7 +380,7 @@ PIN = {
     # single-paren version cannot see the `limit` arm and understated the
     # population by 8%).
     # task #85: 3301 -> 3313, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_total'      : 3563,  # 2026-10-03 E9b demand: +87 wql_rel_demand_e2e, -27 the 8 existing programs the rewrite touches (-39 dropped DRed helpers, +12 magic-rel joins); 2026-10-03 E9a facts: +19 wql_rel_fact_e2e;  2026-10-03 #353: +18 wql_str_lit_escape_e2e, +18 wql_mapping_rules_escape_e2e s_bs;  2026-10-03 E8 #349 (magic sets for `**`): +112 wql_gpath_magic_e2e, +5 the existing `**` programs (a seed body walks the path prefix the naive self bodies did not);  2026-10-03 deem branch: +18 from the 7 Rust-typing fixtures
+    'walks_total'      : 3617,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +54 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +87 wql_rel_demand_e2e, -27 the 8 existing programs the rewrite touches (-39 dropped DRed helpers, +12 magic-rel joins); 2026-10-03 E9a facts: +19 wql_rel_fact_e2e;  2026-10-03 #353: +18 wql_str_lit_escape_e2e, +18 wql_mapping_rules_escape_e2e s_bs;  2026-10-03 E8 #349 (magic sets for `**`): +112 wql_gpath_magic_e2e, +5 the existing `**` programs (a seed body walks the path prefix the naive self bodies did not);  2026-10-03 deem branch: +18 from the 7 Rust-typing fixtures
     # (i) INTERNAL compiler containers — `__ks`, `__ix0`, `__g_key`, `__bv<s>`,
     # `__h.__s<n>`, `__out` … Not sources; no route has ever claimed them.
     # ⚠ DEFINED BY A POSITIVE RULE (an UNPARENTHESISED dotted-or-bare name),
@@ -391,7 +391,7 @@ PIN = {
     # UNCLAIMED count below is pinned at zero, so a fifth walk subject reds
     # here instead of being absorbed.
     # task #85: 2513 -> 2517, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_internal'   : 2613,  # 2026-10-03 E9b demand: +49 wql_rel_demand_e2e, -35 existing; 2026-10-03 E9a facts: +8 wql_rel_fact_e2e;  2026-10-03 #353: +6 / +6 (same two);  2026-10-03 E8 #349: +44 wql_gpath_magic_e2e, +2 existing `**` programs;  2026-10-03 deem branch: +16 from the 7 Rust-typing fixtures
+    'walks_internal'   : 2648,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +35 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +49 wql_rel_demand_e2e, -35 existing; 2026-10-03 E9a facts: +8 wql_rel_fact_e2e;  2026-10-03 #353: +6 / +6 (same two);  2026-10-03 E8 #349: +44 wql_gpath_magic_e2e, +2 existing `**` programs;  2026-10-03 deem branch: +16 from the 7 Rust-typing fixtures
     'walks_unclaimed'  : 0,
     # (ii) THE FIXPOINT `_sl` PLANE — `(__rel_<r>_sl)` / `(__dl_<r>_sl)`.
     # DECLARED OUT per S6-B (ADR §7 C2 (c)): the DRed/fixpoint driver walks
@@ -400,7 +400,7 @@ PIN = {
     # (R-H Part 2 measured it): the rel plane is off the batch plane entirely,
     # which is the ground on which the re-walk capability was refused.
     # task #85: 610 -> 618, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_fixpoint'   : 770,  # 2026-10-03 E9b demand: +38 wql_rel_demand_e2e, +8 existing; 2026-10-03 E9a facts: +11 wql_rel_fact_e2e;  2026-10-03 #353: +12 / +12 (same two);  2026-10-03 E8 #349: +68 wql_gpath_magic_e2e, +3 existing `**` programs (`__mreach_<src>` landings and prefix seeds)
+    'walks_fixpoint'   : 789,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +19 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +38 wql_rel_demand_e2e, +8 existing; 2026-10-03 E9a facts: +11 wql_rel_fact_e2e;  2026-10-03 #353: +12 / +12 (same two);  2026-10-03 E8 #349: +68 wql_gpath_magic_e2e, +3 existing `**` programs (`__mreach_<src>` landings and prefix seeds)
     # (iii) DECLARED SLICE PARAMS — `(<param>).len()`, the ONLY routable
     # population, 1010 before R-F and 156 after. The residual is entirely
     # declared-out planes (119 incremental/DRed + 37 fixpoint drivers).

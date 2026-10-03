@@ -1437,15 +1437,19 @@ pub fn MS_NONLINEAR() -> i32    { return 4i32; }   // a body reads R twice
 pub fn MS_MOVES_COL() -> i32    { return 5i32; }   // a recursive body does not pass the column through
 pub fn MS_SEL_SHAPE() -> i32    { return 6i32; }   // a base body's bound column is not a plain column
 pub fn MS_CAP() -> i32          { return 7i32; }   // no free rel or join-step slot
+pub fn MS_FALLIBLE() -> i32     { return 8i32; }   // checked arithmetic could fail outside the demand
+pub fn MS_MOVING_OFF() -> i32   { return 9i32; }   // LOGOS_DEEM_NO_DEMAND=moving
 
 pub fn ms_render(r: i32) -> str {
-    if r == MS_DEMAND()    { return "the entry binds this column to one value, so only rows carrying it can reach the answer: the rel is evaluated ON DEMAND — `__m_<rel>` holds the bound value (a fact), every non-recursive body joins it on the column, and each recursive body passes the column through unchanged, so the restriction carries into the fixpoint by induction (the magic-sets rewrite, Soufflé's MST, adornment of one bound column)"; }
+    if r == MS_DEMAND()    { return "the entry binds this column to one value, so only rows carrying it can reach the answer: the rel is evaluated ON DEMAND — `__m_<rel>` holds the bound value (a fact), every non-recursive body joins it on the column, and each recursive body either passes the column through unchanged or, when it moves it (`R t` joined to one atom `u` on `t.c == u.f`), joins `__m_<rel>` too and adds the recursive magic rule `__m_<rel>(u.f) :- __m_<rel>(u.g), u` — so the restriction carries into the fixpoint by induction (the magic-sets rewrite, Soufflé's MST, adornment of one bound column)"; }
     if r == MS_SHARED()    { return "the rel is read somewhere else too (another rel, or the entry a second time) without that binding, and that reader needs every row — restricting the rel would change its answer"; }
     if r == MS_NEG_AGG()   { return "a body of the rel negates (`anti join`) or aggregates; the magic rewrite is applied only to positive bodies here, since a demand that crosses a stratum boundary needs the stratification rechecked after the rewrite"; }
     if r == MS_NONLINEAR() { return "a body reads the rel twice (non-linear recursion); each occurrence would need its own demand rule, which this rewrite does not derive yet"; }
-    if r == MS_MOVES_COL() { return "a recursive body does not pass the bound column through unchanged (the right-linear shape), so the demand grows inside the fixpoint and needs a recursive magic rule, which this rewrite does not derive yet"; }
+    if r == MS_MOVES_COL() { return "a recursive body moves the bound column in a shape wider than one other atom joined by one equality on that column (or with a WHERE), so the demand it passes to its occurrence is not one column this rewrite can project"; }
     if r == MS_SEL_SHAPE() { return "a non-recursive body computes the bound column (or is a fact) instead of copying a plain column, and the restriction is written only as a join on a plain column"; }
     if r == MS_CAP()       { return "no free rel slot for `__m_<rel>` or no free join-step slot in a body (8 each)"; }
+    if r == MS_FALLIBLE()  { return "a body of the rel, or the entry's WHERE / ON, evaluates checked arithmetic (`+ - * / %`, negation), which returns an `ElError` on overflow or division by zero: the naive program evaluates it on rows outside the demand, so restricting the rows could turn an `Err` into an `Ok`. Soufflé's MST excludes order-dependent functors (`/`, `%`) for the same reason; here every integer operator is checked, so all of them count"; }
+    if r == MS_MOVING_OFF() { return "a recursive body moves the bound column, and `LOGOS_DEEM_NO_DEMAND=moving` turns off the recursive magic rule that shape needs"; }
     return "";
 }
 pub fn ms_name(r: i32) -> str {
@@ -1456,6 +1460,8 @@ pub fn ms_name(r: i32) -> str {
     if r == MS_MOVES_COL() { return "moves_col"; }
     if r == MS_SEL_SHAPE() { return "sel_shape"; }
     if r == MS_CAP()       { return "cap"; }
+    if r == MS_FALLIBLE()  { return "fallible"; }
+    if r == MS_MOVING_OFF() { return "moving_off"; }
     return "unset";
 }
 pub fn ms_verdict(r: i32) -> str {

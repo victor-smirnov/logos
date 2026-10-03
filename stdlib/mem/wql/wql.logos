@@ -197,15 +197,26 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     }
     // DEMAND (#349): the rel the entry reads with a bound column is evaluated
     // on demand (magic sets). Before the fact desugar: its seed is a fact.
-    // `LOGOS_DEEM_NO_DEMAND` turns it off (Soufflé's `--magic-transform` is the
-    // same switch, the other way round): the rewrite never changes an answer,
-    // so the switch is for measuring it.
+    // `LOGOS_DEEM_NO_DEMAND` turns it off: the rewrite never changes an answer
+    // (MS_FALLIBLE keeps it so), so the switch is for measuring it.
     let mut msd: MsDecision = MsDecision { rel: "", col: "", rule: 0i32 };
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");
     nd.push_u8(0u8);
-    let demand_off: bool = unsafe { getenv(nd.as_ptr()) != 0 as *const u8 };
-    if !demand_off && magic_program(root, &h, &prm, &mut msd) > 0i64 {
+    // `=moving` keeps the rewrite but declines the shapes that need a
+    // recursive magic rule (what the first cut did), to measure that rule alone.
+    let ndv: *const u8 = unsafe { getenv(nd.as_ptr()) };
+    let mut demand_off: bool = ndv != 0 as *const u8;
+    let mut allow_moving: bool = true;
+    if demand_off {
+        let mut vl: i64 = 0i64;
+        while unsafe { *(((ndv as i64) + vl) as *const u8) } != 0u8 { vl = vl + 1i64; }
+        if str_eq(unsafe { str_from_raw(ndv, vl) }, "moving") {
+            demand_off = false;
+            allow_moving = false;
+        }
+    }
+    if !demand_off && magic_program(root, &h, &prm, allow_moving, &mut msd) > 0i64 {
         plan_trace("demand", ms_verdict(msd.rule), msd.rel, ms_render(msd.rule));
         if plan_trace_facts_on() {
             let mut fl: String = String::new();
