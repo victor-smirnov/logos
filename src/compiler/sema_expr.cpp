@@ -11380,25 +11380,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                              type_str(expr_type(recv)).c_str(), std::string(method_name).c_str(),
                              pk.fi ? pk.key.c_str() : "-");
         }
-        // `impl<T> Tr for &T` (keyed `$ref_$T`): its `T` is the referent.
-        if (!fi_ptr && expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind())) {
-            const std::string rprefix =
-                TypeRef(expr_type(recv)).kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_";
-            std::string blanket_key = rprefix + "$T__" + std::string(method_name);
-            if (auto git = find_generic_func(blanket_key)) {
-                auto T_bound = TypeRef(expr_type(recv)).pointee();
-                auto ty = make_ref(false, expr_type(recv));
-                auto autoref_recv = materialize_recv_ref(std::move(recv), false, ty, BorrowOrigin::Autoref);
-                std::vector<TypeRef> m_type_args;
-                for (auto& tp : git->type_params)
-                    m_type_args.push_back(tp.name == "T" ? T_bound : error_t());
-                std::vector<lir::LExprPtr> pargs;
-                pargs.push_back(std::move(autoref_recv));
-                for (auto& a : arg_exprs) pargs.push_back(std::move(a));
-                return finish_generic_call(git->symbol_name.empty() ? blanket_key : git->symbol_name,
-                                           *git, std::move(m_type_args), std::move(pargs));
-            }
-        }
 
         if (fi_ptr) {
             // Generic method on primitive receiver (e.g. i32::hash<H>): infer
@@ -11675,109 +11656,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::fprintf(stderr, "PROBEFALLBACK %s:%u %s.%s pick=%s\n", ctx_.c_str(), node_line_,
                          type_str(expr_type(recv)).c_str(), std::string(method_name).c_str(),
                          pk.fi ? pk.key.c_str() : "-");
-    }
-    // If receiver is `&T` / `&mut T`, prefer `$ref_T__method` /
-    // `$mut_ref_T__method` (impls declared with `impl Trait for &T`) over
-    // the auto-deref'd `T__method`. Fall back to the bare form below if
-    // no match. The "$ref_" prefix mirrors sema_collect's impl-target
-    // mangling — keeps `&` out of symbol names.
-    if (!fi_ptr && expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind())) {
-        std::string prefix = (TypeRef(expr_type(recv)).kind() == LogosType::Kind::MutRef)
-                                 ? "$mut_ref_" : "$ref_";
-        std::vector<std::string> ref_keys;
-        TypeRef pointee = TypeRef(expr_type(recv)).pointee();
-        if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
-                        TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
-            // Concrete-mangled ("$ref_Foo$G1$i32__m") + base ("$ref_Foo__m").
-            if (!TypeRef(pointee).type_args().empty()) {
-                ref_keys.push_back(prefix + concrete_struct_name(pointee)
-                                   + "__" + std::string(method_name));
-            }
-            ref_keys.push_back(prefix + std::string(TypeRef(pointee).struct_name())
-                               + "__" + std::string(method_name));
-        } else if (pointee) {
-            // Phase 1B-7: primitive / non-struct pointee. Match sema_collect's
-            // mangling convention `target = prefix + type_str(resolved)` —
-            // the receiver TYPE for the impl, not the pointee. E.g.
-            // `impl Show for &i32` registers methods under "$ref_&i32__show".
-            ref_keys.push_back(prefix + type_str_regions_erased(expr_type(recv))
-                               + "__" + std::string(method_name));
-        }
-        // Phase 1B-7: an `impl<T> Trait for &T` method's `fn show(self: &Self)`
-        // has param[0]=&&T (because Self=&T). When called as `r.show()` with
-        // `r: &Foo`, the actual receiver type is `&Foo` — one ref short of
-        // what the method expects. Try the lookup with `expr_type(recv)`, then
-        // with `&expr_type(recv)` and `&mut expr_type(recv)` as types[0] so the
-        // autoref-ladder finds the matching impl.
-        std::vector<TypeRef> types_direct;
-        types_direct.push_back(expr_type(recv));
-        for (auto& a : arg_exprs) types_direct.push_back(expr_type(a));
-        std::vector<TypeRef> types_autoref = types_direct;
-        types_autoref[0] = make_ref(false, expr_type(recv));
-        std::vector<TypeRef> types_automut = types_direct;
-        types_automut[0] = make_ref(true, expr_type(recv));
-        // `auto_ref_kind`: 0 = no autoref (recv passed as-is), 1 = `&recv`,
-        // 2 = `&mut recv`. Captured per-match so we wrap recv correctly.
-        int matched_auto_ref = 0;
-        for (auto& key : ref_keys) {
-            const SemaFuncInfo* pfit = nullptr;
-            if (auto fit = find_func_by_base_and_signature(key, types_direct, false)) {
-                pfit = fit; matched_auto_ref = 0;
-            }
-            else if (auto fit = find_func_by_base_and_signature(key, types_autoref, false)) {
-                pfit = fit; matched_auto_ref = 1;
-            }
-            else if (auto fit = find_func_by_base_and_signature(key, types_automut, false)) {
-                pfit = fit; matched_auto_ref = 2;
-            }
-            else if (auto git = find_generic_func(key))
-                pfit = git;
-            if (!pfit) continue;
-            // Apply autoref to the receiver if matched against the autoref'd
-            // signature variant. `&recv` (or `&mut recv`) becomes the new
-            // recv passed to the call site; codegen materialises an
-            // addr-of-temp wrapping the original ref value.
-            if (matched_auto_ref == 1) {
-                auto ty = make_ref(false, expr_type(recv));
-                recv = materialize_recv_ref(std::move(recv), false, ty, BorrowOrigin::Autoref);
-            } else if (matched_auto_ref == 2) {
-                auto ty = make_ref(true, expr_type(recv));
-                recv = materialize_recv_ref(std::move(recv), true, ty, BorrowOrigin::Autoref);
-            }
-            // Build subst: bind impl/struct type params to pointee's type args
-            // so generic ref-impls (`impl<T> Foo for &Pair<T>`) get T → i32 etc.
-            SemaSubst ref_subst;
-            if (pointee && !TypeRef(pointee).type_args().empty()) {
-                SemaStructInfo* si2 = nullptr;
-                { auto [p, si] = struct_of(TypeRef(pointee)); si2 = si; }
-                if (!si2) { auto [p, di] = datatype_of(TypeRef(pointee)); si2 = di; }
-                if (si2) {
-                    auto& tps = si2->type_params;
-                    for (size_t i = 0; i < tps.size() && i < TypeRef(pointee).type_args().size(); ++i)
-                        ref_subst[tps[i].name] = TypeRef(pointee).type_args()[i];
-                }
-            }
-            std::vector<lir::LExprPtr> pargs;
-            pargs.push_back(std::move(recv));
-            for (auto& a : arg_exprs) pargs.push_back(std::move(a));
-            // Generic ref-impl method: route through finish_generic_call so
-            // mono produces a concrete specialization. Type args derived from
-            // pointee's type-args, in the order of the impl's type params.
-            if (!pfit->type_params.empty()) {
-                std::vector<TypeRef> m_type_args;
-                for (auto& tp : pfit->type_params) {
-                    auto it = ref_subst.find(tp.name);
-                    m_type_args.push_back(it != ref_subst.end() ? it->second : nullptr);
-                }
-                return finish_generic_call(
-                    pfit->symbol_name.empty() ? key : pfit->symbol_name,
-                    *pfit, std::move(m_type_args), std::move(pargs));
-            }
-            TypeRef ret = pfit->ret_type;
-            if (!ref_subst.empty()) ret = subst_type_sema(ret, ref_subst);
-            return builder().call(pfit->symbol_name.empty() ? key : pfit->symbol_name,
-                                  {}, std::move(pargs), ret);
-        }
     }
     if (!fi_ptr) {
         // Blanket-impl fallback: `impl<T: Bound> Trait for T { fn method … }`
