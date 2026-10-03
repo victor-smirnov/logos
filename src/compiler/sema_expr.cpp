@@ -10370,72 +10370,34 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
         arr_t = TypeRef(arr_t).pointee();
     }
     if (!arr_t || TypeRef(arr_t).kind() != LogosType::Kind::Array) return std::nullopt;
-    const SemaFuncInfo* fi_ptr = nullptr;
-    std::string key;
-    for (auto& base : array_impl_lookup_keys(arr_t)) {
-        key = base + "__" + std::string(method_name);
-        auto cands = find_func_candidates(key);
-        if (!cands.empty()) { fi_ptr = cands[0]; break; }
-        if ((fi_ptr = find_generic_func(key))) break;
-    }
-    if (!fi_ptr) {
-        // No array impl: `[T; N]` unsizes to `[T]` for a slice method
-        // (`arr.iter()`, `arr.contains(&x)`, `arr.fill(0)`), as Rust's autoref +
-        // unsize step of method resolution does.
-        TypeRef elem = TypeRef(arr_t).elem();
-        if (!elem) return std::nullopt;
-        bool found = false, wants_mut = false;
-        auto probe = [&](const std::string& key) {
-            std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
-            if (auto* g = find_generic_func(key)) cands.push_back(g);
-            for (auto* fi : cands) {
-                if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
-                found = true;
-                if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
-                    TypeRef(fi->param_types[0]).mut_ptr())
-                    wants_mut = true;
-            }
-        };
-        probe("$slice$" + type_str(elem) + "__" + std::string(method_name));
-        probe("$slice$T__" + std::string(method_name));
-        if (!found) return std::nullopt;
-        if (!recv_is_ref)
-            recv = materialize_recv_ref(std::move(recv), wants_mut, make_ref(wants_mut, arr_t),
-                                        BorrowOrigin::Autoref);
-        if (!try_coerce_array_ref_to_slice(recv, make_slice_type(elem, wants_mut)))
-            return std::nullopt;
-        return try_method_on_slice(node, recv, method_name);
-    }
-    std::vector<lir::LExprPtr> args = lower_call_args(node);
-    StrMap<TypeRef> binds;
-    if (fi_ptr->impl_target_pattern) unify_types(fi_ptr->impl_target_pattern, arr_t, binds);
-    // Method-level parameters bind from the remaining arguments.
-    for (size_t i = 1; i < fi_ptr->param_types.size() && i - 1 < args.size(); ++i)
-        unify_arg_(fi_ptr->param_types[i], expr_type(args[i - 1]), binds);
-    SemaSubst subst;
-    std::vector<TypeRef> targs;
-    for (auto& tp : fi_ptr->type_params) {
-        auto it = binds.find(tp.name);
-        TypeRef t = it != binds.end() ? it->second : error_t();
-        targs.push_back(t);
-        subst[tp.name] = t;
-    }
-    TypeRef formal0 = fi_ptr->param_types.empty() ? TypeRef(nullptr)
-                                                  : subst_type_sema(fi_ptr->param_types[0], subst);
-    bool formal_is_ref = formal0 && is_ref_like(TypeRef(formal0).kind());
-    if (formal_is_ref && !recv_is_ref) {
-        bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-        recv = materialize_recv_ref(std::move(recv), is_mut, make_ref(is_mut, arr_t), BorrowOrigin::Autoref);
-    } else if (!formal_is_ref && recv_is_ref) {
-        recv = builder().deref(std::move(recv), arr_t);
-    }
-    std::vector<lir::LExprPtr> pargs;
-    pargs.push_back(std::move(recv));
-    for (auto& a : args) pargs.push_back(std::move(a));
-    std::string sym = fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name;
-    if (!fi_ptr->type_params.empty())
-        return finish_generic_call(sym, *fi_ptr, std::move(targs), std::move(pargs));
-    return builder().call(sym, {}, std::move(pargs), fi_ptr->ret_type);
+    // A direct `impl … for [T; N]` method is the probe's pick at the array
+    // step and never reaches this arm.
+    // No array impl: `[T; N]` unsizes to `[T]` for a slice method
+    // (`arr.iter()`, `arr.contains(&x)`, `arr.fill(0)`), as Rust's autoref +
+    // unsize step of method resolution does.
+    TypeRef elem = TypeRef(arr_t).elem();
+    if (!elem) return std::nullopt;
+    bool found = false, wants_mut = false;
+    auto probe = [&](const std::string& key) {
+        std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
+        if (auto* g = find_generic_func(key)) cands.push_back(g);
+        for (auto* fi : cands) {
+            if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
+            found = true;
+            if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
+                TypeRef(fi->param_types[0]).mut_ptr())
+                wants_mut = true;
+        }
+    };
+    probe("$slice$" + type_str(elem) + "__" + std::string(method_name));
+    probe("$slice$T__" + std::string(method_name));
+    if (!found) return std::nullopt;
+    if (!recv_is_ref)
+        recv = materialize_recv_ref(std::move(recv), wants_mut, make_ref(wants_mut, arr_t),
+                                    BorrowOrigin::Autoref);
+    if (!try_coerce_array_ref_to_slice(recv, make_slice_type(elem, wants_mut)))
+        return std::nullopt;
+    return try_method_on_slice(node, recv, method_name);
 }
 
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
@@ -10561,7 +10523,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // applies to as it stands is a probe step, not peeled (`(&r).show()` with
     // `impl Show for &i32` takes `&&i32`, rustc's first step).
     auto applies_here = [&]() {
-        if (std::getenv("LOGOS_PROBE_OFF")) return false;
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         return pk.fi && pk.derefs == 0;
     };
@@ -10786,7 +10747,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // ADR 0030 S8 row 4: a receiver the probe resolves goes to the common
     // selection below; the per-kind arms answer only what it does not.
     const bool probe_applies = [&] {
-        if (std::getenv("LOGOS_PROBE_OFF") || !recv || !expr_type(recv)) return false;
+        if (!recv || !expr_type(recv)) return false;
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         // The selection below applies the receiver as is or one deref through a
         // reference; an array's unsizing step stays with the array arm, and a
@@ -11713,7 +11674,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // ADR 0030 S8 row 4 — THE probe picks (as on the struct path). A generic
         // pick is autoref'd by the emission below, after inference reads `Self`
         // off the receiver as it stands.
-        if (expr_type(recv) && !std::getenv("LOGOS_PROBE_OFF")) {
+        if (expr_type(recv)) {
             ProbePick pk = probe_method_(expr_type(recv), method_name);
             const auto rk = TypeRef(expr_type(recv)).kind();
             const bool reborrow = pk.derefs == 1 && pk.autoref > 0 && is_ref_like(rk) &&
@@ -11980,7 +11941,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // ADR 0030 S8 row 4 — THE probe picks the method and the receiver
     // adjustment (rustc's steps; see probe_method_). The per-key candidate
     // loops below run only where it picks nothing applicable.
-    if (expr_type(recv) && !std::getenv("LOGOS_PROBE_OFF")) {
+    if (expr_type(recv)) {
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         // A blanket pick's `T` is bound by try_blanket_method_dispatch (the
         // common tail infers type arguments from the non-receiver arguments).
