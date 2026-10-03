@@ -220,7 +220,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // (MS_FALLIBLE keeps it so), so the switch is for measuring it.
     // ORACLE: `LOGOS_DEEM_ORACLE=<dir>` writes the program as Soufflé text,
     // before any rewrite of ours (the oracle checks what the user wrote).
-    dl_export(root, name, &mut prm);
+    dl_export(root, name, natspec, &mut prm);
     let mut msd: MsDecision = MsDecision { rel: "", col: "", rule: 0i32 };
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");

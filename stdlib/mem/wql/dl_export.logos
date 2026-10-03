@@ -192,7 +192,23 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             let v: WAny = l.val;
             if v.is_null() { return false; }
             if v.is_string() {
-                out.push_str("\""); out.push_str(v.as_wstr()); out.push_str("\"");
+                // the literal's SPELLING (EL escapes) → its value → Soufflé's
+                // escapes, which have no `\x` / `\u{…}`; a tab or newline in
+                // the value cannot reach the TSV facts either, so it is out
+                let mut val: String = String::new();
+                el_str_unescape(v.as_wstr(), &mut val);
+                let vv: str = dx_view(&val);
+                let mut k: i64 = 0i64;
+                out.push_str("\"");
+                while k < vv.len() {
+                    let c: u8 = str_byte_at(vv, k);
+                    if c == 9u8 || c == 10u8 || c == 13u8 || c < 32u8 { return false; }
+                    if c == 34u8 { out.push_str("\\\""); }
+                    else if c == 92u8 { out.push_str("\\\\"); }
+                    else { out.push_u8(c); }
+                    k = k + 1i64;
+                }
+                out.push_str("\"");
                 return true;
             }
             if v.is_bool() { if v.as_bool() { out.push_str("1"); } else { out.push_str("0"); } return true; }
@@ -405,6 +421,135 @@ fn dx_head(name: str, sel: SExpr, arity: i64, env: &DxEnv, cl: &mut DxClause, ou
     return true;
 }
 
+// ── SINGLE-USE VARIABLES AS `_` ──────────────────────────────────────────────
+// Soufflé 2.5 aborts on some aggregate bodies whose variables occur once
+// (measured: wql_gpath_e2e::kind_hist core-dumps; the same text with `_`
+// runs and agrees with Deem), and warns on every such variable elsewhere. A
+// variable is written as `_` when it occurs once in its scope: the clause body
+// outside braces, or one aggregate's braces — and, for the latter, not at all
+// outside them (that would join it to the head).
+fn dx_is_id(c: u8) -> bool {
+    return (c >= 48u8 && c <= 57u8) || (c >= 65u8 && c <= 90u8) || (c >= 97u8 && c <= 122u8) || c == 95u8;
+}
+
+// Occurrences of `v_…` tokens: the outer scope per token, each brace scope per
+// (token, scope).
+struct DxOcc {
+    pub no: i64, pub otok: [str; 96], pub ocnt: [i64; 96],
+    pub ni: i64, pub itok: [str; 96], pub isc: [i64; 96], pub icnt: [i64; 96],
+}
+
+fn dx_occ_add(o: &mut DxOcc, t: str, sc: i64) {
+    let mut i: i64 = 0i64;
+    if sc == 0i64 {
+        while i < o.no {
+            if str_eq(o.otok[i], t) { o.ocnt[i] = o.ocnt[i] + 1i64; return; }
+            i = i + 1i64;
+        }
+        if o.no < 96i64 { o.otok[o.no] = t; o.ocnt[o.no] = 1i64; o.no = o.no + 1i64; }
+        return;
+    }
+    while i < o.ni {
+        if str_eq(o.itok[i], t) && o.isc[i] == sc { o.icnt[i] = o.icnt[i] + 1i64; return; }
+        i = i + 1i64;
+    }
+    if o.ni < 96i64 { o.itok[o.ni] = t; o.isc[o.ni] = sc; o.icnt[o.ni] = 1i64; o.ni = o.ni + 1i64; }
+}
+
+fn dx_occ_outer(o: &DxOcc, t: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < o.no { if str_eq(o.otok[i], t) { return o.ocnt[i]; } i = i + 1i64; }
+    return 0i64;
+}
+
+fn dx_occ_inner(o: &DxOcc, t: str, sc: i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < o.ni { if str_eq(o.itok[i], t) && o.isc[i] == sc { return o.icnt[i]; } i = i + 1i64; }
+    return 0i64;
+}
+
+fn dx_occ_any_inner(o: &DxOcc, t: str) -> bool {
+    let mut i: i64 = 0i64;
+    while i < o.ni { if str_eq(o.itok[i], t) { return true; } i = i + 1i64; }
+    return false;
+}
+
+// Does `s` contain the identifier `t` as a whole token?
+fn dx_has_token(s: str, t: str) -> bool {
+    let n: i64 = s.len();
+    let m: i64 = t.len();
+    let mut i: i64 = 0i64;
+    while i + m <= n {
+        if str_eq(dx_slice(s, i, i + m), t)
+           && (i == 0i64 || !dx_is_id(str_byte_at(s, i - 1i64)))
+           && (i + m == n || !dx_is_id(str_byte_at(s, i + m))) { return true; }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn dx_wild(cl: str) -> String {
+    // pass 1: count
+    let mut o: DxOcc = DxOcc { no: 0i64, otok: [""; 96], ocnt: [0i64; 96],
+                               ni: 0i64, itok: [""; 96], isc: [0i64; 96], icnt: [0i64; 96] };
+    let n: i64 = cl.len();
+    let mut i: i64 = 0i64;
+    let mut sc: i64 = 0i64;
+    let mut nsc: i64 = 0i64;
+    let mut instr: bool = false;
+    while i < n {
+        let c: u8 = str_byte_at(cl, i);
+        if instr {
+            if c == 92u8 { i = i + 2i64; continue; }
+            if c == 34u8 { instr = false; }
+            i = i + 1i64; continue;
+        }
+        if c == 34u8 { instr = true; i = i + 1i64; continue; }
+        if c == 123u8 { nsc = nsc + 1i64; sc = nsc; i = i + 1i64; continue; }
+        if c == 125u8 { sc = 0i64; i = i + 1i64; continue; }
+        if c == 118u8 && i + 1i64 < n && str_byte_at(cl, i + 1i64) == 95u8
+           && (i == 0i64 || !dx_is_id(str_byte_at(cl, i - 1i64))) {
+            let t0: i64 = i;
+            while i < n && dx_is_id(str_byte_at(cl, i)) { i = i + 1i64; }
+            dx_occ_add(&mut o, dx_slice(cl, t0, i), sc);
+            continue;
+        }
+        i = i + 1i64;
+    }
+    // pass 2: rewrite
+    let mut out: String = String::new();
+    i = 0i64;
+    sc = 0i64;
+    nsc = 0i64;
+    instr = false;
+    while i < n {
+        let c: u8 = str_byte_at(cl, i);
+        if instr {
+            out.push_u8(c);
+            if c == 92u8 && i + 1i64 < n { out.push_u8(str_byte_at(cl, i + 1i64)); i = i + 2i64; continue; }
+            if c == 34u8 { instr = false; }
+            i = i + 1i64; continue;
+        }
+        if c == 34u8 { instr = true; out.push_u8(c); i = i + 1i64; continue; }
+        if c == 123u8 { nsc = nsc + 1i64; sc = nsc; out.push_u8(c); i = i + 1i64; continue; }
+        if c == 125u8 { sc = 0i64; out.push_u8(c); i = i + 1i64; continue; }
+        if c == 118u8 && i + 1i64 < n && str_byte_at(cl, i + 1i64) == 95u8
+           && (i == 0i64 || !dx_is_id(str_byte_at(cl, i - 1i64))) {
+            let t0: i64 = i;
+            while i < n && dx_is_id(str_byte_at(cl, i)) { i = i + 1i64; }
+            let t: str = dx_slice(cl, t0, i);
+            let mut wild: bool = false;
+            if sc == 0i64 { wild = dx_occ_outer(&o, t) == 1i64 && !dx_occ_any_inner(&o, t); }
+            else { wild = dx_occ_inner(&o, t, sc) == 1i64 && dx_occ_outer(&o, t) == 0i64; }
+            if wild { out.push_str("_"); } else { out.push_str(t); }
+            continue;
+        }
+        out.push_u8(c);
+        i = i + 1i64;
+    }
+    return out;
+}
+
 // One query → one clause `head :- body.` appended to `out`.
 fn dx_clause(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
@@ -431,10 +576,9 @@ fn dx_clause(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String) -
         _ => { return false; }
     }
     dx_param_atoms(&mut cl);
-    out.push_str(dx_view(&hd));
-    out.push_str(" :- ");
-    out.push_str(dx_view(&cl.body));
-    out.push_str(".\n");
+    let mut c1: String = String::new();
+    c1.push_str(dx_view(&hd)); c1.push_str(" :- "); c1.push_str(dx_view(&cl.body)); c1.push_str(".\n");
+    out.push_str(dx_view(&dx_wild(dx_view(&c1))));
     return true;
 }
 
@@ -491,13 +635,20 @@ fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAn
 }
 
 // A grouped aggregate (Deem's `group by K aggregate a = f(e), …`), as
-//   __gk_<head>(K) :- B.
-//   head(…) :- __gk_<head>(gk), a_a = f e : { B, K = gk }, …[, having].
-// `key` and the aggregate names in select/having are the variables gk / a_<a>.
+//   __ab_<head>(K, <every body column>) :- B.     -- one tuple per join row
+//   __gk_<head>(k) :- __ab_<head>(k, _, …).
+//   head(…) :- __gk_<head>(gk), a_a = f e : { __ab_<head>(gk, <e's columns>, _ …) }, …
+// ⚠ THE AGGREGATE RANGES OVER ONE ATOM, ON PURPOSE. Soufflé folds over the
+// tuples a single atom matches (measured: `sum y : { r(_, y) }` over
+// {(1,5),(2,5),(3,7)} is 17), so `__ab` — every column of every joined row —
+// makes the fold one-per-join-row, which is Deem's. Over the join itself,
+// `_` columns collapse the count (wql_incr_eligibility_matrix::no_join2
+// measured 9 for Deem's 18), and named single-use variables inside the braces
+// abort Soufflé 2.5 (wql_gpath_e2e::kind_hist). `key` and the aggregate names
+// in select/having are the variables gk / a_<a>.
 fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut String) -> bool {
     let key: SExpr = g.key_expr();
     match key { SExpr::Tuple(_t) => { return false; } _ => { } }
-    // __gk_<head>: the group keys
     let mut kb: DxClause = dx_new_clause();
     if !dx_join_body(&mut kb, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return false; }
     let mut kt: String = String::new();
@@ -505,11 +656,53 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     let kty: str = dx_term_ty(key, env, &kb);
     if kty.len() == 0i64 { return false; }
     dx_param_atoms(&mut kb);
+    // __ab: the key, then every column of every bound (positive) row var
+    let mut ab: String = String::new();
+    ab.push_str("__ab_"); ab.push_str(head);
+    let mut decl: String = String::new();
+    decl.push_str(".decl "); decl.push_str(dx_view(&ab)); decl.push_str("(k: "); decl.push_str(kty);
+    let mut cols: [String; 64] = [String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new()];
+    let mut nc: i64 = 0i64;
+    let mut vi: i64 = 0i64;
+    while vi < kb.nv {
+        let si: i64 = kb.vsrc[vi];
+        let mut k: i64 = 0i64;
+        while k < env.cn[si] {
+            if nc >= 64i64 { return false; }
+            dx_push_var(&mut cols[nc], kb.vars[vi], env.cnames[si][k]);
+            decl.push_str(", c"); decl.push_i64(nc); decl.push_str(": "); decl.push_str(dl_ty(env.ctys[si][k]));
+            nc = nc + 1i64;
+            k = k + 1i64;
+        }
+        vi = vi + 1i64;
+    }
+    // Soufflé's interpreter builds relations up to arity 22 (interpreter/Util.h,
+    // FOR_EACH_BTREE) and aborts above it — wql_gpath_e2e::kind_hist joins three
+    // 8-column graph rows. Kept a margin below; wider is outside the fragment.
+    if nc + 1i64 > 20i64 { return false; }
+    decl.push_str(")\n");
+    out.push_str(dx_view(&decl));
+    let mut c0: String = String::new();
+    c0.push_str(dx_view(&ab)); c0.push_str("("); c0.push_str(dx_view(&kt));
+    let mut ci: i64 = 0i64;
+    while ci < nc { c0.push_str(", "); c0.push_str(dx_view(&cols[ci])); ci = ci + 1i64; }
+    c0.push_str(") :- "); c0.push_str(dx_view(&kb.body)); c0.push_str(".\n");
+    out.push_str(dx_view(&dx_wild(dx_view(&c0))));
+    // __gk: the group keys
     let mut gk: String = String::new();
     gk.push_str("__gk_"); gk.push_str(head);
     out.push_str(".decl "); out.push_str(dx_view(&gk)); out.push_str("(k: "); out.push_str(kty); out.push_str(")\n");
-    out.push_str(dx_view(&gk)); out.push_str("("); out.push_str(dx_view(&kt)); out.push_str(") :- ");
-    out.push_str(dx_view(&kb.body)); out.push_str(".\n");
+    out.push_str(dx_view(&gk)); out.push_str("(k) :- "); out.push_str(dx_view(&ab)); out.push_str("(k");
+    ci = 0i64;
+    while ci < nc { out.push_str(", _"); ci = ci + 1i64; }
+    out.push_str(").\n");
     // the head clause
     let mut hb: String = String::new();
     hb.push_str(dx_view(&gk)); hb.push_str("(gk)");
@@ -522,25 +715,28 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
         let f: str = ag.fn_name;
         if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") { return false; }
         if hcl.nal >= 16i64 { return false; }
-        let mut av: String = String::new();
-        av.push_str("a_"); av.push_str(ag.name);
-        // the aggregate's own copy of the body, its row vars local to the braces
-        let mut ab: DxClause = dx_new_clause();
-        if !dx_join_body(&mut ab, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return false; }
-        let mut kt2: String = String::new();
-        if !dx_term(&mut kt2, key, env, &mut ab) { return false; }
-        ab.body.push_str(", "); ab.body.push_str(dx_view(&kt2)); ab.body.push_str(" = gk");
         let mut argt: String = String::new();
+        let mut abd: DxClause = dx_new_clause();
+        let mut vj: i64 = 0i64;
+        while vj < kb.nv { dx_bind(&mut abd, kb.vars[vj], kb.vsrc[vj]); vj = vj + 1i64; }
         if !str_eq(f, "count") {
             if !ag.has_arg { return false; }
-            if !dx_term(&mut argt, ag.arg_expr(), env, &mut ab) { return false; }
-            let aty: str = dx_term_ty(ag.arg_expr(), env, &ab);
-            if !str_eq(aty, "number") { return false; }
+            if !dx_term(&mut argt, ag.arg_expr(), env, &mut abd) { return false; }
+            if !str_eq(dx_term_ty(ag.arg_expr(), env, &abd), "number") { return false; }
+            if abd.nparams > 0i64 { return false; }   // a scalar inside the braces: not needed so far
         }
-        dx_param_atoms(&mut ab);
-        hb.push_str(", "); hb.push_str(dx_view(&av)); hb.push_str(" = "); hb.push_str(f);
-        if argt.len() > 0i64 { hb.push_str(" "); hb.push_str(dx_view(&argt)); }
-        hb.push_str(" : { "); hb.push_str(dx_view(&ab.body)); hb.push_str(" }");
+        // the one atom: the columns the argument names, `_` for the rest
+        let at: str = dx_view(&argt);
+        hb.push_str(", a_"); hb.push_str(ag.name); hb.push_str(" = "); hb.push_str(f);
+        if at.len() > 0i64 { hb.push_str(" "); hb.push_str(at); }
+        hb.push_str(" : { "); hb.push_str(dx_view(&ab)); hb.push_str("(gk");
+        ci = 0i64;
+        while ci < nc {
+            hb.push_str(", ");
+            if dx_has_token(at, dx_view(&cols[ci])) { hb.push_str(dx_view(&cols[ci])); } else { hb.push_str("_"); }
+            ci = ci + 1i64;
+        }
+        hb.push_str(") }");
         hcl.al_names[hcl.nal] = ag.name;
         hcl.al_vars[hcl.nal] = "a_";   // rendered as a_<name>
         hcl.nal = hcl.nal + 1i64;
@@ -551,10 +747,9 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     let mut hd: String = String::new();
     if !dx_head(head, g.select_expr(), arity, env, &mut hcl, &mut hd) { return false; }
     dx_param_atoms(&mut hcl);
-    out.push_str(dx_view(&hd));
-    out.push_str(" :- ");
-    out.push_str(dx_view(&hcl.body));
-    out.push_str(".\n");
+    let mut c3: String = String::new();
+    c3.push_str(dx_view(&hd)); c3.push_str(" :- "); c3.push_str(dx_view(&hcl.body)); c3.push_str(".\n");
+    out.push_str(dx_view(&c3));
     return true;
 }
 
@@ -769,15 +964,119 @@ fn dx_entry_select(qany: WAny) -> WRef<SExpr> {
 }
 
 /// Render the program as Soufflé text into `out`; false = outside the fragment.
-pub fn dl_render(root: WAny, prm: &MacroParams, out: &mut String, dump: &mut String,
+// ── NATIVE SOURCES from the natspec ─────────────────────────────────────────
+// `<reg>=<mat>[!flags][#arg2][@module]:<param>(<col> <ty>,…)…;` — a source the
+// compiler binds to a materializer (a `&Writ`'s `writ_graph_edges`, a user
+// type's `rel r = fn;`). One that returns a `Vec` is exported like a slice: its
+// rows are what the materializer returns, and the dump calls it again. An
+// iterator or batch producer (`!i`/`!b`) is left out of the fragment.
+fn dx_slice(s: str, a: i64, b: i64) -> str {
+    return unsafe { str_from_raw(((s.as_ptr() as i64) + a) as *const u8, b - a) };
+}
+
+fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String,
+              dump: &mut String, ddir: str, nparams: &mut [str; 16], nn: &mut i64) -> bool {
+    let n: i64 = natspec.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let s0: i64 = i;
+        while i < n && str_byte_at(natspec, i) != 61u8 { i = i + 1i64; }            // '='
+        let reg: str = dx_slice(natspec, s0, i);
+        i = i + 1i64;
+        let s1: i64 = i;
+        while i < n && str_byte_at(natspec, i) != 33u8 && str_byte_at(natspec, i) != 35u8
+              && str_byte_at(natspec, i) != 64u8 && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }
+        let mat: str = dx_slice(natspec, s1, i);
+        let mut iter: bool = false;
+        if i < n && str_byte_at(natspec, i) == 33u8 { iter = true; }               // '!' flags: a producer we do not drain
+        let mut marg2: str = "";
+        while i < n && str_byte_at(natspec, i) != 58u8 {                             // to ':'
+            if str_byte_at(natspec, i) == 35u8 {                                     // '#'
+                let a0: i64 = i + 1i64;
+                let mut a1: i64 = a0;
+                while a1 < n && str_byte_at(natspec, a1) != 64u8 && str_byte_at(natspec, a1) != 58u8 { a1 = a1 + 1i64; }
+                marg2 = dx_slice(natspec, a0, a1);
+                i = a1;
+            } else { i = i + 1i64; }
+        }
+        i = i + 1i64;                                                                // ':'
+        let s3: i64 = i;
+        while i < n && str_byte_at(natspec, i) != 40u8 { i = i + 1i64; }            // '('
+        let marg: str = dx_slice(natspec, s3, i);
+        i = i + 1i64;
+        let mut cn: [str; 16] = [""; 16];
+        let mut ct: [str; 16] = [""; 16];
+        let mut nc: i64 = 0i64;
+        loop {
+            let c0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 32u8 { i = i + 1i64; }
+            let cname: str = dx_slice(natspec, c0, i);
+            i = i + 1i64;
+            let t0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 44u8 && str_byte_at(natspec, i) != 41u8 { i = i + 1i64; }
+            if nc < 16i64 { cn[nc] = cname; ct[nc] = dx_slice(natspec, t0, i); nc = nc + 1i64; }
+            if i >= n || str_byte_at(natspec, i) == 41u8 { break; }
+            i = i + 1i64;
+        }
+        while i < n && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }            // rest of the entry
+        i = i + 1i64;
+        if *nn < 16i64 { nparams[*nn] = marg; *nn = *nn + 1i64; }
+        if iter || marg2.len() > 0i64 || env.n >= 16i64 { continue; }   // left out of the fragment
+        let mut ok: bool = true;
+        let mut k: i64 = 0i64;
+        while k < nc { if dl_ty(ct[k]).len() == 0i64 || dx_kind(ct[k]).len() == 0i64 { ok = false; } k = k + 1i64; }
+        if !ok { continue; }
+        out.push_str(".decl "); out.push_str(reg); out.push_str("(");
+        k = 0i64;
+        while k < nc {
+            if k > 0i64 { out.push_str(", "); }
+            out.push_str(cn[k]); out.push_str(": "); out.push_str(dl_ty(ct[k]));
+            env.cnames[env.n][k] = cn[k]; env.ctys[env.n][k] = ct[k];
+            k = k + 1i64;
+        }
+        out.push_str(")\n.input "); out.push_str(reg); out.push_str("\n");
+        env.src[env.n] = reg;
+        env.cn[env.n] = nc;
+        env.n = env.n + 1i64;
+        // the dump: the materializer again, its rows as facts
+        dump.push_str("    { let __nv = "); dump.push_str(mat); dump.push_str("("); dump.push_str(marg);
+        dump.push_str("); let __od: i32 = wql_oracle_open(\""); dump.push_str(ddir); dump.push_str("/");
+        dump.push_str(reg); dump.push_str(".facts\"); let mut __oi: i64 = 0i64; while __oi < __nv.len() { let __nr = __nv.get(__oi); ");
+        k = 0i64;
+        while k < nc {
+            if k > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
+            let mut fx: String = String::new();
+            if nc == 1i64 { fx.push_str("__nr"); } else { fx.push_str("(__nr)."); fx.push_i64(k); }
+            dx_cell(dump, dx_kind(ct[k]), dx_view(&fx));
+            k = k + 1i64;
+        }
+        dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
+        let _ = prm;
+    }
+    return true;
+}
+
+fn dx_is_native_param(nparams: &[str; 16], nn: i64, nm: str) -> bool {
+    let mut i: i64 = 0i64;
+    while i < nn { if str_eq(nparams[i], nm) { return true; } i = i + 1i64; }
+    return false;
+}
+
+pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, dump: &mut String,
                  ddir: str) -> bool {
     let view: OView = oview_module_ast();
     let mut env: DxEnv = DxEnv { n: 0i64, src: [""; 16], cn: [0i64; 16], cnames: [[""; 16]; 16],
                                  ctys: [[""; 16]; 16], scalars: [""; 16], stys: [""; 16], sltys: [""; 16], ns: 0i64 };
+    // native sources first: their params are not scalars
+    let mut nparams: [str; 16] = [""; 16];
+    let mut nn: i64 = 0i64;
+    if !dx_natives(natspec, &mut env, prm, out, dump, ddir, &mut nparams, &mut nn) { return false; }
     // params
     let mut i: i64 = 0i64;
     while i < prm.n {
-        if prm.is_slice[i] {
+        if dx_is_native_param(&nparams, nn, prm.names[i]) {
+            // bound through its materializer above (or left out of the fragment)
+        } else if prm.is_slice[i] {
             let c: DxCols = dx_struct_cols(&view, prm.tys[i]);
             if c.n == 0i64 || env.n >= 16i64 { return false; }
             out.push_str(".decl "); out.push_str(prm.names[i]); out.push_str("(");
@@ -908,7 +1207,7 @@ pub fn dl_render(root: WAny, prm: &MacroParams, out: &mut String, dump: &mut Str
 /// `LOGOS_DEEM_ORACLE=<dir>`: write `<dir>/<name>.dl` when the program is in
 /// the fragment. Nothing is written (and nothing is said) outside it: the
 /// gate counts which deems it could check.
-pub fn dl_export(root: WAny, name: str, prm: &mut MacroParams) {
+pub fn dl_export(root: WAny, name: str, natspec: str, prm: &mut MacroParams) {
     let mut ev: String = String::new();
     ev.push_str("LOGOS_DEEM_ORACLE");
     ev.push_u8(0u8);
@@ -924,7 +1223,7 @@ pub fn dl_export(root: WAny, name: str, prm: &mut MacroParams) {
     let mut text: String = String::new();
     let mut dump: String = String::new();
     text.push_str("// deem "); text.push_str(name); text.push_str("\n");
-    if !dl_render(root, prm, &mut text, &mut dump, dx_view(&ddir)) { return; }
+    if !dl_render(root, prm, natspec, &mut text, &mut dump, dx_view(&ddir)) { return; }
     let mut dz: String = String::new();
     dz.push_str(dx_view(&ddir));
     dz.push_u8(0u8);
