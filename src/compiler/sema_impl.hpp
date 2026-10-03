@@ -9502,8 +9502,6 @@ private:
         writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_slice(
         writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
-    std::optional<lir::LExprPtr> try_method_on_dstref(
-        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_dyn(
         writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_raw_ptr(
@@ -10491,6 +10489,7 @@ private:
                        std::vector<const SemaFuncInfo*> tied; };
     std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
+    void reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal);
     std::string last_call_sym_;   // the symbol the builder emitted last (probe census)
     // Symbols of the methods whose self is a raw pointer (autoref never reaches one).
     bool raw_self_symbol_(std::string_view sym);

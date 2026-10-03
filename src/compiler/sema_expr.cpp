@@ -10054,134 +10054,25 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
     return error_expr();
 }
 
-// Phase 1B-15: method call on a DstRef receiver. The impl method's self type
-// (`&Self` / `&mut Self`) resolved to DstRef per Phase 1B-14, so funcs_ has an
-// entry keyed by `Foo__method` with param[0] of type DstRef. Dispatch directly
-// — no raw-pointer reinterpretation, which would mismatch the recorded
-// signature. nullopt only when the receiver is not a DstRef; a DstRef with no
-// matching method errors.
-std::optional<lir::LExprPtr> SemaChecker::try_method_on_dstref(
-        TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
-    if (TypeRef(expr_type(recv)).kind() != LogosType::Kind::DstRef) return std::nullopt;
-    auto sname_dst = std::string(TypeRef(expr_type(recv)).struct_name());
-    // A `#[self_describing]` DST is a complete, safe reference (tail length
-    // recovered in-band via dst_len) — method access is well-defined without
-    // `unsafe`, unlike a plain custom-DST `&Foo` (out-of-band, raw-shaped).
-    if (!inside_unsafe_) {
-        auto [sd_pkg, sd_ssi] = find_struct_by_name(sname_dst);
-        if (!(sd_ssi && sd_ssi->self_describing))
-            error("method call through `&DstStruct` requires unsafe context");
-    }
-    std::string mangled = sname_dst + "__" + std::string(method_name);
-    std::vector<lir::LExprPtr> d_args = lower_call_args(node);
-    std::vector<TypeRef> mtypes;
-    mtypes.push_back(expr_type(recv));
-    for (auto& a : d_args) mtypes.push_back(expr_type(a));
-    const SemaFuncInfo* dfi = nullptr;
-    if (auto fit = find_func_by_base_and_signature(mangled, mtypes, false))
-        dfi = fit;
-    else if (auto sel = find_generic_func_for_args(mangled, mtypes,
-                                                   /*is_method_recv=*/true)) {
-        // ≥2 generic overloads (base template vs partial-spec impls): pick by
-        // args + formal specificity, not by registration order.
-        dfi = sel;
-    }
-    else if (auto git = find_generic_func(mangled)) {
-        dfi = git;
-        // Mutability guard (name-only match): `self: &mut/*mut Self` still
-        // rejects a const DstRef receiver.
-        if (!git->param_types.empty()) {
-            TypeRef p0 = git->param_types[0];
-            auto pk = TypeRef(p0).kind();
-            bool p_mut = (pk == LogosType::Kind::MutRef) ||
-                         ((pk == LogosType::Kind::Ptr ||
-                           pk == LogosType::Kind::DstRef) && TypeRef(p0).mut_ptr());
-            if (p_mut && !TypeRef(mtypes[0]).mut_ptr()) dfi = nullptr;
-        }
-    }
-    if (!dfi) {
-        // Receiver-lenient retry: a non-generic method of a #[self_describing]
-        // struct declares `self: &Foo` (canonicalised per ref-repr), and the
-        // strict signature match can miss the DstRef receiver spelling even
-        // though the receiver IS this struct by construction (we only got
-        // here through its DstRef). Accept the single by-arg-count candidate
-        // whose receiver form is thin-compatible — mutability still flows
-        // one way (a `&mut`/`*mut` self rejects a const receiver).
-        auto cands = find_func_candidates(mangled);
-        const SemaFuncInfo* pick = nullptr;
-        for (auto* c : cands) {
-            if (c->param_types.size() != mtypes.size()) continue;
-            if (!c->param_types.empty() &&
-                !types_compatible(mtypes[0], c->param_types[0]) &&
-                !sd_thin_compatible(mtypes[0], c->param_types[0])) continue;
-            if (pick) { pick = nullptr; break; }   // ambiguous — keep strict
-            pick = c;
-        }
-        dfi = pick;
-    }
-    if (dfi) {
-        // The receiver adjustment (S8 row 4): a place receiver is REBORROWED
-        // for the call, `&*ar` / `&mut *ar` at the self's mutability, so the
-        // call holds a loan of `*ar` — a copy of `ar` held none, and a live
-        // `&[u8]` view of `ar` survived `ar.resize(..)` (rustc E0502).
-        if (!dfi->param_types.empty() && recv && lir_view::is_place_expr(expr_ref_of(recv))) {
-            TypeRef p0 = dfi->param_types[0];
-            const bool m = TypeRef(p0).kind() == LogosType::Kind::MutRef ||
-                           (TypeRef(p0).kind() == LogosType::Kind::DstRef && TypeRef(p0).mut_ptr());
-            TypeRef rt = expr_type(recv);
-            auto ra = TypeRef(rt).type_args();
-            TypeRef st = make_generic_struct(std::string(TypeRef(rt).struct_name()),
-                                             std::vector<TypeRef>(ra.begin(), ra.end()), {},
-                                             TypeRef(rt).pkg_name());
-            recv = builder().addr_of_temp(builder().deref(std::move(recv), st), m, rt, BorrowOrigin::Autoref);
-        }
-        std::vector<lir::LExprPtr> pargs;
-        pargs.push_back(std::move(recv));
-        for (auto& a : d_args) pargs.push_back(std::move(a));
-        if (!dfi->type_params.empty()) {
-            // Explicit turbofish (`recv.method::<T..>(args)`) wins over
-            // inference — required when a type param appears only in the
-            // return type or nowhere in the value params (e.g. `get<T>`).
-            std::vector<TypeRef> m_type_args;
-            if (node.has_key(la::TYPE_PARAMS)) {
-                auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
-                if (tplist.has_key(la::ITEMS)) {
-                    auto items = arr_of(tplist.get(la::ITEMS.code));
-                    bool was_ok = unsized_ok_;
-                    unsized_ok_ = true;
-                    for (uint64_t i = 0; i < items.size(); ++i)
-                        m_type_args.push_back(resolve_type(map_of(items.get(i))));
-                    unsized_ok_ = was_ok;
-                }
-            }
-            if (m_type_args.size() == dfi->type_params.size()) {
-                return finish_generic_call(
-                    dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
-                    *dfi, std::move(m_type_args), std::move(pargs));
-            }
-            m_type_args.clear();
-            SemaSubst seed; seed["Self"] = mtypes[0];
-            // Bind impl-level type params from the RECEIVER first: for a
-            // method of a generic #[self_describing] struct, T may appear
-            // ONLY in the receiver (`self: &GB<T>`), which infer_type_args
-            // skips (it walks explicit args from param 1).
-            if (!dfi->param_types.empty())
-                unify_types(dfi->param_types[0], mtypes[0], seed);
-            if (infer_type_args(*dfi, d_args, m_type_args, seed, 1)) {
-                return finish_generic_call(
-                    dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
-                    *dfi, std::move(m_type_args), std::move(pargs));
-            }
-        } else {
-            return builder().call(
-                dfi->symbol_name.empty() ? mangled : dfi->symbol_name,
-                {}, std::move(pargs), dfi->ret_type);
-        }
-    }
-    error(std::format("DstStruct '{}' has no method '{}'",
-                      sname_dst, std::string(method_name)));
-    return error_expr();
+// The receiver adjustment for a `#[self_describing]` (DstRef) place receiver
+// (S8 row 4): it is REBORROWED for the call, `&*ar` / `&mut *ar` at the self's
+// mutability, so the call holds a loan of `*ar` — a copy of `ar` held none,
+// and a live `&[u8]` view of `ar` survived `ar.resize(..)` (rustc E0502).
+void SemaChecker::reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal) {
+    if (!recv || !self_formal || !expr_type(recv) ||
+        TypeRef(expr_type(recv)).kind() != LogosType::Kind::DstRef ||
+        !lir_view::is_place_expr(expr_ref_of(recv)))
+        return;
+    const bool m = TypeRef(self_formal).kind() == LogosType::Kind::MutRef ||
+                   (TypeRef(self_formal).kind() == LogosType::Kind::DstRef && TypeRef(self_formal).mut_ptr());
+    TypeRef rt = expr_type(recv);
+    auto ra = TypeRef(rt).type_args();
+    TypeRef st = make_generic_struct(std::string(TypeRef(rt).struct_name()),
+                                     std::vector<TypeRef>(ra.begin(), ra.end()), {},
+                                     TypeRef(rt).pkg_name());
+    recv = builder().addr_of_temp(builder().deref(std::move(recv), st), m, rt, BorrowOrigin::Autoref);
 }
+
 
 // &dyn Trait method call. First tries inherent `impl Trait for dyn Foo`
 // methods (mangled `$dyn$Foo__method`), then falls back to vtable dispatch
@@ -10370,72 +10261,34 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
         arr_t = TypeRef(arr_t).pointee();
     }
     if (!arr_t || TypeRef(arr_t).kind() != LogosType::Kind::Array) return std::nullopt;
-    const SemaFuncInfo* fi_ptr = nullptr;
-    std::string key;
-    for (auto& base : array_impl_lookup_keys(arr_t)) {
-        key = base + "__" + std::string(method_name);
-        auto cands = find_func_candidates(key);
-        if (!cands.empty()) { fi_ptr = cands[0]; break; }
-        if ((fi_ptr = find_generic_func(key))) break;
-    }
-    if (!fi_ptr) {
-        // No array impl: `[T; N]` unsizes to `[T]` for a slice method
-        // (`arr.iter()`, `arr.contains(&x)`, `arr.fill(0)`), as Rust's autoref +
-        // unsize step of method resolution does.
-        TypeRef elem = TypeRef(arr_t).elem();
-        if (!elem) return std::nullopt;
-        bool found = false, wants_mut = false;
-        auto probe = [&](const std::string& key) {
-            std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
-            if (auto* g = find_generic_func(key)) cands.push_back(g);
-            for (auto* fi : cands) {
-                if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
-                found = true;
-                if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
-                    TypeRef(fi->param_types[0]).mut_ptr())
-                    wants_mut = true;
-            }
-        };
-        probe("$slice$" + type_str(elem) + "__" + std::string(method_name));
-        probe("$slice$T__" + std::string(method_name));
-        if (!found) return std::nullopt;
-        if (!recv_is_ref)
-            recv = materialize_recv_ref(std::move(recv), wants_mut, make_ref(wants_mut, arr_t),
-                                        BorrowOrigin::Autoref);
-        if (!try_coerce_array_ref_to_slice(recv, make_slice_type(elem, wants_mut)))
-            return std::nullopt;
-        return try_method_on_slice(node, recv, method_name);
-    }
-    std::vector<lir::LExprPtr> args = lower_call_args(node);
-    StrMap<TypeRef> binds;
-    if (fi_ptr->impl_target_pattern) unify_types(fi_ptr->impl_target_pattern, arr_t, binds);
-    // Method-level parameters bind from the remaining arguments.
-    for (size_t i = 1; i < fi_ptr->param_types.size() && i - 1 < args.size(); ++i)
-        unify_arg_(fi_ptr->param_types[i], expr_type(args[i - 1]), binds);
-    SemaSubst subst;
-    std::vector<TypeRef> targs;
-    for (auto& tp : fi_ptr->type_params) {
-        auto it = binds.find(tp.name);
-        TypeRef t = it != binds.end() ? it->second : error_t();
-        targs.push_back(t);
-        subst[tp.name] = t;
-    }
-    TypeRef formal0 = fi_ptr->param_types.empty() ? TypeRef(nullptr)
-                                                  : subst_type_sema(fi_ptr->param_types[0], subst);
-    bool formal_is_ref = formal0 && is_ref_like(TypeRef(formal0).kind());
-    if (formal_is_ref && !recv_is_ref) {
-        bool is_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-        recv = materialize_recv_ref(std::move(recv), is_mut, make_ref(is_mut, arr_t), BorrowOrigin::Autoref);
-    } else if (!formal_is_ref && recv_is_ref) {
-        recv = builder().deref(std::move(recv), arr_t);
-    }
-    std::vector<lir::LExprPtr> pargs;
-    pargs.push_back(std::move(recv));
-    for (auto& a : args) pargs.push_back(std::move(a));
-    std::string sym = fi_ptr->symbol_name.empty() ? key : fi_ptr->symbol_name;
-    if (!fi_ptr->type_params.empty())
-        return finish_generic_call(sym, *fi_ptr, std::move(targs), std::move(pargs));
-    return builder().call(sym, {}, std::move(pargs), fi_ptr->ret_type);
+    // A direct `impl … for [T; N]` method is the probe's pick at the array
+    // step and never reaches this arm.
+    // No array impl: `[T; N]` unsizes to `[T]` for a slice method
+    // (`arr.iter()`, `arr.contains(&x)`, `arr.fill(0)`), as Rust's autoref +
+    // unsize step of method resolution does.
+    TypeRef elem = TypeRef(arr_t).elem();
+    if (!elem) return std::nullopt;
+    bool found = false, wants_mut = false;
+    auto probe = [&](const std::string& key) {
+        std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
+        if (auto* g = find_generic_func(key)) cands.push_back(g);
+        for (auto* fi : cands) {
+            if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
+            found = true;
+            if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
+                TypeRef(fi->param_types[0]).mut_ptr())
+                wants_mut = true;
+        }
+    };
+    probe("$slice$" + type_str(elem) + "__" + std::string(method_name));
+    probe("$slice$T__" + std::string(method_name));
+    if (!found) return std::nullopt;
+    if (!recv_is_ref)
+        recv = materialize_recv_ref(std::move(recv), wants_mut, make_ref(wants_mut, arr_t),
+                                    BorrowOrigin::Autoref);
+    if (!try_coerce_array_ref_to_slice(recv, make_slice_type(elem, wants_mut)))
+        return std::nullopt;
+    return try_method_on_slice(node, recv, method_name);
 }
 
 lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
@@ -10561,7 +10414,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // applies to as it stands is a probe step, not peeled (`(&r).show()` with
     // `impl Show for &i32` takes `&&i32`, rustc's first step).
     auto applies_here = [&]() {
-        if (std::getenv("LOGOS_PROBE_OFF")) return false;
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         return pk.fi && pk.derefs == 0;
     };
@@ -10786,7 +10638,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // ADR 0030 S8 row 4: a receiver the probe resolves goes to the common
     // selection below; the per-kind arms answer only what it does not.
     const bool probe_applies = [&] {
-        if (std::getenv("LOGOS_PROBE_OFF") || !recv || !expr_type(recv)) return false;
+        if (!recv || !expr_type(recv)) return false;
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         // The selection below applies the receiver as is or one deref through a
         // reference; an array's unsizing step stays with the array arm, and a
@@ -10841,13 +10693,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                     prim(LogosType::Kind::I64));
     }
 
-    // Phase 1B-15: method call on a DstRef receiver. The impl method's
-    // self type (`&Self` / `&mut Self`) resolved to DstRef per Phase
-    // 1B-14, so funcs_ has an entry keyed by `Foo__method` with param[0]
-    // of type DstRef. Look it up and dispatch directly — without the
-    // raw-pointer reinterpretation, which would mismatch the impl's
-    // recorded signature.
-    if (auto r = try_method_on_dstref(node, recv, method_name)) return *r;
+    // A method through `&DstStruct` (not #[self_describing]) is unsafe; the
+    // probe selects it like any other (a DstRef self is the `&Self` of a DST).
+    if (TypeRef(expr_type(recv)).kind() == LogosType::Kind::DstRef && !inside_unsafe_) {
+        auto [sd_pkg, sd_ssi] = find_struct_by_name(std::string(TypeRef(expr_type(recv)).struct_name()));
+        if (!(sd_ssi && sd_ssi->self_describing))
+            error("method call through `&DstStruct` requires unsafe context");
+    }
 
     // Raw-pointer built-in arithmetic methods:
     //   p.byte_add(n) / p.byte_sub(n)  — offset n bytes, same pointer type
@@ -11713,7 +11565,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // ADR 0030 S8 row 4 — THE probe picks (as on the struct path). A generic
         // pick is autoref'd by the emission below, after inference reads `Self`
         // off the receiver as it stands.
-        if (expr_type(recv) && !std::getenv("LOGOS_PROBE_OFF")) {
+        if (expr_type(recv)) {
             ProbePick pk = probe_method_(expr_type(recv), method_name);
             const auto rk = TypeRef(expr_type(recv)).kind();
             const bool reborrow = pk.derefs == 1 && pk.autoref > 0 && is_ref_like(rk) &&
@@ -11748,6 +11600,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                              (TypeRef(pt).kind() == LogosType::Kind::F64 || TypeRef(pt).kind() == LogosType::Kind::F32))
                         arg_exprs[a] = builder().cast(std::move(arg_exprs[a]), pt);
                 }
+                if (pk.derefs == 0 && pk.autoref == 0)
+                    reborrow_dst_place_(recv, c->param_types[0]);
                 if (reborrow) {
                     // the receiver as is
                 } else if (pk.derefs == 1) {
@@ -11926,8 +11780,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (!recv_is_deferred_proj &&
             !(metaprog_mode_ && (recv_is_error || recv_pointee_error)) &&
             !((recv_is_error || recv_pointee_error) && factory_deferral_pending)) {
-            error(std::format("method call: receiver is not a struct (got {})",
-                  type_str(expr_type(recv))));
+            if (TypeRef(expr_type(recv)).kind() == LogosType::Kind::DstRef)
+                error(std::format("DstStruct '{}' has no method '{}'",
+                                  TypeRef(expr_type(recv)).struct_name(), method_name));
+            else
+                error(std::format("method call: receiver is not a struct (got {})",
+                      type_str(expr_type(recv))));
         }
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
@@ -11980,7 +11838,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // ADR 0030 S8 row 4 — THE probe picks the method and the receiver
     // adjustment (rustc's steps; see probe_method_). The per-key candidate
     // loops below run only where it picks nothing applicable.
-    if (expr_type(recv) && !std::getenv("LOGOS_PROBE_OFF")) {
+    if (expr_type(recv)) {
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         // A blanket pick's `T` is bound by try_blanket_method_dispatch (the
         // common tail infers type arguments from the non-receiver arguments).
@@ -12028,6 +11886,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (!ok) continue;
                 fi_ptr = c;
                 mangled = pk.key;
+                if (pk.derefs == 0 && pk.autoref == 0)
+                    reborrow_dst_place_(recv, c->param_types[0]);
                 if (reborrow) {
                     // the receiver as is
                 } else if (pk.derefs == 1) {
