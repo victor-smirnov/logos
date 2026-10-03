@@ -236,7 +236,7 @@ PIN = {
     # The direction is the one this gate's movement rule sanctions in the
     # weakest sense — the population grew because a fixture stopped being
     # invisible, not because the pull plane changed.
-    'dumps'            : 186,  # 2026-10-03 E9b demand: +1 wql_rel_demand_e2e; 2026-10-03 E9a facts: +1 wql_rel_fact_e2e; 2026-10-03 #353: +1 wql_str_lit_escape_e2e. 2026-10-03 E8 #349: +1 wql_gpath_magic_e2e. 2026-10-03 deem branch: +7 from the 7 Rust-typing fixtures
+    'dumps'            : 187,  # 2026-10-03 E9b demand: +1 wql_rel_demand_e2e; 2026-10-03 E9a facts: +1 wql_rel_fact_e2e; 2026-10-03 #353: +1 wql_str_lit_escape_e2e. 2026-10-03 E8 #349: +1 wql_gpath_magic_e2e. 2026-10-03 deem branch: +7 from the 7 Rust-typing fixtures
 
     # ── BATCH PULLS ─────────────────────────────────────────────────────────
     # `next_batch()` is criterion 2's numerator. R-F took it 165 → 1018 by
@@ -380,7 +380,7 @@ PIN = {
     # single-paren version cannot see the `limit` arm and understated the
     # population by 8%).
     # task #85: 3301 -> 3313, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_total'      : 3617,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +54 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +87 wql_rel_demand_e2e, -27 the 8 existing programs the rewrite touches (-39 dropped DRed helpers, +12 magic-rel joins); 2026-10-03 E9a facts: +19 wql_rel_fact_e2e;  2026-10-03 #353: +18 wql_str_lit_escape_e2e, +18 wql_mapping_rules_escape_e2e s_bs;  2026-10-03 E8 #349 (magic sets for `**`): +112 wql_gpath_magic_e2e, +5 the existing `**` programs (a seed body walks the path prefix the naive self bodies did not);  2026-10-03 deem branch: +18 from the 7 Rust-typing fixtures
+    'walks_total'      : 3618,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +54 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +87 wql_rel_demand_e2e, -27 the 8 existing programs the rewrite touches (-39 dropped DRed helpers, +12 magic-rel joins); 2026-10-03 E9a facts: +19 wql_rel_fact_e2e;  2026-10-03 #353: +18 wql_str_lit_escape_e2e, +18 wql_mapping_rules_escape_e2e s_bs;  2026-10-03 E8 #349 (magic sets for `**`): +112 wql_gpath_magic_e2e, +5 the existing `**` programs (a seed body walks the path prefix the naive self bodies did not);  2026-10-03 deem branch: +18 from the 7 Rust-typing fixtures
     # (i) INTERNAL compiler containers — `__ks`, `__ix0`, `__g_key`, `__bv<s>`,
     # `__h.__s<n>`, `__out` … Not sources; no route has ever claimed them.
     # ⚠ DEFINED BY A POSITIVE RULE (an UNPARENTHESISED dotted-or-bare name),
@@ -400,7 +400,7 @@ PIN = {
     # (R-H Part 2 measured it): the rel plane is off the batch plane entirely,
     # which is the ground on which the re-walk capability was refused.
     # task #85: 610 -> 618, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_fixpoint'   : 789,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +19 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +38 wql_rel_demand_e2e, +8 existing; 2026-10-03 E9a facts: +11 wql_rel_fact_e2e;  2026-10-03 #353: +12 / +12 (same two);  2026-10-03 E8 #349: +68 wql_gpath_magic_e2e, +3 existing `**` programs (`__mreach_<src>` landings and prefix seeds)
+    'walks_fixpoint'   : 790,  # 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +19 wql_rel_demand_e2e (4 new queries); 2026-10-03 E9b demand: +38 wql_rel_demand_e2e, +8 existing; 2026-10-03 E9a facts: +11 wql_rel_fact_e2e;  2026-10-03 #353: +12 / +12 (same two);  2026-10-03 E8 #349: +68 wql_gpath_magic_e2e, +3 existing `**` programs (`__mreach_<src>` landings and prefix seeds)
     # (iii) DECLARED SLICE PARAMS — `(<param>).len()`, the ONLY routable
     # population, 1010 before R-F and 156 after. The residual is entirely
     # declared-out planes (119 incremental/DRed + 37 fixpoint drivers).
