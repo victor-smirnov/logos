@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# souffle_oracle_gate.sh LOGOSC PASSDIR — Soufflé as an INDEPENDENT oracle for
-# Deem's Datalog (Victor 10-03: Soufflé is an architectural oracle).
+# souffle_oracle_gate.sh LOGOSC PASSDIR SHARD NSHARDS — Soufflé as an INDEPENDENT
+# oracle for Deem (Victor 10-03: Soufflé is an architectural oracle).
 #
-# Every pass fixture with a `rel` block is compiled with LOGOS_DEEM_ORACLE: the
+# The population is every `wql_*` / `deem_*` pass fixture, split into NSHARDS
+# registered tests (fixture i belongs to shard i mod NSHARDS, in name order):
+# lt schedules the shards, so the gate holds no scheduler of its own.
+#
+# Each fixture is compiled with LOGOS_DEEM_ORACLE: the
 # deem handler writes `<q>.dl` for each deem whose program lies in the shared
 # fragment (stdlib/mem/wql/dl_export.logos), and the generated `<q>` dumps its
 # inputs (`<q>/*.facts`) and its answer (`<q>/deem.out`) on every call — the
@@ -24,12 +28,18 @@
 set -uo pipefail
 LOGOSC="$1"
 PASS="$2"
+SHARD="${3:-0}"
+NSHARDS="${4:-1}"
 # `SOUFFLE` may be overridden only to bite-check the gate with a perturbing
 # wrapper; the oracle is the system Soufflé (2.5, 64-bit word = Deem's i64).
 SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
-COMPARED_FLOOR=34   # 2026-10-03 with aggregates: 61 exported, 34 compared, 18 never called (14 via `_epoch`), 8 bag, 1 Err
-ROWS_FLOOR=76       # 2026-10-03 with aggregates
+# per shard (index = SHARD), measured; raise when the population grows
+COMPARED_FLOORS=(44 24 20 24)   # 2026-10-03, all 204 wql_/deem_ fixtures: 154 exported, 112 compared
+ROWS_FLOORS=(110 66 45 82)
+COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
+ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
+DB="$(cd "$(dirname "$LOGOSC")/.." && pwd)/testdb.sqlite"   # lt's test registry, for per-fixture args
 
 if [ ! -x "$SOUFFLE" ]; then
     echo "SKIP: $SOUFFLE not installed — the oracle cannot run"
@@ -41,8 +51,10 @@ trap 'rm -rf "$TMPD"' EXIT
 export LC_ALL=C
 
 fixtures=()
-for f in "$PASS"/wql_*.logos "$PASS"/deem_*.logos; do
-    grep -qE '^\s*rel [a-z_0-9]+\(' "$f" && fixtures+=("$f")
+i=0
+for f in $(ls "$PASS"/wql_*.logos "$PASS"/deem_*.logos | sort); do
+    [ $((i % NSHARDS)) -eq "$SHARD" ] && fixtures+=("$f")
+    i=$((i + 1))
 done
 
 exported=0; compared=0; rows=0; bag=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
@@ -51,7 +63,14 @@ for f in "${fixtures[@]}"; do
     o="$TMPD/$b"
     mkdir -p "$o"
     exp="${f%.logos}.expected"
-    if ! LOGOS_DEEM_ORACLE="$o" bash "$HERE/run_test.sh" pass "$LOGOSC" "$f" "$exp" > "$o/run.log" 2>&1; then
+    # the fixture's registered extra arguments (a module search path, …), as lt
+    # runs it: everything after run_test.sh's four positional arguments
+    extra=()
+    if [ -f "$DB" ]; then
+        mapfile -t extra < <(sqlite3 "$DB" "select command from tests where name='logos_02_semantic_core_pass_$b'" \
+            | python3 -c 'import json,sys; t=sys.stdin.read().strip(); [print(a) for a in (json.loads(t)[5:] if t else [])]')
+    fi
+    if ! LOGOS_DEEM_ORACLE="$o" bash "$HERE/run_test.sh" pass "$LOGOSC" "$f" "$exp" "${extra[@]}" > "$o/run.log" 2>&1; then
         echo "FAIL: $b does not pass when compiled for the oracle:"
         sed 's/^/    /' "$o/run.log" | head -8
         failed_fx=$((failed_fx + 1))
@@ -91,7 +110,7 @@ for f in "${fixtures[@]}"; do
     done
 done
 
-echo "souffle oracle: ${#fixtures[@]} fixture(s) with rels; $exported deem(s) exported," \
+echo "souffle oracle shard $SHARD/$NSHARDS: ${#fixtures[@]} fixture(s); $exported deem(s) exported," \
      "$compared agree with Soufflé ($rows distinct rows), $uncalled never called, $errored returned Err, $bag aggregate(s) over a bag input," \
      "$mismatched disagree, $failed_fx fixture(s) failed"
 fail=0

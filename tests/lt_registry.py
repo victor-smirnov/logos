@@ -263,13 +263,14 @@ SINGLETONS = {
         T('logos_09_plan_ground_facts',
           ['{tsrc}/plan_ground_facts_gate.sh', '{logosc}', '{tsrc}/pass'],
           'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB),
-        # SOUFFLÉ AS AN INDEPENDENT ORACLE (#349 follow-up): every pass fixture with
-        # a `rel` block, compiled with LOGOS_DEEM_ORACLE, its exported deems run on
-        # /usr/bin/souffle over the dumped facts and compared as sets. Skips (77)
-        # when Soufflé is not installed.
-        T('logos_09_souffle_oracle',
-          ['{tsrc}/souffle_oracle_gate.sh', '{logosc}', '{tsrc}/pass'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=1800, env=LIB, skip_rc=77),
+        # SOUFFLÉ AS AN INDEPENDENT ORACLE: every wql_/deem_ pass fixture, compiled
+        # with LOGOS_DEEM_ORACLE, its exported deems run on /usr/bin/souffle over the
+        # dumped facts and compared as sets. Four shards so lt schedules the work
+        # (fixture i → shard i mod 4). Skips (77) when Soufflé is not installed.
+        *[T('logos_09_souffle_oracle_%d' % k,
+            ['{tsrc}/souffle_oracle_gate.sh', '{logosc}', '{tsrc}/pass', str(k), '4'],
+            'logos;pass;suite_semantic_core;tier_full', timeout=1200, env=LIB, skip_rc=77)
+          for k in range(4)],
         # ADR 0025 S2 — MATERIALIZATION AS A NAMED PLAN NODE (§4).
         T('logos_09_plan_nodes',
           ['{tsrc}/plan_nodes_gate.sh', '{logosc}', '{tsrc}/pass/deem_join_step_reread.logos', '{tsrc}/pass/deem_batch_scan_drain.logos', '{tsrc}/pass/deem_hashmap_source.logos', '{tsrc}/pass/deem_cross_domain_join.logos'],

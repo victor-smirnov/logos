@@ -13,6 +13,7 @@ use logos.mem.string;
 extern fn open(path: *const u8, flags: i32, mode: i32) -> i32;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 extern fn close(fd: i32) -> i32;
+extern fn unlink(path: *const u8) -> i32;
 
 /// Create (truncate) `path` for writing; −1 on failure, which every writer
 /// below tolerates.
@@ -47,4 +48,14 @@ pub fn wql_oracle_nl(fd: i32) { wql_oracle_bytes(fd, "\n"); }
 pub fn wql_oracle_close(fd: i32) {
     if fd < 0i32 { return; }
     unsafe { close(fd); }
+}
+
+/// Remove `path` if present: a call leaves exactly ONE outcome file, so an Ok
+/// answer removes a previous call's `deem.err` and an Err removes `deem.out`
+/// (otherwise the gate would pair this call's facts with another call's answer).
+pub fn wql_oracle_unlink(path: str) {
+    let mut p: String = String::new();
+    p.push_str(path);
+    p.push_u8(0u8);
+    unsafe { unlink(p.as_ptr()); }
 }

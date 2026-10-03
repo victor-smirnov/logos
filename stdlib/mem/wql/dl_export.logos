@@ -882,7 +882,8 @@ pub fn dl_render(root: WAny, prm: &MacroParams, out: &mut String, dump: &mut Str
     if dx_entry_struct_result(entry) && arity > 1i64 { return false; }
     out.push_str(".decl __out("); out.push_str(dx_view(&cols)); out.push_str(")\n.output __out\n");
     // the answer's dump: `__r` is `_run`'s Result; an Err leaves a marker
-    dump.push_str("    match __r {\n        Result::Ok(__ov) => {\n            { let __od: i32 = wql_oracle_open(\"");
+    dump.push_str("    match __r {\n        Result::Ok(__ov) => {\n            wql_oracle_unlink(\"");
+    dump.push_str(ddir); dump.push_str("/deem.err\");\n            { let __od: i32 = wql_oracle_open(\"");
     dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.get(__oi); ");
     let sel0: SExpr = sel.any().view::<SExpr>();
     let mut a: i64 = 0i64;
@@ -898,7 +899,8 @@ pub fn dl_render(root: WAny, prm: &MacroParams, out: &mut String, dump: &mut Str
         a = a + 1i64;
     }
     dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
-    dump.push_str("            return Result::Ok(__ov);\n        }\n        Result::Err(__oe) => {\n            wql_oracle_close(wql_oracle_open(\"");
+    dump.push_str("            return Result::Ok(__ov);\n        }\n        Result::Err(__oe) => {\n            wql_oracle_unlink(\"");
+    dump.push_str(ddir); dump.push_str("/deem.out\");\n            wql_oracle_close(wql_oracle_open(\"");
     dump.push_str(ddir); dump.push_str("/deem.err\"));\n            return Result::Err(__oe);\n        }\n    }\n");
     return dx_clause(entry, "__out", arity, &env, out);
 }
