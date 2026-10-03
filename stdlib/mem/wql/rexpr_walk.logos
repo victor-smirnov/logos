@@ -1602,10 +1602,40 @@ fn tuple_result(proj: SExpr, t: &ElTypes, has_result_ty: bool, distinct: bool,
     return 1i32;
 }
 
-fn comp_head_ty(e: SExpr, t: &ElTypes) -> i32 {
+/// A comprehension's loop variable has the ELEMENT type of the slice it ranges
+/// over (`n` in `[n * 2 for n in nums]` with `nums: &[u8]` is a `u8`). Slice
+/// params are not in the binding table (only scalar ones are), so without this
+/// the variable typed as the `i64` baseline and the head's arithmetic with it
+/// (E4.4). Recorded in the same table the emitter reads.
+fn stamp_comp_vars(e: SExpr, ty: &mut ElTypes, prm: &MacroParams) {
     match e {
-        SExpr::Comp(cp) => { return infer_ty(cp.head_expr(), t); }
-        _ => { return EL_TY_INT(); }
+        SExpr::Comp(cp) => {
+            let mut src: str = "";
+            match cp.plan_expr() {
+                RExpr::Scan(sc) => { src = sc.src_name; }
+                RExpr::Filter(fl) => {
+                    match fl.input_expr() {
+                        RExpr::Scan(sc2) => { src = sc2.src_name; }
+                        _ => { }
+                    }
+                }
+                _ => { }
+            }
+            let pi: i64 = prm.index_of(src);
+            if pi >= 0i64 && prm.is_slice[pi] { ty.set_ty_named(cp.var, prm.tys[pi]); }
+            stamp_comp_vars(cp.head_expr(), ty, prm);
+        }
+        _ => { }
+    }
+}
+
+/// The element TYPE of a comprehension projection — its head's own type, as the
+/// emitter prints it (E4.4: it was the head's class representative, so a `u8`
+/// head made a `Vec<i64>`).
+fn comp_head_ty(e: SExpr, t: &ElTypes) -> str {
+    match e {
+        SExpr::Comp(cp) => { return infer_emit_ty(cp.head_expr(), t); }
+        _ => { return "i64"; }
     }
 }
 
@@ -2052,6 +2082,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     stamp_types_from_schema(&view, &mut ty, row_ty, sc.var_name);
     stamp_rel_source(&mut ty, &view, prm, sc.src_name, sc.var_name);
     apply_scalar_params(&mut ty, &view, prm);
+    stamp_comp_vars(sel.any().view::<SExpr>(), &mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
@@ -2070,7 +2101,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
     let is_comp: bool = is_comp_root(proj_opt);
     if !has_result_ty && is_comp {
-        result_ty = el_class_repr(comp_head_ty(proj_opt, &ty));
+        result_ty = comp_head_ty(proj_opt, &ty);
     }
     let mut elem_ty: String = String::new();
     if is_comp {
@@ -3013,6 +3044,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     stamp_types_from_schema(&view, &mut ty, row_ty, var_name);
     stamp_rel_source(&mut ty, &view, prm, src_name, var_name);
     apply_scalar_params(&mut ty, &view, prm);
+    stamp_comp_vars(sel.any().view::<SExpr>(), &mut ty, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
@@ -3040,7 +3072,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
     let is_comp: bool = is_comp_root(proj_opt);
     if !has_result_ty && is_comp {
-        result_ty = el_class_repr(comp_head_ty(proj_opt, &ty));
+        result_ty = comp_head_ty(proj_opt, &ty);
     }
     let mut elem_ty: String = String::new();
     if is_comp {
@@ -5511,9 +5543,8 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut uda_fin: [bool; 8] = [false; 8];
     let mut uda_acc: [str; 8]  = ["", "", "", "", "", "", "", ""];
     let mut uda_ret: [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut aret:    [i32; 8]  = [0i32; 8];
     if !resolve_aggs(&view, &aggs, acount, &mut uda, &mut uda_fin,
-                     &mut uda_acc, &mut uda_ret, &mut aret) { return false; }
+                     &mut uda_acc, &mut uda_ret) { return false; }
     // ── THE ACCUMULATOR'S TYPE, DECIDED ONCE AND ABOVE EVERYTHING THAT READS IT
     // ⚠ THIS CALL USED TO SIT 70 LINES BELOW, BESIDE THE BATCH FOLD, AND THAT
     // POSITION IS WHAT MADE THE `u64` CELL LOOK LIKE A ONE-LINE FIX. Three
@@ -5536,9 +5567,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // `emit_incremental` rather than recomputed there.
     let mut acc: [str; 8] = ["", "", "", "", "", "", "", ""];
     compute_acc_tys(&aggs, acount, &ty, h, &uda, &agg_flt, &mut acc);
-    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &aret, &acc, &mut ty);
+    stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &uda_ret, &acc, &mut ty);
     let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
-    compute_agg_col_tys(acount, &agg_flt, &uda, &aret, &acc, &mut act);
+    compute_agg_col_tys(acount, &agg_flt, &uda, &uda_ret, &acc, &mut act);
 
     // Validate clause calls (select / where / on preds; the key is validated above).
     if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
@@ -9771,8 +9802,7 @@ fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &[str; 8],
         let act_f: ExprBlob = parse_type(act[gi]);
         if uda[gi] {
             let acc_read: ExprBlob = quote_expr! { #n_ga.get(#(idx)) };
-            let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gi],
-                                                  uda_fin_cast(uda_ret[gi]));
+            let fin: ExprBlob = uda_finalize_frag(a.fn_name, acc_read, uda_fin[gi], "");
             binds.push(quote_block! { let #n_out: #(act_f) = #(fin); });
         } else if fnid == AGG_AVG() && has_cnt {
             binds.push(quote_block! {
@@ -9879,13 +9909,15 @@ fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
 // aggregate outputs. A UDA and a float still go by class: `aret` is a reflected
 // CLASS with no name to carry, and `f64` IS the float representative.
 fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
-                       uda: &[bool; 8], aret: &[i32; 8], acc: &[str; 8],
+                       uda: &[bool; 8], uda_ret: &[str; 8], acc: &[str; 8],
                        ty: &mut ElTypes) {
     let mut i: i64 = 0i64;
     while i < acount {
         let a: RAgg = aggs.agg_at(i);
         if uda[i] {
-            ty.set_ty_named(a.out, el_class_repr(aret[i]));
+            // A user aggregate's output is its declared result TYPE `R` (E4.4) —
+            // it was R's class representative, so a `u8` R read back as i64.
+            ty.set_ty_named(a.out, uda_ret[i]);
         } else if agg_flt[i] {
             ty.set_ty_named(a.out, "f64");
         } else {
@@ -10087,12 +10119,11 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
 // All of this is METACALL-TIME data only — the IR keeps just `RAgg.fn_name`
 // (queue-2: an interpreter re-resolves the same names against its registry).
 // Outputs (parallel to the spec list): `uda` (is-UDA), `uda_fin` (has _fin),
-// `uda_acc` (A, verbatim), `uda_ret` (R, verbatim), `aret` (R's EL class).
+// `uda_acc` (A, verbatim), `uda_ret` (R, verbatim — the output's type).
 // False (error surfaced) on a convention violation.
 fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
                 uda: &mut [bool; 8], uda_fin: &mut [bool; 8],
-                uda_acc: &mut [str; 8], uda_ret: &mut [str; 8],
-                aret: &mut [i32; 8]) -> bool {
+                uda_acc: &mut [str; 8], uda_ret: &mut [str; 8]) -> bool {
     let mut i: i64 = 0i64;
     while i < acount {
         let a: RAgg = aggs.agg_at(i);
@@ -10206,7 +10237,6 @@ fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
                 uda_fin[i] = has_fin;
                 uda_acc[i] = acc_ty;
                 uda_ret[i] = ret_ty;
-                aret[i]    = cls;
             }
             i = i + 1i64;
         }
@@ -10227,11 +10257,11 @@ fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
 // column would turn the answer `sum{2^62, 2^62} = 2^63` — the very value the
 // widening exists to produce — back into a wrong number.
 fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
-                       aret: &[i32; 8], acc: &[str; 8], act: &mut [str; 8]) {
+                       uda_ret: &[str; 8], acc: &[str; 8], act: &mut [str; 8]) {
     let mut i: i64 = 0i64;
     while i < acount {
         if i < 8i64 {
-            if uda[i] { act[i] = el_class_repr(aret[i]); }
+            if uda[i] { act[i] = uda_ret[i]; }
             else if agg_flt[i] { act[i] = "f64"; }
             else { act[i] = acc[i]; }
         }
@@ -10239,21 +10269,6 @@ fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
     }
 }
 
-// The finalize-expression CAST TARGET for a UDA output: R narrower than the
-// i64 lattice baseline widens to `i64`; an f32 R widens to `f64`; everything
-// else needs none. Empty string = no cast.
-// ⚠ This used to return the SUFFIX text (`" as i64)"`, closing a paren its
-// caller had opened) — a half-expression that only made sense inside a
-// particular concatenation. A fragment builder takes the TYPE and shapes the
-// cast itself.
-// ⚠ AND IT IS THE SAME RULE `codegen::emit_udf_call` APPLIES, which is why it is
-// no longer written twice: a value is normalized exactly when its type is not the
-// type the EL computes in (`el::el_norm_cast`). `col_ty` was never a second
-// condition — it is `el_class_repr` of `ret_ty`'s own class by construction
-// (`compute_agg_col_tys`), so testing it tested the consequent.
-fn uda_fin_cast(ret_ty: str) -> str {
-    return el_norm_cast(ret_ty);
-}
 
 // The finalize EXPRESSION for a UDA spec, over the accumulator fragment `acc`
 // (a local name or a Vec-cell read): `<name>_fin(<acc>)` when the triple

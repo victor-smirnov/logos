@@ -1,0 +1,27 @@
+// WQL — A USER AGGREGATE'S OUTPUT HAS ITS DECLARED RESULT TYPE (E4.4, 2026-10-02).
+//
+// `cnt_fin` returns `i32`, so the aggregate output `n` is an `i32` and `select n`
+// is a `Vec<i32>`. It was R's CLASS representative — the output column was `i64`
+// and the finalized value was widened into it by a cast (`uda_fin_cast`, gone):
+// the query answered a `Vec<i64>` for an aggregate whose author wrote `-> i32`.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct M { pub g: i64, pub v: i64 }
+
+fn cnt_init() -> i64 { return 0i64; }
+fn cnt_step(acc: i64, x: i64) -> i64 { return acc + x; }
+fn cnt_fin(acc: i64) -> i32 { return acc as i32; }
+
+pub deem per_group(xs: &[M]) { from xs x group by x.g aggregate n = cnt(x.v) select n order by n }
+
+fn main() -> i32 {
+    let xs: [M; 3] = [ M { g: 1i64, v: 2i64 }, M { g: 1i64, v: 3i64 }, M { g: 2i64, v: 7i64 } ];
+    let r: Vec<i32> = per_group(&xs[..]).unwrap();
+    if r.len() != 2i64 { return 1i32; }
+    if r.get(0i64) != 5i32 { return 2i32; }
+    if r.get(1i64) != 7i32 { return 3i32; }
+    return 0i32;
+}

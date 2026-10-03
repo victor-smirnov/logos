@@ -2112,7 +2112,9 @@ pub fn emit_comp(out: &mut String, cp: SComp, t: &ElTypes, var: str) {
         }
         _ => { }
     }
-    let head_ty: str = el_class_repr(infer_ty(head, t));
+    // The element's TYPE — the head's own (E4.4); the class representative here
+    // made `[n * 2 for n in xs]` over `u8` a `Vec<i64>`.
+    let head_ty: str = infer_emit_ty(head, t);
     // The comprehension var name — off the SComp node (self-describing IR).
     let vname: str = cp.var;
 
