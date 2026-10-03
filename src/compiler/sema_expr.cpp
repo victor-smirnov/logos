@@ -10407,8 +10407,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         // The selection below applies the receiver as is or one deref through a
         // reference; an array's unsizing step stays with the array arm.
-        return pk.fi && !pk.key.starts_with("$blanket$") && !pk.key.starts_with("$ref_") &&
-               !pk.key.starts_with("$mut_ref_") &&
+        return pk.fi && !pk.key.starts_with("$blanket$") &&
                (pk.derefs == 0 || (pk.derefs == 1 && is_ref_like(TypeRef(expr_type(recv)).kind())));
     }();
 
@@ -11335,8 +11334,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (c->is_vararg || c->param_types.size() != arg_exprs.size() + 1) continue;
                 const bool generic = !c->type_params.empty();
                 if (generic && pk.derefs == 0 && pk.autoref > 0 && is_ref_like(rk)) continue;
-                // `impl<T> Tr for &T` binds its `T` in the `$ref_$T` arm below.
-                if (generic && (pk.key.starts_with("$ref_") || pk.key.starts_with("$mut_ref_"))) continue;
                 bool ok = true;
                 for (size_t a = 1; ok && !generic && a < c->param_types.size(); ++a) {
                     TypeRef at = expr_type(arg_exprs[a - 1]);
@@ -11609,10 +11606,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         // A blanket pick's `T` is bound by try_blanket_method_dispatch (the
         // common tail infers type arguments from the non-receiver arguments).
-        // An `impl Tr for &T` pick is emitted by the `$ref_` arm below as a
-        // plain call: mlir re-resolves a MethodCall by name (S8 row 5).
-        const bool blanket = pk.key.starts_with("$blanket$") || pk.key.starts_with("$ref_") ||
-                             pk.key.starts_with("$mut_ref_");
+        const bool blanket = pk.key.starts_with("$blanket$");
         // At one deref step through a reference, `&*r` / `&mut *r` is the
         // reference itself (`&mut T` serves a `&self` method); `&mut *r` of a `&T`
         // is left to the candidate loops' diagnostic.

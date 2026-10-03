@@ -1,0 +1,10 @@
+// Was squeue row double_ref_receiver_collapsed_before_dispatch (#700); closed by ADR 0030 S8 rows 4-5:
+// `(&rp).m()` with `rp: &P` — the receiver `&&P` is `&self` of `<&P as Mo>::m` (the blanket
+// `impl<T: Mo> Mo for &T`), the by-value candidate at the receiver's own step: 107, as rustc. The method
+// probe keeps that layer, and the call's recorded callee is what mlir lowers.
+package double_ref_receiver_through_ref_impl;
+trait Mo { fn m(&self) -> i64; }
+struct P { v: i64 }
+impl Mo for P { fn m(&self) -> i64 { self.v } }
+impl<T: Mo> Mo for &T { fn m(&self) -> i64 { (**self).m() + 100 } }
+fn main() -> i32 { let p = P { v: 7 }; let rp = &p; if (&rp).m() != 107 { return 1i32; } return 0i32; }

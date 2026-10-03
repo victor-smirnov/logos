@@ -6785,9 +6785,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11907 -> 11909 (+2), NOIMPORTED 7348 -> 7350 (+2), TIERCOMMIT 208 -> 207 (-1) — 2026-10-01: +2 pass impl_for_concrete_tuple (squeue #678 closed, tier_commit -1) / impl_trait_for_tuple_no_type_params; +1 fail s8_e0133_tuple_receiver.
 #                ALL 11909 -> 11909 (+0), NOIMPORTED 7350 -> 7350 (+0), TIERCOMMIT 207 -> 206 (-1) — 2026-10-01: squeue hashmap_str_key_borrow_escapes_admitted closed -> fail/hashmap_str_key_borrow_escapes (S8 row 4, B-it-09 retired).
 #                ALL 11909 -> 11908 (-1), NOIMPORTED 7350 -> 7349 (-1), TIERCOMMIT 206 -> 206 (+0) — 2026-10-02: gate el_hashable_agreement retired: #340 derives the index admission from the impls.
+#                ALL 11908 -> 11908 (+0), NOIMPORTED 7349 -> 7349 (+0), TIERCOMMIT 206 -> 205 (-1) — 2026-10-03: squeue double_ref_receiver_collapsed_before_dispatch closed -> pass/double_ref_receiver_through_ref_impl (S8 rows 4-5).
 REGISTRY-ALL         11908
 REGISTRY-NOIMPORTED  7349
-REGISTRY-TIERCOMMIT  206
+REGISTRY-TIERCOMMIT  205
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
