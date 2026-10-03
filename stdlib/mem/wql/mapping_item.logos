@@ -26,9 +26,11 @@
 //      name) — which Query::compile_with_mapping consumes (mappings are
 //      STATIC-ONLY items; the dynamic side only consumes them).
 //
-// Per-rel `pub` is retained in the surface: its meaning is now "this rel is
-// part of the mapping's consumer-visible vocabulary" (enforcement at the
-// consumption seam is a named follow-up; non-pub rels are internals).
+// Per-rel `pub` is retained in the surface: "this rel is part of the mapping's
+// consumer-visible vocabulary". A non-`pub` rel is an internal, enforced at the
+// consumption seam (#352): a consumer in another package that queries it is
+// refused; the mapping's own rels may (the fusion spec carries the mask, and
+// plan_walker's resolve_source judges each reference).
 package logos.std.wql.mapping_item;
 
 use logos.std.compiler.metaprog;         // ItemList, item_list_new, error

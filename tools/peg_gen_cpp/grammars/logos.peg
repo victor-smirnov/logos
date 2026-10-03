@@ -1427,6 +1427,12 @@
            => { CODE: REL_OP, REL_KW: $1, TYPE_NAME: $2, FIELD: $4, OP: $5, NAME_VAR: $8, RET_TYPE: $9 }
             / IDENT IDENT_ANY DOT IDENT_ANY IDENT ASSIGN IDENT_ANY IDENT_ANY? SEMI
            => { CODE: REL_OP, REL_KW: $1, TYPE_NAME: $2, FIELD: $4, OP: $5, NAME: $7, RET_TYPE: $8 }
+            // `distinct <rel>.<col> = <fn>;` (#726): the column's distinct-value
+            // count, reported by a fn of the source — no comparison class, so no OP.
+            / IDENT IDENT_ANY DOT IDENT_ANY ASSIGN HASH IDENT SEMI
+           => { CODE: REL_OP, REL_KW: $1, TYPE_NAME: $2, FIELD: $4, NAME_VAR: $7 }
+            / IDENT IDENT_ANY DOT IDENT_ANY ASSIGN IDENT_ANY SEMI
+           => { CODE: REL_OP, REL_KW: $1, TYPE_NAME: $2, FIELD: $4, NAME: $6 }
 
     // `<lead> <name> = <fn>;` — an impl member whose lead ident is DATA:
     //   rel  entry = btree_rows;   (ADR 0016 §6) the relation's materializer

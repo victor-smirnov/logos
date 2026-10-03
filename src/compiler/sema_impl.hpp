@@ -9750,6 +9750,7 @@ private:
         std::string src_param_type;        // its syntactic type, e.g. "&Writ"
         std::string body_text;             // canonical rel list
         size_t      nrels = 0;
+        std::string pub_mask;              // per rel, declaration order: '1' = `pub rel` (#352)
         bool        enrichable = false;    // source-first param shape holds
         std::string type_param;            // "S" for `mapping M<S: Bound>`
         std::string bound;                 // the bound source trait
@@ -9923,6 +9924,10 @@ private:
         // Empty = the source declares no order, and an `order by` over it keeps
         // its Sort node.
         std::string ord_col;
+        // #726 — `distinct <rel>.<col> = <fn>;`: the number of distinct values
+        // of a column, reported by a fn of the source (`fn(&Self) -> u64`), for
+        // the join cost model's selectivity. (column, fn) pairs.
+        std::vector<std::pair<std::string, std::string>> ndv;
         std::vector<TraitRelCol> cols;
     };
     std::unordered_map<std::string, std::vector<SourceRelBind>> source_impls_;

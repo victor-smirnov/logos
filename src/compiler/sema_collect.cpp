@@ -4280,6 +4280,35 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // rel binding it names, so a planner reads what the source
                 // SAYS rather than guessing from a materializer's name.
                 std::string lead(str_of(m.get(la::REL_KW.code)));
+                if (lead == "distinct" && !m.has_key(la::OP)) {
+                    // #726 — `distinct <rel>.<col> = <fn>;`.
+                    std::string rn(str_of(m.get(la::TYPE_NAME.code)));
+                    std::string col(str_of(m.get(la::FIELD.code)));
+                    std::string fn(str_of(m.get(la::NAME.code)));
+                    bool rel_found = false;
+                    for (auto& e : source_impls_[target])
+                        if (e.rel == rn) {
+                            rel_found = true;
+                            bool dup = false;
+                            for (auto& [c, f] : e.ndv)
+                                if (c == col) {
+                                    if (f != fn)
+                                        error(std::format(
+                                            "impl for '{}': `distinct {}.{}` declared twice "
+                                            "with different reporters ('{}' vs '{}')",
+                                            target, rn, col, f, fn));
+                                    dup = true;
+                                }
+                            if (!dup) e.ndv.emplace_back(col, fn);
+                            break;
+                        }
+                    if (!rel_found)
+                        error(std::format(
+                            "impl for '{}': `distinct {}.{}` names no bound rel — declare "
+                            "`rel {} = <materializer>;` in this impl first",
+                            target, rn, col, rn));
+                    continue;
+                }
                 if (lead != "op") {
                     error(std::format(
                         "impl for '{}': unexpected member '{} …' — an access "

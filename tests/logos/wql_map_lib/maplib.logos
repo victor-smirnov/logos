@@ -30,3 +30,16 @@ pub(module) mapping Internal(g: &Writ) {
         from g ** x {i64} select x.vi;
     }
 }
+
+// #352: a mapping's non-`pub` rel is its internal. `raw` is queryable by the
+// mapping's own `big`, and a consumer in another package naming `raw` is
+// refused (wql_mapping_hidden_rel_fail); `big` stays the vocabulary
+// (mapping_hidden_rel_cross_pkg_e2e).
+pub mapping Layered(g: &Writ) {
+    rel raw(v: i64) {
+        from g ** x {i64} select x.vi;
+    }
+    pub rel big(v: i64) {
+        from raw r where r.v > 2 select r.v;
+    }
+}

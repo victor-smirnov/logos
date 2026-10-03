@@ -25404,6 +25404,30 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             std::string szty = producer_ret_type_(b.size_fn);
             if (!szty.empty()) { spec += "%"; spec += szty; }
         }
+        // ── the DISTINCT-VALUE counts (#726) ─────────────────────────────
+        // `~<col>=<fn>[%<ret-ty>]` per declared column: how many distinct
+        // values the column holds, reported by a fn of the source, for the
+        // join cost model. The column must be one of the rel's, the reporter
+        // must return an unsigned integer.
+        for (auto& [col, fn] : b.ndv) {
+            bool has_col = false;
+            for (auto& c : b.cols) if (c.name == col) { has_col = true; break; }
+            if (!has_col) {
+                error(std::format("`distinct {}.{}`: '{}' is not a column of rel '{}'",
+                                  b.rel, col, col, b.rel));
+                continue;
+            }
+            std::string nty = producer_ret_type_(fn);
+            if (!nty.empty() && nty != "u64" && nty != "u32" && nty != "usize" &&
+                nty != "u16" && nty != "u8") {
+                error(std::format("`distinct {}.{} = {}`: the reporter returns '{}' — a "
+                                  "distinct-value count is an unsigned integer",
+                                  b.rel, col, fn, nty));
+                continue;
+            }
+            spec += "~"; spec += col; spec += "="; spec += fn;
+            if (!nty.empty()) { spec += "%"; spec += nty; }
+        }
         spec += ";";
     }
     // The natspec is the ONLY channel by which a producer's measured
@@ -25686,6 +25710,7 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
         mi.src_param_type = parts.first_param_type;
         mi.body_text      = parts.body_text;
         mi.nrels          = parts.rel_names.size();
+        mi.pub_mask       = parts.pub_mask;
         mi.enrichable     = true;   // scalars bind by name identity at the site
         for (size_t i = 1; i < parts.params.size(); ++i)
             mi.scalars.push_back(parts.params[i]);
@@ -26824,8 +26849,15 @@ bool SemaChecker::enrich_deem_params(const std::string& callee_label,
                         return false;
                     }
                 }
-                enrich += std::format("{}={}@{}-{};", mi.src_param_name, pn,
-                                      next_rel, next_rel + mi.nrels);
+                // A mapping consumed from ANOTHER package carries its per-rel
+                // `pub` mask and its name (#352): a non-`pub` rel is the
+                // mapping's internal, queryable only by the mapping's own rels.
+                if (!mi.package.empty() && mi.package != cur_package_ && mi.pub_mask.size() == mi.nrels)
+                    enrich += std::format("{}={}@{}-{}/{}/{};", mi.src_param_name, pn,
+                                          next_rel, next_rel + mi.nrels, mi.pub_mask, mbase);
+                else
+                    enrich += std::format("{}={}@{}-{};", mi.src_param_name, pn,
+                                          next_rel, next_rel + mi.nrels);
                 prefix_body += mi.body_text;
                 // Record the segment as it is spliced: everything below this
                 // end belongs to `mbase`, not to what the user wrote. Read back

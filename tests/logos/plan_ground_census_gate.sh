@@ -862,7 +862,7 @@ fail = []
 # UNMOVED and worth saying so: EXPECT_FIXTURES (191 either way — the population
 # was never the thing that was missing), DRAIN_SORT, IT, RDB, RSB, KS, PERM,
 # FRAME, CPHEAD, CPT, IWHEAD, DIRECT (10).
-EXPECT_FIXTURES   = 191  # V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
+EXPECT_FIXTURES   = 192  # #726 (2026-10-03): 191 -> 192, +1 deem_source_distinct. PREVIOUSLY V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
                          # `deem_direct_fallible_buffered` — the fixture that
                          # witnesses the CHECKED-ARITHMETIC refusal clause. It is
                          # a container walk whose `select` does arithmetic, so it
@@ -948,7 +948,7 @@ EXPECT_PERM       = 321   # (R-A: +2, `deem_slice_param_batch_e2e`'s two `order 
 # sentence was true all along. The number is no longer "every landing that
 # reached the `!offers` arm"; it is the arm's actual population, and the two
 # were different by 129.
-EXPECT_NOMAT      = {"container": 77, "readonce": 29, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan); S5-direct: readonce 27 -> 28 (deem_direct_stream_pull's one scan — the SAME query that moves EXPECT_FIXTURES/OUTQ/OUTHEAD, counted once per pin); V2-M1: readonce 28 -> 29 (deem_direct_fallible_buffered's one scan, same rule)
+EXPECT_NOMAT      = {"container": 78, "readonce": 29, "elided": 8}   # R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan); S5-direct: readonce 27 -> 28 (deem_direct_stream_pull's one scan — the SAME query that moves EXPECT_FIXTURES/OUTQ/OUTHEAD, counted once per pin); V2-M1: readonce 28 -> 29 (deem_direct_fallible_buffered's one scan, same rule)
 # ADR 0025 R-G (FACT O) — the fixpoint accumulator. Measured at G2 in
 # `criterion1_materialization_instrument.sh` on the emitter-only tree, BEFORE
 # the head was classified anywhere: 84 unclassified `fixpoint accumulator`
@@ -987,7 +987,7 @@ EXPECT_FRAME      = {"gkey": 152, "gacc": 208, "gcnt": 13, "grow": 7}
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 610   # (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
+EXPECT_OUTQ       = 611   # (#726: +1 deem_source_distinct; (R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
                           #  S5-direct: +1 deem_direct_stream_pull;
                           #  V2-M1: +1 deem_direct_fallible_buffered — a REFUSED
                           #  door still has a `_run` landing, which is why this
@@ -1023,7 +1023,7 @@ EXPECT_RLND       = EXPECT_OUTR
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 482, "query output bounded by limit": 16,
+EXPECT_OUTHEAD    = {"query output": 483, "query output bounded by limit": 16,
                      # D7 #62: "query output" 478 -> 479, the new fixture's one
                      # unbounded scan seam. The other four heads did not move.
                      # S5-direct: 479 -> 480, `deem_direct_stream_pull`'s one
@@ -1070,7 +1070,7 @@ EXPECT_OUTHEAD    = {"query output": 482, "query output bounded by limit": 16,
 # no `#[borrow_carrying] pub struct …Dx` backs is the failure this catches, and
 # it is exactly the failure a plan-only pin would call green.
 EXPECT_DIRECT     = 10
-EXPECT_REFUSED    = 493  # task #85: 492 -> 493
+EXPECT_REFUSED    = 494  # #726: 493 -> 494 (deem_source_distinct); task #85: 492 -> 493
 # ── THE REFUSAL CENSUS, PER CLAUSE (ADR 0025 §12; re-derived 2026-08-19) ─────
 # FIRST-REASON counts over an `else if` CASCADE — see the note beside `DXWHY`.
 # A query true of three clauses is counted once, under the first one asked, so
@@ -1107,7 +1107,7 @@ EXPECT_DXWHY = {
     "whr_prelude" :   0,
     "fallible"    :  29,
     "slice"       :  55,
-    "notfwd"      :  50,
+    "notfwd"      :  51,   # #726: 50 -> 51, deem_source_distinct (a filter query over a hand-written source: not forward)
 }
 # ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX HEADS (FACT K) ─────────────────
 # Every one of these was measured at the emitter BEFORE the node existed (the

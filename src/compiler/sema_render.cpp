@@ -2097,12 +2097,15 @@ std::string SemaChecker::render_item_src(TinyMapView node) {
         // `op rel.col cmp = fn [exact];` (impl member, ADR 0024 S6). The render
         // must REPARSE to this node — a display channel that drops a member is
         // how a rendered source silently stops being the source.
-        std::string s = "op ";
+        // The lead is data (`op`, or `distinct` with no comparison class).
+        std::string s = std::string(str_of(node.get(la::REL_KW.code))) + " ";
         s += std::string(str_of(node.get(la::TYPE_NAME.code)));
         s += ".";
         s += std::string(str_of(node.get(la::FIELD.code)));
-        s += " ";
-        s += std::string(str_of(node.get(la::OP.code)));
+        if (node.has_key(la::OP)) {
+            s += " ";
+            s += std::string(str_of(node.get(la::OP.code)));
+        }
         s += " = ";
         s += std::string(str_of(node.get(la::NAME.code)));
         if (node.has_key(la::RET_TYPE)) {

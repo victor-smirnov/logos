@@ -176,9 +176,27 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
             }
             i = i + 1i64;
             let mut hi: i64 = 0i64;                                // hi
-            while i < en && str_byte_at(enrich, i) != 59u8 {       // ';'
+            while i < en && str_byte_at(enrich, i) != 59u8 && str_byte_at(enrich, i) != 47u8 {  // ';'|'/'
                 hi = hi * 10i64 + ((str_byte_at(enrich, i) as i64) - 48i64);
                 i = i + 1i64;
+            }
+            // `/<pub-mask>/<mapping>` — a mapping consumed from another package
+            // (#352): its non-`pub` rels are internals.
+            if i < en && str_byte_at(enrich, i) == 47u8 {          // '/'
+                i = i + 1i64;
+                let m0: i64 = i;
+                while i < en && str_byte_at(enrich, i) != 47u8 { i = i + 1i64; }
+                let mask: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + m0) as *const u8, i - m0) };
+                i = i + 1i64;
+                let n0: i64 = i;
+                while i < en && str_byte_at(enrich, i) != 59u8 { i = i + 1i64; }
+                let mname: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + n0) as *const u8, i - n0) };
+                let mut k: i64 = 0i64;
+                while k < hi - lo && lo + k < 8i64 {
+                    prm.fused_mapping[lo + k] = mname;
+                    prm.fused_hidden[lo + k] = k < mask.len() && str_byte_at(mask, k) == 48u8;   // '0'
+                    k = k + 1i64;
+                }
             }
             i = i + 1i64;
             rename_rel_sources(root, lo, hi, old_name, new_name, &h);

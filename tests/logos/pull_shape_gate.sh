@@ -236,7 +236,9 @@ PIN = {
     # The direction is the one this gate's movement rule sanctions in the
     # weakest sense — the population grew because a fixture stopped being
     # invisible, not because the pull plane changed.
-    'dumps'            : 175,
+    # #726 (2026-10-03): 175 -> 176, deem_source_distinct (one deem over a hand-written
+    # source; no stage moved the plane — a new fixture joined the population).
+    'dumps'            : 176,
 
     # ── BATCH PULLS ─────────────────────────────────────────────────────────
     # `next_batch()` is criterion 2's numerator. R-F took it 165 → 1018 by
@@ -367,7 +369,8 @@ PIN = {
     # single-paren version cannot see the `limit` arm and understated the
     # population by 8%).
     # task #85: 3301 -> 3313, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_total'      : 3313,
+    # #726: 3313 -> 3314, deem_source_distinct.
+    'walks_total'      : 3314,
     # (i) INTERNAL compiler containers — `__ks`, `__ix0`, `__g_key`, `__bv<s>`,
     # `__h.__s<n>`, `__out` … Not sources; no route has ever claimed them.
     # ⚠ DEFINED BY A POSITIVE RULE (an UNPARENTHESISED dotted-or-bare name),
@@ -387,7 +390,8 @@ PIN = {
     # (R-H Part 2 measured it): the rel plane is off the batch plane entirely,
     # which is the ground on which the re-walk capability was refused.
     # task #85: 610 -> 618, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_fixpoint'   : 618,
+    # #726: 618 -> 619, deem_source_distinct.
+    'walks_fixpoint'   : 619,
     # (iii) DECLARED SLICE PARAMS — `(<param>).len()`, the ONLY routable
     # population, 1010 before R-F and 156 after. The residual is entirely
     # declared-out planes (119 incremental/DRed + 37 fixpoint drivers).

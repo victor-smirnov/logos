@@ -275,6 +275,23 @@ pub struct MacroParams {
     pub rel_size_at: [String; 8],  // OWNED — the registry OUTLIVES the frame
                                 // whose Strings backed this view, and has no region
                                 // parameter to say so.
+    // ── the source's declared DISTINCT-VALUE counts (#726) ──────────────────
+    // `distinct <rel>.<col> = <fn>;` — per rel, `ndv_off`/`ndv_cnt` slice into
+    // (column, reporter fn, its return type): the number of distinct values of
+    // the column, asked at run time, for the join cost model's selectivity.
+    // ── mapping fusion VISIBILITY (#352) ─────────────────────────────────
+    // Per parse-side rel index: the mapping a spliced rel came from ("" = the
+    // consumer's own), and whether it is that mapping's internal (not `pub`)
+    // — set only for a mapping consumed from another package. A hidden rel is
+    // queryable by its own mapping's rels and by nothing the consumer wrote.
+    pub fused_mapping: [str; 8],
+    pub fused_hidden:  [bool; 8],
+    pub ndv_off:  [i64; 8],
+    pub ndv_cnt:  [i64; 8],
+    pub ndvc_col: [str; 16],
+    pub ndvc_fn:  [str; 16],
+    pub ndvc_ty:  [str; 16],
+    pub ndv_n:    i64,
     pub op_off:   [i64; 8],
     pub op_cnt:   [i64; 8],
     pub opc_col:  [str; 32],
@@ -362,6 +379,14 @@ pub fn macro_params_new() -> MacroParams {
         rel_size_ty: [""; 8],
         rel_size_at: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
                      String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+        fused_mapping: [""; 8],
+        fused_hidden:  [false; 8],
+        ndv_off:  [0i64; 8],
+        ndv_cnt:  [0i64; 8],
+        ndvc_col: [""; 16],
+        ndvc_fn:  [""; 16],
+        ndvc_ty:  [""; 16],
+        ndv_n:    0i64,
         op_off:   [0i64; 8],
         op_cnt:   [0i64; 8],
         opc_col:  [""; 32],
@@ -530,6 +555,31 @@ impl MacroParams {
 
     // Append one column to the LAST registered rel.
     /// Record one declared operation for the rel most recently registered.
+    /// Record a distinct-value reporter for a column of the LAST registered rel (#726).
+    pub fn rel_add_ndv(self: &mut MacroParams, col: str, fn_name: str, ty: str) {
+        if self.ndv_n >= 16i64 { return; }
+        let r: i64 = self.rel_n - 1i64;
+        if r < 0i64 { return; }
+        if self.ndv_cnt[r] == 0i64 { self.ndv_off[r] = self.ndv_n; }
+        self.ndvc_col[self.ndv_n] = col;
+        self.ndvc_fn[self.ndv_n]  = fn_name;
+        self.ndvc_ty[self.ndv_n]  = ty;
+        self.ndv_n = self.ndv_n + 1i64;
+        self.ndv_cnt[r] = self.ndv_cnt[r] + 1i64;
+    }
+
+    /// The distinct-value reporter rel `r` declared for column `col`, "" = none (#726).
+    pub fn rel_ndv_fn(self: &MacroParams, r: i64, col: str) -> str {
+        if r < 0i64 || r >= self.rel_n { return ""; }
+        let mut k: i64 = self.ndv_off[r];
+        let end: i64 = self.ndv_off[r] + self.ndv_cnt[r];
+        while k < end {
+            if str_eq(self.ndvc_col[k], col) { return self.ndvc_fn[k]; }
+            k = k + 1i64;
+        }
+        return "";
+    }
+
     pub fn rel_add_op(self: &mut MacroParams, col: str, cmp: str, fn_name: str,
                       exact: bool, iter: bool, batch: bool, ity: str) {
         if self.op_n >= 32i64 { return; }

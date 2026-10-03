@@ -1,0 +1,14 @@
+// #352, the admit twin of fail/wql_mapping_hidden_rel_fail (named outside the `wql_*` plan-census glob: it pins visibility, not a plan shape): a consumer in another package queries
+// the mapping's `pub rel big`, whose body queries the mapping's internal `raw` — the hidden rel is
+// reachable from its own mapping's rels. (`Layered` lives in tests/logos/wql_map_lib/maplib.logos.)
+package test;
+
+use maplib;
+use logos.lang.writ.container;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+
+pub deem good(w: Layered) { from big b select b.v }
+
+fn main() -> i32 { return 0i32; }

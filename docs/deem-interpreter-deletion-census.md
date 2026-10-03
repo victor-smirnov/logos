@@ -6788,8 +6788,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11908 -> 11908 (+0), NOIMPORTED 7349 -> 7349 (+0), TIERCOMMIT 206 -> 205 (-1) — 2026-10-03: squeue double_ref_receiver_collapsed_before_dispatch closed -> pass/double_ref_receiver_through_ref_impl (S8 rows 4-5).
 #                ALL 11908 -> 11909 (+1), NOIMPORTED 7349 -> 7350 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: +1 pass s8_ufcs_two_traits (S8 row 6, UFCS through resolve_trait_item_).
 #                ALL 11909 -> 11910 (+1), NOIMPORTED 7350 -> 7351 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: +1 pass has_trait_named_sees_derives (#723).
-REGISTRY-ALL         11910
-REGISTRY-NOIMPORTED  7351
+#                ALL 11910 -> 11914 (+4), NOIMPORTED 7351 -> 7355 (+4), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: #726 deem_source_distinct (pass), deem_source_distinct_bad_{col,ty} (fail), logos_09_plan_distinct_declared (gate).
+#                ALL 11914 -> 11916 (+2), NOIMPORTED 7355 -> 7357 (+2), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: #352 mapping_hidden_rel_cross_pkg_e2e (pass), wql_mapping_hidden_rel_fail (fail).
+REGISTRY-ALL         11916
+REGISTRY-NOIMPORTED  7357
 REGISTRY-TIERCOMMIT  205
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

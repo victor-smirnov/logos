@@ -249,6 +249,10 @@ SINGLETONS = {
         T('logos_09_plan_size_asked',
           ['{tsrc}/plan_size_gate.sh', '{logosc}', '{tsrc}/pass/deem_source_size.logos'],
           'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+        # DISTINCT-VALUE declaration (#726): `distinct <rel>.<col> = <fn>;` reaches MacroParams.
+        T('logos_09_plan_distinct_declared',
+          ['{tsrc}/plan_distinct_gate.sh', '{logosc}', '{tsrc}/pass/deem_source_distinct.logos'],
+          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
         # CONTAINER ACCESS-PATH gate (ADR 0024 S6): WHICH rows the container was asked
         T('logos_09_ctr_access_path',
           ['{tsrc}/ctr_access_path_gate.sh', '{logosc}', '{tsrc}/pass/deem_source_size.logos', '{tsrc}/pass/deem_hashmap_source.logos', '{tsrc}/pass/container_item_e2e.logos', '{tsrc}/pass/deem_cross_domain_join.logos'],
@@ -663,7 +667,7 @@ PASS_ARCHIVE_USERS = [
     # LOCAL_UB_BOUNDARY_USERS — the Freeze-predicate guard (archive built at -O2)
     ({"interior_mut_freeze_canary"}, ["UB_BOUNDARY_BIN"]),
     # LOCAL_WQLMAP_USERS — ADR 0016 cross-module mapping fusion
-    ({"wql_mapping_cross_module_e2e"}, ["WQL_MAP_LIB_BIN"]),
+    ({"wql_mapping_cross_module_e2e", "mapping_hidden_rel_cross_pkg_e2e"}, ["WQL_MAP_LIB_BIN"]),
     # LOCAL_COEX_USERS — B-mv-01 / G156-1 same-name coexistence
     ({"cross_pkg_coexistence", "cross_pkg_type_coexistence",
       "cross_pkg_type_id_distinct", "cross_pkg_const_scoped", "coex_dyn_bare_key",
@@ -710,7 +714,8 @@ FAIL_ARCHIVE_USERS = [
       "pub_private_field_access", "enum_private_cross_pkg", "trait_private_cross_pkg"},
      ["PUB_LIB_BIN"]),
     # FAIL_WQLMAP_USERS
-    ({"wql_mapping_cross_module_priv_fail", "wql_mapping_cross_module_modvis_fail"},
+    ({"wql_mapping_cross_module_priv_fail", "wql_mapping_cross_module_modvis_fail",
+      "wql_mapping_hidden_rel_fail"},
      ["WQL_MAP_LIB_BIN"]),
     # FAIL_COEX_USERS
     ({"cross_pkg_ambiguous_call", "cross_pkg_const_ambiguous"}, ["COEX_BIN"]),

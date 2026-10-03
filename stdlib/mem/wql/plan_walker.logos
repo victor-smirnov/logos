@@ -278,6 +278,19 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
     }
     let ri: i64 = prm.rel_find_name(src);
     if ri >= 0i64 {
+        // #352: a mapping's non-`pub` rel is its internal — reachable from the
+        // same mapping's rels, never from the consumer's query or rels.
+        if ri < 8i64 && prm.fused_hidden[ri] &&
+           !(cur_rel >= 0i64 && cur_rel < 8i64 && str_eq(prm.fused_mapping[cur_rel], prm.fused_mapping[ri])) {
+            let mut m2: String = String::new();
+            m2.push_str("wql!: rel `");
+            m2.push_str(src);
+            m2.push_str("` of mapping `");
+            m2.push_str(prm.fused_mapping[ri]);
+            m2.push_str("` is not `pub` — only the mapping's own rels may query it; mark it `pub rel` to make it part of the mapping's vocabulary");
+            error(string_as_str(&m2));
+            return src_fail();
+        }
         if cur_rel >= 0i64 {
             deps.add(cur_rel, ri);
         }
@@ -3024,14 +3037,42 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             i = i + 1i64;
             let z0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 37u8
-                  && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }  // '%'|';'
+                  && str_byte_at(natspec, i) != 126u8
+                  && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }  // '%'|'~'|';'
             szfn = pw_slice(natspec, z0, i);
             if i < n && str_byte_at(natspec, i) == 37u8 {                      // '%'
                 i = i + 1i64;
                 let zt: i64 = i;
-                while i < n && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; } // ';'
+                while i < n && str_byte_at(natspec, i) != 126u8
+                      && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; } // '~'|';'
                 szty = pw_slice(natspec, zt, i);
             }
+        }
+        // `~<col>=<fn>[%<ret-ty>]` — the source's declared DISTINCT-VALUE counts
+        // (#726), registered after the rel (rel_add_ndv keys off the last one).
+        let mut ndv_col: [str; 8] = [""; 8];
+        let mut ndv_fn:  [str; 8] = [""; 8];
+        let mut ndv_ty:  [str; 8] = [""; 8];
+        let mut nndv: i64 = 0i64;
+        while i < n && str_byte_at(natspec, i) == 126u8 {                      // '~'
+            i = i + 1i64;
+            let c0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 61u8 { i = i + 1i64; }   // '='
+            let dcol: str = pw_slice(natspec, c0, i);
+            i = i + 1i64;
+            let f0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 37u8 && str_byte_at(natspec, i) != 126u8
+                  && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }
+            let dfn: str = pw_slice(natspec, f0, i);
+            let mut dty: str = "";
+            if i < n && str_byte_at(natspec, i) == 37u8 {                      // '%'
+                i = i + 1i64;
+                let t0: i64 = i;
+                while i < n && str_byte_at(natspec, i) != 126u8
+                      && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }
+                dty = pw_slice(natspec, t0, i);
+            }
+            if nndv < 8i64 { ndv_col[nndv] = dcol; ndv_fn[nndv] = dfn; ndv_ty[nndv] = dty; nndv = nndv + 1i64; }
         }
         i = i + 1i64;                                                        // ';'
         rowtyb[k].push_str(")");
@@ -3065,6 +3106,12 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             prm.rel_add_op(op_col[o], op_cmp[o], op_fn[o], op_ex[o], op_it[o],
                            op_bt[o], op_ity[o]);
             o = o + 1i64;
+        }
+        let mut d: i64 = 0i64;
+        while d < nndv {
+            prm.rel_add_ndv(ndv_col[d], ndv_fn[d], ndv_ty[d]);
+            plan_trace(regname, "distinct-value count", ndv_col[d], prm.rel_ndv_fn(idx, ndv_col[d]));
+            d = d + 1i64;
         }
         k = k + 1i64;
     }
