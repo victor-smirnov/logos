@@ -37,13 +37,16 @@
 // DEGENERATE case of this function, not a branch inside it, and the 16 admitted
 // pair queries come out with the answer they came out with before.
 //
-// ⚠ EQ_DIV IS AN ASSUMPTION, NAMED. No fact in this compiler reports a join's
-// SELECTIVITY — not the access plan, not the declared sizes, not the cardinality
-// ordinal. So an equi-step's output is estimated as one tenth of the cross
-// product, the classic no-statistics default for an equality predicate. It is the
-// one number here that data could contradict, and it is written as a function so
-// that the day a source declares a distinct-value count there is exactly one
-// place to consult it from.
+// ⚠ SELECTIVITY FROM DECLARED DISTINCT COUNTS, EQ_DIV WHERE THERE ARE NONE (#347,
+// #726). A source may declare `distinct <rel>.<col> = <fn>;`. For the equality a
+// position joins on, `a.x == b.y`, the step's output is System R's estimate
+//   R_j = R_{j-1} × n(o_j) / max(V(a.x), V(b.y))
+// over whichever of the two counts are declared (`ndv`, measured by `prepare`
+// like the sizes; `dl`/`dr` name the facts per candidate position). With
+// neither declared it is one tenth of the cross product, the classic
+// no-statistics default for an equality predicate — the assumption is still
+// named, it just stops being the only answer. A deferred plan measures nothing
+// at `prepare` (S4j), so it prices with EQ_DIV throughout.
 //
 // ⚠ PINNED STEPS (an anti join, a traversal) ARE PRICED BY THE ROWS REACHING THEM
 // (#347, 2026-10-03). They used to be charged nothing, which was a bias and not an
@@ -103,7 +106,7 @@ pub fn JC_CAP() -> i64      { return 1000000000i64; }
 /// weights are read from the same functions the arithmetic reads, so a reader who
 /// is told the ratio is told the ratio the code used.
 pub fn jc_model_words() -> str {
-    return "cost = row events: a base SCAN weighs 2 per row, an index BUILD 4 per row, a PROBE 1 per row reaching the step, a RESCAN 2 per row read, a PINNED step (anti, traversal) 1 per row reaching it; an equi-step is assumed to emit one tenth of the cross product (no fact reports selectivity), and a pinned step to pass its input through (no fact reports its fraction)";
+    return "cost = row events: a base SCAN weighs 2 per row, an index BUILD 4 per row, a PROBE 1 per row reaching the step, a RESCAN 2 per row read, a PINNED step (anti, traversal) 1 per row reaching it; an equi-step emits |L|·|R| / max(V(L.k), V(R.k)) over the distinct counts its two columns declare (`distinct <rel>.<col> = <fn>;`, measured by `prepare`), and one tenth of the cross product where they declare none (the selectivity assumption), and a pinned step to pass its input through (no fact reports its fraction)";
 }
 
 // ── The table a plan carries ─────────────────────────────────────────────────
@@ -137,6 +140,12 @@ pub struct JCTable {
     // so one array serves them all (#347).
     pub npin:      i64,
     pub pin_after: [i64; 8],
+    // Declared distinct-value counts (#726): `ndv[k]` measured by `prepare`
+    // (-1 = not measured); `dl`/`dr[ix*JC_MAX_FL + j]` the facts for the two
+    // columns of the equality candidate ix joins on at position j (-1 = none).
+    pub ndv:       [i64; 8],
+    pub dl:        [i64; 16],
+    pub dr:        [i64; 16],
 }
 
 /// The table of a plan with no choice in it: nothing was considered, so nothing
@@ -144,7 +153,8 @@ pub struct JCTable {
 /// axis was never entered, the second that one order survived the derivation.
 pub fn jc_table_none() -> JCTable {
     return JCTable { ncand: 0i64, nfl: 0i64, slot: [0i64; 16], role: [0i64; 16],
-                     npin: 0i64, pin_after: [0i64; 8] };
+                     npin: 0i64, pin_after: [0i64; 8],
+                     ndv: [-1i64; 8], dl: [-1i64; 16], dr: [-1i64; 16] };
 }
 
 // ── The answers for an EMPTY candidate set (ADR 0024 S4l) ────────────────────
@@ -279,13 +289,26 @@ pub fn jc_cap(x: i64) -> i64 {
     return x;
 }
 
-/// The rows a step emits, per the model's one assumption. Floored at 1: an
-/// estimate of zero would make every later position free and turn a guess into a
-/// certainty the plan has no right to.
-pub fn jc_rows(r: i64, n: i64) -> i64 {
-    let p: i64 = (jc_cap(r) * jc_cap(n)) / JC_EQ_DIV();
+/// The rows a step emits: `r × n / d`. Floored at 1: an estimate of zero would
+/// make every later position free and turn a guess into a certainty the plan has
+/// no right to.
+pub fn jc_rows(r: i64, n: i64, d: i64) -> i64 {
+    let dd: i64 = if d < 1i64 { JC_EQ_DIV() } else { d };
+    let p: i64 = (jc_cap(r) * jc_cap(n)) / dd;
     if p < 1i64 { return 1i64; }
     return jc_cap(p);
+}
+
+/// The divisor at candidate position `k` (= ix * JC_MAX_FL + j): the larger of the
+/// declared distinct counts of the two joined columns, EQ_DIV when neither has one.
+pub fn jc_div(t: &JCTable, k: i64) -> i64 {
+    let mut d: i64 = -1i64;
+    let l: i64 = t.dl[k];
+    let r: i64 = t.dr[k];
+    if l >= 0i64 && l < 8i64 && t.ndv[l] > d { d = t.ndv[l]; }
+    if r >= 0i64 && r < 8i64 && t.ndv[r] > d { d = t.ndv[r]; }
+    if d < 1i64 { return JC_EQ_DIV(); }
+    return d;
 }
 
 /// The k-th size fact. Four positional arguments rather than an array, because
@@ -344,10 +367,10 @@ fn jc_cost_at(t: &JCTable, ix: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
             r = n;
         } else if role == JC_INDEX() {
             c = c + JC_W_BUILD() * n + JC_W_PROBE() * r;
-            r = jc_rows(r, n);
+            r = jc_rows(r, n, jc_div(t, b + j));
         } else {
             c = c + JC_W_RESCAN() * jc_cap(n * r);
-            r = jc_rows(r, n);
+            r = jc_rows(r, n, jc_div(t, b + j));
         }
         // A pinned step standing after this position reads every row reaching it.
         let mut p: i64 = 0i64;

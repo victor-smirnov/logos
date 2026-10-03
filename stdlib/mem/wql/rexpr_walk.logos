@@ -4618,7 +4618,100 @@ fn jch_of(ch: &JChain) -> JCh {
 /// written even though `jc_order_cost` never reads past `ncand * JC_MAX_FL`: an
 /// array literal has a fixed length and a partially-written one would be a shape
 /// that depends on the query.
-fn push_jctable(out: &mut String, jo: &JoinOrder) {
+// ── DECLARED DISTINCT COUNTS FOR THE COST TABLE (#347, #726) ─────────────────
+// Per candidate position: the key equality the plan placed there (`conw` +
+// `csel`, the same term the emitter keys on), its two column references, and
+// for each the reporter its source declared (`distinct <rel>.<col> = <fn>;`).
+// Each (rel, col) is ONE fact, measured once by `prepare` — the table literal
+// is evaluated there, with the query's parameters in scope, so a fact is the
+// reporter call itself.
+struct NdvFacts {
+    pub n: i64,
+    pub ri: [i64; 8],
+    pub col: [str; 8],
+    pub dl: [i64; 16],
+    pub dr: [i64; 16],
+}
+
+fn ndv_col_ref(e: SExpr) -> (str, str) {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { return ("", ""); }
+            let b: SExpr = br.any().view::<SExpr>();
+            match b {
+                SExpr::Field(bf) => {
+                    if bf.base.any().is_null() { return (bf.name, f.name); }
+                    return ("", "");
+                }
+                _ => { return ("", ""); }
+            }
+        }
+        _ => { return ("", ""); }
+    }
+}
+
+// The fact index for (var.col) of the chain, -1 when its source declares none.
+fn ndv_fact(nf: &mut NdvFacts, ch: &JChain, prm: &MacroParams, var: str, col: str) -> i64 {
+    if var.len() == 0i64 { return -1i64; }
+    let mut src: str = "";
+    if str_eq(ch.base_var, var) { src = ch.base_src; }
+    let mut i: i64 = 0i64;
+    while i < ch.n {
+        if str_eq(ch.var[i], var) { src = ch.src[i]; }
+        i = i + 1i64;
+    }
+    if src.len() == 0i64 { return -1i64; }
+    let ri: i64 = prm.rel_find_src(src);
+    if ri < 0i64 { return -1i64; }
+    if prm.rel_ndv_fn(ri, col).len() == 0i64 { return -1i64; }
+    let mut k: i64 = 0i64;
+    while k < nf.n {
+        if nf.ri[k] == ri && str_eq(nf.col[k], col) { return k; }
+        k = k + 1i64;
+    }
+    if nf.n >= 8i64 { return -1i64; }
+    nf.ri[nf.n] = ri;
+    nf.col[nf.n] = col;
+    nf.n = nf.n + 1i64;
+    return nf.n - 1i64;
+}
+
+fn ndv_facts_of(ch: &JChain, jo: &JoinOrder, prm: &MacroParams, h: &Writ) -> NdvFacts {
+    let mut nf: NdvFacts = NdvFacts { n: 0i64, ri: [0i64; 8], col: [""; 8],
+                                      dl: [-1i64; 16], dr: [-1i64; 16] };
+    let mut c: i64 = 0i64;
+    while c < jo.ncand {
+        let mut j: i64 = 1i64;
+        while j < jo.nfl {
+            let k: i64 = c * JC_MAX_FL() + j;
+            let w: i64 = jo.conw[k];
+            let sel: i64 = jo.csel[k];
+            if w != 0i64 && sel >= 0i64 {
+                let st: StepTerms = step_terms(WRef::<SExpr>::from_any(unsafe { WAny::ref_to(w as *const u8) }), h);
+                if sel < st.tl.n {
+                    let te: SExpr = unsafe { WAny::ref_to(st.tl.w[sel] as *const u8) }.view::<SExpr>();
+                    match te {
+                        SExpr::Bin(b) => {
+                            if b.op == OP_EQ() {
+                                let l: (str, str) = ndv_col_ref(b.lhs.any().view::<SExpr>());
+                                let r: (str, str) = ndv_col_ref(b.rhs.any().view::<SExpr>());
+                                nf.dl[k] = ndv_fact(&mut nf, ch, prm, l.0, l.1);
+                                nf.dr[k] = ndv_fact(&mut nf, ch, prm, r.0, r.1);
+                            }
+                        }
+                        _ => { }
+                    }
+                }
+            }
+            j = j + 1i64;
+        }
+        c = c + 1i64;
+    }
+    return nf;
+}
+
+fn push_jctable(out: &mut String, jo: &JoinOrder, nf: &NdvFacts, prm: &MacroParams, measured: bool) {
     out.push_str("JCTable { ncand: ");
     out.push_i64(jo.ncand);
     out.push_str("i64, nfl: ");
@@ -4648,6 +4741,38 @@ fn push_jctable(out: &mut String, jo: &JoinOrder) {
         out.push_i64(jo.pin_after[q]);
         out.push_str("i64");
         q = q + 1i64;
+    }
+    // the distinct counts: the reporter call itself where `prepare` measures
+    out.push_str("], ndv: [");
+    let mut f: i64 = 0i64;
+    while f < 8i64 {
+        if f > 0i64 { out.push_str(", "); }
+        if measured && f < nf.n {
+            out.push_str("(");
+            out.push_str(prm.rel_ndv_fn(nf.ri[f], nf.col[f]));
+            out.push_str("(");
+            out.push_str(prm.rel_marg[nf.ri[f]]);
+            out.push_str(") as i64)");
+        } else {
+            out.push_str("-1i64");
+        }
+        f = f + 1i64;
+    }
+    out.push_str("], dl: [");
+    let mut d: i64 = 0i64;
+    while d < 16i64 {
+        if d > 0i64 { out.push_str(", "); }
+        out.push_i64(nf.dl[d]);
+        out.push_str("i64");
+        d = d + 1i64;
+    }
+    out.push_str("], dr: [");
+    d = 0i64;
+    while d < 16i64 {
+        if d > 0i64 { out.push_str(", "); }
+        out.push_i64(nf.dr[d]);
+        out.push_str("i64");
+        d = d + 1i64;
     }
     out.push_str("] }");
 }
@@ -5124,7 +5249,24 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
         }
     }
     let mut tblb: String = String::new();
-    if jo.dynamic { push_jctable(&mut tblb, &jo); }
+    if jo.dynamic {
+        let nf: NdvFacts = ndv_facts_of(&ch, &jo, prm, h);
+        let measured: bool = !jo.deferred;
+        push_jctable(&mut tblb, &jo, &nf, prm, measured);
+        if nf.n > 0i64 {
+            let mut fs: String = String::new();
+            let mut k: i64 = 0i64;
+            while k < nf.n {
+                if k > 0i64 { fs.push_str(", "); }
+                fs.push_str(prm.rel_names[nf.ri[k]]); fs.push_str("."); fs.push_str(nf.col[k]);
+                fs.push_str(" ("); fs.push_str(prm.rel_ndv_fn(nf.ri[k], nf.col[k])); fs.push_str(")");
+                k = k + 1i64;
+            }
+            plan_trace(vis_strip(fn_name), "join selectivity from declared distinct counts", string_as_str(&fs),
+                       if measured { "System R: an equality step emits |L|·|R| / max(V(L.k), V(R.k)) rows over the counts its two columns declare, measured by `prepare` beside the sizes; a step whose columns declare none keeps the EQ_DIV assumption" }
+                       else { "declared, and NOT measured: this plan is deferred, and a deferred `prepare` calls no reporter (S4j), so every step keeps the EQ_DIV assumption" });
+        }
+    }
 
     // THE CENSUS OF CARRIED ORDERS, one line per join nest. A gate that forces
     // each order in turn has to know how many there are, and it must be able to
