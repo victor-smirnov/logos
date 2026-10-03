@@ -3456,6 +3456,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
     // chokepoint), so the EXACT overload binds before the signature-blind suffix
     // fallbacks below — no per-site qualification needed here.
     auto callee_fn   = find_func_op(parent_mod, callee_name);
+    const char* census_how = callee_fn ? (resolved_symbol.empty() ? "U-exact" : "R-exact") : nullptr;
     // O(1) via the base→first-FuncOp index (was an O(funcs) find_fn_matching
     // prefix scan, called up to 3× per unresolved method). first-wins matches
     // the old find_fn_matching (first module-order hit).
@@ -3466,6 +3467,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         return {};
     };
     if (!callee_fn) callee_fn = walk_prefix(callee_name);
+    if (callee_fn && !census_how) census_how = resolved_symbol.empty() ? "U-prefix" : "R-prefix";
     if (!callee_fn && !resolved_symbol.empty()) {
         callee_name = mangled;
         callee_fn = find_func_op(parent_mod, callee_name);
@@ -3488,7 +3490,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
                        n.contains(contains_g);
             });
         if (callee_fn) callee_name = callee_fn.getName().str();
+        if (callee_fn && !census_how) census_how = resolved_symbol.empty() ? "U-suffix" : "R-suffix";
     }
+    if (callee_fn && !census_how) census_how = resolved_symbol.empty() ? "U-composed" : "R-composed";
+    if (std::getenv("LOGOS_CALLEE_CENSUS"))
+        std::fprintf(stderr, "CALLEE %s %s rs=%s got=%s\n", census_how ? census_how : "MISS", bare_mangled.c_str(),
+                     resolved_symbol.empty() ? "-" : resolved_symbol.c_str(),
+                     callee_fn ? callee_fn.getName().str().c_str() : "-");
     if (!callee_fn) {
         // Suppress noise from the known method-generic-trait-default
         // mono limitation (baghunt CP-cm-12 family): when a trait default

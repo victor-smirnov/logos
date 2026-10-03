@@ -1389,8 +1389,10 @@ std::string Mono::declared_method_symbol(std::string_view owner, std::string_vie
 std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,
                                         std::string_view tmpl_name) {
     TypeRef rt = recv_t;
+    // `&S` / `&mut S` / `*mut S` (a raw-pointer self, `Arc::clone_arc`).
     while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref ||
-                  TypeRef(rt).kind() == LogosType::Kind::MutRef) && TypeRef(rt).pointee())
+                  TypeRef(rt).kind() == LogosType::Kind::MutRef ||
+                  TypeRef(rt).kind() == LogosType::Kind::Ptr) && TypeRef(rt).pointee())
         rt = TypeRef(rt).pointee();
     if (!rt || (TypeRef(rt).kind() != LogosType::Kind::Struct &&
                 TypeRef(rt).kind() != LogosType::Kind::ZonedStruct))

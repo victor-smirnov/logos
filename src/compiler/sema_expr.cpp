@@ -556,6 +556,61 @@ bool SemaChecker::is_builtin_box_deref(TypeRef bt) const {
     }
 }
 
+// ADR 0030 S8 row 5 — a method call sema emits names its callee: an empty
+// `resolved_symbol` is filled with the probe's pick at the receiver as it
+// stands (a vtable / tagged dispatch, or a receiver whose method is its
+// bounds', stays for mono / the dyn emission).
+lir::LExprPtr SemaChecker::method_call_resolved_(lir::EMethodCall mc, TypeRef ret) {
+    if (mc.resolved_symbol.empty() && mc.vtable_index < 0 && mc.tag_system.empty() &&
+        mc.receiver && expr_type(mc.receiver)) {
+        ProbePick pk = probe_method_(expr_type(mc.receiver), mc.method);
+        // At the receiver's own step (the call site applies any autoref); among
+        // overloads, the one candidate the arguments fit.
+        const SemaFuncInfo* sel = nullptr;
+        int fits = 0;
+        for (auto* c : pk.derefs == 0 ? pk.tied : std::vector<const SemaFuncInfo*>{}) {
+            if (c->param_types.size() != mc.args.size() + 1) continue;
+            bool ok = true;
+            for (size_t a = 0; ok && c->type_params.empty() && a < mc.args.size(); ++a) {
+                TypeRef at = expr_type(mc.args[a]);
+                ok = at && arg_compatible_for_dispatch(expr_ref_of(mc.args[a]), at, c->param_types[a + 1]);
+            }
+            if (ok) { sel = c; ++fits; }
+        }
+        // A concrete candidate the arguments fit outranks a generic impl's (whose
+        // bounds the probe does not check: `impl<K: WIntKeyTag> WMap<K, WAny>`
+        // beside `impl WMap<WString, WAny>`).
+        if (fits > 1) {
+            const SemaFuncInfo* conc = nullptr;
+            int nconc = 0;
+            for (auto* c : pk.tied) {
+                if (!c->type_params.empty() || c->param_types.size() != mc.args.size() + 1) continue;
+                bool ok = true;
+                for (size_t a = 0; ok && a < mc.args.size(); ++a) {
+                    TypeRef at = expr_type(mc.args[a]);
+                    ok = at && arg_compatible_for_dispatch(expr_ref_of(mc.args[a]), at, c->param_types[a + 1]);
+                }
+                if (ok) { conc = c; ++nconc; }
+            }
+            if (nconc == 1) { sel = conc; fits = 1; }
+        }
+        if (sel && fits == 1)
+            mc.resolved_symbol = sel->symbol_name.empty() ? pk.key : sel->symbol_name;
+    }
+    return builder().method_call_v(std::move(mc), ret);
+}
+
+lir::LExprPtr SemaChecker::method_call_named_(lir::LExprPtr recv, std::string method,
+                                              std::vector<lir::LExprPtr> args, int vtable_index,
+                                              TypeRef ret) {
+    lir::EMethodCall mc;
+    mc.receiver = std::move(recv);
+    mc.method = std::move(method);
+    mc.args = std::move(args);
+    mc.vtable_index = vtable_index;
+    return method_call_resolved_(std::move(mc), ret);
+}
+
 std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_step(
         lir::LExprPtr recv, bool want_mut, bool* degraded) {
     if (degraded) *degraded = false;
@@ -707,7 +762,7 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
     mc.method       = want_mut ? "deref_mut" : "deref";
     mc.vtable_index = -1;
     mc.tag_trait    = tr;  // resolve to <Concrete>__Deref__deref if qualified
-    return builder().method_call_v(std::move(mc), ref_t);
+    return method_call_resolved_(std::move(mc), ref_t);
 }
 
 // Shared integer-literal builder. `negate` folds a leading unary minus into
@@ -3155,7 +3210,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             mc.args = {};
             mc.vtable_index = -1;
             mc.resolved_type = "";
-            return builder().method_call_v(
+            return method_call_resolved_(
                 std::move(mc), make_slice_type(prim(LogosType::Kind::U8)));
         };
         if (is_named_struct(lt, "String") && is_str_slice(rt)) {
@@ -3775,7 +3830,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             mc.vtable_index = -1;
             mc.resolved_type = "";
             if (eq_providers > 1) mc.tag_trait = "Eq";
-            return builder().method_call_v(std::move(mc), bool_t());
+            return method_call_resolved_(std::move(mc), bool_t());
         }
         // No eq-providing bound — fall through to the generic operator check.
     }
@@ -3822,7 +3877,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             mc.args.push_back(std::move(rref));
             mc.vtable_index = -1;
             mc.tag_trait = "Ord";
-            auto cmp_call = builder().method_call_v(std::move(mc), ord_t);
+            auto cmp_call = method_call_resolved_(std::move(mc), ord_t);
             std::vector<lir::LExprPtr> isargs;
             isargs.push_back(std::move(cmp_call));
             return builder().call(isfit->symbol_name.empty() ? is_mangled : isfit->symbol_name,
@@ -10058,7 +10113,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                 mc.args         = std::move(arg_exprs);
                 mc.vtable_index = (int32_t)mi;  // slot in vtable
                 mc.resolved_type = "";
-                return builder().method_call_v(std::move(mc), ret_type);
+                return method_call_resolved_(std::move(mc), ret_type);
             }
         }
     }
@@ -10914,7 +10969,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     }
                 }
             }
-            return builder().method_call_v(std::move(mc), ret_type);
+            return method_call_resolved_(std::move(mc), ret_type);
         }
 
         // Adversarial #1 (D): Rust method autoderef through a Deref bound —
@@ -12325,7 +12380,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         margs.push_back(builder().lit_int(cap, prim(LogosType::Kind::I64)));
         margs.push_back(builder().lit_int(static_cast<int64_t>(inst_code),
                                           prim(LogosType::Kind::U64)));
-        auto h = builder().method_call(std::move(wref), "make_schema_h", "", {},
+        auto h = method_call_named_(std::move(wref), "make_schema_h",
                                        std::move(margs), -1, make_synth_struct("WSchemaH"));
         builder().retype_expr(h, view_t);   // WSchemaH {m,z} → S {m,z} (identical layout)
         return h;
@@ -12348,7 +12403,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
           l.value = std::move(ptr);
           blk.push_back(make_stmt_emit(node_line_, std::move(l))); }
         auto mref = builder().cast(builder().var_ref(pv, wmap_cptr), make_ref(false, wmap));
-        auto codecall = builder().method_call(std::move(mref), "schema_type_code", "", {},
+        auto codecall = method_call_named_(std::move(mref), "schema_type_code",
                                               {}, -1, prim(LogosType::Kind::U64));
         auto cond = builder().bin_op("==", std::move(codecall),
                                      builder().lit_int(static_cast<int64_t>(inst_code),
@@ -12963,7 +13018,7 @@ lir::LExprPtr SemaChecker::lower_field_read_impl(TinyMapView node) {
             auto m_ref    = builder().cast(std::move(m_ptr), make_ref(false, wmap));
             auto key_lit  = builder().lit_int(static_cast<int64_t>(key), prim(LogosType::Kind::U8));
             std::vector<lir::LExprPtr> gargs; gargs.push_back(std::move(key_lit));
-            auto anyval   = builder().method_call(std::move(m_ref), "get", "", {},
+            auto anyval   = method_call_named_(std::move(m_ref), "get",
                                                   std::move(gargs), -1, wany);
             return schema_wany_to_typed(std::move(anyval), ftype, sch_name, field_name);
             }  // if (found >= 0)
@@ -14450,7 +14505,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
                 mc.args.push_back(std::move(idx));
                 mc.vtable_index = -1;
                 mc.resolved_type = "";
-                auto call_e = builder().method_call_v(std::move(mc), make_ref(mut_ctx, out_t));
+                auto call_e = method_call_resolved_(std::move(mc), make_ref(mut_ctx, out_t));
                 return builder().deref(std::move(call_e), out_t);
             }
         }
