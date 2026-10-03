@@ -3365,6 +3365,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
               k == K::TypeVar || k == K::AssocType || k == K::Error ||
               k == K::ImplTrait || k == K::ConstVar || k == K::CfgSlotType ||
               k == K::Never || k == K::Void);
+        // A reference whose referent is not a struct `gen_recv_struct` can name
+        // (`&&Foo` for `impl Tr for &Foo { fn m(&self) }`, `&i32`): the
+        // receiver sema shaped is the self argument as it stands.
+        if ((k == K::Ref || k == K::MutRef) && recv_t.pointee()) {
+            auto pk2 = TypeRef(recv_t.pointee()).kind();
+            if (pk2 == K::Ref || pk2 == K::MutRef || pk2 == K::Ptr)
+                primitive_recv = true;
+        }
         // A `str` receiver is `[u8]` — NOT a struct, so `gen_recv_struct`
         // below returns an empty type name and the whole method call lowers to
         // NOTHING, silently. Measured: `fmt_debug_to_string::<(i64,str,i64)>`

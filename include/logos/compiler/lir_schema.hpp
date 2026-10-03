@@ -855,6 +855,11 @@ inline constexpr Key IMPL_PKG             {"IMPL_PKG",             20}; // Varch
 // nominal type: the borrow checker's "its owner implements Drop" asks it, and
 // TARGET_TYPE is a spelling two same-named types share. Sparse.
 inline constexpr Key IDENTITY_TARGET      {"IDENTITY_TARGET",      21}; // Varchar (sparse)
+// ADR 0030 S8 row 6: the symbols of this impl's methods — the ones written in
+// the block and the trait defaults materialized for it. A trait item is
+// resolved as "the method of the impl of Trait for Self" by reading this list,
+// never by composing `<Self>__<method>`. Sparse: absent on older archives.
+inline constexpr Key METHOD_SYMBOLS       {"METHOD_SYMBOLS",       22}; // Array<Varchar> (sparse)
 } // namespace impl_keys
 
 // assoc_entry sub-map keys (own space — element of ASSOC_TYPES / PRIMARY_ASSOC_EQS

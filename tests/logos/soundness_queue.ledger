@@ -427,8 +427,6 @@ struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_ma
 
 ufcs_trait_path_peels_every_reference 1 tests/soundness/open/ufcs_trait_path_peels_every_reference run 1
 
-double_ref_receiver_collapsed_before_dispatch 1 tests/soundness/open/double_ref_receiver_collapsed_before_dispatch run 1
-
 if_let_scrutinee_temporary_dropped_after_else 1 tests/soundness/open/if_let_scrutinee_temporary_dropped_after_else run 1
 
 len_returns_i64_not_usize 3 tests/soundness/open/len_returns_i64_not_usize refuses
@@ -465,5 +463,5 @@ guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_
 
 guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_moves_ref_mut_binding_admits admits
 
-# TOTAL 143
-# SYNC-HASH c9a56533d153d9b4eb7efdfcd6772c43
+# TOTAL 142
+# SYNC-HASH 6d5f52567274edb94584f24c6326ca9c

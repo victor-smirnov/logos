@@ -1240,6 +1240,12 @@ private:
     // `arity` (receiver included), when known, filters the candidates first.
     // Pointees whose layout mono_niche_arm is computing (a cycle guard).
     std::unordered_set<uint64_t> niche_pointee_in_progress_;
+    // ADR 0030 S8 row 6: the method `method` of the impl of `trait` (bare
+    // name) for the concrete `self`, read off the impl's METHOD_SYMBOLS — a
+    // template symbol of a generic impl is mapped to its instance. Empty when
+    // no impl or more than one candidate answers.
+    std::string trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
+                                   int64_t arity, const std::vector<TypeRef>* arg_types = nullptr);
     std::string declared_method_symbol(std::string_view owner, std::string_view pkg,
                                        std::string_view method, int64_t arity = -1,
                                        const std::vector<TypeRef>* arg_types = nullptr);

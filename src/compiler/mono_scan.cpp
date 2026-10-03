@@ -1355,6 +1355,80 @@ std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method)
 // the call's argument count is not a candidate: an inherent `m(&self, k)` and a
 // trait `m(&self)` on one owner are both `<owner>__m`, and a bound call
 // `x.m()` names only the one it can call.
+std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
+                                     int64_t arity, const std::vector<TypeRef>* arg_types) {
+    TypeRef rt = self;
+    if (!rt || (TypeRef(rt).kind() != LogosType::Kind::Struct &&
+                TypeRef(rt).kind() != LogosType::Kind::ZonedStruct) || contains_typevar(rt))
+        return {};
+    std::string base{TypeRef(rt).struct_name()};
+    if (auto p = base.find("$G"); p != std::string::npos) base = base.substr(0, p);
+    if (auto p = base.find("$M"); p != std::string::npos) base = base.substr(0, p);
+    const std::string pkg{TypeRef(rt).pkg_name()};
+    auto bare_of = [](std::string_view t) {
+        if (auto p = t.rfind("::"); p != std::string_view::npos) t = t.substr(p + 2);
+        if (auto p = t.rfind('.'); p != std::string_view::npos) t = t.substr(p + 1);
+        return t;
+    };
+    // The function a symbol names: a free function, or a method of a struct
+    // template (a generic impl's methods travel on the template).
+    auto find_fn = [&](std::string_view sym, const TypePoolImpl** pool_out) -> lir_view::FunctionView {
+        for (auto* prog : {&out_, &in_}) {
+            for (auto& fn : prog->functions)
+                if (fn.name() == sym) { *pool_out = prog->type_pool.impl(); return fn; }
+            for (auto& sd : prog->structs) {
+                lir_view::FunctionView hit{};
+                sd.each_method([&](lir_view::FunctionView m) { if (!hit && m.name() == sym) hit = m; });
+                if (hit) { *pool_out = prog->type_pool.impl(); return hit; }
+            }
+        }
+        return {};
+    };
+    std::string best, best_exact;
+    bool ambiguous = false, ambiguous_exact = false;
+    for (auto* prog : {&out_, &in_}) {
+        const TypePoolImpl* ipool = prog->type_pool.impl();
+        for (auto& impl : prog->impls) {
+            if (impl.is_negative() || impl.is_blanket()) continue;
+            if (bare_of(impl.identity_trait()) != trait) continue;
+            // The impl's target: a generic pattern (`impl<T> Add for V<T>`) or a
+            // nominal type (`impl Add for V`), the same type as `self`.
+            TypeRef pat = impl.target_typeref(ipool);
+            std::string_view tgt = impl.target_type();
+            const bool generic = pat && contains_typevar(pat);
+            if (pat) {
+                if (TypeRef(pat).kind() != LogosType::Kind::Struct &&
+                    TypeRef(pat).kind() != LogosType::Kind::ZonedStruct) continue;
+                std::string pb{TypeRef(pat).struct_name()};
+                if (auto p = pb.find("$G"); p != std::string::npos) pb = pb.substr(0, p);
+                if (pb != base) continue;
+                if (!TypeRef(pat).pkg_name().empty() && !pkg.empty() && TypeRef(pat).pkg_name() != pkg) continue;
+            } else {
+                if (bare_of(tgt) != base && tgt != concrete_struct_name(rt)) continue;
+            }
+            for (auto sym : impl.method_symbols()) {
+                const TypePoolImpl* fpool = nullptr;
+                auto fn = find_fn(sym, &fpool);
+                if (!fn || fn.method_base() != method) continue;
+                if (arity >= 0 && !fn.is_vararg() && int64_t(fn.param_count()) != arity) continue;
+                std::string name = generic ? method_instance_name(concrete_struct_name(rt), pkg, base, method, sym)
+                                           : std::string(sym);
+                if (best.empty()) best = name; else if (best != name) ambiguous = true;
+                if (!arg_types || generic) continue;
+                auto ps = fn.params();
+                if (ps.size() != arg_types->size() + 1) continue;
+                bool exact = true;
+                for (size_t i = 0; exact && i < arg_types->size(); ++i)
+                    exact = (*arg_types)[i] && types_equal(ps[i + 1].type(fpool), (*arg_types)[i]);
+                if (!exact) continue;
+                if (best_exact.empty()) best_exact = name; else if (best_exact != name) ambiguous_exact = true;
+            }
+        }
+    }
+    if (!ambiguous) return best;
+    return ambiguous_exact ? std::string() : best_exact;
+}
+
 std::string Mono::declared_method_symbol(std::string_view owner, std::string_view pkg,
                                          std::string_view method, int64_t arity,
                                          const std::vector<TypeRef>* arg_types) {
