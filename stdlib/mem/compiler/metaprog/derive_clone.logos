@@ -24,7 +24,7 @@ use logos.mem.collections.vec;
 use logos.lang.writ.anyval;
 use logos.lang.clone;
 
-#[metaprog_handler("derive_clone")]
+#[metaprog_handler("derive_clone", "logos.lang.clone::Clone")]
 fn derive_clone_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }

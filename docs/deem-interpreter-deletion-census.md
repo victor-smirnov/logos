@@ -6787,8 +6787,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11909 -> 11908 (-1), NOIMPORTED 7350 -> 7349 (-1), TIERCOMMIT 206 -> 206 (+0) — 2026-10-02: gate el_hashable_agreement retired: #340 derives the index admission from the impls.
 #                ALL 11908 -> 11908 (+0), NOIMPORTED 7349 -> 7349 (+0), TIERCOMMIT 206 -> 205 (-1) — 2026-10-03: squeue double_ref_receiver_collapsed_before_dispatch closed -> pass/double_ref_receiver_through_ref_impl (S8 rows 4-5).
 #                ALL 11908 -> 11909 (+1), NOIMPORTED 7349 -> 7350 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: +1 pass s8_ufcs_two_traits (S8 row 6, UFCS through resolve_trait_item_).
-REGISTRY-ALL         11909
-REGISTRY-NOIMPORTED  7350
+#                ALL 11909 -> 11910 (+1), NOIMPORTED 7350 -> 7351 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03: +1 pass has_trait_named_sees_derives (#723).
+REGISTRY-ALL         11910
+REGISTRY-NOIMPORTED  7351
 REGISTRY-TIERCOMMIT  205
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

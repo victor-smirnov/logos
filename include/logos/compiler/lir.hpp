@@ -883,6 +883,11 @@ struct LProgram {
     // (offsets are stable; base may move on arena growth between iters).
     // (Stage E: decl mirrors — see lir_view::MetaprogTargetView.)
     std::vector<lir_view::MetaprogTargetView> metaprog_targets;
+    // #723: (trait identity, type name) for every target of a handler that
+    // declares the trait it implements (`#[metaprog_handler("derive_eq",
+    // "logos.lang.cmp::Eq")]`) — the impl is being synthesized this round, so
+    // a capability query must not read its absence. Host-side, not mirrored.
+    std::vector<std::pair<std::string, std::string>> pending_trait_facts;
 
     // wstatic-as-const-generic: registry of WritStatic literals encountered
     // at type-arg position (`Foo::<@{...}>`), keyed by content-hash. Sema

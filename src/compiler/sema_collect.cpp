@@ -770,7 +770,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                     metaprog_targets_.push_back({
                         ai,
                         static_cast<uint32_t>(item.offset().value()),
-                        trig
+                        trig,
+                        item.has_key(la::NAME) ? std::string(str_of(item.get(la::NAME.code))) : std::string()
                     });
                     // The item's NAME as well: a deferred check that judges a
                     // TYPE needs to know the type is still waiting for a
@@ -2546,22 +2547,26 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 for (auto& ann : pending_annots) {
                     if (str_of(ann.get(la::NAME.code)) != "metaprog_handler")
                         continue;
-                    std::string trigger;
+                    std::string trigger, implements;
                     if (ann.has_key(la::ARGS.code)) {
                         auto args_map = map_of(ann.get(la::ARGS.code));
                         if (args_map.has_key(la::ITEMS.code)) {
                             auto args_items = arr_of(args_map.get(la::ITEMS.code));
-                            if (args_items.size() > 0) {
-                                auto a0 = map_of(args_items.get(0));
-                                if (code_of(a0) == la::ANNOT_POS && a0.has_key(la::VALUE.code)) {
-                                    auto vmap = map_of(a0.get(la::VALUE.code));
-                                    if (code_of(vmap) == la::LIT_STR) {
-                                        auto raw = str_of(vmap.get(la::VALUE.code));
-                                        if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
-                                            trigger.assign(raw.substr(1, raw.size() - 2));
-                                    }
-                                }
-                            }
+                            // Positional string args: [0] the trigger, [1] the trait
+                            // the handler implements for its target (optional).
+                            auto pos_str = [&](uint64_t k) -> std::string {
+                                if (args_items.size() <= k) return {};
+                                auto a = map_of(args_items.get(k));
+                                if (code_of(a) != la::ANNOT_POS || !a.has_key(la::VALUE.code)) return {};
+                                auto vmap = map_of(a.get(la::VALUE.code));
+                                if (code_of(vmap) != la::LIT_STR) return {};
+                                auto raw = str_of(vmap.get(la::VALUE.code));
+                                if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
+                                    return std::string(raw.substr(1, raw.size() - 2));
+                                return {};
+                            };
+                            trigger = pos_str(0);
+                            implements = pos_str(1);
                         }
                     }
                     if (trigger.empty()) {
@@ -2576,7 +2581,8 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                         // of discarded. cur_ast_idx_/file_ are already set for
                         // the ast being collected.
                         (int64_t)cur_ast_idx_,
-                        file_
+                        file_,
+                        std::move(implements)
                     });
                     break;
                 }

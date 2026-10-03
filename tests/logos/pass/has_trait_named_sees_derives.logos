@@ -1,0 +1,63 @@
+// #723: `has_trait_named` (#340) answers for an impl a `#[derive_*]` handler is synthesizing in the
+// same round exactly as for a hand-written one. A derive handler declares the trait it implements
+// (`#[metaprog_handler("derive_eq", "logos.lang.cmp::Eq")]`), and every target of it is a pending fact.
+// Bits: Hash Eq PartialEq Copy Clone Ord. Nothing here derives PartialEq (beside Eq its `eq`
+// collides today), and `#[derive_ord]` on an enum is not supported yet, so Color has no Ord. `None0` (no impls) is the control: all zero.
+package has_trait_named_sees_derives;
+use logos.lang.hash;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+use logos.lang.writ.anyval;
+use logos.mem.string;
+use logos.lang.str;
+extern fn printf(fmt: *const u8, ...) -> i32;
+fn prints(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+
+#[metaprog_handler("htn")]
+fn htn_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let item: WAny = view.node_at(target_offset);
+    let name: SView = view.ast_node_name(item);
+    if name.len == (0 as u64) { return; }
+    let nm: str = unsafe { str_from_raw(name.ptr, name.len as i64) };
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.buf.push_str("pub fn caps_");
+    unsafe { em.buf.push_bytes(name.ptr, name.len as i64); }
+    em.buf.push_str("() -> i32 { return 1");
+    em.buf.push_str(if has_trait_named("logos.lang.hash::Hash", nm) { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.cmp::Eq", nm) { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.cmp::PartialEq", nm) { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.clone::Copy", nm) { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.clone::Clone", nm) { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.cmp::Ord", nm) { "1" } else { "0" });
+    em.buf.push_str("i32; }");
+    em.commit();
+    return;
+}
+
+#[htn]
+#[derive_hash] #[derive_eq] #[derive_copy] #[derive_clone] #[derive_partial_ord] #[derive_ord]
+pub struct Sku { pub a: i64, pub b: i64 }
+
+#[htn]
+#[derive_hash] #[derive_eq] #[derive_copy] #[derive_clone]
+pub enum Color { Red, Green, Blue }
+
+#[htn]
+pub struct Hand { pub a: i64 }
+impl Hash for Hand { fn hash<H: Hasher>(&self, state: &mut H) { self.a.hash(state); } }
+impl Eq for Hand { fn eq(&self, o: &Hand) -> bool { self.a == o.a } }
+
+#[htn]
+pub struct None0 { pub a: i64 }
+
+unsafe fn main() -> i32 {
+    prints("Sku   %d\n", caps_Sku());
+    prints("Color %d\n", caps_Color());
+    prints("Hand  %d\n", caps_Hand());
+    prints("None0 %d\n", caps_None0());
+    return 0i32;
+}
