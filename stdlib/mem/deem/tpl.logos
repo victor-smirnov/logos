@@ -217,7 +217,16 @@ fn eval_sexpr(e: SExpr, cat: &SchemaCatalog, env: &QEnv, lb: *const RBinds,
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
-            if v.is_string() { return RtVal::S(wany_str(v)); }
+            // The literal's text is its SPELLING (the parsers process no
+            // escapes); the evaluator needs the VALUE, interned in `scratch`.
+            if v.is_string() {
+                let sp: str = wany_str(v);
+                if !str_contains(sp, "\\") { return RtVal::S(sp); }
+                let mut dv: String = String::new();
+                el_str_unescape(sp, &mut dv);
+                let wv: WAny = WAny::from(scratch.wstring(unsafe { str_from_raw(dv.as_ptr(), dv.len()) }));
+                return RtVal::S(wany_str(wv));
+            }
             if v.is_bool()   { return RtVal::B(v.as_bool()); }
             if v.is_float()  { return RtVal::F(v.as_f64()); }
             if v.is_null()   { return RtVal::Null; }

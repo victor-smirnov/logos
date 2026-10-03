@@ -741,6 +741,63 @@ pub fn el_class_lookup(name: str) -> i32 { return el_ty(name).cls; }
 /// STRICT classification: an out-of-lattice name is reported, not guessed.
 pub fn el_ret_class(name: str) -> i32 { return el_class_lookup(name); }
 
+// ── A STRING LITERAL'S VALUE ─────────────────────────────────────────────
+fn el_hex_digit(c: u8) -> i64 {
+    if c >= 48u8 && c <= 57u8  { return (c as i64) - 48i64; }
+    if c >= 97u8 && c <= 102u8 { return (c as i64) - 87i64; }
+    if c >= 65u8 && c <= 70u8  { return (c as i64) - 55i64; }
+    return -1i64;
+}
+
+/// The VALUE of an EL string literal from its SPELLING (the text between the
+/// quotes, which is what both generated EL parsers store: they process no
+/// escapes). Rust's escape set: `\n \r \t \\ \0 \' \"`, `\xHH` (≤ 0x7F) and
+/// `\u{H…}`. An escape outside the set is kept as written, backslash and all —
+/// the host compiler is the one that refuses it when the literal is emitted.
+/// Code generation re-emits the spelling (`codegen::emit_str_spelling`); this is
+/// for the evaluators that need the value itself.
+pub fn el_str_unescape(s: str, out: &mut String) {
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c != 92u8 || i + 1i64 >= n { out.push_u8(c); i = i + 1i64; continue; }
+        let e: u8 = str_byte_at(s, i + 1i64);
+        if e == 110u8 { out.push_u8(10u8); i = i + 2i64; continue; }   // \n
+        if e == 114u8 { out.push_u8(13u8); i = i + 2i64; continue; }   // \r
+        if e == 116u8 { out.push_u8(9u8);  i = i + 2i64; continue; }   // \t
+        if e == 48u8  { out.push_u8(0u8);  i = i + 2i64; continue; }   // \0
+        if e == 92u8 || e == 39u8 || e == 34u8 { out.push_u8(e); i = i + 2i64; continue; }
+        if e == 120u8 && i + 3i64 < n {                                 // \xHH
+            let h1: i64 = el_hex_digit(str_byte_at(s, i + 2i64));
+            let h2: i64 = el_hex_digit(str_byte_at(s, i + 3i64));
+            if h1 >= 0i64 && h2 >= 0i64 && h1 * 16i64 + h2 <= 127i64 {
+                out.push_u8((h1 * 16i64 + h2) as u8);
+                i = i + 4i64;
+                continue;
+            }
+        }
+        if e == 117u8 && i + 2i64 < n && str_byte_at(s, i + 2i64) == 123u8 {   // \u{…}
+            let mut j: i64 = i + 3i64;
+            let mut cp: i64 = 0i64;
+            let mut nd: i64 = 0i64;
+            while j < n && el_hex_digit(str_byte_at(s, j)) >= 0i64 && nd < 6i64 {
+                cp = cp * 16i64 + el_hex_digit(str_byte_at(s, j));
+                nd = nd + 1i64;
+                j = j + 1i64;
+            }
+            if nd > 0i64 && j < n && str_byte_at(s, j) == 125u8 && cp <= 1114111i64
+               && (cp < 55296i64 || cp > 57343i64) {
+                out.push_char(cp as u32);
+                i = j + 1i64;
+                continue;
+            }
+        }
+        out.push_u8(c);
+        i = i + 1i64;
+    }
+}
+
 // ── THE NUMERIC NORMALIZATION, in one place ───────────────────────────────
 /// The cast the emitter must wrap a value of type `name` in so it lands in the
 /// EL's computation type — `""` when none is needed. THE rule behind two

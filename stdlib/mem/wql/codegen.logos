@@ -1263,7 +1263,7 @@ pub fn sexpr_display(out: &mut String, e: SExpr) {
             // from its value.
             let tx: str = l.txt;
             if tx.len() > 0i64 && !v.is_string() && !v.is_bool() { out.push_str(tx); return; }
-            if v.is_string() { out.push_str("\""); emit_str_escaped(out, v.as_wstr()); out.push_str("\""); return; }
+            if v.is_string() { out.push_str("\""); emit_str_spelling(out, v.as_wstr()); out.push_str("\""); return; }
             if v.is_bool()   { if v.as_bool() { out.push_str("true"); } else { out.push_str("false"); } return; }
             if v.is_float()  { push_f64_lit(out, v.as_f64()); return; }
             out.push_i64(v.as_i64());
@@ -1526,9 +1526,10 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
         SExpr::Lit(l) => {
             let v: WAny = l.val;
             if v.is_string() {
-                // A boxed WString literal → a Logos string literal "…" (escaped).
+                // A boxed WString literal → a Logos string literal "…" (its
+                // spelling, re-emitted — see `emit_str_spelling`).
                 out.push_str("\"");
-                emit_str_escaped(out, v.as_wstr());
+                emit_str_spelling(out, v.as_wstr());
                 out.push_str("\"");
             } else if v.is_bool() {
                 if v.as_bool() { out.push_str("true"); } else { out.push_str("false"); }
@@ -2230,8 +2231,9 @@ pub fn string_as_str(s: &String) -> str {
 }
 
 // Escape a `str` into the body of a Logos string literal (between the quotes):
-// `"` `\` and the control bytes, so the emitted `"…"` parses back. Shared by
-// the SLit string case and the Trama literal-text runs.
+// `"` `\` and the control bytes, so the emitted `"…"` parses back. For a
+// VALUE (Trama literal-text runs); an EL string literal is a spelling and goes
+// through `emit_str_spelling`.
 pub fn emit_str_escaped(out: &mut String, s: str) {
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
@@ -2240,6 +2242,34 @@ pub fn emit_str_escaped(out: &mut String, s: str) {
         if c == 34u8 { out.push_str("\\\""); }
         else if c == 92u8 { out.push_str("\\\\"); }
         else if c == 10u8 { out.push_str("\\n"); }
+        else if c == 13u8 { out.push_str("\\r"); }
+        else if c == 9u8  { out.push_str("\\t"); }
+        else {
+            let one: str = unsafe { str_from_raw((s.as_ptr() as i64 + i) as *const u8, 1i64) };
+            out.push_str(one);
+        }
+        i = i + 1i64;
+    }
+}
+
+// Write an EL string literal back as a Logos string literal body. The stored
+// text is the literal's SPELLING, not its value: both generated EL parsers
+// (peg_gen_cpp for the compiler, peg_gen_logos here) strip the quotes and
+// process no escapes, so `"p\\g"` arrives as the four bytes `p\\g`. That
+// is how Rust's `proc_macro::Literal` holds a literal too (its source text),
+// and the consequence is the same: the spelling is re-emitted, never escaped
+// a second time. `emit_str_escaped` on it turned `"p\\g"` into a two-backslash
+// value at run time, so `where e.vs == "p\\g"` matched nothing (#353's fixture
+// measured it). Escapes in the spelling pass through untouched; a raw control
+// byte (a literal spanning lines) is written as its escape. Synthesized
+// literals (gpath `.key` / `{kind}` names) are identifiers, so their spelling
+// and value coincide.
+pub fn emit_str_spelling(out: &mut String, s: str) {
+    let n: i64 = s.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(s, i);
+        if c == 10u8 { out.push_str("\\n"); }
         else if c == 13u8 { out.push_str("\\r"); }
         else if c == 9u8  { out.push_str("\\t"); }
         else {

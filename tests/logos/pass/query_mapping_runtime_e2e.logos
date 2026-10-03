@@ -3,14 +3,14 @@
 //
 // ⚠ P5 — THIS FIXTURE'S ORIGINAL SUBJECT IS GONE, AND THE FILE IS KEPT FOR WHAT
 // IS LEFT, NOT PRETENDED WHOLE. It was written for the DYNAMIC consumer: the
-// `mapping` item emits `<M>__rules()` (canonical rel-list text) and `<M>__src()`
+// `mapping` item emitted `<M>__rules()` (canonical rel-list text) and `<M>__src()`
 // (its source-param name), and `Query::compile_with_mapping` fused them into
 // runtime query text with the same parser + rename machinery the static path
 // uses; the assertion was PARITY between that and the static twin. P5 deleted
 // `Query`, so there is no second consumer to have parity WITH, and the emitted
-// `__rules()`/`__src()` artifacts lose their only reader — their byte-level pin
-// lives on in `tests/logos/pass/wql_mapping_rules_escape_e2e.logos` §A, which is
-// where that claim is now sensed and where the same P5 loss is written down.
+// `__rules()`/`__src()` artifacts lost their only reader. They are no longer
+// emitted (#353, 2026-10-03), and exit code 7, which asserted `Net__src()`, is
+// retired with them.
 //
 // What is asserted here now is the STATIC consumption path — a `deem` whose
 // source parameter is a `mapping` type — against hand-derived answers rather
@@ -52,8 +52,6 @@ fn main() -> i32 {
     if st.len() != 2i64 { return 4i32; }
     if !has(&st, "pg") { return 5i32; }
     if !has(&st, "redis") { return 6i32; }
-    // the mapping's emitted artifacts, still asserted at this seam
-    if !str_eq(Net__src(), "g") { return 7i32; }
 
     return 0i32;
 }

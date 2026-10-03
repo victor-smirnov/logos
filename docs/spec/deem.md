@@ -377,12 +377,11 @@ A mapping's scalar params (`floor: i64`) bind at the consumption site by NAME ID
 
 *Evidence:* `tests/logos/pass/wql_mapping_scalar_e2e.logos`
 
-### `deem.mapping.runtime-artifacts` — `<M>__rules()` / `<M>__src()` and `compile_with_mapping`
+### `deem.mapping.runtime-artifacts` — none
 
-Mappings are STATIC-ONLY items; the dynamic side only CONSUMES them. Each mapping emits two artifacts — `<M>__rules() -> str` (canonical rel-list text) and `<M>__src() -> str` (its source-param name) — and `Query::compile_with_mapping(text, &cat, bind_as, rules, src)` fuses them into a dynamically-compiled query with the same parse/graft/rename machinery; the source bound via `bind_source_tree(bind_as, root)`. ⚠ **Both are GONE**: `Query::compile_with_mapping` died with the interpreter at P5, and `bind_source_tree` was removed at task 24 (exported, zero callers, sole writer of `QB_TSRC`). The STATIC mapping artifacts `<M>__rules()` / `<M>__src()` survive and are consumed by the static tier.
+A mapping emits no items. Its rules reach a consumer only by static fusion: the compiler's `mappings_` pre-scan records each mapping's canonical rule text and splices it into the consuming `deem`'s program. The former runtime artifacts `<M>__rules() -> str` / `<M>__src() -> str` were read only by the dynamic `Query::compile_with_mapping`, which P5 deleted with the interpreter; they were removed in #353 (2026-10-03).
 
-*Evidence:* `stdlib/mem/deem/query.logos` (compile_with_mapping), `tests/logos/pass/query_mapping_runtime_e2e.logos` (parity with the static twin)
-<!-- spec-gone: stdlib/mem/deem/query.logos — deleted at P5 (a4028326): Query/QRows, the runtime query-compilation entry point. The rules citing it describe a surface the language no longer has -->
+*Evidence:* `stdlib/mem/wql/mapping_item.logos` (the handler emits nothing), `tests/logos/pass/wql_mapping_rules_escape_e2e.logos` (rule text with `"`, `\` and newlines survives the splice)
 
 ## rel blocks and Datalog
 
