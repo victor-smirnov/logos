@@ -26,9 +26,8 @@
 // (it is copied out of the first row). Without them the query is refused at the
 // clause, naming the missing impl (wql_group_named_key_no_eq_fail); before, it
 // was admitted through the discriminant with no capability checked. The impls
-// below are HAND-WRITTEN because `has_trait_named` does not yet see impls a
-// `#[derive_*]` synthesizes in the same round (filed for the compiler side);
-// `#[derive_eq]` + `#[derive_copy]` replace them once it does. The old
+// are DERIVED (#723: `has_trait_named` sees same-round derives; they were
+// hand-written until then). The old
 // type-preservation gap (`select r.e` yielding `Vec<i64>`) closes with this.
 //
 // The `i64` control column in the same struct answers the same count, so a
@@ -41,10 +40,8 @@ use logos.mem.collections.vec;
 use logos.lang.cmp;
 use logos.lang.clone;
 
+#[derive_eq] #[derive_copy] #[derive_clone]
 enum E { A, B, C }
-impl Eq for E { fn eq(&self, o: &E) -> bool { return (*self as i64) == (*o as i64); } }
-impl Clone for E { fn clone(&self) -> E { return *self; } }
-impl Copy for E {}
 
 struct Row { pub e: E, pub c: i64, pub id: i64 }
 

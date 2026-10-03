@@ -4,7 +4,8 @@
 // `Hash`, `PartialEq`, `Copy` — so the strategy rule that fires is `loop_eq`, and
 // the negative explanation of `hash` is exactly `[Eq]`. Pinned by
 // `join_ground_facts_gate.sh` on the facts channel (`LOGOS_TRACE_PLAN=facts`);
-// this file pins that the loop tier answers correctly.
+// this file pins that the loop tier answers correctly. The impls are derived
+// (#723: `has_trait_named` sees same-round derives).
 package test;
 
 use logos.std.wql.wql;
@@ -13,11 +14,8 @@ use logos.lang.hash;
 use logos.lang.cmp;
 use logos.lang.clone;
 
+#[derive_hash] #[derive_partial_eq] #[derive_copy] #[derive_clone]
 pub struct Sku { pub a: i64, pub b: i64 }
-impl PartialEq for Sku { fn eq(&self, o: &Sku) -> bool { return self.a == o.a && self.b == o.b; } }
-impl Clone for Sku { fn clone(&self) -> Sku { return Sku { a: self.a, b: self.b }; } }
-impl Copy for Sku {}
-impl Hash for Sku { fn hash<H: Hasher>(&self, h: &mut H) { self.a.hash(h); self.b.hash(h); } }
 
 pub struct Line { pub sku: Sku, pub qty: i64 }
 pub struct Price { pub sku: Sku, pub cents: i64 }
