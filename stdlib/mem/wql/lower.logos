@@ -21,6 +21,8 @@ use logos.std.wql.ir;
 use logos.std.wql.plan;
 use logos.std.wql.el;         // OP_* ids — graph-path predicate synthesis
 use logos.std.wql.optimize;   // make_int_lit — graph-path residuals
+use logos.std.wql.unit;       // wql_unit_rows — the `__unit` materializer a fact's chunk calls; imported here so every
+                              // deem user loads the package (UNIT_NATSPEC names it)
 use logos.std.wql.writ_graph; // WG_ROOT_PARENT — the graph-path anchor compares
                               // against the coordinate the producers emit
 use logos.lang.writ.wstring;  // h.wstring — string-literal synthesis
@@ -805,6 +807,52 @@ fn gp_desugar_query(qany: WAny, prog_root: WAny, h: &Writ, err: &mut String) -> 
         RQuery::Find(_f) => { return none; }   // no gpath in the find grammar
     }
 }
+
+// ── FACTS: a FROM-less `select` reads the one-row `__unit` ──────────────────
+// Point one fact query at `__unit __u`. True iff it was a fact.
+fn fact_desugar_query(qany: WAny, h: &Writ) -> bool {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s0) => {
+            if s0.src_name.len() > 0i64 { return false; }
+            let s: RQSimple = rq_fat_simple(qany, h);
+            s.src_name = "__unit";
+            s.var_name = "__u";
+            return true;
+        }
+        _ => { return false; }
+    }
+}
+
+/// Desugar every FACT body (`select S` with no source) in the program, rel
+/// bodies and entry alike, to a scan of `__unit`. Returns true iff any was
+/// found: the handler then registers `__unit` as a native source
+/// (`logos.std.wql.unit::wql_unit_rows`, one row), so nothing downstream
+/// needs an arm for a sourceless query.
+pub fn desugar_program_facts(root: WAny, h: &Writ) -> bool {
+    let prog: RQProgram = root.view::<RQProgram>();
+    let mut any: bool = false;
+    if prog.has_rels() {
+        let rels: RQRelArr = prog.rels_arr();
+        let nr: i64 = rels.len();
+        let mut i: i64 = 0i64;
+        while i < nr {
+            let bodies: RQBodyArr = rels.rel_at(i).bodies_arr();
+            let nb: i64 = bodies.len();
+            let mut b: i64 = 0i64;
+            while b < nb {
+                if fact_desugar_query(bodies.body_any(b), h) { any = true; }
+                b = b + 1i64;
+            }
+            i = i + 1i64;
+        }
+    }
+    if fact_desugar_query(prog.entry_any(), h) { any = true; }
+    return any;
+}
+
+/// The natspec entry that registers `__unit` (see `desugar_program_facts`).
+pub fn UNIT_NATSPEC() -> str { return "__unit=wql_unit_rows@logos.std.wql.unit:(u i64);"; }
 
 /// Desugar every graph path in the program (rel bodies + the entry query).
 /// Returns false with `err` filled on a malformed path; the plan is otherwise

@@ -341,6 +341,15 @@
                          has_limit: $11, limit_is_param: $12, limit_param: $12,
                          limit_n: $13,
                          has_result_ty: $14, result_ty: $14 }
+                  // A FACT: `select S [: RTy]` with no source is ONE row, as SQL's
+                  // FROM-less SELECT is. src_name stays "" and the handler's
+                  // `desugar_program_facts` (lower.logos) points it at the
+                  // one-row `__unit` relation.
+                  //   $1=KW_SELECT $2=sel_body $3=result_opt?
+                  / KW_SELECT sel_body
+                    result_clause?
+                    => { CODE: "RQSimple", select: $2,
+                         has_result_ty: $3, result_ty: $3 }
 
     // ── RQFind — single-row borrow: `from src var find P` ─────────────────
     // REPLACES where+select: the generated fn returns Option<&Ty> — a borrow of

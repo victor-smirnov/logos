@@ -191,6 +191,12 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
         error(gp_err_str(&gperr));
         return out;
     }
-    let _ok: bool = walk_program_params(root, name, params, natspec, &mut prm, &h);
+    // FACTS: a FROM-less `select` reads the one-row `__unit` relation, which
+    // registers as one more native source.
+    let mut nat: String = String::new();
+    nat.push_str(natspec);
+    if desugar_program_facts(root, &h) { nat.push_str(UNIT_NATSPEC()); }
+    let natspec2: str = unsafe { str_from_raw(nat.as_ptr(), nat.len()) };
+    let _ok: bool = walk_program_params(root, name, params, natspec2, &mut prm, &h);
     return out;
 }

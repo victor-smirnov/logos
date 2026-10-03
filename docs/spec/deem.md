@@ -393,6 +393,14 @@ A `rel` block declares a named derived relation with SET semantics: `cols` are d
 
 *Evidence:* `stdlib/mem/wql/grammars/wql.peg#L239-L267`; validation `stdlib/mem/wql/plan_walker.logos#L11-L51`
 
+### `deem.datalog.fact` — a FROM-less `select` is one row
+
+`select S [: RTy]` with no `from` is a FACT: exactly one row, whatever the sources hold. It is legal as a rel body (an inline table, or a seed such as `select start;` for a scalar parameter) and as the entry query. The handler rewrites it to `from __unit __u select S`, where `__unit(u: i64)` is a native source of one row (`logos.std.wql.unit::wql_unit_rows`), registered only when a program has a fact; it counts toward the 8-rel limit.
+
+*Divergence:* SQL's FROM-less `SELECT`; Soufflé writes the same thing as a fact clause `r(1, 2).`
+
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`simple_query`'s third alternative); `stdlib/mem/wql/lower.logos` (`desugar_program_facts`); `tests/logos/pass/wql_rel_fact_e2e.logos`
+
 ### `deem.datalog.rel-columns` — rel columns are i64/str/bool (Hash+Eq)
 
 Rel columns must be `i64`/`str`/`bool` — rels are sets deduped by structural equality, so columns need Hash+Eq; `f64`/`f32` get their own named diagnostic (Eq loss is the reason).

@@ -1,0 +1,80 @@
+// wql_rel_fact_e2e — a FROM-less `select` is a FACT: one row, the way SQL's
+// FROM-less SELECT is (Soufflé spells it `r(1, 2).`).
+//
+// The handler desugars `select S` to `from __unit __u select S` and registers
+// `__unit` (one row) as a native source, so everything downstream treats it as
+// an ordinary scan.
+//   (a) an inline table: a rel whose bodies are all facts;
+//   (b) a fact seeded by a scalar PARAM, then recursion from it (the shape a
+//       magic-sets seed takes);
+//   (c) a fact as the entry query;
+//   (d) facts mixed with an ordinary body, duplicates deduplicated (set
+//       semantics).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+// (a)
+pub deem warm(es: &[Edge]) {
+    rel color(name: str, rank: i64) {
+        select ("red", 1);
+        select ("orange", 2);
+        select ("blue", 9);
+    }
+    from color c where c.rank < 5 select c.rank order by c.rank
+}
+// (b)
+pub deem reach_from(es: &[Edge], start: i64) {
+    rel r(n: i64) {
+        select start;
+        from r x join es e on e.src == x.n select e.dst;
+    }
+    from r x select x.n order by x.n
+}
+// (c)
+pub deem answer(es: &[Edge]) { select 42 }
+// (d)
+pub deem nodes(es: &[Edge]) {
+    rel n(v: i64) {
+        from es e select e.src;
+        select 1;
+        select 100;
+    }
+    from n x select x.v order by x.v
+}
+
+fn main() -> i32 {
+    let es: [Edge; 4] = [
+        Edge { src: 1i64, dst: 2i64 },
+        Edge { src: 2i64, dst: 3i64 },
+        Edge { src: 3i64, dst: 1i64 },
+        Edge { src: 7i64, dst: 8i64 },
+    ];
+    // (a)
+    let a: Vec<i64> = warm(&es[..]).unwrap();
+    if a.len() != 2i64 || a.get(0i64) != 1i64 || a.get(1i64) != 2i64 { return 1i32; }
+    // (b) 2 -> 3 -> 1 -> 2 (a cycle); 7 is not reachable
+    let b: Vec<i64> = reach_from(&es[..], 2i64).unwrap();
+    if b.len() != 3i64 || b.get(0i64) != 1i64 || b.get(1i64) != 2i64 || b.get(2i64) != 3i64 { return 2i32; }
+    let b7: Vec<i64> = reach_from(&es[..], 7i64).unwrap();
+    if b7.len() != 2i64 || b7.get(0i64) != 7i64 || b7.get(1i64) != 8i64 { return 3i32; }
+    // a start no edge leaves: the fact alone
+    let b9: Vec<i64> = reach_from(&es[..], 9i64).unwrap();
+    if b9.len() != 1i64 || b9.get(0i64) != 9i64 { return 4i32; }
+    // (c)
+    let c: Vec<i64> = answer(&es[..]).unwrap();
+    if c.len() != 1i64 || c.get(0i64) != 42i64 { return 5i32; }
+    // (d) srcs {1,2,3,7} ∪ {1,100} = {1,2,3,7,100}
+    let d: Vec<i64> = nodes(&es[..]).unwrap();
+    if d.len() != 5i64 || d.get(0i64) != 1i64 || d.get(4i64) != 100i64 { return 6i32; }
+    // over an EMPTY source the facts still hold
+    let none: [Edge; 0] = [];
+    let d0: Vec<i64> = nodes(&none[..]).unwrap();
+    if d0.len() != 2i64 { return 7i32; }
+    return 0i32;
+}
