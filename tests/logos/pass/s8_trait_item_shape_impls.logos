@@ -1,0 +1,26 @@
+// ADR 0030 S8 row 6: a bound's method at a STRUCTURAL Self — the impl is the one whose pattern
+// unifies with Self (`(A, B)`, `[T]`, `[T; N]`, `&T`, the variadic `(A...)` of stdlib's tuple Eq),
+// and the callee is its template at those bindings. Output as rustc: 34 105 1007 11 true false true.
+package s8_trait_item_shape_impls;
+use logos.std.fmt;
+trait Tag { fn tag(&self) -> i64; }
+impl<A: Tag, B: Tag> Tag for (A, B) { fn tag(&self) -> i64 { self.0.tag() * 10 + self.1.tag() } }
+impl<T: Tag> Tag for [T] {
+    fn tag(&self) -> i64 { let mut s: i64 = 0; let mut i: i64 = 0; while i < self.len() as i64 { s = s + self[i as usize].tag(); i = i + 1; } s }
+}
+impl<T: Tag, const N: usize> Tag for [T; N] { fn tag(&self) -> i64 { 100 + self[0].tag() } }
+impl<T: Tag> Tag for &T { fn tag(&self) -> i64 { 1000 + (**self).tag() } }
+impl Tag for i64 { fn tag(&self) -> i64 { *self } }
+fn get<T: Tag>(x: &T) -> i64 { x.tag() }
+fn get_unsized<T: Tag + ?Sized>(x: &T) -> i64 { x.tag() }
+fn eqv<T: Eq>(a: &T, b: &T) -> bool { a.eq(b) }
+fn nev<T: Eq>(a: &T, b: &T) -> bool { a.ne(b) }
+fn main() {
+    let p: (i64, i64) = (3, 4);
+    let a: [i64; 2] = [5, 6];
+    let r: &i64 = &7;
+    let s: &[i64] = &a;
+    println!("{} {} {} {} {} {} {}", get(&p), get(&a), get(&r), get_unsized(s),
+             eqv(&(1i64, (2i64, 'c')), &(1i64, (2i64, 'c'))), eqv(&(1i64, 'a'), &(1i64, 'b')),
+             nev(&(true, 7u8, 9i32), &(true, 8u8, 9i32)));
+}

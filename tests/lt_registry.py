@@ -290,11 +290,11 @@ SINGLETONS = {
         # ADR 0025 S3a — THE IMPORT PAIR THE `Buffer` LANDING NEEDS.
         T('logos_09_drain_import_pair',
           ['{tsrc}/drain_import_pair_gate.sh', '{logosc}', '{tsrc}/pass', '{src}/stdlib/mem/wql/wql.logos', '{src}/stdlib/mem/wql/rexpr_walk.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB, processors=8),
         # ADR 0025 S3f — THE READ-ONCE DECISION, PINNED IN BOTH DIRECTIONS.
         T('logos_09_drain_read_once_pair',
           ['{tsrc}/drain_read_once_pair_gate.sh', '{logosc}', '{tsrc}/pass'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB, processors=8),
         # ADR 0025 §2/S6 GATE — THE BATCH LAYOUT, BOTH DIRECTIONS.
         T('logos_09_rowmajor_batch_layout',
           ['{tsrc}/rowmajor_batch_gate.sh', '{logosc}', '{tsrc}/pass'],
@@ -452,7 +452,7 @@ SINGLETONS = {
         # B1.3: lforge fans out per-file lib compilation in parallel + per-file
         T('logos_16_lforge_parallel',
           ['{src}/tests/lforge/parallel.sh', '{build}/bin/lforge', '{logosc}', '{libdir}'],
-          'logos;lforge;suite_lforge;tier_full', timeout=90),
+          'logos;lforge;suite_lforge;tier_full', timeout=90, processors=4),
         # ADR 0014 slice-3: `lforge doc` builds libs, --emit-docs, resolves docs.json.
         T('logos_16_lforge_doc',
           ['{src}/tests/lforge/doc_cmd.sh', '{build}/bin/lforge', '{logosc}', '{libdir}'],

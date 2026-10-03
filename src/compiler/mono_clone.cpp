@@ -3983,25 +3983,34 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // concrete struct is the method of the impl of the bound's trait
             // (`tag_trait`) for that struct — read off the impl, kept a method
             // call with its callee recorded.
-            if (orig_retargetable && new_concrete && !tag_trait.empty() &&
-                v.type_args(out_.type_pool.impl()).empty() && new_recv &&
+            if (orig_retargetable && new_concrete && !tag_trait.empty() && new_recv &&
                 new_recv.type(out_.type_pool.impl())) {
-                // The struct itself or one reference / pointer layer over it — the
-                // receiver shapes mlir adapts to the callee's self; a deeper one
-                // (`&&T` for `Self = &T`) stays with the retarget below.
-                TypeRef cr = new_recv.type(out_.type_pool.impl());
-                if (cr && (TypeRef(cr).kind() == LogosType::Kind::Ref ||
-                           TypeRef(cr).kind() == LogosType::Kind::MutRef ||
-                           TypeRef(cr).kind() == LogosType::Kind::Ptr) && TypeRef(cr).pointee())
-                    cr = TypeRef(cr).pointee();
-                if (cr && TypeRef(cr).kind() != LogosType::Kind::Struct &&
-                    TypeRef(cr).kind() != LogosType::Kind::ZonedStruct)
-                    cr = TypeRef{};
+                // `Self` is the bound's type parameter (or projection, or the
+                // `&T` of a `where &T: Trait` bound) at this instantiation.
+                TypeRef cr = subst_type(orig_inner, s);
+                // The call carries the trait's arguments first (`Iterator$G1$T`:
+                // one), then the method's own; the trait's select the impl.
                 std::string_view tt = tag_trait;
-                if (auto d = tt.find("$G"); d != std::string_view::npos) tt = tt.substr(0, d);
+                size_t trait_arity = 0;
+                if (auto d = tt.find("$G"); d != std::string_view::npos) {
+                    for (size_t i = d + 2; i < tt.size() && tt[i] >= '0' && tt[i] <= '9'; ++i)
+                        trait_arity = trait_arity * 10 + size_t(tt[i] - '0');
+                    tt = tt.substr(0, d);
+                }
+                std::vector<TypeRef> trait_args, method_args;
+                bool args_concrete = true;
+                for (auto ta : v.type_args(out_.type_pool.impl())) {
+                    TypeRef c = ta ? subst_type(ta, s) : TypeRef{};
+                    if (trait_args.size() < trait_arity) { trait_args.push_back(c); continue; }
+                    if (!c || contains_typevar(c)) args_concrete = false;
+                    method_args.push_back(c);
+                }
                 int64_t nargs = 0;
                 v.each_arg([&](lir_view::ExprRef) { ++nargs; });
-                if (std::string sym = trait_item_symbol_(tt, cr, method, nargs + 1); !sym.empty()) {
+                if (std::string sym = !args_concrete ? std::string()
+                                                     : trait_item_symbol_(tt, cr, method, nargs + 1, nullptr,
+                                                                          &trait_args, &method_args);
+                    !sym.empty()) {
                     std::vector<lir_view::ExprRef> mc_args;
                     v.each_arg([&](lir_view::ExprRef ar) { mc_args.push_back(subst_child_expr(ar)); });
                     mp_ = lir_mirror_emit_method_call(out_, rt_, new_recv, method, sym, {}, mc_args,

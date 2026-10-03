@@ -6798,8 +6798,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11942 -> 11944 (+2), NOIMPORTED 7383 -> 7385 (+2), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: #352 mapping_hidden_rel_cross_pkg_e2e (pass), wql_mapping_hidden_rel_fail (fail).
 #                ALL 11944 -> 11945 (+1), NOIMPORTED 7385 -> 7386 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03, branch `deem` (#347 NDV consumer): +1 pass wql_join_ndv_order_e2e.
 #                ALL 11945 -> 11948 (+3), NOIMPORTED 7386 -> 7389 (+3), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03, branch `deem`: gate souffle_oracle split into four shards souffle_oracle_0..3 over every wql_/deem_ fixture (-1 +4).
-REGISTRY-ALL         11948
-REGISTRY-NOIMPORTED  7389
+#                ALL 11948 -> 11949 (+1), NOIMPORTED 7389 -> 7390 (+1), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: s8_trait_item_shape_impls (ADR 0030 S8 row 6: a bound's method at a structural Self) joins the nonglob half.
+#                ALL 11949 -> 11951 (+2), NOIMPORTED 7390 -> 7392 (+2), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: s8_trait_item_method_generics + s8_trait_item_trait_args (ADR 0030 S8 row 6) join the nonglob half.
+REGISTRY-ALL         11951
+REGISTRY-NOIMPORTED  7392
 REGISTRY-TIERCOMMIT  205
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
