@@ -227,18 +227,26 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     nd.push_u8(0u8);
     // `=moving` keeps the rewrite but declines the shapes that need a
     // recursive magic rule (what the first cut did), to measure that rule alone.
+    // A value that is a comma list of `moving` / `joinkey` keeps the rewrite and
+    // declines only those shapes; any other value turns it off.
     let ndv: *const u8 = unsafe { getenv(nd.as_ptr()) };
     let mut demand_off: bool = ndv != 0 as *const u8;
     let mut allow_moving: bool = true;
+    let mut allow_joinkey: bool = true;
     if demand_off {
         let mut vl: i64 = 0i64;
         while unsafe { *(((ndv as i64) + vl) as *const u8) } != 0u8 { vl = vl + 1i64; }
-        if str_eq(unsafe { str_from_raw(ndv, vl) }, "moving") {
+        let v: str = unsafe { str_from_raw(ndv, vl) };
+        if str_contains(v, "moving") || str_contains(v, "joinkey") {
             demand_off = false;
-            allow_moving = false;
+            allow_moving = !str_contains(v, "moving");
+            allow_joinkey = !str_contains(v, "joinkey");
         }
     }
-    if !demand_off && magic_program(root, &h, &prm, allow_moving, &mut msd) > 0i64 {
+    let mut nnat: i64 = 0i64;   // natspec entries: native sources share the rel budget
+    let mut ni: i64 = 0i64;
+    while ni < natspec.len() { if str_byte_at(natspec, ni) == 59u8 { nnat = nnat + 1i64; } ni = ni + 1i64; }
+    if !demand_off && magic_program(root, &h, &prm, allow_moving, allow_joinkey, nnat, &mut msd) > 0i64 {
         plan_trace("demand", ms_verdict(msd.rule), msd.rel, ms_render(msd.rule));
         if plan_trace_facts_on() {
             let mut fl: String = String::new();

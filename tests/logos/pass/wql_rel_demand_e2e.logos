@@ -14,6 +14,9 @@
 // (`__m(u.f) :- __m(u.g), u`): the right-linear closure and the left-linear one
 // bound on its second column (ancestors). A wider moving body (three atoms) is
 // declined (MS_MOVES_COL) and must still answer the same.
+// A JOIN KEY seeds the demand too: `from starts s join tc t on t.a == s.v` puts
+// `from starts s select s.v` in `__m_tc` (the base passes its column sideways
+// to the first step, as a left-to-right SIPS does).
 // Checked arithmetic in a body is declined (MS_FALLIBLE): a division by zero
 // on a row OUTSIDE the demand is still an `Err`, as in the full walk.
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
@@ -32,6 +35,7 @@ fn ticks() -> i64 { return unsafe { TICKS }; }
 fn reset() { unsafe { TICKS = 0i64; } }
 
 struct Edge { pub src: i64, pub dst: i64 }
+struct Start { pub v: i64 }
 
 // (1)+(2) bound by a scalar parameter
 pub deem reach_d(es: &[Edge], start: i64) {
@@ -87,6 +91,15 @@ pub deem reach_wide(es: &[Edge], start: i64) {
         from es e join tc t on t.a == e.dst join es f on f.src == e.src select (e.src, t.b);
     }
     from tc t where t.a == start select t.b order by t.b
+}
+
+// a join-key binding: the demand is the set of starts
+pub deem reach_starts(es: &[Edge], starts: &[Start]) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc t join es e on e.src == t.b select (t.a, tick(e.dst));
+    }
+    from starts s join tc t on t.a == s.v select (s.v, t.b)
 }
 
 // a body that fails on a row outside the demand
@@ -164,6 +177,17 @@ fn main() -> i32 {
     let a12: Vec<i64> = anc(&es[..], 12i64).unwrap();
     if a12.len() != 2i64 || a12.get(0i64) != 10i64 { return 14i32; }
     if ticks() >= t_all { return 15i32; }
+
+    // the join-key seed: starts {10, 3} → 10: {11, 12}, 3: {4, 5}
+    let st: [Start; 2] = [ Start { v: 10i64 }, Start { v: 3i64 } ];
+    reset();
+    let rs: Vec<(i64, i64)> = reach_starts(&es[..], &st[..]).unwrap();
+    if rs.len() != 4i64 { return 17i32; }
+    let mut want_s: i64 = 0i64;
+    i = 0i64;
+    while i < all.len() { let p: (i64, i64) = all.get(i); if p.0 == 10i64 || p.0 == 3i64 { want_s = want_s + 1i64; } i = i + 1i64; }
+    if want_s != rs.len() { return 18i32; }
+    if ticks() >= t_all { return 19i32; }
 
     // the full walk divides by zero at the edge 50 -> 99; so must the demand
     let bad: [Edge; 2] = [ Edge { src: 1i64, dst: 2i64 }, Edge { src: 50i64, dst: 99i64 } ];
