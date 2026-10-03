@@ -8,5 +8,7 @@ impl Show for &i32 { fn show(self: &&i32) -> i32 { return **self + 100; } }
 unsafe fn main() -> i32 {
     let x: i32 = 7;
     let r: &i32 = &x;
-    return r.show() - 107;
+    // rustc's probe: `r.show()` on `r: &i32` takes `i32::show(&self)` at the
+    // receiver's own step (7); `(&r).show()` reaches `<&i32>::show` (107).
+    return (r.show() - 7) + ((&r).show() - 107);
 }

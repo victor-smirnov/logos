@@ -6839,12 +6839,16 @@ static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
         auto structural = [](TypeRef x) {
             const auto k = TypeRef(x).kind();
             return k == K::Struct || k == K::ZonedStruct || k == K::Enum || k == K::Ref ||
-                   k == K::MutRef || k == K::Ptr;
+                   k == K::MutRef || k == K::Ptr || k == K::Slice || k == K::UnsizedSlice ||
+                   k == K::Array || k == K::Tuple;
         };
         const auto fa = TypeRef(formal).type_args(), aa = TypeRef(actual).type_args();
         if (fa.size() == aa.size())
             for (size_t i = 0; i < fa.size(); ++i)
-                if (fa[i] && aa[i] && structural(fa[i]) && structural(aa[i]) &&
+                if (fa[i] && aa[i] && structural(fa[i]) &&
+                    (structural(aa[i]) || is_integer_kind(TypeRef(aa[i]).kind()) ||
+                     TypeRef(aa[i]).kind() == K::Bool || TypeRef(aa[i]).kind() == K::F64 ||
+                     TypeRef(aa[i]).kind() == K::F32 || TypeRef(aa[i]).kind() == K::Char) &&
                     !probe_self_head_match_(fa[i], aa[i]))
                     return false;
         return true;
@@ -10649,11 +10653,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // binding (reference payload under a `&E` scrutinee) peels its EXTRA
     // reference layers with explicit derefs, leaving a single `&T` for the
     // autoref/autoderef machinery below. `r.m()` for r:&&T ≡ `(*r).m()`.
-    // Raw pointers are left untouched (no binding-mode role).
+    // Raw pointers are left untouched (no binding-mode role). A layer a method
+    // applies to as it stands is a probe step, not peeled (`(&r).show()` with
+    // `impl Show for &i32` takes `&&i32`, rustc's first step).
+    auto applies_here = [&]() {
+        if (std::getenv("LOGOS_PROBE_OFF")) return false;
+        ProbePick pk = probe_method_(expr_type(recv), method_name);
+        return pk.fi && pk.derefs == 0;
+    };
     while (recv && expr_type(recv) &&
            is_ref_like(TypeRef(expr_type(recv)).kind()) &&
            TypeRef(expr_type(recv)).pointee() &&
-           is_ref_like(TypeRef(TypeRef(expr_type(recv)).pointee()).kind())) {
+           is_ref_like(TypeRef(TypeRef(expr_type(recv)).pointee()).kind()) && !applies_here()) {
         TypeRef inner = TypeRef(expr_type(recv)).pointee();
         recv = builder().deref(std::move(recv), inner);
     }
@@ -10663,7 +10674,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     if (recv && expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind()) &&
         TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr &&
         TypeRef(expr_type(recv)).pointee() &&
-        TypeRef(TypeRef(expr_type(recv)).pointee()).kind() == LogosType::Kind::Slice) {
+        TypeRef(TypeRef(expr_type(recv)).pointee()).kind() == LogosType::Kind::Slice && !applies_here()) {
         TypeRef inner = TypeRef(expr_type(recv)).pointee();
         recv = builder().deref(std::move(recv), inner);
     }
@@ -11784,7 +11795,61 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         auto mangled_prim = tname + "__" + std::string(method_name);
         bool generic_via_pointee = false;   // fi_ptr found generically by a `&T` receiver's pointee name
         const SemaFuncInfo* fi_ptr = nullptr;
-        {
+        // ADR 0030 S8 row 4 — THE probe picks (as on the struct path). A generic
+        // pick is autoref'd by the emission below, after inference reads `Self`
+        // off the receiver as it stands.
+        if (expr_type(recv) && !std::getenv("LOGOS_PROBE_OFF")) {
+            ProbePick pk = probe_method_(expr_type(recv), method_name);
+            const auto rk = TypeRef(expr_type(recv)).kind();
+            const bool reborrow = pk.derefs == 1 && pk.autoref > 0 && is_ref_like(rk) &&
+                                  (pk.autoref == 1 || rk == LogosType::Kind::MutRef);
+            const bool adj_ok = pk.fi && !pk.key.starts_with("$blanket$") &&
+                (pk.derefs == 0 || reborrow || (pk.derefs == 1 && pk.autoref == 0 && is_ref_like(rk)));
+            for (auto* c : adj_ok ? pk.tied : std::vector<const SemaFuncInfo*>{}) {
+                if (c->is_vararg || c->param_types.size() != arg_exprs.size() + 1) continue;
+                const bool generic = !c->type_params.empty();
+                if (generic && pk.derefs == 0 && pk.autoref > 0 && is_ref_like(rk)) continue;
+                // `impl<T> Tr for &T` binds its `T` in the `$ref_$T` arm below.
+                if (generic && (pk.key.starts_with("$ref_") || pk.key.starts_with("$mut_ref_"))) continue;
+                bool ok = true;
+                for (size_t a = 1; ok && !generic && a < c->param_types.size(); ++a) {
+                    TypeRef at = expr_type(arg_exprs[a - 1]);
+                    ok = at && arg_compatible_for_dispatch(expr_ref_of(arg_exprs[a - 1]), at, c->param_types[a]);
+                }
+                if (!ok) continue;
+                fi_ptr = c;
+                mangled_prim = pk.key;
+                // A generic method reached through a reference reads `Self` and the
+                // type's own arguments off the referent.
+                if (generic && is_ref_like(TypeRef(expr_type(recv)).kind()) && pk.derefs == 0)
+                    generic_via_pointee = true;
+                // An unsuffixed literal argument takes the chosen parameter's width.
+                for (size_t a = 0; !generic && a < arg_exprs.size(); ++a) {
+                    TypeRef pt = c->param_types[a + 1];
+                    auto ak = TypeRef(expr_type(arg_exprs[a])).kind();
+                    if (ak == LogosType::Kind::IntLit)
+                        widen_int_expr(arg_exprs[a], pt, builder());
+                    else if (ak == LogosType::Kind::FloatLit &&
+                             (TypeRef(pt).kind() == LogosType::Kind::F64 || TypeRef(pt).kind() == LogosType::Kind::F32))
+                        arg_exprs[a] = builder().cast(std::move(arg_exprs[a]), pt);
+                }
+                if (reborrow) {
+                    // the receiver as is
+                } else if (pk.derefs == 1) {
+                    recv = builder().deref(std::move(recv), TypeRef(expr_type(recv)).pointee());
+                } else if (pk.autoref > 0 && !generic) {
+                    const bool m = pk.autoref == 2;
+                    recv = materialize_recv_ref(std::move(recv), m, make_ref(m, expr_type(recv)),
+                                                BorrowOrigin::Autoref);
+                }
+                break;
+            }
+            if (std::getenv("LOGOS_PROBE_FALLBACK") && !fi_ptr)
+                std::fprintf(stderr, "PROBEFALLBACK %s:%u %s.%s pick=%s\n", ctx_.c_str(), node_line_,
+                             type_str(expr_type(recv)).c_str(), std::string(method_name).c_str(),
+                             pk.fi ? pk.key.c_str() : "-");
+        }
+        if (!fi_ptr) {
             std::vector<TypeRef> types;
             types.push_back(expr_type(recv));
             for (auto& a : arg_exprs) types.push_back(expr_type(a));
@@ -12147,12 +12212,111 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (mwhy_ == MWHY_RECV || mwhy_ == MWHY_ARG) return;
         mwhy_ = MWHY_ARG; mwhy_argi_ = i; mwhy_exp_ = exp; mwhy_act_ = act;
     };
+    const SemaFuncInfo* fi_ptr = nullptr;
+    SemaSubst recv_struct_subst;
+    {
+        TypeRef rst = expr_type(recv);
+        if (rst && TypeRef(rst).kind() == LogosType::Kind::Ptr && TypeRef(rst).pointee()) {
+            rst = TypeRef(rst).pointee();
+        } else if (rst && is_ref_like(TypeRef(rst).kind()) && TypeRef(rst).pointee()) {
+            rst = TypeRef(rst).pointee();
+        }
+        if ((TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) &&
+            !TypeRef(rst).type_args().empty()) {
+            SemaStructInfo* si2 = nullptr;
+            { auto [p, si] = struct_of(TypeRef(rst)); si2 = si; }
+            if (!si2) { auto [p, di] = datatype_of(TypeRef(rst)); si2 = di; }
+            if (si2) {
+                auto& tps = si2->type_params;
+                for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
+                    recv_struct_subst[tps[i].name] = TypeRef(rst).type_args()[i];
+            }
+        }
+    }
+    // ADR 0030 S8 row 4 — THE probe picks the method and the receiver
+    // adjustment (rustc's steps; see probe_method_). The per-key candidate
+    // loops below run only where it picks nothing applicable.
+    if (expr_type(recv) && !std::getenv("LOGOS_PROBE_OFF")) {
+        ProbePick pk = probe_method_(expr_type(recv), method_name);
+        // A blanket pick's `T` is bound by try_blanket_method_dispatch (the
+        // common tail infers type arguments from the non-receiver arguments).
+        // An `impl Tr for &T` pick is emitted by the `$ref_` arm below as a
+        // plain call: mlir re-resolves a MethodCall by name (S8 row 5).
+        const bool blanket = pk.key.starts_with("$blanket$") || pk.key.starts_with("$ref_") ||
+                             pk.key.starts_with("$mut_ref_");
+        // At one deref step through a reference, `&*r` / `&mut *r` is the
+        // reference itself (`&mut T` serves a `&self` method); `&mut *r` of a `&T`
+        // is left to the candidate loops' diagnostic.
+        const auto rk = TypeRef(expr_type(recv)).kind();
+        const bool reborrow = pk.derefs == 1 && pk.autoref > 0 && is_ref_like(rk) &&
+                              (pk.autoref == 1 || rk == LogosType::Kind::MutRef);
+        const bool adj_ok = pk.fi && !blanket && (pk.derefs == 0 || reborrow ||
+            (pk.derefs == 1 && pk.autoref == 0 && is_ref_like(rk)));
+        if (adj_ok) {
+            // Overloads by argument type among the step's candidates of one rank;
+            // the more specialized receiver first (a partial specialization
+            // `impl<E> S<[E]>` before the base `impl<T> S<T>`).
+            auto specificity = [](const SemaFuncInfo* f) {
+                TypeRef t = f->param_types[0];
+                if (t && (is_ref_like(TypeRef(t).kind()) || TypeRef(t).kind() == LogosType::Kind::Ptr) &&
+                    TypeRef(t).pointee())
+                    t = TypeRef(t).pointee();
+                int n = 0;
+                if (t) for (auto a : TypeRef(t).type_args())
+                    if (a && TypeRef(a).kind() != LogosType::Kind::TypeVar) ++n;
+                return n;
+            };
+            std::vector<const SemaFuncInfo*> tied = pk.tied;
+            std::stable_sort(tied.begin(), tied.end(), [&](auto* x, auto* y) { return specificity(x) > specificity(y); });
+            for (auto* c : tied) {
+                if (c->param_types.size() != arg_exprs.size() + 1) {
+                    mwhy_arity_(c->param_types.size(), arg_exprs.size() + 1);
+                    continue;
+                }
+                bool ok = true;
+                for (size_t a = 1; ok && c->type_params.empty() && a < c->param_types.size(); ++a) {
+                    TypeRef pt = c->param_types[a];
+                    if (!recv_struct_subst.empty()) pt = subst_type_sema(pt, recv_struct_subst);
+                    TypeRef at = expr_type(arg_exprs[a - 1]);
+                    ok = at && pt && arg_compatible_for_dispatch(arg_exprs[a - 1], at, pt);
+                    if (!ok) mwhy_arg_(a, pt, at);
+                }
+                if (!ok) continue;
+                fi_ptr = c;
+                mangled = pk.key;
+                if (reborrow) {
+                    // the receiver as is
+                } else if (pk.derefs == 1) {
+                    recv = builder().deref(std::move(recv), TypeRef(expr_type(recv)).pointee());
+                } else if (pk.autoref > 0) {
+                    // `&recv` / `&mut recv`, whatever the receiver is (a `&Foo`
+                    // receiver of `impl Tr for &Foo { fn m(&self) }` takes `&&Foo`).
+                    const bool m = pk.autoref == 2;
+                    recv = materialize_recv_ref(std::move(recv), m, make_ref(m, expr_type(recv)),
+                                                BorrowOrigin::Autoref);
+                }
+                break;
+            }
+        }
+        // `&mut self` through a `&T` receiver: the method is found, the receiver
+        // cannot be made — say so (`expected &mut S, got &S`).
+        if (!fi_ptr && pk.fi && !blanket && pk.derefs == 1 && pk.autoref == 2 &&
+            TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ref)
+            mwhy_recv_(make_ref(true, TypeRef(expr_type(recv)).pointee()), expr_type(recv));
+        if (!fi_ptr && pk.fi && pk.key.starts_with("$blanket$") && pk.derefs == 0)
+            if (auto e = try_blanket_method_dispatch(recv, arg_exprs, method_name, std::string(sname)))
+                return e;
+        if (std::getenv("LOGOS_PROBE_FALLBACK") && !fi_ptr)
+            std::fprintf(stderr, "PROBEFALLBACK %s:%u %s.%s pick=%s\n", ctx_.c_str(), node_line_,
+                         type_str(expr_type(recv)).c_str(), std::string(method_name).c_str(),
+                         pk.fi ? pk.key.c_str() : "-");
+    }
     // If receiver is `&T` / `&mut T`, prefer `$ref_T__method` /
     // `$mut_ref_T__method` (impls declared with `impl Trait for &T`) over
     // the auto-deref'd `T__method`. Fall back to the bare form below if
     // no match. The "$ref_" prefix mirrors sema_collect's impl-target
     // mangling — keeps `&` out of symbol names.
-    if (expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind())) {
+    if (!fi_ptr && expr_type(recv) && is_ref_like(TypeRef(expr_type(recv)).kind())) {
         std::string prefix = (TypeRef(expr_type(recv)).kind() == LogosType::Kind::MutRef)
                                  ? "$mut_ref_" : "$ref_";
         std::vector<std::string> ref_keys;
@@ -12250,282 +12414,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                   {}, std::move(pargs), ret);
         }
     }
-    const SemaFuncInfo* fi_ptr = nullptr;
-    bool auto_ref_recv = false;
-    int pick_rank = 0;   // recv_pick_rank_ of fi_ptr while candidates are compared
-    bool auto_ref_mut = false;
-    bool auto_deref_recv = false;
-    SemaSubst recv_struct_subst;
-    {
-        TypeRef rst = expr_type(recv);
-        if (rst && TypeRef(rst).kind() == LogosType::Kind::Ptr && TypeRef(rst).pointee()) {
-            rst = TypeRef(rst).pointee();
-        } else if (rst && is_ref_like(TypeRef(rst).kind()) && TypeRef(rst).pointee()) {
-            rst = TypeRef(rst).pointee();
-        }
-        if ((TypeRef(rst).kind() == LogosType::Kind::Struct || TypeRef(rst).kind() == LogosType::Kind::ZonedStruct) &&
-            !TypeRef(rst).type_args().empty()) {
-            SemaStructInfo* si2 = nullptr;
-            { auto [p, si] = struct_of(TypeRef(rst)); si2 = si; }
-            if (!si2) { auto [p, di] = datatype_of(TypeRef(rst)); si2 = di; }
-            if (si2) {
-                auto& tps = si2->type_params;
-                for (size_t i = 0; i < tps.size() && i < TypeRef(rst).type_args().size(); ++i)
-                    recv_struct_subst[tps[i].name] = TypeRef(rst).type_args()[i];
-            }
-        }
-    }
-    {
-        std::vector<TypeRef> types;
-        types.push_back(expr_type(recv));
-        for (auto& a : arg_exprs) types.push_back(expr_type(a));
-        // G158-5: a by-value-`self` method reached only by auto-dereffing the
-        // receiver is LOWER priority than any exact / auto-ref match (Rust's
-        // autoderef order: try `T`/`&T`/`&mut T` at the current deref level
-        // before stepping to the next deref). Record the first deref-only
-        // candidate and only fall back to it if no non-deref candidate matched
-        // (otherwise e.g. a `&Foo` receiver would wrongly pick inherent
-        // `val(self: Foo)` over trait `val(self: &Foo)`).
-        const SemaFuncInfo* deref_fallback = nullptr;
-        for (auto* cand : find_func_candidates(mangled)) {
-            if (!cand || !cand->type_params.empty()) continue;
-            if (cand->param_types.size() != types.size()) {
-                mwhy_arity_(cand->param_types.size(), types.size());
-                continue;
-            }
-            bool ok = true;
-            bool needs_ref = false;
-            bool needs_mut = false;
-            bool needs_deref = false;
-            auto formal0 = cand->param_types[0];
-            if (!recv_struct_subst.empty())
-                formal0 = subst_type_sema(formal0, recv_struct_subst);
-            auto actual0 = expr_type(recv);
-            if (actual0 && formal0 && !types_equal(actual0, formal0)) {
-                if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
-                    TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
-                    TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                    is_ref_like(TypeRef(formal0).kind()) && TypeRef(formal0).pointee() &&
-                    types_equal(actual0, TypeRef(formal0).pointee())) {
-                    needs_ref = true;
-                    needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-                } else if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
-                           TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
-                           TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                           TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                           TypeRef(formal0).pointee() &&
-                           types_equal(actual0, TypeRef(formal0).pointee())) {
-                    needs_ref = true;
-                    needs_mut = false;
-                } else if (TypeRef(actual0).kind() == LogosType::Kind::Ptr &&
-                           TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                           TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
-                           types_equal(TypeRef(actual0).pointee(), TypeRef(formal0).pointee())) {
-                    // const/mut pointer receivers are compatible if pointees match.
-                } else if ((is_ref_like(TypeRef(actual0).kind()) ||
-                            TypeRef(actual0).kind() == LogosType::Kind::Ptr) &&
-                           TypeRef(actual0).pointee() &&
-                           !is_ref_like(TypeRef(formal0).kind()) &&
-                           TypeRef(formal0).kind() != LogosType::Kind::Ptr &&
-                           types_equal(TypeRef(actual0).pointee(), formal0)) {
-                    // G158-5: receiver is `&T`/`&mut T`/`*T` but the method
-                    // takes `self` BY VALUE — auto-deref the receiver (mirrors
-                    // the explicit `(*recv).method()` workaround / Rust's
-                    // autoderef-then-by-value-self). The by-value self copies
-                    // (or moves) out of the reference; borrow-check enforces
-                    // Copy/move-out soundness downstream.
-                    needs_deref = true;
-                } else if ([&]() -> bool {
-                    // #[self_describing] receiver leniency: every reference
-                    // form over such a struct (raw pointer, &/&mut,
-                    // DstRef-canonicalised self) is ONE thin repr, so any
-                    // pairing is compatible when the struct identities match.
-                    auto dst_name = [&](TypeRef t) -> std::string {
-                        if (!t) return {};
-                        TypeRef u = t;
-                        auto k = u.kind();
-                        if ((k == LogosType::Kind::Ptr ||
-                             k == LogosType::Kind::Ref ||
-                             k == LogosType::Kind::MutRef) && u.pointee())
-                            u = u.pointee();
-                        auto uk = TypeRef(u).kind();
-                        if (uk == LogosType::Kind::Struct ||
-                            uk == LogosType::Kind::ZonedStruct ||
-                            uk == LogosType::Kind::DstRef)
-                            return std::string(TypeRef(u).struct_name());
-                        return {};
-                    };
-                    std::string an = dst_name(actual0), fn2 = dst_name(formal0);
-                    if (an.empty() || an != fn2) return false;
-                    auto [dp, dsi] = find_struct_by_name(an);
-                    (void)dp;
-                    return dsi && dsi->self_describing;
-                }()) {
-                    // compatible — thin one-repr receiver forms.
-                } else if (!types_compatible(actual0, formal0)) {
-                    ok = false;
-                    mwhy_recv_(formal0, actual0);
-                }
-            }
-            for (size_t i = 1; ok && i < cand->param_types.size(); ++i) {
-                auto at = types[i];
-                auto pt = cand->param_types[i];
-                if (!recv_struct_subst.empty())
-                    pt = subst_type_sema(pt, recv_struct_subst);
-                if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1], at, pt)) {
-                    ok = false;
-                    mwhy_arg_(i, pt, at);
-                    break;
-                }
-            }
-            if (!ok) continue;
-            if (needs_deref) {
-                // Defer: a non-deref candidate later in the list takes
-                // priority. Keep only the first deref-only match.
-                if (!deref_fallback) deref_fallback = cand;
-                continue;
-            }
-            // rustc's probe order at one receiver step: the receiver BY VALUE
-            // before its autoref, and an inherent method before a trait's
-            // (`impl S { fn f(self) }` wins over `impl T for S { fn f(&self) }`).
-            if (const int r = recv_pick_rank_(cand, needs_ref); !fi_ptr || r < pick_rank) {
-                fi_ptr = cand;
-                auto_ref_recv = needs_ref;
-                auto_ref_mut = needs_mut;
-                pick_rank = r;
-            }
-        }
-        if (!fi_ptr && deref_fallback) {
-            fi_ptr = deref_fallback;
-            auto_deref_recv = true;
-        }
-        if (!fi_ptr) {
-            fi_ptr = find_generic_func_for_args(mangled, types,
-                                                /*is_method_recv=*/true);
-            if (!fi_ptr) fi_ptr = find_generic_func(mangled);
-        }
-    }
-    // G158-5: auto-deref a `&T`/`*T` receiver for a by-value-`self` method.
-    if (fi_ptr && auto_deref_recv && expr_type(recv) &&
-        (is_ref_like(TypeRef(expr_type(recv)).kind()) ||
-         TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ptr) &&
-        TypeRef(expr_type(recv)).pointee()) {
-        auto pointee = TypeRef(expr_type(recv)).pointee();
-        recv = builder().deref(std::move(recv), pointee);
-    }
-    if (fi_ptr && auto_ref_recv && expr_type(recv) &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ref &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::MutRef &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr) {
-        auto __ty_recv = make_ref(auto_ref_mut, expr_type(recv));
-
-        auto addr = materialize_recv_ref(std::move(recv), auto_ref_mut, __ty_recv, BorrowOrigin::Autoref);
-        recv = std::move(addr);
-    }
-
-    // Fallback: for generic structs (Foo$G1$i32), methods may be registered under base name (Foo).
-    if (!fi_ptr) {
-        std::string base_sname(sname);
-        if (auto d = base_sname.find('$'); d != std::string::npos)
-            base_sname = base_sname.substr(0, d);
-        if (base_sname != sname) {
-            auto base_mangled = base_sname + "__" + std::string(method_name);
-            std::vector<TypeRef> types;
-            types.push_back(expr_type(recv));
-            for (auto& a : arg_exprs) types.push_back(expr_type(a));
-            for (auto* cand : find_func_candidates(base_mangled)) {
-                if (!cand || !cand->type_params.empty()) continue;
-                if (cand->param_types.size() != types.size()) {
-                    mwhy_arity_(cand->param_types.size(), types.size());
-                    continue;
-                }
-                bool ok = true;
-                bool needs_ref = false;
-                bool needs_mut = false;
-                auto formal0 = cand->param_types[0];
-                if (!recv_struct_subst.empty())
-                    formal0 = subst_type_sema(formal0, recv_struct_subst);
-                auto actual0 = expr_type(recv);
-                if (actual0 && formal0 && !types_equal(actual0, formal0)) {
-                    if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
-                        TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
-                        TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                        is_ref_like(TypeRef(formal0).kind()) && TypeRef(formal0).pointee() &&
-                        types_equal(actual0, TypeRef(formal0).pointee())) {
-                        needs_ref = true;
-                        needs_mut = TypeRef(formal0).kind() == LogosType::Kind::MutRef;
-                    } else if (TypeRef(actual0).kind() != LogosType::Kind::Ref &&
-                               TypeRef(actual0).kind() != LogosType::Kind::MutRef &&
-                               TypeRef(actual0).kind() != LogosType::Kind::Ptr &&
-                               TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                               TypeRef(formal0).pointee() &&
-                               types_equal(actual0, TypeRef(formal0).pointee())) {
-                        needs_ref = true;
-                        needs_mut = false;
-                    } else if (TypeRef(actual0).kind() == LogosType::Kind::Ptr &&
-                               TypeRef(formal0).kind() == LogosType::Kind::Ptr &&
-                               TypeRef(actual0).pointee() && TypeRef(formal0).pointee() &&
-                               types_equal(TypeRef(actual0).pointee(), TypeRef(formal0).pointee())) {
-                        // const/mut pointer receivers are compatible if pointees match.
-                    } else if (sd_thin_compatible(actual0, formal0)) {
-                        // compatible — thin one-repr receiver forms.
-                    } else if (!types_compatible(actual0, formal0)) {
-                        ok = false;
-                        mwhy_recv_(formal0, actual0);
-                    }
-                }
-                for (size_t i = 1; ok && i < cand->param_types.size(); ++i) {
-                    auto at = types[i];
-                    auto pt = cand->param_types[i];
-                    if (!recv_struct_subst.empty())
-                        pt = subst_type_sema(pt, recv_struct_subst);
-                    if (!at || !pt || !arg_compatible_for_dispatch(arg_exprs[i - 1], at, pt)) {
-                        ok = false;
-                        mwhy_arg_(i, pt, at);
-                        break;
-                    }
-                }
-                if (!ok) {
-                    if (std::getenv("LOGOS_DBG_DISP") &&
-                        base_mangled.find("PkdAlloc__") != std::string::npos)
-                        std::fprintf(stderr, "[disp-dbg] %s cand rejected: a0k=%d f0k=%d nparams=%zu ntypes=%zu\n",
-                            base_mangled.c_str(),
-                            types[0] ? (int)TypeRef(types[0]).kind() : -1,
-                            cand->param_types[0] ? (int)TypeRef(cand->param_types[0]).kind() : -1,
-                            cand->param_types.size(), types.size());
-                    continue;
-                }
-                if (const int r = recv_pick_rank_(cand, needs_ref); !fi_ptr || r < pick_rank) {
-                    fi_ptr = cand;
-                    auto_ref_recv = needs_ref;
-                    auto_ref_mut = needs_mut;
-                    mangled = base_mangled;
-                    pick_rank = r;
-                }
-            }
-            if (!fi_ptr) {
-                if (auto sfit = find_generic_func_for_args(
-                        base_mangled, types, /*is_method_recv=*/true)) {
-                    fi_ptr = sfit;
-                    mangled = base_mangled;
-                } else if (auto fit = find_generic_func(base_mangled)) {
-                    fi_ptr = fit;
-                    mangled = base_mangled;
-                }
-            }
-        }
-    }
-
-    if (fi_ptr && auto_ref_recv && expr_type(recv) &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ref &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::MutRef &&
-        TypeRef(expr_type(recv)).kind() != LogosType::Kind::Ptr) {
-        auto __ty_recv = make_ref(auto_ref_mut, expr_type(recv));
-
-        auto addr = materialize_recv_ref(std::move(recv), auto_ref_mut, __ty_recv, BorrowOrigin::Autoref);
-        recv = std::move(addr);
-    }
-
     if (!fi_ptr) {
         // Blanket-impl fallback: `impl<T: Bound> Trait for T { fn method … }`
         // provides method on any T satisfying Bound. Shared with the

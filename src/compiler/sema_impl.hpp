@@ -10498,11 +10498,6 @@ private:
     bool raw_self_symbol_(std::string_view sym);
     std::unordered_set<std::string> raw_self_index_;
     size_t raw_self_index_n_ = SIZE_MAX;
-    // A method candidate's place in rustc's probe order at one receiver step:
-    // by value (0) before autoref (2); inherent before trait (+1).
-    static int recv_pick_rank_(const SemaFuncInfo* c, bool needs_autoref) {
-        return (needs_autoref ? 2 : 0) + (c && !c->trait_name.empty() ? 1 : 0);
-    }
 
     void bind_pattern(const lir::Pattern& pat,
                       TypeRef scrut_type = nullptr);
