@@ -3627,7 +3627,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 // `on` — containment IS the join). `byval[i]` — the step binds a SCALAR
 // element (Vec<str> → `let s: str = (e.skills)[j]`) by VALUE (Copy lattice),
 // not by reference.
-// `jstrat`/`jkey`/`jsel`/`jwhy` — the PLAN'S DECISION, carried off the node
+// `jstrat`/`jkey`/`jsel`/`jground` — the PLAN'S DECISION, carried off the node
 // (`JS_NONE` = no planner reached it; see analyze_chain).
 struct JChain {
     base_src: str,
@@ -3644,7 +3644,7 @@ struct JChain {
     jstrat: [i32; 8],
     jkey:   [i32; 8],
     jsel:   [i64; 8],
-    jwhy:   [str; 8],
+    jground: [i64; 8],
 }
 
 fn jchain_new() -> JChain {
@@ -3659,7 +3659,7 @@ fn jchain_new() -> JChain {
                     jstrat: [0i32; 8],
                     jkey:   [0i32; 8],
                     jsel:   [-1i64; 8],
-                    jwhy:   ["", "", "", "", "", "", "", ""] };
+                    jground: [0i64; 8] };
 }
 
 // ── WAS THERE AN ORDER AXIS AT ALL? (ADR 0024 S4p) ───────────────────────────
@@ -3705,7 +3705,7 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.jstrat[ch.n] = jn.jstrat;
                 ch.jkey[ch.n]   = jn.jkey;
                 ch.jsel[ch.n]   = jn.jsel as i64;
-                ch.jwhy[ch.n]   = jn.jwhy;
+                ch.jground[ch.n] = jn.jground;
                 ch.n = ch.n + 1i64;
             }
             return;
@@ -3722,7 +3722,7 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.jstrat[ch.n] = an.jstrat;
                 ch.jkey[ch.n]   = an.jkey;
                 ch.jsel[ch.n]   = an.jsel as i64;
-                ch.jwhy[ch.n]   = an.jwhy;
+                ch.jground[ch.n] = an.jground;
                 ch.n = ch.n + 1i64;
             }
             return;
@@ -4509,7 +4509,7 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
             o.jstrat[k] = jo.cstrat[b + j];
             o.jkey[k]   = jo.ckey[b + j];
             o.jsel[k]   = jo.csel[b + j];
-            o.jwhy[k]   = jo.cwhy[b + j];
+            o.jground[k] = jo.cground[b + j];
             k = k + 1i64;
         }
         let mut pi: i64 = 0i64;
@@ -4526,7 +4526,7 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
                 o.jstrat[k] = ch.jstrat[q];
                 o.jkey[k]   = ch.jkey[q];
                 o.jsel[k]   = ch.jsel[q];
-                o.jwhy[k]   = ch.jwhy[q];
+                o.jground[k] = ch.jground[q];
                 k = k + 1i64;
             }
             pi = pi + 1i64;
@@ -4571,7 +4571,7 @@ fn jch_of(ch: &JChain) -> JCh {
             c.strat[s] = ch.jstrat[s - 1i64];
             c.key[s]   = ch.jkey[s - 1i64];
             c.sel[s]   = ch.jsel[s - 1i64];
-            c.swhy[s]  = ch.jwhy[s - 1i64];
+            c.sground[s] = ch.jground[s - 1i64];
         }
         s = s + 1i64;
     }

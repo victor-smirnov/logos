@@ -253,10 +253,11 @@ SINGLETONS = {
         T('logos_09_ctr_access_path',
           ['{tsrc}/ctr_access_path_gate.sh', '{logosc}', '{tsrc}/pass/deem_source_size.logos', '{tsrc}/pass/deem_hashmap_source.logos', '{tsrc}/pass/container_item_e2e.logos', '{tsrc}/pass/deem_cross_domain_join.logos'],
           'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
-        # THE JOIN STRATEGY'S GROUND AS RULES OVER FACTS (why.logos): the rule that
-        # fired and the negative explanation of `hash`, asserted on LOGOS_TRACE_PLAN=facts.
-        T('logos_09_plan_join_ground',
-          ['{tsrc}/join_ground_facts_gate.sh', '{logosc}', '{tsrc}/pass'],
+        # PLAN DECISIONS' GROUNDS AS RULES OVER FACTS (why.logos): join strategy and
+        # access path — the rule that fired and the negative explanation, asserted on
+        # LOGOS_TRACE_PLAN=facts.
+        T('logos_09_plan_ground_facts',
+          ['{tsrc}/plan_ground_facts_gate.sh', '{logosc}', '{tsrc}/pass'],
           'logos;pass;suite_semantic_core;tier_full', timeout=120, env=LIB),
         # ADR 0025 S2 — MATERIALIZATION AS A NAMED PLAN NODE (§4).
         T('logos_09_plan_nodes',

@@ -196,7 +196,7 @@ pub struct JCh {
     pub strat: [i32; 9],
     pub key:   [i32; 9],
     pub sel:   [i64; 9],
-    pub swhy:  [str; 9],
+    pub sground: [i64; 9],
 }
 
 pub fn jch_new() -> JCh {
@@ -209,7 +209,7 @@ pub fn jch_new() -> JCh {
                  strat: [0i32; 9],
                  key:   [0i32; 9],
                  sel:   [-1i64; 9],
-                 swhy: ["", "", "", "", "", "", "", "", ""] };
+                 sground: [0i64; 9] };
 }
 
 // ── The decision ──────────────────────────────────────────────────────────
@@ -233,7 +233,7 @@ pub fn jch_new() -> JCh {
 // and left its sentence behind. Prose is rendered from this record, once, at the
 // edge, by `why::why_render` — see that module's header for the measurements.
 //
-// `cslot` / `conw` / `crole` / `cstrat` / `ckey` / `csel` / `cwhy` — the candidate
+// `cslot` / `conw` / `crole` / `cstrat` / `ckey` / `csel` / `cground` — the candidate
 // table, `JC_MAX_FL()`-strided. For candidate `c` at floatable position `j`:
 // WHICH FLOATABLE SOURCE sits there — by its QUERY index among the floatable
 // sources, which is also the index of its size fact on the plan, so a candidate is
@@ -274,7 +274,7 @@ pub struct JoinOrder {
     pub cstrat:   [i32; 16],
     pub ckey:     [i32; 16],
     pub csel:     [i64; 16],
-    pub cwhy:     [str; 16],
+    pub cground:  [i64; 16],
 }
 
 fn jo_why(w: Why) -> JoinOrder {
@@ -283,7 +283,7 @@ fn jo_why(w: Why) -> JoinOrder {
                        fl: [0i64; 4],
                        cslot: [0i64; 16], conw: [0i64; 16], crole: [0i64; 16],
                        cstrat: [0i32; 16], ckey: [0i32; 16], csel: [-1i64; 16],
-                       cwhy: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""] };
+                       cground: [0i64; 16] };
 }
 
 /// The single-nest outcome whose whole justification is its GROUND CODE — every
@@ -719,7 +719,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
         let mut cst: [i32; 4] = [0i32; 4];
         let mut cky: [i32; 4] = [0i32; 4];
         let mut csl: [i64; 4] = [-1i64; 4];
-        let mut cwy: [str; 4] = ["", "", "", ""];
+        let mut cwy: [i64; 4] = [0i64; 4];
         let mut crl: [i64; 4] = [0i64; 4];
         if rej == RJ_NONE() {
             crl[0] = JC_SCAN();
@@ -730,7 +730,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     cst[sj] = c.strat[sl2];
                     cky[sj] = c.key[sl2];
                     csl[sj] = c.sel[sl2];
-                    cwy[sj] = c.swhy[sl2];
+                    cwy[sj] = c.sground[sl2];
                     // ⚠ The derivation must REPRODUCE the query for the identity
                     // permutation, and the one place that could silently differ is
                     // C5's placement. If it does, the chain has a shape this
@@ -742,7 +742,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     cst[sj] = ss.strat;
                     cky[sj] = ss.key_ty;
                     csl[sj] = ss.sel;
-                    cwy[sj] = jg_render(ss.g.rule);
+                    cwy[sj] = jg_pack(&ss.g);
                 }
                 if rej == RJ_NONE() {
                     if js_reads_once(cst[sj]) { crl[sj] = JC_INDEX(); } else { crl[sj] = JC_RESCAN(); }
@@ -796,7 +796,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     jo.cstrat[base + wj] = cst[wj];
                     jo.ckey[base + wj]   = cky[wj];
                     jo.csel[base + wj]   = csl[wj];
-                    jo.cwhy[base + wj]   = cwy[wj];
+                    jo.cground[base + wj] = cwy[wj];
                     wj = wj + 1i64;
                 }
                 jo.ncand = jo.ncand + 1i64;
@@ -1224,7 +1224,7 @@ fn jo_report(jo: &JoinOrder, c: &JCh, base_var: str, s0_var: str) {
                 ab.push_str(" when driven from ");
                 ab.push_str(nb_var);
                 plan_trace(c.var[jo.fl[jo.cslot[b + j]]], string_as_str(&ab), "",
-                           jo.cwhy[b + j]);
+                           jg_render_packed(jo.cground[b + j]));
                 j = j + 1i64;
             }
             cc = cc + 1i64;

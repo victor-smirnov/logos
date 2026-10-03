@@ -1005,6 +1005,22 @@ pub fn jg_render(r: i32) -> str {
     return "UNSET JOIN GROUND — a decision recorded no rule (a defect, not a reason)";
 }
 
+/// THE GROUND AS ONE WORD — what the plan IR carries (`RQJoinStep.jground`,
+/// `RJoin`/`RAnti.jground`) and the chain arrays copy, in place of the sentence
+/// they used to carry: rule in bits 0-7, `asked` in 8-23, `held` in 24-39. One
+/// `i64` in the slot the `str` held, so no node's key layout or capacity moves.
+/// 0 is `JR_UNSET` with no facts — an undecided step, rendered as the defect it is.
+pub fn jg_pack(g: &JoinGround) -> i64 {
+    return (g.rule as i64) | ((g.asked as i64) << 8i64) | ((g.held as i64) << 24i64);
+}
+pub fn jg_rule_of(v: i64) -> i32 { return (v & 255i64) as i32; }
+pub fn jg_unpack(v: i64, key_tn: str) -> JoinGround {
+    return JoinGround { rule: jg_rule_of(v), asked: ((v >> 8i64) & 65535i64) as i32,
+                        held: ((v >> 24i64) & 65535i64) as i32, key_tn: key_tn };
+}
+/// The sentence of a packed ground — `jg_render` of its rule.
+pub fn jg_render_packed(v: i64) -> str { return jg_render(jg_rule_of(v)); }
+
 /// The FACTS, machine-readable: `rule=<r> key=<K> held=[…] failed(hash)=[…]` —
 /// what `LOGOS_TRACE_PLAN=facts` prints, so a fixture can assert the rule and the
 /// failed antecedents instead of a substring of a sentence.
@@ -1048,3 +1064,131 @@ fn ja_code(a: i32) -> str {
     if a == JA_FORCE_TREE() { return "force_tree"; }
     return "?";
 }
+
+// ══ THE ACCESS PATH'S GROUND — the same shape, its own vocabulary (E2) ═══════
+//
+// How ONE rel is read against ONE filter (`plan_walker::plan_narrow_rel`). The
+// decision was a cascade of `ap.scan(ri, "<sentence>")` returns plus one
+// `ap.choose(…, <sentence>)`; each sentence named the first antecedent that
+// failed, and nothing tied it to the test above it. Now each test records a fact,
+// the rule that fires is the record, and `ag_render` is the only text — word for
+// word the sentences the returns carried.
+pub fn AA_WHERE() -> i32      { return 0i32; }   // the query has a filter
+pub fn AA_OPS() -> i32        { return 1i32; }   // the source declares access operations
+pub fn AA_COL() -> i32        { return 2i32; }   // a side of the filter is a column
+pub fn AA_OWN_COL() -> i32    { return 3i32; }   // …of THIS source
+pub fn AA_BOUND() -> i32      { return 4i32; }   // the other side is a literal or a name
+pub fn AA_PARAM() -> i32      { return 5i32; }   // a name bound is a parameter of the fn
+pub fn AA_PARAM_TY() -> i32   { return 6i32; }   // …of the column's type
+pub fn AA_CMP() -> i32        { return 7i32; }   // the comparison is one a source answers
+pub fn AA_COVER() -> i32      { return 8i32; }   // a declared operation covers it
+pub fn AA_EXACT() -> i32      { return 9i32; }   // the chosen operation is exact for it
+pub fn AA_MAY_DROP() -> i32   { return 10i32; }  // the filter belongs to this source alone
+pub fn AA_N() -> i32          { return 11i32; }
+
+pub fn AR_UNSET() -> i32           { return 0i32; }   // no filter reached this rel
+pub fn AR_SCAN_ALL() -> i32        { return 1i32; }
+pub fn AR_SCAN_NO_OPS() -> i32     { return 2i32; }
+pub fn AR_SCAN_NO_COL() -> i32     { return 3i32; }
+pub fn AR_SCAN_FOREIGN() -> i32    { return 4i32; }
+pub fn AR_SCAN_NO_BOUND() -> i32   { return 5i32; }
+pub fn AR_SCAN_NOT_PARAM() -> i32  { return 6i32; }
+pub fn AR_SCAN_PARAM_TY() -> i32   { return 7i32; }
+pub fn AR_SCAN_NO_CMP() -> i32     { return 8i32; }
+pub fn AR_SCAN_NO_COVER() -> i32   { return 9i32; }
+pub fn AR_EXACT_DROP() -> i32      { return 10i32; }
+pub fn AR_EXACT_KEEP() -> i32      { return 11i32; }
+pub fn AR_SUPERSET() -> i32        { return 12i32; }
+
+/// The facts and the rule they entailed for one rel; packed with `jg_pack`'s
+/// layout (`ag_pack`) to travel in the plan's per-rel arrays.
+pub struct AccessGround { pub rule: i32, pub asked: i32, pub held: i32 }
+
+pub fn ag_new() -> AccessGround { return AccessGround { rule: AR_UNSET(), asked: 0i32, held: 0i32 }; }
+
+/// Record one answer — the cascade's only write of a fact.
+pub fn ag_fact(g: &mut AccessGround, a: i32, v: bool) -> bool {
+    g.asked = g.asked | ja_bit(a);
+    if v { g.held = g.held | ja_bit(a); }
+    return v;
+}
+
+pub fn ag_pack(g: &AccessGround) -> i64 {
+    return (g.rule as i64) | ((g.asked as i64) << 8i64) | ((g.held as i64) << 24i64);
+}
+pub fn ag_unpack(v: i64) -> AccessGround {
+    return AccessGround { rule: (v & 255i64) as i32, asked: ((v >> 8i64) & 65535i64) as i32,
+                          held: ((v >> 24i64) & 65535i64) as i32 };
+}
+
+/// THE ONE RENDERER of an access-path ground.
+pub fn ag_render(r: i32) -> str {
+    if r == AR_SCAN_ALL()       { return "the query asks for every row — no filter to narrow to"; }
+    if r == AR_SCAN_NO_OPS()    { return "the source declares no access operations"; }
+    if r == AR_SCAN_NO_COL()    { return "neither side of the filter is a column"; }
+    if r == AR_SCAN_FOREIGN()   { return "the filter names a column this source does not have"; }
+    if r == AR_SCAN_NO_BOUND()  { return "the comparison carries no bound a source could be given"; }
+    if r == AR_SCAN_NOT_PARAM() { return "the bound is not a query parameter this fn takes"; }
+    if r == AR_SCAN_PARAM_TY()  { return "the parameter's type is not the column's, so it cannot be passed as the bound"; }
+    if r == AR_SCAN_NO_CMP()    { return "the filter is not a comparison a source can answer"; }
+    if r == AR_SCAN_NO_COVER()  { return "the source declares no operation covering that comparison on that column"; }
+    if r == AR_EXACT_DROP()     { return "an operation EXACT for that comparison — the residual filter is redundant and was dropped"; }
+    if r == AR_EXACT_KEEP()     { return "an operation exact for that comparison, but the filter ranges over more than this source, so it stays"; }
+    if r == AR_SUPERSET()       { return "a covering operation; its rows are a superset, so the filter stays"; }
+    return "no filter reaches this rel";
+}
+
+pub fn ar_name(r: i32) -> str {
+    if r == AR_SCAN_ALL()       { return "scan_all"; }
+    if r == AR_SCAN_NO_OPS()    { return "scan_no_ops"; }
+    if r == AR_SCAN_NO_COL()    { return "scan_no_col"; }
+    if r == AR_SCAN_FOREIGN()   { return "scan_foreign_col"; }
+    if r == AR_SCAN_NO_BOUND()  { return "scan_no_bound"; }
+    if r == AR_SCAN_NOT_PARAM() { return "scan_not_param"; }
+    if r == AR_SCAN_PARAM_TY()  { return "scan_param_ty"; }
+    if r == AR_SCAN_NO_CMP()    { return "scan_no_cmp"; }
+    if r == AR_SCAN_NO_COVER()  { return "scan_no_cover"; }
+    if r == AR_EXACT_DROP()     { return "exact_drop"; }
+    if r == AR_EXACT_KEEP()     { return "exact_keep"; }
+    if r == AR_SUPERSET()       { return "superset"; }
+    return "unset";
+}
+
+fn aa_code(a: i32) -> str {
+    if a == AA_WHERE()    { return "where"; }
+    if a == AA_OPS()      { return "ops"; }
+    if a == AA_COL()      { return "col"; }
+    if a == AA_OWN_COL()  { return "own_col"; }
+    if a == AA_BOUND()    { return "bound"; }
+    if a == AA_PARAM()    { return "param"; }
+    if a == AA_PARAM_TY() { return "param_ty"; }
+    if a == AA_CMP()      { return "cmp"; }
+    if a == AA_COVER()    { return "cover"; }
+    if a == AA_EXACT()    { return "exact"; }
+    if a == AA_MAY_DROP() { return "may_drop"; }
+    return "?";
+}
+
+fn push_aa_mask(out: &mut String, m: i32) {
+    let mut a: i32 = 0i32;
+    let mut first: bool = true;
+    while a < AA_N() {
+        if (m & ja_bit(a)) != 0i32 {
+            if !first { out.push_str(","); }
+            out.push_str(aa_code(a));
+            first = false;
+        }
+        a = a + 1i32;
+    }
+}
+
+/// The facts, machine-readable: `rule=<r> held=[…] failed=[…]`, where `failed`
+/// is the asked antecedents that did not hold — for a cascade, the one that ended
+/// it (and, for a narrowing, the exactness/ownership that did not).
+pub fn ag_push_facts(g: &AccessGround, out: &mut String) {
+    out.push_str("rule="); out.push_str(ar_name(g.rule));
+    out.push_str(" held=["); push_aa_mask(out, g.held);
+    out.push_str("] failed=["); push_aa_mask(out, g.asked & !g.held);
+    out.push_str("]");
+}
+

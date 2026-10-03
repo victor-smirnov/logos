@@ -1940,12 +1940,16 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
                    may_drop: bool) {
     let ri: i64 = prm.rel_find_name(src_name);
     if ri < 0i64 { return; }
-    if !has_where {
-        ap.scan(ri, "the query asks for every row — no filter to narrow to");
+    // THE GROUND (why.logos `AccessGround`): every test below records its answer
+    // as a fact, and every exit names the rule that fired. No sentence is written
+    // here; `ag_render` is the only text (E2).
+    let mut g: AccessGround = ag_new();
+    if !ag_fact(&mut g, AA_WHERE(), has_where) {
+        ap.scan(ri, &mut g, AR_SCAN_ALL());
         return;
     }
-    if prm.op_cnt[ri] == 0i64 {
-        ap.scan(ri, "the source declares no access operations");
+    if !ag_fact(&mut g, AA_OPS(), prm.op_cnt[ri] != 0i64) {
+        ap.scan(ri, &mut g, AR_SCAN_NO_OPS());
         return;
     }
     match wexpr {
@@ -1953,8 +1957,8 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
             let mut col: str = pw_field_col(b.lhs_expr());
             let mut col_left: bool = col.len() > 0i64;
             if !col_left { col = pw_field_col(b.rhs_expr()); }
-            if col.len() == 0i64 {
-                ap.scan(ri, "neither side of the filter is a column");
+            if !ag_fact(&mut g, AA_COL(), col.len() != 0i64) {
+                ap.scan(ri, &mut g, AR_SCAN_NO_COL());
                 return;
             }
             // The column must belong to THIS rel. In a join the `where` ranges
@@ -1971,8 +1975,8 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
                     c0 = cn;
                 } else { c0 = c0 + 1i64; }
             }
-            if colty.len() == 0i64 {
-                ap.scan(ri, "the filter names a column this source does not have");
+            if !ag_fact(&mut g, AA_OWN_COL(), colty.len() != 0i64) {
+                ap.scan(ri, &mut g, AR_SCAN_FOREIGN());
                 return;
             }
             // The BOUND the column is compared against.
@@ -2016,8 +2020,8 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
                 pnm = pw_bare_name(if col_left { b.rhs_expr() } else { b.lhs_expr() });
                 if pnm.len() > 0i64 { argk = 2i32; }
             }
-            if argk == 0i32 {
-                ap.scan(ri, "the comparison carries no bound a source could be given");
+            if !ag_fact(&mut g, AA_BOUND(), argk != 0i32) {
+                ap.scan(ri, &mut g, AR_SCAN_NO_BOUND());
                 return;
             }
             // A PARAMETER is passed by name, so its type must BE the column's —
@@ -2026,18 +2030,18 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
             // call, which is the diagnostic this ADR exists to abolish.
             if argk == 2i32 {
                 let pty: str = prm.ty_of(pnm);
-                if pty.len() == 0i64 {
-                    ap.scan(ri, "the bound is not a query parameter this fn takes");
+                if !ag_fact(&mut g, AA_PARAM(), pty.len() != 0i64) {
+                    ap.scan(ri, &mut g, AR_SCAN_NOT_PARAM());
                     return;
                 }
-                if !str_eq(pty, colty) {
-                    ap.scan(ri, "the parameter's type is not the column's, so it cannot be passed as the bound");
+                if !ag_fact(&mut g, AA_PARAM_TY(), str_eq(pty, colty)) {
+                    ap.scan(ri, &mut g, AR_SCAN_PARAM_TY());
                     return;
                 }
             }
             let cmp: str = pw_cmp_name(b.op, col_left);
-            if cmp.len() == 0i64 {
-                ap.scan(ri, "the filter is not a comparison a source can answer");
+            if !ag_fact(&mut g, AA_CMP(), cmp.len() != 0i64) {
+                ap.scan(ri, &mut g, AR_SCAN_NO_CMP());
                 return;
             }
             // ENUMERATE, then CHOOSE. Every declared operation that covers the
@@ -2064,8 +2068,8 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
                 }
                 k = k + 1i64;
             }
-            if oi < 0i64 {
-                ap.scan(ri, "the source declares no operation covering that comparison on that column");
+            if !ag_fact(&mut g, AA_COVER(), oi >= 0i64) {
+                ap.scan(ri, &mut g, AR_SCAN_NO_COVER());
                 return;
             }
             // The constant is typed by the COLUMN, which is why the column
@@ -2083,14 +2087,11 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
             // "filter", the planner proved it redundant — and it is sound only
             // because the demand IS this comparison AND the filter belongs to
             // this source alone, which is what `may_drop` carries.
-            let drops: bool = best_ex && may_drop;
+            ag_fact(&mut g, AA_EXACT(), best_ex);
+            let drops: bool = best_ex && ag_fact(&mut g, AA_MAY_DROP(), may_drop);
+            g.rule = if drops { AR_EXACT_DROP() } else if best_ex { AR_EXACT_KEEP() } else { AR_SUPERSET() };
             ap.choose(ri, oi, prm.opc_fn[oi], string_as_str(argb), col, cmp,
-                      prm.opc_cmp[oi], best_ex,
-                      if drops
-                      { "an operation EXACT for that comparison — the residual filter is redundant and was dropped" }
-                      else if best_ex
-                      { "an operation exact for that comparison, but the filter ranges over more than this source, so it stays" }
-                      else { "a covering operation; its rows are a superset, so the filter stays" });
+                      prm.opc_cmp[oi], best_ex, &g);
             if drops { ap.drop_where = true; }
         }
         _ => { }
@@ -2163,14 +2164,14 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView,
         if st.is_edge {
             let ts: StepSel = traversal_step_sel();
             st.jstrat = ts.strat; st.jkey = ts.key_ty;
-            st.jsel = -1i32;      st.jwhy = jg_render(ts.g.rule);
+            st.jsel = -1i32;      st.jground = jg_pack(&ts.g);
             return;               // and every step after it stays undecided
         }
         let ss: StepSel = decide_join_step(st.on, st.var_name, &t, h);
         st.jstrat = ss.strat;
         st.jkey   = ss.key_ty;
         st.jsel   = ss.sel as i32;
-        st.jwhy   = jg_render(ss.g.rule);
+        st.jground = jg_pack(&ss.g);
         // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read
         // `el_class_repr(ss.key_ty)` — the class's representative — so a `u64`
         // key was announced as `hash join on i64` while the emitted map is

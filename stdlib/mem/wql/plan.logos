@@ -183,7 +183,10 @@ pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
     jstrat:   i32          = 9,
     jkey:     i32          = 10,
     jsel:     i32          = 11,
-    jwhy:     str          = 12,
+    // The GROUND of the decision (why.logos `jg_pack`): the rule that fired and
+    // the facts it fired on, one word. It held the rendered SENTENCE until
+    // 2026-10-02; text is produced at the edge now (`jg_render_packed`).
+    jground:  i64          = 12,
 }
 
 impl RQJoinStep {

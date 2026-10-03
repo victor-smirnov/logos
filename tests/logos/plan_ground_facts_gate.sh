@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# THE JOIN STRATEGY'S GROUND IS A RULE OVER FACTS — asserted on the FACTS, not on a
-# substring of the sentence (why.logos, "THE JOIN STRATEGY'S GROUND").
+# A PLAN DECISION'S GROUND IS A RULE OVER FACTS — asserted on the FACTS, not on a
+# substring of the sentence (why.logos: "THE JOIN STRATEGY'S GROUND", "THE ACCESS
+# PATH'S GROUND").
 #
 # Each case compiles one fixture under LOGOS_TRACE_PLAN=facts and requires the
-# exact `[facts]` line of one join step: the rule that fired, the antecedents that
-# held, and — for a step that is not a hash join — the negative explanation of the
-# hash rule (`not_hash`). A change to the cascade, to a key type's facts, or to a
-# rule's body moves one of these lines; a change to the WORDING moves none.
+# exact `[facts]` line of one decision: the rule that fired, the antecedents that
+# held, and the negative explanation (`not_hash` for a join step that is not a
+# hash join; `failed` for an access path). A change to a cascade, to a type's or
+# a source's facts, or to a rule's body moves one of these lines; a change to the
+# WORDING moves none.
 #
 # CONTROL: the same three compiles with the facts channel OFF must print no
 # `[facts]` line at all, so a gate that matched stale output is distinguishable.
@@ -38,5 +40,15 @@ check wql_named_key_loop_e2e \
 # f64: no Hash/Eq impl, and its `==` is not faithful (NaN).
 check wql_join_float_key_e2e \
   '[facts] d join rule=loop_eq key=f64 held=[equi_key,eq_op,key_store] asked=[equi_key,Hash,Eq,Ord,eq_op,key_store,self_ident,self_ord,force_tree] not_hash=[Hash,Eq,self_ident]'
-[ "$fail" = 0 ] && echo "join ground facts: 3 cases, rule + held + negative explanation pinned"
+# ── access paths (E2) ──
+# An exact declared operation, the filter belongs to this source alone: dropped.
+check deem_hashmap_source \
+  '[facts] m access rule=exact_drop held=[where,ops,col,own_col,bound,cmp,cover,exact,may_drop] failed=[]'
+# The source declares operations, none covers this comparison: the one failed fact.
+check deem_hashmap_source \
+  '[facts] m access rule=scan_no_cover held=[where,ops,col,own_col,bound,cmp] failed=[cover]'
+# No filter at all.
+check deem_source_size \
+  '[facts] s access rule=scan_all held=[] failed=[where]'
+[ "$fail" = 0 ] && echo "plan ground facts: 6 cases (3 join, 3 access), rule + held + negative explanation pinned"
 exit $fail
