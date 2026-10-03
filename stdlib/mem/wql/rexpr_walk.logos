@@ -3642,7 +3642,6 @@ struct JChain {
     edge:  [bool; 8],
     byval: [bool; 8],
     jstrat: [i32; 8],
-    jkey:   [i32; 8],
     jsel:   [i64; 8],
     jground: [i64; 8],
 }
@@ -3657,7 +3656,6 @@ fn jchain_new() -> JChain {
                     edge:  [false; 8],
                     byval: [false; 8],
                     jstrat: [0i32; 8],
-                    jkey:   [0i32; 8],
                     jsel:   [-1i64; 8],
                     jground: [0i64; 8] };
 }
@@ -3703,7 +3701,6 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.anti[ch.n] = false;
                 ch.onw[ch.n]  = jn.on.any().raw();
                 ch.jstrat[ch.n] = jn.jstrat;
-                ch.jkey[ch.n]   = jn.jkey;
                 ch.jsel[ch.n]   = jn.jsel as i64;
                 ch.jground[ch.n] = jn.jground;
                 ch.n = ch.n + 1i64;
@@ -3720,7 +3717,6 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
                 ch.anti[ch.n] = true;
                 ch.onw[ch.n]  = an.on.any().raw();
                 ch.jstrat[ch.n] = an.jstrat;
-                ch.jkey[ch.n]   = an.jkey;
                 ch.jsel[ch.n]   = an.jsel as i64;
                 ch.jground[ch.n] = an.jground;
                 ch.n = ch.n + 1i64;
@@ -3859,16 +3855,15 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
         } else {
             let onr: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(ch.onw[i] as *const u8) });
             let mut strat: i32 = ch.jstrat[i];
-            let mut kty: i32   = ch.jkey[i];
             let mut sel: i64   = ch.jsel[i];
             // The key's EMITTED type — the index map's key type and the type both
             // key expressions must reach. Re-derived from the SAME term index the
             // plan recorded, so the pre-decided path and the decide-here path
             // cannot disagree: `step_key_ty_of` is a function of that term.
-            let mut ktn: str = el_class_repr(kty);
+            let mut ktn: str = "i64";
             if strat == JS_NONE() {
                 let ss: StepSel = decide_join_step(onr, ch.var[i], t, h);
-                strat = ss.strat; kty = ss.key_ty; sel = ss.sel; ktn = ss.key_tn;
+                strat = ss.strat; sel = ss.sel; ktn = ss.key_tn;
                 // Traced HERE because this is where it was decided. A step the
                 // planner decided was already traced there, and echoing it
                 // would put the same decision in the log twice.
@@ -3878,7 +3873,7 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
                 if sel < stt.tl.n {
                     let sd2: EquiSides = equi_term_sides(sexpr_of_word(stt.tl.w[sel]), ch.var[i]);
                     if sd2.bw != 0i64 {
-                        ktn = step_key_ty_of(sexpr_of_word(sd2.bw), sexpr_of_word(sd2.pw), t, kty);
+                        ktn = step_key_ty_of(sexpr_of_word(sd2.bw), sexpr_of_word(sd2.pw), t);
                     }
                 }
             }
@@ -4507,7 +4502,6 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
             o.byval[k] = false;
             o.onw[k]    = jo.conw[b + j];
             o.jstrat[k] = jo.cstrat[b + j];
-            o.jkey[k]   = jo.ckey[b + j];
             o.jsel[k]   = jo.csel[b + j];
             o.jground[k] = jo.cground[b + j];
             k = k + 1i64;
@@ -4524,7 +4518,6 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
                 o.byval[k] = ch.byval[q];
                 o.onw[k]    = ch.onw[q];
                 o.jstrat[k] = ch.jstrat[q];
-                o.jkey[k]   = ch.jkey[q];
                 o.jsel[k]   = ch.jsel[q];
                 o.jground[k] = ch.jground[q];
                 k = k + 1i64;
@@ -4569,7 +4562,6 @@ fn jch_of(ch: &JChain) -> JCh {
             c.anti[s]  = ch.anti[s - 1i64];
             c.edge[s]  = ch.edge[s - 1i64];
             c.strat[s] = ch.jstrat[s - 1i64];
-            c.key[s]   = ch.jkey[s - 1i64];
             c.sel[s]   = ch.jsel[s - 1i64];
             c.sground[s] = ch.jground[s - 1i64];
         }

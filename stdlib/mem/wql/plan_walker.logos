@@ -2163,13 +2163,12 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView,
         let st: RQJoinStep = rq_fat_step(steps.step_any(k), h);
         if st.is_edge {
             let ts: StepSel = traversal_step_sel();
-            st.jstrat = ts.strat; st.jkey = ts.key_ty;
+            st.jstrat = ts.strat;
             st.jsel = -1i32;      st.jground = jg_pack(&ts.g);
             return;               // and every step after it stays undecided
         }
         let ss: StepSel = decide_join_step(st.on, st.var_name, &t, h);
         st.jstrat = ss.strat;
-        st.jkey   = ss.key_ty;
         st.jsel   = ss.sel as i32;
         st.jground = jg_pack(&ss.g);
         // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read

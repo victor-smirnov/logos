@@ -194,7 +194,6 @@ pub struct JCh {
     pub anti:  [bool; 9],
     pub edge:  [bool; 9],
     pub strat: [i32; 9],
-    pub key:   [i32; 9],
     pub sel:   [i64; 9],
     pub sground: [i64; 9],
 }
@@ -207,7 +206,6 @@ pub fn jch_new() -> JCh {
                  anti: [false; 9],
                  edge: [false; 9],
                  strat: [0i32; 9],
-                 key:   [0i32; 9],
                  sel:   [-1i64; 9],
                  sground: [0i64; 9] };
 }
@@ -272,7 +270,6 @@ pub struct JoinOrder {
     pub conw:     [i64; 16],
     pub crole:    [i64; 16],
     pub cstrat:   [i32; 16],
-    pub ckey:     [i32; 16],
     pub csel:     [i64; 16],
     pub cground:  [i64; 16],
 }
@@ -282,7 +279,7 @@ fn jo_why(w: Why) -> JoinOrder {
                        w: w,
                        fl: [0i64; 4],
                        cslot: [0i64; 16], conw: [0i64; 16], crole: [0i64; 16],
-                       cstrat: [0i32; 16], ckey: [0i32; 16], csel: [-1i64; 16],
+                       cstrat: [0i32; 16], csel: [-1i64; 16],
                        cground: [0i64; 16] };
 }
 
@@ -717,7 +714,6 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
         //    it actually forms, because the moved step's equi-key is selected
         //    against a different new-side.
         let mut cst: [i32; 4] = [0i32; 4];
-        let mut cky: [i32; 4] = [0i32; 4];
         let mut csl: [i64; 4] = [-1i64; 4];
         let mut cwy: [i64; 4] = [0i64; 4];
         let mut crl: [i64; 4] = [0i64; 4];
@@ -728,7 +724,6 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                 let sl2: i64 = jo.fl[perm[sj]];
                 if ident {
                     cst[sj] = c.strat[sl2];
-                    cky[sj] = c.key[sl2];
                     csl[sj] = c.sel[sl2];
                     cwy[sj] = c.sground[sl2];
                     // ⚠ The derivation must REPRODUCE the query for the identity
@@ -740,7 +735,6 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     let pw: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(slotpred[sj] as *const u8) });
                     let ss: StepSel = decide_join_step(pw, c.var[sl2], t, h);
                     cst[sj] = ss.strat;
-                    cky[sj] = ss.key_ty;
                     csl[sj] = ss.sel;
                     cwy[sj] = jg_pack(&ss.g);
                 }
@@ -794,7 +788,6 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     jo.conw[base + wj]   = slotpred[wj];
                     jo.crole[base + wj]  = crl[wj];
                     jo.cstrat[base + wj] = cst[wj];
-                    jo.ckey[base + wj]   = cky[wj];
                     jo.csel[base + wj]   = csl[wj];
                     jo.cground[base + wj] = cwy[wj];
                     wj = wj + 1i64;

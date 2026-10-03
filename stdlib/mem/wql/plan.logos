@@ -181,7 +181,8 @@ pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
     // materialize-vs-stream depends on it and is settled BEFORE any code
     // exists: hash and tree read the source once, loop rescans it.
     jstrat:   i32          = 9,
-    jkey:     i32          = 10,
+    // key 10 was `jkey`, the equi-key's CLASS — retired in E4.3: the key's
+    // type is re-derived from the recorded term (`jsel`), and its class is a view.
     jsel:     i32          = 11,
     // The GROUND of the decision (why.logos `jg_pack`): the rule that fired and
     // the facts it fired on, one word. It held the rendered SENTENCE until

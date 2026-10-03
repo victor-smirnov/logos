@@ -323,8 +323,8 @@ pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, sel: 
 // the decision; its sentence is rendered at the edge. Lowering copies these off
 // the surface step; the relational peephole passes the join subtree through
 // unchanged, so they survive to the emitter.
-pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jkey: i32 = 4, jsel: i32 = 5, jground: i64 = 6 }
-pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jkey: i32 = 4, jsel: i32 = 5, jground: i64 = 6 }
+pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jsel: i32 = 5, jground: i64 = 6 }
+pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jsel: i32 = 5, jground: i64 = 6 }
 pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, aggs: WRef<RAggArr> = 2 } // γ — single group key + agg specs
 pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: WRef<RExpr> = 1 }      // fixpoint — DECLARED, NOT impl in queue 1
 // ── ORDER/LIMIT/DISTINCT tier (`select [distinct] S [order by O [desc]] [limit …]`) ──
