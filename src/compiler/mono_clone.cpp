@@ -3994,9 +3994,12 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                            TypeRef(cr).kind() == LogosType::Kind::MutRef ||
                            TypeRef(cr).kind() == LogosType::Kind::Ptr) && TypeRef(cr).pointee())
                     cr = TypeRef(cr).pointee();
-                if (cr && TypeRef(cr).kind() != LogosType::Kind::Struct &&
-                    TypeRef(cr).kind() != LogosType::Kind::ZonedStruct)
-                    cr = TypeRef{};
+                if (cr) {
+                    const auto ck = TypeRef(cr).kind();
+                    const bool prim = is_primitive_scalar_kind(ck);
+                    if (!prim && ck != LogosType::Kind::Struct && ck != LogosType::Kind::ZonedStruct)
+                        cr = TypeRef{};
+                }
                 std::string_view tt = tag_trait;
                 if (auto d = tt.find("$G"); d != std::string_view::npos) tt = tt.substr(0, d);
                 int64_t nargs = 0;

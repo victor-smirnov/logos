@@ -1303,6 +1303,20 @@ struct SemaResult {
 // happens to be named Box (an empty package is tolerated on internal paths
 // where it was stripped). Its `*b` is Rust's built-in place projection
 // (ADR 0028, DerefMove): sema, codegen and both borrow checkers ask here.
+// A primitive scalar type: the integers of every width, bool, f32/f64, char —
+// the kinds whose impls are nominal (`impl Eq for i64`) and never generic.
+inline bool is_primitive_scalar_kind(LogosType::Kind k) noexcept {
+    using K = LogosType::Kind;
+    switch (k) {
+    case K::I8: case K::I16: case K::I24: case K::I32: case K::I56: case K::I64: case K::I128:
+    case K::U8: case K::U16: case K::U24: case K::U32: case K::U56: case K::U64: case K::U128:
+    case K::Usize: case K::Isize: case K::Bool: case K::F32: case K::F64: case K::Char:
+        return true;
+    default:
+        return false;
+    }
+}
+
 inline bool is_stdlib_box_type(TypeRef t) noexcept {
     if (!t) return false;
     auto k = t.kind();

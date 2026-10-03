@@ -1359,13 +1359,17 @@ std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method)
 std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
                                      int64_t arity, const std::vector<TypeRef>* arg_types) {
     TypeRef rt = self;
-    if (!rt || (TypeRef(rt).kind() != LogosType::Kind::Struct &&
-                TypeRef(rt).kind() != LogosType::Kind::ZonedStruct) || contains_typevar(rt))
-        return {};
-    std::string base{TypeRef(rt).struct_name()};
-    if (auto p = base.find("$G"); p != std::string::npos) base = base.substr(0, p);
-    if (auto p = base.find("$M"); p != std::string::npos) base = base.substr(0, p);
-    const std::string pkg{TypeRef(rt).pkg_name()};
+    if (!rt || contains_typevar(rt)) return {};
+    using K = LogosType::Kind;
+    const auto rk = TypeRef(rt).kind();
+    // A primitive self (`impl Eq for i64`): its impls are nominal, keyed by the
+    // type's own spelling, and never generic.
+    const bool prim = is_primitive_scalar_kind(rk);
+    if (!prim && rk != K::Struct && rk != K::ZonedStruct) return {};
+    std::string base = prim ? type_str(rt) : std::string(TypeRef(rt).struct_name());
+    if (auto p = base.find("$G"); !prim && p != std::string::npos) base = base.substr(0, p);
+    if (auto p = base.find("$M"); !prim && p != std::string::npos) base = base.substr(0, p);
+    const std::string pkg = prim ? std::string() : std::string(TypeRef(rt).pkg_name());
     auto bare_of = [](std::string_view t) {
         if (auto p = t.rfind("::"); p != std::string_view::npos) t = t.substr(p + 2);
         if (auto p = t.rfind('.'); p != std::string_view::npos) t = t.substr(p + 1);
@@ -1406,7 +1410,9 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
                        (TypeRef(t).elem() && has_param(TypeRef(t).elem()));
             };
             const bool generic = pat && has_param(pat);
-            if (pat) {
+            if (prim) {
+                if (generic || tgt != base) continue;
+            } else if (pat) {
                 if (TypeRef(pat).kind() != LogosType::Kind::Struct &&
                     TypeRef(pat).kind() != LogosType::Kind::ZonedStruct) continue;
                 std::string pb{TypeRef(pat).struct_name()};
@@ -1424,8 +1430,9 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
                 // A method-level generic (`fn fold<B>`) names a template per
                 // instantiation: not this resolver's answer.
                 if (!fn.type_params_empty()) continue;
-                std::string name = generic ? method_instance_name(concrete_struct_name(rt), pkg, base, method, sym)
-                                           : std::string(sym);
+                std::string name = generic && !prim
+                                       ? method_instance_name(concrete_struct_name(rt), pkg, base, method, sym)
+                                       : std::string(sym);
                 if (best.empty()) best = name; else if (best != name) ambiguous = true;
                 if (!arg_types || generic) continue;
                 auto ps = fn.params();

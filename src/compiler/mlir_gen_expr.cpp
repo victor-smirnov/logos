@@ -3370,7 +3370,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         // receiver sema shaped is the self argument as it stands.
         if ((k == K::Ref || k == K::MutRef) && recv_t.pointee()) {
             auto pk2 = TypeRef(recv_t.pointee()).kind();
-            if (pk2 == K::Ref || pk2 == K::MutRef || pk2 == K::Ptr)
+            if (pk2 == K::Ref || pk2 == K::MutRef || pk2 == K::Ptr || is_primitive_scalar_kind(pk2))
                 primitive_recv = true;
         }
         // A `str` receiver is `[u8]` — NOT a struct, so `gen_recv_struct`
