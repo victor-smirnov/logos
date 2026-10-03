@@ -1,0 +1,32 @@
+// #726: `distinct <rel>.<col>` must name a column of the rel.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub struct Steps { pub n: i64 }
+pub trait StepSource { rel entry(key: i64, val: i64); }
+pub fn steps_rows(s: &Steps) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < s.n { out.push((i % 3i64, i)); i = i + 1i64; }
+    return out;
+}
+pub fn steps_len(s: &Steps) -> u64 { return s.n as u64; }
+pub fn steps_ndv(s: &Steps) -> u64 { return if s.n < 3i64 { s.n as u64 } else { 3u64 }; }
+impl StepSource for Steps {
+    rel entry = steps_rows;
+    size entry = steps_len;
+    distinct entry.kee = steps_ndv;
+}
+
+pub deem keyed(c: &Steps) { from c r where r.key == 1 select r.val }
+
+fn main() -> i32 {
+    let s: Steps = Steps { n: 9i64 };
+    let v: Vec<i64> = match keyed(&s) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if v.len() != 3i64 { return 2i32; }
+    if v.get(0i64) != 1i64 || v.get(1i64) != 4i64 || v.get(2i64) != 7i64 { return 3i32; }
+    if steps_ndv(&s) != 3u64 { return 4i32; }
+    return 0i32;
+}

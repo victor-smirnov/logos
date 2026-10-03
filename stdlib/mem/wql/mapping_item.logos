@@ -24,10 +24,11 @@
 // already parsed and validated signatures; rel BODIES are validated at first
 // consumption, like generics and templates). It emits no items.
 //
-// Per-rel `pub` is retained in the surface: its meaning is now "this rel is
-// part of the mapping's consumer-visible vocabulary" (enforcement at the
-// consumption seam is a named follow-up, #352: the consumer's handler does
-// not receive the mask yet; non-pub rels are internals).
+// Per-rel `pub` is retained in the surface: "this rel is part of the mapping's
+// consumer-visible vocabulary". A non-`pub` rel is an internal, enforced at the
+// consumption seam (#352): a consumer in another package that queries it is
+// refused; the mapping's own rels may (the fusion spec carries the mask, and
+// plan_walker's resolve_source judges each reference).
 package logos.std.wql.mapping_item;
 
 use logos.std.compiler.metaprog;         // ItemList, item_list_new, error

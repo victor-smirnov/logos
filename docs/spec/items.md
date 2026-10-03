@@ -912,7 +912,7 @@ Each rel declares 1–8 `name: type` columns; column types are restricted to i64
 
 ### `item.mapping.rel-visibility` — per-rel `pub` marks the consumer-visible vocabulary
 
-A rel without `pub` is an INTERNAL of the vocabulary (other rels of the same mapping may reference it); `pub rel` marks the rels a consumer is meant to query. (Enforcement at the consumption seam is a named follow-up; with the direct-call surface retired there are no per-rel fns for visibility to attach to.)
+A rel without `pub` is an INTERNAL of the vocabulary (other rels of the same mapping may reference it); `pub rel` marks the rels a consumer is meant to query. Enforced at the consumption seam: a consumer in another package whose query or rels name a non-`pub` rel of a fused mapping is refused, naming the rel and the mapping (the package boundary, as for the mapping's own visibility; within the mapping's package every rel is visible).
 
 ### `item.mapping.visibility` — three-tier visibility, incl. across binary modules
 
