@@ -258,7 +258,7 @@ SINGLETONS = {
         # LOGOS_TRACE_PLAN=facts.
         T('logos_09_plan_ground_facts',
           ['{tsrc}/plan_ground_facts_gate.sh', '{logosc}', '{tsrc}/pass'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=120, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB),
         # ADR 0025 S2 — MATERIALIZATION AS A NAMED PLAN NODE (§4).
         T('logos_09_plan_nodes',
           ['{tsrc}/plan_nodes_gate.sh', '{logosc}', '{tsrc}/pass/deem_join_step_reread.logos', '{tsrc}/pass/deem_batch_scan_drain.logos', '{tsrc}/pass/deem_hashmap_source.logos', '{tsrc}/pass/deem_cross_domain_join.logos'],

@@ -1192,3 +1192,236 @@ pub fn ag_push_facts(g: &AccessGround, out: &mut String) {
     out.push_str("]");
 }
 
+// ══ HOW A REL TRAVELS, AND HOW MANY ROWS IT HAS — the mode and size grounds (E3) ══
+//
+// `access_plan_decide_mode` (stream vs materialize) and `access_plan_ask_size`
+// wrote a sentence per rel; `plan_mark_rel_landings` later OVERWROTE the mode
+// sentence for recursive and rel-block rels. Now each records facts on one
+// `AccessGround` per rel and names a rule; a later pass ADDS its fact to the same
+// record rather than replacing the text. The drained case renders the drain
+// node's own sentence (the per-rel line and the node line quote one string, the
+// rule `access_plan_decide_mode` already had).
+pub fn MA_ITER() -> i32    { return 0i32; }   // the producer is an iterator
+pub fn MA_ORDERED() -> i32 { return 1i32; }   // `order by` is over the column rows arrive sorted by
+pub fn MA_DESC() -> i32    { return 2i32; }   // …descending
+pub fn MA_DRAIN() -> i32   { return 3i32; }   // a drain node was inserted over it
+pub fn MA_REC() -> i32     { return 4i32; }   // the rel is a member of a recursive SCC
+pub fn MA_NATIVE() -> i32  { return 5i32; }   // the rel is a native (declared) source
+pub fn MA_N() -> i32       { return 6i32; }
+
+pub fn MR_UNSET() -> i32      { return 0i32; }
+pub fn MR_CONTAINER() -> i32  { return 1i32; }
+pub fn MR_ORDERED_REV() -> i32 { return 2i32; }
+pub fn MR_ORDERED() -> i32    { return 3i32; }
+pub fn MR_DRAINED() -> i32    { return 4i32; }
+pub fn MR_STREAM() -> i32     { return 5i32; }
+pub fn MR_FIXPOINT() -> i32   { return 6i32; }
+pub fn MR_REL_HELPER() -> i32 { return 7i32; }
+
+pub fn ZA_SIZE() -> i32       { return 0i32; }  // the source declares a size operation
+pub fn ZR_UNSET() -> i32      { return 0i32; }
+pub fn ZR_MEASURED() -> i32   { return 1i32; }
+pub fn ZR_UNMEASURED() -> i32 { return 2i32; }
+
+/// THE ONE RENDERER of a mode ground. `MR_DRAINED` has no sentence of its own:
+/// the caller renders the drain node's (`node_why`), which is the point of it.
+pub fn mr_render(r: i32, node_why: str) -> str {
+    if r == MR_CONTAINER()   { return "materialized: the producer returns a container, not an iterator"; }
+    if r == MR_ORDERED_REV() { return "streamed BACKWARD: the producer is an iterator over the column the rows already arrive sorted by, the plan reads it once, and `desc` is one landing at the end plus a backward pull"; }
+    if r == MR_ORDERED()     { return "streamed: the producer is an iterator, the plan reads it once, and the `order by` is over the column the rows already arrive sorted by"; }
+    if r == MR_DRAINED()     { return node_why; }
+    if r == MR_STREAM()      { return "streamed: the producer is an iterator and the plan reads it once"; }
+    if r == MR_FIXPOINT()    { return "materialized: this rel is recursive, so the semi-naive fixpoint accumulates its rows into a Vec the SCC driver grows — the plan builds this container rather than being handed one"; }
+    if r == MR_REL_HELPER()  { return "materialized: the rel block's helper fn folds the body into a Vec and returns it, and the prelude binds the result — the container is built by code this compilation emitted, not handed over by a source"; }
+    return "";
+}
+pub fn mr_name(r: i32) -> str {
+    if r == MR_CONTAINER()   { return "container"; }
+    if r == MR_ORDERED_REV() { return "ordered_rev"; }
+    if r == MR_ORDERED()     { return "ordered"; }
+    if r == MR_DRAINED()     { return "drained"; }
+    if r == MR_STREAM()      { return "stream"; }
+    if r == MR_FIXPOINT()    { return "fixpoint"; }
+    if r == MR_REL_HELPER()  { return "rel_helper"; }
+    return "unset";
+}
+pub fn zr_render(r: i32) -> str {
+    if r == ZR_MEASURED()   { return "measured: the source reports its size, read once before the first row"; }
+    if r == ZR_UNMEASURED() { return "unmeasured: the source declares no size operation, so the cardinality ORDINAL is all this plan has"; }
+    return "";
+}
+fn ma_code(a: i32) -> str {
+    if a == MA_ITER()    { return "iter"; }
+    if a == MA_ORDERED() { return "ordered"; }
+    if a == MA_DESC()    { return "desc"; }
+    if a == MA_DRAIN()   { return "drain"; }
+    if a == MA_REC()     { return "recursive"; }
+    if a == MA_NATIVE()  { return "native"; }
+    return "?";
+}
+fn push_ma_mask(out: &mut String, m: i32) {
+    let mut a: i32 = 0i32;
+    let mut first: bool = true;
+    while a < MA_N() {
+        if (m & ja_bit(a)) != 0i32 {
+            if !first { out.push_str(","); }
+            out.push_str(ma_code(a));
+            first = false;
+        }
+        a = a + 1i32;
+    }
+}
+pub fn mg_push_facts(g: &AccessGround, out: &mut String) {
+    out.push_str("rule="); out.push_str(mr_name(g.rule));
+    out.push_str(" held=["); push_ma_mask(out, g.held);
+    out.push_str("] failed=["); push_ma_mask(out, g.asked & !g.held);
+    out.push_str("]");
+}
+
+// ══ MAY THIS QUERY HAVE AN INCREMENTAL HANDLE — its ground (E3) ══════════════
+//
+// `rexpr_walk::incr_eligible` is a CASCADE: each test ends the decision when it
+// fails, so its ground is the FIRST FAILED ANTECEDENT — the shape of S4o's `WG_*`,
+// a code that names it, not a mask. Each code renders the sentence the cascade's
+// `incr_decline(qn, "…")` used to carry, byte for byte; the three `EMIT_*` codes
+// are the admitted shapes. `IR_REL_NOT_INCR`'s sentence is an operand (the rel
+// registry's own ground), so it has no rendering here.
+pub fn IR_JOIN_SRC_REL() -> i32 { return 1i32; }
+pub fn IR_BASE_REL_JOINS() -> i32 { return 2i32; }
+pub fn IR_REL_SLICE_COUNT() -> i32 { return 3i32; }
+pub fn IR_REL_ROW_TY() -> i32 { return 4i32; }
+pub fn IR_REL_COL_TY() -> i32 { return 5i32; }
+pub fn IR_CHAIN_LONG() -> i32 { return 6i32; }
+pub fn IR_JOIN_INSERT_ONLY() -> i32 { return 7i32; }
+pub fn IR_JOIN_ANTI() -> i32 { return 8i32; }
+pub fn IR_JOIN_EDGE() -> i32 { return 9i32; }
+pub fn IR_JOIN_BYVAL() -> i32 { return 10i32; }
+pub fn IR_JOIN_STREAMS() -> i32 { return 11i32; }
+pub fn IR_SELF_JOIN() -> i32 { return 12i32; }
+pub fn IR_JOIN_ROW_TY() -> i32 { return 13i32; }
+pub fn IR_PRE_WHERE() -> i32 { return 14i32; }
+pub fn IR_MODIFIERS() -> i32 { return 15i32; }
+pub fn IR_GENERIC() -> i32 { return 16i32; }
+pub fn IR_UDA() -> i32 { return 17i32; }
+pub fn IR_AGG_STR() -> i32 { return 18i32; }
+pub fn IR_KEY_STR() -> i32 { return 19i32; }
+pub fn IR_RESULT_STR() -> i32 { return 20i32; }
+pub fn IR_SELECT_NAME() -> i32 { return 21i32; }
+pub fn IR_HAVING_NAME() -> i32 { return 22i32; }
+pub fn IR_PROJ_STR() -> i32 { return 23i32; }
+pub fn IR_REL_NOT_INCR() -> i32 { return 24i32; }
+pub fn IR_EMIT_JOIN() -> i32 { return 25i32; }
+pub fn IR_EMIT_REL() -> i32 { return 26i32; }
+pub fn IR_EMIT_SCAN() -> i32 { return 27i32; }
+
+pub fn ir_render(r: i32) -> str {
+    if r == IR_JOIN_SRC_REL() { return "a JOIN-POSITION source is a DECLARED `rel` — the handle's joined side is stored as a weighted Z-set (`__s<k>`/`__s<k>w`) and a derived rel has no multiplicity to store: its rows come out of a set-semantics fixpoint over the ACCUMULATED input, which is state the join arm does not own"; }
+    if r == IR_BASE_REL_JOINS() { return "the BASE source is a declared `rel` and the query also JOINS — one epoch would have to extend a set-semantics fixpoint total and integrate a weighted Z-set side, and the source TAG that tells them apart lives on `<q>_apply`, which a rel-backed query does not emit"; }
+    if r == IR_REL_SLICE_COUNT() { return "a rel-backed query must have EXACTLY ONE slice parameter — `<q>_epoch` keeps the parameter list verbatim, so with two the caller passes both on every call and nothing says which is the delta; the join arm answers that with a source TAG on `<q>_apply`, which a rel-backed query does not emit"; }
+    if r == IR_REL_ROW_TY() { return "the rel's INPUT ROW TYPE is not OWNABLE AND IDENTIFIABLE field by field — the handle accumulates every fact ever applied, so a `str` field is a borrow of source bytes it does not own and an `f64` field has no `==` that is identity (NaN != NaN, -0.0 == +0.0) for the insert presence gate to search on"; }
+    if r == IR_REL_COL_TY() { return "a rel COLUMN is `str` or `f64` — the handle owns the fixpoint TOTAL, and a `str` column is a borrow while an `f64` column has no `==` that is identity for the shadow set that makes the fixpoint terminate"; }
+    if r == IR_CHAIN_LONG() { return "the input is a JOIN CHAIN OF TWO OR MORE STEPS — rooting the nest at a step other than the base re-splits every equi-term's build/probe halves and re-places every floating predicate, which is `decide_join_orders`' derivation and this emitter does not run it"; }
+    if r == IR_JOIN_INSERT_ONLY() { return "the query JOINS and keeps the INSERT-ONLY surface (an aggregate accumulates in `f64` — decision D4), and the source TAG a join delta must carry lives on `<q>_apply`, which only the retracting surface emits"; }
+    if r == IR_JOIN_ANTI() { return "the join step is ANTI — anti is a MATCHCOUNT whose 0↔positive crossing must emit a retraction of a row that never changed, which is a second state machine and not the product rule"; }
+    if r == IR_JOIN_EDGE() { return "the join step is a TRAVERSAL (`edge`) — its source is re-derived per bound row, so there is no standalone relation for the handle to own or for a source tag to name"; }
+    if r == IR_JOIN_BYVAL() { return "the join step binds its row BY VALUE — the handle's stored side is a `Vec` this emitter binds by reference, and the two spellings are not interchangeable in the emitted predicate"; }
+    if r == IR_JOIN_STREAMS() { return "a join source STREAMS — an iterator yields its rows once, so the handle would have to be its only reader and the caller could never re-present it as a delta"; }
+    if r == IR_SELF_JOIN() { return "the join is a SELF-JOIN — one relation in two chain positions, so one source tag would feed both, and folding a delta against a state that must already contain it is the double count this rule exists to avoid"; }
+    if r == IR_JOIN_ROW_TY() { return "a join source's ROW TYPE is not OWNABLE AND IDENTIFIABLE field by field — the handle stores whole rows of both sides, so a `str` field is a borrow of source bytes it does not own, a struct field is an ownership question this clause does not walk, and an `f64` field has no `==` that is identity (NaN != NaN, -0.0 == +0.0) for the Z-set's normal form to search on"; }
+    if r == IR_PRE_WHERE() { return "a PRE-GROUP `where` filters rows before the fold, and that arm has never been folded incrementally — `having`, which sits above the group, IS admitted"; }
+    if r == IR_MODIFIERS() { return "`order by` / `limit` / `distinct` act on the SNAPSHOT rather than on the fold — cheap to add, excluded here so the emitted surface stays what a fixture asserts"; }
+    if r == IR_GENERIC() { return "the query is GENERIC — the handle type would have to carry the same type parameters and so would all three derived fns"; }
+    if r == IR_UDA() { return "a USER AGGREGATE threads its own accumulator type through `_step`, which is outside `agg_acc_ty`'s domain"; }
+    if r == IR_AGG_STR() { return "an aggregate COLUMN is `str`/`String` — a handle owns its cells and a `str` cell is a borrow of a source row it does not keep"; }
+    if r == IR_KEY_STR() { return "the GROUP KEY is `str`/`String` — the dynamic engine solves this by interning into its own Writ, which is the one thing a typed handle exists not to need"; }
+    if r == IR_RESULT_STR() { return "the RESULT element type is `str`/`String`"; }
+    if r == IR_SELECT_NAME() { return "`select` reaches a name that is neither `key` nor an aggregate output — a source row (its index means nothing across epochs) or a scalar parameter (`<q>_snapshot` takes none)"; }
+    if r == IR_HAVING_NAME() { return "`having` reaches a name that is neither `key` nor an aggregate output"; }
+    if r == IR_PROJ_STR() { return "a projected COMPONENT is a `str`/`String` value, which the handle cannot hand back without borrowing something it does not own"; }
+    if r == IR_EMIT_JOIN() { return "one join step over two owned relations, group by, weighted aggregates over self-contained types"; }
+    if r == IR_EMIT_REL() { return "one bare scan over a RECURSIVE `rel`, group by, insert-only aggregates — the handle owns the accumulated input and the fixpoint TOTAL, and each epoch EXTENDS that total through the cross-epoch semi-naive driver"; }
+    if r == IR_EMIT_SCAN() { return "one bare scan, group by, insert-only aggregates over self-contained types"; }
+    return "";
+}
+
+pub fn ir_name(r: i32) -> str {
+    if r == IR_JOIN_SRC_REL() { return "join_src_rel"; }
+    if r == IR_BASE_REL_JOINS() { return "base_rel_joins"; }
+    if r == IR_REL_SLICE_COUNT() { return "rel_slice_count"; }
+    if r == IR_REL_ROW_TY() { return "rel_row_ty"; }
+    if r == IR_REL_COL_TY() { return "rel_col_ty"; }
+    if r == IR_CHAIN_LONG() { return "chain_long"; }
+    if r == IR_JOIN_INSERT_ONLY() { return "join_insert_only"; }
+    if r == IR_JOIN_ANTI() { return "join_anti"; }
+    if r == IR_JOIN_EDGE() { return "join_edge"; }
+    if r == IR_JOIN_BYVAL() { return "join_byval"; }
+    if r == IR_JOIN_STREAMS() { return "join_streams"; }
+    if r == IR_SELF_JOIN() { return "self_join"; }
+    if r == IR_JOIN_ROW_TY() { return "join_row_ty"; }
+    if r == IR_PRE_WHERE() { return "pre_where"; }
+    if r == IR_MODIFIERS() { return "modifiers"; }
+    if r == IR_GENERIC() { return "generic"; }
+    if r == IR_UDA() { return "uda"; }
+    if r == IR_AGG_STR() { return "agg_str"; }
+    if r == IR_KEY_STR() { return "key_str"; }
+    if r == IR_RESULT_STR() { return "result_str"; }
+    if r == IR_SELECT_NAME() { return "select_name"; }
+    if r == IR_HAVING_NAME() { return "having_name"; }
+    if r == IR_PROJ_STR() { return "proj_str"; }
+    if r == IR_REL_NOT_INCR() { return "rel_not_incr"; }
+    if r == IR_EMIT_JOIN() { return "emit_join"; }
+    if r == IR_EMIT_REL() { return "emit_rel"; }
+    if r == IR_EMIT_SCAN() { return "emit_scan"; }
+    return "unset";
+}
+
+// ══ MAY THE HANDLE RUN BACKWARDS — the retraction ground (E3) ════════════════
+// `rexpr_walk::incr_retract_eligible`: the first failed antecedent, as above.
+pub fn RT_REC_REL() -> i32   { return 1i32; }   // backed by a recursive `rel` (DRed is the mechanism)
+pub fn RT_FLOAT_ACC() -> i32 { return 2i32; }   // an aggregate accumulates in f64
+pub fn RT_EXACT() -> i32     { return 3i32; }   // admitted: every aggregate inverts exactly
+
+pub fn rt_render(r: i32) -> str {
+    if r == RT_REC_REL()   { return "the query is backed by a RECURSIVE `rel` — a derived fact may support ITSELF through a cycle, so there is no amount to subtract; the correct mechanism is DRed (over-delete, compact, re-derive), a provenance state machine and not an inverse fold. \u26a0 AND DRed IS A PESSIMIZATION TODAY: measured 1.15-1.9x a from-scratch recompute, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range \u2014 so admitting this shape is not a free capability, and the price must be named to the caller at the moment it becomes reachable. The repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations"; }
+    if r == RT_FLOAT_ACC() { return "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take"; }
+    if r == RT_EXACT()     { return "every aggregate in the list runs backwards exactly — `count` and integer `sum` invert exactly under their own checked predicate, `min`/`max` rescan a typed value→multiplicity map"; }
+    return "";
+}
+pub fn rt_name(r: i32) -> str {
+    if r == RT_REC_REL()   { return "rec_rel"; }
+    if r == RT_FLOAT_ACC() { return "float_acc"; }
+    if r == RT_EXACT()     { return "exact"; }
+    return "unset";
+}
+
+// ══ THE DRed EPOCH DRIVER — emitted or not, and why (E3) ═════════════════════
+pub fn DR_EMIT() -> i32   { return 1i32; }   // the four-phase driver is emitted
+pub fn DR_FLOAT() -> i32  { return 2i32; }   // an aggregate accumulates in f64
+pub fn DR_MINMAX() -> i32 { return 3i32; }   // a min/max needs the retraction surface's map
+pub fn dr_render(r: i32) -> str {
+    if r == DR_EMIT()   { return "the four-phase DRed epoch driver `__wql_<q>_scc<c>_dred` — `_od` then `_odp` then `_cpt` then `_i`, on driver-local state, with `DE ⊆ __edb` enforced EXACTLY against the accumulated input before phase 1a and a SIGNED group fold (`__rm_<m>` at −1, the post-`_cpt` suffix at +1). ATOMIC AT THE HANDLE: every phase runs on a full local copy and the caller's handle is written once, at the end, so an `Err` from any phase or either fold half leaves it byte-identical. THE PUBLIC RETRACTION SURFACE FOLLOWS — `<q>_retract(&mut h, de, …)`, `<q>_epoch`'s signature exactly, forwarding here; `incr_retract_eligible` still declines (`retr` stays false, so no `<q>_apply` and no `__wd`) and the surface is emitted from this admission instead. ⚠ AND IT IS A PESSIMIZATION THE CALLER PAYS FOR: measured 1.15-1.9x a from-scratch recompute over the survivors, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range — the repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations"; }
+    if r == DR_FLOAT()  { return "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and the driver's NEGATIVE fold is exactly the `(S+x)-x != S` arithmetic that is Victor's OPEN decision D4 — the same `retract_ok` derivation `incr_retract_eligible` reads, asked of a rel-backed query for the first time"; }
+    if r == DR_MINMAX() { return "an aggregate is `min`/`max` — it retracts by RESCAN over a per-(group, aggregate) value→multiplicity MAP, and that map is a handle field built only on the RETRACTION surface (`want_map = retr && is_mm`), which a rel-backed query does not have; the −1 fold would have nothing to rescan. A MISSING STATE refusal, not an arithmetic one"; }
+    return "";
+}
+pub fn dr_name(r: i32) -> str {
+    if r == DR_EMIT()   { return "emit"; }
+    if r == DR_FLOAT()  { return "float_acc"; }
+    if r == DR_MINMAX() { return "min_max"; }
+    return "unset";
+}
+
+// ══ THE AGGREGATE'S GROUP-FRAME CLASS (E3) ════════════════════════════════════
+pub fn AC_PURE() -> i32 { return 1i32; }   // clauses above the group read key + outputs only
+pub fn AC_REP() -> i32  { return 2i32; }   // a clause reads a source row: carry a representative
+pub fn ac_render(r: i32) -> str {
+    if r == AC_PURE() { return "`select`/`having`/`order by` are over `key` + aggregate outputs only — the group frame is the whole answer"; }
+    if r == AC_REP()  { return "a clause above the group names a SOURCE ROW — the group must carry a representative base row"; }
+    return "";
+}
+pub fn ac_verdict(r: i32) -> str {
+    if r == AC_PURE() { return "PURE"; }
+    if r == AC_REP()  { return "REP"; }
+    return "UNSET";
+}
+

@@ -5612,11 +5612,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     let pure_group: bool = agg_group_frame_pure(&aggs, acount, proj_opt, having_ref,
                                                 has_having, mods);
     if pure_group {
-        plan_trace("aggclass", "PURE", fn_name,
-                   "`select`/`having`/`order by` are over `key` + aggregate outputs only — the group frame is the whole answer");
+        aggclass_trace(fn_name, AC_PURE());
     } else {
-        plan_trace("aggclass", "REP", fn_name,
-                   "a clause above the group names a SOURCE ROW — the group must carry a representative base row");
+        aggclass_trace(fn_name, AC_REP());
     }
 
     let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
@@ -6409,14 +6407,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // axis avoids by not tracing before eligibility.
     if rel_m >= 0i64 && !retr {
         if dred {
-            plan_trace("rel dred driver", "EMITTED", bare,
-                       "the four-phase DRed epoch driver `__wql_<q>_scc<c>_dred` — `_od` then `_odp` then `_cpt` then `_i`, on driver-local state, with `DE ⊆ __edb` enforced EXACTLY against the accumulated input before phase 1a and a SIGNED group fold (`__rm_<m>` at −1, the post-`_cpt` suffix at +1). ATOMIC AT THE HANDLE: every phase runs on a full local copy and the caller's handle is written once, at the end, so an `Err` from any phase or either fold half leaves it byte-identical. THE PUBLIC RETRACTION SURFACE FOLLOWS — `<q>_retract(&mut h, de, …)`, `<q>_epoch`'s signature exactly, forwarding here; `incr_retract_eligible` still declines (`retr` stays false, so no `<q>_apply` and no `__wd`) and the surface is emitted from this admission instead. ⚠ AND IT IS A PESSIMIZATION THE CALLER PAYS FOR: measured 1.15-1.9x a from-scratch recompute over the survivors, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range — the repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations");
+            dred_trace(bare, "EMITTED", DR_EMIT());
         } else if !retract_ok(aggs, acount, acc) {
-            plan_trace("rel dred driver", "declined", bare,
-                       "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and the driver's NEGATIVE fold is exactly the `(S+x)-x != S` arithmetic that is Victor's OPEN decision D4 — the same `retract_ok` derivation `incr_retract_eligible` reads, asked of a rel-backed query for the first time");
+            dred_trace(bare, "declined", DR_FLOAT());
         } else {
-            plan_trace("rel dred driver", "declined", bare,
-                       "an aggregate is `min`/`max` — it retracts by RESCAN over a per-(group, aggregate) value→multiplicity MAP, and that map is a handle field built only on the RETRACTION surface (`want_map = retr && is_mm`), which a rel-backed query does not have; the −1 fold would have nothing to rescan. A MISSING STATE refusal, not an arithmetic one");
+            dred_trace(bare, "declined", DR_MINMAX());
         }
     }
 
@@ -9011,7 +9006,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     let mut rsi: i64 = 0i64;
     while rsi < ch.n {
         if incr_src_is_derived_rel(prm, ch.src[rsi]) {
-            return incr_decline(qn, "a JOIN-POSITION source is a DECLARED `rel` — the handle's joined side is stored as a weighted Z-set (`__s<k>`/`__s<k>w`) and a derived rel has no multiplicity to store: its rows come out of a set-semantics fixpoint over the ACCUMULATED input, which is state the join arm does not own");
+            return incr_decline_r(qn, IR_JOIN_SRC_REL());
         }
         rsi = rsi + 1i64;
     }
@@ -9020,14 +9015,14 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // A rel in BASE position AND a join step: the epoch would have to
         // maintain the fixpoint total AND a weighted Z-set side in one call.
         if ch.n > 0i64 {
-            return incr_decline(qn, "the BASE source is a declared `rel` and the query also JOINS — one epoch would have to extend a set-semantics fixpoint total and integrate a weighted Z-set side, and the source TAG that tells them apart lives on `<q>_apply`, which a rel-backed query does not emit");
+            return incr_decline_r(qn, IR_BASE_REL_JOINS());
         }
         // THE SHAPE, DERIVED ONCE, IN `stamp_rel_incr_shape`. The ground travels
         // with the flag — see the note on `rel_incr_why`. ⚠ This is also what
         // keeps the admission and the ARTIFACT in step: `emit_rel_fns` emits the
         // `_i` driver under the same flag, so an admission that disagreed would
         // call a function that does not exist.
-        if !prm.rel_incr_ok[rel_m] { return incr_decline(qn, prm.rel_incr_why[rel_m]); }
+        if !prm.rel_incr_ok[rel_m] { return incr_decline_dyn(qn, IR_REL_NOT_INCR(), prm.rel_incr_why[rel_m]); }
         // ── THE ACCUMULATED INPUT MUST BE OWNABLE AND IDENTIFIABLE ──────────
         // The handle keeps the rel's EDB — every fact ever applied — because the
         // fixpoint is a function of the ACCUMULATED input and nothing else. That
@@ -9049,10 +9044,10 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             pk = pk + 1i64;
         }
         if nsl != 1i64 {
-            return incr_decline(qn, "a rel-backed query must have EXACTLY ONE slice parameter — `<q>_epoch` keeps the parameter list verbatim, so with two the caller passes both on every call and nothing says which is the delta; the join arm answers that with a source TAG on `<q>_apply`, which a rel-backed query does not emit");
+            return incr_decline_r(qn, IR_REL_SLICE_COUNT());
         }
         if !incr_row_ty_ok(ty, prm.tys[spi]) {
-            return incr_decline(qn, "the rel's INPUT ROW TYPE is not OWNABLE AND IDENTIFIABLE field by field — the handle accumulates every fact ever applied, so a `str` field is a borrow of source bytes it does not own and an `f64` field has no `==` that is identity (NaN != NaN, -0.0 == +0.0) for the insert presence gate to search on");
+            return incr_decline_r(qn, IR_REL_ROW_TY());
         }
         // The rel's own ROW type is stored too (the fixpoint total). Its columns
         // are the rel's DECLARED ones, so the question is asked of the column
@@ -9063,7 +9058,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         while ci2 < prm.rel_ccnt[rel_m] {
             let ct: str = prm.relc_ty[coff + ci2];
             if !incr_ty_ok(ct) || el_class_lookup(ct) == EL_TY_FLT() || el_class_lookup(ct) < 0i32 {
-                return incr_decline(qn, "a rel COLUMN is `str` or `f64` — the handle owns the fixpoint TOTAL, and a `str` column is a borrow while an `f64` column has no `==` that is identity for the shadow set that makes the fixpoint terminate");
+                return incr_decline_r(qn, IR_REL_COL_TY());
             }
             ci2 = ci2 + 1i64;
         }
@@ -9089,7 +9084,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // step there is ONE `on` predicate and NO placement question, and the nest
     // is two loops in either direction — which is why the line falls here and
     // not at "arbitrary chain".
-    if ch.n > 1i64 { return incr_decline(qn, "the input is a JOIN CHAIN OF TWO OR MORE STEPS — rooting the nest at a step other than the base re-splits every equi-term's build/probe halves and re-places every floating predicate, which is `decide_join_orders`' derivation and this emitter does not run it"); }
+    if ch.n > 1i64 { return incr_decline_r(qn, IR_CHAIN_LONG()); }
     if ch.n == 1i64 {
         // A delta must name its SOURCE, and the tag lives in `<q>_apply`'s
         // signature — which exists only on the RETRACTING surface. The two axes
@@ -9098,20 +9093,20 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // would need a THIRD emitted signature, `<q>_apply(&mut h, __src, …)`
         // with no weight. Named, not hidden — and it is reached only by a query
         // whose aggregate list already lost retraction to D4.
-        if !retr { return incr_decline(qn, "the query JOINS and keeps the INSERT-ONLY surface (an aggregate accumulates in `f64` — decision D4), and the source TAG a join delta must carry lives on `<q>_apply`, which only the retracting surface emits"); }
+        if !retr { return incr_decline_r(qn, IR_JOIN_INSERT_ONLY()); }
         // An ANTI step is a MATCHCOUNT, not a product: a base row's membership
         // in the output flips when its match count crosses 0, so a delta on the
         // anti side must EMIT A RETRACTION of a row that itself did not change.
         // That is a second state machine (the dynamic engine spends
         // `incr.logos:1149-1251` on it) and it is not this fold.
-        if ch.anti[0] { return incr_decline(qn, "the join step is ANTI — anti is a MATCHCOUNT whose 0↔positive crossing must emit a retraction of a row that never changed, which is a second state machine and not the product rule"); }
+        if ch.anti[0] { return incr_decline_r(qn, IR_JOIN_ANTI()); }
         // A TRAVERSAL step's source is a field-path expression re-derived per
         // BOUND ROW (`a.children`), so there is no standalone relation for the
         // handle to own and no tag that could name one.
-        if ch.edge[0] { return incr_decline(qn, "the join step is a TRAVERSAL (`edge`) — its source is re-derived per bound row, so there is no standalone relation for the handle to own or for a source tag to name"); }
+        if ch.edge[0] { return incr_decline_r(qn, IR_JOIN_EDGE()); }
         // A BY-VALUE binding is the streamed/iterator shape's; the stored side is
         // a `Vec` this emitter indexes by reference.
-        if ch.byval[0] { return incr_decline(qn, "the join step binds its row BY VALUE — the handle's stored side is a `Vec` this emitter binds by reference, and the two spellings are not interchangeable in the emitted predicate"); }
+        if ch.byval[0] { return incr_decline_r(qn, IR_JOIN_BYVAL()); }
         // A STREAMED source yields its rows ONCE. The handle would have to be
         // that single reader and would then own a relation the caller can no
         // longer re-present as a delta.
@@ -9121,7 +9116,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // readings became `rel_src_unmaterialized` (the plan's node); this one
         // is a decision and stays on the decision's boolean.
         if prm.rel_src_streams(ch.base_src) || prm.rel_src_streams(ch.src[0]) {
-            return incr_decline(qn, "a join source STREAMS — an iterator yields its rows once, so the handle would have to be its only reader and the caller could never re-present it as a delta");
+            return incr_decline_r(qn, IR_JOIN_STREAMS());
         }
         // A SELF-JOIN puts ONE relation in TWO chain positions, so one tag would
         // have to feed both — and integrating the delta once while folding it
@@ -9129,7 +9124,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // same-epoch double count this slice's fixture exists to catch. The
         // dynamic engine refuses it too (`incr.logos:1780`).
         if str_eq(ch.base_src, ch.src[0]) {
-            return incr_decline(qn, "the join is a SELF-JOIN — one relation in two chain positions, so one source tag would feed both, and folding a delta against a state that must already contain it is the double count this rule exists to avoid");
+            return incr_decline_r(qn, IR_SELF_JOIN());
         }
         // THE HANDLE OWNS ITS STORED SIDES, ROW BY ROW AND FIELD BY FIELD.
         // ⚠⚠ THIS CLAUSE IS NOT A FORMALITY AND THE COMPILER DOES NOT ENFORCE
@@ -9142,31 +9137,31 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         // the group key, of every accumulator column and of every projected
         // component — and never of the ROW, because until now no row was stored.
         if !incr_row_ty_ok(ty, ch.base_ty) || !incr_row_ty_ok(ty, ch.ty[0]) {
-            return incr_decline(qn, "a join source's ROW TYPE is not OWNABLE AND IDENTIFIABLE field by field — the handle stores whole rows of both sides, so a `str` field is a borrow of source bytes it does not own, a struct field is an ownership question this clause does not walk, and an `f64` field has no `==` that is identity (NaN != NaN, -0.0 == +0.0) for the Z-set's normal form to search on");
+            return incr_decline_r(qn, IR_JOIN_ROW_TY());
         }
     }
     // A PRE-GROUP `where` is admissible in principle and is refused here for the
     // same reason the dynamic engine refuses it: it has never been folded through
     // the incremental path, so admitting it would be an untested arm. `having`
     // sits ABOVE the group and IS admitted — it is re-evaluated per snapshot.
-    if has_where { return incr_decline(qn, "a PRE-GROUP `where` filters rows before the fold, and that arm has never been folded incrementally — `having`, which sits above the group, IS admitted"); }
+    if has_where { return incr_decline_r(qn, IR_PRE_WHERE()); }
     // `order by` / `limit` / `distinct` all act on the SNAPSHOT rather than on
     // the fold, so they are cheap to add later and are excluded now only to keep
     // the emitted surface to what a fixture in this slice actually asserts.
-    if mods.has_sort || mods.has_limit || mods.distinct { return incr_decline(qn, "`order by` / `limit` / `distinct` act on the SNAPSHOT rather than on the fold — cheap to add, excluded here so the emitted surface stays what a fixture asserts"); }
+    if mods.has_sort || mods.has_limit || mods.distinct { return incr_decline_r(qn, IR_MODIFIERS()); }
     // A generic `deem` would need the handle TYPE to carry the same type
     // parameters, which is a second emitted-surface question (they would ride
     // every one of the three fns as well). Named deferral.
-    if prm.tparams.len() > 0i64 { return incr_decline(qn, "the query is GENERIC — the handle type would have to carry the same type parameters and so would all three derived fns"); }
+    if prm.tparams.len() > 0i64 { return incr_decline_r(qn, IR_GENERIC()); }
     let mut i: i64 = 0i64;
     while i < acount {
         // A UDA threads the user's `A` and its own `_step`; its accumulator is
         // outside `agg_acc_ty`'s domain by construction, and the dynamic engine's
         // algebra gate refuses it too.
-        if uda[i] { return incr_decline(qn, "a USER AGGREGATE threads its own accumulator type through `_step`, which is outside `agg_acc_ty`'s domain"); }
+        if uda[i] { return incr_decline_r(qn, IR_UDA()); }
         // THE HANDLE OWNS ITS CELLS. A `str` accumulator column would be a BORROW
         // of a source row, and the source is exactly what a handle does not keep.
-        if !incr_ty_ok(act[i]) { return incr_decline(qn, "an aggregate COLUMN is `str`/`String` — a handle owns its cells and a `str` cell is a borrow of a source row it does not keep"); }
+        if !incr_ty_ok(act[i]) { return incr_decline_r(qn, IR_AGG_STR()); }
         i = i + 1i64;
     }
     // The group KEY is stored by value for the handle's whole life, so the same
@@ -9174,8 +9169,8 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // not an oversight: the dynamic engine solves it by interning every string
     // into its own Writ arena, which would put a Writ back into a path whose
     // whole thesis is that it needs none.
-    if !incr_ty_ok(key_ty) { return incr_decline(qn, "the GROUP KEY is `str`/`String` — the dynamic engine solves this by interning into its own Writ, which is the one thing a typed handle exists not to need"); }
-    if tres == 0i32 && !incr_ty_ok(result_ty) { return incr_decline(qn, "the RESULT element type is `str`/`String`"); }
+    if !incr_ty_ok(key_ty) { return incr_decline_r(qn, IR_KEY_STR()); }
+    if tres == 0i32 && !incr_ty_ok(result_ty) { return incr_decline_r(qn, IR_RESULT_STR()); }
     // `select` and `having` must be evaluable from the GROUP ROW alone — no
     // source row (its index is meaningless across epochs) and no scalar
     // parameter (it is a per-call value, and `<q>_snapshot` takes none).
@@ -9183,25 +9178,25 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     let mut j: i64 = 0i64;
     while j < acount { onames[j] = aggs.agg_at(j).out; j = j + 1i64; }
     if !sexpr_over_group_names(proj_e, &onames, acount) {
-        return incr_decline(qn, "`select` reaches a name that is neither `key` nor an aggregate output — a source row (its index means nothing across epochs) or a scalar parameter (`<q>_snapshot` takes none)");
+        return incr_decline_r(qn, IR_SELECT_NAME());
     }
     if has_having && !sexpr_over_group_names(having_ref.any().view::<SExpr>(), &onames, acount) {
-        return incr_decline(qn, "`having` reaches a name that is neither `key` nor an aggregate output");
+        return incr_decline_r(qn, IR_HAVING_NAME());
     }
     // Every projected COMPONENT must be a value the handle can hand back without
     // borrowing anything it does not own.
     if !incr_proj_ty_ok(proj_e, ty) {
-        return incr_decline(qn, "a projected COMPONENT is a `str`/`String` value, which the handle cannot hand back without borrowing something it does not own");
+        return incr_decline_r(qn, IR_PROJ_STR());
     }
     if ch.n == 1i64 {
-        plan_trace("incremental", "EMITTED", qn, "one join step over two owned relations, group by, weighted aggregates over self-contained types");
+        incr_emit(qn, IR_EMIT_JOIN());
         return true;
     }
     if rel_m >= 0i64 {
-        plan_trace("incremental", "EMITTED", qn, "one bare scan over a RECURSIVE `rel`, group by, insert-only aggregates — the handle owns the accumulated input and the fixpoint TOTAL, and each epoch EXTENDS that total through the cross-epoch semi-naive driver");
+        incr_emit(qn, IR_EMIT_REL());
         return true;
     }
-    plan_trace("incremental", "EMITTED", qn, "one bare scan, group by, insert-only aggregates over self-contained types");
+    incr_emit(qn, IR_EMIT_SCAN());
     return true;
 }
 
@@ -9304,6 +9299,35 @@ fn incr_src_is_derived_rel(prm: &MacroParams, src: str) -> bool {
 fn incr_decline(qn: str, why: str) -> bool {
     plan_trace("incremental", "declined", qn, why);
     return false;
+}
+
+/// A refusal named by its RULE (why.logos `IR_*`): the sentence is the rule's
+/// rendering, and `[facts]` names the rule — the antecedent that failed (E3).
+fn incr_decline_r(qn: str, r: i32) -> bool {
+    plan_trace("incremental", "declined", qn, ir_render(r));
+    incr_facts(qn, r);
+    return false;
+}
+
+/// The one refusal whose sentence is an OPERAND — the rel registry's own ground
+/// for a rel that cannot be accumulated (`rel_incr_why`), under one rule.
+fn incr_decline_dyn(qn: str, r: i32, why: str) -> bool {
+    plan_trace("incremental", "declined", qn, why);
+    incr_facts(qn, r);
+    return false;
+}
+
+fn incr_emit(qn: str, r: i32) {
+    plan_trace("incremental", "EMITTED", qn, ir_render(r));
+    incr_facts(qn, r);
+}
+
+fn incr_facts(qn: str, r: i32) {
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" incremental rule=");
+    fl.push_str(ir_name(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
 }
 
 // ══ MAY THIS QUERY'S HANDLE BE RUN BACKWARDS? ══════════════════════════════
@@ -9438,21 +9462,57 @@ fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8],
     // below is unchanged for the same reason: what is missing is still the
     // mechanism, not a preference.
     if rel_backed {
-        return incr_no_retract(qn, "the query is backed by a RECURSIVE `rel` — a derived fact may support ITSELF through a cycle, so there is no amount to subtract; the correct mechanism is DRed (over-delete, compact, re-derive), a provenance state machine and not an inverse fold. \u26a0 AND DRed IS A PESSIMIZATION TODAY: measured 1.15-1.9x a from-scratch recompute, losing WORSE as the re-derived set grows, with no crossover anywhere in the reachable range \u2014 so admitting this shape is not a free capability, and the price must be named to the caller at the moment it becomes reachable. The repair that changes the direction is the EDB-delta occurrence list, which changes the ENUMERATION rather than choosing between two enumerations");
+        return incr_no_retract_r(qn, RT_REC_REL());
     }
     if !retract_ok(aggs, acount, acc) {
-        return incr_no_retract(qn, "an aggregate accumulates in `f64` (a float `sum`, or ANY `avg` — it divides at snapshot out of a float running total), and `(S+x)-x != S` is an OPEN decision rather than an emitter's to take");
+        return incr_no_retract_r(qn, RT_FLOAT_ACC());
     }
-    plan_trace("retraction", "EMITTED", qn, "every aggregate in the list runs backwards exactly — `count` and integer `sum` invert exactly under their own checked predicate, `min`/`max` rescan a typed value→multiplicity map");
+    plan_trace("retraction", "EMITTED", qn, rt_render(RT_EXACT()));
+    retract_facts(qn, RT_EXACT());
     return true;
 }
 
 /// One query that keeps the INSERT-ONLY surface, traced with its GROUND.
 /// A separate channel name from `incr_decline`'s because it is a different
 /// answer: the query DOES get a handle, it does not get a `<q>_retract`.
+/// The DRed driver's verdict, named by its rule (why.logos `DR_*`, E3).
+fn dred_trace(bare: str, verdict: str, r: i32) {
+    plan_trace("rel dred driver", verdict, bare, dr_render(r));
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(bare); fl.push_str(" dred rule=");
+    fl.push_str(dr_name(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
+}
+
+/// The aggregate's group-frame class, named by its rule (why.logos `AC_*`, E3).
+fn aggclass_trace(fn_name: str, r: i32) {
+    plan_trace("aggclass", ac_verdict(r), fn_name, ac_render(r));
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(fn_name); fl.push_str(" aggclass rule=");
+    fl.push_str(ac_verdict(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
+}
+
 fn incr_no_retract(qn: str, why: str) -> bool {
     plan_trace("retraction", "declined", qn, why);
     return false;
+}
+
+/// The refusal named by its rule (why.logos `RT_*`, E3).
+fn incr_no_retract_r(qn: str, r: i32) -> bool {
+    plan_trace("retraction", "declined", qn, rt_render(r));
+    retract_facts(qn, r);
+    return false;
+}
+
+fn retract_facts(qn: str, r: i32) {
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" retraction rule=");
+    fl.push_str(rt_name(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
 }
 
 /// May a value of this type be OWNED by a handle that outlives the call that

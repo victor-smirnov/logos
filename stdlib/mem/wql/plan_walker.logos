@@ -2816,7 +2816,12 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
             // it is the same answer to the same question (this rel does not
             // stream) — and only the account of WHY changes, from a producer's
             // hand-over to the plan's own fixpoint.
-            ap.swhy[ri] = String::from_str("materialized: this rel is recursive, so the semi-naive fixpoint accumulates its rows into a Vec the SCC driver grows — the plan builds this container rather than being handed one");
+            // The mode ground gains the fact that decided it, and its rule moves;
+            // the earlier facts (`iter` false) stay — nothing is overwritten.
+            let mut mg: AccessGround = ag_unpack(ap.mground[ri]);
+            ag_fact(&mut mg, MA_REC(), true);
+            mg.rule = MR_FIXPOINT();
+            ap.mground[ri] = ag_pack(&mg);
             prm.rel_node[ri] = MAT_FPACC();
         } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) && !prm.rel_native[ri] {
             // ARM B — a PARSE-SIDE rel outside every cycle: one call to the
@@ -2827,7 +2832,11 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
             // above, so what is left here is the one-shot arm.
             ap_land(ap, ri, MAT_RELLAND(), MG_REL_RESULT(),
                     "the rel block's helper fn folds the body and RETURNS the container; the prelude binds what it built, so this buffer is this plan's — one frame down — and not a source's");
-            ap.swhy[ri] = String::from_str("materialized: the rel block's helper fn folds the body into a Vec and returns it, and the prelude binds the result — the container is built by code this compilation emitted, not handed over by a source");
+            let mut mg2: AccessGround = ag_unpack(ap.mground[ri]);
+            ag_fact(&mut mg2, MA_REC(), false);
+            ag_fact(&mut mg2, MA_NATIVE(), false);
+            mg2.rule = MR_REL_HELPER();
+            ap.mground[ri] = ag_pack(&mg2);
             prm.rel_node[ri] = MAT_RELLAND();
         }
         ri = ri + 1i64;

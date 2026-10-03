@@ -16,19 +16,28 @@ set -u
 LOGOSC="$1"; SRC="$2"
 TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
 fail=0
+# Each fixture is compiled ONCE per channel and every case reads the cached
+# output — a fixture with several pinned decisions costs two compiles, not two
+# per case (the gate timed out under the full run at two per case).
+compiled() {   # fixture -> ensures $TMPD/<f>.facts and $TMPD/<f>.plain exist
+    local f="$1"
+    [ -f "$TMPD/$f.facts" ] && return 0
+    if ! LOGOS_TRACE_PLAN=facts "$LOGOSC" "$SRC/$f.logos" -o "$TMPD/$f.o" 2>"$TMPD/$f.facts" >/dev/null; then
+        echo "FAIL: $f did not compile"; head -3 "$TMPD/$f.facts"; fail=1; return 1
+    fi
+    LOGOS_TRACE_PLAN=1 "$LOGOSC" "$SRC/$f.logos" -o "$TMPD/$f.o" 2>"$TMPD/$f.plain" >/dev/null
+    if grep -q '^\[facts\]' "$TMPD/$f.plain"; then
+        echo "FAIL: $f — a [facts] line was printed with the facts channel off"; fail=1
+    fi
+}
 check() {   # fixture, expected facts line
     local f="$1" want="$2"
-    LOGOS_TRACE_PLAN=facts "$LOGOSC" "$SRC/$f.logos" -o "$TMPD/x.o" 2>"$TMPD/err" >/dev/null || {
-        echo "FAIL: $f did not compile"; head -3 "$TMPD/err"; fail=1; return; }
-    if ! grep -qxF -- "$want" "$TMPD/err"; then
+    compiled "$f" || return
+    if ! grep -qxF -- "$want" "$TMPD/$f.facts"; then
         echo "FAIL: $f — expected the facts line"
         echo "    $want"
-        echo "  got:"; grep '^\[facts\]' "$TMPD/err" | sed 's/^/    /'
+        echo "  got:"; grep '^\[facts\]' "$TMPD/$f.facts" | sed 's/^/    /'
         fail=1
-    fi
-    LOGOS_TRACE_PLAN=1 "$LOGOSC" "$SRC/$f.logos" -o "$TMPD/x.o" 2>"$TMPD/err0" >/dev/null
-    if grep -q '^\[facts\]' "$TMPD/err0"; then
-        echo "FAIL: $f — a [facts] line was printed with the facts channel off"; fail=1
     fi
 }
 # A user struct with Hash + Eq + Copy: the hash rule fires.
@@ -50,5 +59,28 @@ check deem_hashmap_source \
 # No filter at all.
 check deem_source_size \
   '[facts] s access rule=scan_all held=[] failed=[where]'
-[ "$fail" = 0 ] && echo "plan ground facts: 6 cases (3 join, 3 access), rule + held + negative explanation pinned"
+# ── how a rel travels (E3) ──
+# A drain node over an iterator: the mode is the node's, and `ordered` failed.
+check deem_batch_scan_drain \
+  '[facts] m mode rule=drained held=[iter,drain] failed=[ordered]'
+# `order by … desc` over the column the rows arrive sorted by: a backward pull.
+check deem_batch_scan_drain \
+  '[facts] m mode rule=ordered_rev held=[iter,ordered,desc] failed=[drain]'
+# A plain single read of an iterator.
+check deem_source_size \
+  '[facts] s mode rule=stream held=[iter] failed=[ordered,drain]'
+# ── may the query have an incremental handle (E3): the FIRST FAILED antecedent ──
+# The matrix fixture names its queries after the shape they test; the rule must agree.
+check wql_incr_eligibility_matrix '[facts] ok_join incremental rule=emit_join'
+check wql_incr_eligibility_matrix '[facts] no_join_self incremental rule=self_join'
+check wql_incr_eligibility_matrix '[facts] no_where incremental rule=pre_where'
+check wql_incr_eligibility_matrix '[facts] no_rel_agg incremental rule=rel_not_incr'
+# ── may the handle run backwards (E3) ──
+check wql_incr_eligibility_matrix '[facts] no_retract_avg retraction rule=float_acc'
+check wql_incr_eligibility_matrix '[facts] ok_rel_rec retraction rule=rec_rel'
+check wql_incr_eligibility_matrix '[facts] ok_join retraction rule=exact'
+# ── the DRed driver and the aggregate's group-frame class (E3) ──
+check wql_incr_rel_dred_driver '[facts] tc dred rule=emit'
+check wql_aggregate_e2e '[facts] dept_stats aggclass rule=PURE'
+[ "$fail" = 0 ] && echo "plan ground facts: 18 cases (3 join, 3 access, 3 mode, 4 incremental, 3 retraction, 1 dred, 1 aggclass), rule + held + negative explanation pinned"
 exit $fail
