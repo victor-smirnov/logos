@@ -221,39 +221,45 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // ORACLE: `LOGOS_DEEM_ORACLE=<dir>` writes the program as Soufflé text,
     // before any rewrite of ours (the oracle checks what the user wrote).
     dl_export(root, name, natspec, &mut prm);
-    let mut msd: MsDecision = MsDecision { rel: "", col: "", rule: 0i32 };
+    let mut msd: MsDecisions = MsDecisions { n: 0i64, rel: [""; 8], col: [""; 8], rule: [0i32; 8] };
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");
     nd.push_u8(0u8);
     // `=moving` keeps the rewrite but declines the shapes that need a
     // recursive magic rule (what the first cut did), to measure that rule alone.
-    // A value that is a comma list of `moving` / `joinkey` keeps the rewrite and
+    // A value that is a comma list of `moving` / `joinkey` / `propagate` keeps the rewrite and
     // declines only those shapes; any other value turns it off.
     let ndv: *const u8 = unsafe { getenv(nd.as_ptr()) };
     let mut demand_off: bool = ndv != 0 as *const u8;
     let mut allow_moving: bool = true;
     let mut allow_joinkey: bool = true;
+    let mut allow_prop: bool = true;
     if demand_off {
         let mut vl: i64 = 0i64;
         while unsafe { *(((ndv as i64) + vl) as *const u8) } != 0u8 { vl = vl + 1i64; }
         let v: str = unsafe { str_from_raw(ndv, vl) };
-        if str_contains(v, "moving") || str_contains(v, "joinkey") {
+        if str_contains(v, "moving") || str_contains(v, "joinkey") || str_contains(v, "propagate") {
             demand_off = false;
             allow_moving = !str_contains(v, "moving");
             allow_joinkey = !str_contains(v, "joinkey");
+            allow_prop = !str_contains(v, "propagate");
         }
     }
     let mut nnat: i64 = 0i64;   // natspec entries: native sources share the rel budget
     let mut ni: i64 = 0i64;
     while ni < natspec.len() { if str_byte_at(natspec, ni) == 59u8 { nnat = nnat + 1i64; } ni = ni + 1i64; }
-    if !demand_off && magic_program(root, &h, &prm, allow_moving, allow_joinkey, nnat, &mut msd) > 0i64 {
-        plan_trace("demand", ms_verdict(msd.rule), msd.rel, ms_render(msd.rule));
-        if plan_trace_facts_on() {
-            let mut fl: String = String::new();
-            fl.push_str("[facts] "); fl.push_str(msd.rel); fl.push_str(" demand col=");
-            fl.push_str(msd.col); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule));
-            fl.push_str("\n");
-            plan_trace_raw(unsafe { str_from_raw(fl.as_ptr(), fl.len()) });
+    if !demand_off && magic_program(root, &h, &prm, allow_moving, allow_joinkey, allow_prop, nnat, &mut msd) > 0i64 {
+        let mut di: i64 = 0i64;
+        while di < msd.n {
+            plan_trace("demand", ms_verdict(msd.rule[di]), msd.rel[di], ms_render(msd.rule[di]));
+            if plan_trace_facts_on() {
+                let mut fl: String = String::new();
+                fl.push_str("[facts] "); fl.push_str(msd.rel[di]); fl.push_str(" demand col=");
+                fl.push_str(msd.col[di]); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule[di]));
+                fl.push_str("\n");
+                plan_trace_raw(unsafe { str_from_raw(fl.as_ptr(), fl.len()) });
+            }
+            di = di + 1i64;
         }
     }
     // FACTS: a FROM-less `select` reads the one-row `__unit` relation, which

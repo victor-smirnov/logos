@@ -875,9 +875,6 @@ pub fn UNIT_NATSPEC() -> str { return "__unit=wql_unit_rows@logos.std.wql.unit:(
 // desugar (bodies are classic) and before the fact desugar (the seed is a
 // fact).
 
-/// One demand decision, for the handler's trace.
-pub struct MsDecision { pub rel: str, pub col: str, pub rule: i32 }
-
 // How many times query `qany` reads `nm` as a source.
 fn ms_reads(qany: WAny, nm: str) -> i64 {
     let q: RQuery = qany.view::<RQuery>();
@@ -1352,94 +1349,178 @@ fn ms_target(root: WAny, prm: &MacroParams) -> MsTarget {
     }
 }
 
-/// Apply the demand rewrite to the rel the entry reads with a bound column
-/// (at most one: the entry's base). Fills `out` with the decision, if any
-/// rel was considered; returns the number of decisions (0 or 1).
-pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool,
-                     allow_joinkey: bool, natives: i64, out: &mut MsDecision) -> i64 {
+// ── PROPAGATION THROUGH THE REL GRAPH (E9e) ─────────────────────────────────
+// A demanded rel R whose bodies read another user rel S passes its demand on:
+// Soufflé's MST derives one magic rule per occurrence of S, from the atoms to
+// its left and the head's bound column. Two shapes are derived here:
+//   S is where the head's column comes from (`select (s.g, …)`):
+//       __m_S(c) :- __m_R(c)                    -- `from __m_R mm select mm.c`
+//   a two-atom body `X x ⋈ S s on s.f2 == x.f`, the head's column from x.g:
+//       __m_S(x.f) :- X(x), __m_R(x.g)          -- `from X x join __m_R mm on mm.c == x.g select x.f`
+// (X may be R itself: the recursive body of a left-linear closure over S).
+// S is demanded only when EVERY occurrence of it in the program is one of
+// these, on the same column; a single free occurrence needs all of S.
+
+/// The decisions of one rewrite, in the order they were taken.
+pub struct MsDecisions { pub n: i64, pub rel: [str; 8], pub col: [str; 8], pub rule: [i32; 8] }
+
+fn ms_note(d: &mut MsDecisions, rel: str, col: str, rule: i32) {
+    if d.n >= 8i64 { return; }
+    d.rel[d.n] = rel; d.col[d.n] = col; d.rule[d.n] = rule;
+    d.n = d.n + 1i64;
+}
+
+// One occurrence of a rel S inside a demanded rel's body, bound or not.
+struct MsOcc { pub s: str, pub col: str, pub seed: i64 }   // seed 0 = unbound
+
+fn ms_seed_from_magic(h: &Writ, mrel: str) -> i64 {
+    let sd: RQSimple = h.make::<RQSimple>();
+    sd.src_name = mrel;
+    sd.var_name = "__mm";
+    sd.has_where = false;
+    sd.select = gp_field(h, "__mm", "c");
+    sd.sel_first = false; sd.distinct = false; sd.has_order = false;
+    sd.has_limit = false; sd.has_result_ty = false; sd.has_gpath = false;
+    return sd.as_ref().raw();
+}
+
+fn ms_seed_via(h: &Writ, xsrc: str, xvar: str, xg: str, xf: str, mrel: str) -> i64 {
+    let st: RQJoinStep = h.make::<RQJoinStep>();
+    st.is_anti = false; st.is_edge = false; st.has_on = true;
+    st.src_name = mrel;
+    st.var_name = "__mm";
+    st.on = gp_bin(h, OP_EQ(), gp_field(h, "__mm", "c"), gp_field(h, xvar, xg));
+    let sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+    let mut sam: RQJoinStepArr = sa;
+    sam.set_step(0i64, st.as_ref());
+    sam.set_len(1i64);
+    let j: RQJoin = h.make::<RQJoin>();
+    j.a_name = xsrc;
+    j.x_var = xvar;
+    j.steps = WRef::<RQJoinStepArr>::from_any(sam.as_ref());
+    j.has_where = false;
+    j.select = gp_field(h, xvar, xf);
+    j.sel_first = false; j.distinct = false; j.has_order = false;
+    j.has_limit = false; j.has_result_ty = false; j.has_gpath = false;
+    return j.as_ref().raw();
+}
+
+// The occurrences of user rels (≠ R, not injected) in one body of R, with the
+// seed each would contribute. `item` is the head's column c in this body.
+fn ms_body_occs(root: WAny, ba: WAny, rname: str, item: MsCol, mrel: str, h: &Writ,
+                occs: &mut [MsOcc; 16], n: &mut i64) {
+    let q: RQuery = ba.view::<RQuery>();
+    match q {
+        RQuery::Simple(s0) => {
+            if gp_rel_find(root, s0.src_name) < 0i64 || str_eq(s0.src_name, rname)
+               || str_starts_with(s0.src_name, "__") { return; }
+            let mut o: MsOcc = MsOcc { s: s0.src_name, col: "", seed: 0i64 };
+            if str_eq(item.var, s0.var_name) { o.col = item.fld; o.seed = ms_seed_from_magic(h, mrel); }
+            if *n < 16i64 { occs[*n] = o; *n = *n + 1i64; }
+        }
+        RQuery::Join(j) => {
+            let steps: RQJoinStepArr = j.steps_arr();
+            let mut a: i64 = -1i64;
+            while a < steps.len() {
+                let mut src: str = j.a_name;
+                let mut var: str = j.x_var;
+                let mut skip: bool = false;
+                if a >= 0i64 {
+                    let st: RQJoinStep = steps.step_at(a);
+                    if st.is_edge || st.is_anti { skip = true; }
+                    src = st.src_name;
+                    var = st.var_name;
+                }
+                if !skip && gp_rel_find(root, src) >= 0i64 && !str_eq(src, rname) && !str_starts_with(src, "__") {
+                    let mut o: MsOcc = MsOcc { s: src, col: "", seed: 0i64 };
+                    if str_eq(item.var, var) {
+                        o.col = item.fld; o.seed = ms_seed_from_magic(h, mrel);
+                    } else if steps.len() == 1i64 && !j.has_where && item.var.len() > 0i64 {
+                        // two atoms: the other one is x, joined on one equality
+                        let st0: RQJoinStep = steps.step_at(0i64);
+                        let mut xsrc: str = j.a_name;
+                        let mut xvar: str = j.x_var;
+                        if a < 0i64 { xsrc = st0.src_name; xvar = st0.var_name; }
+                        if str_eq(item.var, xvar) && st0.has_on && !st0.is_anti && !st0.is_edge {
+                            let on: SExpr = st0.on.any().view::<SExpr>();
+                            match on {
+                                SExpr::Bin(bb) => {
+                                    if bb.op == OP_EQ() {
+                                        let l: MsCol = ms_col_ref(bb.lhs.any().view::<SExpr>());
+                                        let r: MsCol = ms_col_ref(bb.rhs.any().view::<SExpr>());
+                                        if str_eq(l.var, var) && str_eq(r.var, xvar) {
+                                            o.col = l.fld; o.seed = ms_seed_via(h, xsrc, xvar, item.fld, r.fld, mrel);
+                                        } else if str_eq(r.var, var) && str_eq(l.var, xvar) {
+                                            o.col = r.fld; o.seed = ms_seed_via(h, xsrc, xvar, item.fld, l.fld, mrel);
+                                        }
+                                    }
+                                }
+                                _ => { }
+                            }
+                        }
+                    }
+                    if *n < 16i64 { occs[*n] = o; *n = *n + 1i64; }
+                }
+                a = a + 1i64;
+            }
+        }
+        _ => { }
+    }
+}
+
+// Rewrite rel `ri` on column `ci` from the given seed bodies: the rel's own
+// antecedents, then `__m_<rel>` (seeds + the moving shapes' magic rules) and
+// the restricted bodies. Returns the rule; MS_DEMAND = rewritten. `occs` gets
+// the occurrences of other rels in the ORIGINAL bodies, for propagation.
+fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &[i64; 8], nseeds: i64,
+            allow_moving: bool, slots: &mut i64, occs: &mut [MsOcc; 16], nocc: &mut i64) -> i32 {
     let prog: RQProgram = root.view::<RQProgram>();
-    if !prog.has_rels() { return 0i64; }
-    let tg: MsTarget = ms_target(root, prm);
-    if tg.rel.len() == 0i64 { return 0i64; }
-    if tg.ssrc.len() > 0i64 && !allow_joinkey { return 0i64; }
-    let ri: i64 = gp_rel_find(root, tg.rel);
-    if ri < 0i64 { return 0i64; }
-    let bind: MsBind = MsBind { col: tg.col, k: tg.k };
     let rels: RQRelArr = prog.rels_arr();
     let rel: RQRel = rels.rel_at(ri);
     let cols: RQRelColArr = rel.cols_arr();
     let nc: i64 = cols.len();
-    let mut ci: i64 = -1i64;
-    let mut c: i64 = 0i64;
-    while c < nc {
-        if str_eq(cols.col_at(c).name, bind.col) { ci = c; }
-        c = c + 1i64;
-    }
-    if ci < 0i64 { return 0i64; }
-    out.rel = rel.name;
-    out.col = bind.col;
-    // ── the antecedents, each its own rule ──
-    if ms_reads(prog.entry_any(), rel.name) != 1i64 { out.rule = MS_SHARED(); return 1i64; }
-    if ms_entry_fallible(prog.entry_any()) { out.rule = MS_FALLIBLE(); return 1i64; }
-    let nr: i64 = rels.len();
-    let mut j: i64 = 0i64;
-    while j < nr {
-        if j != ri {
-            let bj: RQBodyArr = rels.rel_at(j).bodies_arr();
-            let mut b: i64 = 0i64;
-            while b < bj.len() {
-                if ms_reads(bj.body_any(b), rel.name) > 0i64 { out.rule = MS_SHARED(); return 1i64; }
-                b = b + 1i64;
-            }
-        }
-        j = j + 1i64;
-    }
+    let col: str = cols.col_at(ci).name;
     let bodies: RQBodyArr = rel.bodies_arr();
     let nb: i64 = bodies.len();
-    let mut nmove: i64 = 0i64;   // recursive bodies that need a magic rule
+    let mut nmove: i64 = 0i64;
     let mut b: i64 = 0i64;
     while b < nb {
         let ba: WAny = bodies.body_any(b);
-        if ms_neg_agg(ba) { out.rule = MS_NEG_AGG(); return 1i64; }
-        if ms_body_fallible(ba) { out.rule = MS_FALLIBLE(); return 1i64; }
+        if ms_neg_agg(ba) { return MS_NEG_AGG(); }
+        if ms_body_fallible(ba) { return MS_FALLIBLE(); }
         let k: i64 = ms_reads(ba, rel.name);
-        if k > 1i64 { out.rule = MS_NONLINEAR(); return 1i64; }
+        if k > 1i64 { return MS_NONLINEAR(); }
         let item: MsCol = ms_col_ref(ms_sel_item(ms_select(ba), ci, nc));
         if k == 1i64 {
-            if !str_eq(item.var, ms_occ_var(ba, rel.name)) || !str_eq(item.fld, bind.col) {
-                // not passed through: admitted only in the two-atom shape
-                // whose occurrence demand is one column of the other atom
-                let mv: MsMove = ms_moving(ba, rel.name, bind.col, item);
-                if !mv.ok { out.rule = MS_MOVES_COL(); return 1i64; }
-                if !allow_moving { out.rule = MS_MOVING_OFF(); return 1i64; }
+            if !str_eq(item.var, ms_occ_var(ba, rel.name)) || !str_eq(item.fld, col) {
+                let mv: MsMove = ms_moving(ba, rel.name, col, item);
+                if !mv.ok { return MS_MOVES_COL(); }
+                if !allow_moving { return MS_MOVING_OFF(); }
                 nmove = nmove + 1i64;
             }
         } else {
-            if item.var.len() == 0i64 { out.rule = MS_SEL_SHAPE(); return 1i64; }
+            if item.var.len() == 0i64 { return MS_SEL_SHAPE(); }
             let q: RQuery = ba.view::<RQuery>();
             match q {
-                RQuery::Join(jb) => {
-                    if jb.steps_arr().len() >= RQJSTEP_MAX() { out.rule = MS_CAP(); return 1i64; }
-                }
+                RQuery::Join(jb) => { if jb.steps_arr().len() >= RQJSTEP_MAX() { return MS_CAP(); } }
                 _ => { }
             }
         }
         b = b + 1i64;
     }
-    // The rel budget is shared: the program's rels, the native sources the walk
-    // registers after them (`natives`), `__unit` when any fact needs it (a
-    // constant seed is one), and `__m_<rel>` itself.
-    let mut unit: i64 = 0i64;
-    if tg.ssrc.len() == 0i64 || ms_has_fact(root) { unit = 1i64; }
-    if nr + natives + unit + 1i64 > RQREL_MAX() || nmove + 1i64 > RQBODY_MAX() {
-        out.rule = MS_CAP(); return 1i64;
-    }
-    // ── the rewrite ──
+    if *slots < 1i64 || nseeds + nmove > RQBODY_MAX() { return MS_CAP(); }
     let mut mn: String = String::new();
     mn.push_str("__m_");
     mn.push_str(rel.name);
     let mrel: RQRel = h.make::<RQRel>();
     mrel.name = lw_str(&mn);
+    // the occurrences of other rels, read off the ORIGINAL bodies
+    b = 0i64;
+    while b < nb {
+        let item0: MsCol = ms_col_ref(ms_sel_item(ms_select(bodies.body_any(b)), ci, nc));
+        ms_body_occs(root, bodies.body_any(b), rel.name, item0, mrel.name, h, occs, nocc);
+        b = b + 1i64;
+    }
     let mc: RQRelCol = h.make::<RQRelCol>();
     mc.name = "c";
     mc.ty_name = cols.col_at(ci).ty_name;
@@ -1448,63 +1529,26 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
     mcm.set_col(0i64, mc.as_ref());
     mcm.set_len(1i64);
     mrel.cols = WRef::<RQRelColArr>::from_any(mcm.as_ref());
-    let seed: RQSimple = h.make::<RQSimple>();
-    seed.has_where = false;
-    if tg.ssrc.len() > 0i64 {
-        // a join-key seed: the base's column, read from the base source
-        seed.src_name = tg.ssrc;
-        seed.var_name = tg.svar;
-        seed.select = gp_field(h, tg.svar, tg.sfld);
-    } else {
-        seed.select = ms_copy_const(unsafe { WAny::ref_to(bind.k as *const u8) }.view::<SExpr>(), h);
-    }
-    seed.sel_first = false;
-    seed.distinct = false;
-    seed.has_order = false;
-    seed.has_limit = false;
-    seed.has_result_ty = false;
-    seed.has_gpath = false;
     let mb: RQBodyArr = h.make::<RQBodyArr>();
     let mut mbm: RQBodyArr = mb;
-    mbm.set_body(0i64, seed.as_ref());
-    mbm.set_len(1i64);
+    let mut nmb: i64 = 0i64;
+    while nmb < nseeds {
+        mbm.set_body(nmb, unsafe { WAny::ref_to(seeds[nmb] as *const u8) });
+        nmb = nmb + 1i64;
+    }
+    mbm.set_len(nmb);
     mrel.bodies = WRef::<RQBodyArr>::from_any(mbm.as_ref());
-    let mut nmb: i64 = 1i64;   // magic bodies so far (the seed)
     b = 0i64;
     while b < nb {
         let ba2: WAny = bodies.body_any(b);
         let item2: MsCol = ms_col_ref(ms_sel_item(ms_select(ba2), ci, nc));
         let k2: i64 = ms_reads(ba2, rel.name);
         let passes: bool = k2 == 1i64 && str_eq(item2.var, ms_occ_var(ba2, rel.name))
-                           && str_eq(item2.fld, bind.col);
+                           && str_eq(item2.fld, col);
         if !passes {
             if k2 == 1i64 {
-                // the recursive magic rule: from u join __m_R on __mm.c == u.g select u.f
-                let mv2: MsMove = ms_moving(ba2, rel.name, bind.col, item2);
-                let mst: RQJoinStep = h.make::<RQJoinStep>();
-                mst.is_anti = false;
-                mst.is_edge = false;
-                mst.has_on = true;
-                mst.src_name = mrel.name;
-                mst.var_name = "__mm";
-                mst.on = gp_bin(h, OP_EQ(), gp_field(h, "__mm", "c"), gp_field(h, mv2.var, mv2.g));
-                let msa: RQJoinStepArr = h.make::<RQJoinStepArr>();
-                let mut msam: RQJoinStepArr = msa;
-                msam.set_step(0i64, mst.as_ref());
-                msam.set_len(1i64);
-                let mj: RQJoin = h.make::<RQJoin>();
-                mj.a_name = mv2.src;
-                mj.x_var = mv2.var;
-                mj.steps = WRef::<RQJoinStepArr>::from_any(msam.as_ref());
-                mj.has_where = false;
-                mj.select = gp_field(h, mv2.var, mv2.f);
-                mj.sel_first = false;
-                mj.distinct = false;
-                mj.has_order = false;
-                mj.has_limit = false;
-                mj.has_result_ty = false;
-                mj.has_gpath = false;
-                mbm.set_body(nmb, mj.as_ref());
+                let mv2: MsMove = ms_moving(ba2, rel.name, col, item2);
+                mbm.set_body(nmb, unsafe { WAny::ref_to(ms_seed_via(h, mv2.src, mv2.var, mv2.g, mv2.f, mrel.name) as *const u8) });
                 nmb = nmb + 1i64;
             }
             let nq: i64 = ms_restrict_body(ba2, mrel.name, item2.var, item2.fld, h);
@@ -1516,9 +1560,135 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
         b = b + 1i64;
     }
     mbm.set_len(nmb);
-    if !gp_rel_append(root, mrel, h) { out.rule = MS_CAP(); return 1i64; }
-    out.rule = MS_DEMAND();
-    return 1i64;
+    if !gp_rel_append(root, mrel, h) { return MS_CAP(); }
+    *slots = *slots - 1i64;
+    return MS_DEMAND();
+}
+
+// How many times the program reads `nm` OUTSIDE rel `nm`'s own bodies (a
+// recursive rel's reads of itself are its own business): the entry, and
+// every other rel's bodies.
+fn ms_reads_all(root: WAny, nm: str) -> i64 {
+    let prog: RQProgram = root.view::<RQProgram>();
+    let mut n: i64 = ms_reads(prog.entry_any(), nm);
+    if prog.has_rels() {
+        let rels: RQRelArr = prog.rels_arr();
+        let mut i: i64 = 0i64;
+        while i < rels.len() {
+            if str_eq(rels.rel_at(i).name, nm) { i = i + 1i64; continue; }
+            let bj: RQBodyArr = rels.rel_at(i).bodies_arr();
+            let mut b: i64 = 0i64;
+            while b < bj.len() { n = n + ms_reads(bj.body_any(b), nm); b = b + 1i64; }
+            i = i + 1i64;
+        }
+    }
+    return n;
+}
+
+fn ms_col_index(root: WAny, ri: i64, col: str) -> i64 {
+    let cols: RQRelColArr = root.view::<RQProgram>().rels_arr().rel_at(ri).cols_arr();
+    let mut c: i64 = 0i64;
+    while c < cols.len() {
+        if str_eq(cols.col_at(c).name, col) { return c; }
+        c = c + 1i64;
+    }
+    return -1i64;
+}
+
+/// Apply the demand rewrite: the rel the entry reads with a bound column, then
+/// every rel that demand reaches through the rel graph. Returns the number of
+/// decisions written to `out` (0 = no rel was considered).
+pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool,
+                     allow_joinkey: bool, allow_prop: bool, natives: i64,
+                     out: &mut MsDecisions) -> i64 {
+    let prog: RQProgram = root.view::<RQProgram>();
+    if !prog.has_rels() { return 0i64; }
+    let tg: MsTarget = ms_target(root, prm);
+    if tg.rel.len() == 0i64 { return 0i64; }
+    if tg.ssrc.len() > 0i64 && !allow_joinkey { return 0i64; }
+    let ri: i64 = gp_rel_find(root, tg.rel);
+    if ri < 0i64 { return 0i64; }
+    let ci: i64 = ms_col_index(root, ri, tg.col);
+    if ci < 0i64 { return 0i64; }
+    let rname: str = prog.rels_arr().rel_at(ri).name;
+    // the entry's own antecedents
+    if ms_reads_all(root, rname) != 1i64 { ms_note(out, rname, tg.col, MS_SHARED()); return out.n; }
+    if ms_entry_fallible(prog.entry_any()) { ms_note(out, rname, tg.col, MS_FALLIBLE()); return out.n; }
+    // The rel budget is shared: the program's rels, the native sources the walk
+    // registers after them (`natives`), `__unit` when any fact needs it (a
+    // constant seed is one), and one `__m_<rel>` per demanded rel.
+    let mut unit: i64 = 0i64;
+    if tg.ssrc.len() == 0i64 || ms_has_fact(root) { unit = 1i64; }
+    let mut slots: i64 = RQREL_MAX() - prog.rels_arr().len() - natives - unit;
+    // the entry's seed
+    let seed: RQSimple = h.make::<RQSimple>();
+    seed.has_where = false;
+    if tg.ssrc.len() > 0i64 {
+        seed.src_name = tg.ssrc;
+        seed.var_name = tg.svar;
+        seed.select = gp_field(h, tg.svar, tg.sfld);
+    } else {
+        seed.select = ms_copy_const(unsafe { WAny::ref_to(tg.k as *const u8) }.view::<SExpr>(), h);
+    }
+    seed.sel_first = false; seed.distinct = false; seed.has_order = false;
+    seed.has_limit = false; seed.has_result_ty = false; seed.has_gpath = false;
+    // the worklist: (rel, column, seeds)
+    let mut wr: [i64; 8] = [0i64; 8];
+    let mut wc: [i64; 8] = [0i64; 8];
+    let mut ws: [[i64; 8]; 8] = [[0i64; 8]; 8];
+    let mut wn: [i64; 8] = [0i64; 8];
+    let mut nw: i64 = 1i64;
+    wr[0] = ri; wc[0] = ci; ws[0][0] = seed.as_ref().raw(); wn[0] = 1i64;
+    let mut w: i64 = 0i64;
+    while w < nw {
+        let rr: RQRel = root.view::<RQProgram>().rels_arr().rel_at(wr[w]);
+        let colname: str = rr.cols_arr().col_at(wc[w]).name;
+        let mut occs: [MsOcc; 16] = [MsOcc { s: "", col: "", seed: 0i64 }; 16];
+        let mut nocc: i64 = 0i64;
+        let seeds: [i64; 8] = ws[w];
+        let rule: i32 = ms_apply(root, h, wr[w], wc[w], &seeds, wn[w], allow_moving, &mut slots, &mut occs, &mut nocc);
+        ms_note(out, rr.name, colname, rule);
+        if rule == MS_DEMAND() && allow_prop {
+            // propagate to each rel S whose every occurrence here is bound alike
+            let mut i: i64 = 0i64;
+            while i < nocc {
+                let sname: str = occs[i].s;
+                let mut first: bool = true;
+                let mut j: i64 = 0i64;
+                while j < i { if str_eq(occs[j].s, sname) { first = false; } j = j + 1i64; }
+                let sri: i64 = gp_rel_find(root, sname);
+                let mut queued: bool = false;
+                let mut q: i64 = 0i64;
+                while q < nw { if wr[q] == sri { queued = true; } q = q + 1i64; }
+                if first && !queued && sri >= 0i64 {
+                    let mut cnt: i64 = 0i64;
+                    let mut bound: bool = true;
+                    let scol: str = occs[i].col;
+                    let mut ss: [i64; 8] = [0i64; 8];
+                    let mut sn: i64 = 0i64;
+                    j = i;
+                    while j < nocc {
+                        if str_eq(occs[j].s, sname) {
+                            cnt = cnt + 1i64;
+                            if occs[j].seed == 0i64 || !str_eq(occs[j].col, scol) { bound = false; }
+                            else if sn < 8i64 { ss[sn] = occs[j].seed; sn = sn + 1i64; }
+                        }
+                        j = j + 1i64;
+                    }
+                    let sci: i64 = if scol.len() > 0i64 { ms_col_index(root, sri, scol) } else { -1i64 };
+                    if bound && sci >= 0i64 && cnt == ms_reads_all(root, sname) && nw < 8i64 {
+                        wr[nw] = sri; wc[nw] = sci; ws[nw] = ss; wn[nw] = sn;
+                        nw = nw + 1i64;
+                    } else {
+                        ms_note(out, sname, scol, MS_SHARED());
+                    }
+                }
+                i = i + 1i64;
+            }
+        }
+        w = w + 1i64;
+    }
+    return out.n;
 }
 
 /// Desugar every graph path in the program (rel bodies + the entry query).

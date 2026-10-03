@@ -3,7 +3,7 @@
 # oracle for Deem (Victor 10-03: Soufflé is an architectural oracle).
 #
 # The population is every `wql_*` / `deem_*` pass fixture, split into NSHARDS
-# registered tests (fixture i belongs to shard i mod NSHARDS, in name order):
+# registered tests (a fixture belongs to shard cksum(name) mod NSHARDS):
 # lt schedules the shards, so the gate holds no scheduler of its own.
 #
 # Each fixture is compiled with LOGOS_DEEM_ORACLE: the
@@ -34,8 +34,8 @@ NSHARDS="${4:-1}"
 # wrapper; the oracle is the system Soufflé (2.5, 64-bit word = Deem's i64).
 SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
 # per shard (index = SHARD), measured; raise when the population grows
-COMPARED_FLOORS=(61 47 52 37)   # 2026-10-03 with native sources: 239 exported, 197 compared
-ROWS_FLOORS=(142 109 1922 105)
+COMPARED_FLOORS=(65 33 35 64)   # 2026-10-03, shards by name hash: 197 compared in all
+ROWS_FLOORS=(1943 98 93 144)
 COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
 ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -50,11 +50,13 @@ TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
 export LC_ALL=C
 
+# Membership is a hash of the fixture's NAME, not its position: with "index mod
+# N" one new fixture moved every later one to another shard and every floor
+# drifted (measured: shard 2 lost 7 comparisons to a fixture added elsewhere).
 fixtures=()
-i=0
-for f in $(ls "$PASS"/wql_*.logos "$PASS"/deem_*.logos | sort); do
-    [ $((i % NSHARDS)) -eq "$SHARD" ] && fixtures+=("$f")
-    i=$((i + 1))
+for f in "$PASS"/wql_*.logos "$PASS"/deem_*.logos; do
+    h=$(basename "$f" .logos | cksum | cut -d' ' -f1)
+    [ $((h % NSHARDS)) -eq "$SHARD" ] && fixtures+=("$f")
 done
 
 exported=0; compared=0; rows=0; bag=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
