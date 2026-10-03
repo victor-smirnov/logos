@@ -6942,6 +6942,31 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
             }
             if (pick.fi) return pick;
         }
+        // A type parameter or a projection: its methods are its bounds' (the
+        // TypeVar arm), so the walk stops here.
+        if (ck == K::TypeVar || ck == K::AssocType) {
+            ProbePick pick;
+            pick.derefs = (int)d;
+            pick.via_arm = true;
+            return pick;
+        }
+        // A trait object's own methods (its trait's and supertraits' vtable).
+        if (ck == K::TraitObject || ck == K::UnsizedDyn) {
+            if (auto* tit = find_trait_iter_scoped(std::string(TypeRef(cur).trait_name()))) {
+                std::vector<std::pair<std::string, const SemaTraitMethodInfo*>> vtab;
+                std::vector<std::string> upsup_unused;
+                trait_vtable_layout(trait_path(*tit), vtab, upsup_unused);
+                for (auto& [owner, m] : vtab)
+                    if (m && m->name == name) {
+                        ProbePick pick;
+                        pick.derefs = (int)d;
+                        pick.via_arm = true;
+                        pick.dyn_mut = !m->param_types.empty() && m->param_types[0] &&
+                                       TypeRef(m->param_types[0]).kind() == K::MutRef;
+                        return pick;
+                    }
+            }
+        }
     }
     return {};
 }
@@ -10463,145 +10488,37 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         }
     }
 
-    // Method autoderef through a user `Deref` / `DerefMut` impl: if the
-    // receiver is a struct with no DIRECT method `method_name` but it
-    // impls `Deref<Target>`, deref to `Target` and retry. Rust performs
-    // this as part of method resolution. Bounded loop (deref chains
-    // terminate; the cap guards against pathological cycles). Only
-    // fires when no direct method exists, so a method defined on the
-    // outer type always wins.
-    //
-    // §6.13: per-step DerefMut detection. At each iteration we peek
-    // one step ahead: if the Deref target has a candidate method named
-    // `method_name` whose first parameter is `&mut Self`, use the
-    // `DerefMut` step at THIS level so the resulting receiver is the
-    // mutable place (not the &Target that immutable Deref would
-    // produce). For each level we look for methods on the immediate
-    // target after a single Deref probe — sufficient for the
-    // Box<Vec<T>>::push / Box<HashMap<K,V>>::insert / etc. shapes.
-    // Soundness: passing a &Target (Deref result) to a method that
-    // takes &mut Self would silently mutate through a shared borrow
-    // (UB shape); routing through DerefMut keeps the mutable-borrow
-    // discipline intact.
-    auto target_method_wants_mut_self = [&](TypeRef target_t,
-                                            std::string_view m) -> bool {
-        if (!target_t) return false;
-        TypeRef tr(target_t);
-        // A `[T]` target (`Vec<T>: DerefMut<[T]>`): a slice method whose
-        // receiver is `&mut [T]` needs the DerefMut step.
-        if ((tr.kind() == LogosType::Kind::UnsizedSlice || tr.kind() == LogosType::Kind::Slice) &&
-            tr.elem()) {
-            auto wants = [&](const std::string& key) {
-                std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
-                if (auto* g = find_generic_func(key)) cands.push_back(g);
-                for (auto* fi : cands)
-                    if (fi && !fi->param_types.empty() && fi->param_types[0] &&
-                        TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
-                        TypeRef(fi->param_types[0]).mut_ptr())
-                        return true;
-                return false;
-            };
-            return wants("$slice$" + type_str(tr.elem()) + "__" + std::string(m)) ||
-                   wants("$slice$T__" + std::string(m));
-        }
-        if (tr.kind() != LogosType::Kind::Struct &&
-            tr.kind() != LogosType::Kind::ZonedStruct) return false;
-        std::string sn  = concrete_struct_name(target_t);
-        std::string sb  = std::string(tr.struct_name());
-        auto probe_cands = [&](const std::string& key) -> bool {
-            auto cands = find_func_candidates(key);
-            for (auto* fi : cands) {
-                if (!fi || fi->param_types.empty()) continue;
-                TypeRef p0(fi->param_types[0]);
-                if (p0.kind() == LogosType::Kind::MutRef) return true;
-            }
-            return false;
-        };
-        if (probe_cands(sn + "__" + std::string(m))) return true;
-        if (!sb.empty() && probe_cands(sb + "__" + std::string(m))) return true;
-        return false;
-    };
-    // A candidate stops the autoderef walk only if it can take THIS receiver by
-    // value or by autoref (rustc's probe): a method whose self is a raw pointer
-    // (`self: *mut Box<T>`) is never reached by autoref, and a static fn is not
-    // a method — `b.get()` on a `Box<S>` is `S::get`, not `Box::get` (S8 row 4).
-    auto has_receiver_method = [&](const std::string& key) {
-        for (auto* fi : find_func_candidates(key))
-            if (fi && !fi->param_types.empty() && fi->param_types[0] &&
-                TypeRef(fi->param_types[0]).kind() != LogosType::Kind::Ptr)
-                return true;
-        return false;
-    };
-    for (int deref_guard = 0; deref_guard < 16; ++deref_guard) {
-        TypeRef rt = expr_type(recv);
-        // Autoderef peels a REFERENCE layer first: a `&Arc<T>` / `&mut Arc<T>`
-        // receiver (params and field borrows arrive as refs all the time) used
-        // to bail out of this loop at the non-Struct check below, so the
-        // user-Deref step never ran and `a.read()` through `&Arc<T>` died as
-        // "no method". When the pointee is a struct that LACKS the method
-        // directly, place-deref the reference and let the Deref step take
-        // over next iteration; a pointee with a direct method stays with the
-        // normal &self receiver machinery.
-        if ((TypeRef(rt).kind() == LogosType::Kind::Ref ||
-             TypeRef(rt).kind() == LogosType::Kind::MutRef) &&
-            TypeRef(rt).pointee() &&
-            TypeRef(TypeRef(rt).pointee()).kind() == LogosType::Kind::Struct) {
-            TypeRef pt = TypeRef(rt).pointee();
-            auto pn = concrete_struct_name(pt);
-            auto pb = std::string(TypeRef(pt).struct_name());
-            std::string pm(method_name);
-            bool pdirect = has_receiver_method(pn + "__" + pm) ||
-                           (!pb.empty() && has_receiver_method(pb + "__" + pm));
-            // A method provided ON THE REFERENCE TYPE ITSELF
-            // (`impl Trait for &T` → the $ref_/$mut_ref_ registry) must keep
-            // the reference receiver — peeling would steal it.
-            std::string rpfx = (TypeRef(rt).kind() == LogosType::Kind::MutRef)
-                                   ? "$mut_ref_" : "$ref_";
-            bool rdirect = !find_func_candidates(rpfx + pn + "__" + pm).empty() ||
-                           (!pb.empty() && !find_func_candidates(rpfx + pb + "__" + pm).empty());
-            if (pdirect || rdirect) break;
-            recv = builder().deref(std::move(recv), pt);
-            continue;
-        }
-        if (TypeRef(rt).kind() != LogosType::Kind::Struct) break;
-        auto sname_d = concrete_struct_name(rt);
-        auto base_d  = std::string(TypeRef(rt).struct_name());
-        std::string m(method_name);
-        bool direct = has_receiver_method(sname_d + "__" + m) ||
-                      (!base_d.empty() && has_receiver_method(base_d + "__" + m));
-        if (direct) break;
-        // Peek the Deref target type without committing — probe whether
-        // it has a candidate method that requires &mut self. If yes,
-        // and the receiver type also impls DerefMut, take the mutable
-        // step (emit_generic_deref_step falls back to Deref if there's
-        // no DerefMut impl, so an over-eager `want_mut=true` is safe).
-        TypeRef probe_target = nullptr;
-        if (auto sname_view = concrete_struct_name(rt);
-            !sname_view.empty())
-        {
-            std::string base   = std::string(TypeRef(rt).struct_name());
-            auto it = impls_.find(impl_key("Deref", sname_view));
-            if (it == impls_.end()) it = impls_.find(impl_key("Deref", base));
-            if (it != impls_.end() && !it->second.trait_type_args.empty()) {
-                probe_target = it->second.trait_type_args[0];
-                if (it->second.target_typeref) {
-                    logos::compiler::StrMap<TypeRef> binds;
-                    unify_types(it->second.target_typeref, rt, binds);
-                    SemaSubst s(binds.begin(), binds.end());
-                    probe_target = subst_type_sema(probe_target, s);
+    // Method autoderef (rustc's probe, S8 row 4): the pick names how many
+    // deref steps the receiver takes; each user `Deref` step is `DerefMut` when
+    // the picked method's self is mutable (`&mut self`, `&mut [T]`), so the
+    // receiver is the mutable place. The last step through a reference is the
+    // selection's below (a deref, or the reference itself as a reborrow).
+    if (recv && expr_type(recv)) {
+        ProbePick pk = probe_method_(expr_type(recv), method_name);
+        if ((pk.fi || pk.via_arm) && pk.derefs > 0) {
+            TypeRef f0 = pk.fi ? pk.fi->param_types[0] : TypeRef(nullptr);
+            const auto fk = f0 ? TypeRef(f0).kind() : LogosType::Kind::Error;
+            const bool want_mut = pk.dyn_mut || pk.autoref == 2 || fk == LogosType::Kind::MutRef ||
+                ((fk == LogosType::Kind::Slice || fk == LogosType::Kind::DstRef) && TypeRef(f0).mut_ptr());
+            for (int d = pk.derefs; d > 0; --d) {
+                TypeRef rt = expr_type(recv);
+                const auto rk = TypeRef(rt).kind();
+                if ((rk == LogosType::Kind::Ref || rk == LogosType::Kind::MutRef) && TypeRef(rt).pointee()) {
+                    if (d == 1) break;
+                    recv = builder().deref(std::move(recv), TypeRef(rt).pointee());
+                    continue;
                 }
+                if (rk != LogosType::Kind::Struct && rk != LogosType::Kind::ZonedStruct) break;
+                // A fresh droppable rvalue (`make(7).hi()` with `make() -> Box<B>`)
+                // consumed by the deref step needs a statement-temporary owner, or
+                // it is never dropped.
+                if (cur_stmt_temp_hoist_ && is_move_type(rt) && is_hoistable_temp_rvalue(recv))
+                    recv = hoist_stmt_temp(std::move(recv), want_mut);
+                auto stepped = emit_generic_deref_step(recv, want_mut);
+                if (!stepped) break;
+                recv = *stepped;
             }
         }
-        bool want_mut = target_method_wants_mut_self(probe_target, m);
-        // A fresh droppable rvalue (`make(7).hi()` with `make() -> Box<B>`)
-        // consumed by the deref step needs a statement-temporary owner, or it
-        // is never dropped.
-        if (cur_stmt_temp_hoist_ && recv && expr_type(recv) && is_move_type(expr_type(recv)) &&
-            is_hoistable_temp_rvalue(recv))
-            recv = hoist_stmt_temp(std::move(recv), want_mut);
-        auto stepped = emit_generic_deref_step(recv, want_mut);
-        if (!stepped) break;
-        recv = *stepped;
     }
 
 

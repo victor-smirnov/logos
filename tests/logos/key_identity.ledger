@@ -712,7 +712,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # 2026-10-01: impl_key 7 -> 9, roster 37c1f856 -> fabf7587. deref_target_type_ (the type-level Deref step
 # argument inference reads through, `&Vec<i32>` at `&[T]`) asks `Deref` over the concrete then the base
 # struct name — the same two probes the method autoderef loop already makes.
-#ARGSCAN impl_key 9 fabf7587
+# 2026-10-02: impl_key 9 -> 7, roster fabf7587 -> 37c1f856 (ADR 0030 S8 row 4). The method
+# autoderef loop's two `Deref` probes (concrete, then base struct name) are gone with the loop: the
+# method probe takes its deref steps through deref_target_type_, whose two probes remain.
+#ARGSCAN impl_key 7 37c1f856
 # 2026-09-19, steps 6 + 8: impl_trait_id 2 -> 6, roster ec08d4b9 -> 052a7a0c.
 # The four new arguments are the lang-item spellings the auto-trait engine
 # resolves ("Send", "Sync", "Unpin", "Fst") — the one place each is turned into

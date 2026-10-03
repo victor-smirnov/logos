@@ -1,1 +1,1 @@
-trait 'Snapshot' has no method 'node_alloc'
+has no method 'node_alloc'
