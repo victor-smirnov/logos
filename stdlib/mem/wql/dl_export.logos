@@ -135,6 +135,27 @@ struct DxClause {
     pub vsrc: [i64; 16],
     pub nparams: i64,
     pub params: [str; 16],
+    // names an aggregate head binds (`key`, the aggregate outputs) → variable
+    pub nal: i64,
+    pub al_names: [str; 16],
+    pub al_vars: [str; 16],
+    pub al_tys: [str; 16],    // their Soufflé types (entry typing only)
+    pub al_kinds: [str; 16],  // their dump kinds
+}
+
+fn dx_new_clause() -> DxClause {
+    return DxClause { body: String::new(), ok: true, nv: 0i64, vars: [""; 16], vsrc: [0i64; 16],
+                      nparams: 0i64, params: [""; 16], nal: 0i64, al_names: [""; 16], al_vars: [""; 16],
+                      al_tys: [""; 16], al_kinds: [""; 16] };
+}
+
+fn dx_alias(cl: &DxClause, nm: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < cl.nal {
+        if str_eq(cl.al_names[i], nm) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
 }
 
 fn dx_bind(cl: &mut DxClause, v: str, si: i64) {
@@ -188,6 +209,12 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
             if br.any().is_null() {
+                let ai: i64 = dx_alias(cl, f.name);
+                if ai >= 0i64 {
+                    out.push_str(cl.al_vars[ai]);
+                    if str_eq(cl.al_vars[ai], "a_") { out.push_str(cl.al_names[ai]); }
+                    return true;
+                }
                 if !dx_is_scalar(env, f.name) { return false; }
                 dx_note_param(cl, f.name);
                 out.push_str("p_"); out.push_str(f.name);
@@ -380,8 +407,7 @@ fn dx_head(name: str, sel: SExpr, arity: i64, env: &DxEnv, cl: &mut DxClause, ou
 
 // One query → one clause `head :- body.` appended to `out`.
 fn dx_clause(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String) -> bool {
-    let mut cl: DxClause = DxClause { body: String::new(), ok: true, nv: 0i64, vars: [""; 16],
-                                      vsrc: [0i64; 16], nparams: 0i64, params: [""; 16] };
+    let mut cl: DxClause = dx_new_clause();
     let mut hd: String = String::new();
     let q: RQuery = qany.view::<RQuery>();
     match q {
@@ -395,54 +421,139 @@ fn dx_clause(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String) -
         }
         RQuery::Join(j) => {
             if j.has_gpath || j.sel_first || j.has_limit { return false; }
-            if !dx_atom(&mut cl, env, j.a_name, j.x_var) { return false; }
-            let steps: RQJoinStepArr = j.steps_arr();
-            let mut i: i64 = 0i64;
-            while i < steps.len() {
-                let st: RQJoinStep = steps.step_at(i);
-                if st.is_edge { return false; }
-                if st.is_anti {
-                    if !st.has_on { return false; }
-                    let si: i64 = dx_find(env, st.src_name);
-                    if si < 0i64 { return false; }
-                    let on: SExpr = st.on.any().view::<SExpr>();
-                    if !dx_neg_only_eqs(on, st.var_name) { return false; }
-                    cl.body.push_str(", !");
-                    cl.body.push_str(st.src_name);
-                    cl.body.push_str("(");
-                    let mut k: i64 = 0i64;
-                    while k < env.cn[si] {
-                        if k > 0i64 { cl.body.push_str(", "); }
-                        let mut a: String = String::new();
-                        if dx_neg_arg(on, st.var_name, env.cnames[si][k], env, &mut cl, &mut a) {
-                            cl.body.push_str(dx_view(&a));
-                        } else {
-                            cl.body.push_str("_");
-                        }
-                        k = k + 1i64;
-                    }
-                    cl.body.push_str(")");
-                } else {
-                    if !dx_atom(&mut cl, env, st.src_name, st.var_name) { return false; }
-                    if st.has_on && !dx_pred(st.on.any().view::<SExpr>(), env, &mut cl) { return false; }
-                }
-                i = i + 1i64;
-            }
-            if j.has_where && !dx_pred(j.where_pred.any().view::<SExpr>(), env, &mut cl) { return false; }
+            if !dx_join_body(&mut cl, env, j.a_name, j.x_var, j.steps.any(), j.has_where, j.where_pred) { return false; }
             if !dx_head(head, j.select.any().view::<SExpr>(), arity, env, &mut cl, &mut hd) { return false; }
+        }
+        RQuery::Aggr(g) => {
+            if g.has_gpath || g.sel_first || g.has_limit { return false; }
+            return dx_aggr_clause(g, head, arity, env, out);
         }
         _ => { return false; }
     }
-    // the scalar params the clause names, each from its one-row relation
+    dx_param_atoms(&mut cl);
+    out.push_str(dx_view(&hd));
+    out.push_str(" :- ");
+    out.push_str(dx_view(&cl.body));
+    out.push_str(".\n");
+    return true;
+}
+
+// The scalar params a clause names, each from its one-row relation.
+fn dx_param_atoms(cl: &mut DxClause) {
     let mut p: i64 = 0i64;
     while p < cl.nparams {
         cl.body.push_str(", __p_"); cl.body.push_str(cl.params[p]);
         cl.body.push_str("(p_"); cl.body.push_str(cl.params[p]); cl.body.push_str(")");
         p = p + 1i64;
     }
+}
+
+// `from a x (join|anti join …)* [where P]` as atoms and constraints.
+fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAny,
+                has_where: bool, where_pred: WRef<SExpr>) -> bool {
+    if !dx_atom(cl, env, a_name, x_var) { return false; }
+    if !sa.is_null() {
+        let steps: RQJoinStepArr = sa.view::<RQJoinStepArr>();
+        let mut i: i64 = 0i64;
+        while i < steps.len() {
+            let st: RQJoinStep = steps.step_at(i);
+            if st.is_edge { return false; }
+            if st.is_anti {
+                if !st.has_on { return false; }
+                let si: i64 = dx_find(env, st.src_name);
+                if si < 0i64 { return false; }
+                let on: SExpr = st.on.any().view::<SExpr>();
+                if !dx_neg_only_eqs(on, st.var_name) { return false; }
+                cl.body.push_str(", !");
+                cl.body.push_str(st.src_name);
+                cl.body.push_str("(");
+                let mut k: i64 = 0i64;
+                while k < env.cn[si] {
+                    if k > 0i64 { cl.body.push_str(", "); }
+                    let mut a: String = String::new();
+                    if dx_neg_arg(on, st.var_name, env.cnames[si][k], env, cl, &mut a) {
+                        cl.body.push_str(dx_view(&a));
+                    } else {
+                        cl.body.push_str("_");
+                    }
+                    k = k + 1i64;
+                }
+                cl.body.push_str(")");
+            } else {
+                if !dx_atom(cl, env, st.src_name, st.var_name) { return false; }
+                if st.has_on && !dx_pred(st.on.any().view::<SExpr>(), env, cl) { return false; }
+            }
+            i = i + 1i64;
+        }
+    }
+    if has_where && !dx_pred(where_pred.any().view::<SExpr>(), env, cl) { return false; }
+    return true;
+}
+
+// A grouped aggregate (Deem's `group by K aggregate a = f(e), …`), as
+//   __gk_<head>(K) :- B.
+//   head(…) :- __gk_<head>(gk), a_a = f e : { B, K = gk }, …[, having].
+// `key` and the aggregate names in select/having are the variables gk / a_<a>.
+fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut String) -> bool {
+    let key: SExpr = g.key_expr();
+    match key { SExpr::Tuple(_t) => { return false; } _ => { } }
+    // __gk_<head>: the group keys
+    let mut kb: DxClause = dx_new_clause();
+    if !dx_join_body(&mut kb, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return false; }
+    let mut kt: String = String::new();
+    if !dx_term(&mut kt, key, env, &mut kb) { return false; }
+    let kty: str = dx_term_ty(key, env, &kb);
+    if kty.len() == 0i64 { return false; }
+    dx_param_atoms(&mut kb);
+    let mut gk: String = String::new();
+    gk.push_str("__gk_"); gk.push_str(head);
+    out.push_str(".decl "); out.push_str(dx_view(&gk)); out.push_str("(k: "); out.push_str(kty); out.push_str(")\n");
+    out.push_str(dx_view(&gk)); out.push_str("("); out.push_str(dx_view(&kt)); out.push_str(") :- ");
+    out.push_str(dx_view(&kb.body)); out.push_str(".\n");
+    // the head clause
+    let mut hb: String = String::new();
+    hb.push_str(dx_view(&gk)); hb.push_str("(gk)");
+    let mut hcl: DxClause = dx_new_clause();
+    hcl.al_names[0] = "key"; hcl.al_vars[0] = "gk"; hcl.nal = 1i64;
+    let aggs: RQAggArr = g.aggs_arr();
+    let mut i: i64 = 0i64;
+    while i < aggs.len() {
+        let ag: RQAgg = aggs.agg_at(i);
+        let f: str = ag.fn_name;
+        if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") { return false; }
+        if hcl.nal >= 16i64 { return false; }
+        let mut av: String = String::new();
+        av.push_str("a_"); av.push_str(ag.name);
+        // the aggregate's own copy of the body, its row vars local to the braces
+        let mut ab: DxClause = dx_new_clause();
+        if !dx_join_body(&mut ab, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return false; }
+        let mut kt2: String = String::new();
+        if !dx_term(&mut kt2, key, env, &mut ab) { return false; }
+        ab.body.push_str(", "); ab.body.push_str(dx_view(&kt2)); ab.body.push_str(" = gk");
+        let mut argt: String = String::new();
+        if !str_eq(f, "count") {
+            if !ag.has_arg { return false; }
+            if !dx_term(&mut argt, ag.arg_expr(), env, &mut ab) { return false; }
+            let aty: str = dx_term_ty(ag.arg_expr(), env, &ab);
+            if !str_eq(aty, "number") { return false; }
+        }
+        dx_param_atoms(&mut ab);
+        hb.push_str(", "); hb.push_str(dx_view(&av)); hb.push_str(" = "); hb.push_str(f);
+        if argt.len() > 0i64 { hb.push_str(" "); hb.push_str(dx_view(&argt)); }
+        hb.push_str(" : { "); hb.push_str(dx_view(&ab.body)); hb.push_str(" }");
+        hcl.al_names[hcl.nal] = ag.name;
+        hcl.al_vars[hcl.nal] = "a_";   // rendered as a_<name>
+        hcl.nal = hcl.nal + 1i64;
+        i = i + 1i64;
+    }
+    hcl.body.push_str(dx_view(&hb));
+    if g.has_having && !dx_pred(g.having_expr(), env, &mut hcl) { return false; }
+    let mut hd: String = String::new();
+    if !dx_head(head, g.select_expr(), arity, env, &mut hcl, &mut hd) { return false; }
+    dx_param_atoms(&mut hcl);
     out.push_str(dx_view(&hd));
     out.push_str(" :- ");
-    out.push_str(dx_view(&cl.body));
+    out.push_str(dx_view(&hcl.body));
     out.push_str(".\n");
     return true;
 }
@@ -487,7 +598,12 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         SExpr::Param(p) => { return dx_scalar_ty(env, p.name); }
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
-            if br.any().is_null() { return dx_scalar_ty(env, f.name); }
+            if br.any().is_null() {
+                let ai: i64 = dx_alias(cl, f.name);
+                // static literals (dl_ty's), re-viewed so the answer does not borrow `cl`
+                if ai >= 0i64 { let t: str = cl.al_tys[ai]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
+                return dx_scalar_ty(env, f.name);
+            }
             let b: SExpr = br.any().view::<SExpr>();
             match b {
                 SExpr::Field(bf) => {
@@ -522,7 +638,11 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         SExpr::Param(p) => { return dx_kind(dx_scalar_lty(env, p.name)); }
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
-            if br.any().is_null() { return dx_kind(dx_scalar_lty(env, f.name)); }
+            if br.any().is_null() {
+                let ai: i64 = dx_alias(cl, f.name);
+                if ai >= 0i64 { let k: str = cl.al_kinds[ai]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
+                return dx_kind(dx_scalar_lty(env, f.name));
+            }
             let b: SExpr = br.any().view::<SExpr>();
             match b {
                 SExpr::Field(bf) => {
@@ -581,6 +701,40 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
                 i = i + 1i64;
             }
         }
+        RQuery::Aggr(g) => {
+            let si: i64 = dx_find(env, g.a_name);
+            if si >= 0i64 { dx_bind(cl, g.x_var, si); }
+            if g.has_steps() {
+                let steps: RQJoinStepArr = g.steps_arr();
+                let mut i: i64 = 0i64;
+                while i < steps.len() {
+                    let st: RQJoinStep = steps.step_at(i);
+                    let sj: i64 = dx_find(env, st.src_name);
+                    if sj >= 0i64 && !st.is_anti { dx_bind(cl, st.var_name, sj); }
+                    i = i + 1i64;
+                }
+            }
+            // `key` and the aggregate outputs, typed for `.decl __out` and the dump
+            let kty: str = dx_term_ty(g.key_expr(), env, cl);
+            let kkd: str = dx_term_kind(g.key_expr(), env, cl);
+            cl.al_names[0] = "key"; cl.al_vars[0] = "gk"; cl.al_tys[0] = kty; cl.al_kinds[0] = kkd;
+            cl.nal = 1i64;
+            let aggs: RQAggArr = g.aggs_arr();
+            let mut a: i64 = 0i64;
+            while a < aggs.len() && cl.nal < 16i64 {
+                let ag: RQAgg = aggs.agg_at(a);
+                let mut aty: str = "number";
+                let mut akd: str = "i";
+                if (str_eq(ag.fn_name, "min") || str_eq(ag.fn_name, "max")) && ag.has_arg {
+                    aty = dx_term_ty(ag.arg_expr(), env, cl);
+                    akd = dx_term_kind(ag.arg_expr(), env, cl);
+                }
+                cl.al_names[cl.nal] = ag.name; cl.al_vars[cl.nal] = "a_";
+                cl.al_tys[cl.nal] = aty; cl.al_kinds[cl.nal] = akd;
+                cl.nal = cl.nal + 1i64;
+                a = a + 1i64;
+            }
+        }
         _ => { }
     }
 }
@@ -599,6 +753,7 @@ fn dx_entry_struct_result(qany: WAny) -> bool {
     match q {
         RQuery::Simple(s) => { return s.has_result_ty; }
         RQuery::Join(j) => { return j.has_result_ty; }
+        RQuery::Aggr(g) => { return g.has_result_ty; }
         _ => { return true; }
     }
 }
@@ -608,6 +763,7 @@ fn dx_entry_select(qany: WAny) -> WRef<SExpr> {
     match q {
         RQuery::Simple(s) => { return s.select; }
         RQuery::Join(j) => { return j.select; }
+        RQuery::Aggr(g) => { return g.select; }
         _ => { return null_sref(); }
     }
 }
@@ -718,8 +874,7 @@ pub fn dl_render(root: WAny, prm: &MacroParams, out: &mut String, dump: &mut Str
     let entry: WAny = prog.entry_any();
     let sel: WRef<SExpr> = dx_entry_select(entry);
     if sel.any().is_null() { return false; }
-    let mut cl0: DxClause = DxClause { body: String::new(), ok: true, nv: 0i64, vars: [""; 16],
-                                       vsrc: [0i64; 16], nparams: 0i64, params: [""; 16] };
+    let mut cl0: DxClause = dx_new_clause();
     dx_entry_vars(entry, &env, &mut cl0);
     let mut cols: String = String::new();
     let arity: i64 = dx_out_cols(sel.any().view::<SExpr>(), &env, &cl0, &mut cols);

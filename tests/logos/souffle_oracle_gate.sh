@@ -13,7 +13,10 @@
 #
 # Not compared, and counted: a deem the program never called (no deem.out), and
 # a call that returned Err (deem.err): Deem's arithmetic is checked, Soufflé's
-# wraps, so an error is outside the shared semantics.
+# wraps, so an error is outside the shared semantics. And an AGGREGATE whose
+# dumped inputs hold a duplicate row: Deem folds the rows it scans (a bag),
+# Soufflé folds the tuples of a relation (a set), so `count` differs exactly
+# there and nowhere else.
 #
 # ⚠ THE POPULATION IS PINNED FROM BELOW. A change that pushes programs out of
 # the fragment would make the gate compare less and stay green; COMPARED_FLOOR
@@ -24,8 +27,8 @@ PASS="$2"
 # `SOUFFLE` may be overridden only to bite-check the gate with a perturbing
 # wrapper; the oracle is the system Soufflé (2.5, 64-bit word = Deem's i64).
 SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
-COMPARED_FLOOR=21   # 2026-10-03 first run: 22 exported, 21 compared, 1 Err (div_guard)
-ROWS_FLOOR=51       # 2026-10-03 first run
+COMPARED_FLOOR=34   # 2026-10-03 with aggregates: 61 exported, 34 compared, 18 never called (14 via `_epoch`), 8 bag, 1 Err
+ROWS_FLOOR=76       # 2026-10-03 with aggregates
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 if [ ! -x "$SOUFFLE" ]; then
@@ -42,7 +45,7 @@ for f in "$PASS"/wql_*.logos "$PASS"/deem_*.logos; do
     grep -qE '^\s*rel [a-z_0-9]+\(' "$f" && fixtures+=("$f")
 done
 
-exported=0; compared=0; rows=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
+exported=0; compared=0; rows=0; bag=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
 for f in "${fixtures[@]}"; do
     b=$(basename "$f" .logos)
     o="$TMPD/$b"
@@ -60,6 +63,14 @@ for f in "${fixtures[@]}"; do
         exported=$((exported + 1))
         if [ -e "$o/$q/deem.err" ] && [ ! -e "$o/$q/deem.out" ]; then errored=$((errored + 1)); continue; fi
         if [ ! -e "$o/$q/deem.out" ]; then uncalled=$((uncalled + 1)); continue; fi
+        if grep -q ' : { ' "$dl"; then
+            dup=0
+            for ff in "$o/$q"/*.facts; do
+                [ -e "$ff" ] || continue
+                [ -n "$(sort "$ff" | uniq -d | head -1)" ] && dup=1
+            done
+            if [ "$dup" -eq 1 ]; then bag=$((bag + 1)); continue; fi
+        fi
         mkdir -p "$o/$q/souffle"
         if ! "$SOUFFLE" "$dl" -F "$o/$q" -D "$o/$q/souffle" > "$o/$q/souffle.log" 2>&1; then
             echo "FAIL: [$b] $q — souffle rejected the exported program:"
@@ -81,7 +92,7 @@ for f in "${fixtures[@]}"; do
 done
 
 echo "souffle oracle: ${#fixtures[@]} fixture(s) with rels; $exported deem(s) exported," \
-     "$compared agree with Soufflé ($rows distinct rows), $uncalled never called, $errored returned Err," \
+     "$compared agree with Soufflé ($rows distinct rows), $uncalled never called, $errored returned Err, $bag aggregate(s) over a bag input," \
      "$mismatched disagree, $failed_fx fixture(s) failed"
 fail=0
 [ "$mismatched" -eq 0 ] || fail=1
