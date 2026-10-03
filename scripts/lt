@@ -297,6 +297,9 @@ class Runner:
             if self.stop:
                 return self.record(name, "notrun", None, 0.0, b"", total)
             e = dict(os.environ)
+            # The slots this test holds: a test that fans out its own workers
+            # sizes them by this, never by `nproc` — lt is the one scheduler.
+            e["LT_PROCESSORS"] = str(procs)
             for kv in json.loads(env) + list(self.extra_env):
                 k, _, v = kv.partition("=")
                 e[k] = v

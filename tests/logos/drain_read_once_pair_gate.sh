@@ -126,7 +126,7 @@ probe() {
 }
 export -f probe
 printf '%s\0' "${FIX[@]}" \
-  | xargs -0 -P "$(nproc)" -I{} bash -c 'probe "$@"' _ {} "$TMPD" "$LOGOSC" "$PASSD"
+  | xargs -0 -P "${LT_PROCESSORS:-$(nproc)}" -I{} bash -c 'probe "$@"' _ {} "$TMPD" "$LOGOSC" "$PASSD"
 
 shopt -s nullglob
 RCS=("$TMPD"/*.rc)

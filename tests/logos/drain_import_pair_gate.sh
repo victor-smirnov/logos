@@ -177,7 +177,7 @@ n2d=$(fn_body emit_stream_direct | grep -cE '^[[:space:]]+use logos\.mem\.stream
       the literal. Either way one of the two sides is measuring nothing."
 
 # ── FACT 3 (run first — it produces the dumps FACT 2 reads) ─────────────────
-np=$(nproc)
+np="${LT_PROCESSORS:-$(nproc)}"
 probe() {
     local b="$1" D="$2" LOGOSC="$3" PASSD="$4"
     "$LOGOSC" "$PASSD/$b.logos" --gen-dir "$D/$b.gen" -o "$D/$b.o" \
