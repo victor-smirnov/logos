@@ -1,4 +1,5 @@
 package sf_test;
+use logos.lang.cmp;
 fn main() -> i32 {
     let s: &str = "  hello  ";
     let t: &str = s.trim();
@@ -6,7 +7,7 @@ fn main() -> i32 {
     if !"hello world".starts_with("hello") { return 2i32; }
     if !"hello world".ends_with("world") { return 3i32; }
     if !"hello world".contains("lo wo") { return 4i32; }
-    if "hello".cmp("hellx") >= 0i32 { return 5i32; }
+    if "hello".cmp("hellx") != Ordering::Less { return 5i32; }   // Ord::cmp, as rustc
     if "hello".index_of("ll") != 2i64 { return 6i32; }
     return 0i32;
 }

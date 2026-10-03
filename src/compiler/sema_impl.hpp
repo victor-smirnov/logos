@@ -10485,8 +10485,11 @@ private:
     // impl-registry target key a concrete type is found under.
     // `autoref`: 0 by value, 1 `&`, 2 `&mut` — never a raw pointer. `tied`: every candidate of the best
     // rank — overloads by argument type are select_overload's, not the probe's.
+    // `via_arm`: no impl candidate — step `derefs` is answered by another arm:
+    // a trait object's own method (a vtable slot, try_method_on_dyn; `dyn_mut`
+    // its self is `&mut`), or a type parameter / projection (its bounds).
     struct ProbePick { const SemaFuncInfo* fi = nullptr; int derefs = 0; int autoref = 0; std::string key;
-                       std::vector<const SemaFuncInfo*> tied; };
+                       std::vector<const SemaFuncInfo*> tied; bool via_arm = false; bool dyn_mut = false; };
     std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
     void reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal);
