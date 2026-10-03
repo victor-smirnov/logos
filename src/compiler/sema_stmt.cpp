@@ -7457,7 +7457,13 @@ lir_view::StmtRef SemaChecker::lower_for_each(TinyMapView node) {
         // Synthesize __iter.next() call expression (inside the loop)
         auto make_next_call = [&]() -> lir::LExprPtr {
             auto iter_ref = builder().var_ref(iter_var, iter_type);
-            return builder().method_call(std::move(iter_ref), "next", "", {}, {}, -1, next_ret);
+            {
+                lir::EMethodCall mc;
+                mc.receiver = std::move(iter_ref);
+                mc.method = "next";
+                mc.vtable_index = -1;
+                return method_call_resolved_(std::move(mc), next_ret);
+            }
         };
 
         // Then arm: Some(x) → body
@@ -7905,7 +7911,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         mc.args.push_back(std::move(idx_e));
         mc.vtable_index = -1;
         mc.resolved_type = "";
-        auto call_e = builder().method_call_v(std::move(mc), make_ref(true, out_t));
+        auto call_e = method_call_resolved_(std::move(mc), make_ref(true, out_t));
         check_index_mut_value_(val_e, make_ref(true, out_t), arr_name);
         track_write_move(val_e);
         return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_, drop_old);
@@ -8016,7 +8022,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
     std::vector<lir::LExprPtr> sargs;
     sargs.push_back(builder().lit_int(static_cast<int64_t>(key), prim(LogosType::Kind::U8)));
     sargs.push_back(std::move(wany_val));
-    auto setcall = builder().method_call(std::move(m_mut), "set", "", {},
+    auto setcall = method_call_named_(std::move(m_mut), "set",
                                          std::move(sargs), -1, void_t());
     lir::SExprStmt es; es.expr = std::move(setcall);
     return make_stmt_emit(node_line_, std::move(es));
@@ -9396,7 +9402,7 @@ lir_view::StmtRef SemaChecker::lower_schema_enum_match(TinyMapView node,
     std::string codev = "__se_code_" + std::to_string(tmp_var_count_++);
     define(codev, u64t);
     { auto mref = builder().cast(builder().var_ref(sm, wmap_cptr), make_ref(false, wmap));
-      auto call = builder().method_call(std::move(mref), "schema_type_code", "", {}, {}, -1, u64t);
+      auto call = method_call_named_(std::move(mref), "schema_type_code", {}, -1, u64t);
       lir::SLet l; l.name = codev; l.type = u64t; l.is_mut = false; l.value = std::move(call);
       outer.push_back(make_stmt_emit(node_line_, std::move(l))); }
 

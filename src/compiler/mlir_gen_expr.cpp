@@ -3435,60 +3435,16 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         builder_.create<mlir::LLVM::StoreOp>(loc_, coerce_numeric(ptr, builder_.getI32Type()), slot);
         ptr = slot;
     }
-    // Method symbols are pkg-qualified at sema (`pkg.Concrete__method__f__sig`).
-    // Build qualified callee from receiver tname's pkg prefix; fall back to
-    // bare and to a global suffix scan when needed.
-    std::string defining = resolved_type.empty()
-                           ? std::string(strip_struct_pkg(tname))
-                           : resolved_type;
-    std::string tname_pkg;
-    // Pkg may have inner dots; split at LAST dot.
-    if (auto p = tname.rfind('.'); p != std::string::npos)
-        tname_pkg = tname.substr(0, p);
-    std::string bare_mangled = defining + "__" + method;
-    auto mangled = tname_pkg.empty()
-                   ? bare_mangled
-                   : tname_pkg + "." + bare_mangled;
-
-    auto callee_name = resolved_symbol.empty() ? mangled : resolved_symbol;
+    // ADR 0030 S8 row 5: the callee is the symbol sema / mono RECORDED on the
+    // call (`resolved_symbol`); nothing composes `<Type>__<method>` or scans
+    // function names by suffix any more. A symbol with no FuncOp is a miss,
+    // accounted below (a dead instantiation, or a dropped live effect the
+    // statement level reports).
+    std::string callee_name = resolved_symbol;
     auto parent_mod  = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-    // find_func_op resolves the module-qualified link form internally (THE
-    // chokepoint), so the EXACT overload binds before the signature-blind suffix
-    // fallbacks below — no per-site qualification needed here.
-    auto callee_fn   = find_func_op(parent_mod, callee_name);
-    // O(1) via the base→first-FuncOp index (was an O(funcs) find_fn_matching
-    // prefix scan, called up to 3× per unresolved method). first-wins matches
-    // the old find_fn_matching (first module-order hit).
-    auto walk_prefix = [&](const std::string& cn) -> mlir::func::FuncOp {
-        ensure_ffo_canon_index(parent_mod);
-        if (auto it = ffo_base_first_.find(cn); it != ffo_base_first_.end())
-            return it->second;
-        return {};
-    };
-    if (!callee_fn) callee_fn = walk_prefix(callee_name);
-    if (!callee_fn && !resolved_symbol.empty()) {
-        callee_name = mangled;
-        callee_fn = find_func_op(parent_mod, callee_name);
-        if (!callee_fn) callee_fn = walk_prefix(callee_name);
-    }
-    if (!callee_fn && mangled != bare_mangled) {
-        callee_name = bare_mangled;
-        callee_fn = find_func_op(parent_mod, callee_name);
-        if (!callee_fn) callee_fn = walk_prefix(callee_name);
-    }
-    if (!callee_fn) {
-        std::string suffix1 = "." + bare_mangled;
-        std::string contains_f = "." + bare_mangled + "__f__";
-        std::string contains_g = "." + bare_mangled + "__g__";
-        callee_fn = find_fn_matching(parent_mod,
-            [&](mlir::func::FuncOp fn) {
-                llvm::StringRef n = fn.getName();
-                return n.ends_with(suffix1) ||
-                       n.contains(contains_f) ||
-                       n.contains(contains_g);
-            });
-        if (callee_fn) callee_name = callee_fn.getName().str();
-    }
+    mlir::func::FuncOp callee_fn = callee_name.empty() ? mlir::func::FuncOp{}
+                                                       : find_func_op(parent_mod, callee_name);
+    if (callee_name.empty()) callee_name = tname + "__" + method + " (no recorded callee)";
     if (!callee_fn) {
         // Suppress noise from the known method-generic-trait-default
         // mono limitation (baghunt CP-cm-12 family): when a trait default

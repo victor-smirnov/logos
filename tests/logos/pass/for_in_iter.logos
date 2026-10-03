@@ -14,7 +14,7 @@ struct Range {
 }
 
 impl Range {
-    unsafe fn next(self: *mut Range) -> Option<i32> {
+    unsafe fn next(&mut self) -> Option<i32> {
         if self.current >= self.end {
             return Option::None;
         }

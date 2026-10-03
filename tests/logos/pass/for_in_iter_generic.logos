@@ -14,7 +14,7 @@ struct Counter {
 }
 
 impl Counter {
-    unsafe fn next(self: *mut Counter) -> Option<i32> {
+    unsafe fn next(&mut self) -> Option<i32> {
         if self.val >= self.max {
             return Option::None;
         }

@@ -10493,6 +10493,9 @@ private:
     std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
     void reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal);
+    lir::LExprPtr method_call_resolved_(lir::EMethodCall mc, TypeRef ret);
+    lir::LExprPtr method_call_named_(lir::LExprPtr recv, std::string method,
+                                     std::vector<lir::LExprPtr> args, int vtable_index, TypeRef ret);
     std::string last_call_sym_;   // the symbol the builder emitted last (probe census)
     // Symbols of the methods whose self is a raw pointer (autoref never reaches one).
     bool raw_self_symbol_(std::string_view sym);
