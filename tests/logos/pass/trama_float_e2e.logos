@@ -1,7 +1,9 @@
 // Trama FLOAT support end-to-end: `{{ price }}` interpolation of an f64 field
 // (rendered via the shared %g helper `wql_f64_to_str` — shortest round-trip
-// decimal, Rust-Display convention: 2.5 → "2.5", 5.0 → "5"), mixed arithmetic
-// `{{ p.price * 2 }}` (INT promotes with an explicit `as f64` cast), a float
+// decimal, Rust-Display convention: 2.5 → "2.5", 5.0 → "5"), float arithmetic
+// `{{ p.price * 2.0 }}` (until 2026-10-02 `p.price * 2`, the integer promoted by an
+// `as f64` cast; under Rust typing an integer literal beside an f64 is
+// `mismatched types`, in a template as in a query), a float
 // comparison in `{% if %}`, and a CONST-FOLDED mixed literal `{{ 1.5 + 2 }}`
 // (the optimizer folds it to the float SLit 3.5 at compile time).
 package test;
@@ -12,7 +14,7 @@ use logos.lang.str;
 struct Product { pub name: str, pub price: f64 }
 
 resource label = trama!(p: &Product){
-{{ p.name }}: {{ p.price }} (x2 = {{ p.price * 2 }}) [{% if p.price > 10.0 %}spendy{% else %}cheap{% endif %}] s={{ 1.5 + 2 }}
+{{ p.name }}: {{ p.price }} (x2 = {{ p.price * 2.0 }}) [{% if p.price > 10.0 %}spendy{% else %}cheap{% endif %}] s={{ 1.5 + 2 }}
 };
 
 fn streq(s: &String, want: str) -> bool {

@@ -67,7 +67,7 @@
 #       aggregate key enumeration            39   declared out (Part 3b)
 #       native iterator scan                 14   declared source kind (Part 3a)
 #       drain prelude                         9   declared source kind (Part 3a)
-#       join build side                       3   the fourth pull site
+#       join build side (iterator producers)  3   declared source kind (Part 3a, extended 2026-10-03, #330)
 #   indexed walks (canonical grep)         3313   task #85: +12 (see `dumps`)
 #       INTERNAL compiler containers       2517   not sources; no route claims
 #       fixpoint `_sl` slices               618   the (b′) plane
@@ -236,7 +236,7 @@ PIN = {
     # The direction is the one this gate's movement rule sanctions in the
     # weakest sense — the population grew because a fixture stopped being
     # invisible, not because the pull plane changed.
-    'dumps'            : 175,
+    'dumps'            : 182,  # 2026-10-03 deem branch: +7 from the 7 Rust-typing fixtures
 
     # ── BATCH PULLS ─────────────────────────────────────────────────────────
     # `next_batch()` is criterion 2's numerator. R-F took it 165 → 1018 by
@@ -270,8 +270,8 @@ PIN = {
     #   +1  `deem_direct_stream_pull`'s `_run` body batch pull (the new fixture)
     #   +10 one `(self.w).next_batch()` per DIRECT DOOR
     # and the door count is 10, cross-pinned four ways below.
-    'nb_all'           : 1041,   # = nb_pull + nb_forward + 0
-    'nb_pull'          : 1031,   # R-F: 165 -> 1018; D7 #62: +1; S5-direct: +11; V2-M1: +1
+    'nb_all'           : 1060,  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # = nb_pull + nb_forward + 0
+    'nb_pull'          : 1050,  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # R-F: 165 -> 1018; D7 #62: +1; S5-direct: +11; V2-M1: +1
     'nb_forward'       : 10,     # S5-direct: 0 -> 10, one per direct door
     'nb_residual'      : 0,
 
@@ -312,8 +312,8 @@ PIN = {
     # loop with the outer `loop` removed, so it carries exactly one `__bj`
     # loop per pull. The forwards add none, which is the correspondence clause
     # doing its job rather than a coincidence.
-    'batch_loop_while' : 1031,   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
-    'batch_loop_decl'  : 1031,   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
+    'batch_loop_while' : 1050,  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
+    'batch_loop_decl'  : 1050,  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures   # D7 #62: +1; S5-direct: +11; V2-M1: +1 (see `nb_pull`)
     # ⚠ THE FOURTH `__bj` DECLARATION SHAPE, pinned APART so it cannot absorb
     # a member of the population above. `let mut __bj0: u64 = __bn0;` seeds the
     # cursor at the END of the batch — the descending elision's backward walk
@@ -329,14 +329,20 @@ PIN = {
     # emits `SliceStream`, from ONE function (`rexpr_walk::batch_scan_frag`),
     # so all three are 1:1 by construction — and that is exactly why they are
     # worth asserting: the day they disagree, a second emitter has appeared.
-    'slicestream_ty'   : 1002,
-    'slicestream_decl' : 1002,
-    'slicestream_pull' : 1002,
+    'slicestream_ty'   : 1021,  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
+    'slicestream_decl' : 1021,  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
+    'slicestream_pull' : 1021,  # 2026-10-03 deem branch: +19 from the 7 Rust-typing fixtures
 
     # ── ROW-AT-A-TIME PULLS, THE 4-WAY PARTITION ────────────────────────────
     # 65 since the audit, unmoved by R-A, R-B, R-F, R-G and (b′) — five stages,
     # five zero deltas. That stability is the reason this number is the best
     # control in the arc, and the reason a stage that moves it must say so.
+    # ── 2026-10-03 (branch `deem`, E-series): +7 dumps — wql_named_key_e2e,
+    # wql_named_key_loop_e2e, wql_arith_128_tower_e2e, wql_lit_suffix_e2e,
+    # wql_comprehension_typed_e2e, wql_uda_narrow_ret_e2e, wql_udf_wide_ret_e2e.
+    # Their slice-param scans add +19 batch pulls / SliceStream wraps and +18
+    # canonical walks (16 internal, 2 param). No `.next()` row pull moved, and
+    # every partition still closes; the pins below that moved say so inline.
     'next_total'       : 65,
     # (i) AGGREGATE KEY ENUMERATION — `match __it.next()` over a `HashMapKeys`,
     # the min/max retract-rebuild arm. DECLARED OUT permanently (ADR §7 C2 (b)):
@@ -355,11 +361,18 @@ PIN = {
     # (iii) DRAIN PRELUDE — `__it_<s>.next()` landing into a `Buffer`. Same
     # declaration as (ii): the drain exists because the source is an iterator.
     'next_drain_prel'  : 9,
-    # (iv) JOIN BUILD SIDE — `rexpr_walk::build_phase_frag`, the fourth pull
-    # site, never converted when S1 collapsed the scan. NOT declared out: this
-    # is a real gap, kept visible at 3 so it cannot be forgotten. Any batch
-    # source on a build side dies there, and no corpus query puts one there —
-    # a permissive defect invisible to a green corpus by construction.
+    # (iv) JOIN BUILD SIDE — `rexpr_walk::build_phase_frag`'s row-pull arm.
+    # DECLARED (ADR §7 C2 (a), EXTENDED TO THE BUILD SIDE — Victor, 2026-10-03,
+    # #330): the arm is reached only by a source that STREAMS and is NOT a batch
+    # source (the `rel_batch` arm, a `next_batch()` pull, is taken before it, and
+    # a declared slice param takes the R-A wrap before that) — i.e. only by an
+    # ITERATOR producer, whose protocol IS row-pull. D-C2-a's ground does not
+    # depend on where the source is read; wrapping it in a `Buffer` to batch-pull
+    # it is the materialization criterion 1 forbids. It was kept "visible as a
+    # gap" because no fixture showed which sources reach it; the three are the
+    # iterator producers of deem_join_base_streams / deem_join_step_reread /
+    # deem_join_step_streams, and the last pins the one-pass read (pull count n).
+    # A batch source on a build side does NOT reach this arm.
     'next_join_build'  : 3,
 
     # ── INDEXED WALKS, THE 4-WAY PARTITION ──────────────────────────────────
@@ -367,7 +380,7 @@ PIN = {
     # single-paren version cannot see the `limit` arm and understated the
     # population by 8%).
     # task #85: 3301 -> 3313, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_total'      : 3313,
+    'walks_total'      : 3331,  # 2026-10-03 deem branch: +18 from the 7 Rust-typing fixtures
     # (i) INTERNAL compiler containers — `__ks`, `__ix0`, `__g_key`, `__bv<s>`,
     # `__h.__s<n>`, `__out` … Not sources; no route has ever claimed them.
     # ⚠ DEFINED BY A POSITIVE RULE (an UNPARENTHESISED dotted-or-bare name),
@@ -378,7 +391,7 @@ PIN = {
     # UNCLAIMED count below is pinned at zero, so a fifth walk subject reds
     # here instead of being absorbed.
     # task #85: 2513 -> 2517, `wql_mapping_cross_module_e2e` (see `dumps`).
-    'walks_internal'   : 2517,
+    'walks_internal'   : 2533,  # 2026-10-03 deem branch: +16 from the 7 Rust-typing fixtures
     'walks_unclaimed'  : 0,
     # (ii) THE FIXPOINT `_sl` PLANE — `(__rel_<r>_sl)` / `(__dl_<r>_sl)`.
     # DECLARED OUT per S6-B (ADR §7 C2 (c)): the DRed/fixpoint driver walks
@@ -391,7 +404,7 @@ PIN = {
     # (iii) DECLARED SLICE PARAMS — `(<param>).len()`, the ONLY routable
     # population, 1010 before R-F and 156 after. The residual is entirely
     # declared-out planes (119 incremental/DRed + 37 fixpoint drivers).
-    'walks_param'      : 156,
+    'walks_param'      : 158,  # 2026-10-03 deem branch: +2 from the 7 Rust-typing fixtures
     # (iv) FIELD SLICES OF THE BOUND ROW — `(n.kids.as_slice())`,
     # `(e.skills.as_slice())`, `(c.nums)`. `step_wrap`'s byval tier: scalar
     # traversal over a field of the row just bound, never a declared param, so
