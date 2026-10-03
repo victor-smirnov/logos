@@ -1,0 +1,24 @@
+// ADR 0030 S8 row 6: two impls of one generic trait for one struct (`Conv<i64>` / `Conv<bool>`) — the
+// call's trait arguments select the impl; a nominal enum Self (`Debug for Ordering`); `Iterator<T>`
+// through a bound. Output as rustc (its twin spells `Iterator<Item = i64>`): 10 true 6 Less.
+package s8_trait_item_trait_args;
+use logos.std.fmt;
+use logos.lang.cmp;
+trait Conv<T> { fn conv(&self) -> T; }
+struct S { v: i64 }
+impl Conv<i64> for S { fn conv(&self) -> i64 { self.v * 2 } }
+impl Conv<bool> for S { fn conv(&self) -> bool { self.v > 3 } }
+fn get<T, C: Conv<T>>(c: &C) -> T { c.conv() }
+struct Counter { n: i64 }
+impl Iterator<i64> for Counter {
+    fn next(&mut self) -> Option<i64> { if self.n < 3 { self.n = self.n + 1; Some(self.n) } else { None } }
+}
+fn total<I: Iterator<i64>>(it: &mut I) -> i64 { let mut s: i64 = 0; while let Some(x) = it.next() { s = s + x; } s }
+fn show<T: Debug>(t: &T) -> String { format!("{:?}", t) }
+fn main() {
+    let s = S { v: 5 };
+    let a: i64 = get::<i64, S>(&s);
+    let b: bool = get::<bool, S>(&s);
+    let mut c = Counter { n: 0 };
+    println!("{} {} {} {}", a, b, total(&mut c), show(&Ordering::Less));
+}

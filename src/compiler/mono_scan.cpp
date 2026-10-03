@@ -1362,14 +1362,25 @@ bool Mono::impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* p
     auto ita = impl.trait_type_args(pool);
     if (ita.size() != trait_args->size()) return ita.empty();
     SubstMap b;
-    for (size_t i = 0; i < ita.size(); ++i)
-        if ((*trait_args)[i] && ita[i] && !unify_impl_target((*trait_args)[i], ita[i], b)) return false;
+    for (size_t i = 0; i < ita.size(); ++i) {
+        TypeRef c = (*trait_args)[i], p = ita[i];
+        if (!c || !p) continue;
+        // A const argument (`BtBranch<K, 1>`) is its VALUE: two literals are
+        // the same argument when they are the same number, whichever pool or
+        // literal node carries them.
+        if (c.const_val() && p.const_val() && p.kind() != LogosType::Kind::ConstVar) {
+            if (*c.const_val() != *p.const_val()) return false;
+            continue;
+        }
+        if (!unify_impl_target(c, p, b)) return false;
+    }
     return true;
 }
 
 std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
                                      int64_t arity, const std::vector<TypeRef>* arg_types,
-                                     const std::vector<TypeRef>* trait_args) {
+                                     const std::vector<TypeRef>* trait_args,
+                                     const std::vector<TypeRef>* method_args) {
     TypeRef rt = self;
     if (!rt || contains_typevar(rt)) return {};
     using K = LogosType::Kind;
@@ -1377,7 +1388,7 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
     // A primitive self (`impl Eq for i64`): its impls are nominal, keyed by the
     // type's own spelling, and never generic.
     const bool prim = is_primitive_scalar_kind(rk);
-    if (!prim && rk != K::Struct && rk != K::ZonedStruct) return shape_trait_item_symbol_(trait, rt, method, arity, trait_args);
+    if (!prim && rk != K::Struct && rk != K::ZonedStruct) return shape_trait_item_symbol_(trait, rt, method, arity, trait_args, method_args);
     std::string base = prim ? type_str(rt) : std::string(TypeRef(rt).struct_name());
     if (auto p = base.find("$G"); !prim && p != std::string::npos) base = base.substr(0, p);
     if (auto p = base.find("$M"); !prim && p != std::string::npos) base = base.substr(0, p);
@@ -1440,12 +1451,16 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
                 auto fn = find_fn(sym, &fpool);
                 if (!fn || fn.method_base() != method) continue;
                 if (arity >= 0 && !fn.is_vararg() && int64_t(fn.param_count()) != arity) continue;
-                // A method-level generic (`fn fold<B>`) names a template per
-                // instantiation: not this resolver's answer.
-                if (!fn.type_params_empty()) continue;
+                // A method-level generic (`fn hash<H>`) of a nominal impl: every
+                // template parameter is the method's, filled from the call. Of a
+                // generic struct impl: not this resolver's answer.
+                const size_t mn = method_args ? method_args->size() : 0;
+                if (fn.type_param_count() != (generic ? 0 : mn) || (generic && mn)) continue;
                 std::string name = generic && !prim
                                        ? method_instance_name(concrete_struct_name(rt), pkg, base, method, sym)
-                                       : std::string(sym);
+                                   : mn ? mangle(std::string(sym), *method_args)
+                                        : std::string(sym);
+                if (mn) enqueue_if_needed(name, *method_args);
                 if (best.empty()) best = name; else if (best != name) ambiguous = true;
                 if (!arg_types || generic) continue;
                 auto ps = fn.params();
@@ -1471,7 +1486,8 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
 // array's length. No match, or two, is no answer.
 std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
                                            std::string_view method, int64_t arity,
-                                           const std::vector<TypeRef>* trait_args) {
+                                           const std::vector<TypeRef>* trait_args,
+                                           const std::vector<TypeRef>* method_args) {
     using K = LogosType::Kind;
     auto bare_of = [](std::string_view t) {
         if (auto p = t.rfind("::"); p != std::string_view::npos) t = t.substr(p + 2);
@@ -1530,19 +1546,19 @@ std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
                 } else if (!nominal_enum && !unify_impl_target(self, pat, b)) {
                     continue;
                 }
-                // The template's parameters, in its order: every one bound by the
-                // pattern; a method-level generic (`fn fold<B>`) is not this
-                // resolver's answer.
+                // The template's parameters, in its order: the impl's, bound by
+                // the pattern, then the method's own, filled from the call.
                 std::vector<TypeRef> targs;
                 bool bound = true;
+                size_t mi = 0;
                 fn.each_type_param([&](lir_view::FnTParamView tp) {
                     if (!bound) return;
                     if (tp.is_variadic()) { targs.insert(targs.end(), pack.begin(), pack.end()); return; }
-                    auto it = b.find(std::string(tp.name()));
-                    if (it == b.end()) { bound = false; return; }
-                    targs.push_back(it->second);
+                    if (auto it = b.find(std::string(tp.name())); it != b.end()) { targs.push_back(it->second); return; }
+                    if (method_args && mi < method_args->size()) { targs.push_back((*method_args)[mi++]); return; }
+                    bound = false;
                 });
-                if (!bound) continue;
+                if (!bound || mi != (method_args ? method_args->size() : 0)) continue;
                 std::string name = targs.empty() ? std::string(sym) : mangle(std::string(sym), targs);
                 if (best.empty()) { best = name; best_args = targs; }
                 else if (best != name) ambiguous = true;

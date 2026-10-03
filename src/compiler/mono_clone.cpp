@@ -3997,14 +3997,19 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         trait_arity = trait_arity * 10 + size_t(tt[i] - '0');
                     tt = tt.substr(0, d);
                 }
-                std::vector<TypeRef> trait_args;
-                for (auto ta : v.type_args(out_.type_pool.impl())) trait_args.push_back(ta ? subst_type(ta, s) : TypeRef{});
-                const bool method_generic = trait_args.size() > trait_arity;
-                trait_args.resize(std::min(trait_args.size(), trait_arity));
+                std::vector<TypeRef> trait_args, method_args;
+                bool args_concrete = true;
+                for (auto ta : v.type_args(out_.type_pool.impl())) {
+                    TypeRef c = ta ? subst_type(ta, s) : TypeRef{};
+                    if (trait_args.size() < trait_arity) { trait_args.push_back(c); continue; }
+                    if (!c || contains_typevar(c)) args_concrete = false;
+                    method_args.push_back(c);
+                }
                 int64_t nargs = 0;
                 v.each_arg([&](lir_view::ExprRef) { ++nargs; });
-                if (std::string sym = method_generic ? std::string()
-                                                     : trait_item_symbol_(tt, cr, method, nargs + 1, nullptr, &trait_args);
+                if (std::string sym = !args_concrete ? std::string()
+                                                     : trait_item_symbol_(tt, cr, method, nargs + 1, nullptr,
+                                                                          &trait_args, &method_args);
                     !sym.empty()) {
                     std::vector<lir_view::ExprRef> mc_args;
                     v.each_arg([&](lir_view::ExprRef ar) { mc_args.push_back(subst_child_expr(ar)); });

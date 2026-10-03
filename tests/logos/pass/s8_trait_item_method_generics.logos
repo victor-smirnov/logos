@@ -1,0 +1,17 @@
+// ADR 0030 S8 row 6: a bound's method with its OWN generic (`mix<F: Feed>`) at a concrete Self — a
+// primitive, a tuple impl, the `&T` impl: the method's arguments fill the template's parameters the
+// impl does not bind. Output as rustc: 7 33 3109.
+package s8_trait_item_method_generics;
+use logos.std.fmt;
+trait Feed { fn feed(&mut self, x: i64); }
+struct Acc { s: i64 }
+impl Feed for Acc { fn feed(&mut self, x: i64) { self.s = self.s * 31 + x; } }
+trait Mix { fn mix<F: Feed>(&self, f: &mut F); }
+impl Mix for i64 { fn mix<F: Feed>(&self, f: &mut F) { f.feed(*self); } }
+impl<A: Mix, B: Mix> Mix for (A, B) { fn mix<F: Feed>(&self, f: &mut F) { self.0.mix(f); self.1.mix(f); } }
+impl<T: Mix> Mix for &T { fn mix<F: Feed>(&self, f: &mut F) { f.feed(100); (**self).mix(f); } }
+fn digest<T: Mix>(t: &T) -> i64 { let mut a = Acc { s: 0 }; t.mix(&mut a); a.s }
+fn main() {
+    let r: &i64 = &9;
+    println!("{} {} {}", digest(&7i64), digest(&(1i64, 2i64)), digest(&r));
+}
