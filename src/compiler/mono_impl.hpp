@@ -1244,8 +1244,16 @@ private:
     // name) for the concrete `self`, read off the impl's METHOD_SYMBOLS — a
     // template symbol of a generic impl is mapped to its instance. Empty when
     // no impl or more than one candidate answers.
+    // `trait_args`, when given, are the trait's arguments at the call
+    // (`Iterator<i64>`): an impl whose own trait arguments do not unify with
+    // them is not a candidate.
     std::string trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
-                                   int64_t arity, const std::vector<TypeRef>* arg_types = nullptr);
+                                   int64_t arity, const std::vector<TypeRef>* arg_types = nullptr,
+                                   const std::vector<TypeRef>* trait_args = nullptr);
+    std::string shape_trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
+                                         int64_t arity, const std::vector<TypeRef>* trait_args);
+    bool impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* pool,
+                                const std::vector<TypeRef>* trait_args);
     std::string declared_method_symbol(std::string_view owner, std::string_view pkg,
                                        std::string_view method, int64_t arity = -1,
                                        const std::vector<TypeRef>* arg_types = nullptr);

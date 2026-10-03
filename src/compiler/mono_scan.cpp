@@ -1356,8 +1356,20 @@ std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method)
 // the call's argument count is not a candidate: an inherent `m(&self, k)` and a
 // trait `m(&self)` on one owner are both `<owner>__m`, and a bound call
 // `x.m()` names only the one it can call.
+bool Mono::impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* pool,
+                                  const std::vector<TypeRef>* trait_args) {
+    if (!trait_args || trait_args->empty()) return true;
+    auto ita = impl.trait_type_args(pool);
+    if (ita.size() != trait_args->size()) return ita.empty();
+    SubstMap b;
+    for (size_t i = 0; i < ita.size(); ++i)
+        if ((*trait_args)[i] && ita[i] && !unify_impl_target((*trait_args)[i], ita[i], b)) return false;
+    return true;
+}
+
 std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
-                                     int64_t arity, const std::vector<TypeRef>* arg_types) {
+                                     int64_t arity, const std::vector<TypeRef>* arg_types,
+                                     const std::vector<TypeRef>* trait_args) {
     TypeRef rt = self;
     if (!rt || contains_typevar(rt)) return {};
     using K = LogosType::Kind;
@@ -1365,7 +1377,7 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
     // A primitive self (`impl Eq for i64`): its impls are nominal, keyed by the
     // type's own spelling, and never generic.
     const bool prim = is_primitive_scalar_kind(rk);
-    if (!prim && rk != K::Struct && rk != K::ZonedStruct) return {};
+    if (!prim && rk != K::Struct && rk != K::ZonedStruct) return shape_trait_item_symbol_(trait, rt, method, arity, trait_args);
     std::string base = prim ? type_str(rt) : std::string(TypeRef(rt).struct_name());
     if (auto p = base.find("$G"); !prim && p != std::string::npos) base = base.substr(0, p);
     if (auto p = base.find("$M"); !prim && p != std::string::npos) base = base.substr(0, p);
@@ -1396,6 +1408,7 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
         for (auto& impl : prog->impls) {
             if (impl.is_negative() || impl.is_blanket()) continue;
             if (bare_of(impl.identity_trait()) != trait) continue;
+            if (!impl_trait_args_match_(impl, ipool, trait_args)) continue;
             // The impl's target: a generic pattern (`impl<T> Add for V<T>`) or a
             // nominal type (`impl Add for V`), the same type as `self`.
             TypeRef pat = impl.target_typeref(ipool);
@@ -1447,6 +1460,98 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
     }
     if (!ambiguous) return best;
     return ambiguous_exact ? std::string() : best_exact;
+}
+
+// A structural self (`(i64, char)`, `[i64]`, `[i64; 2]`, `&i64`): the impls that
+// can apply are patterns over the shape (`impl<A...> Eq for (A...)`,
+// `impl<T> Tr for [T]`, `impl<T, const N: usize> Tr for [T; N]`,
+// `impl<T> Tr for &T`). The impl is the one whose pattern unifies with `self`;
+// the callee is its method's template at those bindings, enqueued. A pack
+// parameter takes the whole tuple; an array pattern's length variable takes the
+// array's length. No match, or two, is no answer.
+std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
+                                           std::string_view method, int64_t arity,
+                                           const std::vector<TypeRef>* trait_args) {
+    using K = LogosType::Kind;
+    auto bare_of = [](std::string_view t) {
+        if (auto p = t.rfind("::"); p != std::string_view::npos) t = t.substr(p + 2);
+        if (auto p = t.rfind('.'); p != std::string_view::npos) t = t.substr(p + 1);
+        return t;
+    };
+    std::string best;
+    std::vector<TypeRef> best_args;
+    bool ambiguous = false;
+    for (auto* prog : {&out_, &in_}) {
+        const TypePoolImpl* ipool = prog->type_pool.impl();
+        for (auto& impl : prog->impls) {
+            if (impl.is_negative() || impl.is_blanket()) continue;
+            if (bare_of(impl.identity_trait()) != trait) continue;
+            if (!impl_trait_args_match_(impl, ipool, trait_args)) continue;
+            TypeRef pat = impl.target_typeref(ipool);
+            // A nominal impl with no recorded pattern (`impl Debug for Ordering`)
+            // names its target by spelling: the enum itself, never generic.
+            const bool nominal_enum = !pat && TypeRef(self).kind() == K::Enum &&
+                                      TypeRef(self).type_args().empty() &&
+                                      bare_of(impl.target_type()) == bare_of(TypeRef(self).enum_name());
+            if (!nominal_enum &&
+                (!pat || TypeRef(pat).kind() == K::Struct || TypeRef(pat).kind() == K::ZonedStruct)) continue;
+            for (auto sym : impl.method_symbols()) {
+                lir_view::FunctionView fn{};
+                if (auto tit = templates_.find(std::string(sym)); tit != templates_.end()) fn = tit->second;
+                // A non-generic impl's method is an ordinary function.
+                for (auto* pr : {&out_, &in_})
+                    for (auto& f : pr->functions)
+                        if (!fn && f.name() == sym) fn = f;
+                if (!fn) continue;
+                if (fn.method_base() != method) continue;
+                if (arity >= 0 && !fn.is_vararg() && int64_t(fn.param_count()) != arity) continue;
+                SubstMap b;
+                std::vector<TypeRef> pack;
+                std::string pack_name;
+                fn.each_type_param([&](lir_view::FnTParamView tp) {
+                    if (tp.is_variadic()) pack_name = std::string(tp.name());
+                });
+                const auto pk = pat ? TypeRef(pat).kind() : K::Enum;
+                if (!pack_name.empty()) {
+                    // `(A...)`: the pattern is the one-element tuple of the pack.
+                    if (pk != K::Tuple || TypeRef(self).kind() != K::Tuple) continue;
+                    auto pe = TypeRef(pat).tuple_elems();
+                    if (pe.size() != 1 ||
+                        TypeRef(pe[0]).kind() != K::TypeVar || TypeRef(pe[0]).type_var_name() != pack_name)
+                        continue;
+                    pack = TypeRef(self).tuple_elems();
+                } else if (pk == K::Array && TypeRef(self).kind() == K::Array &&
+                           !TypeRef(pat).arr_size_var().empty()) {
+                    if (!unify_impl_target(TypeRef(self).elem(), TypeRef(pat).elem(), b)) continue;
+                    LogosTypeBuilder nl;
+                    nl.kind = K::IntLit;
+                    nl.const_val = int64_t(TypeRef(self).arr_size());
+                    b[std::string(TypeRef(pat).arr_size_var())] = out_.type_pool.alloc(nl);
+                } else if (!nominal_enum && !unify_impl_target(self, pat, b)) {
+                    continue;
+                }
+                // The template's parameters, in its order: every one bound by the
+                // pattern; a method-level generic (`fn fold<B>`) is not this
+                // resolver's answer.
+                std::vector<TypeRef> targs;
+                bool bound = true;
+                fn.each_type_param([&](lir_view::FnTParamView tp) {
+                    if (!bound) return;
+                    if (tp.is_variadic()) { targs.insert(targs.end(), pack.begin(), pack.end()); return; }
+                    auto it = b.find(std::string(tp.name()));
+                    if (it == b.end()) { bound = false; return; }
+                    targs.push_back(it->second);
+                });
+                if (!bound) continue;
+                std::string name = targs.empty() ? std::string(sym) : mangle(std::string(sym), targs);
+                if (best.empty()) { best = name; best_args = targs; }
+                else if (best != name) ambiguous = true;
+            }
+        }
+    }
+    if (ambiguous || best.empty()) return {};
+    if (!best_args.empty()) enqueue_if_needed(best, best_args);
+    return best;
 }
 
 std::string Mono::declared_method_symbol(std::string_view owner, std::string_view pkg,
