@@ -1402,10 +1402,18 @@ std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,
     if (auto p = base.find("$G"); p != std::string::npos) base = base.substr(0, p);
     std::string pkg{TypeRef(rt).pkg_name()};
     auto* smt = find_struct_method_templates_guarded(pkg, base);
-    if (!smt) return {};
     bool is_template = false;
-    for (auto& [sn, fp] : *smt)
-        if (fp.name() == tmpl_name) { is_template = true; break; }
+    if (smt)
+        for (auto& [sn, fp] : *smt)
+            if (fp.name() == tmpl_name) { is_template = true; break; }
+    // A partial specialization's method (`impl<E> PkdA<[E]> { fn tag }`,
+    // `impl<V> Map<Bitmap, V>`) is a method template of the same family,
+    // registered with the spec, not in the base's table (which a #[datatype]
+    // base may not have at all): `[pkg.]<base>__<method>__…` names it.
+    if (!is_template) {
+        const std::string head = (pkg.empty() ? std::string() : pkg + ".") + base + "__" + std::string(method) + "__";
+        is_template = tmpl_name.starts_with(head);
+    }
     if (!is_template) return {};
     return method_instance_name(concrete_struct_name(rt), pkg, base, method, tmpl_name);
 }
