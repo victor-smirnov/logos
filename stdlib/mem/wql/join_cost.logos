@@ -45,14 +45,15 @@
 // that the day a source declares a distinct-value count there is exactly one
 // place to consult it from.
 //
-// ⚠ WHAT IS NOT PRICED, and why that is a bias and not an omission: PINNED steps
-// (an anti join, a traversal) are charged nothing. A traversal's source is a field
-// path whose length no fact reports, and an anti's filtered fraction is unknown,
-// so there is no number to charge. The derivation keeps every pinned step at the
-// SAME depth in the bound stream in every candidate (`join_order`, constraint 2),
-// so the omission does not favour one candidate's shape over another's — but the
-// intermediate cardinality reaching that depth differs between candidates, so it
-// is not a proof of neutrality either. Said out loud rather than left implicit.
+// ⚠ PINNED STEPS (an anti join, a traversal) ARE PRICED BY THE ROWS REACHING THEM
+// (#347, 2026-10-03). They used to be charged nothing, which was a bias and not an
+// omission: the derivation keeps every pinned step at the SAME depth in every
+// candidate (`join_order`, constraint 2), but the cardinality reaching that depth
+// differs between candidates, so "free" favoured the candidate that fed it the
+// most rows. Each now costs `W_PIN` per row reaching it — one membership probe for
+// an anti, at least one step for a traversal. What stays an assumption, NAMED: its
+// own OUTPUT fraction (how many rows an anti keeps, how many a traversal fans out
+// to) has no fact, so it does not change the rows that pass it.
 //
 // ⚠ EVERY PRODUCT IS CLAMPED. `R` compounds, and a cost that overflows i64 would
 // not be a bad plan, it would be an arbitrary one — a negative number comparing
@@ -93,13 +94,16 @@ pub fn JC_W_BUILD() -> i64  { return 4i64; }
 pub fn JC_W_PROBE() -> i64  { return 1i64; }
 pub fn JC_W_RESCAN() -> i64 { return 2i64; }
 pub fn JC_EQ_DIV() -> i64   { return 10i64; }
+pub fn JC_W_PIN() -> i64    { return 1i64; }
+/// Pinned steps one table can price — a chain has at most eight steps.
+pub fn JC_MAX_PIN() -> i64  { return 8i64; }
 pub fn JC_CAP() -> i64      { return 1000000000i64; }
 
 /// One prose statement of the model, for the trace and for `explain()`. The
 /// weights are read from the same functions the arithmetic reads, so a reader who
 /// is told the ratio is told the ratio the code used.
 pub fn jc_model_words() -> str {
-    return "cost = row events: a base SCAN weighs 2 per row, an index BUILD 4 per row, a PROBE 1 per row reaching the step, a RESCAN 2 per row read; an equi-step is assumed to emit one tenth of the cross product (no fact reports selectivity); pinned steps are unpriced";
+    return "cost = row events: a base SCAN weighs 2 per row, an index BUILD 4 per row, a PROBE 1 per row reaching the step, a RESCAN 2 per row read, a PINNED step (anti, traversal) 1 per row reaching it; an equi-step is assumed to emit one tenth of the cross product (no fact reports selectivity), and a pinned step to pass its input through (no fact reports its fraction)";
 }
 
 // ── The table a plan carries ─────────────────────────────────────────────────
@@ -128,13 +132,19 @@ pub struct JCTable {
     pub nfl:   i64,
     pub slot:  [i64; 16],
     pub role:  [i64; 16],
+    // The PINNED steps: how many there are, and for each the number of floatable
+    // positions before it — the depth it holds in EVERY candidate (constraint 2),
+    // so one array serves them all (#347).
+    pub npin:      i64,
+    pub pin_after: [i64; 8],
 }
 
 /// The table of a plan with no choice in it: nothing was considered, so nothing
 /// can be priced. `ncand == 0` is distinct from `ncand == 1` — the first says the
 /// axis was never entered, the second that one order survived the derivation.
 pub fn jc_table_none() -> JCTable {
-    return JCTable { ncand: 0i64, nfl: 0i64, slot: [0i64; 16], role: [0i64; 16] };
+    return JCTable { ncand: 0i64, nfl: 0i64, slot: [0i64; 16], role: [0i64; 16],
+                     npin: 0i64, pin_after: [0i64; 8] };
 }
 
 // ── The answers for an EMPTY candidate set (ADR 0024 S4l) ────────────────────
@@ -338,6 +348,12 @@ fn jc_cost_at(t: &JCTable, ix: i64, n0: i64, n1: i64, n2: i64, n3: i64) -> i64 {
         } else {
             c = c + JC_W_RESCAN() * jc_cap(n * r);
             r = jc_rows(r, n);
+        }
+        // A pinned step standing after this position reads every row reaching it.
+        let mut p: i64 = 0i64;
+        while p < t.npin {
+            if t.pin_after[p] == j + 1i64 { c = c + JC_W_PIN() * r; }
+            p = p + 1i64;
         }
         j = j + 1i64;
     }

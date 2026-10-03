@@ -4627,6 +4627,16 @@ fn push_jctable(out: &mut String, jo: &JoinOrder) {
         out.push_str("i64");
         r = r + 1i64;
     }
+    out.push_str("], npin: ");
+    out.push_i64(jo.npin);
+    out.push_str("i64, pin_after: [");
+    let mut q: i64 = 0i64;
+    while q < 8i64 {
+        if q > 0i64 { out.push_str(", "); }
+        out.push_i64(jo.pin_after[q]);
+        out.push_str("i64");
+        q = q + 1i64;
+    }
     out.push_str("] }");
 }
 

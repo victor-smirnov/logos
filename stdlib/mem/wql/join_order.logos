@@ -272,6 +272,9 @@ pub struct JoinOrder {
     pub cstrat:   [i32; 16],
     pub csel:     [i64; 16],
     pub cground:  [i64; 16],
+    // The pinned steps' depths, for the cost table (`JCTable.pin_after`, #347).
+    pub npin:     i64,
+    pub pin_after: [i64; 8],
 }
 
 fn jo_why(w: Why) -> JoinOrder {
@@ -280,7 +283,7 @@ fn jo_why(w: Why) -> JoinOrder {
                        fl: [0i64; 4],
                        cslot: [0i64; 16], conw: [0i64; 16], crole: [0i64; 16],
                        cstrat: [0i32; 16], csel: [-1i64; 16],
-                       cground: [0i64; 16] };
+                       cground: [0i64; 16], npin: 0i64, pin_after: [0i64; 8] };
 }
 
 /// The single-nest outcome whose whole justification is its GROUND CODE — every
@@ -596,6 +599,11 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
         s = s + 1i64;
     }
     jo.nfl = nfl;
+    // The pinned steps' depths, for the cost table: one per pinned step, the same
+    // in every candidate (constraint 2 keeps each after `pbc` floatable slots).
+    jo.npin = if npin < 8i64 { npin } else { 8i64 };
+    let mut pq: i64 = 0i64;
+    while pq < jo.npin { jo.pin_after[pq] = pbc[pq]; pq = pq + 1i64; }
 
     // The floating predicates: one per floatable STEP. The query's base carries
     // none, so there are nfl-1 of them and nfl-1 non-base floatable positions —
