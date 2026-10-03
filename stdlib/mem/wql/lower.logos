@@ -21,6 +21,7 @@ use logos.std.wql.ir;
 use logos.std.wql.plan;
 use logos.std.wql.el;         // OP_* ids — graph-path predicate synthesis
 use logos.std.wql.optimize;   // make_int_lit — graph-path residuals
+use logos.std.wql.oracle_rt;  // wql_oracle_* — what an oracle build's facade calls (loaded here, like unit)
 use logos.std.wql.unit;       // wql_unit_rows — the `__unit` materializer a fact's chunk calls; imported here so every
                               // deem user loads the package (UNIT_NATSPEC names it)
 use logos.std.wql.params;     // MacroParams::is_scalar — which bare names may seed a demand

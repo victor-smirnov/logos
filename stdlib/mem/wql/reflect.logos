@@ -45,6 +45,12 @@ fn sview_str(sv: SView) -> str {
     return unsafe { str_from_raw(sv.ptr, sv.len as i64) };
 }
 
+/// A struct field node's NAME (for readers outside the type stamping, e.g. the
+/// `.dl` exporter, which needs the fields in declaration order).
+pub fn reflect_field_name(view: &OView, fld: WAny) -> str { return sview_str(view.ast_field_name(fld)); }
+/// A struct field node's declared TYPE NAME, unresolved.
+pub fn reflect_field_type_name(view: &OView, fld: WAny) -> str { return sview_str(view.ast_field_type_name(fld)); }
+
 // Find the top-level MODULE item whose NAME equals `struct_name` — ANY item, of any
 // kind: a struct, a schema, a `type` alias, an enum. Returns its AST node handle (a
 // `WAny` Ref), or a null WAny if not found. Walks the module ITEMS array directly

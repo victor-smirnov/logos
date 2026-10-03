@@ -1058,14 +1058,26 @@ fn emit_prepared_fns(fn_name: str, params_text: str, tps: str, ret_ty: str,
     db.push_str(string_as_str(&prepc));
     db.push_str("(");
     push_param_args(&mut db, prm);
-    db.push_str(");\n    return ");
+    db.push_str(");\n");
+    // The Soufflé oracle (LOGOS_DEEM_ORACLE builds only): keep the answer,
+    // dump the inputs and it, then return it. `dl_export` built the statements.
+    let oracle: bool = prm.oracle_dump.len() > 0i64;
+    if oracle {
+        db.push_str("    let __r: ");
+        db.push_str(ret_ty);
+        db.push_str(" = ");
+    } else {
+        db.push_str("    return ");
+    }
     db.push_str(string_as_str(&runc));
     db.push_str("(&__pl");
     if prm.n > 0i64 {
         db.push_str(", ");
         push_param_args(&mut db, prm);
     }
-    db.push_str(");\n}\n");
+    db.push_str(");\n");
+    if oracle { db.push_str(string_as_str(&prm.oracle_dump)); }
+    db.push_str("}\n");
     emit_fn_quote_blob(fn_name, params_text, tps, ret_ty,
                        parse_block(string_as_str(&db)), prm);
 
