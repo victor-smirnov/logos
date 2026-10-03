@@ -410,7 +410,7 @@ tower; `el_divu` / `el_remu` were written; `el_int_op_fn` takes the tower. Witne
 * `tests/logos/pass/wql_arith_u64_tower_e2e.logos` — division, remainder, a computed `order by` key, the u64
   overflow / underflow / div-by-zero arms and a `sum` over an arithmetic argument, all at 2^63 and
   2^64−1 where the signed reading gives a **different** answer, with an i64 control block;
-* `tests/logos/fail/wql_arith_wide_int_fail.logos` — rewritten to `u128`, the only remaining towerless case;
+* the fail fixture `wql_arith_wide_int_fail` — rewritten to `u128`, the only remaining towerless case (RETIRED 2026-10-03: `u128`/`i128` gained their own checked towers, now `pass/wql_arith_128_tower_e2e`);
 * `tests/logos/fail/wql_arith_mixed_tower_fail.logos`, `tests/logos/fail/wql_arith_u64_neg_fail.logos` — the two refusals the
   second tower creates (a node mixing signednesses; unary `-` over an unsigned value);
 * `tests/logos/fail/wql_cond_branch_types_fail.logos` — row 58's over-carry half, which reached the HOST
@@ -477,7 +477,7 @@ built tree, not read off the old file:
 | F | a BOOL cell in a projection | `wql_domain_static_carrier_positions` block F |
 | G | the SORT KEY | `tests/logos/pass/wql_arith_u64_tower_e2e.logos` — `by_div` |
 | H | the JOIN KEY, computed | `wql_domain_static_carrier_positions` block H |
-| I | a UDF ARGUMENT | `wql_domain_static_carrier_positions` block I. ⚠ RE-MEASURED: the first probe used a UDF with a `u64` RETURN and was refused, which would have entered this table as "position I is refused" — the refusal is about the RETURN (pinned separately at `tests/logos/fail/wql_udf_wide_int_ret_fail.logos`) and says nothing about the argument. With an `i64` return the argument position is ADMITTED and computes unsigned |
+| I | a UDF ARGUMENT | `wql_domain_static_carrier_positions` block I. ⚠ RE-MEASURED: the first probe used a UDF with a `u64` RETURN and was refused, which would have entered this table as "position I is refused" — the refusal is about the RETURN (pinned separately by the fail fixture `wql_udf_wide_int_ret_fail`, RETIRED 2026-10-03 when a UDF result began keeping its declared type — now `pass/wql_udf_wide_ret_e2e`) and says nothing about the argument. With an `i64` return the argument position is ADMITTED and computes unsigned |
 | J | the TEMPLATE tier | the dynamic tier's own position; gone with it |
 | K | the INCREMENTAL tier | the dynamic tier's own position; gone with it |
 | L | the claim is DROPPED where operands disagree | REFUSED — `tests/logos/fail/wql_arith_mixed_tower_fail.logos`, which names both columns and both signednesses |
@@ -6785,8 +6785,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11907 -> 11909 (+2), NOIMPORTED 7348 -> 7350 (+2), TIERCOMMIT 208 -> 207 (-1) — 2026-10-01: +2 pass impl_for_concrete_tuple (squeue #678 closed, tier_commit -1) / impl_trait_for_tuple_no_type_params; +1 fail s8_e0133_tuple_receiver.
 #                ALL 11909 -> 11909 (+0), NOIMPORTED 7350 -> 7350 (+0), TIERCOMMIT 207 -> 206 (-1) — 2026-10-01: squeue hashmap_str_key_borrow_escapes_admitted closed -> fail/hashmap_str_key_borrow_escapes (S8 row 4, B-it-09 retired).
 #                ALL 11909 -> 11908 (-1), NOIMPORTED 7350 -> 7349 (-1), TIERCOMMIT 206 -> 206 (+0) — 2026-10-02: gate el_hashable_agreement retired: #340 derives the index admission from the impls.
-REGISTRY-ALL         11908
-REGISTRY-NOIMPORTED  7349
+#                ALL 11908 -> 11930 (+22), NOIMPORTED 7349 -> 7371 (+22), TIERCOMMIT 206 -> 206 (+0) — 2026-10-03, branch `deem` (Rust typing + explanations): +23 pass/fail fixtures, -2 retired fail fixtures (wql_arith_wide_int_fail, wql_udf_wide_int_ret_fail), +1 gate plan_ground_facts.
+REGISTRY-ALL         11930
+REGISTRY-NOIMPORTED  7371
 REGISTRY-TIERCOMMIT  206
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

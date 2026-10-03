@@ -175,10 +175,10 @@
 
     // cap covers the PLAN-DECISION fields the planner stamps after parsing
     // (jstrat/jsel/jground — ADR 0024 S4; `jwhy` became the packed `jground` and
-    // `jkey` was retired in E4.3, so cap 13 now has one slot to spare). A
-    // TinyObjectMap's capacity is fixed at construction, so the parser must size
-    // for writes it never makes.
-    RQJoinStep    : code(0x0012_0000_0000_0012) cap(13) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
+    // `jkey` was retired in E4.3, so the item has 12 fields and cap is 12 —
+    // `peg_schema_mirror_wql` holds the two equal). A TinyObjectMap's capacity is
+    // fixed at construction, so the parser must size for writes it never makes.
+    RQJoinStep    : code(0x0012_0000_0000_0012) cap(12) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
                     is_edge: "bool" = 5, has_on: "bool" = 6, base_var: "str" = 7,
                     path: "ref RQPathSegArr" = 8 }
     RQJoinStepArr : code(0x0012_0000_0000_0013) cap(9) { count: "i32" = 0, steps: "fan set_step RQJSTEP_MAX 8" = 1 }

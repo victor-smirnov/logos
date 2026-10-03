@@ -83,4 +83,4 @@ check wql_incr_eligibility_matrix '[facts] ok_join retraction rule=exact'
 check wql_incr_rel_dred_driver '[facts] tc dred rule=emit'
 check wql_aggregate_e2e '[facts] dept_stats aggclass rule=PURE'
 [ "$fail" = 0 ] && echo "plan ground facts: 18 cases (3 join, 3 access, 3 mode, 4 incremental, 3 retraction, 1 dred, 1 aggclass), rule + held + negative explanation pinned"
-exit $fail
+exit $fail  # lint:exit-ok — `fail` is set only to the literals 0 and 1
