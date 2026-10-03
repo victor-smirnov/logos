@@ -7,6 +7,7 @@
 // emitted via lir_mirror_emit_function before scan_fn runs — call-site
 // ordering in mono.cpp / mono_clone.cpp guarantees this.
 
+#include <functional>
 #include "mono_impl.hpp"
 
 #include "mangled_name.hpp"
@@ -1395,7 +1396,16 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
             // nominal type (`impl Add for V`), the same type as `self`.
             TypeRef pat = impl.target_typeref(ipool);
             std::string_view tgt = impl.target_type();
-            const bool generic = pat && contains_typevar(pat);
+            // Generic: the pattern has a type or a const parameter (`Poly<N>`).
+            std::function<bool(TypeRef)> has_param = [&](TypeRef t) -> bool {
+                if (!t) return false;
+                const auto k = TypeRef(t).kind();
+                if (k == LogosType::Kind::TypeVar || k == LogosType::Kind::ConstVar) return true;
+                for (auto a : TypeRef(t).type_args()) if (has_param(a)) return true;
+                return (TypeRef(t).pointee() && has_param(TypeRef(t).pointee())) ||
+                       (TypeRef(t).elem() && has_param(TypeRef(t).elem()));
+            };
+            const bool generic = pat && has_param(pat);
             if (pat) {
                 if (TypeRef(pat).kind() != LogosType::Kind::Struct &&
                     TypeRef(pat).kind() != LogosType::Kind::ZonedStruct) continue;
@@ -1411,6 +1421,9 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
                 auto fn = find_fn(sym, &fpool);
                 if (!fn || fn.method_base() != method) continue;
                 if (arity >= 0 && !fn.is_vararg() && int64_t(fn.param_count()) != arity) continue;
+                // A method-level generic (`fn fold<B>`) names a template per
+                // instantiation: not this resolver's answer.
+                if (!fn.type_params_empty()) continue;
                 std::string name = generic ? method_instance_name(concrete_struct_name(rt), pkg, base, method, sym)
                                            : std::string(sym);
                 if (best.empty()) best = name; else if (best != name) ambiguous = true;
