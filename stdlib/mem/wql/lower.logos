@@ -23,6 +23,8 @@ use logos.std.wql.el;         // OP_* ids — graph-path predicate synthesis
 use logos.std.wql.optimize;   // make_int_lit — graph-path residuals
 use logos.std.wql.unit;       // wql_unit_rows — the `__unit` materializer a fact's chunk calls; imported here so every
                               // deem user loads the package (UNIT_NATSPEC names it)
+use logos.std.wql.params;     // MacroParams::is_scalar — which bare names may seed a demand
+use logos.std.wql.why;        // MS_* — the demand rewrite's decision vocabulary
 use logos.std.wql.writ_graph; // WG_ROOT_PARENT — the graph-path anchor compares
                               // against the coordinate the producers emit
 use logos.lang.writ.wstring;  // h.wstring — string-literal synthesis
@@ -853,6 +855,402 @@ pub fn desugar_program_facts(root: WAny, h: &Writ) -> bool {
 
 /// The natspec entry that registers `__unit` (see `desugar_program_facts`).
 pub fn UNIT_NATSPEC() -> str { return "__unit=wql_unit_rows@logos.std.wql.unit:(u i64);"; }
+
+// ── DEMAND FOR A USER REL: magic sets (ADR 0016 M6, #349) ───────────────────
+// The entry reads rel R as its BASE source with a column bound to one value:
+//   from R x where … x.c == K …        (K a literal or a scalar parameter)
+// Only rows with c == K can reach the answer, so R is evaluated on demand —
+// Soufflé's magic-sets transformation (MST), adornment = that one column:
+//   rel __m_R(c: ty) { select K; }                  -- the seed (a fact)
+//   base body of R    → … join __m_R __mm on __mm.c == <its column c>
+//   recursive body    → unchanged, when it passes column c through from its
+//                       one occurrence of R (`select (r.c, …)` over `R r`)
+// By induction every derived row of R keeps c ∈ __m_R, and every row of the
+// naive R with c ∈ __m_R is still derived (its derivation's base row has the
+// same c). The entry's own predicate stays, so the answer is unchanged.
+// Declined, with the rule that decided it, when R has another reader, a body
+// negates or aggregates, a body reads R twice, a recursive body moves the
+// column, a base body computes it, or a slot is missing. Runs after the gpath
+// desugar (bodies are classic) and before the fact desugar (the seed is a
+// fact).
+
+/// One demand decision, for the handler's trace.
+pub struct MsDecision { pub rel: str, pub col: str, pub rule: i32 }
+
+// How many times query `qany` reads `nm` as a source.
+fn ms_reads(qany: WAny, nm: str) -> i64 {
+    let q: RQuery = qany.view::<RQuery>();
+    let mut n: i64 = 0i64;
+    match q {
+        RQuery::Simple(s) => { if str_eq(s.src_name, nm) { n = 1i64; } }
+        RQuery::Join(j) => {
+            if str_eq(j.a_name, nm) { n = 1i64; }
+            n = n + ms_step_reads(j.steps.any(), nm);
+        }
+        RQuery::Aggr(g) => {
+            if str_eq(g.a_name, nm) { n = 1i64; }
+            if g.has_steps() { n = n + ms_step_reads(g.steps.any(), nm); }
+        }
+        RQuery::Find(f) => { if str_eq(f.src_name, nm) { n = 1i64; } }
+    }
+    return n;
+}
+
+fn ms_step_reads(sa: WAny, nm: str) -> i64 {
+    if sa.is_null() { return 0i64; }
+    let steps: RQJoinStepArr = sa.view::<RQJoinStepArr>();
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < steps.len() {
+        let st: RQJoinStep = steps.step_at(i);
+        if !st.is_edge && str_eq(st.src_name, nm) { n = n + 1i64; }
+        i = i + 1i64;
+    }
+    return n;
+}
+
+// A body the rewrite does not handle: an aggregate, a find, or an anti join.
+fn ms_neg_agg(qany: WAny) -> bool {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(_s) => { return false; }
+        RQuery::Join(j) => {
+            let steps: RQJoinStepArr = j.steps_arr();
+            let mut i: i64 = 0i64;
+            while i < steps.len() {
+                if steps.step_at(i).is_anti { return true; }
+                i = i + 1i64;
+            }
+            return false;
+        }
+        RQuery::Aggr(_g) => { return true; }
+        RQuery::Find(_f) => { return true; }
+    }
+}
+
+// The row var a body binds its one occurrence of `nm` to ("" when none).
+fn ms_occ_var(qany: WAny, nm: str) -> str {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => { if str_eq(s.src_name, nm) { return s.var_name; } return ""; }
+        RQuery::Join(j) => {
+            if str_eq(j.a_name, nm) { return j.x_var; }
+            let steps: RQJoinStepArr = j.steps_arr();
+            let mut i: i64 = 0i64;
+            while i < steps.len() {
+                let st: RQJoinStep = steps.step_at(i);
+                if !st.is_edge && str_eq(st.src_name, nm) { return st.var_name; }
+                i = i + 1i64;
+            }
+            return "";
+        }
+        _ => { return ""; }
+    }
+}
+
+// The select expression of a body (Simple / Join).
+fn ms_select(qany: WAny) -> WRef<SExpr> {
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => { return s.select; }
+        RQuery::Join(j) => { return j.select; }
+        _ => { return null_sref(); }
+    }
+}
+
+// Component `ci` of a select over `ncols` columns.
+fn ms_sel_item(sel: WRef<SExpr>, ci: i64, ncols: i64) -> SExpr {
+    let e: SExpr = sel.any().view::<SExpr>();
+    if ncols == 1i64 { return e; }
+    match e {
+        SExpr::Tuple(t) => { return t.items.any().view::<SExprArr>().arg_at(ci); }
+        _ => { return e; }
+    }
+}
+
+// `v.f` → (v, f); anything else → ("", "").
+struct MsCol { pub var: str, pub fld: str }
+fn ms_col_ref(e: SExpr) -> MsCol {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { return MsCol { var: "", fld: "" }; }
+            let b: SExpr = br.any().view::<SExpr>();
+            match b {
+                SExpr::Field(bf) => {
+                    let bb: WRef<SExpr> = bf.base;
+                    if bb.any().is_null() { return MsCol { var: bf.name, fld: f.name }; }
+                    return MsCol { var: "", fld: "" };
+                }
+                _ => { return MsCol { var: "", fld: "" }; }
+            }
+        }
+        _ => { return MsCol { var: "", fld: "" }; }
+    }
+}
+
+// Is `e` a value fixed before the query runs: a literal, a parameter, or a
+// bare name that is one of the deem's SCALAR parameters? A bare name the
+// entry may also resolve (a module constant: Canon's `OP_SCAN`) does not
+// qualify — a rel body would refuse it in the seed.
+fn ms_is_const(e: SExpr, var: str, prm: &MacroParams) -> bool {
+    match e {
+        SExpr::Lit(l) => { return !l.val.is_null(); }
+        SExpr::Param(_p) => { return true; }
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            return br.any().is_null() && !str_eq(f.name, var) && prm.is_scalar(f.name);
+        }
+        _ => { return false; }
+    }
+}
+
+// A fresh copy of a constant `ms_is_const` admitted.
+fn ms_copy_const(e: SExpr, h: &Writ) -> WRef<SExpr> {
+    match e {
+        SExpr::Lit(l) => {
+            let n: SLit = h.make::<SLit>();
+            n.val = l.val;
+            n.soff = l.soff;
+            n.txt = l.txt;
+            return WRef::<SExpr>::from_any(n.as_ref());
+        }
+        SExpr::Param(p) => {
+            let n: SParam = h.make::<SParam>();
+            n.name = p.name;
+            n.soff = p.soff;
+            return WRef::<SExpr>::from_any(n.as_ref());
+        }
+        SExpr::Field(f) => {
+            let n: SField = h.make::<SField>();
+            n.base = null_sref();
+            n.name = f.name;
+            n.soff = f.soff;
+            return WRef::<SExpr>::from_any(n.as_ref());
+        }
+        _ => { return null_sref(); }
+    }
+}
+
+// The first conjunct `var.c == K` (either side) of `w`: col "" when none.
+struct MsBind { pub col: str, pub k: i64 }
+fn ms_find_bind(w: SExpr, var: str, prm: &MacroParams) -> MsBind {
+    match w {
+        SExpr::Bin(b) => {
+            if b.op == OP_AND() {
+                let l: MsBind = ms_find_bind(b.lhs.any().view::<SExpr>(), var, prm);
+                if l.col.len() > 0i64 { return l; }
+                return ms_find_bind(b.rhs.any().view::<SExpr>(), var, prm);
+            }
+            if b.op == OP_EQ() {
+                let le: SExpr = b.lhs.any().view::<SExpr>();
+                let re: SExpr = b.rhs.any().view::<SExpr>();
+                let lc: MsCol = ms_col_ref(le);
+                if str_eq(lc.var, var) && ms_is_const(re, var, prm) {
+                    return MsBind { col: lc.fld, k: b.rhs.any().raw() };
+                }
+                let rc: MsCol = ms_col_ref(re);
+                if str_eq(rc.var, var) && ms_is_const(le, var, prm) {
+                    return MsBind { col: rc.fld, k: b.lhs.any().raw() };
+                }
+            }
+            return MsBind { col: "", k: 0i64 };
+        }
+        _ => { return MsBind { col: "", k: 0i64 }; }
+    }
+}
+
+// The entry's base source, row var and WHERE (src "" when it has none).
+struct MsEntry { pub src: str, pub var: str, pub w: WRef<SExpr> }
+fn ms_entry(qany: WAny) -> MsEntry {
+    let none: MsEntry = MsEntry { src: "", var: "", w: null_sref() };
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => {
+            if !s.has_where { return none; }
+            return MsEntry { src: s.src_name, var: s.var_name, w: s.where_pred };
+        }
+        RQuery::Join(j) => {
+            if !j.has_where { return none; }
+            return MsEntry { src: j.a_name, var: j.x_var, w: j.where_pred };
+        }
+        RQuery::Aggr(g) => {
+            if !g.has_where { return none; }
+            return MsEntry { src: g.a_name, var: g.x_var, w: g.where_pred };
+        }
+        RQuery::Find(_f) => { return none; }
+    }
+}
+
+// Join `__m_R __mm on __mm.c == v.f` onto one base body. Returns the
+// replacement body's raw handle (0 = rewritten in place).
+fn ms_restrict_body(qany: WAny, mrel: str, v: str, f: str, h: &Writ) -> i64 {
+    let st: RQJoinStep = h.make::<RQJoinStep>();
+    st.is_anti = false;
+    st.is_edge = false;
+    st.has_on = true;
+    st.src_name = mrel;
+    st.var_name = "__mm";
+    st.on = gp_bin(h, OP_EQ(), gp_field(h, "__mm", "c"), gp_field(h, v, f));
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(_s0) => {
+            let s: RQSimple = rq_fat_simple(qany, h);
+            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+            sa.set_step(0i64, st.as_ref());
+            sa.set_len(1i64);
+            let j: RQJoin = h.make::<RQJoin>();
+            j.fn_name = s.fn_name;
+            j.a_name = s.src_name;
+            j.x_var = s.var_name;
+            j.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+            j.has_where = s.has_where;
+            j.where_pred = s.where_pred;
+            j.select = s.select;
+            j.sel_first = s.sel_first;
+            j.distinct = s.distinct;
+            j.has_order = s.has_order;
+            j.order_key = s.order_key;
+            j.order_desc = s.order_desc;
+            j.has_limit = s.has_limit;
+            j.limit_n = s.limit_n;
+            j.limit_is_param = s.limit_is_param;
+            j.limit_param = s.limit_param;
+            j.has_result_ty = s.has_result_ty;
+            j.result_ty = s.result_ty;
+            j.has_gpath = false;
+            return j.as_ref().raw();
+        }
+        RQuery::Join(_j0) => {
+            let jo: RQJoin = rq_fat_join(qany, h);
+            let orig: RQJoinStepArr = jo.steps_arr();
+            let on_: i64 = orig.len();
+            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+            let mut k: i64 = 0i64;
+            while k < on_ {
+                sa.set_step(k, orig.step_any(k));
+                k = k + 1i64;
+            }
+            sa.set_step(on_, st.as_ref());
+            sa.set_len(on_ + 1i64);
+            jo.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+            return 0i64;
+        }
+        _ => { return 0i64; }
+    }
+}
+
+/// Apply the demand rewrite to the rel the entry reads with a bound column
+/// (at most one: the entry's base). Fills `out` with the decision, if any
+/// rel was considered; returns the number of decisions (0 or 1).
+pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecision) -> i64 {
+    let prog: RQProgram = root.view::<RQProgram>();
+    if !prog.has_rels() { return 0i64; }
+    let me: MsEntry = ms_entry(prog.entry_any());
+    if me.src.len() == 0i64 { return 0i64; }
+    let ri: i64 = gp_rel_find(root, me.src);
+    if ri < 0i64 { return 0i64; }
+    let bind: MsBind = ms_find_bind(me.w.any().view::<SExpr>(), me.var, prm);
+    if bind.col.len() == 0i64 { return 0i64; }
+    let rels: RQRelArr = prog.rels_arr();
+    let rel: RQRel = rels.rel_at(ri);
+    let cols: RQRelColArr = rel.cols_arr();
+    let nc: i64 = cols.len();
+    let mut ci: i64 = -1i64;
+    let mut c: i64 = 0i64;
+    while c < nc {
+        if str_eq(cols.col_at(c).name, bind.col) { ci = c; }
+        c = c + 1i64;
+    }
+    if ci < 0i64 { return 0i64; }
+    out.rel = rel.name;
+    out.col = bind.col;
+    // ── the antecedents, each its own rule ──
+    if ms_reads(prog.entry_any(), rel.name) != 1i64 { out.rule = MS_SHARED(); return 1i64; }
+    let nr: i64 = rels.len();
+    let mut j: i64 = 0i64;
+    while j < nr {
+        if j != ri {
+            let bj: RQBodyArr = rels.rel_at(j).bodies_arr();
+            let mut b: i64 = 0i64;
+            while b < bj.len() {
+                if ms_reads(bj.body_any(b), rel.name) > 0i64 { out.rule = MS_SHARED(); return 1i64; }
+                b = b + 1i64;
+            }
+        }
+        j = j + 1i64;
+    }
+    let bodies: RQBodyArr = rel.bodies_arr();
+    let nb: i64 = bodies.len();
+    let mut b: i64 = 0i64;
+    while b < nb {
+        let ba: WAny = bodies.body_any(b);
+        if ms_neg_agg(ba) { out.rule = MS_NEG_AGG(); return 1i64; }
+        let k: i64 = ms_reads(ba, rel.name);
+        if k > 1i64 { out.rule = MS_NONLINEAR(); return 1i64; }
+        let item: MsCol = ms_col_ref(ms_sel_item(ms_select(ba), ci, nc));
+        if k == 1i64 {
+            if !str_eq(item.var, ms_occ_var(ba, rel.name)) || !str_eq(item.fld, bind.col) {
+                out.rule = MS_MOVES_COL(); return 1i64;
+            }
+        } else {
+            if item.var.len() == 0i64 { out.rule = MS_SEL_SHAPE(); return 1i64; }
+            let q: RQuery = ba.view::<RQuery>();
+            match q {
+                RQuery::Join(jb) => {
+                    if jb.steps_arr().len() >= RQJSTEP_MAX() { out.rule = MS_CAP(); return 1i64; }
+                }
+                _ => { }
+            }
+        }
+        b = b + 1i64;
+    }
+    if nr >= RQREL_MAX() { out.rule = MS_CAP(); return 1i64; }
+    // ── the rewrite ──
+    let mut mn: String = String::new();
+    mn.push_str("__m_");
+    mn.push_str(rel.name);
+    let mrel: RQRel = h.make::<RQRel>();
+    mrel.name = lw_str(&mn);
+    let mc: RQRelCol = h.make::<RQRelCol>();
+    mc.name = "c";
+    mc.ty_name = cols.col_at(ci).ty_name;
+    let mcols: RQRelColArr = h.make::<RQRelColArr>();
+    let mut mcm: RQRelColArr = mcols;
+    mcm.set_col(0i64, mc.as_ref());
+    mcm.set_len(1i64);
+    mrel.cols = WRef::<RQRelColArr>::from_any(mcm.as_ref());
+    let seed: RQSimple = h.make::<RQSimple>();
+    seed.has_where = false;
+    seed.select = ms_copy_const(unsafe { WAny::ref_to(bind.k as *const u8) }.view::<SExpr>(), h);
+    seed.sel_first = false;
+    seed.distinct = false;
+    seed.has_order = false;
+    seed.has_limit = false;
+    seed.has_result_ty = false;
+    seed.has_gpath = false;
+    let mb: RQBodyArr = h.make::<RQBodyArr>();
+    let mut mbm: RQBodyArr = mb;
+    mbm.set_body(0i64, seed.as_ref());
+    mbm.set_len(1i64);
+    mrel.bodies = WRef::<RQBodyArr>::from_any(mbm.as_ref());
+    b = 0i64;
+    while b < nb {
+        let ba2: WAny = bodies.body_any(b);
+        if ms_reads(ba2, rel.name) == 0i64 {
+            let item2: MsCol = ms_col_ref(ms_sel_item(ms_select(ba2), ci, nc));
+            let nq: i64 = ms_restrict_body(ba2, mrel.name, item2.var, item2.fld, h);
+            if nq != 0i64 {
+                let mut fb: RQBodyArr = rq_fat_bodies(rel.bodies.any(), h);
+                fb.set_body(b, unsafe { WAny::ref_to(nq as *const u8) });
+            }
+        }
+        b = b + 1i64;
+    }
+    if !gp_rel_append(root, mrel, h) { out.rule = MS_CAP(); return 1i64; }
+    out.rule = MS_DEMAND();
+    return 1i64;
+}
 
 /// Desugar every graph path in the program (rel bodies + the entry query).
 /// Returns false with `err` filled on a malformed path; the plan is otherwise

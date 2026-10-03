@@ -401,6 +401,16 @@ A `rel` block declares a named derived relation with SET semantics: `cols` are d
 
 *Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`simple_query`'s third alternative); `stdlib/mem/wql/lower.logos` (`desugar_program_facts`); `tests/logos/pass/wql_rel_fact_e2e.logos`
 
+### `deem.datalog.demand` — a rel read with a bound column is evaluated on demand
+
+When the entry query's base source is a rel `R` and its WHERE has a conjunct `x.c == K` (K a literal or one of the deem's scalar parameters), `R` is rewritten by magic sets (Soufflé's MST, adornment = column `c`): a rel `__m_R(c)` holds `K` as a fact, every body of `R` that does not read `R` joins `__m_R` on its column `c`, and every body that reads `R` once must pass `c` through from that occurrence (`select (r.c, …)`), which carries the restriction into the fixpoint. The answer is unchanged; the rows derived are those reachable from the demand. The rewrite is declined, and `[plan] demand -> fully materialized` names the rule, when `R` has another reader, a body negates or aggregates, a body reads `R` twice, a recursive body moves `c` (the right-linear shape), a base body computes `c` instead of copying a column, or a rel or join-step slot is missing.
+
+A demand-driven rel's SCC reads `__m_<rel>`, so the internal DRed helpers of that SCC are not emitted; no public surface depends on them for these shapes (measured over every corpus program the rewrite touches). `LOGOS_DEEM_NO_DEMAND` (any value, at compile time) turns the rewrite off.
+
+*Divergence:* Soufflé applies MST on request (`--magic-transform`); here it applies whenever the conditions hold, the plan trace records the decision, and an environment switch turns it off.
+
+*Evidence:* `stdlib/mem/wql/lower.logos` (`magic_program`); `stdlib/mem/wql/why.logos` (`MS_*`); `tests/logos/pass/wql_rel_demand_e2e.logos`
+
 ### `deem.datalog.rel-columns` — rel columns are i64/str/bool (Hash+Eq)
 
 Rel columns must be `i64`/`str`/`bool` — rels are sets deduped by structural equality, so columns need Hash+Eq; `f64`/`f32` get their own named diagnostic (Eq loss is the reason).

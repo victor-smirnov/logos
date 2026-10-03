@@ -1,0 +1,127 @@
+// wql_rel_demand_e2e — a rel the entry reads with a bound column is evaluated
+// ON DEMAND (ADR 0016 M6, #349): the magic-sets rewrite (Soufflé's MST) with
+// one bound column. `__m_<rel>` holds the bound value as a fact, the rel's
+// base bodies join it, and a recursive body that passes the column through
+// carries the restriction into the fixpoint.
+//
+// The oracle is a NAIVE TWIN: the same rel read without a binding (so it is
+// fully materialized) and filtered here, in Logos. Two properties:
+//   (1) results ≡ the full walk, for a scalar-parameter binding, a literal
+//       binding, and a mapping rel consumed through fusion;
+//   (2) visits strictly fewer: `tick` counts the recursive body's derivations
+//       (a `static mut` bumped by a UDF in its select).
+// A right-linear rel moves the bound column inside the fixpoint and is
+// declined (MS_MOVES_COL); it must still answer the same.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+static mut TICKS: i64 = 0i64;
+pub fn tick(x: i64) -> i64 { unsafe { TICKS = TICKS + 1i64; } return x; }
+fn ticks() -> i64 { return unsafe { TICKS }; }
+fn reset() { unsafe { TICKS = 0i64; } }
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+// (1)+(2) bound by a scalar parameter
+pub deem reach_d(es: &[Edge], start: i64) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc t join es e on e.src == t.b select (t.a, tick(e.dst));
+    }
+    from tc t where t.a == start select t.b order by t.b
+}
+// bound by a literal
+pub deem reach_10(es: &[Edge]) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc t join es e on e.src == t.b select (t.a, tick(e.dst));
+    }
+    from tc t where t.a == 10 select t.b order by t.b
+}
+// the naive twin
+pub deem reach_all(es: &[Edge]) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc t join es e on e.src == t.b select (t.a, tick(e.dst));
+    }
+    from tc t select (t.a, t.b)
+}
+// right-linear: declined, same answer
+pub deem reach_rl(es: &[Edge], start: i64) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from es e join tc t on t.a == e.dst select (e.src, t.b);
+    }
+    from tc t where t.a == start select t.b order by t.b
+}
+
+// a mapping rel, consumed with a binding: demand-driven mapping bodies
+pub mapping Net(g: &Writ) {
+    pub rel engine(owner: i64, name: str) {
+        from g ** .engine e select (e.parent, e.vs);
+    }
+}
+pub deem pg_owner(w: Net) { from engine e where e.name == "pg" select e.owner }
+pub deem all_owners(w: Net) { from engine e select (e.owner, e.name) }
+
+fn main() -> i32 {
+    // two components: 1→2→3→4→5 and 10→11→12
+    let es: [Edge; 6] = [
+        Edge { src: 1i64,  dst: 2i64 },  Edge { src: 2i64,  dst: 3i64 },
+        Edge { src: 3i64,  dst: 4i64 },  Edge { src: 4i64,  dst: 5i64 },
+        Edge { src: 10i64, dst: 11i64 }, Edge { src: 11i64, dst: 12i64 },
+    ];
+
+    reset();
+    let all: Vec<(i64, i64)> = reach_all(&es[..]).unwrap();
+    let t_all: i64 = ticks();
+    // the full closure: 4+3+2+1 pairs from the chain, 2+1 from the other
+    if all.len() != 13i64 { return 1i32; }
+
+    // (1) start = 10 → {11, 12}
+    reset();
+    let d: Vec<i64> = reach_d(&es[..], 10i64).unwrap();
+    let t_d: i64 = ticks();
+    if d.len() != 2i64 || d.get(0i64) != 11i64 || d.get(1i64) != 12i64 { return 2i32; }
+    let mut want: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < all.len() { if all.get(i).0 == 10i64 { want = want + 1i64; } i = i + 1i64; }
+    if want != d.len() { return 3i32; }
+    // (2) strictly fewer derivations than the full walk
+    if t_d >= t_all { return 4i32; }
+
+    // the literal binding answers the same
+    reset();
+    let l: Vec<i64> = reach_10(&es[..]).unwrap();
+    if l.len() != 2i64 || l.get(1i64) != 12i64 { return 5i32; }
+    if ticks() >= t_all { return 6i32; }
+
+    // start = 1 → {2, 3, 4, 5}; the declined right-linear shape agrees
+    let d1: Vec<i64> = reach_d(&es[..], 1i64).unwrap();
+    let r1: Vec<i64> = reach_rl(&es[..], 1i64).unwrap();
+    if d1.len() != 4i64 || r1.len() != 4i64 { return 7i32; }
+    i = 0i64;
+    while i < 4i64 { if d1.get(i) != r1.get(i) { return 8i32; } i = i + 1i64; }
+
+    // the mapping consumer
+    let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
+    let po: Vec<i64> = pg_owner(&doc).unwrap();
+    let ao: Vec<(i64, str)> = all_owners(&doc).unwrap();
+    if po.len() != 1i64 || ao.len() != 2i64 { return 9i32; }
+    let mut found: bool = false;
+    i = 0i64;
+    while i < ao.len() {
+        let r: (i64, str) = ao.get(i);
+        if str_eq(r.1, "pg") && r.0 == po.get(0i64) { found = true; }
+        i = i + 1i64;
+    }
+    if !found { return 10i32; }
+    return 0i32;
+}

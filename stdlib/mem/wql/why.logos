@@ -1425,3 +1425,40 @@ pub fn ac_verdict(r: i32) -> str {
     return "UNSET";
 }
 
+
+// ══ DEMAND FOR A USER REL — magic sets, applied or not, and why (#349) ═══════
+// The entry reads rel R with a column bound to a constant or a scalar
+// parameter; the rewrite restricts R to that demand (Soufflé's MST, adornment
+// one bound column). Each rule names the ONE antecedent that decided it.
+pub fn MS_DEMAND() -> i32       { return 1i32; }   // rewritten
+pub fn MS_SHARED() -> i32       { return 2i32; }   // another reader needs all of R
+pub fn MS_NEG_AGG() -> i32      { return 3i32; }   // a body of R negates or aggregates
+pub fn MS_NONLINEAR() -> i32    { return 4i32; }   // a body reads R twice
+pub fn MS_MOVES_COL() -> i32    { return 5i32; }   // a recursive body does not pass the column through
+pub fn MS_SEL_SHAPE() -> i32    { return 6i32; }   // a base body's bound column is not a plain column
+pub fn MS_CAP() -> i32          { return 7i32; }   // no free rel or join-step slot
+
+pub fn ms_render(r: i32) -> str {
+    if r == MS_DEMAND()    { return "the entry binds this column to one value, so only rows carrying it can reach the answer: the rel is evaluated ON DEMAND — `__m_<rel>` holds the bound value (a fact), every non-recursive body joins it on the column, and each recursive body passes the column through unchanged, so the restriction carries into the fixpoint by induction (the magic-sets rewrite, Soufflé's MST, adornment of one bound column)"; }
+    if r == MS_SHARED()    { return "the rel is read somewhere else too (another rel, or the entry a second time) without that binding, and that reader needs every row — restricting the rel would change its answer"; }
+    if r == MS_NEG_AGG()   { return "a body of the rel negates (`anti join`) or aggregates; the magic rewrite is applied only to positive bodies here, since a demand that crosses a stratum boundary needs the stratification rechecked after the rewrite"; }
+    if r == MS_NONLINEAR() { return "a body reads the rel twice (non-linear recursion); each occurrence would need its own demand rule, which this rewrite does not derive yet"; }
+    if r == MS_MOVES_COL() { return "a recursive body does not pass the bound column through unchanged (the right-linear shape), so the demand grows inside the fixpoint and needs a recursive magic rule, which this rewrite does not derive yet"; }
+    if r == MS_SEL_SHAPE() { return "a non-recursive body computes the bound column (or is a fact) instead of copying a plain column, and the restriction is written only as a join on a plain column"; }
+    if r == MS_CAP()       { return "no free rel slot for `__m_<rel>` or no free join-step slot in a body (8 each)"; }
+    return "";
+}
+pub fn ms_name(r: i32) -> str {
+    if r == MS_DEMAND()    { return "demand"; }
+    if r == MS_SHARED()    { return "shared"; }
+    if r == MS_NEG_AGG()   { return "neg_agg"; }
+    if r == MS_NONLINEAR() { return "nonlinear"; }
+    if r == MS_MOVES_COL() { return "moves_col"; }
+    if r == MS_SEL_SHAPE() { return "sel_shape"; }
+    if r == MS_CAP()       { return "cap"; }
+    return "unset";
+}
+pub fn ms_verdict(r: i32) -> str {
+    if r == MS_DEMAND() { return "demand-driven"; }
+    return "fully materialized";
+}
