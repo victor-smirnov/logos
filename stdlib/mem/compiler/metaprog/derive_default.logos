@@ -31,7 +31,7 @@ use logos.lang.writ.anyval;
 use logos.lang.default;
 use logos.mem.uninit;
 
-#[metaprog_handler("derive_default")]
+#[metaprog_handler("derive_default", "logos.lang.default::Default")]
 fn derive_default_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }

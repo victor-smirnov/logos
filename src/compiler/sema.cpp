@@ -3363,6 +3363,13 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
         b.str(mtk::TRIGGER, mt.trigger);
         prog.metaprog_targets.push_back(b.view<lir_view::MetaprogTargetView>());
     }
+    prog.pending_trait_facts.clear();
+    for (const auto& mt : metaprog_targets_) {
+        if (mt.target_name.empty()) continue;
+        for (const auto& mh : metaprog_handlers_)
+            if (mh.trigger == mt.trigger && !mh.implements.empty())
+                prog.pending_trait_facts.emplace_back(mh.implements, mt.target_name);
+    }
 
     // Stage 3g.1: populate prog.mirror_table after lowering completes. With
     // pool_ bound to prog.type_pool throughout sema, mirror offsets and

@@ -172,8 +172,13 @@ class SemaCheckerSnapshot;
 // Both are in hand at the collect site; without them a Trigger edge has a
 // consumer and no provider.
 struct MetaprogHandlerStage { std::string trigger; std::string hook_fn;
-                              int64_t def_ast_idx = -1; std::string def_source_file; };
-struct MetaprogTargetStage  { size_t ast_idx; uint32_t item_offset; std::string trigger; };
+                              int64_t def_ast_idx = -1; std::string def_source_file;
+                              // `#[metaprog_handler("derive_eq", "logos.lang.cmp::Eq")]`: the
+                              // trait (impl-registry identity) every target of this handler
+                              // gains — a capability being synthesized is not absent (#723).
+                              std::string implements; };
+struct MetaprogTargetStage  { size_t ast_idx; uint32_t item_offset; std::string trigger;
+                              std::string target_name; };
 
 class SemaChecker {
 public:

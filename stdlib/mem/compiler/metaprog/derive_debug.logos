@@ -17,7 +17,7 @@ use logos.lang.writ.anyval;
 use logos.lang.result;
 use logos.mem.fmt;
 
-#[metaprog_handler("derive_debug")]
+#[metaprog_handler("derive_debug", "logos.mem.fmt::Debug")]
 fn derive_debug_hook(target_offset: u32) -> () {
     let view: OView = oview_module_ast();
     if view.holder == (0 as *mut u8) { return; }

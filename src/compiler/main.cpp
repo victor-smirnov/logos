@@ -2597,6 +2597,8 @@ static void note_metaprog_impl_facts(const logos::compiler::lir::LProgram& prog)
     for (auto& impl : prog.impls)
         if (!impl.is_blanket() && !impl.is_negative() && !impl.identity_trait().empty())
             g_metaprog_impl_facts.emplace(std::string(impl.identity_trait()), std::string(impl.target_type()));
+    // An impl a derive handler is synthesizing this round (#723).
+    for (const auto& f : prog.pending_trait_facts) g_metaprog_impl_facts.insert(f);
 }
 extern "C" int32_t logos_metaprog_has_impl(const uint8_t* trait, uint64_t trait_len,
                                            const uint8_t* ty, uint64_t ty_len) {
