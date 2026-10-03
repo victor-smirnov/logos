@@ -10558,13 +10558,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (!recv || !expr_type(recv)) return false;
         ProbePick pk = probe_method_(expr_type(recv), method_name);
         // The selection below applies the receiver as is or one deref through a
-        // reference; an array's unsizing step stays with the array arm, and a
-        // slice receiver with the slice arm (it reconciles `str` = `&[u8]` with a
-        // `&str` argument, a boundary the common selection does not model yet).
-        TypeRef rt = expr_type(recv);
-        if (is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee()) rt = TypeRef(rt).pointee();
-        if (TypeRef(rt).kind() == LogosType::Kind::Slice || TypeRef(rt).kind() == LogosType::Kind::UnsizedSlice)
-            return false;
+        // reference; an array's unsizing step stays with the array arm.
         return pk.fi && !pk.key.starts_with("$blanket$") && !pk.key.starts_with("$ref_") &&
                !pk.key.starts_with("$mut_ref_") &&
                (pk.derefs == 0 || (pk.derefs == 1 && is_ref_like(TypeRef(expr_type(recv)).kind())));
@@ -11500,7 +11494,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     TypeRef at = expr_type(arg_exprs[a - 1]);
                     ok = at && arg_compatible_for_dispatch(expr_ref_of(arg_exprs[a - 1]), at, c->param_types[a]);
                 }
-                if (!ok) continue;
+                // The argument filter only chooses among overloads (rustc selects by
+                // the receiver alone): a step's one candidate is taken, and its
+                // arguments are judged below with the coercions (`&&str` at `&str`).
+                if (!ok && pk.tied.size() != 1) continue;
                 fi_ptr = c;
                 mangled_prim = pk.key;
                 // A generic method reached through a reference reads `Self` and the
@@ -11517,6 +11514,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                              (TypeRef(pt).kind() == LogosType::Kind::F64 || TypeRef(pt).kind() == LogosType::Kind::F32))
                         arg_exprs[a] = builder().cast(std::move(arg_exprs[a]), pt);
                 }
+                for (size_t a = 0; !generic && a < arg_exprs.size(); ++a)
+                    expect_arg_(arg_exprs[a], c->param_types[a + 1], CoercePos::MethodArg,
+                                std::format("method '{}' arg {}", pk.key, a + 1), {}, {});
                 if (pk.derefs == 0 && pk.autoref == 0)
                     reborrow_dst_place_(recv, c->param_types[0]);
                 if (reborrow) {
