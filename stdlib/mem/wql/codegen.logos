@@ -102,69 +102,11 @@ use logos.std.wql.writ_graph;     // writ_graph_edges — the NATIVE graph-sourc
 //                      enforced, and a mixed ternary reached the host compiler.
 // Unknown / out-of-MVP nodes default to INT.
 pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
-    match e {
-        SExpr::Lit(l) => {
-            let v: WAny = l.val;
-            if v.is_string() { return EL_TY_STR(); }
-            if v.is_bool()   { return EL_TY_BOOL(); }
-            if v.is_float()  { return EL_TY_FLT(); }
-            return EL_TY_INT();
-        }
-        SExpr::Param(pp) => { return t.ty_of(pp.name); }
-        SExpr::Var(vv)   => { return t.ty_of(vv.name); }
-        SExpr::Field(f)  => {
-            // THE CLASS IS THE VIEW OF THE NAME — one resolution, not two, so a
-            // column cannot be one class here and another type there.
-            let fn0: str = field_ty_name(f, t);
-            if fn0.len() > 0i64 { return t.class_of_name(fn0); }
-            return t.ty_of(f.name);
-        }
-        SExpr::Bin(b) => {
-            let op: i32 = b.op;
-            if op == OP_OR() || op == OP_AND()
-               || op == OP_EQ() || op == OP_NE()
-               || op == OP_LT() || op == OP_LE()
-               || op == OP_GT() || op == OP_GE() { return EL_TY_BOOL(); }
-            let lt: i32 = infer_ty(b.lhs_expr(), t);
-            let rt: i32 = infer_ty(b.rhs_expr(), t);
-            if op == OP_ADD() {
-                if lt == EL_TY_STR() || rt == EL_TY_STR() { return EL_TY_STR(); }
-            }
-            // Arithmetic (+ - * / %) with a FLT operand promotes to FLT.
-            if lt == EL_TY_FLT() || rt == EL_TY_FLT() { return EL_TY_FLT(); }
-            return EL_TY_INT();
-        }
-        SExpr::Un(u) => {
-            if u.op == OP_NOT() { return EL_TY_BOOL(); }
-            // Unary minus keeps the argument's numeric type (FLT stays FLT).
-            if infer_ty(u.arg_expr(), t) == EL_TY_FLT() { return EL_TY_FLT(); }
-            return EL_TY_INT();
-        }
-        // `x as T` is a `T`: the class of the target (a target outside the
-        // lattice is refused by `check_cast` before anything reads this).
-        SExpr::Cast(c) => {
-            let k: i32 = el_class_lookup(c.ty);
-            if k < 0i32 { return EL_TY_INT(); }
-            return k;
-        }
-        SExpr::Cond(c) => { return infer_ty(c.then_expr(), t); }
-        SExpr::Call(c) => {
-            let bfn: i32 = builtin_of_name(c.fn_name);
-            if bfn != BFN_UNKNOWN() { return builtin_ret_ty(bfn); }
-            // Non-builtin → the reflected UDF table (builtins shadow UDFs).
-            let ui: i64 = t.udf_find(c.fn_name);
-            if ui >= 0i64 {
-                let r: i32 = t.udf_ret[ui];
-                if r >= 0i32 { return r; }
-            }
-            return EL_TY_INT();
-        }
-        SExpr::Comp(_) => { return EL_TY_INT(); }   // list value (element ty = INT in the scalar lattice)
-        SExpr::Tuple(_) => { return EL_TY_INT(); }  // OUT of the scalar lattice — projection paths
-                                                    // special-case tuples via tuple_ty_text BEFORE
-                                                    // consulting the EL_TY_* tag (never meaningful here)
-        _ => { return EL_TY_INT(); }
-    }
+    // ⚠ A VIEW OF THE TYPE, NOT A SECOND INFERENCE (E4.1, 2026-10-02). This was
+    // its own walk over the same cases `infer_ty_name` walks, and the two could
+    // disagree — arithmetic was typed by one heuristic here and another there.
+    // There is one type walk now; the class is what that type's name maps to.
+    return t.class_of_name(infer_ty_name(e, t));
 }
 
 // The LOGOS TYPE NAME of an expression — `infer_ty`'s answer, but as the type
@@ -297,6 +239,17 @@ pub fn order_census(fn_name: str, ncand: i64, deferred: bool) {
 
 pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
     match e {
+        SExpr::Lit(l) => {
+            // A literal names its suffix (`5i32`), or the representative of its
+            // kind — it takes a real type from its context, not from here.
+            let sx: str = l.suffix();
+            if sx.len() > 0i64 { return sx; }
+            let v: WAny = l.val;
+            if v.is_string() { return "str"; }
+            if v.is_bool()   { return "bool"; }
+            if v.is_float()  { return "f64"; }
+            return "i64";
+        }
         SExpr::Param(pp) => { return t.ty_name_of(pp.name); }
         SExpr::Var(vv)   => { return t.ty_name_of(vv.name); }
         SExpr::Field(f)  => {
@@ -310,23 +263,37 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
                || op == OP_EQ() || op == OP_NE()
                || op == OP_LT() || op == OP_LE()
                || op == OP_GT() || op == OP_GE() { return "bool"; }
-            // Arithmetic keeps the operands' type. A literal contributes no
-            // name, so the named side wins — `e.n + 1` over a u64 column is
-            // u64, which is also what the host compiler would infer.
-            let ln: str = infer_ty_name(b.lhs_expr(), t);
-            let rn2: str = infer_ty_name(b.rhs_expr(), t);
-            if str_eq(ln, "f64") || str_eq(rn2, "f64") { return "f64"; }
-            if str_eq(ln, "str") || str_eq(rn2, "str") { return "str"; }
-            if !str_eq(ln, "i64") { return ln; }
-            return rn2;
+            let lc: i32 = t.class_of_name(infer_ty_name(b.lhs_expr(), t));
+            let rc: i32 = t.class_of_name(infer_ty_name(b.rhs_expr(), t));
+            if op == OP_ADD() && (lc == EL_TY_STR() || rc == EL_TY_STR()) { return "str"; }
+            // Arithmetic is typed by the SAME rules the emitter prints by.
+            if lc == EL_TY_FLT() || rc == EL_TY_FLT() { return float_node_ty(e, t); }
+            return arith_node_ty(e, t);
         }
         SExpr::Un(u) => {
             if u.op == OP_NOT() { return "bool"; }
+            let ac: i32 = t.class_of_name(infer_ty_name(u.arg_expr(), t));
+            if ac == EL_TY_FLT() { return float_node_ty(e, t); }
+            if ac == EL_TY_INT() { return arith_node_ty(e, t); }
             return infer_ty_name(u.arg_expr(), t);
         }
         SExpr::Cast(c) => { return c.ty; }
         SExpr::Cond(c) => { return infer_ty_name(c.then_expr(), t); }
-        _ => { return el_class_repr(infer_ty(e, t)); }
+        SExpr::Call(c) => {
+            // A call's value is NORMALIZED into its class's representative where
+            // it is emitted (`emit_udf_call`), so that is its type here too.
+            let bfn: i32 = builtin_of_name(c.fn_name);
+            if bfn != BFN_UNKNOWN() { return el_class_repr(builtin_ret_ty(bfn)); }
+            let ui: i64 = t.udf_find(c.fn_name);
+            if ui >= 0i64 {
+                let r: i32 = t.udf_ret[ui];
+                if r >= 0i32 { return el_class_repr(r); }
+            }
+            return "i64";
+        }
+        // A list value / a tuple projection: out of the scalar domain; projection
+        // paths special-case tuples before consulting this.
+        _ => { return "i64"; }
     }
 }
 
