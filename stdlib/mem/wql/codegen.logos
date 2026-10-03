@@ -280,14 +280,17 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
         SExpr::Cast(c) => { return c.ty; }
         SExpr::Cond(c) => { return infer_ty_name(c.then_expr(), t); }
         SExpr::Call(c) => {
-            // A call's value is NORMALIZED into its class's representative where
-            // it is emitted (`emit_udf_call`), so that is its type here too.
+            // A builtin's value is its class's representative; a user fn's is its
+            // declared return type (E4.5).
             let bfn: i32 = builtin_of_name(c.fn_name);
             if bfn != BFN_UNKNOWN() { return el_class_repr(builtin_ret_ty(bfn)); }
             let ui: i64 = t.udf_find(c.fn_name);
             if ui >= 0i64 {
+                // The declared return TYPE (E4.5); a `String` result is read as a
+                // `str` view (the returns-String treatment), so it names `str`.
                 let r: i32 = t.udf_class(ui);
-                if r >= 0i32 { return el_class_repr(r); }
+                if r == EL_TY_STR() { return "str"; }
+                if r >= 0i32 { return t.udf_rets[ui]; }
             }
             return "i64";
         }
@@ -1839,9 +1842,9 @@ fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
     // (`el_norm_cast` — `ElTy.canon` / `ElTy.repr`). The two hand-written tests
     // this replaces ("INT and not `i64`", "FLT and `f32`") were the same rule
     // enumerated, and `rexpr_walk::uda_fin_cast` held a second copy of it.
-    let rn: str = t.udf_rets[ui];
-    let cast: str = el_norm_cast(rn);
-    if cast.len() > 0i64 { out.push_str("(("); }
+    // The call's value is the fn's own RETURN TYPE (E4.5): no normalizing cast.
+    // It used to be `as i64` for every non-canonical integer (and `as f64` for
+    // f32), which reinterpreted a u64 result and was refused for u128.
     out.push_str(name);
     out.push_str("(");
     let mut i: i64 = 0i64;
@@ -1851,11 +1854,6 @@ fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
         i = i + 1i64;
     }
     out.push_str(")");
-    if cast.len() > 0i64 {
-        out.push_str(") as ");
-        out.push_str(cast);
-        out.push_str(")");
-    }
 }
 
 // True iff `e` is (or contains at its root) a call to an unknown function or one
@@ -1954,30 +1952,11 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     error(string_as_str(&m3));
                     return false;
                 }
-                // THE WIDTH, which the class does not carry. An INT-family return
-                // is normalized to the lattice baseline with `as i64` at the emit
-                // site (`emit_udf_call`), and for u64/usize/u128/i128 that cast
-                // REINTERPRETS or TRUNCATES: the number the fn returned is not the
-                // number the query goes on to use. This used to be a sentence in a
-                // doc comment ("documented MVP semantics") and a silently wrong
-                // row — measured as an `order by` that ranked 2^63 below 0.
-                //
-                // ⚠ REFUSED HERE AND NOT AT THE SORT, because the normalization is
-                // not the sort's: the same cast feeds `select`, `where`, `group by`
-                // and an aggregate argument, and each of them would need its own
-                // copy of this check. One use-site refusal closes all of them.
-                if t.udf_class(ui) == EL_TY_INT() && !el_int_fits_i64(t.udf_rets[ui]) {
-                    let mut m5: String = String::new();
-                    m5.push_str(ctx);
-                    m5.push_str(": user function '");
-                    m5.push_str(name);
-                    m5.push_str("' returns `");
-                    m5.push_str(t.udf_rets[ui]);
-                    m5.push_str("`, whose values do not survive the EL's i64 normalization — ");
-                    m5.push_str(el_order_why(t.udf_rets[ui]));
-                    error(string_as_str(&m5));
-                    return false;
-                }
+                // A u64/u128 return used to be REFUSED here: the emit site
+                // normalized every integer result with `as i64`, which
+                // reinterprets or truncates. Under Rust typing the call keeps its
+                // declared type and there is no normalization to survive (E4.5;
+                // pass/wql_udf_wide_ret_e2e).
             } else {
                 if argc != builtin_arity(bfn) {
                     let mut m4: String = String::new();

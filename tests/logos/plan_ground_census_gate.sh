@@ -862,7 +862,7 @@ fail = []
 # UNMOVED and worth saying so: EXPECT_FIXTURES (191 either way — the population
 # was never the thing that was missing), DRAIN_SORT, IT, RDB, RSB, KS, PERM,
 # FRAME, CPHEAD, CPT, IWHEAD, DIRECT (10).
-EXPECT_FIXTURES   = 197  # 2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by);  2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key);  2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float);  2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128);  2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct);  V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
+EXPECT_FIXTURES   = 198  # 2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key);  2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by);  2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key);  2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float);  2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128);  2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct);  V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
                          # `deem_direct_fallible_buffered` — the fixture that
                          # witnesses the CHECKED-ARITHMETIC refusal clause. It is
                          # a container walk whose `select` does arithmetic, so it
@@ -905,12 +905,12 @@ EXPECT_RSB        = 5     # `let mut __rsb_<r>: Buffer<…>` — the Sort node's
 EXPECT_ARRANGE    = 603   # 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct); Arrange nodes (R-D: +1) — S2d: == EXPECT_INDEX, exactly
 EXPECT_HASHJOIN   = 500   # 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct) — `hash join on Sku`; (R-D: +1) `hash join on` strategy decisions (nest 0 + pre-decided)
 EXPECT_INDEX      = 603   # 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct); (R-D: +1) emitted `__hm`/`__hs`/`__bt` bindings
-EXPECT_KS         = 131   # wql_uda_narrow_ret_e2e (E4.4); 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128) — `uord`; emitted `__ks` sort-key vectors == `key vector` lines  (S4: +2, `wql_group_single_pass_fold_e2e`; R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
+EXPECT_KS         = 132   # wql_udf_wide_ret_e2e by_key (E4.5); wql_uda_narrow_ret_e2e (E4.4); 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128) — `uord`; emitted `__ks` sort-key vectors == `key vector` lines  (S4: +2, `wql_group_single_pass_fold_e2e`; R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
 # S3e — THE PERMUTATION VECTORS, PINNED BUT NOT ATTRIBUTED TO A SORT NODE.
 # 311 `let mut __ix<k>` across 89 fixtures. This is a COUNT, not an equality
 # against the node layer, and the header says why: 85 of the 311, in 39
 # fixtures, are emitted where there is no sort at all.
-EXPECT_PERM       = 324   # wql_uda_narrow_ret_e2e (E4.4); 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128) — `uord`; 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct); (R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
+EXPECT_PERM       = 325   # wql_udf_wide_ret_e2e by_key (E4.5); wql_uda_narrow_ret_e2e (E4.4); 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128) — `uord`; 2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct); (R-A: +2, `deem_slice_param_batch_e2e`'s two `order by` queries)
 # S5-PIPELINE: readonce 19 -> 21. `deem_pipeline_chain` chains TWO deems onto one
 # streamed source (`q2_head` bounded, `q2_all` the unbounded control), and each
 # contributes one `read once, consumed where it stands` — the ground that IS the
@@ -989,7 +989,7 @@ EXPECT_FRAME      = {"gkey": 154, "gacc": 210,  # +1 each wql_uda_narrow_ret_e2e
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 626   # (2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by); (2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key); (2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float); (2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128); (2026-10-02 wql_named_key_e2e: +4 landings, three queries plus the group query's snapshot; (2026-10-02 Rust typing: +1, wql_arith_narrow_e2e 5 -> 6 queries; R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
+EXPECT_OUTQ       = 628   # (2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key); (2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by); (2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key); (2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float); (2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128); (2026-10-02 wql_named_key_e2e: +4 landings, three queries plus the group query's snapshot; (2026-10-02 Rust typing: +1, wql_arith_narrow_e2e 5 -> 6 queries; R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
                           #  S5-direct: +1 deem_direct_stream_pull;
                           #  V2-M1: +1 deem_direct_fallible_buffered — a REFUSED
                           #  door still has a `_run` landing, which is why this
@@ -1025,7 +1025,8 @@ EXPECT_RLND       = EXPECT_OUTR
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 1     # `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 496,  # 494 -> 496: 2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by)
+EXPECT_OUTHEAD    = {"query output": 498,  # 496 -> 498: 2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key)
+                      # 494 -> 496: 2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by)
                       # 493 -> 494: 2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key)
                       # 490 -> 493: 2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float)
                       # 485 -> 490: 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128)
@@ -1080,7 +1081,7 @@ EXPECT_OUTHEAD    = {"query output": 496,  # 494 -> 496: 2026-10-02 E4.4: wql_co
 # no `#[borrow_carrying] pub struct …Dx` backs is the failure this catches, and
 # it is exactly the failure a plan-only pin would call green.
 EXPECT_DIRECT     = 10
-EXPECT_REFUSED    = 508  # 2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by); 2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key); 2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float); 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128); 2026-10-02 wql_named_key_e2e +3 (join, aggregate, distinct first reasons); task #85: 492 -> 493; 2026-10-02: 494, wql_arith_narrow_e2e +1 query
+EXPECT_REFUSED    = 510  # 2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key); 2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by); 2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key); 2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float); 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128); 2026-10-02 wql_named_key_e2e +3 (join, aggregate, distinct first reasons); task #85: 492 -> 493; 2026-10-02: 494, wql_arith_narrow_e2e +1 query
 # ── THE REFUSAL CENSUS, PER CLAUSE (ADR 0025 §12; re-derived 2026-08-19) ─────
 # FIRST-REASON counts over an `else if` CASCADE — see the note beside `DXWHY`.
 # A query true of three clauses is counted once, under the first one asked, so
@@ -1108,7 +1109,7 @@ EXPECT_DXWHY = {
     "singlerow"   :   0,
     "aggregate"   : 154,   # +1 wql_uda_narrow_ret_e2e (E4.4);   # 2026-10-02: +1 wql_named_key_e2e per_sku
     "join"        : 115,   # 2026-10-02: +1 wql_named_key_loop_e2e;   # 2026-10-02: +1 wql_named_key_e2e total
-    "sort"        :  63,   # 2026-10-02: +1 wql_arith_128_tower_e2e uord
+    "sort"        :  64,   # +1 wql_udf_wide_ret_e2e by_key (E4.5);   # 2026-10-02: +1 wql_arith_128_tower_e2e uord
     "distinct"    :   5,   # 2026-10-02: +1 wql_named_key_e2e skus
     "limit"       :   7,
     "generic"     :   1,
@@ -1116,7 +1117,7 @@ EXPECT_DXWHY = {
     "sel_prelude" :   2,   # +1 wql_comprehension_typed_e2e (E4.4)
     "whr_prelude" :   0,
     "fallible"    :  35,   # 2026-10-02: +1 wql_lit_suffix_e2e big;   # 2026-10-02: 30 -> 34, wql_arith_128_tower_e2e qplus/qneg/umul/udiv;   # 2026-10-02: 29 -> 30 — wql_arith_narrow_e2e: negd left (refused, unsigned neg), twice/roundt/dec came; all checked arithmetic
-    "slice"       :  57,   # 2026-10-02: +2 wql_lit_suffix_e2e scaled/lit
+    "slice"       :  58,   # +1 wql_udf_wide_ret_e2e keys (E4.5);   # 2026-10-02: +2 wql_lit_suffix_e2e scaled/lit
     "notfwd"      :  50,
 }
 # ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX HEADS (FACT K) ─────────────────

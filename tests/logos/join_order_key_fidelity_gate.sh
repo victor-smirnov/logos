@@ -179,14 +179,20 @@ if [ "$n_art" -ne 5 ]; then
     fail=1
 fi
 
-# ⚠ THE u32 KEY IS STILL NORMALIZED, AND THE CAST MUST BE THE LOSSLESS ONE. The
-# emitted key vector is the class representative (`Vec<i64>`), so what makes this
-# query faithful is that `u32 as i64` moves no value. Assert the cast is emitted —
-# if that widening ever became a truncating one, the licence above would be granted
-# over a comparison that no longer realizes the key's order.
-if ! grep -Fq '(((w32(u.g)) as i64))' "${DUMPS[@]}"; then
-    echo "FAIL: the u32 key is not widened with an explicit \`as i64\` — the licence rests on that cast being value-preserving"
-    grep -F 'w32(' "${DUMPS[@]}" | head -3 || true
+# ⚠ THE u32 KEY IS SORTED IN ITS OWN TYPE (E4.5, 2026-10-02). It used to be
+# normalized into the class representative — a `Vec<i64>` key vector filled with
+# `(((w32(u.g)) as i64))` — and the licence rested on that cast being lossless.
+# A user fn's result now keeps its declared type, so the key vector is `Vec<u32>`
+# and there is no cast for the licence to rest on: `u32`'s own `<` is the order
+# the query named. Assert both halves — the u32 vector exists, and no `as i64`
+# is wrapped around the key.
+if ! grep -Fq '__ks: Vec<u32>' "${DUMPS[@]}"; then
+    echo "FAIL: the u32 key's vector is not \`Vec<u32>\` — the key is no longer sorted in its own type"
+    grep -hoE '__ks: Vec<[a-z0-9]+>' "${DUMPS[@]}" | sort | uniq -c || true
+    fail=1
+fi
+if grep -Fq '(((w32(u.g)) as i64))' "${DUMPS[@]}"; then
+    echo "FAIL: the u32 key is still normalized with \`as i64\` — a UDF result keeps its declared type (E4.5)"
     fail=1
 fi
 
