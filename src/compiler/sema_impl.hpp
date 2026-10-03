@@ -9498,8 +9498,6 @@ private:
     // returns nullopt to fall through to the next shape; `recv` is threaded by
     // reference so a handler's coercions persist across fall-through exactly as
     // in the original inline code.
-    std::optional<lir::LExprPtr> try_method_on_tuple(
-        writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_array(
         writ::TinyMapView node, lir::LExprPtr& recv, std::string_view method_name);
     std::optional<lir::LExprPtr> try_method_on_slice(
