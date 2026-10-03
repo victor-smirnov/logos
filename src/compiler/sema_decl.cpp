@@ -3181,6 +3181,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         }
     }
     StrSet overridden;
+    std::vector<std::string> impl_method_syms;   // impl_keys::METHOD_SYMBOLS
     // Blanket impls lower methods under a synthetic target name so they don't
     // collide with `T::method` for any other generic `T` in the program.
     std::string lower_target = impl_is_blanket
@@ -3367,6 +3368,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 // explicit `pub fn` / private split.
                 if (!trait_name.empty()) fn.flag(dk::IS_PUB, true);
                 overridden.insert(std::string(fn.view<lir_view::FunctionView>().name()));
+                impl_method_syms.emplace_back(fn.view<lir_view::FunctionView>().name());
                 // Also track base name so overloaded explicit methods block
                 // their corresponding defaults (overloads share a base name).
                 if (!trait_name.empty() && m.has_key(la::NAME)) {
@@ -3647,6 +3649,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         for (auto ta : impl_trait_args) walk_implied(ta, "");
                     }
                     auto fn = lower_fn(map_of(m.default_ast), lower_target, &type_params);
+                    impl_method_syms.emplace_back(fn.view<lir_view::FunctionView>().name());
                     implied_type_lt_outlives_.clear();
                     shadow_scope_ = nullptr;
                     holder_ = saved_holder;
@@ -3820,7 +3823,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     // doc: DEAD (never read post-store) — impl_doc consumed above, not mirrored.
     (void)impl_doc;
-    prog.impls.push_back(ib.view<lir_view::ImplView>());
+    if (!impl_method_syms.empty()) {
+        auto ms = ib.array(ik::METHOD_SYMBOLS);
+        for (auto& n : impl_method_syms) ms.push_str(n);
+    }
+        prog.impls.push_back(ib.view<lir_view::ImplView>());
 
     // ── Tag-dispatch: emit LDispatchEntry records ─────────────────────────
     // Conditions: trait has #[tag_dispatch(TS)], target is a concrete (non-generic)

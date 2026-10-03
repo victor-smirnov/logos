@@ -1223,23 +1223,16 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             std::string op{v.op()};
             auto new_op = subst_child_expr(v.operand());
             auto vt = new_op ? new_op.type(out_.type_pool.impl()) : TypeRef{};
-            if (vt && TypeRef(vt).kind() == LogosType::Kind::Struct) {
-                std::string method_name;
-                if (const OpLangItem* oi = unary_op_item(op)) method_name = std::string(oi->method);
-                if (!method_name.empty()) {
-                    std::string bare = concrete_struct_name(vt) + "__" + method_name;
-                    std::string pkg{vt.pkg_name()};
-                    std::string callee = pkg.empty() ? bare : pkg + "." + bare;
-                    if (std::string sym = declared_method_symbol(concrete_struct_name(vt), pkg,
-                                                                 method_name, 1);
-                        !sym.empty())
-                        callee = std::move(sym);
-                    std::vector<lir_view::ExprRef> args; args.push_back(std::move(new_op));
-                    mp_ = lir_mirror_emit_call(
-                        out_, rt_, callee, {}, args);
-                    break;
-                }
-            }
+            // A user operator on a concrete struct (a template's `-t` with
+            // `T: Neg`): the method of the impl of the operator's lang trait
+            // for that type (ADR 0030 S8 row 6), never a composed name.
+            if (vt && TypeRef(vt).kind() == LogosType::Kind::Struct)
+                if (const OpLangItem* oi = unary_op_item(op))
+                    if (std::string callee = trait_item_symbol_(oi->trait, vt, oi->method, 1); !callee.empty()) {
+                        std::vector<lir_view::ExprRef> args; args.push_back(std::move(new_op));
+                        mp_ = lir_mirror_emit_call(out_, rt_, callee, {}, args);
+                        break;
+                    }
             mp_ = lir_mirror_emit_unary(
                 out_, rt_, op, new_op);
             break;
@@ -1250,28 +1243,19 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             auto new_lhs = subst_child_expr(v.lhs());
             auto new_rhs = subst_child_expr(v.rhs());
             auto lt = new_lhs ? new_lhs.type(out_.type_pool.impl()) : TypeRef{};
-            if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct) {
-                std::string method_name;
-                if (const OpLangItem* oi = binary_op_item(op)) method_name = std::string(oi->method);
-                if (!method_name.empty()) {
-                    std::string bare = concrete_struct_name(lt) + "__" + method_name;
-                    std::string pkg{lt.pkg_name()};
-                    std::string callee = pkg.empty() ? bare : pkg + "." + bare;
-                    // The DECLARED symbol, by the operand types: two impls of one
-                    // operator trait (`Add<V>` / `Add<&V>`) share the composed name.
+            // As Unary; the rhs type picks among impls of one operator trait at
+            // different type arguments (`Add<V>` / `Add<&V>`).
+            if (lt && TypeRef(lt).kind() == LogosType::Kind::Struct)
+                if (const OpLangItem* oi = binary_op_item(op)) {
                     std::vector<TypeRef> rtys{new_rhs ? new_rhs.type(out_.type_pool.impl()) : TypeRef{}};
-                    if (std::string sym = declared_method_symbol(concrete_struct_name(lt), pkg,
-                                                                 method_name, 2, &rtys);
-                        !sym.empty())
-                        callee = std::move(sym);
-                    std::vector<lir_view::ExprRef> args;
-                    args.push_back(std::move(new_lhs));
-                    args.push_back(std::move(new_rhs));
-                    mp_ = lir_mirror_emit_call(
-                        out_, rt_, callee, {}, args);
-                    break;
+                    if (std::string callee = trait_item_symbol_(oi->trait, lt, oi->method, 2, &rtys); !callee.empty()) {
+                        std::vector<lir_view::ExprRef> args;
+                        args.push_back(std::move(new_lhs));
+                        args.push_back(std::move(new_rhs));
+                        mp_ = lir_mirror_emit_call(out_, rt_, callee, {}, args);
+                        break;
+                    }
                 }
-            }
             mp_ = lir_mirror_emit_bin_op(
                 out_, rt_, op, new_lhs, new_rhs);
             break;

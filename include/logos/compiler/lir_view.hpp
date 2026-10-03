@@ -1378,6 +1378,9 @@ struct ImplView {
     std::string_view identity_target() const noexcept {
         return detail::read_string(self, lir_schema::impl_keys::IDENTITY_TARGET.code);
     }
+    std::vector<std::string_view> method_symbols() const noexcept {
+        return detail::read_string_array(self, lir_schema::impl_keys::METHOD_SYMBOLS.code);
+    }
     TypeRef target_typeref(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::impl_keys::TARGET_TYPEREF.code, pool);
     }
