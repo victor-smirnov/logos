@@ -3459,6 +3459,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         acc.block(dk::BODY, lir_mirror_block(*cur_prog_, acc_body));
                     }
                     prog.functions.push_back(acc.view<lir_view::FunctionView>());
+                    // The accessor is the impl's item for the const: a generic
+                    // `T::CONST` reads it off the impl (ADR 0030 S8 row 6).
+                    impl_method_syms.emplace_back(lower_target + "__kassoc_" + cname);
                 }
             } else {
                 // Non-fn impl item (assoc-type). Discard any sweep doc since

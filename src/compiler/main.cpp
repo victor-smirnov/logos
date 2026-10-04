@@ -4343,6 +4343,7 @@ int run_metaprog_dispatch(
             // prev_out's mirror_ptr_ values reference iter N-1's now-
             // dead arena.
             MonoOpts mopts_iter;
+            mopts_iter.metaprog_round = true;
             if (opts.sema_cache) {
                 mopts_iter.prev_out = std::move(m6_prev_mono_out);
             }
@@ -6413,6 +6414,7 @@ int main(int argc, char** argv) {
                     if (site.ret_tag() != MCRetTag::ExprBlob &&
                         site.ret_tag() != MCRetTag::ItemBlob) { all_macro = false; break; }
                 logos::compiler::MonoOpts mc_mopts;
+                mc_mopts.metaprog_round = true;
                 if (all_macro && !std::getenv("LOGOS_NO_MC_PRUNE"))
                     for (const auto& site : saved_metacall_sites)
                         if (!site.thunk_name().empty())
@@ -7167,6 +7169,7 @@ int main(int argc, char** argv) {
     {
         logos::compiler::MonoOpts mopts;
         mopts.stdlib_exports = &stdlib_exports;
+        mopts.defer_trait_item_misses = true;   // reported below, when the drain ends
         prog = logos::compiler::mono_pass(std::move(prog), std::move(mopts));
     }
     prog.print_diags(stderr);
@@ -7233,7 +7236,16 @@ int main(int argc, char** argv) {
         }
     }
     // ── Drain decision ───────────────────────────────────────────
-    if (prog.factory_demands.empty()) break;
+    // A trait item mono found no impl for is a malfunction once no further
+    // round can add impls (ADR 0030 S8 row 6: nothing composes a name for it).
+    auto report_trait_item_misses = [&]() -> bool {
+        for (auto& m : prog.trait_item_misses) std::fprintf(stderr, "mono: internal: %s\n", m.c_str());
+        return prog.trait_item_misses.empty();
+    };
+    if (prog.factory_demands.empty()) {
+        if (!report_trait_item_misses()) return 1;
+        break;
+    }
 
     // Deep-copy the fresh (not-yet-drained) demands: `prog` is replaced by
     // the re-sema below while the chunk loop still reads them.
@@ -7284,6 +7296,7 @@ int main(int argc, char** argv) {
                 fd.base.c_str(), (unsigned long long)fd.cfg_hash, fd.cname.c_str());
             return 1;
         }
+        if (!report_trait_item_misses()) return 1;
         break;
     }
 

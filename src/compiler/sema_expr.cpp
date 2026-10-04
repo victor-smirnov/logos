@@ -12424,7 +12424,8 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
     if (k == K::TypeVar) {
         std::string base = std::string(TypeRef(ftype).type_var_name()) + "__from_wany";
         std::vector<lir::LExprPtr> a; a.push_back(std::move(anyval));
-        return builder().call(base, {}, std::move(a), ftype);
+        auto ti = trait_item_ref_("logos.lang.writ.wmap::WritField", "from_wany", ftype);
+        return builder().call(base, {}, std::move(a), ftype, &ti);
     }
     // A `WAny`-typed field is dynamic: read the stored value verbatim (identity).
     if (k == K::Enum && TypeRef(ftype).enum_name() == "WAny")
@@ -15460,7 +15461,10 @@ lir::LExprPtr SemaChecker::try_lower_generic_assoc_const(const std::string& cnam
         for (auto& ac : tit->assoc_consts) {
             if (ac.name != mname) continue;
             TypeRef ret_t = ac.type ? ac.type : prim(LogosType::Kind::I64);
-            return builder().call(cname + "__kassoc_" + mname, {}, {}, ret_t);
+            auto ti = trait_item_ref_(tn, "kassoc_" + mname,
+                                      current_type_params_.count(cname) ? current_type_params_[cname]
+                                                                        : make_typevar(cname));
+            return builder().call(cname + "__kassoc_" + mname, {}, {}, ret_t, &ti);
         }
     }
     return nullptr;

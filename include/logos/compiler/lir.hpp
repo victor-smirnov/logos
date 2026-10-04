@@ -1059,6 +1059,11 @@ struct LProgram {
     // ever is, and — unlike a declaration — it can't be satisfied by a STALE
     // same-named symbol from a prior build's archive on the JIT search path.
     std::set<std::string> poisoned_fns;
+    // ADR 0030 S8 row 6: trait items mono found no impl for (a `T::m(..)` at a
+    // concrete Self). Left here — not reported — when the driver will run
+    // another mono round (MonoOpts::defer_trait_item_misses); the driver reports
+    // them when the round is the last.
+    std::vector<std::string> trait_item_misses;
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }

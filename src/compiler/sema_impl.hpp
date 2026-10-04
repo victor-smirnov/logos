@@ -9475,7 +9475,10 @@ private:
     // qualified identity (`trait` is a scoped spelling), Self, the trait's args.
     lir::TraitItemRef trait_item_ref_(const std::string& trait, const std::string& method, TypeRef self,
                                       std::vector<TypeRef> trait_args = {}) {
-        return lir::TraitItemRef{impl_key_trait(canonical_trait_name(trait)), method, self, std::move(trait_args)};
+        // A caller that holds the qualified identity (`pkg::Trait`) passes it as is.
+        std::string id = trait.find("::") != std::string::npos ? trait
+                                                               : impl_key_trait(canonical_trait_name(trait));
+        return lir::TraitItemRef{std::move(id), method, self, std::move(trait_args)};
     }
     lir::LExprPtr finish_generic_call(std::string_view callee_sv,
                                       const SemaFuncInfo& fi,

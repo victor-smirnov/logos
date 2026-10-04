@@ -1374,6 +1374,15 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 sd, none, logos::compiler::layout::type_key(sd.pkg(), sd.name()));
     }
 
+    // Trait items with no impl: a metaprogram round or a round the driver
+    // will repeat hands them back; otherwise each is an ICE.
+    if (!trait_item_misses_.empty()) {
+        if (metaprog_round_ || defer_trait_item_misses_)
+            out_.trait_item_misses = std::move(trait_item_misses_);
+        else
+            for (auto& m : trait_item_misses_)
+                out_.diags.diags.push_back({Diag::Level::Error, "mono", "internal: " + m, "", 0});
+    }
     return std::move(out_);
 }
 
@@ -1387,6 +1396,8 @@ lir::LProgram mono_pass(lir::LProgram prog, int max_instantiation_depth) noexcep
 lir::LProgram mono_pass(lir::LProgram prog, MonoOpts opts) {
     Mono m(opts.max_instantiation_depth);
     m.set_entry_points(std::move(opts.entry_points));
+    m.set_metaprog_round(opts.metaprog_round);
+    m.set_defer_trait_item_misses(opts.defer_trait_item_misses);
     // M6.2: seed mono with previous iter's output so already-cloned
     // generic instances + passed-through non-generics are preserved and
     // not re-cloned this call.
