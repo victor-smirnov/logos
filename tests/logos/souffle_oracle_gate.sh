@@ -54,8 +54,8 @@ NSHARDS="${4:-1}"
 # wrapper; the oracle is the system Soufflé (2.5, 64-bit word = Deem's i64).
 SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
 # per shard (index = SHARD), measured; raise when the population grows
-COMPARED_FLOORS=(131 54 47 87)   # 2026-10-04, + float literals: 319 compared in all
-ROWS_FLOORS=(2130 175 119 246)
+COMPARED_FLOORS=(142 55 47 91)   # 2026-10-04, + odd-width ints, fieldless enums: 335 compared in all
+ROWS_FLOORS=(2159 177 119 254)
 LIMITED_FLOORS=(6 5 9 4)      # first/limit checked as subsets, 24 in all
 ISNAP_FLOORS=(102 29 35 59)    # incremental snapshots, 225 in all
 COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
@@ -67,10 +67,16 @@ LIMITED_FLOOR="${LIMITED_FLOORS[$SHARD]:-0}"
 # PINS a defect on purpose. An entry whose pair agrees (the defect was fixed)
 # or never logs (the fixture moved) is a red, so the ledger cannot outlive its
 # reason.
-# Empty since 2026-10-03: the three wql_incr_retract_footprint_identity pairs
-# it held (footprint identity, `count`'s empty footprint, non-atomic `_apply`)
-# agree now that the sensor matches whole rows and `_apply` commits on Ok.
-declare -A KNOWN_INC=()
+# The three wql_incr_retract_footprint_identity pairs it held until 2026-10-03
+# (footprint identity, `count`'s empty footprint, non-atomic `_apply`) agree
+# now that the sensor matches whole rows and `_apply` commits on Ok.
+declare -A KNOWN_INC=(
+    # §6 of that fixture, pinned there on purpose: a row with an enum field that
+    # has no `Eq` keeps the FOOTPRINT identity, so a retraction of a row never
+    # inserted (differing only in that field) is accepted. Visible to the
+    # oracle since a fieldless enum column is exported as its discriminant.
+    [wql_incr_retract_footprint_identity:namq]=1
+)
 declare -A SEEN_INC=()
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DB="$(cd "$(dirname "$LOGOSC")/.." && pwd)/testdb.sqlite"   # lt's test registry, for per-fixture args

@@ -51,10 +51,13 @@ fn dx_view(s: &String) -> str { return unsafe { str_from_raw(s.as_ptr(), s.len()
 
 // A Logos type name as a Soufflé attribute type ("" = outside the fragment).
 fn dl_ty(tn: str) -> str {
-    if str_eq(tn, "i64") || str_eq(tn, "i32") || str_eq(tn, "i16") || str_eq(tn, "i8")
-       || str_eq(tn, "isize") || str_eq(tn, "bool")
-       || str_eq(tn, "u32") || str_eq(tn, "u16") || str_eq(tn, "u8") {
-        return "number";
+    if str_eq(tn, "isize") || str_eq(tn, "bool") { return "number"; }
+    // `i<N>` up to 64 bits and `u<N>` below 64 hold in Soufflé's 64-bit
+    // `number` (the odd widths too: i24, u56, …)
+    let w: i64 = dx_int_width(tn);
+    if w > 0i64 {
+        if str_byte_at(tn, 0i64) == 105u8 && w <= 64i64 { return "number"; }   // 'i'
+        if str_byte_at(tn, 0i64) == 117u8 && w < 64i64 { return "number"; }    // 'u'
     }
     if str_eq(tn, "str") || str_eq(tn, "String") || str_eq(tn, "&str") { return "symbol"; }
     // Soufflé's 64-bit `unsigned`: its arithmetic wraps where Deem's is checked,
@@ -64,6 +67,23 @@ fn dl_ty(tn: str) -> str {
     // rounds to single precision, so an f32 column stays opaque
     if str_eq(tn, "f64") { return "float"; }
     return "";
+}
+
+// The N of an integer type name `iN` / `uN` (1..128), else 0.
+fn dx_int_width(tn: str) -> i64 {
+    if tn.len() < 2i64 { return 0i64; }
+    let c0: u8 = str_byte_at(tn, 0i64);
+    if c0 != 105u8 && c0 != 117u8 { return 0i64; }
+    let mut w: i64 = 0i64;
+    let mut i: i64 = 1i64;
+    while i < tn.len() {
+        let c: u8 = str_byte_at(tn, i);
+        if c < 48u8 || c > 57u8 { return 0i64; }
+        w = w * 10i64 + ((c - 48u8) as i64);
+        i = i + 1i64;
+    }
+    if w < 1i64 || w > 128i64 { return 0i64; }
+    return w;
 }
 
 // A COLUMN's Soufflé type: its own, or `number` for an OPAQUE column — one
@@ -125,10 +145,28 @@ fn dx_struct_cols(view: &OView, tn: str) -> DxCols {
         let fld: WAny = view.ast_struct_field(decl, i);
         c.names[c.n] = reflect_field_name(view, fld);
         c.tys[c.n] = resolve_alias_name(view, reflect_field_type_name(view, fld));
+        // a FIELDLESS enum this module declares is its i64 discriminant — the
+        // reading the EL itself gives it (reflect.logos, `column_decl_admit`),
+        // dumped with `as i64`
+        if dx_fieldless_enum(view, c.tys[c.n]) { c.tys[c.n] = "i64"; }
         c.n = c.n + 1i64;
         i = i + (1 as u64);
     }
     return c;
+}
+
+fn dx_fieldless_enum(view: &OView, tn: str) -> bool {
+    if dl_ty(tn).len() > 0i64 { return false; }
+    let decl: WAny = find_decl_by_name(view, tn);
+    if decl.is_null() { return false; }
+    if (view.ast_node_code(decl) & (0xFFFF as u64)) != (80 as u64) { return false; }   // la::Code ENUM
+    let nv: u64 = view.ast_enum_variant_count(decl);
+    let mut i: u64 = 0 as u64;
+    while i < nv {
+        if view.ast_variant_arity(view.ast_enum_variant(decl, i)) > (0 as u64) { return false; }
+        i = i + (1 as u64);
+    }
+    return nv > (0 as u64);
 }
 
 /// What the exporter knows about each source name of the program.
