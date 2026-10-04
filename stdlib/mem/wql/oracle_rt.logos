@@ -14,6 +14,7 @@ extern fn open(path: *const u8, flags: i32, mode: i32) -> i32;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 extern fn close(fd: i32) -> i32;
 extern fn unlink(path: *const u8) -> i32;
+extern fn lseek(fd: i32, off: i64, whence: i32) -> i64;
 
 /// Create (truncate) `path` for writing; −1 on failure, which every writer
 /// below tolerates.
@@ -58,4 +59,51 @@ pub fn wql_oracle_unlink(path: str) {
     p.push_str(path);
     p.push_u8(0u8);
     unsafe { unlink(p.as_ptr()); }
+}
+
+// ── the incremental tier's log (an `_epoch`/`_retract`/`_snapshot` handle) ──
+// One log per HANDLE, named by the id its constructor drew (`wql_oracle_newid`):
+// `+ row` for an inserted row, `- row` for a retracted one (a weighted `_apply`
+// writes |w| copies), `?` for a delta on a source other than the first, `= k`
+// for a snapshot whose rows are in `h<id>.s<k>`. Only a call that returned Ok
+// is logged; an Err is taken to leave the handle as it was.
+
+/// Open `path` for APPENDING (created if absent).
+pub fn wql_oracle_append(path: str) -> i32 {
+    let mut p: String = String::new();
+    p.push_str(path);
+    p.push_u8(0u8);
+    return unsafe { open(p.as_ptr(), 1089i32, 420i32) };   // O_WRONLY|O_CREAT|O_APPEND, 0644
+}
+
+/// `<dir>/h<id><suffix>`
+pub fn wql_oracle_hpath(dir: str, id: i64, suffix: str) -> String {
+    let mut p: String = String::new();
+    p.push_str(dir);
+    p.push_str("/h");
+    p.push_i64(id);
+    p.push_str(suffix);
+    return p;
+}
+
+/// The log's current end — the snapshot number: unique and increasing per
+/// handle, with no state of our own (a `static mut` here is not reachable from
+/// the metaprogram JIT that loads this module).
+pub fn wql_oracle_tell(fd: i32) -> i64 {
+    if fd < 0i32 { return -1i64; }
+    return unsafe { lseek(fd, 0i64, 2i32) };   // SEEK_END
+}
+
+/// A fresh handle id: one byte appended to `<dir>/ids`, the offset before it.
+/// Unique per handle creation within a run, with no state of our own.
+pub fn wql_oracle_newid(dir: str) -> i64 {
+    let mut p: String = String::new();
+    p.push_str(dir);
+    p.push_str("/ids");
+    let fd: i32 = wql_oracle_append(unsafe { str_from_raw(p.as_ptr(), p.len()) });
+    if fd < 0i32 { return 0i64; }
+    let k: i64 = wql_oracle_tell(fd);
+    wql_oracle_bytes(fd, "x");
+    wql_oracle_close(fd);
+    return k;
 }

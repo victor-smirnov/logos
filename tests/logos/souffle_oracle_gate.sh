@@ -22,6 +22,16 @@
 # Soufflé folds the tuples of a relation (a set), so `count` differs exactly
 # there and nowhere else.
 #
+# THE INCREMENTAL TIER. A deem with an `_epoch`/`_retract`/`_snapshot` handle
+# also logs, per handle (`<q>/h<id>.log`), every Ok call of the fn that changes
+# it (`+ row`, `- row`; a weighted `_apply` logs |w| copies) and every snapshot
+# (`= k`, rows in `h<id>.s<k>`). The gate replays the log and runs Soufflé over
+# the input as it stood at each snapshot (at most 25 per deem). The replay's
+# algebra is the tier's: a rel-backed handle keeps a SET (a second insert is a
+# no-op), an aggregate handle a Z-set — and a snapshot taken over a duplicate is
+# skipped and counted, for the batch path's reason. An Ok retraction that drives
+# a count below zero is a disagreement in itself.
+#
 # ⚠ THE POPULATION IS PINNED FROM BELOW. A change that pushes programs out of
 # the fragment would make the gate compare less and stay green; COMPARED_FLOOR
 # turns that into a red. Raise it when the population grows.
@@ -36,8 +46,25 @@ SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
 # per shard (index = SHARD), measured; raise when the population grows
 COMPARED_FLOORS=(65 33 35 64)   # 2026-10-03, shards by name hash: 197 compared in all
 ROWS_FLOORS=(1943 98 93 144)
+ISNAP_FLOORS=(58 29 27 47)    # incremental snapshots, 161 in all
 COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
+ISNAP_FLOOR="${ISNAP_FLOORS[$SHARD]:-0}"
 ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
+# ── KNOWN INCREMENTAL DISAGREEMENTS, checked BOTH WAYS ──────────────────────
+# `fixture:deem` pairs whose handle disagrees with Soufflé because the fixture
+# PINS a defect on purpose. An entry whose pair agrees (the defect was fixed)
+# or never logs (the fixture moved) is a red, so the ledger cannot outlive its
+# reason.
+declare -A KNOWN_INC=(
+    # the handle's identity is the fold's FOOTPRINT, not the row: a retraction
+    # of a row never inserted, agreeing on (key, arguments), is accepted (§1);
+    # `count` has an empty footprint (§2); a multi-row `_apply` refused mid-way
+    # keeps the rows before the refusal (§3)
+    [wql_incr_retract_footprint_identity:cntq]=1
+    [wql_incr_retract_footprint_identity:sumq]=1
+    [wql_incr_retract_footprint_identity:twoq]=1
+)
+declare -A SEEN_INC=()
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DB="$(cd "$(dirname "$LOGOSC")/.." && pwd)/testdb.sqlite"   # lt's test registry, for per-fixture args
 
@@ -59,7 +86,7 @@ for f in "$PASS"/wql_*.logos "$PASS"/deem_*.logos; do
     [ $((h % NSHARDS)) -eq "$SHARD" ] && fixtures+=("$f")
 done
 
-exported=0; compared=0; rows=0; bag=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
+exported=0; compared=0; rows=0; bag=0; isnap=0; imis=0; ibag=0; iknown=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
 for f in "${fixtures[@]}"; do
     b=$(basename "$f" .logos)
     o="$TMPD/$b"
@@ -82,6 +109,77 @@ for f in "${fixtures[@]}"; do
         [ -e "$dl" ] || continue
         q=$(basename "$dl" .dl)
         exported=$((exported + 1))
+        # THE INCREMENTAL TIER (see the header)
+        if ls "$o/$q"/h*.log > /dev/null 2>&1; then
+            res=$(python3 - "$dl" "$o/$q" "$SOUFFLE" 2> "$o/$q/inc.log" <<'PY'
+import glob, os, subprocess, sys, tempfile
+dl, d, souffle = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(dl).read().splitlines()
+inputs = [l.split()[1] for l in text if l.startswith('.input ') and not l.split()[1].startswith('__p_')]
+if len(inputs) != 1:
+    print('0 0 0'); sys.exit(0)
+src = inputs[0]
+decls = [l.split()[1].split('(')[0] for l in text if l.startswith('.decl ')]
+# THE TIER DECIDES THE INPUT'S ALGEBRA. A rel-backed handle presence-gates its
+# input (a set: a second insert is a no-op); an aggregate-only handle folds a
+# Z-set (a duplicate row counts twice), exactly as the batch fn folds a bag.
+relbacked = any(not (x == src or x.startswith('__')) for x in decls)
+agg = ' : { ' in open(dl).read()
+n = mis = skip = 0
+for log in sorted(glob.glob(d + '/h*.log')):
+    cnt = {}
+    stem = log[:-4]
+    lines = open(log).read().splitlines()
+    if '?' in lines:   # a delta on a second source: not one input's history
+        skip += sum(1 for l in lines if l.startswith('=')); continue
+    for line in lines:
+        if not line: continue
+        op, rest = line[0], line[2:]
+        if op == '+':
+            cnt[rest] = 1 if relbacked else cnt.get(rest, 0) + 1
+        elif op == '-':
+            cnt[rest] = 0 if relbacked else cnt.get(rest, 0) - 1
+        elif op == '=' and n + skip < 25:
+            snap = stem + '.s' + rest
+            neg = [r for r, c in cnt.items() if c < 0]
+            if neg:
+                n += 1; mis += 1
+                print('MISMATCH %s %s: an Ok retraction of rows the handle never held %s' % (os.path.basename(log), rest, neg[:3]), file=sys.stderr)
+                continue
+            if agg and any(c > 1 for c in cnt.values()):
+                skip += 1; continue
+            rows = sorted(r for r, c in cnt.items() if c > 0)
+            t = tempfile.mkdtemp()
+            with open(t + '/' + src + '.facts', 'w') as f:
+                f.write(''.join(r + '\n' for r in rows))
+            os.mkdir(t + '/out')
+            p = subprocess.run([souffle, dl, '-F', t, '-D', t + '/out'], capture_output=True)
+            got = set(open(t + '/out/__out.csv').read().splitlines()) if p.returncode == 0 and os.path.exists(t + '/out/__out.csv') else None
+            want = set(open(snap).read().splitlines()) if os.path.exists(snap) else None
+            n += 1
+            if got is None or want is None or got != want:
+                mis += 1
+                print('MISMATCH %s %s: deem-only %s souffle-only %s' % (os.path.basename(log), rest,
+                      sorted((want or set()) - (got or set()))[:3], sorted((got or set()) - (want or set()))[:3]), file=sys.stderr)
+print('%d %d %d' % (n, mis, skip))
+PY
+            )
+            read -r rn rm rs <<< "$res"
+            isnap=$((isnap + ${rn:-0})); ibag=$((ibag + ${rs:-0}))
+            if [ -n "${KNOWN_INC[$b:$q]:-}" ]; then
+                SEEN_INC[$b:$q]=1
+                if [ "${rm:-1}" = "0" ]; then
+                    echo "FAIL: [$b] $q — listed in KNOWN_INC but agrees with Soufflé: remove the entry"
+                    imis=$((imis + 1))
+                else
+                    iknown=$((iknown + 1))
+                fi
+            elif [ "${rm:-1}" != "0" ]; then
+                echo "FAIL: [$b] $q — an incremental snapshot disagrees with Soufflé over the replayed input:"
+                head -4 "$o/$q/inc.log" | sed 's/^/    /'
+                imis=$((imis + ${rm:-1}))
+            fi
+        fi
         if [ -e "$o/$q/deem.err" ] && [ ! -e "$o/$q/deem.out" ]; then errored=$((errored + 1)); continue; fi
         if [ ! -e "$o/$q/deem.out" ]; then uncalled=$((uncalled + 1)); continue; fi
         if grep -q ' : { ' "$dl"; then
@@ -112,14 +210,28 @@ for f in "${fixtures[@]}"; do
     done
 done
 
+for k in "${!KNOWN_INC[@]}"; do
+    h=$(printf '%s\n' "${k%%:*}" | cksum | cut -d' ' -f1)   # as the fixture loop hashes it
+    [ $((h % NSHARDS)) -eq "$SHARD" ] || continue
+    if [ -z "${SEEN_INC[$k]:-}" ]; then
+        echo "FAIL: KNOWN_INC entry $k logged no snapshot: remove or fix the entry"
+        imis=$((imis + 1))
+    fi
+done
 echo "souffle oracle shard $SHARD/$NSHARDS: ${#fixtures[@]} fixture(s); $exported deem(s) exported," \
      "$compared agree with Soufflé ($rows distinct rows), $uncalled never called, $errored returned Err, $bag aggregate(s) over a bag input," \
-     "$mismatched disagree, $failed_fx fixture(s) failed"
+     "$mismatched disagree, $failed_fx fixture(s) failed;" \
+     "incremental: $isnap snapshot(s) compared, $ibag over a bag skipped, $iknown known (KNOWN_INC), $imis disagree"
 fail=0
 [ "$mismatched" -eq 0 ] || fail=1
+[ "$imis" -eq 0 ] || fail=1
 [ "$failed_fx" -eq 0 ] || fail=1
 if [ "$rows" -lt "$ROWS_FLOOR" ]; then
     echo "FAIL: $rows rows compared, floor $ROWS_FLOOR — the comparisons went vacuous"
+    fail=1
+fi
+if [ "$isnap" -lt "$ISNAP_FLOOR" ]; then
+    echo "FAIL: $isnap incremental snapshot(s) compared, floor $ISNAP_FLOOR — handles stopped logging"
     fail=1
 fi
 if [ "$compared" -lt "$COMPARED_FLOOR" ]; then

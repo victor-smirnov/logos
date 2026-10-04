@@ -271,6 +271,113 @@ fn region_annotate(src: str, out: &mut String) {
     }
 }
 
+// ── THE SOUFFLÉ ORACLE'S INCREMENTAL LOG (oracle builds only) ────────────────
+// An incremental surface fn (`_epoch`, `_retract`, `_snapshot`) is emitted under
+// `<name>__o` and `<name>` wraps it: after a call that returned Ok it appends
+// to the handle's log (`dl_export` built the row writers; oracle_rt the files),
+// so the gate can replay the log as a set and compare every snapshot with
+// Soufflé over the replayed input. An ordinary build emits the fn as before.
+
+// The parameter NAMES of a parameter list, comma-joined (types may hold commas
+// inside brackets).
+fn param_names_csv(params: str, out: &mut String) {
+    let n: i64 = params.len();
+    let mut i: i64 = 0i64;
+    let mut depth: i64 = 0i64;
+    let mut start: i64 = 0i64;
+    let mut first: bool = true;
+    while i <= n {
+        let c: u8 = if i < n { str_byte_at(params, i) } else { 44u8 };
+        if c == 40u8 || c == 91u8 || c == 60u8 { depth = depth + 1i64; }
+        if c == 41u8 || c == 93u8 || c == 62u8 { depth = depth - 1i64; }
+        if c == 44u8 && depth == 0i64 {
+            // the name: up to ':' within [start, i), trimmed
+            let mut a: i64 = start;
+            while a < i && str_byte_at(params, a) == 32u8 { a = a + 1i64; }
+            let mut b: i64 = a;
+            while b < i && str_byte_at(params, b) != 58u8 && str_byte_at(params, b) != 32u8 { b = b + 1i64; }
+            if b > a {
+                if !first { out.push_str(", "); }
+                if a + 3i64 < b && str_byte_at(params, a) == 109u8 && str_byte_at(params, a + 1i64) == 117u8
+                   && str_byte_at(params, a + 2i64) == 116u8 && str_byte_at(params, a + 3i64) == 32u8 { a = a + 4i64; }
+                out.push_str(unsafe { str_from_raw(((params.as_ptr() as i64) + a) as *const u8, b - a) });
+                first = false;
+            }
+            start = i + 1i64;
+        }
+        i = i + 1i64;
+    }
+}
+
+/// Emit one incremental surface fn; `kind` 0 = epoch (+), 1 = retract (-),
+/// 2 = snapshot, 3 = the weighted `<q>_apply(h, __src, __wd, …)`.
+///
+/// ⚠ LOG THE MECHANISM, NOT THE NAME. Only the fn that changes the handle logs:
+/// a forwarder (`<q>_epoch` over `<q>_apply`, `<q>_retract` over the DRed
+/// driver) is emitted plain, else one call logs its rows twice, and a caller
+/// that drives the mechanism directly (`_apply` with a weight, the driver) is
+/// logged as well.
+fn emit_inc_fn(name: str, params: str, ret: str, body: ExprBlob, kind: i32, tyn: str,
+               prm: &MacroParams) {
+    if prm.oracle_inc_rows.len() == 0i64 {
+        emit_fn_quote_blob(name, params, "", ret, body, prm);
+        return;
+    }
+    let mut inm: String = String::new();
+    inm.push_str(vis_strip(name));
+    inm.push_str("__o");
+    let mut ipriv: String = String::new();   // the logged body is the wrapper's alone
+    ipriv.push_str("-");
+    ipriv.push_str(string_as_str(&inm));
+    emit_fn_quote_blob(string_as_str(&ipriv), params, "", ret, body, prm);
+    let mut args: String = String::new();
+    param_names_csv(params, &mut args);
+    let dir: str = string_as_str(&prm.oracle_dir);
+    let mut w: String = String::new();
+    w.push_str("{\n    let __r: "); w.push_str(ret); w.push_str(" = ");
+    w.push_str(string_as_str(&inm)); w.push_str("("); w.push_str(string_as_str(&args)); w.push_str(");\n");
+    // the handle is the first parameter, whatever the emitter named it
+    let mut hb: i64 = 0i64;
+    while hb < params.len() && str_byte_at(params, hb) != 58u8 { hb = hb + 1i64; }
+    w.push_str("    let __oa: i64 = ");
+    w.push_str(unsafe { str_from_raw(params.as_ptr(), hb) });
+    w.push_str(".__oid;\n");
+    w.push_str("    let __op: String = wql_oracle_hpath(\""); w.push_str(dir); w.push_str("\", __oa, \".log\");\n");
+    if kind == 2i32 {
+        w.push_str("    match __r {\n        Result::Ok(__ov) => {\n");
+        w.push_str("            let __ol: i32 = wql_oracle_append(string_as_str(&__op));\n");
+        w.push_str("            let __k: i64 = wql_oracle_tell(__ol);\n");
+        w.push_str("            wql_oracle_str(__ol, \"=\"); wql_oracle_tab(__ol); wql_oracle_i64(__ol, __k); wql_oracle_nl(__ol); wql_oracle_close(__ol);\n");
+        w.push_str("            let mut __sp: String = wql_oracle_hpath(\""); w.push_str(dir); w.push_str("\", __oa, \".s\");\n");
+        w.push_str("            __sp.push_i64(__k);\n");
+        w.push_str("            let __od: i32 = wql_oracle_open(string_as_str(&__sp));\n            ");
+        w.push_str(string_as_str(&prm.oracle_inc_snap));
+        w.push_str("            wql_oracle_close(__od);\n            return Result::Ok(__ov);\n        }\n");
+        w.push_str("        Result::Err(__oe) => { return Result::Err(__oe); }\n    }\n}\n");
+    } else {
+        w.push_str("    match __r {\n        Result::Ok(__on) => {\n");
+        w.push_str("            let __od: i32 = wql_oracle_append(string_as_str(&__op));\n");
+        if kind == 3i32 {
+            // a weight w is |w| copies of the rows with w's sign; a delta on a
+            // source other than the first is not replayable over one input,
+            // and `?` says so
+            w.push_str("            let __osg: str = if __wd < 0i64 { \"-\" } else { \"+\" };\n");
+            w.push_str("            let mut __ow: i64 = if __wd < 0i64 { 0i64 - __wd } else { __wd };\n");
+            w.push_str("            if __src != 0i32 { wql_oracle_str(__od, \"?\"); wql_oracle_nl(__od); __ow = 0i64; }\n");
+            w.push_str("            while __ow > 0i64 {\n            ");
+            w.push_str(string_as_str(&prm.oracle_inc_rows));
+            w.push_str("            __ow = __ow - 1i64; }\n");
+        } else {
+            w.push_str("            let __osg: str = \""); if kind == 0i32 { w.push_str("+"); } else { w.push_str("-"); } w.push_str("\";\n            ");
+            w.push_str(string_as_str(&prm.oracle_inc_rows));
+        }
+        w.push_str("            wql_oracle_close(__od);\n            return Result::Ok(__on);\n        }\n");
+        w.push_str("        Result::Err(__oe) => { return Result::Err(__oe); }\n    }\n}\n");
+    }
+    let _ = tyn;
+    emit_fn_quote_blob(name, params, "", ret, parse_block(string_as_str(&w)), prm);
+}
+
 fn emit_fn_quote_blob(fn_name: str, params_text: str, tps: str, ret_ty: str,
                       body: ExprBlob, prm: &MacroParams) {
     // The imports a native source's materializer needs are a RUNTIME list —
@@ -7395,6 +7502,13 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     }
 
     // ── the HANDLE TYPE ─────────────────────────────────────────────────────
+    // the oracle's handle identity: a stack address is reused by the next
+    // handle a loop or a helper creates, so the log is keyed by an id the
+    // constructor draws instead (oracle builds only)
+    if prm.oracle_inc_rows.len() > 0i64 {
+        fnames.push(Ident::new("__oid"));
+        ftys.push(parse_type("i64"));
+    }
     let n_ty: Ident = Ident::new(tyn);
     if is_priv {
         let qs: QuoteItemBlob = quote_item! {
@@ -7523,6 +7637,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         }
         ci = ci + 1i64;
     }
+    if prm.oracle_inc_rows.len() > 0i64 {
+        cb.push_str(", __oid: wql_oracle_newid(\"");
+        cb.push_str(string_as_str(&prm.oracle_dir));
+        cb.push_str("\")");
+    }
     cb.push_str(" };\n}\n");
     // ⚠ NOT THROUGH `emit_fn_quote_blob`, AND THE REASON IS A HOST-SIDE RULE
     // WORTH KNOWING: `parse_params("")` FAILS. `logos_parse_as` special-cases an
@@ -7536,7 +7655,24 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     let n_ctor: Ident = Ident::new(vis_strip(string_as_str(&inm)));
     let n_ty2: Ident = Ident::new(tyn);
     let ctor_b: ExprBlob = parse_block(string_as_str(&cb));
-    if is_priv {
+    let oracle_ctor: bool = prm.oracle_inc_rows.len() > 0i64;
+    if oracle_ctor && is_priv {
+        let qo: QuoteItemBlob = quote_item! {
+            use logos.mem.collections.vec;
+            use logos.mem.collections.hashmap;
+            use logos.std.wql.oracle_rt;
+            fn #n_ctor() -> #n_ty2 #(ctor_b)
+        };
+        unsafe { logos_emit_item_blob_subst(&qo); }
+    } else if oracle_ctor {
+        let qo2: QuoteItemBlob = quote_item! {
+            use logos.mem.collections.vec;
+            use logos.mem.collections.hashmap;
+            use logos.std.wql.oracle_rt;
+            pub fn #n_ctor() -> #n_ty2 #(ctor_b)
+        };
+        unsafe { logos_emit_item_blob_subst(&qo2); }
+    } else if is_priv {
         let qc: QuoteItemBlob = quote_item! {
             use logos.mem.collections.vec;
             use logos.mem.collections.hashmap;
@@ -7628,6 +7764,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                              fn_name, CPR_FRAME());
             dg = dg + 1i64;
         }
+        // the oracle's handle id travels with the shadow copy (oracle builds)
+        if prm.oracle_inc_rows.len() > 0i64 { dlit.push_str(", __oid: __hh.__oid"); }
         dlit.push_str(" }");
     }
 
@@ -8042,8 +8180,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             eps.push_str(params_text);
         }
         prep_derived_name(fn_name, "_apply", &mut enm);
-        emit_fn_quote_blob(string_as_str(&enm), string_as_str(&eps), "",
-                           "Result<i64, ElError>", apply_body, prm);
+        emit_inc_fn(string_as_str(&enm), string_as_str(&eps),
+                    "Result<i64, ElError>", apply_body, 3i32, tyn, prm);
 
         // ── <q>_epoch / <q>_retract — PURE FORWARDERS ──────────────────────
         // ⚠ `<q>_epoch` KEEPS P1'S SIGNATURE BYTE FOR BYTE, which makes every
@@ -8855,8 +8993,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 // ⚠ NO `plan_trace` HERE — the axis is traced once, beside the
                 // `dred` derivation, so the REFUSALS are on the channel too. See
                 // the note there.
-                emit_fn_quote_blob(string_as_str(&dnm), string_as_str(&dps), "",
-                                   "Result<i64, ElError>", dred_body, prm);
+                emit_inc_fn(string_as_str(&dnm), string_as_str(&dps),
+                            "Result<i64, ElError>", dred_body, 1i32, tyn, prm);
 
                 // ══ `<q>_retract` — THE PUBLIC SURFACE, AND IT IS A FORWARDER
                 //
@@ -8952,8 +9090,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             eps.push_str(params_text);
         }
         prep_derived_name(fn_name, "_epoch", &mut enm);
-        emit_fn_quote_blob(string_as_str(&enm), string_as_str(&eps), "",
-                           "Result<i64, ElError>", epoch_body, prm);
+        emit_inc_fn(string_as_str(&enm), string_as_str(&eps),
+                    "Result<i64, ElError>", epoch_body, 0i32, tyn, prm);
     }
 
     // ── <q>_snapshot(&h) — the group rows, in first-occurrence order ────────
@@ -9016,8 +9154,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     srty.push_str(">, ElError>");
     let mut snm: String = String::new();
     prep_derived_name(fn_name, "_snapshot", &mut snm);
-    emit_fn_quote_blob(string_as_str(&snm), string_as_str(&sps), "",
-                       string_as_str(&srty), snap_body, prm);
+    emit_inc_fn(string_as_str(&snm), string_as_str(&sps),
+                string_as_str(&srty), snap_body, 2i32, tyn, prm);
     return true;
 }
 

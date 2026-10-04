@@ -1063,7 +1063,7 @@ fn dx_is_native_param(nparams: &[str; 16], nn: i64, nm: str) -> bool {
 }
 
 pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, dump: &mut String,
-                 ddir: str) -> bool {
+                 ddir: str, incrows: &mut String, incsnap: &mut String) -> bool {
     let view: OView = oview_module_ast();
     let mut env: DxEnv = DxEnv { n: 0i64, src: [""; 16], cn: [0i64; 16], cnames: [[""; 16]; 16],
                                  ctys: [[""; 16]; 16], scalars: [""; 16], stys: [""; 16], sltys: [""; 16], ns: 0i64 };
@@ -1106,6 +1106,19 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
                 kc = kc + 1i64;
             }
             dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
+            // the incremental log's row writer: the same cells, signed
+            incrows.push_str("{ let mut __oi: i64 = 0i64; while __oi < (");
+            incrows.push_str(prm.names[i]); incrows.push_str(").len() { wql_oracle_str(__od, __osg); ");
+            let mut kr: i64 = 0i64;
+            while kr < c.n {
+                incrows.push_str("wql_oracle_tab(__od); ");
+                let mut fr: String = String::new();
+                fr.push_str("("); fr.push_str(prm.names[i]); fr.push_str(")[__oi].");
+                fr.push_str(c.names[kr]);
+                dx_cell(incrows, dx_kind(c.tys[kr]), dx_view(&fr));
+                kr = kr + 1i64;
+            }
+            incrows.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } }\n");
             env.src[env.n] = prm.names[i];
             env.cn[env.n] = c.n;
             let mut kk: i64 = 0i64;
@@ -1198,6 +1211,18 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
         a = a + 1i64;
     }
     dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
+    // the snapshot writer: the same cells over `__ov`
+    incsnap.push_str("{ let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.get(__oi); ");
+    let mut a2: i64 = 0i64;
+    while a2 < arity {
+        let item2: SExpr = if arity == 1i64 { sel0 } else { dx_tuple_item(sel0, a2) };
+        if a2 > 0i64 { incsnap.push_str("wql_oracle_tab(__od); "); }
+        let mut ox2: String = String::new();
+        if arity == 1i64 { ox2.push_str("__orow"); } else { ox2.push_str("(__orow)."); ox2.push_i64(a2); }
+        dx_cell(incsnap, dx_term_kind(item2, &env, &cl0), dx_view(&ox2));
+        a2 = a2 + 1i64;
+    }
+    incsnap.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } }\n");
     dump.push_str("            return Result::Ok(__ov);\n        }\n        Result::Err(__oe) => {\n            wql_oracle_unlink(\"");
     dump.push_str(ddir); dump.push_str("/deem.out\");\n            wql_oracle_close(wql_oracle_open(\"");
     dump.push_str(ddir); dump.push_str("/deem.err\"));\n            return Result::Err(__oe);\n        }\n    }\n");
@@ -1222,13 +1247,25 @@ pub fn dl_export(root: WAny, name: str, natspec: str, prm: &mut MacroParams) {
     ddir.push_str(name);
     let mut text: String = String::new();
     let mut dump: String = String::new();
+    let mut incrows: String = String::new();
+    let mut incsnap: String = String::new();
     text.push_str("// deem "); text.push_str(name); text.push_str("\n");
-    if !dl_render(root, prm, natspec, &mut text, &mut dump, dx_view(&ddir)) { return; }
+    if !dl_render(root, prm, natspec, &mut text, &mut dump, dx_view(&ddir), &mut incrows, &mut incsnap) { return; }
     let mut dz: String = String::new();
     dz.push_str(dx_view(&ddir));
     dz.push_u8(0u8);
     unsafe { mkdir(dz.as_ptr(), 493i32); }   // 0755; an existing dir is fine
     prm.oracle_dump = dump;
+    // the incremental log: only for exactly one slice param and nothing else
+    // (the epoch's delta is then that param's rows, and nothing else is input)
+    let mut nslice: i64 = 0i64;
+    let mut pi: i64 = 0i64;
+    while pi < prm.n { if prm.is_slice[pi] { nslice = nslice + 1i64; } pi = pi + 1i64; }
+    if nslice == 1i64 && prm.n == 1i64 && natspec.len() == 0i64 {
+        prm.oracle_dir = String::from_str(dx_view(&ddir));
+        prm.oracle_inc_rows = incrows;
+        prm.oracle_inc_snap = incsnap;
+    }
     let mut path: String = String::new();
     path.push_str(unsafe { str_from_raw(dir, dl) });
     path.push_str("/");

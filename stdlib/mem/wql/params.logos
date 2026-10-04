@@ -319,6 +319,13 @@ pub struct MacroParams {
     // beside the `.dl` text). Empty in every ordinary build, and then nothing
     // is emitted and `native_use_at` lists no oracle module.
     pub oracle_dump: String,
+    // The incremental tier's log (an oracle build of a deem with ONE slice
+    // param): the directory, the statements that write the param's rows to
+    // `__od` each prefixed by `__osg` ("+" / "-"), and those that write a
+    // snapshot `__ov`'s rows. Empty otherwise.
+    pub oracle_dir: String,
+    pub oracle_inc_rows: String,
+    pub oracle_inc_snap: String,
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -406,6 +413,9 @@ pub fn macro_params_new() -> MacroParams {
         tparams:     "",
         src_root:    nul,
         oracle_dump: String::new(),
+        oracle_dir: String::new(),
+        oracle_inc_rows: String::new(),
+        oracle_inc_snap: String::new(),
     };
 }
 
