@@ -15,7 +15,9 @@
 # compared with Deem's answer AS A SET (Soufflé relations are sets; Deem's
 # entry may repeat rows or order them).
 #
-# Not compared, and counted: a deem the program never called (no deem.out), and
+# Not compared, and counted: a deem outside the fragment (dl_export writes the
+# first construct it refused to `<q>.skip`; the gate prints the reasons), a
+# deem the program never called (no deem.out), and
 # a call that returned Err (deem.err): Deem's arithmetic is checked, Soufflé's
 # wraps, so an error is outside the shared semantics. And an AGGREGATE whose
 # dumped inputs hold a duplicate row: Deem folds the rows it scans (a bag),
@@ -44,9 +46,9 @@ NSHARDS="${4:-1}"
 # wrapper; the oracle is the system Soufflé (2.5, 64-bit word = Deem's i64).
 SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
 # per shard (index = SHARD), measured; raise when the population grows
-COMPARED_FLOORS=(65 33 35 64)   # 2026-10-03, shards by name hash: 197 compared in all
-ROWS_FLOORS=(1943 98 93 144)
-ISNAP_FLOORS=(58 29 29 47)    # incremental snapshots, 163 in all
+COMPARED_FLOORS=(108 47 42 76)   # 2026-10-04, opaque columns + String dumps: 273 compared in all (was 197)
+ROWS_FLOORS=(2064 142 105 219)
+ISNAP_FLOORS=(76 29 33 47)    # incremental snapshots, 185 in all
 COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
 ISNAP_FLOOR="${ISNAP_FLOORS[$SHARD]:-0}"
 ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
@@ -81,7 +83,7 @@ for f in "$PASS"/wql_*.logos "$PASS"/deem_*.logos; do
     [ $((h % NSHARDS)) -eq "$SHARD" ] && fixtures+=("$f")
 done
 
-exported=0; compared=0; rows=0; bag=0; isnap=0; imis=0; ibag=0; iknown=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
+exported=0; skipped=0; compared=0; rows=0; bag=0; isnap=0; imis=0; ibag=0; iknown=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
 for f in "${fixtures[@]}"; do
     b=$(basename "$f" .logos)
     o="$TMPD/$b"
@@ -100,6 +102,12 @@ for f in "${fixtures[@]}"; do
         failed_fx=$((failed_fx + 1))
         continue
     fi
+    # deems outside the fragment: dl_export names the reason in `<q>.skip`
+    for sk in "$o"/*.skip; do
+        [ -e "$sk" ] || continue
+        skipped=$((skipped + 1))
+        printf '%s\t%s\n' "$(head -1 "$sk")" "$b:$(basename "$sk" .skip)" >> "$TMPD/_skips"
+    done
     for dl in "$o"/*.dl; do
         [ -e "$dl" ] || continue
         q=$(basename "$dl" .dl)
@@ -213,7 +221,14 @@ for k in "${!KNOWN_INC[@]}"; do
         imis=$((imis + 1))
     fi
 done
-echo "souffle oracle shard $SHARD/$NSHARDS: ${#fixtures[@]} fixture(s); $exported deem(s) exported," \
+# what the oracle cannot see, by the first construct dl_export refused
+if [ -s "$TMPD/_skips" ]; then
+    echo "outside the fragment, by reason (deems; an example):"
+    cut -f1 "$TMPD/_skips" | sort | uniq -c | sort -rn | while read -r c r; do
+        printf '  %4d  %s  (%s)\n' "$c" "$r" "$(grep -F -m1 "$r	" "$TMPD/_skips" | cut -f2)"
+    done
+fi
+echo "souffle oracle shard $SHARD/$NSHARDS: ${#fixtures[@]} fixture(s); $exported deem(s) exported, $skipped outside the fragment," \
      "$compared agree with Soufflé ($rows distinct rows), $uncalled never called, $errored returned Err, $bag aggregate(s) over a bag input," \
      "$mismatched disagree, $failed_fx fixture(s) failed;" \
      "incremental: $isnap snapshot(s) compared, $ibag over a bag skipped, $iknown known (KNOWN_INC), $imis disagree"

@@ -51,27 +51,53 @@ fn dx_view(s: &String) -> str { return unsafe { str_from_raw(s.as_ptr(), s.len()
 // A Logos type name as a Soufflé attribute type ("" = outside the fragment).
 fn dl_ty(tn: str) -> str {
     if str_eq(tn, "i64") || str_eq(tn, "i32") || str_eq(tn, "i16") || str_eq(tn, "i8")
-       || str_eq(tn, "isize") || str_eq(tn, "bool") {
+       || str_eq(tn, "isize") || str_eq(tn, "bool")
+       || str_eq(tn, "u32") || str_eq(tn, "u16") || str_eq(tn, "u8") {
         return "number";
     }
     if str_eq(tn, "str") || str_eq(tn, "String") || str_eq(tn, "&str") { return "symbol"; }
     return "";
 }
 
+// A COLUMN's Soufflé type: its own, or `number` for an OPAQUE column — one
+// whose Logos type Soufflé does not share (a float, a `u64`, a named type). An
+// opaque column is declared and dumped as 0 so the program around it can still
+// be checked; a term that READS it is refused (`dx_term`), so its placeholder
+// value never reaches an answer.
+fn dl_col_ty(tn: str) -> str {
+    let t: str = dl_ty(tn);
+    if t.len() == 0i64 { return "number"; }
+    return t;
+}
+fn dx_opaque(tn: str) -> bool { return dl_ty(tn).len() == 0i64; }
+
 // How the dump writes a value of Logos type `tn`: 'i' integer (as i64), 'b'
-// bool (0/1), 's' a `str` view; "" = not dumpable. A `String` FIELD is not:
-// indexing a slice row would move it out.
+// bool (0/1), 's' a `str` view, 'S' a `String` (through `as_str`, since
+// indexing a slice row must not move it out). An OPAQUE column is written so
+// that distinct values stay distinct — Soufflé relations are sets, and two rows
+// that differ only there must stay two tuples: 'f' a float by `f64_canon_bits`
+// (all zeros one value, all NaNs one value — the identity the incremental
+// handle matches a retraction on, so the replay and the handle agree),
+// 'u' a `u64`/`usize` bit-cast to i64, 'z' 0 for anything else (a named or
+// 128-bit type), where the gate's duplicate-row check sees the collapse.
 fn dx_kind(tn: str) -> str {
     if str_eq(tn, "bool") { return "b"; }
     if str_eq(tn, "str") || str_eq(tn, "&str") { return "s"; }
+    if str_eq(tn, "String") { return "S"; }
     if str_eq(dl_ty(tn), "number") { return "i"; }
-    return "";
+    if str_eq(tn, "f64") || str_eq(tn, "f32") { return "f"; }
+    if str_eq(tn, "u64") || str_eq(tn, "usize") { return "u"; }
+    return "z";
 }
 
 // One dump cell: `wql_oracle_<k>(__od, <expr>);`
 fn dx_cell(out: &mut String, kind: str, expr: str) {
     if str_eq(kind, "i") { out.push_str("wql_oracle_i64(__od, (("); out.push_str(expr); out.push_str(") as i64)); "); }
     else if str_eq(kind, "b") { out.push_str("wql_oracle_bool(__od, "); out.push_str(expr); out.push_str("); "); }
+    else if str_eq(kind, "S") { out.push_str("wql_oracle_str(__od, ("); out.push_str(expr); out.push_str(").as_str()); "); }
+    else if str_eq(kind, "f") { out.push_str("wql_oracle_i64(__od, f64_canon_bits(("); out.push_str(expr); out.push_str(") as f64) as i64); "); }
+    else if str_eq(kind, "u") { out.push_str("wql_oracle_i64(__od, ("); out.push_str(expr); out.push_str(") as i64); "); }
+    else if str_eq(kind, "z") { out.push_str("wql_oracle_str(__od, \"0\"); "); }
     else { out.push_str("wql_oracle_str(__od, "); out.push_str(expr); out.push_str("); "); }
 }
 
@@ -116,6 +142,15 @@ fn dx_find(env: &DxEnv, nm: str) -> i64 {
     return -1i64;
 }
 
+fn dx_col_opaque(env: &DxEnv, si: i64, col: str) -> bool {
+    let mut k: i64 = 0i64;
+    while k < env.cn[si] {
+        if str_eq(env.cnames[si][k], col) { return dx_opaque(env.ctys[si][k]); }
+        k = k + 1i64;
+    }
+    return false;
+}
+
 fn dx_is_scalar(env: &DxEnv, nm: str) -> bool {
     let mut i: i64 = 0i64;
     while i < env.ns {
@@ -141,12 +176,25 @@ struct DxClause {
     pub al_vars: [str; 16],
     pub al_tys: [str; 16],    // their Soufflé types (entry typing only)
     pub al_kinds: [str; 16],  // their dump kinds
+    // the first construct outside the fragment (`dl_export` writes it to
+    // `<q>.skip`, and the gate counts the reasons)
+    pub why: str,
+}
+
+// Refuse with a reason: the first one set wins, which is the innermost.
+fn dx_no(cl: &mut DxClause, w: str) -> bool {
+    if cl.why.len() == 0i64 { cl.why = w; }
+    return false;
+}
+fn dx_set(why: &mut String, w: str) -> bool {
+    if why.len() == 0i64 { why.push_str(w); }
+    return false;
 }
 
 fn dx_new_clause() -> DxClause {
     return DxClause { body: String::new(), ok: true, nv: 0i64, vars: [""; 16], vsrc: [0i64; 16],
                       nparams: 0i64, params: [""; 16], nal: 0i64, al_names: [""; 16], al_vars: [""; 16],
-                      al_tys: [""; 16], al_kinds: [""; 16] };
+                      al_tys: [""; 16], al_kinds: [""; 16], why: "" };
 }
 
 fn dx_alias(cl: &DxClause, nm: str) -> i64 {
@@ -190,7 +238,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
     match e {
         SExpr::Lit(l) => {
             let v: WAny = l.val;
-            if v.is_null() { return false; }
+            if v.is_null() { return dx_no(cl, "literal without a value"); }
             if v.is_string() {
                 // the literal's SPELLING (EL escapes) → its value → Soufflé's
                 // escapes, which have no `\x` / `\u{…}`; a tab or newline in
@@ -202,7 +250,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 out.push_str("\"");
                 while k < vv.len() {
                     let c: u8 = str_byte_at(vv, k);
-                    if c == 9u8 || c == 10u8 || c == 13u8 || c < 32u8 { return false; }
+                    if c == 9u8 || c == 10u8 || c == 13u8 || c < 32u8 { return dx_no(cl, "string literal with a control character"); }
                     if c == 34u8 { out.push_str("\\\""); }
                     else if c == 92u8 { out.push_str("\\\\"); }
                     else { out.push_u8(c); }
@@ -212,12 +260,12 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 return true;
             }
             if v.is_bool() { if v.as_bool() { out.push_str("1"); } else { out.push_str("0"); } return true; }
-            if v.is_float() { return false; }
+            if v.is_float() { return dx_no(cl, "float literal"); }
             out.push_i64(v.as_i64());
             return true;
         }
         SExpr::Param(p) => {
-            if !dx_is_scalar(env, p.name) { return false; }
+            if !dx_is_scalar(env, p.name) { return dx_no(cl, "parameter outside the fragment"); }
             dx_note_param(cl, p.name);
             out.push_str("p_"); out.push_str(p.name);
             return true;
@@ -231,7 +279,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                     if str_eq(cl.al_vars[ai], "a_") { out.push_str(cl.al_names[ai]); }
                     return true;
                 }
-                if !dx_is_scalar(env, f.name) { return false; }
+                if !dx_is_scalar(env, f.name) { return dx_no(cl, "name outside the fragment"); }
                 dx_note_param(cl, f.name);
                 out.push_str("p_"); out.push_str(f.name);
                 return true;
@@ -240,18 +288,20 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             match b {
                 SExpr::Field(bf) => {
                     let bb: WRef<SExpr> = bf.base;
-                    if !bb.any().is_null() { return false; }
-                    if dx_var_src(cl, bf.name) < 0i64 { return false; }
+                    if !bb.any().is_null() { return dx_no(cl, "nested field path"); }
+                    let vs: i64 = dx_var_src(cl, bf.name);
+                    if vs < 0i64 { return dx_no(cl, "row variable not bound by an atom"); }
+                    if dx_col_opaque(env, vs, f.name) { return dx_no(cl, "reads a column of a type outside the fragment (float, u64, named, …)"); }
                     dx_push_var(out, bf.name, f.name);
                     return true;
                 }
-                _ => { return false; }
+                _ => { return dx_no(cl, "field of a computed value"); }
             }
         }
         SExpr::Bin(b) => {
             let op: i32 = b.op;
             if op != OP_ADD() && op != OP_SUB() && op != OP_MUL() && op != OP_DIV() && op != OP_MOD() {
-                return false;
+                return dx_no(cl, "operator outside + - * / % in a term");
             }
             out.push_str("(");
             if !dx_term(out, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
@@ -265,13 +315,13 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             return true;
         }
         SExpr::Un(u) => {
-            if u.op != OP_NEG() { return false; }
+            if u.op != OP_NEG() { return dx_no(cl, "unary operator other than -"); }
             out.push_str("(-");
             if !dx_term(out, u.arg.any().view::<SExpr>(), env, cl) { return false; }
             out.push_str(")");
             return true;
         }
-        _ => { return false; }
+        _ => { return dx_no(cl, "expression form (call, cast, conditional, …)"); }
     }
 }
 
@@ -291,7 +341,7 @@ fn dx_pred(e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             else if op == OP_LE() { sym = " <= "; }
             else if op == OP_GT() { sym = " > "; }
             else if op == OP_GE() { sym = " >= "; }
-            else { return false; }
+            else { return dx_no(cl, "predicate operator (or, not, …)"); }
             let mut t: String = String::new();
             if !dx_term(&mut t, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
             t.push_str(sym);
@@ -307,16 +357,16 @@ fn dx_pred(e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 if !v.as_bool() { cl.body.push_str(", 0 = 1"); }
                 return true;
             }
-            return false;
+            return dx_no(cl, "non-boolean literal as a predicate");
         }
-        _ => { return false; }
+        _ => { return dx_no(cl, "predicate form (call, not, bool column, …)"); }
     }
 }
 
 // A positive atom `s(v_v_f1, …)` for row var `v` over source `s`.
 fn dx_atom(cl: &mut DxClause, env: &DxEnv, src: str, v: str) -> bool {
     let si: i64 = dx_find(env, src);
-    if si < 0i64 { return false; }
+    if si < 0i64 { return dx_no(cl, "source outside the fragment"); }
     dx_bind(cl, v, si);
     if cl.body.len() > 0i64 { cl.body.push_str(", "); }
     cl.body.push_str(src);
@@ -404,7 +454,7 @@ fn dx_head(name: str, sel: SExpr, arity: i64, env: &DxEnv, cl: &mut DxClause, ou
     match sel {
         SExpr::Tuple(t) => {
             let items: SExprArr = t.items.any().view::<SExprArr>();
-            if items.len() != arity { return false; }
+            if items.len() != arity { return dx_no(cl, "head arity"); }
             let mut i: i64 = 0i64;
             while i < items.len() {
                 if i > 0i64 { out.push_str(", "); }
@@ -413,7 +463,7 @@ fn dx_head(name: str, sel: SExpr, arity: i64, env: &DxEnv, cl: &mut DxClause, ou
             }
         }
         _ => {
-            if arity != 1i64 { return false; }
+            if arity != 1i64 { return dx_no(cl, "head arity"); }
             if !dx_term(out, sel, env, cl) { return false; }
         }
     }
@@ -551,31 +601,42 @@ fn dx_wild(cl: str) -> String {
 }
 
 // One query → one clause `head :- body.` appended to `out`.
-fn dx_clause(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String) -> bool {
+fn dx_clause(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String,
+             why: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
+    if dx_clause_in(qany, head, arity, env, out, &mut cl, why) { return true; }
+    return dx_set(why, cl.why);
+}
+
+fn dx_clause_in(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String,
+                cl0: &mut DxClause, why: &mut String) -> bool {
+    let cl: &mut DxClause = cl0;
     let mut hd: String = String::new();
     let q: RQuery = qany.view::<RQuery>();
     match q {
         RQuery::Simple(s) => {
-            if s.has_gpath || s.sel_first || s.has_limit { return false; }
+            if s.has_gpath { return dx_no(cl, "graph path source"); }
+            if s.sel_first || s.has_limit { return dx_no(cl, "first / limit"); }
             if s.src_name.len() == 0i64 {
                 cl.body.push_str("__unit(_)");
-            } else if !dx_atom(&mut cl, env, s.src_name, s.var_name) { return false; }
-            if s.has_where && !dx_pred(s.where_pred.any().view::<SExpr>(), env, &mut cl) { return false; }
-            if !dx_head(head, s.select.any().view::<SExpr>(), arity, env, &mut cl, &mut hd) { return false; }
+            } else if !dx_atom(cl, env, s.src_name, s.var_name) { return false; }
+            if s.has_where && !dx_pred(s.where_pred.any().view::<SExpr>(), env, cl) { return false; }
+            if !dx_head(head, s.select.any().view::<SExpr>(), arity, env, cl, &mut hd) { return false; }
         }
         RQuery::Join(j) => {
-            if j.has_gpath || j.sel_first || j.has_limit { return false; }
-            if !dx_join_body(&mut cl, env, j.a_name, j.x_var, j.steps.any(), j.has_where, j.where_pred) { return false; }
-            if !dx_head(head, j.select.any().view::<SExpr>(), arity, env, &mut cl, &mut hd) { return false; }
+            if j.has_gpath { return dx_no(cl, "graph path source"); }
+            if j.sel_first || j.has_limit { return dx_no(cl, "first / limit"); }
+            if !dx_join_body(cl, env, j.a_name, j.x_var, j.steps.any(), j.has_where, j.where_pred) { return false; }
+            if !dx_head(head, j.select.any().view::<SExpr>(), arity, env, cl, &mut hd) { return false; }
         }
         RQuery::Aggr(g) => {
-            if g.has_gpath || g.sel_first || g.has_limit { return false; }
-            return dx_aggr_clause(g, head, arity, env, out);
+            if g.has_gpath { return dx_no(cl, "graph path source"); }
+            if g.sel_first || g.has_limit { return dx_no(cl, "first / limit"); }
+            return dx_aggr_clause(g, head, arity, env, out, why);
         }
-        _ => { return false; }
+        _ => { return dx_no(cl, "query form (sort, union, comprehension, …)"); }
     }
-    dx_param_atoms(&mut cl);
+    dx_param_atoms(cl);
     let mut c1: String = String::new();
     c1.push_str(dx_view(&hd)); c1.push_str(" :- "); c1.push_str(dx_view(&cl.body)); c1.push_str(".\n");
     out.push_str(dx_view(&dx_wild(dx_view(&c1))));
@@ -601,13 +662,13 @@ fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAn
         let mut i: i64 = 0i64;
         while i < steps.len() {
             let st: RQJoinStep = steps.step_at(i);
-            if st.is_edge { return false; }
+            if st.is_edge { return dx_no(cl, "graph edge step"); }
             if st.is_anti {
-                if !st.has_on { return false; }
+                if !st.has_on { return dx_no(cl, "anti join without on"); }
                 let si: i64 = dx_find(env, st.src_name);
-                if si < 0i64 { return false; }
+                if si < 0i64 { return dx_no(cl, "source outside the fragment"); }
                 let on: SExpr = st.on.any().view::<SExpr>();
-                if !dx_neg_only_eqs(on, st.var_name) { return false; }
+                if !dx_neg_only_eqs(on, st.var_name) { return dx_no(cl, "anti join on a non-equality"); }
                 cl.body.push_str(", !");
                 cl.body.push_str(st.src_name);
                 cl.body.push_str("(");
@@ -646,15 +707,16 @@ fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAn
 // measured 9 for Deem's 18), and named single-use variables inside the braces
 // abort Soufflé 2.5 (wql_gpath_e2e::kind_hist). `key` and the aggregate names
 // in select/having are the variables gk / a_<a>.
-fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut String) -> bool {
+fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut String,
+                  why: &mut String) -> bool {
     let key: SExpr = g.key_expr();
-    match key { SExpr::Tuple(_t) => { return false; } _ => { } }
+    match key { SExpr::Tuple(_t) => { return dx_set(why, "tuple group key"); } _ => { } }
     let mut kb: DxClause = dx_new_clause();
-    if !dx_join_body(&mut kb, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return false; }
+    if !dx_join_body(&mut kb, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return dx_set(why, kb.why); }
     let mut kt: String = String::new();
-    if !dx_term(&mut kt, key, env, &mut kb) { return false; }
+    if !dx_term(&mut kt, key, env, &mut kb) { return dx_set(why, kb.why); }
     let kty: str = dx_term_ty(key, env, &kb);
-    if kty.len() == 0i64 { return false; }
+    if kty.len() == 0i64 { return dx_set(why, "group key type"); }
     dx_param_atoms(&mut kb);
     // __ab: the key, then every column of every bound (positive) row var
     let mut ab: String = String::new();
@@ -675,9 +737,9 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
         let si: i64 = kb.vsrc[vi];
         let mut k: i64 = 0i64;
         while k < env.cn[si] {
-            if nc >= 64i64 { return false; }
+            if nc >= 64i64 { return dx_set(why, "aggregate body wider than 20 columns"); }
             dx_push_var(&mut cols[nc], kb.vars[vi], env.cnames[si][k]);
-            decl.push_str(", c"); decl.push_i64(nc); decl.push_str(": "); decl.push_str(dl_ty(env.ctys[si][k]));
+            decl.push_str(", c"); decl.push_i64(nc); decl.push_str(": "); decl.push_str(dl_col_ty(env.ctys[si][k]));
             nc = nc + 1i64;
             k = k + 1i64;
         }
@@ -686,7 +748,7 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     // Soufflé's interpreter builds relations up to arity 22 (interpreter/Util.h,
     // FOR_EACH_BTREE) and aborts above it — wql_gpath_e2e::kind_hist joins three
     // 8-column graph rows. Kept a margin below; wider is outside the fragment.
-    if nc + 1i64 > 20i64 { return false; }
+    if nc + 1i64 > 20i64 { return dx_set(why, "aggregate body wider than 20 columns"); }
     decl.push_str(")\n");
     out.push_str(dx_view(&decl));
     let mut c0: String = String::new();
@@ -713,17 +775,17 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     while i < aggs.len() {
         let ag: RQAgg = aggs.agg_at(i);
         let f: str = ag.fn_name;
-        if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") { return false; }
-        if hcl.nal >= 16i64 { return false; }
+        if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") { return dx_set(why, "aggregate other than count/sum/min/max"); }
+        if hcl.nal >= 16i64 { return dx_set(why, "more than 15 aggregates"); }
         let mut argt: String = String::new();
         let mut abd: DxClause = dx_new_clause();
         let mut vj: i64 = 0i64;
         while vj < kb.nv { dx_bind(&mut abd, kb.vars[vj], kb.vsrc[vj]); vj = vj + 1i64; }
         if !str_eq(f, "count") {
-            if !ag.has_arg { return false; }
-            if !dx_term(&mut argt, ag.arg_expr(), env, &mut abd) { return false; }
-            if !str_eq(dx_term_ty(ag.arg_expr(), env, &abd), "number") { return false; }
-            if abd.nparams > 0i64 { return false; }   // a scalar inside the braces: not needed so far
+            if !ag.has_arg { return dx_set(why, "aggregate without an argument"); }
+            if !dx_term(&mut argt, ag.arg_expr(), env, &mut abd) { return dx_set(why, abd.why); }
+            if !str_eq(dx_term_ty(ag.arg_expr(), env, &abd), "number") { return dx_set(why, "aggregate argument not a signed integer"); }
+            if abd.nparams > 0i64 { return dx_set(why, "parameter inside an aggregate"); }
         }
         // the one atom: the columns the argument names, `_` for the rest
         let at: str = dx_view(&argt);
@@ -743,9 +805,9 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
         i = i + 1i64;
     }
     hcl.body.push_str(dx_view(&hb));
-    if g.has_having && !dx_pred(g.having_expr(), env, &mut hcl) { return false; }
+    if g.has_having && !dx_pred(g.having_expr(), env, &mut hcl) { return dx_set(why, hcl.why); }
     let mut hd: String = String::new();
-    if !dx_head(head, g.select_expr(), arity, env, &mut hcl, &mut hd) { return false; }
+    if !dx_head(head, g.select_expr(), arity, env, &mut hcl, &mut hd) { return dx_set(why, hcl.why); }
     dx_param_atoms(&mut hcl);
     let mut c3: String = String::new();
     c3.push_str(dx_view(&hd)); c3.push_str(" :- "); c3.push_str(dx_view(&hcl.body)); c3.push_str(".\n");
@@ -846,8 +908,8 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
                     let mut k: i64 = 0i64;
                     while k < env.cn[si] {
                         if str_eq(env.cnames[si][k], f.name) {
-                            // a rel column's `String` is a value in the answer row
-                            if str_eq(env.ctys[si][k], "String") { return "s"; }
+                            // a `String` column is read through `as_str` ('S'):
+                            // the answer row is borrowed, not copied out
                             return dx_kind(env.ctys[si][k]);
                         }
                         k = k + 1i64;
@@ -1024,13 +1086,13 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
         if iter || marg2.len() > 0i64 || env.n >= 16i64 { continue; }   // left out of the fragment
         let mut ok: bool = true;
         let mut k: i64 = 0i64;
-        while k < nc { if dl_ty(ct[k]).len() == 0i64 || dx_kind(ct[k]).len() == 0i64 { ok = false; } k = k + 1i64; }
+        while k < nc { if dx_kind(ct[k]).len() == 0i64 { ok = false; } k = k + 1i64; }
         if !ok { continue; }
         out.push_str(".decl "); out.push_str(reg); out.push_str("(");
         k = 0i64;
         while k < nc {
             if k > 0i64 { out.push_str(", "); }
-            out.push_str(cn[k]); out.push_str(": "); out.push_str(dl_ty(ct[k]));
+            out.push_str(cn[k]); out.push_str(": "); out.push_str(dl_col_ty(ct[k]));
             env.cnames[env.n][k] = cn[k]; env.ctys[env.n][k] = ct[k];
             k = k + 1i64;
         }
@@ -1041,12 +1103,12 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
         // the dump: the materializer again, its rows as facts
         dump.push_str("    { let __nv = "); dump.push_str(mat); dump.push_str("("); dump.push_str(marg);
         dump.push_str("); let __od: i32 = wql_oracle_open(\""); dump.push_str(ddir); dump.push_str("/");
-        dump.push_str(reg); dump.push_str(".facts\"); let mut __oi: i64 = 0i64; while __oi < __nv.len() { let __nr = __nv.get(__oi); ");
+        dump.push_str(reg); dump.push_str(".facts\"); let mut __oi: i64 = 0i64; while __oi < __nv.len() { let __nr = __nv.borrow(__oi); ");
         k = 0i64;
         while k < nc {
             if k > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
             let mut fx: String = String::new();
-            if nc == 1i64 { fx.push_str("__nr"); } else { fx.push_str("(__nr)."); fx.push_i64(k); }
+            if nc == 1i64 { fx.push_str("(*__nr)"); } else { fx.push_str("(__nr)."); fx.push_i64(k); }
             dx_cell(dump, dx_kind(ct[k]), dx_view(&fx));
             k = k + 1i64;
         }
@@ -1063,14 +1125,14 @@ fn dx_is_native_param(nparams: &[str; 16], nn: i64, nm: str) -> bool {
 }
 
 pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, dump: &mut String,
-                 ddir: str, incrows: &mut String, incsnap: &mut String) -> bool {
+                 ddir: str, incrows: &mut String, incsnap: &mut String, why: &mut String) -> bool {
     let view: OView = oview_module_ast();
     let mut env: DxEnv = DxEnv { n: 0i64, src: [""; 16], cn: [0i64; 16], cnames: [[""; 16]; 16],
                                  ctys: [[""; 16]; 16], scalars: [""; 16], stys: [""; 16], sltys: [""; 16], ns: 0i64 };
     // native sources first: their params are not scalars
     let mut nparams: [str; 16] = [""; 16];
     let mut nn: i64 = 0i64;
-    if !dx_natives(natspec, &mut env, prm, out, dump, ddir, &mut nparams, &mut nn) { return false; }
+    if !dx_natives(natspec, &mut env, prm, out, dump, ddir, &mut nparams, &mut nn) { return dx_set(why, "native source spec"); }
     // params
     let mut i: i64 = 0i64;
     while i < prm.n {
@@ -1078,12 +1140,12 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
             // bound through its materializer above (or left out of the fragment)
         } else if prm.is_slice[i] {
             let c: DxCols = dx_struct_cols(&view, prm.tys[i]);
-            if c.n == 0i64 || env.n >= 16i64 { return false; }
+            if c.n == 0i64 { return dx_set(why, "slice of a type with no readable columns"); }
+            if env.n >= 16i64 { return dx_set(why, "more than 16 sources"); }
             out.push_str(".decl "); out.push_str(prm.names[i]); out.push_str("(");
             let mut k: i64 = 0i64;
             while k < c.n {
-                let ty: str = dl_ty(c.tys[k]);
-                if ty.len() == 0i64 { return false; }
+                let ty: str = dl_col_ty(c.tys[k]);
                 if k > 0i64 { out.push_str(", "); }
                 out.push_str(c.names[k]); out.push_str(": "); out.push_str(ty);
                 k = k + 1i64;
@@ -1097,7 +1159,7 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
             let mut kc: i64 = 0i64;
             while kc < c.n {
                 let fk: str = dx_kind(c.tys[kc]);
-                if fk.len() == 0i64 { return false; }
+                if fk.len() == 0i64 { return dx_set(why, "input column type"); }
                 if kc > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
                 let mut fx: String = String::new();
                 fx.push_str("("); fx.push_str(prm.names[i]); fx.push_str(")[__oi].");
@@ -1126,14 +1188,15 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
             env.n = env.n + 1i64;
         } else {
             let st: str = dl_ty(prm.tys[i]);
-            if st.len() == 0i64 || env.ns >= 16i64 { return false; }
+            if st.len() == 0i64 { return dx_set(why, "scalar parameter type"); }
+            if env.ns >= 16i64 { return dx_set(why, "more than 16 scalar parameters"); }
             out.push_str(".decl __p_"); out.push_str(prm.names[i]); out.push_str("(v: ");
             out.push_str(st); out.push_str(")\n.input __p_"); out.push_str(prm.names[i]); out.push_str("\n");
             env.scalars[env.ns] = prm.names[i];
             env.stys[env.ns] = st;
             env.sltys[env.ns] = prm.tys[i];
             let sk: str = dx_kind(prm.tys[i]);
-            if sk.len() == 0i64 { return false; }
+            if sk.len() == 0i64 { return dx_set(why, "scalar parameter type"); }
             dump.push_str("    { let __od: i32 = wql_oracle_open(\"");
             dump.push_str(ddir); dump.push_str("/__p_"); dump.push_str(prm.names[i]);
             dump.push_str(".facts\"); ");
@@ -1152,13 +1215,12 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
         while r < rels.len() {
             let rel: RQRel = rels.rel_at(r);
             let rc: RQRelColArr = rel.cols_arr();
-            if env.n >= 16i64 { return false; }
+            if env.n >= 16i64 { return dx_set(why, "more than 16 sources"); }
             out.push_str(".decl "); out.push_str(rel.name); out.push_str("(");
             let mut k: i64 = 0i64;
             while k < rc.len() && k < 16i64 {
                 let col: RQRelCol = rc.col_at(k);
-                let ty: str = dl_ty(col.ty_name);
-                if ty.len() == 0i64 { return false; }
+                let ty: str = dl_col_ty(col.ty_name);
                 if k > 0i64 { out.push_str(", "); }
                 out.push_str(col.name); out.push_str(": "); out.push_str(ty);
                 env.cnames[env.n][k] = col.name; env.ctys[env.n][k] = col.ty_name;
@@ -1176,7 +1238,7 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
             let bodies: RQBodyArr = rel2.bodies_arr();
             let mut b: i64 = 0i64;
             while b < bodies.len() {
-                if !dx_clause(bodies.body_any(b), rel2.name, rel2.cols_arr().len(), &env, out) { return false; }
+                if !dx_clause(bodies.body_any(b), rel2.name, rel2.cols_arr().len(), &env, out, why) { return false; }
                 b = b + 1i64;
             }
             r = r + 1i64;
@@ -1185,40 +1247,40 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
     // the entry
     let entry: WAny = prog.entry_any();
     let sel: WRef<SExpr> = dx_entry_select(entry);
-    if sel.any().is_null() { return false; }
+    if sel.any().is_null() { return dx_set(why, "entry without a select"); }
     let mut cl0: DxClause = dx_new_clause();
     dx_entry_vars(entry, &env, &mut cl0);
     let mut cols: String = String::new();
     let arity: i64 = dx_out_cols(sel.any().view::<SExpr>(), &env, &cl0, &mut cols);
-    if arity < 1i64 { return false; }
-    if dx_entry_struct_result(entry) && arity > 1i64 { return false; }
+    if arity < 1i64 { return dx_set(why, "output column type"); }
+    if dx_entry_struct_result(entry) && arity > 1i64 { return dx_set(why, "struct result"); }
     out.push_str(".decl __out("); out.push_str(dx_view(&cols)); out.push_str(")\n.output __out\n");
     // the answer's dump: `__r` is `_run`'s Result; an Err leaves a marker
     dump.push_str("    match __r {\n        Result::Ok(__ov) => {\n            wql_oracle_unlink(\"");
     dump.push_str(ddir); dump.push_str("/deem.err\");\n            { let __od: i32 = wql_oracle_open(\"");
-    dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.get(__oi); ");
+    dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.borrow(__oi); ");
     let sel0: SExpr = sel.any().view::<SExpr>();
     let mut a: i64 = 0i64;
     while a < arity {
         let item: SExpr = if arity == 1i64 { sel0 } else { dx_tuple_item(sel0, a) };
         let kd: str = dx_term_kind(item, &env, &cl0);
-        if kd.len() == 0i64 { return false; }
+        if kd.len() == 0i64 { return dx_set(why, "output column type"); }
         if a > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
         let mut ox: String = String::new();
-        if arity == 1i64 { ox.push_str("__orow"); }
+        if arity == 1i64 { ox.push_str("(*__orow)"); }
         else { ox.push_str("(__orow)."); ox.push_i64(a); }
         dx_cell(dump, kd, dx_view(&ox));
         a = a + 1i64;
     }
     dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
     // the snapshot writer: the same cells over `__ov`
-    incsnap.push_str("{ let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.get(__oi); ");
+    incsnap.push_str("{ let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.borrow(__oi); ");
     let mut a2: i64 = 0i64;
     while a2 < arity {
         let item2: SExpr = if arity == 1i64 { sel0 } else { dx_tuple_item(sel0, a2) };
         if a2 > 0i64 { incsnap.push_str("wql_oracle_tab(__od); "); }
         let mut ox2: String = String::new();
-        if arity == 1i64 { ox2.push_str("__orow"); } else { ox2.push_str("(__orow)."); ox2.push_i64(a2); }
+        if arity == 1i64 { ox2.push_str("(*__orow)"); } else { ox2.push_str("(__orow)."); ox2.push_i64(a2); }
         dx_cell(incsnap, dx_term_kind(item2, &env, &cl0), dx_view(&ox2));
         a2 = a2 + 1i64;
     }
@@ -1226,12 +1288,13 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
     dump.push_str("            return Result::Ok(__ov);\n        }\n        Result::Err(__oe) => {\n            wql_oracle_unlink(\"");
     dump.push_str(ddir); dump.push_str("/deem.out\");\n            wql_oracle_close(wql_oracle_open(\"");
     dump.push_str(ddir); dump.push_str("/deem.err\"));\n            return Result::Err(__oe);\n        }\n    }\n");
-    return dx_clause(entry, "__out", arity, &env, out);
+    return dx_clause(entry, "__out", arity, &env, out, why);
 }
 
 /// `LOGOS_DEEM_ORACLE=<dir>`: write `<dir>/<name>.dl` when the program is in
-/// the fragment. Nothing is written (and nothing is said) outside it: the
-/// gate counts which deems it could check.
+/// the fragment, and `<dir>/<name>.skip` (one line, the reason) when it is not:
+/// the gate counts which deems it could check and why it could not check the
+/// rest.
 pub fn dl_export(root: WAny, name: str, natspec: str, prm: &mut MacroParams) {
     let mut ev: String = String::new();
     ev.push_str("LOGOS_DEEM_ORACLE");
@@ -1250,7 +1313,20 @@ pub fn dl_export(root: WAny, name: str, natspec: str, prm: &mut MacroParams) {
     let mut incrows: String = String::new();
     let mut incsnap: String = String::new();
     text.push_str("// deem "); text.push_str(name); text.push_str("\n");
-    if !dl_render(root, prm, natspec, &mut text, &mut dump, dx_view(&ddir), &mut incrows, &mut incsnap) { return; }
+    let mut why: String = String::new();
+    if !dl_render(root, prm, natspec, &mut text, &mut dump, dx_view(&ddir), &mut incrows, &mut incsnap, &mut why) {
+        // outside the fragment: `<dir>/<name>.skip` names the first construct
+        // that put it there, so the gate can count what the oracle cannot see
+        if why.len() == 0i64 { why.push_str("unnamed"); }
+        why.push_str("\n");
+        let mut sp: String = String::new();
+        sp.push_str(unsafe { str_from_raw(dir, dl) });
+        sp.push_str("/"); sp.push_str(name); sp.push_str(".skip");
+        sp.push_u8(0u8);
+        let sfd: i32 = unsafe { open(sp.as_ptr(), 577i32, 420i32) };
+        if sfd >= 0i32 { unsafe { write(sfd, why.as_ptr(), why.len()); close(sfd); } }
+        return;
+    }
     let mut dz: String = String::new();
     dz.push_str(dx_view(&ddir));
     dz.push_u8(0u8);
