@@ -39,6 +39,7 @@ use logos.std.wql.el;              // OP_*
 use logos.std.wql.params;          // MacroParams
 use logos.std.wql.reflect;         // find_struct_decl / resolve_alias_name / reflect_field_*
 use logos.std.wql.lower;           // null_sref
+use logos.std.wql.oracle_rt;       // wql_f64_hex (a float literal's spelling)
 
 extern fn getenv(name: *const u8) -> *const u8;
 extern fn open(path: *const u8, flags: i32, mode: i32) -> i32;
@@ -303,7 +304,13 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 return true;
             }
             if v.is_bool() { if v.as_bool() { out.push_str("1"); } else { out.push_str("0"); } return true; }
-            if v.is_float() { return dx_no(cl, "float literal"); }
+            if v.is_float() {
+                // exact: Soufflé's `to_float` parses C99 hex
+                out.push_str("to_float(\"");
+                wql_f64_hex(out, v.as_f64());
+                out.push_str("\")");
+                return true;
+            }
             out.push_i64(v.as_i64());
             return true;
         }
@@ -375,9 +382,11 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
 // Soufflé types `number`, `unsigned` and `float` apart: an operator over two of
 // them is a type error unless one side is a literal (constants adapt).
 fn dx_numeric(t: str) -> bool { return str_eq(t, "number") || str_eq(t, "unsigned") || str_eq(t, "float"); }
+// An integer literal adapts to number / unsigned / float; a float literal is
+// `to_float(…)`, a float, and adapts to nothing.
 fn dx_is_lit(e: SExpr) -> bool {
     match e {
-        SExpr::Lit(_l) => { return true; }
+        SExpr::Lit(l) => { return !l.val.is_float(); }
         _ => { return false; }
     }
 }
@@ -929,7 +938,7 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
     match e {
         SExpr::Lit(l) => {
             if l.val.is_string() { return "symbol"; }
-            if l.val.is_float() { return ""; }
+            if l.val.is_float() { return "float"; }
             return "number";
         }
         SExpr::Bin(b) => {
@@ -977,7 +986,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         SExpr::Lit(l) => {
             if l.val.is_string() { return "s"; }
             if l.val.is_bool() { return "b"; }
-            if l.val.is_float() { return ""; }
+            if l.val.is_float() { return "F"; }
             return "i";
         }
         SExpr::Bin(_b) => {

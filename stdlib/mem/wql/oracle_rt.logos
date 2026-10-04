@@ -45,36 +45,39 @@ pub fn wql_oracle_u64(fd: i32, v: u64) {
 
 /// A float as C99 hex (`-0x1.8p+1`), which Soufflé's reader parses EXACTLY —
 /// a decimal would round. NaN is `nan` and an infinity `inf`/`-inf`; the gate
-/// skips a deem whose input holds a NaN, because the two engines order it apart.
+/// leaves a NaN input out where the program orders floats (`// nan-sensitive`).
 pub fn wql_oracle_f64(fd: i32, v: f64) {
+    let mut b: String = String::new();
+    wql_f64_hex(&mut b, v);
+    wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
+}
+
+/// `v` as C99 hex into `b` (see `wql_oracle_f64`); also the exporter's
+/// spelling of a float literal, `to_float("<hex>")`.
+pub fn wql_f64_hex(b: &mut String, v: f64) {
     let bits: u64 = f64_to_bits(v);
     let neg: bool = (bits >> 63u64) != 0u64;
     let ex: i64 = ((bits >> 52u64) & 2047u64) as i64;
     let man: u64 = bits & 4503599627370495u64;            // 2^52 - 1
-    let mut b: String = String::new();
     if ex == 2047i64 {
         if man != 0u64 { b.push_str("nan"); }
         else { if neg { b.push_str("-"); } b.push_str("inf"); }
-        wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
         return;
     }
     if neg { b.push_str("-"); }
-    if ex == 0i64 && man == 0u64 { b.push_str("0x0p+0"); }
-    else {
-        // a subnormal is 0x0.<m>p-1022, a normal 0x1.<m>p<e-1023>
-        if ex == 0i64 { b.push_str("0x0."); } else { b.push_str("0x1."); }
-        let mut k: i64 = 12i64;
-        while k >= 0i64 {
-            let d: u64 = (man >> ((k * 4i64) as u64)) & 15u64;
-            if d < 10u64 { b.push_u8(48u8 + (d as u8)); } else { b.push_u8(87u8 + (d as u8)); }
-            k = k - 1i64;
-        }
-        b.push_str("p");
-        let e: i64 = if ex == 0i64 { -1022i64 } else { ex - 1023i64 };
-        if e >= 0i64 { b.push_str("+"); }
-        b.push_i64(e);
+    if ex == 0i64 && man == 0u64 { b.push_str("0x0p+0"); return; }
+    // a subnormal is 0x0.<m>p-1022, a normal 0x1.<m>p<e-1023>
+    if ex == 0i64 { b.push_str("0x0."); } else { b.push_str("0x1."); }
+    let mut k: i64 = 12i64;
+    while k >= 0i64 {
+        let d: u64 = (man >> ((k * 4i64) as u64)) & 15u64;
+        if d < 10u64 { b.push_u8(48u8 + (d as u8)); } else { b.push_u8(87u8 + (d as u8)); }
+        k = k - 1i64;
     }
-    wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
+    b.push_str("p");
+    let e: i64 = if ex == 0i64 { -1022i64 } else { ex - 1023i64 };
+    if e >= 0i64 { b.push_str("+"); }
+    b.push_i64(e);
 }
 
 pub fn wql_oracle_bool(fd: i32, v: bool) {
