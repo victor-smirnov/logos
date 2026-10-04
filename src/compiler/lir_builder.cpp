@@ -366,7 +366,7 @@ lir_view::ExprRef LirBuilder::method_call_v(lir::EMethodCall mc, TypeRef ty) {
         [&](auto& p, TypeRef t){
             return lir_mirror_emit_method_call(p, t, mc.receiver, mc.method,
                 mc.resolved_symbol, mc.type_args, mc.args, mc.vtable_index,
-                mc.resolved_type, mc.tag_system, mc.tag_trait);
+                mc.resolved_type, mc.tag_system, mc.tag_trait, mc.trait_identity);
         });
 }
 

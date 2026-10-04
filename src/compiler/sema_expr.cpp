@@ -10996,6 +10996,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // name or it wrongly dispatches to the inherent. Mono falls back
                 // to the plain name when no qualified symbol exists, so tagging
                 // the single-provider case is harmless.
+                // The trait whose item this is, by identity — what the borrow
+                // checker reads the declared signature off (ADR 0030 S8 row 6).
+                mc.trait_identity = impl_key_trait(canonical_trait_name(chosen_trait));
                 if (provider_traits >= 1) {
                     mc.tag_trait = chosen_trait;
                     // G156-1: when the bound carries concrete trait type-args
@@ -11041,6 +11044,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 dc.type_args    = {tgt};
                 dc.vtable_index = -1;
                 dc.tag_trait    = bound.trait_name;
+                dc.trait_identity = impl_key_trait(canonical_trait_name(bound.trait_name));
                 recv = builder().method_call_v(std::move(dc),
                                                make_ref(is_mut_deref, tgt));
                 deref_bound_fallthrough = true;

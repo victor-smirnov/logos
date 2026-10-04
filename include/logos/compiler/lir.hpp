@@ -265,6 +265,9 @@ struct EMethodCall {
     // the @__logos_tag_dispatch_<tag_system>_<trait_name>_<method> table.
     std::string                   tag_system{};       // e.g. "DataTypeTagSystem" (empty = not tagged dispatch)
     std::string                   tag_trait{};        // e.g. "Stringify"
+    // ADR 0030 S8 row 6: the qualified identity (`pkg::Trait`) of the trait
+    // whose item a bound-dispatched call names (`x.m()` with `x: T`, `T: Tr`).
+    std::string                   trait_identity{};
 };
 
 struct EBinOp {

@@ -191,10 +191,6 @@ struct Body {
     // arguments): the regions a value of that type is known to carry
     // (`F: Foo<&'x i64>`). A closure body inherits its parent's.
     std::map<std::string, std::vector<std::pair<std::string, std::vector<TypeRef>>>> tv_bounds;
-    // `where <type>: Trait` bounds whose subject is a type expression (`&T`),
-    // by the subject's source form: what a call on a receiver of that type
-    // resolves to. The trait is a spelling (WB_TRAIT).
-    std::vector<std::pair<std::string, std::string>> wt_bounds;
     std::vector<std::string> unsupported;
     // Two-phase loans: (block, stmt) of the Ref and (block) of the Call that
     // activates it, recorded while lowering the receiver.
@@ -433,10 +429,6 @@ public:
         fn.each_type_param(note_bounds);
         for (auto tp : fn.impl_type_params()) note_bounds(tp);
         for (auto tp : fn.where_param_bounds()) note_bounds(tp);
-        fn.each_where_bound([&](lir_view::FnWhereBoundView w) {
-            if (TypeRef st = w.subject(pool_))
-                body_.wt_bounds.emplace_back(type_str(st, true), std::string(w.trait()));
-        });
         for (auto& [lo, sh] : fn.lifetime_outlives()) {
             if (lo.starts_with("T:")) continue;   // a type parameter's bound (mono, #462): read at the call
             auto q = [](std::string_view n) { std::string r(n); if (!r.empty() && r[0] != '\'') r = "'" + r; return r; };
@@ -2059,64 +2051,32 @@ private:
     // `<pkg>.$traitdecl$<Trait>__<method>` signature.
     lir_view::FunctionView resolve_trait_decl_(lir_view::EMethodCallView v, int* bound_idx = nullptr) const {
         if (!v.resolved_symbol().empty()) return {};
-        // A receiver of a TYPE PARAMETER's type: the method of one of its bounds.
-        if (auto r = v.receiver()) {
-            TypeRef rt = r.type(pool_);
-            while (rt && (rt.kind() == LogosType::Kind::Ref || rt.kind() == LogosType::Kind::MutRef ||
-                          rt.kind() == LogosType::Kind::Ptr))
-                rt = rt.pointee();
-            if (rt && rt.kind() == LogosType::Kind::AssocType)
-                if (auto f = assoc_type_method_(v, rt)) return f;
-            if (rt && rt.kind() == LogosType::Kind::TypeVar) {
-                auto it = body_.tv_bounds.find(std::string(rt.type_var_name()));
-                if (it != body_.tv_bounds.end())
-                    for (size_t bi = 0; bi < it->second.size(); ++bi) {
-                        auto f = idx_.by_traitdecl.find(it->second[bi].first + "::" + std::string(v.method()));
-                        if (f != idx_.by_traitdecl.end()) {
-                            if (bound_idx) *bound_idx = int(bi);
-                            return f->second;
-                        }
+        // ADR 0030 S8 row 6: sema recorded the trait whose item this is — its
+        // declared signature, by identity; `bound_idx` is the receiver
+        // parameter's bound of that trait, when it is one directly.
+        if (std::string_view id = v.trait_identity(); !id.empty()) {
+            auto f = idx_.by_traitdecl.find(std::string(id) + "::" + std::string(v.method()));
+            if (f != idx_.by_traitdecl.end()) {
+                if (bound_idx)
+                    if (auto r = v.receiver()) {
+                        TypeRef rt = r.type(pool_);
+                        while (rt && (rt.kind() == LogosType::Kind::Ref || rt.kind() == LogosType::Kind::MutRef ||
+                                      rt.kind() == LogosType::Kind::Ptr))
+                            rt = rt.pointee();
+                        if (rt && rt.kind() == LogosType::Kind::TypeVar)
+                            if (auto it = body_.tv_bounds.find(std::string(rt.type_var_name()));
+                                it != body_.tv_bounds.end())
+                                for (size_t bi = 0; bi < it->second.size(); ++bi)
+                                    if (it->second[bi].first == id) { *bound_idx = int(bi); break; }
                     }
-                // No bound declares it: a BLANKET impl whose bounds the
-                // parameter's bounds satisfy (`impl<T: Display> ToString for T`).
-                if (it != body_.tv_bounds.end()) {
-                    auto has = [&](std::string_view id) {
-                        for (auto& [bid, a] : it->second) if (bid == id) return true;
-                        return false;
-                    };
-                    std::vector<lir_view::FunctionView> hits;
-                    for (auto& im : idx_.blanket_impls) {
-                        if (!has(im.identity_bound_trait())) continue;
-                        bool all = true;
-                        for (auto eb : im.identity_extra_bounds()) all = all && has(eb);
-                        if (!all) continue;
-                        auto f = idx_.by_traitdecl.find(std::string(im.identity_trait()) + "::" + std::string(v.method()));
-                        if (f != idx_.by_traitdecl.end() &&
-                            std::find_if(hits.begin(), hits.end(), [&](auto& h) { return h.self.addr() == f->second.self.addr(); }) == hits.end())
-                            hits.push_back(f->second);
-                    }
-                    if (hits.size() > 1)
-                        resolve_ice(v, std::format("{} blanket impls answer it", hits.size()));
-                    if (!hits.empty()) return hits.front();
-                }
+                return f->second;
             }
         }
-        // A receiver whose TYPE is a `where` subject (`where &T: Tr`, `x: &T`).
-        if (auto r = v.receiver())
-            if (TypeRef rt = r.type(pool_)) {
-                std::string rs = type_str(rt, true);
-                for (auto& [subj, trait] : body_.wt_bounds)
-                    if (subj == rs)
-                        if (auto f = traitdecl_by_spelling_(v, trait)) return f;
-            }
-        const std::string& bn = body_.name;
-        auto td = bn.find("$traitdef$");
-        if (td == std::string::npos) return {};
-        auto us = bn.find("__", td + 10);
-        if (us == std::string::npos) return {};
-        std::string want = bn.substr(0, td) + "$traitdecl$" + bn.substr(td + 10, us - (td + 10)) + "__" +
-                           std::string(v.method());
-        if (auto it = idx_.by_name.find(want); it != idx_.by_name.end()) return it->second;
+        // Nothing else names the trait: the bound search by spelling, the
+        // blanket scan, the `where`-subject spelling and the `$traitdef$`
+        // body-name parse are gone — sema records the identity on every
+        // bound-dispatched call (census: 0 calls reached them, pass, imported
+        // and fail corpus).
         return {};
     }
     lir_view::FunctionView resolve_method_exact(lir_view::EMethodCallView v) const {
@@ -2188,51 +2148,6 @@ private:
             return f == idx_.by_traitdecl.end() ? lir_view::FunctionView{} : f->second;
         }
         return traitdecl_by_spelling_(v, rt.trait_name());
-    }
-    // A receiver of an associated type of a type parameter (`w: B::Item`,
-    // `B: Derived`, `trait Base { type Item: HasId; }`, `Derived: Base`): the
-    // method of one of the bounds DECLARED on that associated type, in a trait
-    // of the parameter's bounds or their supertraits. More than one
-    // declaration answering is an error.
-    lir_view::FunctionView assoc_type_method_(lir_view::EMethodCallView v, TypeRef rt) const {
-        TypeRef base = rt.assoc_base();
-        if (!base || base.kind() != LogosType::Kind::TypeVar) return {};
-        auto bit = body_.tv_bounds.find(std::string(base.type_var_name()));
-        if (bit == body_.tv_bounds.end()) return {};
-        std::string an(rt.assoc_type_name());
-        std::vector<lir_view::TraitView> work;
-        std::set<const void*> seen;
-        auto push = [&](lir_view::TraitView t) {
-            if (t && seen.insert(t.self.addr()).second) work.push_back(t);
-        };
-        for (auto& [id, args] : bit->second)
-            if (auto it = idx_.trait_by_id.find(id); it != idx_.trait_by_id.end()) push(it->second);
-        std::vector<lir_view::FunctionView> hits;
-        for (size_t i = 0; i < work.size(); ++i) {
-            lir_view::TraitView t = work[i];
-            t.each_assoc_type([&](lir_view::AssocTypeDefView at) {
-                if (at.name() != an) return;
-                at.each_bound([&](lir_view::FnTraitBoundView b) {
-                    std::string key = std::string(b.identity_trait()) + "::" + std::string(v.method());
-                    lir_view::FunctionView f;
-                    if (auto d = idx_.by_traitdecl.find(key); d != idx_.by_traitdecl.end()) f = d->second;
-                    else f = traitdecl_by_spelling_(v, b.trait_name());
-                    if (f && std::find_if(hits.begin(), hits.end(), [&](auto& h) { return h.self.addr() == f.self.addr(); }) == hits.end())
-                        hits.push_back(f);
-                });
-            });
-            // Supertraits are recorded by spelling: the same-package one, else
-            // the only one of that name.
-            for (auto sup : t.supertraits()) {
-                std::string sp(sup);
-                if (auto it = idx_.trait_by_id.find(std::string(t.pkg()) + "::" + sp); it != idx_.trait_by_id.end()) { push(it->second); continue; }
-                if (auto it = idx_.trait_by_id.find(sp); it != idx_.trait_by_id.end()) { push(it->second); continue; }
-                if (auto it = idx_.trait_by_name.find(sp); it != idx_.trait_by_name.end() && it->second.size() == 1) push(it->second.front());
-            }
-        }
-        if (hits.size() > 1)
-            resolve_ice(v, std::format("{} trait declarations answer `{}::{}`", hits.size(), an, std::string(v.method())));
-        return hits.empty() ? lir_view::FunctionView{} : hits.front();
     }
     // The trait method `<trait>::<method>` for a trait named by SPELLING only:
     // exact when the spelling is qualified, else FILTERED by the bare name —

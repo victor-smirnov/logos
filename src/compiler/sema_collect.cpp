@@ -1589,6 +1589,22 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         }
                     }
                 }
+                // A GENERIC impl answers only where its own bounds hold at the
+                // concrete type (`impl<T: Eq> Eq for &T` makes `&E: Eq` only
+                // when `E: Eq`, as rustc).
+                if (found && type_args_ok && !found->impl_type_params.empty() && found->target_typeref) {
+                    StrMap<TypeRef> ib;
+                    unify_types(found->target_typeref, concrete, ib);
+                    std::vector<TypeRef> iargs;
+                    bool all = true;
+                    for (auto& tp : found->impl_type_params) {
+                        auto it = ib.find(tp.name);
+                        if (it == ib.end() || !it->second) { all = false; break; }
+                        iargs.push_back(it->second);
+                    }
+                    if (all && !type_bounds_satisfied_quiet(target_name, found->impl_type_params, iargs))
+                        found = nullptr;
+                }
                 if (found && type_args_ok) {
                     if (region_ok(*found)) continue;
                     std::string binders_str;
@@ -1658,6 +1674,24 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 !cv.struct_name().empty()) {
                 if (type_args_ok && impls_.count(ImplKey{bid_def, std::string(cv.struct_name())})) continue;
             }
+            // A generic impl answers only where its own bounds hold at the
+            // concrete type: its parameters bound by unifying its target
+            // pattern with the type, then the bounds asked quietly.
+            auto generic_impl_holds = [&](const std::string& key) -> bool {
+                auto rit = impls_.find(ImplKey{bid_def, key});
+                if (rit == impls_.end()) return false;
+                const SemaImplInfo& ri = rit->second;
+                if (ri.impl_type_params.empty() || !ri.target_typeref) return true;
+                StrMap<TypeRef> ib;
+                unify_types(ri.target_typeref, concrete, ib);
+                std::vector<TypeRef> iargs;
+                for (auto& tp : ri.impl_type_params) {
+                    auto it = ib.find(tp.name);
+                    if (it == ib.end() || !it->second) return true;   // a const / unbound param: not decidable here
+                    iargs.push_back(it->second);
+                }
+                return type_bounds_satisfied_quiet(target_name, ri.impl_type_params, iargs);
+            };
             // Slice-impl bound satisfaction (the Sized-partition pattern):
             // `impl<E: …> Trait for [E]` registers under `$slice$T` (concrete
             // elem impls under `$slice$<elem>`). A concrete [u8] satisfies
@@ -1669,22 +1703,22 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 TypeRef selem = cv.elem();
                 if (impls_.count(ImplKey{bid_def, "$slice$" +
                         (selem ? type_str(selem) : std::string("?"))})) continue;
-                if (impls_.count(ImplKey{bid_def, "$slice$T"})) continue;
+                if (generic_impl_holds("$slice$T")) continue;
             }
             // Array-impl bound satisfaction, the same way: any of the
             // `$array$` keys; element bounds validate at monomorphization.
             if (cv.kind() == LogosType::Kind::Array && type_args_ok) {
                 bool found = false;
                 for (auto& k : array_impl_lookup_keys(cv))
-                    if (impls_.count(ImplKey{bid_def, k})) { found = true; break; }
+                    if (generic_impl_holds(k)) { found = true; break; }
                 if (found) continue;
             }
             // `impl<T: …> Trait for &T` / `&mut T` (keyed `$ref_$T` /
-            // `$mut_ref_$T`): any reference of that kind; the referent's
-            // bound validates at monomorphization.
-            if ((cv.kind() == LogosType::Kind::Ref || cv.kind() == LogosType::Kind::MutRef) &&
-                type_args_ok &&
-                impls_.count(ImplKey{bid_def, cv.kind() == LogosType::Kind::MutRef ? "$mut_ref_$T" : "$ref_$T"}))
+            // `$mut_ref_$T`): a reference of that kind whose REFERENT meets the
+            // impl's own bounds (`impl<T: Eq> Eq for &T`: `&E: Eq` iff `E: Eq`,
+            // as rustc) — asked here, there being no later stage that would.
+            if ((cv.kind() == LogosType::Kind::Ref || cv.kind() == LogosType::Kind::MutRef) && type_args_ok &&
+                generic_impl_holds(cv.kind() == LogosType::Kind::MutRef ? "$mut_ref_$T" : "$ref_$T"))
                 continue;
             // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
             // are registered under `$tuple$N` (generic, mirrors the

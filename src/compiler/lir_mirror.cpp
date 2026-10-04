@@ -509,7 +509,9 @@ public:
             if (trait_item->self) ti_s = type_av(trait_item->self);
             ti_a = type_array(trait_item->trait_args);
         }
-        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Call));
+        // CALLEE, TYPE_ARGS, ARGS, four TRAIT_ITEM_* keys, TYPE: past the default
+        // capacity of eight with any further key.
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Call), trait_item ? 12 : 8);
         put(map_off, ek::CALLEE,    cn_av);
         put(map_off, ek::TYPE_ARGS, ta_av);
         put(map_off, ek::ARGS,      ar_av);
@@ -532,12 +534,15 @@ public:
                                                     int32_t vtable_index,
                                                     std::string_view resolved_type,
                                                     std::string_view tag_system,
-                                                    std::string_view tag_trait) {
+                                                    std::string_view tag_trait,
+                                                    std::string_view trait_identity = {}) {
         auto recv_av = expr_av(receiver);
         auto m_av    = put_string(method);
         auto ta_av   = type_array(type_args);
         auto ar_av   = expr_array(args);
-        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::MethodCall));
+        // Up to eleven keys (RECEIVER … TAG_TRAIT, MC_TRAIT_IDENTITY, TYPE): past
+        // the default capacity of eight.
+        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::MethodCall), 12);
         put(map_off, ek::RECEIVER,     recv_av);
         put(map_off, ek::METHOD,       m_av);
         put(map_off, ek::TYPE_ARGS,    ta_av);
@@ -551,6 +556,8 @@ public:
             put(map_off, ek::TAG_SYSTEM, put_string(tag_system));
         if (!tag_trait.empty())
             put(map_off, ek::TAG_TRAIT, put_string(tag_trait));
+        if (!trait_identity.empty())
+            put(map_off, ek::MC_TRAIT_IDENTITY, put_string(trait_identity));
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
@@ -2175,10 +2182,10 @@ const uint8_t* lir_mirror_emit_call(lir::LProgram& prog, TypeRef ty, std::string
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_call_direct(ty, callee, type_args, args, trait_item);
 }
-const uint8_t* lir_mirror_emit_method_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait) {
+const uint8_t* lir_mirror_emit_method_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait, std::string_view trait_identity) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_method_call_direct(ty, receiver, method, resolved_symbol, type_args, args, vtable_index, resolved_type, tag_system, tag_trait);
+    return em.emit_method_call_direct(ty, receiver, method, resolved_symbol, type_args, args, vtable_index, resolved_type, tag_system, tag_trait, trait_identity);
 }
 const uint8_t* lir_mirror_emit_unary(lir::LProgram& prog, TypeRef ty, std::string_view op, lir_view::ExprRef operand) {
     auto& ctr = prog.type_pool.ctr_or_init();

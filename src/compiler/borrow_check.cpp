@@ -1822,9 +1822,6 @@ struct FnIndex {
     // associated type's bounds are read from (`B::Item` with `type Item: Tr`).
     std::unordered_map<std::string, lir_view::TraitView>                 trait_by_id;
     std::unordered_map<std::string, std::vector<lir_view::TraitView>>    trait_by_name;
-    // Blanket impls (`impl<T: Display> ToString for T`): what a method call on
-    // a type parameter resolves to when no bound declares the method.
-    std::vector<lir_view::ImplView>                                      blanket_impls;
     // Post-mono method templates (LProgram::method_templates) by method name.
     std::unordered_map<std::string, std::vector<lir_view::FunctionView>> template_by_base;
 };
@@ -1859,8 +1856,6 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
         idx.trait_by_id.emplace(t.pkg().empty() ? nm : std::string(t.pkg()) + "::" + nm, t);
         idx.trait_by_name[nm].push_back(t);
     }
-    for (auto& im : prog.impls)
-        if (im && im.is_blanket()) idx.blanket_impls.push_back(im);
     for (auto& f : prog.method_templates)
         if (f && !f.method_base().empty()) idx.template_by_base[std::string(f.method_base())].push_back(f);
     for (auto& sd : prog.structs) sd.each_method([&](lir_view::FunctionView m) { add(m); });

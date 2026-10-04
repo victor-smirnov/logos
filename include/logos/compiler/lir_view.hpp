@@ -1986,6 +1986,8 @@ struct EMethodCallView {
     std::string_view resolved_type() const noexcept   { return detail::read_string(self, ek::RESOLVED_TYPE.code); }
     std::string_view tag_system() const noexcept      { return detail::read_string(self, ek::TAG_SYSTEM.code); }
     std::string_view tag_trait() const noexcept       { return detail::read_string(self, ek::TAG_TRAIT.code); }
+    // ADR 0030 S8 row 6: the qualified trait identity of a bound-dispatched call.
+    std::string_view trait_identity() const noexcept  { return detail::read_string(self, ek::MC_TRAIT_IDENTITY.code); }
     int32_t          vtable_index() const noexcept {
         auto av = self.mirror()->get(ek::VTABLE_INDEX.code);
         if (av.is_null()) return -1;
