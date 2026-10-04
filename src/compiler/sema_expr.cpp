@@ -7180,10 +7180,14 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                             subst_type_sema(fi.type_params[i].default_type, bindings);
                         it = bindings.find(fi.type_params[i].name);
                     } else {
-                        error(std::format("call to '{}': could not infer type arg '{}' "
-                              "from arguments — supply via turbofish",
-                              callee_diag, fi.type_params[i].name));
-                        return error_expr();
+                        // Not fixed by the arguments or a hint here: an inference
+                        // variable a later use solves (`"42".parse().unwrap()`
+                        // under `let x: i32`); unsolved at the end of the
+                        // function it is E0282, as rustc.
+                        bindings[fi.type_params[i].name] = mint_infer_var_(std::format(
+                            "the type argument `{}` of `{}` — supply it via turbofish",
+                            fi.type_params[i].name, callee_diag));
+                        it = bindings.find(fi.type_params[i].name);
                     }
                 }
                 if (i < type_args.size()) type_args[i] = it->second;  // fill hole
@@ -11491,8 +11495,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             if (!seed.count(rk)) seed[rk] = rv;
                     }
                     if (!infer_type_args(*fi_ptr, arg_exprs, m_type_args, seed, 1)) {
-                        error(std::format("could not infer type arguments for generic method '{}'",
-                                          mangled_prim));
+                        // Not fixed by the arguments: inference variables a later
+                        // use solves (`"42".parse().unwrap()` under `let x: i32`);
+                        // unsolved at the end of the function, E0282.
+                        m_type_args.resize(fi_ptr->type_params.size());
+                        for (size_t k = 0; k < m_type_args.size(); ++k)
+                            if (!m_type_args[k])
+                                m_type_args[k] = mint_infer_var_(std::format(
+                                    "the type argument `{}` of method `{}` — supply it via turbofish",
+                                    fi_ptr->type_params[k].name, std::string(method_name)));
                     }
                 }
                 // Auto-ref receiver if method expects &Self / &mut Self.
@@ -12028,11 +12039,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     // Method type args inferred above; verify and bounds-check here.
     if (!fi.type_params.empty()) {
-        bool all_bound = m_type_args.size() == fi.type_params.size();
-        for (auto ta : m_type_args)
-            if (!ta) { all_bound = false; break; }
-        if (!all_bound)
-            error(std::format("could not infer type arguments for generic method '{}'", mangled));
+        // A type argument nothing here fixes: an inference variable a later use
+        // solves; unsolved at the end of the function, E0282.
+        m_type_args.resize(fi.type_params.size());
+        for (size_t k = 0; k < m_type_args.size(); ++k)
+            if (!m_type_args[k])
+                m_type_args[k] = mint_infer_var_(std::format(
+                    "the type argument `{}` of method `{}` — supply it via turbofish",
+                    fi.type_params[k].name, mangled));
         check_type_bounds(mangled, fi.type_params, m_type_args);
 
         // Route generic trait-method call through finish_generic_call so mono
@@ -28023,6 +28037,21 @@ void SemaChecker::infer_close_fn_(const std::string& fn_name) {
     if (!sols.empty()) {
         auto& dst = cur_prog_->infer_substs[fn_name];
         for (auto& p : sols) dst.push_back(std::move(p));
+    }
+    // The bounds that waited for these variables, at their call sites, on the
+    // solved types (an unsolved one was E0282 above).
+    {
+        auto deferred = std::move(infer_deferred_bounds_);
+        infer_deferred_bounds_.clear();
+        const auto sctx = ctx_; const auto sfile = file_; const auto sline = node_line_; const auto sspan = node_span_;
+        for (auto& d : deferred) {
+            bool open = false;
+            for (auto& a : d.args) { a = lit_zonk_(zonk_(a)); open = open || has_infer_var_(a); }
+            if (open) continue;
+            ctx_ = d.ctx; file_ = d.file; node_line_ = d.line; node_span_ = d.span;
+            check_type_bounds(d.target, d.tps, d.args);
+        }
+        ctx_ = sctx; file_ = sfile; node_line_ = sline; node_span_ = sspan;
     }
     infer_solved_.clear();
     infer_origin_.clear();

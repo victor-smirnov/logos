@@ -1070,6 +1070,25 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         for (auto& b : z) b = lit_peek_default_(b);
         return check_type_bounds(target_name, type_params, z);
     }
+    // ADR 0030 S8 row 6: an open INFERENCE variable (`?iN`, a method generic a
+    // later use fixes — `"42".parse().unwrap()` under `let v: Vec<i32>`) defers
+    // the check to its solution, at the function's close (infer_close_fn_):
+    // the solved type must meet the bound there, or rustc's E0277 — never a
+    // deferral to mono, which has no way to refuse it.
+    for (auto a : args) {
+        if (!has_infer_var_(a)) continue;
+        std::vector<TypeRef> z;
+        bool open = false;
+        for (auto b : args) {
+            b = zonk_(b);
+            open = open || has_infer_var_(b);
+            z.push_back(b);
+        }
+        if (!open) return check_type_bounds(target_name, type_params, z);
+        if (!bounds_probe_)
+            infer_deferred_bounds_.push_back({target_name, type_params, std::move(z), ctx_, file_, node_line_, node_span_});
+        return;
+    }
     bool has_variadic = type_params.back().is_variadic;
     size_t non_variadic_count = type_params.size() - (has_variadic ? 1 : 0);
 

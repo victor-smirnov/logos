@@ -2024,18 +2024,13 @@ private:
         auto m = v.method();
         return m == "deref" || m == "deref_mut" || m == "index" || m == "index_mut";
     }
-    // The callee of a plain call: by name, else by the mono worklist key's
-    // bare spelling (#83: a devirtualised generic method call names
-    // `<Type>__<method>`, not any function's full name).
+    // The callee of a plain call: by its name. (A bare-name lookup — #83's
+    // `<Type>__<method>` — is gone: every producer names the callee by
+    // identity since ADR 0030 S8 row 6; census 0 over the corpus.)
     lir_view::FunctionView resolve_call(std::string_view callee) const {
         if (auto it = idx_.by_name.find(std::string(callee)); it != idx_.by_name.end()) {
             ++bir::callee_census().call_name;
             return it->second;
-        }
-        if (auto it = idx_.by_bare.find(std::string(bare_fn_name(callee))); it != idx_.by_bare.end() &&
-            it->second.size() == 1) {
-            ++bir::callee_census().call_bare;
-            return it->second.front();
         }
         ++bir::callee_census().call_miss;
         return {};

@@ -1,1 +1,1 @@
-could not infer type arguments for generic method
+type annotations needed: cannot infer the type argument `T` of method

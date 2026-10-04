@@ -9100,6 +9100,8 @@ private:
         std::string ctx, file; decltype(node_line_) line; int64_t span;
     };
     std::vector<LitDeferredBound> lit_deferred_bounds_;
+    // The same, for bounds whose argument holds an open inference variable.
+    std::vector<LitDeferredBound> infer_deferred_bounds_;
     // C-INF: inside generic-argument inference an unsuffixed literal fixes a
     // type parameter to a fresh integer variable instead of i32.
     bool unify_mint_lit_ = false;

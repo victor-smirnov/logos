@@ -1,0 +1,6 @@
+// The inference variable of `str::parse::<F>` that nothing solves: rustc E0282 ("type annotations needed").
+package parse_target_unannotated_e0282;
+fn main() -> i32 {
+    let x = "42".parse().unwrap();
+    return 0;
+}

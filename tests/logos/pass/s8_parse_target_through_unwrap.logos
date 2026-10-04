@@ -1,0 +1,10 @@
+// ADR 0030 S8 row 6 (parse-target-unresolved-ice): a method generic nothing at the call fixes — `str::parse::<F>` —
+// is an inference variable the annotated `let` solves through `.unwrap()`'s `Result<F, _> -> F`. Was refused
+// ("could not infer type arg 'F'"), before that an ICE (main demoted to a trap stub). Output as rustc: 42 7.
+package s8_parse_target_through_unwrap;
+use logos.std.fmt;
+fn main() {
+    let parsed: i32 = "42".parse().unwrap();
+    let q: i64 = "7".parse::<i64>().unwrap();
+    println!("{} {}", parsed, q);
+}

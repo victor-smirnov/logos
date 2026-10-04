@@ -6804,8 +6804,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11950 -> 11950 (+0), NOIMPORTED 7391 -> 7391 (+0), TIERCOMMIT 206 -> 205 (-1) — 2026-10-04: map_named_fn_item_collect (squeue #515 closed by ADR 0030 S8 row 6, tier_commit -1) joins the nonglob half.
 #                ALL 11950 -> 11951 (+1), NOIMPORTED 7391 -> 7392 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04: fail/generic_impl_own_bound_unmet_array (ADR 0030 S8 row 6: a generic impl answers a bound only where its own bounds hold).
 #                ALL 11951 -> 11952 (+1), NOIMPORTED 7392 -> 7393 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04: fail/str_from_raw_outside_unsafe (ADR 0030 S8 row 6: the intrinsic is named by its unsafe declaration).
-REGISTRY-ALL         11952
-REGISTRY-NOIMPORTED  7393
+#                ALL 11952 -> 11955 (+3), NOIMPORTED 7393 -> 7396 (+3), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04: s8_parse_target_through_unwrap (+ fail/parse_target_unannotated_e0282, fail/parse_target_solution_not_fromstr; ADR 0030 S8 row 6: method generics as inference variables) joins the nonglob half.
+REGISTRY-ALL         11955
+REGISTRY-NOIMPORTED  7396
 REGISTRY-TIERCOMMIT  205
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
