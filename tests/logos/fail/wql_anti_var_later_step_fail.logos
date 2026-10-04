@@ -1,0 +1,21 @@
+// An anti-join row var binds only inside its own `on`: a later step's `on`
+// reading it is a named error. MEASURED (2026-10-04): this query used to reach
+// the order derivation (refused on C5 as `RJ_PREDPIN`) and then fail in the
+// GENERATED code as `undefined variable 'b'` — a name the query does declare.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub m: i64 }
+struct C { pub n: i64 }
+
+pub deem bad(xs: &[A], ys: &[B], zs: &[C]) {
+    from xs a
+    join zs c on c.n == a.k
+    anti join ys b on b.m == a.k
+    join zs d on d.n == b.m
+    select (a.v, d.n) order by a.k }
+
+fn main() -> i32 { return 0i32; }

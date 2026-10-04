@@ -6811,8 +6811,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11958 -> 11961 (+3), NOIMPORTED 7399 -> 7402 (+3), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-04: s8_parse_target_through_unwrap (+ fail/parse_target_unannotated_e0282, fail/parse_target_solution_not_fromstr; ADR 0030 S8 row 6: method generics as inference variables) joins the nonglob half.
 #                ALL 11961 -> 11962 (+1), NOIMPORTED 7402 -> 7403 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04, branch `deem`: +1 pass wql_order_undecided_step_e2e (the WG_UNDECIDED witness).
 #                ALL 11962 -> 11963 (+1), NOIMPORTED 7403 -> 7404 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04, branch `deem`: +1 pass wql_loop_join_order_e2e (a loop join under `order by` lost its source ordinal).
-REGISTRY-ALL         11963
-REGISTRY-NOIMPORTED  7404
+#                ALL 11963 -> 11966 (+3), NOIMPORTED 7404 -> 7407 (+3), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04, branch `deem`: +3 fail wql_anti_var_later_step_fail, wql_anti_var_select_fail, wql_join_on_later_var_fail (a row var read outside its scope is a named error).
+REGISTRY-ALL         11966
+REGISTRY-NOIMPORTED  7407
 REGISTRY-TIERCOMMIT  205
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

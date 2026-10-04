@@ -754,11 +754,13 @@ sym	logos_lang..logos.lang.clone.bool__clone__f__ref_bool
 sym	logos_lang..logos.lang.clone.char__clone__f__ref_char
 sym	logos_lang..logos.lang.clone.f32__clone__f__ref_f32
 sym	logos_lang..logos.lang.clone.f64__clone__f__ref_f64
+sym	logos_lang..logos.lang.clone.i128__clone__f__ref_i128
 sym	logos_lang..logos.lang.clone.i16__clone__f__ref_i16
 sym	logos_lang..logos.lang.clone.i32__clone__f__ref_i32
 sym	logos_lang..logos.lang.clone.i64__clone__f__ref_i64
 sym	logos_lang..logos.lang.clone.i8__clone__f__ref_i8
 sym	logos_lang..logos.lang.clone.isize__clone__f__ref_isize
+sym	logos_lang..logos.lang.clone.u128__clone__f__ref_u128
 sym	logos_lang..logos.lang.clone.u16__clone__f__ref_u16
 sym	logos_lang..logos.lang.clone.u32__clone__f__ref_u32
 sym	logos_lang..logos.lang.clone.u64__clone__f__ref_u64
