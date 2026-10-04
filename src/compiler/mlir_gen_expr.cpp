@@ -3089,12 +3089,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         // equalled no emitted symbol, and each such producer is now named at
         // the source:
         //   - a concrete GENERIC instance's method (`SuccessorsIter$G2$…__next`)
-        //     — Mono::emitted_method_instance; sensors: the eight iterator
-        //     fixtures in task defid's L0.
-        //   - a NON-generic owner's trait method reached through a bound
-        //     (`A__f` for `inheritance_basic.A__f__f__ref_A`) —
-        //     Mono::declared_method_symbol; sensors: the ten `inheritance-*` /
-        //     `blanket-*-supertrait*` fixtures, also in that L0.
+        //     and a NON-generic owner's trait method reached through a bound
+        //     (`A__f` for `inheritance_basic.A__f__f__ref_A`) — since ADR 0030
+        //     S8 row 6 both are the impl's own method, read off the impl by
+        //     Mono::trait_item_symbol_ (the composers that answered them,
+        //     emitted_method_instance / declared_method_symbol, are deleted).
         // Measured with the arms disabled: L0 86/86, groups traits+iterators
         // 1007/1007, a 1101-test 10% sample of L1+L2 green. A miss now reaches
         // the R2 sink below and is reported, not bridged by luck.

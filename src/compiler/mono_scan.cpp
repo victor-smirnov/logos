@@ -1308,54 +1308,6 @@ std::string Mono::eq_instance_for(TypeRef et, TypeRef et_ref) {
     return sym;
 }
 
-// #438: the name mono gives the EMITTED instance of `method` on a concrete
-// generic receiver — composed the same way the clone itself is named
-// (method_instance_name), from the struct's own method TEMPLATE. Empty when the
-// receiver is not a concrete generic struct or the struct declares no such
-// method.
-//
-// The call site used to keep `<concrete>__<method>` — no package, no signature
-// — which matches no emitted symbol, and mlir-gen bridged it by scanning names
-// (`'SuccessorsIter$G2$…__next' does not reference a valid function` the moment
-// that scan is removed).
-std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method) {
-    TypeRef rt = recv;
-    while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref ||
-                  TypeRef(rt).kind() == LogosType::Kind::MutRef ||
-                  TypeRef(rt).kind() == LogosType::Kind::Ptr) && TypeRef(rt).pointee())
-        rt = TypeRef(rt).pointee();
-    if (!rt || (TypeRef(rt).kind() != LogosType::Kind::Struct &&
-                TypeRef(rt).kind() != LogosType::Kind::ZonedStruct))
-        return {};
-    if (TypeRef(rt).type_args().empty() || contains_typevar(rt)) return {};
-    std::string base{TypeRef(rt).struct_name()};
-    if (auto p = base.find("$G"); p != std::string::npos) base = base.substr(0, p);
-    std::string pkg{TypeRef(rt).pkg_name()};
-    auto* smt = find_struct_method_templates_guarded(pkg, base);
-    if (!smt) return {};
-    for (auto& [sn, fp] : *smt)
-        if (fp.method_base() == method)
-            return method_instance_name(concrete_struct_name(rt), pkg, base, method, fp.name());
-    return {};
-}
-
-// #438: the symbol a call on a CONCRETE, NON-GENERIC owner actually reaches.
-// The call site composes `<owner>__<method>`; what is emitted carries the
-// package and the signature too (`inheritance_basic.A__f__f__ref_A`), so the
-// composed name names nothing and mlir-gen bridged the gap by scanning
-// function names for a `<callee>__` prefix.
-//
-// This is recompose-and-compare (mname::sig_of), not a prefix probe: a
-// candidate is accepted only when its whole name is exactly
-// `[pkg.]<owner>"__"<method><sig>` with `<sig>` a NON-generic tail (`__f__…`).
-// Generic templates are excluded on purpose — naming one is naming a function
-// that is never emitted, which is how the by-signature attempt (548027547)
-// broke eight iterator fixtures. Ambiguity is reported as no answer: two
-// candidates mean the owner/method pair does not determine the callee, and
-// picking one would be the guess this replaces. A candidate that cannot take
-// the call's argument count is not a candidate: an inherent `m(&self, k)` and a
-// trait `m(&self)` on one owner are both `<owner>__m`, and a bound call
-// `x.m()` names only the one it can call.
 // `trait` is the trait's qualified identity (`logos.lang.cmp::Eq`) when the
 // caller holds it, and then only that trait answers; a bare spelling (a call's
 // recorded `tag_trait`) matches the identity's last segment.
@@ -1691,37 +1643,6 @@ std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
     if (ambiguous || best.empty()) return {};
     if (!best_args.empty()) enqueue_if_needed(best, best_args);
     return best;
-}
-
-std::string Mono::declared_method_symbol(std::string_view owner, std::string_view pkg,
-                                         std::string_view method, int64_t arity,
-                                         const std::vector<TypeRef>* arg_types) {
-    if (owner.empty() || method.empty()) return {};
-    std::string best, best_exact;
-    bool ambiguous = false, ambiguous_exact = false;
-    auto consider = [&](lir_view::FunctionView fn, const TypePoolImpl* pool) {
-        if (!fn || fn.method_base() != method) return;
-        if (arity >= 0 && !fn.is_vararg() && int64_t(fn.param_count()) != arity) return;
-        std::string_view n = fn.name();
-        auto tail = mname::sig_of(n, owner, method);
-        if (!tail || !tail->starts_with("__f__")) return;
-        if (!pkg.empty() && !fn.package().empty() && fn.package() != pkg) return;
-        if (best.empty()) best = std::string(n);
-        else if (best != n) ambiguous = true;
-        // Exact on the arguments (after the receiver): two impls of one trait at
-        // different type arguments (`Add<V>` / `Add<&V>`) differ only here.
-        if (!arg_types) return;
-        auto ps = fn.params();
-        if (ps.size() != arg_types->size() + 1) return;
-        for (size_t i = 0; i < arg_types->size(); ++i)
-            if (!(*arg_types)[i] || !types_equal(ps[i + 1].type(pool), (*arg_types)[i])) return;
-        if (best_exact.empty()) best_exact = std::string(n);
-        else if (best_exact != n) ambiguous_exact = true;
-    };
-    for (auto& fn : out_.functions) consider(fn, out_.type_pool.impl());
-    for (auto& fn : in_.functions) consider(fn, in_.type_pool.impl());
-    if (!ambiguous) return best;
-    return ambiguous_exact ? std::string() : best_exact;
 }
 
 std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,
