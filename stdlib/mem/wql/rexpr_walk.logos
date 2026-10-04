@@ -4650,8 +4650,9 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
 // same function rather than being passed through untouched. The identity
 // permutation with the derivation's own predicate placement and the planner's own
 // recorded strategies has to come out as the chain that was collected — and the
-// derivation ASSERTS that (`RJ_SHAPE` when the placement disagrees), so a shape
-// this reconstruction cannot express refuses instead of emitting a wrong nest.
+// derivation ASSERTS that (a panic in `derive_orders` when the placement
+// disagrees), so a shape this reconstruction cannot express stops the compile
+// instead of emitting a wrong nest.
 fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
     let m: i64 = ch.n + 1i64;
     let mut fl: [i64; 4] = [0i64; 4];

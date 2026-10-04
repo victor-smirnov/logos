@@ -1,0 +1,40 @@
+// The order axis's `RJ_PREDBASE` ground (C5: a join predicate would land on the
+// outermost loop), witnessed (2026-10-04). A step whose `on` reads ONE side
+// only — its own row (`own`) or the base's (`base_only`) — has its predicate
+// land on the base in one of the two orders, and the base carries no `on`:
+// `own` refuses b>a, `base_only` refuses the query's own a>b. Either way one
+// order is admissible and the query's own nest is emitted. The rows and their
+// order are asserted.
+//
+// exit 0 = both answers, in the `order by` sequence.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub m: i64 }
+
+pub deem own(xs: &[A], ys: &[B]) {
+    from xs a join ys b on b.m == 3 select (a.v, b.m) order by a.k }
+pub deem base_only(xs: &[A], ys: &[B]) {
+    from xs a join ys b on a.k == 3 select (a.v, b.m) order by b.m }
+
+fn row(r: &Vec<(i64, i64)>, i: i64, v: i64, m: i64) -> bool {
+    return r.get(i).0 == v && r.get(i).1 == m;
+}
+
+fn main() -> i32 {
+    let xs: [A; 2] = [A { k: 3i64, v: 30i64 }, A { k: 1i64, v: 10i64 }];
+    let ys: [B; 3] = [B { m: 3i64 }, B { m: 0i64 }, B { m: 3i64 }];
+    // own: every a with each b.m == 3, ascending a.k
+    let o: Vec<(i64, i64)> = own(&xs[..], &ys[..]).unwrap();
+    if o.len() != 4i64 { return 1i32; }
+    if !row(&o, 0i64, 10i64, 3i64) || !row(&o, 1i64, 10i64, 3i64) { return 2i32; }
+    if !row(&o, 2i64, 30i64, 3i64) || !row(&o, 3i64, 30i64, 3i64) { return 3i32; }
+    // base_only: a.k == 3 with every b, ascending b.m
+    let b: Vec<(i64, i64)> = base_only(&xs[..], &ys[..]).unwrap();
+    if b.len() != 3i64 { return 4i32; }
+    if !row(&b, 0i64, 30i64, 0i64) || !row(&b, 1i64, 30i64, 3i64) || !row(&b, 2i64, 30i64, 3i64) { return 5i32; }
+    return 0i32;
+}

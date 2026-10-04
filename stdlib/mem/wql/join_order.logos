@@ -721,13 +721,25 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                 if lp <= 0i64 { rej = RJ_PREDBASE(); }
                 else {
                     let ls: i64 = seq[lp];
-                    if c.anti[ls] || c.edge[ls] { rej = RJ_PREDPIN(); }
-                    else {
-                        let fjx: i64 = flpos[ls];
-                        if fjx == 0i64 { rej = RJ_PREDBASE(); }
-                        else if slotpred[fjx] != 0i64 { rej = RJ_PREDDUP(); }
-                        else { slotpred[fjx] = fp[fi2]; }
+                    // ⚠ INVARIANTS, NOT GROUNDS (2026-10-04). A floating predicate
+                    // reads only vars bound at or before its step, never an anti
+                    // var (both refused by `plan_walker::stamp_steps`), and a
+                    // traversal before a classic step leaves it undecided
+                    // (`WG_UNDECIDED`), so its last-bound var is floatable:
+                    // `RJ_PREDPIN` left the vocabulary. And `seq[0]` is always the
+                    // first floatable slot, so `flpos == 0` is `lp == 0`, refused
+                    // above. CONTROL: a panic at both left all 306 wql/deem tests
+                    // green; the same panic at `lp <= 0` failed the witness
+                    // `wql_order_pred_base_e2e`.
+                    if c.anti[ls] || c.edge[ls] {
+                        logos.lang.panic::panic("wql!: a floating join predicate's last-bound var is a pinned step's");
                     }
+                    let fjx: i64 = flpos[ls];
+                    if fjx == 0i64 {
+                        logos.lang.panic::panic("wql!: a floating join predicate landed on the first floatable slot past position 0");
+                    }
+                    if slotpred[fjx] != 0i64 { rej = RJ_PREDDUP(); }
+                    else { slotpred[fjx] = fp[fi2]; }
                 }
                 fi2 = fi2 + 1i64;
             }
@@ -752,9 +764,15 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     cwy[sj] = c.sground[sl2];
                     // ⚠ The derivation must REPRODUCE the query for the identity
                     // permutation, and the one place that could silently differ is
-                    // C5's placement. If it does, the chain has a shape this
-                    // module does not model and no order is offered.
-                    if slotpred[sj] != c.onw[sl2] { rej = RJ_SHAPE(); }
+                    // C5's placement. An INVARIANT since 2026-10-04 (`RJ_SHAPE`
+                    // left the vocabulary): under the identity each predicate reads
+                    // only vars bound at or before its own step, so C5 maps step k
+                    // to a slot <= k, injectively and never to 0 (PREDDUP /
+                    // PREDBASE refuse first) — the identity map. CONTROL: a panic
+                    // here left all 306 wql/deem tests green.
+                    if slotpred[sj] != c.onw[sl2] {
+                        logos.lang.panic::panic("wql!: the identity order's predicate placement differs from the query's chain");
+                    }
                 } else {
                     let pw: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(slotpred[sj] as *const u8) });
                     let ss: StepSel = decide_join_step(pw, c.var[sl2], t, h);

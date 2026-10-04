@@ -176,8 +176,10 @@ pub fn RJ_PREDBASE() -> i32 { return 2i32; }
 pub fn RJ_PREDDUP() -> i32  { return 3i32; }
 pub fn RJ_RESCAN() -> i32   { return 4i32; }
 pub fn RJ_DEDUP() -> i32    { return 5i32; }
-pub fn RJ_SHAPE() -> i32    { return 6i32; }
-pub fn RJ_PREDPIN() -> i32  { return 7i32; }
+// 6 (`RJ_SHAPE`) and 7 (`RJ_PREDPIN`) are DELETED (2026-10-04): unreachable
+// once a step's `on` is scoped (`join_order::derive_orders` holds them as
+// panics). `RJ_N` stays 8: the census is spliced into generated code as eight
+// literals (`rj_at`), and the two slots are always 0.
 pub fn RJ_N() -> i64        { return 8i64; }
 
 // ── THE RECORD ───────────────────────────────────────────────────────────────
@@ -467,18 +469,10 @@ pub fn rj_words(r: i32, nfl: i64) -> str {
         return "C4: a pinned step (an anti join or a traversal) would stand before a row var its `on` or its field-path source reads — the dependency is not bound yet at that depth";
     }
     if r == RJ_PREDBASE() {
-        return "C5: a join predicate would land on the OUTERMOST loop, which carries none — nothing has bound its other side at that position";
+        return "C5: a join predicate would land on the OUTERMOST loop, which carries none — in this order it reads no row var bound after the base (only the base's row, or no row var at all), and nothing here turns it into a filter on the scan";
     }
     if r == RJ_PREDDUP() {
         return "C5: two join predicates land on the same position and a step carries one `on` — this order would need a conjunction, which nothing here builds";
-    }
-    // ⚠ A SEPARATE GROUND, not a variant of the one above, because the antecedent
-    // that failed is a different one: nothing collided here — the predicate's
-    // last-bound var simply belongs to a step whose `on` is not a floating
-    // predicate's to take. Naming the collision instead would send a reader looking
-    // for a second predicate that does not exist.
-    if r == RJ_PREDPIN() {
-        return "C5: a join predicate's last-bound var belongs to a PINNED step (an anti join or a traversal), whose `on` is its own — nothing here re-attaches a floating predicate to one, so the predicate has no evaluable position in this order";
     }
     if r == RJ_RESCAN() {
         if nfl == 2i64 {
@@ -491,9 +485,6 @@ pub fn rj_words(r: i32, nfl: i64) -> str {
             return "both sides are the same source, so the two sizes are equal by construction — no measurement at either decision point can prefer one order, and the transposed nest could never be the one chosen";
         }
         return "C7: this order's (size, role) sequence is the one an earlier candidate already has, so it costs the same for every possible data and no measurement could ever select it";
-    }
-    if r == RJ_SHAPE() {
-        return "a floatable step carries no `on` (a cross product), so the predicates and the positions are not in bijection and C5 has nothing to place";
     }
     return "admitted";
 }
