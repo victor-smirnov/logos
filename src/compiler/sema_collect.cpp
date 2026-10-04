@@ -6972,6 +6972,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         for (auto& p : w) info.lifetime_outlives.push_back(std::move(p));
     }
     info.base_name = base_name;
+    info.decl_key = decl_key_(node, struct_ctx);
     info.owner_struct = std::string(struct_ctx);   // CARRIED, not re-derived
     info.is_method    = !struct_ctx.empty();
     info.source_file = file_;
@@ -7087,10 +7088,13 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         auto& overloads = func_overloads_[base_name];
         for (auto& sym : overloads) {
             auto fit = funcs_.find(sym);
-            if (fit != funcs_.end() && fit->second.signature_key == info.signature_key)
+            if (fit != funcs_.end() && fit->second.signature_key == info.signature_key) {
+                decl_symbols_[info.decl_key] = sym;   // one extern, declared again
                 return;
+            }
         }
         overloads.push_back(base_name);
+        decl_symbols_[info.decl_key] = base_name;
         funcs_[base_name] = std::move(info);
         return;
     }
@@ -7194,6 +7198,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
                     std::string ex_qual = qual_for(ex_trait, ex.trait_type_args);
                     ex.base_name   = ex_qual;
                     ex.symbol_name = function_symbol_name(ex_qual, ex);
+                    if (!ex.decl_key.empty()) decl_symbols_[ex.decl_key] = ex.symbol_name;
                     auto& plist = ov[plain_base];
                     plist.erase(std::remove(plist.begin(), plist.end(), clash_sym),
                                 plist.end());
@@ -7253,6 +7258,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
                                       std::string(raw_name);
                 ex.base_name   = ex_qual;
                 ex.symbol_name = function_symbol_name(ex_qual, ex);
+                if (!ex.decl_key.empty()) decl_symbols_[ex.decl_key] = ex.symbol_name;
                 auto& plist = ov[base_name];
                 plist.erase(std::remove(plist.begin(), plist.end(), sitting), plist.end());
                 ov[ex_qual].push_back(ex.symbol_name);
@@ -7274,13 +7280,16 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
             // distinct symbol_names → coexist. Duplicate flagged only on
             // exact symbol_name match (same pkg, base, signature).
             if (it->second.symbol_name == info.symbol_name) {
-                if (code_of(node) == la::EXTERN_FN && it->second.is_extern)
+                if (code_of(node) == la::EXTERN_FN && it->second.is_extern) {
+                    decl_symbols_[info.decl_key] = info.symbol_name;
                     return;
+                }
                 error(std::format("duplicate function '{}'", base_name));
                 return;
             }
         }
         gen_overloads.push_back(info.symbol_name);
+        decl_symbols_[info.decl_key] = info.symbol_name;
         generic_funcs_[info.symbol_name] = std::move(info);
         return;
     }
@@ -7300,14 +7309,17 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         auto fit = funcs_.find(sym);
         if (fit == funcs_.end()) continue;
         if (fit->second.symbol_name == info.symbol_name) {
-            if (code_of(node) == la::EXTERN_FN && fit->second.is_extern)
+            if (code_of(node) == la::EXTERN_FN && fit->second.is_extern) {
+                decl_symbols_[info.decl_key] = info.symbol_name;   // one extern, declared again
                 return;
+            }
             error(std::format("duplicate function '{}'", base_name));
             return;
         }
     }
 
     overloads.push_back(info.symbol_name);
+    decl_symbols_[info.decl_key] = info.symbol_name;
     funcs_[info.symbol_name] = std::move(info);
 }
 

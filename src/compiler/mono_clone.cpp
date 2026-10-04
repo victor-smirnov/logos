@@ -5044,9 +5044,25 @@ std::string Mono::ref_target_key(TypeRef t) {
 //      recursively check every bound against the substituted arg.
 //   4) If any impl satisfies all its bounds against the concrete's
 //      type-args, return true. Otherwise false.
+// SL-sl-02 for every mono gate, as sema's bound check: a `PartialEq` /
+// `PartialOrd` bound is satisfied by the type's `Eq` / `Ord` impl, which carries
+// the method (Logos's `Eq` is not declared `: PartialEq`). method_bound_ok used
+// to refuse `impl<T: PartialEq> PartialEq for GenPair<T>` at T = i64 and drop
+// the method in silence.
 bool Mono::mono_concrete_satisfies_bound(const TraitQuery& q,
                                          TypeRef concrete,
                                          StrSet& seen) {
+    if (mono_concrete_satisfies_bound_direct_(q, concrete, seen)) return true;
+    const bool partial_eq = q.key() == "logos.lang.cmp::PartialEq" || (!q.has_identity && q.spelling == "PartialEq");
+    const bool partial_ord = q.key() == "logos.lang.cmp::PartialOrd" || (!q.has_identity && q.spelling == "PartialOrd");
+    if (!partial_eq && !partial_ord) return false;
+    return mono_concrete_satisfies_bound_direct_(
+        partial_eq ? TraitQuery("Eq", "logos.lang.cmp::Eq") : TraitQuery("Ord", "logos.lang.cmp::Ord"), concrete, seen);
+}
+
+bool Mono::mono_concrete_satisfies_bound_direct_(const TraitQuery& q,
+                                                 TypeRef concrete,
+                                                 StrSet& seen) {
     // Local alias: the bare SPELLING is what the auto-trait names and the
     // legacy out_.impls scans below are keyed by; `q.key()` is what the fact
     // tables are keyed by. Both are used, deliberately, and never swapped.

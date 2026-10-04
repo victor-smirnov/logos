@@ -1,0 +1,37 @@
+// ADR 0030 S9 rows 1-2: two impls of one owner that declare one method name are two
+// declarations with two symbols, and a call reaches the one its receiver selects.
+// `impl<T> W<&T>` / `impl<T> W<Box<T>>`: lower_fn used to re-find the first impl's info
+// for the second impl's `tag`, both bodies were emitted under one symbol, and the
+// `W<&i64>` call vanished with its statement. The bound-discriminated family
+// `P<T: ?Sized>` / `P<T: Copy + Frozen>` picks the twin whose bounds the receiver's
+// arguments meet, at a concrete receiver and through a bounded generic.
+// Output: 1 2 3 107 9 107.
+package s9_decl_identity_impl_twins;
+use logos.mem.boxed;
+use logos.std.fmt;
+
+struct W<T> { t: T }
+impl<T> W<&T> { fn tag(&self) -> i32 { return 1i32; } }
+impl<T> W<Box<T>> { fn tag(&self) -> i32 { return 2i32; } }
+impl W<i64> { fn tag(&self) -> i32 { return 3i32; } }
+
+pub trait Frozen {}
+impl Frozen for u64 {}
+
+pub struct P<T: ?Sized> { a: u64 }
+pub struct P<T: Copy + Frozen> { b: u32 }
+impl<T: ?Sized> P<T> { pub fn tag(self: &P<T>) -> u64 { return self.a; } }
+impl<T: Copy + Frozen> P<T> { pub fn tag(self: &P<T>) -> u64 { return (self.b as u64) + 100u64; } }
+
+fn tag_of<T: Copy + Frozen>(p: &P<T>) -> u64 { return p.tag(); }
+
+fn main() -> i32 {
+    let x = 5i64;
+    let wr = W { t: &x };
+    let wb = W { t: Box::new(5i64) };
+    let wi = W { t: 5i64 };
+    let f: P<u64> = P::<u64> { b: 7u32 };
+    let g: P<i64> = P::<i64> { a: 9u64 };
+    println!("{} {} {} {} {} {}", wr.tag(), wb.tag(), wi.tag(), f.tag(), g.tag(), tag_of(&f));
+    return 0i32;
+}

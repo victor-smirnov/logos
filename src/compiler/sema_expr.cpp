@@ -6426,45 +6426,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
         // viable; among viable ones, more bounds = more specialized (the
         // fspec bonus below).
         int bound_count = 0;
-        {
-            bool viable = true;
-            for (auto& tp : fi.type_params) {
-                if (tp.bounds.empty()) continue;
-                bound_count += static_cast<int>(tp.bounds.size());
-                auto bit = binds.find(tp.name);
-                if (bit == binds.end() || !bit->second) continue;  // unbound → defer
-                TypeRef bv = bit->second;
-                if (TypeRef(bv).kind() == LogosType::Kind::TypeVar) {
-                    // Generic context: check the SCOPE's declared bounds of
-                    // the bound-to var (impl_type_params_ as fallback for
-                    // passes that reach here with the scope unwound).
-                    std::string bvn(TypeRef(bv).type_var_name());
-                    const std::vector<TraitBound>* sb = nullptr;
-                    if (auto cit = current_type_bounds_.find(bvn);
-                        cit != current_type_bounds_.end()) sb = &cit->second;
-                    if (!sb)
-                        for (auto& itp2 : impl_type_params_)
-                            if (itp2.name == bvn && !itp2.bounds.empty())
-                                { sb = &itp2.bounds; break; }
-                    for (auto& need : tp.bounds) {
-                        bool found = false;
-                        if (sb)
-                            for (auto& have : *sb)
-                                if (have.trait_name == need.trait_name)
-                                    { found = true; break; }
-                        if (!found) { viable = false; break; }
-                    }
-                } else if (!contains_typevar_sema_expr(bv)) {
-                    std::vector<TypeParam> one{tp};
-                    std::vector<TypeRef> args1{bv};
-                    if (!type_bounds_satisfied_quiet(std::string(base_name),
-                                                     one, args1))
-                        viable = false;
-                }
-                if (!viable) break;
-            }
-            if (!viable) continue;
-        }
+        if (!type_param_bounds_viable_(fi, binds, &bound_count)) continue;
         // Partial-spec partial order: on equal arg-match score, the overload
         // with MORE STRUCTURE in its unsubstituted formals is more specialized
         // (impl<E> PkdArray<[E]> beats impl<T> PkdArray<T> for a slice arg) —
@@ -6488,6 +6450,52 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func_for_args(
         }
     }
     return best;
+}
+
+// A candidate's type-parameter bounds at the bindings of one call (ADR 0030 S9
+// row 2): false when a bound value fails a bound — a bound-discriminated twin
+// (`impl<T: Copy + Frozen> S<T>` vs `impl<T: ?Sized> S<T>`) that does not apply.
+// An unbound parameter defers; a type variable answers by the bounds in scope.
+// `*bound_count` gets the number of bounds (more = more specialized).
+bool SemaChecker::type_param_bounds_viable_(const SemaFuncInfo& fi, const SemaSubst& binds, int* bound_count) {
+    int& n_bounds = *bound_count;
+    n_bounds = 0;
+    bool viable = true;
+    for (auto& tp : fi.type_params) {
+        if (tp.bounds.empty()) continue;
+        n_bounds += static_cast<int>(tp.bounds.size());
+        auto bit = binds.find(tp.name);
+        if (bit == binds.end() || !bit->second) continue;  // unbound → defer
+        TypeRef bv = bit->second;
+        if (TypeRef(bv).kind() == LogosType::Kind::TypeVar) {
+            // Generic context: check the SCOPE's declared bounds of
+            // the bound-to var (impl_type_params_ as fallback for
+            // passes that reach here with the scope unwound).
+            std::string bvn(TypeRef(bv).type_var_name());
+            const std::vector<TraitBound>* sb = nullptr;
+            if (auto cit = current_type_bounds_.find(bvn);
+                cit != current_type_bounds_.end()) sb = &cit->second;
+            if (!sb)
+                for (auto& itp2 : impl_type_params_)
+                    if (itp2.name == bvn && !itp2.bounds.empty())
+                        { sb = &itp2.bounds; break; }
+            for (auto& need : tp.bounds) {
+                bool found = false;
+                if (sb)
+                    for (auto& have : *sb)
+                        if (have.trait_name == need.trait_name)
+                            { found = true; break; }
+                if (!found) { viable = false; break; }
+            }
+        } else if (!contains_typevar_sema_expr(bv)) {
+            std::vector<TypeParam> one{tp};
+            std::vector<TypeRef> args1{bv};
+            if (!type_bounds_satisfied_quiet(fi.base_name, one, args1))
+                viable = false;
+        }
+        if (!viable) break;
+    }
+    return viable;
 }
 
 // C-INF: the one argument-to-formal unification of generic-argument
@@ -11673,7 +11681,32 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 return n;
             };
             std::vector<const SemaFuncInfo*> tied = pk.tied;
-            std::stable_sort(tied.begin(), tied.end(), [&](auto* x, auto* y) { return specificity(x) > specificity(y); });
+            // A bound-discriminated family (`impl<T: Copy + Frozen> PkdB<T>` /
+            // `impl<T: ?Sized> PkdB<T>`): a twin whose bounds the receiver's
+            // arguments fail does not apply; among the rest, more bounds is
+            // more specialized (ADR 0030 S9 row 2).
+            std::unordered_map<const SemaFuncInfo*, int> n_bounds;
+            if (tied.size() > 1) {
+                auto peel = [](TypeRef t) {
+                    while (t && (is_ref_like(TypeRef(t).kind()) || TypeRef(t).kind() == LogosType::Kind::Ptr) &&
+                           TypeRef(t).pointee())
+                        t = TypeRef(t).pointee();
+                    return t;
+                };
+                std::vector<const SemaFuncInfo*> viable;
+                for (auto* c : tied) {
+                    StrMap<TypeRef> binds;
+                    if (c->param_types[0] && expr_type(recv))
+                        unify_arg_(peel(c->param_types[0]), peel(expr_type(recv)), binds);
+                    int nb = 0;
+                    if (type_param_bounds_viable_(*c, binds, &nb)) { viable.push_back(c); n_bounds[c] = nb; }
+                }
+                if (!viable.empty()) tied = std::move(viable);
+            }
+            std::stable_sort(tied.begin(), tied.end(), [&](auto* x, auto* y) {
+                if (specificity(x) != specificity(y)) return specificity(x) > specificity(y);
+                return n_bounds[x] > n_bounds[y];
+            });
             for (auto* c : tied) {
                 if (c->param_types.size() != arg_exprs.size() + 1) {
                     mwhy_arity_(c->param_types.size(), arg_exprs.size() + 1);
