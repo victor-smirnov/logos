@@ -375,7 +375,13 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             out.push_str(")");
             return true;
         }
-        _ => { return dx_no(cl, "expression form (call, cast, conditional, …)"); }
+        SExpr::Cast(_c) => { return dx_no(cl, "cast"); }
+        SExpr::Cond(_c) => { return dx_no(cl, "conditional (if / else)"); }
+        SExpr::Call(c) => {
+            if builtin_of_name(c.fn_name) != BFN_UNKNOWN() { return dx_no(cl, "builtin call"); }
+            return dx_no(cl, "user-defined function call");
+        }
+        _ => { return dx_no(cl, "expression form (list, tuple projection, …)"); }
     }
 }
 
