@@ -1248,9 +1248,11 @@ UNWITNESSED = {
     # wrong cause (a rel body's chain) and was corrected with it.
     # WG_CROSS left 2026-10-04 REFUTED: every floatable step has an `on`; a
     # panic at its site left all 309 wql/deem tests green.
-    "WG_NO_SIZE",
+    # WG_NO_SIZE, SZ_RUN_STREAMS and SZ_PREP_STREAMS left 2026-10-04 REFUTED:
+    # `order by` (the only way into the size facts) materializes every join
+    # source, so no streamed side is classified; a panic at the three sites
+    # left all 309 wql/deem tests green.
     "RJ_PREDBASE", "RJ_PREDPIN", "RJ_SHAPE",
-    "SZ_RUN_STREAMS", "SZ_PREP_STREAMS",
     # ⚠ NO `MG_*` ENTRY REMAINS, AND THE ABSENCE IS THE LOAD-BEARING PART (S2h).
     # This block used to hold `MG_REL_BLOCK`, `MG_UNDECIDED`, `MG_GPATH` and
     # `MG_UNPROVEN` as the S2 debt ledger. Three are now witnessed by

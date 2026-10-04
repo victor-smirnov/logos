@@ -395,7 +395,17 @@ fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
     // readings that moved to `rel_src_unmaterialized`. Reading the node here
     // would answer "a buffer exists" for a container source that reports its
     // size perfectly well.
-    if prm.rel_src_streams(src) { return SZ_STREAMS(); }
+    // ⚠ AN INVARIANT SINCE 2026-10-04, NOT A SIZE CLASS: the order axis reaches
+    // the size facts only under `order by`, and `order by` MATERIALIZES every
+    // source of a join (the sort revisits rows by position; the S3 elision that
+    // leaves an ordered source streamed is for a single-source query only). So
+    // no streamed source is classified here. CONTROL: a panic here, in
+    // `run_size_expr_of` and at the old `WG_NO_SIZE` refusal left all 309
+    // wql/deem tests green. `SZ_STREAMS` and `WG_NO_SIZE` left the vocabulary.
+    if prm.rel_src_streams(src) {
+        logos.lang.panic::panic("wql!: a streamed source reached the order axis's size facts");
+        return SZ_DERIVED();
+    }
     let ri: i64 = prm.rel_find_src(src);
     if ri >= 0i64 && string_as_str(&prm.rel_size_at[ri]).len() == 0i64 {
         if prm.rel_native[ri] { return SZ_DERIVED(); }
@@ -471,7 +481,11 @@ fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
     // ⚠ SURVIVOR, same correction as `prep_size_reason` above: the question is
     // whether `(src).len()` is a legal O(1) expression over this name, which is
     // the PLAN'S DECISION about consumption, not the emitted scan's shape.
-    if prm.rel_src_streams(src) { return false; }
+    if prm.rel_src_streams(src) {
+        // an invariant: see `prep_size_reason`
+        logos.lang.panic::panic("wql!: a streamed source reached the order axis's run-time size");
+        return false;
+    }
     out.push_str("(");
     out.push_str(src);
     out.push_str(").len()");
@@ -991,29 +1005,10 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
             i2 = i2 + 1i64;
         }
         if !okr {
-            let mut i3: i64 = 0i64;
-            while i3 < nfl { ats[i3] = -1i64; i3 = i3 + 1i64; }
-            // ⚠ THE SIDES ARE OPERANDS OF THIS REFUSAL. `operand()` answers the
-            // first source that has no number at either point, so a reader is sent to
-            // the source that refused rather than to the query as a whole — and
-            // `sz_remedy_words` derives the repair from the same code.
-            let mut rs: JoinOrder = jo_ground(WG_NO_SIZE(), AX_REFUSED());
-            rs.w.nfl = nfl;
-            // ⚠ NO `why_sides_sz` HERE, AND THAT IS THE DIFFERENCE FROM THE DEFERRED
-            // PATH. The size EXPRESSIONS are only ever read for a DEFERRED ground
-            // (`why_push_sizes` is reached from `why.logos` under
-            // `w.ground == WG_DEFERRED()` and from the `jo.deferred` trace arm), and
-            // this ground is `WG_NO_SIZE`: the strings were blanked one statement
-            // later and could never be read. Storing them anyway made `rs.w.ssz[k]`
-            // a `str` INTO `szs[k]` that the very next loop `clear()`s — a borrow
-            // held across the mutation of its owner, which rustc rejects and which
-            // survived here only because the raw round trip in `string_as_str`
-            // severs the provenance the checker follows. `ssz` is already `""` from
-            // `why_new`, so the blanking loop had nothing to undo either.
-            why_sides(&mut rs.w, c, &fl, nfl, &rsn);
-            let mut i4: i64 = 0i64;
-            while i4 < nfl { szs[i4].clear(); i4 = i4 + 1i64; }
-            return rs;
+            // unreachable: `run_size_expr_of` answers every non-streamed source and
+            // panics on a streamed one (the `WG_NO_SIZE` refusal was refuted)
+            logos.lang.panic::panic("wql!: a join side with no size at either point");
+            return jo_ground(WG_UNSET(), AX_REFUSED());
         }
         deferred = true;
     }

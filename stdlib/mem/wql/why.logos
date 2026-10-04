@@ -142,7 +142,6 @@ pub fn WG_NO_SORT() -> i32      { return 13i32; }
 pub fn WG_KEY_ORDER() -> i32    { return 14i32; }
 pub fn WG_UNDECIDED() -> i32    { return 15i32; }
 pub fn WG_MAX_FL() -> i32       { return 17i32; }
-pub fn WG_NO_SIZE() -> i32      { return 18i32; }
 
 pub fn WG_MAX_CAND() -> i32     { return 20i32; }
 pub fn WG_REFUSED() -> i32      { return 21i32; }
@@ -157,12 +156,14 @@ pub fn WG_DEFERRED() -> i32     { return 23i32; }
 
 // ── WHY POINT (1) COULD OR COULD NOT MEASURE A SIDE ──────────────────────────
 // The per-side size classification, moved here from `join_order` with the rest of
-// the vocabulary: the codes are OPERANDS of `WG_DEFERRED` and `WG_NO_SIZE`, so they
+// the vocabulary: the codes are OPERANDS of `WG_DEFERRED`, so they
 // belong beside the record that carries them. `join_order::prep_size_reason` is
 // still the one rule that ASSIGNS them — it needs the rel registry — and this file
 // is the one place that says what each one MEANS and what repairs it.
 pub fn SZ_OK() -> i32      { return 0i32; }
-pub fn SZ_STREAMS() -> i32 { return 1i32; }
+// 1 (`SZ_STREAMS`) is DELETED (2026-10-04) with `WG_NO_SIZE` (18): under `order by`,
+// the only way into the size facts, every join source is materialized, so no
+// streamed side is ever classified (`join_order::prep_size_reason`).
 pub fn SZ_DERIVED() -> i32 { return 2i32; }
 pub fn SZ_LOCAL() -> i32   { return 3i32; }
 
@@ -302,7 +303,7 @@ pub fn why_axis(w: &Why) -> i32 { return w.axis; }
 /// (which `enumerated`/`proved`/`considered`/`refused` already answer).
 pub fn why_operand(w: &Why) -> str {
     if w.ground == WG_KEY_ORDER() { return w.key; }
-    if w.ground == WG_DEFERRED() || w.ground == WG_NO_SIZE() {
+    if w.ground == WG_DEFERRED() {
         let mut i: i64 = 0i64;
         while i < w.nsd {
             if w.scode[i] != SZ_OK() { return w.ssrc[i]; }
@@ -364,9 +365,6 @@ pub fn wg_words(g: i32) -> str {
     if g == WG_MAX_FL() {
         return "more floatable sources than a plan holds facts for (four): the permutation search and the plan's size table are both bounded there, so this chain keeps the query's own order rather than searching a truncated space";
     }
-    if g == WG_NO_SIZE() {
-        return "a side's size is free at NEITHER decision point: it streams, so it has no length before the query runs and none inside it either — counting would mean draining the iterator, which is the query's own work, and trading that for a plan fact is what this axis refuses";
-    }
     if g == WG_MAX_CAND() {
         return "more admissible orders than an artifact carries nests (four): the reorder is declined whole rather than searched over a set chosen by enumeration order, so the query's own order is emitted";
     }
@@ -405,9 +403,6 @@ pub fn wg_remedy(g: i32) -> str {
     if g == WG_MAX_FL() {
         return "fewer floatable sources in one chain — the bound is `join_cost::JC_MAX_FL()`, and it is the width of the plan's fact table, not a search budget that could be raised on its own";
     }
-    if g == WG_NO_SIZE() {
-        return "this axis offers no repair for a streamed side: an iterator has no length at EITHER point and counting means draining it. A source that can be counted is a different source, not a declaration added to this one";
-    }
     if g == WG_MAX_CAND() {
         return "a shorter chain, or one more pinned step — the bound is `join_cost::JC_MAX_CAND()`, the nests one artifact carries for one join body, so carrying more orders is a decision about the ARTIFACT (one order per object file) and not about this query";
     }
@@ -425,9 +420,6 @@ pub fn sz_no_prepare_words(r: i32) -> str {
     }
     if r == SZ_LOCAL() {
         return "is a `rel` BLOCK OF THIS QUERY: its rows are produced by the query's own fixpoint into a local of the generated fn, so before the prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
-    }
-    if r == SZ_STREAMS() {
-        return "STREAMS: an iterator has no length, and counting means draining it — the query's own work traded for a plan fact, which this axis refuses at both points";
     }
     // Default-DENY, stated: a code nobody has named yet does not get to borrow one of
     // the grounds above.
@@ -448,9 +440,6 @@ pub fn sz_remedy_words(r: i32) -> str {
     if r == SZ_LOCAL() {
         return "there is NOTHING TO DECLARE A SIZE ON: a `rel` block is part of this query, not a source it was given, and the registry carries no size field for one (`plan_walker::reg_native` is the only writer of `rel_size_fn` and it reads a natspec). The decision returns to point (1) only if the relation stops being the query's — materialized by the caller and passed in as a source that declares a `size`";
     }
-    if r == SZ_STREAMS() {
-        return "this axis offers no repair: an iterator has no length at EITHER point and counting means draining it. A source that can be counted is a different source, not a declaration added to this one";
-    }
     return "no repair is derivable, because the classification reached a code this module has not named — a defect in `join_order::prep_size_reason` and not a property of the query";
 }
 
@@ -462,9 +451,6 @@ pub fn sz_remedy_words(r: i32) -> str {
 pub fn sz_run_words(r: i32) -> str {
     if r == SZ_DERIVED() || r == SZ_LOCAL() {
         return "a relation the prelude materialized for the query's own reasons";
-    }
-    if r == SZ_STREAMS() {
-        return "a streamed source, which has no length here either — this side cannot be reached";
     }
     if r == SZ_OK() {
         return "an input the caller passed in, which `prepare` COULD have measured";
@@ -769,7 +755,7 @@ fn push_census(w: &Why, out: &mut String) {
 /// how one remedy came to be printed for sources that cannot take it. Class order is
 /// CODE order, the same rule the refusal census follows.
 fn push_remedy(w: &Why, out: &mut String) {
-    if w.ground == WG_DEFERRED() || w.ground == WG_NO_SIZE() {
+    if w.ground == WG_DEFERRED() {
         let mut nw: i64 = 0i64;
         let mut code: i64 = 1i64;
         while code < 4i64 {
