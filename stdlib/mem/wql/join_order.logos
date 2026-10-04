@@ -90,9 +90,11 @@
 //      that used to normalize such a value into i64 silently.
 //
 //   C2 A PLAN MUST HAVE DECIDED THE CHAIN. A step whose strategy is JS_NONE was
-//      never looked at by a planner (a rel body's own chain is emitted per
-//      fixpoint variant), so there is no decision to offer a second order for and
-//      no recorded strategy to reason from.
+//      never looked at by a planner — a step after a traversal, which
+//      `plan_decide_chain` stops at because the row var a traversal binds is typed
+//      only once it is stamped — so there is no decision to offer a second order
+//      for and no recorded strategy to reason from (witness:
+//      `wql_order_undecided_step_e2e`, 2026-10-04).
 //
 //   C3 A PINNED STEP KEEPS ITS DEPTH IN THE BOUND STREAM. An ANTI step's
 //      predicate is inseparable from its source — "rows of a with no matching b"
@@ -296,7 +298,7 @@ fn jo_why(w: Why) -> JoinOrder {
 /// happen to be laid out rather than of what this function's caller just decided.
 /// Every call below is inside `decide_join_orders`, which runs only where the query
 /// HAS a join — so all but one of them pass `AX_REFUSED`, and the one that does not
-/// (`WG_NO_STEP`) is the one place the axis genuinely does not exist.
+/// (a chain with no step, an invariant since `WG_NO_STEP` was refuted) is the one place the axis genuinely does not exist.
 fn jo_ground(g: i32, ax: i32) -> JoinOrder {
     return jo_why(why_of(g, ax));
 }
@@ -860,13 +862,12 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: 
     let base_var: str = c.var[0];
     let s0_var: str = c.var[1];
     if c.n < 1i64 {
-        // ⚠ THE ONE `AX_NONE` ON THIS PATH, and it is the honest one: no step means
-        // no second side, hence no order for a plan to choose. It read `AX_REFUSED`
-        // while the state was a band over the code (`WG_NO_STEP` is 10), which said
-        // "entered and refused" of a query that has nothing to enter. Defensive —
-        // `emit_join_chain` is the only caller and it has a chain — but a defence
-        // that lies is worse than none.
-        return jo_ground(WG_NO_STEP(), AX_NONE());
+        // ⚠ AN INVARIANT, NOT A GROUND (2026-10-04): `emit_join_chain`, the
+        // only caller, always has a step. CONTROL, measured: a panic here left all
+        // 307 wql/deem tests green, while the same panic in the `WG_NO_SORT` arm
+        // below failed a join fixture. So `WG_NO_STEP` left the vocabulary.
+        logos.lang.panic::panic("wql!: decide_join_orders called with a chain that has no step");
+        return jo_ground(WG_UNSET(), AX_NONE());
     }
     // ⚠ THE FIRST STEP'S PIN, ahead of the derivation and on purpose — see the
     // header. The general constraint C4 reaches the same conclusion on every shape
@@ -943,8 +944,14 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
         }
         s = s + 1i64;
     }
+    // ⚠ AN INVARIANT, NOT A GROUND (2026-10-04): this fn is reached only after
+    // `decide_join_orders` found the FIRST step neither an anti join nor a
+    // traversal, so the base and that step both float and `nfl >= 2`. CONTROL,
+    // measured with the `WG_NO_STEP` one above; `WG_ONE_FLOAT` left the
+    // vocabulary with it.
     if nfl < 2i64 {
-        return jo_ground(WG_ONE_FLOAT(), AX_REFUSED());
+        logos.lang.panic::panic("wql!: decide_over_set reached with fewer than two floatable sources");
+        return jo_ground(WG_UNSET(), AX_REFUSED());
     }
     if nfl > JC_MAX_FL() {
         // ⚠ THE COUNT IS AN OPERAND OF THIS GROUND, so it is recorded rather than

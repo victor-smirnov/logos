@@ -128,13 +128,16 @@ pub fn WG_FALSE_FILTER() -> i32 { return 4i32; }
 pub fn WG_FALSE_PRED() -> i32   { return 5i32; }
 pub fn WG_AGG() -> i32          { return 6i32; }
 
-pub fn WG_NO_STEP() -> i32      { return 10i32; }
+// 10 (`WG_NO_STEP`) and 16 (`WG_ONE_FLOAT`) are DELETED (2026-10-04), refuted
+// rather than witnessed: `decide_join_orders` is called only with a chain that
+// has a step, and `decide_over_set` only after the first step was found to be
+// neither an anti join nor a traversal, so two sources always float. Both
+// sites are invariants now (`join_order.logos`), not grounds a plan can carry.
 pub fn WG_EDGE_FIRST() -> i32   { return 11i32; }
 pub fn WG_ANTI_FIRST() -> i32   { return 12i32; }
 pub fn WG_NO_SORT() -> i32      { return 13i32; }
 pub fn WG_KEY_ORDER() -> i32    { return 14i32; }
 pub fn WG_UNDECIDED() -> i32    { return 15i32; }
-pub fn WG_ONE_FLOAT() -> i32    { return 16i32; }
 pub fn WG_MAX_FL() -> i32       { return 17i32; }
 pub fn WG_NO_SIZE() -> i32      { return 18i32; }
 pub fn WG_CROSS() -> i32        { return 19i32; }
@@ -344,9 +347,6 @@ pub fn wg_words(g: i32) -> str {
     if g == WG_AGG() {
         return "an aggregate's output order is its groups' FIRST-OCCURRENCE order, which no sort restores, so the plan holds the query's own nest and there is nothing for a measurement to choose between";
     }
-    if g == WG_NO_STEP() {
-        return "no join step — there is no second side to drive from";
-    }
     if g == WG_EDGE_FIRST() {
         return "a traversal step's source is a field path of an outer row, so it cannot be an outermost loop — there is nothing to bind its base to";
     }
@@ -357,10 +357,7 @@ pub fn wg_words(g: i32) -> str {
         return "the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order";
     }
     if g == WG_UNDECIDED() {
-        return "no plan decided this step's strategy (a rel body's own chain is emitted per fixpoint variant), so there is no decision to offer a second order for";
-    }
-    if g == WG_ONE_FLOAT() {
-        return "only one source is free to move — every other step is pinned (an anti join or a traversal), so there is no second order to compare";
+        return "no plan decided this step's strategy: it comes after a traversal, and the planner stops at the traversal because the row var it binds is typed only once the traversal is stamped (`plan_decide_chain`) — so there is no decision to offer a second order for";
     }
     if g == WG_MAX_FL() {
         return "more floatable sources than a plan holds facts for (four): the permutation search and the plan's size table are both bounded there, so this chain keeps the query's own order rather than searching a truncated space";
@@ -391,9 +388,6 @@ pub fn wg_words(g: i32) -> str {
 /// asymmetry), the sentence SAYS so rather than being omitted: silence reads as an
 /// oversight, and a reader then goes looking for the surface that was not named.
 pub fn wg_remedy(g: i32) -> str {
-    if g == WG_NO_STEP() {
-        return "there is nothing to repair: a single source has no second side, and the order axis is a decision ABOUT a join";
-    }
     if g == WG_EDGE_FIRST() {
         return "a traversal cannot lead: the remedy is a query whose first step is a classic join, with the traversal deeper in the chain where its base is already bound";
     }
@@ -407,10 +401,7 @@ pub fn wg_remedy(g: i32) -> str {
         return "";
     }
     if g == WG_UNDECIDED() {
-        return "there is nothing to declare: the chain belongs to a rel body emitted per fixpoint variant, and a strategy the planner never decided is not a fact a source can supply";
-    }
-    if g == WG_ONE_FLOAT() {
-        return "unpin a step: every source but one is an anti join or a traversal, and a second FLOATABLE source is what a second order would permute";
+        return "join the source before the traversal, where its key is typed at planning time: a step after a traversal has no strategy to reason from, and a strategy the planner never decided is not a fact a source can supply";
     }
     if g == WG_MAX_FL() {
         return "fewer floatable sources in one chain — the bound is `join_cost::JC_MAX_FL()`, and it is the width of the plan's fact table, not a search budget that could be raised on its own";

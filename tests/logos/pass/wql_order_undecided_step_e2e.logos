@@ -1,0 +1,48 @@
+// THE `WG_UNDECIDED` WITNESS (2026-10-04). An `order by` over a join chain asks
+// the order axis whether another nest could serve the same sequence; the axis
+// answers only from the strategies the planner chose, and a step AFTER a
+// traversal has none: `plan_decide_chain` stops at the traversal, because the
+// row var it binds is typed only once `stamp_edge_step` has run. So this chain —
+// a classic join, a traversal, a classic join after it — keeps the query's own
+// nest, and the plan says why (`order -> … undecided`). The answer is asserted
+// too, so the witness is not a trace with nothing behind it.
+//
+// exit 0 = the three rows, in `order by e.name` order.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Emp   { pub name: str, pub dept: i64, pub skills: Vec<str> }
+struct Dept  { pub id: i64, pub dname: str }
+struct Level { pub skill: str, pub lvl: i64 }
+
+pub deem ranked(emps: &[Emp], depts: &[Dept], levels: &[Level]) {
+    from emps e
+    join depts d on e.dept == d.id
+    join e.skills s
+    join levels l on l.skill == s
+    select (e.name, d.dname, l.lvl) order by e.name }
+
+fn mk_emp(name: str, dept: i64, s1: str) -> Emp {
+    let mut sk: Vec<str> = Vec::<str>::new();
+    if s1.len() > 0i64 { sk.push(s1); }
+    return Emp { name: name, dept: dept, skills: sk };
+}
+
+fn main() -> i32 {
+    let mut emps: Vec<Emp> = Vec::<Emp>::new();
+    emps.push(mk_emp("zed", 1i64, "sql"));
+    emps.push(mk_emp("ann", 2i64, "rust"));
+    emps.push(mk_emp("bob", 1i64, "rust"));
+    emps.push(mk_emp("kim", 9i64, "rust"));   // no dept → dropped by the keyed step
+    let depts: [Dept; 2] = [Dept { id: 1i64, dname: "core" }, Dept { id: 2i64, dname: "data" }];
+    let levels: [Level; 2] = [Level { skill: "rust", lvl: 3i64 }, Level { skill: "sql", lvl: 2i64 }];
+    let r: Vec<(str, str, i64)> = ranked(emps.as_slice(), &depts[..], &levels[..]).unwrap();
+    if r.len() != 3i64 { return 1i32; }
+    if !str_eq(r.get(0i64).0, "ann") || !str_eq(r.get(0i64).1, "data") || r.get(0i64).2 != 3i64 { return 2i32; }
+    if !str_eq(r.get(1i64).0, "bob") || !str_eq(r.get(1i64).1, "core") || r.get(1i64).2 != 3i64 { return 3i32; }
+    if !str_eq(r.get(2i64).0, "zed") || !str_eq(r.get(2i64).1, "core") || r.get(2i64).2 != 2i64 { return 4i32; }
+    return 0i32;
+}
