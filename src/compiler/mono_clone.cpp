@@ -2728,6 +2728,14 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             // bare-name fallbacks were exactly these invented
                             // names. A miss is now a diagnostic, not a name.
                             std::string callee_sym = eq_instance_for(et, et_ref);
+                            // No declaration with that signature: the element's
+                            // `Eq` impl (`&T`'s at `&i32`, a generic one) —
+                            // called with both sides borrowed, its `&self` exactly.
+                            bool via_impl = false;
+                            if (callee_sym.empty() && et.kind() != LogosType::Kind::Slice) {
+                                callee_sym = trait_item_symbol_("logos.lang.cmp::Eq", et, "eq", 2);
+                                via_impl = !callee_sym.empty();
+                            }
                             if (callee_sym.empty()) {
                                 in_.diags.diags.push_back({Diag::Level::Error, "mono",
                                     std::format("tuple equality: no `eq` implementation "
@@ -2746,7 +2754,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 cmp = lb.call(callee_sym, {}, dargs, bool_t);
                             } else {
                                 auto b_f_ref = lb.addr_of_temp(b_f, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
-                                if (et.kind() == LogosType::Kind::Enum) {
+                                if (et.kind() == LogosType::Kind::Enum || via_impl) {
                                     // An ENUM element (`Option<i64>`): `eq(&self,
                                     // &other)` called directly with both sides
                                     // borrowed — a by-value enum receiver on the
@@ -3991,26 +3999,55 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // The call carries the trait's arguments first (`Iterator$G1$T`:
                 // one), then the method's own; the trait's select the impl.
                 std::string_view tt = tag_trait;
-                size_t trait_arity = 0;
+                // The traits the tag can name, each with its arity: the one
+                // `$G<n>` says, else every declaration of that bare name (by its
+                // identity) — homonyms with different arities split the call's
+                // arguments differently, and the Self's impls decide.
+                std::vector<std::pair<std::string, size_t>> cands;
                 if (auto d = tt.find("$G"); d != std::string_view::npos) {
+                    size_t n = 0;
                     for (size_t i = d + 2; i < tt.size() && tt[i] >= '0' && tt[i] <= '9'; ++i)
-                        trait_arity = trait_arity * 10 + size_t(tt[i] - '0');
+                        n = n * 10 + size_t(tt[i] - '0');
                     tt = tt.substr(0, d);
-                }
-                std::vector<TypeRef> trait_args, method_args;
-                bool args_concrete = true;
-                for (auto ta : v.type_args(out_.type_pool.impl())) {
-                    TypeRef c = ta ? subst_type(ta, s) : TypeRef{};
-                    if (trait_args.size() < trait_arity) { trait_args.push_back(c); continue; }
-                    if (!c || contains_typevar(c)) args_concrete = false;
-                    method_args.push_back(c);
+                    cands.emplace_back(std::string(tt), n);
+                } else {
+                    for (auto* pr : {&out_, &in_})
+                        for (auto& td : pr->traits) {
+                            if (td.name() != tt) continue;
+                            std::string id = td.pkg().empty() ? std::string(td.name())
+                                                              : std::string(td.pkg()) + "::" + std::string(td.name());
+                            bool dup = false;
+                            for (auto& c : cands) dup = dup || c.first == id;
+                            if (!dup) cands.emplace_back(std::move(id), td.type_params().size());
+                        }
+                    if (cands.empty()) cands.emplace_back(std::string(tt), 0);
                 }
                 int64_t nargs = 0;
                 v.each_arg([&](lir_view::ExprRef) { ++nargs; });
-                if (std::string sym = !args_concrete ? std::string()
-                                                     : trait_item_symbol_(tt, cr, method, nargs + 1, nullptr,
-                                                                          &trait_args, &method_args);
-                    !sym.empty()) {
+                std::vector<TypeRef> call_targs;
+                for (auto ta : v.type_args(out_.type_pool.impl())) call_targs.push_back(ta ? subst_type(ta, s) : TypeRef{});
+                std::string sym;
+                bool sym_ambiguous = false;
+                for (auto& [ident, arity] : cands) {
+                    if (call_targs.size() < arity) continue;
+                    std::vector<TypeRef> trait_args(call_targs.begin(), call_targs.begin() + arity);
+                    std::vector<TypeRef> method_args(call_targs.begin() + arity, call_targs.end());
+                    bool args_concrete = true;
+                    for (auto a : method_args) if (!a || contains_typevar(a)) args_concrete = false;
+                    if (!args_concrete) continue;
+                    std::string r = trait_item_symbol_(ident, cr, method, nargs + 1, nullptr, &trait_args, &method_args);
+                    // SL-sl-02, as sema's bound check: a `PartialEq` / `PartialOrd`
+                    // bound is satisfied by the type's `Eq` / `Ord` impl, which
+                    // carries the method.
+                    if (r.empty() && (tt == "PartialEq" || tt == "PartialOrd"))
+                        r = trait_item_symbol_(tt == "PartialEq" ? "logos.lang.cmp::Eq" : "logos.lang.cmp::Ord", cr,
+                                               method, nargs + 1, nullptr, &trait_args, &method_args);
+                    if (r.empty()) continue;
+                    if (sym.empty()) sym = std::move(r);
+                    else if (sym != r) sym_ambiguous = true;
+                }
+                if (sym_ambiguous) sym.clear();
+                if (!sym.empty()) {
                     std::vector<lir_view::ExprRef> mc_args;
                     v.each_arg([&](lir_view::ExprRef ar) { mc_args.push_back(subst_child_expr(ar)); });
                     mp_ = lir_mirror_emit_method_call(out_, rt_, new_recv, method, sym, {}, mc_args,

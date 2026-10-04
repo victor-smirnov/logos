@@ -6801,9 +6801,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11948 -> 11949 (+1), NOIMPORTED 7389 -> 7390 (+1), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: s8_trait_item_shape_impls (ADR 0030 S8 row 6: a bound's method at a structural Self) joins the nonglob half.
 #                ALL 11949 -> 11951 (+2), NOIMPORTED 7390 -> 7392 (+2), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: s8_trait_item_method_generics + s8_trait_item_trait_args (ADR 0030 S8 row 6) join the nonglob half.
 #                ALL 11951 -> 11952 (+1), NOIMPORTED 7392 -> 7393 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-03, branch `deem` E9e: +1 pass wql_rel_demand_chain_e2e.
-REGISTRY-ALL         11952
-REGISTRY-NOIMPORTED  7393
-REGISTRY-TIERCOMMIT  205
+#                ALL 11952 -> 11953 (+1), NOIMPORTED 7393 -> 7394 (+1), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: s8_trait_item_str_ref_self (ADR 0030 S8 row 6: Self = &str) joins the nonglob half.
+#                ALL 11953 -> 11954 (+1), NOIMPORTED 7394 -> 7395 (+1), TIERCOMMIT 205 -> 206 (+1) — (main, merged into `deem`) 2026-10-03: squeue row raw_ptr_impl_method_refused (#727, ADR 0030 S8 row 6) joins the tier_commit set.
+REGISTRY-ALL         11954
+REGISTRY-NOIMPORTED  7395
+REGISTRY-TIERCOMMIT  206
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

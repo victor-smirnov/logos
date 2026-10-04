@@ -1,0 +1,20 @@
+// ADR 0030 S8 row 6: a bound's method at Self = `&str` (`&[u8]`). Rust reaches the impl for `&A` —
+// `&[u8]` is `&` over `[u8]` — and from there the referent's impl. `impl<T: Tr + ?Sized> Tr for &T`
+// at T = str is the user's own impl (it was skipped for str's, printing 4); Eq / Debug at `&str`
+// go through stdlib's `&T` impls, whose `&**self` reborrows the FAT reference (it took the address
+// of its data half). Output as rustc: true false "abc" 104.
+package s8_trait_item_str_ref_self;
+use logos.std.fmt;
+trait Tr { fn m(&self) -> i64; }
+impl Tr for str { fn m(&self) -> i64 { self.len() as i64 } }
+impl<T: Tr + ?Sized> Tr for &T { fn m(&self) -> i64 { 100 + (**self).m() } }
+fn g<T: Tr>(t: &T) -> i64 { t.m() }
+fn eqv<T: Eq>(a: &T, b: &T) -> bool { a.eq(b) }
+fn show<T: Debug>(t: &T) -> String { format!("{:?}", t) }
+fn main() {
+    let x: &str = "abc";
+    let y: &str = "abc";
+    let z: &str = "abd";
+    let w: &str = "abcd";
+    println!("{} {} {} {}", eqv(&x, &y), eqv(&x, &z), show(&x), g(&w));
+}

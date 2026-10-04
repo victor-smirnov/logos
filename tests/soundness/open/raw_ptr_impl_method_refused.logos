@@ -1,0 +1,21 @@
+// SOUNDNESS QUEUE row raw_ptr_impl_method_refused (tier 3, `refuses`). A method of an impl FOR a raw pointer type — generic
+// (`impl<T> Tr for *const T`) or concrete (`impl Tr for *const i64`) — is refused at a pointer receiver: its own
+// `&self` method (`p.m()`) and the trait's default (`p.twice()`): "no method named `m` found for raw pointer
+// `*const i64` (E0599)". rustc 1.98.1 --edition 2024 runs it and prints "7 14". Three parts, measured in ADR 0030
+// S8 row 6: (1) impl_lookup_keys_ gives a `Ptr` only its POINTEE's keys, never the pointer type's own (a concrete
+// pointer impl keys its spelling `*const i64`; a generic one `*const T`, with its own parameter name — a key no
+// call can compose); (2) the raw-pointer check admits only a pick with no autoref (`self: *mut Self`), while the
+// `&self` of the pointer's own impl is an autoref of the pointer, no deref; (3) past it, every `Ptr` receiver
+// path treats the call as the POINTEE's and demands unsafe ("method call through raw pointer requires unsafe
+// context"). stdlib's raw-pointer `Eq` spells `ne` out for this reason.
+// fix hint: key a pointer impl by identity (as `$slice$T`), push it for `Ptr`, admit derefs == 0, and lower a
+// pick whose Self is the pointer like any primitive receiver's.
+package raw_ptr_impl_method_refused;
+use logos.std.fmt;
+trait Tr { fn m(&self) -> i64; fn twice(&self) -> i64 { self.m() * 2 } }
+impl<T> Tr for *const T { fn m(&self) -> i64 { 7 } }
+fn main() {
+    let x: i64 = 5;
+    let p: *const i64 = &x as *const i64;
+    println!("{} {}", p.m(), p.twice());
+}

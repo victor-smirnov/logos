@@ -1255,8 +1255,12 @@ private:
     std::string shape_trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
                                          int64_t arity, const std::vector<TypeRef>* trait_args,
                                          const std::vector<TypeRef>* method_args);
+    std::string blanket_trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
+                                           int64_t arity, const std::vector<TypeRef>* trait_args,
+                                           const std::vector<TypeRef>* method_args);
+    static bool trait_names_(std::string_view identity, std::string_view trait);
     bool impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* pool,
-                                const std::vector<TypeRef>* trait_args);
+                                const std::vector<TypeRef>* trait_args, SubstMap* bindings = nullptr);
     std::string declared_method_symbol(std::string_view owner, std::string_view pkg,
                                        std::string_view method, int64_t arity = -1,
                                        const std::vector<TypeRef>* arg_types = nullptr);
@@ -1416,7 +1420,21 @@ private:
                 if (!unify_impl_target(ce[i], pe[i], bindings)) return false;
             return true;
         }
+        case LogosType::Kind::FnPtr: {
+            // `impl<A, B, C> Tr for fn(A, B) -> C`: parameter by parameter, then
+            // the result.
+            auto pp = p.closure_params();
+            auto cp = c.closure_params();
+            if (pp.size() != cp.size()) return false;
+            for (size_t i = 0; i < pp.size(); ++i)
+                if (!unify_impl_target(cp[i], pp[i], bindings)) return false;
+            if (!p.closure_ret() || !c.closure_ret()) return !p.closure_ret() && !c.closure_ret();
+            return unify_impl_target(c.closure_ret(), p.closure_ret(), bindings);
+        }
         default:
+            // A primitive scalar IS its kind: two `i32` nodes are one type,
+            // whichever pool (or none, for a static primitive) carries them.
+            if (is_primitive_scalar_kind(p.kind())) return true;
             return types_equal(c, p);
         }
     }

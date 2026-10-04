@@ -92,6 +92,27 @@ impl Eq for str   {
     }
 }
 
+// By-reference Eq, Rust's `impl<A: ?Sized + PartialEq<B>, B: ?Sized> PartialEq<&B> for &A`:
+// a reference compares as its referent does (`&str`, the elements of a by-ref
+// iterator), as `Ord for &T` and `Debug for &T` already do.
+impl<T: Eq> Eq for &T {
+    fn eq(&self, other: &&T) -> bool { return (**self).eq(*other); }
+}
+impl<T: Eq> Eq for &mut T {
+    fn eq(&self, other: &&mut T) -> bool { return (**self).eq(&**other); }
+}
+
+// Raw pointers compare by ADDRESS (Rust: `impl<T: ?Sized> PartialEq for *const T`
+// / `*mut T`) — the pointee is never read.
+impl<T> Eq for *const T {
+    fn eq(&self, other: &Self) -> bool { return (*self as usize) == (*other as usize); }
+    fn ne(&self, other: &Self) -> bool { return (*self as usize) != (*other as usize); }
+}
+impl<T> Eq for *mut T {
+    fn eq(&self, other: &Self) -> bool { return (*self as usize) == (*other as usize); }
+    fn ne(&self, other: &Self) -> bool { return (*self as usize) != (*other as usize); }
+}
+
 // Tuple Eq — single variadic-arity impl covering any tuple shape.
 // Replaces the per-arity hand-rolled impls (2/3/4) that lived here
 // previously. `tuple_all_eq::<Self>(self, other)` defers to mono-time

@@ -1356,12 +1356,23 @@ std::string Mono::emitted_method_instance(TypeRef recv, std::string_view method)
 // the call's argument count is not a candidate: an inherent `m(&self, k)` and a
 // trait `m(&self)` on one owner are both `<owner>__m`, and a bound call
 // `x.m()` names only the one it can call.
+// `trait` is the trait's qualified identity (`logos.lang.cmp::Eq`) when the
+// caller holds it, and then only that trait answers; a bare spelling (a call's
+// recorded `tag_trait`) matches the identity's last segment.
+bool Mono::trait_names_(std::string_view identity, std::string_view trait) {
+    if (trait.find("::") != std::string_view::npos) return identity == trait;
+    if (auto p = identity.rfind("::"); p != std::string_view::npos) identity = identity.substr(p + 2);
+    if (auto p = identity.rfind('.'); p != std::string_view::npos) identity = identity.substr(p + 1);
+    return identity == trait;
+}
+
 bool Mono::impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* pool,
-                                  const std::vector<TypeRef>* trait_args) {
+                                  const std::vector<TypeRef>* trait_args, SubstMap* bindings) {
     if (!trait_args || trait_args->empty()) return true;
     auto ita = impl.trait_type_args(pool);
     if (ita.size() != trait_args->size()) return ita.empty();
-    SubstMap b;
+    SubstMap local;
+    SubstMap& b = bindings ? *bindings : local;
     for (size_t i = 0; i < ita.size(); ++i) {
         TypeRef c = (*trait_args)[i], p = ita[i];
         if (!c || !p) continue;
@@ -1388,7 +1399,11 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
     // A primitive self (`impl Eq for i64`): its impls are nominal, keyed by the
     // type's own spelling, and never generic.
     const bool prim = is_primitive_scalar_kind(rk);
-    if (!prim && rk != K::Struct && rk != K::ZonedStruct) return shape_trait_item_symbol_(trait, rt, method, arity, trait_args, method_args);
+    if (!prim && rk != K::Struct && rk != K::ZonedStruct) {
+        if (std::string r = shape_trait_item_symbol_(trait, rt, method, arity, trait_args, method_args); !r.empty())
+            return r;
+        return blanket_trait_item_symbol_(trait, rt, method, arity, trait_args, method_args);
+    }
     std::string base = prim ? type_str(rt) : std::string(TypeRef(rt).struct_name());
     if (auto p = base.find("$G"); !prim && p != std::string::npos) base = base.substr(0, p);
     if (auto p = base.find("$M"); !prim && p != std::string::npos) base = base.substr(0, p);
@@ -1418,8 +1433,11 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
         const TypePoolImpl* ipool = prog->type_pool.impl();
         for (auto& impl : prog->impls) {
             if (impl.is_negative() || impl.is_blanket()) continue;
-            if (bare_of(impl.identity_trait()) != trait) continue;
-            if (!impl_trait_args_match_(impl, ipool, trait_args)) continue;
+            if (!trait_names_(impl.identity_trait(), trait)) continue;
+            // The trait arguments bind the impl's parameters they name
+            // (`impl<T> A<T> for i64` at `A<f64>`: T = f64).
+            SubstMap tb;
+            if (!impl_trait_args_match_(impl, ipool, trait_args, &tb)) continue;
             // The impl's target: a generic pattern (`impl<T> Add for V<T>`) or a
             // nominal type (`impl Add for V`), the same type as `self`.
             TypeRef pat = impl.target_typeref(ipool);
@@ -1455,12 +1473,32 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
                 // template parameter is the method's, filled from the call. Of a
                 // generic struct impl: not this resolver's answer.
                 const size_t mn = method_args ? method_args->size() : 0;
-                if (fn.type_param_count() != (generic ? 0 : mn) || (generic && mn)) continue;
+                if (generic && (mn || !fn.type_params_empty())) continue;
+                // A nominal impl's template parameters: the impl's, bound by the
+                // trait arguments, then the method's own from the call.
+                std::vector<TypeRef> targs;
+                if (!generic) {
+                    bool bound = true;
+                    size_t mi = 0;
+                    fn.each_type_param([&](lir_view::FnTParamView tp) {
+                        if (!bound) return;
+                        if (auto it = tb.find(std::string(tp.name())); it != tb.end() && it->second) {
+                            targs.push_back(it->second);
+                            return;
+                        }
+                        if (mi < mn) { targs.push_back((*method_args)[mi++]); return; }
+                        bound = false;
+                    });
+                    if (!bound || mi != mn) continue;
+                    bool concrete = true;
+                    for (auto a : targs) if (!a || contains_typevar(a)) concrete = false;
+                    if (!concrete) continue;
+                }
                 std::string name = generic && !prim
                                        ? method_instance_name(concrete_struct_name(rt), pkg, base, method, sym)
-                                   : mn ? mangle(std::string(sym), *method_args)
-                                        : std::string(sym);
-                if (mn) enqueue_if_needed(name, *method_args);
+                                   : !targs.empty() ? mangle(std::string(sym), targs)
+                                                    : std::string(sym);
+                if (!targs.empty()) enqueue_if_needed(name, targs);
                 if (best.empty()) best = name; else if (best != name) ambiguous = true;
                 if (!arg_types || generic) continue;
                 auto ps = fn.params();
@@ -1473,8 +1511,76 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
             }
         }
     }
-    if (!ambiguous) return best;
+    if (!ambiguous) return best.empty() ? blanket_trait_item_symbol_(trait, rt, method, arity, trait_args, method_args)
+                                        : best;
     return ambiguous_exact ? std::string() : best_exact;
+}
+
+// A blanket impl (`impl<DT: Primitive + Ord> ContainerOrd for DT`) applies to a
+// Self that satisfies its bounds — asked of the trait engine by identity — and
+// binds its target type variable to Self; the method's own generics come from
+// the call. Coherence leaves at most one; two is no answer. Asked only when no
+// impl names Self itself.
+std::string Mono::blanket_trait_item_symbol_(std::string_view trait, TypeRef self,
+                                             std::string_view method, int64_t arity,
+                                             const std::vector<TypeRef>* trait_args,
+                                             const std::vector<TypeRef>* method_args) {
+    std::string best;
+    std::vector<TypeRef> best_args;
+    bool ambiguous = false;
+    for (auto* prog : {&out_, &in_}) {
+        const TypePoolImpl* ipool = prog->type_pool.impl();
+        for (auto& impl : prog->impls) {
+            if (!impl.is_blanket() || impl.is_negative()) continue;
+            if (!trait_names_(impl.identity_trait(), trait)) continue;
+            // The trait arguments bind the impl's parameters they name (the
+            // OUTPUT `T` of `impl<S, T: MkFrom<S>> Into2<T> for S`).
+            SubstMap tb;
+            if (!impl_trait_args_match_(impl, ipool, trait_args, &tb)) continue;
+            bool ok = true;
+            if (!impl.bound_trait().empty()) {
+                StrSet seen;
+                ok = mono_concrete_satisfies_bound(TraitQuery(std::string(impl.bound_trait()),
+                                                              std::string(impl.identity_bound_trait())),
+                                                   self, seen);
+            }
+            auto extras = impl.extra_bounds();
+            auto extra_ids = impl.identity_extra_bounds();
+            for (size_t i = 0; ok && i < extras.size(); ++i) {
+                StrSet seen;
+                ok = mono_concrete_satisfies_bound(
+                    TraitQuery(std::string(extras[i]), i < extra_ids.size() ? std::string(extra_ids[i]) : std::string()),
+                    self, seen);
+            }
+            if (!ok) continue;
+            const std::string tv(impl.target_type());
+            for (auto sym : impl.method_symbols()) {
+                auto tit = templates_.find(std::string(sym));
+                if (tit == templates_.end()) continue;
+                lir_view::FunctionView fn = tit->second;
+                if (fn.method_base() != method) continue;
+                if (arity >= 0 && !fn.is_vararg() && int64_t(fn.param_count()) != arity) continue;
+                std::vector<TypeRef> targs;
+                bool bound = true;
+                size_t mi = 0;
+                fn.each_type_param([&](lir_view::FnTParamView tp) {
+                    if (!bound) return;
+                    if (tp.name() == tv) { targs.push_back(self); return; }
+                    if (auto it = tb.find(std::string(tp.name())); it != tb.end() && it->second &&
+                        !contains_typevar(it->second)) { targs.push_back(it->second); return; }
+                    if (method_args && mi < method_args->size()) { targs.push_back((*method_args)[mi++]); return; }
+                    bound = false;
+                });
+                if (!bound || mi != (method_args ? method_args->size() : 0)) continue;
+                std::string name = mangle(std::string(sym), targs);
+                if (best.empty()) { best = name; best_args = targs; }
+                else if (best != name) ambiguous = true;
+            }
+        }
+    }
+    if (ambiguous || best.empty()) return {};
+    enqueue_if_needed(best, best_args);
+    return best;
 }
 
 // A structural self (`(i64, char)`, `[i64]`, `[i64; 2]`, `&i64`): the impls that
@@ -1497,19 +1603,29 @@ std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
     std::string best;
     std::vector<TypeRef> best_args;
     bool ambiguous = false;
+    // Logos spells Rust's `&str` and `str` by one value type (`Slice<u8>`), so
+    // `impl Pattern for str` is what Rust writes `impl Pattern for &str`, and
+    // `str` IS `[u8]`. A `&str` / `[u8]` Self takes the impl Rust's model gives
+    // it first (`&T` at T = `[u8]`, `[E]`); the nominal `str` impl answers it
+    // only when nothing does.
+    const bool str_value = (TypeRef(self).kind() == K::Slice || TypeRef(self).kind() == K::UnsizedSlice) &&
+                           TypeRef(self).elem() && TypeRef(TypeRef(self).elem()).kind() == K::U8;
+    for (int pass = 0; pass < (str_value ? 2 : 1) && best.empty() && !ambiguous; ++pass)
     for (auto* prog : {&out_, &in_}) {
         const TypePoolImpl* ipool = prog->type_pool.impl();
         for (auto& impl : prog->impls) {
             if (impl.is_negative() || impl.is_blanket()) continue;
-            if (bare_of(impl.identity_trait()) != trait) continue;
+            if (!trait_names_(impl.identity_trait(), trait)) continue;
             if (!impl_trait_args_match_(impl, ipool, trait_args)) continue;
             TypeRef pat = impl.target_typeref(ipool);
+            if (pass == 1 && (pat || bare_of(impl.target_type()) != "str")) continue;
             // A nominal impl with no recorded pattern (`impl Debug for Ordering`)
             // names its target by spelling: the enum itself, never generic.
             const bool nominal_enum = !pat && TypeRef(self).kind() == K::Enum &&
                                       TypeRef(self).type_args().empty() &&
                                       bare_of(impl.target_type()) == bare_of(TypeRef(self).enum_name());
-            if (!nominal_enum &&
+            const bool nominal_str = pass == 1;
+            if (!nominal_enum && !nominal_str &&
                 (!pat || TypeRef(pat).kind() == K::Struct || TypeRef(pat).kind() == K::ZonedStruct)) continue;
             for (auto sym : impl.method_symbols()) {
                 lir_view::FunctionView fn{};
@@ -1527,7 +1643,7 @@ std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
                 fn.each_type_param([&](lir_view::FnTParamView tp) {
                     if (tp.is_variadic()) pack_name = std::string(tp.name());
                 });
-                const auto pk = pat ? TypeRef(pat).kind() : K::Enum;
+                const auto pk = pat ? TypeRef(pat).kind() : K::Void;
                 if (!pack_name.empty()) {
                     // `(A...)`: the pattern is the one-element tuple of the pack.
                     if (pk != K::Tuple || TypeRef(self).kind() != K::Tuple) continue;
@@ -1543,7 +1659,14 @@ std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
                     nl.kind = K::IntLit;
                     nl.const_val = int64_t(TypeRef(self).arr_size());
                     b[std::string(TypeRef(pat).arr_size_var())] = out_.type_pool.alloc(nl);
-                } else if (!nominal_enum && !unify_impl_target(self, pat, b)) {
+                } else if (pk == K::Ref && TypeRef(self).kind() == K::Slice) {
+                    // `&[E]` is a reference to `[E]` (Rust's `&str` is `&` over
+                    // `str`): a `&T` pattern binds T to the unsized slice.
+                    LogosTypeBuilder us;
+                    us.kind = K::UnsizedSlice;
+                    us.elem = TypeRef(self).elem();
+                    if (!unify_impl_target(out_.type_pool.alloc(us), TypeRef(pat).pointee(), b)) continue;
+                } else if (!nominal_enum && !nominal_str && !unify_impl_target(self, pat, b)) {
                     continue;
                 }
                 // The template's parameters, in its order: the impl's, bound by
