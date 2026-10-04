@@ -3053,6 +3053,9 @@ fn MG_CP_FRAME() -> str { return "the retraction's transactional snapshot of a G
 fn MG_AP_FRAME() -> str { return "`<q>_apply`'s transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — the fold core writes these through `__h.` row by row and a later row can still fail (`RetractAbsent` from the footprint sensor or a group guard, `Overflow` from a fold), so the call runs on a copy and commits it by move only on `Ok`: an `Err` leaves the caller's handle as it was, a whole multi-row delta or nothing. O(|groups|) per call, inside the O(|delta| × |groups|) the linear group scan already costs"; }
 fn MG_AP_MAP() -> str { return "`<q>_apply`'s transactional snapshot of a `min`/`max` MULTIPLICITY MAP (`__gm_<a>`, one `HashMap` per group) — copied table by table with `hashmap_clone`, since `Vec::get` would share the table's storage; it exists for the same call-level atomicity as the group frame, and costs O(distinct values held), which is bounded by the footprint store copied beside it"; }
 fn MG_AP_STORE() -> str { return "`<q>_apply`'s transactional snapshot of a STORED SIDE (`__s0`/`__s0w`, and `__s1`/`__s1w` on a join) — the footprint Z-set on a bare scan, the two weighted relations on a join; the row loop integrates each delta row into it after folding, so an `Err` on a later row would otherwise leave earlier rows integrated. O(|stored|) per call, inside the per-row linear identity scan's O(|delta| × |stored|)"; }
+fn MG_EP_FRAME() -> str { return "the insert-only `<q>_epoch`'s transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — the fold writes these through `__h.` row by row and a later row can still fail (`Overflow` from a checked fold), so the call runs on a copy and commits it by move only on `Ok`: an `Err` leaves the caller's handle as it was. O(|groups|) per call, inside the O(|delta| × |groups|) the linear group scan already costs"; }
+fn MG_EP_REL() -> str { return "the rel-backed `<q>_epoch`'s transactional snapshot of a ROW STORE (`__edb` / `__tot_<m>`) — the epoch commits the accumulated input and the new total BEFORE folding the new rows into the groups, so a fault in that fold would leave the relation advanced and the groups behind; the copy makes the whole epoch one outcome. O(|EDB| + Σ|total|) per epoch, beside the two copies the epoch already builds (`__ecp`, `__tt<i>`)"; }
+fn MG_EP_LATCH() -> str { return "the rel-backed `<q>_epoch`'s transactional snapshot of the LATCH VECTOR `__lat` — not data, the |OD|/|S|/|RD| triples the DRed driver reads back; copied so that the shadow handle is the whole handle and the commit is field-for-field. O(members)"; }
 fn MG_CP_LATCH() -> str { return "the retraction's transactional snapshot of the LATCH VECTOR `__lat` — not data: the |OD|/|S|/|RD| triples `_cpt` writes as an out-param and the next epoch's incrementality assertion reads back. It is copied for the same commit-by-move as the row stores, but it is O(members) and carries no rows, so exactly one exists per shadow handle and a reader who priced the snapshot from it would be wrong by |EDB|"; }
 
 // ── ADR 0025 R-E — THE INCREMENTAL TIER'S PER-ROUND WORKING SET, 8 HEADS ────
@@ -3127,6 +3130,18 @@ fn cp_node(subject: str, ety: str, role: i64) {
     }
     if role == CPR_AP_MAP() {
         plan_trace(subject, "apply snapshot multiplicity map", ety, MG_AP_MAP());
+        return;
+    }
+    if role == CPR_EP_FRAME() {
+        plan_trace(subject, "epoch snapshot group frame", ety, MG_EP_FRAME());
+        return;
+    }
+    if role == CPR_EP_REL() {
+        plan_trace(subject, "epoch snapshot relation", ety, MG_EP_REL());
+        return;
+    }
+    if role == CPR_EP_LATCH() {
+        plan_trace(subject, "epoch snapshot latch", ety, MG_EP_LATCH());
         return;
     }
     if role == CPR_AP_STORE() || role == CPR_AP_STORE_OWN() {
@@ -6560,9 +6575,9 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 // cached best that a rescan may already have overwritten — three undo logs
 // across state the emitter builds per aggregate. The copy is one mechanism for
 // all of it, already used by `<q>_dred`, and costs per call what the linear
-// scans cost per row. The insert-only `<q>_epoch` (no `_apply`) and the
-// rel-backed epoch's group fold keep their overflow-only window; see their
-// own notes.
+// scans cost per row. Since 2026-10-04 the insert-only `<q>_epoch` (plain and
+// rel-backed) runs the same way, so every call that changes a handle either
+// commits whole or leaves it as it was.
 fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
                     act: &[str; 8], acc: &[str; 8], key_ty: str, key_body: str,
@@ -8374,15 +8389,12 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // LOCALS and committed to `__h` only after the driver RETURNS. So a
             // fault inside the fixpoint (an `el_add` in a rel body, the
             // aggregate convergence guard) leaves the handle EXACTLY as it was —
-            // this half is transactional (as `<q>_apply` is, by a shadow copy),
-            // and it matters more here because the state at risk is the whole
-            // relation rather than one group's cells. What remains UNSPECIFIED
-            // is the same window P1-P3 already document: a fault inside the
-            // GROUP FOLD below leaves the total committed and some rows folded.
-            // Priced and not taken: containing that too means either a second
-            // copy of the group state per epoch or a `__poisoned` bit plus an
-            // `ElError` variant for reads to report — the bit is the cheaper of
-            // the two and is the named follow-up.
+            // this half is transactional, and it matters more here because the
+            // state at risk is the whole relation rather than one group's cells.
+            // A fault inside the GROUP FOLD below used to leave the total
+            // committed and some rows folded; since 2026-10-04 the whole epoch
+            // runs on a shadow handle (see "ONE CALL, ONE OUTCOME — THE INSERT
+            // PATH TOO"), so that window is closed as well.
             //
             // ── THE COST, AS WHAT IT IS A FUNCTION OF ──────────────────────
             // Per epoch: O(|delta| x |accumulated input|) for the presence gate
@@ -9205,15 +9217,87 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             return Result::Ok(__n);
         };
         }
+        // ══ ONE CALL, ONE OUTCOME — THE INSERT PATH TOO (2026-10-04) ═══════
+        // As `<q>_apply` (see its note): the body runs as the private
+        // `__wql_<q>_epoch_in` on a copy of the handle (`__ep<i>`), committed by
+        // move only on `Ok`. What it closes here is the window both insert
+        // bodies used to document: a checked fold (`Overflow`) failing on a
+        // later row left earlier rows folded, and on a rel-backed handle the
+        // relation and the total already committed with the groups behind.
+        // The field list is the struct's: the group frame, and under `rel_m`
+        // the row stores (and `__lat` under `dred`); no map, no stored side
+        // (`want_map` and `sens` need `retr`, which this branch is not).
+        let mut ecl:  String = String::new();
+        let mut elit: String = String::new();
+        let mut ecm:  String = String::new();
+        let mut ex: i64 = 0i64;
+        elit.push_str(tyn);
+        elit.push_str(" { ");
+        push_snap_field(&mut ecl, &mut elit, &mut ecm, "__e", ex, "__gk", key_ty, fn_name, CPR_EP_FRAME());
+        ex = ex + 1i64;
+        push_snap_field(&mut ecl, &mut elit, &mut ecm, "__e", ex, "__gc", "i64", fn_name, CPR_EP_FRAME());
+        ex = ex + 1i64;
+        if rel_m >= 0i64 {
+            push_snap_field(&mut ecl, &mut elit, &mut ecm, "__e", ex, "__edb", prm.tys[rel_sp], fn_name, CPR_EP_REL());
+            ex = ex + 1i64;
+            let mut eq: i64 = 0i64;
+            while eq < ntm {
+                push_snap_field(&mut ecl, &mut elit, &mut ecm, "__e", ex, string_as_str(&totnm[eq]),
+                                string_as_str(&prm.rel_rowty[tmem[eq]]), fn_name, CPR_EP_REL());
+                ex = ex + 1i64;
+                eq = eq + 1i64;
+            }
+            if dred {
+                push_snap_field(&mut ecl, &mut elit, &mut ecm, "__e", ex, "__lat", "i64", fn_name, CPR_EP_LATCH());
+                ex = ex + 1i64;
+            }
+        }
+        let mut eg: i64 = 0i64;
+        while eg < acount {
+            push_snap_field(&mut ecl, &mut elit, &mut ecm, "__e", ex, string_as_str(&ganm[eg]), acc[eg],
+                            fn_name, CPR_EP_FRAME());
+            ex = ex + 1i64;
+            eg = eg + 1i64;
+        }
+        if prm.oracle_inc_rows.len() > 0i64 { elit.push_str(", __oid: __hh.__oid"); }
+        elit.push_str(" }");
+
         eps.push_str("__h: &mut ");
         eps.push_str(tyn);
         if params_text.len() > 0i64 {
             eps.push_str(", ");
             eps.push_str(params_text);
         }
+        let mut ein: String = String::new();
+        ein.push_str("-__wql_");
+        ein.push_str(bare);
+        ein.push_str("_epoch_in");
+        emit_fn_quote_blob(string_as_str(&ein), string_as_str(&eps), "",
+                           "Result<i64, ElError>", epoch_body, prm);
+        let mut ewp: String = String::new();
+        ewp.push_str("__hh: &mut ");
+        ewp.push_str(tyn);
+        if params_text.len() > 0i64 {
+            ewp.push_str(", ");
+            ewp.push_str(params_text);
+        }
+        let mut ewb: String = String::new();
+        ewb.push_str("{\n");
+        ewb.push_str(string_as_str(&ecl));
+        ewb.push_str("let mut __h: ");
+        ewb.push_str(tyn);
+        ewb.push_str(" = ");
+        ewb.push_str(string_as_str(&elit));
+        ewb.push_str(";\nlet __r: Result<i64, ElError> = ");
+        ewb.push_str(vis_strip(string_as_str(&ein)));
+        ewb.push_str("(&mut __h");
+        if prm.n > 0i64 { ewb.push_str(", "); push_param_args(&mut ewb, prm); }
+        ewb.push_str(");\nmatch __r {\n    Result::Ok(__n) => {\n");
+        ewb.push_str(string_as_str(&ecm));
+        ewb.push_str("        return Result::Ok(__n);\n    }\n    Result::Err(__e) => { return Result::Err(__e); }\n}\n}\n");
         prep_derived_name(fn_name, "_epoch", &mut enm);
-        emit_inc_fn(string_as_str(&enm), string_as_str(&eps),
-                    "Result<i64, ElError>", epoch_body, 0i32, tyn, prm);
+        emit_inc_fn(string_as_str(&enm), string_as_str(&ewp),
+                    "Result<i64, ElError>", parse_block(string_as_str(&ewb)), 0i32, tyn, prm);
     }
 
     // ── <q>_snapshot(&h) — the group rows, in first-occurrence order ────────
@@ -9317,6 +9401,10 @@ fn CPR_AP_STORE() -> i64 { return 5i64; }
 // a stored side whose element owns a `String` (a whole-row identity with a
 // `str` field): copied by `clone`, since `Vec::get` would copy it bitwise
 fn CPR_AP_STORE_OWN() -> i64 { return 6i64; }
+// the insert-only `<q>_epoch`'s shadow handle (`__ep<i>` / `__ex<i>`)
+fn CPR_EP_FRAME() -> i64 { return 7i64; }
+fn CPR_EP_REL() -> i64   { return 8i64; }
+fn CPR_EP_LATCH() -> i64 { return 9i64; }
 
 fn push_clone_field(dcl: &mut String, dlit: &mut String, dcm: &mut String,
                     idx: i64, fld: str, ety: str, subject: str, role: i64) {

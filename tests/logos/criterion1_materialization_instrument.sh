@@ -307,6 +307,12 @@ MAT = {
         '`__gm_<a>` — one HashMap per group, copied by `hashmap_clone`',
     'apply snapshot stored side':
         '`__s0`/`__s0w` (+ `__s1`/`__s1w` on a join) — the footprint Z-set or the stored relations',
+    'epoch snapshot group frame':
+        '`__gk` / `__gc` / `__ga_<a>` — O(|groups|) per insert-only `<q>_epoch` call',
+    'epoch snapshot relation':
+        '`__edb` / `__tot_<m>` — a rel-backed epoch, O(|EDB| + Σ|total|)',
+    'epoch snapshot latch':
+        '`__lat` — the DRed latch, O(members)',
     # ── ADR 0025 R-E — THE INCREMENTAL TIER'S PER-ROUND WORKING SET ───────
     # 294 bindings — after `__cp` the WHOLE of the criterion-1 worklist outside
     # `__rel_*`. Fire counts measured at G2 on the emitter-only tree, before any
@@ -515,6 +521,9 @@ ACC = {
     '__ap':     (('apply snapshot group frame', 'apply snapshot multiplicity map',
                   'apply snapshot stored side'),
                  "apply snapshot (`<q>_apply`'s shadow handle — three seam heads)"),
+    '__ep':     (('epoch snapshot group frame', 'epoch snapshot relation',
+                  'epoch snapshot latch'),
+                 "epoch snapshot (the insert-only `<q>_epoch`'s shadow handle — three seam heads)"),
     # ── ADR 0025 R-E — THE PER-ROUND WORKING SET, EIGHT KEYS, ONE HEAD EACH ─
     # ⚠ EVERY KEY MEASURED CLEAN, and the measurement is the class count itself:
     # each of the eight worklist classes stood at EXACTLY the fire count of its
