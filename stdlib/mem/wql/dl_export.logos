@@ -677,7 +677,7 @@ fn dx_clause_in(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String
     match q {
         RQuery::Simple(s) => {
             if s.has_gpath { return dx_no(cl, "graph path source"); }
-            if s.sel_first || s.has_limit { return dx_no(cl, "first / limit"); }
+            if (s.sel_first || s.has_limit) && !str_eq(head, "__out") { return dx_no(cl, "first / limit in a rel body"); }
             if s.src_name.len() == 0i64 {
                 cl.body.push_str("__unit(_)");
             } else if !dx_atom(cl, env, s.src_name, s.var_name) { return false; }
@@ -686,13 +686,13 @@ fn dx_clause_in(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String
         }
         RQuery::Join(j) => {
             if j.has_gpath { return dx_no(cl, "graph path source"); }
-            if j.sel_first || j.has_limit { return dx_no(cl, "first / limit"); }
+            if (j.sel_first || j.has_limit) && !str_eq(head, "__out") { return dx_no(cl, "first / limit in a rel body"); }
             if !dx_join_body(cl, env, j.a_name, j.x_var, j.steps.any(), j.has_where, j.where_pred) { return false; }
             if !dx_head(head, j.select.any().view::<SExpr>(), arity, env, cl, &mut hd) { return false; }
         }
         RQuery::Aggr(g) => {
             if g.has_gpath { return dx_no(cl, "graph path source"); }
-            if g.sel_first || g.has_limit { return dx_no(cl, "first / limit"); }
+            if (g.sel_first || g.has_limit) && !str_eq(head, "__out") { return dx_no(cl, "first / limit in a rel body"); }
             return dx_aggr_clause(g, head, arity, env, out, why);
         }
         _ => { return dx_no(cl, "query form (sort, union, comprehension, …)"); }
@@ -1068,6 +1068,20 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
     }
 }
 
+// The entry's `first` / `limit N|p`, read off whichever shape it is.
+struct DxLimit { pub first: bool, pub has: bool, pub n: i64, pub param: str }
+fn dx_entry_limit(qany: WAny) -> DxLimit {
+    let mut l: DxLimit = DxLimit { first: false, has: false, n: 0i64, param: "" };
+    let q: RQuery = qany.view::<RQuery>();
+    match q {
+        RQuery::Simple(s) => { l.first = s.sel_first; l.has = s.has_limit; l.n = s.limit_n; if s.limit_is_param { l.param = s.limit_param; } }
+        RQuery::Join(j)   => { l.first = j.sel_first; l.has = j.has_limit; l.n = j.limit_n; if j.limit_is_param { l.param = j.limit_param; } }
+        RQuery::Aggr(g)   => { l.first = g.sel_first; l.has = g.has_limit; l.n = g.limit_n; if g.limit_is_param { l.param = g.limit_param; } }
+        _ => { }
+    }
+    return l;
+}
+
 // The number of output columns a select names (a tuple's items, else 1).
 fn dx_sel_len(sel: SExpr) -> i64 {
     match sel {
@@ -1373,10 +1387,20 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
     }
     if dx_entry_struct_result(entry) && arity > 1i64 { return dx_set(why, "struct result"); }
     out.push_str(".decl __out("); out.push_str(dx_view(&cols)); out.push_str(")\n.output __out\n");
+    // `first` / `limit`: Soufflé has no order, so the clause is the UNLIMITED
+    // query and the gate checks Deem's rows against it as a subset (at most n
+    // rows, every one in Soufflé's answer, and all of it when fewer than n)
+    let lim: DxLimit = dx_entry_limit(entry);
+    if lim.first { out.push_str("// first\n"); }
+    else if lim.has { if lim.param.len() > 0i64 { out.push_str("// limit param "); out.push_str(lim.param); }
+                      else { out.push_str("// limit "); out.push_i64(lim.n); }
+                      out.push_str("\n"); }
     // the answer's dump: `__r` is `_run`'s Result; an Err leaves a marker
     dump.push_str("    match __r {\n        Result::Ok(__ov) => {\n            wql_oracle_unlink(\"");
     dump.push_str(ddir); dump.push_str("/deem.err\");\n            { let __od: i32 = wql_oracle_open(\"");
-    dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.borrow(__oi); ");
+    // `first` answers an Option: zero or one row, the loop runs at most once
+    if lim.first { dump.push_str(ddir); dump.push_str("/deem.out\"); if __ov.is_some() { let __orow = __ov.as_ref().unwrap(); "); }
+    else { dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.borrow(__oi); "); }
     let sel0: SExpr = sel.any().view::<SExpr>();
     let mut a: i64 = 0i64;
     while a < arity {
@@ -1390,7 +1414,8 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
         dx_cell(dump, kd, dx_view(&ox));
         a = a + 1i64;
     }
-    dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
+    if lim.first { dump.push_str("wql_oracle_nl(__od); } wql_oracle_close(__od); }\n"); }
+    else { dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n"); }
     // the snapshot writer: the same cells over `__ov`
     incsnap.push_str("{ let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.borrow(__oi); ");
     let mut a2: i64 = 0i64;

@@ -24,6 +24,10 @@
 # Soufflé folds the tuples of a relation (a set), so `count` differs exactly
 # there and nowhere else.
 #
+# `first` / `limit N|p`: Soufflé has no order, so the exported clause is the
+# UNLIMITED query (the .dl carries a `// limit` marker) and Deem's rows must be
+# a subset of its answer, at most n of them, and all of it when fewer than n.
+#
 # THE INCREMENTAL TIER. A deem with an `_epoch`/`_retract`/`_snapshot` handle
 # also logs, per handle (`<q>/h<id>.log`), every Ok call of the fn that changes
 # it (`+ row`, `- row`; a weighted `_apply` logs |w| copies) and every snapshot
@@ -47,11 +51,13 @@ NSHARDS="${4:-1}"
 SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
 # per shard (index = SHARD), measured; raise when the population grows
 COMPARED_FLOORS=(125 51 45 79)   # 2026-10-04, + u64 as `unsigned`: 300 compared in all
-ROWS_FLOORS=(2107 155 110 223)
+ROWS_FLOORS=(2110 161 116 230)
+LIMITED_FLOORS=(6 5 9 4)      # first/limit checked as subsets, 24 in all
 ISNAP_FLOORS=(90 29 33 47)    # incremental snapshots, 199 in all
 COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
 ISNAP_FLOOR="${ISNAP_FLOORS[$SHARD]:-0}"
 ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
+LIMITED_FLOOR="${LIMITED_FLOORS[$SHARD]:-0}"
 # ── KNOWN INCREMENTAL DISAGREEMENTS, checked BOTH WAYS ──────────────────────
 # `fixture:deem` pairs whose handle disagrees with Soufflé because the fixture
 # PINS a defect on purpose. An entry whose pair agrees (the defect was fixed)
@@ -83,7 +89,7 @@ for f in "$PASS"/wql_*.logos "$PASS"/deem_*.logos; do
     [ $((h % NSHARDS)) -eq "$SHARD" ] && fixtures+=("$f")
 done
 
-exported=0; skipped=0; compared=0; rows=0; bag=0; isnap=0; imis=0; ibag=0; iknown=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
+exported=0; skipped=0; compared=0; limited=0; rows=0; bag=0; isnap=0; imis=0; ibag=0; iknown=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
 for f in "${fixtures[@]}"; do
     b=$(basename "$f" .logos)
     o="$TMPD/$b"
@@ -202,6 +208,25 @@ PY
         fi
         sort -u "$o/$q/deem.out" > "$o/$q/deem.set"
         sort -u "$o/$q/souffle/__out.csv" > "$o/$q/souffle.set"
+        # `first` / `limit N|p`: the .dl is the UNLIMITED query (Soufflé has no
+        # order), so Deem's rows must be a subset of it, at most n of them, and
+        # all of it when there are fewer than n
+        lim=$(sed -n 's|^// first$|1|p; s|^// limit \([0-9][0-9]*\)$|\1|p' "$dl")
+        lp=$(sed -n 's|^// limit param \(.*\)$|\1|p' "$dl")
+        [ -n "$lp" ] && lim=$(head -1 "$o/$q/__p_$lp.facts" 2>/dev/null)
+        if [ -n "$lim" ]; then
+            nd=$(wc -l < "$o/$q/deem.out")
+            extra=$(comm -23 "$o/$q/deem.set" "$o/$q/souffle.set" | head -3)
+            if [ -n "$extra" ] || [ "$nd" -gt "$lim" ] || { [ "$nd" -lt "$lim" ] && ! cmp -s "$o/$q/deem.set" "$o/$q/souffle.set"; }; then
+                echo "FAIL: [$b] $q — limit $lim: Deem's $nd row(s) are not a subset of Soufflé's answer of that size:"
+                diff "$o/$q/deem.set" "$o/$q/souffle.set" | head -12 | sed 's/^/    /'
+                mismatched=$((mismatched + 1))
+                continue
+            fi
+            limited=$((limited + 1))
+            rows=$((rows + $(wc -l < "$o/$q/deem.set")))
+            continue
+        fi
         if ! cmp -s "$o/$q/deem.set" "$o/$q/souffle.set"; then
             echo "FAIL: [$b] $q — Deem and Soufflé disagree (< deem, > souffle):"
             diff "$o/$q/deem.set" "$o/$q/souffle.set" | head -12 | sed 's/^/    /'
@@ -229,7 +254,7 @@ if [ -s "$TMPD/_skips" ]; then
     done
 fi
 echo "souffle oracle shard $SHARD/$NSHARDS: ${#fixtures[@]} fixture(s); $exported deem(s) exported, $skipped outside the fragment," \
-     "$compared agree with Soufflé ($rows distinct rows), $uncalled never called, $errored returned Err, $bag aggregate(s) over a bag input," \
+     "$compared agree with Soufflé, $limited first/limit within it ($rows distinct rows), $uncalled never called, $errored returned Err, $bag aggregate(s) over a bag input," \
      "$mismatched disagree, $failed_fx fixture(s) failed;" \
      "incremental: $isnap snapshot(s) compared, $ibag over a bag skipped, $iknown known (KNOWN_INC), $imis disagree"
 fail=0
@@ -238,6 +263,10 @@ fail=0
 [ "$failed_fx" -eq 0 ] || fail=1
 if [ "$rows" -lt "$ROWS_FLOOR" ]; then
     echo "FAIL: $rows rows compared, floor $ROWS_FLOOR — the comparisons went vacuous"
+    fail=1
+fi
+if [ "$limited" -lt "$LIMITED_FLOOR" ]; then
+    echo "FAIL: $limited first/limit deem(s) checked, floor $LIMITED_FLOOR — programs left the fragment"
     fail=1
 fi
 if [ "$isnap" -lt "$ISNAP_FLOOR" ]; then
