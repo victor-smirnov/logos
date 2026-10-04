@@ -1313,6 +1313,17 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         }
 
         for (auto& bound : tp.bounds) {
+            // ADR 0030 S9 (SHADOW): compare this bound's verdict with C-OBL's.
+            struct S9G {
+                SemaChecker& s; const TraitBound& b; TypeRef c; std::string_view ctx; size_t n; bool pok;
+                const SemaSubst& cs;
+                ~S9G() {
+                    const bool refused_here = !s.bounds_probe_ok_;
+                    s.s9_shadow_(b, c, ctx, n, !refused_here, cs);
+                    s.bounds_probe_ok_ = pok && !refused_here;
+                }
+            } s9_guard_{*this, bound, concrete, target_name, result_.diags.size(), bounds_probe_ok_, call_subst};
+            bounds_probe_ok_ = true;
             // B-mv-03: `btn` is the trait IDENTITY this bound denotes — the
             // registry key spelling, captured where the bound was WRITTEN (see
             // TraitBound::canonical_trait). Every key composed below and every
@@ -2062,6 +2073,160 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                   target_name, concrete_str, bound.trait_name, tp.name,
                   bound_lookup_ground(bound)));
         }
+    }
+}
+
+// ADR 0030 S9 rows 3-4 (SHADOW) — the C-OBL table and environment for sema.
+const obl::ImplTable& SemaChecker::obl_table_now_() {
+    size_t n = 0;
+    for (auto& [k, v] : impls_all_) n += v.size();
+    if (n == obl_table_impls_) return obl_table_;
+    obl_table_ = {};
+    obl_table_impls_ = n;
+    obl_no_self_ = 0;
+    uint32_t src = 0;
+    std::unordered_set<std::string> seen;   // impls_all_ holds an impl once per collect pass
+    for (auto& [k, v] : impls_all_)
+        for (auto& info : v) {
+            obl::ImplFact f;
+            f.trait = k.trait_def ? defs_.path(k.trait_def) : info.canonical_trait;
+            f.self = info.self_type ? info.self_type : info.target_typeref;
+            // Logos's `impl Tr for str` is Rust's `impl Tr for &str` (a `str`
+            // value is the fat `&[u8]`; ADR 0030 S8 row 6).
+            if (info.target_type == "str" || info.target_type == "&[u8]")
+                f.self = make_slice_type(u8_t(), false);
+            f.source = src++;
+            if (!f.self) { ++obl_no_self_; continue; }
+            f.trait_args = info.trait_type_args;
+            for (auto& tp : info.impl_type_params) {
+                f.generics.push_back(tp.name);
+                if (tp.is_variadic) f.pack = tp.name;
+                for (auto& b : tp.bounds)
+                    if (!b.is_relaxed) f.bounds.push_back({tp.name, bound_identity_(b), b.type_args});
+            }
+            f.negative = info.is_negative;
+            std::string key = f.trait + "|" + type_str(f.self) + (f.negative ? "|!" : "|");
+            for (auto a : f.trait_args) key += type_str(a) + ",";
+            if (!seen.insert(key).second) continue;
+            obl_table_.add(std::move(f));
+        }
+    return obl_table_;
+}
+
+obl::Env SemaChecker::obl_env_() {
+    obl::Env e;
+    auto lid = [&](std::string_view lang) {
+        const LangItem* li = lang_item(lang);
+        return li ? (li->package.empty() ? li->name : li->package + "::" + li->name) : std::string();
+    };
+    e.lang = {lid("copy"), lid("clone"), lid("sized"), lid("fn"), lid("fn_mut"), lid("fn_once"),
+              lid("eq"), lid("partial_eq"), lid("ord"), lid("partial_ord")};
+    const std::string sized = e.lang.sized;
+    e.param_holds = [this, sized](TypeRef tv, std::string_view trait, const std::vector<TypeRef>&) {
+        std::string n(tv.type_var_name());
+        if (trait == sized) return !current_type_relaxed_sized_.count(n);
+        auto it = current_type_bounds_.find(n);
+        if (it == current_type_bounds_.end()) return false;
+        std::vector<const TraitBound*> work;
+        for (auto& b : it->second) work.push_back(&b);
+        std::unordered_set<std::string> seen;
+        while (!work.empty()) {
+            const TraitBound* b = work.back();
+            work.pop_back();
+            std::string id = bound_identity_(*b);
+            if (!seen.insert(id).second) continue;
+            if (id == trait) return true;
+            if (const SemaTraitInfo* ti = b->trait_def ? trait_info(b->trait_def) : nullptr)
+                for (auto& s : ti->supertraits) work.push_back(&s);
+        }
+        return false;
+    };
+    e.auto_trait = [this](TypeRef self, std::string_view trait) -> std::optional<bool> {
+        const SemaTraitInfo* ti = trait_info(impl_trait_id(trait));
+        if (!ti || !ti->is_auto) return std::nullopt;
+        StrSet v;
+        return is_auto_trait_satisfied(self, ti->name, v);
+    };
+    e.subst = [this](TypeRef t, const obl::Subst& s) {
+        SemaSubst ss;
+        for (auto& [k, v] : s) ss[k] = v;
+        return subst_type_sema(t, ss);
+    };
+    // Open: an unsolved inference variable, or a factory-backed metaclass marker
+    // whose impl the mono→factory drain generates after this round.
+    e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t) || factory_backed_marker_hash(t); };
+    e.object_implements = [this](TypeRef obj, std::string_view trait) {
+        if (TypeRef(obj).trait_name().empty()) return false;
+        const SemaTraitInfo* dyn_ti = resolve_trait(TypeRef(obj).trait_name());
+        if (!dyn_ti) return false;
+        std::set<DefId> seen;
+        std::function<bool(DefId)> reaches = [&](DefId d) -> bool {
+            if (!d || !seen.insert(d).second) return false;
+            if (defs_.path(d) == trait) return true;
+            auto* it = trait_info(d);
+            if (!it) return false;
+            for (auto& s : it->supertraits)
+                if (reaches(s.trait_def)) return true;
+            return false;
+        };
+        return reaches(dyn_ti->def);
+    };
+    // Call shapes without regions (`Fn(&'a i32)` is `fn(&i32)`'s shape).
+    e.same_shape = [](TypeRef a, TypeRef b) {
+        auto shape = [](const std::string& s) {
+            std::string o;
+            for (size_t q = 0; q < s.size();) {
+                if (s[q] == '\'') {
+                    ++q;
+                    while (q < s.size() && (std::isalnum((unsigned char)s[q]) || s[q] == '_')) ++q;
+                    while (q < s.size() && s[q] == ' ') ++q;
+                    continue;
+                }
+                o += s[q++];
+            }
+            return o;
+        };
+        return shape(type_str(a)) == shape(type_str(b));
+    };
+    std::function<bool(TypeRef)> tv_in = [&tv_in](TypeRef t) -> bool {
+        if (!t) return false;
+        if (t.kind() == LogosType::Kind::TypeVar) return true;
+        if (t.pointee() && tv_in(t.pointee())) return true;
+        if (t.elem() && tv_in(t.elem())) return true;
+        for (auto a : t.type_args()) if (tv_in(a)) return true;
+        for (auto x : t.tuple_elems()) if (tv_in(x)) return true;
+        for (auto q : t.closure_params()) if (tv_in(q)) return true;
+        return t.closure_ret() && tv_in(t.closure_ret());
+    };
+    e.mentions_tv = [tv_in](TypeRef t) { return tv_in(t); };
+    return e;
+}
+
+void SemaChecker::s9_shadow_(const TraitBound& b, TypeRef concrete, std::string_view ctx, size_t diags_before,
+                             bool probe_ok_before, const SemaSubst& call_subst) {
+    static const char* log = std::getenv("LOGOS_S9_SHADOW");
+    if (!log || !concrete) return;
+    bool old_refused = bounds_probe_ && !probe_ok_before;   // the guard passes "accepted here"
+    for (size_t i = diags_before; !old_refused && i < result_.diags.size(); ++i)
+        old_refused = result_.diags[i].level == Diag::Level::Error;
+    std::vector<TypeRef> bargs;
+    for (auto a : b.type_args) bargs.push_back(a ? subst_type_sema(a, call_subst) : a);
+    // `where &T: Tr`: the subject is the reference.
+    const TypeRef subject = b.on_ref_subject ? make_ref(b.is_ref_mut, concrete) : concrete;
+    obl::FnSig sig;
+    for (auto p : b.fn_params) sig.params.push_back(p ? subst_type_sema(p, call_subst) : p);
+    sig.ret = b.fn_ret ? subst_type_sema(b.fn_ret, call_subst) : TypeRef{};
+    const bool has_sig = b.is_fn_family && (!b.fn_params.empty() || b.fn_ret);
+    const auto sel = obl::select(obl_table_now_(), obl_env_(), bound_identity_(b), subject, bargs,
+                                 has_sig ? &sig : nullptr);
+    if (sel.holds() != old_refused) return;
+    if (FILE* f = std::fopen(log, "a")) {
+        static const char* kinds[] = {"none", "impl", "builtin", "param", "deferred", "ambiguous"};
+        std::fprintf(f, "S9\told=%s\tnew=%s\ttrait=%s\ttype=%s\tkind=%d\tctx=%.*s\tfile=%s\n",
+                     old_refused ? "refuse" : "accept", kinds[int(sel.kind)], bound_identity_(b).c_str(),
+                     type_str(concrete).c_str(), int(TypeRef(concrete).kind()), int(ctx.size()), ctx.data(),
+                     file_.c_str());
+        std::fclose(f);
     }
 }
 
@@ -4102,7 +4267,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // bc_ltscope_impl_legal_shapes is refused with "expected
                 // &'a i32, got &i32". Measured on t1 (PROBES.md 2026-08-31j).
                 std::vector<std::string> lt_args = self_lt_args_(ssi_found->lifetime_params);
-                if (!impl_tps.empty()) {
+                // The impl's parameters are the struct's arguments only when the
+                // struct HAS type parameters: `impl<'a, T> FnLike<&'a T> for
+                // Identity` is Self = `Identity`, not `Identity<T>` (ADR 0030 S9).
+                if (!impl_tps.empty() && !ssi_found->type_params.empty()) {
                     std::vector<TypeRef> tv_args;
                     for (auto& tp : impl_tps)
                         tv_args.push_back(make_typevar(tp.name));
@@ -4123,7 +4291,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 std::string dpkg  = dsi_t ? dpkg_t : dpkg_b;
                 if (dsi_found) {
                     // Bug 3: datatypes with lifetime params also need lifetime_args in Self.
-                    if (!impl_tps.empty()) {
+                    if (!impl_tps.empty() && !dsi_found->type_params.empty()) {
                         std::vector<TypeRef> tv_args;
                         for (auto& tp : impl_tps)
                             tv_args.push_back(make_typevar(tp.name));
@@ -4200,6 +4368,14 @@ void SemaChecker::collect_impl(TinyMapView node) {
     if (trait_is_drop_) check_drop_impl_wf(target, target_resolved, impl_tps, node);
     // Phase 6: scope the impl's trait name so `Self::Item<X>` inside
     // method bodies / signatures resolves before impls_ is populated.
+    // Scoped to THIS impl: left set, the name and args leaked into every later
+    // struct body and free fn the collector visited (ADR 0030 S9 row 1 keyed a
+    // struct-body method by the previous impl's trait arguments).
+    struct ImplTraitScope {
+        std::string& name; std::vector<TypeRef>& args; std::string saved_name; std::vector<TypeRef> saved_args;
+        ~ImplTraitScope() { name = std::move(saved_name); args = std::move(saved_args); }
+    } impl_trait_scope_{current_impl_trait_name_, current_impl_trait_args_, current_impl_trait_name_,
+                        current_impl_trait_args_};
     current_impl_trait_name_ = trait_name;
     // Resolve the trait's PACKAGE once, through the reader that already
     // implements Rust's shadowing order (cur_package_::Name first). A user
@@ -5791,6 +5967,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // `logos.lang.drop::Drop` both arrive at the same DefId through
         // `impl_trait_id`, and a homonym's impls live under a different one.
         const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), target};
+        info.self_type = impl_self_ty;
         impls_[ikey] = info;
         impls_all_[ikey].push_back(info);   // ALL impls (impls_ is last-wins)
         if (!cur_from_binary_) user_impl_keys_.insert(ikey);
@@ -6972,7 +7149,9 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         for (auto& p : w) info.lifetime_outlives.push_back(std::move(p));
     }
     info.base_name = base_name;
-    info.decl_key = decl_key_(node, struct_ctx);
+    // The impl's trait arguments are the declaration's own (set above only
+    // inside the trait impl being collected), never the collector's last impl.
+    info.decl_key = decl_key_(node, struct_ctx, info.trait_type_args);
     info.owner_struct = std::string(struct_ctx);   // CARRIED, not re-derived
     info.is_method    = !struct_ctx.empty();
     info.source_file = file_;

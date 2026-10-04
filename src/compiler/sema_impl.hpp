@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "obligation.hpp"
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_builder.hpp>
 #include <logos/compiler/lir_view.hpp>
@@ -6330,6 +6331,10 @@ private:
         // name, i.e. when `target` denotes a LOCAL type rather than a foreign
         // one. Empty ⇒ the target is whatever owns the bare slot, unchanged.
         std::string target_pkg;
+        // ADR 0030 S9 row 3: the impl's Self as a type (a pattern over its
+        // generics; a bare generic for a blanket impl), set for EVERY impl —
+        // `target_typeref` is null for a plain nominal target.
+        TypeRef self_type = nullptr;
     };
 
     // Type params in scope for the function/struct currently being processed.
@@ -6897,17 +6902,31 @@ private:
         return it == impls_.end() ? nullptr : &it->second;
     }
     ImplMap<SemaImplInfo>                     impls_;
+    // ADR 0030 S9 rows 3-4 (SHADOW): the C-OBL impl table built from impls_all_,
+    // asked beside check_type_bounds; a disagreement is logged (LOGOS_S9_SHADOW).
+    obl::ImplTable obl_table_;
+    size_t         obl_table_impls_ = SIZE_MAX;
+    size_t         obl_no_self_ = 0;
+    const obl::ImplTable& obl_table_now_();
+    obl::Env obl_env_();
+    std::string bound_identity_(const TraitBound& b) const {
+        if (b.trait_def) return defs_.path(b.trait_def);
+        if (!b.identity_trait.empty()) return b.identity_trait;
+        return b.canonical_trait.empty() ? b.trait_name : b.canonical_trait;
+    }
+    void s9_shadow_(const TraitBound& b, TypeRef concrete, std::string_view ctx, size_t diags_before,
+                    bool probe_ok_before, const logos::compiler::StrMap<TypeRef>& call_subst);
     // ADR 0030 S9 row 1: the symbol collect gave each declaration, by the
     // declaration's identity (its AST node and the owner it was collected
     // under, with the impl's trait arguments — a trait default is one node
     // collected once per impl). lower_fn
     // reads it; nothing re-searches the candidates by name.
     logos::compiler::StrMap<std::string> decl_symbols_;
-    std::string decl_key_(sema_detail::TinyMapView node, std::string_view struct_ctx) const {
+    std::string decl_key_(sema_detail::TinyMapView node, std::string_view struct_ctx,
+                          const std::vector<TypeRef>& trait_args) const {
         return std::format("{}:{}:{}{}", reinterpret_cast<uintptr_t>(holder_), node.offset().value(), struct_ctx,
-                           struct_ctx.empty() || struct_ctx.starts_with("$traitdef$") ||
-                                   current_impl_trait_name_.empty()
-                               ? std::string() : trait_targ_suffix(current_impl_trait_args_));
+                           struct_ctx.empty() || struct_ctx.starts_with("$traitdef$")
+                               ? std::string() : trait_targ_suffix(trait_args));
     }
     // Same key, but ALL impls (impls_ is single-valued / last-wins, so two
     // `Trait<A>` impls of one Self — `From<i32>` AND `From<i16>` for `i64`, or

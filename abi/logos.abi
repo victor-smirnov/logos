@@ -15453,9 +15453,6 @@ sym	logos_std.logos.std.time.datetime$is_leap__f__i64
 sym	logos_std.logos.std.time.datetime$month_name__f__i32
 sym	logos_std.logos.std.time.datetime$to_unix_secs__f__ref_CivilTime
 sym	logos_std.logos.std.time.datetime$weekday_name__f__i32
-sym	str__clamp
-sym	str__max
-sym	str__min
 sym	u16__cmp_views__g__pcst_DT__DT::Prim__DT::Prim
 sym	u16__drop_store__g__pmut_PrimVec$G1$DT::Prim
 sym	u16__new_store__g__void

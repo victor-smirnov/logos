@@ -462,6 +462,35 @@ over the pass corpus after row (1): 0 calls reached either. A template's
 (by_traitdecl), not missed by name. BIR's remaining plain-call misses are
 intrinsics, the `$M` class above and a few generic instances; a miss is
 conservative (the result borrows every argument), not a hole.
+Row (1) regression, fixed (0.54.0): the decl key took the trait arguments of
+the collector's LAST impl — `current_impl_trait_name_` / `_args_` were never
+reset after collect_impl — so a struct-body method (`tests/spec/pass/item_2`)
+was keyed apart from its lowering and got lower_fn's empty "no info" body. The
+key now uses the declaration's own trait arguments; collect_impl scopes the
+impl's trait state to the impl. The census that cleared the deletion had run
+over the pass corpus only; re-run over pass, fail, spec, imported (with and
+without `--test`), interactions, soundness, diag and examples, the empty body
+is left only where collect itself refused the declaration (the
+`partialeq-eq-both-ambiguous` cluster). Lowering no longer synthesizes a
+`Self: Sized` default (`Ord::max` / `min` / `clamp`) for `impl Ord for str`,
+which collect never registered — three empty `str__*` symbols leave the
+archive (ABI break, 0.54.0).
+
+Rows (3)-(4), step A: `obligation.hpp/.cpp` — the C-OBL impl table and
+`select(trait, Self, args, sig)` (impls by pattern unification with package
+identity, a variadic pack, `[T; N]`; nested bounds; negative impls; blankets
+over a bare parameter; builtins for Sized / Copy / Clone / the Fn family with
+the call shape; trait objects by supertraits; SL-sl-02; the phase's param env,
+auto traits, substitution and open inference variables through `Env`). Sema
+builds the table from impls_all_ with each impl's Self (`SemaImplInfo::
+self_type`, now recorded for every impl; Logos's `impl … for str` is a fact
+about `&[u8]`) and asks it beside check_type_bounds (LOGOS_S9_SHADOW). Shadow
+over pass: 0 disagreements; fail and imported: only the HRTB region half
+(check_type_bounds' `region_ok`, which stays as a check on the selected impl).
+The shadow found collect_impl's Self wrong for a non-generic nominal under
+impl generics (`impl<'a, T> FnLike<&'a T> for Identity` gave `Identity<T>`):
+the impl's parameters are a struct's arguments only when it has type
+parameters.
 
 ## S0–S7 gap audit (2026-10-01)
 

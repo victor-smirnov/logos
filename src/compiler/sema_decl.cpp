@@ -663,7 +663,10 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // fingerprint or a relaxed `self` picked another declaration's info for
     // two impls of one owner declaring one method name, and lowered two bodies
     // under one symbol.
-    if (auto dit = decl_symbols_.find(decl_key_(node, struct_ctx)); dit != decl_symbols_.end())
+    static const std::vector<TypeRef> no_args;
+    if (auto dit = decl_symbols_.find(decl_key_(node, struct_ctx, current_impl_trait_name_.empty()
+                                                                        ? no_args : current_impl_trait_args_));
+        dit != decl_symbols_.end())
         fi_ptr = const_cast<SemaFuncInfo*>(find_func_by_symbol(dit->second));
     }
     if (!fi_ptr) {            // shouldn't happen after collect
@@ -3335,7 +3338,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto mangled = lower_target + "__" + m.name;
                 // `where Self: Sized` (Ord::max) does not exist for an unsized
                 // implementor (`impl Ord for str`) — Rust never instantiates it.
-                const bool dm_unsized_self = (impl_target_typeref &&
+                // `impl … for str` has Self = `[u8]` (collect_impl's Self for it),
+                // which no target typeref records: a `Self: Sized` default is not
+                // synthesised for it, as collect does not register one.
+                const bool dm_unsized_self = target == "str" || (impl_target_typeref &&
                     (TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedSlice ||
                      TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedDyn ||
                      TypeRef(impl_target_typeref).kind() == LogosType::Kind::TraitObject));
