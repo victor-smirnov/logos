@@ -842,7 +842,7 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     while i < aggs.len() {
         let ag: RQAgg = aggs.agg_at(i);
         let f: str = ag.fn_name;
-        if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") { return dx_set(why, "aggregate other than count/sum/min/max"); }
+        if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") && !str_eq(f, "avg") { return dx_set(why, "aggregate other than count/sum/min/max/avg (a user-defined aggregate)"); }
         if hcl.nal >= 16i64 { return dx_set(why, "more than 15 aggregates"); }
         let mut argt: String = String::new();
         let mut abd: DxClause = dx_new_clause();
@@ -853,7 +853,10 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
             if !dx_term(&mut argt, ag.arg_expr(), env, &mut abd) { return dx_set(why, abd.why); }
             let aat: str = dx_term_ty(ag.arg_expr(), env, &abd);
             // a float `sum` rounds in fold order, which the two engines do not share
-            if str_eq(aat, "float") && str_eq(f, "sum") { return dx_set(why, "float sum (rounding depends on fold order)"); }
+            if str_eq(aat, "float") && (str_eq(f, "sum") || str_eq(f, "avg")) { return dx_set(why, "float sum/avg (rounding depends on fold order)"); }
+            // an integer `avg` is Deem's f64 running total over the count, and
+            // Soufflé's `mean` the same: exact in any order while partial sums
+            // stay below 2^53, the integers a double holds exactly
             if !dx_numeric(aat) { return dx_set(why, "aggregate argument not numeric"); }
             // min/max order floats by Deem's TOTAL order (a NaN is greatest),
             // Soufflé's skips a NaN: the gate leaves a NaN input out for these
@@ -862,8 +865,14 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
         }
         // the one atom: the columns the argument names, `_` for the rest
         let at: str = dx_view(&argt);
-        hb.push_str(", a_"); hb.push_str(ag.name); hb.push_str(" = "); hb.push_str(f);
-        if at.len() > 0i64 { hb.push_str(" "); hb.push_str(at); }
+        hb.push_str(", a_"); hb.push_str(ag.name); hb.push_str(" = ");
+        // Soufflé's `mean` folds floats: the integer argument goes through
+        // `to_float`, exact for the integers a double holds
+        if str_eq(f, "avg") { hb.push_str("mean to_float("); hb.push_str(at); hb.push_str(")"); }
+        else {
+            hb.push_str(f);
+            if at.len() > 0i64 { hb.push_str(" "); hb.push_str(at); }
+        }
         hb.push_str(" : { "); hb.push_str(dx_view(&ab)); hb.push_str("(gk");
         ci = 0i64;
         while ci < nc {
@@ -1075,6 +1084,9 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
                           && str_eq(dx_term_ty(ag.arg_expr(), env, cl), "unsigned") {
                     aty = "unsigned";
                     akd = "U";
+                } else if str_eq(ag.fn_name, "avg") {
+                    aty = "float";
+                    akd = "F";
                 }
                 cl.al_names[cl.nal] = ag.name; cl.al_vars[cl.nal] = "a_";
                 cl.al_tys[cl.nal] = aty; cl.al_kinds[cl.nal] = akd;
