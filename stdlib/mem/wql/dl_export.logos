@@ -142,6 +142,23 @@ fn dx_find(env: &DxEnv, nm: str) -> i64 {
     return -1i64;
 }
 
+// The Logos type of column `col` of source `si` ("" when absent).
+fn dx_col_ty<'a>(env: &'a DxEnv, si: i64, col: str) -> &'a str {
+    let mut k: i64 = 0i64;
+    while k < env.cn[si] {
+        if str_eq(env.cnames[si][k], col) { let t: str = env.ctys[si][k]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
+        k = k + 1i64;
+    }
+    return "";
+}
+// Why a read of an opaque column is refused, by the type's family.
+fn dx_opaque_why(tn: str) -> str {
+    if str_eq(tn, "f64") || str_eq(tn, "f32") { return "reads a float column"; }
+    if str_eq(tn, "u64") || str_eq(tn, "usize") { return "reads a u64 column"; }
+    if str_eq(tn, "i128") || str_eq(tn, "u128") { return "reads a 128-bit column"; }
+    return "reads a column of a named type";
+}
+
 fn dx_col_opaque(env: &DxEnv, si: i64, col: str) -> bool {
     let mut k: i64 = 0i64;
     while k < env.cn[si] {
@@ -291,7 +308,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                     if !bb.any().is_null() { return dx_no(cl, "nested field path"); }
                     let vs: i64 = dx_var_src(cl, bf.name);
                     if vs < 0i64 { return dx_no(cl, "row variable not bound by an atom"); }
-                    if dx_col_opaque(env, vs, f.name) { return dx_no(cl, "reads a column of a type outside the fragment (float, u64, named, …)"); }
+                    if dx_col_opaque(env, vs, f.name) { return dx_no(cl, dx_opaque_why(dx_col_ty(env, vs, f.name))); }
                     dx_push_var(out, bf.name, f.name);
                     return true;
                 }
@@ -996,6 +1013,14 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
     }
 }
 
+// The number of output columns a select names (a tuple's items, else 1).
+fn dx_sel_len(sel: SExpr) -> i64 {
+    match sel {
+        SExpr::Tuple(t) => { return t.items.any().view::<SExprArr>().len(); }
+        _ => { return 1i64; }
+    }
+}
+
 fn dx_tuple_item(sel: SExpr, i: i64) -> SExpr {
     match sel {
         SExpr::Tuple(t) => { return t.items.any().view::<SExprArr>().arg_at(i); }
@@ -1252,7 +1277,31 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
     dx_entry_vars(entry, &env, &mut cl0);
     let mut cols: String = String::new();
     let arity: i64 = dx_out_cols(sel.any().view::<SExpr>(), &env, &cl0, &mut cols);
-    if arity < 1i64 { return dx_set(why, "output column type"); }
+    if arity < 1i64 {
+        // name the cause, not the symptom: the first item without a Soufflé
+        // type is either refused as a term (its own reason) or a value of a
+        // type outside the fragment
+        let sel1: SExpr = sel.any().view::<SExpr>();
+        let n1: i64 = dx_sel_len(sel1);
+        // the body's own refusal first (a graph step, a source outside the
+        // fragment): the head is typed before the body would have said it
+        let mut sc_out: String = String::new();
+        let mut sc_why: String = String::new();
+        if !dx_clause(entry, "__out", n1, &env, &mut sc_out, &mut sc_why) && sc_why.len() > 0i64 {
+            return dx_set(why, dx_view(&sc_why));
+        }
+        let mut a1: i64 = 0i64;
+        while a1 < n1 {
+            let it: SExpr = if n1 == 1i64 { sel1 } else { dx_tuple_item(sel1, a1) };
+            if dx_term_ty(it, &env, &cl0).len() == 0i64 {
+                let mut scratch: String = String::new();
+                if !dx_term(&mut scratch, it, &env, &mut cl0) { return dx_set(why, cl0.why); }
+                return dx_set(why, "output value of a type outside the fragment (float, u64, …)");
+            }
+            a1 = a1 + 1i64;
+        }
+        return dx_set(why, "output column type");
+    }
     if dx_entry_struct_result(entry) && arity > 1i64 { return dx_set(why, "struct result"); }
     out.push_str(".decl __out("); out.push_str(dx_view(&cols)); out.push_str(")\n.output __out\n");
     // the answer's dump: `__r` is `_run`'s Result; an Err leaves a marker
