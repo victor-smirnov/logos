@@ -383,6 +383,8 @@ through the `let` door), `..base`; tail → return stays sema's single judgment
 
 ## S8 (C-RES) — rows
 
+S8 CLOSED BY ROW 2026-10-04: rows (1)–(6) closed; the gap rows it owned (`refmut-method-temp-behind-ref`, `sd_dst_view_blocks_mut_receiver`, `parse-target-unresolved-ice`) closed; residue MOVED to S9 — a bound-discriminated partial spec's method symbol (`$where$…`), sema's projection over a concrete base by spelled keys.
+
 Resolution is one probe and one emission point; the callee it picks is a fact
 on the L-IR that later phases read instead of re-resolving.
 
@@ -422,7 +424,7 @@ bodies after `hir_body_`, where an expression exit reaching lowering is the
 | `temp-receiver-or-place-base-not-dropped` | S5 | DONE 2026-10-01 (gap round 1; fixture `gap1001_*`) | pairs-10#13: `println!("{}", make(7).hi())` with make() -> Box<B> never prints 'drop B 7' (leak). rustc prints '7 / drop B 7 / end'. `(*make(7)).id` also leaks. `make(7).id`, `mkb( |
 | `compound-assign-uses-add` | S6 | DONE 2026-10-01 (gap round 1; fixture `gap1001_*`) | In `fn accum<T: AddAssign>(dst:&mut T, x:T){ *dst += x; }` with T = M (Copy), Logos calls M::add (prints 3); rustc calls add_assign (21). Without Copy Logos REFUSES ("cannot move o |
 | `range-index-only-slice-array` | S6 | DONE 2026-10-01 (gap round 1; fixture `gap1001_*`) | `&v[1..3]` on a Vec fails with "range index `[..]` requires a slice or array receiver, got Vec<i64>". `&mut a[1..3]` on an array is typed `&mut &[i64]` ("expected &mut [i64], got & |
-| `refmut-method-temp-behind-ref` | S6 | PARTIAL: a projection over a VARIABLE takes DerefMut (DONE 2026-10-01); a TEMPORARY root (`c.borrow_mut().kids.push(5)`) MOVED to S8 — the receiver adjustment is decided after the method probe, without re-lowering the receiver | `let mut m = c.borrow_mut(); m.kids.push(6);` and `c.borrow_mut().kids.push(5)` are refused: "'_t10' is written or mutably borrowed behind a `&` reference"; rustc prints "2 2". Ass |
+| `refmut-method-temp-behind-ref` | S6 | CLOSED (S8 row 4, 0b34d1eef): a projection over a VARIABLE takes DerefMut (2026-10-01); a TEMPORARY root (`c.borrow_mut().kids.push(5)`) takes it after the method probe's pick — pass/s8_probe_temp_root_derefmut | `let mut m = c.borrow_mut(); m.kids.push(6);` and `c.borrow_mut().kids.push(5)` are refused: "'_t10' is written or mutably borrowed behind a `&` reference"; rustc prints "2 2". Ass |
 | `as-mut-underscore-cast` | S7 | DONE 2026-10-01 (gap round 1; fixture `gap1001_*`) | `let p = &mut x as *mut _; f(p)` with f(p:*mut i64): Logos refuses 'expected *mut i64, got *mut _'; rustc runs (9). The variant `let p: *const i64 = &x as *const _;` is refused too |
 | `closure-param-from-expected-fn-signature` | S7 | DONE 2026-10-01 (gap round 1; fixture `gap1001_*`) | `fn s() -> impl Fn(i64)->i64 { \|x\| x*2 }` refused: "callable '\|<error>\| -> void' does not match the signature of `Fn(i64) -> i64`"; rustc prints 8. The same happens with an exp |
 | `closure-param-from-generic-bound-sibling` | S7 | DONE 2026-10-01 (gap round 1; fixture `gap1001_*`) | `apply2(&mut k, \|v\| *v += 1)` with `fn apply2<T, F: Fn(&mut T)>(x:&mut T, f:F)` is refused ('cannot move out of v' / 'expected T, got u32'); rustc accepts and exits 5. Worse, a v |
@@ -475,7 +477,7 @@ rustc 1.98.1:
 | `expr_11`, `bc_recv_addroftemp_resv_admit` (case 3), `bc_{esc_generic_monokey,fatret_nested_call,argcomp_tvbuild_byvalue_fat}_admit` | the CHECKER was right (E0382, E0499, signature elision) | fixtures corrected / moved to fail (`*_sig_fail`) |
 | `issue-48238`, `bc_capret_move_addr_of_capture_fail`, `bc_capmovewalk_move_body_ret_capture_fail` | refused, new sentence closer to rustc's | `.expected` updated |
 | `issue-27282-move-match-input-into-guard`, the restored `issue-27282-move-ref-mut-into-guard` | hole: a guard's closure captures a `&mut`/`ref mut` used by value BY REFERENCE (rustc: by move) | MOVED to ADR 0029 — squeue rows `guard_closure_moves_*_admits` |
-| `sd_dst_view_blocks_mut_receiver` | hole: a DST method receiver is passed as `copy ar`, no reborrow, no loan | MOVED to S8 (the method probe's receiver adjustment) — squeue row `dst_method_receiver_no_reborrow_admits` |
+| `sd_dst_view_blocks_mut_receiver` | hole: a DST method receiver is passed as `copy ar`, no reborrow, no loan | CLOSED (S8 row 4): the probe's receiver adjustment reborrows a DST place receiver — squeue row `dst_method_receiver_no_reborrow_admits` (#722) closed into fail/sd_dst_view_blocks_mut_receiver |
 
 ## S0 status (2026-10-01)
 
