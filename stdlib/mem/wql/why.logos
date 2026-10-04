@@ -129,10 +129,13 @@ pub fn WG_FALSE_PRED() -> i32   { return 5i32; }
 pub fn WG_AGG() -> i32          { return 6i32; }
 
 // 10 (`WG_NO_STEP`) and 16 (`WG_ONE_FLOAT`) are DELETED (2026-10-04), refuted
-// rather than witnessed: `decide_join_orders` is called only with a chain that
+// rather than witnessed, and 19 (`WG_CROSS`) with them: `decide_join_orders`
+// is called only with a chain that
 // has a step, and `decide_over_set` only after the first step was found to be
-// neither an anti join nor a traversal, so two sources always float. Both
-// sites are invariants now (`join_order.logos`), not grounds a plan can carry.
+// neither an anti join nor a traversal, so two sources always float; and every
+// floatable step carries an `on` (the grammar requires one on a classic join,
+// and the gpath and magic-set rewrites set one), so C5's bijection never lacks a
+// predicate. All three sites are invariants now (`join_order.logos`).
 pub fn WG_EDGE_FIRST() -> i32   { return 11i32; }
 pub fn WG_ANTI_FIRST() -> i32   { return 12i32; }
 pub fn WG_NO_SORT() -> i32      { return 13i32; }
@@ -140,7 +143,6 @@ pub fn WG_KEY_ORDER() -> i32    { return 14i32; }
 pub fn WG_UNDECIDED() -> i32    { return 15i32; }
 pub fn WG_MAX_FL() -> i32       { return 17i32; }
 pub fn WG_NO_SIZE() -> i32      { return 18i32; }
-pub fn WG_CROSS() -> i32        { return 19i32; }
 
 pub fn WG_MAX_CAND() -> i32     { return 20i32; }
 pub fn WG_REFUSED() -> i32      { return 21i32; }
@@ -362,9 +364,6 @@ pub fn wg_words(g: i32) -> str {
     if g == WG_MAX_FL() {
         return "more floatable sources than a plan holds facts for (four): the permutation search and the plan's size table are both bounded there, so this chain keeps the query's own order rather than searching a truncated space";
     }
-    if g == WG_CROSS() {
-        return "a floatable step carries no `on` (a cross product), so the predicates and the positions are not in bijection and C5 has nothing to place — the derivation refuses the chain before enumerating anything, because C5 is a bijection requirement and a missing predicate breaks it whatever the order";
-    }
     if g == WG_NO_SIZE() {
         return "a side's size is free at NEITHER decision point: it streams, so it has no length before the query runs and none inside it either — counting would mean draining the iterator, which is the query's own work, and trading that for a plan fact is what this axis refuses";
     }
@@ -408,9 +407,6 @@ pub fn wg_remedy(g: i32) -> str {
     }
     if g == WG_NO_SIZE() {
         return "this axis offers no repair for a streamed side: an iterator has no length at EITHER point and counting means draining it. A source that can be counted is a different source, not a declaration added to this one";
-    }
-    if g == WG_CROSS() {
-        return "give the step an `on`: a cross product has no join predicate to place, and an order is a choice about WHERE each predicate is evaluated";
     }
     if g == WG_MAX_CAND() {
         return "a shorter chain, or one more pinned step — the bound is `join_cost::JC_MAX_CAND()`, the nests one artifact carries for one join body, so carrying more orders is a decision about the ARTIFACT (one order per object file) and not about this query";

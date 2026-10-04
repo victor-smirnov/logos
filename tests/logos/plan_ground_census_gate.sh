@@ -1246,7 +1246,8 @@ UNWITNESSED = {
     # WG_UNDECIDED left 2026-10-04 WITNESSED by wql_order_undecided_step_e2e (a
     # classic join after a traversal, under `order by`); its sentence named the
     # wrong cause (a rel body's chain) and was corrected with it.
-    "WG_CROSS",
+    # WG_CROSS left 2026-10-04 REFUTED: every floatable step has an `on`; a
+    # panic at its site left all 309 wql/deem tests green.
     "WG_NO_SIZE",
     "RJ_PREDBASE", "RJ_PREDPIN", "RJ_SHAPE",
     "SZ_RUN_STREAMS", "SZ_PREP_STREAMS",

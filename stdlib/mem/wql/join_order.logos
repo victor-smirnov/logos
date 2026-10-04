@@ -578,7 +578,7 @@ fn push_seq(out: &mut String, c: &JCh, seq: &[i64; 9], np: i64) {
 /// 0. Reporting it as a refusal of the SEARCH would put a ground in the searched
 /// census with nothing enumerated under it, which is precisely the "count that means
 /// two things" this record replaces; `false` says the axis was refused before the
-/// derivation, and `WG_CROSS` is the antecedent.
+/// derivation (an invariant since `WG_CROSS` was refuted: no such step exists).
 fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                  jo: &mut JoinOrder) -> bool {
     let m: i64 = c.n + 1i64;
@@ -1021,8 +1021,13 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
     let mut jo: JoinOrder = jo_ground(WG_UNSET(), AX_NONE());
     let ran: bool = derive_orders(c, t, h, szs, &mut jo);
     jo.w.nfl = jo.nfl;
+    // ⚠ AN INVARIANT, NOT A GROUND (2026-10-04): `derive_orders` refuses only a
+    // floatable step with no `on`, and none exists — the grammar requires `on` on
+    // a classic join, and the gpath and magic-set rewrites set one. CONTROL: a
+    // panic here left all 309 wql/deem tests green (the reached-arm control is
+    // `WG_NO_STEP`'s). So `WG_CROSS` left the vocabulary.
     if !ran {
-        jo_decline(&mut jo, WG_CROSS(), AX_REFUSED(), szs, ats);
+        logos.lang.panic::panic("wql!: a floatable join step without `on` reached the order derivation");
         return jo;
     }
     // ⚠ THE CENSUS IS ALREADY ON THE RECORD AND NOTHING BELOW COPIES IT. Every
