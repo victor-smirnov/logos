@@ -705,7 +705,7 @@ pub fn split_and_terms(e_ref: WRef<SExpr>, tl: &mut TermList) {
 // produces (queue-2 I3: `p.b` over a rel row becomes ONE ident named "p.b";
 // user identifiers cannot contain '.', so the prefix test is unambiguous.
 // The static IR never carries dotted idents — the extension is inert there).
-fn name_refs(name: str, new_var: str) -> bool {
+pub fn name_refs(name: str, new_var: str) -> bool {
     if str_eq(name, new_var) { return true; }
     let nl: i64 = new_var.len();
     if name.len() > nl && str_byte_at(name, nl) == 46u8 && str_starts_with(name, new_var) {

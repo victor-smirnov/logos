@@ -379,13 +379,9 @@ fn rel_body_mods_ok(rel_name: str, first: bool, distinct: bool,
 // field path validates against the BASE var's row type via module-AST
 // reflection (stamp_edge_step), `src_name` is REWRITTEN to the full source
 // EXPRESSION text (`d.emps` — arena-boxed), and `row_ty` stamped to the
-// ELEMENT type. Scalar-element vars (Vec<str> → str) and anti-join vars append
-// to `cv` — the callers check every clause against it (`clause_vars_ok`).
-//
-// SCOPE. A step's `on` reads only the row vars bound at or before its step; a
-// later var there is a named error here, since the chain is the one place that
-// knows the binding order. It used to reach the generated code as `undefined
-// variable`, a name the query does declare.
+// ELEMENT type. Scalar-element vars (Vec<str> → str) append to `cv` — the
+// callers reject field access rooted at them across every clause. Which NAMES a
+// clause may read is `query_names_ok`'s.
 fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroParams,
                cur_rel: i64, deps: &mut RelDeps,
                relvars: &mut [str; 9], nrelv: &mut i64,
@@ -428,31 +424,7 @@ fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroPar
             k = k + 1i64;
         }
         if nv < 9i64 { vars[nv] = v; vtys[nv] = st.row_ty; vanti[nv] = st.is_anti; nv = nv + 1i64; }
-        if st.is_anti { cv_push(cv, v, true); }
         i = i + 1i64;
-    }
-    // Each step's `on` against the vars LATER steps bind (step `si` binds
-    // `vars[si + 1]`).
-    let mut si: i64 = 0i64;
-    while si < n {
-        let so: RQJoinStep = steps.step_at(si);
-        if so.has_on {
-            let mut lj: i64 = si + 2i64;
-            while lj < nv {
-                if (refs_mask(so.on_expr(), vars[lj]) & 1i32) != 0i32 {
-                    let mut m2: String = String::new();
-                    m2.push_str("wql!: the `on` of the step binding `");
-                    m2.push_str(so.var_name);
-                    m2.push_str("` reads `");
-                    m2.push_str(vars[lj]);
-                    m2.push_str("`, which a later step binds — a step's `on` reads only the row vars bound at or before it");
-                    error(string_as_str(&m2));
-                    return false;
-                }
-                lj = lj + 1i64;
-            }
-        }
-        si = si + 1i64;
     }
     return true;
 }
@@ -633,41 +605,210 @@ fn stamp_edge_step(st: RQJoinStep,
     st.src_name = string_as_str(&buf);
     // 4. Scalar-element var (Vec<str> → str) → the no-fields diagnostic set.
     if el_ret_class(st.row_ty) >= 0i32 {
-        cv_push(cv, st.var_name, false);
+        cv_push(cv, st.var_name);
     }
     return true;
 }
 
-// ── Row vars a clause may not read as written ────────────────────────────────
-// A traversal var over a SCALAR collection (Vec<str> → `s: str`) has no fields
-// (`anti` false); an anti-join var binds only inside its own `on` (`anti`
-// true), so no row of it reaches a later step or a clause after the chain.
-struct ClauseVars { pub name: [str; 9], pub anti: [bool; 9], pub n: i64 }
-
-fn clause_vars_new() -> ClauseVars {
-    return ClauseVars { name: ["", "", "", "", "", "", "", "", ""], anti: [false; 9], n: 0i64 };
+// ── The chain's row vars, in the scope of each clause ────────────────────────
+// A row var the chain declares is readable only where it is bound:
+//   - in a step's `on`: the vars bound at or before its step, an anti-join var
+//     only in its own `on`;
+//   - in a clause after the chain: every var but an anti one;
+//   - after `group by` in the ENTRY (an aggregate's select / having / order
+//     by): the BASE var, whose group row is its first (`wql_group_rowvar_e2e`);
+//     a step var has no representative there, not even as the grouped
+//     expression (`group by b.m … select (b.m, n)`: measured). A rel body's
+//     aggregate is a Datalog rule and reads its key's vars
+//     (`wql_rel_sssp_e2e`: `group by e.dst … select (e.dst, d)`).
+// Each of these compiled through the planner and failed in the GENERATED code
+// as `undefined variable`, a name the query does declare. A name the chain does
+// not declare is left to the generated fn's own name resolution: it is a
+// scalar param, `key` or an aggregate name, or a module item — Canon's `where`
+// clauses read imported consts (`o.verb != OP_SEEK`), which this handler's
+// reflection (one module's AST) cannot see.
+struct NameScope {
+    pub vars: [str; 9], pub anti: [bool; 9], pub nv: i64,   // the chain, in binding order
+    pub upto: i64,     // vars[0..upto) are bound at this clause
+    pub own: i64,      // the step whose `on` this is (-1 outside one)
+    pub grouped: bool, // after `group by` in the entry
+    pub comp: str,     // a comprehension head's loop var ("" outside one)
 }
 
-fn cv_push(cv: &mut ClauseVars, v: str, anti: bool) {
-    if cv.n < 9i64 { cv.name[cv.n] = v; cv.anti[cv.n] = anti; cv.n = cv.n + 1i64; }
+fn ns_new() -> NameScope {
+    return NameScope { vars: ["", "", "", "", "", "", "", "", ""], anti: [false; 9], nv: 0i64,
+                       upto: 0i64, own: -1i64, grouped: false, comp: "" };
 }
 
-// One clause against `cv`. `own` is the var of the step whose `on` this is (""
-// for a clause after the chain): an anti step's own `on` is where its var binds.
-fn clause_vars_ok(e: SExpr, cv: &ClauseVars, own: str) -> bool {
+fn ns_chain(sc: &mut NameScope, base: str, steps: RQJoinStepArr, has: bool) {
+    sc.vars[0] = base;
+    sc.nv = 1i64;
+    if has {
+        let mut i: i64 = 0i64;
+        while i < steps.len() && sc.nv < 9i64 {
+            let st: RQJoinStep = steps.step_at(i);
+            sc.vars[sc.nv] = st.var_name;
+            sc.anti[sc.nv] = st.is_anti;
+            sc.nv = sc.nv + 1i64;
+            i = i + 1i64;
+        }
+    }
+    sc.upto = sc.nv;
+}
+
+fn ns_name_ok(nm: str, sc: &NameScope, clause: str) -> bool {
+    if sc.comp.len() > 0i64 && name_refs(nm, sc.comp) { return true; }
+    let mut k: i64 = -1i64;
     let mut i: i64 = 0i64;
-    while i < cv.n {
-        if cv.anti[i] && !str_eq(cv.name[i], own) && (refs_mask(e, cv.name[i]) & 1i32) != 0i32 {
-            let mut m: String = String::new();
-            m.push_str("wql!: `");
-            m.push_str(cv.name[i]);
-            m.push_str("` is an anti-join variable — it binds only inside its own `on` predicate, and no row of it reaches a later step or clause");
-            error(string_as_str(&m));
-            return false;
+    while i < sc.nv && k < 0i64 {
+        if name_refs(nm, sc.vars[i]) { k = i; }
+        i = i + 1i64;
+    }
+    if k < 0i64 { return true; }
+    let v: str = sc.vars[k];
+    let mut m: String = String::new();
+    if sc.grouped {
+        if k == 0i64 { return true; }
+        m.push_str("wql!: `");
+        m.push_str(v);
+        m.push_str("` in the `");
+        m.push_str(clause);
+        m.push_str("` clause after `group by` — a join step's var has no representative row in a group; read the grouped expression as `key`, or the var through an aggregate");
+    } else if sc.anti[k] && k != sc.own {
+        m.push_str("wql!: `");
+        m.push_str(v);
+        m.push_str("` is an anti-join variable — it binds only inside its own `on` predicate, and no row of it reaches a later step or clause");
+    } else if k >= sc.upto {
+        m.push_str("wql!: the `on` of the step binding `");
+        m.push_str(sc.vars[sc.own]);
+        m.push_str("` reads `");
+        m.push_str(v);
+        m.push_str("`, which a later step binds — a step's `on` reads only the row vars bound at or before it");
+    } else {
+        return true;
+    }
+    error(string_as_str(&m));
+    return false;
+}
+
+fn ns_expr_ok(e: SExpr, sc: &mut NameScope, clause: str) -> bool {
+    match e {
+        SExpr::Var(v) => { return ns_name_ok(v.name, sc, clause); }
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            if bref.any().is_null() { return ns_name_ok(f.name, sc, clause); }
+            return ns_expr_ok(f.base_expr(), sc, clause);
+        }
+        SExpr::Bin(b)  => { return ns_expr_ok(b.lhs_expr(), sc, clause) && ns_expr_ok(b.rhs_expr(), sc, clause); }
+        SExpr::Un(u)   => { return ns_expr_ok(u.arg_expr(), sc, clause); }
+        SExpr::Cast(c) => { return ns_expr_ok(c.arg_expr(), sc, clause); }
+        SExpr::Cond(c) => {
+            return ns_expr_ok(c.cond_expr(), sc, clause)
+                && ns_expr_ok(c.then_expr(), sc, clause)
+                && ns_expr_ok(c.else_expr(), sc, clause);
+        }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < args.len() {
+                if !ns_expr_ok(args.arg_at(i), sc, clause) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        // The head reads the comprehension's loop var; its source plan is its own.
+        SExpr::Comp(cp) => {
+            let outer: str = sc.comp;
+            sc.comp = cp.var;
+            let ok: bool = ns_expr_ok(cp.head_expr(), sc, clause);
+            sc.comp = outer;
+            return ok;
+        }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if !ns_expr_ok(items.arg_at(i), sc, clause) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => { return true; }
+    }
+}
+
+fn ns_steps_ok(steps: RQJoinStepArr, sc: &mut NameScope) -> bool {
+    let mut i: i64 = 0i64;
+    while i < steps.len() {
+        let st: RQJoinStep = steps.step_at(i);
+        if st.has_on {
+            sc.upto = i + 2i64;
+            sc.own = i + 1i64;
+            if !ns_expr_ok(st.on_expr(), sc, "on") { return false; }
         }
         i = i + 1i64;
     }
-    return no_scalar_field(e, cv);
+    sc.upto = sc.nv;
+    sc.own = -1i64;
+    return true;
+}
+
+// Every clause of one query (an entry or a rel body), against the chain's scope.
+fn query_names_ok(qa: WAny, entry: bool, h: &Writ) -> bool {
+    let mut sc: NameScope = ns_new();
+    match qa.view::<RQuery>() {
+        RQuery::Simple(_) => {
+            let s: RQSimple = rq_fat_simple(qa, h);
+            sc.vars[0] = s.var_name; sc.nv = 1i64; sc.upto = 1i64;
+            if !ns_expr_ok(s.select_expr(), &mut sc, "select") { return false; }
+            if s.has_where && !ns_expr_ok(s.where_expr(), &mut sc, "where") { return false; }
+            if s.has_order && !ns_expr_ok(s.order_expr(), &mut sc, "order by") { return false; }
+        }
+        RQuery::Join(_) => {
+            let j: RQJoin = rq_fat_join(qa, h);
+            ns_chain(&mut sc, j.x_var, j.steps_arr(), true);
+            if !ns_steps_ok(j.steps_arr(), &mut sc) { return false; }
+            if !ns_expr_ok(j.select_expr(), &mut sc, "select") { return false; }
+            if j.has_where && !ns_expr_ok(j.where_expr(), &mut sc, "where") { return false; }
+            if j.has_order && !ns_expr_ok(j.order_expr(), &mut sc, "order by") { return false; }
+        }
+        RQuery::Aggr(_) => {
+            let g: RQAggr = rq_fat_aggr(qa, h);
+            ns_chain(&mut sc, g.x_var, g.steps_arr(), g.has_steps());
+            if g.has_steps() && !ns_steps_ok(g.steps_arr(), &mut sc) { return false; }
+            if g.has_where && !ns_expr_ok(g.where_expr(), &mut sc, "where") { return false; }
+            if !ns_expr_ok(g.key_expr(), &mut sc, "group by") { return false; }
+            let gaggs: RQAggArr = g.aggs_arr();
+            let mut ga: i64 = 0i64;
+            while ga < gaggs.len() {
+                let a: RQAgg = gaggs.agg_at(ga);
+                if a.has_arg && !ns_expr_ok(a.arg_expr(), &mut sc, "aggregate") { return false; }
+                ga = ga + 1i64;
+            }
+            sc.grouped = entry;
+            if !ns_expr_ok(g.select_expr(), &mut sc, "select") { return false; }
+            if g.has_having && !ns_expr_ok(g.having_expr(), &mut sc, "having") { return false; }
+            if g.has_order && !ns_expr_ok(g.order_expr(), &mut sc, "order by") { return false; }
+        }
+        RQuery::Find(_) => {
+            let f: RQFind = rq_fat_find(qa, h);
+            sc.vars[0] = f.var_name; sc.nv = 1i64; sc.upto = 1i64;
+            if !ns_expr_ok(f.pred_expr(), &mut sc, "where") { return false; }
+        }
+    }
+    return true;
+}
+
+// ── Scalar-element field-access guard (slice D) ──────────────────────────────
+// A traversal var over a SCALAR collection (Vec<str> → `s: str`) has no fields.
+struct ClauseVars { pub name: [str; 9], pub n: i64 }
+
+fn clause_vars_new() -> ClauseVars {
+    return ClauseVars { name: ["", "", "", "", "", "", "", "", ""], n: 0i64 };
+}
+
+fn cv_push(cv: &mut ClauseVars, v: str) {
+    if cv.n < 9i64 { cv.name[cv.n] = v; cv.n = cv.n + 1i64; }
 }
 
 // `s.foo` on a scalar-element var anywhere in a clause is a named error
@@ -682,7 +823,7 @@ fn no_scalar_field(e: SExpr, cv: &ClauseVars) -> bool {
             if rn.len() > 0i64 {
                 let mut i: i64 = 0i64;
                 while i < cv.n {
-                    if !cv.anti[i] && str_eq(cv.name[i], rn) {
+                    if str_eq(cv.name[i], rn) {
                         let mut m: String = String::new();
                         m.push_str("wql!: `");
                         m.push_str(rn);
@@ -730,7 +871,7 @@ fn no_scalar_field(e: SExpr, cv: &ClauseVars) -> bool {
     }
 }
 
-// The step fan-out's on-predicates through `clause_vars_ok`.
+// The step fan-out's on-predicates through the scalar-field guard.
 fn steps_clause_ok(steps: RQJoinStepArr, cv: &ClauseVars) -> bool {
     if cv.n == 0i64 { return true; }
     let ns: i64 = steps.len();
@@ -738,7 +879,7 @@ fn steps_clause_ok(steps: RQJoinStepArr, cv: &ClauseVars) -> bool {
     while i < ns {
         let st: RQJoinStep = steps.step_at(i);
         if st.has_on {
-            if !clause_vars_ok(st.on_expr(), cv, st.var_name) { return false; }
+            if !no_scalar_field(st.on_expr(), cv) { return false; }
         }
         i = i + 1i64;
     }
@@ -827,9 +968,9 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             // Scalar-element vars (traversal over Vec<str> etc.): no field
             // access rooted at them in any clause of this body.
             if cv.n > 0i64 {
-                if !clause_vars_ok(j.select_expr(), &cv, "") { return false; }
+                if !no_scalar_field(j.select_expr(), &cv) { return false; }
                 if j.has_where {
-                    if !clause_vars_ok(j.where_expr(), &cv, "") { return false; }
+                    if !no_scalar_field(j.where_expr(), &cv) { return false; }
                 }
                 if !steps_clause_ok(j.steps_arr(), &cv) { return false; }
             }
@@ -1632,6 +1773,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 if !check_rel_body(bodies.body_any(b), rel2.name, i2, prm, &mut deps, h) {
                     return false;
                 }
+                if !query_names_ok(bodies.body_any(b), false, h) { return false; }
                 b = b + 1i64;
             }
             i2 = i2 + 1i64;
@@ -1720,12 +1862,12 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             if !sel_whole_row_ok(j.select_expr(), &relvars, nrelv) { return false; }
             // Scalar-element traversal vars: no field access rooted at them.
             if cv.n > 0i64 {
-                if !clause_vars_ok(j.select_expr(), &cv, "") { return false; }
+                if !no_scalar_field(j.select_expr(), &cv) { return false; }
                 if j.has_where {
-                    if !clause_vars_ok(j.where_expr(), &cv, "") { return false; }
+                    if !no_scalar_field(j.where_expr(), &cv) { return false; }
                 }
                 if j.has_order {
-                    if !clause_vars_ok(j.order_expr(), &cv, "") { return false; }
+                    if !no_scalar_field(j.order_expr(), &cv) { return false; }
                 }
                 if !steps_clause_ok(j.steps_arr(), &cv) { return false; }
             }
@@ -1747,23 +1889,23 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 if !stamp_steps(g.steps_arr(), g.x_var, sr3.row_ty, prm, -1i64, &mut deps,
                                 &mut relvars, &mut nrelv, &mut cv2, h) { return false; }
                 if cv2.n > 0i64 {
-                    if !clause_vars_ok(g.select_expr(), &cv2, "") { return false; }
-                    if !clause_vars_ok(g.key_expr(), &cv2, "") { return false; }
+                    if !no_scalar_field(g.select_expr(), &cv2) { return false; }
+                    if !no_scalar_field(g.key_expr(), &cv2) { return false; }
                     if g.has_where {
-                        if !clause_vars_ok(g.where_expr(), &cv2, "") { return false; }
+                        if !no_scalar_field(g.where_expr(), &cv2) { return false; }
                     }
                     if g.has_having {
-                        if !clause_vars_ok(g.having_expr(), &cv2, "") { return false; }
+                        if !no_scalar_field(g.having_expr(), &cv2) { return false; }
                     }
                     if g.has_order {
-                        if !clause_vars_ok(g.order_expr(), &cv2, "") { return false; }
+                        if !no_scalar_field(g.order_expr(), &cv2) { return false; }
                     }
                     let gaggs: RQAggArr = g.aggs_arr();
                     let mut ga: i64 = 0i64;
                     while ga < gaggs.len() {
                         let a: RQAgg = gaggs.agg_at(ga);
                         if a.has_arg {
-                            if !clause_vars_ok(a.arg_expr(), &cv2, "") { return false; }
+                            if !no_scalar_field(a.arg_expr(), &cv2) { return false; }
                         }
                         ga = ga + 1i64;
                     }
@@ -1790,6 +1932,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             f.row_ty = sr4.row_ty;
         }
     }
+    if !query_names_ok(entry_any, true, h) { return false; }
 
     // ── Emit the rel helper fns + build the entry prelude ───────────────────
     // Materialization order = the condensation TOPO order (dependencies first
