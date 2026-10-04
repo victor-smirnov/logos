@@ -36,6 +36,12 @@ pub fn wql_oracle_i64(fd: i32, v: i64) {
     wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
 }
 
+pub fn wql_oracle_u64(fd: i32, v: u64) {
+    let mut b: String = String::new();
+    b.push_u64(v);
+    wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
+}
+
 pub fn wql_oracle_bool(fd: i32, v: bool) {
     if v { wql_oracle_bytes(fd, "1"); } else { wql_oracle_bytes(fd, "0"); }
 }

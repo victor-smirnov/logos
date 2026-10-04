@@ -56,6 +56,9 @@ fn dl_ty(tn: str) -> str {
         return "number";
     }
     if str_eq(tn, "str") || str_eq(tn, "String") || str_eq(tn, "&str") { return "symbol"; }
+    // Soufflé's 64-bit `unsigned`: its arithmetic wraps where Deem's is checked,
+    // and a call that returned Err is outside the comparison
+    if str_eq(tn, "u64") || str_eq(tn, "usize") { return "unsigned"; }
     return "";
 }
 
@@ -85,6 +88,7 @@ fn dx_kind(tn: str) -> str {
     if str_eq(tn, "str") || str_eq(tn, "&str") { return "s"; }
     if str_eq(tn, "String") { return "S"; }
     if str_eq(dl_ty(tn), "number") { return "i"; }
+    if str_eq(dl_ty(tn), "unsigned") { return "U"; }
     if str_eq(tn, "f64") || str_eq(tn, "f32") { return "f"; }
     if str_eq(tn, "u64") || str_eq(tn, "usize") { return "u"; }
     return "z";
@@ -97,6 +101,7 @@ fn dx_cell(out: &mut String, kind: str, expr: str) {
     else if str_eq(kind, "S") { out.push_str("wql_oracle_str(__od, ("); out.push_str(expr); out.push_str(").as_str()); "); }
     else if str_eq(kind, "f") { out.push_str("wql_oracle_i64(__od, f64_canon_bits(("); out.push_str(expr); out.push_str(") as f64) as i64); "); }
     else if str_eq(kind, "u") { out.push_str("wql_oracle_i64(__od, ("); out.push_str(expr); out.push_str(") as i64); "); }
+    else if str_eq(kind, "U") { out.push_str("wql_oracle_u64(__od, ("); out.push_str(expr); out.push_str(") as u64); "); }
     else if str_eq(kind, "z") { out.push_str("wql_oracle_str(__od, \"0\"); "); }
     else { out.push_str("wql_oracle_str(__od, "); out.push_str(expr); out.push_str("); "); }
 }
@@ -320,6 +325,9 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             if op != OP_ADD() && op != OP_SUB() && op != OP_MUL() && op != OP_DIV() && op != OP_MOD() {
                 return dx_no(cl, "operator outside + - * / % in a term");
             }
+            if dx_mixed_sign(b.lhs.any().view::<SExpr>(), b.rhs.any().view::<SExpr>(), env, cl) {
+                return dx_no(cl, "signed and unsigned operands in one term");
+            }
             out.push_str("(");
             if !dx_term(out, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
             if op == OP_ADD() { out.push_str(" + "); }
@@ -333,6 +341,7 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
         }
         SExpr::Un(u) => {
             if u.op != OP_NEG() { return dx_no(cl, "unary operator other than -"); }
+            if str_eq(dx_term_ty(u.arg.any().view::<SExpr>(), env, cl), "unsigned") { return dx_no(cl, "negation of an unsigned value"); }
             out.push_str("(-");
             if !dx_term(out, u.arg.any().view::<SExpr>(), env, cl) { return false; }
             out.push_str(")");
@@ -340,6 +349,22 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
         }
         _ => { return dx_no(cl, "expression form (call, cast, conditional, …)"); }
     }
+}
+
+// Soufflé types `number` and `unsigned` apart: an operator over one of each is
+// a type error unless the signed side is a literal (constants adapt).
+fn dx_is_lit(e: SExpr) -> bool {
+    match e {
+        SExpr::Lit(_l) => { return true; }
+        _ => { return false; }
+    }
+}
+fn dx_mixed_sign(l: SExpr, r: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
+    let lt: str = dx_term_ty(l, env, cl);
+    let rt: str = dx_term_ty(r, env, cl);
+    if str_eq(lt, "unsigned") && str_eq(rt, "number") && !dx_is_lit(r) { return true; }
+    if str_eq(rt, "unsigned") && str_eq(lt, "number") && !dx_is_lit(l) { return true; }
+    return false;
 }
 
 // A predicate as constraints, conjunct by conjunct.
@@ -359,6 +384,9 @@ fn dx_pred(e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             else if op == OP_GT() { sym = " > "; }
             else if op == OP_GE() { sym = " >= "; }
             else { return dx_no(cl, "predicate operator (or, not, …)"); }
+            if dx_mixed_sign(b.lhs.any().view::<SExpr>(), b.rhs.any().view::<SExpr>(), env, cl) {
+                return dx_no(cl, "signed and unsigned operands in one comparison");
+            }
             let mut t: String = String::new();
             if !dx_term(&mut t, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
             t.push_str(sym);
@@ -801,7 +829,8 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
         if !str_eq(f, "count") {
             if !ag.has_arg { return dx_set(why, "aggregate without an argument"); }
             if !dx_term(&mut argt, ag.arg_expr(), env, &mut abd) { return dx_set(why, abd.why); }
-            if !str_eq(dx_term_ty(ag.arg_expr(), env, &abd), "number") { return dx_set(why, "aggregate argument not a signed integer"); }
+            let aat: str = dx_term_ty(ag.arg_expr(), env, &abd);
+            if !str_eq(aat, "number") && !str_eq(aat, "unsigned") { return dx_set(why, "aggregate argument not an integer"); }
             if abd.nparams > 0i64 { return dx_set(why, "parameter inside an aggregate"); }
         }
         // the one atom: the columns the argument names, `_` for the rest
@@ -867,7 +896,13 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             if l.val.is_float() { return ""; }
             return "number";
         }
-        SExpr::Bin(_b) => { return "number"; }
+        SExpr::Bin(b) => {
+            // a literal adapts (Soufflé's numeric constants are polymorphic);
+            // an `unsigned` operand makes the whole term unsigned
+            if str_eq(dx_term_ty(b.lhs.any().view::<SExpr>(), env, cl), "unsigned")
+               || str_eq(dx_term_ty(b.rhs.any().view::<SExpr>(), env, cl), "unsigned") { return "unsigned"; }
+            return "number";
+        }
         SExpr::Un(_u) => { return "number"; }
         SExpr::Param(p) => { return dx_scalar_ty(env, p.name); }
         SExpr::Field(f) => {
@@ -907,7 +942,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             if l.val.is_float() { return ""; }
             return "i";
         }
-        SExpr::Bin(_b) => { return "i"; }
+        SExpr::Bin(_b) => { if str_eq(dx_term_ty(e, env, cl), "unsigned") { return "U"; } return "i"; }
         SExpr::Un(_u) => { return "i"; }
         SExpr::Param(p) => { return dx_kind(dx_scalar_lty(env, p.name)); }
         SExpr::Field(f) => {
@@ -1002,6 +1037,10 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
                 if (str_eq(ag.fn_name, "min") || str_eq(ag.fn_name, "max")) && ag.has_arg {
                     aty = dx_term_ty(ag.arg_expr(), env, cl);
                     akd = dx_term_kind(ag.arg_expr(), env, cl);
+                } else if str_eq(ag.fn_name, "sum") && ag.has_arg
+                          && str_eq(dx_term_ty(ag.arg_expr(), env, cl), "unsigned") {
+                    aty = "unsigned";
+                    akd = "U";
                 }
                 cl.al_names[cl.nal] = ag.name; cl.al_vars[cl.nal] = "a_";
                 cl.al_tys[cl.nal] = aty; cl.al_kinds[cl.nal] = akd;
