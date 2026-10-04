@@ -3372,13 +3372,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
               k == K::Never || k == K::Void);
         // A reference whose referent is not a nominal type `gen_recv_struct` can
         // name (`&&Foo` for `impl Tr for &Foo { fn m(&self) }`, `&i32`,
-        // `&(A, B)`, `&[T; N]`, `&Option<T>`): the receiver sema shaped is the
-        // self argument as it stands.
+        // `&(A, B)`, `&[T; N]`, `&Option<T>`, `&fn(A) -> R`): the receiver sema
+        // shaped is the self argument as it stands.
         if ((k == K::Ref || k == K::MutRef) && recv_t.pointee()) {
             auto pk2 = TypeRef(recv_t.pointee()).kind();
             if (pk2 == K::Ref || pk2 == K::MutRef || pk2 == K::Ptr || is_primitive_scalar_kind(pk2) ||
                 pk2 == K::Tuple || pk2 == K::Array || pk2 == K::Slice || pk2 == K::UnsizedSlice ||
-                pk2 == K::Enum)
+                pk2 == K::Enum || pk2 == K::FnPtr)
                 primitive_recv = true;
         }
         // A `str` receiver is `[u8]` — NOT a struct, so `gen_recv_struct`

@@ -2610,11 +2610,15 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     std::string target;
     TypeRef target_resolved = nullptr;
+    // A raw-pointer target (`impl<T> Eq for *mut T`) keys its spelling; the
+    // impl record still carries the TYPE, so mono unifies it like any pattern.
+    TypeRef ptr_target_pattern = nullptr;
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         if (code_of(tnode) == la::PTR_TYPE) {
             auto resolved = resolve_type(tnode);
             target = type_str(resolved);
+            ptr_target_pattern = resolved;
         } else if (code_of(tnode) == la::UNSIZED_SLICE_TYPE) {
             // Phase 1B-10: parallel to sema_collect — unsized-slice impl
             // self-type. Same mangling so collection + lowering agree.
@@ -2851,7 +2855,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // concrete + non-generic + primitive + special-target cases (only
     // GENERIC_INST + non-empty impl_tps populates target_resolved on
     // this path; mono falls back to positional binding when null).
-    ib.type(ik::TARGET_TYPEREF, target_resolved);
+    ib.type(ik::TARGET_TYPEREF, target_resolved ? target_resolved : ptr_target_pattern);
     if (!impl_tps.empty()) {
         auto a = ib.array(ik::IMPL_TYPE_PARAMS);
         for (auto& tp : impl_tps) a.push_fn_tparam(tp);
