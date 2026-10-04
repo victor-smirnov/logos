@@ -4544,11 +4544,18 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
             nbo_f = quote_block! { if !(__out.len() < (#(lim))) { break; } };
             nbi_f = quote_block! { if !(__out.len() < (#(lim))) { break; } };
         }
-        let bodyn_f: ExprBlob = quote_block! { if (#(pred_f)) #(inner) };
+        // ⚠ THE STEP'S SOURCE ORDINAL `__j<s>` IS KEPT, advanced once per row
+        // by the body, as `__i0` is on the base: an `order by` collects one
+        // ordinal per bound source into `__ix<k>` and re-reads the row by it
+        // after the sort. The batch walk dropped it (2026-10-04, measured: a loop
+        // join under `order by` failed to compile with `undefined variable
+        // '__j1'`; no corpus query had both — wql_loop_join_order_e2e pins it).
+        let bodyn_f: ExprBlob = quote_block! { if (#(pred_f)) #(inner) #n_j = #n_j + 1i64; };
         let scann_f: ExprBlob = batch_scan_frag(prm, -1i64, s, ssrc_f, vnm,
                                                 rowt, bodyn_f, nbo_f, nbi_f);
         return quote_block! {
             #(wrap_f);
+            let mut #n_j: i64 = 0i64;
             #(scann_f);
         };
     }
