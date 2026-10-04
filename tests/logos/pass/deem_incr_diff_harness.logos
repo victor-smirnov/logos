@@ -1327,12 +1327,10 @@ fn pump(h1: &mut Q1IminmaxIncr, h2: &mut Q2IsumIncr, h3: &mut Q3FaggIncr,
 // other, that derivation stops holding and this comment is the place that says
 // so before the cells do.
 //
-// ⚠ AND ON `Err`: THE HANDLE IS UNSPECIFIED, WHICH IS WHY THIS RETURNS. `_apply`
-// is not transactional — `__gc` is written before the folds, so a refusal
-// partway leaves per-aggregate state that nothing defines (`8fbea82a` records
-// the contract and names a transactional `_apply` as a later, breaking-nothing
-// slice). Reading a cell off such a handle would be reading an undefined value
-// and calling the number evidence.
+// ⚠ AND ON `Err` THIS RETURNS. Since 2026-10-03 `_apply` is atomic per call
+// (a refused call leaves the handle as it was), but an `Err` here means the
+// harness's two arms already disagree about what the store holds, and the
+// cells after it would compare a handle against a table that moved without it.
 fn pump_r(h1: &mut Q1IminmaxIncr, h4: &mut Q4FextIncr, h5: &mut Q5IcntIncr,
           er: &Vec<Row>, rr: &Vec<Row>) -> i32 {
     let wi: i64 = er.len();

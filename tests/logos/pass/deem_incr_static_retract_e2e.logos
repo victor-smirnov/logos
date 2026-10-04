@@ -823,12 +823,11 @@ fn assertions(t: &mut Tally) -> i32 {
     // header, DOCUMENTED since P2 and never once asserted where it is
     // observable, which is why it survived.
     //
-    // THE DECISION, stated here because this is where a reader meets it:
-    // `_apply` stays NON-transactional across a multi-row delta and across a
-    // fault raised inside a fold, and it becomes atomic PER DELTA ROW — a row
-    // that is REFUSED leaves the handle exactly as it was. So these two cells
-    // are now pinned at their pre-call values, and a future slice that makes
-    // `_apply` atomic in the wider sense STRENGTHENS this and moves nothing.
+    // THE DECISION, stated here because this is where a reader meets it: a
+    // refused row leaves the handle exactly as it was. Since 2026-10-03 the
+    // whole `_apply` CALL is atomic too (a shadow copy committed on `Ok`), so
+    // these two cells are pinned at their pre-call values by both mechanisms;
+    // `wql_incr_retract_footprint_identity` §3 pins the multi-row case.
     // ⚠ THE PARAMETER CHANNEL, NOT TWO NEW CODES, AND THE HEADER ALREADY SAID
     // WHY: 122/123/124 are the only free numbers under the ceiling, so these
     // share 122 and name themselves on stdout.

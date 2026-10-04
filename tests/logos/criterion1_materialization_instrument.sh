@@ -298,6 +298,15 @@ MAT = {
         '`__gk` / `__gc` / `__ga_<a>` — the group-frame columns the INSERT path writes in place',
     'retraction snapshot latch':
         "`__lat` — the |OD|/|S|/|RD| triples; O(members), no rows, one per shadow handle",
+    # ── `<q>_apply`'s CALL-LEVEL SNAPSHOT (2026-10-03) ────────────────────
+    # The shadow handle that makes `<q>_apply` atomic (commit on `Ok` only),
+    # `__ap<i>` bindings; per-fixture attribution is plan_ground_census FACT P.
+    'apply snapshot group frame':
+        '`__gk` / `__gc` / `__ga_<a>` — O(|groups|) per `<q>_apply` call',
+    'apply snapshot multiplicity map':
+        '`__gm_<a>` — one HashMap per group, copied by `hashmap_clone`',
+    'apply snapshot stored side':
+        '`__s0`/`__s0w` (+ `__s1`/`__s1w` on a join) — the footprint Z-set or the stored relations',
     # ── ADR 0025 R-E — THE INCREMENTAL TIER'S PER-ROUND WORKING SET ───────
     # 294 bindings — after `__cp` the WHOLE of the criterion-1 worklist outside
     # `__rel_*`. Fire counts measured at G2 on the emitter-only tree, before any
@@ -500,6 +509,9 @@ ACC = {
     '__cp':     (('retraction snapshot relation', 'retraction snapshot group frame',
                   'retraction snapshot latch'),
                  "retraction snapshot (`<q>_dred`'s shadow handle — three seam heads)"),
+    '__ap':     (('apply snapshot group frame', 'apply snapshot multiplicity map',
+                  'apply snapshot stored side'),
+                 "apply snapshot (`<q>_apply`'s shadow handle — three seam heads)"),
     # ── ADR 0025 R-E — THE PER-ROUND WORKING SET, EIGHT KEYS, ONE HEAD EACH ─
     # ⚠ EVERY KEY MEASURED CLEAN, and the measurement is the class count itself:
     # each of the eight worklist classes stood at EXACTLY the fire count of its

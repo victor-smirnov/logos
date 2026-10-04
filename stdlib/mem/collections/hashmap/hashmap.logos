@@ -661,6 +661,22 @@ pub fn hashmap_rows<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>) -> Vec<(K, 
     return out;
 }
 
+/// An independent copy (Rust's `Clone` for Copy entries): the same entries in
+/// a new table, so a write to either map does not reach the other.
+pub fn hashmap_clone<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>) -> HashMap<K, V> {
+    let mut out: HashMap<K, V> = hashmap_with_capacity::<K, V>(m.len());
+    unsafe {
+        let mut it: HashMapIter<K, V> = (*(m as *const HashMap<K, V>)).iter();
+        loop {
+            match it.next() {
+                Option::Some(p) => { out.insert(*p.first, *p.second); }
+                Option::None    => { break; }
+            }
+        }
+    }
+    return out;
+}
+
 /// The point probe: the row for `k`, or none. EXACT — it returns precisely the
 /// rows satisfying `key == k`, so a query narrowed by it needs no filter.
 pub fn hashmap_at<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>, k: K) -> Vec<(K, V)> {

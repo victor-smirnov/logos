@@ -41,14 +41,11 @@
 // multiset. §2 asserts that DISAGREEMENT, which is the sharpest form available:
 // the handle says 1 and the batch says 2 for the same true input.
 //
-// ── DEFECT 3: `_apply` IS NOT TRANSACTIONAL ACROSS A MULTI-ROW DELTA ─────────
-// The slice made a REFUSED ROW atomic — the refusal precedes the group guards
-// and every fold, so a refused row leaves the handle untouched. It did NOT make
-// a multi-row `_apply` atomic: rows before the refused one are already folded
-// and integrated. §3 pins the state that leaves. The DECISION is deliberate and
-// is stated at `emit_incremental`'s header: per-row atomicity now, per-call
-// atomicity later, and a later slice that delivers it STRENGTHENS this and only
-// has to change §3.
+// ── §3, FORMERLY DEFECT 3: A MULTI-ROW `_apply` IS ATOMIC (2026-10-03) ───────
+// The 2026-08-08 slice made a REFUSED ROW atomic and left the CALL per-row:
+// rows before the refused one stayed folded and integrated, and §3 asserted
+// that state (5). `<q>_apply` now runs on a shadow copy of the handle and
+// commits only on `Ok`, so §3 asserts the pre-call state (15) instead.
 //
 // ⚠ WHAT IS **NOT** A DEFECT AND MUST NOT BE "FIXED" HERE: floats. A float
 // aggregate ARGUMENT enters the footprint through `f64_to_bits`, the same
@@ -58,8 +55,9 @@
 // KEY decision (all zeros one element, all NaNs one element) rather than
 // answering it. When that task lands it moves all three together.
 //
-// exit 0 = the sensor refuses what it can see, and the three things it cannot
-//          see are asserted here as the defects they are.
+// exit 0 = the sensor refuses what it can see, the two things it cannot see
+//          are asserted here as the defects they are, and a refused multi-row
+//          delta leaves the handle as it was.
 package test;
 
 use logos.mem.collections.vec;
@@ -185,17 +183,12 @@ fn checks(t: &mut Tally) -> i32 {
     if bad(t, b3.get(0i64).1 != 2i64) { println!("§2: batch count {}", b3.get(0i64).1); return 27i32; }
     if bad(t, b3.get(0i64).1 == v3.get(0i64).1) { println!("§2: handle and batch AGREE — defect 2 is CLOSED, retire the block"); return 27i32; }
 
-    // ══ §3. DEFECT — `_apply` IS NOT TRANSACTIONAL ACROSS A MULTI-ROW DELTA ══
+    // ══ §3. A MULTI-ROW `_apply` IS ATOMIC ═══════════════════════════════════
     // Insert (1,10,"a") and (1,5,"b") → the group holds 15. Now retract a TWO-ROW
     // delta whose FIRST row is legitimate (1,10) and whose SECOND was never
-    // inserted (1,999). The call returns `Err(RetractAbsent)` — and the first
-    // row has already been folded and integrated, so the handle reads 5, not 15.
-    //
-    // ⚠ THAT IS THE DECIDED CONTRACT, NOT AN ACCIDENT, AND IT IS ASSERTED HERE
-    // RATHER THAN DOCUMENTED: a REFUSED ROW is atomic, an `_apply` CALL is not.
-    // The 5 below is what a caller who ignores the `Err` will read. A slice that
-    // makes the call atomic changes this one number to 15 and this comment
-    // with it.
+    // inserted (1,999). The call returns `Err(RetractAbsent)`, and the first
+    // row, folded on the shadow copy, is discarded with it: the handle reads
+    // 15. (Before the copy it read 5, which is what this block asserted.)
     let mut h4: SumqIncr = sumq_incremental();
     match sumq_epoch(&mut h4, &i3) { Result::Ok(_n) => {} Result::Err(_e) => { return 3i32; } }
     let r4: [S; 2] = [S { g: 1i64, v: 10i64, nm: "a" }, S { g: 1i64, v: 999i64, nm: "z" }];
@@ -214,8 +207,17 @@ fn checks(t: &mut Tally) -> i32 {
     let v4: Vec<(i64, i64)> = match sumq_snapshot(&h4) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
     t.rows = t.rows + v4.len();
     if bad(t, v4.len() != 1i64) { println!("§3: rows {}", v4.len()); return 29i32; }
-    // ⚠ 5, NOT 15. The earlier row of the same delta is folded and stays folded.
-    if bad(t, v4.get(0i64).1 != 5i64) { println!("§3: sum after a partly-refused delta {}", v4.get(0i64).1); return 29i32; }
+    // 15: the earlier row of the refused delta did not stay folded.
+    if bad(t, v4.get(0i64).1 != 15i64) { println!("§3: sum after a partly-refused delta {}", v4.get(0i64).1); return 29i32; }
+    // …and the handle is still usable: the legitimate row alone retracts.
+    let r4b: [S; 1] = [S { g: 1i64, v: 10i64, nm: "a" }];
+    match sumq_retract(&mut h4, &r4b) {
+        Result::Ok(_n)  => { arm_ok(t); }
+        Result::Err(_e) => { println!("§3: the handle after a refused delta refused a legal retraction"); return 29i32; }
+    }
+    let v4b: Vec<(i64, i64)> = match sumq_snapshot(&h4) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    t.rows = t.rows + v4b.len();
+    if bad(t, v4b.len() != 1i64 || v4b.get(0i64).1 != 5i64) { println!("§3: sum after the legal retraction {}", v4b.get(0i64).1); return 29i32; }
 
     // ══ §4. A MULTI-COMPONENT FOOTPRINT, AND THE KEY HALF OF IT ══════════════
     // NOT a defect: this section exists because no other query on the retracting

@@ -57,9 +57,8 @@ ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
 # reason.
 declare -A KNOWN_INC=(
     # the handle's identity is the fold's FOOTPRINT, not the row: a retraction
-    # of a row never inserted, agreeing on (key, arguments), is accepted (§1);
-    # `count` has an empty footprint (§2); a multi-row `_apply` refused mid-way
-    # keeps the rows before the refusal (§3)
+    # of a row never inserted, agreeing on (key, arguments), is accepted (§1,
+    # and twoq's §4b input); `count` has an empty footprint (§2)
     [wql_incr_retract_footprint_identity:cntq]=1
     [wql_incr_retract_footprint_identity:sumq]=1
     [wql_incr_retract_footprint_identity:twoq]=1

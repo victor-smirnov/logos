@@ -3050,6 +3050,9 @@ fn fp_node_od_set(subject: str, row_ty: str) {
 // red rather than a rounding difference in a 145-wide total.
 fn MG_CP_REL() -> str { return "the retraction's transactional snapshot of a ROW STORE — `<q>_dred` copies `__hh.__edb` / `__hh.__tot_<m>` into a local before phase 1a, so a fault in ANY phase (phase 1's |OD| check, `_cpt`'s compact, the signed fold's arithmetic) leaves the caller's handle byte-identical rather than half-retracted; it is the DOMINANT term of the snapshot, O(|EDB| + Σ|total|), and it is committed by MOVE (`__hh.<f> = __h.<f>`, no `?` between the first commit and the last) so atomicity costs one copy per retraction and not two"; }
 fn MG_CP_FRAME() -> str { return "the retraction's transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — it exists because the INSERT path does NOT need it: `<q>_epoch` gets its relation half transactional for free by building `__ecp`/`__tt<i>` as locals, but its group fold writes these three families through `__h.` directly and leaves the window its own header names. On the RETRACTION path that window is ordinary rather than overflow-only, because the negative fold is where the interesting arithmetic lives — so the copy is what closes it. O(|groups|), committed by move"; }
+fn MG_AP_FRAME() -> str { return "`<q>_apply`'s transactional snapshot of a GROUP-FRAME COLUMN (`__gk` / `__gc` / `__ga_<a>`) — the fold core writes these through `__h.` row by row and a later row can still fail (`RetractAbsent` from the footprint sensor or a group guard, `Overflow` from a fold), so the call runs on a copy and commits it by move only on `Ok`: an `Err` leaves the caller's handle as it was, a whole multi-row delta or nothing. O(|groups|) per call, inside the O(|delta| × |groups|) the linear group scan already costs"; }
+fn MG_AP_MAP() -> str { return "`<q>_apply`'s transactional snapshot of a `min`/`max` MULTIPLICITY MAP (`__gm_<a>`, one `HashMap` per group) — copied table by table with `hashmap_clone`, since `Vec::get` would share the table's storage; it exists for the same call-level atomicity as the group frame, and costs O(distinct values held), which is bounded by the footprint store copied beside it"; }
+fn MG_AP_STORE() -> str { return "`<q>_apply`'s transactional snapshot of a STORED SIDE (`__s0`/`__s0w`, and `__s1`/`__s1w` on a join) — the footprint Z-set on a bare scan, the two weighted relations on a join; the row loop integrates each delta row into it after folding, so an `Err` on a later row would otherwise leave earlier rows integrated. O(|stored|) per call, inside the per-row linear identity scan's O(|delta| × |stored|)"; }
 fn MG_CP_LATCH() -> str { return "the retraction's transactional snapshot of the LATCH VECTOR `__lat` — not data: the |OD|/|S|/|RD| triples `_cpt` writes as an out-param and the next epoch's incrementality assertion reads back. It is copied for the same commit-by-move as the row stores, but it is O(members) and carries no rows, so exactly one exists per shadow handle and a reader who priced the snapshot from it would be wrong by |EDB|"; }
 
 // ── ADR 0025 R-E — THE INCREMENTAL TIER'S PER-ROUND WORKING SET, 8 HEADS ────
@@ -3116,6 +3119,18 @@ fn cp_node(subject: str, ety: str, role: i64) {
     }
     if role == CPR_FRAME() {
         plan_trace(subject, "retraction snapshot group frame", ety, MG_CP_FRAME());
+        return;
+    }
+    if role == CPR_AP_FRAME() {
+        plan_trace(subject, "apply snapshot group frame", ety, MG_AP_FRAME());
+        return;
+    }
+    if role == CPR_AP_MAP() {
+        plan_trace(subject, "apply snapshot multiplicity map", ety, MG_AP_MAP());
+        return;
+    }
+    if role == CPR_AP_STORE() {
+        plan_trace(subject, "apply snapshot stored side", ety, MG_AP_STORE());
         return;
     }
     plan_trace(subject, "retraction snapshot latch", ety, MG_CP_LATCH());
@@ -6499,15 +6514,12 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 // compare against the batch fn BY KEY, not elementwise — see
 // `deem_incr_join_e2e`, which says so where it does it.
 //
-// ⚠ THE NON-TRANSACTIONALITY WINDOW WIDENED, BY A FACTOR THAT CAN BE NAMED. The
-// contract below still holds — on `Err` the handle is UNSPECIFIED — and no gate
-// pins it. What changed: one delta ROW used to touch one group, so a mid-batch
-// `Err` left at most `|delta|` folds half-applied. Under a join one delta row
-// touches one group PER MATCHING ROW ON THE STORED SIDE, so the bound is
-// `|delta| × |matches|`, and the source-side push happens after the whole inner
-// loop — so an `Err` inside the nest leaves the delta row folded against some
-// partners and NOT integrated into `__s<k>` at all. Not made atomic here;
-// recorded so the next slice prices it rather than rediscovers it.
+// ⚠ ON A JOIN ONE DELTA ROW TOUCHES ONE GROUP PER MATCHING STORED ROW, so an
+// `Err` inside the nest would leave the delta row folded against some partners
+// and not integrated into `__s<k>` at all. The call-level shadow copy (see the
+// error contract below) covers this too: the stored sides `__s0`/`__s1` and
+// their weights are part of the copy, so a fault anywhere in the nest leaves
+// the caller's handle as it was.
 //
 // ⚠ THE WEIGHT IS A SCALAR PER BATCH, NOT A PARALLEL SLICE, AND THAT LOSES NO
 // EXPRESSIVENESS. A Z-set row of weight k IS k copies of that row, so any
@@ -6534,22 +6546,23 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 //
 // ── THE ERROR CONTRACT, AND WHAT IT DOES *NOT* PROMISE ──────────────────────
 //
-// ⚠⚠ `<q>_apply` IS NOT TRANSACTIONAL. On `Err` the handle is in an UNSPECIFIED
-// INTERMEDIATE STATE and a caller must DISCARD it or replay from a known epoch —
-// it must not read `<q>_snapshot` and treat the answer as either the pre-call or
-// the post-call multiset. This is not an oversight being papered over, it is the
-// contract this slice ships: `__gk`/`__gc` are written BEFORE the folds and the
-// row loop returns at the first fault, so a mid-batch `Err` leaves earlier rows
-// folded, this row's group count already moved, and possibly one of several
-// aggregates updated. Under strict retraction (below) an `Err` is DESIGNED to be
-// hit rather than exceptional, which makes the partial-state path ordinary.
+// ⚠⚠ `<q>_apply` IS TRANSACTIONAL PER CALL (2026-10-03). It returns `Ok` and
+// the handle holds the whole delta, or returns `Err` and the handle is as it
+// was, in every field — a caller may keep using it. The row loop still writes
+// `__gk`/`__gc` before the folds and still returns at the first fault, but it
+// does so on a SHADOW COPY of the handle that the public `<q>_apply` commits by
+// move only on `Ok` (see "ONE CALL, ONE OUTCOME" at its emission). Under strict
+// retraction (below) an `Err` is designed to be hit rather than exceptional,
+// which is why the failed call must leave nothing behind.
 //
-// A bounded rollback was priced and NOT taken here: undoing one row means
-// restoring `__gk`/`__gc`, un-inserting or re-inserting a map entry, and
-// restoring a cached best that a rescan may already have overwritten — three
-// undo logs across state the emitter builds per aggregate. Stating the contract
-// costs nothing and does not foreclose it; a later slice that makes `_apply`
-// atomic STRENGTHENS this promise and breaks no caller.
+// The undo log was priced and NOT taken: undoing one row means restoring
+// `__gk`/`__gc`, un-inserting or re-inserting a map entry, and restoring a
+// cached best that a rescan may already have overwritten — three undo logs
+// across state the emitter builds per aggregate. The copy is one mechanism for
+// all of it, already used by `<q>_dred`, and costs per call what the linear
+// scans cost per row. The insert-only `<q>_epoch` (no `_apply`) and the
+// rel-backed epoch's group fold keep their overflow-only window; see their
+// own notes.
 fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
                     act: &[str; 8], acc: &[str; 8], key_ty: str, key_body: str,
@@ -7720,7 +7733,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // inconsistent" is not one of the two answers available.
     //
     // ⚠ AND A `__poisoned` BIT IS NAMED AND NOT TAKEN. It is the cheaper of the
-    // two containments (`<q>_apply`'s header prices it) and it is strictly weaker:
+    // two containments and it is strictly weaker (`<q>_apply` took the copy too):
     // a poisoned handle is a handle a caller must throw away, which for a
     // relation this size means replaying every epoch. The copy costs one extra
     // O(|edb| + Σ|total| + |groups|) pass per RETRACTION — a cost already paid
@@ -7976,13 +7989,9 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                         // reading (n 2, sv -1976, sm 70). The caller's mistake
                         // is detectable with no fold at all, so it is detected
                         // with no fold at all.
-                        // ⚠ THE NARROW CLAIM, so nobody reads more into it: this
-                        // makes a delta ROW that is refused leave the handle
-                        // untouched. It does NOT make `<q>_apply` transactional
-                        // — earlier rows of the same multi-row delta are already
-                        // folded and integrated, and a fault raised INSIDE the
-                        // nest still leaves that row folded against some
-                        // partners. Those remain the contract's UNSPECIFIED.
+                        // This keeps a refused ROW off the shadow copy; the
+                        // wrapper's copy-and-commit is what makes the whole
+                        // call atomic (earlier rows, a fault inside the nest).
                         let mut __f: i64 = -1i64;
                         let mut __q: i64 = 0i64;
                         while __q < __h.__s0.len() {
@@ -8091,17 +8100,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // `#(core)` puts it above guards 1 and 2 as well, so a delta ROW
             // that is refused leaves the handle untouched.
             //
-            // ⚠ THE NARROW CLAIM, VERBATIM FROM THE JOIN ARM BECAUSE IT IS THE
-            // SAME CLAIM: this makes a refused delta ROW leave the handle
-            // untouched. It does NOT make `<q>_apply` transactional. Earlier
-            // rows of the same multi-row delta are already folded and
-            // integrated, and an `el_add`/`el_mul` OVERFLOW raised inside a fold
-            // still leaves this row's group count moved and possibly some of its
-            // aggregates updated. That remains the contract's UNSPECIFIED, it is
-            // stated in this fn's header, and `deem_incr_static_retract_e2e`
-            // block G3 now ASSERTS the state a refusal leaves rather than
-            // documenting it — "documented and unasserted" is what let the −984
-            // survive from P2 until now.
+            // As on the join arm, this keeps a refused delta ROW off the shadow
+            // copy; earlier rows and an `el_add`/`el_mul` OVERFLOW inside a fold
+            // are covered by the wrapper's copy-and-commit, and
+            // `wql_incr_retract_footprint_identity` §3 asserts the handle a
+            // refused multi-row delta leaves.
             //
             // ⚠ THE PRICE, IN THE UNITS A READER WILL ASK IN: one linear scan of
             // `__s0` per DELTA ROW, so O(|Δ| · D) with D the number of DISTINCT
@@ -8172,6 +8175,68 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                 return Result::Ok(__n);
             };
         }
+        // ══ ONE CALL, ONE OUTCOME — THE SHADOW HANDLE ═════════════════════
+        // `<q>_apply` either returns `Ok` and the handle holds the whole delta,
+        // or returns `Err` and the handle is as it was, in every field. The
+        // body above runs as the private `__wql_<q>_apply_in` on a COPY of the
+        // handle (`__ap<i>`, built by `push_snap_field` over the same field
+        // list and decisions the struct and its constructor were built from),
+        // and the wrapper commits the copy by move only on `Ok` — the
+        // mechanism `<q>_dred` already uses. The per-row refusal order inside
+        // the body still matters: it is what keeps a refused row from being
+        // folded on the copy, which is what an `Ok` would otherwise commit.
+        //
+        // THE COST, as what it is a function of: one copy of the group frame,
+        // the footprint store or stored sides, and every multiplicity map, per
+        // call — O(|groups| + |stored| + |map entries|), which the body's linear
+        // group and identity scans already pay per delta ROW. Not timed.
+        let mut acl:  String = String::new();
+        let mut alit: String = String::new();
+        let mut acm:  String = String::new();
+        let mut ax: i64 = 0i64;
+        alit.push_str(tyn);
+        alit.push_str(" { ");
+        push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__gk", key_ty, fn_name, CPR_AP_FRAME());
+        ax = ax + 1i64;
+        push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__gc", "i64", fn_name, CPR_AP_FRAME());
+        ax = ax + 1i64;
+        // the stored sides, under THE SAME `joined` / `sens` and THE SAME
+        // `fpty` the fields were declared from
+        if joined {
+            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s0", ch.base_ty, fn_name, CPR_AP_STORE());
+            ax = ax + 1i64;
+            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s0w", "i64", fn_name, CPR_AP_STORE());
+            ax = ax + 1i64;
+            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s1", ch.ty[0], fn_name, CPR_AP_STORE());
+            ax = ax + 1i64;
+            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s1w", "i64", fn_name, CPR_AP_STORE());
+            ax = ax + 1i64;
+        }
+        if sens {
+            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s0", string_as_str(&fpty), fn_name, CPR_AP_STORE());
+            ax = ax + 1i64;
+            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s0w", "i64", fn_name, CPR_AP_STORE());
+            ax = ax + 1i64;
+        }
+        let mut ag: i64 = 0i64;
+        while ag < acount {
+            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, string_as_str(&ganm[ag]), acc[ag],
+                            fn_name, CPR_AP_FRAME());
+            ax = ax + 1i64;
+            // the map, under THE SAME `wmap[ag]` and the constructor's value rule
+            if wmap[ag] {
+                let mty: str = if str_eq(acc[ag], "f64") { "HashMap<u64, (i64, u64)>" }
+                               else if str_eq(acc[ag], "i64") { "HashMap<i64, i64>" }
+                               else { "HashMap<u64, i64>" };
+                push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, string_as_str(&gmnm[ag]), mty,
+                                fn_name, CPR_AP_MAP());
+                ax = ax + 1i64;
+            }
+            ag = ag + 1i64;
+        }
+        if prm.oracle_inc_rows.len() > 0i64 { alit.push_str(", __oid: __hh.__oid"); }
+        alit.push_str(" }");
+
         eps.push_str("__h: &mut ");
         eps.push_str(tyn);
         eps.push_str(", __src: i32, __wd: i64");
@@ -8179,9 +8244,37 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             eps.push_str(", ");
             eps.push_str(params_text);
         }
+        let mut innm: String = String::new();
+        innm.push_str("-__wql_");
+        innm.push_str(bare);
+        innm.push_str("_apply_in");
+        emit_fn_quote_blob(string_as_str(&innm), string_as_str(&eps), "",
+                           "Result<i64, ElError>", apply_body, prm);
+        let mut wps: String = String::new();
+        wps.push_str("__hh: &mut ");
+        wps.push_str(tyn);
+        wps.push_str(", __src: i32, __wd: i64");
+        if params_text.len() > 0i64 {
+            wps.push_str(", ");
+            wps.push_str(params_text);
+        }
+        let mut wb: String = String::new();
+        wb.push_str("{\n");
+        wb.push_str(string_as_str(&acl));
+        wb.push_str("let mut __h: ");
+        wb.push_str(tyn);
+        wb.push_str(" = ");
+        wb.push_str(string_as_str(&alit));
+        wb.push_str(";\nlet __r: Result<i64, ElError> = ");
+        wb.push_str(vis_strip(string_as_str(&innm)));
+        wb.push_str("(&mut __h, __src, __wd");
+        if prm.n > 0i64 { wb.push_str(", "); push_param_args(&mut wb, prm); }
+        wb.push_str(");\nmatch __r {\n    Result::Ok(__n) => {\n");
+        wb.push_str(string_as_str(&acm));
+        wb.push_str("        return Result::Ok(__n);\n    }\n    Result::Err(__e) => { return Result::Err(__e); }\n}\n}\n");
         prep_derived_name(fn_name, "_apply", &mut enm);
-        emit_inc_fn(string_as_str(&enm), string_as_str(&eps),
-                    "Result<i64, ElError>", apply_body, 3i32, tyn, prm);
+        emit_inc_fn(string_as_str(&enm), string_as_str(&wps),
+                    "Result<i64, ElError>", parse_block(string_as_str(&wb)), 3i32, tyn, prm);
 
         // ── <q>_epoch / <q>_retract — PURE FORWARDERS ──────────────────────
         // ⚠ `<q>_epoch` KEEPS P1'S SIGNATURE BYTE FOR BYTE, which makes every
@@ -8252,7 +8345,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             // LOCALS and committed to `__h` only after the driver RETURNS. So a
             // fault inside the fixpoint (an `el_add` in a rel body, the
             // aggregate convergence guard) leaves the handle EXACTLY as it was —
-            // this half is transactional, which `<q>_apply`'s row loop is not,
+            // this half is transactional (as `<q>_apply` is, by a shadow copy),
             // and it matters more here because the state at risk is the whole
             // relation rather than one group's cells. What remains UNSPECIFIED
             // is the same window P1-P3 already document: a fault inside the
@@ -9187,23 +9280,48 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
 fn CPR_REL() -> i64   { return 0i64; }
 fn CPR_FRAME() -> i64 { return 1i64; }
 fn CPR_LATCH() -> i64 { return 2i64; }
+// `<q>_apply`'s shadow handle: the same three texts under `__ap<i>`/`__ax<i>`,
+// so FACT L's `__cp` partition stays the DRed driver's alone.
+fn CPR_AP_FRAME() -> i64 { return 3i64; }
+fn CPR_AP_MAP() -> i64   { return 4i64; }
+fn CPR_AP_STORE() -> i64 { return 5i64; }
 
 fn push_clone_field(dcl: &mut String, dlit: &mut String, dcm: &mut String,
                     idx: i64, fld: str, ety: str, subject: str, role: i64) {
+    push_snap_field(dcl, dlit, dcm, "__c", idx, fld, ety, subject, role);
+}
+
+/// `push_clone_field` with the binding prefix as a parameter (`__c` → `__cp`/
+/// `__cx`, `__a` → `__ap`/`__ax`). A `CPR_AP_MAP` field is a `Vec<HashMap>`,
+/// and `Vec::get` would copy the table's header and share its storage, so each
+/// element is copied by `hashmap_clone` instead.
+fn push_snap_field(dcl: &mut String, dlit: &mut String, dcm: &mut String, pfx: str,
+                   idx: i64, fld: str, ety: str, subject: str, role: i64) {
     cp_node(subject, ety, role);
     if idx > 0i64 { dlit.push_str(", "); }
-    dcl.push_str("let mut __cp"); dcl.push_i64(idx);
+    dcl.push_str("let mut "); dcl.push_str(pfx); dcl.push_str("p"); dcl.push_i64(idx);
     dcl.push_str(": Vec<"); dcl.push_str(ety); dcl.push_str("> = ");
     push_vec_new(dcl, ety);
     dcl.push_str(";\n");
-    dcl.push_str("let mut __cx"); dcl.push_i64(idx); dcl.push_str(": i64 = 0i64;\n");
-    dcl.push_str("while __cx"); dcl.push_i64(idx);
-    dcl.push_str(" < __hh."); dcl.push_str(fld); dcl.push_str(".len() { __cp");
-    dcl.push_i64(idx); dcl.push_str(".push(__hh."); dcl.push_str(fld);
-    dcl.push_str(".get(__cx"); dcl.push_i64(idx); dcl.push_str(")); __cx");
-    dcl.push_i64(idx); dcl.push_str(" = __cx"); dcl.push_i64(idx);
+    dcl.push_str("let mut "); dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx);
+    dcl.push_str(": i64 = 0i64;\n");
+    dcl.push_str("while "); dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx);
+    dcl.push_str(" < __hh."); dcl.push_str(fld); dcl.push_str(".len() { ");
+    dcl.push_str(pfx); dcl.push_str("p"); dcl.push_i64(idx);
+    if role == CPR_AP_MAP() {
+        dcl.push_str(".push(hashmap_clone(unsafe { &*__hh."); dcl.push_str(fld);
+        dcl.push_str(".at_const("); dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx);
+        dcl.push_str(") })); ");
+    } else {
+        dcl.push_str(".push(__hh."); dcl.push_str(fld);
+        dcl.push_str(".get("); dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx);
+        dcl.push_str(")); ");
+    }
+    dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx); dcl.push_str(" = ");
+    dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx);
     dcl.push_str(" + 1i64; }\n");
-    dlit.push_str(fld); dlit.push_str(": __cp"); dlit.push_i64(idx);
+    dlit.push_str(fld); dlit.push_str(": "); dlit.push_str(pfx); dlit.push_str("p");
+    dlit.push_i64(idx);
     dcm.push_str("__hh."); dcm.push_str(fld); dcm.push_str(" = __h.");
     dcm.push_str(fld); dcm.push_str(";\n");
 }

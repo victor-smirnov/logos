@@ -376,6 +376,7 @@ ncpr=0; ncpf=0; ncpl=0; ncpt=0
 nitt=0; niod=0; nirm=0; niwc=0; ninw=0; niec=0; nipr=0; nilt=0
 nrdb=0; nrsb=0; nrelb=0; nrfa=0; nrfaa=0; nrelv=0; nrls=0; nrlsa=0; nrelw=0
 ndx=0
+nap="0 0 0 0 0 0"
 if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __it_[a-z_0-9]+:' "${UD[@]}" > "$d/it" 2>/dev/null
     # ── ADR 0025 R-F — THE PRELUDE LANDING, GREPPED PER NODE (FACT N) ────
@@ -520,6 +521,18 @@ if [ "${#UD[@]}" -ge 1 ]; then
     grep -Eh 'let mut __cp[0-9]+: Vec<' "${UD[@]}" > "$d/cpt" 2>/dev/null
     ncpr=$(wc -l < "$d/cpr"); ncpf=$(wc -l < "$d/cpf")
     ncpl=$(wc -l < "$d/cpl"); ncpt=$(wc -l < "$d/cpt")
+    # ── `<q>_apply`'S SHADOW HANDLE — THREE SEAMS (FACT P) ───────────────
+    # FACT L's reading rule under `__ap<i>`/`__ax<i>` (`push_snap_field` with
+    # the `__a` prefix): the parts from the copy-loop guards, the total from the
+    # declarations, and the count of wrappers from the private body each one
+    # calls (`__wql_<q>_apply_in`), so `__gk` copies == wrappers is checkable.
+    grep -Eh 'while \(__ax[0-9]+ < __hh\.(__gk|__gc|__ga_[a-z_0-9]+)\.len\(\)\)' "${UD[@]}" > "$d/apf" 2>/dev/null
+    grep -Eh 'while \(__ax[0-9]+ < __hh\.__gm_[a-z_0-9]+\.len\(\)\)' "${UD[@]}" > "$d/apm" 2>/dev/null
+    grep -Eh 'while \(__ax[0-9]+ < __hh\.(__s0|__s0w|__s1|__s1w)\.len\(\)\)' "${UD[@]}" > "$d/aps" 2>/dev/null
+    grep -Eh 'let mut __ap[0-9]+: Vec<' "${UD[@]}" > "$d/apt" 2>/dev/null
+    grep -Eh 'while \(__ax[0-9]+ < __hh\.__gk\.len\(\)\)' "${UD[@]}" > "$d/apk" 2>/dev/null
+    grep -Eh '^(pub )?fn __wql_[A-Za-z_0-9]+_apply_in\(' "${UD[@]}" > "$d/apn" 2>/dev/null
+    nap="$(wc -l < "$d/apf") $(wc -l < "$d/apm") $(wc -l < "$d/aps") $(wc -l < "$d/apt") $(wc -l < "$d/apk") $(wc -l < "$d/apn")"
     # ── ADR 0025 R-E — THE PER-ROUND WORKING SET'S EIGHT SEAMS (FACT M) ──
     # One grep per family, for the FACT H reason: they have different consumers
     # and a single pattern would let one family absorb another's
@@ -577,6 +590,7 @@ if [ "${#UD[@]}" -ge 1 ]; then
 fi
 echo "$b $nit $nix $nks $npm $ngk $ngc $ngr $nga $nqo $nqs $nro $nfdl $nfnd $nfrs $nfos $nfbe $nfky $nfrd $ncpr $ncpf $ncpl $ncpt $nitt $niod $nirm $niwc $ninw $niec $nipr $nilt $nrdb $nrsb $nrelb $nrfa $nrfaa $nrelv $nrls $nrlsa $nrelw" > "$O/$b.count"
 echo "$ndx" > "$O/$b.dx"
+echo "$nap" > "$O/$b.ap"
 rm -rf "$d"
 done
 
@@ -1178,6 +1192,14 @@ EXPECT_CPHEAD     = {"retraction snapshot group frame": 66,
                      "retraction snapshot relation": 57,
                      "retraction snapshot latch": 22}
 EXPECT_CPT        = 145   # `let mut __cp<i>: Vec<` shadow-snapshot bindings
+# ── `<q>_apply`'S SHADOW HANDLE (FACT P), 2026-10-03 ────────────────────────
+# The call-level copy that makes `<q>_apply` atomic (commit on `Ok` only).
+# Measured on the tree that introduced it; plan side and artifact side agree.
+EXPECT_APHEAD     = {"apply snapshot group frame": 250,
+                     "apply snapshot multiplicity map": 38,
+                     "apply snapshot stored side": 152}
+EXPECT_APT        = 440   # `let mut __ap<i>: Vec<` bindings
+EXPECT_APN        = 72    # `__wql_<q>_apply_in` bodies = `<q>_apply` wrappers
 # ── ADR 0025 R-E — THE PER-ROUND WORKING SET (FACT M) ───────────────────────
 # Measured at G2 in `criterion1_materialization_instrument.sh` on the
 # emitter-only tree, before any of the eight was classified anywhere; both sides
@@ -1352,6 +1374,20 @@ CPK = {"retraction snapshot relation": "cpr",
 # probe P4 (all grounds collapsed to one sentence, every count green). A stamp
 # is arithmetically invisible here too.
 cpground = collections.defaultdict(set)
+# ── `<q>_apply`'S SHADOW HANDLE — THREE HEADS (FACT P) ─────────────────────
+# FACT L's shape for the call-level copy `<q>_apply` commits only on `Ok`:
+# three heads, three field families, one partition (`apf + apm + aps == apt`),
+# and one `__gk` copy per wrapper (`apk == apn`), so a wrapper that stopped
+# copying, or a copy outside a wrapper, is a red.
+APHEADS = ("apply snapshot group frame", "apply snapshot multiplicity map",
+           "apply snapshot stored side")
+APHEAD = re.compile(r'^\[plan\] (\S+) -> (' + "|".join(APHEADS) +
+                    r')(?: on .*?)?   \((.*)$')
+APK = {"apply snapshot group frame": "apf",
+       "apply snapshot multiplicity map": "apm",
+       "apply snapshot stored side": "aps"}
+apground = collections.defaultdict(set)
+aptot = dict(apf=0, apm=0, aps=0, aaf=0, aam=0, aas=0, aat=0, aak=0, aan=0)
 # ── ADR 0025 R-E — THE PER-ROUND WORKING SET'S EIGHT HEADS (FACT M) ─────────
 # Longest-first, same discipline: `member total working set` and
 # `epoch input working set` share no prefix, but `work counter` must not be able
@@ -1448,6 +1484,7 @@ for e in errs:
               gkey=0, gcnt=0, grow=0, gacc=0,
               fdl=0, fnd=0, frs=0, fos=0, fbe=0, fky=0, frd=0,
               cpr=0, cpf=0, cpl=0, cpt=0,
+              apf=0, apm=0, aps=0,
               itt=0, iod=0, irm=0, iwc=0, inw=0, iec=0, ipr=0, ilt=0,
               # ADR 0025 §12 `direct` (S5-direct) — the door partition, per
               # fixture, so the plan/artifact identity is checked per fixture
@@ -1557,6 +1594,17 @@ for e in errs:
                     f"ground — a landing named and not explained")
             else:
                 cpground[h].add(cgnd)
+        # `<q>_apply`'s shadow handle (FACT P).
+        am = APHEAD.match(line)
+        if am:
+            h = am.group(2)
+            nd[APK[h]] += 1
+            agnd = am.group(3).strip().rstrip(")").strip()
+            if not agnd:
+                bad(f"[{b}] an apply-snapshot `{h}` line carries an EMPTY "
+                    f"ground — a landing named and not explained")
+            else:
+                apground[h].add(agnd)
         fm = FPHEAD.match(line)
         if fm:
             h = fm.group(2)
@@ -1646,6 +1694,34 @@ for e in errs:
             f"§12 DIRECT form, but the artifact holds {nd['adx']} "
             f"`#[borrow_carrying] pub struct …Dx` state struct(s) — the plan "
             f"names a door the artifact did not build (or the reverse)")
+
+    # ── FACT P, per fixture — `<q>_apply`'S SHADOW HANDLE ─────────────────
+    apf_ = os.path.join(OD, b + ".ap")
+    if os.path.exists(apf_):
+        xaf, xam, xas, xat, xak, xan = (int(v) for v in open(apf_).read().split())
+    else:
+        xaf = xam = xas = xat = xak = xan = 0
+        bad(f"[{b}] no `.ap` count file — the apply snapshot's artifact side "
+            f"was not read")
+    for k, ak, what in (("apf", xaf, "`__gk`/`__gc`/`__ga_<a>` group-frame"),
+                        ("apm", xam, "`__gm_<a>` multiplicity-map"),
+                        ("aps", xas, "`__s0`/`__s0w`/`__s1`/`__s1w` stored-side")):
+        if nd[k] != ak:
+            bad(f"[{b}] {nd[k]} {what} apply-snapshot plan line(s) vs {ak} "
+                f"emitted copy loop(s) — `<q>_apply` copies a field the plan "
+                f"did not name (or the reverse)")
+    if xaf + xam + xas != xat:
+        bad(f"[{b}] apply snapshot partition broken: {xaf} + {xam} + {xas} != "
+            f"{xat} emitted `__ap<i>` binding(s) — the shadow handle copies a "
+            f"field family no apply-snapshot head names")
+    if xak != xan:
+        bad(f"[{b}] {xak} `__gk` apply copies vs {xan} `__wql_<q>_apply_in` "
+            f"bodies — a `<q>_apply` that runs without its shadow handle (or a "
+            f"copy outside a wrapper)")
+    for k, v in (("apf", nd["apf"]), ("apm", nd["apm"]), ("aps", nd["aps"]),
+                 ("aaf", xaf), ("aam", xam), ("aas", xas), ("aat", xat),
+                 ("aak", xak), ("aan", xan)):
+        aptot[k] += v
 
     cf = os.path.join(OD, b + ".count")
     nit = nix = nks = npm = 0
@@ -2311,6 +2387,27 @@ for h in sorted(CPHEADS):
             bad(f"heads `{seen[g]}` and `{h}` publish the SAME ground sentence "
                 f"— a blanket stamp over the retraction snapshot")
         seen[g] = h
+# ── FACT P, corpus totals + THREE DISTINCT GROUNDS (`<q>_apply`'s copy) ──────
+for h, want in sorted(EXPECT_APHEAD.items()):
+    if aptot[APK[h]] != want:
+        bad(f"corpus total: {aptot[APK[h]]} `{h}` line(s), pinned {want}")
+    if aptot["aa" + APK[h][2]] != want:
+        bad(f"corpus total: {aptot['aa'+APK[h][2]]} emitted copy loop(s) for "
+            f"`{h}`, pinned {want} — the artifact side of FACT P moved")
+if aptot["aat"] != EXPECT_APT or aptot["aan"] != EXPECT_APN:
+    bad(f"corpus total: {aptot['aat']} `__ap<i>` binding(s) / {aptot['aan']} "
+        f"`<q>_apply` wrapper(s), pinned {EXPECT_APT} / {EXPECT_APN}")
+for h in sorted(APHEADS):
+    gs = apground.get(h, set())
+    if len(gs) != 1:
+        bad(f"head `{h}` carries {len(gs)} distinct grounds across the corpus "
+            f"(want exactly one)")
+    else:
+        g = next(iter(gs))
+        if g in seen:
+            bad(f"heads `{seen[g]}` and `{h}` publish the SAME ground sentence "
+                f"— a blanket stamp over the apply snapshot")
+        seen[g] = h
 if tot["drain"] + tot["sort"] != EXPECT_DRAIN_SORT:
     bad(f"corpus total: {tot['drain']}+{tot['sort']} drain/sort nodes, pinned "
         f"{EXPECT_DRAIN_SORT}")
@@ -2356,6 +2453,10 @@ for h in ("retraction snapshot group frame", "retraction snapshot relation",
     k = CPK[h]
     print(f"  {tot[k]:6d}  {h:<28s} plan  |  {tot['a'+k]:6d} emitted")
 print(f"  {tot['acpt']:6d}  {'__cp<i> total (partition)':<28s}")
+print("── `<q>_apply` SHADOW HANDLE, PER HEAD (FACT P) ───────────────────────")
+for h in APHEADS:
+    print(f"  {aptot[APK[h]]:6d}  {h:<34s} plan  |  {aptot['aa'+APK[h][2]]:6d} emitted")
+print(f"  {aptot['aat']:6d}  {'__ap<i> total (partition)':<34s}  |  {aptot['aan']:6d} wrapper(s)")
 print("── FIXPOINT PLANE (R-C2, FACT K) ─────────────────────────────────────")
 for h in ("fixpoint derived frontier", "fixpoint novelty set",
           "fixpoint frontier", "over-deletion set",
