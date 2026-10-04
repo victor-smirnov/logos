@@ -46,7 +46,7 @@ SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
 # per shard (index = SHARD), measured; raise when the population grows
 COMPARED_FLOORS=(65 33 35 64)   # 2026-10-03, shards by name hash: 197 compared in all
 ROWS_FLOORS=(1943 98 93 144)
-ISNAP_FLOORS=(58 29 27 47)    # incremental snapshots, 161 in all
+ISNAP_FLOORS=(58 29 29 47)    # incremental snapshots, 163 in all
 COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
 ISNAP_FLOOR="${ISNAP_FLOORS[$SHARD]:-0}"
 ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
@@ -55,14 +55,10 @@ ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
 # PINS a defect on purpose. An entry whose pair agrees (the defect was fixed)
 # or never logs (the fixture moved) is a red, so the ledger cannot outlive its
 # reason.
-declare -A KNOWN_INC=(
-    # the handle's identity is the fold's FOOTPRINT, not the row: a retraction
-    # of a row never inserted, agreeing on (key, arguments), is accepted (§1,
-    # and twoq's §4b input); `count` has an empty footprint (§2)
-    [wql_incr_retract_footprint_identity:cntq]=1
-    [wql_incr_retract_footprint_identity:sumq]=1
-    [wql_incr_retract_footprint_identity:twoq]=1
-)
+# Empty since 2026-10-03: the three wql_incr_retract_footprint_identity pairs
+# it held (footprint identity, `count`'s empty footprint, non-atomic `_apply`)
+# agree now that the sensor matches whole rows and `_apply` commits on Ok.
+declare -A KNOWN_INC=()
 declare -A SEEN_INC=()
 HERE="$(cd "$(dirname "$0")" && pwd)"
 DB="$(cd "$(dirname "$LOGOSC")/.." && pwd)/testdb.sqlite"   # lt's test registry, for per-fixture args

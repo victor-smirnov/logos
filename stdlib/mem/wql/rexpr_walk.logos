@@ -3129,7 +3129,7 @@ fn cp_node(subject: str, ety: str, role: i64) {
         plan_trace(subject, "apply snapshot multiplicity map", ety, MG_AP_MAP());
         return;
     }
-    if role == CPR_AP_STORE() {
+    if role == CPR_AP_STORE() || role == CPR_AP_STORE_OWN() {
         plan_trace(subject, "apply snapshot stored side", ety, MG_AP_STORE());
         return;
     }
@@ -6975,7 +6975,9 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // `#folds` is spliced in AGGREGATE DECLARATION ORDER, so the `sum` declared
     // before it has already committed −984 by the time it speaks.
     //
-    // ── WHAT IS STORED, AND WHY IT IS *NOT* THE ROW ─────────────────────────
+    // ── WHAT WAS STORED 2026-08-08..10-03, AND WHY IT WAS NOT THE ROW ───────
+    // (The row is stored now wherever it has a holdable identity; see the
+    // 2026-10-03 note at `fpty` below. The footprint is the fallback.)
     // The join arm stores whole ROWS (`__s0`), and lifting that verbatim was the
     // first plan. It does not survive contact with the corpus: row storage drags
     // `incr_row_ty_ok` with it — the clause that refuses a `str` field (the
@@ -7035,7 +7037,31 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // this file already carries two warnings about.
     let mut fpty: String = String::new();
     let mut fpex: String = String::new();
+    // ⚠ 2026-10-03: THE WHOLE ROW FIRST, THE FOOTPRINT ONLY WHERE THE ROW HAS NO
+    // HOLDABLE IDENTITY. The two objections above to storing rows were a `str`
+    // field (a view the handle does not own) and an `f64` field (`==` is not
+    // identity); `incr_rowid_text` answers both — the `str` is copied into an
+    // owned `String`, the float is held by `f64_canon_bits`, the identity this
+    // sensor already used for a float argument. That closes the two defects
+    // `wql_incr_retract_footprint_identity` pinned (§1 an unread field, §2 a
+    // `count`'s empty footprint) for every row whose fields are scalars, `str`,
+    // `String` or floats; a row with a field of a named type keeps the footprint
+    // and says so (`retract identity -> footprint`).
+    let mut fp_owned: bool = false;
+    let mut rowid: bool = false;
     if sens {
+        let mut rty: String = String::new();
+        let mut rex: String = String::new();
+        if incr_rowid_text(ty, ch.base_ty, ch.base_var, &mut rty, &mut rex, &mut fp_owned) {
+            fpty.push_str(string_as_str(&rty));
+            fpex.push_str(string_as_str(&rex));
+            rowid = true;
+        } else {
+            fp_owned = false;
+        }
+        rid_trace(bare0, if rowid { RI_ROW() } else { RI_FOOTPRINT() });
+    }
+    if sens && !rowid {
         fpty.push_str("(");
         fpty.push_str(key_ty);
         fpex.push_str("((");
@@ -8122,8 +8148,10 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     let __fp: #(fpty_f) = #(fpex_f);
                     let mut __f: i64 = -1i64;
                     let mut __q: i64 = 0i64;
+                    // `[__q]`, not `.get(__q)`: a whole-row identity can
+                    // own a `String`, and `get` would copy it bitwise.
                     while __q < __h.__s0.len() {
-                        if __h.__s0.get(__q) == __fp { __f = __q; }
+                        if __h.__s0[__q] == __fp { __f = __q; }
                         __q = __q + 1i64;
                     }
                     if __f < 0i64 {
@@ -8213,7 +8241,8 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
             ax = ax + 1i64;
         }
         if sens {
-            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s0", string_as_str(&fpty), fn_name, CPR_AP_STORE());
+            push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s0", string_as_str(&fpty), fn_name,
+                            if fp_owned { CPR_AP_STORE_OWN() } else { CPR_AP_STORE() });
             ax = ax + 1i64;
             push_snap_field(&mut acl, &mut alit, &mut acm, "__a", ax, "__s0w", "i64", fn_name, CPR_AP_STORE());
             ax = ax + 1i64;
@@ -9285,6 +9314,9 @@ fn CPR_LATCH() -> i64 { return 2i64; }
 fn CPR_AP_FRAME() -> i64 { return 3i64; }
 fn CPR_AP_MAP() -> i64   { return 4i64; }
 fn CPR_AP_STORE() -> i64 { return 5i64; }
+// a stored side whose element owns a `String` (a whole-row identity with a
+// `str` field): copied by `clone`, since `Vec::get` would copy it bitwise
+fn CPR_AP_STORE_OWN() -> i64 { return 6i64; }
 
 fn push_clone_field(dcl: &mut String, dlit: &mut String, dcm: &mut String,
                     idx: i64, fld: str, ety: str, subject: str, role: i64) {
@@ -9312,6 +9344,10 @@ fn push_snap_field(dcl: &mut String, dlit: &mut String, dcm: &mut String, pfx: s
         dcl.push_str(".push(hashmap_clone(unsafe { &*__hh."); dcl.push_str(fld);
         dcl.push_str(".at_const("); dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx);
         dcl.push_str(") })); ");
+    } else if role == CPR_AP_STORE_OWN() {
+        dcl.push_str(".push(__hh."); dcl.push_str(fld);
+        dcl.push_str("["); dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx);
+        dcl.push_str("].clone()); ");
     } else {
         dcl.push_str(".push(__hh."); dcl.push_str(fld);
         dcl.push_str(".get("); dcl.push_str(pfx); dcl.push_str("x"); dcl.push_i64(idx);
@@ -9684,6 +9720,62 @@ fn incr_row_ty_ok(t: &ElTypes, row_ty: str) -> bool {
     return true;
 }
 
+/// The bare-scan retraction sensor's WHOLE-ROW identity: `(T0, T1, …)` into
+/// `ty_out` and `(v.f0, v.f1, …)` into `ex_out`, one component per stamped field
+/// of `row_ty`, in declaration order. A `str` field is OWNED (`to_string`, a
+/// `String` component) because the handle outlives the caller's bytes; a
+/// `String` field is copied the same way; a float is held by `f64_canon_bits`,
+/// the identity the multiplicity map and the footprint already key floats on.
+/// `false` (nothing written that matters) when a field is none of scalar,
+/// `str`, `String`, float — a named type is not walked, for `incr_row_ty_ok`'s
+/// transitivity reason — or the row was never stamped. `owned` is set when a
+/// component is a `String`, so the store's copies must clone.
+fn incr_rowid_text(t: &ElTypes, row_ty: str, v: str, ty_out: &mut String,
+                   ex_out: &mut String, owned: &mut bool) -> bool {
+    if row_ty.len() == 0i64 { return false; }
+    if !t.type_stamped(row_ty) { return false; }
+    ty_out.push_str("(");
+    ex_out.push_str("(");
+    let mut i: i64 = 0i64;
+    while true {
+        let e: i64 = t.type_field_at(row_ty, i);
+        if e < 0i64 { break; }
+        let ftn: str = t.binding_ty_name_at(e);
+        let col: str = t.binding_col_at(e);
+        if ftn.len() == 0i64 || col.len() == 0i64 { return false; }
+        if i > 0i64 { ty_out.push_str(", "); ex_out.push_str(", "); }
+        if str_eq(ftn, "String") {
+            ty_out.push_str("String");
+            ex_out.push_str("("); ex_out.push_str(v); ex_out.push_str(".");
+            ex_out.push_str(col); ex_out.push_str(").as_str().to_string()");
+            *owned = true;
+        } else {
+            let cls: i32 = el_class_lookup(ftn);
+            if cls == EL_TY_STR() {
+                ty_out.push_str("String");
+                ex_out.push_str("("); ex_out.push_str(v); ex_out.push_str(".");
+                ex_out.push_str(col); ex_out.push_str(").to_string()");
+                *owned = true;
+            } else if cls == EL_TY_FLT() {
+                ty_out.push_str("u64");
+                ex_out.push_str("f64_canon_bits(("); ex_out.push_str(v); ex_out.push_str(".");
+                ex_out.push_str(col); ex_out.push_str(") as f64)");
+            } else if cls == EL_TY_INT() || cls == EL_TY_BOOL() {
+                ty_out.push_str(ftn);
+                ex_out.push_str(v); ex_out.push_str("."); ex_out.push_str(col);
+            } else {
+                return false;
+            }
+        }
+        i = i + 1i64;
+    }
+    // tuple `Clone`/`Copy` exist up to arity 12 (logos.lang.clone, as Rust's)
+    if i == 0i64 || i > 12i64 { return false; }
+    ty_out.push_str(")");
+    ex_out.push_str(")");
+    return true;
+}
+
 /// `<stored>.f == <delta>.f && …` over every stamped field of `row_ty` — the ROW
 /// IDENTITY the Z-set's normal form searches on, spelled from the SAME field
 /// list `incr_row_ty_ok` admitted the type on. One walk of the binding table
@@ -9948,6 +10040,16 @@ fn incr_no_retract_r(qn: str, r: i32) -> bool {
     plan_trace("retraction", "declined", qn, rt_render(r));
     retract_facts(qn, r);
     return false;
+}
+
+/// What a bare-scan retraction is matched on, named by its rule (why.logos `RI_*`).
+fn rid_trace(qn: str, r: i32) {
+    plan_trace("retract identity", ri_name(r), qn, ri_render(r));
+    if !plan_trace_facts_on() { return; }
+    let mut fl: String = String::new();
+    fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" retract_identity rule=");
+    fl.push_str(ri_name(r)); fl.push_str("\n");
+    plan_trace_raw(string_as_str(&fl));
 }
 
 fn retract_facts(qn: str, r: i32) {

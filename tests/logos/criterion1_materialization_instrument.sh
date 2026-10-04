@@ -346,6 +346,9 @@ NOMAT = {
     # on the NOMAT side. What it replaces is a REFUSAL: before it, a streamed
     # batch source on a build side did not compile at all.
     'build-side batch pull',
+    # `retract identity` (2026-10-03): what a bare-scan retraction is matched
+    # on. The store it decides is already counted as the handle's `__s0`.
+    'row', 'footprint',
 }
 def head_of(line):
     m = re.match(r'^\[plan\] (.+?) -> (.*?)(?:   \(|$)', line)

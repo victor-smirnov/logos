@@ -1394,6 +1394,23 @@ pub fn rt_name(r: i32) -> str {
     return "unset";
 }
 
+// ══ WHAT A RETRACTION IS MATCHED ON — the bare scan's identity (2026-10-03) ══
+// `rexpr_walk::emit_incremental`, the `sens` store: a retracted row must be one
+// the handle holds, and "holds" is decided on one of two identities.
+pub fn RI_ROW() -> i32       { return 1i32; }   // every field of the row
+pub fn RI_FOOTPRINT() -> i32 { return 2i32; }   // the group key and the aggregate arguments
+
+pub fn ri_render(r: i32) -> str {
+    if r == RI_ROW()       { return "the WHOLE ROW, field by field — a `str` field is held as an owned `String`, a float field by `f64_canon_bits` (all zeros one value, all NaNs one value, the multiplicity map's identity) — so a retraction of a row the handle never held is refused even where it agrees on every value the fold reads, and a `count` sees the row and not only its group"; }
+    if r == RI_FOOTPRINT() { return "the fold's FOOTPRINT, the group key followed by every aggregate argument — a field of the row is not a scalar, `str`, `String` or float, so the row has no identity this store can hold; two rows that agree on the footprint are one row to this handle, and a `count` sees only the group"; }
+    return "";
+}
+pub fn ri_name(r: i32) -> str {
+    if r == RI_ROW()       { return "row"; }
+    if r == RI_FOOTPRINT() { return "footprint"; }
+    return "unset";
+}
+
 // ══ THE DRed EPOCH DRIVER — emitted or not, and why (E3) ═════════════════════
 pub fn DR_EMIT() -> i32   { return 1i32; }   // the four-phase driver is emitted
 pub fn DR_FLOAT() -> i32  { return 2i32; }   // an aggregate accumulates in f64
