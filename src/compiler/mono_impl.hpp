@@ -398,12 +398,6 @@ private:
     StrSet enum_done_;
     StrSet done_;
     StrMap<TypeRef> assoc_impls_;
-    // A GENERIC impl's assoc types (`impl<T> IntoIterator<T> for Vec<T> { type
-    // Iter = VecIntoIter<T>; }`), keyed "<bare trait>::<base struct>::<assoc>":
-    // assoc_impls_ holds them under the template spelling only, which a
-    // concrete projection (`Vec<i64>::IntoIterator<i64>::Iter`) never names.
-    struct GenericAssocImpl { TypeRef pattern; std::vector<TypeRef> trait_args; TypeRef type; };
-    StrMap<std::vector<GenericAssocImpl>> generic_assoc_impls_;
 
     // Blanket impls indexed for AssocType resolution at mono time.
     // Entry: { trait, bound_trait, target_typevar, assoc_types_map }.
@@ -1272,6 +1266,27 @@ private:
                                            int64_t arity, const std::vector<TypeRef>* trait_args,
                                            const std::vector<TypeRef>* method_args,
                                            const std::vector<TypeRef>* param_arg_types = nullptr);
+    // ADR 0030 S8 row 6: the associated type `name` of the impl of `trait` for
+    // the concrete `self` — the impl chosen as for a method (a nominal target,
+    // a pattern unified with Self, else a blanket whose bounds Self meets) and
+    // its declared binding instantiated. Null when none or more than one answer.
+    TypeRef trait_item_assoc_type_(std::string_view trait, TypeRef self, std::string_view name,
+                                   std::string_view targ_suffix = {});
+    // The trait arguments of an impl in the `$G<n>$<arg>…` encoding sema bakes
+    // into a projection's trait name (SemaChecker::trait_targ_suffix — byte-
+    // identical): two `Tr<A>` / `Tr<B>` impls for one type are told apart by it.
+    static std::string trait_targ_suffix_(const std::vector<TypeRef>& trait_args) {
+        if (trait_args.empty()) return {};
+        std::string sfx = "$G" + std::to_string(trait_args.size());
+        for (auto a : trait_args) {
+            sfx += "$";
+            std::string ts = a ? type_str(a) : std::string("?");
+            for (char& c : ts)
+                if (!(std::isalnum((unsigned char)c) || c == '_')) c = '_';
+            sfx += ts;
+        }
+        return sfx;
+    }
     static bool trait_names_(std::string_view identity, std::string_view trait);
     bool impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* pool,
                                 const std::vector<TypeRef>* trait_args, SubstMap* bindings = nullptr);

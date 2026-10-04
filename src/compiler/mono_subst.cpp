@@ -413,119 +413,28 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         return out_.type_pool.alloc(std::move(nt));
     }
     case LogosType::Kind::AssocType: {
-        // Resolve: recursively substitute the base, then look up TraitName::ConcreteType::AssocName
+        // The projection `<Base as Trait>::Name`: substitute the base, then the
+        // impl of the trait for it answers.
         auto subbed_base = subst_type(tv.assoc_base(), s);
         TypeRef sbv{subbed_base};
-        // Scalar kinds (u64/i32/bool/...) — concrete_base is the type's
-        // canonical name. Lets bare scalars resolve assoc types via the
-        // Primitive→Container blanket chain in stdlib.
-        bool scalar_base = false;
-        switch (sbv.kind()) {
-            case LogosType::Kind::Bool:
-            case LogosType::Kind::I8:  case LogosType::Kind::I16:
-            case LogosType::Kind::I32: case LogosType::Kind::I64:
-            case LogosType::Kind::U8:  case LogosType::Kind::U16:
-            case LogosType::Kind::U32: case LogosType::Kind::U64:
-            case LogosType::Kind::F32: case LogosType::Kind::F64:
-                scalar_base = true; break;
-            default: break;
+        // ADR 0030 S8 row 6: the impl's binding of the item, the impl chosen by
+        // the trait's identity (`pkg::Trait`) for the concrete base.
+        if (sbv && !contains_typevar(subbed_base)) {
+            std::string bare(tv.trait_name()), sfx;
+            if (auto p = bare.find("$G"); p != std::string::npos) { sfx = bare.substr(p); bare.resize(p); }
+            std::string id = tv.pkg_name().empty() ? bare : std::string(tv.pkg_name()) + "::" + bare;
+            // By the trait arguments the projection names; when no impl carries
+            // them (a suffix baked while an argument was still a parameter,
+            // `Fam$G1$S`) the single impl for the base answers (G156-1).
+            TypeRef r = trait_item_assoc_type_(id, subbed_base, tv.assoc_type_name(), sfx);
+            if (!r && !sfx.empty()) r = trait_item_assoc_type_(id, subbed_base, tv.assoc_type_name());
+            if (r) return subst_type(r, {});
         }
-        if (sbv.kind() == LogosType::Kind::Struct ||
-            sbv.kind() == LogosType::Kind::ZonedStruct ||
-            sbv.kind() == LogosType::Kind::Enum ||
-            scalar_base) {
-            std::string concrete_base;
-            if (sbv.kind() == LogosType::Kind::Struct ||
-                sbv.kind() == LogosType::Kind::ZonedStruct)
-                concrete_base = concrete_struct_name(subbed_base);
-            else if (sbv.kind() == LogosType::Kind::Enum)
-                concrete_base = std::string(sbv.enum_name());
-            else
-                concrete_base = type_str(subbed_base);
-
-            std::string key = std::string(tv.trait_name()) + "::" + concrete_base + "::" + std::string(tv.assoc_type_name());
-            auto ait = assoc_impls_.find(key);
-            if (ait != assoc_impls_.end()) {
-                // Collapse nested associated-type chains fully
-                return subst_type(ait->second, {});
-            }
-            // G156-1 substitution-invariance fallback (mirror of sema's
-            // find_assoc_type_entry): the projection's trait_name may carry a
-            // TYPEVAR-baked arg suffix ("Fam$G1$S") — an unrewritten STRING
-            // that can never equal the concrete registration ("Fam$G1$St") —
-            // or be BARE while the registration is suffixed. Scan for suffixed
-            // registrations of the same bare trait + base + assoc name; a
-            // SINGLE candidate is unambiguous. Dual Trait<A>/Trait<B> impls
-            // stay strict (the suffix must decide).
-            {
-                std::string bare(tv.trait_name());
-                if (auto p = bare.find("$G"); p != std::string::npos) bare.resize(p);
-                const std::string pfx  = bare + "$G";
-                const std::string tail = "::" + concrete_base + "::" + std::string(tv.assoc_type_name());
-                const TypeRef* single = nullptr;
-                bool ambiguous = false;
-                for (auto& [k, v] : assoc_impls_) {
-                    if (k.size() <= tail.size() + pfx.size()) continue;
-                    if (k.compare(0, pfx.size(), pfx) != 0) continue;
-                    if (k.compare(k.size() - tail.size(), tail.size(), tail) != 0) continue;
-                    if (single) { ambiguous = true; break; }
-                    single = &v;
-                }
-                if (single && !ambiguous) return subst_type(*single, {});
-                // A GENERIC impl (`impl<T> IntoIterator<T> for Vec<T>`): unify its
-                // target pattern with the concrete base, then instantiate the
-                // assoc type with the bindings. Two impls of one trait for one
-                // base (`Tr<A>` / `Tr<B>`) must be told apart by the trait args,
-                // so only a single unifying candidate is taken.
-                if (sbv.kind() == LogosType::Kind::Struct || sbv.kind() == LogosType::Kind::ZonedStruct) {
-                    // KEY-IDENTITY: a BUCKET (see mono.cpp's insert) — the candidates are filtered by unifying
-                    // the stored package-carrying target pattern with the concrete base; one unifier is taken.
-                    auto git = generic_assoc_impls_.find(bare + "::" + std::string(sbv.struct_name()) +
-                                                         "::" + std::string(tv.assoc_type_name()));
-                    if (git != generic_assoc_impls_.end()) {
-                        const GenericAssocImpl* hit = nullptr;
-                        SubstMap hit_b;
-                        int n_hit = 0;
-                        for (auto& g : git->second) {
-                            SubstMap b;
-                            if (!unify_impl_target(subbed_base, g.pattern, b)) continue;
-                            ++n_hit; hit = &g; hit_b = std::move(b);
-                        }
-                        if (n_hit == 1) return subst_type(hit->type, hit_b);
-                    }
-                }
-            }
-            // Blanket fallback: when there's an `impl<T: Bound> Trait for T`
-            // and `concrete_base` satisfies Bound, use the blanket's assoc.
-            for (auto& bi : blanket_impls_) {
-                if (bi.trait_name != tv.trait_name()) continue;
-                StrSet seen_pri;
-                // Ask by IDENTITY — the raw text here admitted a homonym's
-                // concretes into this blanket's assoc-type resolution.
-                const std::string& pri_q = bi.identity_bound_trait.empty()
-                                               ? bi.bound_trait
-                                               : bi.identity_bound_trait;
-                if (!bi.bound_trait.empty() &&
-                    !mono_has_impl_recursive(pri_q, concrete_base, seen_pri)) continue;
-                bool all_extra = true;
-                for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
-                    StrSet seen_eb;
-                    const std::string& eq = ei < bi.identity_extra_bounds.size() &&
-                                                    !bi.identity_extra_bounds[ei].empty()
-                                                ? bi.identity_extra_bounds[ei]
-                                                : bi.extra_bounds[ei];
-                    if (!mono_has_impl_recursive(eq, concrete_base, seen_eb)) {
-                        all_extra = false; break;
-                    }
-                }
-                if (!all_extra) continue;
-                auto bait = bi.assoc_types.find(tv.assoc_type_name());   // transparent
-                if (bait == bi.assoc_types.end()) continue;
-                SubstMap bsubst;
-                bsubst[bi.target_typevar] = subbed_base;
-                return subst_type(bait->second, bsubst);
-            }
-        }
+        // Nothing else resolves the projection: the per-spelling key lookup, the
+        // G156-1 suffix scan, the generic-impl bucket and the blanket fallback
+        // are gone (census: 0 projections reached them while an impl existed;
+        // before the metaclass-factory drain emits a family there is none, and
+        // the projection stays as it is, as it did).
         if (subbed_base != tv.assoc_base()) {
             LogosTypeBuilder nt = tv.to_builder();
             nt.assoc_base = subbed_base;

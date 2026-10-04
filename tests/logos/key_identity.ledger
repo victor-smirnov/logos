@@ -759,8 +759,9 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # 2026-09-26: the audit std merge adds four name-keyed lookups, each grounded at its site: generic_assoc_impls_ (mono.cpp insert,
 #   mono_subst.cpp read) is a BUCKET filtered by unifying the stored package-carrying target pattern; implied_type_lt_outlives_
 #   and current_type_bounds_[type_str(base)] key on type-parameter spellings.
-mono.cpp	generic_assoc_impls_	D	1	impl_trait + "::" + std::string(TypeRef(pat).struct_name()) + "::" + aname
-mono_subst.cpp	generic_assoc_impls_	D	1	bare + "::" + std::string(sbv.struct_name()) + "::" + std::string(tv.assoc_type_name())
+# 2026-10-04, ADR 0030 S8 row 6: generic_assoc_impls_ RETIRED (both rows) — an associated-type projection is
+# answered by the impl of the trait for the concrete base (trait_item_assoc_type_: identity, pattern unified),
+# so the struct-name bucket and its reader are deleted.
 sema_decl.cpp	implied_type_lt_outlives_	D	1	std::string(t.type_var_name())
 sema_expr.cpp	current_type_bounds_	D	1	type_str(base)
 # 2026-09-29, ADR 0030 S4: ref_arg_satisfies_dyn asks the bounds of a type parameter OR a projection

@@ -1308,6 +1308,79 @@ std::string Mono::eq_instance_for(TypeRef et, TypeRef et_ref) {
     return sym;
 }
 
+TypeRef Mono::trait_item_assoc_type_(std::string_view trait, TypeRef self, std::string_view name,
+                                     std::string_view targ_suffix) {
+    if (!self || contains_typevar(self)) return {};
+    using K = LogosType::Kind;
+    const TypePoolImpl* ipool = out_.type_pool.impl();
+    auto bare_of = [](std::string_view t) {
+        if (auto p = t.rfind("::"); p != std::string_view::npos) t = t.substr(p + 2);
+        if (auto p = t.rfind('.'); p != std::string_view::npos) t = t.substr(p + 1);
+        return t;
+    };
+    const auto sk = TypeRef(self).kind();
+    TypeRef best{};
+    bool ambiguous = false;
+    auto consider = [&](TypeRef decl, const SubstMap& b) {
+        if (!decl) return;
+        TypeRef t = b.empty() ? decl : subst_type(decl, b);
+        if (!best) best = t;
+        else if (!types_equal(best, t)) ambiguous = true;
+    };
+    for (auto& impl : out_.impls) {
+        if (impl.is_negative() || impl.is_blanket()) continue;
+        if (!trait_names_(impl.identity_trait(), trait)) continue;
+        // A projection that names the trait's arguments takes only the impl of
+        // those (`<Gen as Producer<i64>>::Item` beside `Producer<bool>`).
+        if (!targ_suffix.empty() && trait_targ_suffix_(impl.trait_type_args(ipool)) != targ_suffix) continue;
+        TypeRef decl{};
+        impl.each_assoc_type([&](lir_view::AssocEntryView ae) { if (!decl && ae.name() == name) decl = ae.type(ipool); });
+        if (!decl) continue;
+        TypeRef pat = impl.target_typeref(ipool);
+        SubstMap b;
+        if (pat) {
+            if (!unify_impl_target(self, pat, b)) continue;
+        } else {
+            // A nominal target with no recorded pattern: its spelling.
+            std::string_view tgt = impl.target_type();
+            const bool ok =
+                is_primitive_scalar_kind(sk) ? tgt == type_str(self)
+                : sk == K::Enum ? (TypeRef(self).type_args().empty() && bare_of(tgt) == bare_of(TypeRef(self).enum_name()))
+                : (sk == K::Struct || sk == K::ZonedStruct) ? tgt == concrete_struct_name(self)
+                : false;
+            if (!ok) continue;
+        }
+        consider(decl, b);
+    }
+    if (best || ambiguous) return ambiguous ? TypeRef{} : best;
+    for (auto& impl : out_.impls) {
+        if (!impl.is_blanket() || impl.is_negative()) continue;
+        if (!trait_names_(impl.identity_trait(), trait)) continue;
+        TypeRef decl{};
+        impl.each_assoc_type([&](lir_view::AssocEntryView ae) { if (!decl && ae.name() == name) decl = ae.type(ipool); });
+        if (!decl) continue;
+        bool ok = true;
+        if (!impl.bound_trait().empty()) {
+            StrSet seen;
+            ok = mono_concrete_satisfies_bound(TraitQuery(std::string(impl.bound_trait()),
+                                                          std::string(impl.identity_bound_trait())), self, seen);
+        }
+        auto extras = impl.extra_bounds();
+        auto extra_ids = impl.identity_extra_bounds();
+        for (size_t i = 0; ok && i < extras.size(); ++i) {
+            StrSet seen;
+            ok = mono_concrete_satisfies_bound(
+                TraitQuery(std::string(extras[i]), i < extra_ids.size() ? std::string(extra_ids[i]) : std::string()),
+                self, seen);
+        }
+        if (!ok) continue;
+        SubstMap b;
+        b[std::string(impl.target_type())] = self;
+        consider(decl, b);
+    }
+    return ambiguous ? TypeRef{} : best;
+}
+
 // `trait` is the trait's qualified identity (`logos.lang.cmp::Eq`) when the
 // caller holds it, and then only that trait answers; a bare spelling (a call's
 // recorded `tag_trait`) matches the identity's last segment.
