@@ -455,6 +455,13 @@ checks were never compiled, because mono's `method_bound_ok` refused
 `T: PartialEq` at `i64` (an `Eq`-only type, SL-sl-02 lived in sema and in one
 mono retry) and dropped the derived `eq` in silence; SL-sl-02 is now in
 `mono_concrete_satisfies_bound`, every mono gate's engine (row (4) absorbs it).
+Row (2), BIR half: the receiver needle (`instance_for_receiver`) and the
+template-by-pattern fallback (`template_for_receiver_`) are deleted — census
+over the pass corpus after row (1): 0 calls reached either. A template's
+`T::build(d)` / `<T as Tr>::build(d)` is resolved by the trait item it carries
+(by_traitdecl), not missed by name. BIR's remaining plain-call misses are
+intrinsics, the `$M` class above and a few generic instances; a miss is
+conservative (the result borrows every argument), not a hole.
 
 ## S0–S7 gap audit (2026-10-01)
 
