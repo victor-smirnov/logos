@@ -136,6 +136,10 @@ pub struct DxEnv {
     pub stys: [str; 16],    // their Soufflé types
     pub sltys: [str; 16],   // and their Logos types
     pub ns: i64,
+    // native sources left out of the fragment, and why (`dx_atom` reports it)
+    pub skn: [str; 16],
+    pub skw: [str; 16],
+    pub nsk: i64,
 }
 
 fn dx_find(env: &DxEnv, nm: str) -> i64 {
@@ -171,6 +175,18 @@ fn dx_col_opaque(env: &DxEnv, si: i64, col: str) -> bool {
         k = k + 1i64;
     }
     return false;
+}
+
+// Why source `src` is not in the environment: a native left out (its own
+// reason), else a source the exporter never declared (a writ graph, a Memoria
+// container read through a door, a `__`-prefixed engine relation, …).
+fn dx_skip_why<'a>(env: &'a DxEnv, src: str) -> &'a str {
+    let mut i: i64 = 0i64;
+    while i < env.nsk {
+        if str_eq(env.skn[i], src) { let w: str = env.skw[i]; return unsafe { str_from_raw(w.as_ptr(), w.len()) }; }
+        i = i + 1i64;
+    }
+    return "source outside the fragment";
 }
 
 fn dx_is_scalar(env: &DxEnv, nm: str) -> bool {
@@ -411,7 +427,7 @@ fn dx_pred(e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
 // A positive atom `s(v_v_f1, …)` for row var `v` over source `s`.
 fn dx_atom(cl: &mut DxClause, env: &DxEnv, src: str, v: str) -> bool {
     let si: i64 = dx_find(env, src);
-    if si < 0i64 { return dx_no(cl, "source outside the fragment"); }
+    if si < 0i64 { return dx_no(cl, dx_skip_why(env, src)); }
     dx_bind(cl, v, si);
     if cl.body.len() > 0i64 { cl.body.push_str(", "); }
     cl.body.push_str(src);
@@ -711,7 +727,7 @@ fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAn
             if st.is_anti {
                 if !st.has_on { return dx_no(cl, "anti join without on"); }
                 let si: i64 = dx_find(env, st.src_name);
-                if si < 0i64 { return dx_no(cl, "source outside the fragment"); }
+                if si < 0i64 { return dx_no(cl, dx_skip_why(env, st.src_name)); }
                 let on: SExpr = st.on.any().view::<SExpr>();
                 if !dx_neg_only_eqs(on, st.var_name) { return dx_no(cl, "anti join on a non-equality"); }
                 cl.body.push_str(", !");
@@ -1114,7 +1130,7 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
               && str_byte_at(natspec, i) != 64u8 && str_byte_at(natspec, i) != 58u8 { i = i + 1i64; }
         let mat: str = dx_slice(natspec, s1, i);
         let mut iter: bool = false;
-        if i < n && str_byte_at(natspec, i) == 33u8 { iter = true; }               // '!' flags: a producer we do not drain
+        if i < n && str_byte_at(natspec, i) == 33u8 { iter = true; }               // '!' flags: a stream producer
         let mut marg2: str = "";
         while i < n && str_byte_at(natspec, i) != 58u8 {                             // to ':'
             if str_byte_at(natspec, i) == 35u8 {                                     // '#'
@@ -1147,7 +1163,20 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
         while i < n && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }            // rest of the entry
         i = i + 1i64;
         if *nn < 16i64 { nparams[*nn] = marg; *nn = *nn + 1i64; }
-        if iter || marg2.len() > 0i64 || env.n >= 16i64 { continue; }   // left out of the fragment
+        // left out of the fragment, with the reason `dx_atom` will give
+        let mut skw: str = "";
+        // ⚠ A STREAM PRODUCER IS NOT DRAINED A SECOND TIME, and that is
+        // measured: re-invoking it for the dump changes what the program
+        // observes (8 fixtures count pulls or producer calls and failed under
+        // the oracle build), and recording rows inside the deem's own pull
+        // would see only what a narrowed or early-stopping scan reads.
+        if iter { skw = "native source is a stream producer (a second drain is observable)"; }
+        else if marg2.len() > 0i64 { skw = "native source takes a narrowing argument"; }
+        else if env.n >= 16i64 { skw = "more than 16 sources"; }
+        if skw.len() > 0i64 {
+            if env.nsk < 16i64 { env.skn[env.nsk] = reg; env.skw[env.nsk] = skw; env.nsk = env.nsk + 1i64; }
+            continue;
+        }
         let mut ok: bool = true;
         let mut k: i64 = 0i64;
         while k < nc { if dx_kind(ct[k]).len() == 0i64 { ok = false; } k = k + 1i64; }
@@ -1192,7 +1221,8 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
                  ddir: str, incrows: &mut String, incsnap: &mut String, why: &mut String) -> bool {
     let view: OView = oview_module_ast();
     let mut env: DxEnv = DxEnv { n: 0i64, src: [""; 16], cn: [0i64; 16], cnames: [[""; 16]; 16],
-                                 ctys: [[""; 16]; 16], scalars: [""; 16], stys: [""; 16], sltys: [""; 16], ns: 0i64 };
+                                 ctys: [[""; 16]; 16], scalars: [""; 16], stys: [""; 16], sltys: [""; 16], ns: 0i64,
+                                 skn: [""; 16], skw: [""; 16], nsk: 0i64 };
     // native sources first: their params are not scalars
     let mut nparams: [str; 16] = [""; 16];
     let mut nn: i64 = 0i64;
