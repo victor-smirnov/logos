@@ -153,10 +153,11 @@ lir_view::ExprRef LirBuilder::try_expr(lir::LExprPtr inner, int32_t ok_disc,
 lir_view::ExprRef LirBuilder::call(std::string callee,
                                 std::vector<TypeRef> type_args,
                                 std::vector<lir::LExprPtr> args,
-                                TypeRef ty) {
+                                TypeRef ty,
+                                const lir::TraitItemRef* trait_item) {
     observe_(callee, {}, {}, nullptr, false);
     return direct(prog_, ty,
-        [&](auto& p, TypeRef t){ return lir_mirror_emit_call(p, t, callee, type_args, args); });
+        [&](auto& p, TypeRef t){ return lir_mirror_emit_call(p, t, callee, type_args, args, trait_item); });
 }
 
 lir_view::ExprRef LirBuilder::block_expr(lir_view::BlockRef block,

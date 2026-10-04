@@ -7075,7 +7075,8 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
 lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                       const SemaFuncInfo& fi,
                                       std::vector<TypeRef> type_args,
-                                      std::vector<lir::LExprPtr> arg_exprs) {
+                                      std::vector<lir::LExprPtr> arg_exprs,
+                                      const lir::TraitItemRef* trait_item) {
     std::string callee{callee_sv};
     // Type parameters the caller WROTE (turbofish, not `_`): their regions are
     // the written ones, not fresh (see the argument check below).
@@ -7502,7 +7503,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     // Without this, e.g. `arc_new::<S>(s)` left `s`'s scope-exit Drop active,
     // freeing storage that arc_new now owns.
     track_args_moved(arg_exprs, &fi.param_types);
-    return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret);
+    return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret, trait_item);
 }
 
 lir::LExprPtr SemaChecker::lower_intrinsic_has_trait_of(TinyMapView node) {
@@ -18205,6 +18206,7 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
     // (first param isn't `Self`).
     const SemaTraitMethodInfo* m = nullptr;
     bool prov_trait_has_targs = false;
+    std::string prov_trait;
     logos::compiler::StrSet seen;
     std::function<void(const std::string&)> walk = [&](const std::string& tn) {
         if (m || !seen.insert(tn).second) return;
@@ -18219,6 +18221,7 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
             if (is_static) {
                 m = &mm;
                 prov_trait_has_targs = !it->type_params.empty();
+                prov_trait = tn;
                 return;
             }
         }
@@ -18255,8 +18258,9 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
     // consumer has to recover them by cutting at a `__`.
     synth.owner_struct = cname;
     synth.is_method    = true;
+    auto ti = trait_item_ref_(prov_trait, mname, self_subst["Self"]);
     return finish_generic_call(cname + "__" + mname, synth,
-                               std::move(explicit_targs), std::move(arg_exprs));
+                               std::move(explicit_targs), std::move(arg_exprs), &ti);
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
@@ -18822,9 +18826,15 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         error(std::format("method call '{}::{}': expected {} args, got {}",
                               cname_str, mname_str, m.param_types.size(), arg_exprs.size()));
                     track_args_moved(arg_exprs, &m.param_types);
+                    // The trait's arguments: the bound's own, when the bound IS
+                    // the providing trait (an inherited supertrait's are unknown).
+                    std::vector<TypeRef> ti_args;
+                    for (auto& b : bit->second)
+                        if (b.trait_name == tn) { ti_args = b.type_args; break; }
+                    auto ti = trait_item_ref_(tn, mname_str, self_subst["Self"], std::move(ti_args));
                     return builder().call(mfi && !mfi->symbol_name.empty()
                                 ? mfi->symbol_name
-                                : cname_str + "__" + mname_str, {}, std::move(arg_exprs), ret_t);
+                                : cname_str + "__" + mname_str, {}, std::move(arg_exprs), ret_t, &ti);
                 }
             }
         }
@@ -18940,8 +18950,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         error(std::format("method call '{}::{}': expected {} args, got {}",
                               cname_str, mname_str, tm->param_types.size(), arg_exprs.size()));
                     track_args_moved(arg_exprs, &tm->param_types);
+                    auto ti = trait_item_ref_(cname_str, mname_str, self_subst["Self"]);
                     return builder().call(tp + "__" + mname_str, {},
-                                          std::move(arg_exprs), ret_t);
+                                          std::move(arg_exprs), ret_t, &ti);
                 }
             }
         }

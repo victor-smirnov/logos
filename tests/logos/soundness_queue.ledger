@@ -194,8 +194,6 @@ assert_with_message_crash 1 tests/soundness/open/assert_with_message_crash refus
 
 enum_type_param_variance_admitted 1 tests/soundness/open/enum_type_param_variance_admitted admits
 
-generic_bound_assoc_fn_prefers_inherent_wrong 1 tests/soundness/open/generic_bound_assoc_fn_prefers_inherent_wrong run 100
-
 iter_filter_capturing_closure_refused 1 tests/soundness/open/iter_filter_capturing_closure_refused refuses
 
 let_binding_named_like_const_admitted 1 tests/soundness/open/let_binding_named_like_const_admitted admits
@@ -465,5 +463,7 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
+concrete_tuple_impl_bound_refused 3 tests/soundness/open/concrete_tuple_impl_bound_refused refuses
+
 # TOTAL 143
-# SYNC-HASH a556b77e6b58c01f3af0d024406c6825
+# SYNC-HASH 2243521021661713bcc03261793ec7f0

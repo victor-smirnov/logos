@@ -495,14 +495,30 @@ public:
     const uint8_t* emit_call_direct(TypeRef ty,
                                              std::string_view callee,
                                              const std::vector<TypeRef>& type_args,
-                                             const ExprVec& args) {
+                                             const ExprVec& args,
+                                             const lir::TraitItemRef* trait_item = nullptr) {
         auto cn_av = put_string(callee);
         auto ta_av = type_array(type_args);
         auto ar_av = expr_array(args);
+        // A trait item rides in keys a Call map never otherwise holds (the
+        // per-category reuse TinyObjectMap's 52-key cap asks for).
+        writ::AnyVal ti_t, ti_m, ti_s, ti_a;
+        if (trait_item) {
+            ti_t = put_string(trait_item->trait);
+            ti_m = put_string(trait_item->method);
+            if (trait_item->self) ti_s = type_av(trait_item->self);
+            ti_a = type_array(trait_item->trait_args);
+        }
         auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Call));
         put(map_off, ek::CALLEE,    cn_av);
         put(map_off, ek::TYPE_ARGS, ta_av);
         put(map_off, ek::ARGS,      ar_av);
+        if (trait_item) {
+            put(map_off, ek::TRAIT_ITEM_TRAIT,  ti_t);
+            put(map_off, ek::TRAIT_ITEM_METHOD, ti_m);
+            if (trait_item->self) put(map_off, ek::TRAIT_ITEM_SELF, ti_s);
+            put(map_off, ek::TRAIT_ITEM_ARGS,   ti_a);
+        }
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
@@ -2154,10 +2170,10 @@ const uint8_t* lir_mirror_emit_struct_lit(lir::LProgram& prog, TypeRef ty, std::
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_struct_lit_direct(ty, name, fields);
 }
-const uint8_t* lir_mirror_emit_call(lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args) {
+const uint8_t* lir_mirror_emit_call(lir::LProgram& prog, TypeRef ty, std::string_view callee, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args, const lir::TraitItemRef* trait_item) {
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_call_direct(ty, callee, type_args, args);
+    return em.emit_call_direct(ty, callee, type_args, args, trait_item);
 }
 const uint8_t* lir_mirror_emit_method_call(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef receiver, std::string_view method, std::string_view resolved_symbol, const std::vector<TypeRef>& type_args, const std::vector<lir_view::ExprRef>& args, int32_t vtable_index, std::string_view resolved_type, std::string_view tag_system, std::string_view tag_trait) {
     auto& ctr = prog.type_pool.ctr_or_init();

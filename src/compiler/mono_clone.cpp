@@ -3138,6 +3138,26 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     nc.args.push_back(child_husk(subst_child_expr(ar)));
                 }
             });
+            // ADR 0030 S8 row 6: a trait item through a type (`T::m(..)`) is the
+            // method of the impl of that trait for Self, once Self is concrete —
+            // read off the impl, not re-spelled from the callee.
+            if (std::string_view ti_trait = v.trait_item_trait(); !ti_trait.empty()) {
+                TypeRef self_c = v.trait_item_self(out_.type_pool.impl());
+                if (self_c) self_c = subst_type(self_c, s);
+                bool conc = self_c && !contains_typevar(self_c);
+                std::vector<TypeRef> ti_args;
+                for (auto a : v.trait_item_args(out_.type_pool.impl()))
+                    ti_args.push_back(a ? subst_type(a, s) : TypeRef{});
+                for (auto a : nc.type_args) if (!a || contains_typevar(a)) conc = false;
+                if (conc) {
+                    std::string sym = trait_item_symbol_(std::string(ti_trait), self_c, v.trait_item_method(),
+                                                         int64_t(nc.args.size()), nullptr, &ti_args, &nc.type_args);
+                    if (!sym.empty()) {
+                        mp_ = lir_mirror_emit_call(out_, rt_, sym, {}, nc.args);
+                        break;
+                    }
+                }
+            }
             // Generic static-trait-dispatch: rewrite "[pkg.]DT__method" prefix
             // when DT is bound by the substitution map. Pkg prefix (set by
             // unified mangling) is stripped before checking the subst map.

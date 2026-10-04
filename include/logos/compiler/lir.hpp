@@ -233,6 +233,17 @@ struct EEnumLitData {
     std::vector<LExprPtr> payload;  // payload values
 };
 
+// ADR 0030 S8 row 6: a call of a trait item through a type (`T::m(..)`,
+// `Trait::m(..)` with Self bound to `T`) — the trait (its qualified identity),
+// the item, Self and the trait's arguments. mono answers it from the impl for
+// Self once Self is concrete; the callee spelling is not the identity.
+struct TraitItemRef {
+    std::string          trait;
+    std::string          method;
+    TypeRef              self = nullptr;
+    std::vector<TypeRef> trait_args;
+};
+
 struct ECall      {
     std::string                   callee;
     std::vector<TypeRef> type_args;  // empty for non-generic calls

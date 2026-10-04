@@ -253,6 +253,14 @@ inline constexpr Key BORROW_ORIGIN     {"BORROW_ORIGIN",   45};   // u8 (BorrowO
 // callable is reached (#434).
 inline constexpr Key CALL_MODE         {"CALL_MODE",       45};   // u8 (CallMode)
 
+// Reuse inside Call maps only (a call carries no method-call metadata, no
+// element type, no argument-type list): the trait item a `T::m(..)` names
+// (lir::TraitItemRef, ADR 0030 S8 row 6).
+inline constexpr Key TRAIT_ITEM_TRAIT  {"TRAIT_ITEM_TRAIT",  43};   // Varchar (qualified trait identity)
+inline constexpr Key TRAIT_ITEM_METHOD {"TRAIT_ITEM_METHOD", 38};   // Varchar
+inline constexpr Key TRAIT_ITEM_SELF   {"TRAIT_ITEM_SELF",   49};   // RelPtr<LogosType>
+inline constexpr Key TRAIT_ITEM_ARGS   {"TRAIT_ITEM_ARGS",   34};   // Array<RelPtr<LogosType>>
+
 // ECast
 inline constexpr Key WRIT_BUILD_FN   {"WRIT_BUILD_FN", 46};   // Varchar (empty for plain cast)
 

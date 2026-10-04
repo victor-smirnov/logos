@@ -9471,10 +9471,17 @@ private:
                          std::vector<TypeRef>& out_type_args,
                          const SemaSubst& context = {},
                          size_t param_offset = 0);
+    // ADR 0030 S8 row 6: the trait item a `T::m(..)` names — the trait by its
+    // qualified identity (`trait` is a scoped spelling), Self, the trait's args.
+    lir::TraitItemRef trait_item_ref_(const std::string& trait, const std::string& method, TypeRef self,
+                                      std::vector<TypeRef> trait_args = {}) {
+        return lir::TraitItemRef{impl_key_trait(canonical_trait_name(trait)), method, self, std::move(trait_args)};
+    }
     lir::LExprPtr finish_generic_call(std::string_view callee_sv,
                                       const SemaFuncInfo& fi,
                                       std::vector<TypeRef> type_args,
-                                      std::vector<lir::LExprPtr> arg_exprs);
+                                      std::vector<lir::LExprPtr> arg_exprs,
+                                      const lir::TraitItemRef* trait_item = nullptr);
     lir::LExprPtr lower_generic_call(writ::TinyMapView node);
     // The leading magic-builtin / type-trait intrinsic dispatch of
     // lower_generic_call (is_same, type_of, has_trait, typelist_*, tuple_*, …).

@@ -1,0 +1,21 @@
+// Was squeue row generic_bound_assoc_fn_prefers_inherent_wrong (#510, tier 1); closed by ADR 0030 S8 row 6:
+// `T::zero()` through the bound `T: HasZero` is the trait item, read off the impl for Self — not the same-named
+// inherent `W::zero` the callee spelling `T__zero` used to be re-spelled into after substitution. Exit 200, as
+// rustc 1.98.1 --edition 2024.
+package generic_bound_assoc_fn_takes_trait_impl;
+
+trait HasZero { fn zero() -> i64; }
+struct W { v: i64 }
+impl W {
+    fn zero() -> i64 { 100 }
+}
+impl HasZero for W {
+    fn zero() -> i64 { 200 }
+}
+
+fn generic_zero<T: HasZero>() -> i64 { T::zero() }
+
+fn main() -> i32 {
+    let via_bound = generic_zero::<W>();
+    return via_bound as i32;
+}

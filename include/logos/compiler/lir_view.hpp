@@ -1929,6 +1929,25 @@ void for_each_payload(const ExprRef& e, F&& f) noexcept {
 struct ECallView {
     ExprRef self;
     std::string_view callee() const noexcept { return detail::read_string(self, ek::CALLEE.code); }
+    // ADR 0030 S8 row 6: the trait item a `T::m(..)` names (empty trait when
+    // the call names a function).
+    std::string_view trait_item_trait() const noexcept  { return detail::read_string(self, ek::TRAIT_ITEM_TRAIT.code); }
+    std::string_view trait_item_method() const noexcept { return detail::read_string(self, ek::TRAIT_ITEM_METHOD.code); }
+    TypeRef trait_item_self(const TypePoolImpl* pool) const noexcept {
+        return self.sub_type(ek::TRAIT_ITEM_SELF.code, pool);
+    }
+    std::vector<TypeRef> trait_item_args(const TypePoolImpl* pool) const noexcept {
+        std::vector<TypeRef> out;
+        auto av = self.mirror()->get(ek::TRAIT_ITEM_ARGS.code);
+        if (av.is_null()) return out;
+        auto* arr = av.as_ptr<const writ::ObjectArray>();
+        for (uint64_t i = 0; i < arr->size(); ++i) {
+            auto el = arr->get(i);
+            if (el.is_null()) { out.emplace_back(); continue; }
+            out.push_back(detail::make_child_typeref(self, el, pool));
+        }
+        return out;
+    }
     template <class F> void each_arg(F&& f) const noexcept {
         detail::for_each_arg(self, std::forward<F>(f));
     }
