@@ -2728,6 +2728,14 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             // bare-name fallbacks were exactly these invented
                             // names. A miss is now a diagnostic, not a name.
                             std::string callee_sym = eq_instance_for(et, et_ref);
+                            // No declaration with that signature: the element's
+                            // `Eq` impl (`&T`'s at `&i32`, a generic one) —
+                            // called with both sides borrowed, its `&self` exactly.
+                            bool via_impl = false;
+                            if (callee_sym.empty() && et.kind() != LogosType::Kind::Slice) {
+                                callee_sym = trait_item_symbol_("logos.lang.cmp::Eq", et, "eq", 2);
+                                via_impl = !callee_sym.empty();
+                            }
                             if (callee_sym.empty()) {
                                 in_.diags.diags.push_back({Diag::Level::Error, "mono",
                                     std::format("tuple equality: no `eq` implementation "
@@ -2746,7 +2754,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 cmp = lb.call(callee_sym, {}, dargs, bool_t);
                             } else {
                                 auto b_f_ref = lb.addr_of_temp(b_f, false, et_ref, lir_schema::expr::BorrowOrigin::Desugar);
-                                if (et.kind() == LogosType::Kind::Enum) {
+                                if (et.kind() == LogosType::Kind::Enum || via_impl) {
                                     // An ENUM element (`Option<i64>`): `eq(&self,
                                     // &other)` called directly with both sides
                                     // borrowed — a by-value enum receiver on the
@@ -4007,10 +4015,16 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 int64_t nargs = 0;
                 v.each_arg([&](lir_view::ExprRef) { ++nargs; });
-                if (std::string sym = !args_concrete ? std::string()
-                                                     : trait_item_symbol_(tt, cr, method, nargs + 1, nullptr,
-                                                                          &trait_args, &method_args);
-                    !sym.empty()) {
+                std::string sym = !args_concrete ? std::string()
+                                                 : trait_item_symbol_(tt, cr, method, nargs + 1, nullptr,
+                                                                      &trait_args, &method_args);
+                // SL-sl-02, as sema's bound check: a `PartialEq` / `PartialOrd`
+                // bound is satisfied by the type's `Eq` / `Ord` impl, which
+                // carries the method.
+                if (sym.empty() && args_concrete && (tt == "PartialEq" || tt == "PartialOrd"))
+                    sym = trait_item_symbol_(tt == "PartialEq" ? "logos.lang.cmp::Eq" : "logos.lang.cmp::Ord", cr, method, nargs + 1, nullptr,
+                                             &trait_args, &method_args);
+                if (!sym.empty()) {
                     std::vector<lir_view::ExprRef> mc_args;
                     v.each_arg([&](lir_view::ExprRef ar) { mc_args.push_back(subst_child_expr(ar)); });
                     mp_ = lir_mirror_emit_method_call(out_, rt_, new_recv, method, sym, {}, mc_args,

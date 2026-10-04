@@ -1255,6 +1255,10 @@ private:
     std::string shape_trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
                                          int64_t arity, const std::vector<TypeRef>* trait_args,
                                          const std::vector<TypeRef>* method_args);
+    std::string blanket_trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
+                                           int64_t arity, const std::vector<TypeRef>* trait_args,
+                                           const std::vector<TypeRef>* method_args);
+    static bool trait_names_(std::string_view identity, std::string_view trait);
     bool impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* pool,
                                 const std::vector<TypeRef>* trait_args);
     std::string declared_method_symbol(std::string_view owner, std::string_view pkg,

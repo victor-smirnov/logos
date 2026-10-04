@@ -463,5 +463,7 @@ guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_
 
 guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_moves_ref_mut_binding_admits admits
 
-# TOTAL 142
-# SYNC-HASH 6d5f52567274edb94584f24c6326ca9c
+raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
+
+# TOTAL 143
+# SYNC-HASH a556b77e6b58c01f3af0d024406c6825

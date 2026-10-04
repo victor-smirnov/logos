@@ -764,7 +764,11 @@ sym	logos_lang..logos.lang.clone.u32__clone__f__ref_u32
 sym	logos_lang..logos.lang.clone.u64__clone__f__ref_u64
 sym	logos_lang..logos.lang.clone.u8__clone__f__ref_u8
 sym	logos_lang..logos.lang.clone.usize__clone__f__ref_usize
+sym	logos_lang..logos.lang.cmp.$mut_ref_$T__eq__g__ref_refmut_T__ref_refmut_T__i32
+sym	logos_lang..logos.lang.cmp.$ref_$T__cmp__g__ref_ref_T__ref_ref_T__[u8]
 sym	logos_lang..logos.lang.cmp.$ref_$T__cmp__g__ref_ref_T__ref_ref_T__i32
+sym	logos_lang..logos.lang.cmp.$ref_$T__eq__g__ref_ref_T__ref_ref_T__[u8]
+sym	logos_lang..logos.lang.cmp.$ref_$T__eq__g__ref_ref_T__ref_ref_T__i32
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]__&[u8]
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__&[u8]__&[u8]__&[u8]__&[u8]
@@ -816,6 +820,8 @@ sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__i32
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__i64
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__i8
+sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__ref_i32
+sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__refmut_i32
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__u128
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__u16
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$G1$T__ref_Option$G1$T__u32
@@ -847,11 +853,17 @@ sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__i32
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__i64
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__i8
+sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__ref_i32
+sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__refmut_i32
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__u128
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__u16
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__u32
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__u64
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$G1$T__ref_Option$G1$T__u8
+sym	logos_lang..logos.lang.cmp.Option__ref_i32__eq__g__ref_Option$G1$T__ref_Option$G1$T
+sym	logos_lang..logos.lang.cmp.Option__ref_i32__ne__g__ref_Option$G1$T__ref_Option$G1$T
+sym	logos_lang..logos.lang.cmp.Option__refmut_i32__eq__g__ref_Option$G1$T__ref_Option$G1$T
+sym	logos_lang..logos.lang.cmp.Option__refmut_i32__ne__g__ref_Option$G1$T__ref_Option$G1$T
 sym	logos_lang..logos.lang.cmp.Option__u128__eq__g__ref_Option$G1$T__ref_Option$G1$T
 sym	logos_lang..logos.lang.cmp.Option__u128__ne__g__ref_Option$G1$T__ref_Option$G1$T
 sym	logos_lang..logos.lang.cmp.Option__u16__eq__g__ref_Option$G1$T__ref_Option$G1$T
@@ -13928,6 +13940,7 @@ sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_raw__f__refmut_JsonWrit
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_str__f__refmut_JsonWriter__slice_u8
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_u64__f__refmut_JsonWriter__u64
 sym	logos_mem..logos.mem.fmt.$mut_ref_$T__Debug__fmt__g__ref_refmut_T__refmut_Formatter__i32
+sym	logos_mem..logos.mem.fmt.$ref_$T__Debug__fmt__g__ref_ref_T__refmut_Formatter__[u8]
 sym	logos_mem..logos.mem.fmt.$ref_$T__Debug__fmt__g__ref_ref_T__refmut_Formatter__i32
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]
 sym	logos_mem..logos.mem.fmt.$tuple$variadic__fmt__g__ref_tup$1$A__refmut_Formatter__&[u8]__&[u8]__&[u8]

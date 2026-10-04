@@ -2115,9 +2115,14 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
         auto deref_op = lir_view::EDerefView{inner_ref}.operand();
         if (deref_op) {
             TypeRef dt = deref_op.type(pool_impl());
+            // A FAT reference (`&[T]` — a `&T` at `T = [u8]` after substitution —
+            // or `&dyn Tr`) reborrows the same way: the pair IS the reference,
+            // and the address of a temporary holding its data half is not.
             if (dt && (TypeRef(dt).kind() == LogosType::Kind::Ptr ||
                        TypeRef(dt).kind() == LogosType::Kind::MutRef ||
-                       TypeRef(dt).kind() == LogosType::Kind::Ref)) {
+                       TypeRef(dt).kind() == LogosType::Kind::Ref ||
+                       TypeRef(dt).kind() == LogosType::Kind::Slice ||
+                       TypeRef(dt).kind() == LogosType::Kind::TraitObject)) {
                 if (deref_op) {
                     TypeRef op_ty = dt;
                     auto thin = gen_expr(deref_op);
