@@ -145,7 +145,7 @@ impl WAny {
     // checker refuses and rustc refuses too (E0515). Same idiom as
     // `wstr_as_str` next door and the generated `val_at`.
     pub fn as_wstr<'a>(self: WAny) -> &'a str {
-        if !self.is_string() { return str_from_raw(0i64 as *const u8, 0i64); }
+        if !self.is_string() { return ""; }
         return unsafe { (&*(self.resolve() as *const WString)).as_str() };
     }
 }

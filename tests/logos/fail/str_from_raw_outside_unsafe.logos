@@ -1,0 +1,11 @@
+// `str_from_raw` is an `unsafe fn` (Rust's `slice::from_raw_parts` / `str::from_utf8_unchecked`): a call
+// outside `unsafe` is refused (rustc E0133). The intrinsic was named by its bare spelling, which the unsafe
+// check's index of declarations never held — the call passed unchecked. Since ADR 0030 S8 row 6 it is
+// named by its stdlib declaration's symbol (what the borrow checker reads its signature off), and the
+// declaration is `unsafe`. stdlib had two such calls (`WAny::as_wstr`, `Display for *const u8`), lforge two.
+package str_from_raw_outside_unsafe;
+fn main() -> i32 {
+    let b: [u8; 3] = [97u8, 98u8, 99u8];
+    let s: str = str_from_raw(&b[0] as *const u8, 3i64);
+    return s.len() as i32;
+}

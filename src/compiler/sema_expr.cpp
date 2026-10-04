@@ -5604,7 +5604,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error("str_from_raw requires exactly 2 arguments: (ptr: *const u8, len: i64)");
         auto str_t = make_slice_type(u8_t());
         lir::ECall ec;
-        ec.callee = "str_from_raw";
+        ec.callee = str_from_raw_symbol_();
         for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
         return builder().call_v(std::move(ec), str_t);
     }
@@ -8227,7 +8227,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         }
         auto slice_t = make_slice_type(ts[0], raw_mut);
         lir::ECall ec;
-        ec.callee = "str_from_raw";  // shared codegen — uniform fat-ptr layout
+        ec.callee = str_from_raw_symbol_();  // shared codegen — uniform fat-ptr layout
         for (auto& a : args) ec.args.push_back(std::move(a));
         return builder().call_v(std::move(ec), slice_t);
     }
@@ -14813,14 +14813,12 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     let_v.value  = std::move(call_new);
 
 
-    // Call Vec::push(&mut vec_var, elem) as a direct ECall.
-    // Emit with callee "Vec__push" and type_args=[elem_type]; mono_clone will
-    // rewrite to the struct-specialized name (e.g. Vec$G1$i32__push).
-    auto recv = builder().addr_of(vec_var, make_ptr(true, vec_t), BorrowOrigin::Desugar);
+    // `vec_var.push(elem)`: a method call whose callee the probe records — the
+    // instance is mono's to name, not `Vec$G1$<T>__push` composed (ADR 0030 S8).
+    auto recv = builder().addr_of(vec_var, make_ref(true, vec_t), BorrowOrigin::Desugar);
     std::vector<lir::LExprPtr> push_args;
-    push_args.push_back(std::move(recv));
     push_args.push_back(std::move(elem_expr));
-    auto push_call = builder().call("Vec__push", {val_type}, std::move(push_args), void_t());
+    auto push_call = method_call_named_(std::move(recv), "push", std::move(push_args), -1, void_t());
 
     lir::SExprStmt push_stmt;
     push_stmt.expr = std::move(push_call);
@@ -14917,14 +14915,18 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     let_m.is_mut = true;
     let_m.value  = std::move(call_new);
 
-    // HashMap::insert(&mut hm, key, val) — unsafe method, emitted as direct ECall
-    // "HashMap__insert" so mono_clone rewrites to HashMap$G1$..$G2$..__insert.
-    auto recv = builder().addr_of(hm_var, make_ptr(true, hm_t), BorrowOrigin::Desugar);
+    // `hm_var.insert(key, val)`: a method call whose callee the probe records.
+    auto recv = builder().addr_of(hm_var, make_ref(true, hm_t), BorrowOrigin::Desugar);
     std::vector<lir::LExprPtr> ins_args;
-    ins_args.push_back(std::move(recv));
     ins_args.push_back(std::move(key_expr_body));
     ins_args.push_back(std::move(val_expr_body));
-    auto ins_call = builder().call("HashMap__insert", {k_type, v_type}, std::move(ins_args), void_t());
+    // The comprehension's own insert: Logos's `HashMap::insert` is an `unsafe
+    // fn` (Rust's is safe), and the user wrote no call — the desugaring is
+    // the compiler's, so it carries its own unsafe context.
+    bool was_unsafe = inside_unsafe_;
+    inside_unsafe_ = true;
+    auto ins_call = method_call_named_(std::move(recv), "insert", std::move(ins_args), -1, void_t());
+    inside_unsafe_ = was_unsafe;
 
     lir::SExprStmt ins_stmt;
     ins_stmt.expr = std::move(ins_call);
@@ -18927,8 +18929,17 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                             }
                         }
                         track_args_moved(arg_exprs, &tm->param_types);
-                        return builder().call(hn + "__" + mname_str, {},
-                                              std::move(arg_exprs), ret_t);
+                        // The impl's item for that Self, by trait identity — not
+                        // `<Type>__<method>` composed (ADR 0030 S8 row 6).
+                        std::string tkey;
+                        const SemaFuncInfo* tfi = resolve_trait_item_(cname_str, expected_, mname_str, &tkey);
+                        std::string tsym = tfi && !tfi->symbol_name.empty() ? tfi->symbol_name : tkey;
+                        if (tsym.empty()) {
+                            error(std::format("internal: `{}::{}` at `{}` resolves to no impl item",
+                                              cname_str, mname_str, type_str(expected_)));
+                            return error_expr();
+                        }
+                        return builder().call(tsym, {}, std::move(arg_exprs), ret_t);
                     }
                 }
                 // Find type-params whose transitive bound-closure includes cname.

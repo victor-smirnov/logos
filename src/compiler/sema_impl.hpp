@@ -9473,6 +9473,16 @@ private:
                          size_t param_offset = 0);
     // ADR 0030 S8 row 6: the trait item a `T::m(..)` names — the trait by its
     // qualified identity (`trait` is a scoped spelling), Self, the trait's args.
+    // The intrinsic `str_from_raw` is named by its stdlib DECLARATION's symbol
+    // (`logos.lang.str.str_from_raw__f__…`), which the borrow checker reads its
+    // signature off and mlir recognises the intrinsic by; the bare name only
+    // when no declaration is in scope.
+    std::string str_from_raw_symbol_() {
+        for (auto* c : find_func_candidates("str_from_raw"))
+            if (c && c->param_types.size() == 2 && c->package == "logos.lang.str" && !c->symbol_name.empty())
+                return c->symbol_name;
+        return "str_from_raw";
+    }
     lir::TraitItemRef trait_item_ref_(const std::string& trait, const std::string& method, TypeRef self,
                                       std::vector<TypeRef> trait_args = {}) {
         // A caller that holds the qualified identity (`pkg::Trait`) passes it as is.

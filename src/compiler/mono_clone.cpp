@@ -1093,55 +1093,24 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 // for "call" / "call_mut" / "call_once" and pick the
                 // first that exists. Covers all three Fn-family
                 // bounds with O(1) lookups per call site.
-                std::string base_name{ct.struct_name()};
-                if (auto p = base_name.find("$G"); p != std::string::npos)
-                    base_name = base_name.substr(0, p);
-                std::string pkg{ct.pkg_name()};
-                std::string struct_name = concrete_struct_name(ct);
-                // Probe out_.functions for a matching <pkg.>?<Concrete>__<m>
-                // entry. The Fn-bound was Fn / FnMut / FnOnce; we don't
-                // know which without threading bound metadata, so try
-                // call / call_mut / call_once and pick the first that
-                // exists. Inputs to out_.functions are mangled with the
-                // concrete struct name (incl. type-args) for generic
-                // impls, hence the lookup uses `struct_name` not `base`.
-                std::string picked;
-                // Look at sema-collected impl methods (in_.functions
-                // for non-generic structs; struct_method_templates_ for
-                // generic structs). Probe with concrete struct name +
-                // base struct name to cover both shapes.
-                auto try_find_method = [&](const std::string& mname) -> bool {
-                    auto base_pfx = base_name + "__" + mname;
-                    auto concrete_pfx = struct_name + "__" + mname;
-                    for (auto& fn : in_.functions) {
-                        if (!fn) continue;
-                        std::string_view fname = fn.name();
-                        // Match `[pkg.]<base|concrete>__<m>[__f__sig|__g__sig]?`
-                        auto p = fname.rfind('.');
-                        std::string_view tail = (p == std::string::npos)
-                            ? std::string_view(fname)
-                            : std::string_view(fname).substr(p + 1);
-                        if (tail == base_pfx || tail == concrete_pfx) return true;
-                        if (tail.size() > base_pfx.size() + 5 &&
-                            tail.compare(0, base_pfx.size(), base_pfx) == 0 &&
-                            (tail.compare(base_pfx.size(), 5, "__f__") == 0 ||
-                             tail.compare(base_pfx.size(), 5, "__g__") == 0))
-                            return true;
-                        if (tail.size() > concrete_pfx.size() + 5 &&
-                            tail.compare(0, concrete_pfx.size(), concrete_pfx) == 0 &&
-                            (tail.compare(concrete_pfx.size(), 5, "__f__") == 0 ||
-                             tail.compare(concrete_pfx.size(), 5, "__g__") == 0))
-                            return true;
-                    }
-                    return false;
-                };
-                for (std::string_view m : {"call", "call_mut", "call_once"}) {
-                    if (try_find_method(std::string(m))) { picked = m; break; }
+                // The method of the struct's Fn-family impl, read off the impl
+                // by trait identity (ADR 0030 S8 row 6): `Fn::call`, else
+                // `FnMut::call_mut`, else `FnOnce::call_once` — never a
+                // `<Struct>__call` composed and probed for.
+                std::string callee_name;
+                for (auto [tr, m] : {std::pair<const char*, const char*>{"logos.lang.ops::Fn", "call"},
+                                     {"logos.lang.ops::FnMut", "call_mut"},
+                                     {"logos.lang.ops::FnOnce", "call_once"}}) {
+                    callee_name = trait_item_symbol_(tr, ct, m, int64_t(args.size()) + 1);
+                    if (!callee_name.empty()) break;
                 }
-                if (picked.empty()) picked = "call";  // fallback — matches Fn-bound default
-                std::string callee_name = pkg.empty()
-                    ? struct_name + "__" + picked
-                    : pkg + "." + struct_name + "__" + picked;
+                if (callee_name.empty()) {
+                    trait_item_misses_.push_back(std::format(
+                        "a call of `{}` through an Fn-family bound resolves to no Fn / FnMut / FnOnce impl "
+                        "(ADR 0030 S8 row 6)", type_str(ct)));
+                    mp_ = lir_mirror_emit_closure_call(out_, rt_, callee, args, v.call_mode());
+                    break;
+                }
                 // Method-style: prepend the receiver as the self arg.
                 std::vector<lir_view::ExprRef> call_args;
                 call_args.push_back(std::move(callee));

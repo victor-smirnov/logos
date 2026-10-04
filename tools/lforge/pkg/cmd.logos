@@ -677,7 +677,7 @@ fn basename_view(p: str) -> str {
         if (p[i] as i32) == 47 { start = i + 1 as i64; i = 0 as i64 - 1 as i64; }
         else { i = i - 1 as i64; }
     }
-    return str_from_raw((p.as_ptr() as i64 + start) as *const u8, n - start);
+    return unsafe { str_from_raw((p.as_ptr() as i64 + start) as *const u8, n - start) };
 }
 
 pub fn cmd_test(m: &Manifest, profile: str) -> i32 {
