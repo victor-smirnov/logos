@@ -2,6 +2,7 @@
 //
 // mlir_gen_expr.cpp — Expression code generation.
 
+#include "mangled_name.hpp"
 #include "mlir_gen_impl.hpp"
 #include "llvm_compat.hpp"
 
@@ -2637,20 +2638,27 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
     // all 192 stdlib packages are `logos.*` and no non-stdlib .logos in the
     // tree declares one. Mangled names carry `<module>.<package>$<base>`, e.g.
     // `logos_lang.logos.lang.str$str_from_raw__f__pcst_u8__i64`.
+    // The package an intrinsic's name is read under: the link name's `$`
+    // prefix, else a sema symbol's `pkg.` prefix (`logos.lang.str.str_from_raw
+    // __f__…`, the declaration sema names the call by). Only the stdlib owns
+    // intrinsic slots; a user package's same-named function is a function.
+    const size_t pkg_cut = [&]() -> size_t {
+        if (auto dollar = callee.rfind('$'); dollar != std::string::npos) return dollar;
+        auto [pkg, rest] = mname::split_pkg(callee);
+        return pkg.empty() ? std::string::npos : pkg.size();
+    }();
     const bool intrinsic_slot_owned_by_stdlib = [&]() -> bool {
-        auto dollar = callee.rfind('$');
-        if (dollar == std::string::npos) return true;
-        std::string_view pfx{callee.data(), dollar};
+        if (pkg_cut == std::string::npos) return true;
+        std::string_view pfx{callee.data(), pkg_cut};
         return pfx == "logos" || pfx.rfind("logos.", 0) == 0 ||
                pfx.find(".logos.") != std::string_view::npos;
     }();
     auto bare_intrinsic = [&]() -> std::string {
         // Empty is unmatchable — no intrinsic has the empty name.
         if (!intrinsic_slot_owned_by_stdlib) return std::string{};
-        auto dollar = callee.rfind('$');
-        std::string_view body = (dollar == std::string::npos)
+        std::string_view body = (pkg_cut == std::string::npos)
             ? std::string_view{callee}
-            : std::string_view{callee}.substr(dollar + 1);
+            : std::string_view{callee}.substr(pkg_cut + 1);
         if (auto p = body.find("__f__"); p != std::string::npos)
             return std::string(body.substr(0, p));
         if (auto p = body.find("__g__"); p != std::string::npos)
@@ -3089,12 +3097,11 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECallView v, TypeRef ret_logos_
         // equalled no emitted symbol, and each such producer is now named at
         // the source:
         //   - a concrete GENERIC instance's method (`SuccessorsIter$G2$…__next`)
-        //     — Mono::emitted_method_instance; sensors: the eight iterator
-        //     fixtures in task defid's L0.
-        //   - a NON-generic owner's trait method reached through a bound
-        //     (`A__f` for `inheritance_basic.A__f__f__ref_A`) —
-        //     Mono::declared_method_symbol; sensors: the ten `inheritance-*` /
-        //     `blanket-*-supertrait*` fixtures, also in that L0.
+        //     and a NON-generic owner's trait method reached through a bound
+        //     (`A__f` for `inheritance_basic.A__f__f__ref_A`) — since ADR 0030
+        //     S8 row 6 both are the impl's own method, read off the impl by
+        //     Mono::trait_item_symbol_ (the composers that answered them,
+        //     emitted_method_instance / declared_method_symbol, are deleted).
         // Measured with the arms disabled: L0 86/86, groups traits+iterators
         // 1007/1007, a 1101-test 10% sample of L1+L2 green. A miss now reaches
         // the R2 sink below and is reported, not bridged by luck.

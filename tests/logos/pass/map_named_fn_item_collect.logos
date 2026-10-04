@@ -1,0 +1,12 @@
+// Was squeue row map_named_fn_item_collect_crash (#515, tier 1); closed by ADR 0030 S8 row 6: `collect()` reaches
+// `<Vec<T> as FromIterator>::from_iter<I>` as the impl's method of the struct template with generics of its own,
+// instantiated at the struct's arguments followed by the method's (I = the `MapIter` over the fn ITEM `square`)
+// — the old static re-spelling named an instance nothing emitted. Exit 3, as rustc 1.98.1 --edition 2024.
+package map_named_fn_item_collect;
+use logos.mem.collections.vec;
+fn square(x: i64) -> i64 { return x * x; }
+fn main() -> i32 {
+    let v: Vec<i64> = vec![1i64, 2i64, 3i64];
+    let r: Vec<i64> = v.into_iter().map(square).collect();
+    return r.len() as i32;
+}

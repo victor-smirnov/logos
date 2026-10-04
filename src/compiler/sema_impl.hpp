@@ -9100,6 +9100,8 @@ private:
         std::string ctx, file; decltype(node_line_) line; int64_t span;
     };
     std::vector<LitDeferredBound> lit_deferred_bounds_;
+    // The same, for bounds whose argument holds an open inference variable.
+    std::vector<LitDeferredBound> infer_deferred_bounds_;
     // C-INF: inside generic-argument inference an unsuffixed literal fixes a
     // type parameter to a fresh integer variable instead of i32.
     bool unify_mint_lit_ = false;
@@ -9471,10 +9473,30 @@ private:
                          std::vector<TypeRef>& out_type_args,
                          const SemaSubst& context = {},
                          size_t param_offset = 0);
+    // ADR 0030 S8 row 6: the trait item a `T::m(..)` names — the trait by its
+    // qualified identity (`trait` is a scoped spelling), Self, the trait's args.
+    // The intrinsic `str_from_raw` is named by its stdlib DECLARATION's symbol
+    // (`logos.lang.str.str_from_raw__f__…`), which the borrow checker reads its
+    // signature off and mlir recognises the intrinsic by; the bare name only
+    // when no declaration is in scope.
+    std::string str_from_raw_symbol_() {
+        for (auto* c : find_func_candidates("str_from_raw"))
+            if (c && c->param_types.size() == 2 && c->package == "logos.lang.str" && !c->symbol_name.empty())
+                return c->symbol_name;
+        return "str_from_raw";
+    }
+    lir::TraitItemRef trait_item_ref_(const std::string& trait, const std::string& method, TypeRef self,
+                                      std::vector<TypeRef> trait_args = {}) {
+        // A caller that holds the qualified identity (`pkg::Trait`) passes it as is.
+        std::string id = trait.find("::") != std::string::npos ? trait
+                                                               : impl_key_trait(canonical_trait_name(trait));
+        return lir::TraitItemRef{std::move(id), method, self, std::move(trait_args)};
+    }
     lir::LExprPtr finish_generic_call(std::string_view callee_sv,
                                       const SemaFuncInfo& fi,
                                       std::vector<TypeRef> type_args,
-                                      std::vector<lir::LExprPtr> arg_exprs);
+                                      std::vector<lir::LExprPtr> arg_exprs,
+                                      const lir::TraitItemRef* trait_item = nullptr);
     lir::LExprPtr lower_generic_call(writ::TinyMapView node);
     // The leading magic-builtin / type-trait intrinsic dispatch of
     // lower_generic_call (is_same, type_of, has_trait, typelist_*, tuple_*, …).

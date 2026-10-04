@@ -5604,7 +5604,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             error("str_from_raw requires exactly 2 arguments: (ptr: *const u8, len: i64)");
         auto str_t = make_slice_type(u8_t());
         lir::ECall ec;
-        ec.callee = "str_from_raw";
+        ec.callee = str_from_raw_symbol_();
         for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
         return builder().call_v(std::move(ec), str_t);
     }
@@ -7075,7 +7075,8 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
 lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                       const SemaFuncInfo& fi,
                                       std::vector<TypeRef> type_args,
-                                      std::vector<lir::LExprPtr> arg_exprs) {
+                                      std::vector<lir::LExprPtr> arg_exprs,
+                                      const lir::TraitItemRef* trait_item) {
     std::string callee{callee_sv};
     // Type parameters the caller WROTE (turbofish, not `_`): their regions are
     // the written ones, not fresh (see the argument check below).
@@ -7179,10 +7180,14 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                             subst_type_sema(fi.type_params[i].default_type, bindings);
                         it = bindings.find(fi.type_params[i].name);
                     } else {
-                        error(std::format("call to '{}': could not infer type arg '{}' "
-                              "from arguments — supply via turbofish",
-                              callee_diag, fi.type_params[i].name));
-                        return error_expr();
+                        // Not fixed by the arguments or a hint here: an inference
+                        // variable a later use solves (`"42".parse().unwrap()`
+                        // under `let x: i32`); unsolved at the end of the
+                        // function it is E0282, as rustc.
+                        bindings[fi.type_params[i].name] = mint_infer_var_(std::format(
+                            "the type argument `{}` of `{}` — supply it via turbofish",
+                            fi.type_params[i].name, callee_diag));
+                        it = bindings.find(fi.type_params[i].name);
                     }
                 }
                 if (i < type_args.size()) type_args[i] = it->second;  // fill hole
@@ -7502,7 +7507,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     // Without this, e.g. `arc_new::<S>(s)` left `s`'s scope-exit Drop active,
     // freeing storage that arc_new now owns.
     track_args_moved(arg_exprs, &fi.param_types);
-    return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret);
+    return builder().call(callee, std::move(type_args), std::move(arg_exprs), ret, trait_item);
 }
 
 lir::LExprPtr SemaChecker::lower_intrinsic_has_trait_of(TinyMapView node) {
@@ -8226,7 +8231,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         }
         auto slice_t = make_slice_type(ts[0], raw_mut);
         lir::ECall ec;
-        ec.callee = "str_from_raw";  // shared codegen — uniform fat-ptr layout
+        ec.callee = str_from_raw_symbol_();  // shared codegen — uniform fat-ptr layout
         for (auto& a : args) ec.args.push_back(std::move(a));
         return builder().call_v(std::move(ec), slice_t);
     }
@@ -10995,6 +11000,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // name or it wrongly dispatches to the inherent. Mono falls back
                 // to the plain name when no qualified symbol exists, so tagging
                 // the single-provider case is harmless.
+                // The trait whose item this is, by identity — what the borrow
+                // checker reads the declared signature off (ADR 0030 S8 row 6).
+                mc.trait_identity = impl_key_trait(canonical_trait_name(chosen_trait));
                 if (provider_traits >= 1) {
                     mc.tag_trait = chosen_trait;
                     // G156-1: when the bound carries concrete trait type-args
@@ -11040,6 +11048,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 dc.type_args    = {tgt};
                 dc.vtable_index = -1;
                 dc.tag_trait    = bound.trait_name;
+                dc.trait_identity = impl_key_trait(canonical_trait_name(bound.trait_name));
                 recv = builder().method_call_v(std::move(dc),
                                                make_ref(is_mut_deref, tgt));
                 deref_bound_fallthrough = true;
@@ -11486,8 +11495,15 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                             if (!seed.count(rk)) seed[rk] = rv;
                     }
                     if (!infer_type_args(*fi_ptr, arg_exprs, m_type_args, seed, 1)) {
-                        error(std::format("could not infer type arguments for generic method '{}'",
-                                          mangled_prim));
+                        // Not fixed by the arguments: inference variables a later
+                        // use solves (`"42".parse().unwrap()` under `let x: i32`);
+                        // unsolved at the end of the function, E0282.
+                        m_type_args.resize(fi_ptr->type_params.size());
+                        for (size_t k = 0; k < m_type_args.size(); ++k)
+                            if (!m_type_args[k])
+                                m_type_args[k] = mint_infer_var_(std::format(
+                                    "the type argument `{}` of method `{}` — supply it via turbofish",
+                                    fi_ptr->type_params[k].name, std::string(method_name)));
                     }
                 }
                 // Auto-ref receiver if method expects &Self / &mut Self.
@@ -12023,11 +12039,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
     // Method type args inferred above; verify and bounds-check here.
     if (!fi.type_params.empty()) {
-        bool all_bound = m_type_args.size() == fi.type_params.size();
-        for (auto ta : m_type_args)
-            if (!ta) { all_bound = false; break; }
-        if (!all_bound)
-            error(std::format("could not infer type arguments for generic method '{}'", mangled));
+        // A type argument nothing here fixes: an inference variable a later use
+        // solves; unsolved at the end of the function, E0282.
+        m_type_args.resize(fi.type_params.size());
+        for (size_t k = 0; k < m_type_args.size(); ++k)
+            if (!m_type_args[k])
+                m_type_args[k] = mint_infer_var_(std::format(
+                    "the type argument `{}` of method `{}` — supply it via turbofish",
+                    fi.type_params[k].name, mangled));
         check_type_bounds(mangled, fi.type_params, m_type_args);
 
         // Route generic trait-method call through finish_generic_call so mono
@@ -12423,7 +12442,8 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
     if (k == K::TypeVar) {
         std::string base = std::string(TypeRef(ftype).type_var_name()) + "__from_wany";
         std::vector<lir::LExprPtr> a; a.push_back(std::move(anyval));
-        return builder().call(base, {}, std::move(a), ftype);
+        auto ti = trait_item_ref_("logos.lang.writ.wmap::WritField", "from_wany", ftype);
+        return builder().call(base, {}, std::move(a), ftype, &ti);
     }
     // A `WAny`-typed field is dynamic: read the stored value verbatim (identity).
     if (k == K::Enum && TypeRef(ftype).enum_name() == "WAny")
@@ -14807,14 +14827,12 @@ lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
     let_v.value  = std::move(call_new);
 
 
-    // Call Vec::push(&mut vec_var, elem) as a direct ECall.
-    // Emit with callee "Vec__push" and type_args=[elem_type]; mono_clone will
-    // rewrite to the struct-specialized name (e.g. Vec$G1$i32__push).
-    auto recv = builder().addr_of(vec_var, make_ptr(true, vec_t), BorrowOrigin::Desugar);
+    // `vec_var.push(elem)`: a method call whose callee the probe records — the
+    // instance is mono's to name, not `Vec$G1$<T>__push` composed (ADR 0030 S8).
+    auto recv = builder().addr_of(vec_var, make_ref(true, vec_t), BorrowOrigin::Desugar);
     std::vector<lir::LExprPtr> push_args;
-    push_args.push_back(std::move(recv));
     push_args.push_back(std::move(elem_expr));
-    auto push_call = builder().call("Vec__push", {val_type}, std::move(push_args), void_t());
+    auto push_call = method_call_named_(std::move(recv), "push", std::move(push_args), -1, void_t());
 
     lir::SExprStmt push_stmt;
     push_stmt.expr = std::move(push_call);
@@ -14911,14 +14929,18 @@ lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
     let_m.is_mut = true;
     let_m.value  = std::move(call_new);
 
-    // HashMap::insert(&mut hm, key, val) — unsafe method, emitted as direct ECall
-    // "HashMap__insert" so mono_clone rewrites to HashMap$G1$..$G2$..__insert.
-    auto recv = builder().addr_of(hm_var, make_ptr(true, hm_t), BorrowOrigin::Desugar);
+    // `hm_var.insert(key, val)`: a method call whose callee the probe records.
+    auto recv = builder().addr_of(hm_var, make_ref(true, hm_t), BorrowOrigin::Desugar);
     std::vector<lir::LExprPtr> ins_args;
-    ins_args.push_back(std::move(recv));
     ins_args.push_back(std::move(key_expr_body));
     ins_args.push_back(std::move(val_expr_body));
-    auto ins_call = builder().call("HashMap__insert", {k_type, v_type}, std::move(ins_args), void_t());
+    // The comprehension's own insert: Logos's `HashMap::insert` is an `unsafe
+    // fn` (Rust's is safe), and the user wrote no call — the desugaring is
+    // the compiler's, so it carries its own unsafe context.
+    bool was_unsafe = inside_unsafe_;
+    inside_unsafe_ = true;
+    auto ins_call = method_call_named_(std::move(recv), "insert", std::move(ins_args), -1, void_t());
+    inside_unsafe_ = was_unsafe;
 
     lir::SExprStmt ins_stmt;
     ins_stmt.expr = std::move(ins_call);
@@ -15459,7 +15481,10 @@ lir::LExprPtr SemaChecker::try_lower_generic_assoc_const(const std::string& cnam
         for (auto& ac : tit->assoc_consts) {
             if (ac.name != mname) continue;
             TypeRef ret_t = ac.type ? ac.type : prim(LogosType::Kind::I64);
-            return builder().call(cname + "__kassoc_" + mname, {}, {}, ret_t);
+            auto ti = trait_item_ref_(tn, "kassoc_" + mname,
+                                      current_type_params_.count(cname) ? current_type_params_[cname]
+                                                                        : make_typevar(cname));
+            return builder().call(cname + "__kassoc_" + mname, {}, {}, ret_t, &ti);
         }
     }
     return nullptr;
@@ -18205,6 +18230,7 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
     // (first param isn't `Self`).
     const SemaTraitMethodInfo* m = nullptr;
     bool prov_trait_has_targs = false;
+    std::string prov_trait;
     logos::compiler::StrSet seen;
     std::function<void(const std::string&)> walk = [&](const std::string& tn) {
         if (m || !seen.insert(tn).second) return;
@@ -18219,6 +18245,7 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
             if (is_static) {
                 m = &mm;
                 prov_trait_has_targs = !it->type_params.empty();
+                prov_trait = tn;
                 return;
             }
         }
@@ -18255,8 +18282,9 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
     // consumer has to recover them by cutting at a `__`.
     synth.owner_struct = cname;
     synth.is_method    = true;
+    auto ti = trait_item_ref_(prov_trait, mname, self_subst["Self"]);
     return finish_generic_call(cname + "__" + mname, synth,
-                               std::move(explicit_targs), std::move(arg_exprs));
+                               std::move(explicit_targs), std::move(arg_exprs), &ti);
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
@@ -18822,9 +18850,15 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         error(std::format("method call '{}::{}': expected {} args, got {}",
                               cname_str, mname_str, m.param_types.size(), arg_exprs.size()));
                     track_args_moved(arg_exprs, &m.param_types);
+                    // The trait's arguments: the bound's own, when the bound IS
+                    // the providing trait (an inherited supertrait's are unknown).
+                    std::vector<TypeRef> ti_args;
+                    for (auto& b : bit->second)
+                        if (b.trait_name == tn) { ti_args = b.type_args; break; }
+                    auto ti = trait_item_ref_(tn, mname_str, self_subst["Self"], std::move(ti_args));
                     return builder().call(mfi && !mfi->symbol_name.empty()
                                 ? mfi->symbol_name
-                                : cname_str + "__" + mname_str, {}, std::move(arg_exprs), ret_t);
+                                : cname_str + "__" + mname_str, {}, std::move(arg_exprs), ret_t, &ti);
                 }
             }
         }
@@ -18909,8 +18943,17 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                             }
                         }
                         track_args_moved(arg_exprs, &tm->param_types);
-                        return builder().call(hn + "__" + mname_str, {},
-                                              std::move(arg_exprs), ret_t);
+                        // The impl's item for that Self, by trait identity — not
+                        // `<Type>__<method>` composed (ADR 0030 S8 row 6).
+                        std::string tkey;
+                        const SemaFuncInfo* tfi = resolve_trait_item_(cname_str, expected_, mname_str, &tkey);
+                        std::string tsym = tfi && !tfi->symbol_name.empty() ? tfi->symbol_name : tkey;
+                        if (tsym.empty()) {
+                            error(std::format("internal: `{}::{}` at `{}` resolves to no impl item",
+                                              cname_str, mname_str, type_str(expected_)));
+                            return error_expr();
+                        }
+                        return builder().call(tsym, {}, std::move(arg_exprs), ret_t);
                     }
                 }
                 // Find type-params whose transitive bound-closure includes cname.
@@ -18940,8 +18983,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         error(std::format("method call '{}::{}': expected {} args, got {}",
                               cname_str, mname_str, tm->param_types.size(), arg_exprs.size()));
                     track_args_moved(arg_exprs, &tm->param_types);
+                    auto ti = trait_item_ref_(cname_str, mname_str, self_subst["Self"]);
                     return builder().call(tp + "__" + mname_str, {},
-                                          std::move(arg_exprs), ret_t);
+                                          std::move(arg_exprs), ret_t, &ti);
                 }
             }
         }
@@ -27993,6 +28037,21 @@ void SemaChecker::infer_close_fn_(const std::string& fn_name) {
     if (!sols.empty()) {
         auto& dst = cur_prog_->infer_substs[fn_name];
         for (auto& p : sols) dst.push_back(std::move(p));
+    }
+    // The bounds that waited for these variables, at their call sites, on the
+    // solved types (an unsolved one was E0282 above).
+    {
+        auto deferred = std::move(infer_deferred_bounds_);
+        infer_deferred_bounds_.clear();
+        const auto sctx = ctx_; const auto sfile = file_; const auto sline = node_line_; const auto sspan = node_span_;
+        for (auto& d : deferred) {
+            bool open = false;
+            for (auto& a : d.args) { a = lit_zonk_(zonk_(a)); open = open || has_infer_var_(a); }
+            if (open) continue;
+            ctx_ = d.ctx; file_ = d.file; node_line_ = d.line; node_span_ = d.span;
+            check_type_bounds(d.target, d.tps, d.args);
+        }
+        ctx_ = sctx; file_ = sfile; node_line_ = sline; node_span_ = sspan;
     }
     infer_solved_.clear();
     infer_origin_.clear();

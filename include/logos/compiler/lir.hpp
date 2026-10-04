@@ -233,6 +233,17 @@ struct EEnumLitData {
     std::vector<LExprPtr> payload;  // payload values
 };
 
+// ADR 0030 S8 row 6: a call of a trait item through a type (`T::m(..)`,
+// `Trait::m(..)` with Self bound to `T`) — the trait (its qualified identity),
+// the item, Self and the trait's arguments. mono answers it from the impl for
+// Self once Self is concrete; the callee spelling is not the identity.
+struct TraitItemRef {
+    std::string          trait;
+    std::string          method;
+    TypeRef              self = nullptr;
+    std::vector<TypeRef> trait_args;
+};
+
 struct ECall      {
     std::string                   callee;
     std::vector<TypeRef> type_args;  // empty for non-generic calls
@@ -254,6 +265,9 @@ struct EMethodCall {
     // the @__logos_tag_dispatch_<tag_system>_<trait_name>_<method> table.
     std::string                   tag_system{};       // e.g. "DataTypeTagSystem" (empty = not tagged dispatch)
     std::string                   tag_trait{};        // e.g. "Stringify"
+    // ADR 0030 S8 row 6: the qualified identity (`pkg::Trait`) of the trait
+    // whose item a bound-dispatched call names (`x.m()` with `x: T`, `T: Tr`).
+    std::string                   trait_identity{};
 };
 
 struct EBinOp {
@@ -1048,6 +1062,11 @@ struct LProgram {
     // ever is, and — unlike a declaration — it can't be satisfied by a STALE
     // same-named symbol from a prior build's archive on the JIT search path.
     std::set<std::string> poisoned_fns;
+    // ADR 0030 S8 row 6: trait items mono found no impl for (a `T::m(..)` at a
+    // concrete Self). Left here — not reported — when the driver will run
+    // another mono round (MonoOpts::defer_trait_item_misses); the driver reports
+    // them when the round is the last.
+    std::vector<std::string> trait_item_misses;
 
     bool ok()                         const noexcept { return diags.ok(); }
     void print_diags(std::FILE* fp = stderr) const noexcept { diags.print(fp); }

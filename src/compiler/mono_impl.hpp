@@ -702,6 +702,15 @@ private:
     // so a stale same-named symbol in a prior build's archive can't satisfy
     // it — but loud if ever executed). Later passes (post-emission re-sema)
     // resolve the name and produce the real bodies.
+    // MonoOpts::metaprog_round: a trait item with no impl yet is a deferred
+    // emission here (the scanning fn becomes a trap stub), an ICE otherwise.
+    bool metaprog_round_ = false;
+    bool defer_trait_item_misses_ = false;
+    std::vector<std::string> trait_item_misses_;
+public:
+    void set_metaprog_round(bool b) noexcept { metaprog_round_ = b; }
+    void set_defer_trait_item_misses(bool b) noexcept { defer_trait_item_misses_ = b; }
+private:
     std::string scanning_fn_link_;   // link name of the fn scan_fn is walking
     StrSet      poisoned_fns_;       // link names to demote to trap stubs
     bool type_contains_error(TypeRef t, int depth = 0) const;
@@ -1234,7 +1243,6 @@ private:
                                       std::string_view tmpl_name);
     // #438: the emitted instance's name for `method` on a concrete generic
     // receiver (see the definition). Empty when there is none.
-    std::string emitted_method_instance(TypeRef recv, std::string_view method);
     // #438: the DECLARED non-generic method `<owner>__<method>__f__<sig>` of a
     // concrete owner (see the definition). Empty when there is not exactly one.
     // `arity` (receiver included), when known, filters the candidates first.
@@ -1248,22 +1256,25 @@ private:
     // (`Iterator<i64>`): an impl whose own trait arguments do not unify with
     // them is not a candidate. `method_args` are the method's own (`hash<H>`'s
     // H): they fill the template's parameters the impl does not bind, in order.
+    // `param_arg_types` (a static call's arguments, aligned to the template's
+    // parameters from the first) infer a method generic the call does not spell
+    // (`Sum::sum<I>(iter)`: I from the iterator argument).
     std::string trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
                                    int64_t arity, const std::vector<TypeRef>* arg_types = nullptr,
                                    const std::vector<TypeRef>* trait_args = nullptr,
-                                   const std::vector<TypeRef>* method_args = nullptr);
+                                   const std::vector<TypeRef>* method_args = nullptr,
+                                   const std::vector<TypeRef>* param_arg_types = nullptr);
     std::string shape_trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
                                          int64_t arity, const std::vector<TypeRef>* trait_args,
-                                         const std::vector<TypeRef>* method_args);
+                                         const std::vector<TypeRef>* method_args,
+                                         const std::vector<TypeRef>* param_arg_types = nullptr);
     std::string blanket_trait_item_symbol_(std::string_view trait, TypeRef self, std::string_view method,
                                            int64_t arity, const std::vector<TypeRef>* trait_args,
-                                           const std::vector<TypeRef>* method_args);
+                                           const std::vector<TypeRef>* method_args,
+                                           const std::vector<TypeRef>* param_arg_types = nullptr);
     static bool trait_names_(std::string_view identity, std::string_view trait);
     bool impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* pool,
                                 const std::vector<TypeRef>* trait_args, SubstMap* bindings = nullptr);
-    std::string declared_method_symbol(std::string_view owner, std::string_view pkg,
-                                       std::string_view method, int64_t arity = -1,
-                                       const std::vector<TypeRef>* arg_types = nullptr);
     // #438: `eq` for a concrete element type, matched by SIGNATURE (see the
     // definition). Empty when no implementation exists — the caller reports it.
     std::string eq_instance_for(TypeRef et, TypeRef et_ref);

@@ -1,0 +1,16 @@
+// A GENERIC impl answers a bound only where its own bounds hold at the concrete type (rustc E0277):
+// `impl<T: Tag, const N: usize> Tag for [T; N]` makes `[E; 2]: Tag` only when `E: Tag`. The array (and
+// slice, reference) arms of the bound check used to accept any such type and leave the element's bound
+// to monomorphization, which no longer re-spells a miss (ADR 0030 S8 row 6). Twin of the `&T` case,
+// tests/logos/fail/ref_typearg_eq_pointee_without_eq.
+package generic_impl_own_bound_unmet_array;
+trait Tag { fn tag(&self) -> i64; }
+impl Tag for i64 { fn tag(&self) -> i64 { *self } }
+impl<T: Tag, const N: usize> Tag for [T; N] { fn tag(&self) -> i64 { self[0].tag() } }
+struct E { v: i64 }
+fn get<T: Tag>(t: &T) -> i64 { t.tag() }
+fn main() -> i32 {
+    let ok: [i64; 2] = [1, 2];
+    let bad: [E; 2] = [E { v: 1 }, E { v: 2 }];
+    return (get(&ok) + get(&bad)) as i32;
+}

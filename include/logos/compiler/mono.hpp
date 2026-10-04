@@ -27,6 +27,15 @@ struct StdlibExports;
 // is processed.
 struct MonoOpts {
     int    max_instantiation_depth = 64;
+    // A metaprogram's own program (dispatch iterations, metacall thunks): types
+    // a metaprogram will EMIT may still be missing, so a trait item with no
+    // impl yet is a deferred emission (a trap body), not a malfunction. The
+    // final program's mono leaves it false: there such a miss is an ICE.
+    bool   metaprog_round = false;
+    // The caller may run another mono round that adds impls (the metaclass
+    // factory drain): an unresolved trait item is then handed back on
+    // LProgram::trait_item_misses instead of reported.
+    bool   defer_trait_item_misses = false;
     StrSet entry_points;   // empty → all non-generic free fns are roots
     // M6.2: when non-empty, mono extends `prev_out` instead of starting
     // from a fresh LProgram. Used by run_metaprog_dispatch so iter N+1's

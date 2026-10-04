@@ -9695,9 +9695,9 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
         const char* root_helper =
             (scrut_inner && TypeRef(scrut_inner).struct_name() == "Rc")
             ? "writ_pat_root_rc" : "writ_pat_root";
+        const SemaFuncInfo* root_fi = nullptr;
         {
             auto root_cands = find_func_candidates(root_helper);
-            const SemaFuncInfo* root_fi = nullptr;
             for (auto* c : root_cands) if (c->param_types.size() == 1) { root_fi = c; break; }
             anyval_t = root_fi ? root_fi->ret_type : make_synth_datatype("AnyVal");
             if (!root_fi)
@@ -9709,7 +9709,10 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
             ra.push_back(builder().var_ref(view_var, scrut_type));
             lir::SLet sl;
             sl.name = root_var; sl.type = anyval_t; sl.is_mut = false;
-            sl.value = builder().call(root_helper, {}, std::move(ra), anyval_t);
+            // The helper's declared symbol, not its bare name.
+            sl.value = builder().call(root_fi && !root_fi->symbol_name.empty() ? root_fi->symbol_name
+                                                                                : std::string(root_helper),
+                                      {}, std::move(ra), anyval_t);
             mc.hoists.push_back(make_stmt_emit(node_line_, std::move(sl)));
         }
         base_var = "__hmatch_base_" + std::to_string(tmp_var_count_++);

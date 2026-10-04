@@ -312,7 +312,13 @@
 #SCAN mlir_gen_stmt.cpp 2 190f27aa
 # 2026-09-27, ADR 0030 L0 slice 2a: RETIRED — its one bare-name test (UnsafeCell freezability) is a lang identity now.
 #SCAN module_loader.cpp 1 dfda2a6a
-#SCAN mono_clone.cpp 104 410af9da
+# 2026-10-03, ADR 0030 S8 row 6: mono_clone.cpp 104 -> 102, roster 410af9da -> ba97e40b — mono's old
+# TypeVar retarget is deleted (a bound's method is the impl's, read by trait_item_symbol_; a miss is an
+# ICE): its `cname == "&[u8]"` -> `str` rewrite and its `cname == "$slice$T"` instance binding left with it.
+# 2026-10-04, ADR 0030 S8 row 6: mono_clone.cpp 102 -> 101, roster ba97e40b -> 5e58a46b — mono's static
+# re-spelling of `T__m` is deleted (a `T::m(..)` carries its trait item; the impl answers): its
+# `cname == "&[u8]"` -> `str` rewrite left with it.
+#SCAN mono_clone.cpp 101 5e58a46b
 # 2026-09-27, ADR 0030 L0 slice 2a: UnsafeCell / PhantomPinned / Box / Rc / Arc / the atomic Ordering
 # are asked by lang identity (type_is_lang_item[_exact]); the bare-name tests leave: mono_impl.hpp 15 -> 14
 # (is_stdlib_box).

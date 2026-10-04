@@ -708,7 +708,7 @@ impl Display for *const u8 {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         let p: *const u8 = *self;
         let n: i64 = str_len(p);
-        let s: str = str_from_raw(p, n);
+        let s: str = unsafe { str_from_raw(p, n) };
         return f.pad(s, "");
     }
 }

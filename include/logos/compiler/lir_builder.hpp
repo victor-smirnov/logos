@@ -75,7 +75,8 @@ public:
     lir_view::ExprRef call(std::string callee,
                        std::vector<TypeRef> type_args,
                        std::vector<lir_view::ExprRef> args,
-                       TypeRef ty);
+                       TypeRef ty,
+                       const lir::TraitItemRef* trait_item = nullptr);
     lir_view::ExprRef block_expr(lir_view::BlockRef block,
                              lir_view::ExprRef result, TypeRef ty);
     lir_view::ExprRef struct_lit(std::string name,

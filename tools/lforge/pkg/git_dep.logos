@@ -38,7 +38,7 @@ pub fn find_byte(s: str, b: u8) -> i64 {
 pub fn slice_from_off(s: str, off: i64) -> str {
     let p: *const u8 = (s.as_ptr() as i64 + off) as *const u8;
     let n: i64 = s.len() - off;
-    return str_from_raw(p, n);
+    return unsafe { str_from_raw(p, n) };
 }
 
 pub fn ends_with_dot_git(s: str) -> bool {

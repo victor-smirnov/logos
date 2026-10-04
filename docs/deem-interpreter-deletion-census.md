@@ -6804,9 +6804,14 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11952 -> 11953 (+1), NOIMPORTED 7393 -> 7394 (+1), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-03: s8_trait_item_str_ref_self (ADR 0030 S8 row 6: Self = &str) joins the nonglob half.
 #                ALL 11953 -> 11954 (+1), NOIMPORTED 7394 -> 7395 (+1), TIERCOMMIT 205 -> 206 (+1) — (main, merged into `deem`) 2026-10-03: squeue row raw_ptr_impl_method_refused (#727, ADR 0030 S8 row 6) joins the tier_commit set.
 #                ALL 11954 -> 11955 (+1), NOIMPORTED 7395 -> 7396 (+1), TIERCOMMIT 206 -> 206 (+0) — 2026-10-04, branch `deem`: +1 pass wql_incr_epoch_atomic_e2e (the insert-only `<q>_epoch` is one outcome).
-REGISTRY-ALL         11955
-REGISTRY-NOIMPORTED  7396
-REGISTRY-TIERCOMMIT  206
+#                ALL 11955 -> 11956 (+1), NOIMPORTED 7396 -> 7397 (+1), TIERCOMMIT 206 -> 206 (+0) — (main, merged into `deem`) 2026-10-03: generic_bound_assoc_fn_takes_trait_impl (squeue #510 closed by ADR 0030 S8 row 6, tier_commit -1) joins the nonglob half; squeue row concrete_tuple_impl_bound_refused (#728) opens (tier_commit +1).
+#                ALL 11956 -> 11956 (+0), NOIMPORTED 7397 -> 7397 (+0), TIERCOMMIT 206 -> 205 (-1) — (main, merged into `deem`) 2026-10-04: map_named_fn_item_collect (squeue #515 closed by ADR 0030 S8 row 6, tier_commit -1) joins the nonglob half.
+#                ALL 11956 -> 11957 (+1), NOIMPORTED 7397 -> 7398 (+1), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-04: fail/generic_impl_own_bound_unmet_array (ADR 0030 S8 row 6: a generic impl answers a bound only where its own bounds hold).
+#                ALL 11957 -> 11958 (+1), NOIMPORTED 7398 -> 7399 (+1), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-04: fail/str_from_raw_outside_unsafe (ADR 0030 S8 row 6: the intrinsic is named by its unsafe declaration).
+#                ALL 11958 -> 11961 (+3), NOIMPORTED 7399 -> 7402 (+3), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-04: s8_parse_target_through_unwrap (+ fail/parse_target_unannotated_e0282, fail/parse_target_solution_not_fromstr; ADR 0030 S8 row 6: method generics as inference variables) joins the nonglob half.
+REGISTRY-ALL         11961
+REGISTRY-NOIMPORTED  7402
+REGISTRY-TIERCOMMIT  205
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

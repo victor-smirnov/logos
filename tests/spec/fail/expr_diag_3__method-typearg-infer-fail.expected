@@ -1,1 +1,1 @@
-could not infer type arguments
+type annotations needed: cannot infer the type argument `U` of method
