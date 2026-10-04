@@ -1856,8 +1856,13 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
         idx.trait_by_id.emplace(t.pkg().empty() ? nm : std::string(t.pkg()) + "::" + nm, t);
         idx.trait_by_name[nm].push_back(t);
     }
-    for (auto& f : prog.method_templates)
+    for (auto& f : prog.method_templates) {
         if (f && !f.method_base().empty()) idx.template_by_base[std::string(f.method_base())].push_back(f);
+        // A call's recorded symbol may name the template itself (a partial
+        // specialization's method, `PkdB$G1$u64__tag__g__ref_PkdB$G1$T`): it is
+        // found by that name, never by composing `<Type>__<method>__`.
+        if (f) idx.by_name.emplace(std::string(f.name()), f);
+    }
     for (auto& sd : prog.structs) sd.each_method([&](lir_view::FunctionView m) { add(m); });
     // Stage E: impl-block methods were never stored on LImplBlock (always empty);
     // trait-impl methods (Index, Deref, …) live on prog.functions / struct methods.

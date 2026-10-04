@@ -336,31 +336,13 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             std::string impl_trait(impl.trait_name());
             std::string impl_target(impl.target_type());
             auto trait_args = impl.trait_type_args(impl_pool);
-            std::string targ_sfx;
-            if (!trait_args.empty()) {
-                targ_sfx = "$G" + std::to_string(trait_args.size());
-                for (auto a : trait_args) {
-                    targ_sfx += "$";
-                    std::string ts = a ? type_str(a) : std::string("?");
-                    for (char& c : ts)
-                        if (!(std::isalnum((unsigned char)c) || c == '_')) c = '_';
-                    targ_sfx += ts;
-                }
-            }
+            std::string targ_sfx = trait_targ_suffix_(trait_args);
             impl.each_assoc_type([&](lir_view::AssocEntryView ae) {
                 std::string aname(ae.name());
                 TypeRef atype = ae.type(impl_pool);
                 assoc_impls_[impl_trait + targ_sfx + "::" + impl_target + "::" + aname] = atype;
                 if (!targ_sfx.empty())
                     assoc_impls_.emplace(impl_trait + "::" + impl_target + "::" + aname, atype);
-                if (TypeRef pat = impl.target_typeref(impl_pool);
-                    pat && (TypeRef(pat).kind() == LogosType::Kind::Struct ||
-                            TypeRef(pat).kind() == LogosType::Kind::ZonedStruct) &&
-                    !TypeRef(pat).type_args().empty())
-                    // KEY-IDENTITY: a BUCKET, not an identity — the entry stores the impl's own target pattern
-                    // (`pat`, carrying its package) and the reader keeps only a candidate unify_impl_target accepts.
-                    generic_assoc_impls_[impl_trait + "::" + std::string(TypeRef(pat).struct_name()) +
-                                         "::" + aname].push_back({pat, trait_args, atype});
             });
             // ⚠ assoc_impls_ is keyed by the BARE `impl_trait` in BOTH inserts
             // above — it never consults impl.canonical_trait(), so two traits
@@ -734,10 +716,16 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                 const std::vector<std::pair<std::string, TypeRef>>& eqs) {
             for (auto& [aname, expected] : eqs) {
                 if (!expected) continue;
-                std::string key = trait + "::" + concrete + "::" + aname;
-                auto it = assoc_impls_.find(key);
+                // The impl of `trait` for the concrete type, by identity (ADR
+                // 0030 S8 row 6); the spelled key only for a candidate whose
+                // TypeRef cannot be built.
                 TypeRef found = nullptr;
-                if (it != assoc_impls_.end()) {
+                if (TypeRef ct = build_concrete_typeref(concrete))
+                    found = trait_item_assoc_type_(trait, ct, aname);
+                std::string key = trait + "::" + concrete + "::" + aname;
+                auto it = found ? assoc_impls_.end() : assoc_impls_.find(key);
+                if (found) {
+                } else if (it != assoc_impls_.end()) {
                     found = it->second;
                 } else {
                     // Blanket fallback: walk blankets of `trait`, find one
