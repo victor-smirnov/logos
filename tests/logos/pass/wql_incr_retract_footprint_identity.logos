@@ -25,14 +25,15 @@
 // plan names the choice: `retract identity -> row` or `-> footprint`.
 //
 // WHAT STAYS OPEN, PINNED IN §6: a row with a field of a NAMED type (here a
-// fieldless enum) has no identity the store can hold, so it keeps the footprint
-// and §1's defect with it. §6 asserts the ACCEPTED retraction on purpose; a
-// slice that widens `incr_rowid_text` to named types turns it into a refusal.
+// fieldless enum WITHOUT `Eq`) has no identity the store can hold, so it keeps
+// the footprint and §1's defect with it; with `Eq` and `Copy`/`Clone` it is part
+// of the identity (§7, §8). §6 asserts the ACCEPTED retraction on purpose.
 //
 // exit 0 = a retraction of a row the handle never held is refused (§1, §2, §5),
 //          the fields the fold reads are policed (§1b), a refused multi-row
 //          delta leaves the handle as it was (§3), the key is part of the
-//          identity (§4), and the footprint fallback's defect is pinned (§6).
+//          identity (§4), a named Eq field is part of it (§7, §8), and the
+//          footprint fallback's defect is pinned (§6).
 package test;
 
 use logos.mem.collections.vec;
@@ -42,6 +43,9 @@ use logos.std.wql.ir;
 use logos.std.wql.el;
 use logos.std.fmt;
 use logos.lang.result;
+use logos.lang.cmp;
+use logos.lang.hash;
+use logos.std.compiler.metaprog;
 
 // A row with a field the fold NEVER READS (`nm`, a `str`): the field that made
 // whole-row storage impossible before, and the one §1 retracts on.
@@ -66,6 +70,17 @@ pub deem fltq(rs: &[F]) { from rs r group by r.g aggregate s = sum(r.v) select (
 enum Kind { A, B }
 struct N { pub g: i64, pub v: i64, pub k: Kind }
 pub deem namq(rs: &[N]) { from rs r group by r.g aggregate s = sum(r.v) select (key, s) }
+
+// §7/§8: a NAMED field whose type has `Eq` joins the identity — by value when
+// it is `Copy` (§7), cloned when it is only `Clone` (§8, which owns a String).
+#[derive_eq] #[derive_copy] #[derive_clone]
+pub enum Kind2 { A, B }
+pub struct N2 { pub g: i64, pub v: i64, pub k: Kind2 }
+pub deem nm2q(rs: &[N2]) { from rs r group by r.g aggregate s = sum(r.v) select (key, s) }
+#[derive_eq] #[derive_clone]
+pub struct Tag { pub s: String }
+pub struct T { pub g: i64, pub v: i64, pub t: Tag }
+pub deem tagq(rs: &[T]) { from rs r group by r.g aggregate s = sum(r.v) select (key, s) }
 
 // THE CENSUS: `chk` counts predicates that executed, `rows` counts rows the
 // engine handed back, and `.expected` pins the printed line, so deleting an
@@ -219,20 +234,58 @@ fn checks(t: &mut Tally) -> i32 {
     // ══ §6. THE FOOTPRINT FALLBACK, AND ITS DEFECT, PINNED ═══════════════════
     // ⚠ GREEN AND WRONG, DELIBERATELY. `k: Kind` is a named type, so `namq`'s
     // store is the footprint (key, v): insert (1,5,A), retract (1,5,B), a row
-    // never inserted — ACCEPTED, and the group empties. A slice that gives named
-    // fields an identity turns this arm into `Err(RetractAbsent)` and must edit
-    // this block.
+    // never inserted — ACCEPTED, and the group empties. `Kind` has no `Eq`, so
+    // there is no identity to hold it by (§7 is the same row shape with one).
     let mut h7: NamqIncr = namq_incremental();
     let i7: [N; 1] = [N { g: 1i64, v: 5i64, k: Kind::A }];
     match namq_epoch(&mut h7, &i7) { Result::Ok(_n) => {} Result::Err(_e) => { return 6i32; } }
     let r7: [N; 1] = [N { g: 1i64, v: 5i64, k: Kind::B }];
     match namq_retract(&mut h7, &r7) {
         Result::Ok(_n)  => { arm_ok(t); }     // ⚠ THE DEFECT, PINNED
-        Result::Err(_e) => { println!("§6: named fields grew an identity — retire this block"); return 36i32; }
+        Result::Err(_e) => { println!("§6: a field with no Eq grew an identity"); return 36i32; }
     }
     let v7: Vec<(i64, i64)> = match namq_snapshot(&h7) { Result::Ok(v) => { v } Result::Err(_e) => { return 6i32; } };
     t.rows = t.rows + v7.len();
     if bad(t, v7.len() != 0i64) { println!("§6: rows after {}", v7.len()); return 37i32; }
+
+    // ══ §7. A NAMED `Copy` FIELD WITH `Eq` IS PART OF THE IDENTITY ═══════════
+    let mut h8: Nm2qIncr = nm2q_incremental();
+    let in8: [N2; 1] = [N2 { g: 1i64, v: 5i64, k: Kind2::A }];
+    match nm2q_epoch(&mut h8, &in8) { Result::Ok(_n) => {} Result::Err(_e) => { return 7i32; } }
+    let r8: [N2; 1] = [N2 { g: 1i64, v: 5i64, k: Kind2::B }];
+    match nm2q_retract(&mut h8, &r8) {
+        Result::Ok(_n)  => { println!("§7: a row differing in a named Eq field was retracted"); return 38i32; }
+        Result::Err(e8) => { if !absent(t, e8) { return 38i32; } }
+    }
+    let r8b: [N2; 1] = [N2 { g: 1i64, v: 5i64, k: Kind2::A }];
+    match nm2q_retract(&mut h8, &r8b) {
+        Result::Ok(_n)  => { arm_ok(t); }
+        Result::Err(_e) => { println!("§7: the inserted row was refused"); return 39i32; }
+    }
+    let v8: Vec<(i64, i64)> = match nm2q_snapshot(&h8) { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    t.rows = t.rows + v8.len();
+    if bad(t, v8.len() != 0i64) { println!("§7: rows after {}", v8.len()); return 39i32; }
+
+    // ══ §8. A NAMED `Clone`-ONLY FIELD (OWNING A String) IS CLONED IN ════════
+    // Two retractions in one call, the second absent: the shadow copy clones
+    // the owned store, and the refused call leaves the held row in place.
+    let mut h9: TagqIncr = tagq_incremental();
+    let i9: [T; 1] = [T { g: 1i64, v: 5i64, t: Tag { s: "a".to_string() } }];
+    match tagq_epoch(&mut h9, &i9) { Result::Ok(_n) => {} Result::Err(_e) => { return 8i32; } }
+    let r9: [T; 2] = [T { g: 1i64, v: 5i64, t: Tag { s: "a".to_string() } },
+                      T { g: 1i64, v: 5i64, t: Tag { s: "b".to_string() } }];
+    match tagq_retract(&mut h9, &r9) {
+        Result::Ok(_n)  => { println!("§8: a row with a Tag never inserted was retracted"); return 40i32; }
+        Result::Err(e9) => { if !absent(t, e9) { return 40i32; } }
+    }
+    let r9b: [T; 1] = [T { g: 1i64, v: 5i64, t: Tag { s: "a".to_string() } }];
+    match tagq_retract(&mut h9, &r9b) {
+        Result::Ok(_n)  => { arm_ok(t); }
+        Result::Err(_e) => { println!("§8: the inserted row was refused after a refused call"); return 41i32; }
+    }
+    let v9: Vec<(i64, i64)> = match tagq_snapshot(&h9) { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
+    t.rows = t.rows + v9.len();
+    if bad(t, v9.len() != 0i64) { println!("§8: rows after {}", v9.len()); return 41i32; }
 
     return 0i32;
 }

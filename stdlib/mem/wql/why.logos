@@ -1401,8 +1401,8 @@ pub fn RI_ROW() -> i32       { return 1i32; }   // every field of the row
 pub fn RI_FOOTPRINT() -> i32 { return 2i32; }   // the group key and the aggregate arguments
 
 pub fn ri_render(r: i32) -> str {
-    if r == RI_ROW()       { return "the WHOLE ROW, field by field — a `str` field is held as an owned `String`, a float field by `f64_canon_bits` (all zeros one value, all NaNs one value, the multiplicity map's identity) — so a retraction of a row the handle never held is refused even where it agrees on every value the fold reads, and a `count` sees the row and not only its group"; }
-    if r == RI_FOOTPRINT() { return "the fold's FOOTPRINT, the group key followed by every aggregate argument — a field of the row is not a scalar, `str`, `String` or float, so the row has no identity this store can hold; two rows that agree on the footprint are one row to this handle, and a `count` sees only the group"; }
+    if r == RI_ROW()       { return "the WHOLE ROW, field by field — a `str` field is held as an owned `String`, a float field by `f64_canon_bits` (all zeros one value, all NaNs one value, the multiplicity map's identity), a field of a named type by its own `Eq` (copied, or cloned when it is not `Copy`) — so a retraction of a row the handle never held is refused even where it agrees on every value the fold reads, and a `count` sees the row and not only its group"; }
+    if r == RI_FOOTPRINT() { return "the fold's FOOTPRINT, the group key followed by every aggregate argument — a field of the row is not a scalar, `str`, `String`, float, or a named type with `Eq` and `Copy` or `Clone` (or the row has more than 12 fields), so the row has no identity this store can hold; two rows that agree on the footprint are one row to this handle, and a `count` sees only the group"; }
     return "";
 }
 pub fn ri_name(r: i32) -> str {

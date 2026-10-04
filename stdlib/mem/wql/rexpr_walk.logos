@@ -9763,6 +9763,24 @@ fn incr_rowid_text(t: &ElTypes, row_ty: str, v: str, ty_out: &mut String,
             } else if cls == EL_TY_INT() || cls == EL_TY_BOOL() {
                 ty_out.push_str(ftn);
                 ex_out.push_str(v); ex_out.push_str("."); ex_out.push_str(col);
+            } else if cls < 0i32 && t.is_named(ftn)
+                      && has_trait_named("logos.lang.cmp::Eq", ftn) {
+                // A NAMED field joins the identity under Rust's bounds for a
+                // set element: `Eq` (an identity must be reflexive), and
+                // `Copy` (held by value) or `Clone` (copied, so the store owns
+                // it and its own copies clone). The impls are asked of the
+                // registry (`has_trait_named`, #340/#723), as join_sel asks
+                // them of a key; without them the row keeps the footprint.
+                ty_out.push_str(ftn);
+                if has_trait_named("logos.lang.clone::Copy", ftn) {
+                    ex_out.push_str(v); ex_out.push_str("."); ex_out.push_str(col);
+                } else if has_trait_named("logos.lang.clone::Clone", ftn) {
+                    ex_out.push_str("("); ex_out.push_str(v); ex_out.push_str(".");
+                    ex_out.push_str(col); ex_out.push_str(").clone()");
+                    *owned = true;
+                } else {
+                    return false;
+                }
             } else {
                 return false;
             }
