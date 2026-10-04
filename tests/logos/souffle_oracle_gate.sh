@@ -28,6 +28,10 @@
 # UNLIMITED query (the .dl carries a `// limit` marker) and Deem's rows must be
 # a subset of its answer, at most n of them, and all of it when fewer than n.
 #
+# An f64 column is Soufflé's `float`: Deem dumps it as C99 hex (exact), the
+# gate compares float VALUES (-0 equal to +0, one NaN). A NaN input is left out
+# only for a program that orders floats (`// nan-sensitive`: a float min/max).
+#
 # THE INCREMENTAL TIER. A deem with an `_epoch`/`_retract`/`_snapshot` handle
 # also logs, per handle (`<q>/h<id>.log`), every Ok call of the fn that changes
 # it (`+ row`, `- row`; a weighted `_apply` logs |w| copies) and every snapshot
@@ -50,10 +54,10 @@ NSHARDS="${4:-1}"
 # wrapper; the oracle is the system Soufflé (2.5, 64-bit word = Deem's i64).
 SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
 # per shard (index = SHARD), measured; raise when the population grows
-COMPARED_FLOORS=(125 51 45 79)   # 2026-10-04, + u64 as `unsigned`: 300 compared in all
-ROWS_FLOORS=(2110 161 116 230)
+COMPARED_FLOORS=(128 51 46 80)   # 2026-10-04, + f64 as `float`: 305 compared in all
+ROWS_FLOORS=(2124 161 118 232)
 LIMITED_FLOORS=(6 5 9 4)      # first/limit checked as subsets, 24 in all
-ISNAP_FLOORS=(90 29 33 47)    # incremental snapshots, 199 in all
+ISNAP_FLOORS=(97 29 35 47)    # incremental snapshots, 208 in all
 COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
 ISNAP_FLOOR="${ISNAP_FLOORS[$SHARD]:-0}"
 ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
@@ -78,6 +82,24 @@ fi
 
 TMPD=$(mktemp -d)
 trap 'rm -rf "$TMPD"' EXIT
+# rewrite the `float` columns of answer files to one spelling of their VALUE
+cat > "$TMPD/_fnorm.py" <<'FNORM'
+import sys
+dl = sys.argv[1]
+d = [l for l in open(dl).read().splitlines() if l.startswith('.decl __out(')][0]
+fc = [i for i, c in enumerate(d[len('.decl __out('):-1].split(', ')) if c.endswith(': float')]
+def fn(v):
+    x = float.fromhex(v) if '0x' in v else float(v)
+    return 'nan' if x != x else (0.0).hex() if x == 0 else x.hex()
+for f in sys.argv[2:]:
+    out = []
+    for line in open(f).read().splitlines():
+        c = line.split('\t')
+        for i in fc:
+            if i < len(c): c[i] = fn(c[i])
+        out.append('\t'.join(c))
+    open(f, 'w').write(''.join(l + '\n' for l in out))
+FNORM
 export LC_ALL=C
 
 # Membership is a hash of the fixture's NAME, not its position: with "index mod
@@ -89,7 +111,7 @@ for f in "$PASS"/wql_*.logos "$PASS"/deem_*.logos; do
     [ $((h % NSHARDS)) -eq "$SHARD" ] && fixtures+=("$f")
 done
 
-exported=0; skipped=0; compared=0; limited=0; rows=0; bag=0; isnap=0; imis=0; ibag=0; iknown=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
+exported=0; skipped=0; compared=0; limited=0; nanin=0; rows=0; bag=0; isnap=0; imis=0; ibag=0; iknown=0; uncalled=0; errored=0; mismatched=0; failed_fx=0
 for f in "${fixtures[@]}"; do
     b=$(basename "$f" .logos)
     o="$TMPD/$b"
@@ -133,6 +155,30 @@ decls = [l.split()[1].split('(')[0] for l in text if l.startswith('.decl ')]
 # input (a set: a second insert is a no-op); an aggregate-only handle folds a
 # Z-set (a duplicate row counts twice), exactly as the batch fn folds a bag.
 relbacked = any(not (x == src or x.startswith('__')) for x in decls)
+# a `float` output column is written as C99 hex by Deem and as %.17g by
+# Soufflé: compare VALUES (-0 equal to +0, one NaN)
+outd = [l for l in text if l.startswith('.decl __out(')]
+fcols = [i for i, c in enumerate(outd[0][len('.decl __out('):-1].split(', ')) if c.endswith(': float')] if outd else []
+def fnorm(v):
+    x = float.fromhex(v) if '0x' in v else float(v)
+    return 'nan' if x != x else (0.0).hex() if x == 0 else x.hex()
+# the INPUT's float columns, canonical as the handle's identity is (-0 is +0,
+# one NaN), so a retraction of +0 matches an insert of -0 here too
+ind = [l for l in text if l.startswith('.decl ' + src + '(')]
+icols = [i for i, c in enumerate(ind[0][len('.decl ' + src + '('):-1].split(', ')) if c.endswith(': float')] if ind else []
+nansens = any(l.startswith('// nan-sensitive') for l in text)
+def inorm(row):
+    if not icols: return row
+    c = row.split('\t')
+    for i in icols:
+        if i < len(c): c[i] = fnorm(c[i])
+    return '\t'.join(c)
+def norm(row):
+    if not fcols: return row
+    c = row.split('\t')
+    for i in fcols:
+        if i < len(c): c[i] = fnorm(c[i])
+    return '\t'.join(c)
 agg = ' : { ' in open(dl).read()
 n = mis = skip = 0
 for log in sorted(glob.glob(d + '/h*.log')):
@@ -144,6 +190,7 @@ for log in sorted(glob.glob(d + '/h*.log')):
     for line in lines:
         if not line: continue
         op, rest = line[0], line[2:]
+        if op in '+-': rest = inorm(rest)
         if op == '+':
             cnt[rest] = 1 if relbacked else cnt.get(rest, 0) + 1
         elif op == '-':
@@ -157,14 +204,16 @@ for log in sorted(glob.glob(d + '/h*.log')):
                 continue
             if agg and any(c > 1 for c in cnt.values()):
                 skip += 1; continue
+            if nansens and any('nan' in r.split('\t') for r, c in cnt.items() if c > 0):
+                skip += 1; continue
             rows = sorted(r for r, c in cnt.items() if c > 0)
             t = tempfile.mkdtemp()
             with open(t + '/' + src + '.facts', 'w') as f:
                 f.write(''.join(r + '\n' for r in rows))
             os.mkdir(t + '/out')
             p = subprocess.run([souffle, dl, '-F', t, '-D', t + '/out'], capture_output=True)
-            got = set(open(t + '/out/__out.csv').read().splitlines()) if p.returncode == 0 and os.path.exists(t + '/out/__out.csv') else None
-            want = set(open(snap).read().splitlines()) if os.path.exists(snap) else None
+            got = set(map(norm, open(t + '/out/__out.csv').read().splitlines())) if p.returncode == 0 and os.path.exists(t + '/out/__out.csv') else None
+            want = set(map(norm, open(snap).read().splitlines())) if os.path.exists(snap) else None
             n += 1
             if got is None or want is None or got != want:
                 mis += 1
@@ -199,12 +248,20 @@ PY
             done
             if [ "$dup" -eq 1 ]; then bag=$((bag + 1)); continue; fi
         fi
+        # a NaN in a float input of a program that ORDERS floats (a float
+        # min/max, marked by dl_export): Deem's total order puts it greatest,
+        # Soufflé's min/max skips it. Comparisons are IEEE in both.
+        if grep -q '^// nan-sensitive' "$dl" && grep -qE '(^|	)-?nan(	|$)' "$o/$q"/*.facts 2>/dev/null; then nanin=$((nanin + 1)); continue; fi
         mkdir -p "$o/$q/souffle"
         if ! "$SOUFFLE" "$dl" -F "$o/$q" -D "$o/$q/souffle" > "$o/$q/souffle.log" 2>&1; then
             echo "FAIL: [$b] $q — souffle rejected the exported program:"
             sed 's/^/    /' "$o/$q/souffle.log" | head -8
             mismatched=$((mismatched + 1))
             continue
+        fi
+        if grep -q '^\.decl __out(.*: float' "$dl"; then
+            # float columns: Deem writes C99 hex, Soufflé %.17g — compare values
+            python3 "$TMPD/_fnorm.py" "$dl" "$o/$q/deem.out" "$o/$q/souffle/__out.csv"
         fi
         sort -u "$o/$q/deem.out" > "$o/$q/deem.set"
         sort -u "$o/$q/souffle/__out.csv" > "$o/$q/souffle.set"
@@ -254,7 +311,7 @@ if [ -s "$TMPD/_skips" ]; then
     done
 fi
 echo "souffle oracle shard $SHARD/$NSHARDS: ${#fixtures[@]} fixture(s); $exported deem(s) exported, $skipped outside the fragment," \
-     "$compared agree with Soufflé, $limited first/limit within it ($rows distinct rows), $uncalled never called, $errored returned Err, $bag aggregate(s) over a bag input," \
+     "$compared agree with Soufflé, $limited first/limit within it ($rows distinct rows), $uncalled never called, $errored returned Err, $bag aggregate(s) over a bag input, $nanin with a NaN input," \
      "$mismatched disagree, $failed_fx fixture(s) failed;" \
      "incremental: $isnap snapshot(s) compared, $ibag over a bag skipped, $iknown known (KNOWN_INC), $imis disagree"
 fail=0
