@@ -597,14 +597,15 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     auto node_tparams = read_type_params(node);
     SemaFuncInfo* fi_ptr = nullptr;
     {
+    // The declared parameter types are resolved here for their diagnostics
+    // (a `()` or `impl Trait` parameter) and for the synthetic type parameters
+    // an `impl Trait` parameter desugars to; the function's identity is not
+    // derived from them (below).
     std::vector<TypeRef> decl_param_types;
-    size_t decl_param_arity = 0;
     push_type_params(impl_type_params_);
     push_type_params(node_tparams);
     // g4/K5: desugar `impl Trait` PARAMS into synthetic generic type-params —
-    // must mirror collect_fn so the synth params + typevar param types match
-    // the registered signature (fi_ptr lookup below compares node_tparams size
-    // and decl_param_types).
+    // must mirror collect_fn.
     impl_param_desugar_active_ = true;
     pending_impl_trait_params_.clear();
     if (node.has_key(la::PARAMS)) {
@@ -654,174 +655,19 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     impl_param_desugar_active_ = false;
     for (auto& tp : pending_impl_trait_params_) node_tparams.push_back(tp);
     pending_impl_trait_params_.clear();
-    decl_param_arity = decl_param_types.size();
-    // Resolve any AssocType / alias placeholders so the param signature
-    // matches what sema_collect's add_func saved (collect already runs
-    // assoc-type resolution before mangling). Otherwise types_equal in
-    // the candidate-matching loop fails for fns whose params are
-    // associated types (e.g. `Box<i32>::Inner<i32>` -> i32).
-    for (auto& pt : decl_param_types)
-        pt = subst_type_sema(pt, {});
     pop_type_params(node_tparams);
     pop_type_params(impl_type_params_);
 
-        // Bound-discriminated impl twins (`impl<T: Copy+Fst> S<T>` vs
-        // `impl<T: ?Sized> S<T>`) declare STRUCTURALLY IDENTICAL methods —
-        // only the bound sets differ. Prefer the candidate whose bound
-        // fingerprint equals this impl's, else the loops below first-win the
-        // wrong twin and the body type-checks under the wrong family.
-        {
-            auto bounds_fp = [](const std::vector<TypeParam>& tps) {
-                std::vector<std::string> v;
-                for (auto& tp : tps)
-                    for (auto& b : tp.bounds) v.push_back(b.trait_name);
-                std::sort(v.begin(), v.end());
-                return v;
-            };
-            auto want_fp = bounds_fp(impl_type_params_);
-            {
-                auto nf = bounds_fp(node_tparams);
-                want_fp.insert(want_fp.end(), nf.begin(), nf.end());
-                std::sort(want_fp.begin(), want_fp.end());
-            }
-            size_t want_tps = impl_type_params_.size() + node_tparams.size();
-            // The pass exists ONLY for bound-discriminated twins. Gate on
-            // their presence (some candidate with matching type-param arity
-            // carries bounds), or it steals unrelated same-name overloads
-            // (static `fn new()` vs method `fn new(&self)` — the +1 self-slot
-            // allowance made them ambiguous; a generic decl vs its
-            // non-generic overload — the arity check above).
-            bool bound_twins = !want_fp.empty();
-            if (!bound_twins)
-                for (auto* cand : find_func_candidates(mangled)) {
-                    if (!cand || cand->type_params.size() != want_tps) continue;
-                    if (!bounds_fp(cand->type_params).empty())
-                        { bound_twins = true; break; }
-                }
-            if (bound_twins)
-            for (int round = 0; round < 2 && !fi_ptr; ++round)
-            for (auto* cand : find_func_candidates(mangled)) {
-                if (!cand) continue;
-                if (cand->type_params.size() != want_tps) continue;
-                // exact param arity first; the +1 self-slot allowance only
-                // as a second round so it can't shadow an exact match.
-                size_t want_np = decl_param_types.size() + (round ? 1 : 0);
-                if (cand->param_types.size() != want_np) continue;
-                if (bounds_fp(cand->type_params) != want_fp) continue;
-                size_t off = round ? 1 : 0;
-                bool same = true;
-                for (size_t i = 0; i < decl_param_types.size(); ++i) {
-                    if (!cand->param_types[i + off] || !decl_param_types[i] ||
-                        !types_equal(cand->param_types[i + off],
-                                     decl_param_types[i])) { same = false; break; }
-                }
-                if (same) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
-            }
-        }
-        // Match by (type_params arity, param signature). When this declaration
-        // has type params, a non-generic same-name overload must NOT win — both
-        // can have empty value-param lists (e.g. `fn f() -> u64` vs
-        // `fn f<T...>() -> u64`) and only the type-params arity disambiguates.
-        if (!fi_ptr)
-        for (auto* cand : find_func_candidates(mangled)) {
-            if (!cand || cand->type_params.size() != node_tparams.size()) continue;
-            if (cand->param_types.size() != decl_param_types.size()) continue;
-            bool same = true;
-            for (size_t i = 0; i < decl_param_types.size(); ++i) {
-                if (!cand->param_types[i] || !decl_param_types[i] ||
-                    !types_equal(cand->param_types[i], decl_param_types[i])) {
-                    same = false; break;
-                }
-            }
-            if (same) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
-        }
-        if (!fi_ptr) {
-            if (auto fit = find_func_by_base_and_signature(mangled, decl_param_types, is_vararg))
-                fi_ptr = const_cast<SemaFuncInfo*>(fit);
-        }
-        // Relaxed method match for overloaded members: if only `self` disagrees
-        // (e.g. Struct-vs-Datatype Self representation), still accept candidate
-        // when all explicit parameters match exactly.
-        if (!fi_ptr && !struct_ctx.empty() && decl_param_types.size() >= 1) {
-            for (auto* cand : find_func_candidates(mangled)) {
-                if (!cand || cand->type_params.size() != node_tparams.size()) continue;
-                if (cand->param_types.size() != decl_param_types.size()) continue;
-                bool same_tail = true;
-                for (size_t i = 1; i < decl_param_types.size(); ++i) {
-                    if (!cand->param_types[i] || !decl_param_types[i] ||
-                        !types_equal(cand->param_types[i], decl_param_types[i])) {
-                        same_tail = false;
-                        break;
-                    }
-                }
-                if (same_tail) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
-            }
-        }
-        // Method-decl fallback: some parser paths provide PARAMS without explicit
-        // `self` in the reconstructed decl signature. For overloaded methods this
-        // makes exact arity matching fail and leaves fi_ptr unresolved.
-        if (!fi_ptr && !struct_ctx.empty()) {
-            TypeRef self_t = nullptr;
-            {
-                auto [dpkg_sc, dsi_sc] = find_datatype_by_name(struct_ctx);
-                auto [spkg_sc, ssi_sc] = find_struct_by_name(struct_ctx);
-                if (dsi_sc)      self_t = make_datatype_type(struct_ctx, dpkg_sc);
-                else if (ssi_sc) self_t = make_struct_type(struct_ctx, spkg_sc);
-            }
-            if (self_t) {
-                for (auto* cand : find_func_candidates(mangled)) {
-                    if (!cand || cand->type_params.size() != node_tparams.size()) continue;
-                    if (cand->param_types.size() != decl_param_types.size() + 1) continue;
-                    auto self_param = cand->param_types[0];
-                    TypeRef spv{self_param};
-                    if (!self_param ||
-                        (spv.kind() != LogosType::Kind::Ref &&
-                         spv.kind() != LogosType::Kind::MutRef &&
-                         spv.kind() != LogosType::Kind::Ptr) ||
-                        !spv.pointee() ||
-                        !types_equal(spv.pointee(), self_t))
-                        continue;
-                    bool same_tail = true;
-                    for (size_t i = 0; i < decl_param_types.size(); ++i) {
-                        auto dt = decl_param_types[i];
-                        auto pt = cand->param_types[i + 1];
-                        if (!dt || !pt || !types_equal(dt, pt)) {
-                            same_tail = false;
-                            break;
-                        }
-                    }
-                    if (same_tail) { fi_ptr = const_cast<SemaFuncInfo*>(cand); break; }
-                }
-            }
-        }
-        if (!fi_ptr) {
-            if (auto fit = find_func_by_symbol(mangled)) {
-                fi_ptr = const_cast<SemaFuncInfo*>(fit);
-            }
-            if (!fi_ptr)
-                fi_ptr = const_cast<SemaFuncInfo*>(find_generic_func(mangled, decl_param_arity));
-            if (!fi_ptr)
-                fi_ptr = const_cast<SemaFuncInfo*>(find_generic_func(mangled));
-            // Primitive-target impl (`impl Eq for i32 { fn eq … }`) doesn't
-            // resolve via self_t (i32 isn't a struct/datatype). Fall back
-            // to base-name candidate matching with arity. Only for impl
-            // methods (struct_ctx non-empty) — free fns must use the
-            // strict matching above.
-            if (!fi_ptr && !struct_ctx.empty()) {
-                // Match on arity. For primitive-target impls, decl_param_types
-                // already includes `self` (collect_fn for primitives runs
-                // without struct context flag). For struct/datatype impls,
-                // decl_param_types excludes self (added back via self_t).
-                for (auto* cand : find_func_candidates(mangled)) {
-                    if (!cand) continue;
-                    if (cand->type_params.size() != node_tparams.size()) continue;
-                    if (cand->param_types.size() != decl_param_types.size() &&
-                        cand->param_types.size() != decl_param_types.size() + 1)
-                        continue;
-                    fi_ptr = const_cast<SemaFuncInfo*>(cand); break;
-                }
-            }
-        }
+    // ADR 0030 S9 row 1: the declaration's own symbol, given at collection
+    // (decl_symbols_). Re-searching the candidates by base name, arity, bound
+    // fingerprint or a relaxed `self` picked another declaration's info for
+    // two impls of one owner declaring one method name, and lowered two bodies
+    // under one symbol.
+    static const std::vector<TypeRef> no_args;
+    if (auto dit = decl_symbols_.find(decl_key_(node, struct_ctx, current_impl_trait_name_.empty()
+                                                                        ? no_args : current_impl_trait_args_));
+        dit != decl_symbols_.end())
+        fi_ptr = const_cast<SemaFuncInfo*>(find_func_by_symbol(dit->second));
     }
     if (!fi_ptr) {            // shouldn't happen after collect
         // Door 2 — a body collect never registered gets a NAMED, EMPTY function
@@ -3492,7 +3338,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto mangled = lower_target + "__" + m.name;
                 // `where Self: Sized` (Ord::max) does not exist for an unsized
                 // implementor (`impl Ord for str`) — Rust never instantiates it.
-                const bool dm_unsized_self = (impl_target_typeref &&
+                // `impl … for str` has Self = `[u8]` (collect_impl's Self for it),
+                // which no target typeref records: a `Self: Sized` default is not
+                // synthesised for it, as collect does not register one.
+                const bool dm_unsized_self = target == "str" || (impl_target_typeref &&
                     (TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedSlice ||
                      TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedDyn ||
                      TypeRef(impl_target_typeref).kind() == LogosType::Kind::TraitObject));

@@ -599,6 +599,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->func_overloads       = std::move(func_overloads_);
     s->generic_funcs        = std::move(generic_funcs_);
     s->generic_overloads    = std::move(generic_overloads_);
+    s->decl_symbols         = std::move(decl_symbols_);
     s->type_aliases         = std::move(type_aliases_);
     s->module_consts        = std::move(module_consts_);
     s->module_const_values  = std::move(module_const_values_);
@@ -778,6 +779,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     func_overloads_       = std::move(s->func_overloads);
     generic_funcs_        = std::move(s->generic_funcs);
     generic_overloads_    = std::move(s->generic_overloads);
+    decl_symbols_         = std::move(s->decl_symbols);
     type_aliases_         = std::move(s->type_aliases);
     module_consts_        = std::move(s->module_consts);
     module_const_values_  = std::move(s->module_const_values);

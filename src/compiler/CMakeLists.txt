@@ -99,6 +99,7 @@ add_executable(logosc
     mono_subst.cpp
     mono_clone.cpp
     mono_scan.cpp
+    obligation.cpp
     mono_const_arg.cpp
     reflection_emit.cpp
     hir_lower.cpp

@@ -1864,6 +1864,9 @@ static FnIndex build_fn_index(const lir::LProgram& prog) {
         if (f) idx.by_name.emplace(std::string(f.name()), f);
     }
     for (auto& sd : prog.structs) sd.each_method([&](lir_view::FunctionView m) { add(m); });
+    // A struct specialization's methods (the bound-discriminated twin
+    // `impl<T: Copy + Frozen> P<T>`) are found by their own symbols too.
+    for (auto& sd : prog.struct_specializations) sd.each_method([&](lir_view::FunctionView m) { add(m); });
     // Stage E: impl-block methods were never stored on LImplBlock (always empty);
     // trait-impl methods (Index, Deref, …) live on prog.functions / struct methods.
     return idx;

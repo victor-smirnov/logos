@@ -1072,45 +1072,8 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     // bounds (empty = the base template). Methods whose impl-level bound
     // fingerprint differs belong to the OTHER twin; cloning them here puts
     // the wrong body on the instance (a VLE dst_len reading .alc on an FSE
-    // array). Computed only when such specs exist — ordinary bounded
-    // methods on spec-less structs are untouched.
-    bool family_filter = false;
-    std::vector<std::string> family_fp;
-    {
-        const TypePoolImpl* fpool = out_.type_pool.impl();
-        auto fit = struct_specs_.find(base);
-        if (fit == struct_specs_.end()) {
-            std::string qb = pkg.empty() ? base : pkg + "." + base;
-            fit = struct_specs_.find(qb);
-        }
-        if (fit != struct_specs_.end()) {
-            bool any_bounded_alltv = false;
-            for (auto spec : fit->second) {
-                auto pats = spec.spec_patterns(fpool);
-                bool all_tv = !pats.empty();
-                for (auto pp : pats)
-                    if (!pp || TypeRef(pp).kind() != LogosType::Kind::TypeVar)
-                        { all_tv = false; break; }
-                if (!all_tv) continue;
-                for (auto tp : spec.type_params())
-                    if (!tp.bounds_empty()) { any_bounded_alltv = true; break; }
-                if (any_bounded_alltv) break;
-            }
-            if (any_bounded_alltv) {
-                family_filter = true;
-                if (auto chosen = find_best_struct_spec(
-                        base, std::vector<TypeRef>(type_args.begin(),
-                                                   type_args.end()));
-                    chosen.valid()) {
-                    for (auto tp : chosen.type_params())
-                        tp.each_bound([&](lir_view::FnTraitBoundView b) {
-                            family_fp.push_back(std::string(b.trait_name()));
-                        });
-                    std::sort(family_fp.begin(), family_fp.end());
-                }
-            }
-        }
-    }
+    // array).
+    const auto family = instance_family_fp_(pkg, base, std::vector<TypeRef>(type_args.begin(), type_args.end()));
 
     for (auto& [sn, fp] : matches) {
         // Skip methods with method-level type-params (e.g. `fn map<U>` on
@@ -1134,23 +1097,7 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
         // Family filter (see above): the method's IMPL-LEVEL bound
         // fingerprint (bounds of the type params that appear in its
         // impl-target pattern) must equal the instance's family.
-        if (family_filter) {
-            TypeRef m_itp = fp.impl_target_pattern(lmi_pool);
-            std::vector<std::string> ivars;
-            if (m_itp) collect_pattern_typevars(m_itp, ivars);
-            std::vector<std::string> mfp;
-            for (auto& tp : fp.type_params()) {
-                bool is_impl_var = false;
-                for (auto& iv : ivars)
-                    if (iv == tp.name()) { is_impl_var = true; break; }
-                if (!is_impl_var) continue;
-                tp.each_bound([&](lir_view::FnTraitBoundView b) {
-                    mfp.push_back(std::string(b.trait_name()));
-                });
-            }
-            std::sort(mfp.begin(), mfp.end());
-            if (mfp != family_fp) continue;
-        }
+        if (family && method_impl_fp_(fp) != *family) continue;
 
         // Dedup key uses the short user-facing name so multiple overloads
         // sharing it dedupe to one slot (matches eager rename semantics).
@@ -1202,6 +1149,51 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
         method_worklist_.push_back({concrete, pkg, base, method_name, fp,
                                     std::move(subst), std::move(packs), depth_ + 1});
     }
+}
+
+// The family a concrete instance of a struct with bound-discriminated
+// specializations belongs to: the bounds of the spec chosen for its arguments
+// (sorted; empty = the primary). nullopt when the struct has no such family.
+std::optional<std::vector<std::string>> Mono::instance_family_fp_(const std::string& pkg, const std::string& base,
+                                                                  const std::vector<TypeRef>& type_args) {
+    const TypePoolImpl* fpool = out_.type_pool.impl();
+    auto fit = struct_specs_.find(base);
+    if (fit == struct_specs_.end()) fit = struct_specs_.find(pkg.empty() ? base : pkg + "." + base);
+    if (fit == struct_specs_.end()) return std::nullopt;
+    bool any_bounded_alltv = false;
+    for (auto spec : fit->second) {
+        auto pats = spec.spec_patterns(fpool);
+        bool all_tv = !pats.empty();
+        for (auto pp : pats)
+            if (!pp || TypeRef(pp).kind() != LogosType::Kind::TypeVar) { all_tv = false; break; }
+        if (!all_tv) continue;
+        for (auto tp : spec.type_params())
+            if (!tp.bounds_empty()) { any_bounded_alltv = true; break; }
+        if (any_bounded_alltv) break;
+    }
+    if (!any_bounded_alltv) return std::nullopt;
+    std::vector<std::string> fam;
+    if (auto chosen = find_best_struct_spec(base, type_args); chosen.valid()) {
+        for (auto tp : chosen.type_params())
+            tp.each_bound([&](lir_view::FnTraitBoundView b) { fam.push_back(std::string(b.trait_name())); });
+        std::sort(fam.begin(), fam.end());
+    }
+    return fam;
+}
+
+// A method template's impl-level bound fingerprint: the bounds of the type
+// parameters its impl-target pattern mentions, sorted.
+std::vector<std::string> Mono::method_impl_fp_(lir_view::FunctionView fp) {
+    TypeRef m_itp = fp.impl_target_pattern(out_.type_pool.impl());
+    std::vector<std::string> ivars;
+    if (m_itp) collect_pattern_typevars(m_itp, ivars);
+    std::vector<std::string> mfp;
+    for (auto& tp : fp.type_params()) {
+        if (std::find(ivars.begin(), ivars.end(), std::string(tp.name())) == ivars.end()) continue;
+        tp.each_bound([&](lir_view::FnTraitBoundView b) { mfp.push_back(std::string(b.trait_name())); });
+    }
+    std::sort(mfp.begin(), mfp.end());
+    return mfp;
 }
 
 // The symbol of the instance a concrete struct gets for one of its method
@@ -1823,9 +1815,27 @@ std::string Mono::exact_method_instance(TypeRef recv_t, std::string_view method,
     std::string pkg{TypeRef(rt).pkg_name()};
     auto* smt = find_struct_method_templates_guarded(pkg, base);
     bool is_template = false;
+    lir_view::FunctionView tmpl;
     if (smt)
         for (auto& [sn, fp] : *smt)
-            if (fp.name() == tmpl_name) { is_template = true; break; }
+            if (fp.name() == tmpl_name) { is_template = true; tmpl = fp; break; }
+    // A bound-discriminated family: the call names one twin's template, the
+    // instance belongs to the family its arguments select (ADR 0030 S9 row 2).
+    if (tmpl) {
+        const auto ta = TypeRef(rt).type_args();
+        if (auto family = instance_family_fp_(pkg, base, std::vector<TypeRef>(ta.begin(), ta.end()));
+            family && method_impl_fp_(tmpl) != *family) {
+            lir_view::FunctionView twin;
+            for (auto& [sn, fp] : *smt)
+                if (fp.method_base() == tmpl.method_base() && fp.param_count() == tmpl.param_count() &&
+                    method_impl_fp_(fp) == *family) {
+                    if (twin) return {};   // two twins of one family: no exact instance
+                    twin = fp;
+                }
+            if (!twin) return {};
+            return method_instance_name(concrete_struct_name(rt), pkg, base, method, twin.name());
+        }
+    }
     // A partial specialization's method (`impl<E> PkdA<[E]> { fn tag }`,
     // `impl<V> Map<Bitmap, V>`) is a method template of the same family,
     // registered with the spec, not in the base's table (which a #[datatype]

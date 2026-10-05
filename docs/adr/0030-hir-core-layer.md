@@ -397,6 +397,101 @@ on the L-IR that later phases read instead of re-resolving.
 | (5) callee identity | sema records the resolved callee (symbol, impl, trait item) on every call node; mono, mlir and BIR read it — CLOSED BY ROW 2026-10-04 with row 6 (BIR over the corpus: 196510 calls by name, 0 by bare name; 384218 methods by symbol, 1632 trait items by identity); residue MOVED to S9 (one mangler): a bound-discriminated partial spec's method is recorded without the `$where$…` suffix its emitted symbol carries (21 calls, 2 fixtures), which BIR's receiver-needle fallback still answers | mono subst MethodCall/BinOp/Unary/Call re-dispatch, the mlir name composer + suffix scan, the 4 BIR resolvers; STATE 2026-10-03: every method call sema emits records its callee (method_call_resolved_ / method_call_named_: operators, index, Deref step, for-loop `next`, Writ schema calls), mono maps a template symbol to its instance for raw-pointer receivers and partial specializations, and mlir lowers a MethodCall to its recorded symbol only — the name composer and suffix scan are deleted (census: 139860 calls by the recorded symbol, the rest dead instantiations); `impl Tr for &T` picks are ordinary method calls (the `$ref_` arms deleted). LEFT, all trait-item identity (row 6's resolve_trait_item): mono's re-dispatch of TypeVar receivers and of BinOp/Unary/Call by composed `<Concrete>__<op>` / `<T>__<Trait>__<m>` names, BIR's trait-decl / dyn-decl resolvers (~2800 calls in the corpus), and BIR's bare-name match of the `str_from_raw` intrinsic (7086 calls). |
 | (6) trait items | `resolve_trait_item(trait id, self, name)` for UFCS `Trait::m(x)` / `<T as Trait>::m` and associated consts/types — CLOSED BY ROW 2026-10-04 (see STATE; sema's projection over a concrete base MOVED to S9) | the per-form UFCS lookups; moved here: parse-target-unresolved-ice (a type variable through a method chain); STATE 2026-10-03: sema's resolve_trait_item_ answers UFCS by trait identity; an impl carries its methods' symbols (METHOD_SYMBOLS) and mono answers a bound's method at a concrete Self from the impl — struct and primitive Self, structural Self by unifying the impl's pattern (`(A...)`, `[T]`, `[T; N]`, `&T`, generic enums) and instantiating its template, a nominal enum, and a generic trait's impl selected by the call's trait arguments (`Conv<i64>` / `Conv<bool>`) — a method's own generics (`hash<H>`) fill the template's parameters the impl does not bind, and a const trait argument (`BtBranch<K, 1>`) matches by value — Self = `&str` is `&` over `[u8]` as in Rust: a `&T` pattern takes it (stdlib gained Rust's `impl<T: Eq> Eq for &T` / `&mut T`), `[u8]` is `str`, and Logos's nominal `impl … for str` answers a `&str` Self only when nothing else does (it is Rust's `impl … for &str`: `Pattern`); blanket impls by their bounds; SL-sl-02 (`PartialEq`/`PartialOrd` by the `Eq`/`Ord` impl); raw pointers compare by address (stdlib `Eq for *const T` / `*mut T`) — a bare tag (`Iterator`, `AddAssign`) takes its arity from the trait's declaration, homonyms of different arity are each asked by identity and only one may answer; trait arguments bind an impl's parameters (`impl<T> A<T> for i64`, the output `T` of a blanket `Into2<T>`); fn-pointer and raw-pointer patterns unify; a primitive is its kind across pools — census of mono's old TypeVar retarget: 32232 calls → 22812 → 18994 → 39 → **0** (pass + imported corpus and the four stdlib module builds), and the retarget is DELETED (~800 lines with `emitted_method_instance` / `declared_method_symbol`); a bound's method the impl does not answer is an ICE. `T::m()` / `Trait::m()` with Self bound to a type parameter carry the trait item on the call (lir::TraitItemRef: qualified trait identity, item, Self, trait args) and mono answers it from the impl — this closed squeue #510 (tier 1: `T::zero()` reached W's inherent `zero`); census of mono's old static re-spelling: 498075 → 181 → 0, and the re-spelling is DELETED (~500 lines): a method generic a static call does not spell is inferred from its arguments (`Sum::sum<I>`), a struct template's method with generics of its own is instantiated at the struct's arguments then the method's (`Vec<T>::from_iter<I>` — this closed squeue #515, tier 1), a concrete impl pattern must match Self's arguments (one `CtrFamily` impl per generated family), `T::CONST` reads the impl's accessor, `T__from_wany` names `WritField`; an unresolved trait item is handed back while the metaclass-factory drain can still add impls and is an ICE in the last round. A bound-dispatched method call carries its trait's identity (EMethodCall::trait_identity) and BIR reads the declared signature by it — the bound search by spelling, the blanket scan, the `where`-subject spelling and the `$traitdef$` body-name parse are deleted (census: 0 calls reached them over pass, imported and fail); a generic impl answers a bound only where its own bounds hold (`&E: Eq` iff `E: Eq`; the `&T`, slice and array arms used to defer that to mono). Callee identity residue closed: `str_from_raw` (7548 BIR bare-name lookups) is named by its stdlib declaration's symbol and mlir recognises an intrinsic under a `logos.` package prefix too — the declaration is `unsafe`, so a call outside `unsafe` is now refused as rustc does (stdlib had two, lforge two); comprehensions call `push` / `insert` as method calls; `Trait::make()` at a hinted Self reads the impl item (resolve_trait_item_); a struct's Fn-family impl is read by identity (`Fn::call` / `FnMut::call_mut` / `FnOnce::call_once`), not probed for `<Struct>__call`; `writ_pat_root` by its declared symbol — BIR's bare-name lookups over the corpus: 7612 → 0. BIR's bare-name fallback in resolve_call is deleted (0 uses). Method generics nothing fixes at the call are inference variables (parse-target-unresolved-ice CLOSED, see the gap table). An associated type projection `<Base as Trait>::Name` is answered in mono by the impl of the trait (`pkg::Trait`) for the concrete base — nominal, pattern-unified, else a blanket whose bounds the base meets — told apart by the trait arguments the projection names (`Producer<i64>` / `Producer<bool>`); the per-spelling key lookup, the G156-1 suffix scan, the generic-impl bucket and the blanket fallback are deleted (census: 0 projections reached them while an impl existed), and the ADR 0008 equality check asks the same resolver. MOVED to S9 (impl identities): sema's own projection over a concrete base reads assoc_type_impls_ / impls_ by spelled keys — the sema impl registry's keys become identities there. A raw-pointer impl's methods are refused at a pointer receiver (squeue #727). |
 
+## S9 (C-OBL, impl identities, one mangler) — rows
+
+Started 2026-10-04. An item's identity is fixed once, at collection, and every
+later phase reads it; "does `X: Tr<A>` hold, and by which impl" has one answer,
+computed by one solver that sema and mono share; a link symbol is produced by
+one encoder from that identity. Diff budget declared per row (added/deleted
+lines); a row over budget stops for a re-plan.
+
+| row | content | retires | budget |
+|---|---|---|---|
+| (1) declaration identity | the symbol collect gives a declaration is the symbol its body is lowered under: lower_fn reads it by the declaration's node, not by re-searching candidates; two impls of one owner declaring one method name (`impl<T> W<&T>` / `impl<T> W<Box<T>>`; the bound-discriminated `impl<T: Copy + Frozen> PkdB<T>` / `impl<T: ?Sized> PkdB<T>`) are two declarations with two symbols | lower_fn's candidate re-search (bound-fingerprint pass, arity match, relaxed-`self` match, primitive-arity match); the `$where$` symbol fingerprint and collect_fn's lazy trait re-key stay until row (8) gives an impl's items its identity in the symbol | +150 / −300 |
+| (2) exact callee | the symbol recorded on a call is the symbol of the emitted definition: mlir resolves a callee by its exact name (module qualification only); a method of a bound-discriminated family is picked by the selection of row (4) — in sema at a concrete receiver, in mono at instantiation; an mlir miss on a live call is an internal error | find_func_op's canonical fallback (package-, `$M`- and signature-stripping, `ffo_canonical` / `ffo_canon_index_`) — after row (3), see below; BIR's `instance_for_receiver` needle and `template_for_receiver_`; the silent drop of an `if` / `while` whose condition lowered to nothing | +120 / −400 |
+| (3) impl table | every impl is one record: trait identity and trait arguments (TypeRefs), the Self pattern (a TypeRef, set for every impl), generics with bounds, negative / unsafe, items by name → symbol, type, const; sema builds it at collection and emits it on the L-IR, mono reads it | the spelled targets of `impls_` / `impls_all_` / `coherence_keys_` (`Trait::Target`, `$array$…`, `$slice$…`, `$ref_$T`, the `&[u8]` alias of `str`, `$blanket$…`), `blanket_impls_`' per-method records, `assoc_type_impls_` / `assoc_const_impls_` keys, mono's `assoc_impls_` / `concrete_impls_`; the six Self derivations read the record's Self | +500 / −600 |
+| (4) C-OBL solver | `select(trait, Self, trait args, param env) → {impl + substitution, builtin, param bound, none, ambiguous}` over TypeRefs, one implementation for sema and mono; builtin impls (Copy / Clone / Sized, auto traits, the Fn family, tuples, arrays, references, fn pointers) in one table; an impl's own bounds are nested obligations; an obligation over an open inference variable waits for fn close | the satisfaction engines (check_type_bounds' satisfaction half, `sema_has_impl_recursive`, the `has_impl ‖ has_impl` sites, check_supertrait_impls, the TraitEngine shape predicates, `generic_impl_holds`), the two auto-trait engines, the blanket loops, mono's `mono_concrete_satisfies_bound` / `is_auto_satisfied` and the selection loops of `trait_item_symbol_` / `shape_trait_item_symbol_` / `blanket_trait_item_symbol_` | +900 / −1500 |
+| (5) projections | `<Self as Trait<A>>::Name` is the selected impl's item; sema and mono ask the same function | `resolve_type_assoc_ref`, `find_assoc_type_entry`, `assoc_eqs_satisfied`, mono's `trait_item_assoc_type_`, the three `$G` trait-argument suffix composers | +200 / −500 |
+| (6) coherence, specialization | one overlap pass over the impl table after collection (E0119 for generic impls, #516; E0117); one struct-specialization selection (most specific wins, a tie is an error) | collect_impl's non-generic-only conflict check, `array_impl_keys_overlap`, the call-site `viable_blanket_impls` ambiguity diagnostic, `find_best_sema_struct_spec` / `find_best_struct_spec` / `find_best_spec` | +250 / −250 |
+| (7) deferred obligations | mono checks each instantiation's obligations with the solver; an unmet one is an internal error (sema refuses first: E0276, a trivially false predicate) | `method_bound_ok`'s silent skip, `instantiate_enum_templates`' bound loops | +100 / −150 |
+| (8) one mangler, vtables | one encoder from (item identity, type arguments) to a link symbol, ABI bump; vtable slots filled from the impl's items by trait-item identity; the vtable layout and object safety agree (#569, #583); gap row `no-vtable-str-literal-to-dyn` | sema's `mangle_type_for_name`, mono's `mangle_type` / `enum_instance_name` / `mangle` (and their recorded divergences), the `__` / `$G` instance composers, `emit_trait_vtables`' name-matched `resolve_methods` | +400 / −600 |
+| (9) operators, rest | `x op= y` over `T: <Op>Assign` calls `op_assign`; a shift / mixed-width operator result is typed by the operator core | mono's BinOp compound rewrite | +100 / −150 |
+
+Order: (1) and (2) first — they close S8's residue and a live miscompile
+found while measuring it (below); then (3) → (4) → (5) → (7) → (6) → (8) → (9).
+Row (2)'s canonical fallback goes after row (3): over the pass corpus it binds
+737 callees, nearly all one class — a symbol sema composes while lowering
+carries no `$M<hash>` package fingerprint for an ambiguous name (two stdlib
+`Buffer`s), because sema installs the ambiguous-name set only after lowering;
+installing it earlier would spell collect-time impl keys and lowering-time uses
+differently, which row (3)'s TypeRef-keyed impl table removes.
+
+Measured 2026-10-04, before row (1). BIR's receiver needle answers 10 calls
+over the pass corpus, two fixtures, both a declaration-identity defect:
+`partial_spec_bound_pattern` (sema records the primary impl's `tag` for a
+receiver the bound-discriminated spec takes; mlir's canonical fallback binds
+the `$where$` instance) and `inherent_impl_same_method_one_funcinfo_ice`
+(lower_fn re-found the `W<&T>` impl's info for the `W<Box<T>>` impl's `tag`,
+so both bodies were emitted under one symbol; the `W<&i64>` instance does not
+exist, mlir dropped the call, and `if wr.tag() != 1 { return 1; }` vanished
+from the binary — the fixture exits 0 by that drop).
+
+STATE 2026-10-04, row (1) DONE: collect records each declaration's symbol by
+its node (`decl_symbols_`, carried through the sema snapshot) and lower_fn
+reads it; the candidate re-search is deleted (−160 lines). Census over the pass
+corpus before the switch: 26.1M lowerings agreed, the re-search had picked
+another declaration at 673, four classes — the `W<&T>` / `W<Box<T>>` twins, the
+two stdlib `zero_bytes` free functions (`logos.mem.pkd`'s body lowered under
+`logos.lang.mem`'s symbol, every program importing pkd), the `arr_` bound twin
+(the `?Sized` body under the `$where$Copy` symbol) and the trait-default
+templates (a key fix). Row (2), first half: a bound-discriminated family's twin
+is picked by its bounds at the receiver's arguments — sema's probe
+(`type_param_bounds_viable_`, shared with overload selection) and mono's
+`exact_method_instance` (the family rule of the method enqueue, now one helper);
+BIR indexes struct specializations' methods; an `if` / `while` condition that
+lowers to nothing in a live block is an internal error. That error opened a
+second hidden drop at once: `core_6_10_derive_partial_eq`'s two `GenPair<i64>`
+checks were never compiled, because mono's `method_bound_ok` refused
+`T: PartialEq` at `i64` (an `Eq`-only type, SL-sl-02 lived in sema and in one
+mono retry) and dropped the derived `eq` in silence; SL-sl-02 is now in
+`mono_concrete_satisfies_bound`, every mono gate's engine (row (4) absorbs it).
+Row (2), BIR half: the receiver needle (`instance_for_receiver`) and the
+template-by-pattern fallback (`template_for_receiver_`) are deleted — census
+over the pass corpus after row (1): 0 calls reached either. A template's
+`T::build(d)` / `<T as Tr>::build(d)` is resolved by the trait item it carries
+(by_traitdecl), not missed by name. BIR's remaining plain-call misses are
+intrinsics, the `$M` class above and a few generic instances; a miss is
+conservative (the result borrows every argument), not a hole.
+Row (1) regression, fixed (0.54.0): the decl key took the trait arguments of
+the collector's LAST impl — `current_impl_trait_name_` / `_args_` were never
+reset after collect_impl — so a struct-body method (`tests/spec/pass/item_2`)
+was keyed apart from its lowering and got lower_fn's empty "no info" body. The
+key now uses the declaration's own trait arguments; collect_impl scopes the
+impl's trait state to the impl. The census that cleared the deletion had run
+over the pass corpus only; re-run over pass, fail, spec, imported (with and
+without `--test`), interactions, soundness, diag and examples, the empty body
+is left only where collect itself refused the declaration (the
+`partialeq-eq-both-ambiguous` cluster). Lowering no longer synthesizes a
+`Self: Sized` default (`Ord::max` / `min` / `clamp`) for `impl Ord for str`,
+which collect never registered — three empty `str__*` symbols leave the
+archive (ABI break, 0.54.0).
+
+Rows (3)-(4), step A: `obligation.hpp/.cpp` — the C-OBL impl table and
+`select(trait, Self, args, sig)` (impls by pattern unification with package
+identity, a variadic pack, `[T; N]`; nested bounds; negative impls; blankets
+over a bare parameter; builtins for Sized / Copy / Clone / the Fn family with
+the call shape; trait objects by supertraits; SL-sl-02; the phase's param env,
+auto traits, substitution and open inference variables through `Env`). Sema
+builds the table from impls_all_ with each impl's Self (`SemaImplInfo::
+self_type`, now recorded for every impl; Logos's `impl … for str` is a fact
+about `&[u8]`) and asks it beside check_type_bounds (LOGOS_S9_SHADOW). Shadow
+over pass: 0 disagreements; fail and imported: only the HRTB region half
+(check_type_bounds' `region_ok`, which stays as a check on the selected impl).
+The shadow found collect_impl's Self wrong for a non-generic nominal under
+impl generics (`impl<'a, T> FnLike<&'a T> for Identity` gave `Identity<T>`):
+the impl's parameters are a struct's arguments only when it has type
+parameters.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

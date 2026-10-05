@@ -1606,7 +1606,15 @@ private:
                 t.callee = std::string(v.callee());
                 if (flows_) t.flow = resolve_call_flow(*flows_, v.callee(), &idx_);
                 std::vector<TypeRef> ptypes;
-                if (auto cf = resolve_call(v.callee())) {
+                lir_view::FunctionView cf = resolve_call(v.callee());
+                // `T::build(d)` / `<T as Tr>::build(d)` in a template: the trait
+                // item the call carries (ADR 0030 S8 row 6), by identity.
+                if (!cf && !v.trait_item_trait().empty())
+                    if (auto it = idx_.by_traitdecl.find(std::string(v.trait_item_trait()) + "::" +
+                                                         std::string(v.trait_item_method()));
+                        it != idx_.by_traitdecl.end())
+                        cf = it->second;
+                if (cf) {
                     for (auto& pv : cf.params()) ptypes.push_back(pv.type(pool_));
                     t.has_sig = true;
                     t.sig_to_result = signature_mask(cf);
@@ -2079,47 +2087,7 @@ private:
             ++bir::callee_census().m_symbol;
             return it->second;
         }
-        auto r = instance_for_receiver(v);
-        ++(r ? bir::callee_census().m_recv : bir::callee_census().m_miss);
-        return r;
-    }
-    lir_view::FunctionView instance_for_receiver(lir_view::EMethodCallView v) const {
-        auto rcv = v.receiver();
-        if (!rcv) return {};
-        TypeRef rt = rcv.type(pool_);
-        while (rt && (rt.kind() == LogosType::Kind::Ref || rt.kind() == LogosType::Kind::MutRef ||
-                      rt.kind() == LogosType::Kind::Ptr))
-            rt = rt.pointee();
-        std::string cname;
-        if (rt && (rt.kind() == LogosType::Kind::Struct || rt.kind() == LogosType::Kind::ZonedStruct))
-            cname = concrete_struct_name(rt);
-        else if (rt && rt.kind() == LogosType::Kind::Enum)
-            cname = rt.type_args().empty() ? std::string(rt.enum_name()) : Mono::enum_instance_name(rt);
-        if (cname.empty()) return {};
-        auto it = idx_.by_base.find(std::string(v.method()));
-        if (it == idx_.by_base.end()) return {};
-        std::string needle = "." + cname + "__" + std::string(v.method()) + "__";
-        std::string needle2 = cname + "__" + std::string(v.method()) + "__";
-        for (auto& f : it->second) {
-            std::string n(f.name());
-            if (n.find(needle) != std::string::npos || n.starts_with(needle2)) { ++bir::callee_census().ifr_needle; return f; }
-        }
-        // Instance names can carry a module hash the type's name does not
-        // (`Buffer$M<hash>$G1$…`): match the receiver TYPE against each
-        // candidate's `self` type instead.
-        std::string want = type_str(rt, true);
-        for (auto& f : it->second) {
-            auto ps = f.params();
-            if (ps.empty() || ps[0].name() != "self") continue;
-            TypeRef p0 = ps[0].type(pool_);
-            while (p0 && (p0.kind() == LogosType::Kind::Ref || p0.kind() == LogosType::Kind::MutRef ||
-                          p0.kind() == LogosType::Kind::Ptr))
-                p0 = p0.pointee();
-            if (p0 && type_str(p0, true) == want) { ++bir::callee_census().ifr_selftype; return f; }
-        }
-        if (std::getenv("LOGOS_BIR_RESOLVE_DEBUG"))
-            std::fprintf(stderr, "[bir-resolve] no instance for %s among %zu (%s)\n", needle.c_str(),
-                         it->second.size(), std::string(it->second.front().name()).c_str());
+        ++bir::callee_census().m_miss;
         return {};
     }
     // A receiver of a trait-object type (`&dyn Tr`, `Box<dyn Tr>`, `&tagged<TS> Tr`): the
@@ -2156,59 +2124,6 @@ private:
             resolve_ice(v, std::format("{} trait declarations answer `{}`", it->second.size(), key));
         return it->second.front();
     }
-    // Does the impl target PATTERN (`W<&T>`, its parameters free) match the
-    // receiver's type (`W<&i64>`, or `W<&K>` before mono)? A parameter matches
-    // anything; everything else matches structurally, nominal types by identity.
-    bool pattern_matches_(TypeRef p, TypeRef t) const {
-        if (!p || !t) return false;
-        if (p.kind() == LogosType::Kind::TypeVar) return true;
-        if (p.kind() != t.kind()) return false;
-        switch (p.kind()) {
-            case LogosType::Kind::Ref: case LogosType::Kind::MutRef: case LogosType::Kind::Ptr:
-                return pattern_matches_(p.pointee(), t.pointee());
-            case LogosType::Kind::Struct: case LogosType::Kind::ZonedStruct: case LogosType::Kind::Enum: {
-                bool st = p.kind() != LogosType::Kind::Enum;
-                if (p.pkg_name() != t.pkg_name() ||
-                    (st ? p.struct_name() != t.struct_name() : p.enum_name() != t.enum_name()))
-                    return false;
-                auto pa = p.type_args(), ta = t.type_args();
-                if (pa.size() != ta.size()) return false;
-                for (size_t i = 0; i < pa.size(); ++i)
-                    if (!pattern_matches_(pa[i], ta[i])) return false;
-                return true;
-            }
-            default:
-                return type_str(p, true) == type_str(t, true);
-        }
-    }
-    // A receiver of a generic type whose arguments are this template's own
-    // parameters (`VecIntoIter<&'a K>` before mono): no instance exists yet, so
-    // the callee is the TEMPLATE method, the one whose impl target is that
-    // type — filtered by the target's identity, and more than one is an error.
-    lir_view::FunctionView template_for_receiver_(lir_view::EMethodCallView v) const {
-        auto r = v.receiver();
-        if (!r) return {};
-        TypeRef rt = r.type(pool_);
-        while (rt && (rt.kind() == LogosType::Kind::Ref || rt.kind() == LogosType::Kind::MutRef ||
-                      rt.kind() == LogosType::Kind::Ptr))
-            rt = rt.pointee();
-        if (!rt || (rt.kind() != LogosType::Kind::Struct && rt.kind() != LogosType::Kind::ZonedStruct &&
-                    rt.kind() != LogosType::Kind::Enum) ||
-            rt.type_args().empty())
-            return {};
-        std::vector<lir_view::FunctionView> hits;
-        for (auto* m : {&idx_.by_base, &idx_.template_by_base})
-            if (auto it = m->find(std::string(v.method())); it != m->end())
-                for (auto& f : it->second)
-                    if (TypeRef p = f.impl_target_pattern(pool_); p && pattern_matches_(p, rt) &&
-                        std::find_if(hits.begin(), hits.end(), [&](auto& h) { return h.self.addr() == f.self.addr(); }) == hits.end())
-                        hits.push_back(f);
-        if (hits.size() > 1)
-            resolve_ice(v, std::format("{} template methods of `{}` answer it", hits.size(),
-                                       std::string(rt.kind() == LogosType::Kind::Struct ? rt.struct_name()
-                                                                                        : rt.enum_name())));
-        return hits.empty() ? lir_view::FunctionView{} : hits.front();
-    }
     [[noreturn]] void resolve_ice(lir_view::EMethodCallView v, const std::string& why) const {
         fprintf(stderr,
                 "internal compiler error: borrow check: the callee of method call `.%s(..)` "
@@ -2228,8 +2143,6 @@ private:
         }
         if (auto f = resolve_trait_decl_(v)) return f;
         if (auto f = resolve_dyn_decl_(v)) return f;
-        if (auto f = instance_for_receiver(v)) { ++bir::callee_census().rm_needle; return f; }
-        if (auto f = template_for_receiver_(v)) return f;
         // Deref::deref / DerefMut::deref_mut: a lang item whose signature the
         // callers spell (see is_deref_method).
         if (is_deref_method(v)) return {};

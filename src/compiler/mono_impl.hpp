@@ -1233,6 +1233,9 @@ private:
     static std::string method_instance_name(std::string_view concrete, std::string_view pkg,
                                             std::string_view base, std::string_view method,
                                             std::string_view tmpl_name);
+    std::optional<std::vector<std::string>> instance_family_fp_(const std::string& pkg, const std::string& base,
+                                                                const std::vector<TypeRef>& type_args);
+    std::vector<std::string> method_impl_fp_(lir_view::FunctionView fp);
     std::string exact_method_instance(TypeRef recv_t, std::string_view method,
                                       std::string_view tmpl_name);
     // #438: the emitted instance's name for `method` on a concrete generic
@@ -1310,6 +1313,9 @@ private:
     bool mono_concrete_satisfies_bound(const TraitQuery& q,
                                        TypeRef concrete,
                                        StrSet& seen);
+    bool mono_concrete_satisfies_bound_direct_(const TraitQuery& q,
+                                               TypeRef concrete,
+                                               StrSet& seen);
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     DeclBuilder clone_struct_def(lir_view::StructView tmpl,

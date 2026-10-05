@@ -2860,6 +2860,12 @@ void MLIRGenImpl::gen_return(lir_view::SReturnView v) {
 void MLIRGenImpl::gen_if(lir_view::SIfView v) {
     if (!v.cond() || !v.then_block()) return;
     auto cond = gen_expr(v.cond());
+    // A condition that lowered to nothing in a live block is a dropped `if`, not
+    // a dead instantiation: the statement is there to be executed (ADR 0030 S9
+    // row 2 — `if wr.tag() != 1 { return 1; }` vanished this way).
+    if (!cond && !is_terminated(builder_.getBlock()))
+        bug("`if` condition lowered to no value — the whole `if` would be dropped (last method miss: '{}')",
+            last_method_miss_);
     if (!cond) return;
     // G160-10: a diverging condition (`if (return x) {}`) already emitted a
     // terminator — nothing in the if reachable, don't append after it.
@@ -2917,6 +2923,9 @@ void MLIRGenImpl::gen_while(lir_view::SWhileView v) {
     builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
     builder_.setInsertionPointToStart(cond_block);
     auto cond = gen_expr(v.cond());
+    if (!cond && !is_terminated(builder_.getBlock()))
+        bug("`while` condition lowered to no value — the loop would be dropped (last method miss: '{}')",
+            last_method_miss_);
     if (!cond) return;
     builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
 

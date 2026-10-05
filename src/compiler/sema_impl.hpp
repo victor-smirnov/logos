@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "obligation.hpp"
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_builder.hpp>
 #include <logos/compiler/lir_view.hpp>
@@ -6099,6 +6100,7 @@ private:
                           };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             std::vector<TypeParam> type_params; bool is_vararg = false;
+                            std::string decl_key;   // ADR 0030 S9 row 1: see decl_symbols_
                             // CP-cm-16 follow-up: full impl-target pattern (with
                             // TypeVars unsubstituted) for impl-block-derived
                             // methods on partial-spec impls
@@ -6329,6 +6331,10 @@ private:
         // name, i.e. when `target` denotes a LOCAL type rather than a foreign
         // one. Empty ⇒ the target is whatever owns the bare slot, unchanged.
         std::string target_pkg;
+        // ADR 0030 S9 row 3: the impl's Self as a type (a pattern over its
+        // generics; a bare generic for a blanket impl), set for EVERY impl —
+        // `target_typeref` is null for a plain nominal target.
+        TypeRef self_type = nullptr;
     };
 
     // Type params in scope for the function/struct currently being processed.
@@ -6896,6 +6902,32 @@ private:
         return it == impls_.end() ? nullptr : &it->second;
     }
     ImplMap<SemaImplInfo>                     impls_;
+    // ADR 0030 S9 rows 3-4 (SHADOW): the C-OBL impl table built from impls_all_,
+    // asked beside check_type_bounds; a disagreement is logged (LOGOS_S9_SHADOW).
+    obl::ImplTable obl_table_;
+    size_t         obl_table_impls_ = SIZE_MAX;
+    size_t         obl_no_self_ = 0;
+    const obl::ImplTable& obl_table_now_();
+    obl::Env obl_env_();
+    std::string bound_identity_(const TraitBound& b) const {
+        if (b.trait_def) return defs_.path(b.trait_def);
+        if (!b.identity_trait.empty()) return b.identity_trait;
+        return b.canonical_trait.empty() ? b.trait_name : b.canonical_trait;
+    }
+    void s9_shadow_(const TraitBound& b, TypeRef concrete, std::string_view ctx, size_t diags_before,
+                    bool probe_ok_before, const logos::compiler::StrMap<TypeRef>& call_subst);
+    // ADR 0030 S9 row 1: the symbol collect gave each declaration, by the
+    // declaration's identity (its AST node and the owner it was collected
+    // under, with the impl's trait arguments — a trait default is one node
+    // collected once per impl). lower_fn
+    // reads it; nothing re-searches the candidates by name.
+    logos::compiler::StrMap<std::string> decl_symbols_;
+    std::string decl_key_(sema_detail::TinyMapView node, std::string_view struct_ctx,
+                          const std::vector<TypeRef>& trait_args) const {
+        return std::format("{}:{}:{}{}", reinterpret_cast<uintptr_t>(holder_), node.offset().value(), struct_ctx,
+                           struct_ctx.empty() || struct_ctx.starts_with("$traitdef$")
+                               ? std::string() : trait_targ_suffix(trait_args));
+    }
     // Same key, but ALL impls (impls_ is single-valued / last-wins, so two
     // `Trait<A>` impls of one Self — `From<i32>` AND `From<i16>` for `i64`, or
     // `Iterator<i32>` vs the generic `Iterator<&T> for VecIter<T>` — collide).
@@ -10524,6 +10556,7 @@ private:
                        std::vector<const SemaFuncInfo*> tied; bool via_arm = false; bool dyn_mut = false; };
     std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
+    bool type_param_bounds_viable_(const SemaFuncInfo& fi, const SemaSubst& binds, int* bound_count);
     const SemaFuncInfo* resolve_trait_item_(std::string_view trait, TypeRef self, std::string_view name,
                                             std::string* key_out = nullptr);
     void reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal);
@@ -11351,6 +11384,7 @@ public:
     StrMap<std::vector<std::string>>       func_overloads;
     StrMap<SemaChecker::SemaFuncInfo>     generic_funcs;
     StrMap<std::vector<std::string>>       generic_overloads;
+    StrMap<std::string>                    decl_symbols;   // ADR 0030 S9 row 1
     StrMap<SemaChecker::TypeAliasEntry>   type_aliases;
     StrMap<TypeRef>                        module_consts;
     StrMap<writ::TinyMapView>            module_const_values;
