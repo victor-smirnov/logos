@@ -1,0 +1,28 @@
+// TRACK A — the wardedness analyzer has no capacity (2026-10-05). Its tables
+// were flat arrays sized 16 predicates / 16 rules / 6 columns / 6 body atoms,
+// and a program past them was refused as "capacity exceeded". Here a
+// 7-column existential rel, joined over seven atoms, is analyzed and accepted
+// as warded — the verdict every existential program gets until the chase
+// exists.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Node { pub k: i64 }
+
+pub deem q(base: &[Node]) {
+    rel R(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64) {
+        from base x join base x1 on x1.k == x.k join base x2 on x2.k == x.k join base x3 on x3.k == x.k
+          join base x4 on x4.k == x.k join base x5 on x5.k == x.k join base x6 on x6.k == x.k
+        select (x.k, x1.k, x2.k, x3.k, x4.k, x5.k, fresh());
+    }
+    from R r select (r.a)
+}
+
+fn main() -> i32 {
+    let base: [Node; 1] = [ Node { k: 1i64 } ];
+    let out: Vec<i64> = q(&base[..]);
+    return out.len() as i32;
+}

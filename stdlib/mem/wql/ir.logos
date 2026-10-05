@@ -68,7 +68,7 @@ impl<S> WritField for WRef<S> {
 // `n` empty names. A plain loop rather than `vec![""; n]`: instantiated for
 // `str` inside this module's own build, `vec_from_elem` is refused by the
 // borrow checker (`borrowed data escapes outside of function: 'elem'`), while
-// the same call in a user program compiles.
+// the same call in a user program compiles (#731).
 pub fn str_vec(n: i64) -> Vec<str> {
     let mut v: Vec<str> = Vec::<str>::new();
     let mut i: i64 = 0i64;

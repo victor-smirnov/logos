@@ -111,9 +111,9 @@ impl RelSet {
 // text (`(i64, str)` / scalar `i64` for a 1-column rel), and the column
 // window [coff, coff+ccnt) into the flat relc_* arrays.
 pub struct MacroParams {
-    pub names:    [str; 64],
-    pub tys:      [str; 64],    // CORE type name (deref/slice-stripped)
-    pub is_slice: [bool; 64],   // `&[T]`-family — a query SOURCE param
+    pub names:    Vec<str>,
+    pub tys:      Vec<str>,     // CORE type name (deref/slice-stripped)
+    pub is_slice: Vec<bool>,    // `&[T]`-family — a query SOURCE param
     pub n:        i64,
     // ── rel registry (wql! rel blocks — slices B/C) ──
     pub rel_names: Vec<str>,    // declared rel name ("step")
@@ -374,15 +374,9 @@ pub struct MacroParams {
 pub fn macro_params_new() -> MacroParams {
     let nul: WAny = WAny::null();
     return MacroParams {
-        names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        tys:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        is_slice: [false; 64],
+        names: Vec::<str>::new(),
+        tys:   Vec::<str>::new(),
+        is_slice: Vec::<bool>::new(),
         n: 0i64,
         rel_names: Vec::<str>::new(),
         rel_srcs:  Vec::<String>::new(),
@@ -1349,12 +1343,10 @@ pub fn parse_macro_params(p: str, out: &mut MacroParams) {
         let tstart: i64 = pos;
         while pos < len && mp_is_alnum(str_byte_at(p, pos)) { pos = pos + 1i64; }
         let ty: str = unsafe { mp_str_range(p, tstart, pos - tstart) };
-        if out.n < 64i64 {
-            out.names[out.n]    = nm;
-            out.tys[out.n]      = ty;
-            out.is_slice[out.n] = is_sl;
-            out.n = out.n + 1i64;
-        }
+        out.names.push(nm);
+        out.tys.push(ty);
+        out.is_slice.push(is_sl);
+        out.n = out.n + 1i64;
         // Advance past the rest of this param's type to the next top-level comma,
         // honoring bracket/paren/angle nesting so compound types don't mis-split.
         // (The slice `[` already consumed above counts as one open level.)

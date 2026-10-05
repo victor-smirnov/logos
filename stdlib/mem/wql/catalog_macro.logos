@@ -147,10 +147,10 @@ fn classify_field_type(view: &OView, fld: WAny) -> FieldTy {
 }
 
 // ── Requested-schema list (idents in the macro body) ───────────────────────
-struct NameList { names: [str; 16], n: i64 }
+struct NameList { names: Vec<str>, n: i64 }
 
 fn scan_names(s: str) -> NameList {
-    let mut out: NameList = NameList { names: [""; 16], n: 0i64 };
+    let mut out: NameList = NameList { names: Vec::<str>::new(), n: 0i64 };
     let n: i64 = s.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -165,10 +165,8 @@ fn scan_names(s: str) -> NameList {
                 if !alnum { break; }
                 i = i + 1i64;
             }
-            if out.n < 16i64 {
-                out.names[out.n] = unsafe { str_from_raw((s.as_ptr() as i64 + start) as *const u8, i - start) };
-                out.n = out.n + 1i64;
-            }
+            out.names.push(unsafe { str_from_raw((s.as_ptr() as i64 + start) as *const u8, i - start) });
+            out.n = out.n + 1i64;
         } else {
             i = i + 1i64;
         }

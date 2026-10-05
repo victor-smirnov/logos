@@ -1127,43 +1127,44 @@ fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
 struct ColRef { pub ok: bool, pub rv: str, pub col: str }
 
 // The per-program existential extractor state: a per-RULE union-find over
-// (row-var, column) pairs (var identity = the union-find ROOT slot index, an id
-// < WX_CAP hence disjoint from existential ids ≥ WX_EXBASE); per-rule
+// (row-var, column) pairs (var identity = the union-find ROOT slot index, kept
+// disjoint from existential ids ≥ WX_EXBASE); per-rule
 // existential-name table; a program-global EDB predicate registry; and the
 // per-rule provenance (flat rule index → declaring rel + body index) used to
 // point a non-warded diagnostic back at its source rule.
-fn WX_CAP() -> i64 { return 48i64; }
 fn WX_EXBASE() -> i64 { return 100000i64; }
 
 struct WardX {
-    pub vv:  [str; 48],   // union-find pair: row var
-    pub vc:  [str; 48],   //               : column
-    pub par: [i64; 48],   // union-find parent
+    pub vv:  Vec<str>,    // union-find pair: row var
+    pub vc:  Vec<str>,    //               : column
+    pub par: Vec<i64>,    // union-find parent
     pub nvar: i64,
-    pub exn:  [str; 12],  // per-rule existential names (fresh(z))
-    pub exi:  [i64; 12],  // → assigned existential var id
+    pub exn:  Vec<str>,   // per-rule existential names (fresh(z))
+    pub exi:  Vec<i64>,   // → assigned existential var id
     pub nexn: i64,
     pub exctr: i64,       // next existential id (reset per rule)
-    pub esrc: [str; 16],  // program-global EDB source name
-    pub epid: [i64; 16],  // → WardProg predicate id
+    pub esrc: Vec<str>,   // program-global EDB source name
+    pub epid: Vec<i64>,   // → WardProg predicate id
     pub nedb: i64,
-    pub prel: [i64; 16],  // rule r → declaring rel index
-    pub pbod: [i64; 16],  // rule r → body index within that rel
+    pub prel: Vec<i64>,   // rule r → declaring rel index
+    pub pbod: Vec<i64>,   // rule r → body index within that rel
 }
 
 fn wardx_new() -> WardX {
     return WardX {
-        vv: [""; 48], vc: [""; 48], par: [0i64; 48], nvar: 0i64,
-        exn: [""; 12], exi: [0i64; 12], nexn: 0i64, exctr: 100000i64,
-        esrc: [""; 16], epid: [0i64; 16], nedb: 0i64,
-        prel: [0i64; 16], pbod: [0i64; 16],
+        vv: Vec::<str>::new(), vc: Vec::<str>::new(), par: Vec::<i64>::new(), nvar: 0i64,
+        exn: Vec::<str>::new(), exi: Vec::<i64>::new(), nexn: 0i64, exctr: 100000i64,
+        esrc: Vec::<str>::new(), epid: Vec::<i64>::new(), nedb: 0i64,
+        prel: Vec::<i64>::new(), pbod: Vec::<i64>::new(),
     };
 }
 
 // Reset the per-rule state (union-find + existential names); the EDB registry and
 // provenance are program-global and persist.
 fn wardx_reset(x: &mut WardX) {
+    x.vv.clear(); x.vc.clear(); x.par.clear();
     x.nvar = 0i64;
+    x.exn.clear(); x.exi.clear();
     x.nexn = 0i64;
     x.exctr = WX_EXBASE();
 }
@@ -1181,9 +1182,8 @@ fn wx_slot(x: &mut WardX, rv: str, col: str) -> i64 {
         if str_eq(x.vv[i], rv) && str_eq(x.vc[i], col) { return i; }
         i = i + 1i64;
     }
-    if x.nvar >= WX_CAP() { return x.nvar - 1i64; }
     let s: i64 = x.nvar;
-    x.vv[s] = rv; x.vc[s] = col; x.par[s] = s;
+    x.vv.push(rv); x.vc.push(col); x.par.push(s);
     x.nvar = x.nvar + 1i64;
     return s;
 }
@@ -1202,16 +1202,15 @@ fn wx_union(x: &mut WardX, ra: str, ca: str, rb: str, cb: str) {
     if fa != fb { x.par[fa] = fb; }
 }
 
-// Get-or-add an EDB predicate for source `src`; -1 on capacity overflow.
+// Get-or-add an EDB predicate for source `src`.
 fn wx_edb_pid(x: &mut WardX, wp: &mut WardProg, src: str) -> i64 {
     let mut i: i64 = 0i64;
     while i < x.nedb {
         if str_eq(x.esrc[i], src) { return x.epid[i]; }
         i = i + 1i64;
     }
-    if wp.npred >= 16i64 { return -1i64; }
-    let pid: i64 = wp.add_pred(6i64);   // EDB positions are never affected → arity 6, unused slots CONST
-    if x.nedb < 16i64 { x.esrc[x.nedb] = src; x.epid[x.nedb] = pid; x.nedb = x.nedb + 1i64; }
+    let pid: i64 = wp.add_pred(0i64);   // EDB positions are never affected; the arity grows as atoms fill them
+    x.esrc.push(src); x.epid.push(pid); x.nedb = x.nedb + 1i64;
     return pid;
 }
 
@@ -1285,7 +1284,7 @@ fn wx_fresh_id(x: &mut WardX, c: SCall) -> i64 {
             let mut i: i64 = 0i64;
             while i < x.nexn { if str_eq(x.exn[i], nm) { return x.exi[i]; } i = i + 1i64; }
             let id: i64 = x.exctr; x.exctr = x.exctr + 1i64;
-            if x.nexn < 12i64 { x.exn[x.nexn] = nm; x.exi[x.nexn] = id; x.nexn = x.nexn + 1i64; }
+            x.exn.push(nm); x.exi.push(id); x.nexn = x.nexn + 1i64;
             return id;
         }
     }
@@ -1313,9 +1312,6 @@ fn wx_collect_on(x: &mut WardX, e: SExpr) {
 }
 
 // ── Extraction diagnostics ────────────────────────────────────────────────────
-fn ward_cap_err() {
-    error("wql!: existential (warded) analysis capacity exceeded — the wardedness analyzer supports up to 16 predicates / 16 rules / 6 columns / 6 body atoms per rule");
-}
 fn ward_frag_err(rn: str) {
     let mut m: String = String::new();
     m.push_str("wql!: rel '");
@@ -1358,7 +1354,7 @@ fn ward_emit_head(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
             let it: SExprArr = tp.items_arr();
             let n: i64 = it.len();
             let mut i: i64 = 0i64;
-            while i < n && i < arity && i < 6i64 {
+            while i < n && i < arity {
                 let st: i32 = ward_head_item(x, wp, prm, rel_i, r, i, it.arg_at(i));
                 if st != 0i32 { return st; }
                 i = i + 1i64;
@@ -1375,16 +1371,15 @@ fn ward_emit_head(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
 // One body atom over source (rv, src). A REL source uses DECLARED column ordinals
 // (canonical — the affected-position fixpoint keys on them, must line up with the
 // existential heads defined for that rel elsewhere — critique C3); an EDB source
-// uses first-seen ordinals (EDB positions are never affected). Returns 0 / 1 (cap).
+// uses first-seen ordinals (EDB positions are never affected). Returns 0.
 fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
                   r: i64, rv: str, ridx: i64, src: str) -> i32 {
-    if wp.nbody[r] >= 6i64 { ward_cap_err(); return 1i32; }
     if ridx >= 0i64 {
         let k: i64 = wp.add_body(r, ridx);
         let coff: i64 = prm.rel_coff[ridx];
         let ccnt: i64 = prm.rel_ccnt[ridx];
         let mut i: i64 = 0i64;
-        while i < ccnt && i < 6i64 {
+        while i < ccnt {
             let cn: str = prm.relc_name[coff + i];
             wp.set_body(r, k, i, wx_class(x, rv, cn));
             i = i + 1i64;
@@ -1392,7 +1387,6 @@ fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
         return 0i32;
     }
     let pid: i64 = wx_edb_pid(x, wp, src);
-    if pid < 0i64 { ward_cap_err(); return 1i32; }
     let k: i64 = wp.add_body(r, pid);
     // Fill positions for every (rv, col) already interned (from `on` + head) —
     // first-seen order. An EDB occurrence is an UNaffected witness for its var.
@@ -1400,7 +1394,6 @@ fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
     let mut si: i64 = 0i64;
     while si < x.nvar {
         if str_eq(x.vv[si], rv) {
-            if o >= 6i64 { ward_cap_err(); return 1i32; }
             wp.set_body(r, k, o, wx_find(x, si));
             o = o + 1i64;
         }
@@ -1455,14 +1448,12 @@ fn ward_rule_join(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
 
 // Extract the whole rel program into `wp`. Predicate id == rel declaration index
 // (so "rel k as a head" and "rel k as a body atom" share affected positions).
-// Returns 0 (built), 1 (capacity), 2 (out-of-fragment) — errors already emitted.
+// Returns 0 (built) or 2 (out-of-fragment) — the error already emitted.
 fn ward_build(rels: RQRelArr, nr: i64, prm: &MacroParams,
               x: &mut WardX, wp: &mut WardProg, h: &Writ) -> i32 {
     let mut ri: i64 = 0i64;
     while ri < nr {
-        let cc: i64 = prm.rel_ccnt[ri];
-        if cc > 6i64 { ward_cap_err(); return 1i32; }
-        wp.add_pred(cc);
+        wp.add_pred(prm.rel_ccnt[ri]);
         ri = ri + 1i64;
     }
     let mut rel_i: i64 = 0i64;
@@ -1472,9 +1463,7 @@ fn ward_build(rels: RQRelArr, nr: i64, prm: &MacroParams,
         let nb: i64 = bodies.len();
         let mut bi: i64 = 0i64;
         while bi < nb {
-            if wp.nrule >= 16i64 { ward_cap_err(); return 1i32; }
-            let r: i64 = wp.nrule;
-            x.prel[r] = rel_i; x.pbod[r] = bi;
+            x.prel.push(rel_i); x.pbod.push(bi);
             wardx_reset(x);
             let body_any: WAny = bodies.body_any(bi);
             let q: RQuery = body_any.view::<RQuery>();
@@ -1531,7 +1520,7 @@ fn ward_verdict(rels: RQRelArr, nr: i64, prm: &MacroParams, h: &Writ) -> bool {
     let mut wx: WardX = wardx_new();
     let mut wp: WardProg = ward_prog_new();
     let bst: i32 = ward_build(rels, nr, prm, &mut wx, &mut wp, h);
-    if bst != 0i32 { return false; }   // capacity / out-of-fragment (already emitted).
+    if bst != 0i32 { return false; }   // out-of-fragment (already emitted).
     let res: WardResult = check_warded(&wp);
     if res.ok {
         let mut m: String = String::new();
