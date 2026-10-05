@@ -6818,6 +6818,7 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11969 -> 11970 (+1), NOIMPORTED 7410 -> 7411 (+1), TIERCOMMIT 205 -> 205 (+0) — (main, merged into `deem`) 2026-10-04: ADR 0030 S9 rows 1-2 fixture s9_decl_identity_impl_twins.
 #                ALL 11970 -> 11973 (+3), NOIMPORTED 7411 -> 7414 (+3), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04, branch `deem`: +1 pass wql_rel_wide_e2e (16 rels), +2 fail wql_rel_cap_overflow_fail, wql_agg_cap_overflow_fail (a fan overflow is a parse error).
 #                ALL 11973 -> 11973 (+0), NOIMPORTED 7414 -> 7414 (+0), TIERCOMMIT 205 -> 203 (-2) — (main, merged into `deem`) 2026-10-04: squeue #709 and #728 closed (pass fixtures, row files gone), +1 s9_generic_fn_value_from_bound, -1 trait_engine_test retired with mono's TraitEngine.
+#                ALL 11973 -> 11973 (+0), NOIMPORTED 7414 -> 7414 (+0), TIERCOMMIT 203 -> 203 (+0) — 2026-10-05, branch `deem`: +1 pass wql_rel_many_e2e (70 rels), -1 fail wql_rel_cap_overflow_fail (there is no rel cap left).
 REGISTRY-ALL         11973
 REGISTRY-NOIMPORTED  7414
 REGISTRY-TIERCOMMIT  203

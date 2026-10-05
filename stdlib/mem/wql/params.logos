@@ -57,6 +57,46 @@ pub fn vis_strip(fn_name: str) -> str {
     return fn_name;
 }
 
+// ── RelSet — a set of rel registry indices, of any size (2026-10-05) ─────────
+// The rel masks were `i64` with `1i64 << r`, which bounded a program at 63
+// rels. Words of 64 bits, grown on demand. `n` is the domain the set was
+// built over: a position at or past it is outside the set's knowledge (a rel
+// added later, e.g. a magic rel), and a reader asks `covers` before `has`.
+pub struct RelSet { pub w: Vec<i64>, pub n: i64 }
+
+pub fn relset_new(n: i64) -> RelSet { return RelSet { w: Vec::<i64>::new(), n: n }; }
+
+impl RelSet {
+    pub fn has(self: &RelSet, i: i64) -> bool {
+        if i < 0i64 { return false; }
+        let k: i64 = i / 64i64;
+        if k >= self.w.len() { return false; }
+        return (self.w[k] & (1i64 << (i % 64i64))) != 0i64;
+    }
+    pub fn covers(self: &RelSet, i: i64) -> bool { return i >= 0i64 && i < self.n; }
+    pub fn add(self: &mut RelSet, i: i64) {
+        if i < 0i64 { return; }
+        let k: i64 = i / 64i64;
+        while self.w.len() <= k { self.w.push(0i64); }
+        self.w[k] = self.w[k] | (1i64 << (i % 64i64));
+        if i >= self.n { self.n = i + 1i64; }
+    }
+    pub fn union_with(self: &mut RelSet, o: &RelSet) {
+        let mut k: i64 = 0i64;
+        while k < o.w.len() {
+            while self.w.len() <= k { self.w.push(0i64); }
+            self.w[k] = self.w[k] | o.w[k];
+            k = k + 1i64;
+        }
+        if o.n > self.n { self.n = o.n; }
+    }
+    pub fn is_empty(self: &RelSet) -> bool {
+        let mut k: i64 = 0i64;
+        while k < self.w.len() { if self.w[k] != 0i64 { return false; } k = k + 1i64; }
+        return true;
+    }
+}
+
 // ── The parsed parameter list ──────────────────────────────────────────────
 // The REL REGISTRY section (`rel_*` / `relc_*`) is filled by the wql! PROGRAM
 // walker (plan_walker) when the block declares `rel` blocks (slice B): the
@@ -288,7 +328,7 @@ pub struct MacroParams {
     pub fused_hidden: Vec<bool>,
     // Parse rels the entry cannot reach (`lower::live_rel_mask`), by position =
     // registry index: the prelude does not evaluate them.
-    pub rel_dead:      i64,
+    pub rel_dead:      RelSet,
     pub ndv_off: Vec<i64>,
     pub ndv_cnt: Vec<i64>,
     pub ndvc_col: Vec<str>,
@@ -384,7 +424,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_size_at: Vec::<String>::new(),
         fused_mapping: Vec::<str>::new(),
         fused_hidden:  Vec::<bool>::new(),
-        rel_dead:      0i64,
+        rel_dead:      relset_new(0i64),
         ndv_off:  Vec::<i64>::new(),
         ndv_cnt:  Vec::<i64>::new(),
         ndvc_col: Vec::<str>::new(),
@@ -946,7 +986,7 @@ pub struct RelScc {
     pub rec:      Vec<bool>,
     pub order:    Vec<i64>,
     pub nscc:     i64,
-    pub dep_mask: Vec<i64>,
+    pub dep_mask: Vec<RelSet>,
 }
 
 /// P3b — FLATTEN the condensation onto the rel registry, and DERIVE, once, the
@@ -1010,7 +1050,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
         let mut any_agg:    bool = false;
         let mut any_native: bool = false;
         let mut any_stream: bool = false;
-        let mut mask_u:     i64  = 0i64;
+        let mut mask_u:     RelSet = relset_new(0i64);
         let mut k: i64 = 0i64;
         while k < prm.rel_n {
             if scc.comp[k] == c {
@@ -1026,7 +1066,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
                 // question, so this does not follow the readings that moved to
                 // `rel_src_unmaterialized`.
                 if prm.rel_iter[k] || prm.rel_stream[k] { any_stream = true; }
-                mask_u = mask_u | scc.dep_mask[k];
+                mask_u.union_with(&scc.dep_mask[k]);
             }
             k = k + 1i64;
         }
@@ -1054,7 +1094,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
             why = "a member of the SCC is NATIVE (`&Writ`) — it has no parse-side bodies and no fixpoint at all; it is a pure function of one caller-owned container";
         } else if any_stream {
             why = "a member of the SCC STREAMS — it is bound to an iterator rather than to a slice, and a total the handle owns must be a materialized Vec";
-        } else if mask_u != 0i64 {
+        } else if !mask_u.is_empty() {
             why = "the recursive SCC DEPENDS ON A LOWER-STRATUM `rel` — that rel is itself derived, so maintaining this one across epochs means maintaining that one too and the handle would have to own both totals";
         }
         prm.rel_incr_why[r] = why;
@@ -1069,7 +1109,7 @@ pub fn rel_scc_new() -> RelScc {
         rec:      Vec::<bool>::new(),
         order:    Vec::<i64>::new(),
         nscc:     0i64,
-        dep_mask: Vec::<i64>::new(),
+        dep_mask: Vec::<RelSet>::new(),
     };
 }
 
@@ -1165,7 +1205,7 @@ pub fn compute_rel_scc(deps: &RelDeps, nr: i64) -> RelScc {
     // One entry per rel (`order`/`rec` are indexed by SCC, at most nr).
     let mut z: i64 = 0i64;
     while z < nr {
-        scc.comp.push(-1i64); scc.rec.push(false); scc.order.push(0i64); scc.dep_mask.push(0i64);
+        scc.comp.push(-1i64); scc.rec.push(false); scc.order.push(0i64); scc.dep_mask.push(relset_new(nr));
         z = z + 1i64;
     }
     // Transitive closure (flat nr×nr; reach[i*nr+j] ⇔ a path of length ≥ 1).
@@ -1222,7 +1262,7 @@ pub fn compute_rel_scc(deps: &RelDeps, nr: i64) -> RelScc {
         let f: i64 = deps.efrom[e2];
         let t: i64 = deps.eto[e2];
         if scc.comp[f] != scc.comp[t] {
-            scc.dep_mask[f] = scc.dep_mask[f] | (1i64 << t);
+            scc.dep_mask[f].add(t);
         }
         e2 = e2 + 1i64;
     }

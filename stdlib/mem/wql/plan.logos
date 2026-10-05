@@ -59,7 +59,7 @@ impl RQAgg {
 }
 
 // The materialized aggregate-column list — a fan-out of up to `RQAGG_MAX` RQAgg
-// edges at fixed slots (the SExprArr pattern from ir.logos). `count` = the arity.
+// edges as a list (the SExprArr pattern from ir.logos). `count` = the arity.
 // A LIST node (2026-10-05): the items are one Writ array in `aggs`, written
 // through the parser's `"list set_agg"` field or the setter below, and read
 // through the accessors — there is no slot to run out of.
@@ -271,7 +271,7 @@ impl RQGStepArr {
 }
 
 // The materialized join-step list — a fan-out of up to `RQJSTEP_MAX` RQJoinStep
-// edges at fixed slots (the RQAggArr pattern). `count` = the chain length.
+// edges as a list (the RQAggArr pattern). `count` = the chain length.
 // A LIST node (2026-10-05): the items are one Writ array in `steps`, written
 // through the parser's `"list set_step"` field or the setter below, and read
 // through the accessors — there is no slot to run out of.
@@ -491,7 +491,7 @@ impl RQRel {
     pub fn as_ref(self: RQRel) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized rel list — fan-out of up to RQREL_MAX RQRel edges,
+// The materialized rel list — a list of RQRel edges,
 // DECLARATION ORDER (the scoping + materialization order).
 // A LIST node (2026-10-05): the items are one Writ array in `rels`, written
 // through the parser's `"list set_rel"` field or the setter below, and read
@@ -501,9 +501,8 @@ pub schema RQRelArr : code(0x0012_0000_0000_0017) {
     rels: WAny = 1,
 }
 
-// The rel registry is dynamic (2026-10-05); what still bounds a program's rel
-// count is the `i64` rel masks (liveness, dep_mask, `1i64 << r`) — 63.
-pub fn RQREL_MAX() -> i64 { return 63i64; }
+// No cap (2026-10-05): the parser's rel list, the rel registry and the rel
+// sets are all dynamic.
 
 impl RQRelArr {
     pub fn len(self: &RQRelArr) -> i64 { return self.count as i64; }

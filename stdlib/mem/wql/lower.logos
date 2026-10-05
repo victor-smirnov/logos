@@ -435,7 +435,6 @@ fn gp_rel_append(prog_root: WAny, rel: RQRel, h: &Writ) -> bool {
     }
     let rels: RQRelArr = prog.rels_arr();
     let n: i64 = rels.len();
-    if n >= RQREL_MAX() { return false; }
     let mut relsm: RQRelArr = rq_fat_rels(fp.rels.any(), h);
     relsm.set_rel(n, rel.as_ref());
     relsm.set_len(n + 1i64);
@@ -1468,7 +1467,7 @@ fn ms_body_occs(root: WAny, ba: WAny, rname: str, item: MsCol, mrel: str, h: &Wr
 // the restricted bodies. Returns the rule; MS_DEMAND = rewritten. `occs` gets
 // the occurrences of other rels in the ORIGINAL bodies, for propagation.
 fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &Vec<i64>, nseeds: i64,
-            allow_moving: bool, slots: &mut i64, occs: &mut Vec<MsOcc>, nocc: &mut i64) -> i32 {
+            allow_moving: bool, occs: &mut Vec<MsOcc>, nocc: &mut i64) -> i32 {
     let prog: RQProgram = root.view::<RQProgram>();
     let rels: RQRelArr = prog.rels_arr();
     let rel: RQRel = rels.rel_at(ri);
@@ -1503,7 +1502,7 @@ fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &Vec<i64>, nseeds: i6
         }
         b = b + 1i64;
     }
-    if *slots < 1i64 || nseeds + nmove > RQBODY_MAX() { return MS_CAP(); }
+    if nseeds + nmove > RQBODY_MAX() { return MS_CAP(); }
     let mut mn: String = String::new();
     mn.push_str("__m_");
     mn.push_str(rel.name);
@@ -1556,7 +1555,6 @@ fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &Vec<i64>, nseeds: i6
     }
     mbm.set_len(nmb);
     if !gp_rel_append(root, mrel, h) { return MS_CAP(); }
-    *slots = *slots - 1i64;
     return MS_DEMAND();
 }
 
@@ -1565,7 +1563,7 @@ fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &Vec<i64>, nseeds: i6
 // every other rel's bodies.
 // Reads of `nm` by the entry and by every LIVE rel but `nm` itself (`live`, a
 // mask by rel position; a rel added after it was computed counts as live).
-fn ms_reads_all(root: WAny, nm: str, live: i64) -> i64 {
+fn ms_reads_all(root: WAny, nm: str, live: &RelSet) -> i64 {
     let prog: RQProgram = root.view::<RQProgram>();
     let mut n: i64 = ms_reads(prog.entry_any(), nm);
     if prog.has_rels() {
@@ -1573,7 +1571,7 @@ fn ms_reads_all(root: WAny, nm: str, live: i64) -> i64 {
         let mut i: i64 = 0i64;
         while i < rels.len() {
             if str_eq(rels.rel_at(i).name, nm) { i = i + 1i64; continue; }
-            if i < 63i64 && (live & (1i64 << i)) == 0i64 { i = i + 1i64; continue; }
+            if live.covers(i) && !live.has(i) { i = i + 1i64; continue; }
             let bj: RQBodyArr = rels.rel_at(i).bodies_arr();
             let mut b: i64 = 0i64;
             while b < bj.len() { n = n + ms_reads(bj.body_any(b), nm); b = b + 1i64; }
@@ -1606,16 +1604,16 @@ fn ms_col_index(root: WAny, ri: i64, col: str) -> i64 {
 // it out could turn an `Err` into an `Ok` (MS_FALLIBLE's argument).
 // Returns a mask by rel position; `fal` receives the fallible seeds that no
 // reader reaches.
-pub fn live_rel_mask(root: WAny, fal: &mut i64) -> i64 {
+pub fn live_rel_mask(root: WAny, fal: &mut RelSet) -> RelSet {
     let prog: RQProgram = root.view::<RQProgram>();
-    *fal = 0i64;
-    if !prog.has_rels() { return 0i64; }
+    if !prog.has_rels() { *fal = relset_new(0i64); return relset_new(0i64); }
     let rels: RQRelArr = prog.rels_arr();
     let n: i64 = rels.len();
-    let mut live: i64 = 0i64;
+    *fal = relset_new(n);
+    let mut live: RelSet = relset_new(n);
     let mut i: i64 = 0i64;
     while i < n {
-        if ms_reads(prog.entry_any(), rels.rel_at(i).name) > 0i64 { live = live | (1i64 << i); }
+        if ms_reads(prog.entry_any(), rels.rel_at(i).name) > 0i64 { live.add(i); }
         i = i + 1i64;
     }
     let mut pass: i64 = 0i64;
@@ -1625,14 +1623,14 @@ pub fn live_rel_mask(root: WAny, fal: &mut i64) -> i64 {
             changed = false;
             let mut r: i64 = 0i64;
             while r < n {
-                if (live & (1i64 << r)) != 0i64 {
+                if live.has(r) {
                     let bj: RQBodyArr = rels.rel_at(r).bodies_arr();
                     let mut b: i64 = 0i64;
                     while b < bj.len() {
                         let mut t: i64 = 0i64;
                         while t < n {
-                            if (live & (1i64 << t)) == 0i64 && ms_reads(bj.body_any(b), rels.rel_at(t).name) > 0i64 {
-                                live = live | (1i64 << t);
+                            if !live.has(t) && ms_reads(bj.body_any(b), rels.rel_at(t).name) > 0i64 {
+                                live.add(t);
                                 changed = true;
                             }
                             t = t + 1i64;
@@ -1647,17 +1645,17 @@ pub fn live_rel_mask(root: WAny, fal: &mut i64) -> i64 {
             // the fallible seeds, then their own readers' closure
             let mut f: i64 = 0i64;
             while f < n {
-                if (live & (1i64 << f)) == 0i64 {
+                if !live.has(f) {
                     let bj2: RQBodyArr = rels.rel_at(f).bodies_arr();
                     let mut b2: i64 = 0i64;
                     while b2 < bj2.len() {
-                        if ms_body_fallible(bj2.body_any(b2)) { *fal = *fal | (1i64 << f); }
+                        if ms_body_fallible(bj2.body_any(b2)) { fal.add(f); }
                         b2 = b2 + 1i64;
                     }
                 }
                 f = f + 1i64;
             }
-            live = live | *fal;
+            live.union_with(fal);
         }
         pass = pass + 1i64;
     }
@@ -1672,10 +1670,10 @@ pub fn body_reads_its_head(root: WAny, qany: WAny, head: str) -> bool {
     let rels: RQRelArr = prog.rels_arr();
     let n: i64 = rels.len();
     // seen: the rels this body reaches
-    let mut seen: i64 = 0i64;
+    let mut seen: RelSet = relset_new(n);
     let mut i: i64 = 0i64;
     while i < n {
-        if ms_reads(qany, rels.rel_at(i).name) > 0i64 { seen = seen | (1i64 << i); }
+        if ms_reads(qany, rels.rel_at(i).name) > 0i64 { seen.add(i); }
         i = i + 1i64;
     }
     let mut changed: bool = true;
@@ -1683,14 +1681,14 @@ pub fn body_reads_its_head(root: WAny, qany: WAny, head: str) -> bool {
         changed = false;
         let mut r: i64 = 0i64;
         while r < n {
-            if (seen & (1i64 << r)) != 0i64 {
+            if seen.has(r) {
                 let bj: RQBodyArr = rels.rel_at(r).bodies_arr();
                 let mut b: i64 = 0i64;
                 while b < bj.len() {
                     let mut t: i64 = 0i64;
                     while t < n {
-                        if (seen & (1i64 << t)) == 0i64 && ms_reads(bj.body_any(b), rels.rel_at(t).name) > 0i64 {
-                            seen = seen | (1i64 << t);
+                        if !seen.has(t) && ms_reads(bj.body_any(b), rels.rel_at(t).name) > 0i64 {
+                            seen.add(t);
                             changed = true;
                         }
                         t = t + 1i64;
@@ -1703,7 +1701,7 @@ pub fn body_reads_its_head(root: WAny, qany: WAny, head: str) -> bool {
     }
     let mut h: i64 = 0i64;
     while h < n {
-        if str_eq(rels.rel_at(h).name, head) && (seen & (1i64 << h)) != 0i64 { return true; }
+        if str_eq(rels.rel_at(h).name, head) && seen.has(h) { return true; }
         h = h + 1i64;
     }
     return false;
@@ -1818,7 +1816,6 @@ pub fn plan_caps_ok(root: WAny, out: &mut String) -> bool {
     let prog: RQProgram = root.view::<RQProgram>();
     if prog.has_rels() {
         let rels: RQRelArr = prog.rels_arr();
-        if rels.len() > RQREL_MAX() { return pc_fail(out, "a program's rel list", RQREL_MAX(), rels.len()); }
         let mut r: i64 = 0i64;
         while r < rels.len() {
             let rel: RQRel = rels.rel_at(r);
@@ -1850,7 +1847,7 @@ pub fn prog_rel_name(root: WAny, i: i64) -> str {
 /// every rel that demand reaches through the rel graph. Returns the number of
 /// decisions written to `out` (0 = no rel was considered).
 pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool,
-                     allow_joinkey: bool, allow_prop: bool, natives: i64, live: i64,
+                     allow_joinkey: bool, allow_prop: bool, live: &RelSet,
                      out: &mut MsDecisions) -> i64 {
     let prog: RQProgram = root.view::<RQProgram>();
     if !prog.has_rels() { return 0i64; }
@@ -1865,12 +1862,6 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
     // the entry's own antecedents
     if ms_reads_all(root, rname, live) != 1i64 { ms_note(out, rname, tg.col, MS_SHARED()); return out.n; }
     if ms_entry_fallible(prog.entry_any()) { ms_note(out, rname, tg.col, MS_FALLIBLE()); return out.n; }
-    // The rel budget is shared: the program's rels, the native sources the walk
-    // registers after them (`natives`), `__unit` when any fact needs it (a
-    // constant seed is one), and one `__m_<rel>` per demanded rel.
-    let mut unit: i64 = 0i64;
-    if tg.ssrc.len() == 0i64 || ms_has_fact(root) { unit = 1i64; }
-    let mut slots: i64 = RQREL_MAX() - prog.rels_arr().len() - natives - unit;
     // the entry's seed
     let seed: RQSimple = h.make::<RQSimple>();
     seed.has_where = false;
@@ -1900,7 +1891,7 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
         let mut occs: Vec<MsOcc> = Vec::<MsOcc>::new();
         let mut nocc: i64 = 0i64;
         let nsd: i64 = ws[w].len();
-        let rule: i32 = ms_apply(root, h, wr[w], wc[w], &ws[w], nsd, allow_moving, &mut slots, &mut occs, &mut nocc);
+        let rule: i32 = ms_apply(root, h, wr[w], wc[w], &ws[w], nsd, allow_moving, &mut occs, &mut nocc);
         ms_note(out, rr.name, colname, rule);
         if rule == MS_DEMAND() && allow_prop {
             // propagate to each rel S whose every occurrence here is bound alike

@@ -1428,7 +1428,7 @@ pub fn ms_render(r: i32) -> str {
     if r == MS_NONLINEAR() { return "a body reads the rel twice (non-linear recursion); each occurrence would need its own demand rule, which this rewrite does not derive yet"; }
     if r == MS_MOVES_COL() { return "a recursive body moves the bound column in a shape wider than one other atom joined by one equality on that column (or with a WHERE), so the demand it passes to its occurrence is not one column this rewrite can project"; }
     if r == MS_SEL_SHAPE() { return "a non-recursive body computes the bound column (or is a fact) instead of copying a plain column, and the restriction is written only as a join on a plain column"; }
-    if r == MS_CAP()       { return "no free rel slot for `__m_<rel>` or no free join-step slot in a body (8 each)"; }
+    if r == MS_CAP()       { return "a body of the rel has no free join-step slot for the magic join (a chain holds 8 steps), or the magic rel would need more seed bodies than a rel holds (8)"; }
     if r == MS_FALLIBLE()  { return "a body of the rel, or the entry's WHERE / ON, evaluates checked arithmetic (`+ - * / %`, negation), which returns an `ElError` on overflow or division by zero: the naive program evaluates it on rows outside the demand, so restricting the rows could turn an `Err` into an `Ok`. Soufflé's MST excludes order-dependent functors (`/`, `%`) for the same reason; here every integer operator is checked, so all of them count"; }
     if r == MS_MOVING_OFF() { return "a recursive body moves the bound column, and `LOGOS_DEEM_NO_DEMAND=moving` turns off the recursive magic rule that shape needs"; }
     return "";

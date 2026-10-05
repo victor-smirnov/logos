@@ -249,25 +249,27 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
             allow_prop = !str_contains(v, "propagate");
         }
     }
-    let mut nnat: i64 = 0i64;   // natspec entries: native sources share the rel budget
-    let mut ni: i64 = 0i64;
-    while ni < natspec.len() { if str_byte_at(natspec, ni) == 59u8 { nnat = nnat + 1i64; } ni = ni + 1i64; }
     // LIVE RELS: a rel no reader reaches from the entry is not evaluated
     // (`lower::live_rel_mask`), and it is no reader for the demand rewrite.
     // `LOGOS_DEEM_NO_PRUNE` (at compile time) evaluates every rel, to measure it.
-    let mut fal: i64 = 0i64;
-    let mut live: i64 = live_rel_mask(root, &mut fal);
+    let mut fal: RelSet = relset_new(0i64);
+    let mut live: RelSet = live_rel_mask(root, &mut fal);
     let mut np: String = String::new();
     np.push_str("LOGOS_DEEM_NO_PRUNE");
     np.push_u8(0u8);
     let nrel0: i64 = prog_rel_count(root);
-    if unsafe { getenv(np.as_ptr()) } != 0 as *const u8 { live = (1i64 << nrel0) - 1i64; }
-    prm.rel_dead = ((1i64 << nrel0) - 1i64) & !live;
+    let all: bool = unsafe { getenv(np.as_ptr()) } != 0 as *const u8;
+    prm.rel_dead = relset_new(nrel0);
+    let mut pd: i64 = 0i64;
+    while pd < nrel0 {
+        if all { live.add(pd); } else if !live.has(pd) { prm.rel_dead.add(pd); }
+        pd = pd + 1i64;
+    }
     let mut pi: i64 = 0i64;
     while pi < nrel0 {
         let rn: str = prog_rel_name(root, pi);
-        let dead: bool = (prm.rel_dead & (1i64 << pi)) != 0i64;
-        let kept: bool = (fal & (1i64 << pi)) != 0i64;
+        let dead: bool = prm.rel_dead.has(pi);
+        let kept: bool = fal.has(pi);
         if dead {
             plan_trace("live rels", "not evaluated", rn, "no reader reaches the entry: neither the entry nor a rel it reads (positively, under `anti join`, or in an aggregate) reads this rel, so its rows cannot reach the answer — its bodies are checked, and `_run` does not compute it (Soufflé's RemoveRedundantRelations)");
         } else if kept {
@@ -282,7 +284,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
         }
         pi = pi + 1i64;
     }
-    if !demand_off && magic_program(root, &h, &prm, allow_moving, allow_joinkey, allow_prop, nnat, live, &mut msd) > 0i64 {
+    if !demand_off && magic_program(root, &h, &prm, allow_moving, allow_joinkey, allow_prop, &live, &mut msd) > 0i64 {
         let mut di: i64 = 0i64;
         while di < msd.n {
             plan_trace("demand", ms_verdict(msd.rule[di]), msd.rel[di], ms_render(msd.rule[di]));

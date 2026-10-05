@@ -11604,10 +11604,10 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
 // push_call_args), so signature and call site cannot drift.
 // It appends to the PARAM-LIST text, not to an item buffer: the rel fns are
 // quotes now, and their parameter list is one string the shell parses.
-fn push_dep_params(out: &mut String, prm: &MacroParams, mask: i64) {
+fn push_dep_params(out: &mut String, prm: &MacroParams, mask: &RelSet) {
     let mut j: i64 = 0i64;
     while j < prm.rel_n {
-        if (mask & (1i64 << j)) != 0i64 {
+        if mask.has(j) {
             out.push_str(", ");
             out.push_str(string_as_str(&prm.rel_srcs[j]));
             out.push_str(": &[");
@@ -11671,7 +11671,7 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
     // The dependency slices are PARAMS, so they join the param-list text.
     let mut ps: String = String::new();
     ps.push_str(params_text);
-    push_dep_params(&mut ps, prm, scc.dep_mask[ri]);
+    push_dep_params(&mut ps, prm, &scc.dep_mask[ri]);
     let mut rty: String = String::new();
     rty.push_str("Result<Vec<");
     rty.push_str(row_ty);
@@ -11976,12 +11976,12 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     // Members (declaration order) + the union out-of-SCC dep mask.
     let mut mem: Vec<i64> = Vec::<i64>::new();
     let mut nm: i64 = 0i64;
-    let mut mask: i64 = 0i64;
+    let mut mask: RelSet = relset_new(prm.rel_n);
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
         if scc.comp[r] == c {
             mem.push(r); nm = nm + 1i64;
-            mask = mask | scc.dep_mask[r];
+            mask.union_with(&scc.dep_mask[r]);
         }
         r = r + 1i64;
     }
@@ -11999,7 +11999,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     if incr { hn.push_str("_i"); }
     let mut ps: String = String::new();
     ps.push_str(params_text);
-    push_dep_params(&mut ps, prm, mask);
+    push_dep_params(&mut ps, prm, &mask);
     let mut m0: i64 = 0i64;
     while m0 < nm {
         ps.push_str(", __tot_");
@@ -12799,7 +12799,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                    h: &Writ) -> bool {
     let mut mem: Vec<i64> = Vec::<i64>::new();
     let mut nm: i64 = 0i64;
-    let mut mask: i64 = 0i64;
+    let mut mask: RelSet = relset_new(prm.rel_n);
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
         if scc.comp[r] == c {
@@ -12808,7 +12808,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
             // capability.
             if prm.rel_is_agg[r] { return true; }
             mem.push(r); nm = nm + 1i64;
-            mask = mask | scc.dep_mask[r];
+            mask.union_with(&scc.dep_mask[r]);
         }
         r = r + 1i64;
     }
@@ -12822,7 +12822,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     hn.push_str("_od");
     let mut ps: String = String::new();
     ps.push_str(params_text);
-    push_dep_params(&mut ps, prm, mask);
+    push_dep_params(&mut ps, prm, &mask);
     let mut m0: i64 = 0i64;
     while m0 < nm {
         ps.push_str(", __rd_");
@@ -12943,7 +12943,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     pn.push_str("_odp");
     let mut pps: String = String::new();
     pps.push_str(params_text);
-    push_dep_params(&mut pps, prm, mask);
+    push_dep_params(&mut pps, prm, &mask);
     let mut m5: i64 = 0i64;
     while m5 < nm {
         pps.push_str(", __od_");

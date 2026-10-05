@@ -1947,7 +1947,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             let mut alive: bool = false;
             let mut r0: i64 = 0i64;
             while r0 < prm.rel_n {
-                if scc.comp[r0] == c && (r0 >= 63i64 || (prm.rel_dead & (1i64 << r0)) == 0i64) { alive = true; }
+                if scc.comp[r0] == c && !prm.rel_dead.has(r0) { alive = true; }
                 r0 = r0 + 1i64;
             }
             if !alive {
@@ -1970,7 +1970,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
 // Push the wql! param names + the `__rel_<j>_sl` slices selected by `mask`
 // (ascending rel index) as a call ARGUMENT list (no parens) — mirrors the
 // helper-fn parameter lists emit_rel_fns builds from the same masks.
-fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
+fn push_call_args(out: &mut String, prm: &MacroParams, mask: &RelSet) {
     let mut first: bool = true;
     let mut a: i64 = 0i64;
     while a < prm.n {
@@ -1981,7 +1981,7 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
     }
     let mut j: i64 = 0i64;
     while j < prm.rel_n {
-        if (mask & (1i64 << j)) != 0i64 {
+        if mask.has(j) {
             if !first { out.push_str(", "); }
             out.push_str(string_as_str(&prm.rel_srcs[j]));
             first = false;
@@ -3025,7 +3025,7 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
     let mut ri: i64 = 0i64;
     while ri < ap.n {
         // A rel the prelude does not evaluate has no landing (`MG_DEAD`).
-        if ri < 63i64 && (prm.rel_dead & (1i64 << ri)) != 0i64 {
+        if prm.rel_dead.has(ri) {
             ap.mgnd[ri] = String::from_str(MG_DEAD());
             ri = ri + 1i64;
             continue;
@@ -3574,7 +3574,7 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
     prelude.push_str("_rel_");
     prelude.push_str(prm.rel_names[r]);
     prelude.push_str("(");
-    push_call_args(prelude, prm, scc.dep_mask[r]);
+    push_call_args(prelude, prm, &scc.dep_mask[r]);
     // Result-returning rel fn (error-returning EL arithmetic): unwrap with `?`
     // — a math fault in a rel body propagates to the entry fn's Result.
     prelude.push_str(")?;\n");
@@ -3616,10 +3616,10 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
         r = r + 1i64;
     }
     // Union of the members' out-of-SCC dep masks — the SCC fn's dep params.
-    let mut mask: i64 = 0i64;
+    let mut mask: RelSet = relset_new(prm.rel_n);
     let mut r2: i64 = 0i64;
     while r2 < prm.rel_n {
-        if scc.comp[r2] == c { mask = mask | scc.dep_mask[r2]; }
+        if scc.comp[r2] == c { mask.union_with(&scc.dep_mask[r2]); }
         r2 = r2 + 1i64;
     }
     prelude.push_str("    __wql_");
@@ -3627,7 +3627,7 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
     prelude.push_str("_scc");
     prelude.push_i64(c);
     prelude.push_str("(");
-    push_call_args(prelude, prm, mask);
+    push_call_args(prelude, prm, &mask);
     let mut r3: i64 = 0i64;
     while r3 < prm.rel_n {
         if scc.comp[r3] == c {

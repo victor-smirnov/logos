@@ -1,0 +1,92 @@
+// SEVENTY RELS (2026-10-05): the program's rel list, the rel registry and the
+// rel sets are dynamic — the caps were 8 (slots), then 16, then 63 (`i64`
+// masks). Seventy chained rels, every one live, answer like the base.
+//
+// exit 0 = the base's positive rows.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct X { pub k: i64 }
+
+pub deem many(xs: &[X]) {
+    rel r1(a: i64) { from xs x select x.k; }
+    rel r2(a: i64) { from r1 x where x.a > 0 select x.a; }
+    rel r3(a: i64) { from r2 x where x.a > 0 select x.a; }
+    rel r4(a: i64) { from r3 x where x.a > 0 select x.a; }
+    rel r5(a: i64) { from r4 x where x.a > 0 select x.a; }
+    rel r6(a: i64) { from r5 x where x.a > 0 select x.a; }
+    rel r7(a: i64) { from r6 x where x.a > 0 select x.a; }
+    rel r8(a: i64) { from r7 x where x.a > 0 select x.a; }
+    rel r9(a: i64) { from r8 x where x.a > 0 select x.a; }
+    rel r10(a: i64) { from r9 x where x.a > 0 select x.a; }
+    rel r11(a: i64) { from r10 x where x.a > 0 select x.a; }
+    rel r12(a: i64) { from r11 x where x.a > 0 select x.a; }
+    rel r13(a: i64) { from r12 x where x.a > 0 select x.a; }
+    rel r14(a: i64) { from r13 x where x.a > 0 select x.a; }
+    rel r15(a: i64) { from r14 x where x.a > 0 select x.a; }
+    rel r16(a: i64) { from r15 x where x.a > 0 select x.a; }
+    rel r17(a: i64) { from r16 x where x.a > 0 select x.a; }
+    rel r18(a: i64) { from r17 x where x.a > 0 select x.a; }
+    rel r19(a: i64) { from r18 x where x.a > 0 select x.a; }
+    rel r20(a: i64) { from r19 x where x.a > 0 select x.a; }
+    rel r21(a: i64) { from r20 x where x.a > 0 select x.a; }
+    rel r22(a: i64) { from r21 x where x.a > 0 select x.a; }
+    rel r23(a: i64) { from r22 x where x.a > 0 select x.a; }
+    rel r24(a: i64) { from r23 x where x.a > 0 select x.a; }
+    rel r25(a: i64) { from r24 x where x.a > 0 select x.a; }
+    rel r26(a: i64) { from r25 x where x.a > 0 select x.a; }
+    rel r27(a: i64) { from r26 x where x.a > 0 select x.a; }
+    rel r28(a: i64) { from r27 x where x.a > 0 select x.a; }
+    rel r29(a: i64) { from r28 x where x.a > 0 select x.a; }
+    rel r30(a: i64) { from r29 x where x.a > 0 select x.a; }
+    rel r31(a: i64) { from r30 x where x.a > 0 select x.a; }
+    rel r32(a: i64) { from r31 x where x.a > 0 select x.a; }
+    rel r33(a: i64) { from r32 x where x.a > 0 select x.a; }
+    rel r34(a: i64) { from r33 x where x.a > 0 select x.a; }
+    rel r35(a: i64) { from r34 x where x.a > 0 select x.a; }
+    rel r36(a: i64) { from r35 x where x.a > 0 select x.a; }
+    rel r37(a: i64) { from r36 x where x.a > 0 select x.a; }
+    rel r38(a: i64) { from r37 x where x.a > 0 select x.a; }
+    rel r39(a: i64) { from r38 x where x.a > 0 select x.a; }
+    rel r40(a: i64) { from r39 x where x.a > 0 select x.a; }
+    rel r41(a: i64) { from r40 x where x.a > 0 select x.a; }
+    rel r42(a: i64) { from r41 x where x.a > 0 select x.a; }
+    rel r43(a: i64) { from r42 x where x.a > 0 select x.a; }
+    rel r44(a: i64) { from r43 x where x.a > 0 select x.a; }
+    rel r45(a: i64) { from r44 x where x.a > 0 select x.a; }
+    rel r46(a: i64) { from r45 x where x.a > 0 select x.a; }
+    rel r47(a: i64) { from r46 x where x.a > 0 select x.a; }
+    rel r48(a: i64) { from r47 x where x.a > 0 select x.a; }
+    rel r49(a: i64) { from r48 x where x.a > 0 select x.a; }
+    rel r50(a: i64) { from r49 x where x.a > 0 select x.a; }
+    rel r51(a: i64) { from r50 x where x.a > 0 select x.a; }
+    rel r52(a: i64) { from r51 x where x.a > 0 select x.a; }
+    rel r53(a: i64) { from r52 x where x.a > 0 select x.a; }
+    rel r54(a: i64) { from r53 x where x.a > 0 select x.a; }
+    rel r55(a: i64) { from r54 x where x.a > 0 select x.a; }
+    rel r56(a: i64) { from r55 x where x.a > 0 select x.a; }
+    rel r57(a: i64) { from r56 x where x.a > 0 select x.a; }
+    rel r58(a: i64) { from r57 x where x.a > 0 select x.a; }
+    rel r59(a: i64) { from r58 x where x.a > 0 select x.a; }
+    rel r60(a: i64) { from r59 x where x.a > 0 select x.a; }
+    rel r61(a: i64) { from r60 x where x.a > 0 select x.a; }
+    rel r62(a: i64) { from r61 x where x.a > 0 select x.a; }
+    rel r63(a: i64) { from r62 x where x.a > 0 select x.a; }
+    rel r64(a: i64) { from r63 x where x.a > 0 select x.a; }
+    rel r65(a: i64) { from r64 x where x.a > 0 select x.a; }
+    rel r66(a: i64) { from r65 x where x.a > 0 select x.a; }
+    rel r67(a: i64) { from r66 x where x.a > 0 select x.a; }
+    rel r68(a: i64) { from r67 x where x.a > 0 select x.a; }
+    rel r69(a: i64) { from r68 x where x.a > 0 select x.a; }
+    rel r70(a: i64) { from r69 x where x.a > 0 select x.a; }
+    from r70 x select x.a
+}
+
+fn main() -> i32 {
+    let xs: [X; 3] = [X { k: 3i64 }, X { k: 0i64 }, X { k: 5i64 }];
+    let r: Vec<i64> = many(&xs[..]).unwrap();
+    if r.len() != 2i64 { return 1i32; }
+    return 0i32;
+}
