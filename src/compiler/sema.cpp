@@ -3997,12 +3997,8 @@ void SemaChecker::compute_auto_copy_types() {
             default: return false;
         }
     };
-    auto has_drop_impl = [&](const std::string& bare_name) {
-        // Drop registration: collect_impl inserts into impls_ keyed
-        // "Drop::<target>". Plain bare-name lookup matches both
-        // `impl Drop for X` and pkg-qualified variants.
-        return has_impl("Drop", bare_name) != 0;
-    };
+    // ADR 0030 S9: the type's own Drop impl, by C-OBL (a generic impl by its pattern).
+    auto has_drop_impl = [&](TypeRef t) { return implements_lang_("drop", t); };
     // is_copy_field: does this field-type qualify as Copy given the current
     // pending-copy set? Recurses into struct/tuple shapes; bottoms out on
     // primitive kinds or the pending set.
@@ -4043,7 +4039,7 @@ void SemaChecker::compute_auto_copy_types() {
                 if (eit == enums_.end())
                     eit = enums_.find(type_id({}, TypeRef(t).enum_name()));   // the root's
                 if (eit == enums_.end()) return false;  // unknown — conservative
-                if (has_drop_impl(std::string(TypeRef(t).enum_name()))) return false;
+                if (has_drop_impl(t)) return false;
                 auto targs = TypeRef(t).type_args();
                 auto& tparams = eit->second.type_params;
                 auto concretize = [&](TypeRef pt) -> TypeRef {
@@ -4094,7 +4090,13 @@ void SemaChecker::compute_auto_copy_types() {
             // Spec / annotation / Writ datatypes — leave to manual `impl Copy`.
             if (!info.is_data_plain) continue;
             if (info.fields.empty()) continue;  // zero-sized; skip (Logos treats odd)
-            if (has_drop_impl(bare)) continue;
+            {   // the struct as its own generic type: `impl<T> Drop for S<T>` answers it
+                std::vector<TypeRef> own;
+                for (auto& tp : info.type_params) own.push_back(make_typevar(tp.name));
+                TypeRef self_t = own.empty() ? make_struct_type(bare, defs_[skey].package)
+                                             : make_generic_struct(bare, std::move(own), {}, defs_[skey].package);
+                if (has_drop_impl(self_t)) continue;
+            }
             bool all_copy = true;
             for (auto& f : info.fields) {
                 if (!is_copy_field(f.type)) { all_copy = false; break; }
@@ -4196,21 +4198,12 @@ void SemaChecker::compute_auto_copy_types() {
                 return stable_ok(ft.elem(), why);
             case K::Struct:
             case K::ZonedStruct: {
-                // KEY-IDENTITY: OPEN #88 — `impls_` is keyed `Trait::Target`
-                // with a BARE target, so a user struct sharing a stdlib name
-                // inherits that name's StableLayout verdict (and is refused
-                // when the stdlib homonym lacks one). ⚠ The FIRST probe below
-                // launders the name through the local `n`, so this lint does
-                // not see it: `key_identity_lint.sh` records that blind spot
-                // and names this exact site. Do not read the census count for
-                // this statement as three of three.
-                std::string n{ft.struct_name()};
-                if (has_impl("StableLayout", n) ||
-                    has_impl("StableLayout", concrete_struct_name(ft)) ||
-                    has_impl("StableLayout", type_str(ft)))
-                    return true;
+                // ADR 0030 S9: the struct's own StableLayout impl, by C-OBL —
+                // a user struct sharing a stdlib name no longer inherits the
+                // homonym's verdict (#88's bare-target key is gone here).
+                if (implements_lang_("stable_layout", ft)) return true;
                 if (why) *why = std::format(
-                    "struct '{}' has no StableLayout impl", n);
+                    "struct '{}' has no StableLayout impl", std::string(ft.struct_name()));
                 return false;
             }
             default:
@@ -5801,7 +5794,7 @@ TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
     // MUST `impl SelfDescribing`. Without it the length would silently read 0.
     // (A self-describing DST used only through raw `*mut`/byte arithmetic — the
     // Segment pattern — never reaches here, so it is not forced to impl it.)
-    if (!has_impl("SelfDescribing", sn))
+    if (!implements_lang_("self_describing", p))
         error(std::format(
             "#[self_describing] struct '{0}' is borrowed as a fat reference "
             "(`&{0}`) but does not implement `SelfDescribing` — its "

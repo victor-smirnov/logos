@@ -14147,10 +14147,7 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
     auto type_name = concrete_struct_name(arr_type);
     auto base_name = std::string(TypeRef(arr_type).struct_name());
     // For `&mut f[i]` we need IndexMut; for `&f[i]`, Index is enough.
-    const char* trait = is_mut ? "IndexMut" : "Index";
-    bool has_trait = has_impl(std::string(trait), type_name) ||
-                     (!base_name.empty() &&
-                      has_impl(std::string(trait), base_name));
+    bool has_trait = implements_lang_(is_mut ? "index_mut" : "index", arr_type);
     if (!has_trait) {
         // `&mut f[i]` but no IndexMut impl — not a user index-place we can
         // honour. Fall through (generic path will diagnose / copy).
@@ -14375,11 +14372,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     for (int _ad_step = 0; _ad_step < 4 &&
          TypeRef(arr_type).kind() == LogosType::Kind::Struct; ++_ad_step) {
         {
-            auto _tn = concrete_struct_name(arr_type);
-            auto _bn = std::string(TypeRef(arr_type).struct_name());
-            bool _has_index = has_impl("Index", _tn) ||
-                              (!_bn.empty() && has_impl("Index", _bn));
-            if (_has_index) break;
+            if (implements_lang_("index", arr_type)) break;
         }
         bool deref_only = false;
         auto stepped = emit_generic_deref_call(std::move(recv), /*want_mut=*/mut_ctx,
@@ -14400,14 +14393,12 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     if (TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
         auto type_name = concrete_struct_name(arr_type);
         auto base_name = std::string(TypeRef(arr_type).struct_name());
-        bool has_index = has_impl("Index", type_name) ||
-                         (!base_name.empty() && has_impl("Index", base_name));
+        bool has_index = implements_lang_("index", arr_type);
         // In a mutable-use position the step is `index_mut` (IndexMut), and
         // an `Index`-only type is not a writable place (E0594) — the same
         // refusal `lower_place_assign` gives a bare-variable receiver.
         const char* itr = mut_ctx ? "IndexMut" : "Index";
-        bool has_trait = has_impl(std::string(itr), type_name) ||
-                         (!base_name.empty() && has_impl(std::string(itr), base_name));
+        bool has_trait = implements_lang_(mut_ctx ? "index_mut" : "index", arr_type);
         if (has_index && mut_ctx && !has_trait) {
             error(std::format("cannot assign to index of '{}': type '{}' implements "
                               "`Index` but not `IndexMut`", type_str(arr_type),
@@ -18947,9 +18938,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     // Impls key either on the bare struct base (`Reset::Foo`,
                     // for `impl<T> Reset for Foo<T>`) or the concrete-spec name
                     // (`Reset::Box2$G1$i64`, for `impl Reset for Box2<i64>`).
-                    if (!hbare.empty() &&
-                        (has_impl(cname_str, hbare) ||
-                         (!hn.empty() && has_impl(cname_str, hn)))) {
+                    if (!hbare.empty() && implements_(cname_str, expected_)) {
                         SemaSubst self_subst;
                         self_subst["Self"] = expected_;
                         TypeRef ret_t = subst_type_sema(tm->ret_type, self_subst);
@@ -27959,7 +27948,7 @@ TypeRef SemaChecker::lit_select_by_trait_(const std::string& trait) {
     TypeRef found = nullptr;
     for (auto k : kinds) {
         TypeRef t = prim(k);
-        if (!has_impl(trait, type_str(t))) continue;
+        if (!implements_(trait, t)) continue;
         if (found) return nullptr;
         found = t;
     }

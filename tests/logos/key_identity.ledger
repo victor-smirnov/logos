@@ -728,7 +728,9 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # lower_place_assign asks whether an indexed receiver is an `IndexMut` struct (the written element is
 # then a live `&mut` referent), and index_output_type_ reads `Index`'s Output off the impl — the same
 # trait spellings over the same concrete/base struct names try_index_mut_assign already passes.
-#ARGSCAN has_impl 19 26a90fb6
+# 2026-10-05, ADR 0030 S9 row 4: has_impl() 19 -> RETIRED — its bare trait-name probes ("Drop",
+# "StableLayout", "SelfDescribing", "Index", "IndexMut", the op-assign traits) ask C-OBL by the lang
+# item's identity (implements_lang_) or with the type (implements_); no bare name reaches has_impl().
 # 2026-10-01: impl_key 7 -> 9, roster 37c1f856 -> fabf7587. deref_target_type_ (the type-level Deref step
 # argument inference reads through, `&Vec<i32>` at `&[T]`) asks `Deref` over the concrete then the base
 # struct name — the same two probes the method autoderef loop already makes.

@@ -540,6 +540,15 @@ template and the call vanished; it is now an instantiation whose type
 arguments are inference variables, solved by unifying its signature with the
 `F: Fn(A…) -> R` bound it meets (fixture `s9_generic_fn_value_from_bound`,
 imported `autobind-g2`).
+The bare-name impl probes ask C-OBL too: `Drop` / `StableLayout` /
+`SelfDescribing` / `Index` / `IndexMut` by the lang item's identity
+(`implements_lang_`), the op-assign traits, `Tr::make()` against the expected
+type and the integer-literal trait selection with the type (`implements_`) —
+`has_impl()` is handed no bare trait name any more (key-identity ARGSCAN row
+retired), and a user struct sharing a stdlib name no longer inherits the
+homonym's `StableLayout` verdict (#88's bare-target key). Left with row 5: the
+three assoc-const trait scans and the two projection fallbacks keyed by
+spelled assoc keys.
 
 ## S0–S7 gap audit (2026-10-01)
 

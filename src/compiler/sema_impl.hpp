@@ -6922,6 +6922,13 @@ private:
     const obl::Env& obl_env_();
     // `self: trait<args>` by C-OBL, the trait named as written in this scope.
     bool implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args = {});
+    // The same for a lang item (`#[lang = "index_mut"]`), by its identity.
+    bool implements_lang_(std::string_view lang, TypeRef self) {
+        const LangItem* li = lang_item(lang);
+        if (!li || !self) return false;
+        return obl::select(obl_table_now_(), obl_env_(), li->package.empty() ? li->name : li->package + "::" + li->name,
+                           self, {}).holds();
+    }
     std::string bound_identity_(const TraitBound& b) const {
         if (b.trait_def) return defs_.path(b.trait_def);
         if (!b.identity_trait.empty()) return b.identity_trait;
