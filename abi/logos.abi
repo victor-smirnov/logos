@@ -13748,6 +13748,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__as_ref__g__ref_Vec$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__clear__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$bool__deref__g__ref_Vec$G1$T
@@ -13841,6 +13842,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__as_ref__g__ref_Vec$G1$
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__clear__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__deref__g__ref_Vec$G1$T
@@ -15041,6 +15043,10 @@ sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], &[u8], &[u
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], i64, &[u8])
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], i64, &[u8], &[u8], i64)
 sym	logos_mem.logos.mem.collections.vec$vec_contains__g__ref_Vec$G1$T__ref_T__i32
+sym	logos_mem.logos.mem.collections.vec$vec_from_elem__g__T__i64__String
+sym	logos_mem.logos.mem.collections.vec$vec_from_elem__g__T__i64__bool
+sym	logos_mem.logos.mem.collections.vec$vec_from_elem__g__T__i64__i32
+sym	logos_mem.logos.mem.collections.vec$vec_from_elem__g__T__i64__i64
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__&[u8]
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], &[u8])
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], &[u8], &[u8])

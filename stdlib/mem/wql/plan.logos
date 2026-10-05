@@ -58,7 +58,7 @@ impl RQAgg {
     pub fn as_ref(self: RQAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized aggregate-column list — a fan-out of up to `RQAGG_MAX` RQAgg
+// The materialized aggregate-column list — the RQAgg
 // edges as a list (the SExprArr pattern from ir.logos). `count` = the arity.
 // A LIST node (2026-10-05): the items are one Writ array in `aggs`, written
 // through the parser's `"list set_agg"` field or the setter below, and read
@@ -68,7 +68,6 @@ pub schema RQAggArr : code(0x0012_0000_0000_0011) {
     aggs: WAny = 1,
 }
 
-pub fn RQAGG_MAX() -> i64 { return 8i64; }
 
 impl RQAggArr {
     pub fn len(self: &RQAggArr) -> i64 { return self.count as i64; }
@@ -188,7 +187,7 @@ impl RQPathSeg {
     pub fn as_ref(self: RQPathSeg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized segment list — fan-out of up to RQPSEG_MAX RQPathSeg edges
+// The materialized segment list — the RQPathSeg edges
 // (the RQJoinStepArr pattern). `count` = the path depth (≥ 1).
 // A LIST node (2026-10-05): the items are one Writ array in `segs`, written
 // through the parser's `"list set_seg"` field or the setter below, and read
@@ -198,7 +197,6 @@ pub schema RQPathSegArr : code(0x0012_0000_0000_001B) {
     segs: WAny = 1,
 }
 
-pub fn RQPSEG_MAX() -> i64 { return 8i64; }
 
 impl RQPathSegArr {
     pub fn len(self: &RQPathSegArr) -> i64 { return self.count as i64; }
@@ -252,7 +250,6 @@ pub schema RQGStepArr : code(0x0012_0000_0000_001D) {
     steps: WAny = 1,
 }
 
-pub fn RQGSTEP_MAX() -> i64 { return 8i64; }
 
 impl RQGStepArr {
     pub fn len(self: &RQGStepArr) -> i64 { return self.count as i64; }
@@ -270,7 +267,7 @@ impl RQGStepArr {
     pub fn as_ref(self: RQGStepArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized join-step list — a fan-out of up to `RQJSTEP_MAX` RQJoinStep
+// The materialized join-step list — the RQJoinStep
 // edges as a list (the RQAggArr pattern). `count` = the chain length.
 // A LIST node (2026-10-05): the items are one Writ array in `steps`, written
 // through the parser's `"list set_step"` field or the setter below, and read
@@ -280,7 +277,6 @@ pub schema RQJoinStepArr : code(0x0012_0000_0000_0013) {
     steps: WAny = 1,
 }
 
-pub fn RQJSTEP_MAX() -> i64 { return 8i64; }
 
 impl RQJoinStepArr {
     pub fn len(self: &RQJoinStepArr) -> i64 { return self.count as i64; }
@@ -421,7 +417,7 @@ impl RQRelCol {
     pub fn as_ref(self: RQRelCol) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized column list — fan-out of up to RQRELCOL_MAX RQRelCol edges.
+// The materialized column list — the RQRelCol edges.
 // A LIST node (2026-10-05): the items are one Writ array in `cols`, written
 // through the parser's `"list set_col"` field or the setter below, and read
 // through the accessors — there is no slot to run out of.
@@ -430,7 +426,6 @@ pub schema RQRelColArr : code(0x0012_0000_0000_0015) {
     cols: WAny = 1,
 }
 
-pub fn RQRELCOL_MAX() -> i64 { return 8i64; }
 
 impl RQRelColArr {
     pub fn len(self: &RQRelColArr) -> i64 { return self.count as i64; }
@@ -448,7 +443,7 @@ impl RQRelColArr {
     pub fn as_ref(self: RQRelColArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized body list — fan-out of up to RQBODY_MAX RQuery edges (each
+// The materialized body list — the RQuery edges (each
 // body is a full query shape node; the walker matches the variant).
 // A LIST node (2026-10-05): the items are one Writ array in `bodies`, written
 // through the parser's `"list set_body"` field or the setter below, and read
@@ -458,7 +453,6 @@ pub schema RQBodyArr : code(0x0012_0000_0000_0018) {
     bodies: WAny = 1,
 }
 
-pub fn RQBODY_MAX() -> i64 { return 8i64; }
 
 impl RQBodyArr {
     pub fn len(self: &RQBodyArr) -> i64 { return self.count as i64; }
@@ -574,7 +568,6 @@ pub schema RQSrcSegArr : code(0x0012_0000_0000_001F) {
     a7: WRef<RQSrcSeg> = 8,
 }
 
-pub fn RQSEG_MAX() -> i64 { return 8i64; }
 
 impl RQSrcSeg {
     pub fn as_ref(self: RQSrcSeg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }

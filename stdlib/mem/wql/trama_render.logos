@@ -698,7 +698,6 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // `{% if myfn(x) %}` route through the SHARED emit_call path (zero
     // trama-specific lowering; builtins shadow same-named user fns).
     stamp_udfs_from_module(&view, &mut ty);
-    report_ty_overflow(&mut ty);
 
     // ── RECURSIVE loop-var reflection (ADR 0012 Phase 2) ─────────────────────
     // FOLLOW loop variables: `{% for v in o.field %}` where `o.field` is a
@@ -707,7 +706,6 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // NESTED loops — so a schema struct param needs NO annotation.
     let mut vtys: TVarTys = tvartys_new();
     reflect_loops(&view, head_word, &mut ty, &mut vtys, &env0);
-    report_ty_overflow(&mut ty);
 
     // The empty-Var-name fallback `ctx` for the codegen: the FIRST param name.
     let ctx0: str = prm.names[0i64];

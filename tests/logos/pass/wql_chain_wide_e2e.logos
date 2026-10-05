@@ -1,0 +1,145 @@
+// Every shape the consumers' eight-slot arrays used to bound (2026-10-05):
+// a join chain of ten steps (entry and rel body), a ten-item tuple, a rel of
+// ten bodies, a rel of twelve columns, a recursive rel whose body is eight steps long (the magic join
+// is its ninth), forty user fns (the UDF registry held 32 and dropped the
+// rest), and a call of nine arguments. Each was refused by name after the
+// parse (`lower::plan_caps_ok`, deleted) or dropped where it was stored.
+//
+// exit 0 = every answer is the hand-computed one.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R { pub a: i64, pub b: i64 }
+struct Edge { pub src: i64, pub dst: i64 }
+
+pub fn u0(x: i64) -> i64 { return x + 0i64; }
+pub fn u1(x: i64) -> i64 { return x + 1i64; }
+pub fn u2(x: i64) -> i64 { return x + 2i64; }
+pub fn u3(x: i64) -> i64 { return x + 3i64; }
+pub fn u4(x: i64) -> i64 { return x + 4i64; }
+pub fn u5(x: i64) -> i64 { return x + 5i64; }
+pub fn u6(x: i64) -> i64 { return x + 6i64; }
+pub fn u7(x: i64) -> i64 { return x + 7i64; }
+pub fn u8(x: i64) -> i64 { return x + 8i64; }
+pub fn u9(x: i64) -> i64 { return x + 9i64; }
+pub fn u10(x: i64) -> i64 { return x + 10i64; }
+pub fn u11(x: i64) -> i64 { return x + 11i64; }
+pub fn u12(x: i64) -> i64 { return x + 12i64; }
+pub fn u13(x: i64) -> i64 { return x + 13i64; }
+pub fn u14(x: i64) -> i64 { return x + 14i64; }
+pub fn u15(x: i64) -> i64 { return x + 15i64; }
+pub fn u16(x: i64) -> i64 { return x + 16i64; }
+pub fn u17(x: i64) -> i64 { return x + 17i64; }
+pub fn u18(x: i64) -> i64 { return x + 18i64; }
+pub fn u19(x: i64) -> i64 { return x + 19i64; }
+pub fn u20(x: i64) -> i64 { return x + 20i64; }
+pub fn u21(x: i64) -> i64 { return x + 21i64; }
+pub fn u22(x: i64) -> i64 { return x + 22i64; }
+pub fn u23(x: i64) -> i64 { return x + 23i64; }
+pub fn u24(x: i64) -> i64 { return x + 24i64; }
+pub fn u25(x: i64) -> i64 { return x + 25i64; }
+pub fn u26(x: i64) -> i64 { return x + 26i64; }
+pub fn u27(x: i64) -> i64 { return x + 27i64; }
+pub fn u28(x: i64) -> i64 { return x + 28i64; }
+pub fn u29(x: i64) -> i64 { return x + 29i64; }
+pub fn u30(x: i64) -> i64 { return x + 30i64; }
+pub fn u31(x: i64) -> i64 { return x + 31i64; }
+pub fn u32(x: i64) -> i64 { return x + 32i64; }
+pub fn u33(x: i64) -> i64 { return x + 33i64; }
+pub fn u34(x: i64) -> i64 { return x + 34i64; }
+pub fn u35(x: i64) -> i64 { return x + 35i64; }
+pub fn u36(x: i64) -> i64 { return x + 36i64; }
+pub fn u37(x: i64) -> i64 { return x + 37i64; }
+pub fn u38(x: i64) -> i64 { return x + 38i64; }
+pub fn u39(x: i64) -> i64 { return x + 39i64; }
+pub fn sum9(a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64, h: i64, i: i64) -> i64 {
+    return a + b + c + d + e + f + g + h + i;
+}
+
+// ten steps: a walk of ten hops along a +1 chain
+pub deem walk(rs: &[R]) {
+    from rs r0 join rs r1 on r1.a == r0.b join rs r2 on r2.a == r1.b join rs r3 on r3.a == r2.b
+      join rs r4 on r4.a == r3.b join rs r5 on r5.a == r4.b join rs r6 on r6.a == r5.b
+      join rs r7 on r7.a == r6.b join rs r8 on r8.a == r7.b join rs r9 on r9.a == r8.b
+      join rs r10 on r10.a == r9.b
+    select (r0.a, r10.b)
+}
+
+// a ten-item tuple, the 40th user fn, a nine-argument call
+pub deem wide(rs: &[R]) {
+    from rs r where r.a < 2
+    select (r.a, r.b, r.a + 1, r.b + 1, r.a + 2, r.b + 2, u39(r.a), r.b + 3,
+            sum9(r.a, r.a, r.a, r.a, r.a, r.a, r.a, r.a, r.b), r.b + 4)
+}
+
+// ten bodies
+pub deem many(rs: &[R]) {
+    rel w(c: i64) {
+        from rs r where r.a == 0 select r.a; from rs r where r.a == 0 select r.a + 1;
+        from rs r where r.a == 0 select r.a + 2; from rs r where r.a == 0 select r.a + 3;
+        from rs r where r.a == 0 select r.a + 4; from rs r where r.a == 0 select r.a + 5;
+        from rs r where r.a == 0 select r.a + 6; from rs r where r.a == 0 select r.a + 7;
+        from rs r where r.a == 0 select r.a + 8; from rs r where r.a == 0 select r.a + 9;
+    }
+    from w x select x.c
+}
+
+// a rel body of ten steps, read through a rel
+pub deem relwalk(rs: &[R]) {
+    rel hop10(s: i64, t: i64) {
+        from rs r0 join rs r1 on r1.a == r0.b join rs r2 on r2.a == r1.b join rs r3 on r3.a == r2.b
+          join rs r4 on r4.a == r3.b join rs r5 on r5.a == r4.b join rs r6 on r6.a == r5.b
+          join rs r7 on r7.a == r6.b join rs r8 on r8.a == r7.b join rs r9 on r9.a == r8.b
+          join rs r10 on r10.a == r9.b
+        select (r0.a, r10.b);
+    }
+    from hop10 h select (h.s, h.t)
+}
+
+// a rel of twelve columns (a tuple's `Hash` reaches twelve)
+pub deem cols12(rs: &[R]) {
+    rel w(c0: i64, c1: i64, c2: i64, c3: i64, c4: i64, c5: i64, c6: i64, c7: i64, c8: i64,
+          c9: i64, c10: i64, c11: i64) {
+        from rs r where r.a < 3 select (r.a, r.b, r.a, r.b, r.a, r.b, r.a, r.b, r.a, r.b, r.a, r.a + r.b);
+    }
+    from w x select x.c11
+}
+
+// a recursive rel bound by the entry, whose recursive body is eight steps long
+pub deem reach8(es: &[Edge], s: i64) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc x join es e1 on e1.src == x.b join es e2 on e2.src == e1.src join es e3 on e3.src == e2.src
+          join es e4 on e4.src == e3.src join es e5 on e5.src == e4.src join es e6 on e6.src == e5.src
+          join es e7 on e7.src == e6.src join es e8 on e8.src == e7.src
+        select (x.a, e1.dst);
+    }
+    from tc t where t.a == s select t.b
+}
+
+fn main() -> i32 {
+    let mut v: Vec<R> = Vec::<R>::new();
+    let mut i: i64 = 0i64;
+    while i < 20i64 { v.push(R { a: i, b: i + 1i64 }); i = i + 1i64; }
+    let w = walk(v.as_slice()).unwrap();
+    if w.len() != 10i64 { return 1i32; }           // r0.a in 0..9 reaches r10.a = r0.a + 10 <= 19
+    if w.get(0i64).1 != 11i64 { return 2i32; }
+    let t = wide(v.as_slice()).unwrap();
+    if t.len() != 2i64 { return 3i32; }
+    let t1 = t.get(1i64);                            // r = (1, 2)
+    if t1.6 != 40i64 || t1.8 != 10i64 || t1.9 != 6i64 { return 4i32; }
+    let m = many(v.as_slice()).unwrap();
+    if m.len() != 10i64 { return 5i32; }
+    let c12 = cols12(v.as_slice()).unwrap();
+    if c12.len() != 3i64 || c12.get(0i64) + c12.get(1i64) + c12.get(2i64) != 9i64 { return 8i32; }
+    let rw = relwalk(v.as_slice()).unwrap();
+    if rw.len() != 10i64 { return 6i32; }
+    // 1→2→3→4 and 10→11
+    let es: [Edge; 4] = [Edge { src: 1i64, dst: 2i64 }, Edge { src: 2i64, dst: 3i64 },
+                         Edge { src: 3i64, dst: 4i64 }, Edge { src: 10i64, dst: 11i64 }];
+    let r8 = reach8(&es[..], 1i64).unwrap();
+    if r8.len() != 3i64 { return 7i32; }
+    return 0i32;
+}

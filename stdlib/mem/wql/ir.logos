@@ -65,13 +65,20 @@ impl<S> WritField for WRef<S> {
     fn to_wany(self: Self, z: *mut Allocator) -> WAny { return self.h; }
 }
 
-// `SExprArr` — the materialized arg / projection list (ADR 0012 §1). A schema
-// over a TOM carrying a `count` and up to `SEXPRARR_MAX` argument edges at fixed
-// keys (`a0`..`a7`) — full multi-arg support (Phase 3), dogfooding ADR 0011: the
-// list IS a Writ object, no separate array handle. `make::<SExprArr>()` sizes the
-// backing TOM to the field count (9 = count + 8 slots), so up to 8 args round-trip
-// structurally. `arg_at(i)` / `len()` are the backend's read API; `set_arg`/
-// `set_len` the parser's write API.
+// `n` empty names. A plain loop rather than `vec![""; n]`: instantiated for
+// `str` inside this module's own build, `vec_from_elem` is refused by the
+// borrow checker (`borrowed data escapes outside of function: 'elem'`), while
+// the same call in a user program compiles.
+pub fn str_vec(n: i64) -> Vec<str> {
+    let mut v: Vec<str> = Vec::<str>::new();
+    let mut i: i64 = 0i64;
+    while i < n { v.push(""); i = i + 1i64; }
+    return v;
+}
+
+// `SExprArr` — the materialized arg / projection list (ADR 0012 §1): a `count`
+// and the argument edges as one list field (below). `arg_at(i)` / `len()` are
+// the backend's read API; `set_arg`/`set_len` the parser's write API.
 // ── LIST FIELDS ───────────────────────────────────────────────────────────────
 // A schema's dynamic fan-out: the items are one Writ array held in a `WAny`
 // field. `list_set` writes item `i` through the view's arena allocator `z`
@@ -107,16 +114,12 @@ pub schema SExprArr : code(0x0010_0000_0000_000A) {
     args: WAny = 1,
 }
 
-// Max args a single `SExprArr` materializes (the declared slot count).
-pub fn SEXPRARR_MAX() -> i64 { return 8i64; }
-
 impl SExprArr {
     // The arg count (the prepared list arity).
     pub fn len(self: SExprArr) -> i64 { return self.count as i64; }
 
     // The i-th argument as an SExpr view (0-based). Out-of-range i is a caller
-    // error; reads the fixed slot key i+1. The slots are a flat fan-out (no
-    // chaining) so this is O(1).
+    // error.
     pub fn arg_at(self: SExprArr, i: i64) -> SExpr {
         return list_get(self.args, i).view::<SExpr>();
     }
@@ -251,46 +254,23 @@ impl RAgg {
     pub fn as_ref(self: RAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized aggregate-spec list — a fan-out of up to `RAGG_MAX` RAgg edges
-// at fixed slots (the SExprArr pattern). `count` = the arity.
+// The materialized aggregate-spec list (the SExprArr pattern). `count` = the
+// arity. A LIST node (2026-10-05): the items are one Writ array in `aggs`.
 pub schema RAggArr : code(0x0011_0000_0000_0011) {
-    count: i32       = 0,
-    g0: WRef<RAgg> = 1,
-    g1: WRef<RAgg> = 2,
-    g2: WRef<RAgg> = 3,
-    g3: WRef<RAgg> = 4,
-    g4: WRef<RAgg> = 5,
-    g5: WRef<RAgg> = 6,
-    g6: WRef<RAgg> = 7,
-    g7: WRef<RAgg> = 8,
+    count: i32 = 0,
+    aggs: WAny = 1,
 }
-
-pub fn RAGG_MAX() -> i64 { return 8i64; }
 
 impl RAggArr {
     pub fn len(self: &RAggArr) -> i64 { return self.count as i64; }
 
     pub fn agg_at(self: RAggArr, i: i64) -> RAgg {
-        if i == 0i64 { return self.g0.any().view::<RAgg>(); }
-        if i == 1i64 { return self.g1.any().view::<RAgg>(); }
-        if i == 2i64 { return self.g2.any().view::<RAgg>(); }
-        if i == 3i64 { return self.g3.any().view::<RAgg>(); }
-        if i == 4i64 { return self.g4.any().view::<RAgg>(); }
-        if i == 5i64 { return self.g5.any().view::<RAgg>(); }
-        if i == 6i64 { return self.g6.any().view::<RAgg>(); }
-        return self.g7.any().view::<RAgg>();
+        return list_get(self.aggs, i).view::<RAgg>();
     }
 
     pub fn set_agg(self: &mut RAggArr, i: i64, h: WAny) {
-        let r: WRef<RAgg> = WRef::<RAgg>::from_any(h);
-        if i == 0i64 { self.g0 = r; return; }
-        if i == 1i64 { self.g1 = r; return; }
-        if i == 2i64 { self.g2 = r; return; }
-        if i == 3i64 { self.g3 = r; return; }
-        if i == 4i64 { self.g4 = r; return; }
-        if i == 5i64 { self.g5 = r; return; }
-        if i == 6i64 { self.g6 = r; return; }
-        self.g7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RAggArr as *const WSchemaH)).z };
+        self.aggs = list_set(self.aggs, z, i, h);
     }
 
     pub fn set_len(self: &mut RAggArr, n: i64) { self.count = n as i32; }

@@ -170,6 +170,7 @@ package logos.std.wql.join_order;
 
 use logos.lang.str;
 use logos.mem.string;
+use logos.mem.collections.vec;   // Vec — the chain's per-slot facts
 use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.std.wql.ir;             // SExpr / WRef
@@ -190,26 +191,28 @@ use logos.std.wql.why;            // THE JUSTIFICATION: the record, its vocabula
 // this module cannot accidentally depend on an emitter detail.
 pub struct JCh {
     pub n:     i64,
-    pub src:   [str; 9],
-    pub var:   [str; 9],
-    pub onw:   [i64; 9],
-    pub anti:  [bool; 9],
-    pub edge:  [bool; 9],
-    pub strat: [i32; 9],
-    pub sel:   [i64; 9],
-    pub sground: [i64; 9],
+    pub src:   Vec<str>,
+    pub var:   Vec<str>,
+    pub onw:   Vec<i64>,
+    pub anti:  Vec<bool>,
+    pub edge:  Vec<bool>,
+    pub strat: Vec<i32>,
+    pub sel:   Vec<i64>,
+    pub sground: Vec<i64>,
 }
 
-pub fn jch_new() -> JCh {
-    return JCh { n: 0i64,
-                 src:  ["", "", "", "", "", "", "", "", ""],
-                 var:  ["", "", "", "", "", "", "", "", ""],
-                 onw:  [0i64; 9],
-                 anti: [false; 9],
-                 edge: [false; 9],
-                 strat: [0i32; 9],
-                 sel:   [-1i64; 9],
-                 sground: [0i64; 9] };
+/// A chain of `n` steps: `n + 1` slots, each at its default.
+pub fn jch_new(n: i64) -> JCh {
+    let m: i64 = n + 1i64;
+    return JCh { n: n,
+                 src:  str_vec(m),
+                 var:  str_vec(m),
+                 onw:  vec![0i64; m],
+                 anti: vec![false; m],
+                 edge: vec![false; m],
+                 strat: vec![0i32; m],
+                 sel:   vec![-1i64; m],
+                 sground: vec![0i64; m] };
 }
 
 // ── The decision ──────────────────────────────────────────────────────────
@@ -274,9 +277,9 @@ pub struct JoinOrder {
     pub cstrat:   [i32; 16],
     pub csel:     [i64; 16],
     pub cground:  [i64; 16],
-    // The pinned steps' depths, for the cost table (`JCTable.pin_after`, #347).
+    // The pinned steps, counted by depth, for the cost table (`JCTable.pins_at`, #347).
     pub npin:     i64,
-    pub pin_after: [i64; 8],
+    pub pins_at:  [i64; 8],
 }
 
 fn jo_why(w: Why) -> JoinOrder {
@@ -285,7 +288,7 @@ fn jo_why(w: Why) -> JoinOrder {
                        fl: [0i64; 4],
                        cslot: [0i64; 16], conw: [0i64; 16], crole: [0i64; 16],
                        cstrat: [0i32; 16], csel: [-1i64; 16],
-                       cground: [0i64; 16], npin: 0i64, pin_after: [0i64; 8] };
+                       cground: [0i64; 16], npin: 0i64, pins_at: [0i64; 8] };
 }
 
 /// The single-nest outcome whose whole justification is its GROUND CODE — every
@@ -566,7 +569,7 @@ fn next_perm(p: &mut [i64; 4], n: i64) -> bool {
 
 /// Render a candidate's row-var sequence, for the trace's census. The subject of a
 /// per-candidate line has to name the ORDER, and an order is its sources.
-fn push_seq(out: &mut String, c: &JCh, seq: &[i64; 9], np: i64) {
+fn push_seq(out: &mut String, c: &JCh, seq: &Vec<i64>, np: i64) {
     let mut i: i64 = 0i64;
     while i < np {
         if i > 0i64 { out.push_str(">"); }
@@ -599,8 +602,8 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
     // Floatable slots (base + classic steps) in QUERY order, and the pinned ones
     // with the number of floatable slots that preceded them (C3).
     let mut nfl: i64 = 0i64;
-    let mut pin: [i64; 9] = [0i64; 9];
-    let mut pbc: [i64; 9] = [0i64; 9];
+    let mut pin: Vec<i64> = vec![0i64; m];
+    let mut pbc: Vec<i64> = vec![0i64; m];
     let mut npin: i64 = 0i64;
     let mut s: i64 = 0i64;
     while s < m {
@@ -617,9 +620,9 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
     jo.nfl = nfl;
     // The pinned steps' depths, for the cost table: one per pinned step, the same
     // in every candidate (constraint 2 keeps each after `pbc` floatable slots).
-    jo.npin = if npin < 8i64 { npin } else { 8i64 };
+    jo.npin = npin;
     let mut pq: i64 = 0i64;
-    while pq < jo.npin { jo.pin_after[pq] = pbc[pq]; pq = pq + 1i64; }
+    while pq < npin { jo.pins_at[pbc[pq]] = jo.pins_at[pbc[pq]] + 1i64; pq = pq + 1i64; }
 
     // The floating predicates: one per floatable STEP. The query's base carries
     // none, so there are nfl-1 of them and nfl-1 non-base floatable positions —
@@ -657,8 +660,8 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
         // 1. The candidate's full slot sequence: floatable in permuted order, each
         //    pinned step re-inserted after exactly as many floatable slots as
         //    preceded it in the query (C3).
-        let mut seq: [i64; 9] = [0i64; 9];
-        let mut pos: [i64; 9] = [0i64; 9];
+        let mut seq: Vec<i64> = vec![0i64; m];
+        let mut pos: Vec<i64> = vec![0i64; m];
         let mut np: i64 = 0i64;
         let mut j: i64 = 0i64;
         while j < nfl {
@@ -674,7 +677,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
         let mut pp: i64 = 0i64;
         while pp < np { pos[seq[pp]] = pp; pp = pp + 1i64; }
         // The floatable position of each floatable slot in THIS candidate.
-        let mut flpos: [i64; 9] = [0i64; 9];
+        let mut flpos: Vec<i64> = vec![0i64; m];
         let mut fj: i64 = 0i64;
         while fj < nfl { flpos[jo.fl[perm[fj]]] = fj; fj = fj + 1i64; }
 
@@ -967,11 +970,11 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
     // How many floatable sources, and is that within the plan's fact table?
     let m: i64 = c.n + 1i64;
     let mut nfl: i64 = 0i64;
-    let mut fl: [i64; 9] = [0i64; 9];
+    let mut fl: Vec<i64> = vec![0i64; m];
     let mut s: i64 = 0i64;
     while s < m {
         if !(s > 0i64 && (c.anti[s] || c.edge[s])) {
-            if nfl < 9i64 { fl[nfl] = s; }
+            fl[nfl] = s;
             nfl = nfl + 1i64;
         }
         s = s + 1i64;
@@ -1116,7 +1119,7 @@ fn jo_decline(jo: &mut JoinOrder, g: i32, ax: i32, szs: &mut [String; 4], ats: &
 /// noise a reader has to diff — the same reason `push_size_bindings_4` binds one fact
 /// per distinct expression TEXT. Doing it in the renderer instead would have been a
 /// second computation over the same array, which is a second place to drift.
-fn why_sides(w: &mut Why, c: &JCh, fl: &[i64; 9], nfl: i64, rsn: &[i32; 4]) {
+fn why_sides(w: &mut Why, c: &JCh, fl: &Vec<i64>, nfl: i64, rsn: &[i32; 4]) {
     w.nsd = nfl;
     let mut k: i64 = 0i64;
     while k < nfl {

@@ -636,7 +636,7 @@ pub fn reject_tuple(e: SExpr, ctx: str) -> bool {
 // another query's variable is spelled with those bytes inside it. This codebase
 // has already paid for one `find` over generated text (the separator class,
 // `2bdd8f25`); the IR is right here and it answers exactly.
-pub fn sexpr_over_group_names(e: SExpr, names: &[str; 8], nn: i64) -> bool {
+pub fn sexpr_over_group_names(e: SExpr, names: &Vec<str>, nn: i64) -> bool {
     match e {
         SExpr::Lit(_) => { return true; }
         SExpr::Bin(b)   => { return sexpr_over_group_names(b.lhs_expr(), names, nn)

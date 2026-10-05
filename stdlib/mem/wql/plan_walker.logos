@@ -384,12 +384,12 @@ fn rel_body_mods_ok(rel_name: str, first: bool, distinct: bool,
 // clause may read is `query_names_ok`'s.
 fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroParams,
                cur_rel: i64, deps: &mut RelDeps,
-               relvars: &mut [str; 9], nrelv: &mut i64,
+               relvars: &mut Vec<str>, nrelv: &mut i64,
                cv: &mut ClauseVars, h: &Writ) -> bool {
     let n: i64 = steps.len();
-    let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-    let mut vtys: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-    let mut vanti: [bool; 9] = [false; 9];
+    let mut vars: Vec<str> = str_vec(n + 1i64);
+    let mut vtys: Vec<str> = str_vec(n + 1i64);
+    let mut vanti: Vec<bool> = vec![false; n + 1i64];
     vars[0] = base_var;
     vtys[0] = base_ty;
     let mut nv: i64 = 1i64;
@@ -405,7 +405,7 @@ fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroPar
             if sr.is_rel {
                 st.src_name = string_as_str(&prm.rel_srcs[sr.idx]);
                 if st.is_anti && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
-                if *nrelv < 9i64 { relvars[*nrelv] = st.var_name; *nrelv = *nrelv + 1i64; }
+                relvars.push(st.var_name); *nrelv = *nrelv + 1i64;
             }
             st.row_ty = sr.row_ty;
         }
@@ -423,7 +423,7 @@ fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroPar
             }
             k = k + 1i64;
         }
-        if nv < 9i64 { vars[nv] = v; vtys[nv] = st.row_ty; vanti[nv] = st.is_anti; nv = nv + 1i64; }
+        vars[nv] = v; vtys[nv] = st.row_ty; vanti[nv] = st.is_anti; nv = nv + 1i64;
         i = i + 1i64;
     }
     return true;
@@ -438,8 +438,8 @@ fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroPar
 // step's `src_name` becomes the full source expression text and `row_ty` the
 // element type — the emitters then scan `(src_name)` uniformly.
 fn stamp_edge_step(st: RQJoinStep,
-                   vars: &[str; 9], vtys: &[str; 9], vanti: &[bool; 9], nv: i64,
-                   relvars: &[str; 9], nrelv: i64,
+                   vars: &Vec<str>, vtys: &Vec<str>, vanti: &Vec<bool>, nv: i64,
+                   relvars: &Vec<str>, nrelv: i64,
                    cv: &mut ClauseVars) -> bool {
     let bv: str = st.base_var;
     // 1. The base var: bound earlier, non-anti, not rel-rowed, not scalar.
@@ -628,7 +628,7 @@ fn stamp_edge_step(st: RQJoinStep,
 // clauses read imported consts (`o.verb != OP_SEEK`), which this handler's
 // reflection (one module's AST) cannot see.
 struct NameScope {
-    pub vars: [str; 9], pub anti: [bool; 9], pub nv: i64,   // the chain, in binding order
+    pub vars: Vec<str>, pub anti: Vec<bool>, pub nv: i64,   // the chain, in binding order
     pub upto: i64,     // vars[0..upto) are bound at this clause
     pub own: i64,      // the step whose `on` this is (-1 outside one)
     pub grouped: bool, // after `group by` in the entry
@@ -636,19 +636,25 @@ struct NameScope {
 }
 
 fn ns_new() -> NameScope {
-    return NameScope { vars: ["", "", "", "", "", "", "", "", ""], anti: [false; 9], nv: 0i64,
+    return NameScope { vars: Vec::<str>::new(), anti: Vec::<bool>::new(), nv: 0i64,
                        upto: 0i64, own: -1i64, grouped: false, comp: "" };
 }
 
+// The scope of a chain's base alone.
+fn ns_base(sc: &mut NameScope, base: str) {
+    sc.vars.clear(); sc.anti.clear();
+    sc.vars.push(base); sc.anti.push(false);
+    sc.nv = 1i64; sc.upto = 1i64;
+}
+
 fn ns_chain(sc: &mut NameScope, base: str, steps: RQJoinStepArr, has: bool) {
-    sc.vars[0] = base;
-    sc.nv = 1i64;
+    ns_base(sc, base);
     if has {
         let mut i: i64 = 0i64;
-        while i < steps.len() && sc.nv < 9i64 {
+        while i < steps.len() {
             let st: RQJoinStep = steps.step_at(i);
-            sc.vars[sc.nv] = st.var_name;
-            sc.anti[sc.nv] = st.is_anti;
+            sc.vars.push(st.var_name);
+            sc.anti.push(st.is_anti);
             sc.nv = sc.nv + 1i64;
             i = i + 1i64;
         }
@@ -759,7 +765,7 @@ fn query_names_ok(qa: WAny, entry: bool, h: &Writ) -> bool {
     match qa.view::<RQuery>() {
         RQuery::Simple(_) => {
             let s: RQSimple = rq_fat_simple(qa, h);
-            sc.vars[0] = s.var_name; sc.nv = 1i64; sc.upto = 1i64;
+            ns_base(&mut sc, s.var_name);
             if !ns_expr_ok(s.select_expr(), &mut sc, "select") { return false; }
             if s.has_where && !ns_expr_ok(s.where_expr(), &mut sc, "where") { return false; }
             if s.has_order && !ns_expr_ok(s.order_expr(), &mut sc, "order by") { return false; }
@@ -792,7 +798,7 @@ fn query_names_ok(qa: WAny, entry: bool, h: &Writ) -> bool {
         }
         RQuery::Find(_) => {
             let f: RQFind = rq_fat_find(qa, h);
-            sc.vars[0] = f.var_name; sc.nv = 1i64; sc.upto = 1i64;
+            ns_base(&mut sc, f.var_name);
             if !ns_expr_ok(f.pred_expr(), &mut sc, "where") { return false; }
         }
     }
@@ -801,14 +807,14 @@ fn query_names_ok(qa: WAny, entry: bool, h: &Writ) -> bool {
 
 // ── Scalar-element field-access guard (slice D) ──────────────────────────────
 // A traversal var over a SCALAR collection (Vec<str> → `s: str`) has no fields.
-struct ClauseVars { pub name: [str; 9], pub n: i64 }
+struct ClauseVars { pub name: Vec<str>, pub n: i64 }
 
 fn clause_vars_new() -> ClauseVars {
-    return ClauseVars { name: ["", "", "", "", "", "", "", "", ""], n: 0i64 };
+    return ClauseVars { name: Vec::<str>::new(), n: 0i64 };
 }
 
 fn cv_push(cv: &mut ClauseVars, v: str) {
-    if cv.n < 9i64 { cv.name[cv.n] = v; cv.n = cv.n + 1i64; }
+    cv.name.push(v); cv.n = cv.n + 1i64;
 }
 
 // `s.foo` on a scalar-element var anywhere in a clause is a named error
@@ -893,7 +899,7 @@ fn steps_clause_ok(steps: RQJoinStepArr, cv: &ClauseVars) -> bool {
 // projection defeats the EL scalar lattice). Diagnosed here, which also gates
 // the identity/head-row thin collapses OFF rel sources (they only trigger on
 // bare-var selects).
-fn sel_whole_row_ok(sel: SExpr, relvars: &[str; 9], n: i64) -> bool {
+fn sel_whole_row_ok(sel: SExpr, relvars: &Vec<str>, n: i64) -> bool {
     if n == 0i64 { return true; }
     let rn: str = root_ident_name(sel);
     if rn.len() > 0i64 {
@@ -936,7 +942,7 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
         return false;
     }
     let q: RQuery = body_any.view::<RQuery>();
-    let mut relvars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut relvars: Vec<str> = Vec::<str>::new();
     let mut nrelv: i64 = 0i64;
     match q {
         RQuery::Simple(_) => {
@@ -949,7 +955,7 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             s.row_ty = sr.row_ty;
             // Classify bare select idents (typo vs bound column / scalar param /
             // fresh() marker) — Track A.
-            let mut bv: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+            let mut bv: Vec<str> = str_vec(1i64);
             bv[0] = s.var_name;
             if !ward_sel_idents_ok(s.select_expr(), &bv, 1i64, prm, rel_name) { return false; }
             return true;
@@ -976,15 +982,15 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             }
             // Classify bare select idents (Track A). Bound vars = base + every
             // non-anti step var (anti-step vars are scoped to their own `on`).
-            let mut bv: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-            bv[0] = j.x_var;
+            let mut bv: Vec<str> = Vec::<str>::new();
+            bv.push(j.x_var);
             let mut nbv: i64 = 1i64;
             let jsteps: RQJoinStepArr = j.steps_arr();
             let mut sk: i64 = 0i64;
             while sk < jsteps.len() {
                 let stp: RQJoinStep = jsteps.step_at(sk);
                 if !stp.is_anti {
-                    if nbv < 9i64 { bv[nbv] = stp.var_name; nbv = nbv + 1i64; }
+                    bv.push(stp.var_name); nbv = nbv + 1i64;
                 }
                 sk = sk + 1i64;
             }
@@ -1551,13 +1557,13 @@ fn ward_verdict(rels: RQRelArr, nr: i64, prm: &MacroParams, h: &Writ) -> bool {
 // existential) silently fell through to codegen and produced an opaque downstream
 // Logos error. A `fresh(...)` marker is NOT a bare ident (it is a Call) → never
 // misclassified; the ward path owns markers.
-fn ward_var_in(vars: &[str; 9], nv: i64, nm: str) -> bool {
+fn ward_var_in(vars: &Vec<str>, nv: i64, nm: str) -> bool {
     let mut i: i64 = 0i64;
     while i < nv { if str_eq(vars[i], nm) { return true; } i = i + 1i64; }
     return false;
 }
 
-fn ward_sel_idents_ok(sel: SExpr, vars: &[str; 9], nv: i64,
+fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<str>, nv: i64,
                       prm: &MacroParams, rel_name: str) -> bool {
     match sel {
         SExpr::Field(f) => {
@@ -1686,6 +1692,20 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             let cols: RQRelColArr = rel.cols_arr();
             let nc: i64 = cols.len();
             if nc < 1i64 { error("wql!: a rel needs at least one column"); return false; }
+            // A rel's row is a tuple held in a set, so its type needs `Hash` and
+            // `Clone`, which tuples implement up to twelve elements (Rust's
+            // range: `logos.lang.hash`, `logos.lang.clone`). Wider, the generated
+            // code would fail on a missing impl inside the macro's output.
+            if nc > 12i64 {
+                let mut mw: String = String::new();
+                mw.push_str("wql!: rel '");
+                mw.push_str(rname);
+                mw.push_str("' declares ");
+                mw.push_i64(nc);
+                mw.push_str(" columns; a rel's row is a tuple and a tuple implements `Hash` and `Clone` only up to 12 elements (as in Rust)");
+                error(string_as_str(&mw));
+                return false;
+            }
             // Validate columns (type whitelist + per-rel name uniqueness).
             let mut k: i64 = 0i64;
             while k < nc {
@@ -1822,7 +1842,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     let entry_any: WAny = prog.entry_any();
     if entry_any.is_null() { error("wql!: missing entry query"); return false; }
     let eplan: RQuery = entry_any.view::<RQuery>();
-    let mut relvars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut relvars: Vec<str> = Vec::<str>::new();
     let mut nrelv: i64 = 0i64;
     match eplan {
         RQuery::Simple(_) => {
@@ -1832,7 +1852,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             if !sr.ok { return false; }
             if sr.is_rel {
                 s.src_name = string_as_str(&prm.rel_srcs[sr.idx]);
-                relvars[0] = s.var_name;
+                relvars.push(s.var_name);
                 nrelv = 1i64;
             }
             s.row_ty = sr.row_ty;
@@ -1845,7 +1865,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             if !sr2.ok { return false; }
             if sr2.is_rel {
                 j.a_name = string_as_str(&prm.rel_srcs[sr2.idx]);
-                relvars[0] = j.x_var;
+                relvars.push(j.x_var);
                 nrelv = 1i64;
             }
             j.a_ty = sr2.row_ty;
@@ -1872,7 +1892,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             if !sr3.ok { return false; }
             if sr3.is_rel {
                 g.a_name = string_as_str(&prm.rel_srcs[sr3.idx]);
-                relvars[0] = g.x_var;
+                relvars.push(g.x_var);
                 nrelv = 1i64;
             }
             g.a_ty = sr3.row_ty;
@@ -2885,7 +2905,7 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> Vec<bool> {
 fn aggr_group_frame_pure(gq: RQAggr) -> bool {
     let aggs: RQAggArr = gq.aggs_arr();
     let n: i64 = aggs.len();
-    let mut onames: [str; 8] = ["", "", "", "", "", "", "", ""];
+    let mut onames: Vec<str> = str_vec(n);
     let mut j: i64 = 0i64;
     while j < n { onames[j] = aggs.agg_at(j).name; j = j + 1i64; }
     if !sexpr_over_group_names(gq.select.any().view::<SExpr>(), &onames, n) { return false; }

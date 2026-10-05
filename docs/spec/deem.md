@@ -395,7 +395,7 @@ A `rel` block declares a named derived relation with SET semantics: `cols` are d
 
 ### `deem.datalog.fact` — a FROM-less `select` is one row
 
-`select S [: RTy]` with no `from` is a FACT: exactly one row, whatever the sources hold. It is legal as a rel body (an inline table, or a seed such as `select start;` for a scalar parameter) and as the entry query. The handler rewrites it to `from __unit __u select S`, where `__unit(u: i64)` is a native source of one row (`logos.std.wql.unit::wql_unit_rows`), registered only when a program has a fact; it counts toward the 8-rel limit.
+`select S [: RTy]` with no `from` is a FACT: exactly one row, whatever the sources hold. It is legal as a rel body (an inline table, or a seed such as `select start;` for a scalar parameter) and as the entry query. The handler rewrites it to `from __unit __u select S`, where `__unit(u: i64)` is a native source of one row (`logos.std.wql.unit::wql_unit_rows`), registered only when a program has a fact.
 
 *Divergence:* SQL's FROM-less `SELECT`; Soufflé writes the same thing as a fact clause `r(1, 2).`
 
@@ -405,7 +405,7 @@ A `rel` block declares a named derived relation with SET semantics: `cols` are d
 
 The program is rewritten by the magic-sets transformation (Soufflé's MST). A clause — the entry query, or a body of a rel — is read left to right in a SIPS order: next, the positive atom with the most bound columns (ties in the written order). A column of an atom is bound when a conjunct of the clause (its WHERE, or the ON of a positive step) equates it to a literal, a scalar parameter, a column of an atom already visited, or a bound column of the clause's head; a head column binds a body column only when its select item is that plain column. Every user-rel atom `S` with bound columns γ reads an ADORNED COPY `S__b<γ>` instead of `S`, and contributes one magic rule to `__m_S__b<γ>` (one column per bound column): the atoms visited before it, the clause's conjuncts over them, and — in a rel body — the head's own magic rel; in the entry, a seed with no atom to its left is a fact. Each body of an adorned copy is the original body, its atoms adorned the same way, joined with its magic rel on the bound columns. A reader that binds no column of `S` reads `S` itself, so a rel read both bound and free is evaluated once whole and once on demand; an original that no reader reaches any more is dead (`deem.datalog.live`). The answer is unchanged; the rows derived are those reachable from the demand.
 
-Only a RECURSIVE rel is adorned: a non-recursive rel's body is evaluated whole before its magic join could filter it, so a copy saves no evaluation and only duplicates code (`nonrec`; measured on Canon, adorning every bound rel doubled the generated code and took a compile from 8.6 s to 69 s). A rel that some evaluated clause reads whole (the entry, a rel read whole, or an adorned body, binding none of its columns) is evaluated whole anyway and is not adorned either (`shared`; decided over the transformation's own graph, narrowed to a fixpoint). A rel is also read whole when a body aggregates or finds (`neg_agg`), evaluates checked arithmetic (`fallible`: restricting rows could turn an `Err` into an `Ok`), or has no free join-step slot for the magic join (`cap`); an anti join's atom is always read whole, and a magic rule never contains one (that only widens the demand). When the entry's WHERE / ON is fallible nothing is rewritten. A clause with a traversal step is left as written. `[plan] demand -> demand-driven | fully materialized` names each decision.
+Only a RECURSIVE rel is adorned: a non-recursive rel's body is evaluated whole before its magic join could filter it, so a copy saves no evaluation and only duplicates code (`nonrec`; measured on Canon, adorning every bound rel doubled the generated code and took a compile from 8.6 s to 69 s). A rel that some evaluated clause reads whole (the entry, a rel read whole, or an adorned body, binding none of its columns) is evaluated whole anyway and is not adorned either (`shared`; decided over the transformation's own graph, narrowed to a fixpoint). A rel is also read whole when a body aggregates or finds (`neg_agg`), or evaluates checked arithmetic (`fallible`: restricting rows could turn an `Err` into an `Ok`); an anti join's atom is always read whole, and a magic rule never contains one (that only widens the demand). When the entry's WHERE / ON is fallible nothing is rewritten. A clause with a traversal step is left as written. `[plan] demand -> demand-driven | fully materialized` names each decision.
 
 A demand-driven rel's SCC reads its magic rel, so the internal DRed helpers of that SCC are not emitted; no public surface depends on them for these shapes (measured over every corpus program the rewrite touches). `LOGOS_DEEM_NO_DEMAND` (at compile time, any value) turns the rewrite off.
 
@@ -421,7 +421,7 @@ After the demand rewrite, a rel is LIVE when the entry reads it or a live rel's 
 
 ### `deem.datalog.rel-columns` — rel columns are i64/str/bool (Hash+Eq)
 
-Rel columns must be `i64`/`str`/`bool` — rels are sets deduped by structural equality, so columns need Hash+Eq; `f64`/`f32` get their own named diagnostic (Eq loss is the reason).
+Rel columns must be `i64`/`str`/`bool` — rels are sets deduped by structural equality, so columns need Hash+Eq; `f64`/`f32` get their own named diagnostic (Eq loss is the reason). A rel holds at most 12 columns: its row is a tuple, and a tuple implements `Hash` and `Clone` up to 12 elements, as in Rust; a 13th column is a named error at the declaration. Every other list of a program — rels, bodies, join steps, aggregates, tuple items, call arguments, path segments — holds any number of items.
 
 *Divergence:* RESTRICTION — narrower than SQL/Datalog value domains; f64 is excluded because set membership needs Eq.
 
@@ -495,7 +495,7 @@ An `anti join R` or an aggregate body reading `R` where `R` is in the SAME SCC a
 
 ### `deem.udf.reflection` — user functions reflected from the trigger module
 
-The deem/trama handlers reflect every top-level `fn` of the trigger module into the UDF registry (name, return EL-lattice tag via `el_ret_class`, declared return type name, arity); codegen resolves a call name against the builtin registry first, then the UDF table (builtins shadow a same-named UDF); capacity is 32 top-level fns.
+The deem/trama handlers reflect every top-level `fn` of the trigger module into the UDF registry (name, return EL-lattice tag via `el_ret_class`, declared return type name, arity); codegen resolves a call name against the builtin registry first, then the UDF table (builtins shadow a same-named UDF); the registry has no capacity.
 
 *Divergence:* EXTENSION over CEL/SQL — UDFs are ordinary module-local Logos functions, resolved by reflection, not a separate registration API (static surface).
 
@@ -771,7 +771,7 @@ Primary literals are integer (`SLit` int, token→i64 decode), float (`FLOAT = [
 
 ### `el.primary.call` — function/filter call
 
-`ident(args)` builds an `SCall` carrying the call NAME + a materialized `SExprArr` argument list (up to 8 args, fan-out slots a0..a7); the name resolves against the builtin registry first, then the reflected UDF table.
+`ident(args)` builds an `SCall` carrying the call NAME + a materialized `SExprArr` argument list (any number of arguments, one list field); the name resolves against the builtin registry first, then the reflected UDF table.
 
 *Divergence:* CEL function/method calls; D6 canon is Logos-style calls (`upper(x)` / `x.upper()`), the jinja pipe `|` is Trama-only sugar.
 

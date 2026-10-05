@@ -1417,9 +1417,10 @@ pub fn MS_DEMAND() -> i32       { return 1i32; }   // adorned: the rel is evalua
 // magic-sets transformation (`lower::magic_program`), which adorns every bound
 // occurrence whatever the body's shape. 2 (shared) is kept and now computed
 // over that transformation's own graph.
+// 7 (cap — no free join-step slot for the magic join) is DELETED with the
+// chain's eight-step cap (2026-10-05).
 pub fn MS_SHARED() -> i32       { return 2i32; }   // an evaluated clause reads all of R anyway
 pub fn MS_NEG_AGG() -> i32      { return 3i32; }   // a body of R aggregates or finds
-pub fn MS_CAP() -> i32          { return 7i32; }   // no free join-step slot for the magic join
 pub fn MS_FALLIBLE() -> i32     { return 8i32; }   // checked arithmetic could fail outside the demand
 pub fn MS_NONREC() -> i32       { return 10i32; }  // not recursive: a restriction saves no evaluation
 
@@ -1427,7 +1428,6 @@ pub fn ms_render(r: i32) -> str {
     if r == MS_DEMAND()    { return "a reader binds columns of this rel, so only rows carrying the bound values can reach that reader: the reader reads an ADORNED COPY evaluated on demand — its bodies restricted to the values in `__m_<copy>`, which holds one magic rule per bound occurrence (the reader's atoms to the left of it, in max-bound order, and the reader's own magic rel), so the restriction carries into a fixpoint by induction (the magic-sets transformation, Soufflé's MST); a reader that binds nothing still reads the whole rel"; }
     if r == MS_SHARED()    { return "a clause that is evaluated reads the whole rel (it binds none of its columns: the entry, a rel read whole, or an adorned body), so the rel is evaluated whole anyway, and an adorned copy for its bound readers would only add work"; }
     if r == MS_NEG_AGG()   { return "a body of the rel aggregates or finds: such a rel is read whole (Soufflé leaves aggregated relations un-adorned too); an anti join's atom is always read whole and a magic rule never contains one, which only widens a demand"; }
-    if r == MS_CAP()       { return "a body of the rel has no free join-step slot for the magic join (a chain holds 8 steps)"; }
     if r == MS_NONREC()    { return "the rel is not recursive: its body is evaluated whole before a magic join could filter it, so an adorned copy saves no evaluation (the reader's own filter already applies) and would only duplicate its code; demand bounds a FIXPOINT, so only a recursive rel is adorned" ; }
     if r == MS_FALLIBLE()  { return "a body of the rel, or the entry's WHERE / ON, evaluates checked arithmetic (`+ - * / %`, negation), which returns an `ElError` on overflow or division by zero: the naive program evaluates it on rows outside the demand, so restricting the rows could turn an `Err` into an `Ok`. Soufflé's MST excludes order-dependent functors (`/`, `%`) for the same reason; here every integer operator is checked, so all of them count"; }
     return "";
@@ -1436,7 +1436,6 @@ pub fn ms_name(r: i32) -> str {
     if r == MS_DEMAND()    { return "demand"; }
     if r == MS_SHARED()    { return "shared"; }
     if r == MS_NEG_AGG()   { return "neg_agg"; }
-    if r == MS_CAP()       { return "cap"; }
     if r == MS_FALLIBLE()  { return "fallible"; }
     if r == MS_NONREC()    { return "nonrec"; }
     return "unset";

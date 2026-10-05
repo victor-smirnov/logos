@@ -167,7 +167,6 @@ pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
         let tn0: str = resolve_alias_name(view, prm.relc_ty[off]);
         ty.set_ty_named(cn0, tn0);
         ty.rel_bind_named(var_name, cn0, COL_WHOLE(), tn0);
-        report_ty_overflow(ty);
         return true;
     }
     let mut k: i64 = 0i64;
@@ -178,7 +177,6 @@ pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
         ty.rel_bind_named(var_name, cn, k, tnk);
         k = k + 1i64;
     }
-    report_ty_overflow(ty);
     return true;
 }
 
@@ -196,7 +194,6 @@ pub fn apply_scalar_params(ty: &mut ElTypes, view: &OView, prm: &MacroParams) {
         }
         i = i + 1i64;
     }
-    report_ty_overflow(ty);
 }
 
 // Validate a `limit <ident>` reference: the ident must name a SCALAR param
@@ -3815,30 +3812,33 @@ struct JChain {
     base_ty:  str,
     base_var: str,
     n:    i64,
-    src:  [str; 8],
-    ty:   [str; 8],
-    var:  [str; 8],
-    anti: [bool; 8],
-    onw:  [i64; 8],     // raw arena words of the per-step on-pred edges (0 = none)
-    edge:  [bool; 8],
-    byval: [bool; 8],
-    jstrat: [i32; 8],
-    jsel:   [i64; 8],
-    jground: [i64; 8],
+    src:  Vec<str>,
+    ty:   Vec<str>,
+    var:  Vec<str>,
+    anti: Vec<bool>,
+    onw:  Vec<i64>,     // raw arena words of the per-step on-pred edges (0 = none)
+    edge:  Vec<bool>,
+    byval: Vec<bool>,
+    jstrat: Vec<i32>,
+    jsel:   Vec<i64>,
+    jground: Vec<i64>,
 }
 
 fn jchain_new() -> JChain {
     return JChain { base_src: "", base_ty: "", base_var: "", n: 0i64,
-                    src:  ["", "", "", "", "", "", "", ""],
-                    ty:   ["", "", "", "", "", "", "", ""],
-                    var:  ["", "", "", "", "", "", "", ""],
-                    anti: [false; 8],
-                    onw:  [0i64; 8],
-                    edge:  [false; 8],
-                    byval: [false; 8],
-                    jstrat: [0i32; 8],
-                    jsel:   [-1i64; 8],
-                    jground: [0i64; 8] };
+                    src: Vec::<str>::new(), ty: Vec::<str>::new(), var: Vec::<str>::new(),
+                    anti: Vec::<bool>::new(), onw: Vec::<i64>::new(), edge: Vec::<bool>::new(),
+                    byval: Vec::<bool>::new(), jstrat: Vec::<i32>::new(), jsel: Vec::<i64>::new(),
+                    jground: Vec::<i64>::new() };
+}
+
+// Append one step (the decision fields as the plan left them on the node).
+fn jc_push(ch: &mut JChain, src: str, ty: str, var: str, anti: bool, onw: i64, edge: bool,
+           byval: bool, jstrat: i32, jsel: i64, jground: i64) {
+    ch.src.push(src); ch.ty.push(ty); ch.var.push(var); ch.anti.push(anti); ch.onw.push(onw);
+    ch.edge.push(edge); ch.byval.push(byval); ch.jstrat.push(jstrat); ch.jsel.push(jsel);
+    ch.jground.push(jground);
+    ch.n = ch.n + 1i64;
 }
 
 // ── WAS THERE AN ORDER AXIS AT ALL? (ADR 0024 S4p) ───────────────────────────
@@ -3875,50 +3875,24 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
         RExpr::Join(jn) => {
             collect_chain(jn.left_expr(), ch);
             let rs: RScan = scan_of(jn.right_expr());
-            if ch.n < 8i64 {
-                ch.src[ch.n] = rs.src_name;
-                ch.ty[ch.n]  = rs.row_ty;
-                ch.var[ch.n] = rs.var_name;
-                ch.anti[ch.n] = false;
-                ch.onw[ch.n]  = jn.on.any().raw();
-                ch.jstrat[ch.n] = jn.jstrat;
-                ch.jsel[ch.n]   = jn.jsel as i64;
-                ch.jground[ch.n] = jn.jground;
-                ch.n = ch.n + 1i64;
-            }
+            jc_push(ch, rs.src_name, rs.row_ty, rs.var_name, false, jn.on.any().raw(), false, false,
+                    jn.jstrat, jn.jsel as i64, jn.jground);
             return;
         }
         RExpr::Anti(an) => {
             collect_chain(an.left_expr(), ch);
             let rs: RScan = scan_of(an.right_expr());
-            if ch.n < 8i64 {
-                ch.src[ch.n] = rs.src_name;
-                ch.ty[ch.n]  = rs.row_ty;
-                ch.var[ch.n] = rs.var_name;
-                ch.anti[ch.n] = true;
-                ch.onw[ch.n]  = an.on.any().raw();
-                ch.jstrat[ch.n] = an.jstrat;
-                ch.jsel[ch.n]   = an.jsel as i64;
-                ch.jground[ch.n] = an.jground;
-                ch.n = ch.n + 1i64;
-            }
+            jc_push(ch, rs.src_name, rs.row_ty, rs.var_name, true, an.on.any().raw(), false, false,
+                    an.jstrat, an.jsel as i64, an.jground);
             return;
         }
         RExpr::Edge(ed) => {
             // TRAVERSAL step (slice D): unary — recurse into the input, then
             // append one edge step (src = the field-path expression text).
             collect_chain(ed.input_expr(), ch);
-            if ch.n < 8i64 {
-                ch.src[ch.n]   = ed.src;
-                ch.ty[ch.n]    = ed.row_ty;
-                ch.var[ch.n]   = ed.var_name;
-                ch.anti[ch.n]  = ed.is_anti;
-                ch.edge[ch.n]  = true;
-                ch.byval[ch.n] = el_ret_class(ed.row_ty) >= 0i32;
-                if ed.has_on { ch.onw[ch.n] = ed.on.any().raw(); }
-                else         { ch.onw[ch.n] = 0i64; }
-                ch.n = ch.n + 1i64;
-            }
+            let eon: i64 = if ed.has_on { ed.on.any().raw() } else { 0i64 };
+            jc_push(ch, ed.src, ed.row_ty, ed.var_name, ed.is_anti, eon, true,
+                    el_ret_class(ed.row_ty) >= 0i32, 0i32, -1i64, 0i64);
             return;
         }
         _ => {
@@ -4007,11 +3981,11 @@ fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, ktn: str,
 // strategy reads once); the check is here because the cost of the promise
 // being broken is silence rather than a crash.
 fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
-                 st_build: &mut [String; 8], st_probe: &mut [String; 8],
-                 st_resid: &mut [String; 8], st_pred: &mut [String; 8],
-                 st_strat: &mut [i32; 8], st_ktn: &mut [str; 8],
-                 st_hasres: &mut [bool; 8], st_equi: &mut [bool; 8],
-                 st_stream: &mut [bool; 8]) -> bool {
+                 st_build: &mut Vec<String>, st_probe: &mut Vec<String>,
+                 st_resid: &mut Vec<String>, st_pred: &mut Vec<String>,
+                 st_strat: &mut Vec<i32>, st_ktn: &mut Vec<str>,
+                 st_hasres: &mut Vec<bool>, st_equi: &mut Vec<bool>,
+                 st_stream: &mut Vec<bool>) -> bool {
     let mut i: i64 = 0i64;
     while i < ch.n {
         // ADR 0025 S2g — THE PLAN'S NODE, not a shape read off a boolean. A
@@ -4657,8 +4631,8 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
     let m: i64 = ch.n + 1i64;
     let mut fl: [i64; 4] = [0i64; 4];
     let mut nfl: i64 = 0i64;
-    let mut pin: [i64; 8] = [0i64; 8];
-    let mut pbc: [i64; 8] = [0i64; 8];
+    let mut pin: Vec<i64> = vec![0i64; m];
+    let mut pbc: Vec<i64> = vec![0i64; m];
     let mut npin: i64 = 0i64;
     let mut s: i64 = 0i64;
     while s < m {
@@ -4683,32 +4657,16 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
     while j < nfl {
         if j > 0i64 {
             let sl: i64 = fl[jo.cslot[b + j]];
-            o.src[k]  = jch_src(ch, sl);
-            o.ty[k]   = jch_ty(ch, sl);
-            o.var[k]  = jch_var(ch, sl);
-            o.anti[k]  = false;
-            o.edge[k]  = false;
-            o.byval[k] = false;
-            o.onw[k]    = jo.conw[b + j];
-            o.jstrat[k] = jo.cstrat[b + j];
-            o.jsel[k]   = jo.csel[b + j];
-            o.jground[k] = jo.cground[b + j];
+            jc_push(&mut o, jch_src(ch, sl), jch_ty(ch, sl), jch_var(ch, sl), false, jo.conw[b + j],
+                    false, false, jo.cstrat[b + j], jo.csel[b + j], jo.cground[b + j]);
             k = k + 1i64;
         }
         let mut pi: i64 = 0i64;
         while pi < npin {
             if pbc[pi] == j + 1i64 {
                 let q: i64 = pin[pi] - 1i64;
-                o.src[k]  = ch.src[q];
-                o.ty[k]   = ch.ty[q];
-                o.var[k]  = ch.var[q];
-                o.anti[k]  = ch.anti[q];
-                o.edge[k]  = ch.edge[q];
-                o.byval[k] = ch.byval[q];
-                o.onw[k]    = ch.onw[q];
-                o.jstrat[k] = ch.jstrat[q];
-                o.jsel[k]   = ch.jsel[q];
-                o.jground[k] = ch.jground[q];
+                jc_push(&mut o, ch.src[q], ch.ty[q], ch.var[q], ch.anti[q], ch.onw[q], ch.edge[q],
+                        ch.byval[q], ch.jstrat[q], ch.jsel[q], ch.jground[q]);
                 k = k + 1i64;
             }
             pi = pi + 1i64;
@@ -4739,8 +4697,7 @@ fn jch_var(ch: &JChain, s: i64) -> str {
 /// flags, and the strategy the planner recorded. Copied rather than shared, so
 /// `join_order` cannot come to depend on an emitter detail.
 fn jch_of(ch: &JChain) -> JCh {
-    let mut c: JCh = jch_new();
-    c.n = ch.n;
+    let mut c: JCh = jch_new(ch.n);
     let m: i64 = ch.n + 1i64;
     let mut s: i64 = 0i64;
     while s < m {
@@ -4879,11 +4836,11 @@ fn push_jctable(out: &mut String, jo: &JoinOrder, nf: &NdvFacts, prm: &MacroPara
     }
     out.push_str("], npin: ");
     out.push_i64(jo.npin);
-    out.push_str("i64, pin_after: [");
+    out.push_str("i64, pins_at: [");
     let mut q: i64 = 0i64;
     while q < 8i64 {
         if q > 0i64 { out.push_str(", "); }
-        out.push_i64(jo.pin_after[q]);
+        out.push_i64(jo.pins_at[q]);
         out.push_str("i64");
         q = q + 1i64;
     }
@@ -4929,7 +4886,7 @@ fn push_jctable(out: &mut String, jo: &JoinOrder, nf: &NdvFacts, prm: &MacroPara
 fn cand_branch(ch: &JChain, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroParams,
                h: &Writ, has_sort: bool, first: bool, distinct: bool, has_where: bool,
                where_body: str, key_body: str, proj_f: ExprBlob, result_ty: str,
-               lim_f: ExprBlob, has_lim_use: bool, qvars: &[str; 9], nq: i64,
+               lim_f: ExprBlob, has_lim_use: bool, qvars: &Vec<str>, nq: i64,
                out: &mut ExprBlob) -> bool {
     let cch: JChain = chain_reorder(ch, jo, cix);
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -4946,7 +4903,7 @@ fn cand_branch(ch: &JChain, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroP
 // list in query order, and the tiebreak that makes the sorted sequence
 // order-independent is lexicographic in that same order. A tuple must therefore
 // mean the same thing whichever nest pushed it.
-fn qslot_of(qvars: &[str; 9], nq: i64, v: str) -> i64 {
+fn qslot_of(qvars: &Vec<str>, nq: i64, v: str) -> i64 {
     let mut i: i64 = 0i64;
     while i < nq {
         if str_eq(qvars[i], v) { return i; }
@@ -4970,22 +4927,18 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
                    has_where: bool, where_body: str, key_body: str,
                    proj_f: ExprBlob, result_ty: str,
                    lim_f: ExprBlob, has_lim_use: bool,
-                   qvars: &[str; 9], nq: i64,
+                   qvars: &Vec<str>, nq: i64,
                    bps: &mut Vec<ExprBlob>, out: &mut ExprBlob) -> bool {
     // Per-step strategy analysis (Part 2) — chosen by the plan, read here.
-    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_strat:  [i32; 8]  = [0i32; 8];
-    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut st_hasres: [bool; 8] = [false; 8];
-    let mut st_equi:   [bool; 8] = [false; 8];
-    let mut st_stream: [bool; 8] = [false; 8];
+    let mut st_build: Vec<String> = vec![String::new(); ch.n];
+    let mut st_probe: Vec<String> = vec![String::new(); ch.n];
+    let mut st_resid: Vec<String> = vec![String::new(); ch.n];
+    let mut st_pred:  Vec<String> = vec![String::new(); ch.n];
+    let mut st_strat:  Vec<i32>  = vec![0i32; ch.n];
+    let mut st_ktn:    Vec<str>  = str_vec(ch.n);
+    let mut st_hasres: Vec<bool> = vec![false; ch.n];
+    let mut st_equi:   Vec<bool> = vec![false; ch.n];
+    let mut st_stream: Vec<bool> = vec![false; ch.n];
     if !analyze_chain(ch, ty, ch.base_var, h, prm,
                       &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
                       &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
@@ -4993,10 +4946,8 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
 
     // The bound sources of THIS order: the generated row-index expression each
     // one contributes to the sort's tuple, and the query slot it belongs in.
-    let mut bidx: [String; 9] = [String::new(), String::new(), String::new(), String::new(),
-                                 String::new(), String::new(), String::new(), String::new(),
-                                 String::new()];
-    let mut bslot: [i64; 9] = [0i64; 9];
+    let mut bidx: Vec<String> = vec![String::new(); ch.n + 1i64];
+    let mut bslot: Vec<i64> = vec![0i64; ch.n + 1i64];
     bidx[0].push_str("__i0");
     bslot[0] = qslot_of(qvars, nq, ch.base_var);
     let mut nb: i64 = 1i64;
@@ -5276,10 +5227,10 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
     // (`chain_nest_frag` maps its own bound sources onto these slots by var
     // name). The per-source row-index EXPRESSION is the one thing that is a
     // property of the nest, and it moved there with it.
-    let mut bnd_src: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-    let mut bnd_ty:  [str; 9] = ["", "", "", "", "", "", "", "", ""];
-    let mut bnd_var: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-    let mut bnd_byval: [bool; 9] = [false; 9];
+    let mut bnd_src: Vec<str> = str_vec(ch.n + 1i64);
+    let mut bnd_ty:  Vec<str> = str_vec(ch.n + 1i64);
+    let mut bnd_var: Vec<str> = str_vec(ch.n + 1i64);
+    let mut bnd_byval: Vec<bool> = vec![false; ch.n + 1i64];
     bnd_src[0] = ch.base_src;
     bnd_ty[0]  = ch.base_ty;
     bnd_var[0] = ch.base_var;
@@ -5657,7 +5608,7 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 // with no global row ordinal to record.
 fn agg_group_frame_pure(aggs: &RAggArr, acount: i64, proj_e: SExpr,
                         having_ref: WRef<SExpr>, has_having: bool, mods: QMods) -> bool {
-    let mut onames: [str; 8] = ["", "", "", "", "", "", "", ""];
+    let mut onames: Vec<str> = str_vec(acount);
     let mut j: i64 = 0i64;
     while j < acount { onames[j] = aggs.agg_at(j).out; j = j + 1i64; }
     if !sexpr_over_group_names(proj_e, &onames, acount) { return false; }
@@ -5843,15 +5794,14 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         return false;
     }
     ty.set_ty_named("key", key_ty);
-    report_ty_overflow(&mut ty);
-    let mut agg_flt:  [bool; 8] = [false; 8];
-    let mut agg_cast: [bool; 8] = [false; 8];
+    let mut agg_flt:  Vec<bool> = vec![false; acount];
+    let mut agg_cast: Vec<bool> = vec![false; acount];
     compute_agg_reprs(&aggs, acount, &ty, &mut agg_flt, &mut agg_cast);
     // UDA resolution (naming-convention triple) + finalized column types.
-    let mut uda:     [bool; 8] = [false; 8];
-    let mut uda_fin: [bool; 8] = [false; 8];
-    let mut uda_acc: [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut uda_ret: [str; 8]  = ["", "", "", "", "", "", "", ""];
+    let mut uda:     Vec<bool> = vec![false; acount];
+    let mut uda_fin: Vec<bool> = vec![false; acount];
+    let mut uda_acc: Vec<str>  = str_vec(acount);
+    let mut uda_ret: Vec<str>  = str_vec(acount);
     if !resolve_aggs(&view, &aggs, acount, &mut uda, &mut uda_fin,
                      &mut uda_acc, &mut uda_ret) { return false; }
     // ── THE ACCUMULATOR'S TYPE, DECIDED ONCE AND ABOVE EVERYTHING THAT READS IT
@@ -5874,10 +5824,10 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
     // exactly the disagreement `compute_agg_bodies`' header warns about one
     // level down. The flag is deleted and the array is passed into
     // `emit_incremental` rather than recomputed there.
-    let mut acc: [str; 8] = ["", "", "", "", "", "", "", ""];
+    let mut acc: Vec<str> = str_vec(acount);
     compute_acc_tys(&aggs, acount, &ty, h, &uda, &agg_flt, &mut acc);
     stamp_agg_out_types(&aggs, acount, &agg_flt, &uda, &uda_ret, &acc, &mut ty);
-    let mut act: [str; 8] = ["", "", "", "", "", "", "", ""];
+    let mut act: Vec<str> = str_vec(acount);
     compute_agg_col_tys(acount, &agg_flt, &uda, &uda_ret, &acc, &mut act);
 
     // Validate clause calls (select / where / on preds; the key is validated above).
@@ -5949,27 +5899,22 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         aggclass_trace(fn_name, AC_REP());
     }
 
-    let mut agg_body: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
+    let mut agg_body: Vec<String> = vec![String::new(); acount];
     // The BATCH fold's accumulator types are `acc`, computed above and shared
     // with the incremental emitter — see the note at `compute_acc_tys`' call.
     if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &uda,
                            &agg_flt, &agg_cast, &acc, &mut agg_body) { return false; }
 
     // Per-step strategy analysis (the same Part-2 cascade as the join shape).
-    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_strat:  [i32; 8]  = [0i32; 8];
-    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut st_hasres: [bool; 8] = [false; 8];
-    let mut st_equi:   [bool; 8] = [false; 8];
-    let mut st_stream: [bool; 8] = [false; 8];
+    let mut st_build: Vec<String> = vec![String::new(); ch.n];
+    let mut st_probe: Vec<String> = vec![String::new(); ch.n];
+    let mut st_resid: Vec<String> = vec![String::new(); ch.n];
+    let mut st_pred:  Vec<String> = vec![String::new(); ch.n];
+    let mut st_strat:  Vec<i32>  = vec![0i32; ch.n];
+    let mut st_ktn:    Vec<str>  = str_vec(ch.n);
+    let mut st_hasres: Vec<bool> = vec![false; ch.n];
+    let mut st_equi:   Vec<bool> = vec![false; ch.n];
+    let mut st_stream: Vec<bool> = vec![false; ch.n];
     if !analyze_chain(&ch, &ty, ch.base_var, h, prm,
                       &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
                       &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
@@ -6587,8 +6532,8 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
 // rel-backed) runs the same way, so every call that changes a handle either
 // commits whole or leaves it as it was.
 fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
-                    uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
-                    act: &[str; 8], acc: &[str; 8], key_ty: str, key_body: str,
+                    uda: &Vec<bool>, agg_flt: &Vec<bool>, agg_cast: &Vec<bool>,
+                    act: &Vec<str>, acc: &Vec<str>, key_ty: str, key_body: str,
                     result_ty: str, tres: i32, proj_body: str, having_body: str,
                     has_having: bool, proj_e: SExpr, having_ref: WRef<SExpr>,
                     has_where: bool, mods: QMods,
@@ -6616,8 +6561,7 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         return true;
     }
 
-    let mut iarg: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                 String::new(), String::new(), String::new(), String::new()];
+    let mut iarg: Vec<String> = vec![String::new(); acount];
     // ⚠ THE ACCUMULATORS ARE THE BATCH'S, PASSED IN. This used to call
     // `compute_acc_tys(..., true, ...)` and derive a SECOND array, because the
     // batch asked the same function with `false` and got the class
@@ -6763,13 +6707,11 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // this file already carries a warning about above `ga_name`. The batch
     // emitter gets away with the loop-local String because it expands its quote
     // in the same iteration; this one does not.
-    let mut ganm: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                 String::new(), String::new(), String::new(), String::new()];
+    let mut ganm: Vec<String> = vec![String::new(); acount];
     // The MULTIPLICITY MAP's field name, under the same frame-lifetime rule as
     // `ganm`, and the ONE decision about whether that field exists at all.
-    let mut gmnm: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                 String::new(), String::new(), String::new(), String::new()];
-    let mut wmap: [bool; 8] = [false, false, false, false, false, false, false, false];
+    let mut gmnm: Vec<String> = vec![String::new(); acount];
+    let mut wmap: Vec<bool> = vec![false; acount];
 
     // ── THE SCC'S MEMBERS, IN THE ORDER `emit_scc_fn` PUTS THEM IN ITS ─────
     // ── SIGNATURE, AND THAT ORDER IS THE WHOLE CONTRACT — P3c ──────────────
@@ -9493,7 +9435,7 @@ fn push_vec_new(out: &mut String, t: str) {
 // function — which is the class of unobservable derived decision this compiler
 // has already paid for once at the join-order axis.
 fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
-                 uda: &[bool; 8], act: &[str; 8], key_ty: str,
+                 uda: &Vec<bool>, act: &Vec<str>, key_ty: str,
                  result_ty: str, tres: i32, has_having: bool, proj_e: SExpr,
                  having_ref: WRef<SExpr>, has_where: bool, mods: QMods,
                  prm: &MacroParams, retr: bool, qn: str) -> bool {
@@ -9748,7 +9690,7 @@ fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // `select` and `having` must be evaluable from the GROUP ROW alone — no
     // source row (its index is meaningless across epochs) and no scalar
     // parameter (it is a per-call value, and `<q>_snapshot` takes none).
-    let mut onames: [str; 8] = ["", "", "", "", "", "", "", ""];
+    let mut onames: Vec<str> = str_vec(acount);
     let mut j: i64 = 0i64;
     while j < acount { onames[j] = aggs.agg_at(j).out; j = j + 1i64; }
     if !sexpr_over_group_names(proj_e, &onames, acount) {
@@ -10029,7 +9971,7 @@ fn incr_facts(qn: str, r: i32) {
 /// to trace and to shape the emitted fns. Both read THIS function, so they cannot
 /// answer differently — the `accw`/`compute_acc_tys` failure mode this file
 /// already carries two warnings about.
-fn retract_ok(aggs: &RAggArr, acount: i64, acc: &[str; 8]) -> bool {
+fn retract_ok(aggs: &RAggArr, acount: i64, acc: &Vec<str>) -> bool {
     let mut i: i64 = 0i64;
     while i < acount {
         let fnid: i32 = agg_of_name(aggs.agg_at(i).fn_name);
@@ -10061,7 +10003,7 @@ fn aggs_any_minmax(aggs: &RAggArr, acount: i64) -> bool {
     return false;
 }
 
-fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &[str; 8],
+fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &Vec<str>,
                          rel_backed: bool, qn: str) -> bool {
     // ── RETRACTION THROUGH RECURSION IS REFUSED, AND THE GROUND IS A FACT ───
     //
@@ -10421,9 +10363,9 @@ fn row_rebind_frag(base_var: str, base_ty: str, base_src: str, idx: ExprBlob) ->
 // live whenever this arm is taken. It is passed rather than re-derived for the
 // same reason the accumulator type is passed to `emit_incremental`: two
 // derivations of one predicate is how two emitters come to disagree.
-fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &[str; 8],
-                    uda: &[bool; 8], uda_fin: &[bool; 8], uda_ret: &[str; 8],
-                    key_ty: str, rep: bool, has_cnt: bool, agg_flt: &[bool; 8],
+fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &Vec<str>,
+                    uda: &Vec<bool>, uda_fin: &Vec<bool>, uda_ret: &Vec<str>,
+                    key_ty: str, rep: bool, has_cnt: bool, agg_flt: &Vec<bool>,
                     base_var: str, base_ty: str, base_src: str) -> ExprBlob {
     let keyt_f: ExprBlob = parse_type(key_ty);
     let mut binds: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -10497,7 +10439,7 @@ fn group_binds_frag(idx: ExprBlob, aggs: &RAggArr, acount: i64, act: &[str; 8],
 // `((s.v) as f64)` is what the fold emitter writes) and differ for exactly the
 // arguments the table refuses — which is the whole of the hole.
 fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
-                     agg_flt: &mut [bool; 8], agg_cast: &mut [bool; 8]) {
+                     agg_flt: &mut Vec<bool>, agg_cast: &mut Vec<bool>) {
     let mut ki: i64 = 0i64;
     while ki < acount {
         let ka: RAgg = aggs.agg_at(ki);
@@ -10521,10 +10463,8 @@ fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
         // UDA still answers -1, which keeps its repr where it belongs.
         let is_f: bool = if admitted { rty == EL_TY_FLT() }
                          else { agg_result_ty(ka.fn_name, EL_TY_INT()) == EL_TY_FLT() };
-        if ki < 8i64 {
-            agg_flt[ki]  = is_f;
-            agg_cast[ki] = admitted && is_f && !arg_is_flt && kfn != AGG_COUNT();
-        }
+        agg_flt[ki]  = is_f;
+        agg_cast[ki] = admitted && is_f && !arg_is_flt && kfn != AGG_COUNT();
         ki = ki + 1i64;
     }
 }
@@ -10543,8 +10483,8 @@ fn compute_agg_reprs(aggs: &RAggArr, acount: i64, t: &ElTypes,
 // (`ty.set_ty_named("key", key_ty)`), and this is the same move for the
 // aggregate outputs. A UDA and a float still go by class: `aret` is a reflected
 // CLASS with no name to carry, and `f64` IS the float representative.
-fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
-                       uda: &[bool; 8], uda_ret: &[str; 8], acc: &[str; 8],
+fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &Vec<bool>,
+                       uda: &Vec<bool>, uda_ret: &Vec<str>, acc: &Vec<str>,
                        ty: &mut ElTypes) {
     let mut i: i64 = 0i64;
     while i < acount {
@@ -10560,7 +10500,6 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
         }
         i = i + 1i64;
     }
-    report_ty_overflow(ty);
 }
 
 // Validate each aggregate spec (known fn / resolved UDA, arg presence, arg-
@@ -10609,8 +10548,8 @@ fn stamp_agg_out_types(aggs: &RAggArr, acount: i64, agg_flt: &[bool; 8],
 // and a `u64` column could arrive spelled two ways at the check and at the
 // accumulator; they read one answer.
 fn compute_acc_tys(aggs: &RAggArr, acount: i64, t: &ElTypes, h: &Writ,
-                   uda: &[bool; 8], agg_flt: &[bool; 8],
-                   acc: &mut [str; 8]) {
+                   uda: &Vec<bool>, agg_flt: &Vec<bool>,
+                   acc: &mut Vec<str>) {
     let mut i: i64 = 0i64;
     while i < acount {
         if uda[i] {
@@ -10646,8 +10585,8 @@ fn compute_acc_tys(aggs: &RAggArr, acount: i64, t: &ElTypes, h: &Writ,
 // the check, to the cast, to the accumulator declaration, to the seeds and to
 // the fold's overflow predicate.
 fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &Writ,
-                      uda: &[bool; 8], agg_flt: &[bool; 8], agg_cast: &[bool; 8],
-                      accw: &[str; 8], agg_body: &mut [String; 8]) -> bool {
+                      uda: &Vec<bool>, agg_flt: &Vec<bool>, agg_cast: &Vec<bool>,
+                      accw: &Vec<str>, agg_body: &mut Vec<String>) -> bool {
     let mut ai: i64 = 0i64;
     while ai < acount {
         let a: RAgg = aggs.agg_at(ai);
@@ -10757,8 +10696,8 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
 // `uda_acc` (A, verbatim), `uda_ret` (R, verbatim — the output's type).
 // False (error surfaced) on a convention violation.
 fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
-                uda: &mut [bool; 8], uda_fin: &mut [bool; 8],
-                uda_acc: &mut [str; 8], uda_ret: &mut [str; 8]) -> bool {
+                uda: &mut Vec<bool>, uda_fin: &mut Vec<bool>,
+                uda_acc: &mut Vec<str>, uda_ret: &mut Vec<str>) -> bool {
     let mut i: i64 = 0i64;
     while i < acount {
         let a: RAgg = aggs.agg_at(i);
@@ -10867,12 +10806,10 @@ fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
                 error(string_as_str(&m5));
                 return false;
             }
-            if i < 8i64 {
-                uda[i]     = true;
-                uda_fin[i] = has_fin;
-                uda_acc[i] = acc_ty;
-                uda_ret[i] = ret_ty;
-            }
+            uda[i]     = true;
+            uda_fin[i] = has_fin;
+            uda_acc[i] = acc_ty;
+            uda_ret[i] = ret_ty;
             i = i + 1i64;
         }
     }
@@ -10891,15 +10828,13 @@ fn resolve_aggs(view: &OView, aggs: &RAggArr, acount: i64,
 // CAST: `2^63 as i64` is negative, so casting the read instead of retyping the
 // column would turn the answer `sum{2^62, 2^62} = 2^63` — the very value the
 // widening exists to produce — back into a wrong number.
-fn compute_agg_col_tys(acount: i64, agg_flt: &[bool; 8], uda: &[bool; 8],
-                       uda_ret: &[str; 8], acc: &[str; 8], act: &mut [str; 8]) {
+fn compute_agg_col_tys(acount: i64, agg_flt: &Vec<bool>, uda: &Vec<bool>,
+                       uda_ret: &Vec<str>, acc: &Vec<str>, act: &mut Vec<str>) {
     let mut i: i64 = 0i64;
     while i < acount {
-        if i < 8i64 {
-            if uda[i] { act[i] = uda_ret[i]; }
-            else if agg_flt[i] { act[i] = "f64"; }
-            else { act[i] = acc[i]; }
-        }
+        if uda[i] { act[i] = uda_ret[i]; }
+        else if agg_flt[i] { act[i] = "f64"; }
+        else { act[i] = acc[i]; }
         i = i + 1i64;
     }
 }
@@ -10966,23 +10901,16 @@ fn jchain_from_plan(j: RQJoin, ch: &mut JChain) {
     let mut i: i64 = 0i64;
     while i < ns {
         let st: RQJoinStep = steps.step_at(i);
-        if ch.n < 8i64 {
-            ch.src[ch.n]  = st.src_name;   // traversal steps: the walker-stamped field-path expr
-            ch.ty[ch.n]   = st.row_ty;
-            ch.var[ch.n]  = st.var_name;
-            ch.anti[ch.n] = st.is_anti;
-            ch.edge[ch.n]  = st.is_edge;
-            ch.byval[ch.n] = st.is_edge && el_ret_class(st.row_ty) >= 0i32;
-            if st.is_edge && !st.has_on { ch.onw[ch.n] = 0i64; }
-            else                        { ch.onw[ch.n] = st.on.any().raw(); }
-            ch.n = ch.n + 1i64;
-        }
+        // traversal steps: src is the walker-stamped field-path expr
+        let son: i64 = if st.is_edge && !st.has_on { 0i64 } else { st.on.any().raw() };
+        jc_push(ch, st.src_name, st.row_ty, st.var_name, st.is_anti, son, st.is_edge,
+                st.is_edge && el_ret_class(st.row_ty) >= 0i32, 0i32, -1i64, 0i64);
         i = i + 1i64;
     }
 }
 
 // Is `name` one of the body's bound row vars?
-fn is_bound_var(name: str, vars: &[str; 9], nvars: i64) -> bool {
+fn is_bound_var(name: str, vars: &Vec<str>, nvars: i64) -> bool {
     let mut i: i64 = 0i64;
     while i < nvars {
         if str_eq(vars[i], name) { return true; }
@@ -10998,7 +10926,7 @@ fn is_bound_var(name: str, vars: &[str; 9], nvars: i64) -> bool {
 // a borrowed view; the call's String temporary would dangle). Errors are
 // NAMED per rel/column. Returns false with the error surfaced.
 fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTypes,
-                 vars: &[str; 9], nvars: i64) -> bool {
+                 vars: &Vec<str>, nvars: i64) -> bool {
     let rel_name: str = prm.rel_names[ri];
     let nc: i64  = prm.rel_ccnt[ri];
     let off: i64 = prm.rel_coff[ri];
@@ -11053,7 +10981,7 @@ fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTy
 
 // One select component vs its declared column: whole-row / String / type.
 fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
-                      view: &OView, t: &ElTypes, vars: &[str; 9], nvars: i64) -> bool {
+                      view: &OView, t: &ElTypes, vars: &Vec<str>, nvars: i64) -> bool {
     let rn: str = root_ident_name(comp);
     if rn.len() > 0i64 && is_bound_var(rn, vars, nvars) {
         let mut m: String = String::new();
@@ -11223,7 +11151,7 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
     apply_scalar_params(&mut ty, &view, prm);
     stamp_udfs_from_module(&view, &mut ty);
 
-    let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut vars: Vec<str> = str_vec(1i64);
     vars[0] = s.var_name;
 
     let proj_opt: SExpr = simplify_sexpr(s.select_expr(), h).any().view::<SExpr>();
@@ -11318,17 +11246,9 @@ fn jchain_from_aggr(g: RQAggr, ch: &mut JChain) {
     let mut i: i64 = 0i64;
     while i < ns {
         let st: RQJoinStep = steps.step_at(i);
-        if ch.n < 8i64 {
-            ch.src[ch.n]  = st.src_name;
-            ch.ty[ch.n]   = st.row_ty;
-            ch.var[ch.n]  = st.var_name;
-            ch.anti[ch.n] = st.is_anti;
-            ch.edge[ch.n]  = st.is_edge;
-            ch.byval[ch.n] = st.is_edge && el_ret_class(st.row_ty) >= 0i32;
-            if st.is_edge && !st.has_on { ch.onw[ch.n] = 0i64; }
-            else                        { ch.onw[ch.n] = st.on.any().raw(); }
-            ch.n = ch.n + 1i64;
-        }
+        let son: i64 = if st.is_edge && !st.has_on { 0i64 } else { st.on.any().raw() };
+        jc_push(ch, st.src_name, st.row_ty, st.var_name, st.is_anti, son, st.is_edge,
+                st.is_edge && el_ret_class(st.row_ty) >= 0i32, 0i32, -1i64, 0i64);
         i = i + 1i64;
     }
 }
@@ -11418,12 +11338,12 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     // The whole-row-projection gate's var set. SCALAR-element traversal vars
     // (byval) are EXCLUDED: they bind a scalar VALUE (Vec<i64> → i64), which
     // is a legitimate select component — only struct/tuple ROWS are barred.
-    let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    let mut vars: Vec<str> = str_vec(ch.n + 1i64);
     vars[0] = ch.base_var;
     let mut nv: i64 = 1i64;
     let mut vi: i64 = 0i64;
     while vi < ch.n {
-        if nv < 9i64 && !ch.byval[vi] { vars[nv] = ch.var[vi]; nv = nv + 1i64; }
+        if !ch.byval[vi] { vars[nv] = ch.var[vi]; nv = nv + 1i64; }
         vi = vi + 1i64;
     }
 
@@ -11501,19 +11421,15 @@ fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
     }
 
     // Per-step strategy analysis (the same cascade as the query join shape).
-    let mut st_build: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_probe: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_resid: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_pred:  [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut st_strat:  [i32; 8]  = [0i32; 8];
-    let mut st_ktn:    [str; 8]  = ["", "", "", "", "", "", "", ""];
-    let mut st_hasres: [bool; 8] = [false; 8];
-    let mut st_equi:   [bool; 8] = [false; 8];
-    let mut st_stream: [bool; 8] = [false; 8];
+    let mut st_build: Vec<String> = vec![String::new(); ch.n];
+    let mut st_probe: Vec<String> = vec![String::new(); ch.n];
+    let mut st_resid: Vec<String> = vec![String::new(); ch.n];
+    let mut st_pred:  Vec<String> = vec![String::new(); ch.n];
+    let mut st_strat:  Vec<i32>  = vec![0i32; ch.n];
+    let mut st_ktn:    Vec<str>  = str_vec(ch.n);
+    let mut st_hasres: Vec<bool> = vec![false; ch.n];
+    let mut st_equi:   Vec<bool> = vec![false; ch.n];
+    let mut st_stream: Vec<bool> = vec![false; ch.n];
     if !analyze_chain(ch, &ty, ch.base_var, h, prm,
                       &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
                       &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
@@ -11762,14 +11678,13 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
 // before the loop); k occurrences ⇒ k delta variants per round — variant v
 // reads occurrence v from the rel's DELTA slice and every other in-SCC
 // occurrence from the TOTAL slice (the standard semi-naïve rewriting).
-struct OccList { pos: [i64; 9], rel: [i64; 9], n: i64 }
+struct OccList { pos: Vec<i64>, rel: Vec<i64>, n: i64 }
 
-fn occ_new() -> OccList { return OccList { pos: [0i64; 9], rel: [0i64; 9], n: 0i64 }; }
+fn occ_new() -> OccList { return OccList { pos: Vec::<i64>::new(), rel: Vec::<i64>::new(), n: 0i64 }; }
 
 fn occ_push(o: &mut OccList, pos: i64, rel: i64) {
-    if o.n >= 9i64 { return; }
-    o.pos[o.n] = pos;
-    o.rel[o.n] = rel;
+    o.pos.push(pos);
+    o.rel.push(rel);
     o.n = o.n + 1i64;
 }
 

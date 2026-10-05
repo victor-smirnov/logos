@@ -155,11 +155,6 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // this far, since the compiler's parse is what failed.
     let h: Writ = writ_new(4096i64);
     let root: WAny = unsafe { WAny::ref_to(ir) };
-    let mut capm: String = String::new();
-    if !plan_caps_ok(root, &mut capm) {
-        error(unsafe { str_from_raw(capm.as_ptr(), capm.len()) });
-        return out;
-    }
     // ── mapping fusion (ADR 0016 M2b-2): `deem!(g: Services)` ────────────
     // The compiler prepended the mapping's rels to this program and encoded
     // `old=new@lo-hi;` per mapping param — rename each mapping's own source
