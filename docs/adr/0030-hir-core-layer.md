@@ -591,10 +591,19 @@ GAT projection arms (census: 4 disagreements, each the solver right — a GAT
 used at the wrong arity is not projected (E0107), the pending impl answers
 `Self::Item<i32>`). A blanket impl's method is offered at a receiver when C-OBL
 selects that impl for it (`viable_blanket_impls`, by the impl's identity).
-Squeue #555 (a `Sized` supertrait) closed by the builtin rule. LEFT for row 5:
-the three assoc-const trait scans, the L-IR emission of an impl's associated
-types from assoc_type_impls_ (and with it the keyed registry), mono's GAT
-parameters (its L-IR assoc entries carry none).
+Squeue #555 (a `Sized` supertrait) closed by the builtin rule.
+Associated constants: each trait impl holds its own (written, or the trait's
+default when the impl omits it — decided by the impl's items, not a spelled
+key two `Tr<A>` / `Tr<B>` impls of one type share); `Type::NAME` of a trait is
+the constant of the impl C-OBL selects (two traits answering: E0034), in sema's
+three value paths and the length / const-argument folding, and mono folds
+`C::CONST` by the same selection over the values sema emits on each impl. The
+L-IR carries an impl's associated types and constants from the impl's own
+record (a blanket impl's constants now too). `assoc_type_impls_` is deleted
+(a duplicate associated type is E0201 within the impl; the default fill reads
+the impl's items). LEFT for row 5: inherent associated constants keyed by the
+target's spelling (inherent impls are not C-OBL facts), mono's GAT parameters
+(its L-IR assoc entries carry none).
 
 ## S0–S7 gap audit (2026-10-01)
 

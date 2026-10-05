@@ -2478,12 +2478,11 @@ private:
     // folds it (eval_len_postfix) or defers it under ARR_LEN_EXPR_PFX.
     std::optional<std::string> build_const_expr_postfix(writ::TinyMapView node);
 
-    // const-length-overhaul: the ctfe'd value of `<type_name>::<const_name>`
-    // (any trait impl or inherent), for folding a `C::CONST` projection in a
-    // length / const-arg at sema-time substitution. Mono uses its own
-    // pre-indexed table (assoc_const_values_); this is the sema-side twin.
-    std::optional<int64_t> sema_assoc_const_value(const std::string& type_name,
-                                                  const std::string& const_name);
+    // const-length-overhaul: the ctfe'd value of `<ct>::<const_name>` (inherent,
+    // else the trait impl C-OBL selects), for folding a `C::CONST` projection in
+    // a length / const-arg at sema-time substitution; mono's twin is
+    // Mono::assoc_const_value_.
+    std::optional<int64_t> sema_assoc_const_value(TypeRef ct, const std::string& const_name);
 
     // T2-29: is `t` an UNINHABITED type (no value can exist)? Never; an
     // empty enum or one whose every variant has an uninhabited payload; a
@@ -4831,7 +4830,6 @@ public:
 private:
     std::unordered_set<ImplKey, ImplKeyHash> user_impl_keys_;   // impls added by user code
     StrSet user_coherence_keys_;         // "Trait[args]::Target" keys
-    std::unordered_set<AssocKey, AssocKeyHash> user_assoc_type_impl_keys_;
     std::unordered_set<AssocKey, AssocKeyHash> user_assoc_const_impl_keys_;
     std::set<DefId> user_trait_defs_;    // traits declared by user code (snapshot reset)
     StrSet user_type_alias_keys_;        // bare type alias names from user code
@@ -6345,8 +6343,12 @@ private:
         // ADR 0030 S9 row 5: the impl's associated types (`type Item = T;`, or
         // the trait's default), over its generics — the C-OBL fact's items.
         std::vector<obl::AssocItem> assoc_types;
+        // The impl's associated constants (written or the trait's default), by
+        // name: indices into impl_assoc_consts_.
+        std::vector<std::pair<std::string, uint32_t>> assoc_consts;
         std::string impl_node;   // node_key_ of the impl block: the impl's identity
     };
+    std::vector<std::pair<std::string, uint32_t>> collecting_assoc_consts_;   // collect_impl's
     std::vector<obl::AssocItem> collecting_assoc_types_;   // collect_impl's
 
     // Type params in scope for the function/struct currently being processed.
@@ -6957,6 +6959,13 @@ private:
     // ADR 0030 S9 row 3: each impl's Self (its C-OBL fact), by the impl's node,
     // for lower_impl_block to put on the L-IR.
     logos::compiler::StrMap<TypeRef> impl_self_by_node_;
+    // Each trait impl's associated types and constants, by the impl's node,
+    // for lower_impl_block to put on the L-IR.
+    struct ImplItems {
+        std::vector<obl::AssocItem> types;
+        std::vector<std::pair<std::string, uint32_t>> consts;   // into impl_assoc_consts_
+    };
+    logos::compiler::StrMap<ImplItems> impl_items_by_node_;
     // The impls (by node) whose Self is unsized as collect saw it (`impl … for
     // str` is Self = `[u8]`): lowering synthesizes no `Self: Sized` default for
     // them, as collect registers none.
@@ -6983,14 +6992,6 @@ private:
     // map so e.g. `impl From<i8> for i32` and `impl From<i16> for i32` are
     // recognised as different impls.
     logos::compiler::StrSet                   coherence_keys_;
-    // "TraitName::TypeName::AssocName" → assoc type + type params for substitution.
-    struct AssocTypeEntry {
-        TypeRef       type;
-        std::vector<TypeParam> impl_type_params;  // from enclosing impl<T>
-        std::vector<TypeParam> gat_type_params;   // from GAT itself: type Item<T> = ...
-        std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
-    };
-    AssocMap<AssocTypeEntry> assoc_type_impls_;
 
     // "TraitName::TypeName::ConstName" → assoc const type (value evaluated lazily at call site)
     struct AssocConstEntry {
@@ -7000,6 +7001,14 @@ private:
         std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
     };
     AssocMap<AssocConstEntry> assoc_const_impls_;
+    // Each trait impl's own constants (SemaImplInfo::assoc_consts indexes them):
+    // two `Tr<A>` / `Tr<B>` impls of one type hold two entries.
+    std::deque<AssocConstEntry> impl_assoc_consts_;
+    // `Type::NAME` of a trait `self` implements (Rust's associated-item lookup):
+    // the constant of the impl C-OBL selects; null when none.
+    AssocConstEntry* trait_assoc_const_(TypeRef self, const std::string& name);
+    // ... lowered once per entry.
+    lir::LExprPtr assoc_const_value_(const AssocConstEntry& e);
 
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;
@@ -11360,6 +11369,7 @@ public:
     StrMap<std::vector<std::string>>       generic_overloads;
     StrMap<std::string>                    decl_symbols;   // ADR 0030 S9 row 1
     StrMap<TypeRef>                        impl_self_by_node;   // ADR 0030 S9 row 3
+    StrMap<SemaChecker::ImplItems>         impl_items_by_node;  // ADR 0030 S9 row 5
     StrSet                                 impl_unsized_self;
     StrMap<SemaChecker::TypeAliasEntry>   type_aliases;
     StrMap<TypeRef>                        module_consts;
@@ -11370,8 +11380,8 @@ public:
     SemaChecker::ImplMap<SemaChecker::SemaImplInfo>     impls;
     SemaChecker::ImplMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
     StrSet                                 coherence_keys;
-    SemaChecker::AssocMap<SemaChecker::AssocTypeEntry>   assoc_type_impls;
     SemaChecker::AssocMap<SemaChecker::AssocConstEntry>  assoc_const_impls;
+    std::deque<SemaChecker::AssocConstEntry>             impl_assoc_consts;
     std::vector<SemaChecker::BlanketImpl>  blanket_impls;
     std::vector<MetaprogHandlerStage> metaprog_handlers;
     std::vector<MetaprogTargetStage>  metaprog_targets;

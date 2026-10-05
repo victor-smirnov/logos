@@ -4784,10 +4784,30 @@ std::string Mono::ref_target_key(TypeRef t) {
 //      recursively check every bound against the substituted arg.
 //   4) If any impl satisfies all its bounds against the concrete's
 //      type-args, return true. Otherwise false.
+// `<ct>::NAME` folded in a length / const argument: the ctfe'd constant of the
+// trait impl C-OBL selects for `ct` (sema emitted its value on the impl).
+std::optional<int64_t> Mono::assoc_const_value_(TypeRef ct, const std::string& name) {
+    const obl::ImplTable& table = obl_table_now_();
+    auto it = obl_consts_.find(name);
+    if (!ct || it == obl_consts_.end()) return std::nullopt;
+    std::optional<int64_t> v;
+    std::unordered_map<std::string, std::vector<uint32_t>> answering;   // trait -> selected impls
+    for (auto& [source, trait, value] : it->second) {
+        auto [ait, fresh] = answering.try_emplace(trait);
+        if (fresh)
+            for (auto& c : obl::candidates(table, obl_env_(), trait, ct, {})) ait->second.push_back(c.impl->source);
+        if (std::find(ait->second.begin(), ait->second.end(), source) == ait->second.end()) continue;
+        if (v && *v != value) return std::nullopt;   // two impls answer (sema refused it, E0034)
+        v = value;
+    }
+    return v;
+}
+
 const obl::ImplTable& Mono::obl_table_now_() {
     if (out_.impls.size() == obl_table_n_) return obl_table_;
     obl_table_ = {};
     obl_memo_.clear();
+    obl_consts_.clear();
     obl_table_n_ = out_.impls.size();
     const TypePoolImpl* pool = out_.type_pool.impl();
     uint32_t src = 0;
@@ -4798,6 +4818,9 @@ const obl::ImplTable& Mono::obl_table_now_() {
         f.self = impl.self_type(pool);
         if (!f.self) f.self = impl.target_typeref(pool);
         if (!f.self || f.trait.empty()) continue;
+        impl.each_assoc_const([&](lir_view::AssocConstView ac) {
+            obl_consts_[std::string(ac.name())].push_back({f.source, f.trait, ac.value()});
+        });
         f.trait_args = impl.trait_type_args(pool);
         impl.each_impl_type_param([&](lir_view::FnTParamView tp) {
             f.generics.emplace_back(tp.name());

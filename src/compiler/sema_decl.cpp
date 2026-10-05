@@ -3636,46 +3636,29 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     }
     // Clean up impl's own type params
     if (!impl_tps.empty()) { pop_type_params(impl_tps); impl_type_params_.clear(); }
-    // Copy associated type mappings.  Blanket impls register under the
-    // synthetic `$blanket$...` name (see sema_collect) so the prefix must
-    // reflect that to pick up the right entries.
+    // The impl's associated types, and its constants' values ctfe'd (sema is the
+    // only place that can) so mono can fold a `C::CONST` projection once C binds.
     if (!trait_name.empty()) {
-        std::string stored_target = impl_is_blanket
-            ? ("$blanket$" + trait_name + "$" + impl_bound_trait + "$" + target)
-            : target;
-        // G156-1: assoc-type impls are registered under a trait-arg-suffixed key
-        // (e.g. "Producer$G1$i64::Gen::Item"); for two `Trait<T>` impls of one
-        // type the bare plain key is erased, so match THIS impl's suffixed
-        // prefix. Empty suffix (non-generic trait) → bare prefix, unchanged.
-        const DefId emit_trait_id = impl_trait_id(trait_name);
-        const std::string emit_targs = trait_targ_suffix(impl_trait_args);
         DeclArrayBuilder at_arr = ib.array(ik::ASSOC_TYPES);
-        for (auto& [key, entry] : assoc_type_impls_) {
-            if (key.trait_def == emit_trait_id && key.targs == emit_targs &&
-                key.target == stored_target) {
-                const std::string& assoc_name = key.name;
-                auto e = at_arr.submap(ASSOC_ENTRY_SCHEMA, 4);
-                e.str_always(aek::AE_NAME, assoc_name);
-                e.type(aek::AE_TYPE, entry.type);
-            }
-        }
-        // const-length-overhaul: emit this impl's ASSOC-CONST VALUES so mono can
-        // fold a compile-time `C::CONST` projection once C binds. assoc_const_impls_
-        // is keyed "<trait>::<target>::<name>" (no trait-arg suffix). Each value
-        // is ctfe'd to an i64 here (sema is the only place that can).
         namespace ack = lir_schema::assoc_const_keys;
         constexpr uint64_t ASSOC_CONST_SCHEMA = lir_schema::stmt::Count + 17;
         DeclArrayBuilder ac_arr = ib.array(ik::ASSOC_CONSTS);
-        for (auto& [key, entry] : assoc_const_impls_) {
-            if (key.trait_def != emit_trait_id || !key.targs.empty() ||
-                key.target != target) continue;
-            if (entry.value_ast.is_null()) continue;
-            auto v = ctfe_eval_const(map_of(entry.value_ast), holder_);
-            if (!v) continue;   // non-const-foldable value — skip (used via accessor)
-            const std::string& cname = key.name;
-            auto e = ac_arr.submap(ASSOC_CONST_SCHEMA, 4);
-            e.str_always(ack::AC_NAME, cname);
-            e.i64(ack::AC_VALUE, v.value().i);
+        if (auto iit = impl_items_by_node_.find(node_key_(node)); iit != impl_items_by_node_.end()) {
+            for (auto& item : iit->second.types) {
+                auto e = at_arr.submap(ASSOC_ENTRY_SCHEMA, 4);
+                e.str_always(aek::AE_NAME, item.name);
+                e.type(aek::AE_TYPE, item.type);
+            }
+            for (auto& [cname, idx] : iit->second.consts) {
+                if (idx >= impl_assoc_consts_.size()) continue;
+                const AssocConstEntry& entry = impl_assoc_consts_[idx];
+                if (entry.value_ast.is_null()) continue;
+                auto v = ctfe_eval_const(map_of(entry.value_ast), holder_);
+                if (!v) continue;   // non-const-foldable value — skip (used via accessor)
+                auto e = ac_arr.submap(ASSOC_CONST_SCHEMA, 4);
+                e.str_always(ack::AC_NAME, cname);
+                e.i64(ack::AC_VALUE, v.value().i);
+            }
         }
     }
     // doc: DEAD (never read post-store) — impl_doc consumed above, not mirrored.

@@ -414,7 +414,6 @@ public:
     StrSet persisted_user_generic_const_keys;
     std::unordered_set<SemaChecker::ImplKey, SemaChecker::ImplKeyHash> persisted_user_impl_keys;
     StrSet persisted_user_coherence_keys;
-    std::unordered_set<SemaChecker::AssocKey, SemaChecker::AssocKeyHash> persisted_user_assoc_type_impl_keys;
     std::unordered_set<SemaChecker::AssocKey, SemaChecker::AssocKeyHash> persisted_user_assoc_const_impl_keys;
     std::set<DefId> persisted_user_trait_defs;
     StrSet persisted_user_type_alias_keys;
@@ -445,7 +444,6 @@ void SemaCache::reset_user_state() {
         for (auto& k : c->persisted_user_generic_const_keys)    s->generic_consts.erase(k);
         for (auto& k : c->persisted_user_impl_keys)             s->impls.erase(k);
         for (auto& k : c->persisted_user_coherence_keys)        s->coherence_keys.erase(k);
-        for (auto& k : c->persisted_user_assoc_type_impl_keys)  s->assoc_type_impls.erase(k);
         for (auto& k : c->persisted_user_assoc_const_impl_keys) s->assoc_const_impls.erase(k);
         for (auto& d : c->persisted_user_trait_defs)            s->traits.erase(d);
         for (auto& k : c->persisted_user_type_alias_keys)       s->type_aliases.erase(k);
@@ -574,7 +572,6 @@ void SemaCache::reset_user_state() {
     c->persisted_user_generic_const_keys.clear();
     c->persisted_user_impl_keys.clear();
     c->persisted_user_coherence_keys.clear();
-    c->persisted_user_assoc_type_impl_keys.clear();
     c->persisted_user_assoc_const_impl_keys.clear();
     c->persisted_user_trait_defs.clear();
     c->persisted_user_type_alias_keys.clear();
@@ -597,6 +594,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->generic_overloads    = std::move(generic_overloads_);
     s->decl_symbols         = std::move(decl_symbols_);
     s->impl_self_by_node    = std::move(impl_self_by_node_);
+    s->impl_items_by_node   = std::move(impl_items_by_node_);
     s->impl_unsized_self    = std::move(impl_unsized_self_);
     s->type_aliases         = std::move(type_aliases_);
     s->module_consts        = std::move(module_consts_);
@@ -608,8 +606,8 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->impls_all            = std::move(impls_all_);
     ++impls_gen_;
     s->coherence_keys       = std::move(coherence_keys_);
-    s->assoc_type_impls     = std::move(assoc_type_impls_);
     s->assoc_const_impls    = std::move(assoc_const_impls_);
+    s->impl_assoc_consts    = std::move(impl_assoc_consts_);
     s->blanket_impls        = std::move(blanket_impls_);
     // M5 step 3b: COPY (not move) metaprog_handlers — prog.metaprog_handlers
     // is moved out at the end of run() AFTER take_snapshot. Vector is small.
@@ -649,7 +647,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
         for (auto& k : user_generic_const_keys_)   c->persisted_user_generic_const_keys.insert(k);
         for (auto& k : user_impl_keys_)            c->persisted_user_impl_keys.insert(k);
         for (auto& k : user_coherence_keys_)       c->persisted_user_coherence_keys.insert(k);
-        for (auto& k : user_assoc_type_impl_keys_) c->persisted_user_assoc_type_impl_keys.insert(k);
         for (auto& k : user_assoc_const_impl_keys_)c->persisted_user_assoc_const_impl_keys.insert(k);
         for (auto& d : user_trait_defs_)           c->persisted_user_trait_defs.insert(d);
         for (auto& k : user_type_alias_keys_)      c->persisted_user_type_alias_keys.insert(k);
@@ -667,7 +664,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     for (auto& k : user_generic_const_keys_)      s->generic_consts.erase(k);
     for (auto& k : user_impl_keys_)               s->impls.erase(k);
     for (auto& k : user_coherence_keys_)          s->coherence_keys.erase(k);
-    for (auto& k : user_assoc_type_impl_keys_)    s->assoc_type_impls.erase(k);
     for (auto& k : user_assoc_const_impl_keys_)   s->assoc_const_impls.erase(k);
     for (auto& d : user_trait_defs_)              s->traits.erase(d);
     for (auto& k : user_type_alias_keys_)         s->type_aliases.erase(k);
@@ -780,6 +776,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     generic_overloads_    = std::move(s->generic_overloads);
     decl_symbols_         = std::move(s->decl_symbols);
     impl_self_by_node_    = std::move(s->impl_self_by_node);
+    impl_items_by_node_   = std::move(s->impl_items_by_node);
     impl_unsized_self_    = std::move(s->impl_unsized_self);
     type_aliases_         = std::move(s->type_aliases);
     module_consts_        = std::move(s->module_consts);
@@ -803,8 +800,8 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     impls_all_            = std::move(s->impls_all);
     ++impls_gen_;
     coherence_keys_       = std::move(s->coherence_keys);
-    assoc_type_impls_     = std::move(s->assoc_type_impls);
     assoc_const_impls_    = std::move(s->assoc_const_impls);
+    impl_assoc_consts_    = std::move(s->impl_assoc_consts);
     blanket_impls_        = std::move(s->blanket_impls);
     metaprog_handlers_    = std::move(s->metaprog_handlers);
     metaprog_targets_     = std::move(s->metaprog_targets);
@@ -6354,16 +6351,18 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     }
 }
 
-std::optional<int64_t> SemaChecker::sema_assoc_const_value(const std::string& type_name,
-                                                           const std::string& const_name) {
-    // assoc_const_impls_ is keyed "<trait|inherent>::<target>::<name>"; match
-    // any entry for THIS target+name and ctfe its initializer.
-    for (auto& [k, e] : assoc_const_impls_) {
-        if (k.target != type_name || k.name != const_name) continue;
-        if (e.value_ast.is_null()) continue;
-        auto v = ctfe_eval_const(map_of(e.value_ast), holder_);
-        if (v) return v.value().i;
-    }
+std::optional<int64_t> SemaChecker::sema_assoc_const_value(TypeRef ct, const std::string& const_name) {
+    // The inherent constant, else the constant of the trait impl C-OBL selects.
+    writ::AnyVal init{};
+    const std::string tn = ct.kind() == LogosType::Kind::Struct || ct.kind() == LogosType::Kind::ZonedStruct
+                               ? std::string(ct.struct_name())
+                           : ct.kind() == LogosType::Kind::Enum ? std::string(ct.enum_name()) : type_str(ct);
+    if (auto iit = assoc_const_impls_.find(inherent_key(tn, const_name)); iit != assoc_const_impls_.end())
+        init = iit->second.value_ast;
+    else if (auto* ce = trait_assoc_const_(ct, const_name))
+        init = ce->value_ast;
+    if (init.is_null()) return std::nullopt;
+    if (auto v = ctfe_eval_const(map_of(init), holder_)) return v.value().i;
     return std::nullopt;
 }
 
@@ -6552,9 +6551,9 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
         if (iit != assoc_const_impls_.end()) {
             init = iit->second.value_ast;
         } else {
-            for (auto& [k, e] : assoc_const_impls_) {
-                if (k.target == target && k.name == cn) { init = e.value_ast; break; }
-            }
+            TypeRef qt = qit != current_type_params_.end() && qit->second ? TypeRef(qit->second)
+                                                                          : lookup_type_by_name(target);
+            if (auto* ce = trait_assoc_const_(qt, cn)) init = ce->value_ast;
         }
         if (init.is_null()) {
             error(std::format("array length '{}::{}': no such associated constant", qual, cn));
@@ -7144,8 +7143,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                         auto pit = s.find(p);
                         return pit != s.end() ? TypeRef(pit->second) : TypeRef(nullptr);
                     },
-                    [&](const std::string& tn, const std::string& cn) {
-                        return sema_assoc_const_value(tn, cn);
+                    [&](TypeRef ct, const std::string& cn) {
+                        return sema_assoc_const_value(ct, cn);
                     }));
             if (v) {
                 LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = *v;
@@ -7173,8 +7172,8 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                 return it != s.end() ? TypeRef(it->second) : TypeRef(nullptr);
             },
             [](const std::string&) { return std::pair<bool, uint64_t>{false, 0}; },
-            [&](const std::string& tn, const std::string& cn) {
-                return sema_assoc_const_value(tn, cn);
+            [&](TypeRef ct, const std::string& cn) {
+                return sema_assoc_const_value(ct, cn);
             });
         if (elem == t.elem() && r.size == t.arr_size() && r.symbolic == t.arr_size_var())
             return t;

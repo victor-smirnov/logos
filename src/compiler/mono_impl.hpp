@@ -198,11 +198,13 @@ private:
     StrMap<lir_view::FunctionView>  templates_;
     StrMap<std::vector<lir_view::FunctionView>> specs_;
     StrMap<lir_view::StructView> struct_templates_;
-    // const-length-overhaul: ctfe'd assoc-const values by "<target>::<name>",
-    // built from impls at index time so subst_type can fold a `C::CONST`
-    // projection in a length / const-arg once C binds. Sema is the only place
-    // that can compute these, so they ride the impl LIR (impl_keys::ASSOC_CONSTS).
-    StrMap<int64_t> assoc_const_values_;
+    // const-length-overhaul: each impl's ctfe'd assoc-const values (sema is the
+    // only place that can compute them; they ride impl_keys::ASSOC_CONSTS), by
+    // name: (the impl's C-OBL source, its trait, the value). subst_type folds a
+    // `C::CONST` projection once C binds (assoc_const_value_).
+    struct OblConst { uint32_t source; std::string trait; int64_t value; };
+    StrMap<std::vector<OblConst>> obl_consts_;
+    std::optional<int64_t> assoc_const_value_(TypeRef ct, const std::string& name);
     // ALL structs (generic templates AND non-generic), by bare + pkg-qualified
     // name. struct_templates_ holds GENERICS ONLY, so the `*mut DstStruct`→DstRef
     // canonicalisation in subst_type missed non-generic custom-DSTs (`*mut Foo`

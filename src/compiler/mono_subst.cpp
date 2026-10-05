@@ -46,11 +46,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                             auto pit = s.find(p);
                             return pit != s.end() ? TypeRef(pit->second) : TypeRef(nullptr);
                         },
-                        [&](const std::string& tn, const std::string& cn) -> std::optional<int64_t> {
-                            auto ait = assoc_const_values_.find(tn + "::" + cn);
-                            return ait != assoc_const_values_.end()
-                                ? std::optional<int64_t>(ait->second) : std::nullopt;
-                        }));
+                        [&](TypeRef ct, const std::string& cn) { return assoc_const_value_(ct, cn); }));
                 if (v) {
                     LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = *v;
                     return out_.type_pool.alloc(lt);
@@ -78,11 +74,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                 if (pit == cur_packs_.end()) return {false, 0};
                 return {true, static_cast<uint64_t>(pit->second.size())};
             },
-            [&](const std::string& tn, const std::string& cn) -> std::optional<int64_t> {
-                auto ait = assoc_const_values_.find(tn + "::" + cn);
-                return ait != assoc_const_values_.end()
-                    ? std::optional<int64_t>(ait->second) : std::nullopt;
-            });
+            [&](TypeRef ct, const std::string& cn) { return assoc_const_value_(ct, cn); });
         if (elem == tv.elem() && r.size == tv.arr_size() && r.symbolic == tv.arr_size_var())
             return tv;
         LogosTypeBuilder nt = tv.to_builder();

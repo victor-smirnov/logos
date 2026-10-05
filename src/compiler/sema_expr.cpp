@@ -15560,24 +15560,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
                 return cit->second.cached_value;
             }
         }
-        for (auto& [tname_def, tinfo] : traits_) {
-            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
-            // spaces are composed from the spelling at the impl (collect_impl),
-            // so a path here would miss every one of them. (Those key spaces
-            // move to identities in a later step of #438.)
-            const std::string& tname = tinfo.name;
-            if (!has_impl(tname, cname_str)) continue;
-            const AssocKey key = assoc_key(tname, cname_str, mname_str);
-            auto cit = assoc_const_impls_.find(key);
-            if (cit != assoc_const_impls_.end()) {
-                if (!cit->second.cached_value) {
-                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
-                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                    cit->second.cached_value = val;
-                }
-                return cit->second.cached_value;
-            }
-        }
+        // A trait's constant: the item of the impl C-OBL selects for the type.
+        if (auto* ce = trait_assoc_const_(lookup_type_by_name(cname_str), mname_str))
+            return assoc_const_value_(*ce);
         // g9/B121: generic assoc-const projection `T::CONST` (T a bound
         // type-param) — route through a per-impl accessor call.
         if (auto acc = try_lower_generic_assoc_const(cname_str, mname_str))
@@ -15762,24 +15747,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // Check for associated constant access before reporting "unknown enum".
         std::string cname_str = std::string(ename);
         std::string mname_str = std::string(vname);
-        for (auto& [tname_def, tinfo] : traits_) {
-            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
-            // spaces are composed from the spelling at the impl (collect_impl),
-            // so a path here would miss every one of them. (Those key spaces
-            // move to identities in a later step of #438.)
-            const std::string& tname = tinfo.name;
-            if (!has_impl(tname, cname_str)) continue;
-            const AssocKey key = assoc_key(tname, cname_str, mname_str);
-            auto cit = assoc_const_impls_.find(key);
-            if (cit != assoc_const_impls_.end()) {
-                if (!cit->second.cached_value) {
-                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
-                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                    cit->second.cached_value = val;
-                }
-                return cit->second.cached_value;
-            }
-        }
+        // A trait's constant: the item of the impl C-OBL selects for the type.
+        if (auto* ce = trait_assoc_const_(lookup_type_by_name(cname_str), mname_str))
+            return assoc_const_value_(*ce);
         // g9/B121: generic assoc-const projection `T::CONST` (T a bound
         // type-param) — route through a per-impl accessor call.
         if (auto acc = try_lower_generic_assoc_const(cname_str, mname_str))
@@ -18750,24 +18720,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 return cit->second.cached_value;
             }
         }
-        for (auto& [tname_def, tinfo] : traits_) {
-            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
-            // spaces are composed from the spelling at the impl (collect_impl),
-            // so a path here would miss every one of them. (Those key spaces
-            // move to identities in a later step of #438.)
-            const std::string& tname = tinfo.name;
-            if (!has_impl(tname, cname_str)) continue;
-            const AssocKey key = assoc_key(tname, cname_str, mname_str);
-            auto cit = assoc_const_impls_.find(key);
-            if (cit != assoc_const_impls_.end()) {
-                if (!cit->second.cached_value) {
-                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
-                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                    cit->second.cached_value = val;
-                }
-                return cit->second.cached_value;
-            }
-        }
+        // A trait's constant: the item of the impl C-OBL selects for the type.
+        if (auto* ce = trait_assoc_const_(lookup_type_by_name(cname_str), mname_str))
+            return assoc_const_value_(*ce);
         // Generic static dispatch: DT::method() where DT is a type parameter with
         // a trait bound that declares a static method `method`.  The actual impl is
         // resolved during monomorphization (see mono_clone.cpp ECall branch — it
