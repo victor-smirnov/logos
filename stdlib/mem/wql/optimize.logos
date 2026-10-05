@@ -677,9 +677,9 @@ fn empty_proj(h: &Writ, body: WRef<RExpr>, sel: WRef<SExpr>) -> RSimplified {
 
 // Top-level `&&` conjunction terms, stored as raw arena words (WAny edges are
 // reconstructed on read — the provenance-laundering idiom).
-pub struct TermList { pub w: [i64; 16], pub n: i64 }
+pub struct TermList { pub w: Vec<i64>, pub n: i64 }
 
-pub fn term_list_new() -> TermList { return TermList { w: [0i64; 16], n: 0i64 }; }
+pub fn term_list_new() -> TermList { return TermList { w: Vec::<i64>::new(), n: 0i64 }; }
 
 // Split `e_ref`'s top-level `&&` conjunction into `tl` (left-to-right order).
 pub fn split_and_terms(e_ref: WRef<SExpr>, tl: &mut TermList) {
@@ -694,10 +694,8 @@ pub fn split_and_terms(e_ref: WRef<SExpr>, tl: &mut TermList) {
         }
         _ => { }
     }
-    if tl.n < 16i64 {
-        tl.w[tl.n] = e_ref.any().raw();
-        tl.n = tl.n + 1i64;
-    }
+    tl.w.push(e_ref.any().raw());
+    tl.n = tl.n + 1i64;
 }
 
 // Does ident `name` reference row var `new_var`? Exact match, or the DOTTED
