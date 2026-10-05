@@ -286,6 +286,9 @@ pub struct MacroParams {
     // queryable by its own mapping's rels and by nothing the consumer wrote.
     pub fused_mapping: [str; 8],
     pub fused_hidden:  [bool; 8],
+    // Parse rels the entry cannot reach (`lower::live_rel_mask`), by position =
+    // registry index: the prelude does not evaluate them.
+    pub rel_dead:      i64,
     pub ndv_off:  [i64; 8],
     pub ndv_cnt:  [i64; 8],
     pub ndvc_col: [str; 16],
@@ -394,6 +397,7 @@ pub fn macro_params_new() -> MacroParams {
                      String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
         fused_mapping: [""; 8],
         fused_hidden:  [false; 8],
+        rel_dead:      0i64,
         ndv_off:  [0i64; 8],
         ndv_cnt:  [0i64; 8],
         ndvc_col: [""; 16],

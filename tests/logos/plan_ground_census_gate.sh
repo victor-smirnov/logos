@@ -885,7 +885,7 @@ fail = []
 # UNMOVED and worth saying so: EXPECT_FIXTURES (191 either way — the population
 # was never the thing that was missing), DRAIN_SORT, IT, RDB, RSB, KS, PERM,
 # FRAME, CPHEAD, CPT, IWHEAD, DIRECT (10).
-EXPECT_FIXTURES   = 209  # 2026-10-04 wql_order_pred_base_e2e: +1 (two queries: a step `on` reading one side only, `order by`); 2026-10-04 wql_loop_join_order_e2e: +1 (three queries: a loop join under `order by`, asc/desc/limit); 2026-10-04 wql_order_undecided_step_e2e: +1 (one query: two keyed joins and a traversal, `order by`); 2026-10-04 wql_incr_epoch_atomic_e2e: +1 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-03 E9e propagation: +1 wql_rel_demand_chain_e2e (3 queries); +1 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9b demand: wql_rel_demand_e2e (+1 fixture, 6 queries: parameter and literal bindings, a naive twin, a declined right-linear rel, a mapping consumer and its twin); 2026-10-03 E9a facts: wql_rel_fact_e2e (+1 fixture, 4 queries: an inline table, a param-seeded recursion, a fact entry, facts mixed with a scan); 2026-10-03 #353: wql_str_lit_escape_e2e (+1 fixture, 6 queries: five `where` literals with escapes, one projected literal); 2026-10-03 E8 #349: wql_gpath_magic_e2e (+1 fixture, 8 queries: three `**` shapes, their hand-written-closure twins, and two size probes over the injected `__reach_g` / `__mreach_g`);  2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key);  2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by);  2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key);  2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float);  2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128);  2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct);  V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
+EXPECT_FIXTURES   = 210  # 2026-10-04 live rels: +1 wql_rel_dead_e2e (two queries, five rels); 2026-10-04 wql_order_pred_base_e2e: +1 (two queries: a step `on` reading one side only, `order by`); 2026-10-04 wql_loop_join_order_e2e: +1 (three queries: a loop join under `order by`, asc/desc/limit); 2026-10-04 wql_order_undecided_step_e2e: +1 (one query: two keyed joins and a traversal, `order by`); 2026-10-04 wql_incr_epoch_atomic_e2e: +1 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-03 E9e propagation: +1 wql_rel_demand_chain_e2e (3 queries); +1 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9b demand: wql_rel_demand_e2e (+1 fixture, 6 queries: parameter and literal bindings, a naive twin, a declined right-linear rel, a mapping consumer and its twin); 2026-10-03 E9a facts: wql_rel_fact_e2e (+1 fixture, 4 queries: an inline table, a param-seeded recursion, a fact entry, facts mixed with a scan); 2026-10-03 #353: wql_str_lit_escape_e2e (+1 fixture, 6 queries: five `where` literals with escapes, one projected literal); 2026-10-03 E8 #349: wql_gpath_magic_e2e (+1 fixture, 8 queries: three `**` shapes, their hand-written-closure twins, and two size probes over the injected `__reach_g` / `__mreach_g`);  2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key);  2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by);  2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key);  2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float);  2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128);  2026-10-02 wql_named_key_e2e (+1 fixture: a hash join, a group by and a distinct keyed by a user struct);  V2-M1 (ADR 0025 §12, 2026-08-19): 190 -> 191, +1
                          # `deem_direct_fallible_buffered` — the fixture that
                          # witnesses the CHECKED-ARITHMETIC refusal clause. It is
                          # a container walk whose `select` does arithmetic, so it
@@ -971,12 +971,12 @@ EXPECT_PERM       = 366   # 2026-10-04 wql_order_pred_base_e2e: +4 (two queries:
 # sentence was true all along. The number is no longer "every landing that
 # reached the `!offers` arm"; it is the arm's actual population, and the two
 # were different by 129.
-EXPECT_NOMAT      = {"container": 123, "readonce": 29, "elided": 8}   # +6 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): container 112 -> 114; 2026-10-03 E9b demand: container 96 -> 112 (+5 wql_rel_demand_e2e, +11 the magic rels' landings); 2026-10-03 E9a facts: container 92 -> 96 (wql_rel_fact_e2e); 2026-10-03 #353: container 85 -> 92, the 7 new queries; 2026-10-03 E8 #349: container 77 -> 85, the 8 queries of wql_gpath_magic_e2e ("already a buffer"); R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan); S5-direct: readonce 27 -> 28 (deem_direct_stream_pull's one scan — the SAME query that moves EXPECT_FIXTURES/OUTQ/OUTHEAD, counted once per pin); V2-M1: readonce 28 -> 29 (deem_direct_fallible_buffered's one scan, same rule)
+EXPECT_NOMAT      = {"container": 123, "readonce": 29, "elided": 8, "dead": 25}   # dead: 2026-10-04 live rels, 25 rels the entry cannot reach (wql_rel_dead_e2e 2, and the mapping / gpath programs that received rels they do not read: wql_mapping_e2e, wql_mapping_consume_e2e, wql_gpath_magic_e2e, wql_mapping_rules_escape_e2e, wql_incr_eligibility_matrix);   # +6 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): container 112 -> 114; 2026-10-03 E9b demand: container 96 -> 112 (+5 wql_rel_demand_e2e, +11 the magic rels' landings); 2026-10-03 E9a facts: container 92 -> 96 (wql_rel_fact_e2e); 2026-10-03 #353: container 85 -> 92, the 7 new queries; 2026-10-03 E8 #349: container 77 -> 85, the 8 queries of wql_gpath_magic_e2e ("already a buffer"); R-D: readonce 25 -> 26 (deem_batch_build_side_join); R-G: container 205 -> 121 (arm A) -> 76 (arm B); D7 #62: readonce 26 -> 27 (deem_emitted_struct_field_layout's one scan); S5-direct: readonce 27 -> 28 (deem_direct_stream_pull's one scan — the SAME query that moves EXPECT_FIXTURES/OUTQ/OUTHEAD, counted once per pin); V2-M1: readonce 28 -> 29 (deem_direct_fallible_buffered's one scan, same rule)
 # ADR 0025 R-G (FACT O) — the fixpoint accumulator. Measured at G2 in
 # `criterion1_materialization_instrument.sh` on the emitter-only tree, BEFORE
 # the head was classified anywhere: 84 unclassified `fixpoint accumulator`
 # lines, against 84 `let mut __rfa_<r>: Vec<…> = Vec::<…>::new()` landings.
-EXPECT_FPACC      = 115   # 2026-10-03 E9e propagation: +5 wql_rel_demand_chain_e2e (3 queries), +2 one program each in wql_mapping_generic_e2e and wql_ontology_showcase_e2e that propagation now reaches; 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +5 wql_rel_demand_e2e +4 queries (reach_rl_all, anc, reach_wide, div_guard); existing programs unchanged (measured against LOGOS_DEEM_NO_DEMAND=moving); 2026-10-03 E9b demand: +6 wql_rel_demand_e2e; 2026-10-03 E9a facts: +1 wql_rel_fact_e2e (rel r); 2026-10-03 #353: +1 wql_mapping_rules_escape_e2e s_bs (its fused `__reach_g`); 2026-10-03 E8 #349: +9 wql_gpath_magic_e2e (its 9 recursive rels); task #85: 84 -> 85
+EXPECT_FPACC      = 110   # 2026-10-04 live rels: -5 wql_rel_dead_e2e (two queries, five rels); -5 the recursive rels of mapping/gpath programs whose entry reads none of them (MG_DEAD: no accumulator); 2026-10-03 E9e propagation: +5 wql_rel_demand_chain_e2e (3 queries), +2 one program each in wql_mapping_generic_e2e and wql_ontology_showcase_e2e that propagation now reaches; 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +5 wql_rel_demand_e2e +4 queries (reach_rl_all, anc, reach_wide, div_guard); existing programs unchanged (measured against LOGOS_DEEM_NO_DEMAND=moving); 2026-10-03 E9b demand: +6 wql_rel_demand_e2e; 2026-10-03 E9a facts: +1 wql_rel_fact_e2e (rel r); 2026-10-03 #353: +1 wql_mapping_rules_escape_e2e s_bs (its fused `__reach_g`); 2026-10-03 E8 #349: +9 wql_gpath_magic_e2e (its 9 recursive rels); task #85: 84 -> 85
 # ADR 0025 §8 — THE GROUP FRAME, PINNED PER FAMILY AND NOT AS ONE TOTAL. The
 # four have different consumers and different lives (`__g_cnt` exists for `avg`,
 # `__g_row` for the representative class), so one number would let a family
@@ -1012,7 +1012,7 @@ EXPECT_FRAME      = {"gkey": 159, "gacc": 217,  # 2026-10-04 wql_incr_epoch_atom
 # artifact builds". A stage that emits a landing without a node, or a node
 # without a landing, is red per fixture even if the two errors cancel in the
 # total. The totals are here so that a corpus that quietly SHRANK is also red.
-EXPECT_OUTQ       = 680   # 2026-10-04 wql_order_pred_base_e2e: +2 (two queries: a step `on` reading one side only, `order by`); 2026-10-04 wql_loop_join_order_e2e: +3 (three queries: a loop join under `order by`, asc/desc/limit); 2026-10-04 wql_order_undecided_step_e2e: +1 (one query: two keyed joins and a traversal, `order by`); 2026-10-04 wql_incr_epoch_atomic_e2e: +2 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-04 named-field identity: +4 wql_incr_retract_footprint_identity (nm2q, tagq); 2026-10-03 whole-row retraction identity: +4 wql_incr_retract_footprint_identity (fltq, namq: two new grouped queries); 2026-10-03 E9e propagation: +3 wql_rel_demand_chain_e2e (3 queries); 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query); +2 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +4 wql_rel_demand_e2e +4 queries (reach_rl_all, anc, reach_wide, div_guard); existing programs unchanged (measured against LOGOS_DEEM_NO_DEMAND=moving); 2026-10-03 E9b demand: +6 wql_rel_demand_e2e; 2026-10-03 E9a facts: +4 wql_rel_fact_e2e; 2026-10-03 #353: +6 wql_str_lit_escape_e2e, +1 wql_mapping_rules_escape_e2e s_bs; 2026-10-03 E8 #349: +8 wql_gpath_magic_e2e (8 queries); (2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key); (2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by); (2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key); (2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float); (2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128); (2026-10-02 wql_named_key_e2e: +4 landings, three queries plus the group query's snapshot; (2026-10-02 Rust typing: +1, wql_arith_narrow_e2e 5 -> 6 queries; R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
+EXPECT_OUTQ       = 682   # 2026-10-04 live rels: +2 wql_rel_dead_e2e (two queries, five rels); 2026-10-04 wql_order_pred_base_e2e: +2 (two queries: a step `on` reading one side only, `order by`); 2026-10-04 wql_loop_join_order_e2e: +3 (three queries: a loop join under `order by`, asc/desc/limit); 2026-10-04 wql_order_undecided_step_e2e: +1 (one query: two keyed joins and a traversal, `order by`); 2026-10-04 wql_incr_epoch_atomic_e2e: +2 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-04 named-field identity: +4 wql_incr_retract_footprint_identity (nm2q, tagq); 2026-10-03 whole-row retraction identity: +4 wql_incr_retract_footprint_identity (fltq, namq: two new grouped queries); 2026-10-03 E9e propagation: +3 wql_rel_demand_chain_e2e (3 queries); 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query); +2 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +4 wql_rel_demand_e2e +4 queries (reach_rl_all, anc, reach_wide, div_guard); existing programs unchanged (measured against LOGOS_DEEM_NO_DEMAND=moving); 2026-10-03 E9b demand: +6 wql_rel_demand_e2e; 2026-10-03 E9a facts: +4 wql_rel_fact_e2e; 2026-10-03 #353: +6 wql_str_lit_escape_e2e, +1 wql_mapping_rules_escape_e2e s_bs; 2026-10-03 E8 #349: +8 wql_gpath_magic_e2e (8 queries); (2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key); (2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by); (2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key); (2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float); (2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128); (2026-10-02 wql_named_key_e2e: +4 landings, three queries plus the group query's snapshot; (2026-10-02 Rust typing: +1, wql_arith_narrow_e2e 5 -> 6 queries; R-D: +1; D7 #62: +1 deem_emitted_struct_field_layout;
                           #  S5-direct: +1 deem_direct_stream_pull;
                           #  V2-M1: +1 deem_direct_fallible_buffered — a REFUSED
                           #  door still has a `_run` landing, which is why this
@@ -1032,14 +1032,18 @@ EXPECT_OUTQ       = 680   # 2026-10-04 wql_order_pred_base_e2e: +2 (two queries:
                           # ⚠ R-H (b′): the landing TYPE became `Buffer<` (was
                           # `Vec<`); the FLOOR did not move — same bindings,
                           # re-typed. The artifact grep moved with it.
-EXPECT_OUTR       = 101    # 2026-10-03 E9e propagation: +4 wql_rel_demand_chain_e2e (3 queries); 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query), +2 any_engines_full (wql_gpath_magic_e2e) and one deem_mat_ground_witness query, whose first join reads a user rel; 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +1 (div_guard's one-shot q); 2026-10-03 E9b demand: +7 wql_rel_demand_e2e, +11 `__m_<rel>` magic rels in the 8 existing programs the rewrite now touches; 2026-10-03 E9a facts: +2 wql_rel_fact_e2e (one-shot rels color, n); 2026-10-03 #353: +3 wql_mapping_rules_escape_e2e s_bs (pg, backslash, __mreach_g); 2026-10-03 E8 #349: +6 wql_gpath_magic_e2e one-shot rels, +18 `__mreach_<src>` magic rels of the existing `**` programs; `let mut __rout:` rel one-shot landings
+EXPECT_OUTR       = 106    # 2026-10-04 live rels: +5 wql_rel_dead_e2e (two queries, five rels) — every rel's helper is still emitted and checked; 2026-10-03 E9e propagation: +4 wql_rel_demand_chain_e2e (3 queries); 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query), +2 any_engines_full (wql_gpath_magic_e2e) and one deem_mat_ground_witness query, whose first join reads a user rel; 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +1 (div_guard's one-shot q); 2026-10-03 E9b demand: +7 wql_rel_demand_e2e, +11 `__m_<rel>` magic rels in the 8 existing programs the rewrite now touches; 2026-10-03 E9a facts: +2 wql_rel_fact_e2e (one-shot rels color, n); 2026-10-03 #353: +3 wql_mapping_rules_escape_e2e s_bs (pg, backslash, __mreach_g); 2026-10-03 E8 #349: +6 wql_gpath_magic_e2e one-shot rels, +18 `__mreach_<src>` magic rels of the existing `**` programs; `let mut __rout:` rel one-shot landings
 # ADR 0025 R-G arm B — the one-shot rel helper's result, bound in the prelude.
 # Measured at G2 the same way (45 unclassified `rel result landing` lines on the
 # emitter-only tree). It is spelled as `EXPECT_OUTR` rather than as a second
 # literal 45 because the two ARE one fact: every helper landing (`__rout`,
 # inside the fn) is returned to exactly one prelude binding (`__rls_<r>`,
 # outside it). Two literals here could drift; this cannot.
-EXPECT_RLND       = EXPECT_OUTR
+# 2026-10-04 live rels: a one-shot rel the entry cannot reach (MG_DEAD) keeps
+# its checked helper (`rel result`) and has no prelude binding, so the caller
+# side is EXPECT_OUTR less those 20 (2 in wql_rel_dead_e2e, 18 in the mapping /
+# gpath programs that received rels they do not read).
+EXPECT_RLND       = EXPECT_OUTR - 20
 # THE HOMONYM LANDING, PINNED APART. `trama_render.logos:732` emits `let mut
 # __out: String` for a TEMPLATE render — same name, different plane, no query
 # and no plan node. It is pinned at its own count so that narrowing FACT J's
@@ -1048,7 +1052,7 @@ EXPECT_RLND       = EXPECT_OUTR
 # criterion-1 population either (that filter is Vec|Buffer|HashMap|BTreeMap), so
 # this pin is the only place in the tree that counts it at all.
 EXPECT_OUTS       = 2     # 2026-10-03 #353: +1 wql_str_lit_escape_e2e `tr`; `let mut __out: String` trama template render buffers
-EXPECT_OUTHEAD    = {"query output": 544,  # 2026-10-04 wql_order_pred_base_e2e: +2 (two queries: a step `on` reading one side only, `order by`); 2026-10-04 wql_loop_join_order_e2e: +2 (three queries: a loop join under `order by`, asc/desc/limit); 2026-10-04 wql_order_undecided_step_e2e: +1 (one query: two keyed joins and a traversal, `order by`); 2026-10-04 wql_incr_epoch_atomic_e2e: +1 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-04 named-field identity: +2 wql_incr_retract_footprint_identity (nm2q, tagq); 2026-10-03 whole-row retraction identity: +2 wql_incr_retract_footprint_identity (fltq, namq: two new grouped queries); 2026-10-03 E9e propagation: +3 wql_rel_demand_chain_e2e (3 queries); 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query); +2 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +4; 2026-10-03 E9b demand: +6 wql_rel_demand_e2e; 2026-10-03 E9a facts: +4 wql_rel_fact_e2e; 2026-10-03 #353: 506 -> 513 (+6 wql_str_lit_escape_e2e, +1 s_bs); 498 -> 506: 2026-10-03 E8 #349: wql_gpath_magic_e2e (8 queries); 496 -> 498: 2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key)
+EXPECT_OUTHEAD    = {"query output": 546,  # 2026-10-04 live rels: +2 wql_rel_dead_e2e (two queries, five rels); 2026-10-04 wql_order_pred_base_e2e: +2 (two queries: a step `on` reading one side only, `order by`); 2026-10-04 wql_loop_join_order_e2e: +2 (three queries: a loop join under `order by`, asc/desc/limit); 2026-10-04 wql_order_undecided_step_e2e: +1 (one query: two keyed joins and a traversal, `order by`); 2026-10-04 wql_incr_epoch_atomic_e2e: +1 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-04 named-field identity: +2 wql_incr_retract_footprint_identity (nm2q, tagq); 2026-10-03 whole-row retraction identity: +2 wql_incr_retract_footprint_identity (fltq, namq: two new grouped queries); 2026-10-03 E9e propagation: +3 wql_rel_demand_chain_e2e (3 queries); 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query); +2 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +4; 2026-10-03 E9b demand: +6 wql_rel_demand_e2e; 2026-10-03 E9a facts: +4 wql_rel_fact_e2e; 2026-10-03 #353: 506 -> 513 (+6 wql_str_lit_escape_e2e, +1 s_bs); 498 -> 506: 2026-10-03 E8 #349: wql_gpath_magic_e2e (8 queries); 496 -> 498: 2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key)
                       # 494 -> 496: 2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by)
                       # 493 -> 494: 2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key)
                       # 490 -> 493: 2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float)
@@ -1072,7 +1076,7 @@ EXPECT_OUTHEAD    = {"query output": 544,  # 2026-10-04 wql_order_pred_base_e2e:
                      # the sentence, which now names the CHECKED-ARITHMETIC
                      # refusal.
                      "query output distinct carrier": 6,   # 2026-10-02: +1 wql_named_key_e2e skus
-                     "incremental snapshot output": 113, "rel result": 101}  # 2026-10-04 wql_incr_epoch_atomic_e2e: +1 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-04 named-field identity: +2 wql_incr_retract_footprint_identity (nm2q, tagq); 2026-10-03 whole-row retraction identity: +2 wql_incr_retract_footprint_identity (fltq, namq: two new grouped queries); 2026-10-03 E9e propagation: +4;  2026-10-03 E9d join-key seeds: +1 fixture, +2 existing;  2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +1;  2026-10-03 E9b demand: +7 wql_rel_demand_e2e, +11 magic rels;  2026-10-03 E9a facts: +2 wql_rel_fact_e2e;  2026-10-03 #353: 70 -> 73 (s_bs);  2026-10-03 E8 #349: 46 -> 70 (+6 the fixture, +18 magic rels);  2026-10-02: 107 -> 108, wql_named_key_e2e per_sku
+                     "incremental snapshot output": 113, "rel result": 106}  # 2026-10-04 live rels: +5 wql_rel_dead_e2e; 2026-10-04 wql_incr_epoch_atomic_e2e: +1 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-04 named-field identity: +2 wql_incr_retract_footprint_identity (nm2q, tagq); 2026-10-03 whole-row retraction identity: +2 wql_incr_retract_footprint_identity (fltq, namq: two new grouped queries); 2026-10-03 E9e propagation: +4;  2026-10-03 E9d join-key seeds: +1 fixture, +2 existing;  2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +1;  2026-10-03 E9b demand: +7 wql_rel_demand_e2e, +11 magic rels;  2026-10-03 E9a facts: +2 wql_rel_fact_e2e;  2026-10-03 #353: 70 -> 73 (s_bs);  2026-10-03 E8 #349: 46 -> 70 (+6 the fixture, +18 magic rels);  2026-10-02: 107 -> 108, wql_named_key_e2e per_sku
 
 # ── ADR 0025 §12 `direct` — THE DOOR CENSUS (S5-direct, this stage) ──────────
 #
@@ -1104,7 +1108,7 @@ EXPECT_OUTHEAD    = {"query output": 544,  # 2026-10-04 wql_order_pred_base_e2e:
 # no `#[borrow_carrying] pub struct …Dx` backs is the failure this catches, and
 # it is exactly the failure a plan-only pin would call green.
 EXPECT_DIRECT     = 10
-EXPECT_REFUSED    = 557  # 2026-10-04 wql_order_pred_base_e2e: +2 (two queries: a step `on` reading one side only, `order by`); 2026-10-04 wql_loop_join_order_e2e: +3 (three queries: a loop join under `order by`, asc/desc/limit); 2026-10-04 wql_order_undecided_step_e2e: +1 (one query: two keyed joins and a traversal, `order by`); 2026-10-04 wql_incr_epoch_atomic_e2e: +1 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-04 named-field identity: +2 wql_incr_retract_footprint_identity (nm2q, tagq); 2026-10-03 whole-row retraction identity: +2 wql_incr_retract_footprint_identity (fltq, namq: two new grouped queries); 2026-10-03 E9e propagation: +3 wql_rel_demand_chain_e2e (3 queries) (join, notfwd, sort); 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query) (join); +2 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +4 (sort 2, notfwd 2); 2026-10-03 E9b demand: +6 wql_rel_demand_e2e (sort 3, notfwd 2, borrows 1); 2026-10-03 E9a facts: +4 wql_rel_fact_e2e (3 sort, 1 notfwd: `answer` reads `__unit`); 2026-10-03 #353: +6 wql_str_lit_escape_e2e (JOIN), +1 wql_mapping_rules_escape_e2e s_bs (reads a rel: notfwd); 2026-10-03 E8 #349: wql_gpath_magic_e2e +8 (its 8 queries: 5 refused as a JOIN, 3 over a rel that is not a forward batch producer); 2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key); 2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by); 2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key); 2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float); 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128); 2026-10-02 wql_named_key_e2e +3 (join, aggregate, distinct first reasons); task #85: 492 -> 493; 2026-10-02: 494, wql_arith_narrow_e2e +1 query
+EXPECT_REFUSED    = 559  # 2026-10-04 live rels: +2 wql_rel_dead_e2e (two queries, five rels); 2026-10-04 wql_order_pred_base_e2e: +2 (two queries: a step `on` reading one side only, `order by`); 2026-10-04 wql_loop_join_order_e2e: +3 (three queries: a loop join under `order by`, asc/desc/limit); 2026-10-04 wql_order_undecided_step_e2e: +1 (one query: two keyed joins and a traversal, `order by`); 2026-10-04 wql_incr_epoch_atomic_e2e: +1 (one grouped query `tot`, count/sum/avg, insert-only); 2026-10-04 named-field identity: +2 wql_incr_retract_footprint_identity (nm2q, tagq); 2026-10-03 whole-row retraction identity: +2 wql_incr_retract_footprint_identity (fltq, namq: two new grouped queries); 2026-10-03 E9e propagation: +3 wql_rel_demand_chain_e2e (3 queries) (join, notfwd, sort); 2026-10-03 E9d join-key seeds: +1 wql_rel_demand_e2e reach_starts (one query) (join); +2 2026-10-03 #347 NDV consumer: wql_join_ndv_order_e2e (2 queries over 3 native sources, 4 nests each); 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +4 (sort 2, notfwd 2); 2026-10-03 E9b demand: +6 wql_rel_demand_e2e (sort 3, notfwd 2, borrows 1); 2026-10-03 E9a facts: +4 wql_rel_fact_e2e (3 sort, 1 notfwd: `answer` reads `__unit`); 2026-10-03 #353: +6 wql_str_lit_escape_e2e (JOIN), +1 wql_mapping_rules_escape_e2e s_bs (reads a rel: notfwd); 2026-10-03 E8 #349: wql_gpath_magic_e2e +8 (its 8 queries: 5 refused as a JOIN, 3 over a rel that is not a forward batch producer); 2026-10-02 E4.5: wql_udf_wide_ret_e2e (+1 fixture, 2 queries: a u64 projection, an `order by` a u64 UDF key); 2026-10-02 E4.4: wql_comprehension_typed_e2e (1 query, sel_prelude) + wql_uda_narrow_ret_e2e (1 query: group, accumulator, order by); 2026-10-02 wql_named_key_loop_e2e (+1 fixture, 1 query: a loop join on a PartialEq-only struct key); 2026-10-02 wql_lit_suffix_e2e (+1 fixture, 3 queries: one checked integer, two float); 2026-10-02 wql_arith_128_tower_e2e (+1 fixture, 5 queries: four 128-bit arithmetic, one `order by` a u128); 2026-10-02 wql_named_key_e2e +3 (join, aggregate, distinct first reasons); task #85: 492 -> 493; 2026-10-02: 494, wql_arith_narrow_e2e +1 query
 # ── THE REFUSAL CENSUS, PER CLAUSE (ADR 0025 §12; re-derived 2026-08-19) ─────
 # FIRST-REASON counts over an `else if` CASCADE — see the note beside `DXWHY`.
 # A query true of three clauses is counted once, under the first one asked, so
@@ -1141,7 +1145,7 @@ EXPECT_DXWHY = {
     "whr_prelude" :   0,
     "fallible"    :  35,   # 2026-10-02: +1 wql_lit_suffix_e2e big;   # 2026-10-02: 30 -> 34, wql_arith_128_tower_e2e qplus/qneg/umul/udiv;   # 2026-10-02: 29 -> 30 — wql_arith_narrow_e2e: negd left (refused, unsigned neg), twice/roundt/dec came; all checked arithmetic
     "slice"       :  58,   # +1 wql_udf_wide_ret_e2e keys (E4.5);   # 2026-10-02: +2 wql_lit_suffix_e2e scaled/lit
-    "notfwd"      :  61,   # 2026-10-03 E9e propagation: +1; 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +2; 2026-10-03 E9b demand: +2 wql_rel_demand_e2e; 2026-10-03 E9a facts: +1 wql_rel_fact_e2e answer; 2026-10-03 #353: +1 s_bs; 2026-10-03 E8: +3 wql_gpath_magic_e2e (full_size, db_reach_size, db_seeds read a rel)
+    "notfwd"      :  63,   # 2026-10-04 live rels: +2 wql_rel_dead_e2e (two queries, five rels); 2026-10-03 E9e propagation: +1; 2026-10-03 merge of origin/main (#726): +1 deem_source_distinct (one filter query over a hand-written source, as main attributed it); 2026-10-03 E9c (recursive magic rule, MS_FALLIBLE): +2; 2026-10-03 E9b demand: +2 wql_rel_demand_e2e; 2026-10-03 E9a facts: +1 wql_rel_fact_e2e answer; 2026-10-03 #353: +1 s_bs; 2026-10-03 E8: +3 wql_gpath_magic_e2e (full_size, db_reach_size, db_seeds read a rel)
 }
 # ── ADR 0025 R-C2 — THE FIXPOINT PLANE'S SIX HEADS (FACT K) ─────────────────
 # Every one of these was measured at the emitter BEFORE the node existed (the
@@ -1179,7 +1183,7 @@ EXPECT_FPHEAD     = {"fixpoint derived frontier": 250,   # 2026-10-03 E9e propag
                      "fixpoint novelty lattice": 4,
                      "fixpoint lattice key roster": 4,
                      # R-C3 — 1:1 with `rel result`; see the identity below.
-                     "rel dedup set": 101}
+                     "rel dedup set": 106}   # 2026-10-04 live rels: +5 wql_rel_dead_e2e (every helper is still emitted)
 # ── ADR 0025 R-E — THE RETRACTION SNAPSHOT'S THREE HEADS (FACT L) ───────────
 # Measured at the emitter BEFORE the heads were classified anywhere (the R-B0
 # discipline: the criterion-1 instrument was run on the emitter-only tree and
@@ -1452,7 +1456,7 @@ iwground = collections.defaultdict(set)
 
 tot = dict(drain=0, sort=0, arrange=0, it=0, ix=0, ks=0, kv=0, hj=0, pm=0,
            fpacc=0, rlnd=0,
-           container=0, readonce=0, elided=0, materialize=0, stream=0,
+           container=0, readonce=0, elided=0, dead=0, materialize=0, stream=0,
            gkey=0, gcnt=0, grow=0, gacc=0,
            agkey=0, agcnt=0, agrow=0, agacc=0,
            outq=0, outr=0, aoutq=0, aouts=0, aoutr=0,
@@ -1535,9 +1539,15 @@ for e in errs:
               # ADR 0025 §12 `direct` (S5-direct) — the door partition, per
               # fixture, so the plan/artifact identity is checked per fixture
               # and not only in the corpus total.
-              dxdirect=0, dxrefused=0, adx=0)
+              dxdirect=0, dxrefused=0, adx=0, outrd=0)
     mat, named = set(), set()
+    # The rels this query does not evaluate (`[plan] live rels -> not evaluated
+    # on <rel>`, printed before its plan): their helper is still emitted and
+    # checked, so its `rel result` has no prelude binding (FACT O).
+    qdead = set()
     for line in text.splitlines():
+        if line.startswith("[plan] live rels -> not evaluated on "):
+            qdead.add(line.split(" -> not evaluated on ", 1)[1].split()[0])
         m = NODE.match(line)
         if m:
             rel, kind, gnd = m.group(1), m.group(2), m.group(3).strip()
@@ -1593,6 +1603,8 @@ for e in errs:
             h = om.group(2)
             outhead[h] += 1
             nd["outr" if h == "rel result" else "outq"] += 1
+            if h == "rel result" and line.split()[1] in qdead:
+                nd["outrd"] += 1
             # ADR 0025 §12 `direct` — the door, read off the SENTENCE. Two
             # POSITIVE rules over the three QUERY heads (the two incremental /
             # rel heads have no `_stream` door at all and are excluded by the
@@ -1705,6 +1717,8 @@ for e in errs:
                         witness[tok] += 1
                 if gnd == vocab.get("MG_CONTAINER"):
                     tot["container"] += 1
+                elif gnd == vocab.get("MG_DEAD"):
+                    tot["dead"] += 1
                 else:
                     tot["elided"] += 1
             else:
@@ -1713,6 +1727,7 @@ for e in errs:
             for r in mat - named:
                 silent.append((b, r))
             mat, named = set(), set()
+            qdead = set()
     for r in mat - named:
         silent.append((b, r))
     tot["materialize"] += text.count(" -> materialize   (")
@@ -2235,10 +2250,13 @@ for e in errs:
         # bound a result no helper produced, is red here even though each side
         # is internally consistent. It is also the arithmetic that says D2's
         # double count of these 45 rows is a MOVE and not two allocations.
-        if nd["rlnd"] != nd["outr"]:
+        # A rel that is not evaluated (`MG_DEAD`) keeps its checked helper and
+        # has no binding: its `rel result` is the one term outside the identity.
+        if nd["rlnd"] != nd["outr"] - nd["outrd"]:
             bad(f"[{b}] {nd['rlnd']} `rel result landing` line(s) vs "
-                f"{nd['outr']} `rel result` line(s) — the helper's own landing "
-                f"and the prelude's binding of it must be 1:1 across the call")
+                f"{nd['outr']} `rel result` line(s) less {nd['outrd']} of rels "
+                f"not evaluated — the helper's own landing and the prelude's "
+                f"binding of it must be 1:1 across the call")
     # FACT C, per fixture: the arrangements ARE the indexes the artifact builds.
     if nd["arrange"] != nix:
         bad(f"[{b}] {nd['arrange']} arrange nodes vs {nix} emitted index "
@@ -2298,6 +2316,7 @@ for key, want, what in (
         # stopped happening would otherwise reappear silently as a read-once
         # read, which is the same number moving in two directions at once.
         ("elided", EXPECT_NOMAT["elided"], "`ordered source` elision grounds"),
+        ("dead", EXPECT_NOMAT["dead"], "`dead: no reader reaches the entry` grounds"),
         # ADR 0025 §8 — the GROUP FRAME, plan side (the artifact side is
         # compared against it below, so a defect that moved both together is
         # still red against these).

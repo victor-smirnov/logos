@@ -293,6 +293,12 @@ pub fn MG_CONTAINER() -> str  { return "already a buffer"; }
 /// `MG_RESCAN`: neither of those says the buffer's SIZE is not known when it is
 /// created.
 pub fn MG_FIXPOINT() -> str   { return "recursion: the fixpoint grows a total"; }
+/// THE GROUND FOR A REL THAT IS NOT EVALUATED (2026-10-04). No reader reaches
+/// the entry from it (`lower::live_rel_mask`), so `_run` neither calls its
+/// helper nor grows its fixpoint: no landing exists, and the plan says why
+/// rather than declaring the `MG_REL_RESULT` / `MG_FIXPOINT` landing a live rel
+/// would have. An absence ground, like `MG_CONTAINER`.
+pub fn MG_DEAD() -> str       { return "dead: no reader reaches the entry"; }
 /// ADR 0025 R-G — THE GROUND FOR THE ONE-SHOT REL RESULT (`MAT_RELLAND`).
 ///
 /// The other 45 landings that carried `MG_CONTAINER`, and the case where the
@@ -879,6 +885,9 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) {
                 gnd0 = MG_CONTAINER();
                 why0 = "no node: the producer hands back a container, which IS a buffer — nothing is built";
+            } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_DEAD()) {
+                gnd0 = MG_DEAD();
+                why0 = "no node: neither the entry nor a rel it reads reads this one, so `_run` does not evaluate it — nothing is built";
             } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_ORDERED_SOURCE()) {
                 gnd0 = MG_ORDERED_SOURCE();
                 why0 = "no sort node: the query orders by the column this source declares its rows already arrive sorted by, so the permutation would be the identity — the walk streams in order";

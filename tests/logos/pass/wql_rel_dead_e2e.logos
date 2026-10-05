@@ -1,0 +1,47 @@
+// LIVE RELS (2026-10-04): a rel no reader reaches from the entry is not
+// evaluated (`lower::live_rel_mask`, Soufflé's RemoveRedundantRelations).
+// Every deem over a mapping received all of the mapping's rels and computed
+// them in `_run` — Canon's deems read two or three of eight.
+//
+//   `dead`   is read by nobody, `dead2` only by `dead`: neither is evaluated
+//            (their UDF ticks stay 0), and the answer is the live rel's;
+//   `boom`   is read by nobody but its body is checked arithmetic that
+//            overflows: the naive program returns that `Err`, so the rel is
+//            still evaluated and the query still fails.
+//
+// CONTROL: `LOGOS_DEEM_NO_PRUNE=1` at compile time evaluates every rel, and
+// this fixture exits 2.
+//
+// exit 0 = the live answer, no dead tick, the kept `Err`.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct X { pub k: i64 }
+
+static mut TICKS: i64 = 0i64;
+pub fn tick(x: i64) -> i64 { unsafe { TICKS = TICKS + 1i64; } return x; }
+fn ticks() -> i64 { return unsafe { TICKS }; }
+
+pub deem live_only(xs: &[X]) {
+    rel used(k: i64) { from xs x where x.k > 1 select x.k; }
+    rel dead2(k: i64) { from xs x select tick(x.k); }
+    rel dead(k: i64) { from dead2 d select tick(d.k); }
+    from used u select u.k
+}
+
+pub deem kept_err(xs: &[X]) {
+    rel used(k: i64) { from xs x select x.k; }
+    rel boom(k: i64) { from xs x select x.k * 4611686018427387904; }
+    from used u select u.k
+}
+
+fn main() -> i32 {
+    let xs: [X; 3] = [X { k: 1i64 }, X { k: 2i64 }, X { k: 3i64 }];
+    let r: Vec<i64> = live_only(&xs[..]).unwrap();
+    if r.len() != 2i64 { return 1i32; }
+    if ticks() != 0i64 { return 2i32; }
+    if kept_err(&xs[..]).is_ok() { return 3i32; }
+    return 0i32;
+}

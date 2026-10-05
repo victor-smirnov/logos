@@ -1949,7 +1949,16 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         let mut p: i64 = 0i64;
         while p < scc.nscc {
             let c: i64 = scc.order[p];
-            if scc.rec[c] {
+            // A dead rel (`prm.rel_dead`) is not evaluated; an SCC's members
+            // live or die together (each reads the others).
+            let mut alive: bool = false;
+            let mut r0: i64 = 0i64;
+            while r0 < prm.rel_n {
+                if scc.comp[r0] == c && (r0 >= 63i64 || (prm.rel_dead & (1i64 << r0)) == 0i64) { alive = true; }
+                r0 = r0 + 1i64;
+            }
+            if !alive {
+            } else if scc.rec[c] {
                 emit_prelude_scc(&mut prelude, name, prm, &scc, c);
             } else {
                 let mut r: i64 = 0i64;
@@ -3018,6 +3027,12 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
 fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelScc) {
     let mut ri: i64 = 0i64;
     while ri < ap.n {
+        // A rel the prelude does not evaluate has no landing (`MG_DEAD`).
+        if ri < 63i64 && (prm.rel_dead & (1i64 << ri)) != 0i64 {
+            ap.mgnd[ri] = String::from_str(MG_DEAD());
+            ri = ri + 1i64;
+            continue;
+        }
         // Only the absence-of-a-node case is re-headed: a rel the drain pass
         // already decided owns a node with a ground obtained from a real offer.
         if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) && scc.rec[scc.comp[ri]] {

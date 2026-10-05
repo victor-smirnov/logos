@@ -1568,7 +1568,9 @@ fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &[i64; 8], nseeds: i6
 // How many times the program reads `nm` OUTSIDE rel `nm`'s own bodies (a
 // recursive rel's reads of itself are its own business): the entry, and
 // every other rel's bodies.
-fn ms_reads_all(root: WAny, nm: str) -> i64 {
+// Reads of `nm` by the entry and by every LIVE rel but `nm` itself (`live`, a
+// mask by rel position; a rel added after it was computed counts as live).
+fn ms_reads_all(root: WAny, nm: str, live: i64) -> i64 {
     let prog: RQProgram = root.view::<RQProgram>();
     let mut n: i64 = ms_reads(prog.entry_any(), nm);
     if prog.has_rels() {
@@ -1576,6 +1578,7 @@ fn ms_reads_all(root: WAny, nm: str) -> i64 {
         let mut i: i64 = 0i64;
         while i < rels.len() {
             if str_eq(rels.rel_at(i).name, nm) { i = i + 1i64; continue; }
+            if i < 63i64 && (live & (1i64 << i)) == 0i64 { i = i + 1i64; continue; }
             let bj: RQBodyArr = rels.rel_at(i).bodies_arr();
             let mut b: i64 = 0i64;
             while b < bj.len() { n = n + ms_reads(bj.body_any(b), nm); b = b + 1i64; }
@@ -1595,11 +1598,92 @@ fn ms_col_index(root: WAny, ri: i64, col: str) -> i64 {
     return -1i64;
 }
 
+// ── LIVE RELS (Soufflé's RemoveRedundantRelations) ──────────────────────────
+// A rel is LIVE when the entry reads it or a live rel's body does — positive,
+// anti and aggregate reads alike (Soufflé's precedence graph, walked back from
+// the outputs). A dead rel computes nothing the answer reads, yet every deem
+// over a mapping received ALL of the mapping's rels and materialized them in
+// `_run` (Canon: `canon_proj_direct` reads two of eight). It stays in the
+// program — its bodies are still checked, as dead code is — and the prelude
+// does not evaluate it. A rel with a FALLIBLE body (`ms_body_fallible`:
+// checked arithmetic, a comprehension, an aggregate or find body) is a seed:
+// the naive program would evaluate it and could return its `Err`, so leaving
+// it out could turn an `Err` into an `Ok` (MS_FALLIBLE's argument).
+// Returns a mask by rel position; `fal` receives the fallible seeds that no
+// reader reaches.
+pub fn live_rel_mask(root: WAny, fal: &mut i64) -> i64 {
+    let prog: RQProgram = root.view::<RQProgram>();
+    *fal = 0i64;
+    if !prog.has_rels() { return 0i64; }
+    let rels: RQRelArr = prog.rels_arr();
+    let n: i64 = rels.len();
+    let mut live: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        if ms_reads(prog.entry_any(), rels.rel_at(i).name) > 0i64 { live = live | (1i64 << i); }
+        i = i + 1i64;
+    }
+    let mut pass: i64 = 0i64;
+    while pass < 2i64 {
+        let mut changed: bool = true;
+        while changed {
+            changed = false;
+            let mut r: i64 = 0i64;
+            while r < n {
+                if (live & (1i64 << r)) != 0i64 {
+                    let bj: RQBodyArr = rels.rel_at(r).bodies_arr();
+                    let mut b: i64 = 0i64;
+                    while b < bj.len() {
+                        let mut t: i64 = 0i64;
+                        while t < n {
+                            if (live & (1i64 << t)) == 0i64 && ms_reads(bj.body_any(b), rels.rel_at(t).name) > 0i64 {
+                                live = live | (1i64 << t);
+                                changed = true;
+                            }
+                            t = t + 1i64;
+                        }
+                        b = b + 1i64;
+                    }
+                }
+                r = r + 1i64;
+            }
+        }
+        if pass == 0i64 {
+            // the fallible seeds, then their own readers' closure
+            let mut f: i64 = 0i64;
+            while f < n {
+                if (live & (1i64 << f)) == 0i64 {
+                    let bj2: RQBodyArr = rels.rel_at(f).bodies_arr();
+                    let mut b2: i64 = 0i64;
+                    while b2 < bj2.len() {
+                        if ms_body_fallible(bj2.body_any(b2)) { *fal = *fal | (1i64 << f); }
+                        b2 = b2 + 1i64;
+                    }
+                }
+                f = f + 1i64;
+            }
+            live = live | *fal;
+        }
+        pass = pass + 1i64;
+    }
+    return live;
+}
+
+// The program's rel count and the name at a position, for the caller's trace.
+pub fn prog_rel_count(root: WAny) -> i64 {
+    let prog: RQProgram = root.view::<RQProgram>();
+    if !prog.has_rels() { return 0i64; }
+    return prog.rels_arr().len();
+}
+pub fn prog_rel_name(root: WAny, i: i64) -> str {
+    return root.view::<RQProgram>().rels_arr().rel_at(i).name;
+}
+
 /// Apply the demand rewrite: the rel the entry reads with a bound column, then
 /// every rel that demand reaches through the rel graph. Returns the number of
 /// decisions written to `out` (0 = no rel was considered).
 pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool,
-                     allow_joinkey: bool, allow_prop: bool, natives: i64,
+                     allow_joinkey: bool, allow_prop: bool, natives: i64, live: i64,
                      out: &mut MsDecisions) -> i64 {
     let prog: RQProgram = root.view::<RQProgram>();
     if !prog.has_rels() { return 0i64; }
@@ -1612,7 +1696,7 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
     if ci < 0i64 { return 0i64; }
     let rname: str = prog.rels_arr().rel_at(ri).name;
     // the entry's own antecedents
-    if ms_reads_all(root, rname) != 1i64 { ms_note(out, rname, tg.col, MS_SHARED()); return out.n; }
+    if ms_reads_all(root, rname, live) != 1i64 { ms_note(out, rname, tg.col, MS_SHARED()); return out.n; }
     if ms_entry_fallible(prog.entry_any()) { ms_note(out, rname, tg.col, MS_FALLIBLE()); return out.n; }
     // The rel budget is shared: the program's rels, the native sources the walk
     // registers after them (`natives`), `__unit` when any fact needs it (a
@@ -1676,7 +1760,7 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
                         j = j + 1i64;
                     }
                     let sci: i64 = if scol.len() > 0i64 { ms_col_index(root, sri, scol) } else { -1i64 };
-                    if bound && sci >= 0i64 && cnt == ms_reads_all(root, sname) && nw < 8i64 {
+                    if bound && sci >= 0i64 && cnt == ms_reads_all(root, sname, live) && nw < 8i64 {
                         wr[nw] = sri; wc[nw] = sci; ws[nw] = ss; wn[nw] = sn;
                         nw = nw + 1i64;
                     } else {
