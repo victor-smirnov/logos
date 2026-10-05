@@ -943,73 +943,6 @@ void SemaChecker::check_pub_access(bool is_pub, const std::string& def_package,
         error(std::format("'{}' is private to package '{}'", item_name, def_package));
 }
 
-bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
-                                          const std::string& concrete,
-                                          const std::string& concrete_alt,
-                                          logos::compiler::StrSet& seen) {
-    // ⚠ ASK BY IDENTITY, ALWAYS. `trait_name` arrives as a path, as a name
-    // written in this scope, or as a compiler-spelled lang item ("Drop",
-    // "Copy", "Hash"); `impl_trait_id` turns each into the one identity the
-    // registry is keyed by, so a homonym's impls can never answer here and the
-    // compiler's own probes still reach the stdlib trait they name.
-    const DefId tid = impl_trait_id(trait_name);
-    std::string k = std::to_string(tid.v) + "::" + concrete;
-    if (!seen.insert(k).second) return false;
-    if (impls_.count(ImplKey{tid, concrete})) return true;
-    if (!concrete_alt.empty() && impls_.count(ImplKey{tid, concrete_alt})) return true;
-    // Reference Self: `impl Trait for &T` / `&mut T` registers under collect_impl's
-    // `$ref_`/`$mut_ref_` mangling, but `concrete` here is the raw type_str
-    // (`&i32` / `&mut Foo`). Try both forms — primitive pointee keeps the full
-    // string (`$ref_&i32`), struct pointee uses the bare name (`$ref_Foo`). This
-    // is the SHARED satisfaction primitive (default-method where-gate, blanket
-    // recursion, etc.), so every site that asks "does `&T` impl Trait" benefits.
-    for (auto& pfx : {std::string("&mut "), std::string("&")}) {
-        if (concrete.rfind(pfx, 0) != 0) continue;
-        std::string mpfx = (pfx == "&mut ") ? "$mut_ref_" : "$ref_";
-        if (impls_.count(ImplKey{tid, mpfx + concrete})) return true;
-        if (impls_.count(ImplKey{tid, mpfx + concrete.substr(pfx.size())})) return true;
-        // `impl<T: B…> Trait for &T` (keyed `$ref_$T`): the reference satisfies
-        // the trait when its REFERENT satisfies the impl's bounds on T (`&u8:
-        // Ord` through `impl<T: Ord> Ord for &T`).
-        if (auto git = impls_.find(ImplKey{tid, mpfx + "$T"}); git != impls_.end()) {
-            const std::string referent = concrete.substr(pfx.size());
-            logos::compiler::StrSet attempt = seen;
-            bool ok = true;
-            for (auto& tp : git->second.impl_type_params)
-                for (auto& b : tp.bounds)
-                    if (ok && !sema_has_impl_recursive(
-                                  !b.identity_trait.empty() ? b.identity_trait
-                                  : !b.canonical_trait.empty() ? b.canonical_trait : b.trait_name,
-                                  referent, "", attempt))
-                        ok = false;
-            if (ok) return true;
-        }
-        break;
-    }
-    for (auto& bi : blanket_impls_) {
-        if (!blanket_implements(bi, tid)) continue;
-        if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
-        // Per-attempt copy: a failed candidate must not poison `seen`
-        // for the next sibling candidate.
-        logos::compiler::StrSet attempt = seen;
-        // B-mv-03: recurse on the bound's IDENTITY. This is THE conflation
-        // site: `impl<T: Hash> Marker for T` next to a package-local
-        // `trait Hash` used to recurse on the bare text "Hash", hit the
-        // stdlib Hash's `i32`/`i64` impls, and admit them into `Marker`.
-        bool ok = bi.bound_trait.empty()
-            || sema_has_impl_recursive(bi.query_bound_trait(), concrete, concrete_alt, attempt);
-        if (ok) {
-            for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei)
-                if (!sema_has_impl_recursive(bi.query_extra_bound(ei), concrete,
-                                             concrete_alt, attempt)) {
-                    ok = false; break;
-                }
-        }
-        if (ok) return true;
-    }
-    return false;
-}
-
 // RPIT-BOUND (2026-09-12b). Prose in PROBES.md, "RPIT bound".
 void SemaChecker::check_impl_trait_ret_bound(writ::TinyMapView ret_node,
                                              TypeRef hidden,
@@ -1572,6 +1505,7 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
     if (impls_gen_ == obl_table_gen_) return obl_table_;
     obl_table_ = {};
     obl_infos_.clear();
+    obl_trait_of_node_.clear();
     obl_table_gen_ = impls_gen_;
     obl_no_self_ = 0;
     uint32_t src = 0;
@@ -1582,6 +1516,7 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             f.self = info.self_type ? info.self_type : info.target_typeref;
             f.source = src++;
             obl_infos_.push_back(&info);
+            if (!info.impl_node.empty()) obl_trait_of_node_[info.impl_node] = f.trait;
             if (info.target_type == "&[u8]") return;   // the `str` alias: the `str` entry's facts cover it
             if (!f.self) { ++obl_no_self_; return; }
             f.trait_args = info.trait_type_args;
@@ -1589,7 +1524,7 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
                 f.generics.push_back(tp.name);
                 if (tp.is_variadic) f.pack = tp.name;
                 for (auto& b : tp.bounds)
-                    if (!b.is_relaxed) f.bounds.push_back({tp.name, bound_identity_(b), b.type_args});
+                    if (!b.is_relaxed) f.bounds.push_back({tp.name, bound_identity_(b), b.type_args, b.assoc_eqs});
             }
             f.negative = info.is_negative;
             f.assoc_types = info.assoc_types;
@@ -3997,7 +3932,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // whether *any* per-method blanket entry got pushed. Blankets that
     // declare only assoc-types (no fn methods) need a marker entry so
     // trait-satisfaction queries can find them — without it,
-    // sema_has_impl_recursive would report the blanket trait as
+    // C-OBL would report the blanket trait as
     // unsatisfied for any concrete that depends on it.
     size_t blanket_size_before = blanket_impls_.size();
 
@@ -4388,6 +4323,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
                     bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
                     if (!cur_from_binary_) user_blanket_mangled_.insert(bi_rec.mangled_name);
+                    bi_rec.impl_node = node_key_(node);
                     blanket_impls_.push_back(std::move(bi_rec));
                 }
             } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
@@ -4444,7 +4380,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 if (ast_elided_ref_(map_of(m.get(la::TYPE.code))))
                     error(std::format("impl {} for {}: associated type '{}' contains a borrowed value with an elided lifetime (E0106) — name it, e.g. `impl<'a> ... {{ type {} = &'a ... }}`",
                                       trait_name, target, aname, aname));
-                if (gat_tps.empty()) collecting_assoc_types_.emplace_back(aname, atype);
+                {
+                    obl::AssocItem item{aname, atype, {}};
+                    for (auto& g : gat_tps) item.params.push_back(g.name);
+                    collecting_assoc_types_.push_back(std::move(item));
+                }
                 AssocTypeEntry ate{atype, impl_tps, gat_tps, std::move(pending_doc_)};
                 pending_doc_.clear();
                 assoc_type_impls_[key] = ate;
@@ -4516,8 +4456,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     }
     // If this is a blanket impl with no fn methods (only assoc-types), the
     // items loop didn't push anything to blanket_impls_. Push a marker
-    // entry now so trait-satisfaction queries (sema_has_impl_recursive,
-    // assoc_eqs_satisfied) can see it. method_name stays empty.
+    // entry now so the assoc-type resolver sees it. method_name stays empty.
     if (is_blanket && blanket_impls_.size() == blanket_size_before) {
         BlanketImpl bi_rec;
         bi_rec.trait_name = trait_name;
@@ -4541,6 +4480,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             user_blanket_mangled_.insert(marker);
             bi_rec.mangled_name = std::move(marker);
         }
+        bi_rec.impl_node = node_key_(node);
         blanket_impls_.push_back(std::move(bi_rec));
     }
 
@@ -4562,6 +4502,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         pi.self_type = impl_self_ty;
         pi.assoc_types = collecting_assoc_types_;
         pi.trait_def = impl_trait_id(trait_name);
+        pi.impl_node = node_key_(node);
         obl_pending_impl_ = std::move(pi);
         ++impls_gen_;
     }
@@ -5214,6 +5155,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
                         if (!cur_from_binary_)
                             user_blanket_mangled_.insert(bi_rec.mangled_name);
+                        bi_rec.impl_node = node_key_(node);
                         blanket_impls_.push_back(std::move(bi_rec));
                     }
                     // Default trait-method: inherits trait accessibility.
@@ -5272,7 +5214,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         }
                         AssocTypeEntry ae;
                         ae.type = subst_type_sema(at.default_type, dsub);
-                        collecting_assoc_types_.emplace_back(at.name, ae.type);
+                        collecting_assoc_types_.push_back({at.name, ae.type, {}});
                         assoc_type_impls_[key] = std::move(ae);
                     } else
                         error(std::format("impl {} for {}: missing associated type '{}'",
@@ -5395,6 +5337,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                           trait_type_args, trait_lt_args, impl_lt_params,
                           impl_lt_outlives, impl_doc, {}};
         info.assoc_types = std::move(collecting_assoc_types_);
+        info.impl_node = node_key_(node);
         // B91: coherence — reject a second impl of the same trait for the
         // same target type. Only fires for NON-GENERIC impls (no impl type
         // params and no impl lifetime params): two `impl<T> ... for Map<K,V>`

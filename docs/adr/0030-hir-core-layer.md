@@ -570,6 +570,32 @@ takes the same Self (Copy / Clone: the `&[u8]` fact only). The `&[u8]` value's
 `Hash` is now `impl Hash for str`'s (it was the `[T]` impl's): an ABI break,
 0.55.0.
 
+Row (5), projections: an impl fact carries its associated types (a generic
+associated type with its own parameters) and `obl::project` answers
+`<Self as Trait<A…>>::Name<B…>` by the impl C-OBL selects, at its substitution
+(ambiguous or none: no answer). Sema normalizes a projection over a concrete
+base when it is resolved and in substitution for a concrete or type-parameter
+base (a blanket impl answering through the parameter's bounds); the AssocType
+node carries the trait's arguments as types (Rust's `<T as Trait<A>>::Item`),
+substituted with its base. The impl under collection is a pending fact while
+its methods are checked against the trait — a blanket impl's own `DT::Store`
+normalizes by it, and `Self::Item<i32>` in an impl's own signature resolves
+(the old keyed path could not). A bound's associated-type clauses
+(`T: Iterator<Item = u32>`) are part of the solver's bound check. Deleted:
+mono's trait_item_assoc_type_ and assoc_impls_ (its subst and the ADR 0008
+clause check of the eager blanket pass project through the solver; census over
+pass, fail, spec, interactions, soundness, diag, examples, imported with and
+without `--test`: 0 disagreements), sema's assoc_eqs_satisfied,
+sema_has_impl_recursive, blanket_implements, find_assoc_type_entry and the two
+GAT projection arms (census: 4 disagreements, each the solver right — a GAT
+used at the wrong arity is not projected (E0107), the pending impl answers
+`Self::Item<i32>`). A blanket impl's method is offered at a receiver when C-OBL
+selects that impl for it (`viable_blanket_impls`, by the impl's identity).
+Squeue #555 (a `Sized` supertrait) closed by the builtin rule. LEFT for row 5:
+the three assoc-const trait scans, the L-IR emission of an impl's associated
+types from assoc_type_impls_ (and with it the keyed registry), mono's GAT
+parameters (its L-IR assoc entries carry none).
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

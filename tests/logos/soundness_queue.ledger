@@ -238,8 +238,6 @@ orphan_rule_not_enforced_admitted 2 tests/soundness/open/orphan_rule_not_enforce
 
 raw_pointer_matched_as_option_crash 2 tests/soundness/open/raw_pointer_matched_as_option_crash refuses
 
-sized_supertrait_blocks_impl_refused 2 tests/soundness/open/sized_supertrait_blocks_impl_refused refuses
-
 tryfrom_assoc_error_type_refused 2 tests/soundness/open/tryfrom_assoc_error_type_refused refuses
 
 unary_negation_overflow_not_trapped_wrong 2 tests/soundness/open/unary_negation_overflow_not_trapped_wrong run 0
@@ -459,5 +457,5 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
-# TOTAL 140
-# SYNC-HASH a1892556cc6e1617bb7e2cc154a93bbb
+# TOTAL 139
+# SYNC-HASH 499d8a4ac0dae71834de2c2bd25b17f2

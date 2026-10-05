@@ -4260,39 +4260,6 @@ std::string SemaChecker::trait_targ_suffix(const std::vector<TypeRef>& args) con
     return s;
 }
 
-const SemaChecker::AssocTypeEntry* SemaChecker::find_assoc_type_entry(
-        const std::string& trait_name, const std::string& target,
-        const std::string& aname) const {
-    // G156-1: prefer the trait-arg-suffixed key when the args are known from
-    // the current impl context (two `Trait<T>` impls for one type at distinct T
-    // register their assoc types under distinct suffixed keys).
-    if (current_impl_trait_name_ == trait_name && !current_impl_trait_args_.empty()) {
-        auto it = assoc_type_impls_.find(assoc_key(trait_name, trait_targ_suffix(current_impl_trait_args_), target, aname));
-        if (it != assoc_type_impls_.end()) return &it->second;
-    }
-    auto it = assoc_type_impls_.find(assoc_key(trait_name, target, aname));
-    if (it != assoc_type_impls_.end()) return &it->second;
-    // G156-1 substitution-invariance fallback (ADR 0021 metaclass surface): a
-    // projection whose trait_name was baked with TYPEVAR args ("Fam$G1$S", from
-    // a bound `C: Fam<S>`) survives type substitution as an UNREWRITTEN string,
-    // so after S→St it can never equal the concrete registration key
-    // ("Fam$G1$St"); a projection collected BARE (trait-decl `Self::H`) misses
-    // the suffixed key too. When the exact key misses, scan the suffixed
-    // registrations of the same bare trait + target + assoc name; a SINGLE
-    // candidate is unambiguous — use it. Multiple candidates (dual
-    // `Trait<A>`/`Trait<B>` impls for one type — the case the suffix exists to
-    // disambiguate) stay unresolved.
-    const DefId bare_id = impl_trait_id(strip_trait_targ_suffix(trait_name));
-    const AssocTypeEntry* single = nullptr;
-    for (auto& [k, v] : assoc_type_impls_) {
-        if (k.trait_def != bare_id || k.targs.empty()) continue;
-        if (k.target != target || k.name != aname) continue;
-        if (single) return nullptr;   // ambiguous — the suffix must decide
-        single = &v;
-    }
-    return single;
-}
-
 // P2-15 object-safety (Rust E0038 / dyn-compatibility). A trait coerced to a
 // trait object must be dyn-dispatchable: every method needs a vtable slot. Reject
 // (once per trait) when a method can't have one. A method with `where Self: Sized`
@@ -5171,75 +5138,6 @@ SemaChecker::read_lifetime_outlives_from(TinyMapView node, int32_t field_code) {
 std::vector<std::pair<std::string, std::string>>
 SemaChecker::read_lifetime_outlives(TinyMapView node) {
     return read_lifetime_outlives_from(node, la::TYPE_PARAMS.code);
-}
-
-bool SemaChecker::assoc_eqs_satisfied(
-    const std::string& trait_name,
-    const std::string& concrete_name,
-    const std::string& base_name,
-    const std::vector<std::pair<std::string, TypeRef>>& expected) {
-    if (expected.empty()) return true;
-    for (auto& [aname, expected_ty] : expected) {
-        if (!expected_ty) continue;
-        // Look up the impl's `type Assoc = X` for this trait+concrete.
-        // 1. Direct (concrete name).
-        const AssocKey key = assoc_key(trait_name, concrete_name, aname);
-        auto it = assoc_type_impls_.find(key);
-        if (it == assoc_type_impls_.end() && !base_name.empty() && base_name != concrete_name) {
-            const AssocKey bkey = assoc_key(trait_name, base_name, aname);
-            it = assoc_type_impls_.find(bkey);
-        }
-        TypeRef found = (it != assoc_type_impls_.end()) ? it->second.type : nullptr;
-        // 2. Blanket-derived: collect_impl keys blanket-impl assoc-types under
-        // `Trait::$blanket$Trait$BoundTrait$Target::AssocName`. If `concrete`
-        // doesn't have a direct impl but satisfies a blanket's bounds, use
-        // that blanket's assoc-type definition. The stored type may reference
-        // the blanket's target typevar (e.g. `type P = DT::Prim`); substitute
-        // target → concrete and recursively resolve via subst_type_sema so
-        // chains like `K: Primitive ⇒ K: HasPrim<P = K::Prim = i32>` reduce
-        // to a concrete type before the equality check.
-        if (!found) {
-            for (auto& bi : blanket_impls_) {
-                if (!blanket_implements(bi, trait_name)) continue;
-                logos::compiler::StrSet seen_pri;
-                // B-mv-03: satisfaction asks by IDENTITY; the `$blanket$` key
-                // built below stays on the RAW `bi.bound_trait`, because that
-                // is the spelling collect_impl registered the assoc type under.
-                bool ok = bi.bound_trait.empty()
-                    || sema_has_impl_recursive(bi.query_bound_trait(), concrete_name,
-                                               base_name, seen_pri);
-                if (ok) {
-                    for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
-                        logos::compiler::StrSet seen_eb;
-                        if (!sema_has_impl_recursive(bi.query_extra_bound(ei), concrete_name,
-                                                     base_name, seen_eb)) {
-                            ok = false; break;
-                        }
-                    }
-                }
-                if (!ok) continue;
-                auto bit = assoc_type_impls_.find(assoc_key(trait_name,
-                        "$blanket$" + trait_name + "$" + bi.bound_trait + "$"
-                            + bi.target_typevar,   // the synthetic TARGET
-                        aname));
-                if (bit == assoc_type_impls_.end()) continue;
-                TypeRef concrete_t = lookup_type_by_name(concrete_name);
-                if (!concrete_t && !base_name.empty() && base_name != concrete_name)
-                    concrete_t = lookup_type_by_name(base_name);
-                if (concrete_t) {
-                    SemaSubst bsubst;
-                    bsubst[bi.target_typevar] = concrete_t;
-                    found = subst_type_sema(bit->second.type, bsubst);
-                } else {
-                    found = bit->second.type;
-                }
-                break;
-            }
-        }
-        if (!found) return false;
-        if (!types_equal(found, expected_ty)) return false;
-    }
-    return true;
 }
 
 // ── Phase 2-1: cfg!() predicate evaluation ────────────────────────────────
@@ -7671,123 +7569,16 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         }
         // ADR 0030 S9 row 5: the item of the impl C-OBL selects — for a
         // concrete base, or a type parameter whose bounds a blanket impl
-        // answers (`K::ViewInStore` under `K: PodRef`).
-        if (t.gat_args().empty()) {
+        // answers (`K::ViewInStore` under `K: PodRef`); a generic associated
+        // type at its own arguments.
+        {
             TypeRef pbase = concrete ? concrete : subbed_base;
             std::string bare_tn = strip_trait_targ_suffix(std::string(t.trait_name()));
             std::string tid = t.pkg_name().empty() ? bare_tn : std::string(t.pkg_name()) + "::" + bare_tn;
             if (pbase && (concrete || TypeRef(pbase).kind() == LogosType::Kind::TypeVar))
                 if (TypeRef r = const_cast<SemaChecker*>(this)->project_assoc_(tid, pbase, subbed_targs,
-                                                                             t.assoc_type_name()))
+                                                                             t.assoc_type_name(), subbed_gat_args))
                     return subst_type_sema(r, {});
-        }
-
-        // TypeVar-with-bound branch: `K::AssocType` where K is a still-typevar
-        // and K's bounds include some `BoundTrait` for which there exists a
-        // blanket `impl<DT: BoundTrait> Trait for DT { type AssocType = … }`.
-        // Reduce by substituting the blanket's target typevar with K (kept as
-        // a TypeVar). Closes abstraction-debt #6 — `K::ViewInStore` → `*const K`
-        // when K: PodRef in the surrounding generic scope.
-        if (!t.gat_args().empty() && !concrete && subbed_base &&
-            TypeRef(subbed_base).kind() == LogosType::Kind::TypeVar) {
-            std::string tvname = std::string(TypeRef(subbed_base).type_var_name());
-            auto bit = current_type_bounds_.find(tvname);
-            if (bit != current_type_bounds_.end()) {
-                // Build a flat set of bound trait names for this typevar.
-                StrSet tv_bound_set;
-                for (auto& tb : bit->second) tv_bound_set.insert(tb.trait_name);
-                // G156-1: t.trait_name() may carry a `$G…` trait-arg suffix; the
-                // key PREFIX keeps it (matches the suffixed registration), but
-                // the `$blanket$<trait>` target segment uses the BARE name.
-                std::string full_tn(t.trait_name());
-                std::string bare_tn = strip_trait_targ_suffix(full_tn);
-                for (auto& bi : blanket_impls_) {
-                    if (bi.trait_name != bare_tn) continue;
-                    if (!tv_bound_set.count(bi.bound_trait)) continue;
-                    bool all_extra = true;
-                    for (auto& eb : bi.extra_bounds)
-                        if (!tv_bound_set.count(eb)) { all_extra = false; break; }
-                    if (!all_extra) continue;
-                    auto bait = assoc_type_impls_.find(assoc_key(full_tn,
-                            "$blanket$" + bare_tn + "$" + bi.bound_trait + "$"
-                                + bi.target_typevar,   // the synthetic TARGET
-                            std::string(t.assoc_type_name())));
-                    if (bait == assoc_type_impls_.end()) continue;
-                    SemaSubst bsubst;
-                    bsubst[bi.target_typevar] = subbed_base;
-                    return subst_type_sema(bait->second.type, bsubst);
-                }
-            }
-        }
-
-        if (concrete && !t.gat_args().empty()) {   // a GAT projection: by the impl's keyed entry
-            std::string concrete_name = type_str(concrete);
-            // Helper: build combined substitution (impl params + GAT params)
-            auto make_subst = [&](const AssocTypeEntry& entry) -> SemaSubst {
-                SemaSubst combined;
-                for (size_t i = 0; i < entry.impl_type_params.size() &&
-                                   i < TypeRef(concrete).type_args().size(); ++i)
-                    combined[entry.impl_type_params[i].name] = TypeRef(concrete).type_args()[i];
-                for (size_t i = 0; i < entry.gat_type_params.size() &&
-                                   i < subbed_gat_args.size(); ++i)
-                    combined[entry.gat_type_params[i].name] = subbed_gat_args[i];
-                return combined;
-            };
-
-            // 1. Direct lookup (non-generic impls: key stored under concrete name).
-            //    G156-1: find_assoc_type_entry prefers the trait-arg-suffixed key
-            //    (dual `Trait<T>` impls) when args are known from the impl ctx.
-            std::string tn(t.trait_name()), an(t.assoc_type_name());
-            if (auto* e = find_assoc_type_entry(tn, concrete_name, an))
-                return subst_type_sema(e->type, make_subst(*e));
-            // 1b. Mangled-spelling probe: collect keys a CONCRETE generic impl
-            // target (`impl Trait for Foo<i32>`, `impl Trait for
-            // CtrClass<@hs_…>`) under concrete_struct_name
-            // (`Foo$G1$i32`), while type_str above spells `Foo<i32>` — the
-            // two-spellings landmine (ADR 0021 §3.1). mono's resolver
-            // (mono_subst AssocType) already probes the mangled form; mirror
-            // it here so sema normalizes the projection too.
-            if (TypeRef(concrete).kind() == LogosType::Kind::Struct ||
-                TypeRef(concrete).kind() == LogosType::Kind::ZonedStruct) {
-                std::string mangled = concrete_struct_name(concrete);
-                if (!mangled.empty() && mangled != concrete_name)
-                    if (auto* e = find_assoc_type_entry(tn, mangled, an))
-                        return subst_type_sema(e->type, make_subst(*e));
-            }
-            // 2. Base-name fallback (generic impls).
-            std::string base_name = (TypeRef(concrete).kind() == LogosType::Kind::Struct)
-                                    ? std::string(TypeRef(concrete).struct_name()) : "";
-            if (!base_name.empty() && base_name != concrete_name) {
-                if (auto* e2 = find_assoc_type_entry(tn, base_name, an))
-                    return subst_type_sema(e2->type, make_subst(*e2));
-            }
-            // 3. Blanket-impl fallback: `impl<T: Bound> Trait for T` provides
-            // `type Assoc = …`.  Use it when `concrete` satisfies Bound.
-            std::string bare_tn3 = strip_trait_targ_suffix(tn);
-            for (auto& bi : blanket_impls_) {
-                if (bi.trait_name != bare_tn3) continue;
-                // Concrete type must implement every bound of the blanket.
-                auto bound_satisfied = [&](const std::string& bt) {
-                    if (has_impl(bt, concrete_name)) return true;
-                    if (!base_name.empty() && base_name != concrete_name &&
-                        has_impl(bt, base_name)) return true;
-                    return false;
-                };
-                if (!bound_satisfied(bi.bound_trait)) continue;
-                bool all_extra = true;
-                for (auto& eb : bi.extra_bounds)
-                    if (!bound_satisfied(eb)) { all_extra = false; break; }
-                if (!all_extra) continue;
-                auto bait = assoc_type_impls_.find(assoc_key(tn,
-                        "$blanket$" + bare_tn3 + "$" + bi.bound_trait + "$"
-                            + bi.target_typevar,   // the synthetic TARGET
-                        std::string(t.assoc_type_name())));
-                if (bait == assoc_type_impls_.end()) continue;
-                // Substitute the blanket's target typevar → concrete.
-                SemaSubst bsubst;
-                bsubst[bi.target_typevar] = concrete;
-                return subst_type_sema(bait->second.type, bsubst);
-            }
         }
         // B88: substitute GAT lifetime args.
         std::vector<std::string> subbed_lt_args;

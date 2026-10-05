@@ -236,6 +236,14 @@ struct Solver {
                     continue;
                 }
                 if (!select(b.trait, it->second, bargs).holds()) { nested = false; break; }
+                // `T: Iterator<Item = u32>`: the projection of the selected impl.
+                // A type variable's own projection is the call site's to decide.
+                for (auto& [n, want] : b.assoc_eqs) {
+                    if (!want || it->second.kind() == K::TypeVar) continue;
+                    auto got = project(b.trait, it->second, bargs, n);
+                    if (!got || !same_type(*got, env.subst ? env.subst(want, s) : want)) { nested = false; break; }
+                }
+                if (!nested) break;
             }
             if (!nested) continue;
             if (all) all->push_back({Kind::Impl, &f, s});
@@ -247,6 +255,35 @@ struct Solver {
         }
         if (neg) { if (all) all->clear(); return {}; }
         return out;
+    }
+
+    std::vector<Selection> candidates(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args) {
+        std::vector<Selection> all;
+        if (!self) return all;
+        (void)by_impls(trait, self, args, &all);
+        bool primary = false;
+        for (auto& c : all) primary = primary || !c.impl->fallback;
+        if (primary)
+            all.erase(std::remove_if(all.begin(), all.end(), [](const Selection& c) { return c.impl->fallback; }),
+                      all.end());
+        return all;
+    }
+
+    std::optional<TypeRef> project(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args,
+                                   std::string_view name, const std::vector<TypeRef>& item_args = {}) {
+        TypeRef best{};
+        bool ambiguous = false;
+        for (auto& c : candidates(trait, self, args))
+            for (auto& item : c.impl->assoc_types) {
+                if (item.name != name || !item.type || item.params.size() != item_args.size()) continue;
+                Subst s = c.subst;
+                for (size_t i = 0; i < item_args.size(); ++i) s[item.params[i]] = item_args[i];
+                TypeRef r = env.subst ? env.subst(item.type, s) : item.type;
+                if (!best) best = r;
+                else if (!same_type(best, r)) ambiguous = true;
+            }
+        if (ambiguous || !best) return std::nullopt;
+        return best;
     }
 
     Selection select(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args) {
@@ -287,30 +324,15 @@ Selection select(const ImplTable& table, const Env& env, std::string_view trait,
 
 std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::string_view trait,
                                   TypeRef self, const std::vector<TypeRef>& args) {
-    std::vector<Selection> all;
-    if (!self) return all;
     Solver s{table, env, nullptr};
-    (void)s.by_impls(trait, self, args, &all);
-    bool primary = false;
-    for (auto& c : all) primary = primary || !c.impl->fallback;
-    if (primary) all.erase(std::remove_if(all.begin(), all.end(), [](const Selection& c) { return c.impl->fallback; }),
-                           all.end());
-    return all;
+    return s.candidates(trait, self, args);
 }
 
 std::optional<TypeRef> project(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
-                               const std::vector<TypeRef>& args, std::string_view name) {
-    TypeRef best{};
-    bool ambiguous = false;
-    for (auto& c : candidates(table, env, trait, self, args))
-        for (auto& [n, t] : c.impl->assoc_types) {
-            if (n != name || !t) continue;
-            TypeRef r = env.subst ? env.subst(t, c.subst) : t;
-            if (!best) best = r;
-            else if (!same_type(best, r)) ambiguous = true;
-        }
-    if (ambiguous || !best) return std::nullopt;
-    return best;
+                               const std::vector<TypeRef>& args, std::string_view name,
+                               const std::vector<TypeRef>& item_args) {
+    Solver s{table, env, nullptr};
+    return s.project(trait, self, args, name, item_args);
 }
 
 }  // namespace logos::compiler::obl

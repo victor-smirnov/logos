@@ -327,32 +327,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             });
             blanket_impls_.push_back(std::move(info));
         } else {
-            // G156-1: index assoc types by the trait's concrete type-args
-            // (suffixed) so a suffixed AssocType node `<P as Trait<i64>>::A`
-            // (two `Trait<T>` impls for one type) resolves to the right impl;
-            // keep the plain key (first-wins) for bare / non-generic
-            // projections. Suffix format is byte-identical to sema's
-            // SemaChecker::trait_targ_suffix.
             std::string impl_trait(impl.trait_name());
             std::string impl_target(impl.target_type());
-            auto trait_args = impl.trait_type_args(impl_pool);
-            std::string targ_sfx = trait_targ_suffix_(trait_args);
-            impl.each_assoc_type([&](lir_view::AssocEntryView ae) {
-                std::string aname(ae.name());
-                TypeRef atype = ae.type(impl_pool);
-                assoc_impls_[impl_trait + targ_sfx + "::" + impl_target + "::" + aname] = atype;
-                if (!targ_sfx.empty())
-                    assoc_impls_.emplace(impl_trait + "::" + impl_target + "::" + aname, atype);
-            });
-            // ⚠ assoc_impls_ is keyed by the BARE `impl_trait` in BOTH inserts
-            // above — it never consults impl.canonical_trait(), so two traits
-            // spelled alike share one associated-type key space. That is a real
-            // conflation and it is NOT the bare-spelling alias retired below:
-            // the `!targ_sfx.empty()` insert is G156-1's plain-key fallback for
-            // a non-suffixed projection, and deleting it would lose bare
-            // `<P as Trait>::A` lookups. Canonicalising assoc_impls_ belongs
-            // with the impls_ canonicalisation named below, not apart from it.
-            //
             // The FACT is keyed by trait IDENTITY, so two traits spelled alike
             // are two facts and a query naming one cannot read the other's
             // impls.
@@ -706,77 +682,14 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             for (auto& ed : out_.enums)
                 if (ed.type_params_empty()) consider(std::string(ed.name()));
         }
-        // ADR 0008: helper to check Trait<Assoc = Type> equality clauses.
-        // Falls back to blanket-derived assoc-types when `concrete` does
-        // not have a direct impl of `trait` but satisfies the bounds of
-        // a blanket of `trait` (which carries `type Assoc = X` definitions
-        // in blanket_impls_[…].assoc_types).
-        auto assoc_eqs_ok = [&](const std::string& trait,
-                                const std::string& concrete,
+        // ADR 0008: `Trait<Assoc = Type>` clauses — the projection of the impl
+        // C-OBL selects for the candidate (a blanket's included).
+        auto assoc_eqs_ok = [&](const std::string& trait_id, TypeRef ct,
                                 const std::vector<std::pair<std::string, TypeRef>>& eqs) {
             for (auto& [aname, expected] : eqs) {
                 if (!expected) continue;
-                // The impl of `trait` for the concrete type, by identity (ADR
-                // 0030 S8 row 6); the spelled key only for a candidate whose
-                // TypeRef cannot be built.
-                TypeRef found = nullptr;
-                if (TypeRef ct = build_concrete_typeref(concrete))
-                    found = project_assoc_(trait, ct, {}, aname);
-                std::string key = trait + "::" + concrete + "::" + aname;
-                auto it = found ? assoc_impls_.end() : assoc_impls_.find(key);
-                if (found) {
-                } else if (it != assoc_impls_.end()) {
-                    found = it->second;
-                } else {
-                    // Blanket fallback: walk blankets of `trait`, find one
-                    // whose bounds `concrete` satisfies, look up `aname` in
-                    // its assoc_types. Phase 2: deep
-                    // `mono_concrete_satisfies_bound` when the candidate's
-                    // TypeRef is constructible; falls back to shallow.
-                    auto concrete_t_assoc = build_concrete_typeref(concrete);
-                    for (auto& bj : blanket_impls_) {
-                        if (bj.trait_name != trait) continue;
-                        StrSet seen_pri;
-                        bool ok = bj.bound_trait.empty()
-                            || (concrete_t_assoc
-                                ? mono_concrete_satisfies_bound(
-                                      TraitQuery(bj.bound_trait, bj.identity_bound_trait),
-                                                                concrete_t_assoc,
-                                                                seen_pri)
-                                : false);
-                        if (ok) {
-                            for (size_t ei = 0; ei < bj.extra_bounds.size(); ++ei) {
-                                StrSet seen_eb;
-                                TraitQuery eq(bj.extra_bounds[ei],
-                                              ei < bj.identity_extra_bounds.size()
-                                                  ? bj.identity_extra_bounds[ei]
-                                                  : std::string());
-                                bool eb_ok = concrete_t_assoc
-                                    ? mono_concrete_satisfies_bound(eq, concrete_t_assoc, seen_eb)
-                                    : false;
-                                if (!eb_ok) { ok = false; break; }
-                            }
-                        }
-                        if (!ok) continue;
-                        auto bait = bj.assoc_types.find(aname);
-                        if (bait == bj.assoc_types.end()) continue;
-                        // Substitute target_typevar → concrete struct type and
-                        // recursively resolve so blanket bodies that reference
-                        // the typevar (e.g. `type P = DT::Prim`) reduce to the
-                        // concrete type before equality compare.
-                        TypeRef concrete_t = concrete_t_assoc;
-                        if (concrete_t) {
-                            SubstMap bsubst;
-                            bsubst[bj.target_typevar] = concrete_t;
-                            found = subst_type(bait->second, bsubst);
-                        } else {
-                            found = bait->second;
-                        }
-                        break;
-                    }
-                }
-                if (!found) return false;
-                if (!types_equal(found, expected)) return false;
+                TypeRef found = ct ? project_assoc_(trait_id, ct, {}, aname) : TypeRef{};
+                if (!found || !types_equal(found, expected)) return false;
             }
             return true;
         };
@@ -812,10 +725,19 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             }
             if (!all_extra_satisfied) continue;
             // ADR 0008: assoc-type equality clauses must hold on every bound.
-            if (!assoc_eqs_ok(bi.bound_trait, concrete, bi.primary_assoc_eqs)) continue;
+            // An extra bound's clauses are keyed by its spelling; ask by its identity.
+            auto id_of = [&](const std::string& t) {
+                if (t == bi.bound_trait) return bi.identity_bound_trait.empty() ? t : bi.identity_bound_trait;
+                for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei)
+                    if (bi.extra_bounds[ei] == t && ei < bi.identity_extra_bounds.size() &&
+                        !bi.identity_extra_bounds[ei].empty())
+                        return bi.identity_extra_bounds[ei];
+                return t;
+            };
+            if (!assoc_eqs_ok(id_of(bi.bound_trait), candidate_t, bi.primary_assoc_eqs)) continue;
             bool extra_eqs_ok = true;
             for (auto& [trait, eqs] : bi.extra_assoc_eqs)
-                if (!assoc_eqs_ok(trait, concrete, eqs)) { extra_eqs_ok = false; break; }
+                if (!assoc_eqs_ok(id_of(trait), candidate_t, eqs)) { extra_eqs_ok = false; break; }
             if (!extra_eqs_ok) continue;
             // For each method of the blanket, enqueue an instantiation
             // into the main worklist. Phase 2 step 3: previously this

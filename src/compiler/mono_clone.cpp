@@ -3430,7 +3430,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // `let r = g.get(); r.method()` where `get(): Self::R` — needs the
             // same EMethodCall→concrete-symbol retargeting as a TypeVar
             // receiver once subst has normalized the projection to a concrete
-            // type (assoc_impls_ lookup in subst_type). Without it the method
+            // type (C-OBL projection in subst_type). Without it the method
             // stays unresolved on an unrecognised receiver kind → mlir-gen
             // "unsupported receiver kind" → truncated body. Only retarget when
             // the substituted receiver is actually concrete (not still a
@@ -4809,7 +4809,7 @@ const obl::ImplTable& Mono::obl_table_now_() {
         });
         f.negative = impl.is_negative();
         impl.each_assoc_type([&](lir_view::AssocEntryView ae) {
-            f.assoc_types.emplace_back(std::string(ae.name()), ae.type(pool));
+            f.assoc_types.push_back({std::string(ae.name()), ae.type(pool), {}});
         });
         // Logos's `impl Tr for str` (Self `[u8]`): also a fact about `&[u8]`,
         // which answers only when nothing else does (impl_candidates_); Copy /
