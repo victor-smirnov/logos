@@ -219,9 +219,10 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
         return out;
     }
     // DEMAND (#349): the rel the entry reads with a bound column is evaluated
-    // on demand (magic sets). Before the fact desugar: its seed is a fact.
-    // `LOGOS_DEEM_NO_DEMAND` turns it off: the rewrite never changes an answer
-    // (MS_FALLIBLE keeps it so), so the switch is for measuring it.
+    // on demand (magic sets, `lower::magic_program`). Before the fact
+    // desugar: a seed can be a fact. `LOGOS_DEEM_NO_DEMAND` (any value) turns
+    // it off: the rewrite never changes an answer (MS_FALLIBLE keeps it so),
+    // so the switch is for measuring it.
     // ORACLE: `LOGOS_DEEM_ORACLE=<dir>` writes the program as Soufflé text,
     // before any rewrite of ours (the oracle checks what the user wrote).
     dl_export(root, name, natspec, &mut prm);
@@ -229,28 +230,24 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");
     nd.push_u8(0u8);
-    // `=moving` keeps the rewrite but declines the shapes that need a
-    // recursive magic rule (what the first cut did), to measure that rule alone.
-    // A value that is a comma list of `moving` / `joinkey` / `propagate` keeps the rewrite and
-    // declines only those shapes; any other value turns it off.
-    let ndv: *const u8 = unsafe { getenv(nd.as_ptr()) };
-    let mut demand_off: bool = ndv != 0 as *const u8;
-    let mut allow_moving: bool = true;
-    let mut allow_joinkey: bool = true;
-    let mut allow_prop: bool = true;
-    if demand_off {
-        let mut vl: i64 = 0i64;
-        while unsafe { *(((ndv as i64) + vl) as *const u8) } != 0u8 { vl = vl + 1i64; }
-        let v: str = unsafe { str_from_raw(ndv, vl) };
-        if str_contains(v, "moving") || str_contains(v, "joinkey") || str_contains(v, "propagate") {
-            demand_off = false;
-            allow_moving = !str_contains(v, "moving");
-            allow_joinkey = !str_contains(v, "joinkey");
-            allow_prop = !str_contains(v, "propagate");
+    let demand_off: bool = unsafe { getenv(nd.as_ptr()) } != 0 as *const u8;
+    if !demand_off && magic_program(root, &h, &prm, &mut msd) > 0i64 {
+        let mut di: i64 = 0i64;
+        while di < msd.n {
+            plan_trace("demand", ms_verdict(msd.rule[di]), msd.rel[di], ms_render(msd.rule[di]));
+            if plan_trace_facts_on() {
+                let mut fl: String = String::new();
+                fl.push_str("[facts] "); fl.push_str(msd.rel[di]); fl.push_str(" demand col=");
+                fl.push_str(msd.col[di]); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule[di]));
+                fl.push_str("\n");
+                plan_trace_raw(unsafe { str_from_raw(fl.as_ptr(), fl.len()) });
+            }
+            di = di + 1i64;
         }
     }
     // LIVE RELS: a rel no reader reaches from the entry is not evaluated
-    // (`lower::live_rel_mask`), and it is no reader for the demand rewrite.
+    // (`lower::live_rel_mask`) — computed AFTER the demand rewrite, so an
+    // original every reader of which now reads an adorned copy is dead too.
     // `LOGOS_DEEM_NO_PRUNE` (at compile time) evaluates every rel, to measure it.
     let mut fal: RelSet = relset_new(0i64);
     let mut live: RelSet = live_rel_mask(root, &mut fal);
@@ -283,20 +280,6 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
             plan_trace_raw(unsafe { str_from_raw(fl0.as_ptr(), fl0.len()) });
         }
         pi = pi + 1i64;
-    }
-    if !demand_off && magic_program(root, &h, &prm, allow_moving, allow_joinkey, allow_prop, &live, &mut msd) > 0i64 {
-        let mut di: i64 = 0i64;
-        while di < msd.n {
-            plan_trace("demand", ms_verdict(msd.rule[di]), msd.rel[di], ms_render(msd.rule[di]));
-            if plan_trace_facts_on() {
-                let mut fl: String = String::new();
-                fl.push_str("[facts] "); fl.push_str(msd.rel[di]); fl.push_str(" demand col=");
-                fl.push_str(msd.col[di]); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule[di]));
-                fl.push_str("\n");
-                plan_trace_raw(unsafe { str_from_raw(fl.as_ptr(), fl.len()) });
-            }
-            di = di + 1i64;
-        }
     }
     // FACTS: a FROM-less `select` reads the one-row `__unit` relation, which
     // registers as one more native source.

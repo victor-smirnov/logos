@@ -4789,23 +4789,6 @@ sym	logos_lang..logos.lang.iter.ResultIter$G1$String__skip_while__g__ResultIter$
 sym	logos_lang..logos.lang.iter.ResultIter$G1$String__step_by__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$String__take__g__ResultIter$G1$T__i64
 sym	logos_lang..logos.lang.iter.ResultIter$G1$String__take_while__g__ResultIter$G1$T__fn(&T) -> bool
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__cloned__g__ResultIter$G1$T
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__copied__g__ResultIter$G1$T
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__count__g__ResultIter$G1$T
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__enumerate__g__ResultIter$G1$T
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__filter__g__ResultIter$G1$T__fn(&T) -> bool
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__inspect__g__ResultIter$G1$T__fn(&T) -> void
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__last__g__ResultIter$G1$T
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__max_by__g__ResultIter$G1$T__fn(&T, &T) -> i32
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__min_by__g__ResultIter$G1$T__fn(&T, &T) -> i32
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__next__g__refmut_ResultIter$G1$T
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__nth__g__refmut_ResultIter$G1$T__i64
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__peekable__g__ResultIter$G1$T
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__skip__g__ResultIter$G1$T__i64
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__skip_while__g__ResultIter$G1$T__fn(&T) -> bool
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__step_by__g__ResultIter$G1$T__i64
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__take__g__ResultIter$G1$T__i64
-sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$i64__take_while__g__ResultIter$G1$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$slice_u8__cloned__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$slice_u8__copied__g__ResultIter$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$G1$Vec$G1$slice_u8__count__g__ResultIter$G1$T
@@ -13359,11 +13342,6 @@ sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__get__g__
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__get_or_insert__g__refmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__insert__g__refmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$Vec$G1$i64__into_iter__g__HashMap$G2$K$V
-sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$u8__contains_key__g__refmut_HashMap$G2$K$V__ref_K
-sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$u8__default__g__void
-sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$u8__drop__g__refmut_HashMap$G2$K$V
-sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$u8__insert__g__refmut_HashMap$G2$K$V__K__V
-sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$i64$u8__into_iter__g__HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$slice_u8$Vec$G1$i64__default__g__void
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$slice_u8$Vec$G1$i64__drop__g__refmut_HashMap$G2$K$V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$slice_u8$Vec$G1$i64__get__g__refmut_HashMap$G2$K$V__ref_K
@@ -13417,9 +13395,6 @@ sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$u64__drop__g__refmut
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$u64__get__g__refmut_HashMap$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$u64__insert__g__refmut_HashMap$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$G2$u64$u64__into_iter__g__HashMap$G2$K$V
-sym	logos_mem..logos.mem.collections.set.HashSet$G1$i64__default__g__void
-sym	logos_mem..logos.mem.collections.set.HashSet$G1$i64__insert__g__refmut_HashSet$G1$K__K
-sym	logos_mem..logos.mem.collections.set.HashSet$G1$i64__into_iter__g__HashSet$G1$K
 sym	logos_mem..logos.mem.collections.set.HashSet$G1$slice_u8__contains__g__refmut_HashSet$G1$K__ref_K
 sym	logos_mem..logos.mem.collections.set.HashSet$G1$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.set.HashSet$G1$slice_u8__insert__g__refmut_HashSet$G1$K__K
@@ -15045,7 +15020,6 @@ sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], &[u8],
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], i64, &[u8])__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__(&[u8], i64, &[u8], &[u8], i64)__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__i64__Vec$G1$i64
-sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__i64__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__u64__i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_new__g__void__u64__u64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__&[u8]__Vec$G1$i64
@@ -15057,7 +15031,6 @@ sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8], i64, &[u8])__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__(&[u8], i64, &[u8], &[u8], i64)__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__i64__Vec$G1$i64
-sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__i64__u8
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__u64__i64
 sym	logos_mem.logos.mem.collections.hashmap$hashmap_with_capacity__g__i64__u64__u64
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__&[u8]
@@ -15067,7 +15040,6 @@ sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], &[u8], &[u
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], &[u8], &[u8], &[u8], &[u8])
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], i64, &[u8])
 sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__(&[u8], i64, &[u8], &[u8], i64)
-sym	logos_mem.logos.mem.collections.set$hashset_new__g__void__i64
 sym	logos_mem.logos.mem.collections.vec$vec_contains__g__ref_Vec$G1$T__ref_T__i32
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__&[u8]
 sym	logos_mem.logos.mem.collections.vec$vec_new__g__void__(&[u8], &[u8])

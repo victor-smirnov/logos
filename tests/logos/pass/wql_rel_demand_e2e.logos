@@ -13,7 +13,8 @@
 // A recursive body that MOVES the bound column gets a recursive magic rule
 // (`__m(u.f) :- __m(u.g), u`): the right-linear closure and the left-linear one
 // bound on its second column (ancestors). A wider moving body (three atoms) is
-// declined (MS_MOVES_COL) and must still answer the same.
+// declined then (MS_MOVES_COL, deleted 2026-10-05: the magic-sets transformation
+// adorns it) and must answer the same.
 // A JOIN KEY seeds the demand too: `from starts s join tc t on t.a == s.v` puts
 // `from starts s select s.v` in `__m_tc` (the base passes its column sideways
 // to the first step, as a left-to-right SIPS does).

@@ -1,0 +1,148 @@
+// DEMAND BY SIPS (2026-10-05, #349): the magic-sets transformation as
+// Soufflé's MST derives it — adorned copies, one magic rule per bound
+// occurrence, the body visited in max-bound order. Each program answers what
+// its naive twin answers, with strictly fewer derivations (a UDF tick in the
+// recursive select). The shapes the shape-by-shape rewrite declined:
+//   nonlin   tc(a,c) :- tc(a,b), tc(b,c)        non-linear recursion
+//   odd/even mutual recursion, bound on the first column
+//   sg       same generation: a body three atoms wide, bound through `par`
+//   pair     two bound columns at once
+//   both     a rel read bound (by the entry) and whole (by a rel that binds
+//            none of its columns): it is evaluated whole anyway, so it is NOT
+//            adorned (`shared`) — the work equals the twin's, never more
+// CONTROL: `LOGOS_DEEM_NO_DEMAND=1` at compile time leaves every count equal
+// to its twin's, and this fixture exits at the first count check.
+//
+// The tick sits in a WHERE of the recursive bodies, on a column the head
+// does not bind: a head column computed by a call (`select (tick(x.a), …)`)
+// binds no body column — Soufflé's functor in a head does not either — so it
+// would leave the demand unrestricted rather than measure it.
+//
+// exit 0 = every answer equal to its twin, every count strictly smaller (and
+// `both`'s not larger).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Edge { pub src: i64, pub dst: i64 }
+struct Par { pub chi: i64, pub par: i64 }
+
+static mut TICKS: i64 = 0i64;
+pub fn tick(x: i64) -> i64 { unsafe { TICKS = TICKS + 1i64; } return x; }
+fn ticks() -> i64 { return unsafe { TICKS }; }
+fn reset() { unsafe { TICKS = 0i64; } }
+
+pub deem nonlin(es: &[Edge], s: i64) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc x join tc y on y.a == x.b where tick(y.b) >= 0 select (x.a, y.b);
+    }
+    from tc t where t.a == s select t.b
+}
+pub deem nonlin_all(es: &[Edge]) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc x join tc y on y.a == x.b where tick(y.b) >= 0 select (x.a, y.b);
+    }
+    from tc t select (t.a, t.b)
+}
+
+pub deem odd(es: &[Edge], s: i64) {
+    rel od(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from ev v join es e on e.src == v.b where tick(e.dst) >= 0 select (v.a, e.dst);
+    }
+    rel ev(a: i64, b: i64) { from od o join es e on e.src == o.b where tick(e.dst) >= 0 select (o.a, e.dst); }
+    from od p where p.a == s select p.b
+}
+pub deem odd_all(es: &[Edge]) {
+    rel od(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from ev v join es e on e.src == v.b where tick(e.dst) >= 0 select (v.a, e.dst);
+    }
+    rel ev(a: i64, b: i64) { from od o join es e on e.src == o.b where tick(e.dst) >= 0 select (o.a, e.dst); }
+    from od p select (p.a, p.b)
+}
+
+pub deem sg(ps: &[Par], w: i64) {
+    rel sgr(x: i64, y: i64) {
+        from ps p1 join ps p2 on p1.par == p2.par where p1.chi != p2.chi select (p1.chi, p2.chi);
+        from ps p1 join sgr s on s.x == p1.par join ps p2 on s.y == p2.par where tick(p2.chi) >= 0 select (p1.chi, p2.chi);
+    }
+    from sgr s where s.x == w select s.y
+}
+pub deem sg_all(ps: &[Par]) {
+    rel sgr(x: i64, y: i64) {
+        from ps p1 join ps p2 on p1.par == p2.par where p1.chi != p2.chi select (p1.chi, p2.chi);
+        from ps p1 join sgr s on s.x == p1.par join ps p2 on s.y == p2.par where tick(p2.chi) >= 0 select (p1.chi, p2.chi);
+    }
+    from sgr s select (s.x, s.y)
+}
+
+pub deem pair(es: &[Edge], s: i64, t: i64) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc x join es e on e.src == x.b where tick(e.dst) >= 0 select (x.a, e.dst);
+    }
+    from tc r where r.a == s && r.b == t select r.a
+}
+
+pub deem both(es: &[Edge], s: i64) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc x join es e on e.src == x.b where tick(e.dst) >= 0 select (x.a, e.dst);
+    }
+    rel deg(a: i64, b: i64) { from tc t select (t.b, t.a); }
+    from tc r join deg d on d.a == r.b where r.a == s select d.b
+}
+pub deem both_all(es: &[Edge]) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc x join es e on e.src == x.b where tick(e.dst) >= 0 select (x.a, e.dst);
+    }
+    rel deg(a: i64, b: i64) { from tc t select (t.b, t.a); }
+    from tc r join deg d on d.a == r.b select (r.a, d.b)
+}
+
+fn count_a(v: &Vec<(i64, i64)>, a: i64) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.len() { if v.get(i).0 == a { n = n + 1i64; } i = i + 1i64; }
+    return n;
+}
+
+fn main() -> i32 {
+    // two chains: 1→2→3→4→5 and 10→11→12
+    let es: [Edge; 6] = [Edge { src: 1i64, dst: 2i64 }, Edge { src: 2i64, dst: 3i64 }, Edge { src: 3i64, dst: 4i64 },
+                         Edge { src: 4i64, dst: 5i64 }, Edge { src: 10i64, dst: 11i64 }, Edge { src: 11i64, dst: 12i64 }];
+    reset(); let na: Vec<(i64, i64)> = nonlin_all(&es[..]).unwrap(); let tn_all: i64 = ticks();
+    reset(); let n10: Vec<i64> = nonlin(&es[..], 10i64).unwrap(); let tn: i64 = ticks();
+    if n10.len() != count_a(&na, 10i64) || n10.len() != 2i64 { return 1i32; }
+    if tn >= tn_all { return 2i32; }
+
+    reset(); let oa: Vec<(i64, i64)> = odd_all(&es[..]).unwrap(); let to_all: i64 = ticks();
+    reset(); let o10: Vec<i64> = odd(&es[..], 10i64).unwrap(); let to: i64 = ticks();
+    if o10.len() != count_a(&oa, 10i64) || o10.len() != 1i64 { return 3i32; }
+    if to >= to_all { return 4i32; }
+
+    // two families: 1,2 children of 0; 3 child of 1, 4 child of 2; 7,8 children of 9
+    let ps: [Par; 6] = [Par { chi: 1i64, par: 0i64 }, Par { chi: 2i64, par: 0i64 }, Par { chi: 3i64, par: 1i64 },
+                        Par { chi: 4i64, par: 2i64 }, Par { chi: 7i64, par: 9i64 }, Par { chi: 8i64, par: 9i64 }];
+    reset(); let sa: Vec<(i64, i64)> = sg_all(&ps[..]).unwrap(); let ts_all: i64 = ticks();
+    reset(); let s3: Vec<i64> = sg(&ps[..], 3i64).unwrap(); let ts: i64 = ticks();
+    if s3.len() != count_a(&sa, 3i64) || s3.len() != 1i64 || s3.get(0i64) != 4i64 { return 5i32; }
+    if ts >= ts_all { return 6i32; }
+
+    reset(); let p: Vec<i64> = pair(&es[..], 1i64, 4i64).unwrap(); let tp: i64 = ticks();
+    if p.len() != 1i64 || p.get(0i64) != 1i64 { return 7i32; }
+    reset(); let pn: Vec<i64> = pair(&es[..], 1i64, 11i64).unwrap();
+    if pn.len() != 0i64 { return 8i32; }
+    if tp >= tn_all { return 9i32; }
+
+    reset(); let ba: Vec<(i64, i64)> = both_all(&es[..]).unwrap(); let tb_all: i64 = ticks();
+    reset(); let b10: Vec<i64> = both(&es[..], 10i64).unwrap(); let tb: i64 = ticks();
+    if b10.len() != count_a(&ba, 10i64) { return 10i32; }
+    if tb > tb_all { return 11i32; }
+    return 0i32;
+}

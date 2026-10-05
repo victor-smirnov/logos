@@ -906,25 +906,6 @@ fn ms_step_reads(sa: WAny, nm: str) -> i64 {
     return n;
 }
 
-// A body the rewrite does not handle: an aggregate, a find, or an anti join.
-fn ms_neg_agg(qany: WAny) -> bool {
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(_s) => { return false; }
-        RQuery::Join(j) => {
-            let steps: RQJoinStepArr = j.steps_arr();
-            let mut i: i64 = 0i64;
-            while i < steps.len() {
-                if steps.step_at(i).is_anti { return true; }
-                i = i + 1i64;
-            }
-            return false;
-        }
-        RQuery::Aggr(_g) => { return true; }
-        RQuery::Find(_f) => { return true; }
-    }
-}
-
 // Does `e` contain an operation that can return an `ElError`: integer
 // arithmetic is checked (`el_add(..)?`, `el_div(..)?`, `el_neg(..)?`), and the
 // types are not known before the walk, so every arithmetic node counts. A
@@ -1006,26 +987,6 @@ fn ms_entry_fallible(qany: WAny) -> bool {
     }
 }
 
-// The row var a body binds its one occurrence of `nm` to ("" when none).
-fn ms_occ_var(qany: WAny, nm: str) -> str {
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(s) => { if str_eq(s.src_name, nm) { return s.var_name; } return ""; }
-        RQuery::Join(j) => {
-            if str_eq(j.a_name, nm) { return j.x_var; }
-            let steps: RQJoinStepArr = j.steps_arr();
-            let mut i: i64 = 0i64;
-            while i < steps.len() {
-                let st: RQJoinStep = steps.step_at(i);
-                if !st.is_edge && str_eq(st.src_name, nm) { return st.var_name; }
-                i = i + 1i64;
-            }
-            return "";
-        }
-        _ => { return ""; }
-    }
-}
-
 // The select expression of a body (Simple / Join).
 fn ms_select(qany: WAny) -> WRef<SExpr> {
     let q: RQuery = qany.view::<RQuery>();
@@ -1083,278 +1044,11 @@ fn ms_is_const(e: SExpr, var: str, prm: &MacroParams) -> bool {
     }
 }
 
-// A fresh copy of a constant `ms_is_const` admitted.
-fn ms_copy_const(e: SExpr, h: &Writ) -> WRef<SExpr> {
-    match e {
-        SExpr::Lit(l) => {
-            let n: SLit = h.make::<SLit>();
-            n.val = l.val;
-            n.soff = l.soff;
-            n.txt = l.txt;
-            return WRef::<SExpr>::from_any(n.as_ref());
-        }
-        SExpr::Param(p) => {
-            let n: SParam = h.make::<SParam>();
-            n.name = p.name;
-            n.soff = p.soff;
-            return WRef::<SExpr>::from_any(n.as_ref());
-        }
-        SExpr::Field(f) => {
-            let n: SField = h.make::<SField>();
-            n.base = null_sref();
-            n.name = f.name;
-            n.soff = f.soff;
-            return WRef::<SExpr>::from_any(n.as_ref());
-        }
-        _ => { return null_sref(); }
-    }
-}
-
-// The first conjunct `var.c == K` (either side) of `w`: col "" when none.
-struct MsBind { pub col: str, pub k: i64 }
-fn ms_find_bind(w: SExpr, var: str, prm: &MacroParams) -> MsBind {
-    match w {
-        SExpr::Bin(b) => {
-            if b.op == OP_AND() {
-                let l: MsBind = ms_find_bind(b.lhs.any().view::<SExpr>(), var, prm);
-                if l.col.len() > 0i64 { return l; }
-                return ms_find_bind(b.rhs.any().view::<SExpr>(), var, prm);
-            }
-            if b.op == OP_EQ() {
-                let le: SExpr = b.lhs.any().view::<SExpr>();
-                let re: SExpr = b.rhs.any().view::<SExpr>();
-                let lc: MsCol = ms_col_ref(le);
-                if str_eq(lc.var, var) && ms_is_const(re, var, prm) {
-                    return MsBind { col: lc.fld, k: b.rhs.any().raw() };
-                }
-                let rc: MsCol = ms_col_ref(re);
-                if str_eq(rc.var, var) && ms_is_const(le, var, prm) {
-                    return MsBind { col: rc.fld, k: b.lhs.any().raw() };
-                }
-            }
-            return MsBind { col: "", k: 0i64 };
-        }
-        _ => { return MsBind { col: "", k: 0i64 }; }
-    }
-}
-
-// The entry's base source, row var and WHERE (src "" when it has none).
-struct MsEntry { pub src: str, pub var: str, pub w: WRef<SExpr> }
-fn ms_entry(qany: WAny) -> MsEntry {
-    let none: MsEntry = MsEntry { src: "", var: "", w: null_sref() };
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(s) => {
-            if !s.has_where { return none; }
-            return MsEntry { src: s.src_name, var: s.var_name, w: s.where_pred };
-        }
-        RQuery::Join(j) => {
-            if !j.has_where { return none; }
-            return MsEntry { src: j.a_name, var: j.x_var, w: j.where_pred };
-        }
-        RQuery::Aggr(g) => {
-            if !g.has_where { return none; }
-            return MsEntry { src: g.a_name, var: g.x_var, w: g.where_pred };
-        }
-        RQuery::Find(_f) => { return none; }
-    }
-}
-
-// Join `__m_R __mm on __mm.c == v.f` onto one base body. Returns the
-// replacement body's raw handle (0 = rewritten in place).
-fn ms_restrict_body(qany: WAny, mrel: str, v: str, f: str, h: &Writ) -> i64 {
-    let st: RQJoinStep = h.make::<RQJoinStep>();
-    st.is_anti = false;
-    st.is_edge = false;
-    st.has_on = true;
-    st.src_name = mrel;
-    st.var_name = "__mm";
-    st.on = gp_bin(h, OP_EQ(), gp_field(h, "__mm", "c"), gp_field(h, v, f));
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(_s0) => {
-            let s: RQSimple = rq_fat_simple(qany, h);
-            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
-            sa.set_step(0i64, st.as_ref());
-            sa.set_len(1i64);
-            let j: RQJoin = h.make::<RQJoin>();
-            j.fn_name = s.fn_name;
-            j.a_name = s.src_name;
-            j.x_var = s.var_name;
-            j.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
-            j.has_where = s.has_where;
-            j.where_pred = s.where_pred;
-            j.select = s.select;
-            j.sel_first = s.sel_first;
-            j.distinct = s.distinct;
-            j.has_order = s.has_order;
-            j.order_key = s.order_key;
-            j.order_desc = s.order_desc;
-            j.has_limit = s.has_limit;
-            j.limit_n = s.limit_n;
-            j.limit_is_param = s.limit_is_param;
-            j.limit_param = s.limit_param;
-            j.has_result_ty = s.has_result_ty;
-            j.result_ty = s.result_ty;
-            j.has_gpath = false;
-            return j.as_ref().raw();
-        }
-        RQuery::Join(_j0) => {
-            let jo: RQJoin = rq_fat_join(qany, h);
-            let orig: RQJoinStepArr = jo.steps_arr();
-            let on_: i64 = orig.len();
-            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
-            let mut k: i64 = 0i64;
-            while k < on_ {
-                sa.set_step(k, orig.step_any(k));
-                k = k + 1i64;
-            }
-            sa.set_step(on_, st.as_ref());
-            sa.set_len(on_ + 1i64);
-            jo.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
-            return 0i64;
-        }
-        _ => { return 0i64; }
-    }
-}
-
-// A recursive body that MOVES the bound column (the right-linear shape, or a
-// left-linear one bound on its other column): exactly two atoms — the one
-// occurrence `t` of R and one other atom `u` — joined by one equality
-// `t.c == u.f` on the bound column c, no WHERE, and the head's column c a
-// plain column `u.g`. Then the occurrence's demand is `u.f` for every `u`
-// whose `u.g` is demanded: the recursive magic rule
-//   __m_R(u.f) :- __m_R(u.g), u
-// (Soufflé's MST derives the same rule for this sideways-information pass).
-struct MsMove { pub ok: bool, pub src: str, pub var: str, pub g: str, pub f: str }
-fn ms_moving(qany: WAny, rel: str, col: str, item: MsCol) -> MsMove {
-    let no: MsMove = MsMove { ok: false, src: "", var: "", g: "", f: "" };
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Join(j) => {
-            if j.has_where { return no; }
-            let steps: RQJoinStepArr = j.steps_arr();
-            if steps.len() != 1i64 { return no; }
-            let st: RQJoinStep = steps.step_at(0i64);
-            if st.is_anti || st.is_edge || !st.has_on { return no; }
-            let mut tv: str = "";
-            let mut us: str = "";
-            let mut uv: str = "";
-            if str_eq(j.a_name, rel) { tv = j.x_var; us = st.src_name; uv = st.var_name; }
-            else if str_eq(st.src_name, rel) { tv = st.var_name; us = j.a_name; uv = j.x_var; }
-            else { return no; }
-            if !str_eq(item.var, uv) { return no; }
-            let on: SExpr = st.on.any().view::<SExpr>();
-            match on {
-                SExpr::Bin(b) => {
-                    if b.op != OP_EQ() { return no; }
-                    let l: MsCol = ms_col_ref(b.lhs.any().view::<SExpr>());
-                    let r: MsCol = ms_col_ref(b.rhs.any().view::<SExpr>());
-                    if str_eq(l.var, tv) && str_eq(l.fld, col) && str_eq(r.var, uv) {
-                        return MsMove { ok: true, src: us, var: uv, g: item.fld, f: r.fld };
-                    }
-                    if str_eq(r.var, tv) && str_eq(r.fld, col) && str_eq(l.var, uv) {
-                        return MsMove { ok: true, src: us, var: uv, g: item.fld, f: l.fld };
-                    }
-                    return no;
-                }
-                _ => { return no; }
-            }
-        }
-        _ => { return no; }
-    }
-}
-
-// Does the program already hold a fact (a FROM-less `select`, src "")?
-fn ms_has_fact(root: WAny) -> bool {
-    let prog: RQProgram = root.view::<RQProgram>();
-    if prog.has_rels() {
-        let rels: RQRelArr = prog.rels_arr();
-        let mut i: i64 = 0i64;
-        while i < rels.len() {
-            let bodies: RQBodyArr = rels.rel_at(i).bodies_arr();
-            let mut b: i64 = 0i64;
-            while b < bodies.len() {
-                let q: RQuery = bodies.body_any(b).view::<RQuery>();
-                match q { RQuery::Simple(s0) => { if s0.src_name.len() == 0i64 { return true; } } _ => { } }
-                b = b + 1i64;
-            }
-            i = i + 1i64;
-        }
-    }
-    let qe: RQuery = prog.entry_any().view::<RQuery>();
-    match qe { RQuery::Simple(se) => { return se.src_name.len() == 0i64; } _ => { return false; } }
-}
-
 // The rel the entry demands with one bound column, and where its seed comes
 // from: a constant (`from R x where x.c == K` → `select K`), or a join key
 // (`from S y join R x on x.c == y.f …` → `from S y select y.f`, the sideways
 // information the entry's base passes to its first step — Soufflé's MST with a
 // left-to-right SIPS does the same).
-struct MsTarget { pub rel: str, pub col: str, pub k: i64, pub ssrc: str, pub svar: str, pub sfld: str }
-
-fn ms_join_bind(on: SExpr, xv: str, yv: str) -> MsCol {
-    match on {
-        SExpr::Bin(b) => {
-            if b.op == OP_AND() {
-                let l: MsCol = ms_join_bind(b.lhs.any().view::<SExpr>(), xv, yv);
-                if l.var.len() > 0i64 { return l; }
-                return ms_join_bind(b.rhs.any().view::<SExpr>(), xv, yv);
-            }
-            if b.op == OP_EQ() {
-                let l: MsCol = ms_col_ref(b.lhs.any().view::<SExpr>());
-                let r: MsCol = ms_col_ref(b.rhs.any().view::<SExpr>());
-                // var = the R column, fld = the base column
-                if str_eq(l.var, xv) && str_eq(r.var, yv) { return MsCol { var: l.fld, fld: r.fld }; }
-                if str_eq(r.var, xv) && str_eq(l.var, yv) { return MsCol { var: r.fld, fld: l.fld }; }
-            }
-            return MsCol { var: "", fld: "" };
-        }
-        _ => { return MsCol { var: "", fld: "" }; }
-    }
-}
-
-fn ms_target(root: WAny, prm: &MacroParams) -> MsTarget {
-    let none: MsTarget = MsTarget { rel: "", col: "", k: 0i64, ssrc: "", svar: "", sfld: "" };
-    let prog: RQProgram = root.view::<RQProgram>();
-    let me: MsEntry = ms_entry(prog.entry_any());
-    if me.src.len() > 0i64 && gp_rel_find(root, me.src) >= 0i64 {
-        let bind: MsBind = ms_find_bind(me.w.any().view::<SExpr>(), me.var, prm);
-        if bind.col.len() > 0i64 {
-            return MsTarget { rel: me.src, col: bind.col, k: bind.k, ssrc: "", svar: "", sfld: "" };
-        }
-    }
-    let q: RQuery = prog.entry_any().view::<RQuery>();
-    match q {
-        RQuery::Join(j) => {
-            let steps: RQJoinStepArr = j.steps_arr();
-            if steps.len() < 1i64 { return none; }
-            let st: RQJoinStep = steps.step_at(0i64);
-            if st.is_anti || st.is_edge || !st.has_on { return none; }
-            if gp_rel_find(root, st.src_name) < 0i64 { return none; }
-            // an injected rel (`__reach_<src>`, `__m_*`) is already demand-driven
-            // by its own rewrite; adorning it again only adds a rel and a join
-            if str_starts_with(st.src_name, "__") { return none; }
-            let jb: MsCol = ms_join_bind(st.on.any().view::<SExpr>(), st.var_name, j.x_var);
-            if jb.var.len() == 0i64 { return none; }
-            return MsTarget { rel: st.src_name, col: jb.var, k: 0i64,
-                              ssrc: j.a_name, svar: j.x_var, sfld: jb.fld };
-        }
-        _ => { return none; }
-    }
-}
-
-// ── PROPAGATION THROUGH THE REL GRAPH (E9e) ─────────────────────────────────
-// A demanded rel R whose bodies read another user rel S passes its demand on:
-// Soufflé's MST derives one magic rule per occurrence of S, from the atoms to
-// its left and the head's bound column. Two shapes are derived here:
-//   S is where the head's column comes from (`select (s.g, …)`):
-//       __m_S(c) :- __m_R(c)                    -- `from __m_R mm select mm.c`
-//   a two-atom body `X x ⋈ S s on s.f2 == x.f`, the head's column from x.g:
-//       __m_S(x.f) :- X(x), __m_R(x.g)          -- `from X x join __m_R mm on mm.c == x.g select x.f`
-// (X may be R itself: the recursive body of a left-linear closure over S).
-// S is demanded only when EVERY occurrence of it in the program is one of
-// these, on the same column; a single free occurrence needs all of S.
 
 /// The decisions of one rewrite, in the order they were taken.
 pub struct MsDecisions { pub n: i64, pub rel: Vec<str>, pub col: Vec<str>, pub rule: Vec<i32> }
@@ -1365,230 +1059,864 @@ fn ms_note(d: &mut MsDecisions, rel: str, col: str, rule: i32) {
 }
 
 // One occurrence of a rel S inside a demanded rel's body, bound or not.
-struct MsOcc { pub s: str, pub col: str, pub seed: i64 }   // seed 0 = unbound
 
-fn ms_seed_from_magic(h: &Writ, mrel: str) -> i64 {
-    let sd: RQSimple = h.make::<RQSimple>();
-    sd.src_name = mrel;
-    sd.var_name = "__mm";
-    sd.has_where = false;
-    sd.select = gp_field(h, "__mm", "c");
-    sd.sel_first = false; sd.distinct = false; sd.has_order = false;
-    sd.has_limit = false; sd.has_result_ty = false; sd.has_gpath = false;
-    return sd.as_ref().raw();
-}
+// ── DEMAND BY SIPS: THE MAGIC-SETS TRANSFORMATION (Soufflé's MST) ───────────
+// (2026-10-05, #349). A rel R read with some columns bound gets an ADORNED
+// COPY R_β (β = the bound columns) whose bodies are R's bodies restricted to
+// the demanded values, kept in a magic rel __m_R_β. Inside a body the atoms
+// are visited left to right (the sideways-information-passing order is the
+// chain's own); a column of an atom is bound when a conjunct of the clause
+// (its WHERE, or the ON of a positive step) equates it to a constant, a
+// scalar parameter, a column of an atom to its left, or a bound column of the
+// head. Every user-rel atom that has a bound column is read through ITS
+// adorned copy, and gets one magic rule:
+//     __m_S_γ(the bound values) :- __m_R_β, the positive atoms to its left,
+//                                   the conjuncts over those atoms.
+// The entry query is a clause with no head: its seeds are facts (constants
+// and parameters) or the atoms to the left of the occurrence.
+//
+// What this replaces is a set of recognized shapes (one rel, one column, two
+// atoms, demand passed only when every occurrence agreed); what it covers in
+// addition is non-linear recursion, mutual recursion, bodies of any width,
+// several bound columns, and a rel read both bound and free (the free reader
+// keeps reading R, the bound one reads R_β).
+//
+// Soundness limits, each a refusal of the REL (its readers read it whole):
+//   - a body that aggregates or finds (MS_NEG_AGG): Soufflé ignores such
+//     relations too; an anti join's atom is never adorned (it is read whole)
+//     and a magic rule never contains one, which only widens the demand;
+//   - checked arithmetic in a body (MS_FALLIBLE): restricting the rows could
+//     turn the naive program's `Err` into an `Ok` (Soufflé excludes
+//     order-dependent functors for the same reason);
+//   - a body with no free join-step slot for the magic join (MS_CAP).
+// A binding is a constant, a parameter or a plain column — never computed —
+// so every magic set is a set of values the program already holds (the
+// termination argument Soufflé gives for weakly bound head variables).
 
-fn ms_seed_via(h: &Writ, xsrc: str, xvar: str, xg: str, xf: str, mrel: str) -> i64 {
-    let st: RQJoinStep = h.make::<RQJoinStep>();
-    st.is_anti = false; st.is_edge = false; st.has_on = true;
-    st.src_name = mrel;
-    st.var_name = "__mm";
-    st.on = gp_bin(h, OP_EQ(), gp_field(h, "__mm", "c"), gp_field(h, xvar, xg));
-    let sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
-    let mut sam: RQJoinStepArr = sa;
-    sam.set_step(0i64, st.as_ref());
-    sam.set_len(1i64);
-    let j: RQJoin = h.make::<RQJoin>();
-    j.a_name = xsrc;
-    j.x_var = xvar;
-    j.steps = WRef::<RQJoinStepArr>::from_any(sam.as_ref());
-    j.has_where = false;
-    j.select = gp_field(h, xvar, xf);
-    j.sel_first = false; j.distinct = false; j.has_order = false;
-    j.has_limit = false; j.has_result_ty = false; j.has_gpath = false;
-    return j.as_ref().raw();
-}
+struct MtAtom { pub src: str, pub var: str, pub anti: bool, pub edge: bool }
 
-// The occurrences of user rels (≠ R, not injected) in one body of R, with the
-// seed each would contribute. `item` is the head's column c in this body.
-fn ms_body_occs(root: WAny, ba: WAny, rname: str, item: MsCol, mrel: str, h: &Writ,
-                occs: &mut Vec<MsOcc>, n: &mut i64) {
-    let q: RQuery = ba.view::<RQuery>();
-    match q {
-        RQuery::Simple(s0) => {
-            if gp_rel_find(root, s0.src_name) < 0i64 || str_eq(s0.src_name, rname)
-               || str_starts_with(s0.src_name, "__") { return; }
-            let mut o: MsOcc = MsOcc { s: s0.src_name, col: "", seed: 0i64 };
-            if str_eq(item.var, s0.var_name) { o.col = item.fld; o.seed = ms_seed_from_magic(h, mrel); }
-            occs.push(o); *n = *n + 1i64;
-        }
+// The atoms of a clause in SIPS order: the base, then each step.
+fn mt_atoms(qany: WAny) -> Vec<MtAtom> {
+    let mut out: Vec<MtAtom> = Vec::<MtAtom>::new();
+    match qany.view::<RQuery>() {
+        RQuery::Simple(s) => { out.push(MtAtom { src: s.src_name, var: s.var_name, anti: false, edge: false }); }
         RQuery::Join(j) => {
-            let steps: RQJoinStepArr = j.steps_arr();
-            let mut a: i64 = -1i64;
-            while a < steps.len() {
-                let mut src: str = j.a_name;
-                let mut var: str = j.x_var;
-                let mut skip: bool = false;
-                if a >= 0i64 {
-                    let st: RQJoinStep = steps.step_at(a);
-                    if st.is_edge || st.is_anti { skip = true; }
-                    src = st.src_name;
-                    var = st.var_name;
-                }
-                if !skip && gp_rel_find(root, src) >= 0i64 && !str_eq(src, rname) && !str_starts_with(src, "__") {
-                    let mut o: MsOcc = MsOcc { s: src, col: "", seed: 0i64 };
-                    if str_eq(item.var, var) {
-                        o.col = item.fld; o.seed = ms_seed_from_magic(h, mrel);
-                    } else if steps.len() == 1i64 && !j.has_where && item.var.len() > 0i64 {
-                        // two atoms: the other one is x, joined on one equality
-                        let st0: RQJoinStep = steps.step_at(0i64);
-                        let mut xsrc: str = j.a_name;
-                        let mut xvar: str = j.x_var;
-                        if a < 0i64 { xsrc = st0.src_name; xvar = st0.var_name; }
-                        if str_eq(item.var, xvar) && st0.has_on && !st0.is_anti && !st0.is_edge {
-                            let on: SExpr = st0.on.any().view::<SExpr>();
-                            match on {
-                                SExpr::Bin(bb) => {
-                                    if bb.op == OP_EQ() {
-                                        let l: MsCol = ms_col_ref(bb.lhs.any().view::<SExpr>());
-                                        let r: MsCol = ms_col_ref(bb.rhs.any().view::<SExpr>());
-                                        if str_eq(l.var, var) && str_eq(r.var, xvar) {
-                                            o.col = l.fld; o.seed = ms_seed_via(h, xsrc, xvar, item.fld, r.fld, mrel);
-                                        } else if str_eq(r.var, var) && str_eq(l.var, xvar) {
-                                            o.col = r.fld; o.seed = ms_seed_via(h, xsrc, xvar, item.fld, l.fld, mrel);
-                                        }
-                                    }
-                                }
-                                _ => { }
-                            }
-                        }
-                    }
-                    occs.push(o); *n = *n + 1i64;
-                }
-                a = a + 1i64;
-            }
+            out.push(MtAtom { src: j.a_name, var: j.x_var, anti: false, edge: false });
+            mt_step_atoms(j.steps.any(), &mut out);
+        }
+        RQuery::Aggr(g) => {
+            out.push(MtAtom { src: g.a_name, var: g.x_var, anti: false, edge: false });
+            if g.has_steps() { mt_step_atoms(g.steps.any(), &mut out); }
+        }
+        RQuery::Find(f) => { out.push(MtAtom { src: f.src_name, var: f.var_name, anti: false, edge: false }); }
+    }
+    return out;
+}
+
+fn mt_step_atoms(sa: WAny, out: &mut Vec<MtAtom>) {
+    if sa.is_null() { return; }
+    let st: RQJoinStepArr = sa.view::<RQJoinStepArr>();
+    let mut i: i64 = 0i64;
+    while i < st.len() {
+        let x: RQJoinStep = st.step_at(i);
+        out.push(MtAtom { src: x.src_name, var: x.var_name, anti: x.is_anti, edge: x.is_edge });
+        i = i + 1i64;
+    }
+}
+
+// Split `w` on AND into raw conjunct words.
+fn mt_split(w: WRef<SExpr>, out: &mut Vec<i64>) {
+    if w.any().is_null() { return; }
+    match w.any().view::<SExpr>() {
+        SExpr::Bin(b) => {
+            if b.op == OP_AND() { mt_split(b.lhs, out); mt_split(b.rhs, out); return; }
         }
         _ => { }
     }
+    out.push(w.any().raw() as i64);
 }
 
-// Rewrite rel `ri` on column `ci` from the given seed bodies: the rel's own
-// antecedents, then `__m_<rel>` (seeds + the moving shapes' magic rules) and
-// the restricted bodies. Returns the rule; MS_DEMAND = rewritten. `occs` gets
-// the occurrences of other rels in the ORIGINAL bodies, for propagation.
-fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &Vec<i64>, nseeds: i64,
-            allow_moving: bool, occs: &mut Vec<MsOcc>, nocc: &mut i64) -> i32 {
-    let prog: RQProgram = root.view::<RQProgram>();
-    let rels: RQRelArr = prog.rels_arr();
-    let rel: RQRel = rels.rel_at(ri);
-    let cols: RQRelColArr = rel.cols_arr();
-    let nc: i64 = cols.len();
-    let col: str = cols.col_at(ci).name;
-    let bodies: RQBodyArr = rel.bodies_arr();
-    let nb: i64 = bodies.len();
-    let mut nmove: i64 = 0i64;
-    let mut b: i64 = 0i64;
-    while b < nb {
-        let ba: WAny = bodies.body_any(b);
-        if ms_neg_agg(ba) { return MS_NEG_AGG(); }
-        if ms_body_fallible(ba) { return MS_FALLIBLE(); }
-        let k: i64 = ms_reads(ba, rel.name);
-        if k > 1i64 { return MS_NONLINEAR(); }
-        let item: MsCol = ms_col_ref(ms_sel_item(ms_select(ba), ci, nc));
-        if k == 1i64 {
-            if !str_eq(item.var, ms_occ_var(ba, rel.name)) || !str_eq(item.fld, col) {
-                let mv: MsMove = ms_moving(ba, rel.name, col, item);
-                if !mv.ok { return MS_MOVES_COL(); }
-                if !allow_moving { return MS_MOVING_OFF(); }
-                nmove = nmove + 1i64;
-            }
-        } else {
-            if item.var.len() == 0i64 { return MS_SEL_SHAPE(); }
-            let q: RQuery = ba.view::<RQuery>();
-            match q {
-                RQuery::Join(jb) => { if jb.steps_arr().len() >= RQJSTEP_MAX() { return MS_CAP(); } }
-                _ => { }
-            }
-        }
-        b = b + 1i64;
+// The conjuncts of a clause: its WHERE and the ON of every POSITIVE step (an
+// anti join's ON is the inside of a negation, not a conjunct of the clause).
+fn mt_conjuncts(qany: WAny) -> Vec<i64> {
+    let mut out: Vec<i64> = Vec::<i64>::new();
+    let mut sa: WAny = WAny::null();
+    match qany.view::<RQuery>() {
+        RQuery::Simple(s) => { if s.has_where { mt_split(s.where_pred, &mut out); } }
+        RQuery::Join(j) => { if j.has_where { mt_split(j.where_pred, &mut out); } sa = j.steps.any(); }
+        RQuery::Aggr(g) => { if g.has_where { mt_split(g.where_pred, &mut out); } if g.has_steps() { sa = g.steps.any(); } }
+        RQuery::Find(_f) => { }
     }
-    if nseeds + nmove > RQBODY_MAX() { return MS_CAP(); }
-    let mut mn: String = String::new();
-    mn.push_str("__m_");
-    mn.push_str(rel.name);
-    let mrel: RQRel = h.make::<RQRel>();
-    mrel.name = lw_str(&mn);
-    // the occurrences of other rels, read off the ORIGINAL bodies
-    b = 0i64;
-    while b < nb {
-        let item0: MsCol = ms_col_ref(ms_sel_item(ms_select(bodies.body_any(b)), ci, nc));
-        ms_body_occs(root, bodies.body_any(b), rel.name, item0, mrel.name, h, occs, nocc);
-        b = b + 1i64;
-    }
-    let mc: RQRelCol = h.make::<RQRelCol>();
-    mc.name = "c";
-    mc.ty_name = cols.col_at(ci).ty_name;
-    let mcols: RQRelColArr = h.make::<RQRelColArr>();
-    let mut mcm: RQRelColArr = mcols;
-    mcm.set_col(0i64, mc.as_ref());
-    mcm.set_len(1i64);
-    mrel.cols = WRef::<RQRelColArr>::from_any(mcm.as_ref());
-    let mb: RQBodyArr = h.make::<RQBodyArr>();
-    let mut mbm: RQBodyArr = mb;
-    let mut nmb: i64 = 0i64;
-    while nmb < nseeds {
-        mbm.set_body(nmb, unsafe { WAny::ref_to(seeds[nmb] as *const u8) });
-        nmb = nmb + 1i64;
-    }
-    mbm.set_len(nmb);
-    mrel.bodies = WRef::<RQBodyArr>::from_any(mbm.as_ref());
-    b = 0i64;
-    while b < nb {
-        let ba2: WAny = bodies.body_any(b);
-        let item2: MsCol = ms_col_ref(ms_sel_item(ms_select(ba2), ci, nc));
-        let k2: i64 = ms_reads(ba2, rel.name);
-        let passes: bool = k2 == 1i64 && str_eq(item2.var, ms_occ_var(ba2, rel.name))
-                           && str_eq(item2.fld, col);
-        if !passes {
-            if k2 == 1i64 {
-                let mv2: MsMove = ms_moving(ba2, rel.name, col, item2);
-                mbm.set_body(nmb, unsafe { WAny::ref_to(ms_seed_via(h, mv2.src, mv2.var, mv2.g, mv2.f, mrel.name) as *const u8) });
-                nmb = nmb + 1i64;
-            }
-            let nq: i64 = ms_restrict_body(ba2, mrel.name, item2.var, item2.fld, h);
-            if nq != 0i64 {
-                let mut fb: RQBodyArr = rq_fat_bodies(rel.bodies.any(), h);
-                fb.set_body(b, unsafe { WAny::ref_to(nq as *const u8) });
-            }
-        }
-        b = b + 1i64;
-    }
-    mbm.set_len(nmb);
-    if !gp_rel_append(root, mrel, h) { return MS_CAP(); }
-    return MS_DEMAND();
-}
-
-// How many times the program reads `nm` OUTSIDE rel `nm`'s own bodies (a
-// recursive rel's reads of itself are its own business): the entry, and
-// every other rel's bodies.
-// Reads of `nm` by the entry and by every LIVE rel but `nm` itself (`live`, a
-// mask by rel position; a rel added after it was computed counts as live).
-fn ms_reads_all(root: WAny, nm: str, live: &RelSet) -> i64 {
-    let prog: RQProgram = root.view::<RQProgram>();
-    let mut n: i64 = ms_reads(prog.entry_any(), nm);
-    if prog.has_rels() {
-        let rels: RQRelArr = prog.rels_arr();
+    if !sa.is_null() {
+        let st: RQJoinStepArr = sa.view::<RQJoinStepArr>();
         let mut i: i64 = 0i64;
-        while i < rels.len() {
-            if str_eq(rels.rel_at(i).name, nm) { i = i + 1i64; continue; }
-            if live.covers(i) && !live.has(i) { i = i + 1i64; continue; }
-            let bj: RQBodyArr = rels.rel_at(i).bodies_arr();
-            let mut b: i64 = 0i64;
-            while b < bj.len() { n = n + ms_reads(bj.body_any(b), nm); b = b + 1i64; }
+        while i < st.len() {
+            let x: RQJoinStep = st.step_at(i);
+            if x.has_on && !x.is_anti { mt_split(x.on, &mut out); }
             i = i + 1i64;
         }
     }
-    return n;
+    return out;
 }
 
-fn ms_col_index(root: WAny, ri: i64, col: str) -> i64 {
-    let cols: RQRelColArr = root.view::<RQProgram>().rels_arr().rel_at(ri).cols_arr();
-    let mut c: i64 = 0i64;
-    while c < cols.len() {
-        if str_eq(cols.col_at(c).name, col) { return c; }
-        c = c + 1i64;
-    }
+fn mt_sref(w: i64) -> WRef<SExpr> { return WRef::<SExpr>::from_any(unsafe { WAny::ref_to(w as *const u8) }); }
+
+// The atom whose row var is `v` (−1 = none).
+fn mt_atom_of(atoms: &Vec<MtAtom>, v: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < atoms.len() { if str_eq(atoms[i].var, v) { return i; } i = i + 1i64; }
     return -1i64;
+}
+
+// Every row var `e` reads is one of the atoms in `inc` (a flag per atom), and
+// `e` reads nothing else that varies per row (a bare name is a constant: a
+// scalar parameter or a module item).
+fn mt_reads_only(e: SExpr, atoms: &Vec<MtAtom>, inc: &Vec<bool>) -> bool {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() {
+                let k: i64 = mt_atom_of(atoms, f.name);
+                return k < 0i64 || inc[k];
+            }
+            return mt_reads_only(br.any().view::<SExpr>(), atoms, inc);
+        }
+        SExpr::Var(v) => { let k2: i64 = mt_atom_of(atoms, v.name); return k2 < 0i64 || inc[k2]; }
+        SExpr::Bin(b) => { return mt_reads_only(b.lhs.any().view::<SExpr>(), atoms, inc) && mt_reads_only(b.rhs.any().view::<SExpr>(), atoms, inc); }
+        SExpr::Un(u) => { return mt_reads_only(u.arg.any().view::<SExpr>(), atoms, inc); }
+        SExpr::Cast(c) => { return mt_reads_only(c.arg.any().view::<SExpr>(), atoms, inc); }
+        SExpr::Cond(c) => {
+            return mt_reads_only(c.c.any().view::<SExpr>(), atoms, inc) && mt_reads_only(c.t.any().view::<SExpr>(), atoms, inc)
+                && mt_reads_only(c.e.any().view::<SExpr>(), atoms, inc);
+        }
+        SExpr::Call(c) => {
+            let a: SExprArr = c.args.any().view::<SExprArr>();
+            let mut i: i64 = 0i64;
+            while i < a.len() { if !mt_reads_only(a.arg_at(i), atoms, inc) { return false; } i = i + 1i64; }
+            return true;
+        }
+        SExpr::Tuple(t) => {
+            let a2: SExprArr = t.items.any().view::<SExprArr>();
+            let mut i2: i64 = 0i64;
+            while i2 < a2.len() { if !mt_reads_only(a2.arg_at(i2), atoms, inc) { return false; } i2 = i2 + 1i64; }
+            return true;
+        }
+        SExpr::Comp(_c) => { return false; }
+        _ => { return true; }
+    }
+}
+
+// A column binding found for an atom: how the value is known.
+//   kind 1: a constant / parameter (`e` its expression)
+//   kind 2: a column of an atom to the left (`e` the `v.f` expression)
+//   kind 3: the head's bound column number `hi` (its value is __m_R_β.c<hi>)
+struct MtBind { pub kind: i32, pub e: i64, pub hi: i64 }
+
+// The adornment state of one rewrite.
+struct MtCtx {
+    pub key: Vec<String>,       // "<rel>/<c,c,…>"
+    pub src: Vec<i64>,          // the original rel's index
+    pub cols: Vec<Vec<i64>>,    // its bound columns, ascending
+    pub arel: Vec<String>,      // the adorned copy's name
+    pub mrel: Vec<String>,      // its magic rel's name
+    pub mbody: Vec<Vec<i64>>,   // the magic rel's bodies (raw), one per occurrence
+    pub refuse: Vec<i32>,       // per ORIGINAL rel: MS_DEMAND if adornable, else why not
+    pub created: i64,           // copies already built
+}
+
+// Can rel `ri` be adorned at all? Only a RECURSIVE rel is: the magic join
+// restricts its fixpoint, every round. A non-recursive rel's body is
+// evaluated whole before the join filters it — the restriction saves no
+// evaluation, and the reader's own filter already applies — while the copy
+// doubles its code and the magic rules over adorned siblings create recursion
+// the program did not have (measured on Canon: 2x the generated code, 9 SCC
+// fns where there were none, compile 8.6 s -> 69 s). A body that aggregates or
+// finds, checked arithmetic, or no free step for the magic join keeps a
+// recursive rel whole too.
+fn mt_rel_verdict(root: WAny, ri: i64) -> i32 {
+    let rel: RQRel = root.view::<RQProgram>().rels_arr().rel_at(ri);
+    let bj: RQBodyArr = rel.bodies_arr();
+    let mut rec: bool = false;
+    let mut b0: i64 = 0i64;
+    while b0 < bj.len() { if body_reads_its_head(root, bj.body_any(b0), rel.name) { rec = true; } b0 = b0 + 1i64; }
+    if !rec { return MS_NONREC(); }
+    let mut b: i64 = 0i64;
+    while b < bj.len() {
+        let ba: WAny = bj.body_any(b);
+        match ba.view::<RQuery>() {
+            RQuery::Aggr(_g) => { return MS_NEG_AGG(); }
+            RQuery::Find(_f) => { return MS_NEG_AGG(); }
+            RQuery::Join(j) => { if j.steps_arr().len() >= RQJSTEP_MAX() { return MS_CAP(); } }
+            _ => { }
+        }
+        if ms_body_fallible(ba) { return MS_FALLIBLE(); }
+        b = b + 1i64;
+    }
+    return MS_DEMAND();
+}
+
+fn mt_key(name: str, cols: &Vec<i64>) -> String {
+    let mut k: String = String::new();
+    k.push_str(name);
+    k.push_str("/");
+    let mut i: i64 = 0i64;
+    while i < cols.len() { if i > 0i64 { k.push_str(","); } k.push_i64(cols[i]); i = i + 1i64; }
+    return k;
+}
+
+// The adornment of rel `ri` on `cols` (ascending): its index in `ctx`, queued
+// (named, no bodies yet) on first request.
+fn mt_get(ctx: &mut MtCtx, root: WAny, ri: i64, cols: &Vec<i64>) -> i64 {
+    let rel: RQRel = root.view::<RQProgram>().rels_arr().rel_at(ri);
+    let key: String = mt_key(rel.name, cols);
+    let mut i: i64 = 0i64;
+    while i < ctx.key.len() {
+        if str_eq(lw_str(&ctx.key[i]), lw_str(&key)) { return i; }
+        i = i + 1i64;
+    }
+    let mut an: String = String::new();
+    an.push_str(rel.name);
+    an.push_str("__b");
+    let mut c: i64 = 0i64;
+    while c < cols.len() { if c > 0i64 { an.push_str("_"); } an.push_i64(cols[c]); c = c + 1i64; }
+    let mut mn: String = String::new();
+    mn.push_str("__m_");
+    mn.push_str(lw_str(&an));
+    let mut cc: Vec<i64> = Vec::<i64>::new();
+    let mut k: i64 = 0i64;
+    while k < cols.len() { cc.push(cols[k]); k = k + 1i64; }
+    ctx.key.push(key);
+    ctx.src.push(ri);
+    ctx.cols.push(cc);
+    ctx.arel.push(an);
+    ctx.mrel.push(mn);
+    ctx.mbody.push(Vec::<i64>::new());
+    return ctx.key.len() - 1i64;
+}
+
+// How column `col` of the atom bound to `var` is known at this point of the
+// clause (kind 0 = not bound). `hv`/`hf`/`hi` are the head's bound columns
+// that are plain columns of the body (`hv.hf` is the head's column hi).
+fn mt_bind(var: str, col: str, conj: &Vec<i64>, atoms: &Vec<MtAtom>, inc: &Vec<bool>,
+           hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>, prm: &MacroParams) -> MtBind {
+    let mut h: i64 = 0i64;
+    while h < hv.len() {
+        if str_eq(hv[h], var) && str_eq(hf[h], col) { return MtBind { kind: 3i32, e: 0i64, hi: hi[h] }; }
+        h = h + 1i64;
+    }
+    let mut i: i64 = 0i64;
+    while i < conj.len() {
+        let w: WRef<SExpr> = mt_sref(conj[i]);
+        match w.any().view::<SExpr>() {
+            SExpr::Bin(b) => {
+                if b.op == OP_EQ() {
+                    let mut side: i64 = 0i64;
+                    while side < 2i64 {
+                        let me: WRef<SExpr> = if side == 0i64 { b.lhs } else { b.rhs };
+                        let ot: WRef<SExpr> = if side == 0i64 { b.rhs } else { b.lhs };
+                        let mc: MsCol = ms_col_ref(me.any().view::<SExpr>());
+                        if str_eq(mc.var, var) && str_eq(mc.fld, col) {
+                            let oe: SExpr = ot.any().view::<SExpr>();
+                            if ms_is_const(oe, var, prm) { return MtBind { kind: 1i32, e: ot.any().raw() as i64, hi: -1i64 }; }
+                            let oc: MsCol = ms_col_ref(oe);
+                            if oc.var.len() > 0i64 {
+                                let k: i64 = mt_atom_of(atoms, oc.var);
+                                if k >= 0i64 && inc[k] { return MtBind { kind: 2i32, e: ot.any().raw() as i64, hi: -1i64 }; }
+                                let mut h2: i64 = 0i64;
+                                while h2 < hv.len() {
+                                    if str_eq(hv[h2], oc.var) && str_eq(hf[h2], oc.fld) { return MtBind { kind: 3i32, e: 0i64, hi: hi[h2] }; }
+                                    h2 = h2 + 1i64;
+                                }
+                            }
+                        }
+                        side = side + 1i64;
+                    }
+                }
+            }
+            _ => { }
+        }
+        i = i + 1i64;
+    }
+    return MtBind { kind: 0i32, e: 0i64, hi: -1i64 };
+}
+
+fn mt_col_name(i: i64) -> String {
+    let mut c: String = String::new();
+    c.push_str("c");
+    c.push_i64(i);
+    return c;
+}
+
+// A select over `items`: the item itself when there is one, else a tuple.
+fn mt_select(h: &Writ, items: &Vec<i64>) -> WRef<SExpr> {
+    if items.len() == 1i64 { return mt_sref(items[0]); }
+    let mut arr: SExprArr = h.make::<SExprArr>();
+    let mut i: i64 = 0i64;
+    while i < items.len() { arr.set_arg(i, unsafe { WAny::ref_to(items[i] as *const u8) }); i = i + 1i64; }
+    arr.set_len(items.len());
+    let t: STuple = h.make::<STuple>();
+    t.items = WRef::<SExprArr>::from_any(arr.as_ref());
+    return WRef::<SExpr>::from_any(t.as_ref());
+}
+
+// A fresh step reading `src` as `var` (no planner fields yet).
+fn mt_step(h: &Writ, src: str, var: str, on: WRef<SExpr>) -> RQJoinStep {
+    let st: RQJoinStep = h.make::<RQJoinStep>();
+    st.is_anti = false; st.is_edge = false; st.has_on = true;
+    st.src_name = src; st.var_name = var; st.on = on;
+    return st;
+}
+
+fn mt_copy_step(h: &Writ, x: RQJoinStep) -> RQJoinStep {
+    let st: RQJoinStep = h.make::<RQJoinStep>();
+    st.src_name = x.src_name; st.var_name = x.var_name;
+    st.is_anti = x.is_anti; st.is_edge = x.is_edge; st.has_on = x.has_on;
+    st.on = x.on; st.base_var = x.base_var; st.path = x.path;
+    return st;
+}
+
+fn mt_join(h: &Writ, a: str, x: str, sel: WRef<SExpr>) -> RQJoin {
+    let j: RQJoin = h.make::<RQJoin>();
+    j.a_name = a; j.x_var = x; j.select = sel; j.has_where = false;
+    j.sel_first = false; j.distinct = false; j.has_order = false;
+    j.has_limit = false; j.has_result_ty = false; j.has_gpath = false;
+    return j;
+}
+
+// The magic rule body for an occurrence whose SIPS visit came after the
+// atoms `order[0..upto)`: those atoms in that order, each conjunct of the
+// clause placed on the step of the last atom it reads (the base's go to the
+// WHERE), and the head's magic rel when a head column links in or is a value;
+// it selects the bound values.
+fn mt_magic_body(qany: WAny, atoms: &Vec<MtAtom>, order: &Vec<i64>, upto: i64, inc: &Vec<bool>,
+                 conj: &Vec<i64>, binds: &Vec<MtBind>, hmrel: str,
+                 hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>, h: &Writ) -> i64 {
+    let mut link: WRef<SExpr> = null_sref();
+    let mut k: i64 = 0i64;
+    while k < hv.len() {
+        let a: i64 = mt_atom_of(atoms, hv[k]);
+        if a >= 0i64 && inc[a] {
+            let c: String = mt_col_name(hi[k]);
+            link = gp_and(h, link, gp_bin(h, OP_EQ(), gp_field(h, "__mm", lw_str(&c)), gp_field(h, hv[k], hf[k])));
+        }
+        k = k + 1i64;
+    }
+    let mut need_m: bool = !link.any().is_null();
+    let mut items: Vec<i64> = Vec::<i64>::new();
+    let mut b: i64 = 0i64;
+    while b < binds.len() {
+        if binds[b].kind == 3i32 {
+            let mut done: bool = false;
+            let mut q: i64 = 0i64;
+            while q < hv.len() && !done {
+                if hi[q] == binds[b].hi {
+                    let a2: i64 = mt_atom_of(atoms, hv[q]);
+                    if a2 >= 0i64 && inc[a2] { items.push(gp_field(h, hv[q], hf[q]).any().raw() as i64); done = true; }
+                }
+                q = q + 1i64;
+            }
+            if !done {
+                let c2: String = mt_col_name(binds[b].hi);
+                items.push(gp_field(h, "__mm", lw_str(&c2)).any().raw() as i64);
+                need_m = true;
+            }
+        } else {
+            items.push(binds[b].e);
+        }
+        b = b + 1i64;
+    }
+    let sel: WRef<SExpr> = mt_select(h, &items);
+    if upto == 0i64 {
+        let s: RQSimple = h.make::<RQSimple>();
+        s.has_where = false;
+        if need_m && hmrel.len() > 0i64 { s.src_name = hmrel; s.var_name = "__mm"; }
+        s.select = sel;
+        s.sel_first = false; s.distinct = false; s.has_order = false;
+        s.has_limit = false; s.has_result_ty = false; s.has_gpath = false;
+        return s.as_ref().raw() as i64;
+    }
+    // each conjunct over included atoms goes to the visit position of the
+    // last atom it reads (−1: it reads none of them — a WHERE term)
+    let mut cpos: Vec<i64> = Vec::<i64>::new();
+    let mut c3: i64 = 0i64;
+    while c3 < conj.len() {
+        let e: SExpr = mt_sref(conj[c3]).any().view::<SExpr>();
+        if mt_reads_only(e, atoms, inc) {
+            let mut last: i64 = -1i64;
+            let mut t: i64 = 0i64;
+            while t < upto {
+                if (refs_mask(e, atoms[order[t]].var) & 1i32) != 0i32 { last = t; }
+                t = t + 1i64;
+            }
+            cpos.push(last);
+        } else {
+            cpos.push(-2i64);
+        }
+        c3 = c3 + 1i64;
+    }
+    let j: RQJoin = mt_join(h, mt_src_at(qany, order[0]), atoms[order[0]].var, sel);
+    let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+    let mut n: i64 = 0i64;
+    let mut t2: i64 = 1i64;
+    while t2 < upto {
+        let mut on: WRef<SExpr> = null_sref();
+        let mut c4: i64 = 0i64;
+        while c4 < conj.len() { if cpos[c4] == t2 { on = gp_and(h, on, mt_sref(conj[c4])); } c4 = c4 + 1i64; }
+        if on.any().is_null() { on = make_bool_lit(h, true); }
+        sa.set_step(n, mt_step(h, mt_src_at(qany, order[t2]), atoms[order[t2]].var, on).as_ref());
+        n = n + 1i64;
+        t2 = t2 + 1i64;
+    }
+    if need_m && hmrel.len() > 0i64 {
+        let on2: WRef<SExpr> = if link.any().is_null() { make_bool_lit(h, true) } else { link };
+        sa.set_step(n, mt_step(h, hmrel, "__mm", on2).as_ref());
+        n = n + 1i64;
+    }
+    sa.set_len(n);
+    j.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+    let mut wacc: WRef<SExpr> = null_sref();
+    let mut c5: i64 = 0i64;
+    while c5 < conj.len() { if cpos[c5] == 0i64 || cpos[c5] == -1i64 { wacc = gp_and(h, wacc, mt_sref(conj[c5])); } c5 = c5 + 1i64; }
+    if !wacc.any().is_null() { j.has_where = true; j.where_pred = wacc; }
+    return j.as_ref().raw() as i64;
+}
+
+// The SIPS of one clause, without touching it: the visit order (next, the
+// positive atom with the most bound columns — Soufflé's max-bound — ties in
+// the written order, so a body bound on a later atom, `from tc t join es e on
+// e.src == t.b` with the head's column from `e`, binds `tc` through `es`), and
+// for each atom reading a program rel of index < nrel0, its bound columns and
+// how each is bound. `ok` is false for a clause with a traversal step (left as
+// written: its atoms read whole).
+struct MtPlan { pub ok: bool, pub order: Vec<i64>, pub sri: Vec<i64>, pub cols: Vec<Vec<i64>>, pub binds: Vec<Vec<MtBind>> }
+
+fn mt_sips(root: WAny, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>,
+           nrel0: i64, prm: &MacroParams) -> MtPlan {
+    let mut pl: MtPlan = MtPlan { ok: true, order: Vec::<i64>::new(), sri: Vec::<i64>::new(),
+                                  cols: Vec::<Vec<i64>>::new(), binds: Vec::<Vec<MtBind>>::new() };
+    let mut z: i64 = 0i64;
+    while z < atoms.len() {
+        if atoms[z].edge { pl.ok = false; }
+        pl.sri.push(-1i64); pl.cols.push(Vec::<i64>::new()); pl.binds.push(Vec::<MtBind>::new());
+        z = z + 1i64;
+    }
+    if !pl.ok { return pl; }
+    let mut inc: Vec<bool> = Vec::<bool>::new();
+    let mut seen: Vec<bool> = Vec::<bool>::new();
+    let mut z2: i64 = 0i64;
+    while z2 < atoms.len() { inc.push(false); seen.push(atoms[z2].anti || atoms[z2].src.len() == 0i64); z2 = z2 + 1i64; }
+    loop {
+        let mut best: i64 = -1i64;
+        let mut bestn: i64 = -1i64;
+        let mut q: i64 = 0i64;
+        while q < atoms.len() {
+            if !seen[q] {
+                let nb: i64 = mt_bound_count(root, atoms[q].src, atoms[q].var, conj, atoms, &inc, hv, hf, hi, prm);
+                if nb > bestn { best = q; bestn = nb; }
+            }
+            q = q + 1i64;
+        }
+        if best < 0i64 { break; }
+        let p: i64 = best;
+        seen[p] = true;
+        if !str_starts_with(atoms[p].src, "__") {
+            let sri: i64 = gp_rel_find(root, atoms[p].src);
+            if sri >= 0i64 && sri < nrel0 {
+                pl.sri[p] = sri;
+                let scols: RQRelColArr = root.view::<RQProgram>().rels_arr().rel_at(sri).cols_arr();
+                let mut c: i64 = 0i64;
+                while c < scols.len() {
+                    let bd: MtBind = mt_bind(atoms[p].var, scols.col_at(c).name, conj, atoms, &inc, hv, hf, hi, prm);
+                    if bd.kind > 0i32 { pl.cols[p].push(c); pl.binds[p].push(bd); }
+                    c = c + 1i64;
+                }
+            }
+        }
+        inc[p] = true;
+        pl.order.push(p);
+    }
+    return pl;
+}
+
+// The head's bound columns that are plain columns of the body: `hv.hf` is the
+// head's bound column number `hi` (its position in the adornment).
+struct MtHead { pub hv: Vec<str>, pub hf: Vec<str>, pub hi: Vec<i64> }
+fn mt_head(qany: WAny, cols: Vec<i64>, ncols: i64) -> MtHead {
+    let mut hd: MtHead = MtHead { hv: Vec::<str>::new(), hf: Vec::<str>::new(), hi: Vec::<i64>::new() };
+    let sel: WRef<SExpr> = ms_select(qany);
+    let mut k: i64 = 0i64;
+    while k < cols.len() {
+        let item: MsCol = ms_col_ref(ms_sel_item(sel, cols[k], ncols));
+        if item.var.len() > 0i64 { hd.hv.push(item.var); hd.hf.push(item.fld); hd.hi.push(k); }
+        k = k + 1i64;
+    }
+    return hd;
+}
+
+// Adorn one clause IN PLACE: each atom whose rel is adornable and bound reads
+// its adorned copy and contributes a magic rule. `hk` is the head's adornment
+// (−1 = the entry).
+fn mt_clause(root: WAny, qany: WAny, hk: i64, nrel0: i64, ctx: &mut MtCtx, prm: &MacroParams,
+             h: &Writ, out: &mut MsDecisions) {
+    let atoms: Vec<MtAtom> = mt_atoms(qany);
+    let conj: Vec<i64> = mt_conjuncts(qany);
+    let mut hd: MtHead = MtHead { hv: Vec::<str>::new(), hf: Vec::<str>::new(), hi: Vec::<i64>::new() };
+    let mut hms: String = String::new();
+    if hk >= 0i64 {
+        let ncols: i64 = root.view::<RQProgram>().rels_arr().rel_at(ctx.src[hk]).cols_arr().len();
+        let mut hc: Vec<i64> = Vec::<i64>::new();
+        let mut k0: i64 = 0i64;
+        while k0 < ctx.cols[hk].len() { hc.push(ctx.cols[hk][k0]); k0 = k0 + 1i64; }
+        hd = mt_head(qany, hc, ncols);
+        hms.push_str(lw_str(&ctx.mrel[hk]));
+    }
+    let hmrel: str = lw_str(&hms);
+    let pl: MtPlan = mt_sips(root, &atoms, &conj, &hd.hv, &hd.hf, &hd.hi, nrel0, prm);
+    if !pl.ok { return; }
+    let mut inc: Vec<bool> = Vec::<bool>::new();
+    let mut z: i64 = 0i64;
+    while z < atoms.len() { inc.push(false); z = z + 1i64; }
+    let mut prefix: Vec<i64> = Vec::<i64>::new();
+    let mut t: i64 = 0i64;
+    while t < pl.order.len() {
+        let p: i64 = pl.order[t];
+        let sri: i64 = pl.sri[p];
+        if sri >= 0i64 && pl.cols[p].len() > 0i64 {
+            if ctx.refuse[sri] == MS_DEMAND() {
+                let k2: i64 = mt_get(ctx, root, sri, &pl.cols[p]);
+                let mb: i64 = mt_magic_body(qany, &atoms, &prefix, t, &inc, &conj, &pl.binds[p], hmrel, &hd.hv, &hd.hf, &hd.hi, h);
+                ctx.mbody[k2].push(mb);
+                mt_rename(qany, p, lw_str(&ctx.arel[k2]), h);
+            } else if ctx.refuse[sri] > 0i32 {
+                let srel: RQRel = root.view::<RQProgram>().rels_arr().rel_at(sri);
+                ms_note(out, srel.name, "", ctx.refuse[sri]);
+                ctx.refuse[sri] = 0i32 - ctx.refuse[sri];   // noted once
+            }
+        }
+        inc[p] = true;
+        prefix.push(p);
+        t = t + 1i64;
+    }
+}
+
+// Which rels some EVALUATED clause reads whole: the entry, the bodies of each
+// adorned copy reached, and the bodies of each rel reached whole — simulated
+// over the current verdicts, without rewriting anything.
+fn mt_free_rels(root: WAny, nrel0: i64, refuse: &Vec<i32>, prm: &MacroParams) -> Vec<bool> {
+    let mut free: Vec<bool> = Vec::<bool>::new();
+    let mut z: i64 = 0i64;
+    while z < nrel0 { free.push(false); z = z + 1i64; }
+    // pending clauses: (rel −1 = the entry, its adornment)
+    let mut qr: Vec<i64> = Vec::<i64>::new();
+    let mut qc: Vec<Vec<i64>> = Vec::<Vec<i64>>::new();
+    let mut seen: Vec<String> = Vec::<String>::new();
+    qr.push(-1i64); qc.push(Vec::<i64>::new());
+    let mut w: i64 = 0i64;
+    while w < qr.len() {
+        let ri: i64 = qr[w];
+        let mut clauses: Vec<i64> = Vec::<i64>::new();
+        let mut ncols: i64 = 0i64;
+        if ri < 0i64 { clauses.push(root.view::<RQProgram>().entry_any().raw() as i64); }
+        else {
+            let rel: RQRel = root.view::<RQProgram>().rels_arr().rel_at(ri);
+            ncols = rel.cols_arr().len();
+            let bj: RQBodyArr = rel.bodies_arr();
+            let mut b: i64 = 0i64;
+            while b < bj.len() { clauses.push(bj.body_any(b).raw() as i64); b = b + 1i64; }
+        }
+        let mut c: i64 = 0i64;
+        while c < clauses.len() {
+            let qany: WAny = unsafe { WAny::ref_to(clauses[c] as *const u8) };
+            let atoms: Vec<MtAtom> = mt_atoms(qany);
+            let conj: Vec<i64> = mt_conjuncts(qany);
+            let mut qcw: Vec<i64> = Vec::<i64>::new();
+            let mut k9: i64 = 0i64;
+            while k9 < qc[w].len() { qcw.push(qc[w][k9]); k9 = k9 + 1i64; }
+            let hd: MtHead = mt_head(qany, qcw, ncols);
+            let pl: MtPlan = mt_sips(root, &atoms, &conj, &hd.hv, &hd.hf, &hd.hi, nrel0, prm);
+            let mut p: i64 = 0i64;
+            while p < atoms.len() {
+                let sri: i64 = if pl.ok { pl.sri[p] } else { -1i64 };
+                // a traversal clause reads its rels whole
+                let mut sr2: i64 = sri;
+                if !pl.ok && !atoms[p].anti && atoms[p].src.len() > 0i64 && !str_starts_with(atoms[p].src, "__") {
+                    let f: i64 = gp_rel_find(root, atoms[p].src);
+                    if f >= 0i64 && f < nrel0 { sr2 = f; }
+                }
+                if atoms[p].anti && atoms[p].src.len() > 0i64 {
+                    let f2: i64 = gp_rel_find(root, atoms[p].src);
+                    if f2 >= 0i64 && f2 < nrel0 { sr2 = f2; }
+                }
+                if sr2 >= 0i64 {
+                    let bound: bool = pl.ok && !atoms[p].anti && pl.cols[p].len() > 0i64 && refuse[sr2] == MS_DEMAND();
+                    let mut key: String = String::new();
+                    key.push_i64(sr2);
+                    key.push_str(":");
+                    if bound {
+                        let mut k: i64 = 0i64;
+                        while k < pl.cols[p].len() { key.push_i64(pl.cols[p][k]); key.push_str(","); k = k + 1i64; }
+                    } else {
+                        key.push_str("free");
+                        free[sr2] = true;
+                    }
+                    let mut known: bool = false;
+                    let mut s2: i64 = 0i64;
+                    while s2 < seen.len() { if str_eq(lw_str(&seen[s2]), lw_str(&key)) { known = true; } s2 = s2 + 1i64; }
+                    if !known {
+                        seen.push(key);
+                        qr.push(sr2);
+                        let mut cc: Vec<i64> = Vec::<i64>::new();
+                        if bound { let mut k2: i64 = 0i64; while k2 < pl.cols[p].len() { cc.push(pl.cols[p][k2]); k2 = k2 + 1i64; } }
+                        qc.push(cc);
+                    }
+                }
+                p = p + 1i64;
+            }
+            c = c + 1i64;
+        }
+        w = w + 1i64;
+    }
+    return free;
+}
+
+// How many columns of the atom bound to `var` are bound now — for ANY atom (a
+// native source or a slice parameter binds like a rel): the head's bound
+// columns it holds, and each distinct field a conjunct equates to a value
+// known here.
+fn mt_bound_count(root: WAny, src: str, var: str, conj: &Vec<i64>, atoms: &Vec<MtAtom>, inc: &Vec<bool>,
+                  hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>, prm: &MacroParams) -> i64 {
+    let mut flds: Vec<str> = Vec::<str>::new();
+    let mut h: i64 = 0i64;
+    while h < hv.len() { if str_eq(hv[h], var) { mt_add_fld(&mut flds, hf[h]); } h = h + 1i64; }
+    let mut i: i64 = 0i64;
+    while i < conj.len() {
+        match mt_sref(conj[i]).any().view::<SExpr>() {
+            SExpr::Bin(b) => {
+                if b.op == OP_EQ() {
+                    let l: MsCol = ms_col_ref(b.lhs.any().view::<SExpr>());
+                    let r: MsCol = ms_col_ref(b.rhs.any().view::<SExpr>());
+                    if str_eq(l.var, var) && mt_bind(var, l.fld, conj, atoms, inc, hv, hf, hi, prm).kind > 0i32 { mt_add_fld(&mut flds, l.fld); }
+                    if str_eq(r.var, var) && mt_bind(var, r.fld, conj, atoms, inc, hv, hf, hi, prm).kind > 0i32 { mt_add_fld(&mut flds, r.fld); }
+                }
+            }
+            _ => { }
+        }
+        i = i + 1i64;
+    }
+    return flds.len();
+}
+
+fn mt_add_fld(flds: &mut Vec<str>, f: str) {
+    let mut i: i64 = 0i64;
+    while i < flds.len() { if str_eq(flds[i], f) { return; } i = i + 1i64; }
+    flds.push(f);
+}
+
+// The source atom `q` of a clause reads, as its node says now.
+fn mt_src_at(qany: WAny, q: i64) -> str {
+    if q == 0i64 { return mt_base_src(qany); }
+    match qany.view::<RQuery>() {
+        RQuery::Join(j) => { return j.steps_arr().step_at(q - 1i64).src_name; }
+        RQuery::Aggr(g) => { return g.steps_arr().step_at(q - 1i64).src_name; }
+        _ => { return ""; }
+    }
+}
+
+// The source the clause's base atom reads, as its node says now.
+fn mt_base_src(qany: WAny) -> str {
+    match qany.view::<RQuery>() {
+        RQuery::Simple(s) => { return s.src_name; }
+        RQuery::Join(j) => { return j.a_name; }
+        RQuery::Aggr(g) => { return g.a_name; }
+        RQuery::Find(f) => { return f.src_name; }
+    }
+}
+
+// Point atom `p` of a clause at `name`.
+fn mt_rename(qany: WAny, p: i64, name: str, h: &Writ) {
+    match qany.view::<RQuery>() {
+        RQuery::Simple(_s) => { let fs: RQSimple = rq_fat_simple(qany, h); fs.src_name = name; }
+        RQuery::Join(_j) => {
+            let fj: RQJoin = rq_fat_join(qany, h);
+            if p == 0i64 { fj.a_name = name; }
+            else { let st: RQJoinStep = rq_fat_step(fj.steps_arr().step_any(p - 1i64), h); st.src_name = name; }
+        }
+        RQuery::Aggr(_g) => {
+            let fg: RQAggr = rq_fat_aggr(qany, h);
+            if p == 0i64 { fg.a_name = name; }
+            else { let st2: RQJoinStep = rq_fat_step(fg.steps_arr().step_any(p - 1i64), h); st2.src_name = name; }
+        }
+        RQuery::Find(_f) => { let ff: RQFind = rq_fat_find(qany, h); ff.src_name = name; }
+    }
+}
+
+// A copy of a rel body (fresh query and step nodes; the expressions shared).
+fn mt_copy_body(qany: WAny, h: &Writ) -> WAny {
+    match qany.view::<RQuery>() {
+        RQuery::Simple(s) => {
+            let c: RQSimple = h.make::<RQSimple>();
+            c.src_name = s.src_name; c.var_name = s.var_name; c.has_where = s.has_where;
+            c.where_pred = s.where_pred; c.select = s.select;
+            c.sel_first = false; c.distinct = false; c.has_order = false;
+            c.has_limit = false; c.has_result_ty = false; c.has_gpath = false;
+            return c.as_ref();
+        }
+        RQuery::Join(j) => {
+            let c2: RQJoin = mt_join(h, j.a_name, j.x_var, j.select);
+            c2.has_where = j.has_where; c2.where_pred = j.where_pred;
+            let os: RQJoinStepArr = j.steps_arr();
+            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+            let mut i: i64 = 0i64;
+            while i < os.len() { sa.set_step(i, mt_copy_step(h, os.step_at(i)).as_ref()); i = i + 1i64; }
+            sa.set_len(os.len());
+            c2.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+            return c2.as_ref();
+        }
+        _ => { return qany; }
+    }
+}
+
+// Restrict an adorned body to its magic rel: `join __m_R_β __mm on
+// __mm.c<k> == <head column k's select item>` for every bound column.
+fn mt_restrict(qany: WAny, cols: &Vec<i64>, ncols: i64, mrel: str, h: &Writ) -> WAny {
+    let sel: WRef<SExpr> = ms_select(qany);
+    let mut on: WRef<SExpr> = null_sref();
+    let mut k: i64 = 0i64;
+    while k < cols.len() {
+        let c: String = mt_col_name(k);
+        on = gp_and(h, on, gp_bin(h, OP_EQ(), gp_field(h, "__mm", lw_str(&c)), WRef::<SExpr>::from_any(unsafe { WAny::ref_to(mt_item_raw(sel, cols[k], ncols) as *const u8) })));
+        k = k + 1i64;
+    }
+    let st: RQJoinStep = mt_step(h, mrel, "__mm", on);
+    match qany.view::<RQuery>() {
+        RQuery::Simple(s) => {
+            let j: RQJoin = mt_join(h, s.src_name, s.var_name, s.select);
+            j.has_where = s.has_where; j.where_pred = s.where_pred;
+            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+            sa.set_step(0i64, st.as_ref());
+            sa.set_len(1i64);
+            j.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+            return j.as_ref();
+        }
+        RQuery::Join(_j) => {
+            let fj: RQJoin = rq_fat_join(qany, h);
+            let os: RQJoinStepArr = fj.steps_arr();
+            let n: i64 = os.len();
+            let mut sa: RQJoinStepArr = h.make::<RQJoinStepArr>();
+            let mut i: i64 = 0i64;
+            while i < n { sa.set_step(i, os.step_any(i)); i = i + 1i64; }
+            sa.set_step(n, st.as_ref());
+            sa.set_len(n + 1i64);
+            fj.steps = WRef::<RQJoinStepArr>::from_any(sa.as_ref());
+            return qany;
+        }
+        _ => { return qany; }
+    }
+}
+
+// Component `ci` of a select over `ncols` columns, as a raw edge word.
+fn mt_item_raw(sel: WRef<SExpr>, ci: i64, ncols: i64) -> i64 {
+    if ncols == 1i64 { return sel.any().raw() as i64; }
+    match sel.any().view::<SExpr>() {
+        SExpr::Tuple(t) => { return t.items.any().view::<SExprArr>().arg_any(ci).raw() as i64; }
+        _ => { return sel.any().raw() as i64; }
+    }
+}
+
+/// The magic-sets transformation of the program (see the header above).
+/// Returns the number of decisions written to `out`.
+pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecisions) -> i64 {
+    let prog: RQProgram = root.view::<RQProgram>();
+    if !prog.has_rels() { return 0i64; }
+    let nrel0: i64 = prog.rels_arr().len();
+    let mut ctx: MtCtx = MtCtx { key: Vec::<String>::new(), src: Vec::<i64>::new(), cols: Vec::<Vec<i64>>::new(),
+                                 arel: Vec::<String>::new(), mrel: Vec::<String>::new(),
+                                 mbody: Vec::<Vec<i64>>::new(), refuse: Vec::<i32>::new(), created: 0i64 };
+    let mut r: i64 = 0i64;
+    while r < nrel0 { ctx.refuse.push(mt_rel_verdict(root, r)); r = r + 1i64; }
+    // A rel some evaluated clause reads whole is evaluated whole anyway: an
+    // adorned copy for its bound readers would be extra work. Narrow until no
+    // verdict changes (each change can only add whole readers).
+    loop {
+        let free: Vec<bool> = mt_free_rels(root, nrel0, &ctx.refuse, prm);
+        let mut changed: bool = false;
+        let mut r2: i64 = 0i64;
+        while r2 < nrel0 {
+            if free[r2] && ctx.refuse[r2] == MS_DEMAND() { ctx.refuse[r2] = MS_SHARED(); changed = true; }
+            r2 = r2 + 1i64;
+        }
+        if !changed { break; }
+    }
+    if ms_entry_fallible(prog.entry_any()) {
+        // a demand would restrict rows the entry's checked arithmetic reads
+        let ea: Vec<MtAtom> = mt_atoms(prog.entry_any());
+        if ea.len() > 0i64 && gp_rel_find(root, ea[0].src) >= 0i64 { ms_note(out, ea[0].src, "", MS_FALLIBLE()); }
+        return out.n;
+    }
+    mt_clause(root, prog.entry_any(), -1i64, nrel0, &mut ctx, prm, h, out);
+    // the adorned copies, as the worklist grows
+    let mut w: i64 = 0i64;
+    while w < ctx.key.len() {
+        let orig: RQRel = root.view::<RQProgram>().rels_arr().rel_at(ctx.src[w]);
+        let ncols: i64 = orig.cols_arr().len();
+        let nr: RQRel = h.make::<RQRel>();
+        nr.name = lw_str(&ctx.arel[w]);
+        nr.cols = orig.cols;
+        let ob: RQBodyArr = orig.bodies_arr();
+        let mut nb: RQBodyArr = h.make::<RQBodyArr>();
+        let mut b: i64 = 0i64;
+        while b < ob.len() {
+            let cb: WAny = mt_copy_body(ob.body_any(b), h);
+            mt_clause(root, cb, w, nrel0, &mut ctx, prm, h, out);
+            let rb: WAny = mt_restrict(cb, &ctx.cols[w], ncols, lw_str(&ctx.mrel[w]), h);
+            nb.set_body(b, rb);
+            b = b + 1i64;
+        }
+        nb.set_len(ob.len());
+        nr.bodies = WRef::<RQBodyArr>::from_any(nb.as_ref());
+        let _ok: bool = gp_rel_append(root, nr, h);
+        let mut cn: String = String::new();
+        let mut c: i64 = 0i64;
+        while c < ctx.cols[w].len() {
+            if c > 0i64 { cn.push_str(","); }
+            cn.push_str(orig.cols_arr().col_at(ctx.cols[w][c]).name);
+            c = c + 1i64;
+        }
+        let nm: RQRel = h.make::<RQRel>();   // a str home for the decision's column list
+        nm.name = lw_str(&cn);
+        ms_note(out, orig.name, nm.name, MS_DEMAND());
+        w = w + 1i64;
+    }
+    // the magic rels: one column per bound column, one body per occurrence
+    let mut m: i64 = 0i64;
+    while m < ctx.key.len() {
+        let orig2: RQRel = root.view::<RQProgram>().rels_arr().rel_at(ctx.src[m]);
+        let mr: RQRel = h.make::<RQRel>();
+        mr.name = lw_str(&ctx.mrel[m]);
+        let mut mc: RQRelColArr = h.make::<RQRelColArr>();
+        let mut k: i64 = 0i64;
+        while k < ctx.cols[m].len() {
+            let col: RQRelCol = h.make::<RQRelCol>();
+            let cnm: String = mt_col_name(k);
+            col.name = lw_str(&cnm);
+            col.ty_name = orig2.cols_arr().col_at(ctx.cols[m][k]).ty_name;
+            mc.set_col(k, col.as_ref());
+            k = k + 1i64;
+        }
+        mc.set_len(ctx.cols[m].len());
+        mr.cols = WRef::<RQRelColArr>::from_any(mc.as_ref());
+        let mut mb: RQBodyArr = h.make::<RQBodyArr>();
+        let mut q: i64 = 0i64;
+        while q < ctx.mbody[m].len() {
+            mb.set_body(q, unsafe { WAny::ref_to(ctx.mbody[m][q] as *const u8) });
+            q = q + 1i64;
+        }
+        mb.set_len(ctx.mbody[m].len());
+        mr.bodies = WRef::<RQBodyArr>::from_any(mb.as_ref());
+        let _ok2: bool = gp_rel_append(root, mr, h);
+        m = m + 1i64;
+    }
+    return out.n;
 }
 
 // ── LIVE RELS (Soufflé's RemoveRedundantRelations) ──────────────────────────
@@ -1841,98 +2169,6 @@ pub fn prog_rel_count(root: WAny) -> i64 {
 }
 pub fn prog_rel_name(root: WAny, i: i64) -> str {
     return root.view::<RQProgram>().rels_arr().rel_at(i).name;
-}
-
-/// Apply the demand rewrite: the rel the entry reads with a bound column, then
-/// every rel that demand reaches through the rel graph. Returns the number of
-/// decisions written to `out` (0 = no rel was considered).
-pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool,
-                     allow_joinkey: bool, allow_prop: bool, live: &RelSet,
-                     out: &mut MsDecisions) -> i64 {
-    let prog: RQProgram = root.view::<RQProgram>();
-    if !prog.has_rels() { return 0i64; }
-    let tg: MsTarget = ms_target(root, prm);
-    if tg.rel.len() == 0i64 { return 0i64; }
-    if tg.ssrc.len() > 0i64 && !allow_joinkey { return 0i64; }
-    let ri: i64 = gp_rel_find(root, tg.rel);
-    if ri < 0i64 { return 0i64; }
-    let ci: i64 = ms_col_index(root, ri, tg.col);
-    if ci < 0i64 { return 0i64; }
-    let rname: str = prog.rels_arr().rel_at(ri).name;
-    // the entry's own antecedents
-    if ms_reads_all(root, rname, live) != 1i64 { ms_note(out, rname, tg.col, MS_SHARED()); return out.n; }
-    if ms_entry_fallible(prog.entry_any()) { ms_note(out, rname, tg.col, MS_FALLIBLE()); return out.n; }
-    // the entry's seed
-    let seed: RQSimple = h.make::<RQSimple>();
-    seed.has_where = false;
-    if tg.ssrc.len() > 0i64 {
-        seed.src_name = tg.ssrc;
-        seed.var_name = tg.svar;
-        seed.select = gp_field(h, tg.svar, tg.sfld);
-    } else {
-        seed.select = ms_copy_const(unsafe { WAny::ref_to(tg.k as *const u8) }.view::<SExpr>(), h);
-    }
-    seed.sel_first = false; seed.distinct = false; seed.has_order = false;
-    seed.has_limit = false; seed.has_result_ty = false; seed.has_gpath = false;
-    // the worklist: (rel, column, seeds)
-    // (every seed is kept: the magic rel's bodies are exactly these, and
-    // ms_apply refuses on MS_CAP by their true count)
-    let mut wr: Vec<i64> = Vec::<i64>::new();
-    let mut wc: Vec<i64> = Vec::<i64>::new();
-    let mut ws: Vec<Vec<i64>> = Vec::<Vec<i64>>::new();
-    let mut s0: Vec<i64> = Vec::<i64>::new();
-    s0.push(seed.as_ref().raw());
-    wr.push(ri); wc.push(ci); ws.push(s0);
-    let mut nw: i64 = 1i64;
-    let mut w: i64 = 0i64;
-    while w < nw {
-        let rr: RQRel = root.view::<RQProgram>().rels_arr().rel_at(wr[w]);
-        let colname: str = rr.cols_arr().col_at(wc[w]).name;
-        let mut occs: Vec<MsOcc> = Vec::<MsOcc>::new();
-        let mut nocc: i64 = 0i64;
-        let nsd: i64 = ws[w].len();
-        let rule: i32 = ms_apply(root, h, wr[w], wc[w], &ws[w], nsd, allow_moving, &mut occs, &mut nocc);
-        ms_note(out, rr.name, colname, rule);
-        if rule == MS_DEMAND() && allow_prop {
-            // propagate to each rel S whose every occurrence here is bound alike
-            let mut i: i64 = 0i64;
-            while i < nocc {
-                let sname: str = occs[i].s;
-                let mut first: bool = true;
-                let mut j: i64 = 0i64;
-                while j < i { if str_eq(occs[j].s, sname) { first = false; } j = j + 1i64; }
-                let sri: i64 = gp_rel_find(root, sname);
-                let mut queued: bool = false;
-                let mut q: i64 = 0i64;
-                while q < nw { if wr[q] == sri { queued = true; } q = q + 1i64; }
-                if first && !queued && sri >= 0i64 {
-                    let mut cnt: i64 = 0i64;
-                    let mut bound: bool = true;
-                    let scol: str = occs[i].col;
-                    let mut ss: Vec<i64> = Vec::<i64>::new();
-                    j = i;
-                    while j < nocc {
-                        if str_eq(occs[j].s, sname) {
-                            cnt = cnt + 1i64;
-                            if occs[j].seed == 0i64 || !str_eq(occs[j].col, scol) { bound = false; }
-                            else { ss.push(occs[j].seed); }
-                        }
-                        j = j + 1i64;
-                    }
-                    let sci: i64 = if scol.len() > 0i64 { ms_col_index(root, sri, scol) } else { -1i64 };
-                    if bound && sci >= 0i64 && cnt == ms_reads_all(root, sname, live) {
-                        wr.push(sri); wc.push(sci); ws.push(ss);
-                        nw = nw + 1i64;
-                    } else {
-                        ms_note(out, sname, scol, MS_SHARED());
-                    }
-                }
-                i = i + 1i64;
-            }
-        }
-        w = w + 1i64;
-    }
-    return out.n;
 }
 
 /// Desugar every graph path in the program (rel bodies + the entry query).
