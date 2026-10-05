@@ -2782,7 +2782,8 @@ private:
             LogosTypeBuilder t;
             t.kind            = LogosType::Kind::AssocType;
             t.assoc_base      = tv;
-            t.trait_name      = std::string(trait) + trait_targ_suffix(b.type_args);
+            t.trait_name      = std::string(trait);
+            t.type_args       = b.type_args;
             if (auto* ti = resolve_trait(std::string(trait))) t.pkg_name = ti->package;
             t.assoc_type_name = "Output";
             return pool_->alloc(std::move(t));
@@ -7012,6 +7013,7 @@ private:
 
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;
+    std::vector<std::string> current_trait_tparams_;   // ... and its type parameters
     // Phase 6 (GAT projection): current impl's trait name, set during
     // collect_impl + lower_impl_block. Lets `Self::Item<X>` inside an
     // impl method body resolve through the impl's trait (the impl

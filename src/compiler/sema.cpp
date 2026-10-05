@@ -1006,6 +1006,10 @@ LogosType::TypeUID compute_type_uid(const TypePoolImpl* impl,
         put_str(buf, t.assoc_type_name);
         put_sub(buf, impl, t.assoc_base);
         for (auto a : t.gat_args) put_sub(buf, impl, a);
+        if (!t.type_args.empty()) {   // the trait's arguments
+            put_byte(buf, uint8_t(0x54));
+            for (auto a : t.type_args) put_sub(buf, impl, a);
+        }
         break;
     case K::IntLit:
         // const_val distinguishes IntLit instances — the type pool dedupes
@@ -1170,6 +1174,7 @@ bool builder_equals_typeref(const LogosTypeBuilder& t, TypeRef r) noexcept {
                t.assoc_type_name == r.assoc_type_name() &&
                t.assoc_base == r.assoc_base() &&
                vec_ptr_eq(t.gat_args, r.gat_args()) &&
+               vec_ptr_eq(t.type_args, r.type_args()) &&
                t.lifetime_args == r.lifetime_args();  // B88
     case K::CfgSlotType:
         return t.type_var_name == r.type_var_name() &&
@@ -7831,6 +7836,12 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         auto tp_name = TypeRef(base_type).type_var_name();
         if (tp_name == "Self" && !current_trait_name_.empty()) {
             trait_for_assoc = current_trait_name_;
+            // Inside `trait Tr<T>`, `Self::Item` is `<Self as Tr<T>>::Item`.
+            for (auto& tp : current_trait_tparams_) {
+                auto pit = current_type_params_.find(tp);
+                if (pit == current_type_params_.end() || !pit->second) { trait_args_for_assoc.clear(); break; }
+                trait_args_for_assoc.push_back(pit->second);
+            }
         } else {
             auto bit = current_type_bounds_.find(tp_name);
             if (bit != current_type_bounds_.end()) {
@@ -8026,16 +8037,11 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     LogosTypeBuilder t;
     t.kind            = LogosType::Kind::AssocType;
     t.assoc_base      = base_type;
-    // G156-1: bake the trait's concrete type-args into the deferred node's
-    // trait_name (e.g. "Producer$G1$i64") so a TypeVar-base projection like
-    // `P::Item` for `P: Producer<i64>` resolves to the right impl once P is
-    // substituted at mono — two `Trait<T>` impls would otherwise intern to one
-    // identical node and collapse. Empty suffix (non-generic traits) leaves
-    // trait_name bare, preserving legacy behaviour. Bare-name consumers strip
-    // the suffix via strip_trait_targ_suffix().
-    t.trait_name      = trait_for_assoc + trait_targ_suffix(trait_args_for_assoc);
-    // The trait's arguments as types (Rust's `<T as Trait<A>>::Item`): they are
-    // substituted with the base, and select the impl when it is known.
+    t.trait_name      = trait_for_assoc;
+    // The trait's arguments as types (Rust's `<T as Trait<A>>::Item`): part of
+    // the projection's identity (`P::Item` under `P: Producer<i64>` and under
+    // `P: Producer<bool>` are two types), substituted with the base, and they
+    // select the impl when it is known.
     t.type_args       = trait_args_for_assoc;
     // #438: the trait's package — the projection's identity half, so `T::Item`
     // of two same-named traits are two types (compute_type_uid hashes it).

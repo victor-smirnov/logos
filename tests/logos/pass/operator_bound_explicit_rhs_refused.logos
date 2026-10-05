@@ -1,0 +1,11 @@
+// Closed squeue operator_bound_explicit_rhs_refused (#603): a projection's trait arguments are part of its identity, so `T: Add<T, Output = T>`'s `T::Output` and the trait's `Self::Output` at Rhs = T are one type (ADR 0030 S9 row 5).
+package operator_bound_explicit_rhs_refused;
+use logos.lang.ops;
+
+fn double<T: Add<T, Output = T> + Copy>(a: T) -> T {
+    return a.add(a);
+}
+
+fn main() -> i32 {
+    return double(21);
+}

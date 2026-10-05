@@ -282,8 +282,6 @@ match_guard_if_let_refused 3 tests/soundness/open/match_guard_if_let_refused ref
 
 non_exhaustive_attr_ignored_admitted 3 tests/soundness/open/non_exhaustive_attr_ignored_admitted admits
 
-operator_bound_explicit_rhs_refused 3 tests/soundness/open/operator_bound_explicit_rhs_refused refuses
-
 partialeq_heterogeneous_refused 3 tests/soundness/open/partialeq_heterogeneous_refused refuses
 
 range_not_generic_refused 3 tests/soundness/open/range_not_generic_refused refuses
@@ -457,5 +455,5 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
-# TOTAL 139
-# SYNC-HASH 499d8a4ac0dae71834de2c2bd25b17f2
+# TOTAL 138
+# SYNC-HASH b71da67a4044fe466c3a7b05ad8031e3

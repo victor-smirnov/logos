@@ -10859,31 +10859,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (arg_exprs[i]) walk(chosen_method->param_types[i + 1], expr_type(arg_exprs[i]));
             }
             TypeRef ret_type = subst_type_sema(chosen_method->ret_type, self_subst, lt_subst_tv);
-            // G156-1: the trait method's `Self::Item` was resolved bare at the
-            // trait declaration; stamp the BOUND's concrete trait type-args onto
-            // the substituted return projection so it matches both the args-
-            // suffixed assoc-type impl (two `Trait<T>` impls for one type) and
-            // the caller's declared `-> P::Item` (resolved via the same bound).
-            if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::AssocType) {
-                if (auto bitr = current_type_bounds_.find(recv_bound_key);
-                    bitr != current_type_bounds_.end()) {
-                    for (auto& b : bitr->second) {
-                        if (b.trait_name != chosen_trait || b.type_args.empty()) continue;
-                        std::string want_tn = chosen_trait + trait_targ_suffix(b.type_args);
-                        if (std::string(TypeRef(ret_type).trait_name()) != want_tn) {
-                            LogosTypeBuilder rt;
-                            rt.kind            = LogosType::Kind::AssocType;
-                            rt.assoc_base      = TypeRef(ret_type).assoc_base();
-                            rt.trait_name      = want_tn;
-                            rt.pkg_name        = std::string(TypeRef(ret_type).pkg_name());   // #438
-                            rt.assoc_type_name = std::string(TypeRef(ret_type).assoc_type_name());
-                            for (auto g : TypeRef(ret_type).gat_args()) rt.gat_args.push_back(g);
-                            ret_type = pool_->alloc(std::move(rt));
-                        }
-                        break;
-                    }
-                }
-            }
 
             // T9-tr-02: auto-ref the receiver if the impl method expects
             // `&self` / `&mut self`. For TypeVar receivers, recv is just the
@@ -18773,32 +18748,15 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     SemaSubst self_subst;
                     self_subst["Self"] = current_type_params_.count(cname_str)
                         ? current_type_params_[cname_str] : make_typevar(cname_str);
-                    TypeRef ret_t = subst_type_sema(m.ret_type, self_subst);
-                    // G156-1 symmetry (ADR 0021): the trait method's declared
-                    // `Self::H` was collected with a BARE trait_name, while the
-                    // caller's return annotation `C::H` (resolved through the
-                    // bound `C: Fam<S>`) bakes the trait's type-args into
-                    // trait_name — the two spellings then intern differently
-                    // and `return C::mk(s);` fails "C::H != C::H". Rebake the
-                    // suffix from the SAME bound here (the mirror of the
-                    // method-call path's want_tn fixup).
-                    if (ret_t && TypeRef(ret_t).kind() == LogosType::Kind::AssocType) {
-                        for (auto& b : bit->second) {
-                            if (b.trait_name != tn || b.type_args.empty()) continue;
-                            std::string want_tn = tn + trait_targ_suffix(b.type_args);
-                            if (std::string(TypeRef(ret_t).trait_name()) != want_tn) {
-                                LogosTypeBuilder rb;
-                                rb.kind            = LogosType::Kind::AssocType;
-                                rb.assoc_base      = TypeRef(ret_t).assoc_base();
-                                rb.trait_name      = want_tn;
-                                rb.pkg_name        = std::string(TypeRef(ret_t).pkg_name());   // #438
-                                rb.assoc_type_name = std::string(TypeRef(ret_t).assoc_type_name());
-                                for (auto g : TypeRef(ret_t).gat_args()) rb.gat_args.push_back(g);
-                                ret_t = pool_->alloc(std::move(rb));
-                            }
-                            break;
-                        }
+                    // The trait's parameters are the bound's arguments (`C: Fam<S>`):
+                    // `Self::H` declared in the trait is `<C as Fam<S>>::H` here.
+                    for (auto& b : bit->second) {
+                        if (b.trait_name != tn) continue;
+                        for (size_t ti = 0; ti < tit->type_params.size() && ti < b.type_args.size(); ++ti)
+                            if (b.type_args[ti]) self_subst[tit->type_params[ti].name] = b.type_args[ti];
+                        break;
                     }
+                    TypeRef ret_t = subst_type_sema(m.ret_type, self_subst);
                     const SemaFuncInfo* mfi = nullptr;
                     {
                         auto cands = find_func_candidates(cname_str + "__" + mname_str);

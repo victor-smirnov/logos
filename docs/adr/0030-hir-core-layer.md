@@ -601,9 +601,16 @@ three value paths and the length / const-argument folding, and mono folds
 L-IR carries an impl's associated types and constants from the impl's own
 record (a blanket impl's constants now too). `assoc_type_impls_` is deleted
 (a duplicate associated type is E0201 within the impl; the default fill reads
-the impl's items). LEFT for row 5: inherent associated constants keyed by the
-target's spelling (inherent impls are not C-OBL facts), mono's GAT parameters
-(its L-IR assoc entries carry none).
+the impl's items). A projection's identity is (trait identity, trait arguments as types, base,
+name, item arguments): the `$G<n>$…` suffix baked into its trait name is gone,
+with the two call-site fixups that re-baked it from a bound. Inside
+`trait Tr<T>`, `Self::Item` is `<Self as Tr<T>>::Item`, so a method's declared
+`Self::Item` substituted at a bound `P: Tr<A>` is `<P as Tr<A>>::Item` — the
+caller's `P::Item` — by substitution alone; this closed squeue #603
+(`T: Add<T, Output = T>`, rustc accepts). LEFT for row 5: inherent associated
+constants keyed by the target's spelling (inherent impls are not C-OBL facts),
+mono's GAT parameters (its L-IR assoc entries carry none); the `$G` trait-
+argument suffix remains in symbol names (row 8's mangler).
 
 ## S0–S7 gap audit (2026-10-01)
 

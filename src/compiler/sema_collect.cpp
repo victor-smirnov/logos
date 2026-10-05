@@ -2988,6 +2988,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
             // avoid polluting scope for subsequent trait collections.
             current_type_params_.erase("Self");
             current_trait_name_.clear();
+            current_trait_tparams_.clear();
             return;
         }
     }
@@ -2998,6 +2999,8 @@ void SemaChecker::collect_trait(TinyMapView node) {
     }
     // Read trait type params (e.g. trait Into<T>)
     info.type_params = read_type_params(node);
+    current_trait_tparams_.clear();
+    for (auto& tp : info.type_params) current_trait_tparams_.push_back(tp.name);
     info.lifetime_params = read_lifetime_params(node);  // E0262/E0263 live here too
     push_type_params(info.type_params);
     // Read supertraits: trait Foo: Bar + Baz<T> { ... } → SUPERS: { ITEMS: [TRAIT_BOUND(...), ...] }
@@ -3280,6 +3283,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
     pop_type_params(info.type_params);
     current_type_params_.erase("Self");
     current_trait_name_.clear();
+    current_trait_tparams_.clear();
 
     // #438: the registry holds one entry per trait IDENTITY. Two packages'
     // same-named traits are two entries; a second declaration of the SAME
