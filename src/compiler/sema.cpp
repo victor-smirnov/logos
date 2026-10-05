@@ -1963,6 +1963,8 @@ std::string SemaChecker::canonical_func_type_name(TypeRef t) const {
     return mangle_type_for_name(t);
 }
 
+std::string type_symbol_code(TypeRef t) { return mangle_type_for_name(t); }
+
 std::string SemaChecker::function_signature_key(std::string_view base_name,
                                                 const std::vector<TypeRef>& param_types,
                                                 bool is_vararg) const {

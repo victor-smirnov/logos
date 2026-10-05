@@ -673,6 +673,12 @@ ROW. Seen while writing the fixtures and left to row (9): `*x == *y` on `dyn
 Shape` with a user `PartialEq` compares addresses (interaction cluster
 `dyn-eq-operator-builtin`).
 
+Row (8), step A: one type encoder (`type_symbol_code`, sema's former
+`mangle_type_for_name`): mono's `mangle_type` delegates to it, so a type is
+spelled one way in every symbol — mono used to spell a borrowed slice as its
+`type_str` (`__&[u8]`), an integer const argument as `cN_`, a symbolic array
+length as `arr0`, and kept regions; 893 stdlib symbols change — ABI 0.57.0.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

@@ -954,6 +954,10 @@ std::vector<std::string> collect_fn_names_for_dump(writ::MemHolder* holder,
 // Concrete struct name: plain structs → struct_name; generic insts → "Pair__i32__bool".
 // Used by mono and mlir_gen to look up instantiated struct definitions.
 std::string concrete_struct_name(TypeRef t);
+// ADR 0030 S9 row 8: THE type encoder — a type's spelling inside a link symbol
+// (a generic instance's arguments, a function signature's parameters). Sema and
+// mono both spell through it; nothing else composes a type into a symbol.
+std::string type_symbol_code(TypeRef t);
 
 // Raw variant that takes the struct base name + concrete type args directly.
 // Used at a few call sites that would otherwise need to synthesise a stack
