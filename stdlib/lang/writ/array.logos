@@ -182,6 +182,8 @@ pub unsafe fn warray_set(a: *mut WArray<WAny>, i: i64, v: WAny) {
 }
 /// The element count.
 pub unsafe fn warray_len(a: *const WArray<WAny>) -> i64 { return array_len(a); }
+/// Element `i` (< len), no tag check — for a list field whose writer is known.
+pub unsafe fn array_get_unchecked(a: *const WArray<WAny>, i: i64) -> WAny { return array_get(a, i); }
 
 // ── Direct-reference surface (NO handle/view wrapper) ──────────────────────────
 //

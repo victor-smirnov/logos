@@ -13017,6 +13017,7 @@ sym	logos_lang.logos.lang.writ.allocator$allocator_new__f__i64
 sym	logos_lang.logos.lang.writ.allocator$allocator_owns__f__pcst_Allocator__pcst_u8
 sym	logos_lang.logos.lang.writ.anyval$fits_i56__f__i64
 sym	logos_lang.logos.lang.writ.anyval$w_type_code__f__pcst_u8
+sym	logos_lang.logos.lang.writ.array$array_get_unchecked__f__pcst_WArray$G1$WAny__i64
 sym	logos_lang.logos.lang.writ.array$warray_len__f__pcst_WArray$G1$WAny
 sym	logos_lang.logos.lang.writ.array$warray_new_in__f__pmut_u8__i64
 sym	logos_lang.logos.lang.writ.array$warray_push_in__f__pmut_WArray$G1$WAny__pmut_u8__WAny

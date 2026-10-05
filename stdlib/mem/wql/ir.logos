@@ -78,7 +78,10 @@ impl<S> WritField for WRef<S> {
 // (WSchemaH.z): it creates the array on the first write, replaces an item below
 // the length and appends at it; a gap is a defect, so it panics.
 pub fn list_get(items: WAny, i: i64) -> WAny {
-    return items.as_array().get(i);
+    // Unchecked on purpose: a list field is written only by `list_set` and the
+    // generated parsers, and this read is on every step / argument / rel
+    // access of the compile (`as_array` re-checks the tag each time).
+    return unsafe { array_get_unchecked(items.resolve() as *const WArray<WAny>, i) };
 }
 
 pub fn list_set(items: WAny, z: *mut u8, i: i64, v: WAny) -> WAny {
