@@ -2037,6 +2037,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
     auto inner_ref = v.inner();
     if (!inner_ref) return nullptr;
     TypeRef inner_t = inner_ref.type(pool_impl());
+    // `&u` for a unit value: a unit has no storage and is never read through a
+    // reference (`impl Tr for ()` takes `&self`); the operand is evaluated for
+    // its effects and any valid address will do.
+    if (inner_t && TypeRef(inner_t).kind() == LogosType::Kind::Void) {
+        (void)gen_expr(inner_ref);
+        return create_entry_alloca(builder_.getI8Type());
+    }
 
     // #92 CONST PROMOTION. Must run BEFORE every place-address special case
     // below: none of them apply to a literal, and the tail they all fall
@@ -3376,7 +3383,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
               k == K::MutRef || k == K::Ptr ||
               k == K::TypeVar || k == K::AssocType || k == K::Error ||
               k == K::ImplTrait || k == K::ConstVar || k == K::CfgSlotType ||
-              k == K::Never || k == K::Void);
+              k == K::Never);
         // A reference whose referent is not a nominal type `gen_recv_struct` can
         // name (`&&Foo` for `impl Tr for &Foo { fn m(&self) }`, `&i32`,
         // `&(A, B)`, `&[T; N]`, `&Option<T>`, `&fn(A) -> R`): the receiver sema
@@ -3385,7 +3392,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             auto pk2 = TypeRef(recv_t.pointee()).kind();
             if (pk2 == K::Ref || pk2 == K::MutRef || pk2 == K::Ptr || is_primitive_scalar_kind(pk2) ||
                 pk2 == K::Tuple || pk2 == K::Array || pk2 == K::Slice || pk2 == K::UnsizedSlice ||
-                pk2 == K::Enum || pk2 == K::FnPtr)
+                pk2 == K::Enum || pk2 == K::FnPtr || pk2 == K::Void)
                 primitive_recv = true;
         }
         // A `str` receiver is `[u8]` — NOT a struct, so `gen_recv_struct`
@@ -3400,6 +3407,24 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             auto parent_mod = builder_.getBlock()->getParent()
                               ->getParentOfType<mlir::ModuleOp>();
             auto callee_fn = find_func_op(parent_mod, resolved_symbol);
+            if (callee_fn && k == K::Void) {
+                // `impl Tr for ()`: the unit receiver has no value. It is
+                // evaluated for its effects; a `&self` gets a dummy slot (a unit
+                // is never read), and a callee taking no self argument gets none.
+                (void)gen_expr(recv_ref);
+                auto fnty = callee_fn.getFunctionType();
+                const size_t want = fnty.getNumInputs();
+                llvm::SmallVector<mlir::Value> all_args;
+                if (want == arg_les.size() + 1)
+                    all_args.push_back(create_entry_alloca(builder_.getI8Type()));
+                for (auto& le : arg_les) {
+                    auto av = gen_expr(le);
+                    if (!av) return nullptr;
+                    all_args.push_back(av);
+                }
+                auto call = builder_.create<mlir::func::CallOp>(loc_, callee_fn, all_args);
+                return call.getNumResults() > 0 ? call.getResult(0) : nullptr;
+            }
             if (callee_fn) {
                 auto recv_val = gen_expr(recv_ref);
                 if (!recv_val) return nullptr;

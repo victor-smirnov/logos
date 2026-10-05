@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "obligation.hpp"
 #include <logos/compiler/mono.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_mirror.hpp>
@@ -13,8 +14,6 @@
 
 #include "layout_law.hpp"
 #include "mangled_name.hpp"
-#include "trait_engine.hpp"
-#include "trait_rules.hpp"
 
 #include <cstdlib>
 #include <format>
@@ -501,24 +500,6 @@ private:
     // reached out_.traits) is still reachable.
     std::vector<std::string> bare_trait_identities_(const std::string& bare);
 
-    // Sprint 5: side-by-side trait_engine driving the same queries as
-    // mono_has_impl_recursive. Populated lazily from concrete_impls_ +
-    // blanket_impls_ on first use; cleared & repopulated when those
-    // tables change (drain_method_worklist etc.). Once parity is
-    // validated, mono_has_impl_recursive collapses into a thin wrapper.
-    trait_engine::TraitEngine trait_engine_;
-    bool                      trait_engine_dirty_ = true;
-
-    // ADR 0028 S2 (#421): the same facts as trait_engine_, answered by
-    // dl/rules/traits.dl. Built only under LOGOS_DL_SHADOW=traits, where every
-    // query is asked of both and a disagreement is logged; mono still acts on
-    // trait_engine_'s answer until the switch (S3, #422).
-    std::unique_ptr<TraitRules> trait_rules_;
-    bool engine_satisfies_(const std::string& trait, const std::string& type_name);
-
-    // Populate trait_engine_ from concrete_impls_ + blanket_impls_.
-    // Cheap: a few hundred entries even for medium codebases.
-    void populate_trait_engine_();
     // Name → TypeRef for the auto-trait shape predicates (see .cpp).
     TypeRef mono_typeref_by_name_(const std::string& n);
 
@@ -1223,9 +1204,6 @@ private:
         }
     };
 
-    bool mono_has_impl_recursive(const TraitQuery& q,
-                                 const std::string& concrete_name,
-                                 StrSet& seen);
 
     // Structure-aware `$ref_`/`$mut_ref_` impl key for a reference target
     // (`impl Trait for &T`). "" for non-ref types. See definition.
@@ -1269,12 +1247,6 @@ private:
                                            int64_t arity, const std::vector<TypeRef>* trait_args,
                                            const std::vector<TypeRef>* method_args,
                                            const std::vector<TypeRef>* param_arg_types = nullptr);
-    // ADR 0030 S8 row 6: the associated type `name` of the impl of `trait` for
-    // the concrete `self` — the impl chosen as for a method (a nominal target,
-    // a pattern unified with Self, else a blanket whose bounds Self meets) and
-    // its declared binding instantiated. Null when none or more than one answer.
-    TypeRef trait_item_assoc_type_(std::string_view trait, TypeRef self, std::string_view name,
-                                   std::string_view targ_suffix = {});
     // The trait arguments of an impl in the `$G<n>$<arg>…` encoding sema bakes
     // into a projection's trait name (SemaChecker::trait_targ_suffix — byte-
     // identical): two `Tr<A>` / `Tr<B>` impls for one type are told apart by it.
@@ -1313,9 +1285,21 @@ private:
     bool mono_concrete_satisfies_bound(const TraitQuery& q,
                                        TypeRef concrete,
                                        StrSet& seen);
-    bool mono_concrete_satisfies_bound_direct_(const TraitQuery& q,
-                                               TypeRef concrete,
-                                               StrSet& seen);
+    // ADR 0030 S9 rows 3-4: the C-OBL table built from out_.impls and the
+    // environment mono answers; asked beside mono_concrete_satisfies_bound
+    // (LOGOS_S9_SHADOW) until it replaces it.
+    obl::ImplTable obl_table_;
+    size_t         obl_table_n_ = SIZE_MAX;
+    std::optional<obl::Env> obl_env_cache_;
+    std::unordered_map<std::string, bool> obl_memo_;   // (trait, type) → holds; cleared with the table
+    const obl::ImplTable& obl_table_now_();
+    const obl::Env& obl_env_();
+    // ADR 0030 S9 row 4: the impls (indices into out_.impls) C-OBL selects for
+    // `self: trait<trait_args>` — the trait-item resolvers pick a method among them.
+    std::unordered_set<uint32_t> impl_candidates_(std::string_view trait, TypeRef self,
+                                                  const std::vector<TypeRef>* trait_args);
+    TypeRef project_assoc_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args,
+                           std::string_view name);
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     DeclBuilder clone_struct_def(lir_view::StructView tmpl,

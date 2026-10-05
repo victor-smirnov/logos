@@ -492,6 +492,84 @@ impl generics (`impl<'a, T> FnLike<&'a T> for Identity` gave `Identity<T>`):
 the impl's parameters are a struct's arguments only when it has type
 parameters.
 
+Rows (3)-(4), step B: check_type_bounds asks C-OBL. The satisfaction half is
+deleted (−650 lines: the direct / generic-hit / blanket loop / generic-struct /
+slice / array / `&T` / tuple / fn-pointer / trait-object / `$ref_` arms and
+their spelled keys); what stays is the lifetime half (`'static` / caller env),
+the HRTB region check on the SELECTED impl (`region_ok`, verbatim), the
+factory-marker deferral, and the diagnostics in the bound's own words (`&T`
+subject, auto-trait offender, closure family, call shape — the same texts). The
+closure-family error no longer fires in a quiet probe (inventory §7.20). The
+table rebuilds on an impl-registry generation counter, the environment is built
+once (the solver costs 85 selects / 0.1 ms on a deem compile).
+Two more silent drops surfaced on the way and are closed: a `()` receiver
+(`impl Tr for ()`; `&()` as an argument and as a `&self` receiver) lowered to
+nothing in mlir — `trait_4`'s `u.uu()` check and `fmt_session3_structs`' two
+`()` formatting checks were never compiled; and `let _ = <expr>` whose
+expression lowers to nothing is now an internal error like a named `let`.
+
+Rows (3)-(4), step C: an impl's Self is on the L-IR (`impl_keys::SELF_TYPE`,
+from collect's fact by the impl's node) and mono builds the same C-OBL table
+from `out_.impls`; `mono_concrete_satisfies_bound` — every mono gate's engine —
+asks it (memoized per table) and its old body is deleted (−245 lines). Shadow
+over the pass corpus before the switch: every disagreement was the deleted
+engine's — `logos.lang.str::Bytes: Iterator` refused although the impl exists
+(so its adapter instances were never made: ~200 symbols enter the archive), a
+raw pointer's `Eq` refused (S8's `impl<T> Eq for *mut T`), a user `String`
+accepted by the stdlib `String`'s `Clone` (homonym), `&[u8]: Clone` refused.
+Clone has no builtin rule (it carries a method a builtin cannot supply); Rust's
+`impl<T: ?Sized> Clone for &T` is in stdlib now, so `p.clone()` with
+`p: &Plain` and `Plain: !Clone` clones the reference, as rustc (E0308 "expected
+Plain, found &Plain"). Array `Clone` is not covered yet (no stdlib impl).
+Squeue #709 (`[T; N]: Copy`) and #728 (a concrete tuple impl under a turbofish
+bound) closed by the solver; fixtures `array_copy_by_element`,
+`concrete_tuple_impl_bound`.
+
+Rows (3)-(4), step D: the sema callers of `sema_has_impl_recursive` that hold
+a type ask C-OBL through `implements_(trait, Self)` — the default-method
+where-gate, `rel` column `Hash` (resolved in the declaring trait's package),
+CoerceUnsized, `?`'s `Try` (any type now, not only nominal ones), `?` into
+`Box<dyn E>`, `ref_arg_satisfies_dyn`, the producer traits; `check_supertrait_impls`
+asks it with the impl's own bounds as the parameter environment (a generic
+impl's bounds now count, as rustc's E0277). The string API remains for
+`assoc_eqs_satisfied` / `viable_blanket_impls` (row 5) and itself. A trait
+argument still mentioning a type variable is not decided by the solver (the
+instantiation fixes it). Exposed by the `if` internal error and closed: a
+GENERIC fn used as a value (`g(f)` with `fn f<T>`) named the uninstantiated
+template and the call vanished; it is now an instantiation whose type
+arguments are inference variables, solved by unifying its signature with the
+`F: Fn(A…) -> R` bound it meets (fixture `s9_generic_fn_value_from_bound`,
+imported `autobind-g2`).
+The bare-name impl probes ask C-OBL too: `Drop` / `StableLayout` /
+`SelfDescribing` / `Index` / `IndexMut` by the lang item's identity
+(`implements_lang_`), the op-assign traits, `Tr::make()` against the expected
+type and the integer-literal trait selection with the type (`implements_`) —
+`has_impl()` is handed no bare trait name any more (key-identity ARGSCAN row
+retired), and a user struct sharing a stdlib name no longer inherits the
+homonym's `StableLayout` verdict (#88's bare-target key). Left with row 5: the
+three assoc-const trait scans and the two projection fallbacks keyed by
+spelled assoc keys.
+Mono's TraitEngine is deleted with its Datalog shadow (`trait_engine.cpp`,
+`trait_rules.cpp`, `dl/rules/traits.dl`, its unit test and dl case): the
+`has_trait` / `has_trait_of` intrinsics ask C-OBL with the type, and the
+eager blanket pass no longer answers a candidate it cannot build a type for.
+The trait-item resolvers pick among the impls C-OBL selects
+(`obl::candidates` → `impl_candidates_`): `trait_item_symbol_`,
+`shape_trait_item_symbol_` and `blanket_trait_item_symbol_` keep only the
+binding and naming of the method's instance; their own matching (trait
+spelling, trait-argument comparison, the blanket's bound checks, the nominal
+enum / `str` passes) is deleted. The solver gained what the resolvers knew: a
+`&[E]` takes a `&T` pattern at T = `[E]` (Rust's `impl<T: ?Sized> Tr for &T`;
+`&[u8]: Clone` now holds through stdlib's `&T` impl), an impl that writes no
+trait arguments takes the trait's defaults, mono's instance names
+(`RangeOfIncl$G1$i64`) are the declared nominal, and a primitive is its kind
+across pools. Logos's `impl Tr for str` is two facts — Rust's, about `str`
+(`[u8]`), through which `&T` reaches `&str`, and Logos's own about the `&str`
+value (`&[u8]`) — both answering last, after any pattern (`[E]`, `&T`) that
+takes the same Self (Copy / Clone: the `&[u8]` fact only). The `&[u8]` value's
+`Hash` is now `impl Hash for str`'s (it was the `[T]` impl's): an ABI break,
+0.55.0.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

@@ -2631,7 +2631,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     constexpr uint64_t ASSOC_ENTRY_SCHEMA = lir_schema::stmt::Count + 15;
     constexpr uint64_t EXTRA_EQ_SCHEMA    = lir_schema::stmt::Count + 16;
 
-    DeclBuilder ib(prog, lir_schema::decl::Code::Impl, /*cap=*/16);
+    DeclBuilder ib(prog, lir_schema::decl::Code::Impl, /*cap=*/24);
     bool    impl_is_blanket = false;
     std::string impl_bound_trait;
     TypeRef impl_target_typeref = target_resolved;
@@ -2702,6 +2702,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // GENERIC_INST + non-empty impl_tps populates target_resolved on
     // this path; mono falls back to positional binding when null).
     ib.type(ik::TARGET_TYPEREF, target_resolved ? target_resolved : ptr_target_pattern);
+    if (auto sit = impl_self_by_node_.find(node_key_(node)); sit != impl_self_by_node_.end() && sit->second)
+        ib.type(ik::SELF_TYPE, sit->second);
     if (!impl_tps.empty()) {
         auto a = ib.array(ik::IMPL_TYPE_PARAMS);
         for (auto& tp : impl_tps) a.push_fn_tparam(tp);
@@ -3338,10 +3340,11 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto mangled = lower_target + "__" + m.name;
                 // `where Self: Sized` (Ord::max) does not exist for an unsized
                 // implementor (`impl Ord for str`) — Rust never instantiates it.
-                // `impl … for str` has Self = `[u8]` (collect_impl's Self for it),
-                // which no target typeref records: a `Self: Sized` default is not
-                // synthesised for it, as collect does not register one.
-                const bool dm_unsized_self = target == "str" || (impl_target_typeref &&
+                // `impl … for str` has Self = `[u8]` as collect saw it, which no
+                // target typeref records: a `Self: Sized` default is not
+                // synthesised for it, as collect registers none.
+                const bool dm_unsized_self = impl_unsized_self_.count(node_key_(node)) ||
+                    (impl_target_typeref &&
                     (TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedSlice ||
                      TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedDyn ||
                      TypeRef(impl_target_typeref).kind() == LogosType::Kind::TraitObject));
@@ -3400,9 +3403,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             // Not fully concrete (any nested TypeVar/Error):
                             // defer to mono.
                             if (mentions_tv(cv)) continue;
-                            std::string cstr = type_str_regions_erased(concrete);
-                            logos::compiler::StrSet seen;
-                            if (!sema_has_impl_recursive(wb.trait_name, cstr, /*alt=*/"", seen)) {
+                            if (!implements_(wb.trait_name, concrete)) {
                                 gate_skip = true;
                                 break;
                             }

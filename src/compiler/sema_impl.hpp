@@ -12,6 +12,13 @@
 #pragma once
 
 #include "obligation.hpp"
+
+namespace logos::compiler {
+// KEY-IDENTITY: `Self` is a TYPE-PARAMETER name, scoped to the signature being
+// lowered — the same namespace normalize_assoc_eq documents. Named once so no
+// site adds a bare entity-name call argument (key-identity lint, FACT 5).
+inline constexpr char kSelfTypeParamName[] = "Self";
+}  // namespace logos::compiler
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_builder.hpp>
 #include <logos/compiler/lir_view.hpp>
@@ -6335,7 +6342,11 @@ private:
         // generics; a bare generic for a blanket impl), set for EVERY impl —
         // `target_typeref` is null for a plain nominal target.
         TypeRef self_type = nullptr;
+        // ADR 0030 S9 row 5: the impl's associated types (`type Item = T;`, or
+        // the trait's default), over its generics — the C-OBL fact's items.
+        std::vector<std::pair<std::string, TypeRef>> assoc_types;
     };
+    std::vector<std::pair<std::string, TypeRef>> collecting_assoc_types_;   // collect_impl's
 
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
@@ -6902,26 +6913,55 @@ private:
         return it == impls_.end() ? nullptr : &it->second;
     }
     ImplMap<SemaImplInfo>                     impls_;
-    // ADR 0030 S9 rows 3-4 (SHADOW): the C-OBL impl table built from impls_all_,
-    // asked beside check_type_bounds; a disagreement is logged (LOGOS_S9_SHADOW).
+    // ADR 0030 S9 rows 3-4: the C-OBL impl table built from impls_all_ (the
+    // impl behind each fact in obl_infos_) and the environment sema answers.
     obl::ImplTable obl_table_;
-    size_t         obl_table_impls_ = SIZE_MAX;
+    std::vector<const SemaImplInfo*> obl_infos_;   // by ImplFact::source
+    uint64_t       impls_gen_ = 0;            // bumped wherever impls_all_ changes
+    uint64_t       obl_table_gen_ = UINT64_MAX;
+    std::optional<obl::Env> obl_env_cache_;
+    size_t         obl_env_langs_ = SIZE_MAX;
     size_t         obl_no_self_ = 0;
+    std::optional<SemaImplInfo> obl_pending_impl_;   // the impl collect_impl is checking
     const obl::ImplTable& obl_table_now_();
-    obl::Env obl_env_();
+    const obl::Env& obl_env_();
+    void obl_str_facts_(obl::ImplFact f);
+    // `<self as trait<args>>::name` by C-OBL; null when no impl answers.
+    TypeRef project_assoc_(std::string_view trait_id, TypeRef self, const std::vector<TypeRef>& args,
+                           std::string_view name) {
+        auto r = obl::project(obl_table_now_(), obl_env_(), trait_id, self, args, name);
+        return r ? *r : TypeRef{};
+    }
+    // `self: trait<args>` by C-OBL, the trait named as written in this scope.
+    bool implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args = {});
+    // The same for a lang item (`#[lang = "index_mut"]`), by its identity.
+    bool implements_lang_(std::string_view lang, TypeRef self) {
+        const LangItem* li = lang_item(lang);
+        if (!li || !self) return false;
+        return obl::select(obl_table_now_(), obl_env_(), li->package.empty() ? li->name : li->package + "::" + li->name,
+                           self, {}).holds();
+    }
     std::string bound_identity_(const TraitBound& b) const {
         if (b.trait_def) return defs_.path(b.trait_def);
         if (!b.identity_trait.empty()) return b.identity_trait;
         return b.canonical_trait.empty() ? b.trait_name : b.canonical_trait;
     }
-    void s9_shadow_(const TraitBound& b, TypeRef concrete, std::string_view ctx, size_t diags_before,
-                    bool probe_ok_before, const logos::compiler::StrMap<TypeRef>& call_subst);
     // ADR 0030 S9 row 1: the symbol collect gave each declaration, by the
     // declaration's identity (its AST node and the owner it was collected
     // under, with the impl's trait arguments — a trait default is one node
     // collected once per impl). lower_fn
     // reads it; nothing re-searches the candidates by name.
     logos::compiler::StrMap<std::string> decl_symbols_;
+    // ADR 0030 S9 row 3: each impl's Self (its C-OBL fact), by the impl's node,
+    // for lower_impl_block to put on the L-IR.
+    logos::compiler::StrMap<TypeRef> impl_self_by_node_;
+    // The impls (by node) whose Self is unsized as collect saw it (`impl … for
+    // str` is Self = `[u8]`): lowering synthesizes no `Self: Sized` default for
+    // them, as collect registers none.
+    logos::compiler::StrSet impl_unsized_self_;
+    std::string node_key_(sema_detail::TinyMapView node) const {
+        return std::format("{}:{}", reinterpret_cast<uintptr_t>(holder_), node.offset().value());
+    }
     std::string decl_key_(sema_detail::TinyMapView node, std::string_view struct_ctx,
                           const std::vector<TypeRef>& trait_args) const {
         return std::format("{}:{}:{}{}", reinterpret_cast<uintptr_t>(holder_), node.offset().value(), struct_ctx,
@@ -9933,9 +9973,19 @@ private:
     // Checked in the FINAL pass, never at collect time: `trait S { rel r(c: T) }`
     // and `impl Hash for T` may appear in any order, and an order-dependent
     // diagnostic is worse than none.
-    bool rel_col_type_hashable(const std::string& ty) {
-        logos::compiler::StrSet seen;
-        return sema_has_impl_recursive("Hash", ty, {}, seen);
+    // `ty` is resolved where it was written: the declaring trait's package
+    // (empty = the current one).
+    bool rel_col_type_hashable(const std::string& ty, const std::string& pkg = {}) {
+        const std::string saved_pkg = cur_package_;
+        if (!pkg.empty()) cur_package_ = pkg;
+        TypeRef t = lookup_type_by_name(ty);
+        if (!t) {
+            if (auto [dp, di] = find_datatype_by_name(ty); di) t = make_datatype_type(ty, dp);
+            else if (auto [sp, si] = find_struct_by_name(ty); si) t = make_struct_type(ty, sp);
+            else if (auto [ep, ei] = find_enum_by_name(ty); ei) t = make_enum_type(ty, ep);
+        }
+        cur_package_ = saved_pkg;
+        return t && implements_("Hash", t);
     }
     void check_rel_column_types();
     // ADR 0024 S6 — ONE declared access operation of a source.
@@ -11385,6 +11435,8 @@ public:
     StrMap<SemaChecker::SemaFuncInfo>     generic_funcs;
     StrMap<std::vector<std::string>>       generic_overloads;
     StrMap<std::string>                    decl_symbols;   // ADR 0030 S9 row 1
+    StrMap<TypeRef>                        impl_self_by_node;   // ADR 0030 S9 row 3
+    StrSet                                 impl_unsized_self;
     StrMap<SemaChecker::TypeAliasEntry>   type_aliases;
     StrMap<TypeRef>                        module_consts;
     StrMap<writ::TinyMapView>            module_const_values;

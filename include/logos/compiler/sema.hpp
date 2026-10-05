@@ -1036,6 +1036,8 @@ void ambiguous_set_accumulate(std::unordered_map<std::string, std::string>& firs
 // item? A package-less TypeRef matches on the name alone.
 const lir_view::ObjectMapRef* set_lang_items(const lir_view::ObjectMapRef* m);
 bool type_is_lang_item(TypeRef t, std::string_view lang);
+// The `pkg::Name` the active lang-item table binds `lang` to, or empty.
+std::string_view lang_item_identity(std::string_view lang);
 // The same, for a TypeRef that carries its package (a package-less one is not).
 inline bool type_is_lang_item_exact(TypeRef t, std::string_view lang) {
     return t && !t.pkg_name().empty() && type_is_lang_item(t, lang);

@@ -1,1 +1,1 @@
-error [fn h_quote_go]: method call: 'Plain' has no method 'clone'
+error [fn h_quote_go]: let 'q': type mismatch — expected Plain, got &Plain

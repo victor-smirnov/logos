@@ -15,10 +15,6 @@
 #include "sema_impl.hpp"
 #include "mono_impl.hpp"        // Mono::enum_instance_name — THE ONE composer
 
-// KEY-IDENTITY: `Self` is a TYPE-PARAMETER name, scoped to the signature being
-// lowered — the same namespace normalize_assoc_eq documents. Named here so the
-// trait-default-body probe adds no new bare entity-name call argument.
-static const char kSelfTypeParamName[] = "Self";
 #include "ctfe.hpp"
 
 #include <logos/compiler/lir_mirror.hpp>
@@ -600,6 +596,8 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->generic_funcs        = std::move(generic_funcs_);
     s->generic_overloads    = std::move(generic_overloads_);
     s->decl_symbols         = std::move(decl_symbols_);
+    s->impl_self_by_node    = std::move(impl_self_by_node_);
+    s->impl_unsized_self    = std::move(impl_unsized_self_);
     s->type_aliases         = std::move(type_aliases_);
     s->module_consts        = std::move(module_consts_);
     s->module_const_values  = std::move(module_const_values_);
@@ -608,6 +606,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->defs                 = std::move(defs_);
     s->impls                = std::move(impls_);
     s->impls_all            = std::move(impls_all_);
+    ++impls_gen_;
     s->coherence_keys       = std::move(coherence_keys_);
     s->assoc_type_impls     = std::move(assoc_type_impls_);
     s->assoc_const_impls    = std::move(assoc_const_impls_);
@@ -780,6 +779,8 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     generic_funcs_        = std::move(s->generic_funcs);
     generic_overloads_    = std::move(s->generic_overloads);
     decl_symbols_         = std::move(s->decl_symbols);
+    impl_self_by_node_    = std::move(s->impl_self_by_node);
+    impl_unsized_self_    = std::move(s->impl_unsized_self);
     type_aliases_         = std::move(s->type_aliases);
     module_consts_        = std::move(s->module_consts);
     module_const_values_  = std::move(s->module_const_values);
@@ -800,6 +801,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     defs_                 = std::move(s->defs);
     impls_                = std::move(s->impls);
     impls_all_            = std::move(s->impls_all);
+    ++impls_gen_;
     coherence_keys_       = std::move(s->coherence_keys);
     assoc_type_impls_     = std::move(s->assoc_type_impls);
     assoc_const_impls_    = std::move(s->assoc_const_impls);
@@ -1549,6 +1551,9 @@ const lir_view::ObjectMapRef* set_lang_items(const lir_view::ObjectMapRef* m) {
     auto prev = g_lang_items;
     g_lang_items = m;
     return prev;
+}
+std::string_view lang_item_identity(std::string_view lang) {
+    return g_lang_items ? g_lang_items->get_str(lang) : std::string_view{};
 }
 bool type_is_lang_item(TypeRef t, std::string_view lang) {
     if (!t || !g_lang_items) return false;
@@ -3992,12 +3997,8 @@ void SemaChecker::compute_auto_copy_types() {
             default: return false;
         }
     };
-    auto has_drop_impl = [&](const std::string& bare_name) {
-        // Drop registration: collect_impl inserts into impls_ keyed
-        // "Drop::<target>". Plain bare-name lookup matches both
-        // `impl Drop for X` and pkg-qualified variants.
-        return has_impl("Drop", bare_name) != 0;
-    };
+    // ADR 0030 S9: the type's own Drop impl, by C-OBL (a generic impl by its pattern).
+    auto has_drop_impl = [&](TypeRef t) { return implements_lang_("drop", t); };
     // is_copy_field: does this field-type qualify as Copy given the current
     // pending-copy set? Recurses into struct/tuple shapes; bottoms out on
     // primitive kinds or the pending set.
@@ -4038,7 +4039,7 @@ void SemaChecker::compute_auto_copy_types() {
                 if (eit == enums_.end())
                     eit = enums_.find(type_id({}, TypeRef(t).enum_name()));   // the root's
                 if (eit == enums_.end()) return false;  // unknown — conservative
-                if (has_drop_impl(std::string(TypeRef(t).enum_name()))) return false;
+                if (has_drop_impl(t)) return false;
                 auto targs = TypeRef(t).type_args();
                 auto& tparams = eit->second.type_params;
                 auto concretize = [&](TypeRef pt) -> TypeRef {
@@ -4089,7 +4090,13 @@ void SemaChecker::compute_auto_copy_types() {
             // Spec / annotation / Writ datatypes — leave to manual `impl Copy`.
             if (!info.is_data_plain) continue;
             if (info.fields.empty()) continue;  // zero-sized; skip (Logos treats odd)
-            if (has_drop_impl(bare)) continue;
+            {   // the struct as its own generic type: `impl<T> Drop for S<T>` answers it
+                std::vector<TypeRef> own;
+                for (auto& tp : info.type_params) own.push_back(make_typevar(tp.name));
+                TypeRef self_t = own.empty() ? make_struct_type(bare, defs_[skey].package)
+                                             : make_generic_struct(bare, std::move(own), {}, defs_[skey].package);
+                if (has_drop_impl(self_t)) continue;
+            }
             bool all_copy = true;
             for (auto& f : info.fields) {
                 if (!is_copy_field(f.type)) { all_copy = false; break; }
@@ -4191,21 +4198,12 @@ void SemaChecker::compute_auto_copy_types() {
                 return stable_ok(ft.elem(), why);
             case K::Struct:
             case K::ZonedStruct: {
-                // KEY-IDENTITY: OPEN #88 — `impls_` is keyed `Trait::Target`
-                // with a BARE target, so a user struct sharing a stdlib name
-                // inherits that name's StableLayout verdict (and is refused
-                // when the stdlib homonym lacks one). ⚠ The FIRST probe below
-                // launders the name through the local `n`, so this lint does
-                // not see it: `key_identity_lint.sh` records that blind spot
-                // and names this exact site. Do not read the census count for
-                // this statement as three of three.
-                std::string n{ft.struct_name()};
-                if (has_impl("StableLayout", n) ||
-                    has_impl("StableLayout", concrete_struct_name(ft)) ||
-                    has_impl("StableLayout", type_str(ft)))
-                    return true;
+                // ADR 0030 S9: the struct's own StableLayout impl, by C-OBL —
+                // a user struct sharing a stdlib name no longer inherits the
+                // homonym's verdict (#88's bare-target key is gone here).
+                if (implements_lang_("stable_layout", ft)) return true;
                 if (why) *why = std::format(
-                    "struct '{}' has no StableLayout impl", n);
+                    "struct '{}' has no StableLayout impl", std::string(ft.struct_name()));
                 return false;
             }
             default:
@@ -5796,7 +5794,7 @@ TypeRef SemaChecker::self_describing_dst_ref(TypeRef pointee, bool is_mut) {
     // MUST `impl SelfDescribing`. Without it the length would silently read 0.
     // (A self-describing DST used only through raw `*mut`/byte arithmetic — the
     // Segment pattern — never reaches here, so it is not forced to impl it.)
-    if (!has_impl("SelfDescribing", sn))
+    if (!implements_lang_("self_describing", p))
         error(std::format(
             "#[self_describing] struct '{0}' is borrowed as a fat reference "
             "(`&{0}`) but does not implement `SelfDescribing` — its "
@@ -7663,6 +7661,26 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             gat_changed |= (nga != ga);
             subbed_gat_args.push_back(nga);
         }
+        // ... and the trait's arguments (Rust's `<T as Trait<A>>::Item`).
+        std::vector<TypeRef> subbed_targs;
+        bool targs_changed = false;
+        for (auto ta : t.type_args()) {
+            auto nta = ta ? subst_type_sema(ta, s, ls) : ta;
+            targs_changed |= (nta != ta);
+            subbed_targs.push_back(nta);
+        }
+        // ADR 0030 S9 row 5: the item of the impl C-OBL selects — for a
+        // concrete base, or a type parameter whose bounds a blanket impl
+        // answers (`K::ViewInStore` under `K: PodRef`).
+        if (t.gat_args().empty()) {
+            TypeRef pbase = concrete ? concrete : subbed_base;
+            std::string bare_tn = strip_trait_targ_suffix(std::string(t.trait_name()));
+            std::string tid = t.pkg_name().empty() ? bare_tn : std::string(t.pkg_name()) + "::" + bare_tn;
+            if (pbase && (concrete || TypeRef(pbase).kind() == LogosType::Kind::TypeVar))
+                if (TypeRef r = const_cast<SemaChecker*>(this)->project_assoc_(tid, pbase, subbed_targs,
+                                                                             t.assoc_type_name()))
+                    return subst_type_sema(r, {});
+        }
 
         // TypeVar-with-bound branch: `K::AssocType` where K is a still-typevar
         // and K's bounds include some `BoundTrait` for which there exists a
@@ -7670,7 +7688,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         // Reduce by substituting the blanket's target typevar with K (kept as
         // a TypeVar). Closes abstraction-debt #6 — `K::ViewInStore` → `*const K`
         // when K: PodRef in the surrounding generic scope.
-        if (!concrete && subbed_base &&
+        if (!t.gat_args().empty() && !concrete && subbed_base &&
             TypeRef(subbed_base).kind() == LogosType::Kind::TypeVar) {
             std::string tvname = std::string(TypeRef(subbed_base).type_var_name());
             auto bit = current_type_bounds_.find(tvname);
@@ -7702,7 +7720,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             }
         }
 
-        if (concrete) {
+        if (concrete && !t.gat_args().empty()) {   // a GAT projection: by the impl's keyed entry
             std::string concrete_name = type_str(concrete);
             // Helper: build combined substitution (impl params + GAT params)
             auto make_subst = [&](const AssocTypeEntry& entry) -> SemaSubst {
@@ -7779,11 +7797,12 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             if (it != ls.end()) { subbed_lt_args.push_back(it->second); lt_changed = true; }
             else                  subbed_lt_args.push_back(lt);
         }
-        if (subbed_base != t.assoc_base() || gat_changed || lt_changed) {
+        if (subbed_base != t.assoc_base() || gat_changed || lt_changed || targs_changed) {
             LogosTypeBuilder nt = t.to_builder();
             nt.assoc_base    = subbed_base;
             nt.gat_args      = std::move(subbed_gat_args);
             nt.lifetime_args = std::move(subbed_lt_args);
+            nt.type_args     = std::move(subbed_targs);
             return pool_->alloc(std::move(nt));
         }
         return t;
@@ -7935,6 +7954,7 @@ TypeRef SemaChecker::resolve_type_cfg_slot(TinyMapView node) {
     return pool_->alloc(std::move(t));
 }
 
+static bool contains_typevar_sema(TypeRef t);  // fwd (defined below)
 TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     int32_t tc = code_of(node); (void)tc;
     // base::Item or base::Item<A,B> — associated type reference (plain or GAT)
@@ -8201,38 +8221,17 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
             }
         }
     }
-    // G156-1: when the base is already CONCRETE and the trait has type-args
-    // (so two `Trait<T>` impls could declare the same-named assoc type),
-    // resolve the projection NOW using the args from the impl/bound context.
-    // Otherwise a deferred AssocType node {base, trait, name} would intern
-    // identically across the two impls (it carries no trait args) and collapse
-    // to one — the wrong one. Gated to generic traits (non-empty suffix); the
-    // legacy deferred path is unchanged for non-generic traits and TypeVar
-    // bases. The suffixed key is registered by collect_impl (ASSOC_TYPE_IMPL).
+    // ADR 0030 S9 row 5: a projection over a CONCRETE base is normalized now,
+    // by the impl C-OBL selects for the base and the trait's arguments (two
+    // `Trait<T>` impls of one type declare the item separately).
     if (gat_args.empty() &&
         TypeRef(base_type).kind() != LogosType::Kind::TypeVar &&
         TypeRef(base_type).kind() != LogosType::Kind::ConstVar &&
         TypeRef(base_type).kind() != LogosType::Kind::CfgSlotType &&
-        TypeRef(base_type).kind() != LogosType::Kind::AssocType) {
-        std::string sfx = trait_targ_suffix(trait_args_for_assoc);
-        if (!sfx.empty()) {
-            std::string cn = type_str(base_type);
-            auto it = assoc_type_impls_.find(assoc_key(trait_for_assoc, sfx, cn, assoc));
-            if (it == assoc_type_impls_.end() &&
-                (TypeRef(base_type).kind() == LogosType::Kind::Struct ||
-                 TypeRef(base_type).kind() == LogosType::Kind::ZonedStruct)) {
-                std::string bn(TypeRef(base_type).struct_name());
-                if (!bn.empty() && bn != cn)
-                    it = assoc_type_impls_.find(assoc_key(trait_for_assoc, sfx, bn, assoc));
-            }
-            if (it != assoc_type_impls_.end()) {
-                SemaSubst sub;
-                for (size_t i = 0; i < it->second.impl_type_params.size() &&
-                                   i < TypeRef(base_type).type_args().size(); ++i)
-                    sub[it->second.impl_type_params[i].name] = TypeRef(base_type).type_args()[i];
-                return subst_type_sema(it->second.type, sub);
-            }
-        }
+        TypeRef(base_type).kind() != LogosType::Kind::AssocType && !contains_typevar_sema(base_type)) {
+        const SemaTraitInfo* pti = resolve_trait(trait_for_assoc);
+        if (pti)
+            if (TypeRef r = project_assoc_(defs_.path(pti->def), base_type, trait_args_for_assoc, assoc)) return r;
     }
     LogosTypeBuilder t;
     t.kind            = LogosType::Kind::AssocType;
@@ -8245,6 +8244,9 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
     // trait_name bare, preserving legacy behaviour. Bare-name consumers strip
     // the suffix via strip_trait_targ_suffix().
     t.trait_name      = trait_for_assoc + trait_targ_suffix(trait_args_for_assoc);
+    // The trait's arguments as types (Rust's `<T as Trait<A>>::Item`): they are
+    // substituted with the base, and select the impl when it is known.
+    t.type_args       = trait_args_for_assoc;
     // #438: the trait's package — the projection's identity half, so `T::Item`
     // of two same-named traits are two types (compute_type_uid hashes it).
     if (!trait_pkg_for_assoc.empty()) t.pkg_name = trait_pkg_for_assoc;

@@ -1,0 +1,13 @@
+// Closed squeue concrete_tuple_impl_bound_refused (#728): a CONCRETE tuple impl (`impl Mk for (i64, i64)`)
+// satisfies a bound named by turbofish (`tags::<(i64, i64)>()`) and through an argument (`build::<(i64, i64)>(7)`);
+// the ADR 0030 S9 C-OBL solver unifies the impl's Self with the tuple. Output as rustc: 14 3.
+package concrete_tuple_impl_bound;
+use logos.std.fmt;
+trait Mk { fn mk(v: i64) -> Self; fn tag() -> i64; }
+impl Mk for (i64, i64) { fn mk(v: i64) -> (i64, i64) { (v, v) } fn tag() -> i64 { 3 } }
+fn build<T: Mk>(v: i64) -> T { T::mk(v) }
+fn tags<T: Mk>() -> i64 { T::tag() }
+fn main() {
+    let c: (i64, i64) = build::<(i64, i64)>(7);
+    println!("{} {}", c.0 + c.1, tags::<(i64, i64)>());
+}

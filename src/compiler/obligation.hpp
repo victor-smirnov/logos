@@ -32,7 +32,12 @@ struct ImplFact {
     std::vector<std::string> generics;
     std::string pack;                // the variadic generic (`impl<A...> Tr for (A...)`), or empty
     std::vector<Bound> bounds;
+    // The impl's associated types (`type Item = T;`), over its generics.
+    std::vector<std::pair<std::string, TypeRef>> assoc_types;
     bool negative = false;
+    // A fact that answers only when no other impl does (Logos's `impl … for
+    // str` facts: `str` IS `[u8]`, and a pattern over the same Self wins).
+    bool fallback = false;
     uint32_t source = 0;             // the phase's own index of the impl
 };
 
@@ -41,6 +46,8 @@ struct ImplFact {
 struct LangIds {
     std::string copy, clone, sized, fn, fn_mut, fn_once;
     std::string eq, partial_eq, ord, partial_ord;
+    // From the phase's active lang-item table (LProgram::lang_items).
+    static LangIds active();
 };
 
 enum class Kind : uint8_t {
@@ -83,6 +90,11 @@ struct Env {
     // and whether a type still mentions a type variable (then it is undecided).
     std::function<bool(TypeRef a, TypeRef b)> same_shape;
     std::function<bool(TypeRef t)> mentions_tv;
+    // A closure's Fn-family level (0 Fn, 1 FnMut, 2 FnOnce); unset = from its type.
+    std::function<int(TypeRef closure)> closure_level;
+    // `[E]` for a `&[E]` (Slice): a `&T` pattern takes a slice with T = `[E]`,
+    // as Rust's `impl<T: ?Sized> Tr for &T` does (the phase's pool allocates).
+    std::function<TypeRef(TypeRef slice)> unsized_of;
 };
 
 class ImplTable {
@@ -104,5 +116,16 @@ bool unify(TypeRef concrete, TypeRef pattern, const std::vector<std::string>& ge
 
 Selection select(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
                  const std::vector<TypeRef>& args, const FnSig* sig = nullptr);
+
+// Every impl that answers `self: trait<args>` (its pattern unifies, its own
+// bounds hold), each with its substitution: the caller picks among overloads.
+// Fallback facts answer only when nothing else does.
+std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::string_view trait,
+                                  TypeRef self, const std::vector<TypeRef>& args);
+
+// `<self as trait<args>>::name`: the selected impl's item at its substitution;
+// nullopt when no impl answers, or two answer differently.
+std::optional<TypeRef> project(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
+                               const std::vector<TypeRef>& args, std::string_view name);
 
 }  // namespace logos::compiler::obl

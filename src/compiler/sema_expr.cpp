@@ -1091,6 +1091,27 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
         // types_compatible(FnItem, FnPtr) rule + the downstream
         // is_fn_value_kind acceptance helper.
         auto cands = find_func_candidates(name);
+        // A GENERIC fn used as a value is an instantiation whose type arguments
+        // are inference variables (C-INF): the use fixes them — a parameter's
+        // `F: Fn(Vec<i64>) -> i64` bound, an annotated `let` — as `f::<…>` would.
+        if (cands.size() == 1 && !cands[0]->type_params.empty() && fn_body_depth_ > 0 &&
+            !cands[0]->type_params.back().is_variadic) {
+            const SemaFuncInfo& fi = *cands[0];
+            SemaSubst subst;
+            std::vector<TypeRef> type_args;
+            for (auto& tp : fi.type_params) {
+                TypeRef v = mint_infer_var_(std::format("type argument '{}' of '{}'", tp.name, name));
+                subst[tp.name] = v;
+                type_args.push_back(v);
+            }
+            LogosTypeBuilder ft;
+            ft.kind = LogosType::Kind::FnPtr;
+            for (auto pt : fi.param_types) ft.closure_params.push_back(subst_type_sema(pt, subst));
+            ft.closure_ret = fi.ret_type ? subst_type_sema(fi.ret_type, subst) : void_t();
+            auto fn_type = fnptr_item_binders_(pool_->alloc(std::move(ft)), &fi.lifetime_params);
+            return builder().generic_ref(fi.symbol_name.empty() ? std::string(name) : fi.symbol_name,
+                                         std::move(type_args), fn_type);
+        }
         if (cands.size() == 1) {
             const SemaFuncInfo& fi = *cands[0];
             LogosTypeBuilder ft;
@@ -1331,16 +1352,7 @@ bool SemaChecker::try_struct_unsize_coerce(lir::LExprPtr& e, TypeRef target) {
             ck == LogosType::Kind::UnsizedDyn || ck == LogosType::Kind::Error) continue;
         std::string trait(TypeRef(d).trait_name());
         if (trait.empty()) continue;
-        std::string bare, conc;
-        if (ck == LogosType::Kind::Struct || ck == LogosType::Kind::ZonedStruct) {
-            bare = std::string(TypeRef(c).struct_name()); conc = concrete_struct_name(c);
-        } else if (ck == LogosType::Kind::Enum) {
-            bare = std::string(TypeRef(c).enum_name()); conc = bare;
-        } else {
-            bare = type_str(c); conc = bare;
-        }
-        logos::compiler::StrSet seen;
-        if (!sema_has_impl_recursive(trait, conc, bare, seen)) {
+        if (!implements_(trait, c)) {
             error(std::format("the trait bound `{}: {}` is not satisfied — required for the "
                               "unsize from `{}` to `{}<dyn {}>` (E0277)",
                               type_str(c), trait, type_str(et), sname, trait));
@@ -2213,13 +2225,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // bounds' business; any other type without an impl is refused here,
             // not by the dispatch it would fail inside.
             if (TypeRef it(inner_t); it && it.kind() != LogosType::Kind::TypeVar) {
-                const bool nominal = it.kind() == LogosType::Kind::Enum ||
-                                     it.kind() == LogosType::Kind::Struct ||
-                                     it.kind() == LogosType::Kind::ZonedStruct;
-                logos::compiler::StrSet seen;
-                if (!nominal || !sema_has_impl_recursive(
-                        "Try", std::string(it.kind() == LogosType::Kind::Enum ? it.enum_name() : it.struct_name()),
-                        {}, seen)) {
+                if (!implements_("Try", it)) {
                     error(std::format("the `?` operator can only be applied to values that implement "
                                       "`Try`: `{}` does not (E0277)", type_str(inner_t)));
                     return error_expr();
@@ -2325,9 +2331,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                     // the trait (the coercion itself is re-judged only in the backend).
                     const std::string tr(TypeRef(e_outer).trait_name());
                     const std::string ci = type_str_regions_erased(e_inner);
-                    logos::compiler::StrSet seen_;
-                    if (type_is_concrete(e_inner) &&
-                        !sema_has_impl_recursive(tr, ci, "", seen_)) {
+                    if (type_is_concrete(e_inner) && !implements_(tr, e_inner)) {
                         error(std::format("'?' couldn't convert the error: `{}: {}` is not satisfied "
                                           "(the outer error type is `Box<dyn {}>`)", ci, tr, tr));
                         return error_expr();
@@ -14143,10 +14147,7 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
     auto type_name = concrete_struct_name(arr_type);
     auto base_name = std::string(TypeRef(arr_type).struct_name());
     // For `&mut f[i]` we need IndexMut; for `&f[i]`, Index is enough.
-    const char* trait = is_mut ? "IndexMut" : "Index";
-    bool has_trait = has_impl(std::string(trait), type_name) ||
-                     (!base_name.empty() &&
-                      has_impl(std::string(trait), base_name));
+    bool has_trait = implements_lang_(is_mut ? "index_mut" : "index", arr_type);
     if (!has_trait) {
         // `&mut f[i]` but no IndexMut impl — not a user index-place we can
         // honour. Fall through (generic path will diagnose / copy).
@@ -14371,11 +14372,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     for (int _ad_step = 0; _ad_step < 4 &&
          TypeRef(arr_type).kind() == LogosType::Kind::Struct; ++_ad_step) {
         {
-            auto _tn = concrete_struct_name(arr_type);
-            auto _bn = std::string(TypeRef(arr_type).struct_name());
-            bool _has_index = has_impl("Index", _tn) ||
-                              (!_bn.empty() && has_impl("Index", _bn));
-            if (_has_index) break;
+            if (implements_lang_("index", arr_type)) break;
         }
         bool deref_only = false;
         auto stepped = emit_generic_deref_call(std::move(recv), /*want_mut=*/mut_ctx,
@@ -14396,14 +14393,12 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     if (TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
         auto type_name = concrete_struct_name(arr_type);
         auto base_name = std::string(TypeRef(arr_type).struct_name());
-        bool has_index = has_impl("Index", type_name) ||
-                         (!base_name.empty() && has_impl("Index", base_name));
+        bool has_index = implements_lang_("index", arr_type);
         // In a mutable-use position the step is `index_mut` (IndexMut), and
         // an `Index`-only type is not a writable place (E0594) — the same
         // refusal `lower_place_assign` gives a bare-variable receiver.
         const char* itr = mut_ctx ? "IndexMut" : "Index";
-        bool has_trait = has_impl(std::string(itr), type_name) ||
-                         (!base_name.empty() && has_impl(std::string(itr), base_name));
+        bool has_trait = implements_lang_(mut_ctx ? "index_mut" : "index", arr_type);
         if (has_index && mut_ctx && !has_trait) {
             error(std::format("cannot assign to index of '{}': type '{}' implements "
                               "`Index` but not `IndexMut`", type_str(arr_type),
@@ -16715,11 +16710,10 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
         concrete = bare;
     }
     if (bare.empty()) return false;
-    logos::compiler::StrSet seen2;
     // The trait as it resolves in this scope: a TraitObject carries the
     // spelling, and a package-local homonym of a lang item (`trait Hash`,
     // `trait FnMut`) is registered under its path, not the bare slot.
-    if (!sema_has_impl_recursive(canonical_trait_name(trait), concrete, bare, seen2)) return false;
+    if (!implements_(canonical_trait_name(trait), pointee)) return false;
     // logos-core 2.4(c): auto-trait bound enforcement at the unsize site.
     // `&NotSend → &dyn Trait + Send` must be rejected: the trait object's
     // contract is that the erased type satisfies every `+ Auto` bound. The
@@ -18944,9 +18938,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     // Impls key either on the bare struct base (`Reset::Foo`,
                     // for `impl<T> Reset for Foo<T>`) or the concrete-spec name
                     // (`Reset::Box2$G1$i64`, for `impl Reset for Box2<i64>`).
-                    if (!hbare.empty() &&
-                        (has_impl(cname_str, hbare) ||
-                         (!hn.empty() && has_impl(cname_str, hn)))) {
+                    if (!hbare.empty() && implements_(cname_str, expected_)) {
                         SemaSubst self_subst;
                         self_subst["Self"] = expected_;
                         TypeRef ret_t = subst_type_sema(tm->ret_type, self_subst);
@@ -25141,19 +25133,6 @@ std::string SemaChecker::producer_ret_type_(const std::string& fn_name) {
     return type_str(fit->second.ret_type);
 }
 
-// The producer's return type reduced to the BASE NAME an impl registers under
-// ("VecIter<u64>" → "VecIter"). ONE copy: `producer_streams_` and
-// `producer_batches_` ask the same question of the same text about two
-// different traits, and two spellings of this reduction is how the two answers
-// would come to disagree about which type they were asked about.
-static std::string producer_ret_base_(std::string base) {
-    if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
-    while (!base.empty() && base.back() == ' ') base.pop_back();
-    while (!base.empty() && (base.front() == '&' || base.front() == ' '))
-        base.erase(base.begin());
-    return base;
-}
-
 bool SemaChecker::producer_impls_trait_(const std::string& fn_name,
                                         const std::string& trait_name) {
     if (fn_name.empty()) return false;
@@ -25162,11 +25141,9 @@ bool SemaChecker::producer_impls_trait_(const std::string& fn_name,
     auto fit = funcs_.find(ovit->second.front());
     if (fit == funcs_.end()) return false;
     TypeRef rt = fit->second.ret_type;
-    if (!rt) return false;
-    std::string base = producer_ret_base_(type_str(rt));
-    if (base.empty()) return false;
-    logos::compiler::StrSet seen;
-    return sema_has_impl_recursive(trait_name, base, {}, seen);
+    while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref || TypeRef(rt).kind() == LogosType::Kind::MutRef))
+        rt = TypeRef(rt).pointee();
+    return rt && implements_(trait_name, rt);
 }
 
 bool SemaChecker::producer_streams_(const std::string& fn_name) {
@@ -27971,7 +27948,7 @@ TypeRef SemaChecker::lit_select_by_trait_(const std::string& trait) {
     TypeRef found = nullptr;
     for (auto k : kinds) {
         TypeRef t = prim(k);
-        if (!has_impl(trait, type_str(t))) continue;
+        if (!implements_(trait, t)) continue;
         if (found) return nullptr;
         found = t;
     }

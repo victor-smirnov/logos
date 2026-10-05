@@ -7,6 +7,12 @@ namespace logos::compiler::obl {
 
 using K = LogosType::Kind;
 
+LangIds LangIds::active() {
+    auto id = [](std::string_view lang) { return std::string(lang_item_identity(lang)); };
+    return {id("copy"), id("clone"), id("sized"), id("fn"), id("fn_mut"), id("fn_once"),
+            id("eq"), id("partial_eq"), id("ord"), id("partial_ord")};
+}
+
 void ImplTable::add(ImplFact f) {
     const uint32_t i = static_cast<uint32_t>(facts_.size());
     by_trait_[f.trait].push_back(i);
@@ -25,11 +31,26 @@ bool is_generic(const std::vector<std::string>& g, std::string_view n) {
     return std::find(g.begin(), g.end(), n) != g.end();
 }
 
+// A nominal's declared name: mono's instances carry their instance spelling
+// (`RangeOfIncl$G1$i64`, a `$M<hash>` package fingerprint) in the name.
+std::string_view declared_name(std::string_view n) {
+    if (auto p = n.find("$G"); p != std::string_view::npos) n = n.substr(0, p);
+    if (auto p = n.find("$M"); p != std::string_view::npos) n = n.substr(0, p);
+    return n;
+}
+
 bool same_nominal(std::string_view pa, std::string_view pb, std::string_view na, std::string_view nb) {
-    return na == nb && (pa.empty() || pb.empty() || pa == pb);
+    return declared_name(na) == declared_name(nb) && (pa.empty() || pb.empty() || pa == pb);
 }
 
 }  // namespace
+
+// One type: a primitive scalar IS its kind, whichever pool (or none) carries it.
+static bool same_type(TypeRef a, TypeRef b) {
+    if (!a || !b) return !a && !b;
+    if (is_primitive_scalar_kind(a.kind()) || is_primitive_scalar_kind(b.kind())) return a.kind() == b.kind();
+    return types_equal(a, b);
+}
 
 bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst& s, std::string_view pack) {
     if (!c || !p) return false;
@@ -43,7 +64,7 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
     }
     if ((p.kind() == K::TypeVar || p.kind() == K::ConstVar) && is_generic(generics, p.type_var_name())) {
         std::string n(p.type_var_name());
-        if (auto it = s.find(n); it != s.end()) return types_equal(c, it->second);
+        if (auto it = s.find(n); it != s.end()) return same_type(c, it->second) || unify(c, it->second, {}, s);
         s.emplace(std::move(n), c);
         return true;
     }
@@ -135,9 +156,10 @@ struct Solver {
         const K k = self.kind();
         if (!l.sized.empty() && trait == l.sized)
             return !(k == K::UnsizedSlice || k == K::UnsizedDyn);
+        // Copy is a marker: a builtin rule needs no method. Clone carries `clone`,
+        // so it holds only by an impl whose method can be called.
         const bool copy = !l.copy.empty() && trait == l.copy;
-        const bool clone = !l.clone.empty() && trait == l.clone;
-        if (copy || clone) {
+        if (copy) {
             if (scalar(self) || k == K::Never || k == K::Ref || k == K::Ptr || k == K::FnPtr || k == K::FnItem)
                 return true;
             if (k == K::Slice) return !self.owning_slice();
@@ -156,10 +178,10 @@ struct Solver {
                 if (!sig_matches(self)) return false;
                 // The family the closure's body admits: Fn ⊂ FnMut ⊂ FnOnce.
                 using F = TypeRef::FnFamily;
+                const int need = fn ? 0 : fn_mut ? 1 : 2;
+                if (env.closure_level) return env.closure_level(self) <= need;
                 const F fam = self.closure_fn_family();
-                if (fam == F::Unstated) return true;   // not yet inferred: the closure's own check decides
-                const F need = fn ? F::Fn : fn_mut ? F::FnMut : F::FnOnce;
-                return static_cast<uint8_t>(fam) <= static_cast<uint8_t>(need);
+                return fam == F::Unstated || static_cast<int>(fam) - 1 <= need;
             }
             // `&F: Fn*` when `F: Fn`; `&mut F: FnMut / FnOnce` when `F: FnMut`.
             if (k == K::Ref && self.pointee()) return select(l.fn, self.pointee(), args).holds();
@@ -172,16 +194,33 @@ struct Solver {
         return std::nullopt;
     }
 
-    Selection by_impls(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args) {
+    // Self against an impl's pattern; a `&[E]` against `&T` binds T = `[E]`.
+    bool unify_self(TypeRef self, const ImplFact& f, Subst& s) const {
+        if (unify(self, f.self, f.generics, s, f.pack)) return true;
+        if (self.kind() == K::Slice && f.self.kind() == K::Ref && env.unsized_of) {
+            s.clear();
+            if (TypeRef us = env.unsized_of(self)) return unify(us, f.self.pointee(), f.generics, s, f.pack);
+        }
+        return false;
+    }
+
+    Selection by_impls(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args,
+                       std::vector<Selection>* all = nullptr) {
         Selection out;
         const ImplFact* neg = nullptr;
         for (uint32_t i : table.of(trait)) {
             const ImplFact& f = table.at(i);
             Subst s;
-            if (!unify(self, f.self, f.generics, s, f.pack)) continue;
-            bool ok = f.trait_args.size() == args.size() || args.empty();
+            if (!unify_self(self, f, s)) continue;
+            // An impl that writes no trait arguments takes the trait's defaults
+            // (`impl AddAssign for u8` is `AddAssign<u8>`): any asked ones answer.
+            bool ok = f.trait_args.size() == args.size() || args.empty() || f.trait_args.empty();
+            // An argument that still mentions a type variable (a generic body's
+            // `Item: IntoPair<A, B>` with the method's own A, B) is not decided
+            // here: the instantiation fixes it.
             for (size_t a = 0; ok && a < args.size() && a < f.trait_args.size(); ++a)
-                ok = !args[a] || unify(args[a], f.trait_args[a], f.generics, s, f.pack);
+                ok = !args[a] || (env.mentions_tv && env.mentions_tv(args[a])) ||
+                     unify(args[a], f.trait_args[a], f.generics, s, f.pack);
             if (!ok) continue;
             if (f.negative) { neg = &f; continue; }
             bool nested = true;
@@ -199,13 +238,14 @@ struct Solver {
                 if (!select(b.trait, it->second, bargs).holds()) { nested = false; break; }
             }
             if (!nested) continue;
+            if (all) all->push_back({Kind::Impl, &f, s});
             if (out.kind == Kind::Impl) { out.kind = Kind::Ambiguous; continue; }
             if (out.kind == Kind::Ambiguous) continue;
             out.kind = Kind::Impl;
             out.impl = &f;
             out.subst = std::move(s);
         }
-        if (neg) return {};
+        if (neg) { if (all) all->clear(); return {}; }
         return out;
     }
 
@@ -243,6 +283,34 @@ Selection select(const ImplTable& table, const Env& env, std::string_view trait,
                  const std::vector<TypeRef>& args, const FnSig* sig) {
     Solver s{table, env, sig};
     return s.select(trait, self, args);
+}
+
+std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::string_view trait,
+                                  TypeRef self, const std::vector<TypeRef>& args) {
+    std::vector<Selection> all;
+    if (!self) return all;
+    Solver s{table, env, nullptr};
+    (void)s.by_impls(trait, self, args, &all);
+    bool primary = false;
+    for (auto& c : all) primary = primary || !c.impl->fallback;
+    if (primary) all.erase(std::remove_if(all.begin(), all.end(), [](const Selection& c) { return c.impl->fallback; }),
+                           all.end());
+    return all;
+}
+
+std::optional<TypeRef> project(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
+                               const std::vector<TypeRef>& args, std::string_view name) {
+    TypeRef best{};
+    bool ambiguous = false;
+    for (auto& c : candidates(table, env, trait, self, args))
+        for (auto& [n, t] : c.impl->assoc_types) {
+            if (n != name || !t) continue;
+            TypeRef r = env.subst ? env.subst(t, c.subst) : t;
+            if (!best) best = r;
+            else if (!same_type(best, r)) ambiguous = true;
+        }
+    if (ambiguous || !best) return std::nullopt;
+    return best;
 }
 
 }  // namespace logos::compiler::obl

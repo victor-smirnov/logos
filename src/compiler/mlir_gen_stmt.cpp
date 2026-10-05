@@ -1774,7 +1774,15 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDerefWriteView v) {
 void MLIRGenImpl::gen_let(lir_view::SLetView v) {
     const std::string let_name(v.name());
     const uint32_t let_slot = v.var_slot();
+    // A `_` discard is a drop canary too (`let _ = val.fmt(&mut f)` lost the
+    // whole call in silence): forget any earlier `_` so its binding is evidence.
+    if (let_name == "_") scope_.erase("_");
     gen_let_inner(v);
+    if (let_name == "_" && v.value() && !scope_.count("_") && !is_terminated(builder_.getBlock())) {
+        TypeRef lty = v.type(pool_impl());
+        if (lty && logos_to_mlir(lty))
+            bug("`let _` initializer produced no value{} — the expression was DROPPED", describe_expr(v.value()));
+    }
     shadow_register_slot(let_slot, let_name);
     // Canary for the silent-drop class (tuple-keyed-container baghunt): a
     // `let` with an initializer whose codegen failed leaves the name unbound

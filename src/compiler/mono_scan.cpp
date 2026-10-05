@@ -1300,78 +1300,6 @@ std::string Mono::eq_instance_for(TypeRef et, TypeRef et_ref) {
     return sym;
 }
 
-TypeRef Mono::trait_item_assoc_type_(std::string_view trait, TypeRef self, std::string_view name,
-                                     std::string_view targ_suffix) {
-    if (!self || contains_typevar(self)) return {};
-    using K = LogosType::Kind;
-    const TypePoolImpl* ipool = out_.type_pool.impl();
-    auto bare_of = [](std::string_view t) {
-        if (auto p = t.rfind("::"); p != std::string_view::npos) t = t.substr(p + 2);
-        if (auto p = t.rfind('.'); p != std::string_view::npos) t = t.substr(p + 1);
-        return t;
-    };
-    const auto sk = TypeRef(self).kind();
-    TypeRef best{};
-    bool ambiguous = false;
-    auto consider = [&](TypeRef decl, const SubstMap& b) {
-        if (!decl) return;
-        TypeRef t = b.empty() ? decl : subst_type(decl, b);
-        if (!best) best = t;
-        else if (!types_equal(best, t)) ambiguous = true;
-    };
-    for (auto& impl : out_.impls) {
-        if (impl.is_negative() || impl.is_blanket()) continue;
-        if (!trait_names_(impl.identity_trait(), trait)) continue;
-        // A projection that names the trait's arguments takes only the impl of
-        // those (`<Gen as Producer<i64>>::Item` beside `Producer<bool>`).
-        if (!targ_suffix.empty() && trait_targ_suffix_(impl.trait_type_args(ipool)) != targ_suffix) continue;
-        TypeRef decl{};
-        impl.each_assoc_type([&](lir_view::AssocEntryView ae) { if (!decl && ae.name() == name) decl = ae.type(ipool); });
-        if (!decl) continue;
-        TypeRef pat = impl.target_typeref(ipool);
-        SubstMap b;
-        if (pat) {
-            if (!unify_impl_target(self, pat, b)) continue;
-        } else {
-            // A nominal target with no recorded pattern: its spelling.
-            std::string_view tgt = impl.target_type();
-            const bool ok =
-                is_primitive_scalar_kind(sk) ? tgt == type_str(self)
-                : sk == K::Enum ? (TypeRef(self).type_args().empty() && bare_of(tgt) == bare_of(TypeRef(self).enum_name()))
-                : (sk == K::Struct || sk == K::ZonedStruct) ? tgt == concrete_struct_name(self)
-                : false;
-            if (!ok) continue;
-        }
-        consider(decl, b);
-    }
-    if (best || ambiguous) return ambiguous ? TypeRef{} : best;
-    for (auto& impl : out_.impls) {
-        if (!impl.is_blanket() || impl.is_negative()) continue;
-        if (!trait_names_(impl.identity_trait(), trait)) continue;
-        TypeRef decl{};
-        impl.each_assoc_type([&](lir_view::AssocEntryView ae) { if (!decl && ae.name() == name) decl = ae.type(ipool); });
-        if (!decl) continue;
-        bool ok = true;
-        if (!impl.bound_trait().empty()) {
-            StrSet seen;
-            ok = mono_concrete_satisfies_bound(TraitQuery(std::string(impl.bound_trait()),
-                                                          std::string(impl.identity_bound_trait())), self, seen);
-        }
-        auto extras = impl.extra_bounds();
-        auto extra_ids = impl.identity_extra_bounds();
-        for (size_t i = 0; ok && i < extras.size(); ++i) {
-            StrSet seen;
-            ok = mono_concrete_satisfies_bound(
-                TraitQuery(std::string(extras[i]), i < extra_ids.size() ? std::string(extra_ids[i]) : std::string()),
-                self, seen);
-        }
-        if (!ok) continue;
-        SubstMap b;
-        b[std::string(impl.target_type())] = self;
-        consider(decl, b);
-    }
-    return ambiguous ? TypeRef{} : best;
-}
 
 // `trait` is the trait's qualified identity (`logos.lang.cmp::Eq`) when the
 // caller holds it, and then only that trait answers; a bare spelling (a call's
@@ -1427,11 +1355,6 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
     if (auto p = base.find("$G"); !prim && p != std::string::npos) base = base.substr(0, p);
     if (auto p = base.find("$M"); !prim && p != std::string::npos) base = base.substr(0, p);
     const std::string pkg = prim ? std::string() : std::string(TypeRef(rt).pkg_name());
-    auto bare_of = [](std::string_view t) {
-        if (auto p = t.rfind("::"); p != std::string_view::npos) t = t.substr(p + 2);
-        if (auto p = t.rfind('.'); p != std::string_view::npos) t = t.substr(p + 1);
-        return t;
-    };
     // The function a symbol names: a free function, or a method of a struct
     // template (a generic impl's methods travel on the template).
     // Types are read through the OUTPUT pool: mono moved the input's pool
@@ -1451,19 +1374,19 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
     };
     std::string best, best_exact;
     bool ambiguous = false, ambiguous_exact = false;
-    for (auto* prog : {&out_, &in_}) {
+    // ADR 0030 S9 row 4: C-OBL selects the impls; this loop names their method.
+    const auto cands = impl_candidates_(trait, rt, trait_args);
+    for (auto* prog : {&out_}) {
         const TypePoolImpl* ipool = out_.type_pool.impl();   // in_.type_pool was moved into out_
         for (auto& impl : prog->impls) {
-            if (impl.is_negative() || impl.is_blanket()) continue;
-            if (!trait_names_(impl.identity_trait(), trait)) continue;
+            if (impl.is_blanket() || !cands.count(uint32_t(&impl - prog->impls.data()))) continue;
             // The trait arguments bind the impl's parameters they name
             // (`impl<T> A<T> for i64` at `A<f64>`: T = f64).
             SubstMap tb;
-            if (!impl_trait_args_match_(impl, ipool, trait_args, &tb)) continue;
+            (void)impl_trait_args_match_(impl, ipool, trait_args, &tb);
             // The impl's target: a generic pattern (`impl<T> Add for V<T>`) or a
             // nominal type (`impl Add for V`), the same type as `self`.
             TypeRef pat = impl.target_typeref(ipool);
-            std::string_view tgt = impl.target_type();
             // Generic: the pattern has a type or a const parameter (`Poly<N>`).
             std::function<bool(TypeRef)> has_param = [&](TypeRef t) -> bool {
                 if (!t) return false;
@@ -1474,24 +1397,6 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
                        (TypeRef(t).elem() && has_param(TypeRef(t).elem()));
             };
             const bool generic = pat && has_param(pat);
-            if (prim) {
-                if (generic || tgt != base) continue;
-            } else if (pat) {
-                if (TypeRef(pat).kind() != LogosType::Kind::Struct &&
-                    TypeRef(pat).kind() != LogosType::Kind::ZonedStruct) continue;
-                std::string pb{TypeRef(pat).struct_name()};
-                if (auto p = pb.find("$G"); p != std::string::npos) pb = pb.substr(0, p);
-                if (pb != base) continue;
-                if (!TypeRef(pat).pkg_name().empty() && !pkg.empty() && TypeRef(pat).pkg_name() != pkg) continue;
-                // A concrete pattern names ONE instance (`CtrClass<@hs_…>`, one
-                // impl per family): its arguments must be Self's too.
-                if (!generic) {
-                    SubstMap none;
-                    if (!unify_impl_target(rt, pat, none)) continue;
-                }
-            } else {
-                if (bare_of(tgt) != base && tgt != concrete_struct_name(rt)) continue;
-            }
             for (auto sym : impl.method_symbols()) {
                 const TypePoolImpl* fpool = nullptr;
                 auto fn = find_fn(sym, &fpool);
@@ -1620,31 +1525,16 @@ std::string Mono::blanket_trait_item_symbol_(std::string_view trait, TypeRef sel
     std::string best;
     std::vector<TypeRef> best_args;
     bool ambiguous = false;
-    for (auto* prog : {&out_, &in_}) {
+    // ADR 0030 S9 row 4: C-OBL selects the blanket impls whose bounds Self meets.
+    const auto cands = impl_candidates_(trait, self, trait_args);
+    for (auto* prog : {&out_}) {
         const TypePoolImpl* ipool = out_.type_pool.impl();   // in_.type_pool was moved into out_
         for (auto& impl : prog->impls) {
-            if (!impl.is_blanket() || impl.is_negative()) continue;
-            if (!trait_names_(impl.identity_trait(), trait)) continue;
+            if (!impl.is_blanket() || !cands.count(uint32_t(&impl - prog->impls.data()))) continue;
             // The trait arguments bind the impl's parameters they name (the
             // OUTPUT `T` of `impl<S, T: MkFrom<S>> Into2<T> for S`).
             SubstMap tb;
-            if (!impl_trait_args_match_(impl, ipool, trait_args, &tb)) continue;
-            bool ok = true;
-            if (!impl.bound_trait().empty()) {
-                StrSet seen;
-                ok = mono_concrete_satisfies_bound(TraitQuery(std::string(impl.bound_trait()),
-                                                              std::string(impl.identity_bound_trait())),
-                                                   self, seen);
-            }
-            auto extras = impl.extra_bounds();
-            auto extra_ids = impl.identity_extra_bounds();
-            for (size_t i = 0; ok && i < extras.size(); ++i) {
-                StrSet seen;
-                ok = mono_concrete_satisfies_bound(
-                    TraitQuery(std::string(extras[i]), i < extra_ids.size() ? std::string(extra_ids[i]) : std::string()),
-                    self, seen);
-            }
-            if (!ok) continue;
+            (void)impl_trait_args_match_(impl, ipool, trait_args, &tb);
             const std::string tv(impl.target_type());
             for (auto sym : impl.method_symbols()) {
                 auto tit = templates_.find(std::string(sym));
@@ -1688,39 +1578,23 @@ std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
                                            const std::vector<TypeRef>* method_args,
                                            const std::vector<TypeRef>* param_arg_types) {
     using K = LogosType::Kind;
-    auto bare_of = [](std::string_view t) {
-        if (auto p = t.rfind("::"); p != std::string_view::npos) t = t.substr(p + 2);
-        if (auto p = t.rfind('.'); p != std::string_view::npos) t = t.substr(p + 1);
-        return t;
-    };
     std::string best;
     std::vector<TypeRef> best_args;
     bool ambiguous = false;
-    // Logos spells Rust's `&str` and `str` by one value type (`Slice<u8>`), so
-    // `impl Pattern for str` is what Rust writes `impl Pattern for &str`, and
-    // `str` IS `[u8]`. A `&str` / `[u8]` Self takes the impl Rust's model gives
-    // it first (`&T` at T = `[u8]`, `[E]`); the nominal `str` impl answers it
-    // only when nothing does.
-    const bool str_value = (TypeRef(self).kind() == K::Slice || TypeRef(self).kind() == K::UnsizedSlice) &&
-                           TypeRef(self).elem() && TypeRef(TypeRef(self).elem()).kind() == K::U8;
-    for (int pass = 0; pass < (str_value ? 2 : 1) && best.empty() && !ambiguous; ++pass)
-    for (auto* prog : {&out_, &in_}) {
+    // ADR 0030 S9 row 4: C-OBL selects the impls (a nominal `&[u8]` impl —
+    // Logos's `impl … for str` — only when nothing else answers); this loop
+    // binds and names their method.
+    const auto cands = impl_candidates_(trait, self, trait_args);
+    for (auto* prog : {&out_}) {
         const TypePoolImpl* ipool = out_.type_pool.impl();   // in_.type_pool was moved into out_
         for (auto& impl : prog->impls) {
-            if (impl.is_negative() || impl.is_blanket()) continue;
-            if (!trait_names_(impl.identity_trait(), trait)) continue;
+            if (impl.is_blanket() || !cands.count(uint32_t(&impl - prog->impls.data()))) continue;
             SubstMap tb;
-            if (!impl_trait_args_match_(impl, ipool, trait_args, &tb)) continue;
+            (void)impl_trait_args_match_(impl, ipool, trait_args, &tb);
             TypeRef pat = impl.target_typeref(ipool);
-            if (pass == 1 && (pat || bare_of(impl.target_type()) != "str")) continue;
-            // A nominal impl with no recorded pattern (`impl Debug for Ordering`)
-            // names its target by spelling: the enum itself, never generic.
-            const bool nominal_enum = !pat && TypeRef(self).kind() == K::Enum &&
-                                      TypeRef(self).type_args().empty() &&
-                                      bare_of(impl.target_type()) == bare_of(TypeRef(self).enum_name());
-            const bool nominal_str = pass == 1;
-            if (!nominal_enum && !nominal_str &&
-                (!pat || TypeRef(pat).kind() == K::Struct || TypeRef(pat).kind() == K::ZonedStruct)) continue;
+            // A nominal impl with no recorded pattern (`impl Debug for Ordering`,
+            // `impl Pattern for str`): nothing to bind but the method's own.
+            const bool nominal = !pat;
             for (auto sym : impl.method_symbols()) {
                 lir_view::FunctionView fn{};
                 if (auto tit = templates_.find(std::string(sym)); tit != templates_.end()) fn = tit->second;
@@ -1760,7 +1634,7 @@ std::string Mono::shape_trait_item_symbol_(std::string_view trait, TypeRef self,
                     us.kind = K::UnsizedSlice;
                     us.elem = TypeRef(self).elem();
                     if (!unify_impl_target(out_.type_pool.alloc(us), TypeRef(pat).pointee(), b)) continue;
-                } else if (!nominal_enum && !nominal_str && !unify_impl_target(self, pat, b)) {
+                } else if (!nominal && !unify_impl_target(self, pat, b)) {
                     continue;
                 }
                 // The template's parameters, in its order: the impl's, bound by

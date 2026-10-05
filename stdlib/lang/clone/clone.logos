@@ -57,6 +57,10 @@ impl Copy for char  {}
 // `str` is the BORROWED string slice (Rust's `&str`), which is Copy.
 impl Copy for str   {}
 
+// A shared reference is Clone by copying the reference (Rust's
+// `impl<T: ?Sized> Clone for &T`).
+impl<T: ?Sized> Clone for &T { fn clone(&self) -> &T { return *self; } }
+
 // Tuples of Copy / Clone elements are Copy / Clone (Rust's per-arity impls, up to 12).
 impl<A: Copy, B: Copy> Copy for (A, B) {}
 impl<A: Copy, B: Copy, C: Copy> Copy for (A, B, C) {}

@@ -293,7 +293,9 @@
 # 2026-09-23, ADR 0028: borrow_bir.inc 7 -> 8, roster 42dd008b -> f8ebbaef. The
 # elision source of an elided result (#461) is `&self`'s region when parameter
 # 1 is named `self` — the receiver keyword, the same sentinel as above.
-#SCAN borrow_bir.inc 8 f8ebbaef
+# 2026-10-04, ADR 0030 S9 row 2: borrow_bir.inc 8 -> 7, roster f8ebbaef -> 42dd008b — BIR's receiver
+# needle (`instance_for_receiver`) and template-by-pattern fallback are deleted (0 calls over the corpus).
+#SCAN borrow_bir.inc 7 42dd008b
 #SCAN mlir_gen_impl.hpp 2 0d0525bf
 # 2026-09-09d: mlir_gen_stmt.cpp enters the roster at 1. THE LITERAL IS `_`
 # (md5-8 of the one-line roster "_" is b14a7b80), the WILDCARD TOKEN, and it is
@@ -318,7 +320,10 @@
 # 2026-10-04, ADR 0030 S8 row 6: mono_clone.cpp 102 -> 101, roster ba97e40b -> 5e58a46b — mono's static
 # re-spelling of `T__m` is deleted (a `T::m(..)` carries its trait item; the impl answers): its
 # `cname == "&[u8]"` -> `str` rewrite left with it.
-#SCAN mono_clone.cpp 101 5e58a46b
+# 2026-10-04, ADR 0030 S9 row 4: mono_clone.cpp 101 -> 95, roster 5e58a46b -> 34625115 — mono's
+# satisfaction engine (mono_concrete_satisfies_bound's body: auto traits by spelling, `$slice$` / `$ref_` /
+# `$tuple$` / `&[u8]`->`str` keys) is deleted; every mono gate asks C-OBL (obligation.hpp) by identity.
+#SCAN mono_clone.cpp 95 34625115
 # 2026-09-27, ADR 0030 L0 slice 2a: UnsafeCell / PhantomPinned / Box / Rc / Arc / the atomic Ordering
 # are asked by lang identity (type_is_lang_item[_exact]); the bare-name tests leave: mono_impl.hpp 15 -> 14
 # (is_stdlib_box).
@@ -395,7 +400,10 @@
 # the spellings are gone from the file. The two that remain are the type-param
 # name keys (rows below), which are not entity names.
 # 2026-09-27, ADR 0030 L0 slice 2a: RETIRED — UnsafeCell (!Sync) and PhantomPinned (!Unpin) are lang identities now.
-#SCAN sema_collect.cpp 40 0f9e28cc
+# 2026-10-04, ADR 0030 S9 row 4: sema_collect.cpp 40 -> 39, roster 0f9e28cc -> 6d1adfc6 — check_type_bounds'
+# satisfaction half is deleted (C-OBL answers); its `PartialEq`/`PartialOrd` -> `Eq`/`Ord` spelling alias went
+# with it (SL-sl-02 is the solver's, by lang identity).
+#SCAN sema_collect.cpp 39 6d1adfc6
 #SCAN sema_decl.cpp 2 ce09ff69
 # sema_expr.cpp 162 -> 160, 2026-09-10h. The Deref/DerefMut bound-autoderef
 # fallback (`lower_method_call`) is the LAST lang-item trait decision in this
@@ -609,7 +617,7 @@ mono_scan.cpp	dyn_coerced_targets_	B#98	1	std::string(TypeRef(tgt).trait_name())
 # refused by declaration order. Pinned by tests/logos/{pass,fail}/
 # closure_send_not_from_sibling and closure_dyn_send_needs_own_env.
 sema_auto_trait.cpp	current_type_bounds_	D	1	std::string(tv.type_var_name())
-sema_collect.cpp	closure_kind_	D	1	type_str(cv)
+sema_collect.cpp	closure_kind_	D	1	type_str(c)
 sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(base).type_var_name())
 sema.cpp	current_type_bounds_	D	1	std::string(TypeRef(x).type_var_name())
 sema.cpp	current_type_bounds_	D	1	type_str(result)
@@ -644,17 +652,15 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # enum_lit (3), enum_lit_data (3), try_variant (4), try_prelude (3),
 # try_prelude_variant (3), prelude_remap (4), remap (2) — and they are task #98's
 # and #100's subject, not this round's.
-#ARGSCAN add_auto_impl 1 94966d90
-#ARGSCAN add_blanket 3 fea4701d
-#ARGSCAN add_impl 5 81db077d
-#ARGSCAN add_negative 1 94966d90
+# 2026-10-05, ADR 0030 S9 row 4: RETIRED with mono's TraitEngine (trait_engine.cpp / trait_rules.cpp /
+# dl/rules/traits.dl deleted; every mono gate asks C-OBL): add_auto_impl, add_blanket, add_impl,
+# add_negative, add_shape_auto_impl, resolve, satisfies, trace_satisfies hold no bare argument any more.
 # 2026-09-18, ADR 0028 S2 (#421): add_shape_auto_impl 6 -> 3, roster a5242d3e ->
 # 956cbf5c. The three `"Fn"` / `"FnMut"` / `"FnOnce"` calls in
 # Mono::populate_trait_engine_ became one call in a loop over those literals so
 # the same three registrations reach TraitRules too. Same traits, same names,
 # no new site: the literals moved into the loop's array, where this ARGSCAN
 # does not look. The three that remain are trait_engine_test.cpp.
-#ARGSCAN add_shape_auto_impl 3 956cbf5c
 #ARGSCAN at 3 7a506430
 # 2026-09-26: count() 9 -> 10: lower_impl_block's default-method loop saves `current_type_params_.count("Self")` to
 #   restore it after each default — `Self` is the type-parameter slot's own name, the same key the struct-method
@@ -720,7 +726,9 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # lower_place_assign asks whether an indexed receiver is an `IndexMut` struct (the written element is
 # then a live `&mut` referent), and index_output_type_ reads `Index`'s Output off the impl — the same
 # trait spellings over the same concrete/base struct names try_index_mut_assign already passes.
-#ARGSCAN has_impl 19 26a90fb6
+# 2026-10-05, ADR 0030 S9 row 4: has_impl() 19 -> RETIRED — its bare trait-name probes ("Drop",
+# "StableLayout", "SelfDescribing", "Index", "IndexMut", the op-assign traits) ask C-OBL by the lang
+# item's identity (implements_lang_) or with the type (implements_); no bare name reaches has_impl().
 # 2026-10-01: impl_key 7 -> 9, roster 37c1f856 -> fabf7587. deref_target_type_ (the type-level Deref step
 # argument inference reads through, `&Vec<i32>` at `&[T]`) asks `Deref` over the concrete then the base
 # struct name — the same two probes the method autoderef loop already makes.
@@ -733,14 +741,13 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # resolves ("Send", "Sync", "Unpin", "Fst") — the one place each is turned into
 # an identity, which is what the engine then compares.
 #ARGSCAN impl_trait_id 6 052a7a0c
-#ARGSCAN resolve 2 8a6a5ca7
-#ARGSCAN satisfies 15 0272b985
 # 2026-09-27, ADR 0030 L0 slice 2b: 1 -> 2, roster fae8a925 -> f4b78dc7 — `?`'s E0277 asks for a
 # "Try" impl before the Try dispatch. A bare trait name, as the existing "Hash" row; binding Try as
 # a lang item is the S10 step that lowers `?` through lang items.
-#ARGSCAN sema_has_impl_recursive 2 f4b78dc7
+# 2026-10-05, ADR 0030 S9 row 4: the same two bare trait names ("Try", "Hash") move from
+# sema_has_impl_recursive() to implements_() — the C-OBL question, asked with the trait as written.
+#ARGSCAN implements_ 2 f4b78dc7
 #ARGSCAN string 2 d2bde611
-#ARGSCAN trace_satisfies 1 ff245904
 #ARGSCAN try_prelude 3 80fa0975
 #ARGSCAN try_prelude_variant 3 80fa0975
 #ARGSCAN try_variant 4 c4d77dbf

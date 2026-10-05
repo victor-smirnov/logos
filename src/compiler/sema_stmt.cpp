@@ -2475,7 +2475,7 @@ std::optional<lir::LExprPtr> SemaChecker::op_assign_call_(TypeRef pt, const std:
     const SemaFuncInfo* fit = nullptr;
     std::string mangled = type_name + "__" + amethod;
     auto mut_ref_t = make_ref(true, pt);
-    if (has_impl(atrait, type_name) || (!base_name.empty() && has_impl(atrait, base_name)))
+    if (implements_(atrait, pt))
         fit = find_op_assign_impl(mangled, mut_ref_t, pt, rhs);
     if (!fit) {
         error(std::format("binary assignment operation `{}=` cannot be applied to type `{}` (E0368)",
@@ -2626,8 +2626,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
             if (arr_type && TypeRef(arr_type).kind() == LogosType::Kind::Struct) {
                 auto type_name = concrete_struct_name(arr_type);
                 auto base_name = std::string(TypeRef(arr_type).struct_name());
-                bool has_im = has_impl("IndexMut", type_name) ||
-                              (!base_name.empty() && has_impl("IndexMut", base_name));
+                bool has_im = implements_lang_("index_mut", arr_type);
                 if (has_im) {
                     if (!lookup_is_mut(arr_name))
                         error(std::format("index compound assign to immutable struct '{}'", arr_name));
@@ -7859,8 +7858,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         return std::nullopt;
     auto type_name = concrete_struct_name(arr_type);
     auto base_name = std::string(TypeRef(arr_type).struct_name());
-    bool has_im = has_impl("IndexMut", type_name) ||
-                  (!base_name.empty() && has_impl("IndexMut", base_name));
+    bool has_im = implements_lang_("index_mut", arr_type);
     if (!has_im) return std::nullopt;
     if (!lookup_is_mut(arr_name))
         error(std::format("index write to immutable struct '{}'", arr_name));
@@ -8065,10 +8063,8 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
             if (at_ && TypeRef(at_).kind() == LogosType::Kind::Struct) {
                 auto tn_ = concrete_struct_name(at_);
                 auto bn_ = std::string(TypeRef(at_).struct_name());
-                bool hix_ = has_impl("Index", tn_) ||
-                            (!bn_.empty() && has_impl("Index", bn_));
-                bool him_ = has_impl("IndexMut", tn_) ||
-                            (!bn_.empty() && has_impl("IndexMut", bn_));
+                bool hix_ = implements_lang_("index", at_);
+                bool him_ = implements_lang_("index_mut", at_);
                 if (hix_ && !him_) {
                     error(std::format("cannot assign to index of '{}': type "
                                       "'{}' implements `Index` but not "
@@ -8148,8 +8144,7 @@ lir_view::StmtRef SemaChecker::lower_place_assign(TinyMapView node) {
                 // pointer buffer stays manual.
                 if (recv_t && (TypeRef(recv_t).kind() == LogosType::Kind::Slice ||
                                (TypeRef(recv_t).kind() == LogosType::Kind::Struct &&
-                                (has_impl("IndexMut", concrete_struct_name(recv_t)) ||
-                                 has_impl("IndexMut", std::string(TypeRef(recv_t).struct_name())))))) {
+                                implements_lang_("index_mut", recv_t)))) {
                     via_index_mut = true;
                     break;
                 }
