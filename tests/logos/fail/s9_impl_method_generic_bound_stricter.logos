@@ -1,0 +1,11 @@
+// ADR 0030 S9 row 7: a bound on the impl method's own type parameter that the trait's declaration does not imply is E0276 (rustc 1.98.1: "impl has stricter requirements than trait").
+package s9_impl_method_generic_bound_stricter;
+trait Show { fn show(self: &Self) -> i32; }
+trait Tr { fn f<T>(self: &Self, t: T) -> i32; }
+struct S { x: i32 }
+impl Tr for S {
+    fn f<T: Show>(self: &S, t: T) -> i32 { return t.show(); }
+}
+struct W { z: i32 }
+impl Show for W { fn show(self: &W) -> i32 { return 5; } }
+fn main() -> i32 { let s = S { x: 1 }; return s.f(W { z: 0 }); }

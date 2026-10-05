@@ -6724,6 +6724,39 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
 }
 
 // A where-clause's bounds folded onto the parameters they name; read_type_params_from does NOT call it (PROBES.md 2026-09-02u §3).
+// `where NotShow: Show` — a predicate on a concrete type (not a type parameter
+// in scope: the trait's `Item`, possibly substituted for a synthesized default,
+// is not one) must hold; checked once every impl is collected (E0277).
+void SemaChecker::record_concrete_where_(TinyMapView constraint, TypeRef subj, const std::string& tname) {
+    if (!subj || current_type_params_.count(tname) || !constraint.has_key(la::ITEMS)) return;
+    auto cb = arr_of(constraint.get(la::ITEMS.code));
+    for (uint64_t b = 0; b < cb.size(); ++b) {
+        auto bnode = map_of(cb.get(b));
+        if (code_of(bnode) != la::TRAIT_BOUND) continue;
+        TraitBound tb;
+        tb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+        read_trait_bound_args(bnode, tb);
+        resolve_bound_trait_(tb);
+        uint32_t line = get_line(bnode);
+        concrete_where_.push_back({subj, std::move(tb), ctx_, file_, line ? line : get_line(constraint)});
+    }
+}
+
+// The same for a signature with no `<...>` list (nothing to fold onto).
+void SemaChecker::record_concrete_where_clauses_(TinyMapView node) {
+    if (!node.has_key(la::WHERE) || node.get(la::WHERE.code).is_null()) return;
+    auto wnode = map_of(node.get(la::WHERE.code));
+    if (!wnode.has_key(la::ITEMS)) return;
+    auto witems = arr_of(wnode.get(la::ITEMS.code));
+    for (uint64_t i = 0; i < witems.size(); ++i) {
+        auto constraint = map_of(witems.get(i));
+        if (code_of(constraint) != la::TYPE_PARAM || !constraint.has_key(la::NAME)) continue;
+        auto tname = std::string(str_of(constraint.get(la::NAME.code)));
+        if (current_type_params_.count(tname)) continue;
+        record_concrete_where_(constraint, lookup_type_by_name(tname), tname);
+    }
+}
+
 void SemaChecker::fold_where_bounds(TinyMapView node, std::vector<TypeParam>& result) {
     if (node.has_key(la::WHERE)) {
         AnyVal wav = node.get(la::WHERE.code);
@@ -6798,7 +6831,10 @@ void SemaChecker::fold_where_bounds(TinyMapView node, std::vector<TypeParam>& re
                         // the concrete type, inflating the fn's type_params
                         // → "could not infer all type arguments". Skip the
                         // concrete subject.
-                        if (lookup_type_by_name(tname)) continue;
+                        if (TypeRef subj = lookup_type_by_name(tname)) {
+                            record_concrete_where_(constraint, subj, tname);
+                            continue;
+                        }
                         // An undeclared subject is E0412, never a new parameter. PROBES.md 2026-09-13f-declarrivalland.
                         if (!where_subject_check_deferred_) error(std::format("unknown type '{}'", tname));
                         continue;
@@ -6832,6 +6868,7 @@ std::vector<TypeParam> SemaChecker::read_type_params(TinyMapView node) {
                           map_of(node.get(la::TYPE_PARAMS.code)).has_key(la::ITEMS);
     if (!has_list) {
         check_where_subjects_resolve_(node);
+        record_concrete_where_clauses_(node);
         return result;
     }
     AnyVal tpav = node.get(la::TYPE_PARAMS.code);

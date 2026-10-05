@@ -7014,6 +7014,13 @@ private:
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;
     std::vector<std::string> current_trait_tparams_;   // ... and its type parameters
+    // `where i32: Show` — a predicate on a concrete type: it must hold (E0277),
+    // checked once every impl is collected (check_concrete_where_).
+    struct ConcreteWhere { TypeRef subject; TraitBound bound; std::string ctx, file; uint32_t line; };
+    std::vector<ConcreteWhere> concrete_where_;
+    void check_concrete_where_();
+    void record_concrete_where_(sema_detail::TinyMapView constraint, TypeRef subj, const std::string& tname);
+    void record_concrete_where_clauses_(sema_detail::TinyMapView node);
     // Phase 6 (GAT projection): current impl's trait name, set during
     // collect_impl + lower_impl_block. Lets `Self::Item<X>` inside an
     // impl method body resolve through the impl's trait (the impl

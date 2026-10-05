@@ -612,6 +612,22 @@ constants keyed by the target's spelling (inherent impls are not C-OBL facts),
 mono's GAT parameters (its L-IR assoc entries carry none); the `$G` trait-
 argument suffix remains in symbol names (row 8's mangler).
 
+Row (7), deferred obligations: an instantiation's obligations are C-OBL
+selections by the bound's identity at its substituted arguments
+(`bound_holds_`) — method_bound_ok's own engine (auto traits matched by
+spelling, the `&[u8]`→`str` rewrite, the HRTB impl lookup by trait spelling:
+regions are sema's question) and the enum-template instantiation's bound loop
+are deleted. Sema refuses first, as rustc: an impl method requiring more of
+its own type parameters than the trait's declaration implies (directly, by a
+declared `where`, or through a supertrait) is E0276, and a `where` clause on a
+concrete type that does not hold is E0277 (checked once every impl is
+collected; a type parameter in scope — the trait's `Item`, substituted for a
+synthesized default — is not one). Squeue #539 and #641 closed. Mono still
+skips an instance whose obligations fail where that is an absence, not an
+error: a struct instance's methods expanded eagerly, the bound-discriminated
+twins of one method; an instance a call demands that no impl provides is row
+(2)'s mlir miss, an internal error.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

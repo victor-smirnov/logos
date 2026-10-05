@@ -1,0 +1,1 @@
+has stricter requirements than the trait: `X: Clone` (E0276)

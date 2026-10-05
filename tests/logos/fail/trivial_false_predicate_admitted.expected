@@ -1,0 +1,1 @@
+the trait bound `i32: Trait` is not satisfied (E0277)

@@ -1,0 +1,22 @@
+// Closed squeue impl_method_extra_bound_admitted (#539): impl-method bounds must be implied by the trait method's declaration (E0276), ADR 0030 S9 row 7.
+package impl_method_extra_bound_admitted;
+
+trait Doer {
+    fn doit<X>(self, v: X) -> i32;
+}
+
+struct Foo { x: i32 }
+struct NoClone { y: i32 }
+
+impl Doer for Foo {
+    fn doit<X: Clone>(self, v: X) -> i32 { self.x }
+}
+
+fn call_it<D: Doer>(d: D, n: NoClone) -> i32 {
+    d.doit(n)
+}
+
+fn main() -> i32 {
+    let f = Foo { x: 5 };
+    call_it(f, NoClone { y: 1 })
+}

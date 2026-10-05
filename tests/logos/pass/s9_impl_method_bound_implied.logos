@@ -1,0 +1,25 @@
+// ADR 0030 S9 row 7, the admit twin of fail/s9_impl_method_generic_bound_stricter:
+// the impl method's bound is implied by the declaration's (`T: Shape` where the
+// trait says `T: Solid`, `Solid: Shape`; and a `where` written either way), and
+// a `where` on a concrete type that holds is accepted. rustc 1.98.1 accepts it.
+package s9_impl_method_bound_implied;
+
+trait Shape { fn sides(self: &Self) -> i32; }
+trait Solid: Shape { fn faces(self: &Self) -> i32; }
+trait Tr {
+    fn f<T: Solid>(self: &Self, t: T) -> i32;
+    fn g<T>(self: &Self, t: T) -> i32 where T: Solid;
+}
+struct Cube { e: i32 }
+impl Shape for Cube { fn sides(self: &Cube) -> i32 { return 4; } }
+impl Solid for Cube { fn faces(self: &Cube) -> i32 { return 6; } }
+struct S { x: i32 }
+impl Tr for S {
+    fn f<T: Shape>(self: &S, t: T) -> i32 { return t.sides(); }
+    fn g<T: Solid>(self: &S, t: T) -> i32 { return t.faces(); }
+}
+fn h() -> i32 where Cube: Solid { return 1; }
+fn main() -> i32 {
+    let s = S { x: 0 };
+    return s.f(Cube { e: 1 }) * 10 + s.g(Cube { e: 1 }) + h() * 100;
+}

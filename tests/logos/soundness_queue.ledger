@@ -226,8 +226,6 @@ generic_param_leaks_into_nested_item_admitted 2 tests/soundness/open/generic_par
 
 generic_trait_multi_impl_dispatch_refused 2 tests/soundness/open/generic_trait_multi_impl_dispatch_refused refuses
 
-impl_method_extra_bound_admitted 2 tests/soundness/open/impl_method_extra_bound_admitted admits
-
 let_else_nondiverging_else_admitted 2 tests/soundness/open/let_else_nondiverging_else_admitted admits
 
 match_guard_temp_drop_timing_wrong 2 tests/soundness/open/match_guard_temp_drop_timing_wrong run 0
@@ -337,8 +335,6 @@ std_hint_attrs_unrecognized_admitted 4 tests/soundness/open/std_hint_attrs_unrec
 struct_valued_const_pattern_refused 4 tests/soundness/open/struct_valued_const_pattern_refused refuses
 
 test_attr_fn_legality_unchecked_admitted 4 tests/soundness/open/test_attr_fn_legality_unchecked_admitted admits
-
-trivial_false_predicate_admitted 4 tests/soundness/open/trivial_false_predicate_admitted admits
 
 tuple_unsized_tail_refused 4 tests/soundness/open/tuple_unsized_tail_refused refuses
 
@@ -455,5 +451,5 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
-# TOTAL 138
-# SYNC-HASH b71da67a4044fe466c3a7b05ad8031e3
+# TOTAL 136
+# SYNC-HASH c4cf176536eefe2de3c32e931462f4dc

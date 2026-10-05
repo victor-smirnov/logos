@@ -1,0 +1,14 @@
+// Closed squeue trivial_false_predicate_admitted (#641): a where-clause on a concrete type must hold (E0277), checked once every impl is collected, ADR 0030 S9 row 7.
+package trivial_false_predicate_admitted;
+
+trait Trait {
+    fn m(&self) -> i32;
+}
+
+fn f() -> i32 where i32: Trait {
+    0
+}
+
+fn main() -> i32 {
+    0
+}

@@ -323,7 +323,11 @@
 # 2026-10-04, ADR 0030 S9 row 4: mono_clone.cpp 101 -> 95, roster 5e58a46b -> 34625115 — mono's
 # satisfaction engine (mono_concrete_satisfies_bound's body: auto traits by spelling, `$slice$` / `$ref_` /
 # `$tuple$` / `&[u8]`->`str` keys) is deleted; every mono gate asks C-OBL (obligation.hpp) by identity.
-#SCAN mono_clone.cpp 95 34625115
+# 2026-10-05, ADR 0030 S9 row 7: mono_clone.cpp 95 -> 94, roster 34625115 -> 6808f6ab — method_bound_ok's and the enum-template
+# instantiation's own bound loops (auto traits matched by `td.name() == trait_name`, the HRTB impl lookup by
+# `cand.trait_name() == tb.trait_name`, the `&[u8]`->`str` rewrite) are deleted: an instantiation's
+# obligations are C-OBL selections by the bound's identity (bound_holds_).
+#SCAN mono_clone.cpp 94 6808f6ab
 # 2026-09-27, ADR 0030 L0 slice 2a: UnsafeCell / PhantomPinned / Box / Rc / Arc / the atomic Ordering
 # are asked by lang identity (type_is_lang_item[_exact]); the bare-name tests leave: mono_impl.hpp 15 -> 14
 # (is_stdlib_box).

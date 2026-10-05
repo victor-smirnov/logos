@@ -859,6 +859,9 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
     // vs-Rust divergence for porting scalar-only structs.
     compute_auto_copy_types();
 
+    // `where <concrete type>: Trait` must hold (E0277); Copy is decided above.
+    check_concrete_where_();
+
     // M5 step 3b+5: record only BINARY holders. User holders intentionally
     // skipped — user ASTs must re-walk every call so strict-mode validation
     // fires for them (e.g. fail-tests expecting "unknown type" diags) and
@@ -4996,6 +4999,58 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (sig_match) { matching = c; break; }
                 }
                 if (matching) {
+                    // E0276: the impl's method may not require more of its own type
+                    // parameters than the trait's declaration does (by position; a
+                    // bound the declaration implies through a supertrait counts).
+                    {
+                        auto own = [&](const std::vector<TypeParam>& tps, auto&& outer) {
+                            std::vector<const TypeParam*> r;
+                            for (auto& tp : tps) {
+                                bool o = false;
+                                for (auto& x : outer) o = o || x.name == tp.name;
+                                if (!o) r.push_back(&tp);
+                            }
+                            return r;
+                        };
+                        auto ip = own(matching->type_params, impl_tps);
+                        auto dp = own(m.type_params, tit->type_params);
+                        for (size_t pi = 0; pi < ip.size(); ++pi)
+                            for (auto& b : ip[pi]->bounds) {
+                                if (b.is_relaxed || b.on_ref_subject) continue;
+                                const std::string bid = bound_identity_(b);
+                                bool implied = false;
+                                std::vector<const TraitBound*> work;
+                                std::vector<TraitBound> declared_where;   // the declaration's `where T: B`
+                                if (pi < dp.size()) {
+                                    for (auto& db : dp[pi]->bounds) work.push_back(&db);
+                                    for (auto& wb : m.where_param_bounds)
+                                        if (wb.param_name == dp[pi]->name) {
+                                            TraitBound tb;
+                                            tb.trait_name = wb.trait_name;
+                                            tb.canonical_trait = wb.canonical_trait;
+                                            tb.identity_trait = wb.identity_trait;
+                                            tb.trait_def = wb.trait_def;
+                                            declared_where.push_back(std::move(tb));
+                                        }
+                                    for (auto& tb : declared_where) work.push_back(&tb);
+                                }
+                                std::set<std::string> walked;
+                                while (!work.empty() && !implied) {
+                                    const TraitBound* db = work.back();
+                                    work.pop_back();
+                                    const std::string did = bound_identity_(*db);
+                                    if (!walked.insert(did).second) continue;
+                                    implied = did == bid;
+                                    if (const SemaTraitInfo* sti = db->trait_def ? trait_info(db->trait_def) : nullptr)
+                                        for (auto& sup : sti->supertraits) work.push_back(&sup);
+                                }
+                                if (!implied) node_line_ = get_line(node);
+                                if (!implied)
+                                    error(std::format("impl {} for {}: method '{}' has stricter requirements than the "
+                                                      "trait: `{}: {}` (E0276)", trait_name, target, m.name,
+                                                      ip[pi]->name, b.trait_name));
+                            }
+                    }
                     if (early_bound_lts_(m.lifetime_params, m.lifetime_outlives, m.type_params) !=
                         early_bound_lts_(matching->lifetime_params, matching->lifetime_outlives, matching->type_params))
                         error(std::format("impl {} for {}: lifetime parameters or bounds on method '{}' do not match the trait declaration (E0195)",
@@ -7107,6 +7162,21 @@ void SemaChecker::trait_vtable_layout(
             method_order.push_back({tn, &m});
     };
     walk(trait);
+}
+
+void SemaChecker::check_concrete_where_() {
+    std::set<std::string> seen;   // collection may fold one clause more than once
+    const std::string saved_ctx = ctx_, saved_file = file_;
+    const uint32_t saved_line = node_line_;
+    for (auto& w : concrete_where_) {
+        const std::string id = bound_identity_(w.bound);
+        if (!seen.insert(std::format("{}:{}:{}:{}", w.file, w.line, type_str(w.subject), id)).second) continue;
+        if (obl::select(obl_table_now_(), obl_env_(), id, w.subject, w.bound.type_args).holds()) continue;
+        ctx_ = w.ctx; file_ = w.file; node_line_ = w.line;
+        error(std::format("the trait bound `{}: {}` is not satisfied (E0277)", type_str(w.subject), w.bound.trait_name));
+    }
+    concrete_where_.clear();
+    ctx_ = saved_ctx; file_ = saved_file; node_line_ = saved_line;
 }
 
 void SemaChecker::check_supertrait_impls() {

@@ -4937,222 +4937,44 @@ bool Mono::mono_concrete_satisfies_bound(const TraitQuery& q,
     return obl_memo_[std::move(key)] = sel.holds();
 }
 
+// ADR 0030 S9 row 7: one obligation of an instantiation — a type parameter's
+// bound at its argument — asked of C-OBL. A still-generic argument defers (the
+// enclosing instantiation decides); so does a trait argument that mentions one.
+bool Mono::bound_holds_(lir_view::FnTraitBoundView b, TypeRef concrete, const SubstMap& s) {
+    if (!concrete || contains_typevar(concrete)) return true;
+    const TypePoolImpl* pool = out_.type_pool.impl();
+    std::vector<TypeRef> args;
+    for (auto a : b.type_args(pool)) args.push_back(a ? subst_type(a, s) : a);
+    const std::string written(b.trait_name());
+    if (!b.identity_trait().empty())
+        return obl::select(obl_table_now_(), obl_env_(), b.identity_trait(), concrete, args).holds();
+    for (auto& id : bare_trait_identities_(written))
+        if (obl::select(obl_table_now_(), obl_env_(), id, concrete, args).holds()) return true;
+    return false;
+}
+
+// The obligations of a method instance: its impl's parameters' bounds at their
+// arguments, and its `where` clauses at their substituted subjects (§8.5: `fn
+// max() where Item: Ord` on `impl<T> Iterator<&T> for VecIter<T>`).
 bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
-    auto* mbo_pool = out_.type_pool.impl();
-    // §8.5: type-EXPRESSION where-bounds (`fn max() where Item: Ord` on
-    // `impl<T> Iterator<&T> for VecIter<T>` → subject `&T`). Substitute the
-    // subject with this clone's args and check satisfaction. This is the
-    // gate sema deferred for compound Items: it admits `&i32: Ord` (VecIter)
-    // and rejects `EnumPair<i32>: Ord` / `[i32;0]: Ord` (EnumIter /
-    // ArrayChunksIter) so their `max`/`min` are never synthesised.
-    bool wbad = false;
+    auto* pool = out_.type_pool.impl();
+    bool ok = true;
     m.each_where_bound([&](lir_view::FnWhereBoundView wb) {
-        if (wbad) return;
-        TypeRef subj = subst_type(wb.subject(mbo_pool), s);
-        if (!subj) return;
-        // Still-abstract after subst (nested call where the impl param is
-        // itself a TypeVar): defer — an outer mono pass resolves it.
-        if (contains_typevar(subj)) return;
+        if (!ok) return;
+        TypeRef subj = subst_type(wb.subject(pool), s);
+        if (!subj || contains_typevar(subj)) return;
         StrSet seen;
-        if (!mono_concrete_satisfies_bound(std::string(wb.trait()), subj, seen)) wbad = true;
+        ok = mono_concrete_satisfies_bound(std::string(wb.trait()), subj, seen);
     });
-    if (wbad) return false;
     for (auto& itp : m.impl_type_params()) {
-        if (itp.bounds_empty()) continue;
+        if (!ok) break;
         auto sit = s.find(std::string(itp.name()));
-        if (sit == s.end()) continue;
-        TypeRef concrete = sit->second;
-        if (!concrete) continue;
-        std::string cname;
-        if (TypeRef(concrete).kind() == LogosType::Kind::Struct ||
-            TypeRef(concrete).kind() == LogosType::Kind::ZonedStruct)
-            cname = concrete_struct_name(concrete);
-        else if (TypeRef(concrete).kind() == LogosType::Kind::Enum)
-            cname = TypeRef(concrete).enum_name();
-        else if (TypeRef(concrete).kind() == LogosType::Kind::Tuple)
-            // Tuple impls key on `$tuple$N` (see mono_concrete_satisfies_bound);
-            // keeps the HRTB impl lookup below consistent for tuple concretes.
-            cname = "$tuple$" +
-                    std::to_string(TypeRef(concrete).tuple_elems().size());
-        else
-            cname = type_str(concrete);
-        if (auto p = cname.find("$G"); p != std::string::npos)
-            cname = cname.substr(0, p);
-        // Cycle-guard + per-attempt seen semantics live in
-        // mono_has_impl_recursive (factored for reuse at mono_subst.cpp's
-        // assoc-type fallback).
-        // Deeper variant: when the concrete type has type-args, the
-        // bare-name lookup above can lie ("Vec impls Debug" without
-        // checking T satisfies its own bound). Recurse via
-        // mono_concrete_satisfies_bound; see
-        // [[baghunt-mono-blanket-bound-recursion]].
-        auto concrete_has_impl = [&](const TraitQuery& q) {
-            StrSet seen;
-            return mono_concrete_satisfies_bound(q, concrete, seen);
-        };
-        struct MBound {
-            std::string trait_name;
-            // The bound's always-qualified trait identity (TB_IDENTITY), so a
-            // bound checked here asks for ONE trait's facts. The raw spelling
-            // is kept beside it because auto-trait lookup and the trait-decl
-            // scan below are keyed by the DECLARED name.
-            std::string identity;
-            bool is_fn_family;
-            std::vector<TypeRef> type_args;
-            std::vector<std::string> hrtb_binders;
-        };
-        std::vector<MBound> itp_bounds;
-        itp.each_bound([&](lir_view::FnTraitBoundView tbv) {
-            MBound mb;
-            mb.trait_name = std::string(tbv.trait_name());
-            mb.identity   = std::string(tbv.identity_trait());
-            mb.is_fn_family = tbv.is_fn_family();
-            mb.type_args = tbv.type_args(mbo_pool);
-            for (auto b : tbv.hrtb_binders()) mb.hrtb_binders.push_back(std::string(b));
-            itp_bounds.push_back(std::move(mb));
+        if (sit == s.end() || !sit->second) continue;
+        itp.each_bound([&](lir_view::FnTraitBoundView b) {
+            if (ok) ok = bound_holds_(b, sit->second, s);
         });
-        for (auto& tb : itp_bounds) {
-            // Fn / FnMut / FnOnce parenthesized bounds are compiler-
-            // intrinsic — satisfied by any fn-pointer or closure type
-            // (per sema_collect.cpp:982; mono's trait engine has no
-            // FnMut-for-fn-ptr impl registered). Without this short-
-            // circuit method_bound_ok returns false and the impl
-            // method silently disappears from dispatch. See
-            // [[baghunt-mapiter-fn-param-mono-loop]].
-            //
-            // TypeVar passes too: this happens in nested generic
-            // calls (e.g. `reduce` → `fold` where F is still
-            // `ReduceFn` TypeVar at fold's mono-enqueue site —
-            // the outer reduce's own mono will resolve it later);
-            // struct-with-Fn-impl also accepted (see Deferred-2
-            // bridge in the ClosureCall handler).
-            if (tb.is_fn_family) {
-                auto k = TypeRef(concrete).kind();
-                if (LogosType::is_fn_value_kind(k) ||
-                    k == LogosType::Kind::Closure ||
-                    k == LogosType::Kind::TypeVar ||
-                    k == LogosType::Kind::Struct ||
-                    k == LogosType::Kind::ZonedStruct)
-                    continue;
-                return false;
-            }
-            bool is_auto = false;
-            for (auto& td : out_.traits)
-                if (td.name() == tb.trait_name) { is_auto = td.is_auto(); break; }
-            if (is_auto) {
-                StrSet visited;
-                if (!is_auto_satisfied(concrete, tb.trait_name, visited))
-                    return false;
-                continue;
-            }
-            // Asks with BOTH spellings: the fact tables by IDENTITY, the
-            // legacy out_.impls scans and the auto-trait names by the WRITTEN
-            // name. An earlier attempt narrowed this to the identity ALONE and
-            // broke the stdlib build —
-            //   'Vec$G1$tup$3$slice_u8$i64$slice_u8__fmt' does not reference a
-            //   valid function
-            // — because those scans still compared spellings, so the query went
-            // unanswered and a legitimate method was DROPPED, the same
-            // false-negative direction the bare aliases used to hedge. The
-            // tables were identity-keyed FIRST (TraitQuery::matches); only then
-            // could this carry both.
-            if (!concrete_has_impl(TraitQuery(tb.trait_name, tb.identity)))
-                return false;
-            // B62/B63: HRTB satisfaction — universal-position + bijectivity
-            // checks. Bound binders (any non-empty, non-'static lifetime in
-            // type_args) must align with impl-level lifetime params, and the
-            // skolem↔impl-region mapping must be 1-1. See sema_collect.cpp's
-            // region_ok for the full rule.
-            if (!tb.type_args.empty()) {
-                lir_view::ImplView ib{};
-                for (auto& cand : out_.impls) {
-                    if (cand.trait_name() == tb.trait_name &&
-                        cand.target_type() == cname) { ib = cand; break; }
-                }
-                auto ib_tta = ib ? ib.trait_type_args(mbo_pool) : std::vector<TypeRef>{};
-                auto ib_lt_params = ib ? ib.impl_lifetime_params() : std::vector<std::string_view>{};
-                auto ib_outlives = ib ? ib.lifetime_outlives()
-                                      : std::vector<std::pair<std::string_view, std::string_view>>{};
-                if (ib && !ib_tta.empty()) {
-                    std::unordered_map<std::string, std::string> i2s;
-                    auto univ = [&](const std::string& lt) {
-                        for (auto& nm : ib_lt_params)
-                            if (nm == lt) return true;
-                        return false;
-                    };
-                    auto unify = [&](const std::string& blt,
-                                     const std::string& ilt) -> bool {
-                        if (blt.empty() || blt == "static" || blt == "'static") {
-                            if (ilt == blt) return true;
-                            if (univ(ilt)) return true;
-                            return false;
-                        }
-                        if (!univ(ilt)) return false;
-                        auto b = i2s.emplace(ilt, blt);
-                        if (!b.second && b.first->second != blt) return false;
-                        return true;
-                    };
-                    std::function<bool(TypeRef, TypeRef)> walk =
-                        [&](TypeRef bt, TypeRef it) -> bool {
-                        if (!bt || !it) return true;
-                        bool b_ref = bt.kind() == LogosType::Kind::Ref ||
-                                     bt.kind() == LogosType::Kind::MutRef;
-                        bool i_ref = it.kind() == LogosType::Kind::Ref ||
-                                     it.kind() == LogosType::Kind::MutRef;
-                        if (b_ref && i_ref) {
-                            if (!unify(std::string(bt.lifetime()),
-                                       std::string(it.lifetime()))) return false;
-                            return walk(bt.pointee(), it.pointee());
-                        }
-                        if (bt.kind() != it.kind()) return true;
-                        if (bt.kind() == LogosType::Kind::Struct ||
-                            bt.kind() == LogosType::Kind::ZonedStruct ||
-                            bt.kind() == LogosType::Kind::Enum) {
-                            auto blts = bt.lifetime_args();
-                            auto ilts = it.lifetime_args();
-                            size_t nl = std::min(blts.size(), ilts.size());
-                            for (size_t i = 0; i < nl; ++i)
-                                if (!unify(blts[i], ilts[i])) return false;
-                            auto bts = bt.type_args();
-                            auto its = it.type_args();
-                            size_t nt = std::min(bts.size(), its.size());
-                            for (size_t i = 0; i < nt; ++i)
-                                if (!walk(bts[i], its[i])) return false;
-                        }
-                        return true;
-                    };
-                    size_t n = std::min(tb.type_args.size(),
-                                        ib_tta.size());
-                    for (size_t i = 0; i < n; ++i)
-                        if (!walk(TypeRef(tb.type_args[i]),
-                                  TypeRef(ib_tta[i]))) return false;
-                    // B85: skolemization-aware impl-where check. After the
-                    // unify pass, i2s maps each impl-lt that's bound to a
-                    // bound-side lifetime. If the impl has a where-clause
-                    // outlives `'a: 'b` and BOTH 'a and 'b are mapped to
-                    // bound-side binder lifetimes (i.e. skolems), the
-                    // constraint is unsatisfiable under universal quant —
-                    // reject. (If one side is mapped to 'static or to a
-                    // caller-named lifetime, the outlives may be discharged
-                    // elsewhere; conservatively allow.)
-                    auto is_binder_lt = [&](const std::string& lt) -> bool {
-                        for (auto& b : tb.hrtb_binders)
-                            if (b == lt) return true;
-                        return false;
-                    };
-                    for (auto& [longi, shorti] : ib_outlives) {
-                        auto lit = i2s.find(std::string(longi));
-                        auto sit = i2s.find(std::string(shorti));
-                        if (lit == i2s.end() || sit == i2s.end()) continue;
-                        if (lit->second == sit->second) continue;  // refl
-                        if (is_binder_lt(lit->second) && is_binder_lt(sit->second))
-                            return false;
-                    }
-                }
-            }
-        }
     }
-    return true;
+    return ok;
 }
 
 // Clone a struct def with substitution; rename to new_name.
@@ -6202,7 +6024,7 @@ void Mono::instantiate_enum_templates() {
                 // per-tp accesses below (was struct field iteration) work off
                 // a stable local rather than re-reading the View each time.
                 struct IetTBound {
-                    std::string trait_name;
+                    lir_view::FnTraitBoundView view;
                 };
                 struct IetTParam {
                     std::string name;
@@ -6215,7 +6037,7 @@ void Mono::instantiate_enum_templates() {
                     tpe.name = std::string(tpv.name());
                     tpe.is_variadic = tpv.is_variadic();
                     tpv.each_bound([&](lir_view::FnTraitBoundView tbv) {
-                        tpe.bounds.push_back({std::string(tbv.trait_name())});
+                        tpe.bounds.push_back({tbv});
                     });
                     fn_tparams.push_back(std::move(tpe));
                 });
@@ -6318,63 +6140,15 @@ void Mono::instantiate_enum_templates() {
                         }
                     }
                 }
-                // CP-cm-15: gate by type-param bound satisfaction. Without
-                // this, `impl<T: Echo> Echo for Option<T>` clones for EVERY
-                // Option<X> mono creates (incl. Option<&mut i32> arising
-                // from stdlib's `.take()` chains), even when X doesn't
-                // implement Echo. The clone's body method-dispatches on T
-                // and lowers to a wrong-arity call (`&mut i32` passed to a
-                // fn expecting `i32`), tripping mlir-gen verification.
-                //
-                // Bounds on impl-block-derived enum methods live in
-                // fn.type_params[i].bounds (impl_type_params is empty
-                // for this path — the impl's T flattens into the fn's
-                // type_params at sema-collect time). Mirror method_bound_ok
-                // logic against type_params.
+                // CP-cm-15: the impl's bounds at this enum instance (`impl<T: Echo>
+                // Echo for Option<T>` is no impl for `Option<&mut i32>`), asked of
+                // C-OBL. The impl's T is the fn's type parameter on this path.
                 bool bounds_ok = true;
                 for (auto& tp : fn_tparams) {
-                    if (tp.bounds.empty()) continue;
                     auto sit = fn_subst.find(tp.name);
-                    if (sit == fn_subst.end()) continue;
-                    TypeRef concrete = sit->second;
-                    if (!concrete) continue;
-                    std::string cname;
-                    auto ck = TypeRef(concrete).kind();
-                    if (ck == LogosType::Kind::Struct ||
-                        ck == LogosType::Kind::ZonedStruct)
-                        cname = concrete_struct_name(concrete);
-                    else if (ck == LogosType::Kind::Enum)
-                        cname = TypeRef(concrete).enum_name();
-                    else
-                        cname = type_str(concrete);
-                    if (auto p = cname.find("$G"); p != std::string::npos)
-                        cname = cname.substr(0, p);
-                    // &[u8] is the canonical wire form for str; impls
-                    // register under "str" in the trait engine.
-                    if (cname == "&[u8]") cname = "str";
-                    for (auto& tb : tp.bounds) {
-                        // Auto-trait check parity with method_bound_ok.
-                        bool is_auto = false;
-                        for (auto& td : out_.traits)
-                            if (td.name() == tb.trait_name) {
-                                is_auto = td.is_auto(); break;
-                            }
-                        if (is_auto) {
-                            StrSet visited;
-                            if (!is_auto_satisfied(concrete, tb.trait_name, visited)) {
-                                bounds_ok = false; break;
-                            }
-                            continue;
-                        }
-                        StrSet seen;
-                        // Recurse-aware: handles `impl<U: Bound> Trait
-                        // for Wrapper<U>` correctly when concrete is
-                        // Wrapper<X> with X not satisfying Bound.
-                        // See [[baghunt-mono-blanket-bound-recursion]].
-                        if (!mono_concrete_satisfies_bound(tb.trait_name, concrete, seen)) {
-                            bounds_ok = false; break;
-                        }
-                    }
+                    if (sit == fn_subst.end() || !sit->second) continue;
+                    for (auto& tb : tp.bounds)
+                        if (!(bounds_ok = bound_holds_(tb.view, sit->second, fn_subst))) break;
                     if (!bounds_ok) break;
                 }
                 if (!bounds_ok) continue;

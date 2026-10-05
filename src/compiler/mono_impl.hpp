@@ -1163,6 +1163,7 @@ private:
     // drain_method_worklist. Returns false when method `m`'s impl_type_params
     // bounds are not satisfied under substitution `s`.
     bool method_bound_ok(lir_view::FunctionView m, const SubstMap& s);
+    bool bound_holds_(lir_view::FnTraitBoundView b, TypeRef concrete, const SubstMap& s);
 
     // Recursive trait-satisfaction at mono-time: does `concrete_name`
     // implement `trait_name` directly via concrete_impls_, or transitively
