@@ -23,6 +23,14 @@ struct Bound {
     std::string param;
     std::string trait;               // identity `pkg::Trait`
     std::vector<TypeRef> args;       // may mention the impl's generics
+    // `param: trait<Name = T>`: the projection must equal T (over the generics).
+    std::vector<std::pair<std::string, TypeRef>> assoc_eqs;
+};
+
+struct AssocItem {
+    std::string name;
+    TypeRef type;
+    std::vector<std::string> params;   // a generic associated type's own type parameters
 };
 
 struct ImplFact {
@@ -32,8 +40,9 @@ struct ImplFact {
     std::vector<std::string> generics;
     std::string pack;                // the variadic generic (`impl<A...> Tr for (A...)`), or empty
     std::vector<Bound> bounds;
-    // The impl's associated types (`type Item = T;`), over its generics.
-    std::vector<std::pair<std::string, TypeRef>> assoc_types;
+    // The impl's associated types (`type Item = T;`, `type F<U> = Vec<U>;`), over
+    // its generics and the item's own parameters.
+    std::vector<AssocItem> assoc_types;
     bool negative = false;
     // A fact that answers only when no other impl does (Logos's `impl … for
     // str` facts: `str` IS `[u8]`, and a pattern over the same Self wins).
@@ -126,6 +135,7 @@ std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::s
 // `<self as trait<args>>::name`: the selected impl's item at its substitution;
 // nullopt when no impl answers, or two answer differently.
 std::optional<TypeRef> project(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
-                               const std::vector<TypeRef>& args, std::string_view name);
+                               const std::vector<TypeRef>& args, std::string_view name,
+                               const std::vector<TypeRef>& item_args = {});
 
 }  // namespace logos::compiler::obl

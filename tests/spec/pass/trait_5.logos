@@ -22,7 +22,7 @@ impl<T: B> Conv for T { fn conv(&self) -> i64 { return 1000i64; } }
 
 fn need_conv<T: Conv>(v: &T) -> i64 { return v.conv(); }
 
-// ── trait.satisfy.ref-self-mangling ──────────────────────────────────────────
+// ── trait.satisfy.blanket-recursive ──────────────────────────────────────────
 // `impl Trait for &T` registers under a $ref_-mangled key; a `&T` value
 // satisfies the bound and dispatches to the &T impl.
 trait RefT { fn rt(&self) -> i64; }
@@ -176,7 +176,7 @@ fn main() -> i64 {
         if need_conv(&s) != 1000i64 { return 1; }   // blanket Conv applies: S: B
     }
 
-    // @rule trait.satisfy.ref-self-mangling
+    // @rule trait.satisfy.blanket-recursive
     {
         let s: S = S { x: 0i64 };
         let r: &S = &s;

@@ -812,107 +812,76 @@ Exact-signature function lookup requires equal vararg-ness and param arity, and 
 
 ## `trait.resolve`
 
-### `trait.resolve.auto-impl-for-all` — Auto/marker trait holds for all types
-
-An auto-trait T (e.g. marker traits Copy/Send/Sync) holds unconditionally for every type, subject to negative carve-outs.
-
-*Source:* `src/compiler/trait_engine.hpp#L49-L55`, `src/compiler/trait_engine.hpp#L83`
-
-### `trait.resolve.blanket-and-bounds` — Blanket impl with conjunctive bounds
-
-A blanket impl `impl<S> T for S where S: B1 + ... + Bn` makes T hold for any type S iff S satisfies ALL bounds B1..Bn (AND-conjunction). An empty bound set degenerates to an unconditional impl-for-all.
-
-*Source:* `src/compiler/trait_engine.hpp#L39-L47`, `src/compiler/trait_engine.hpp#L78-L82`
-
-### `trait.resolve.blanket-conjunction` — Blanket impl bounds are an AND-conjunction
-
-A blanket impl blanket(T←{Tb1..Tbn}) derives satisfies(T,X) only if every bound trait Tbi satisfies satisfies(Tbi,X) for the same type X. An empty bound set {} is an unconditional impl-for-all-types of T.
-
-*Source:* `src/compiler/trait_engine.cpp#L104-L121`
-
-### `trait.resolve.blanket-first-match` — First fully-satisfied blanket wins
-
-When multiple blanket impls target the same trait T, the first one (in declaration/registration order) whose bounds are all satisfied is selected; remaining candidate blankets are not considered.
-
-*Source:* `src/compiler/trait_engine.cpp#L108-L121`
-
-### `trait.resolve.cycle-terminates-no-impl` — Cyclic blanket bounds resolve to no-impl on the cyclic path
-
-If resolving satisfies(T,X) recursively re-enters the same query (T,X) through a blanket-bound chain, that recursive path yields no impl rather than diverging, allowing outer rules to try alternatives; resolution always terminates.
-
-*Source:* `src/compiler/trait_engine.cpp#L89-L96`, `src/compiler/trait_engine.cpp#L14-L17`
+One solver answers every "does `Self: Trait<A…>` hold, and by which impl"
+question (ADR 0030 S9, C-OBL): sema and mono each build its impl table from
+the impls they see and ask it; what only a phase knows comes in through its
+environment.
 
 ### `trait.resolve.derivation-modes` — Trait satisfaction derivation modes
 
-satisfies(T, X) holds iff at least one derivation succeeds: (D) a direct impl fact impls(T,X); (B) a blanket impl blanket(T←{Tb...}) whose every bound Tb satisfies satisfies(Tb,X); (A) an auto impl auto(T) with no negative carve-out; or (S) a shape-auto impl shape_auto(T,S) whose predicate S(X) matches with no negative carve-out.
+`Self: Trait<A…>` holds iff one derivation succeeds: (I) an impl whose pattern unifies with Self and the arguments and whose own bounds hold at that substitution; (B) a compiler rule — `Sized` (every type but `[T]` / `dyn Tr`), `Copy` (scalars, shared references, raw and fn pointers, tuples and arrays of `Copy`), the Fn family (fn items, fn pointers, closures by their family and call shape, `&F` / `&mut F`), a trait object implementing its trait and its supertraits, an auto trait's structural rule; (P) a bound of the enclosing generic scope; (D) Self still carries an open inference variable — the answer waits. A negative impl that unifies refutes (I).
 
-*Source:* `src/compiler/trait_engine.cpp#L98-L148`, `src/compiler/trait_engine.cpp#L151-L153`
-
-### `trait.resolve.derived-impl-distinct-identity` — Derived auto/shape impls get a fresh stable impl identity per (trait,type)
-
-Auto and shape-auto derivations produce a fresh impl identity the first time a given (T,X) pair is queried; that identity is memoized so subsequent queries of the same pair compare equal.
-
-*Source:* `src/compiler/trait_engine.cpp#L125-L145`
+*Source:* `src/compiler/obligation.cpp`, `src/compiler/obligation.hpp`
 
 ### `trait.resolve.direct-impl-fact` — Direct impl fact
 
-A declaration `impl T for X` makes X satisfy trait T directly (a direct impl fact keyed by (T, X)).
+A declaration `impl T for X` makes X satisfy trait T directly: one fact (T's identity, X's pattern, the trait arguments written — or the trait's defaults when none are). The same impl collected twice is one fact.
 
-*Source:* `src/compiler/trait_engine.hpp#L31-L37`, `src/compiler/trait_engine.hpp#L76`
+*Source:* `src/compiler/obligation.hpp`, `src/compiler/sema_collect.cpp`, `src/compiler/mono_clone.cpp`
 
-### `trait.resolve.direct-impl-idempotent` — Duplicate direct impls collapse to one impl identity
+### `trait.resolve.blanket-and-bounds` — Blanket impl with conjunctive bounds
 
-Registering a direct impl for an already-implemented (T,X) pair does not create a new impl; the original impl identity is returned, so impls(T,X) names a single impl.
+A blanket impl `impl<S: B1 + ... + Bn> T for S` makes T hold for a type S iff S satisfies ALL bounds B1..Bn (AND-conjunction), each with its associated-type clauses (`S: Iterator<Item = u32>` needs the projection to be `u32`). An empty bound set degenerates to an unconditional impl-for-all. A bound on a parameter Self does not fix (the trait's own output parameter) is the call site's to discharge.
 
-*Source:* `src/compiler/trait_engine.cpp#L28-L37`
+*Source:* `src/compiler/obligation.cpp`
 
-### `trait.resolve.fact-monotonic-invalidation` — Adding a fact may flip previous negative results
+### `trait.resolve.overlap-ambiguous` — Two answering impls are ambiguous
 
-Adding any impl fact (direct, blanket, auto, shape-auto, or negative) invalidates all previously cached resolution results, because a prior 'no impl' may become satisfiable (or vice versa).
+When more than one impl answers, satisfaction holds (Ambiguous) but no impl is selected: a projection or an associated item asked of it has no answer, and an associated constant reached through two traits is refused (E0034). Logos's `impl Tr for str` facts answer only when no other impl does.
 
-*Source:* `src/compiler/trait_engine.cpp#L34`, `src/compiler/trait_engine.cpp#L48`, `src/compiler/trait_engine.cpp#L55`, `src/compiler/trait_engine.cpp#L62`, `src/compiler/trait_engine.cpp#L68`
+*Source:* `src/compiler/obligation.cpp`, `src/compiler/sema_collect.cpp`
+
+### `trait.resolve.cycle-terminates-no-impl` — An obligation that does not terminate does not hold
+
+Resolution nests at most 48 obligations deep; a deeper (cyclic) chain yields no impl on that path, so resolution always terminates.
+
+*Source:* `src/compiler/obligation.cpp`
+
+### `trait.resolve.fact-monotonic-invalidation` — Adding an impl rebuilds the table
+
+The impl table is rebuilt when the impl registry changes (sema's registry generation, mono's impl count), because a prior "no impl" may become satisfiable. The impl under collection is part of the table while its own items are checked against the trait.
+
+*Source:* `src/compiler/sema_collect.cpp`, `src/compiler/mono_clone.cpp`
 
 ### `trait.resolve.impl-id-dispatch-selection` — Resolution selects a concrete impl for dispatch
 
-resolve(T, X) yields the impl identity through which a call on X is dispatched, or NO_IMPL when no direct or derived impl exists; satisfaction and dispatch-selection are the same predicate (resolve = NO_IMPL iff not satisfies).
+`select(T, X)` yields how the obligation holds and, by impl, which impl and the substitution of its generics; trait items (methods, associated types, constants) are read from that impl. Satisfaction and selection are the same query.
 
-*Source:* `src/compiler/trait_engine.hpp#L101-L103`, `src/compiler/trait_engine.hpp#L28-L29`
+*Source:* `src/compiler/obligation.hpp`
 
-### `trait.resolve.memoization-stable-result` — Resolution result per (trait,type) is memoized and stable
+### `trait.resolve.memoization-stable-result` — A resolution is a function of the impl table
 
-satisfies(T,X) is a deterministic function of the current fact set: results (including negative/no-impl outcomes) are memoized per (T,X) pair and re-queries return the same answer until the fact set changes.
+`Self: Trait<A…>` is a deterministic function of the current impl table and environment; mono memoizes answers per table (cleared when the table is rebuilt).
 
-*Source:* `src/compiler/trait_engine.cpp#L85-L87`, `src/compiler/trait_engine.cpp#L99-L148`
+*Source:* `src/compiler/mono_clone.cpp`
 
-### `trait.resolve.negative-overrides` — Negative carve-out beats auto/shape facts
+### `trait.resolve.negative-priority` — A negative impl refutes the impl derivation
 
-A negative fact `X does NOT implement T` overrides (beats) any auto-impl or shape-auto-impl fact for (T, X); satisfies(T, X) is then false even if an auto/shape rule would otherwise derive it.
+A negative impl `impl !T for X` that unifies with Self makes the impl derivation fail for that Self, whatever positive impl also unifies; an auto trait's structural rule honours negative impls.
 
-*Source:* `src/compiler/trait_engine.hpp#L87-L90`
+*Source:* `src/compiler/obligation.cpp`
 
-### `trait.resolve.negative-priority` — Negative impls beat all derivations
+### `trait.resolve.priority-order` — Derivation order
 
-A negative fact !impls(T,X) makes satisfies(T,X) false unconditionally; it is checked before and overrides direct, blanket, auto and shape-auto derivations.
+For a concrete Self: the compiler rule (a rule's "no" still lets an explicit impl answer, `impl Copy for S`), then a trait object's own trait and supertraits, then impls; Logos's `Eq` / `Ord` answer `PartialEq` / `PartialOrd` (they carry the same methods). For a type parameter: the enclosing scope's bounds (with their supertraits), then the compiler rule, then a blanket impl over a bare parameter.
 
-*Source:* `src/compiler/trait_engine.cpp#L82-L83`, `src/compiler/trait_engine.cpp#L66-L70`
+*Source:* `src/compiler/obligation.cpp`
 
-### `trait.resolve.priority-order` — Fixed derivation priority order
+### `trait.resolve.satisfies-fixpoint` — Satisfaction is recursive selection
 
-Resolution tries derivations in strict order: negative carve-out (reject), then direct, then blanket, then auto, then shape-auto. The first kind that succeeds determines the result; later kinds are not consulted.
+An impl answers only when each of its own bounds is itself selected at the impl's substitution (recursively, depth-bounded); a variadic pack's bound is asked of every element.
 
-*Source:* `src/compiler/trait_engine.cpp#L98-L148`
-
-### `trait.resolve.recursive-bound-cycle-terminates` — Circular bound resolution terminates as unsatisfied
-
-Recursive bound resolution is cycle-guarded: a query (T, X) that re-asks itself through a circular blanket bound resolves that inner query as not-satisfied (NO_IMPL) rather than diverging, and the outer rule then decides.
-
-*Source:* `src/compiler/trait_engine.hpp#L145-L148`
-
-### `trait.resolve.satisfies-fixpoint` — Satisfaction by fixpoint closure
-
-satisfies(T, X) is decided by the least fixpoint over {direct, blanket, auto, shape-auto} facts minus negative facts: X satisfies T iff a direct fact (T,X) exists, or some applicable blanket/auto/shape rule derives it (transitively through bound resolution).
-
-*Source:* `src/compiler/trait_engine.hpp#L92-L99`, `src/compiler/trait_engine.hpp#L153-L156`
+*Source:* `src/compiler/obligation.cpp`
 
 ### `trait.resolve.scope-aware-supertrait-name` — Supertrait/trait bare-name resolution is scope-aware, not first-match
 
@@ -920,31 +889,13 @@ Resolving a trait name (root or supertrait) during vtable-layout construction pr
 
 *Source:* `src/compiler/sema_collect.cpp#L5122-L5127`
 
-### `trait.resolve.shape-auto-predicate-on-typename` — Shape-auto impls match by a predicate over the type name
-
-A shape-auto impl applies to type X iff its shape predicate evaluates true on X's type name; a shape-auto impl with no predicate never matches.
-
-*Source:* `src/compiler/trait_engine.cpp#L136-L145`
-
-### `trait.resolve.shape-conditioned-auto` — Shape-conditioned auto-impl
-
-A shape-conditioned auto-impl makes trait T hold for every type whose structural shape matches a predicate S (e.g. `Fn`-family for every closure type), subject to negative carve-outs.
-
-*Source:* `src/compiler/trait_engine.hpp#L57-L69`, `src/compiler/trait_engine.hpp#L84-L85`
-
 ## `trait.satisfy`
 
-### `trait.satisfy.blanket-recursive` — Recursive impl satisfaction with blanket chains
+### `trait.satisfy.blanket-recursive` — Satisfaction is C-OBL selection
 
-A type satisfies a trait if a direct impl exists (by primary or alternate mangled key), or a blanket impl `impl<T: B> Trait for T` applies whose bound trait B (and all extra bounds) are themselves recursively satisfied by the type. A cycle-guard set prevents infinite recursion; each blanket candidate uses a per-attempt copy of the seen-set so a failed sibling does not poison later candidates. An unbounded blanket (`impl<T> Trait for T`) trivially satisfies any type.
+Every satisfaction question of sema and mono — bound checks, supertrait parity, the default-method where-gate, blanket method viability, trait items — is a C-OBL selection by the trait's identity (`trait.resolve.*`). `&T` reaches an `impl … for &T` pattern structurally; there is no spelled-key probe.
 
-*Source:* `src/compiler/sema_collect.cpp#L764-L806`
-
-### `trait.satisfy.ref-self-mangling` — Reference-Self impls keyed by $ref_/$mut_ref_ mangling
-
-An `impl Trait for &T` / `&mut T` registers under a mangled key (`$ref_`/`$mut_ref_` prefix); a query whether `&T` impls Trait matches both the full-string pointee form (`$ref_&i32`) and the bare-name pointee form (`$ref_Foo`).
-
-*Source:* `src/compiler/sema_collect.cpp#L776-L788`
+*Source:* `src/compiler/sema_collect.cpp`, `src/compiler/obligation.cpp`
 
 ## `trait.dispatch`
 
@@ -1302,7 +1253,7 @@ A per-method `where` bound whose subject is a trait type-parameter (e.g. `where 
 
 ### `trait.default-method.conditional-where-gate` — Per-method where-clause gates conditional default synthesis
 
-A trait default method with per-method where-bounds (`param_name: trait_name` pairs referring to the trait's own type params) is synthesized for a given non-blanket impl only if, for every bound whose trait-param maps to a fully concrete impl trait-argument, that concrete argument satisfies the bound trait (via the recursive impls_ probe `sema_has_impl_recursive`). Any bound found unsatisfied silently skips synthesis of the default for this impl.
+A trait default method with per-method where-bounds (`param_name: trait_name` pairs referring to the trait's own type params) is synthesized for a given non-blanket impl only if, for every bound whose trait-param maps to a fully concrete impl trait-argument, that concrete argument satisfies the bound trait (a C-OBL selection). Any bound found unsatisfied silently skips synthesis of the default for this impl.
 
 *Source:* `src/compiler/sema_decl.cpp#L2361-L2422`
 

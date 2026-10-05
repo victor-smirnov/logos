@@ -54,7 +54,7 @@ fn main() -> i64 {
     }
 
     // @rule trait.resolve.blanket-and-bounds
-    // @rule trait.resolve.blanket-conjunction
+    // @rule trait.resolve.blanket-and-bounds
     // A blanket `impl<T: A + B> Combined for T` derives only when T satisfies
     // ALL bounds (A AND B). `Both` is both, so the blanket method dispatches and
     // sees both bound methods.
@@ -86,7 +86,7 @@ fn main() -> i64 {
         if apply(cl, 3i64) != 4i64 { return 8; }                // (S) shape-auto Fn
     }
 
-    // @rule trait.resolve.auto-impl-for-all
+    // @rule trait.resolve.derivation-modes
     // An auto-trait (Send) holds for an ordinary type with no explicit impl,
     // satisfying a `T: Send` bound.
     {
@@ -104,8 +104,7 @@ fn main() -> i64 {
         if needs_sync(o2) != 43i64 { return 12; }
     }
 
-    // @rule trait.resolve.shape-conditioned-auto
-    // @rule trait.resolve.shape-auto-predicate-on-typename
+    // @rule trait.resolve.derivation-modes
     // A closure type matches the Fn-family shape predicate (no explicit impl) and
     // so satisfies a `Fn(i64)->i64` bound; the generic param accepts and calls it.
     {

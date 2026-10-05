@@ -226,8 +226,6 @@ generic_param_leaks_into_nested_item_admitted 2 tests/soundness/open/generic_par
 
 generic_trait_multi_impl_dispatch_refused 2 tests/soundness/open/generic_trait_multi_impl_dispatch_refused refuses
 
-impl_method_extra_bound_admitted 2 tests/soundness/open/impl_method_extra_bound_admitted admits
-
 let_else_nondiverging_else_admitted 2 tests/soundness/open/let_else_nondiverging_else_admitted admits
 
 match_guard_temp_drop_timing_wrong 2 tests/soundness/open/match_guard_temp_drop_timing_wrong run 0
@@ -237,8 +235,6 @@ nonunit_expr_statement_admitted 2 tests/soundness/open/nonunit_expr_statement_ad
 orphan_rule_not_enforced_admitted 2 tests/soundness/open/orphan_rule_not_enforced_admitted admits
 
 raw_pointer_matched_as_option_crash 2 tests/soundness/open/raw_pointer_matched_as_option_crash refuses
-
-sized_supertrait_blocks_impl_refused 2 tests/soundness/open/sized_supertrait_blocks_impl_refused refuses
 
 tryfrom_assoc_error_type_refused 2 tests/soundness/open/tryfrom_assoc_error_type_refused refuses
 
@@ -283,8 +279,6 @@ main_signature_unchecked_admitted 3 tests/soundness/open/main_signature_unchecke
 match_guard_if_let_refused 3 tests/soundness/open/match_guard_if_let_refused refuses
 
 non_exhaustive_attr_ignored_admitted 3 tests/soundness/open/non_exhaustive_attr_ignored_admitted admits
-
-operator_bound_explicit_rhs_refused 3 tests/soundness/open/operator_bound_explicit_rhs_refused refuses
 
 partialeq_heterogeneous_refused 3 tests/soundness/open/partialeq_heterogeneous_refused refuses
 
@@ -341,8 +335,6 @@ std_hint_attrs_unrecognized_admitted 4 tests/soundness/open/std_hint_attrs_unrec
 struct_valued_const_pattern_refused 4 tests/soundness/open/struct_valued_const_pattern_refused refuses
 
 test_attr_fn_legality_unchecked_admitted 4 tests/soundness/open/test_attr_fn_legality_unchecked_admitted admits
-
-trivial_false_predicate_admitted 4 tests/soundness/open/trivial_false_predicate_admitted admits
 
 tuple_unsized_tail_refused 4 tests/soundness/open/tuple_unsized_tail_refused refuses
 
@@ -459,5 +451,5 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
-# TOTAL 140
-# SYNC-HASH a1892556cc6e1617bb7e2cc154a93bbb
+# TOTAL 136
+# SYNC-HASH c4cf176536eefe2de3c32e931462f4dc

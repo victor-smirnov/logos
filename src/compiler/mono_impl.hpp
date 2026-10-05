@@ -198,11 +198,13 @@ private:
     StrMap<lir_view::FunctionView>  templates_;
     StrMap<std::vector<lir_view::FunctionView>> specs_;
     StrMap<lir_view::StructView> struct_templates_;
-    // const-length-overhaul: ctfe'd assoc-const values by "<target>::<name>",
-    // built from impls at index time so subst_type can fold a `C::CONST`
-    // projection in a length / const-arg once C binds. Sema is the only place
-    // that can compute these, so they ride the impl LIR (impl_keys::ASSOC_CONSTS).
-    StrMap<int64_t> assoc_const_values_;
+    // const-length-overhaul: each impl's ctfe'd assoc-const values (sema is the
+    // only place that can compute them; they ride impl_keys::ASSOC_CONSTS), by
+    // name: (the impl's C-OBL source, its trait, the value). subst_type folds a
+    // `C::CONST` projection once C binds (assoc_const_value_).
+    struct OblConst { uint32_t source; std::string trait; int64_t value; };
+    StrMap<std::vector<OblConst>> obl_consts_;
+    std::optional<int64_t> assoc_const_value_(TypeRef ct, const std::string& name);
     // ALL structs (generic templates AND non-generic), by bare + pkg-qualified
     // name. struct_templates_ holds GENERICS ONLY, so the `*mut DstStruct`→DstRef
     // canonicalisation in subst_type missed non-generic custom-DSTs (`*mut Foo`
@@ -396,7 +398,6 @@ private:
     StrMap<EnumInst> needed_enum_insts_;
     StrSet enum_done_;
     StrSet done_;
-    StrMap<TypeRef> assoc_impls_;
 
     // Blanket impls indexed for AssocType resolution at mono time.
     // Entry: { trait, bound_trait, target_typevar, assoc_types_map }.
@@ -1162,6 +1163,7 @@ private:
     // drain_method_worklist. Returns false when method `m`'s impl_type_params
     // bounds are not satisfied under substitution `s`.
     bool method_bound_ok(lir_view::FunctionView m, const SubstMap& s);
+    bool bound_holds_(lir_view::FnTraitBoundView b, TypeRef concrete, const SubstMap& s);
 
     // Recursive trait-satisfaction at mono-time: does `concrete_name`
     // implement `trait_name` directly via concrete_impls_, or transitively
@@ -1247,21 +1249,6 @@ private:
                                            int64_t arity, const std::vector<TypeRef>* trait_args,
                                            const std::vector<TypeRef>* method_args,
                                            const std::vector<TypeRef>* param_arg_types = nullptr);
-    // The trait arguments of an impl in the `$G<n>$<arg>…` encoding sema bakes
-    // into a projection's trait name (SemaChecker::trait_targ_suffix — byte-
-    // identical): two `Tr<A>` / `Tr<B>` impls for one type are told apart by it.
-    static std::string trait_targ_suffix_(const std::vector<TypeRef>& trait_args) {
-        if (trait_args.empty()) return {};
-        std::string sfx = "$G" + std::to_string(trait_args.size());
-        for (auto a : trait_args) {
-            sfx += "$";
-            std::string ts = a ? type_str(a) : std::string("?");
-            for (char& c : ts)
-                if (!(std::isalnum((unsigned char)c) || c == '_')) c = '_';
-            sfx += ts;
-        }
-        return sfx;
-    }
     static bool trait_names_(std::string_view identity, std::string_view trait);
     bool impl_trait_args_match_(lir_view::ImplView impl, const TypePoolImpl* pool,
                                 const std::vector<TypeRef>* trait_args, SubstMap* bindings = nullptr);

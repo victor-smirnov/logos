@@ -1,0 +1,1 @@
+has stricter requirements than the trait: `T: Show` (E0276)

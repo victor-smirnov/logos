@@ -2478,12 +2478,11 @@ private:
     // folds it (eval_len_postfix) or defers it under ARR_LEN_EXPR_PFX.
     std::optional<std::string> build_const_expr_postfix(writ::TinyMapView node);
 
-    // const-length-overhaul: the ctfe'd value of `<type_name>::<const_name>`
-    // (any trait impl or inherent), for folding a `C::CONST` projection in a
-    // length / const-arg at sema-time substitution. Mono uses its own
-    // pre-indexed table (assoc_const_values_); this is the sema-side twin.
-    std::optional<int64_t> sema_assoc_const_value(const std::string& type_name,
-                                                  const std::string& const_name);
+    // const-length-overhaul: the ctfe'd value of `<ct>::<const_name>` (inherent,
+    // else the trait impl C-OBL selects), for folding a `C::CONST` projection in
+    // a length / const-arg at sema-time substitution; mono's twin is
+    // Mono::assoc_const_value_.
+    std::optional<int64_t> sema_assoc_const_value(TypeRef ct, const std::string& const_name);
 
     // T2-29: is `t` an UNINHABITED type (no value can exist)? Never; an
     // empty enum or one whose every variant has an uninhabited payload; a
@@ -2783,7 +2782,8 @@ private:
             LogosTypeBuilder t;
             t.kind            = LogosType::Kind::AssocType;
             t.assoc_base      = tv;
-            t.trait_name      = std::string(trait) + trait_targ_suffix(b.type_args);
+            t.trait_name      = std::string(trait);
+            t.type_args       = b.type_args;
             if (auto* ti = resolve_trait(std::string(trait))) t.pkg_name = ti->package;
             t.assoc_type_name = "Output";
             return pool_->alloc(std::move(t));
@@ -4831,7 +4831,6 @@ public:
 private:
     std::unordered_set<ImplKey, ImplKeyHash> user_impl_keys_;   // impls added by user code
     StrSet user_coherence_keys_;         // "Trait[args]::Target" keys
-    std::unordered_set<AssocKey, AssocKeyHash> user_assoc_type_impl_keys_;
     std::unordered_set<AssocKey, AssocKeyHash> user_assoc_const_impl_keys_;
     std::set<DefId> user_trait_defs_;    // traits declared by user code (snapshot reset)
     StrSet user_type_alias_keys_;        // bare type alias names from user code
@@ -6232,7 +6231,7 @@ private:
         // Iterator<Item>). Captured here for the per-impl default-method
         // gating in lower_target — when an impl substitutes Item with a
         // concrete type, the bound is rewritten and looked up in impls_
-        // (sema_has_impl_recursive). A failing bound skips default synth
+        // (C-OBL). A failing bound skips default synth
         // for that impl (the method is simply unavailable, matching
         // Rust's conditional-default-method semantics). Self-side bounds
         // (`where Self: Sized`) live in `requires_sized_self` above.
@@ -6344,9 +6343,14 @@ private:
         TypeRef self_type = nullptr;
         // ADR 0030 S9 row 5: the impl's associated types (`type Item = T;`, or
         // the trait's default), over its generics — the C-OBL fact's items.
-        std::vector<std::pair<std::string, TypeRef>> assoc_types;
+        std::vector<obl::AssocItem> assoc_types;
+        // The impl's associated constants (written or the trait's default), by
+        // name: indices into impl_assoc_consts_.
+        std::vector<std::pair<std::string, uint32_t>> assoc_consts;
+        std::string impl_node;   // node_key_ of the impl block: the impl's identity
     };
-    std::vector<std::pair<std::string, TypeRef>> collecting_assoc_types_;   // collect_impl's
+    std::vector<std::pair<std::string, uint32_t>> collecting_assoc_consts_;   // collect_impl's
+    std::vector<obl::AssocItem> collecting_assoc_types_;   // collect_impl's
 
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
@@ -6923,13 +6927,14 @@ private:
     size_t         obl_env_langs_ = SIZE_MAX;
     size_t         obl_no_self_ = 0;
     std::optional<SemaImplInfo> obl_pending_impl_;   // the impl collect_impl is checking
+    logos::compiler::StrMap<std::string> obl_trait_of_node_;   // impl node -> its fact's trait
     const obl::ImplTable& obl_table_now_();
     const obl::Env& obl_env_();
     void obl_str_facts_(obl::ImplFact f);
     // `<self as trait<args>>::name` by C-OBL; null when no impl answers.
     TypeRef project_assoc_(std::string_view trait_id, TypeRef self, const std::vector<TypeRef>& args,
-                           std::string_view name) {
-        auto r = obl::project(obl_table_now_(), obl_env_(), trait_id, self, args, name);
+                           std::string_view name, const std::vector<TypeRef>& item_args = {}) {
+        auto r = obl::project(obl_table_now_(), obl_env_(), trait_id, self, args, name, item_args);
         return r ? *r : TypeRef{};
     }
     // `self: trait<args>` by C-OBL, the trait named as written in this scope.
@@ -6955,6 +6960,13 @@ private:
     // ADR 0030 S9 row 3: each impl's Self (its C-OBL fact), by the impl's node,
     // for lower_impl_block to put on the L-IR.
     logos::compiler::StrMap<TypeRef> impl_self_by_node_;
+    // Each trait impl's associated types and constants, by the impl's node,
+    // for lower_impl_block to put on the L-IR.
+    struct ImplItems {
+        std::vector<obl::AssocItem> types;
+        std::vector<std::pair<std::string, uint32_t>> consts;   // into impl_assoc_consts_
+    };
+    logos::compiler::StrMap<ImplItems> impl_items_by_node_;
     // The impls (by node) whose Self is unsized as collect saw it (`impl … for
     // str` is Self = `[u8]`): lowering synthesizes no `Self: Sized` default for
     // them, as collect registers none.
@@ -6981,14 +6993,6 @@ private:
     // map so e.g. `impl From<i8> for i32` and `impl From<i16> for i32` are
     // recognised as different impls.
     logos::compiler::StrSet                   coherence_keys_;
-    // "TraitName::TypeName::AssocName" → assoc type + type params for substitution.
-    struct AssocTypeEntry {
-        TypeRef       type;
-        std::vector<TypeParam> impl_type_params;  // from enclosing impl<T>
-        std::vector<TypeParam> gat_type_params;   // from GAT itself: type Item<T> = ...
-        std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
-    };
-    AssocMap<AssocTypeEntry> assoc_type_impls_;
 
     // "TraitName::TypeName::ConstName" → assoc const type (value evaluated lazily at call site)
     struct AssocConstEntry {
@@ -6998,9 +7002,25 @@ private:
         std::string doc;     // Phase A.4: outer `///`/`/** */` doc-comment
     };
     AssocMap<AssocConstEntry> assoc_const_impls_;
+    // Each trait impl's own constants (SemaImplInfo::assoc_consts indexes them):
+    // two `Tr<A>` / `Tr<B>` impls of one type hold two entries.
+    std::deque<AssocConstEntry> impl_assoc_consts_;
+    // `Type::NAME` of a trait `self` implements (Rust's associated-item lookup):
+    // the constant of the impl C-OBL selects; null when none.
+    AssocConstEntry* trait_assoc_const_(TypeRef self, const std::string& name);
+    // ... lowered once per entry.
+    lir::LExprPtr assoc_const_value_(const AssocConstEntry& e);
 
     // Current trait being defined (set during collect_trait for Self::Item resolution)
     std::string current_trait_name_;
+    std::vector<std::string> current_trait_tparams_;   // ... and its type parameters
+    // `where i32: Show` — a predicate on a concrete type: it must hold (E0277),
+    // checked once every impl is collected (check_concrete_where_).
+    struct ConcreteWhere { TypeRef subject; TraitBound bound; std::string ctx, file; uint32_t line; };
+    std::vector<ConcreteWhere> concrete_where_;
+    void check_concrete_where_();
+    void record_concrete_where_(sema_detail::TinyMapView constraint, TypeRef subj, const std::string& tname);
+    void record_concrete_where_clauses_(sema_detail::TinyMapView node);
     // Phase 6 (GAT projection): current impl's trait name, set during
     // collect_impl + lower_impl_block. Lets `Self::Item<X>` inside an
     // impl method body resolve through the impl's trait (the impl
@@ -7067,6 +7087,7 @@ private:
         }
         std::string method_name;                // e.g. "storage_new"
         std::string mangled_name;               // target_typevar + "__" + method_name
+        std::string impl_node;                  // SemaImplInfo::impl_node of the impl
         // ADR 0008: associated-type equality clauses on the primary bound and
         // each extra bound, parallel to bound_trait/extra_bounds. Keyed by
         // bound trait name so the dispatcher can re-find them.
@@ -7076,49 +7097,6 @@ private:
             std::vector<std::pair<std::string, TypeRef>>>> extra_assoc_eqs;
     };
     std::vector<BlanketImpl> blanket_impls_;
-    // B-mv-03: does this blanket implement the trait the query names?
-    // A query carrying an IDENTITY (`pkg::Trait` — from
-    // TraitBound::canonical_trait or BlanketImpl::canonical_bound_trait)
-    // matches on identity, so a homonym's blanket cannot answer for the
-    // bare-slot trait. A BARE query keeps matching the raw spelling, which is
-    // exactly the pre-B-mv-03 union — the ~50 bare-text probes across sema are
-    // unchanged by construction, not by hope.
-    // ⚠ MATCH ON IDENTITY IN BOTH DIRECTIONS. This used to read
-    //     if (q.find("::") != npos) return bi.query_trait() == q;
-    //     return bi.trait_name == q;              // bare query → raw match
-    // on the reasoning that a BARE query must keep the pre-B-mv-03 union so the
-    // ~50 bare-text probes stay unchanged. MEASURED, and that reasoning is
-    // wrong in the direction that matters: a query is bare exactly when the
-    // bound's trait OWNS the bare slot — which, for every stdlib trait, is
-    // always. So the raw arm let any package's homonym blanket answer for the
-    // stdlib trait's bound.
-    //   package epk (no homonym):  pub fn err_probe<T: Error>(x: T) -> i64
-    //   consumer:  pub trait Error {…}  +  impl<T: Copy> Error for T
-    //              err_probe(5i64)  ⇒  rc 0, COMPILED.
-    //   control (same consumer, local trait deleted) ⇒ rc 1, the correct
-    //   refusal "'err_probe': type 'i64' does not implement trait 'Error'".
-    // The bare arm was the whole difference.
-    // Identity matching does NOT narrow the bare-text probes: a blanket whose
-    // trait owns the bare slot has `canonical_trait == trait_name`, so it still
-    // answers a bare query. What stops answering is precisely a blanket whose
-    // trait was pushed under `pkg::Name` by the B-mv-02 collision — a DIFFERENT
-    // trait that was never entitled to answer. An uncaptured canonical falls
-    // back to the raw spelling in query_trait(), i.e. the old behaviour, so the
-    // permissive path survives only where identity is genuinely unknown.
-    // This also retires the `q.find("::")` text-guess — a substring probe used
-    // to classify a key is the shape that produced the separator-class bug.
-    // ⚠ NORMALISE BOTH SIDES. Either side may arrive as a bare-text probe, a
-    // traits_ registry key (BARE for the homonym that owns the bare slot), or
-    // an already-qualified identity. Comparing the strings as they arrive made
-    // the answer depend on which spelling the caller happened to hold.
-    // #438: a blanket implements the trait the QUERY names when the two are the
-    // same trait — compared by identity, so a homonym's blanket cannot answer.
-    bool blanket_implements(const BlanketImpl& bi, DefId q) const {
-        return q && impl_trait_id(bi.query_trait()) == q;
-    }
-    bool blanket_implements(const BlanketImpl& bi, std::string_view q) const {
-        return blanket_implements(bi, impl_trait_id(q));
-    }
 
     // ── Package-qualified symbol lookup helpers ───────────────────
 
@@ -7590,15 +7568,6 @@ private:
     // clause additions) have been collected.
     void finalize_relaxed_bounds(TypeParam& tp);
 
-    // ADR 0008: check that a `Trait<Assoc = Type>` clause holds for `concrete`.
-    // `concrete_name` is type_str(concrete); `base_name` is its struct base name
-    // (or empty if not a struct). Returns false if any expected_type does not
-    // match the impl's actual `type Assoc = ...` resolution after subst.
-    bool assoc_eqs_satisfied(
-        const std::string& trait_name,
-        const std::string& concrete_name,
-        const std::string& base_name,
-        const std::vector<std::pair<std::string, TypeRef>>& expected);
 
     // Save-and-restore stack so shadowing (e.g. trait<T> + method<T>) doesn't
     // wipe the outer binding on pop. Each push records the old value (if any)
@@ -8880,25 +8849,6 @@ private:
         bounds_probe_ = was; bounds_probe_ok_ = wok;
         return ok;
     }
-
-    // Recursive trait-satisfaction: does `concrete` (or `concrete_alt`,
-    // an optional unwrapped alias) implement `trait_name`, directly via
-    // `impls_` or transitively via any chain of blanket impls?
-    //
-    // Walks blanket_impls_ for the trait and checks the bounds of each
-    // candidate recursively. `seen` prevents infinite recursion through
-    // cyclic blanket chains; each candidate gets its own copy of `seen`,
-    // so a failed first candidate does not poison sub-checks for the
-    // next candidate. Mirrors the now-fixed has_impl in
-    // mono_clone.cpp::method_bound_ok.
-    //
-    // Note: assoc-type-equality clauses (ADR 0008) are NOT validated by
-    // this helper — call sites that need them should keep their explicit
-    // assoc_eqs_satisfied checks alongside.
-    bool sema_has_impl_recursive(const std::string& trait_name,
-                                 const std::string& concrete,
-                                 const std::string& concrete_alt,
-                                 logos::compiler::StrSet& seen);
     void collect_module(writ::TinyMapView mod, int phase);
     // ADR 0021: container-decl registration split from collect phase 2 —
     // also runs for cache-skipped binary holders (containers_ is not cached).
@@ -9638,8 +9588,7 @@ private:
         TypeRef self_t);
     // Blanket impls providing `method_name` whose bounds `type_name` meets;
     // ≥2 distinct ones is an overlap error.
-    std::vector<size_t> viable_blanket_impls(std::string_view method_name,
-                                             const std::string& type_name, bool report = true);
+    std::vector<size_t> viable_blanket_impls(std::string_view method_name, TypeRef self, bool report = true);
     lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
     lir::LExprPtr lower_invoke_on(lir::LExprPtr recv, std::vector<lir::LExprPtr> arg_exprs);
     bool finish_call_targs_written_ = false;   // lower_generic_call → finish_generic_call
@@ -10710,13 +10659,6 @@ private:
         auto d = s.find('$');
         return std::string(d == std::string_view::npos ? s : s.substr(0, d));
     }
-    // G156-1: look up an assoc-type impl, preferring the trait-type-arg-suffixed
-    // key (dual `Trait<T>` impls for one type) when the args are known from the
-    // current impl context (current_impl_trait_args_); falls back to the plain
-    // (single-impl / non-generic-trait) key. Returns nullptr if neither exists.
-    const AssocTypeEntry* find_assoc_type_entry(const std::string& trait_name,
-                                                const std::string& target,
-                                                const std::string& aname) const;
     // Exhaustiveness analysis for a lowered match (enum / bool scrutinee):
     // emits a diagnostic if a non-guarded wildcard is absent and some
     // variant / bool value is uncovered. Over the unguarded arms' patterns.
@@ -11436,6 +11378,7 @@ public:
     StrMap<std::vector<std::string>>       generic_overloads;
     StrMap<std::string>                    decl_symbols;   // ADR 0030 S9 row 1
     StrMap<TypeRef>                        impl_self_by_node;   // ADR 0030 S9 row 3
+    StrMap<SemaChecker::ImplItems>         impl_items_by_node;  // ADR 0030 S9 row 5
     StrSet                                 impl_unsized_self;
     StrMap<SemaChecker::TypeAliasEntry>   type_aliases;
     StrMap<TypeRef>                        module_consts;
@@ -11446,8 +11389,8 @@ public:
     SemaChecker::ImplMap<SemaChecker::SemaImplInfo>     impls;
     SemaChecker::ImplMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
     StrSet                                 coherence_keys;
-    SemaChecker::AssocMap<SemaChecker::AssocTypeEntry>   assoc_type_impls;
     SemaChecker::AssocMap<SemaChecker::AssocConstEntry>  assoc_const_impls;
+    std::deque<SemaChecker::AssocConstEntry>             impl_assoc_consts;
     std::vector<SemaChecker::BlanketImpl>  blanket_impls;
     std::vector<MetaprogHandlerStage> metaprog_handlers;
     std::vector<MetaprogTargetStage>  metaprog_targets;

@@ -686,15 +686,9 @@ inline auto make_len_leaf_resolver(NameLookup nl, AssocLookup al) {
         auto dot = body.find('.');
         if (dot == std::string_view::npos) return std::nullopt;
         TypeRef ct = nl(std::string(body.substr(0, dot)));
-        if (!ct) return std::nullopt;
-        std::string tn;
-        auto k = ct.kind();
-        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-            tn = std::string(ct.struct_name());
-        else if (k == LogosType::Kind::Enum)
-            tn = std::string(ct.enum_name());
-        else return std::nullopt;
-        return al(tn, std::string(body.substr(dot + 1)));
+        if (!ct || ct.kind() == LogosType::Kind::TypeVar || ct.kind() == LogosType::Kind::ConstVar)
+            return std::nullopt;
+        return al(ct, std::string(body.substr(dot + 1)));   // the constant of `ct`'s impl
     };
 }
 

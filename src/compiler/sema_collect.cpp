@@ -859,6 +859,9 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
     // vs-Rust divergence for porting scalar-only structs.
     compute_auto_copy_types();
 
+    // `where <concrete type>: Trait` must hold (E0277); Copy is decided above.
+    check_concrete_where_();
+
     // M5 step 3b+5: record only BINARY holders. User holders intentionally
     // skipped — user ASTs must re-walk every call so strict-mode validation
     // fires for them (e.g. fail-tests expecting "unknown type" diags) and
@@ -903,11 +906,11 @@ void SemaChecker::simplify_all_types() {
         t = subst_type_sema(t, {});
     for (auto& [key, entry] : assoc_const_impls_)
         if (entry.type) entry.type = subst_type_sema(entry.type, {});
-    // Bug 1 fix: simplify assoc type impl body types as well.
-    // Non-generic body types (e.g. type Inner<T> = i32) get their concrete types
-    // resolved; types containing TypeVars are left unchanged for later substitution.
-    for (auto& [key, entry] : assoc_type_impls_)
-        if (entry.type) entry.type = subst_type_sema(entry.type, {});
+    // Bug 1 fix: simplify each impl's associated types as well (projections in
+    // them normalize now that every impl is collected).
+    for (auto& [node, items] : impl_items_by_node_)
+        for (auto& item : items.types)
+            if (item.type) item.type = subst_type_sema(item.type, {});
 }
 
 std::string SemaChecker::read_package_name(TinyMapView mod) {
@@ -941,73 +944,6 @@ void SemaChecker::check_pub_access(bool is_pub, const std::string& def_package,
     }
     if (!is_pub)
         error(std::format("'{}' is private to package '{}'", item_name, def_package));
-}
-
-bool SemaChecker::sema_has_impl_recursive(const std::string& trait_name,
-                                          const std::string& concrete,
-                                          const std::string& concrete_alt,
-                                          logos::compiler::StrSet& seen) {
-    // ⚠ ASK BY IDENTITY, ALWAYS. `trait_name` arrives as a path, as a name
-    // written in this scope, or as a compiler-spelled lang item ("Drop",
-    // "Copy", "Hash"); `impl_trait_id` turns each into the one identity the
-    // registry is keyed by, so a homonym's impls can never answer here and the
-    // compiler's own probes still reach the stdlib trait they name.
-    const DefId tid = impl_trait_id(trait_name);
-    std::string k = std::to_string(tid.v) + "::" + concrete;
-    if (!seen.insert(k).second) return false;
-    if (impls_.count(ImplKey{tid, concrete})) return true;
-    if (!concrete_alt.empty() && impls_.count(ImplKey{tid, concrete_alt})) return true;
-    // Reference Self: `impl Trait for &T` / `&mut T` registers under collect_impl's
-    // `$ref_`/`$mut_ref_` mangling, but `concrete` here is the raw type_str
-    // (`&i32` / `&mut Foo`). Try both forms — primitive pointee keeps the full
-    // string (`$ref_&i32`), struct pointee uses the bare name (`$ref_Foo`). This
-    // is the SHARED satisfaction primitive (default-method where-gate, blanket
-    // recursion, etc.), so every site that asks "does `&T` impl Trait" benefits.
-    for (auto& pfx : {std::string("&mut "), std::string("&")}) {
-        if (concrete.rfind(pfx, 0) != 0) continue;
-        std::string mpfx = (pfx == "&mut ") ? "$mut_ref_" : "$ref_";
-        if (impls_.count(ImplKey{tid, mpfx + concrete})) return true;
-        if (impls_.count(ImplKey{tid, mpfx + concrete.substr(pfx.size())})) return true;
-        // `impl<T: B…> Trait for &T` (keyed `$ref_$T`): the reference satisfies
-        // the trait when its REFERENT satisfies the impl's bounds on T (`&u8:
-        // Ord` through `impl<T: Ord> Ord for &T`).
-        if (auto git = impls_.find(ImplKey{tid, mpfx + "$T"}); git != impls_.end()) {
-            const std::string referent = concrete.substr(pfx.size());
-            logos::compiler::StrSet attempt = seen;
-            bool ok = true;
-            for (auto& tp : git->second.impl_type_params)
-                for (auto& b : tp.bounds)
-                    if (ok && !sema_has_impl_recursive(
-                                  !b.identity_trait.empty() ? b.identity_trait
-                                  : !b.canonical_trait.empty() ? b.canonical_trait : b.trait_name,
-                                  referent, "", attempt))
-                        ok = false;
-            if (ok) return true;
-        }
-        break;
-    }
-    for (auto& bi : blanket_impls_) {
-        if (!blanket_implements(bi, tid)) continue;
-        if (bi.bound_trait.empty() && bi.extra_bounds.empty()) return true;
-        // Per-attempt copy: a failed candidate must not poison `seen`
-        // for the next sibling candidate.
-        logos::compiler::StrSet attempt = seen;
-        // B-mv-03: recurse on the bound's IDENTITY. This is THE conflation
-        // site: `impl<T: Hash> Marker for T` next to a package-local
-        // `trait Hash` used to recurse on the bare text "Hash", hit the
-        // stdlib Hash's `i32`/`i64` impls, and admit them into `Marker`.
-        bool ok = bi.bound_trait.empty()
-            || sema_has_impl_recursive(bi.query_bound_trait(), concrete, concrete_alt, attempt);
-        if (ok) {
-            for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei)
-                if (!sema_has_impl_recursive(bi.query_extra_bound(ei), concrete,
-                                             concrete_alt, attempt)) {
-                    ok = false; break;
-                }
-        }
-        if (ok) return true;
-    }
-    return false;
 }
 
 // RPIT-BOUND (2026-09-12b). Prose in PROBES.md, "RPIT bound".
@@ -1572,6 +1508,7 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
     if (impls_gen_ == obl_table_gen_) return obl_table_;
     obl_table_ = {};
     obl_infos_.clear();
+    obl_trait_of_node_.clear();
     obl_table_gen_ = impls_gen_;
     obl_no_self_ = 0;
     uint32_t src = 0;
@@ -1582,6 +1519,7 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             f.self = info.self_type ? info.self_type : info.target_typeref;
             f.source = src++;
             obl_infos_.push_back(&info);
+            if (!info.impl_node.empty()) obl_trait_of_node_[info.impl_node] = f.trait;
             if (info.target_type == "&[u8]") return;   // the `str` alias: the `str` entry's facts cover it
             if (!f.self) { ++obl_no_self_; return; }
             f.trait_args = info.trait_type_args;
@@ -1589,7 +1527,7 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
                 f.generics.push_back(tp.name);
                 if (tp.is_variadic) f.pack = tp.name;
                 for (auto& b : tp.bounds)
-                    if (!b.is_relaxed) f.bounds.push_back({tp.name, bound_identity_(b), b.type_args});
+                    if (!b.is_relaxed) f.bounds.push_back({tp.name, bound_identity_(b), b.type_args, b.assoc_eqs});
             }
             f.negative = info.is_negative;
             f.assoc_types = info.assoc_types;
@@ -1606,6 +1544,48 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
     // (Rust: `<DT as Container>::Store` in a blanket impl's own signatures).
     if (obl_pending_impl_) add(*obl_pending_impl_, obl_pending_impl_->trait_def);
     return obl_table_;
+}
+
+SemaChecker::AssocConstEntry* SemaChecker::trait_assoc_const_(TypeRef self, const std::string& name) {
+    if (!self) return nullptr;
+    // A generic nominal named bare (`Foo::C`): its arguments are left to infer.
+    if (TypeRef(self).kind() == LogosType::Kind::Struct && TypeRef(self).type_args().empty())
+        if (auto [_p, si] = find_struct_by_name(TypeRef(self).struct_name()); si && !si->type_params.empty()) {
+            std::vector<TypeRef> open;
+            for (size_t i = 0; i < si->type_params.size(); ++i) open.push_back(make_typevar("?iq" + std::to_string(i)));
+            self = make_generic_struct(std::string(TypeRef(self).struct_name()), std::move(open), {},
+                                       std::string(TypeRef(self).pkg_name()));
+        }
+    AssocConstEntry* found = nullptr;
+    std::string found_trait;
+    for (auto& [tdef, tinfo] : traits_) {
+        bool declares = false;
+        for (auto& ac : tinfo.assoc_consts) declares = declares || ac.name == name;
+        if (!declares) continue;
+        for (auto& c : obl::candidates(obl_table_now_(), obl_env_(), defs_.path(tdef), self, {}))
+            for (auto& [n, idx] : obl_infos_[c.impl->source]->assoc_consts) {
+                if (n != name || idx >= impl_assoc_consts_.size()) continue;
+                AssocConstEntry* e = &impl_assoc_consts_[idx];
+                if (found && found != e) {
+                    error(std::format("multiple applicable items in scope: '{}' is an associated constant of "
+                                      "both '{}' and '{}' for '{}' (E0034)",
+                                      name, found_trait, tinfo.name, type_str(self)));
+                    return found;
+                }
+                found = e;
+                found_trait = tinfo.name;
+            }
+    }
+    return found;
+}
+
+lir::LExprPtr SemaChecker::assoc_const_value_(const AssocConstEntry& e) {
+    if (!e.cached_value) {
+        auto val = lower_typed_const_(map_of(e.value_ast), e.type);
+        if (e.type) builder().retype_expr(val, e.type);
+        e.cached_value = val;
+    }
+    return e.cached_value;
 }
 
 bool SemaChecker::implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args) {
@@ -3011,6 +2991,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
             // avoid polluting scope for subsequent trait collections.
             current_type_params_.erase("Self");
             current_trait_name_.clear();
+            current_trait_tparams_.clear();
             return;
         }
     }
@@ -3021,6 +3002,8 @@ void SemaChecker::collect_trait(TinyMapView node) {
     }
     // Read trait type params (e.g. trait Into<T>)
     info.type_params = read_type_params(node);
+    current_trait_tparams_.clear();
+    for (auto& tp : info.type_params) current_trait_tparams_.push_back(tp.name);
     info.lifetime_params = read_lifetime_params(node);  // E0262/E0263 live here too
     push_type_params(info.type_params);
     // Read supertraits: trait Foo: Bar + Baz<T> { ... } → SUPERS: { ITEMS: [TRAIT_BOUND(...), ...] }
@@ -3303,6 +3286,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
     pop_type_params(info.type_params);
     current_type_params_.erase("Self");
     current_trait_name_.clear();
+    current_trait_tparams_.clear();
 
     // #438: the registry holds one entry per trait IDENTITY. Two packages'
     // same-named traits are two entries; a second declaration of the SAME
@@ -3360,6 +3344,7 @@ void SemaChecker::check_trait_def_identity() {
 
 void SemaChecker::collect_impl(TinyMapView node) {
     collecting_assoc_types_.clear();
+    collecting_assoc_consts_.clear();
     std::string impl_doc = take_pending_doc();
     std::string trait_name;
     if (node.has_key(la::NAME))
@@ -3997,7 +3982,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // whether *any* per-method blanket entry got pushed. Blankets that
     // declare only assoc-types (no fn methods) need a marker entry so
     // trait-satisfaction queries can find them — without it,
-    // sema_has_impl_recursive would report the blanket trait as
+    // C-OBL would report the blanket trait as
     // unsatisfied for any concrete that depends on it.
     size_t blanket_size_before = blanket_impls_.size();
 
@@ -4388,35 +4373,16 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     bi_rec.primary_assoc_eqs = blanket_primary_assoc_eqs;
                     bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
                     if (!cur_from_binary_) user_blanket_mangled_.insert(bi_rec.mangled_name);
+                    bi_rec.impl_node = node_key_(node);
                     blanket_impls_.push_back(std::move(bi_rec));
                 }
             } else if (code_of(m) == la::ASSOC_TYPE_IMPL && !trait_name.empty()) {
                 auto aname = std::string(str_of(m.get(la::NAME.code)));
-                // For blanket impls, key under the synthetic `$blanket$...`
-                // name so normal `T::Assoc` lookups on other generics don't
-                // shadow; the AssocType resolver falls back to blanket keys
-                // when the concrete base satisfies the blanket's bound.
-                std::string key_target = is_blanket
-                    ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
-                    : target;
-                // G156-1: key by the trait's concrete type-args so two impls of
-                // a generic trait `Trait<T>` for ONE type at distinct T (each
-                // declaring the same-named assoc type) coexist. The SUFFIXED key
-                // (empty suffix for non-generic traits → identical to the legacy
-                // key) is always stored; the PLAIN key is stored first-impl-wins
-                // for backward-compat + unambiguous single-impl lookups, and
-                // ERASED once a second distinct-args impl appears so a bare
-                // ambiguous `X::Assoc` lookup fails loud (Rust requires
-                // `<X as Trait<T>>::Assoc`). Resolution prefers the suffixed key
-                // when the trait args are known from the impl context
-                // (current_impl_trait_args_). A true duplicate (same
-                // trait+args+target+name) still collides on the suffixed key.
-                std::string targ_sfx = trait_targ_suffix(trait_type_args);
-                const AssocKey key  = assoc_key(trait_name, targ_sfx, key_target, aname);
-                const AssocKey pkey = assoc_key(trait_name, key_target, aname);
-                if (assoc_type_impls_.count(key))
-                    error(std::format("impl {} for {}: duplicate associated type '{}'",
-                                      trait_name, target, aname));
+                // E0201: an impl declares each associated type once.
+                for (auto& item : collecting_assoc_types_)
+                    if (item.name == aname)
+                        error(std::format("impl {} for {}: duplicate associated type '{}'",
+                                          trait_name, target, aname));
                 // GAT: read assoc type's own params (e.g. type Item<T> = ...)
                 std::vector<TypeParam> gat_tps = read_type_params(m);
                 // Bug 2 fix: GAT param names must not shadow impl type param names.
@@ -4444,26 +4410,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 if (ast_elided_ref_(map_of(m.get(la::TYPE.code))))
                     error(std::format("impl {} for {}: associated type '{}' contains a borrowed value with an elided lifetime (E0106) — name it, e.g. `impl<'a> ... {{ type {} = &'a ... }}`",
                                       trait_name, target, aname, aname));
-                if (gat_tps.empty()) collecting_assoc_types_.emplace_back(aname, atype);
-                AssocTypeEntry ate{atype, impl_tps, gat_tps, std::move(pending_doc_)};
-                pending_doc_.clear();
-                assoc_type_impls_[key] = ate;
-                if (!cur_from_binary_) user_assoc_type_impl_keys_.insert(key);
-                // Plain key: first-impl-wins; erase on a second distinct-args
-                // impl so bare ambiguous lookups fail loud (G156-1). When
-                // targ_sfx is empty (non-generic trait) key==pkey already —
-                // nothing more to do.
-                if (!targ_sfx.empty()) {
-                    if (!assoc_type_impls_.count(pkey)) {
-                        assoc_type_impls_[pkey] = std::move(ate);
-                        if (!cur_from_binary_) user_assoc_type_impl_keys_.insert(pkey);
-                    } else {
-                        // A different-args impl already claimed the plain key →
-                        // the bare projection is now ambiguous. Drop it.
-                        assoc_type_impls_.erase(pkey);
-                        user_assoc_type_impl_keys_.erase(pkey);
-                    }
+                {
+                    obl::AssocItem item{aname, atype, {}};
+                    for (auto& g : gat_tps) item.params.push_back(g.name);
+                    collecting_assoc_types_.push_back(std::move(item));
                 }
+                pending_doc_.clear();
             } else if (code_of(m) == la::ASSOC_CONST_IMPL) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
                 std::string assoc_doc = std::move(pending_doc_);
@@ -4505,7 +4457,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         }
                     }
                     const AssocKey key = assoc_key(trait_name, target, cname);
-                    assoc_const_impls_[key] = { ctype, m.get(la::VALUE), nullptr, std::move(assoc_doc) };
+                    assoc_const_impls_[key] = { ctype, m.get(la::VALUE), nullptr, assoc_doc };
+                    impl_assoc_consts_.push_back({ctype, m.get(la::VALUE), nullptr, std::move(assoc_doc)});
+                    collecting_assoc_consts_.emplace_back(cname, uint32_t(impl_assoc_consts_.size() - 1));
                     if (!cur_from_binary_) user_assoc_const_impl_keys_.insert(key);
                 }
             }
@@ -4516,8 +4470,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     }
     // If this is a blanket impl with no fn methods (only assoc-types), the
     // items loop didn't push anything to blanket_impls_. Push a marker
-    // entry now so trait-satisfaction queries (sema_has_impl_recursive,
-    // assoc_eqs_satisfied) can see it. method_name stays empty.
+    // entry now so the assoc-type resolver sees it. method_name stays empty.
     if (is_blanket && blanket_impls_.size() == blanket_size_before) {
         BlanketImpl bi_rec;
         bi_rec.trait_name = trait_name;
@@ -4541,6 +4494,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             user_blanket_mangled_.insert(marker);
             bi_rec.mangled_name = std::move(marker);
         }
+        bi_rec.impl_node = node_key_(node);
         blanket_impls_.push_back(std::move(bi_rec));
     }
 
@@ -4561,7 +4515,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         trait_type_args, trait_lt_args, impl_lt_params, impl_lt_outlives, {}, {}};
         pi.self_type = impl_self_ty;
         pi.assoc_types = collecting_assoc_types_;
+        pi.assoc_consts = collecting_assoc_consts_;
         pi.trait_def = impl_trait_id(trait_name);
+        pi.impl_node = node_key_(node);
         obl_pending_impl_ = std::move(pi);
         ++impls_gen_;
     }
@@ -5043,6 +4999,58 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (sig_match) { matching = c; break; }
                 }
                 if (matching) {
+                    // E0276: the impl's method may not require more of its own type
+                    // parameters than the trait's declaration does (by position; a
+                    // bound the declaration implies through a supertrait counts).
+                    {
+                        auto own = [&](const std::vector<TypeParam>& tps, auto&& outer) {
+                            std::vector<const TypeParam*> r;
+                            for (auto& tp : tps) {
+                                bool o = false;
+                                for (auto& x : outer) o = o || x.name == tp.name;
+                                if (!o) r.push_back(&tp);
+                            }
+                            return r;
+                        };
+                        auto ip = own(matching->type_params, impl_tps);
+                        auto dp = own(m.type_params, tit->type_params);
+                        for (size_t pi = 0; pi < ip.size(); ++pi)
+                            for (auto& b : ip[pi]->bounds) {
+                                if (b.is_relaxed || b.on_ref_subject) continue;
+                                const std::string bid = bound_identity_(b);
+                                bool implied = false;
+                                std::vector<const TraitBound*> work;
+                                std::vector<TraitBound> declared_where;   // the declaration's `where T: B`
+                                if (pi < dp.size()) {
+                                    for (auto& db : dp[pi]->bounds) work.push_back(&db);
+                                    for (auto& wb : m.where_param_bounds)
+                                        if (wb.param_name == dp[pi]->name) {
+                                            TraitBound tb;
+                                            tb.trait_name = wb.trait_name;
+                                            tb.canonical_trait = wb.canonical_trait;
+                                            tb.identity_trait = wb.identity_trait;
+                                            tb.trait_def = wb.trait_def;
+                                            declared_where.push_back(std::move(tb));
+                                        }
+                                    for (auto& tb : declared_where) work.push_back(&tb);
+                                }
+                                std::set<std::string> walked;
+                                while (!work.empty() && !implied) {
+                                    const TraitBound* db = work.back();
+                                    work.pop_back();
+                                    const std::string did = bound_identity_(*db);
+                                    if (!walked.insert(did).second) continue;
+                                    implied = did == bid;
+                                    if (const SemaTraitInfo* sti = db->trait_def ? trait_info(db->trait_def) : nullptr)
+                                        for (auto& sup : sti->supertraits) work.push_back(&sup);
+                                }
+                                if (!implied) node_line_ = get_line(node);
+                                if (!implied)
+                                    error(std::format("impl {} for {}: method '{}' has stricter requirements than the "
+                                                      "trait: `{}: {}` (E0276)", trait_name, target, m.name,
+                                                      ip[pi]->name, b.trait_name));
+                            }
+                    }
                     if (early_bound_lts_(m.lifetime_params, m.lifetime_outlives, m.type_params) !=
                         early_bound_lts_(matching->lifetime_params, matching->lifetime_outlives, matching->type_params))
                         error(std::format("impl {} for {}: lifetime parameters or bounds on method '{}' do not match the trait declaration (E0195)",
@@ -5214,6 +5222,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         bi_rec.extra_assoc_eqs = blanket_extra_assoc_eqs;
                         if (!cur_from_binary_)
                             user_blanket_mangled_.insert(bi_rec.mangled_name);
+                        bi_rec.impl_node = node_key_(node);
                         blanket_impls_.push_back(std::move(bi_rec));
                     }
                     // Default trait-method: inherits trait accessibility.
@@ -5247,12 +5256,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
         auto* tit = find_trait_iter_scoped(trait_name);
         if (tit) {
             for (auto& at : tit->assoc_types) {
-                // G156-1: this impl's assoc types are keyed by the trait's
-                // type-args (suffixed); the plain key may have been erased by a
-                // sibling dual impl. Check the suffixed key for THIS impl.
-                const AssocKey key = assoc_key(trait_name, trait_targ_suffix(trait_type_args),
-                                                target, at.name);
-                if (!assoc_type_impls_.count(key)) {
+                bool own = false;   // this impl declares it
+                for (auto& item : collecting_assoc_types_) own = own || item.name == at.name;
+                if (!own) {
                     // §3 c13 Wave 9 — an impl that omits an assoc type falls
                     // back to the trait's default (Rust:
                     // `trait T { type Item = i32; }`); only error when the
@@ -5270,10 +5276,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             else if (tps[ti].default_type)
                                 dsub[tps[ti].name] = subst_type_sema(tps[ti].default_type, dsub);
                         }
-                        AssocTypeEntry ae;
-                        ae.type = subst_type_sema(at.default_type, dsub);
-                        collecting_assoc_types_.emplace_back(at.name, ae.type);
-                        assoc_type_impls_[key] = std::move(ae);
+                        collecting_assoc_types_.push_back({at.name, subst_type_sema(at.default_type, dsub), {}});
                     } else
                         error(std::format("impl {} for {}: missing associated type '{}'",
                               trait_name, target, at.name));
@@ -5282,7 +5285,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
             // Check associated constant completeness
             for (auto& ac : tit->assoc_consts) {
                 const AssocKey key = assoc_key(trait_name, target, ac.name);
-                if (!assoc_const_impls_.count(key)) {
+                bool own = false;   // this impl writes it (another impl of the trait for the target may too)
+                for (auto& [n, _i] : collecting_assoc_consts_) own = own || n == ac.name;
+                if (!own) {
                     // §6 f1 Wave 9 — a default value in the trait lets the
                     // impl omit the const (Rust:
                     // `trait T { const X: i32 = 42; }`).
@@ -5296,8 +5301,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         // in the trait's holder, same as a same-file impl const
                         // — the access-site lowering reads it through the
                         // current holder exactly like an explicit impl const.
-                        assoc_const_impls_[key] =
-                            { ac.type, ac.default_value_ast, nullptr, ac.doc };
+                    {
+                        if (!assoc_const_impls_.count(key))
+                            assoc_const_impls_[key] = { ac.type, ac.default_value_ast, nullptr, ac.doc };
+                        impl_assoc_consts_.push_back({ac.type, ac.default_value_ast, nullptr, ac.doc});
+                        collecting_assoc_consts_.emplace_back(ac.name, uint32_t(impl_assoc_consts_.size() - 1));
+                    }
                 }
             }
             // Check unsafe parity
@@ -5395,6 +5404,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                           trait_type_args, trait_lt_args, impl_lt_params,
                           impl_lt_outlives, impl_doc, {}};
         info.assoc_types = std::move(collecting_assoc_types_);
+        info.assoc_consts = std::move(collecting_assoc_consts_);
+        impl_items_by_node_[node_key_(node)] = {info.assoc_types, info.assoc_consts};
+        info.impl_node = node_key_(node);
         // B91: coherence — reject a second impl of the same trait for the
         // same target type. Only fires for NON-GENERIC impls (no impl type
         // params and no impl lifetime params): two `impl<T> ... for Map<K,V>`
@@ -7150,6 +7162,21 @@ void SemaChecker::trait_vtable_layout(
             method_order.push_back({tn, &m});
     };
     walk(trait);
+}
+
+void SemaChecker::check_concrete_where_() {
+    std::set<std::string> seen;   // collection may fold one clause more than once
+    const std::string saved_ctx = ctx_, saved_file = file_;
+    const uint32_t saved_line = node_line_;
+    for (auto& w : concrete_where_) {
+        const std::string id = bound_identity_(w.bound);
+        if (!seen.insert(std::format("{}:{}:{}:{}", w.file, w.line, type_str(w.subject), id)).second) continue;
+        if (obl::select(obl_table_now_(), obl_env_(), id, w.subject, w.bound.type_args).holds()) continue;
+        ctx_ = w.ctx; file_ = w.file; node_line_ = w.line;
+        error(std::format("the trait bound `{}: {}` is not satisfied (E0277)", type_str(w.subject), w.bound.trait_name));
+    }
+    concrete_where_.clear();
+    ctx_ = saved_ctx; file_ = saved_file; node_line_ = saved_line;
 }
 
 void SemaChecker::check_supertrait_impls() {

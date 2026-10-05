@@ -6953,7 +6953,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_vi
         ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
         const std::string tn = ck == K::Struct || ck == K::ZonedStruct ? concrete_struct_name(self)
                              : ck == K::Enum ? std::string(TypeRef(self).enum_name()) : type_str(self);
-        for (size_t bi : viable_blanket_impls(name, tn, /*report=*/false)) {
+        for (size_t bi : viable_blanket_impls(name, self, /*report=*/false)) {
             const auto& b = blanket_impls_[bi];
             const std::string sfx = "__" + std::string(name);
             if (b.mangled_name.size() > sfx.size() && b.mangled_name.ends_with(sfx))
@@ -7013,7 +7013,7 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
             ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
             const std::string tn = ck == K::Struct || ck == K::ZonedStruct ? concrete_struct_name(st)
                                  : ck == K::Enum ? std::string(TypeRef(st).enum_name()) : type_str(st);
-            for (size_t bi : viable_blanket_impls(name, tn, /*report=*/false)) {
+            for (size_t bi : viable_blanket_impls(name, st, /*report=*/false)) {
                 const auto& b = blanket_impls_[bi];
                 const std::string sfx = "__" + std::string(name);
                 if (b.mangled_name.size() > sfx.size() && b.mangled_name.ends_with(sfx))
@@ -9554,45 +9554,25 @@ lir::LExprPtr SemaChecker::lower_invoke_on(lir::LExprPtr recv, std::vector<lir::
                                  std::move(arg_exprs), -1, error_t());
 }
 
-std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_name,
-                                                      const std::string& type_name, bool report) {
-    // Strip a generic suffix (`Vec$i32` → `Vec`); primitives have none.
-    std::string base_name(type_name);
-    if (auto d = base_name.find('$'); d != std::string::npos)
-        base_name = base_name.substr(0, d);
-    // Collect all viable blanket matches first so we can diagnose overlap
-    // when two distinct blanket impls would both apply to the same receiver.
+std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_name, TypeRef self, bool report) {
+    // A blanket impl's method is offered when C-OBL selects that impl for
+    // `self` (its bounds, their associated-type clauses included).
     std::vector<size_t> viable_blanket_idxs;
+    while (self && (is_ref_like(TypeRef(self).kind()) || TypeRef(self).kind() == LogosType::Kind::Ptr))
+        self = TypeRef(self).pointee();
+    if (!self) return viable_blanket_idxs;
+    const obl::ImplTable& table = obl_table_now_();
+    StrMap<StrSet> answering;   // trait identity -> the impls (by node) that answer for `self`
     for (size_t bi_idx = 0; bi_idx < blanket_impls_.size(); ++bi_idx) {
         auto& bi = blanket_impls_[bi_idx];
-        if (bi.method_name != std::string(method_name)) continue;
-        if (!bi.bound_trait.empty()) {
-            logos::compiler::StrSet seen_pri;
-            // B-mv-03: ask by IDENTITY. `assoc_eqs_satisfied` keeps the RAW
-            // spelling — it looks the assoc types up under the `$blanket$` key
-            // collect_impl registered, which is composed from the raw text.
-            if (!sema_has_impl_recursive(bi.query_bound_trait(), type_name,
-                                         base_name, seen_pri)) continue;
-            // ADR 0008: assoc-type-equality clauses on the primary bound.
-            if (!assoc_eqs_satisfied(bi.bound_trait, type_name,
-                                      base_name, bi.primary_assoc_eqs)) continue;
-        }
-        bool extras_ok = true;
-        for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
-            logos::compiler::StrSet seen_eb;
-            if (!sema_has_impl_recursive(bi.query_extra_bound(ei), type_name,
-                                         base_name, seen_eb)) { extras_ok = false; break; }
-        }
-        if (!extras_ok) continue;
-        // Assoc-eqs on extra bounds, indexed by trait name.
-        bool extra_eqs_ok = true;
-        for (auto& [trait, eqs] : bi.extra_assoc_eqs) {
-            if (!assoc_eqs_satisfied(trait, type_name, base_name, eqs)) {
-                extra_eqs_ok = false; break;
-            }
-        }
-        if (!extra_eqs_ok) continue;
-        viable_blanket_idxs.push_back(bi_idx);
+        if (bi.method_name != method_name) continue;
+        auto tit = obl_trait_of_node_.find(bi.impl_node);
+        if (tit == obl_trait_of_node_.end()) continue;
+        auto [ait, fresh] = answering.try_emplace(tit->second);
+        if (fresh)
+            for (auto& c : obl::candidates(table, obl_env_(), tit->second, self, {}))
+                ait->second.insert(obl_infos_[c.impl->source]->impl_node);
+        if (ait->second.count(bi.impl_node)) viable_blanket_idxs.push_back(bi_idx);
     }
     if (report && viable_blanket_idxs.size() >= 2) {
         // Distinct blanket impls of the same trait both apply — overlap.
@@ -9608,7 +9588,7 @@ std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_na
         error(std::format(
             "method call: ambiguous blanket impl for '{}.{}': "
             "both `impl<T: {}> {}` and `impl<T: {}> {}` apply",
-            type_name, method_name, b1, trait1, b2, trait2));
+            type_str(self), method_name, b1, trait1, b2, trait2));
     }
     return viable_blanket_idxs;
 }
@@ -9618,7 +9598,7 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
         std::vector<lir::LExprPtr>& arg_exprs,
         std::string_view method_name,
         const std::string& type_name) {
-    for (size_t bi_idx : viable_blanket_impls(method_name, type_name)) {
+    for (size_t bi_idx : viable_blanket_impls(method_name, expr_type(recv))) {
         auto& bi = blanket_impls_[bi_idx];
         std::vector<TypeRef> bi_arg_types;
         bi_arg_types.push_back(expr_type(recv));
@@ -9704,7 +9684,7 @@ lir::LExprPtr SemaChecker::try_blanket_static_dispatch(
         const std::string& type_name,
         TypeRef self_t) {
     if (!self_t) return nullptr;
-    for (size_t bi_idx : viable_blanket_impls(method_name, type_name)) {
+    for (size_t bi_idx : viable_blanket_impls(method_name, self_t)) {
         auto& bi = blanket_impls_[bi_idx];
         std::vector<TypeRef> bi_arg_types;
         for (auto& a : arg_exprs) bi_arg_types.push_back(expr_type(a));
@@ -10879,31 +10859,6 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     if (arg_exprs[i]) walk(chosen_method->param_types[i + 1], expr_type(arg_exprs[i]));
             }
             TypeRef ret_type = subst_type_sema(chosen_method->ret_type, self_subst, lt_subst_tv);
-            // G156-1: the trait method's `Self::Item` was resolved bare at the
-            // trait declaration; stamp the BOUND's concrete trait type-args onto
-            // the substituted return projection so it matches both the args-
-            // suffixed assoc-type impl (two `Trait<T>` impls for one type) and
-            // the caller's declared `-> P::Item` (resolved via the same bound).
-            if (ret_type && TypeRef(ret_type).kind() == LogosType::Kind::AssocType) {
-                if (auto bitr = current_type_bounds_.find(recv_bound_key);
-                    bitr != current_type_bounds_.end()) {
-                    for (auto& b : bitr->second) {
-                        if (b.trait_name != chosen_trait || b.type_args.empty()) continue;
-                        std::string want_tn = chosen_trait + trait_targ_suffix(b.type_args);
-                        if (std::string(TypeRef(ret_type).trait_name()) != want_tn) {
-                            LogosTypeBuilder rt;
-                            rt.kind            = LogosType::Kind::AssocType;
-                            rt.assoc_base      = TypeRef(ret_type).assoc_base();
-                            rt.trait_name      = want_tn;
-                            rt.pkg_name        = std::string(TypeRef(ret_type).pkg_name());   // #438
-                            rt.assoc_type_name = std::string(TypeRef(ret_type).assoc_type_name());
-                            for (auto g : TypeRef(ret_type).gat_args()) rt.gat_args.push_back(g);
-                            ret_type = pool_->alloc(std::move(rt));
-                        }
-                        break;
-                    }
-                }
-            }
 
             // T9-tr-02: auto-ref the receiver if the impl method expects
             // `&self` / `&mut self`. For TypeVar receivers, recv is just the
@@ -15580,24 +15535,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
                 return cit->second.cached_value;
             }
         }
-        for (auto& [tname_def, tinfo] : traits_) {
-            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
-            // spaces are composed from the spelling at the impl (collect_impl),
-            // so a path here would miss every one of them. (Those key spaces
-            // move to identities in a later step of #438.)
-            const std::string& tname = tinfo.name;
-            if (!has_impl(tname, cname_str)) continue;
-            const AssocKey key = assoc_key(tname, cname_str, mname_str);
-            auto cit = assoc_const_impls_.find(key);
-            if (cit != assoc_const_impls_.end()) {
-                if (!cit->second.cached_value) {
-                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
-                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                    cit->second.cached_value = val;
-                }
-                return cit->second.cached_value;
-            }
-        }
+        // A trait's constant: the item of the impl C-OBL selects for the type.
+        if (auto* ce = trait_assoc_const_(lookup_type_by_name(cname_str), mname_str))
+            return assoc_const_value_(*ce);
         // g9/B121: generic assoc-const projection `T::CONST` (T a bound
         // type-param) — route through a per-impl accessor call.
         if (auto acc = try_lower_generic_assoc_const(cname_str, mname_str))
@@ -15782,24 +15722,9 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // Check for associated constant access before reporting "unknown enum".
         std::string cname_str = std::string(ename);
         std::string mname_str = std::string(vname);
-        for (auto& [tname_def, tinfo] : traits_) {
-            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
-            // spaces are composed from the spelling at the impl (collect_impl),
-            // so a path here would miss every one of them. (Those key spaces
-            // move to identities in a later step of #438.)
-            const std::string& tname = tinfo.name;
-            if (!has_impl(tname, cname_str)) continue;
-            const AssocKey key = assoc_key(tname, cname_str, mname_str);
-            auto cit = assoc_const_impls_.find(key);
-            if (cit != assoc_const_impls_.end()) {
-                if (!cit->second.cached_value) {
-                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
-                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                    cit->second.cached_value = val;
-                }
-                return cit->second.cached_value;
-            }
-        }
+        // A trait's constant: the item of the impl C-OBL selects for the type.
+        if (auto* ce = trait_assoc_const_(lookup_type_by_name(cname_str), mname_str))
+            return assoc_const_value_(*ce);
         // g9/B121: generic assoc-const projection `T::CONST` (T a bound
         // type-param) — route through a per-impl accessor call.
         if (auto acc = try_lower_generic_assoc_const(cname_str, mname_str))
@@ -16693,7 +16618,7 @@ bool SemaChecker::ref_arg_satisfies_dyn(TypeRef at, TypeRef pt) {
 
     // (b) pointee is a concrete type — struct / enum / PRIMITIVE — implementing
     //     the trait, DIRECTLY or via a blanket impl (`impl<T: Bound> Trait for
-    //     T`). sema_has_impl_recursive walks direct + blanket + bound chains, so
+    //     T`). C-OBL selects direct and blanket impls with their bounds, so
     //     `&i64 as &dyn Describe` works when `i64: Tag` and
     //     `impl<T: Tag> Describe for T` is in scope. Primitives were previously
     //     unhandled (only Struct/Enum), and blanket satisfaction was ignored.
@@ -18770,24 +18695,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 return cit->second.cached_value;
             }
         }
-        for (auto& [tname_def, tinfo] : traits_) {
-            // ⚠ The trait's own NAME: the assoc-type / assoc-const / impl key
-            // spaces are composed from the spelling at the impl (collect_impl),
-            // so a path here would miss every one of them. (Those key spaces
-            // move to identities in a later step of #438.)
-            const std::string& tname = tinfo.name;
-            if (!has_impl(tname, cname_str)) continue;
-            const AssocKey key = assoc_key(tname, cname_str, mname_str);
-            auto cit = assoc_const_impls_.find(key);
-            if (cit != assoc_const_impls_.end()) {
-                if (!cit->second.cached_value) {
-                    auto val = lower_typed_const_(map_of(cit->second.value_ast), cit->second.type);
-                    if (cit->second.type) builder().retype_expr(val, cit->second.type);
-                    cit->second.cached_value = val;
-                }
-                return cit->second.cached_value;
-            }
-        }
+        // A trait's constant: the item of the impl C-OBL selects for the type.
+        if (auto* ce = trait_assoc_const_(lookup_type_by_name(cname_str), mname_str))
+            return assoc_const_value_(*ce);
         // Generic static dispatch: DT::method() where DT is a type parameter with
         // a trait bound that declares a static method `method`.  The actual impl is
         // resolved during monomorphization (see mono_clone.cpp ECall branch — it
@@ -18838,32 +18748,15 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     SemaSubst self_subst;
                     self_subst["Self"] = current_type_params_.count(cname_str)
                         ? current_type_params_[cname_str] : make_typevar(cname_str);
-                    TypeRef ret_t = subst_type_sema(m.ret_type, self_subst);
-                    // G156-1 symmetry (ADR 0021): the trait method's declared
-                    // `Self::H` was collected with a BARE trait_name, while the
-                    // caller's return annotation `C::H` (resolved through the
-                    // bound `C: Fam<S>`) bakes the trait's type-args into
-                    // trait_name — the two spellings then intern differently
-                    // and `return C::mk(s);` fails "C::H != C::H". Rebake the
-                    // suffix from the SAME bound here (the mirror of the
-                    // method-call path's want_tn fixup).
-                    if (ret_t && TypeRef(ret_t).kind() == LogosType::Kind::AssocType) {
-                        for (auto& b : bit->second) {
-                            if (b.trait_name != tn || b.type_args.empty()) continue;
-                            std::string want_tn = tn + trait_targ_suffix(b.type_args);
-                            if (std::string(TypeRef(ret_t).trait_name()) != want_tn) {
-                                LogosTypeBuilder rb;
-                                rb.kind            = LogosType::Kind::AssocType;
-                                rb.assoc_base      = TypeRef(ret_t).assoc_base();
-                                rb.trait_name      = want_tn;
-                                rb.pkg_name        = std::string(TypeRef(ret_t).pkg_name());   // #438
-                                rb.assoc_type_name = std::string(TypeRef(ret_t).assoc_type_name());
-                                for (auto g : TypeRef(ret_t).gat_args()) rb.gat_args.push_back(g);
-                                ret_t = pool_->alloc(std::move(rb));
-                            }
-                            break;
-                        }
+                    // The trait's parameters are the bound's arguments (`C: Fam<S>`):
+                    // `Self::H` declared in the trait is `<C as Fam<S>>::H` here.
+                    for (auto& b : bit->second) {
+                        if (b.trait_name != tn) continue;
+                        for (size_t ti = 0; ti < tit->type_params.size() && ti < b.type_args.size(); ++ti)
+                            if (b.type_args[ti]) self_subst[tit->type_params[ti].name] = b.type_args[ti];
+                        break;
                     }
+                    TypeRef ret_t = subst_type_sema(m.ret_type, self_subst);
                     const SemaFuncInfo* mfi = nullptr;
                     {
                         auto cands = find_func_candidates(cname_str + "__" + mname_str);
@@ -25219,7 +25112,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         //   `r` — `Bidirectional<B>`: batches can be pulled BACKWARD.
         //   `n` — `RandomAccess<B>` : `seek_nth`, one descent to an ordinal.
         // `r` and `n` are separate letters even though `RandomAccess: Bidirectional`
-        // and `sema_has_impl_recursive` answers the supertrait too: DESC
+        // and C-OBL answers the supertrait too: DESC
         // elision needs BOTH and a bidirectional-only source is not sufficient
         // (a fresh walk is at `at == base` and `retreat()` refuses), so the
         // reader must be able to tell them apart rather than infer one.
@@ -25234,7 +25127,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         // batches are `RowsBatch<R>` = `&[R]`; ABSENT = columnar, so every
         // producer that predates the marker keeps its emission byte for byte.
         // Asked of the RETURN TYPE like the other four letters, via a marker
-        // trait, because membership is all `sema_has_impl_recursive` answers —
+        // trait, because membership is all a trait query answers —
         // the layout is physically `BatchStream`'s type ARGUMENT and that
         // residual is recorded at `RowMajor` in `stream.logos`.
         const bool mat_rowmaj  = producer_impls_trait_(mat_fn_used, "RowMajor");
@@ -25260,7 +25153,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         // family walk emits `^<col>` and elides.
         //
         // ⚠ RESIDUAL, RECORDED: the declared column's TYPE is not compared
-        // against the recovered `OrderedBy<K>` argument. `sema_has_impl_recursive`
+        // against the recovered `OrderedBy<K>` argument. The trait query
         // answers membership with a bool and does not hand back the trait's
         // type arguments, so `order entry = val` on a `(key: u64, val: str)`
         // row whose walk is `OrderedBy<u64>` is still representable. That is

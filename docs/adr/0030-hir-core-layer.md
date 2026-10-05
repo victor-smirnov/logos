@@ -570,6 +570,64 @@ takes the same Self (Copy / Clone: the `&[u8]` fact only). The `&[u8]` value's
 `Hash` is now `impl Hash for str`'s (it was the `[T]` impl's): an ABI break,
 0.55.0.
 
+Row (5), projections: an impl fact carries its associated types (a generic
+associated type with its own parameters) and `obl::project` answers
+`<Self as Trait<A…>>::Name<B…>` by the impl C-OBL selects, at its substitution
+(ambiguous or none: no answer). Sema normalizes a projection over a concrete
+base when it is resolved and in substitution for a concrete or type-parameter
+base (a blanket impl answering through the parameter's bounds); the AssocType
+node carries the trait's arguments as types (Rust's `<T as Trait<A>>::Item`),
+substituted with its base. The impl under collection is a pending fact while
+its methods are checked against the trait — a blanket impl's own `DT::Store`
+normalizes by it, and `Self::Item<i32>` in an impl's own signature resolves
+(the old keyed path could not). A bound's associated-type clauses
+(`T: Iterator<Item = u32>`) are part of the solver's bound check. Deleted:
+mono's trait_item_assoc_type_ and assoc_impls_ (its subst and the ADR 0008
+clause check of the eager blanket pass project through the solver; census over
+pass, fail, spec, interactions, soundness, diag, examples, imported with and
+without `--test`: 0 disagreements), sema's assoc_eqs_satisfied,
+sema_has_impl_recursive, blanket_implements, find_assoc_type_entry and the two
+GAT projection arms (census: 4 disagreements, each the solver right — a GAT
+used at the wrong arity is not projected (E0107), the pending impl answers
+`Self::Item<i32>`). A blanket impl's method is offered at a receiver when C-OBL
+selects that impl for it (`viable_blanket_impls`, by the impl's identity).
+Squeue #555 (a `Sized` supertrait) closed by the builtin rule.
+Associated constants: each trait impl holds its own (written, or the trait's
+default when the impl omits it — decided by the impl's items, not a spelled
+key two `Tr<A>` / `Tr<B>` impls of one type share); `Type::NAME` of a trait is
+the constant of the impl C-OBL selects (two traits answering: E0034), in sema's
+three value paths and the length / const-argument folding, and mono folds
+`C::CONST` by the same selection over the values sema emits on each impl. The
+L-IR carries an impl's associated types and constants from the impl's own
+record (a blanket impl's constants now too). `assoc_type_impls_` is deleted
+(a duplicate associated type is E0201 within the impl; the default fill reads
+the impl's items). A projection's identity is (trait identity, trait arguments as types, base,
+name, item arguments): the `$G<n>$…` suffix baked into its trait name is gone,
+with the two call-site fixups that re-baked it from a bound. Inside
+`trait Tr<T>`, `Self::Item` is `<Self as Tr<T>>::Item`, so a method's declared
+`Self::Item` substituted at a bound `P: Tr<A>` is `<P as Tr<A>>::Item` — the
+caller's `P::Item` — by substitution alone; this closed squeue #603
+(`T: Add<T, Output = T>`, rustc accepts). LEFT for row 5: inherent associated
+constants keyed by the target's spelling (inherent impls are not C-OBL facts),
+mono's GAT parameters (its L-IR assoc entries carry none); the `$G` trait-
+argument suffix remains in symbol names (row 8's mangler).
+
+Row (7), deferred obligations: an instantiation's obligations are C-OBL
+selections by the bound's identity at its substituted arguments
+(`bound_holds_`) — method_bound_ok's own engine (auto traits matched by
+spelling, the `&[u8]`→`str` rewrite, the HRTB impl lookup by trait spelling:
+regions are sema's question) and the enum-template instantiation's bound loop
+are deleted. Sema refuses first, as rustc: an impl method requiring more of
+its own type parameters than the trait's declaration implies (directly, by a
+declared `where`, or through a supertrait) is E0276, and a `where` clause on a
+concrete type that does not hold is E0277 (checked once every impl is
+collected; a type parameter in scope — the trait's `Item`, substituted for a
+synthesized default — is not one). Squeue #539 and #641 closed. Mono still
+skips an instance whose obligations fail where that is an absence, not an
+error: a struct instance's methods expanded eagerly, the bound-discriminated
+twins of one method; an instance a call demands that no impl provides is row
+(2)'s mlir miss, an internal error.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

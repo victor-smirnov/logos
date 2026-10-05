@@ -1,0 +1,11 @@
+// Closed squeue sized_supertrait_blocks_impl_refused (#555): C-OBL answers a Sized supertrait by its builtin rule (ADR 0030 S9 rows 3-4, supertrait parity on the solver).
+package sized_supertrait_blocks_impl_refused;
+trait NotSafe: Sized {
+    fn f(self: &Self) -> i32;
+}
+pub struct S {}
+impl NotSafe for S { fn f(self: &Self) -> i32 { 1 } }
+fn main() -> i32 {
+    let s = S {};
+    s.f()
+}
