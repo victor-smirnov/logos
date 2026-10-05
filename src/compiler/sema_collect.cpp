@@ -863,6 +863,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
     check_concrete_where_();
     // ... and no two impls of one trait may apply to one type (E0119).
     check_impl_overlap_();
+    check_orphan_rule_();
 
     // M5 step 3b+5: record only BINARY holders. User holders intentionally
     // skipped — user ASTs must re-walk every call so strict-mode validation
@@ -5425,6 +5426,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
         info.file = file_;
         info.line = get_line(node);
         info.from_binary = cur_from_binary_;
+        info.module_id = cur_module_id_;
+        // An impl a metaclass handler generated (a container family's `impl
+        // CtrFamily for CtrClass<cfg>`) is the handler's module's: the trait's.
+        if (file_ == "<metaprog-blob-subst>" || file_.ends_with(".gen.logos"))
+            if (const SemaTraitInfo* gti = trait_info(impl_trait_id(trait_name)))
+                if (auto mit = pkg_module_ids_.find(gti->package); mit != pkg_module_ids_.end())
+                    info.module_id = mit->second;
         info.impl_node = node_key_(node);
         // B91: coherence — reject a second impl of the same trait for the
         // same target type. Only fires for NON-GENERIC impls (no impl type
@@ -7141,6 +7149,89 @@ void SemaChecker::check_concrete_where_() {
 // type that does not hold, or on a type no impl of the bound's trait can match
 // (no head unifies and no compiler rule could answer). As rustc: two blankets
 // whose bounds merely differ overlap. Reported at the later impl.
+// The orphan rule (RFC 2451): an impl is the impl's module's to write when its
+// trait is that module's, or when, reading Self then the trait's arguments, a
+// type of that module comes before any uncovered type parameter. `&T`, `&mut T`,
+// `Box<T>` and `Pin<T>` are fundamental: what they wrap is what counts; a trait
+// object is its trait's. An archive's impls were checked where it was built.
+void SemaChecker::check_orphan_rule_() {
+    using K = LogosType::Kind;
+    auto module_of = [&](std::string_view pkg) {
+        auto it = pkg_module_ids_.find(std::string(pkg));
+        return it == pkg_module_ids_.end() ? std::string() : it->second;
+    };
+    std::set<std::string> seen;
+    const std::string saved_ctx = ctx_, saved_file = file_;
+    const uint32_t saved_line = node_line_;
+    for (auto& [k, infos] : impls_all_)
+        for (auto& info : infos) {
+            if (info.from_binary || info.impl_node.empty() || !seen.insert(info.impl_node).second) continue;
+            if (info.target_type == "&[u8]") continue;   // the `str` alias of an impl checked as itself
+            const SemaTraitInfo* ti = trait_info(info.trait_def);
+            if (!ti || module_of(ti->package) == info.module_id) continue;
+            auto is_param = [&](TypeRef t) {
+                if (!t || TypeRef(t).kind() != K::TypeVar) return std::string();
+                for (auto& tp : info.impl_type_params)
+                    if (tp.name == TypeRef(t).type_var_name()) return tp.name;
+                return std::string();
+            };
+            auto peel = [&](TypeRef t) {
+                for (int n = 0; t && n < 16; ++n) {
+                    auto tk = TypeRef(t).kind();
+                    if ((tk == K::Ref || tk == K::MutRef) && TypeRef(t).pointee()) { t = TypeRef(t).pointee(); continue; }
+                    if ((type_is_lang_item(t, "owned_box") || type_is_lang_item(t, "pin")) &&
+                        !TypeRef(t).type_args().empty()) { t = TypeRef(t).type_args()[0]; continue; }
+                    break;
+                }
+                return t;
+            };
+            auto local = [&](TypeRef t) {
+                if (!t) return false;
+                auto tk = TypeRef(t).kind();
+                if (tk == K::Struct || tk == K::ZonedStruct || tk == K::Enum)
+                    return module_of(TypeRef(t).pkg_name()) == info.module_id;
+                if (tk == K::TraitObject || tk == K::UnsizedDyn) {
+                    // The object's trait, by its package when the type carries one.
+                    std::string_view tn = TypeRef(t).trait_name();
+                    std::string_view tp = TypeRef(t).pkg_name();
+                    if (!tp.empty()) return module_of(tp) == info.module_id;
+                    if (DefId d = trait_def_of_key(tn)) return module_of(defs_[d].package) == info.module_id;
+                    if (const SemaTraitInfo* oti = resolve_trait(tn)) return module_of(oti->package) == info.module_id;
+                }
+                return false;
+            };
+            std::vector<TypeRef> header{info.self_type ? info.self_type : info.target_typeref};
+            for (auto a : info.trait_type_args) header.push_back(a);
+            bool ok = false;
+            std::string uncovered;
+            for (auto t : header) {
+                // A local wrapper is local (`Box<T>` in Box's own module); a foreign
+                // fundamental one counts as what it wraps.
+                TypeRef p = t;
+                while (p && !local(p) && peel(p) != p) {
+                    TypeRef q = TypeRef(p).kind() == K::Ref || TypeRef(p).kind() == K::MutRef
+                                    ? TypeRef(p).pointee() : TypeRef(p).type_args()[0];
+                    p = q;
+                }
+                if (local(p)) { ok = true; break; }
+                if (auto n = is_param(p); !n.empty()) { uncovered = n; break; }
+            }
+            if (ok) continue;
+            ctx_ = std::format("impl {} for {}", info.trait_name, info.target_type);
+            file_ = info.file;
+            node_line_ = info.line;
+            if (!uncovered.empty())
+                error(std::format("type parameter `{}` must be used as the type parameter for some local type: "
+                                  "only traits defined in the current crate can be implemented for a type "
+                                  "parameter (E0210)", uncovered));
+            else
+                error(std::format("only traits defined in the current crate can be implemented for types defined "
+                                  "outside of the crate: impl of '{}' for '{}' (E0117)", info.trait_name,
+                                  type_str(header[0])));
+        }
+    ctx_ = saved_ctx; file_ = saved_file; node_line_ = saved_line;
+}
+
 void SemaChecker::check_impl_overlap_() {
     using K = LogosType::Kind;
     const obl::ImplTable& table = obl_table_now_();

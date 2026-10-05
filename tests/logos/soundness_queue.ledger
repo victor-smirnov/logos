@@ -228,8 +228,6 @@ match_guard_temp_drop_timing_wrong 2 tests/soundness/open/match_guard_temp_drop_
 
 nonunit_expr_statement_admitted 2 tests/soundness/open/nonunit_expr_statement_admitted admits
 
-orphan_rule_not_enforced_admitted 2 tests/soundness/open/orphan_rule_not_enforced_admitted admits
-
 raw_pointer_matched_as_option_crash 2 tests/soundness/open/raw_pointer_matched_as_option_crash refuses
 
 tryfrom_assoc_error_type_refused 2 tests/soundness/open/tryfrom_assoc_error_type_refused refuses
@@ -447,5 +445,5 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
-# TOTAL 134
-# SYNC-HASH ba5f87d9c8687328c0569b2846514952
+# TOTAL 133
+# SYNC-HASH bc73f53b1dcc8e1f621bb84248927d40

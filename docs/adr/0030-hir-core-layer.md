@@ -654,9 +654,24 @@ now loading mem.fmt and fixed: mono's `find_any_struct` asked the bare name
 before the package-qualified one, so a user `struct String` stood in for
 `logos.mem.string.String` in `fmt::Arguments`' layout (the layout engines
 disagreed, 16 vs 24 bytes); it asks the package's own first — squeue #698
-closed. LEFT for row 6: E0117
-(orphan rule); one struct-specialization selection (`find_best_sema_struct_spec`
-/ `find_best_struct_spec` / `find_best_spec`).
+closed.
+Row (6), step B: the orphan rule (`check_orphan_rule_`, E0117 / E0210, RFC
+2451) — a module is the crate; `&` / `&mut` / `Box` / `Pin` (lang item `pin`
+now) are fundamental outside their own module; a trait object is its trait's;
+a metaclass handler's generated impl is its trait's module's. Census over every
+corpus: 6 refusals, 5 of them programs rustc refuses too (fail fixtures, squeue
+#550 closed), 1 false positive fixed (`dyn LocalTrait` read through the
+caller's scope). The stdlib's one orphan, `impl FromIterator<Result<T, E>> for
+Result<Vec<T>, E>` in mem, is Rust's generic impl in lang.iter now
+(`ResultShunt`). One specialization selection
+(`obl::pick_specialization`): struct specs in sema and mono and function specs
+in mono share the matcher, the bound gate (a bound-discriminated spec, every
+position a variable) and the specificity order; a tie is an error in sema too.
+Deleted: the three selection loops, sema's `specificity_sema`, mono's
+`type_specificity` / `specificity_score` / `specificity_vec`. Row 6 CLOSED BY
+ROW. Seen while writing the fixtures and left to row (9): `*x == *y` on `dyn
+Shape` with a user `PartialEq` compares addresses (interaction cluster
+`dyn-eq-operator-builtin`).
 
 ## S0–S7 gap audit (2026-10-01)
 

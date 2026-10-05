@@ -5204,76 +5204,26 @@ lir_view::StructView Mono::find_best_struct_spec(
     const std::vector<TypeRef>& type_args) {
     auto sit = struct_specs_.find(base_name);
     if (sit == struct_specs_.end()) return {};
-
     const TypePoolImpl* pool = out_.type_pool.impl();
-    lir_view::StructView   best;
-    std::vector<int>       best_vec;
-    bool                   ambiguous  = false;
-
+    std::vector<obl::SpecCand> cands;
     for (auto spec : sit->second) {
-        auto pats = spec.spec_patterns(pool);
-        if (pats.size() != type_args.size()) continue;
-        SubstMap dummy;
-        bool ok = true;
-        // Bound gates apply only to bound-DISCRIMINATED specs (all pattern
-        // positions TypeVar) — mirrors sema; shape-selected specs' pattern
-        // bounds are ordinary constraints.
-        bool all_tv = true;
-        for (auto pp : pats)
-            if (!pp || TypeRef(pp).kind() != LogosType::Kind::TypeVar)
-                { all_tv = false; break; }
-        std::vector<int> bound_bonus(type_args.size(), 0);
-        for (size_t i = 0; i < type_args.size(); ++i) {
-            if (!match_type(type_args[i], pats[i], dummy)) {
-                ok = false; break;
-            }
-            // Bound-discriminated pattern (`struct S<T: Copy + Fst>`): the
-            // spec matches only args SATISFYING the pattern var's bounds
-            // (mirrors sema's find_best_sema_struct_spec gate). TypeVar-
-            // bearing args accept — template-time scans re-run concrete.
-            if (all_tv && pats[i] && TypeRef(pats[i]).kind() == LogosType::Kind::TypeVar) {
-                std::string pv(TypeRef(pats[i]).type_var_name());
-                for (auto tp : spec.type_params()) {
-                    if (tp.name() != pv || tp.bounds_empty()) continue;
-                    int nb = 0;
-                    if (type_args[i] && !contains_typevar(type_args[i])) {
-                        bool sat = true;
-                        tp.each_bound([&](lir_view::FnTraitBoundView b) {
-                            if (!sat) return;
-                            StrSet seen;
-                            if (!mono_concrete_satisfies_bound(
-                                    std::string(b.trait_name()),
-                                    type_args[i], seen))
-                                sat = false;
-                            ++nb;
-                        });
-                        if (!sat) { ok = false; }
-                    } else {
-                        tp.each_bound([&](lir_view::FnTraitBoundView) { ++nb; });
-                    }
-                    bound_bonus[i] = nb;
-                    break;
-                }
-                if (!ok) break;
-            }
+        obl::SpecCand c;
+        c.patterns = spec.spec_patterns(pool);
+        for (auto tp : spec.type_params()) {
+            c.generics.emplace_back(tp.name());
+            tp.each_bound([&](lir_view::FnTraitBoundView b) {
+                std::string id(b.identity_trait().empty() ? b.trait_name() : b.identity_trait());
+                c.bounds.push_back({std::string(tp.name()), std::move(id), b.type_args(pool)});
+            });
         }
-        if (!ok) continue;
-        auto svec = specificity_vec(pats);
-        for (size_t i = 0; i < svec.size() && i < bound_bonus.size(); ++i)
-            svec[i] += bound_bonus[i];
-        if (!best.valid() || svec > best_vec) {
-            best_vec  = svec;
-            best      = spec;
-            ambiguous = false;
-        } else if (svec == best_vec) {
-            ambiguous = true;
-        }
+        cands.push_back(std::move(c));
     }
-    if (ambiguous) {
+    // A generic argument defers to the concrete re-scan (template-time scans).
+    auto pick = obl::pick_specialization(obl_table_now_(), obl_env_(), cands, type_args, /*open_args_hold=*/true);
+    if (pick.ambiguous)
         in_.diags.diags.push_back({Diag::Level::Error, "mono",
             std::format("ambiguous specializations for struct '{}'", base_name), diag_file_, diag_line_});
-    }
-    return best;
+    return pick.index < 0 ? lir_view::StructView{} : sit->second[pick.index];
 }
 
 

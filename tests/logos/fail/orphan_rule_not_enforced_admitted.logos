@@ -1,0 +1,9 @@
+// Closed squeue orphan_rule_not_enforced_admitted (#550): the orphan rule is checked for every impl after collection (E0117 / E0210), ADR 0030 S9 row 6.
+package orphan_rule_not_enforced_admitted;
+use logos.lang.iter;
+
+impl FromIterator<i32> for i32 {
+    fn from_iter<I: Iterator<i32>>(iter: I) -> i32 { 0 }
+}
+
+fn main() -> i32 { 0 }

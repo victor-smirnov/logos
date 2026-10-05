@@ -841,6 +841,12 @@ After collection, every pair of impls of one trait is checked: they overlap when
 
 *Source:* `src/compiler/sema_collect.cpp`, `src/compiler/obligation.cpp`
 
+### `trait.resolve.orphan-rule` — An impl's trait or a type of its header is the impl's module's (E0117 / E0210)
+
+An impl is accepted when its trait is declared in the impl's module, or when, reading Self then the trait's arguments, a type of that module comes before any uncovered type parameter (RFC 2451): a struct, enum or union of the module, or a trait object of its trait. `&T`, `&mut T`, `Box<T>` and `Pin<T>` are fundamental — outside their own module they count as what they wrap. A type parameter met first is E0210; no local type at all is E0117. A module is the crate: the stdlib's `logos.module`s each, a program's own files together. An impl a metaclass handler generates is its trait's module's. An archive's impls were checked where it was built.
+
+*Source:* `src/compiler/sema_collect.cpp`
+
 ### `trait.resolve.cycle-terminates-no-impl` — An obligation that does not terminate does not hold
 
 Resolution nests at most 48 obligations deep; a deeper (cyclic) chain yields no impl on that path, so resolution always terminates.

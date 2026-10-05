@@ -1,0 +1,32 @@
+// ADR 0030 S9 row 6, the admit twin of fail/orphan_rule_not_enforced_admitted:
+// impls the orphan rule allows — a foreign trait for a local type, a local trait
+// for a foreign type, a foreign trait for `&Local` and `Box<Local>` (fundamental
+// wrappers count as what they wrap), a foreign trait whose trait argument is
+// local, and a foreign trait for `dyn LocalTrait`. rustc 1.98.1 accepts it.
+package s9_orphan_rule_admits_local;
+use logos.lang.default;
+use logos.lang.convert;
+use logos.lang.cmp;
+
+struct Meters { v: i64 }
+trait Twice { fn twice(self: &Self) -> i64; }
+trait Shape { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+
+impl Default for Meters { fn default() -> Meters { return Meters { v: 3 }; } }
+impl Twice for i64 { fn twice(self: &i64) -> i64 { return *self * 2; } }
+impl Twice for &Meters { fn twice(self: &&Meters) -> i64 { return (**self).v * 2; } }
+impl From<Meters> for i64 { fn from(m: Meters) -> i64 { return m.v; } }
+impl Shape for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+impl PartialEq for dyn Shape { fn eq(self: &dyn Shape, o: &dyn Shape) -> bool { return self.area() == o.area(); } }
+
+fn main() -> i32 {
+    let m: Meters = Meters::default();
+    let r: &Meters = &m;
+    let a: i64 = 5i64.twice() + r.twice();          // 10 + 6
+    let b: i64 = i64::from(Meters { v: 4 });         // 4
+    let x: &dyn Shape = &Sq { s: 2 };
+    let y: &dyn Shape = &Sq { s: 2 };
+    let c: i64 = if x.eq(y) { 1 } else { 0 };     // `*x == *y` on dyn: row 9 (operators)
+    return (a + b + c) as i32;                         // 21
+}

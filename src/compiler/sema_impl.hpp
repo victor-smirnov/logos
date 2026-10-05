@@ -6350,6 +6350,7 @@ private:
         std::string file;        // where the impl is written (diagnostics)
         uint32_t    line = 0;
         bool        from_binary = false;   // collected from an archive (checked at its own build)
+        std::string module_id;             // the module (crate) the impl is written in
     };
     std::vector<std::pair<std::string, uint32_t>> collecting_assoc_consts_;   // collect_impl's
     std::vector<obl::AssocItem> collecting_assoc_types_;   // collect_impl's
@@ -7019,6 +7020,9 @@ private:
     void check_concrete_where_();
     // Coherence (rustc E0119): no two impls of one trait may apply to one type.
     void check_impl_overlap_();
+    // Coherence (rustc E0117 / E0210): an impl's trait or a type of its header is
+    // the impl's own module's.
+    void check_orphan_rule_();
     logos::compiler::StrSet overlap_reported_;
     void record_concrete_where_(sema_detail::TinyMapView constraint, TypeRef subj, const std::string& tname);
     void record_concrete_where_clauses_(sema_detail::TinyMapView node);

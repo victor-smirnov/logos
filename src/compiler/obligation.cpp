@@ -404,4 +404,98 @@ std::optional<TypeRef> project(const ImplTable& table, const Env& env, std::stri
     return s.project(trait, self, args, name, item_args);
 }
 
+int pattern_specificity(TypeRef t) {
+    if (!t || t.kind() == K::TypeVar) return 0;
+    if (t.kind() == K::Ptr) return 1 + pattern_specificity(t.pointee());
+    if (t.kind() == K::Array || t.kind() == K::Slice || t.kind() == K::UnsizedSlice)
+        return 1 + pattern_specificity(t.elem());
+    return 100;
+}
+
+// A specialization pattern against its argument: every type variable of the
+// pattern binds (a spec's own parameters and the base's it keeps), the two slice
+// spellings are one type, a datatype is its struct.
+static bool spec_match(TypeRef c, TypeRef p, Subst& s) {
+    if (!c || !p) return false;
+    if (p.kind() == K::TypeVar || p.kind() == K::ConstVar) {
+        std::string n(p.type_var_name());
+        if (auto it = s.find(n); it != s.end()) return same_type(c, it->second);
+        s.emplace(std::move(n), c);
+        return true;
+    }
+    auto slice = [](TypeRef t) { return t.kind() == K::Slice || t.kind() == K::UnsizedSlice; };
+    auto nominal = [](TypeRef t) { return t.kind() == K::Struct || t.kind() == K::ZonedStruct; };
+    if (slice(p) && slice(c)) return spec_match(c.elem(), p.elem(), s);
+    if (nominal(p) && nominal(c)) {
+        if (!same_nominal(p.pkg_name(), c.pkg_name(), p.struct_name(), c.struct_name())) return false;
+        auto pa = p.type_args(), ca = c.type_args();
+        if (pa.size() != ca.size()) return pa.empty();   // a bare nominal pattern names the type
+        for (size_t i = 0; i < pa.size(); ++i)
+            if (!spec_match(ca[i], pa[i], s)) return false;
+        return true;
+    }
+    if (p.kind() != c.kind()) return false;
+    switch (p.kind()) {
+    case K::Ptr:
+        return p.mut_ptr() == c.mut_ptr() && spec_match(c.pointee(), p.pointee(), s);
+    case K::Ref:
+    case K::MutRef:
+        return spec_match(c.pointee(), p.pointee(), s);
+    case K::Array:
+        if (!p.arr_size_var().empty()) return spec_match(c.elem(), p.elem(), s);
+        return p.arr_size() == c.arr_size() && spec_match(c.elem(), p.elem(), s);
+    case K::Enum: {
+        if (!same_nominal(p.pkg_name(), c.pkg_name(), p.enum_name(), c.enum_name())) return false;
+        auto pa = p.type_args(), ca = c.type_args();
+        if (pa.size() != ca.size()) return pa.empty();
+        for (size_t i = 0; i < pa.size(); ++i)
+            if (!spec_match(ca[i], pa[i], s)) return false;
+        return true;
+    }
+    case K::Tuple: {
+        auto pe = p.tuple_elems(), ce = c.tuple_elems();
+        if (pe.size() != ce.size()) return false;
+        for (size_t i = 0; i < pe.size(); ++i)
+            if (!spec_match(ce[i], pe[i], s)) return false;
+        return true;
+    }
+    default:
+        return same_type(c, p);
+    }
+}
+
+SpecPick pick_specialization(const ImplTable& table, const Env& env, const std::vector<SpecCand>& cands,
+                             const std::vector<TypeRef>& args, bool open_args_hold) {
+    SpecPick out;
+    std::vector<int> best;
+    for (size_t ci = 0; ci < cands.size(); ++ci) {
+        const SpecCand& c = cands[ci];
+        if (c.patterns.size() != args.size()) continue;
+        Subst s;
+        bool ok = true;
+        for (size_t i = 0; ok && i < args.size(); ++i) ok = spec_match(args[i], c.patterns[i], s);
+        if (!ok) continue;
+        bool by_bounds = true;
+        for (auto p : c.patterns) by_bounds = by_bounds && p && p.kind() == K::TypeVar;
+        std::vector<int> score(args.size());
+        for (size_t i = 0; i < args.size(); ++i) score[i] = pattern_specificity(c.patterns[i]);
+        if (by_bounds)
+            for (auto& b : c.bounds) {
+                auto it = s.find(b.param);
+                if (it == s.end() || !it->second) continue;
+                TypeRef a = it->second;
+                const bool open = env.mentions_tv && env.mentions_tv(a);
+                if (open && a.kind() == K::TypeVar && !open_args_hold &&
+                    !select(table, env, b.trait, a, b.args).holds()) { ok = false; break; }
+                if (!open && !select(table, env, b.trait, a, b.args).holds()) { ok = false; break; }
+                for (size_t i = 0; i < args.size(); ++i)
+                    if (c.patterns[i].type_var_name() == b.param) ++score[i];
+            }
+        if (!ok) continue;
+        if (out.index < 0 || score > best) { out.index = int(ci); best = std::move(score); out.ambiguous = false; }
+        else if (score == best) out.ambiguous = true;
+    }
+    return out;
+}
+
 }  // namespace logos::compiler::obl

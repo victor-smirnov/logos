@@ -128,6 +128,28 @@ bool unify(TypeRef concrete, TypeRef pattern, const std::vector<std::string>& ge
 // be bound to another: resolve through it). No occurs check: a cyclic answer only
 // errs toward "overlap".
 bool heads_unify(TypeRef a, TypeRef b, const std::vector<std::string>& vars, Subst& s);
+// A specialization (a partial struct spec, a function spec): its patterns over
+// its generics, and its generics' bounds — gates only when every position is a
+// generic (a bound-discriminated spec, `struct S<T: Copy + Fst>`).
+struct SpecCand {
+    std::vector<TypeRef> patterns;
+    std::vector<std::string> generics;
+    std::vector<Bound> bounds;
+};
+struct SpecPick {
+    int index = -1;          // the most specific candidate that applies, or -1
+    bool ambiguous = false;  // two apply and neither is more specific
+};
+// The one specialization selection (ADR 0030 S9 row 6): each pattern unifies with
+// its argument; a bound-discriminated candidate's bounds hold at the argument (an
+// argument still mentioning a type variable: `open_args_hold` decides for a bare
+// one — sema asks its scope's bounds, mono defers to the concrete re-scan — and a
+// compound one defers). Most specific wins, position by position (a concrete
+// head over `[T]` over a variable; each gating bound adds one); a tie is ambiguous.
+SpecPick pick_specialization(const ImplTable& table, const Env& env, const std::vector<SpecCand>& cands,
+                             const std::vector<TypeRef>& args, bool open_args_hold);
+int pattern_specificity(TypeRef pattern);
+
 // Does `t` mention one of `generics`?
 bool mentions_generic(TypeRef t, const std::vector<std::string>& generics);
 

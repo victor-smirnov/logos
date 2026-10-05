@@ -1466,32 +1466,6 @@ private:
         for (auto e : p.tuple_elems())  collect_pattern_typevars(e, out);
     }
 
-    static int type_specificity(TypeRef tr) noexcept {
-        if (!tr || tr.kind() == LogosType::Kind::TypeVar) return 0;
-        if (tr.kind() == LogosType::Kind::Ptr)   return 1 + type_specificity(tr.pointee());
-        if (tr.kind() == LogosType::Kind::Array)  return 1 + type_specificity(tr.elem());
-        if (tr.kind() == LogosType::Kind::Slice ||
-            tr.kind() == LogosType::Kind::UnsizedSlice)
-            return 1 + type_specificity(tr.elem());
-        return 100;
-    }
-
-    static int specificity_score(const std::vector<TypeRef>& patterns) noexcept {
-        int s = 0;
-        for (auto p : patterns) s += type_specificity(p);
-        return s;
-    }
-
-    // Per-position specificity vector for lexicographic comparison.
-    // Enables correct disambiguation of partial specs like Map<Bitmap,V> vs Map<K,AnyVal>
-    // when both score equally by summed specificity but differ positionally.
-    static std::vector<int> specificity_vec(const std::vector<TypeRef>& patterns) noexcept {
-        std::vector<int> v;
-        v.reserve(patterns.size());
-        for (auto p : patterns) v.push_back(type_specificity(p));
-        return v;
-    }
-
     // ── Spec selection (defined in mono_scan.cpp) ─────────────────────────
     lir_view::FunctionView find_best_spec(const std::string& base_name,
                                           const std::vector<TypeRef>& type_args);

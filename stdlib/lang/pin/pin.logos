@@ -20,6 +20,7 @@ use logos.lang.ops;        // Deref / DerefMut
 
 /// Wraps a pointer `P`, guaranteeing the pointee never moves again.
 /// For `T: !Unpin`, safe code cannot obtain `&mut T` or a by-value `T` through the pin.
+#[lang = "pin"]
 pub struct Pin<P> {
     pointer: P,
 }
