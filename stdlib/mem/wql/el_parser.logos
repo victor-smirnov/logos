@@ -70,7 +70,7 @@ pub struct ElMemoCell { pub res: *const u8, pub endpos: i64, pub endline: i64 }
 pub struct ElTokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64 }
 impl Copy for ElTokCell {}
 
-pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, ElMemoCell>, pub tbuf: Vec<ElTokCell>, pub far: Token, pub fan_over: bool }
+pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, ElMemoCell>, pub tbuf: Vec<ElTokCell>, pub far: Token }
 
 pub fn lexer_new(src: str) -> Lexer {
     let mut tb: Vec<ElTokCell> = vec_new::<ElTokCell>();
@@ -79,7 +79,7 @@ pub fn lexer_new(src: str) -> Lexer {
     while i <= src.len() { tb.push(sent); i = i + 1i64; }
     return Lexer { far: Token { kind: ElTK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,
         la: Token { kind: ElTK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,
-        memo: hashmap_new::<i64, ElMemoCell>(), tbuf: tb, fan_over: false };
+        memo: hashmap_new::<i64, ElMemoCell>(), tbuf: tb };
 }
 
 fn lx_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
@@ -1456,13 +1456,13 @@ fn rule_comp_source(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 pub fn parse_expr(src: str, doc: &Writ) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_expr(&mut lex, doc);
-    if !lex.at_eof() || lex.fan_over { return unsafe { WAny::ref_to(ElNULLP) }; }
+    if !lex.at_eof() { return unsafe { WAny::ref_to(ElNULLP) }; }
     return unsafe { WAny::ref_to(root) };
 }
 pub fn parse_expr_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_expr(&mut lex, doc);
-    if !lex.at_eof() || lex.fan_over { *out_root = unsafe { WAny::ref_to(ElNULLP) }; return lex.far.line; }
+    if !lex.at_eof() { *out_root = unsafe { WAny::ref_to(ElNULLP) }; return lex.far.line; }
     *out_root = unsafe { WAny::ref_to(root) };
     return lex.far.line;
 }

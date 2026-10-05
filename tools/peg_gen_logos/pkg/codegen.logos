@@ -1318,9 +1318,9 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // [0, src.len()]), not a HashMap — no hash / slot-probe / key-compare per peek.
     // endpos < 0 is the "not yet lexed" sentinel.
     if cg.uses_raw_text {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub fan_over: bool }");
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token }");
     } else {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub fan_over: bool }");
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token }");
     }
     w.blank();
     w.line("pub fn lexer_new(src: str) -> Lexer {");
@@ -1335,11 +1335,11 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     if cg.uses_raw_text {
         w.line("    return Lexer { far: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,");
         w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false, in_tag: false,");
-        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb, fan_over: false };");
+        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
     } else {
         w.line("    return Lexer { far: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,");
         w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
-        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb, fan_over: false };");
+        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
     }
     w.line("}");
     w.blank();
@@ -3711,8 +3711,8 @@ fn action_code_name(cg: &Codegen, alt_idx: i64) -> String {
 // gets the node's erased ref word (`*const u8`). Each field write is typed by the
 // %schema field-type table (WRef edge / scalar cast / str / verbatim WAny).
 // True if any field of alt `alt_idx` under schema `sidx` needs a MUTABLE node
-// binding — i.e. its write calls a `&mut self` method (the "argfan" fan-out uses
-// set_arg/set_len) rather than a plain `node.field = …` assignment.
+// binding — i.e. its write calls a `&mut self` method (a list field's setter and
+// set_len) rather than a plain `node.field = …` assignment.
 fn alt_needs_mut_node(cg: &Codegen, alt_idx: i64, sidx: i64) -> bool {
     let nf: i64 = cg.alts.borrow(alt_idx).fields.len();
     let mut fi: i64 = 0i64;
@@ -3720,24 +3720,11 @@ fn alt_needs_mut_node(cg: &Codegen, alt_idx: i64, sidx: i64) -> bool {
         let fname: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).name.as_str());
         if !str_eq(fname.as_str(), "CODE") {
             let ftype: String = schema_field_type(cg, sidx, fname.as_str());
-            if ftype_is_fan(ftype.as_str()) || ftype_is_list(ftype.as_str()) { return true; }
+            if ftype_is_list(ftype.as_str()) { return true; }
         }
         fi = fi + 1i64;
     }
     return false;
-}
-
-// A fan-out field type: `"argfan"` (el.peg's SExprArr, = "fan set_arg SEXPRARR_MAX")
-// or the general `"fan <method> <maxfn>"` (plan.peg's RQWithArr/RQAggArr). Both
-// spread a $... ARRAY_CAPTURE into fixed slots via a `&mut self` setter + set_len,
-// so the node binding needs `let mut`.
-fn ftype_is_fan(ftype: str) -> bool {
-    if str_eq(ftype, "argfan") { return true; }
-    return ftype.len() >= 4i64
-        && str_byte_at(ftype, 0i64) == 102u8   // 'f'
-        && str_byte_at(ftype, 1i64) == 97u8    // 'a'
-        && str_byte_at(ftype, 2i64) == 110u8   // 'n'
-        && str_byte_at(ftype, 3i64) == 32u8;   // ' '
 }
 
 // A list field type `"list <method>"`: the $... ARRAY_CAPTURE held whole (a
@@ -3760,31 +3747,6 @@ fn list_method(ftype: str) -> String {
     return out;
 }
 
-// The setter method name from a fan field type. `"argfan"` → `set_arg`;
-// `"fan set_with RQWITH_MAX"` → `set_with`.
-fn fan_method(ftype: str) -> String {
-    if str_eq(ftype, "argfan") { return String::from("set_arg"); }
-    // Between the first space and the second space.
-    let n: i64 = ftype.len();
-    let mut i: i64 = 4i64;   // past "fan "
-    let mut out: String = String::new();
-    while i < n && str_byte_at(ftype, i) != 32u8 { out.push_u8(str_byte_at(ftype, i)); i = i + 1i64; }
-    return out;
-}
-
-// The arity-cap fn name from a fan field type. `"argfan"` → `SEXPRARR_MAX`;
-// `"fan set_with RQWITH_MAX"` → `RQWITH_MAX`.
-fn fan_maxfn(ftype: str) -> String {
-    if str_eq(ftype, "argfan") { return String::from("SEXPRARR_MAX"); }
-    let n: i64 = ftype.len();
-    let mut i: i64 = 4i64;
-    while i < n && str_byte_at(ftype, i) != 32u8 { i = i + 1i64; }   // skip method
-    if i < n { i = i + 1i64; }                                       // skip the space
-    let mut out: String = String::new();
-    while i < n && str_byte_at(ftype, i) != 32u8 { out.push_u8(str_byte_at(ftype, i)); i = i + 1i64; }
-    return out;
-}
-
 fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_var: str, cap_stem: str, ret_via_cap: str) {
     let sname: String = action_code_name(cg, alt_idx);
     if sname.len() == 0i64 {
@@ -3796,7 +3758,7 @@ fn emit_schema_action(cg: &mut Codegen, w: &mut CodeWriter, alt_idx: i64, node_v
     }
     let sidx: i64 = find_schema(cg, sname.as_str());
     // `let [mut] node: S = doc.make::<S>();` — `mut` only when a field write calls
-    // a `&mut self` method (argfan fan-out); plain field-assign needs no mut.
+    // a `&mut self` method (a list field); plain field-assign needs no mut.
     let mut mk: String = String::new();
     mk.push_str("let ");
     if alt_needs_mut_node(cg, alt_idx, sidx) { mk.push_str("mut "); }
@@ -3919,7 +3881,7 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
 // used to fall through to a bare `as <ftype>` cast, so a typo in the %schema
 // block produced code that only failed when the GENERATED source was compiled.
 fn ftype_is_known(ftype: str) -> bool {
-    if ftype_is_fan(ftype) || ftype_is_list(ftype) || ftype_is_ref(ftype) { return true; }
+    if ftype_is_list(ftype) || ftype_is_ref(ftype) { return true; }
     if str_eq(ftype, "WAny") || str_eq(ftype, "str") || str_eq(ftype, "bool") { return true; }
     if str_eq(ftype, "i8")  || str_eq(ftype, "i16") || str_eq(ftype, "i32") { return true; }
     if str_eq(ftype, "i56") || str_eq(ftype, "i64") || str_eq(ftype, "isize") { return true; }
@@ -3967,32 +3929,6 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
         let mut sl2: String = String::new();
         sl2.push_str(node_var); sl2.push_str(".set_len(afi);");
         w.line(sl2.as_str());
-        return;
-    }
-    if ftype_is_fan(ftype) {
-        // Fan-out: spread an ARRAY_CAPTURE ($...) of child edges into the fixed
-        // slots via a `&mut self` setter + set_len (the SExprArr / RQWithArr /
-        // RQAggArr write API). The collected edges are in `rcap` (a WArray<WAny> of
-        // `WAny::ref_to(edge)` handles) — exactly what the setter expects. More
-        // items than the slots hold is a PARSE ERROR (`lex.fan_over`, checked by
-        // every entry): dropping them silently made the 9th rel an "unknown
-        // source" and the 9th aggregate an undefined variable in generated code.
-        let method: String = fan_method(ftype);
-        let maxfn: String = fan_maxfn(ftype);
-        w.line("let mut afi: i64 = 0i64;");
-        w.line("let alen: i64 = rcap.len();");
-        let mut ov: String = String::new();
-        ov.push_str("if alen > "); ov.push_str(maxfn.as_str()); ov.push_str("() { lex.fan_over = true; }");
-        w.line(ov.as_str());
-        let mut cl: String = String::new();
-        cl.push_str("while afi < alen && afi < "); cl.push_str(maxfn.as_str());
-        cl.push_str("() { ");
-        cl.push_str(node_var); cl.push_str("."); cl.push_str(method.as_str());
-        cl.push_str("(afi, rcap.get(afi)); afi = afi + 1i64; }");
-        w.line(cl.as_str());
-        let mut sl: String = String::new();
-        sl.push_str(node_var); sl.push_str(".set_len(afi);");
-        w.line(sl.as_str());
         return;
     }
     if ftype_is_ref(ftype) {
@@ -4307,7 +4243,7 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             // A PEG rule can partial-match (e.g. `expr` matches `a` in `a +`,
             // leaving `+`); the hand parsers rejected trailing junk, so a
             // non-EOF remainder is a parse error → null root.
-            w.line("    if !lex.at_eof() || lex.fan_over { return WAny::ref_to(NULLP); }");
+            w.line("    if !lex.at_eof() { return WAny::ref_to(NULLP); }");
             w.line("    return WAny::ref_to(root);");
             w.line("}");
             // The _far twin: identical parse, but reports the FURTHEST line the
@@ -4321,7 +4257,7 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             w.l3("pub fn parse_", e.as_str(), "_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
-            w.line("    if !lex.at_eof() || lex.fan_over { *out_root = WAny::ref_to(NULLP); return lex.far.line; }");
+            w.line("    if !lex.at_eof() { *out_root = WAny::ref_to(NULLP); return lex.far.line; }");
             w.line("    *out_root = WAny::ref_to(root);");
             w.line("    return lex.far.line;");
             w.line("}");
@@ -4330,7 +4266,6 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             w.line("    let doc: Writ = writ_new(1048576i64);");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, &doc);");
-            w.line("    if lex.fan_over { doc.set_root(WAny::ref_to(NULLP)); return doc; }");
             w.line("    doc.set_root(WAny::ref_to(root));");
             w.line("    return doc;");
             w.line("}");

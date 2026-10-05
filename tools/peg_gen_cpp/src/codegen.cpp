@@ -98,15 +98,10 @@ struct Rule {
 // `schema` item) but the C++ backend cannot — see emit_schema_action.
 struct SchemaField {
     std::string name;
-    std::string ftype;          // "ref T" | "fan set_x MAX" | "argfan" | "str" | "bool" | "WAny" | scalar
+    std::string ftype;          // "ref T" | "list set_x" | "str" | "bool" | "WAny" | scalar
     int32_t     key = 0;
     bool        has_key = false;
 
-    // A fan field is not a TOM slot: it spreads an ARRAY_CAPTURE across the
-    // node's slot fields (+ a count), so it carries no key of its own.
-    bool is_fan() const {
-        return ftype == "argfan" || ftype.rfind("fan ", 0) == 0;
-    }
     bool is_ref() const { return ftype.rfind("ref ", 0) == 0; }
     // "list <setter>": the ARRAY_CAPTURE itself, held whole in ONE keyed field
     // (a Writ array of edges), with the node's `count` beside it — no slot cap.
@@ -115,30 +110,6 @@ struct SchemaField {
     // "ref TARGET" → TARGET
     std::string ref_target() const {
         return is_ref() ? ftype.substr(4) : std::string{};
-    }
-    // "fan <setter> <maxfn> <cap>" → cap. The C++ backend writes TOM slots
-    // directly (it has no `set_arg`/`set_len` methods), so it needs the slot
-    // COUNT spelled out; both backends stop reading <maxfn> at the space, so
-    // the trailing <cap> is inert on the Logos side. -1 = not spelled.
-    int fan_cap() const {
-        if (!is_fan()) return -1;
-        // fields: "fan" <setter> <maxfn> <cap>
-        size_t i = 0, tok = 0;
-        while (i < ftype.size()) {
-            while (i < ftype.size() && ftype[i] == ' ') ++i;
-            size_t b = i;
-            while (i < ftype.size() && ftype[i] != ' ') ++i;
-            if (b == i) break;
-            if (++tok == 4) {
-                int v = 0;
-                for (size_t k = b; k < i; ++k) {
-                    if (ftype[k] < '0' || ftype[k] > '9') return -1;
-                    v = v * 10 + (ftype[k] - '0');
-                }
-                return v;
-            }
-        }
-        return -1;
     }
 };
 struct SchemaDecl {
@@ -738,19 +709,7 @@ public:
                 if (!ftype_is_known(f))
                     errs += std::format("  {}.{}: unknown field type \"{}\"\n",
                                         s.name, f.name, f.ftype);
-                if (f.is_fan()) {
-                    if (f.fan_cap() <= 0)
-                        errs += std::format("  {}.{}: fan needs a trailing slot "
-                                            "count: \"fan <setter> <maxfn> <cap>\"\n",
-                                            s.name, f.name);
-                    if (!f.has_key)
-                        errs += std::format("  {}.{}: fan needs `= <first slot key>`\n",
-                                            s.name, f.name);
-                    const SchemaField* len = s.find("count");
-                    if (!len || !len->has_key)
-                        errs += std::format("  {}.{}: fan node must declare "
-                                            "`count: \"i32\" = <key>`\n", s.name, f.name);
-                } else if (!f.has_key) {
+                if (!f.has_key) {
                     errs += std::format("  {}.{}: missing `= KEY`\n", s.name, f.name);
                 }
             }
@@ -1064,8 +1023,6 @@ private:
             w.line("// use this for error reporting instead of next_text()/next_line().");
             w.line("uint32_t         furthest_line() const { return furthest_.line ? furthest_.line : 1; }");
             w.line("std::string_view furthest_text() const { return furthest_.text; }");
-            w.line("// Non-empty when a fan received more items than its slots (the parse failed).");
-            w.line("std::string_view fan_overflow() const { return fan_overflow_; }");
             // 1-based column of furthest_ within source_. Walks back from
             // the token's text pointer to the prior newline. Returns 0 if
             // the token isn't in source_ (defensive — shouldn't happen).
@@ -1230,10 +1187,6 @@ private:
         // SRC_SPAN inputs (ADR 0030 H0): the end offset of the last CONSUMED
         // token, and the offset of source_[0] in the file it is a fragment of.
         w.line("uint32_t                 last_end_ = 0;");
-        // The first fan that received more items than its slots (a parse error
-        // the entry reports; the generated action keeps building so the rule's
-        // control flow is unchanged).
-        w.line("std::string              fan_overflow_;");
         w.line("uint32_t                 offset_base_ = 0;");
         if (!g_.tokens.empty()) {
             w.line("Token                    la_{};");
@@ -2324,7 +2277,7 @@ private:
                 w.fmt("logos::writ::AnyVal {}::parse_{}() {{", parser_class_, e);
                 w.indent();
                 w.fmt("AnyVal root = rule_{}();", e);
-                w.line("if (root.is_null() || !at_eof() || !fan_overflow_.empty()) return AnyVal{};");
+                w.line("if (root.is_null() || !at_eof()) return AnyVal{};");
                 w.line("return root;");
                 w.dedent();
                 w.line("}");
@@ -2349,12 +2302,6 @@ private:
             // Recovery instead of assertion (Meta-Sprint M0.2): parse failure
             // returns an empty Writ doc; the caller's ast.is_null() check
             // takes the error path. Closes B-mv-05/06/07/08 and B-lx-01/02.
-            w.line("if (!root.is_null() && !fan_overflow_.empty()) {");
-            w.indent();
-            w.fmt("std::fprintf(stderr, \"parse error in {}: %s\\n\", fan_overflow_.c_str());", e);
-            w.line("return logos::writ::Writ{};");
-            w.dedent();
-            w.line("}");
             w.line("if (root.is_null()) {");
             w.indent();
             w.fmt("std::fprintf(stderr, \"parse error in {}: expected {} (near line %u)\\n\",",
@@ -3082,40 +3029,6 @@ private:
                 std::format("AnyVal::from_value(int32_t({}.size()))", rcap_var_));
             return;
         }
-        // ── fan: spread an ARRAY_CAPTURE across the node's slot keys ──
-        if (sf.is_fan()) {
-            int cap_n = sf.fan_cap();
-            if (cap_n <= 0)
-                schema_error(std::format(
-                    "{}.{}: fan field needs a slot count — spell it "
-                    "`\"fan <setter> <maxfn> <cap>\"`", sd.name, sf.name));
-            if (!sf.has_key)
-                schema_error(std::format(
-                    "{}.{}: fan field needs `= <first slot key>`", sd.name, sf.name));
-            const SchemaField* len = sd.find("count");
-            if (!len || !len->has_key)
-                schema_error(std::format(
-                    "{}.{}: a fan node must declare its length field "
-                    "`count: \"i32\" = <key>`", sd.name, sf.name));
-            if (e.kind != int32_t(ast::ARRAY_CAPTURE) || rcap_var_.empty())
-                schema_error(std::format(
-                    "{}.{}: a fan field must be written from `$...`", sd.name, sf.name));
-            // More items than the slots hold is a PARSE ERROR (reported by the
-            // entry): dropping them silently made the 9th rel an "unknown
-            // source" and the 9th aggregate an undefined variable downstream.
-            w.fmt("{{ uint64_t n_ = {0}.size(); if (n_ > {1}u) {{ if (fan_overflow_.empty()) "
-                  "fan_overflow_ = \"{2}.{3} holds at most {1} items, the input has \" + std::to_string(n_); "
-                  "n_ = {1}u; }}", rcap_var_, cap_n, sd.name, sf.name);
-            w.indent();
-            w.fmt("for (uint64_t i_ = 0; i_ < n_; ++i_) "
-                  "node->put(uint8_t({} + i_), {}.get(i_), {}).get();",
-                  sf.key, rcap_var_, arena);
-            put(std::format("uint8_t({})", len->key),
-                std::format("AnyVal::from_value(int32_t(n_))"));
-            w.dedent();
-            w.line("}");
-            return;
-        }
 
         const std::string key = std::format("uint8_t({})", sf.key);
 
@@ -3274,7 +3187,7 @@ private:
     // through to scalar_cast's int64_t default, so a typo'd type in the %schema
     // block silently produced a wrong-width write.
     static bool ftype_is_known(const SchemaField& f) {
-        if (f.is_fan() || f.is_ref() || f.is_list()) return true;
+        if (f.is_ref() || f.is_list()) return true;
         for (const char* k : {"WAny", "str", "bool",
                               "i8", "i16", "i32", "i56", "i64", "isize",
                               "u8", "u16", "u32", "u64", "usize"})
@@ -3316,7 +3229,7 @@ private:
                 schema_error(std::format("schema node '{}' has no field '{}' "
                                          "(declare it in the %schema block)",
                                          sd->name, f.name));
-            if (!sf->is_fan() && !sf->has_key)
+            if (!sf->has_key)
                 schema_error(std::format("{}.{}: missing `= KEY`", sd->name, sf->name));
         }
 
@@ -3789,19 +3702,6 @@ bool check_schema_mirror(const std::vector<ResolvedModule>& modules,
                                    sd.name, sd.cap, li.fields.size());
 
             for (const auto& f : sd.fields) {
-                if (f.is_fan()) {
-                    // A fan owns no field of its own: it writes `count` (the
-                    // node's length) and the slots [key, key+cap).
-                    int cap = f.fan_cap();
-                    int found = 0;
-                    for (const auto& lf : li.fields)
-                        if (lf.has_key && lf.key >= f.key && lf.key < f.key + cap) ++found;
-                    if (found != cap)
-                        err += std::format("  {}.{}: fan declares {} slots from key {}, "
-                                           "the schema item has {}\n",
-                                           sd.name, f.name, cap, f.key, found);
-                    continue;
-                }
                 auto lf = std::find_if(li.fields.begin(), li.fields.end(),
                                        [&](const LogosField& x) { return x.name == f.name; });
                 if (lf == li.fields.end()) {
