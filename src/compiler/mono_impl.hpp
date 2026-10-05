@@ -1300,6 +1300,10 @@ private:
     std::unordered_map<std::string, bool> obl_memo_;   // (trait, type) → holds; cleared with the table
     const obl::ImplTable& obl_table_now_();
     const obl::Env& obl_env_();
+    // ADR 0030 S9 row 4: the impls (indices into out_.impls) C-OBL selects for
+    // `self: trait<trait_args>` — the trait-item resolvers pick a method among them.
+    std::unordered_set<uint32_t> impl_candidates_(std::string_view trait, TypeRef self,
+                                                  const std::vector<TypeRef>* trait_args);
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     DeclBuilder clone_struct_def(lir_view::StructView tmpl,

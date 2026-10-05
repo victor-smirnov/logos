@@ -553,6 +553,22 @@ Mono's TraitEngine is deleted with its Datalog shadow (`trait_engine.cpp`,
 `trait_rules.cpp`, `dl/rules/traits.dl`, its unit test and dl case): the
 `has_trait` / `has_trait_of` intrinsics ask C-OBL with the type, and the
 eager blanket pass no longer answers a candidate it cannot build a type for.
+The trait-item resolvers pick among the impls C-OBL selects
+(`obl::candidates` → `impl_candidates_`): `trait_item_symbol_`,
+`shape_trait_item_symbol_` and `blanket_trait_item_symbol_` keep only the
+binding and naming of the method's instance; their own matching (trait
+spelling, trait-argument comparison, the blanket's bound checks, the nominal
+enum / `str` passes) is deleted. The solver gained what the resolvers knew: a
+`&[E]` takes a `&T` pattern at T = `[E]` (Rust's `impl<T: ?Sized> Tr for &T`;
+`&[u8]: Clone` now holds through stdlib's `&T` impl), an impl that writes no
+trait arguments takes the trait's defaults, mono's instance names
+(`RangeOfIncl$G1$i64`) are the declared nominal, and a primitive is its kind
+across pools. Logos's `impl Tr for str` is two facts — Rust's, about `str`
+(`[u8]`), through which `&T` reaches `&str`, and Logos's own about the `&str`
+value (`&[u8]`) — both answering last, after any pattern (`[E]`, `&T`) that
+takes the same Self (Copy / Clone: the `&[u8]` fact only). The `&[u8]` value's
+`Hash` is now `impl Hash for str`'s (it was the `[T]` impl's): an ABI break,
+0.55.0.
 
 ## S0–S7 gap audit (2026-10-01)
 

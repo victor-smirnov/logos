@@ -6920,6 +6920,7 @@ private:
     size_t         obl_no_self_ = 0;
     const obl::ImplTable& obl_table_now_();
     const obl::Env& obl_env_();
+    void obl_str_facts_(obl::ImplFact f);
     // `self: trait<args>` by C-OBL, the trait named as written in this scope.
     bool implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args = {});
     // The same for a lang item (`#[lang = "index_mut"]`), by its identity.

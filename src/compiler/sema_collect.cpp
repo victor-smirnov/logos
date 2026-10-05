@@ -1581,12 +1581,9 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             obl::ImplFact f;
             f.trait = k.trait_def ? defs_.path(k.trait_def) : info.canonical_trait;
             f.self = info.self_type ? info.self_type : info.target_typeref;
-            // Logos's `impl Tr for str` is Rust's `impl Tr for &str` (a `str`
-            // value is the fat `&[u8]`; ADR 0030 S8 row 6).
-            if (info.target_type == "str" || info.target_type == "&[u8]")
-                f.self = make_slice_type(u8_t(), false);
             f.source = src++;
             obl_infos_.push_back(&info);
+            if (info.target_type == "&[u8]") continue;   // the `str` alias: the `str` entry's facts cover it
             if (!f.self) { ++obl_no_self_; continue; }
             f.trait_args = info.trait_type_args;
             for (auto& tp : info.impl_type_params) {
@@ -1600,7 +1597,8 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             for (auto a : f.trait_args) key += type_str(a) + ",";
             for (auto& b : f.bounds) key += "|" + b.param + ":" + b.trait;   // two blankets over one `DT`
             if (!seen.insert(key).second) continue;
-            obl_table_.add(std::move(f));
+            if (info.target_type == "str") obl_str_facts_(f);
+            else obl_table_.add(std::move(f));
         }
     return obl_table_;
 }
@@ -1608,6 +1606,22 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
 bool SemaChecker::implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args) {
     if (!self || trait.empty()) return false;
     return obl::select(obl_table_now_(), obl_env_(), defs_.path(impl_trait_id(trait)), self, args).holds();
+}
+
+// Logos's `impl Tr for str` is two facts. Rust's: about `str` (`[u8]`), so
+// `impl<T: Tr + ?Sized> Tr for &T` reaches `&str` through it. Logos's own:
+// about the `&str` value (`&[u8]`, e.g. `impl Copy for str`, `impl Pattern for
+// str`), which answers only when no other impl does (the trait-item resolvers'
+// rule). Copy / Clone need `Sized` in Rust: only the `&[u8]` fact.
+void SemaChecker::obl_str_facts_(obl::ImplFact f) {
+    const auto& env = obl_env_();
+    const bool sized_only = f.trait == env.lang.copy || f.trait == env.lang.clone;
+    obl::ImplFact by_ref = f;
+    by_ref.self = make_slice_type(u8_t(), false);
+    obl_table_.add(std::move(by_ref));
+    if (sized_only) return;
+    f.self = make_unsized_slice_type(u8_t());
+    obl_table_.add(std::move(f));
 }
 
 const obl::Env& SemaChecker::obl_env_() {
@@ -1655,6 +1669,7 @@ const obl::Env& SemaChecker::obl_env_() {
         return subst_type_sema(t, ss);
     };
     e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t); };
+    e.unsized_of = [this](TypeRef s) { return make_unsized_slice_type(TypeRef(s).elem()); };
     // A closure literal's type states its family; a type synthesized from a bound
     // or a formal does not, and the signature-keyed map is the only key there is
     // (a carried decision, retired with the map at ADR 0029 S6).
@@ -5459,7 +5474,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                              TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedDyn))
             impl_unsized_self_.insert(node_key_(node));
         impl_self_by_node_[node_key_(node)] =
-            target == "str" ? make_slice_type(u8_t(), false) : (impl_self_ty ? impl_self_ty : target_resolved);
+            target == "str" ? make_unsized_slice_type(u8_t()) : (impl_self_ty ? impl_self_ty : target_resolved);
         impls_[ikey] = info;
         impls_all_[ikey].push_back(info);   // ALL impls (impls_ is last-wins)
         ++impls_gen_;

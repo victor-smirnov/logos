@@ -750,6 +750,14 @@ sym	logos_lang..logos.lang.char.char__len_utf8__f__char
 sym	logos_lang..logos.lang.char.char__to_ascii_lowercase__f__char
 sym	logos_lang..logos.lang.char.char__to_ascii_uppercase__f__char
 sym	logos_lang..logos.lang.char.char__to_digit__f__char__u32
+sym	logos_lang..logos.lang.clone.$ref_$T__clone__g__ref_ref_T__[u8]
+sym	logos_lang..logos.lang.clone.$tuple$2__clone__g__ref_tup$2$A$B__&[u8]__&[u8]
+sym	logos_lang..logos.lang.clone.$tuple$3__clone__g__ref_tup$3$A$B$C__&[u8]__&[u8]__&[u8]
+sym	logos_lang..logos.lang.clone.$tuple$3__clone__g__ref_tup$3$A$B$C__&[u8]__i64__&[u8]
+sym	logos_lang..logos.lang.clone.$tuple$4__clone__g__ref_tup$4$A$B$C$D__&[u8]__&[u8]__&[u8]__&[u8]
+sym	logos_lang..logos.lang.clone.$tuple$5__clone__g__ref_tup$5$A$B$C$D$E__&[u8]__&[u8]__&[u8]__&[u8]__&[u8]
+sym	logos_lang..logos.lang.clone.$tuple$5__clone__g__ref_tup$5$A$B$C$D$E__&[u8]__i64__&[u8]__&[u8]__i64
+sym	logos_lang..logos.lang.clone.$tuple$8__clone__g__ref_tup$8$A$B$C$D$E$F$G$H__i64__&[u8]__i64__i64__&[u8]__i64__i64__&[u8]
 sym	logos_lang..logos.lang.clone.bool__clone__f__ref_bool
 sym	logos_lang..logos.lang.clone.char__clone__f__ref_char
 sym	logos_lang..logos.lang.clone.f32__clone__f__ref_f32
@@ -1463,7 +1471,6 @@ sym	logos_lang..logos.lang.ffi.CStr__is_empty__f__ref_CStr
 sym	logos_lang..logos.lang.ffi.CStr__to_bytes__f__ref_CStr
 sym	logos_lang..logos.lang.ffi.CStr__to_bytes_with_nul__f__ref_CStr
 sym	logos_lang..logos.lang.ffi.CStr__to_str__f__ref_CStr
-sym	logos_lang..logos.lang.hash.$slice$T__hash__g__slice_T__refmut_H__u8__FxHasher
 sym	logos_lang..logos.lang.hash.$tuple$2__hash__g__ref_tup$2$A$B__refmut_H__&[u8]__&[u8]__FxHasher
 sym	logos_lang..logos.lang.hash.$tuple$3__hash__g__ref_tup$3$A$B$C__refmut_H__&[u8]__&[u8]__&[u8]__FxHasher
 sym	logos_lang..logos.lang.hash.$tuple$3__hash__g__ref_tup$3$A$B$C__refmut_H__&[u8]__i64__&[u8]__FxHasher
@@ -1484,8 +1491,8 @@ sym	logos_lang..logos.lang.hash.SipHasher__write_i64__f__refmut_SipHasher__i64
 sym	logos_lang..logos.lang.hash.SipHasher__write_u32__f__refmut_SipHasher__u32
 sym	logos_lang..logos.lang.hash.SipHasher__write_u64__f__refmut_SipHasher__u64
 sym	logos_lang..logos.lang.hash.i64__hash__g__ref_i64__refmut_H__FxHasher
+sym	logos_lang..logos.lang.hash.str__hash__g__slice_u8__refmut_H__FxHasher
 sym	logos_lang..logos.lang.hash.u64__hash__g__ref_u64__refmut_H__FxHasher
-sym	logos_lang..logos.lang.hash.u8__hash__g__ref_u8__refmut_H__FxHasher
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__cloned__g__EnumIter$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__copied__g__EnumIter$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$G2$ByteSplitter$slice_u8__count__g__EnumIter$G2$I$T
@@ -13807,6 +13814,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__as_ref__g__ref_Vec$G1$
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__deref__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$slice_u8__deref_mut__g__refmut_Vec$G1$T
@@ -13826,6 +13834,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__as_ref_
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__deref__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$2$slice_u8$slice_u8__deref_mut__g__refmut_Vec$G1$T
@@ -13845,6 +13854,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__as_
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__deref__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$i64$slice_u8__deref_mut__g__refmut_Vec$G1$T
@@ -13862,6 +13872,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__deref__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$3$slice_u8$slice_u8$slice_u8__deref_mut__g__refmut_Vec$G1$T
@@ -13881,6 +13892,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__deref__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__deref_mut__g__refmut_Vec$G1$T
@@ -13898,6 +13910,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slic
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__deref__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__deref_mut__g__refmut_Vec$G1$T
@@ -13915,6 +13928,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__as_slice__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__deref__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__deref_mut__g__refmut_Vec$G1$T
@@ -13935,6 +13949,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__borrow__g__ref_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__borrow_mut__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__clear__g__refmut_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__clone__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__deref__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__deref_mut__g__refmut_Vec$G1$T
@@ -13946,6 +13961,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__into_iter__g__Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__length__g__ref_Vec$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__push__g__refmut_Vec$G1$T__T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__as_mut__g__refmut_Vec$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$u16__as_mut_slice__g__refmut_Vec$G1$T

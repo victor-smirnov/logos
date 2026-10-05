@@ -31,11 +31,26 @@ bool is_generic(const std::vector<std::string>& g, std::string_view n) {
     return std::find(g.begin(), g.end(), n) != g.end();
 }
 
+// A nominal's declared name: mono's instances carry their instance spelling
+// (`RangeOfIncl$G1$i64`, a `$M<hash>` package fingerprint) in the name.
+std::string_view declared_name(std::string_view n) {
+    if (auto p = n.find("$G"); p != std::string_view::npos) n = n.substr(0, p);
+    if (auto p = n.find("$M"); p != std::string_view::npos) n = n.substr(0, p);
+    return n;
+}
+
 bool same_nominal(std::string_view pa, std::string_view pb, std::string_view na, std::string_view nb) {
-    return na == nb && (pa.empty() || pb.empty() || pa == pb);
+    return declared_name(na) == declared_name(nb) && (pa.empty() || pb.empty() || pa == pb);
 }
 
 }  // namespace
+
+// One type: a primitive scalar IS its kind, whichever pool (or none) carries it.
+static bool same_type(TypeRef a, TypeRef b) {
+    if (!a || !b) return !a && !b;
+    if (is_primitive_scalar_kind(a.kind()) || is_primitive_scalar_kind(b.kind())) return a.kind() == b.kind();
+    return types_equal(a, b);
+}
 
 bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst& s, std::string_view pack) {
     if (!c || !p) return false;
@@ -49,7 +64,7 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
     }
     if ((p.kind() == K::TypeVar || p.kind() == K::ConstVar) && is_generic(generics, p.type_var_name())) {
         std::string n(p.type_var_name());
-        if (auto it = s.find(n); it != s.end()) return types_equal(c, it->second);
+        if (auto it = s.find(n); it != s.end()) return same_type(c, it->second) || unify(c, it->second, {}, s);
         s.emplace(std::move(n), c);
         return true;
     }
@@ -179,14 +194,27 @@ struct Solver {
         return std::nullopt;
     }
 
-    Selection by_impls(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args) {
+    // Self against an impl's pattern; a `&[E]` against `&T` binds T = `[E]`.
+    bool unify_self(TypeRef self, const ImplFact& f, Subst& s) const {
+        if (unify(self, f.self, f.generics, s, f.pack)) return true;
+        if (self.kind() == K::Slice && f.self.kind() == K::Ref && env.unsized_of) {
+            s.clear();
+            if (TypeRef us = env.unsized_of(self)) return unify(us, f.self.pointee(), f.generics, s, f.pack);
+        }
+        return false;
+    }
+
+    Selection by_impls(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args,
+                       std::vector<Selection>* all = nullptr) {
         Selection out;
         const ImplFact* neg = nullptr;
         for (uint32_t i : table.of(trait)) {
             const ImplFact& f = table.at(i);
             Subst s;
-            if (!unify(self, f.self, f.generics, s, f.pack)) continue;
-            bool ok = f.trait_args.size() == args.size() || args.empty();
+            if (!unify_self(self, f, s)) continue;
+            // An impl that writes no trait arguments takes the trait's defaults
+            // (`impl AddAssign for u8` is `AddAssign<u8>`): any asked ones answer.
+            bool ok = f.trait_args.size() == args.size() || args.empty() || f.trait_args.empty();
             // An argument that still mentions a type variable (a generic body's
             // `Item: IntoPair<A, B>` with the method's own A, B) is not decided
             // here: the instantiation fixes it.
@@ -210,13 +238,14 @@ struct Solver {
                 if (!select(b.trait, it->second, bargs).holds()) { nested = false; break; }
             }
             if (!nested) continue;
+            if (all) all->push_back({Kind::Impl, &f, s});
             if (out.kind == Kind::Impl) { out.kind = Kind::Ambiguous; continue; }
             if (out.kind == Kind::Ambiguous) continue;
             out.kind = Kind::Impl;
             out.impl = &f;
             out.subst = std::move(s);
         }
-        if (neg) return {};
+        if (neg) { if (all) all->clear(); return {}; }
         return out;
     }
 
@@ -254,6 +283,15 @@ Selection select(const ImplTable& table, const Env& env, std::string_view trait,
                  const std::vector<TypeRef>& args, const FnSig* sig) {
     Solver s{table, env, sig};
     return s.select(trait, self, args);
+}
+
+std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::string_view trait,
+                                  TypeRef self, const std::vector<TypeRef>& args) {
+    std::vector<Selection> all;
+    if (!self) return all;
+    Solver s{table, env, nullptr};
+    (void)s.by_impls(trait, self, args, &all);
+    return all;
 }
 
 }  // namespace logos::compiler::obl

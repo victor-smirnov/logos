@@ -87,6 +87,9 @@ struct Env {
     std::function<bool(TypeRef t)> mentions_tv;
     // A closure's Fn-family level (0 Fn, 1 FnMut, 2 FnOnce); unset = from its type.
     std::function<int(TypeRef closure)> closure_level;
+    // `[E]` for a `&[E]` (Slice): a `&T` pattern takes a slice with T = `[E]`,
+    // as Rust's `impl<T: ?Sized> Tr for &T` does (the phase's pool allocates).
+    std::function<TypeRef(TypeRef slice)> unsized_of;
 };
 
 class ImplTable {
@@ -108,5 +111,10 @@ bool unify(TypeRef concrete, TypeRef pattern, const std::vector<std::string>& ge
 
 Selection select(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
                  const std::vector<TypeRef>& args, const FnSig* sig = nullptr);
+
+// Every impl that answers `self: trait<args>` (its pattern unifies, its own
+// bounds hold), each with its substitution: the caller picks among overloads.
+std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::string_view trait,
+                                  TypeRef self, const std::vector<TypeRef>& args);
 
 }  // namespace logos::compiler::obl
