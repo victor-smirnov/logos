@@ -1247,12 +1247,6 @@ private:
                                            int64_t arity, const std::vector<TypeRef>* trait_args,
                                            const std::vector<TypeRef>* method_args,
                                            const std::vector<TypeRef>* param_arg_types = nullptr);
-    // ADR 0030 S8 row 6: the associated type `name` of the impl of `trait` for
-    // the concrete `self` — the impl chosen as for a method (a nominal target,
-    // a pattern unified with Self, else a blanket whose bounds Self meets) and
-    // its declared binding instantiated. Null when none or more than one answer.
-    TypeRef trait_item_assoc_type_(std::string_view trait, TypeRef self, std::string_view name,
-                                   std::string_view targ_suffix = {});
     // The trait arguments of an impl in the `$G<n>$<arg>…` encoding sema bakes
     // into a projection's trait name (SemaChecker::trait_targ_suffix — byte-
     // identical): two `Tr<A>` / `Tr<B>` impls for one type are told apart by it.
@@ -1304,6 +1298,8 @@ private:
     // `self: trait<trait_args>` — the trait-item resolvers pick a method among them.
     std::unordered_set<uint32_t> impl_candidates_(std::string_view trait, TypeRef self,
                                                   const std::vector<TypeRef>* trait_args);
+    TypeRef project_assoc_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args,
+                           std::string_view name);
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     DeclBuilder clone_struct_def(lir_view::StructView tmpl,

@@ -291,7 +291,26 @@ std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::s
     if (!self) return all;
     Solver s{table, env, nullptr};
     (void)s.by_impls(trait, self, args, &all);
+    bool primary = false;
+    for (auto& c : all) primary = primary || !c.impl->fallback;
+    if (primary) all.erase(std::remove_if(all.begin(), all.end(), [](const Selection& c) { return c.impl->fallback; }),
+                           all.end());
     return all;
+}
+
+std::optional<TypeRef> project(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
+                               const std::vector<TypeRef>& args, std::string_view name) {
+    TypeRef best{};
+    bool ambiguous = false;
+    for (auto& c : candidates(table, env, trait, self, args))
+        for (auto& [n, t] : c.impl->assoc_types) {
+            if (n != name || !t) continue;
+            TypeRef r = env.subst ? env.subst(t, c.subst) : t;
+            if (!best) best = r;
+            else if (!same_type(best, r)) ambiguous = true;
+        }
+    if (ambiguous || !best) return std::nullopt;
+    return best;
 }
 
 }  // namespace logos::compiler::obl

@@ -32,7 +32,12 @@ struct ImplFact {
     std::vector<std::string> generics;
     std::string pack;                // the variadic generic (`impl<A...> Tr for (A...)`), or empty
     std::vector<Bound> bounds;
+    // The impl's associated types (`type Item = T;`), over its generics.
+    std::vector<std::pair<std::string, TypeRef>> assoc_types;
     bool negative = false;
+    // A fact that answers only when no other impl does (Logos's `impl … for
+    // str` facts: `str` IS `[u8]`, and a pattern over the same Self wins).
+    bool fallback = false;
     uint32_t source = 0;             // the phase's own index of the impl
 };
 
@@ -114,7 +119,13 @@ Selection select(const ImplTable& table, const Env& env, std::string_view trait,
 
 // Every impl that answers `self: trait<args>` (its pattern unifies, its own
 // bounds hold), each with its substitution: the caller picks among overloads.
+// Fallback facts answer only when nothing else does.
 std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::string_view trait,
                                   TypeRef self, const std::vector<TypeRef>& args);
+
+// `<self as trait<args>>::name`: the selected impl's item at its substitution;
+// nullopt when no impl answers, or two answer differently.
+std::optional<TypeRef> project(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
+                               const std::vector<TypeRef>& args, std::string_view name);
 
 }  // namespace logos::compiler::obl

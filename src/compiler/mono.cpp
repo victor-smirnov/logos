@@ -721,7 +721,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 // TypeRef cannot be built.
                 TypeRef found = nullptr;
                 if (TypeRef ct = build_concrete_typeref(concrete))
-                    found = trait_item_assoc_type_(trait, ct, aname);
+                    found = project_assoc_(trait, ct, {}, aname);
                 std::string key = trait + "::" + concrete + "::" + aname;
                 auto it = found ? assoc_impls_.end() : assoc_impls_.find(key);
                 if (found) {

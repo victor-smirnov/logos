@@ -417,27 +417,31 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
         // impl of the trait for it answers.
         auto subbed_base = subst_type(tv.assoc_base(), s);
         TypeRef sbv{subbed_base};
-        // ADR 0030 S8 row 6: the impl's binding of the item, the impl chosen by
-        // the trait's identity (`pkg::Trait`) for the concrete base.
+        // The trait's arguments the projection names, substituted like the base.
+        std::vector<TypeRef> targs;
+        bool targs_changed = false;
+        for (auto a : tv.type_args()) {
+            TypeRef na = a ? subst_type(a, s) : a;
+            targs_changed = targs_changed || na != a;
+            targs.push_back(na);
+        }
+        // ADR 0030 S9 row 5: the item of the impl C-OBL selects for the
+        // concrete base, by the trait's identity and arguments.
         if (sbv && !contains_typevar(subbed_base)) {
-            std::string bare(tv.trait_name()), sfx;
-            if (auto p = bare.find("$G"); p != std::string::npos) { sfx = bare.substr(p); bare.resize(p); }
+            std::string bare(tv.trait_name());
+            if (auto p = bare.find("$G"); p != std::string::npos) bare.resize(p);
             std::string id = tv.pkg_name().empty() ? bare : std::string(tv.pkg_name()) + "::" + bare;
-            // By the trait arguments the projection names; when no impl carries
-            // them (a suffix baked while an argument was still a parameter,
-            // `Fam$G1$S`) the single impl for the base answers (G156-1).
-            TypeRef r = trait_item_assoc_type_(id, subbed_base, tv.assoc_type_name(), sfx);
-            if (!r && !sfx.empty()) r = trait_item_assoc_type_(id, subbed_base, tv.assoc_type_name());
-            if (r) return subst_type(r, {});
+            if (TypeRef r = project_assoc_(id, subbed_base, targs, tv.assoc_type_name())) return subst_type(r, {});
         }
         // Nothing else resolves the projection: the per-spelling key lookup, the
         // G156-1 suffix scan, the generic-impl bucket and the blanket fallback
         // are gone (census: 0 projections reached them while an impl existed;
         // before the metaclass-factory drain emits a family there is none, and
         // the projection stays as it is, as it did).
-        if (subbed_base != tv.assoc_base()) {
+        if (subbed_base != tv.assoc_base() || targs_changed) {
             LogosTypeBuilder nt = tv.to_builder();
             nt.assoc_base = subbed_base;
+            nt.type_args = std::move(targs);
             return out_.type_pool.alloc(std::move(nt));
         }
         return tv;

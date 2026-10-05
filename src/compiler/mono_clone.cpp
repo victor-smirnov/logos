@@ -4808,12 +4808,16 @@ const obl::ImplTable& Mono::obl_table_now_() {
             });
         });
         f.negative = impl.is_negative();
+        impl.each_assoc_type([&](lir_view::AssocEntryView ae) {
+            f.assoc_types.emplace_back(std::string(ae.name()), ae.type(pool));
+        });
         // Logos's `impl Tr for str` (Self `[u8]`): also a fact about `&[u8]`,
         // which answers only when nothing else does (impl_candidates_); Copy /
         // Clone need `Sized`, so for them only that one (see sema's obl_str_facts_).
         if (f.generics.empty() && TypeRef(f.self).kind() == LogosType::Kind::UnsizedSlice &&
             TypeRef(f.self).elem() && TypeRef(TypeRef(f.self).elem()).kind() == LogosType::Kind::U8) {
             const auto& env = obl_env_();
+            f.fallback = true;
             obl::ImplFact by_ref = f;
             LogosTypeBuilder sl;
             sl.kind = LogosType::Kind::Slice;
@@ -4859,9 +4863,8 @@ const obl::Env& Mono::obl_env_() {
 }
 
 // The impls C-OBL selects for `self: trait<trait_args>`. A bare spelling asks
-// every trait of that name. Logos's nominal `impl … for str` is a fact about
-// `&[u8]`; Rust gives a `&str` Self the impl its model selects first (`&T` at
-// T = `[u8]`, `[E]`), so that nominal impl answers only when no other does.
+// every trait of that name. Logos's nominal `impl … for str` facts answer
+// only when no other impl does (ImplFact::fallback).
 std::unordered_set<uint32_t> Mono::impl_candidates_(std::string_view trait, TypeRef self,
                                                     const std::vector<TypeRef>* trait_args) {
     std::unordered_set<uint32_t> out;
@@ -4870,22 +4873,22 @@ std::unordered_set<uint32_t> Mono::impl_candidates_(std::string_view trait, Type
     if (trait.find("::") != std::string_view::npos) ids.emplace_back(trait);
     else ids = bare_trait_identities_(std::string(trait));
     const std::vector<TypeRef> args = trait_args ? *trait_args : std::vector<TypeRef>{};
-    std::vector<obl::Selection> all;
     for (auto& id : ids)
-        for (auto& s : obl::candidates(obl_table_now_(), obl_env_(), id, self, args)) all.push_back(std::move(s));
-    // Logos's `str` IS `[u8]`: its nominal impl's two facts (`[u8]`, `&[u8]`)
-    // answer last, after any pattern (`[E]`, `&T`) that takes the same Self.
-    auto slice_nominal = [](const obl::ImplFact& f) {
-        if (!f.generics.empty() || !f.self) return false;
-        const auto k = TypeRef(f.self).kind();
-        return (k == LogosType::Kind::Slice || k == LogosType::Kind::UnsizedSlice) && TypeRef(f.self).elem() &&
-               TypeRef(TypeRef(f.self).elem()).kind() == LogosType::Kind::U8;
-    };
-    bool other = false;
-    for (auto& s : all) other = other || !slice_nominal(*s.impl);
-    for (auto& s : all)
-        if (!other || !slice_nominal(*s.impl)) out.insert(s.impl->source);
+        for (auto& s : obl::candidates(obl_table_now_(), obl_env_(), id, self, args)) out.insert(s.impl->source);
     return out;
+}
+
+// `<self as trait<args>>::name` by C-OBL (a bare spelling asks every trait of
+// that name); null when no impl answers or two answer differently.
+TypeRef Mono::project_assoc_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args,
+                             std::string_view name) {
+    if (!self || contains_typevar(self)) return {};
+    std::vector<std::string> ids;
+    if (trait.find("::") != std::string_view::npos) ids.emplace_back(trait);
+    else ids = bare_trait_identities_(std::string(trait));
+    for (auto& id : ids)
+        if (auto r = obl::project(obl_table_now_(), obl_env_(), id, self, args, name)) return *r;
+    return {};
 }
 
 // ADR 0030 S9 row 4: every mono gate's bound is C-OBL's question

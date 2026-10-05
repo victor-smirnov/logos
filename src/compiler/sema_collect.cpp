@@ -1576,15 +1576,14 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
     obl_no_self_ = 0;
     uint32_t src = 0;
     std::unordered_set<std::string> seen;   // impls_all_ holds an impl once per collect pass
-    for (auto& [k, v] : impls_all_)
-        for (auto& info : v) {
+    auto add = [&](const SemaImplInfo& info, DefId trait_def) {
             obl::ImplFact f;
-            f.trait = k.trait_def ? defs_.path(k.trait_def) : info.canonical_trait;
+            f.trait = trait_def ? defs_.path(trait_def) : info.canonical_trait;
             f.self = info.self_type ? info.self_type : info.target_typeref;
             f.source = src++;
             obl_infos_.push_back(&info);
-            if (info.target_type == "&[u8]") continue;   // the `str` alias: the `str` entry's facts cover it
-            if (!f.self) { ++obl_no_self_; continue; }
+            if (info.target_type == "&[u8]") return;   // the `str` alias: the `str` entry's facts cover it
+            if (!f.self) { ++obl_no_self_; return; }
             f.trait_args = info.trait_type_args;
             for (auto& tp : info.impl_type_params) {
                 f.generics.push_back(tp.name);
@@ -1593,13 +1592,19 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
                     if (!b.is_relaxed) f.bounds.push_back({tp.name, bound_identity_(b), b.type_args});
             }
             f.negative = info.is_negative;
+            f.assoc_types = info.assoc_types;
             std::string key = f.trait + "|" + type_str(f.self) + (f.negative ? "|!" : "|");
             for (auto a : f.trait_args) key += type_str(a) + ",";
             for (auto& b : f.bounds) key += "|" + b.param + ":" + b.trait;   // two blankets over one `DT`
-            if (!seen.insert(key).second) continue;
+            if (!seen.insert(key).second) return;
             if (info.target_type == "str") obl_str_facts_(f);
             else obl_table_.add(std::move(f));
-        }
+    };
+    for (auto& [k, v] : impls_all_)
+        for (auto& info : v) add(info, k.trait_def);
+    // The impl under collection answers for itself while its items are checked
+    // (Rust: `<DT as Container>::Store` in a blanket impl's own signatures).
+    if (obl_pending_impl_) add(*obl_pending_impl_, obl_pending_impl_->trait_def);
     return obl_table_;
 }
 
@@ -1616,6 +1621,7 @@ bool SemaChecker::implements_(std::string_view trait, TypeRef self, const std::v
 void SemaChecker::obl_str_facts_(obl::ImplFact f) {
     const auto& env = obl_env_();
     const bool sized_only = f.trait == env.lang.copy || f.trait == env.lang.clone;
+    f.fallback = true;
     obl::ImplFact by_ref = f;
     by_ref.self = make_slice_type(u8_t(), false);
     obl_table_.add(std::move(by_ref));
@@ -3353,6 +3359,7 @@ void SemaChecker::check_trait_def_identity() {
 }
 
 void SemaChecker::collect_impl(TinyMapView node) {
+    collecting_assoc_types_.clear();
     std::string impl_doc = take_pending_doc();
     std::string trait_name;
     if (node.has_key(la::NAME))
@@ -4437,6 +4444,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 if (ast_elided_ref_(map_of(m.get(la::TYPE.code))))
                     error(std::format("impl {} for {}: associated type '{}' contains a borrowed value with an elided lifetime (E0106) — name it, e.g. `impl<'a> ... {{ type {} = &'a ... }}`",
                                       trait_name, target, aname, aname));
+                if (gat_tps.empty()) collecting_assoc_types_.emplace_back(aname, atype);
                 AssocTypeEntry ate{atype, impl_tps, gat_tps, std::move(pending_doc_)};
                 pending_doc_.clear();
                 assoc_type_impls_[key] = ate;
@@ -4543,6 +4551,20 @@ void SemaChecker::collect_impl(TinyMapView node) {
     std::string check_target = is_blanket
         ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
         : target;
+    // C-OBL sees this impl while its methods are checked against the trait.
+    struct PendingImpl {
+        SemaChecker& s;
+        ~PendingImpl() { if (s.obl_pending_impl_) { s.obl_pending_impl_.reset(); ++s.impls_gen_; } }
+    } pending_impl{*this};
+    if (!trait_name.empty() && !impl_is_negative) {
+        SemaImplInfo pi{trait_name, target, impl_is_unsafe, impl_is_negative, target_resolved, impl_tps,
+                        trait_type_args, trait_lt_args, impl_lt_params, impl_lt_outlives, {}, {}};
+        pi.self_type = impl_self_ty;
+        pi.assoc_types = collecting_assoc_types_;
+        pi.trait_def = impl_trait_id(trait_name);
+        obl_pending_impl_ = std::move(pi);
+        ++impls_gen_;
+    }
     if (!trait_name.empty()) {
         auto* tit = find_trait_iter_scoped(trait_name);
         if (tit) {
@@ -5250,6 +5272,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         }
                         AssocTypeEntry ae;
                         ae.type = subst_type_sema(at.default_type, dsub);
+                        collecting_assoc_types_.emplace_back(at.name, ae.type);
                         assoc_type_impls_[key] = std::move(ae);
                     } else
                         error(std::format("impl {} for {}: missing associated type '{}'",
@@ -5371,6 +5394,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                           target_resolved, impl_tps,
                           trait_type_args, trait_lt_args, impl_lt_params,
                           impl_lt_outlives, impl_doc, {}};
+        info.assoc_types = std::move(collecting_assoc_types_);
         // B91: coherence — reject a second impl of the same trait for the
         // same target type. Only fires for NON-GENERIC impls (no impl type
         // params and no impl lifetime params): two `impl<T> ... for Map<K,V>`

@@ -6342,7 +6342,11 @@ private:
         // generics; a bare generic for a blanket impl), set for EVERY impl —
         // `target_typeref` is null for a plain nominal target.
         TypeRef self_type = nullptr;
+        // ADR 0030 S9 row 5: the impl's associated types (`type Item = T;`, or
+        // the trait's default), over its generics — the C-OBL fact's items.
+        std::vector<std::pair<std::string, TypeRef>> assoc_types;
     };
+    std::vector<std::pair<std::string, TypeRef>> collecting_assoc_types_;   // collect_impl's
 
     // Type params in scope for the function/struct currently being processed.
     // Maps type param name → TypeVar LogosType*.
@@ -6918,9 +6922,16 @@ private:
     std::optional<obl::Env> obl_env_cache_;
     size_t         obl_env_langs_ = SIZE_MAX;
     size_t         obl_no_self_ = 0;
+    std::optional<SemaImplInfo> obl_pending_impl_;   // the impl collect_impl is checking
     const obl::ImplTable& obl_table_now_();
     const obl::Env& obl_env_();
     void obl_str_facts_(obl::ImplFact f);
+    // `<self as trait<args>>::name` by C-OBL; null when no impl answers.
+    TypeRef project_assoc_(std::string_view trait_id, TypeRef self, const std::vector<TypeRef>& args,
+                           std::string_view name) {
+        auto r = obl::project(obl_table_now_(), obl_env_(), trait_id, self, args, name);
+        return r ? *r : TypeRef{};
+    }
     // `self: trait<args>` by C-OBL, the trait named as written in this scope.
     bool implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args = {});
     // The same for a lang item (`#[lang = "index_mut"]`), by its identity.
