@@ -6806,9 +6806,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11951 -> 11952 (+1), NOIMPORTED 7392 -> 7393 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04: fail/str_from_raw_outside_unsafe (ADR 0030 S8 row 6: the intrinsic is named by its unsafe declaration).
 #                ALL 11952 -> 11955 (+3), NOIMPORTED 7393 -> 7396 (+3), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04: s8_parse_target_through_unwrap (+ fail/parse_target_unannotated_e0282, fail/parse_target_solution_not_fromstr; ADR 0030 S8 row 6: method generics as inference variables) joins the nonglob half.
 #                ALL 11955 -> 11956 (+1), NOIMPORTED 7396 -> 7397 (+1), TIERCOMMIT 205 -> 205 (+0) — 2026-10-04: ADR 0030 S9 rows 1-2 fixture s9_decl_identity_impl_twins.
+#                ALL 11956 -> 11956 (+0), NOIMPORTED 7397 -> 7397 (+0), TIERCOMMIT 205 -> 204 (-1) — 2026-10-04: squeue #709 closed (array_copy_by_element pass fixture; soundness row file gone).
+#                ALL 11956 -> 11956 (+0), NOIMPORTED 7397 -> 7397 (+0), TIERCOMMIT 204 -> 203 (-1) — 2026-10-04: squeue #728 closed (concrete_tuple_impl_bound pass fixture; soundness row file gone).
 REGISTRY-ALL         11956
 REGISTRY-NOIMPORTED  7397
-REGISTRY-TIERCOMMIT  205
+REGISTRY-TIERCOMMIT  203
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

@@ -433,8 +433,6 @@ static_call_resolves_homonym_type_fn_admits 2 tests/soundness/open/static_call_r
 
 array_call_result_index_crash 3 tests/soundness/open/array_call_result_index_crash refuses
 
-array_type_not_copy_refused 3 tests/soundness/open/array_type_not_copy_refused refuses
-
 mem_swap_is_unsafe_raw_pointer_refused 3 tests/soundness/open/mem_swap_is_unsafe_raw_pointer_refused refuses
 
 array_map_missing_refused 3 tests/soundness/open/array_map_missing_refused refuses
@@ -461,7 +459,5 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
-concrete_tuple_impl_bound_refused 3 tests/soundness/open/concrete_tuple_impl_bound_refused refuses
-
-# TOTAL 142
-# SYNC-HASH d248757dcc079e8b60d4e2df039e9bfd
+# TOTAL 140
+# SYNC-HASH a1892556cc6e1617bb7e2cc154a93bbb

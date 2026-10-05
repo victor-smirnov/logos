@@ -15,10 +15,6 @@
 #include "sema_impl.hpp"
 #include "mono_impl.hpp"        // Mono::enum_instance_name — THE ONE composer
 
-// KEY-IDENTITY: `Self` is a TYPE-PARAMETER name, scoped to the signature being
-// lowered — the same namespace normalize_assoc_eq documents. Named here so the
-// trait-default-body probe adds no new bare entity-name call argument.
-static const char kSelfTypeParamName[] = "Self";
 #include "ctfe.hpp"
 
 #include <logos/compiler/lir_mirror.hpp>
@@ -600,6 +596,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->generic_funcs        = std::move(generic_funcs_);
     s->generic_overloads    = std::move(generic_overloads_);
     s->decl_symbols         = std::move(decl_symbols_);
+    s->impl_self_by_node    = std::move(impl_self_by_node_);
     s->type_aliases         = std::move(type_aliases_);
     s->module_consts        = std::move(module_consts_);
     s->module_const_values  = std::move(module_const_values_);
@@ -781,6 +778,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     generic_funcs_        = std::move(s->generic_funcs);
     generic_overloads_    = std::move(s->generic_overloads);
     decl_symbols_         = std::move(s->decl_symbols);
+    impl_self_by_node_    = std::move(s->impl_self_by_node);
     type_aliases_         = std::move(s->type_aliases);
     module_consts_        = std::move(s->module_consts);
     module_const_values_  = std::move(s->module_const_values);
@@ -1551,6 +1549,9 @@ const lir_view::ObjectMapRef* set_lang_items(const lir_view::ObjectMapRef* m) {
     auto prev = g_lang_items;
     g_lang_items = m;
     return prev;
+}
+std::string_view lang_item_identity(std::string_view lang) {
+    return g_lang_items ? g_lang_items->get_str(lang) : std::string_view{};
 }
 bool type_is_lang_item(TypeRef t, std::string_view lang) {
     if (!t || !g_lang_items) return false;

@@ -7,6 +7,12 @@ namespace logos::compiler::obl {
 
 using K = LogosType::Kind;
 
+LangIds LangIds::active() {
+    auto id = [](std::string_view lang) { return std::string(lang_item_identity(lang)); };
+    return {id("copy"), id("clone"), id("sized"), id("fn"), id("fn_mut"), id("fn_once"),
+            id("eq"), id("partial_eq"), id("ord"), id("partial_ord")};
+}
+
 void ImplTable::add(ImplFact f) {
     const uint32_t i = static_cast<uint32_t>(facts_.size());
     by_trait_[f.trait].push_back(i);
@@ -135,9 +141,10 @@ struct Solver {
         const K k = self.kind();
         if (!l.sized.empty() && trait == l.sized)
             return !(k == K::UnsizedSlice || k == K::UnsizedDyn);
+        // Copy is a marker: a builtin rule needs no method. Clone carries `clone`,
+        // so it holds only by an impl whose method can be called.
         const bool copy = !l.copy.empty() && trait == l.copy;
-        const bool clone = !l.clone.empty() && trait == l.clone;
-        if (copy || clone) {
+        if (copy) {
             if (scalar(self) || k == K::Never || k == K::Ref || k == K::Ptr || k == K::FnPtr || k == K::FnItem)
                 return true;
             if (k == K::Slice) return !self.owning_slice();

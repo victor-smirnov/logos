@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "obligation.hpp"
 #include <logos/compiler/mono.hpp>
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_mirror.hpp>
@@ -1313,9 +1314,15 @@ private:
     bool mono_concrete_satisfies_bound(const TraitQuery& q,
                                        TypeRef concrete,
                                        StrSet& seen);
-    bool mono_concrete_satisfies_bound_direct_(const TraitQuery& q,
-                                               TypeRef concrete,
-                                               StrSet& seen);
+    // ADR 0030 S9 rows 3-4: the C-OBL table built from out_.impls and the
+    // environment mono answers; asked beside mono_concrete_satisfies_bound
+    // (LOGOS_S9_SHADOW) until it replaces it.
+    obl::ImplTable obl_table_;
+    size_t         obl_table_n_ = SIZE_MAX;
+    std::optional<obl::Env> obl_env_cache_;
+    std::unordered_map<std::string, bool> obl_memo_;   // (trait, type) → holds; cleared with the table
+    const obl::ImplTable& obl_table_now_();
+    const obl::Env& obl_env_();
 
     // ── Struct/enum cloning (large — defined in mono_clone.cpp) ─────
     DeclBuilder clone_struct_def(lir_view::StructView tmpl,

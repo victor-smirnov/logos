@@ -508,6 +508,23 @@ nothing in mlir — `trait_4`'s `u.uu()` check and `fmt_session3_structs`' two
 `()` formatting checks were never compiled; and `let _ = <expr>` whose
 expression lowers to nothing is now an internal error like a named `let`.
 
+Rows (3)-(4), step C: an impl's Self is on the L-IR (`impl_keys::SELF_TYPE`,
+from collect's fact by the impl's node) and mono builds the same C-OBL table
+from `out_.impls`; `mono_concrete_satisfies_bound` — every mono gate's engine —
+asks it (memoized per table) and its old body is deleted (−245 lines). Shadow
+over the pass corpus before the switch: every disagreement was the deleted
+engine's — `logos.lang.str::Bytes: Iterator` refused although the impl exists
+(so its adapter instances were never made: ~200 symbols enter the archive), a
+raw pointer's `Eq` refused (S8's `impl<T> Eq for *mut T`), a user `String`
+accepted by the stdlib `String`'s `Clone` (homonym), `&[u8]: Clone` refused.
+Clone has no builtin rule (it carries a method a builtin cannot supply); Rust's
+`impl<T: ?Sized> Clone for &T` is in stdlib now, so `p.clone()` with
+`p: &Plain` and `Plain: !Clone` clones the reference, as rustc (E0308 "expected
+Plain, found &Plain"). Array `Clone` is not covered yet (no stdlib impl).
+Squeue #709 (`[T; N]: Copy`) and #728 (a concrete tuple impl under a turbofish
+bound) closed by the solver; fixtures `array_copy_by_element`,
+`concrete_tuple_impl_bound`.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

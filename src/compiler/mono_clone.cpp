@@ -5044,256 +5044,81 @@ std::string Mono::ref_target_key(TypeRef t) {
 //      recursively check every bound against the substituted arg.
 //   4) If any impl satisfies all its bounds against the concrete's
 //      type-args, return true. Otherwise false.
-// SL-sl-02 for every mono gate, as sema's bound check: a `PartialEq` /
-// `PartialOrd` bound is satisfied by the type's `Eq` / `Ord` impl, which carries
-// the method (Logos's `Eq` is not declared `: PartialEq`). method_bound_ok used
-// to refuse `impl<T: PartialEq> PartialEq for GenPair<T>` at T = i64 and drop
-// the method in silence.
-bool Mono::mono_concrete_satisfies_bound(const TraitQuery& q,
-                                         TypeRef concrete,
-                                         StrSet& seen) {
-    if (mono_concrete_satisfies_bound_direct_(q, concrete, seen)) return true;
-    const bool partial_eq = q.key() == "logos.lang.cmp::PartialEq" || (!q.has_identity && q.spelling == "PartialEq");
-    const bool partial_ord = q.key() == "logos.lang.cmp::PartialOrd" || (!q.has_identity && q.spelling == "PartialOrd");
-    if (!partial_eq && !partial_ord) return false;
-    return mono_concrete_satisfies_bound_direct_(
-        partial_eq ? TraitQuery("Eq", "logos.lang.cmp::Eq") : TraitQuery("Ord", "logos.lang.cmp::Ord"), concrete, seen);
-}
-
-bool Mono::mono_concrete_satisfies_bound_direct_(const TraitQuery& q,
-                                                 TypeRef concrete,
-                                                 StrSet& seen) {
-    // Local alias: the bare SPELLING is what the auto-trait names and the
-    // legacy out_.impls scans below are keyed by; `q.key()` is what the fact
-    // tables are keyed by. Both are used, deliberately, and never swapped.
-    const std::string& trait_name = q.spelling;
-    if (!concrete) return false;
-
-    // AUTO traits (Fst/Send/Sync/Unpin) are satisfied structurally, not by
-    // registered impls — route to the auto engine (mirror of sema's blanket
-    // bound_satisfied). Known auto-trait names suffice here: mono has no
-    // trait registry with is_auto, and user auto traits reaching blanket
-    // bounds beyond these four have no precedent yet.
-    if (trait_name == "Fst" || trait_name == "Send" ||
-        trait_name == "Sync" || trait_name == "Unpin") {
-        StrSet av;
-        return is_auto_satisfied(concrete, trait_name, av);
-    }
-    // Slice concretes satisfy through the $slice$ impl keys (mirror of the
-    // sema bound acceptance; elem bounds validate at instantiation).
-    {
-        TypeRef sct{concrete};
-        if (sct.kind() == LogosType::Kind::Slice ||
-            sct.kind() == LogosType::Kind::UnsizedSlice) {
-            TypeRef el = sct.elem();
-            std::string ek = "$slice$" + (el ? type_str(el) : std::string("?"));
-            for (auto& id : (q.has_identity
-                                 ? std::vector<std::string>{q.identity}
-                                 : bare_trait_identities_(q.spelling))) {
-                if (has_concrete_impl_(id, ek)) return true;
-                if (has_concrete_impl_(id, "$slice$T")) return true;
-            }
-        }
-    }
-    // A reference through the generic `impl<T: Tr> Tr for &T` (keyed `$ref_$T` /
-    // `$mut_ref_$T`) when no impl names the reference type itself: the referent
-    // answers (every such impl in the tree bounds T by the trait it implements).
-    // Mirror of sema_has_impl_recursive's `$ref_$T` step.
-    if (TypeRef rct{concrete}; (rct.kind() == LogosType::Kind::Ref ||
-                                rct.kind() == LogosType::Kind::MutRef) && rct.pointee()) {
-        const std::string blk = rct.kind() == LogosType::Kind::MutRef ? "$mut_ref_$T" : "$ref_$T";
-        const std::string own = ref_target_key(rct);
-        for (auto& id : (q.has_identity ? std::vector<std::string>{q.identity}
-                                        : bare_trait_identities_(q.spelling)))
-            if (!has_concrete_impl_(id, own) && has_concrete_impl_(id, blk))
-                return mono_concrete_satisfies_bound(q, rct.pointee(), seen);
-    }
-    // Array concretes the same way, through the `$array$` keys.
-    if (TypeRef(concrete).kind() == LogosType::Kind::Array)
-        for (auto& id : (q.has_identity ? std::vector<std::string>{q.identity}
-                                        : bare_trait_identities_(q.spelling)))
-            for (auto& k : array_impl_lookup_keys(concrete))
-                if (has_concrete_impl_(id, k)) return true;
-
-    // Strip the concrete name the same way method_bound_ok does so
-    // the trait-engine lookup keys line up.
-    std::string cname;
-    TypeRef ct{concrete};
-    if (ct.kind() == LogosType::Kind::Struct ||
-        ct.kind() == LogosType::Kind::ZonedStruct) {
-        cname = concrete_struct_name(ct);
-    } else if (ct.kind() == LogosType::Kind::Enum) {
-        cname = std::string(ct.enum_name());
-    } else if (ct.kind() == LogosType::Kind::Ref ||
-               ct.kind() == LogosType::Kind::MutRef) {
-        // Reference target: look up under the structure-aware `$ref_` key
-        // (`impl Ord for &i32` → `$ref_&i32`, `impl Ord for &Foo` →
-        // `$ref_Foo`). Mirrors collect_impl; distinguishes `&&i32` from
-        // `&i32` (the by-ref-iterator `&Item: Ord` gate, e.g. peekable's
-        // `as_ref()` yielding `&&i32`, must NOT match `&i32`'s impl).
-        cname = ref_target_key(ct);
-    } else if (ct.kind() == LogosType::Kind::Tuple) {
-        // SL-sl-08 / tuple-keyed containers: tuple-target impls register
-        // under `$tuple$N` (generic elems), `$tuple$N$<t1>$…` (concrete
-        // elems) or `$tuple$variadic` (pack target) — NEVER under the
-        // literal "(t1, t2)" type_str. Without this mapping every bound
-        // check against a concrete tuple failed silently and each method
-        // of a bounded impl (e.g. `impl<K: Hash + Eq> HashSet<K>` with
-        // K=(i64,i64)) was skipped at mono → statements referencing it
-        // vanished from codegen. Mirrors sema_collect.cpp:1221 and the
-        // receiver-side sentinel at mono_clone.cpp:3648.
-        cname = "$tuple$" + std::to_string(ct.tuple_elems().size());
-    } else if (LogosType::is_fn_value_kind(ct.kind())) {
-        // G149-6 sibling of the tuple gap: `impl … for fn(A,B)->C` keys on
-        // `$fnptr$N`. Fn-family bounds short-circuit before this lookup;
-        // this covers ordinary traits implemented for fn-pointer types.
-        cname = "$fnptr$" + std::to_string(ct.closure_params().size());
-    } else {
-        cname = type_str(ct);
-    }
-    if (auto p = cname.find("$G"); p != std::string::npos)
-        cname = cname.substr(0, p);
-    // `&[u8]` is the canonical wire form for `str`; impls register
-    // under "str" in the trait engine. The legacy enum method_bound
-    // check at mono_clone.cpp ~line 4613 does this rename; mirror
-    // here so the new helper doesn't regress the legacy path.
-    if (cname == "&[u8]") cname = "str";
-
-    // Step 1+2: quick path. trait_engine returns true via concrete
-    // impls (no bound) or blanket impls. For a primitive / no-args
-    // type that's the whole story. Also keep simple-path semantics
-    // for non-Struct/Enum kinds — only generic struct/enum
-    // instantiations (and tuples) need the deep blanket-bound recursion.
-    if (ct.kind() == LogosType::Kind::Tuple) {
-        // A tuple may satisfy via any of its three key forms; collect the
-        // admissible ones, then deep-check element bounds below.
-        std::string full = cname;                 // `$tuple$N$<t1>$…`
-        for (auto e : ct.tuple_elems()) {
-            full += "$";
-            full += (e ? type_str(e) : std::string("?"));
-        }
-        // Concrete per-type impl (`impl Hash for (i64, str)`) — boundless
-        // by construction; the key match is the whole check.
-        if (mono_has_impl_recursive(q, full, seen)) return true;
-        bool per_arity = mono_has_impl_recursive(q, cname, seen);
-        bool variadic  = mono_has_impl_recursive(q, "$tuple$variadic", seen);
-        if (!per_arity && !variadic) return false;
-        if (ct.tuple_elems().empty()) return true;
-        // Deep check: walk matching impls; per-arity form unifies its
-        // `(A, B, …)` pattern (element bounds checked via the generic
-        // step-3 loop below); variadic form checks every element against
-        // the pack param's bounds here.
-        const TypePoolImpl* tp_pool = out_.type_pool.impl();
-        for (auto& cand : out_.impls) {
-            if (!q.matches(cand.trait_name(), cand.identity_trait())) continue;
-            bool is_var = variadic && cand.target_type() == "$tuple$variadic";
-            bool is_ar  = per_arity && cand.target_type() == cname;
-            if (!is_var && !is_ar) continue;
-            if (cand.impl_type_params_empty()) return true;
-            bool all_ok = true;
-            if (is_var) {
-                // `impl<A...: B> Trait for (A...)` — every element must
-                // satisfy every bound of the pack param.
-                cand.each_impl_type_param([&](lir_view::FnTParamView itp) {
-                    if (!all_ok || itp.bounds_empty()) return;
-                    itp.each_bound([&](lir_view::FnTraitBoundView tb) {
-                        if (!all_ok) return;
-                        for (auto e : ct.tuple_elems()) {
-                            if (!e) continue;
-                            if (TypeRef(e).kind() == LogosType::Kind::TypeVar)
-                                continue;   // still abstract — outer mono resolves
-                            if (!mono_concrete_satisfies_bound(
-                                    TraitQuery(std::string(tb.trait_name()),
-                                               std::string(tb.identity_trait())),
-                                    e, seen)) {
-                                all_ok = false;
-                                return;
-                            }
-                        }
-                    });
-                });
-            } else {
-                TypeRef pat{cand.target_typeref(tp_pool)};
-                if (!pat) return true;   // no pattern recorded — key match stands
-                SubstMap subst;
-                if (!unify_impl_target(concrete, pat, subst)) continue;
-                cand.each_impl_type_param([&](lir_view::FnTParamView itp) {
-                    if (!all_ok || itp.bounds_empty()) return;
-                    auto sit = subst.find(std::string(itp.name()));
-                    if (sit == subst.end()) return;
-                    TypeRef inner{sit->second};
-                    if (inner && TypeRef(inner).kind() == LogosType::Kind::TypeVar)
-                        return;             // still abstract — outer mono resolves
-                    itp.each_bound([&](lir_view::FnTraitBoundView tb) {
-                        if (!all_ok) return;
-                        if (!mono_concrete_satisfies_bound(
-                                TraitQuery(std::string(tb.trait_name()),
-                                           std::string(tb.identity_trait())),
-                                inner, seen))
-                            all_ok = false;
-                    });
-                });
-            }
-            if (all_ok) return true;
-        }
-        return false;
-    }
-    if (!mono_has_impl_recursive(q, cname, seen)) return false;
-    if (ct.kind() != LogosType::Kind::Struct &&
-        ct.kind() != LogosType::Kind::ZonedStruct &&
-        ct.kind() != LogosType::Kind::Enum)
-        return true;
-    auto args = ct.type_args();
-    if (args.empty()) return true;
-
-    // Step 3: find the blanket impl. Multiple impls can match by
-    // (trait, target_type) when sema accepts specialisation —
-    // walk all candidates and accept the first whose own bounds
-    // hold under the unified subst. Skip impls without
-    // target_typeref (the partial-spec pattern signal) — those
-    // are non-generic concrete impls that already passed the
-    // step-1 check.
-    const TypePoolImpl* impl_pool = out_.type_pool.impl();
-    for (auto& cand : out_.impls) {
-        if (!q.matches(cand.trait_name(), cand.identity_trait())) continue;
-        if (cand.target_type() != cname)      continue;
-        if (cand.impl_type_params_empty())  return true;   // direct concrete
-        TypeRef pat{cand.target_typeref(impl_pool)};
-        if (!pat) continue;
-
-        SubstMap subst;
-        if (!unify_impl_target(concrete, pat, subst)) continue;
-
-        bool all_ok = true;
-        cand.each_impl_type_param([&](lir_view::FnTParamView itp) {
-            if (!all_ok) return;
-            if (itp.bounds_empty()) return;
-            auto sit = subst.find(std::string(itp.name()));
-            if (sit == subst.end()) return;        // not directly type-arg
-            TypeRef inner{sit->second};
-            itp.each_bound([&](lir_view::FnTraitBoundView tb) {
-                if (!all_ok) return;
-                // Fn-family shorthand: any callable shape passes
-                // (mirrors method_bound_ok's intrinsic branch).
-                if (tb.is_fn_family()) {
-                    auto k = TypeRef(inner).kind();
-                    if (LogosType::is_fn_value_kind(k) ||
-                        k == LogosType::Kind::Closure ||
-                        k == LogosType::Kind::TypeVar ||
-                        k == LogosType::Kind::Struct ||
-                        k == LogosType::Kind::ZonedStruct)
-                        return;
-                    all_ok = false; return;
-                }
-                if (!mono_concrete_satisfies_bound(
-                        TraitQuery(std::string(tb.trait_name()),
-                                   std::string(tb.identity_trait())), inner, seen))
-                    all_ok = false;
+const obl::ImplTable& Mono::obl_table_now_() {
+    if (out_.impls.size() == obl_table_n_) return obl_table_;
+    obl_table_ = {};
+    obl_memo_.clear();
+    obl_table_n_ = out_.impls.size();
+    const TypePoolImpl* pool = out_.type_pool.impl();
+    uint32_t src = 0;
+    for (auto& impl : out_.impls) {
+        obl::ImplFact f;
+        f.source = src++;
+        f.trait = std::string(impl.identity_trait().empty() ? impl.trait_name() : impl.identity_trait());
+        f.self = impl.self_type(pool);
+        if (!f.self) f.self = impl.target_typeref(pool);
+        if (!f.self || f.trait.empty()) continue;
+        f.trait_args = impl.trait_type_args(pool);
+        impl.each_impl_type_param([&](lir_view::FnTParamView tp) {
+            f.generics.emplace_back(tp.name());
+            if (tp.is_variadic()) f.pack = std::string(tp.name());
+            tp.each_bound([&](lir_view::FnTraitBoundView b) {
+                std::string id(b.identity_trait().empty() ? b.trait_name() : b.identity_trait());
+                f.bounds.push_back({std::string(tp.name()), std::move(id), b.type_args(pool)});
             });
         });
-        if (all_ok) return true;
+        f.negative = impl.is_negative();
+        obl_table_.add(std::move(f));
     }
-    return false;
+    return obl_table_;
+}
+
+const obl::Env& Mono::obl_env_() {
+    if (obl_env_cache_) return *obl_env_cache_;
+    obl_env_cache_.emplace();
+    obl::Env& e = *obl_env_cache_;
+    e.lang = obl::LangIds::active();
+    e.auto_trait = [this](TypeRef self, std::string_view trait) -> std::optional<bool> {
+        for (auto& td : out_.traits) {
+            if (!td.is_auto()) continue;
+            std::string id = td.pkg().empty() ? std::string(td.name()) : std::string(td.pkg()) + "::" + std::string(td.name());
+            if (id != trait) continue;
+            StrSet v;
+            return is_auto_satisfied(self, td.name(), v);
+        }
+        return std::nullopt;
+    };
+    e.subst = [this](TypeRef t, const obl::Subst& s) {
+        SubstMap m;
+        for (auto& [k, v] : s) m[k] = v;
+        return subst_type(t, m);
+    };
+    e.is_open = [](TypeRef t) { return contains_typevar(t); };
+    e.mentions_tv = [](TypeRef t) { return contains_typevar(t); };
+    return e;
+}
+
+// ADR 0030 S9 row 4: every mono gate's bound is C-OBL's question
+// (obligation.hpp). A bare spelling (`Ord`) asks every trait of that name, as
+// the deleted engine did. The deleted engine answered no for real impls (a raw
+// pointer's `Eq`, `logos.lang.str::Bytes: Iterator`), yes for a homonym's (a
+// user `String` by the stdlib `String`'s `Clone`), and no for `&[u8]: Clone`.
+bool Mono::mono_concrete_satisfies_bound(const TraitQuery& q,
+                                         TypeRef concrete,
+                                         StrSet&) {
+    if (!concrete) return false;
+    const auto& table = obl_table_now_();
+    std::string key = q.key();
+    key += '\x1f';
+    key += type_str(concrete);
+    if (auto it = obl_memo_.find(key); it != obl_memo_.end()) return it->second;
+    obl::Selection sel = obl::select(table, obl_env_(), q.key(), concrete, {});
+    if (!sel.holds() && !q.has_identity)
+        for (auto& id : bare_trait_identities_(q.spelling)) {
+            sel = obl::select(table, obl_env_(), id, concrete, {});
+            if (sel.holds()) break;
+        }
+    return obl_memo_[std::move(key)] = sel.holds();
 }
 
 bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {

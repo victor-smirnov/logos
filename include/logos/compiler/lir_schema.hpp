@@ -872,6 +872,11 @@ inline constexpr Key IDENTITY_TARGET      {"IDENTITY_TARGET",      21}; // Varch
 // resolved as "the method of the impl of Trait for Self" by reading this list,
 // never by composing `<Self>__<method>`. Sparse: absent on older archives.
 inline constexpr Key METHOD_SYMBOLS       {"METHOD_SYMBOLS",       22}; // Array<Varchar> (sparse)
+// ADR 0030 S9 row 3: the impl's Self as a type — a pattern over its generics,
+// a bare generic for a blanket impl — for EVERY impl (TARGET_TYPEREF is null
+// for a plain nominal target). Logos's `impl … for str` is `&[u8]`'s. Sparse:
+// absent on older archives.
+inline constexpr Key SELF_TYPE            {"SELF_TYPE",            23}; // RelPtr<LogosType> (sparse)
 } // namespace impl_keys
 
 // assoc_entry sub-map keys (own space — element of ASSOC_TYPES / PRIMARY_ASSOC_EQS

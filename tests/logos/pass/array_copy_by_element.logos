@@ -1,0 +1,6 @@
+// Closed squeue array_type_not_copy_refused (#709): `[T; N]` is Copy when its element is
+// (rustc's builtin rule), answered by the ADR 0030 S9 C-OBL solver. `cp([1i64, 2i64])` with
+// `fn cp<T: Copy>` compiles and returns the second element, exit 2 as rustc.
+package array_copy_by_element;
+fn cp<T: Copy>(t: T) -> T { return t; }
+fn main() -> i32 { let a = cp([1i64, 2i64]); return a[1] as i32; }

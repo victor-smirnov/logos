@@ -12,6 +12,13 @@
 #pragma once
 
 #include "obligation.hpp"
+
+namespace logos::compiler {
+// KEY-IDENTITY: `Self` is a TYPE-PARAMETER name, scoped to the signature being
+// lowered — the same namespace normalize_assoc_eq documents. Named once so no
+// site adds a bare entity-name call argument (key-identity lint, FACT 5).
+inline constexpr char kSelfTypeParamName[] = "Self";
+}  // namespace logos::compiler
 #include <logos/compiler/lir.hpp>
 #include <logos/compiler/lir_builder.hpp>
 #include <logos/compiler/lir_view.hpp>
@@ -6924,6 +6931,12 @@ private:
     // collected once per impl). lower_fn
     // reads it; nothing re-searches the candidates by name.
     logos::compiler::StrMap<std::string> decl_symbols_;
+    // ADR 0030 S9 row 3: each impl's Self (its C-OBL fact), by the impl's node,
+    // for lower_impl_block to put on the L-IR.
+    logos::compiler::StrMap<TypeRef> impl_self_by_node_;
+    std::string node_key_(sema_detail::TinyMapView node) const {
+        return std::format("{}:{}", reinterpret_cast<uintptr_t>(holder_), node.offset().value());
+    }
     std::string decl_key_(sema_detail::TinyMapView node, std::string_view struct_ctx,
                           const std::vector<TypeRef>& trait_args) const {
         return std::format("{}:{}:{}{}", reinterpret_cast<uintptr_t>(holder_), node.offset().value(), struct_ctx,
@@ -11387,6 +11400,7 @@ public:
     StrMap<SemaChecker::SemaFuncInfo>     generic_funcs;
     StrMap<std::vector<std::string>>       generic_overloads;
     StrMap<std::string>                    decl_symbols;   // ADR 0030 S9 row 1
+    StrMap<TypeRef>                        impl_self_by_node;   // ADR 0030 S9 row 3
     StrMap<SemaChecker::TypeAliasEntry>   type_aliases;
     StrMap<TypeRef>                        module_consts;
     StrMap<writ::TinyMapView>            module_const_values;

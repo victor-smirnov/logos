@@ -1634,6 +1634,9 @@ const obl::Env& SemaChecker::obl_env_() {
     // (a carried decision, retired with the map at ADR 0029 S6).
     e.closure_level = [this](TypeRef c) {
         if (c.closure_fn_family() != TypeRef::FnFamily::Unstated) return int(c.closure_fn_family()) - 1;
+        // KEY-IDENTITY: a carried decision — the `Unstated` population is built
+        // from BOUNDS and FORMALS, never from literals, so its members carry no
+        // identity to be keyed by. Retires with the map at ADR 0029 S6.
         auto kit = closure_kind_.find(type_str(c));
         return kit == closure_kind_.end() ? 0 : kit->second;
     };
@@ -5426,6 +5429,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // `impl_trait_id`, and a homonym's impls live under a different one.
         const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), target};
         info.self_type = impl_self_ty;
+        impl_self_by_node_[node_key_(node)] =
+            target == "str" ? make_slice_type(u8_t(), false) : (impl_self_ty ? impl_self_ty : target_resolved);
         impls_[ikey] = info;
         impls_all_[ikey].push_back(info);   // ALL impls (impls_ is last-wins)
         ++impls_gen_;

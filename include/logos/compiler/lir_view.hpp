@@ -1384,6 +1384,9 @@ struct ImplView {
     TypeRef target_typeref(const TypePoolImpl* pool) const noexcept {
         return self.decl_type(lir_schema::impl_keys::TARGET_TYPEREF.code, pool);
     }
+    TypeRef self_type(const TypePoolImpl* pool) const noexcept {
+        return self.decl_type(lir_schema::impl_keys::SELF_TYPE.code, pool);
+    }
     std::vector<TypeRef> trait_type_args(const TypePoolImpl* pool) const noexcept {
         return detail::read_type_array(self, lir_schema::impl_keys::TRAIT_TYPE_ARGS.code, pool);
     }

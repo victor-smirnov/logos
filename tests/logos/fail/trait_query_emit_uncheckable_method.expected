@@ -1,1 +1,1 @@
-'Plain' has no method 'clone'
+type mismatch — expected Plain, got &Plain

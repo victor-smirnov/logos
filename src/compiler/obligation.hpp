@@ -41,6 +41,8 @@ struct ImplFact {
 struct LangIds {
     std::string copy, clone, sized, fn, fn_mut, fn_once;
     std::string eq, partial_eq, ord, partial_ord;
+    // From the phase's active lang-item table (LProgram::lang_items).
+    static LangIds active();
 };
 
 enum class Kind : uint8_t {
