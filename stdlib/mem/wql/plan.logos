@@ -501,7 +501,9 @@ pub schema RQRelArr : code(0x0012_0000_0000_0017) {
     rels: WAny = 1,
 }
 
-pub fn RQREL_MAX() -> i64 { return 16i64; }
+// The rel registry is dynamic (2026-10-05); what still bounds a program's rel
+// count is the `i64` rel masks (liveness, dep_mask, `1i64 << r`) — 63.
+pub fn RQREL_MAX() -> i64 { return 63i64; }
 
 impl RQRelArr {
     pub fn len(self: &RQRelArr) -> i64 { return self.count as i64; }

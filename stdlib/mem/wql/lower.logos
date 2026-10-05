@@ -1358,11 +1358,10 @@ fn ms_target(root: WAny, prm: &MacroParams) -> MsTarget {
 // these, on the same column; a single free occurrence needs all of S.
 
 /// The decisions of one rewrite, in the order they were taken.
-pub struct MsDecisions { pub n: i64, pub rel: [str; 16], pub col: [str; 16], pub rule: [i32; 16] }
+pub struct MsDecisions { pub n: i64, pub rel: Vec<str>, pub col: Vec<str>, pub rule: Vec<i32> }
 
 fn ms_note(d: &mut MsDecisions, rel: str, col: str, rule: i32) {
-    if d.n >= 16i64 { return; }
-    d.rel[d.n] = rel; d.col[d.n] = col; d.rule[d.n] = rule;
+    d.rel.push(rel); d.col.push(col); d.rule.push(rule);
     d.n = d.n + 1i64;
 }
 
@@ -1404,7 +1403,7 @@ fn ms_seed_via(h: &Writ, xsrc: str, xvar: str, xg: str, xf: str, mrel: str) -> i
 // The occurrences of user rels (≠ R, not injected) in one body of R, with the
 // seed each would contribute. `item` is the head's column c in this body.
 fn ms_body_occs(root: WAny, ba: WAny, rname: str, item: MsCol, mrel: str, h: &Writ,
-                occs: &mut [MsOcc; 16], n: &mut i64) {
+                occs: &mut Vec<MsOcc>, n: &mut i64) {
     let q: RQuery = ba.view::<RQuery>();
     match q {
         RQuery::Simple(s0) => {
@@ -1412,7 +1411,7 @@ fn ms_body_occs(root: WAny, ba: WAny, rname: str, item: MsCol, mrel: str, h: &Wr
                || str_starts_with(s0.src_name, "__") { return; }
             let mut o: MsOcc = MsOcc { s: s0.src_name, col: "", seed: 0i64 };
             if str_eq(item.var, s0.var_name) { o.col = item.fld; o.seed = ms_seed_from_magic(h, mrel); }
-            if *n < 16i64 { occs[*n] = o; *n = *n + 1i64; }
+            occs.push(o); *n = *n + 1i64;
         }
         RQuery::Join(j) => {
             let steps: RQJoinStepArr = j.steps_arr();
@@ -1455,7 +1454,7 @@ fn ms_body_occs(root: WAny, ba: WAny, rname: str, item: MsCol, mrel: str, h: &Wr
                             }
                         }
                     }
-                    if *n < 16i64 { occs[*n] = o; *n = *n + 1i64; }
+                    occs.push(o); *n = *n + 1i64;
                 }
                 a = a + 1i64;
             }
@@ -1468,8 +1467,8 @@ fn ms_body_occs(root: WAny, ba: WAny, rname: str, item: MsCol, mrel: str, h: &Wr
 // antecedents, then `__m_<rel>` (seeds + the moving shapes' magic rules) and
 // the restricted bodies. Returns the rule; MS_DEMAND = rewritten. `occs` gets
 // the occurrences of other rels in the ORIGINAL bodies, for propagation.
-fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &[i64; 8], nseeds: i64,
-            allow_moving: bool, slots: &mut i64, occs: &mut [MsOcc; 16], nocc: &mut i64) -> i32 {
+fn ms_apply(root: WAny, h: &Writ, ri: i64, ci: i64, seeds: &Vec<i64>, nseeds: i64,
+            allow_moving: bool, slots: &mut i64, occs: &mut Vec<MsOcc>, nocc: &mut i64) -> i32 {
     let prog: RQProgram = root.view::<RQProgram>();
     let rels: RQRelArr = prog.rels_arr();
     let rel: RQRel = rels.rel_at(ri);
@@ -1885,20 +1884,23 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
     seed.sel_first = false; seed.distinct = false; seed.has_order = false;
     seed.has_limit = false; seed.has_result_ty = false; seed.has_gpath = false;
     // the worklist: (rel, column, seeds)
-    let mut wr: [i64; 16] = [0i64; 16];
-    let mut wc: [i64; 16] = [0i64; 16];
-    let mut ws: [[i64; 8]; 16] = [[0i64; 8]; 16];
-    let mut wn: [i64; 16] = [0i64; 16];
+    // (every seed is kept: the magic rel's bodies are exactly these, and
+    // ms_apply refuses on MS_CAP by their true count)
+    let mut wr: Vec<i64> = Vec::<i64>::new();
+    let mut wc: Vec<i64> = Vec::<i64>::new();
+    let mut ws: Vec<Vec<i64>> = Vec::<Vec<i64>>::new();
+    let mut s0: Vec<i64> = Vec::<i64>::new();
+    s0.push(seed.as_ref().raw());
+    wr.push(ri); wc.push(ci); ws.push(s0);
     let mut nw: i64 = 1i64;
-    wr[0] = ri; wc[0] = ci; ws[0][0] = seed.as_ref().raw(); wn[0] = 1i64;
     let mut w: i64 = 0i64;
     while w < nw {
         let rr: RQRel = root.view::<RQProgram>().rels_arr().rel_at(wr[w]);
         let colname: str = rr.cols_arr().col_at(wc[w]).name;
-        let mut occs: [MsOcc; 16] = [MsOcc { s: "", col: "", seed: 0i64 }; 16];
+        let mut occs: Vec<MsOcc> = Vec::<MsOcc>::new();
         let mut nocc: i64 = 0i64;
-        let seeds: [i64; 8] = ws[w];
-        let rule: i32 = ms_apply(root, h, wr[w], wc[w], &seeds, wn[w], allow_moving, &mut slots, &mut occs, &mut nocc);
+        let nsd: i64 = ws[w].len();
+        let rule: i32 = ms_apply(root, h, wr[w], wc[w], &ws[w], nsd, allow_moving, &mut slots, &mut occs, &mut nocc);
         ms_note(out, rr.name, colname, rule);
         if rule == MS_DEMAND() && allow_prop {
             // propagate to each rel S whose every occurrence here is bound alike
@@ -1916,20 +1918,19 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
                     let mut cnt: i64 = 0i64;
                     let mut bound: bool = true;
                     let scol: str = occs[i].col;
-                    let mut ss: [i64; 8] = [0i64; 8];
-                    let mut sn: i64 = 0i64;
+                    let mut ss: Vec<i64> = Vec::<i64>::new();
                     j = i;
                     while j < nocc {
                         if str_eq(occs[j].s, sname) {
                             cnt = cnt + 1i64;
                             if occs[j].seed == 0i64 || !str_eq(occs[j].col, scol) { bound = false; }
-                            else if sn < 8i64 { ss[sn] = occs[j].seed; sn = sn + 1i64; }
+                            else { ss.push(occs[j].seed); }
                         }
                         j = j + 1i64;
                     }
                     let sci: i64 = if scol.len() > 0i64 { ms_col_index(root, sri, scol) } else { -1i64 };
-                    if bound && sci >= 0i64 && cnt == ms_reads_all(root, sname, live) && nw < 16i64 {
-                        wr[nw] = sri; wc[nw] = sci; ws[nw] = ss; wn[nw] = sn;
+                    if bound && sci >= 0i64 && cnt == ms_reads_all(root, sname, live) {
+                        wr.push(sri); wc.push(sci); ws.push(ss);
                         nw = nw + 1i64;
                     } else {
                         ms_note(out, sname, scol, MS_SHARED());

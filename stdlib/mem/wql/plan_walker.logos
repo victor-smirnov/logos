@@ -167,7 +167,7 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
         let f: i64 = deps.gfrom[k];
         let t: i64 = deps.gto[k];
         if scc.comp[f] == scc.comp[t] {
-            let dir: i32 = deps.head_agg_dir[f];
+            let dir: i32 = deps.head_agg_dir_of(f);
             if agg_algebra(dir) == AGG_CLASS_SEMILATTICE() {
                 // ADMISSIBLE recursive aggregation — the absorb gate IS the
                 // lattice order (monotone fixpoint). Slice-1 restricts the SCC to
@@ -233,7 +233,7 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
     // form implemented; anything else is aggregated in the entry query.
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
-        if deps.head_agg_dir[r] != 0i32 && !prm.rel_is_agg[r] {
+        if deps.head_agg_dir_of(r) != 0i32 && !prm.rel_is_agg[r] {
             let mut m3: String = String::new();
             m3.push_str("wql!: rel '");
             m3.push_str(prm.rel_names[r]);
@@ -282,8 +282,8 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
     if ri >= 0i64 {
         // #352: a mapping's non-`pub` rel is its internal — reachable from the
         // same mapping's rels, never from the consumer's query or rels.
-        if ri < 16i64 && prm.fused_hidden[ri] &&
-           !(cur_rel >= 0i64 && cur_rel < 16i64 && str_eq(prm.fused_mapping[cur_rel], prm.fused_mapping[ri])) {
+        if ri < prm.fused_hidden.len() && prm.fused_hidden[ri] &&
+           !(cur_rel >= 0i64 && cur_rel < prm.fused_mapping.len() && str_eq(prm.fused_mapping[cur_rel], prm.fused_mapping[ri])) {
             let mut m2: String = String::new();
             m2.push_str("wql!: rel `");
             m2.push_str(src);
@@ -1641,47 +1641,23 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     prm.src_root = root;
     let mut deps: RelDeps = rel_deps_new();
     let mut scc: RelScc = rel_scc_new();
-    let mut src_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut dsrc_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
-                                      String::new(), String::new(), String::new(), String::new(),
-                                      String::new(), String::new(), String::new(), String::new(),
-                                      String::new(), String::new(), String::new(), String::new()];
-    let mut row_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
+    let mut src_bufs: Vec<String> = Vec::<String>::new();
+    let mut dsrc_bufs: Vec<String> = Vec::<String>::new();
+    let mut row_bufs: Vec<String> = Vec::<String>::new();
     // Frame-held name backing for NATIVE rels (ADR 0016 M1a) — same lifetime
     // discipline as src_bufs/dsrc_bufs above.
-    let mut nat_src_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
-                                         String::new(), String::new(), String::new(), String::new(),
-                                         String::new(), String::new(), String::new(), String::new(),
-                                         String::new(), String::new(), String::new(), String::new()];
+    let mut nat_src_bufs: Vec<String> = Vec::<String>::new();
     // Frame-held backing for a chosen narrowing's constant (ADR 0024 S6.3) —
     // same lifetime discipline as the buffers above.
     let mut pick_argb: String = String::new();
-    let mut nat_dsrc_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new()];
-    let mut nat_name_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new()];
+    let mut nat_dsrc_bufs: Vec<String> = Vec::<String>::new();
+    let mut nat_name_bufs: Vec<String> = Vec::<String>::new();
     // The STREAM binding names (`__rel_<r>`), same discipline again.
-    let mut nat_ssrc_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new()];
+    let mut nat_ssrc_bufs: Vec<String> = Vec::<String>::new();
     // The SIZE binding names (`__sz_<r>`) — where a measured size lands in the
     // generated fn (ADR 0024 S4). Built in ONE place, so the plan's record and
     // the emitted prelude cannot name it differently.
-    let mut nat_szat_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new()];
+    let mut nat_szat_bufs: Vec<String> = Vec::<String>::new();
 
     if prog.has_rels() {
         let rels: RQRelArr = prog.rels_arr();
@@ -1733,6 +1709,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             }
             // Emitted source + delta-source names + native row type text
             // (frame-held Strings back the registry's borrowed views).
+            while src_bufs.len() <= i { src_bufs.push(String::new()); dsrc_bufs.push(String::new()); row_bufs.push(String::new()); }
             src_bufs[i].push_str("__rel_");
             src_bufs[i].push_str(rname);
             src_bufs[i].push_str("_sl");
@@ -2521,7 +2498,7 @@ fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
 /// have to MOVE rather than be dropped. S2j moves them: the walk below is the S2h
 /// walk unchanged in every arm and every ground, and only its OUTPUT differs.
 pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
-    let pv: [bool; 16] = plan_prove_once(prm, ap);
+    let pv: Vec<bool> = plan_prove_once(prm, ap);
     // THE FALLBACK, and it is the direction that keeps this pass safe. A rel the
     // walk never reached — a source the entry query does not NAME, which the
     // prelude materializes anyway — got no node above and no proof either; it is
@@ -2607,7 +2584,7 @@ pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
 /// trace: a trace can only repeat what the declaration said.
 fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
                     sq: &RQSimple) -> bool {
-    if ri < 0i64 || ri >= 16i64 { return false; }
+    if ri < 0i64 || ri >= prm.rel_n { return false; }
     if prm.rel_ordcol[ri].len() == 0i64 { return false; }   // (1)
     if !ap_offers(ap, prm, ri) { return false; }            // (2)
     if sq.order_desc {                                      // (3)
@@ -2655,13 +2632,15 @@ fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
 /// So this computes the value `plan_apply_access` is going to install, from the
 /// same two inputs, rather than reading the field before it is written.
 fn ap_effective_batch(prm: &MacroParams, ap: &AccessPlan, ri: i64) -> bool {
-    if ri < 0i64 || ri >= 16i64 { return false; }
+    if ri < 0i64 || ri >= prm.rel_n { return false; }
     if ap.op[ri] >= 0i64 { return prm.opc_batch[ap.op[ri]]; }
     return prm.rel_batch[ri];
 }
 
-fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 16] {
-    let mut pv: [bool; 16] = [false; 16];
+fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> Vec<bool> {
+    let mut pv: Vec<bool> = Vec::<bool>::new();
+    let mut zpv: i64 = 0i64;
+    while zpv < prm.rel_n { pv.push(false); zpv = zpv + 1i64; }
     if prm.src_root.is_null() { return pv; }
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
     // A parse-side rel body may scan a native rel any number of times, and the
@@ -2725,7 +2704,9 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 16] {
             let steps: RQJoinStepArr = jq.steps_arr();
             let ns: i64 = steps.len();
             // How many times does the chain NAME each rel?
-            let mut cnt: [i64; 16] = [0i64; 16];
+            let mut cnt: Vec<i64> = Vec::<i64>::new();
+            let mut zc: i64 = 0i64;
+            while zc < prm.rel_n { cnt.push(0i64); zc = zc + 1i64; }
             if bi >= 0i64 { cnt[bi] = cnt[bi] + 1i64; }
             let mut c: i64 = 0i64;
             while c < ns {
@@ -3087,16 +3068,17 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
 }
 
 fn register_native_rels(prm: &mut MacroParams, natspec: str,
-                        srcb: &mut [String; 16], dsrcb: &mut [String; 16],
-                        rowtyb: &mut [String; 16], ssrcb: &mut [String; 16],
-                        szatb: &mut [String; 16]) -> bool {
+                        srcb: &mut Vec<String>, dsrcb: &mut Vec<String>,
+                        rowtyb: &mut Vec<String>, ssrcb: &mut Vec<String>,
+                        szatb: &mut Vec<String>) -> bool {
     let n: i64 = natspec.len();
     let mut i: i64 = 0i64;
     let mut k: i64 = 0i64;
     while i < n {
-        if k >= 16i64 || prm.rel_n >= 16i64 {
-            error("wql!: too many rels (max 8, native source params included)");
-            return false;
+        // The frame buffers grow with the native's registry position.
+        while srcb.len() <= k {
+            srcb.push(String::new()); dsrcb.push(String::new()); rowtyb.push(String::new());
+            ssrcb.push(String::new()); szatb.push(String::new());
         }
         // <regname>=
         let s0: i64 = i;
@@ -3178,8 +3160,8 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         i = i + 1i64;
         // columns into rowty text, remembering (name, ty) pairs for rel_add_col.
         rowtyb[k].push_str("(");
-        let mut cnames: [str; 8] = ["", "", "", "", "", "", "", ""];
-        let mut ctys:   [str; 8] = ["", "", "", "", "", "", "", ""];
+        let mut cnames: Vec<str> = Vec::<str>::new();
+        let mut ctys:   Vec<str> = Vec::<str>::new();
         let mut nc: i64 = 0i64;
         loop {
             let c0: i64 = i;
@@ -3192,7 +3174,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             let ct: str = pw_slice(natspec, t0, i);
             if nc > 0i64 { rowtyb[k].push_str(", "); }
             rowtyb[k].push_str(ct);
-            if nc < 8i64 { cnames[nc] = cn; ctys[nc] = ct; nc = nc + 1i64; }
+            cnames.push(cn); ctys.push(ct); nc = nc + 1i64;
             if i >= n || str_byte_at(natspec, i) == 41u8 { break; }
             i = i + 1i64;                                                    // ','
         }
@@ -3201,13 +3183,13 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // Absent for a source that declares none, which is every hand-written
         // one until it says otherwise. Held in locals here and registered
         // after the rel itself is (rel_add_op keys off the LAST registered).
-        let mut op_col: [str; 8] = ["", "", "", "", "", "", "", ""];
-        let mut op_cmp: [str; 8] = ["", "", "", "", "", "", "", ""];
-        let mut op_fn:  [str; 8] = ["", "", "", "", "", "", "", ""];
-        let mut op_ex:  [bool; 8] = [false; 8];
-        let mut op_it:  [bool; 8] = [false; 8];
-        let mut op_bt:  [bool; 8] = [false; 8];
-        let mut op_ity: [str; 8] = [""; 8];
+        let mut op_col: Vec<str> = Vec::<str>::new();
+        let mut op_cmp: Vec<str> = Vec::<str>::new();
+        let mut op_fn:  Vec<str> = Vec::<str>::new();
+        let mut op_ex:  Vec<bool> = Vec::<bool>::new();
+        let mut op_it:  Vec<bool> = Vec::<bool>::new();
+        let mut op_bt:  Vec<bool> = Vec::<bool>::new();
+        let mut op_ity: Vec<str> = Vec::<str>::new();
         let mut nops: i64 = 0i64;
         if i < n && str_byte_at(natspec, i) == 123u8 {                        // '{'
             i = i + 1i64;
@@ -3238,12 +3220,12 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                           && str_byte_at(natspec, i) != 125u8 { i = i + 1i64; }
                     oity = pw_slice(natspec, t0, i);
                 }
-                if nops < 8i64 {
-                    op_col[nops] = ocol; op_cmp[nops] = ocmp; op_fn[nops] = ofn;
-                    op_ex[nops] = pw_flag(oex, 101u8);                        // 'e'
-                    op_it[nops] = pw_flag(oex, 105u8);                        // 'i'
-                    op_bt[nops] = pw_flag(oex, 98u8);                         // 'b'
-                    op_ity[nops] = oity;
+                {
+                    op_col.push(ocol); op_cmp.push(ocmp); op_fn.push(ofn);
+                    op_ex.push(pw_flag(oex, 101u8));                          // 'e'
+                    op_it.push(pw_flag(oex, 105u8));                          // 'i'
+                    op_bt.push(pw_flag(oex, 98u8));                           // 'b'
+                    op_ity.push(oity);
                     nops = nops + 1i64;
                 }
                 if i < n && str_byte_at(natspec, i) == 124u8 { i = i + 1i64; } // '|'
@@ -3294,9 +3276,9 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         }
         // `~<col>=<fn>[%<ret-ty>]` — the source's declared DISTINCT-VALUE counts
         // (#726), registered after the rel (rel_add_ndv keys off the last one).
-        let mut ndv_col: [str; 8] = [""; 8];
-        let mut ndv_fn:  [str; 8] = [""; 8];
-        let mut ndv_ty:  [str; 8] = [""; 8];
+        let mut ndv_col: Vec<str> = Vec::<str>::new();
+        let mut ndv_fn:  Vec<str> = Vec::<str>::new();
+        let mut ndv_ty:  Vec<str> = Vec::<str>::new();
         let mut nndv: i64 = 0i64;
         while i < n && str_byte_at(natspec, i) == 126u8 {                      // '~'
             i = i + 1i64;
@@ -3316,7 +3298,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                       && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }
                 dty = pw_slice(natspec, t0, i);
             }
-            if nndv < 8i64 { ndv_col[nndv] = dcol; ndv_fn[nndv] = dfn; ndv_ty[nndv] = dty; nndv = nndv + 1i64; }
+            ndv_col.push(dcol); ndv_fn.push(dfn); ndv_ty.push(dty); nndv = nndv + 1i64;
         }
         i = i + 1i64;                                                        // ';'
         rowtyb[k].push_str(")");

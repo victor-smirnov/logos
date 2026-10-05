@@ -202,9 +202,8 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
                 while i < en && str_byte_at(enrich, i) != 59u8 { i = i + 1i64; }
                 let mname: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + n0) as *const u8, i - n0) };
                 let mut k: i64 = 0i64;
-                while k < hi - lo && lo + k < 16i64 {
-                    prm.fused_mapping[lo + k] = mname;
-                    prm.fused_hidden[lo + k] = k < mask.len() && str_byte_at(mask, k) == 48u8;   // '0'
+                while k < hi - lo {
+                    prm.set_fused(lo + k, mname, k < mask.len() && str_byte_at(mask, k) == 48u8);   // '0'
                     k = k + 1i64;
                 }
             }
@@ -226,7 +225,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // ORACLE: `LOGOS_DEEM_ORACLE=<dir>` writes the program as Soufflé text,
     // before any rewrite of ours (the oracle checks what the user wrote).
     dl_export(root, name, natspec, &mut prm);
-    let mut msd: MsDecisions = MsDecisions { n: 0i64, rel: [""; 16], col: [""; 16], rule: [0i32; 16] };
+    let mut msd: MsDecisions = MsDecisions { n: 0i64, rel: Vec::<str>::new(), col: Vec::<str>::new(), rule: Vec::<i32>::new() };
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");
     nd.push_u8(0u8);

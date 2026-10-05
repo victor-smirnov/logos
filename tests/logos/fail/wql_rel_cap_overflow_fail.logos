@@ -1,8 +1,9 @@
-// More rels than the rel registry holds (16) is a named error, checked right
-// after the parse (`lower::plan_caps_ok`). The generated parser used to DROP the
-// items past a fan's slots: at the old cap of 8 the 9th rel was gone, and the
-// query failed as `unknown source` for a rel it does declare (measured,
-// 2026-10-04). The parser's lists are unbounded now; the registry is next.
+// More rels than a program holds is a named error, checked right after the
+// parse (`lower::plan_caps_ok`). The registry is dynamic (2026-10-05); what
+// still bounds the count is the rel masks (63). The generated parser used to
+// DROP the items past a fan's slots: at the old cap of 8 the 9th rel was gone,
+// and the query failed as `unknown source` for a rel it does declare
+// (measured, 2026-10-04).
 package test;
 
 use logos.std.wql.wql;
@@ -28,7 +29,54 @@ pub deem bad(xs: &[X]) {
     rel r15(a: i64) { from xs x select x.k; }
     rel r16(a: i64) { from xs x select x.k; }
     rel r17(a: i64) { from xs x select x.k; }
-    from r17 x select x.a
+    rel r18(a: i64) { from xs x select x.k; }
+    rel r19(a: i64) { from xs x select x.k; }
+    rel r20(a: i64) { from xs x select x.k; }
+    rel r21(a: i64) { from xs x select x.k; }
+    rel r22(a: i64) { from xs x select x.k; }
+    rel r23(a: i64) { from xs x select x.k; }
+    rel r24(a: i64) { from xs x select x.k; }
+    rel r25(a: i64) { from xs x select x.k; }
+    rel r26(a: i64) { from xs x select x.k; }
+    rel r27(a: i64) { from xs x select x.k; }
+    rel r28(a: i64) { from xs x select x.k; }
+    rel r29(a: i64) { from xs x select x.k; }
+    rel r30(a: i64) { from xs x select x.k; }
+    rel r31(a: i64) { from xs x select x.k; }
+    rel r32(a: i64) { from xs x select x.k; }
+    rel r33(a: i64) { from xs x select x.k; }
+    rel r34(a: i64) { from xs x select x.k; }
+    rel r35(a: i64) { from xs x select x.k; }
+    rel r36(a: i64) { from xs x select x.k; }
+    rel r37(a: i64) { from xs x select x.k; }
+    rel r38(a: i64) { from xs x select x.k; }
+    rel r39(a: i64) { from xs x select x.k; }
+    rel r40(a: i64) { from xs x select x.k; }
+    rel r41(a: i64) { from xs x select x.k; }
+    rel r42(a: i64) { from xs x select x.k; }
+    rel r43(a: i64) { from xs x select x.k; }
+    rel r44(a: i64) { from xs x select x.k; }
+    rel r45(a: i64) { from xs x select x.k; }
+    rel r46(a: i64) { from xs x select x.k; }
+    rel r47(a: i64) { from xs x select x.k; }
+    rel r48(a: i64) { from xs x select x.k; }
+    rel r49(a: i64) { from xs x select x.k; }
+    rel r50(a: i64) { from xs x select x.k; }
+    rel r51(a: i64) { from xs x select x.k; }
+    rel r52(a: i64) { from xs x select x.k; }
+    rel r53(a: i64) { from xs x select x.k; }
+    rel r54(a: i64) { from xs x select x.k; }
+    rel r55(a: i64) { from xs x select x.k; }
+    rel r56(a: i64) { from xs x select x.k; }
+    rel r57(a: i64) { from xs x select x.k; }
+    rel r58(a: i64) { from xs x select x.k; }
+    rel r59(a: i64) { from xs x select x.k; }
+    rel r60(a: i64) { from xs x select x.k; }
+    rel r61(a: i64) { from xs x select x.k; }
+    rel r62(a: i64) { from xs x select x.k; }
+    rel r63(a: i64) { from xs x select x.k; }
+    rel r64(a: i64) { from xs x select x.k; }
+    from r64 x select x.a
 }
 
 fn main() -> i32 { return 0i32; }
