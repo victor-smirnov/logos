@@ -6920,6 +6920,8 @@ private:
     size_t         obl_no_self_ = 0;
     const obl::ImplTable& obl_table_now_();
     const obl::Env& obl_env_();
+    // `self: trait<args>` by C-OBL, the trait named as written in this scope.
+    bool implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args = {});
     std::string bound_identity_(const TraitBound& b) const {
         if (b.trait_def) return defs_.path(b.trait_def);
         if (!b.identity_trait.empty()) return b.identity_trait;
@@ -6934,6 +6936,10 @@ private:
     // ADR 0030 S9 row 3: each impl's Self (its C-OBL fact), by the impl's node,
     // for lower_impl_block to put on the L-IR.
     logos::compiler::StrMap<TypeRef> impl_self_by_node_;
+    // The impls (by node) whose Self is unsized as collect saw it (`impl … for
+    // str` is Self = `[u8]`): lowering synthesizes no `Self: Sized` default for
+    // them, as collect registers none.
+    logos::compiler::StrSet impl_unsized_self_;
     std::string node_key_(sema_detail::TinyMapView node) const {
         return std::format("{}:{}", reinterpret_cast<uintptr_t>(holder_), node.offset().value());
     }
@@ -9948,9 +9954,19 @@ private:
     // Checked in the FINAL pass, never at collect time: `trait S { rel r(c: T) }`
     // and `impl Hash for T` may appear in any order, and an order-dependent
     // diagnostic is worse than none.
-    bool rel_col_type_hashable(const std::string& ty) {
-        logos::compiler::StrSet seen;
-        return sema_has_impl_recursive("Hash", ty, {}, seen);
+    // `ty` is resolved where it was written: the declaring trait's package
+    // (empty = the current one).
+    bool rel_col_type_hashable(const std::string& ty, const std::string& pkg = {}) {
+        const std::string saved_pkg = cur_package_;
+        if (!pkg.empty()) cur_package_ = pkg;
+        TypeRef t = lookup_type_by_name(ty);
+        if (!t) {
+            if (auto [dp, di] = find_datatype_by_name(ty); di) t = make_datatype_type(ty, dp);
+            else if (auto [sp, si] = find_struct_by_name(ty); si) t = make_struct_type(ty, sp);
+            else if (auto [ep, ei] = find_enum_by_name(ty); ei) t = make_enum_type(ty, ep);
+        }
+        cur_package_ = saved_pkg;
+        return t && implements_("Hash", t);
     }
     void check_rel_column_types();
     // ADR 0024 S6 — ONE declared access operation of a source.
@@ -11401,6 +11417,7 @@ public:
     StrMap<std::vector<std::string>>       generic_overloads;
     StrMap<std::string>                    decl_symbols;   // ADR 0030 S9 row 1
     StrMap<TypeRef>                        impl_self_by_node;   // ADR 0030 S9 row 3
+    StrSet                                 impl_unsized_self;
     StrMap<SemaChecker::TypeAliasEntry>   type_aliases;
     StrMap<TypeRef>                        module_consts;
     StrMap<writ::TinyMapView>            module_const_values;

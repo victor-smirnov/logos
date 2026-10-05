@@ -3340,13 +3340,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 auto mangled = lower_target + "__" + m.name;
                 // `where Self: Sized` (Ord::max) does not exist for an unsized
                 // implementor (`impl Ord for str`) — Rust never instantiates it.
-                // `impl … for str` has Self = `[u8]` (the Self this block seeds
-                // for it), which no target typeref records: a `Self: Sized`
-                // default is not synthesised for it, as collect registers none.
-                const auto self_it = current_type_params_.find(kSelfTypeParamName);
-                const bool dm_unsized_self =
-                    (self_it != current_type_params_.end() && self_it->second &&
-                     TypeRef(self_it->second).kind() == LogosType::Kind::UnsizedSlice) ||
+                // `impl … for str` has Self = `[u8]` as collect saw it, which no
+                // target typeref records: a `Self: Sized` default is not
+                // synthesised for it, as collect registers none.
+                const bool dm_unsized_self = impl_unsized_self_.count(node_key_(node)) ||
                     (impl_target_typeref &&
                     (TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedSlice ||
                      TypeRef(impl_target_typeref).kind() == LogosType::Kind::UnsizedDyn ||
@@ -3406,9 +3403,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             // Not fully concrete (any nested TypeVar/Error):
                             // defer to mono.
                             if (mentions_tv(cv)) continue;
-                            std::string cstr = type_str_regions_erased(concrete);
-                            logos::compiler::StrSet seen;
-                            if (!sema_has_impl_recursive(wb.trait_name, cstr, /*alt=*/"", seen)) {
+                            if (!implements_(wb.trait_name, concrete)) {
                                 gate_skip = true;
                                 break;
                             }

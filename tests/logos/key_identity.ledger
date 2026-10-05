@@ -746,7 +746,9 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # 2026-09-27, ADR 0030 L0 slice 2b: 1 -> 2, roster fae8a925 -> f4b78dc7 — `?`'s E0277 asks for a
 # "Try" impl before the Try dispatch. A bare trait name, as the existing "Hash" row; binding Try as
 # a lang item is the S10 step that lowers `?` through lang items.
-#ARGSCAN sema_has_impl_recursive 2 f4b78dc7
+# 2026-10-05, ADR 0030 S9 row 4: the same two bare trait names ("Try", "Hash") move from
+# sema_has_impl_recursive() to implements_() — the C-OBL question, asked with the trait as written.
+#ARGSCAN implements_ 2 f4b78dc7
 #ARGSCAN string 2 d2bde611
 #ARGSCAN trace_satisfies 1 ff245904
 #ARGSCAN try_prelude 3 80fa0975

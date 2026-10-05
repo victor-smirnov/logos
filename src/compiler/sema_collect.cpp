@@ -1070,6 +1070,27 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         for (auto& b : z) b = lit_peek_default_(b);
         return check_type_bounds(target_name, type_params, z);
     }
+    // An open callable — a generic fn item used as a value, `f` = `f::<?i>` —
+    // meeting `F: Fn(A…) -> R` has its signature unified with the bound's: that
+    // is how its own type arguments are solved (rustc deduces them from the
+    // obligation). The bound itself is then checked below, on the solution.
+    {
+        SemaSubst cs;
+        for (size_t j = 0; j < type_params.size() && j < args.size(); ++j)
+            if (args[j]) cs[type_params[j].name] = args[j];
+        for (size_t i = 0; i < args.size() && i < type_params.size(); ++i) {
+            TypeRef a = zonk_(args[i]);
+            if (!a || !has_infer_var_(a) || !LogosType::is_fn_value_kind(TypeRef(a).kind())) continue;
+            const auto ps = TypeRef(a).closure_params();
+            for (auto& b : type_params[i].bounds) {
+                if (!b.is_fn_family || b.fn_params.size() != ps.size()) continue;
+                for (size_t q = 0; q < ps.size(); ++q)
+                    if (b.fn_params[q]) infer_unify_(ps[q], subst_type_sema(b.fn_params[q], cs));
+                if (b.fn_ret && TypeRef(a).closure_ret())
+                    infer_unify_(TypeRef(a).closure_ret(), subst_type_sema(b.fn_ret, cs));
+            }
+        }
+    }
     // ADR 0030 S8 row 6: an open INFERENCE variable (`?iN`, a method generic a
     // later use fixes — `"42".parse().unwrap()` under `let v: Vec<i32>`) defers
     // the check to its solution, at the function's close (infer_close_fn_):
@@ -1582,6 +1603,11 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             obl_table_.add(std::move(f));
         }
     return obl_table_;
+}
+
+bool SemaChecker::implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args) {
+    if (!self || trait.empty()) return false;
+    return obl::select(obl_table_now_(), obl_env_(), defs_.path(impl_trait_id(trait)), self, args).holds();
 }
 
 const obl::Env& SemaChecker::obl_env_() {
@@ -5429,6 +5455,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // `impl_trait_id`, and a homonym's impls live under a different one.
         const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), target};
         info.self_type = impl_self_ty;
+        if (impl_self_ty && (TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedSlice ||
+                             TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedDyn))
+            impl_unsized_self_.insert(node_key_(node));
         impl_self_by_node_[node_key_(node)] =
             target == "str" ? make_slice_type(u8_t(), false) : (impl_self_ty ? impl_self_ty : target_resolved);
         impls_[ikey] = info;
@@ -7007,7 +7036,7 @@ void SemaChecker::check_rel_column_types() {
             };
             for (auto& col : sig.cols) {
                 if (col.ty.empty() || is_trait_param(col.ty)) continue;
-                if (rel_col_type_hashable(col.ty)) continue;
+                if (rel_col_type_hashable(col.ty, defs_[tdef].package)) continue;
                 // A type whose capability is still being SYNTHESIZED is not a
                 // type that lacks it. `#[derive_hash] struct Sku` asks the
                 // compiler for `impl Hash for Sku`, and the handler runs in a
@@ -7106,92 +7135,35 @@ void SemaChecker::check_supertrait_impls() {
         }
     }
 
-    // Does `start` reach `goal` through its supertrait chain?
-    // #438: reachability over trait IDENTITIES — each supertrait bound names
-    // the trait it denoted where the declaration was written.
-    std::function<bool(DefId, DefId, std::set<DefId>&)> trait_has_supertrait =
-        [&](DefId start, DefId goal, std::set<DefId>& seen) -> bool {
-        if (!start || !seen.insert(start).second) return false;
-        auto* it = trait_info(start);
-        if (!it) return false;
-        for (auto& s : it->supertraits) {
-            if (s.trait_def && s.trait_def == goal) return true;
-            if (trait_has_supertrait(s.trait_def, goal, seen)) return true;
-        }
-        return false;
-    };
 
-    // For every registered impl "Trait::Type", walk Trait's supertrait chain and
-    // verify that a corresponding impl "SuperTrait::Type" also exists.
+    // Every impl of a trait implies its supertraits' impls for the same Self:
+    // C-OBL is asked with the impl's own bounds as the parameter environment
+    // (`impl<T: Super> Child for T` discharges `T: Super` by its bound; a
+    // generic `impl<T: B> Child for Vec<T>` needs `Vec<T>: Super` under `T: B`).
     for (auto& [key, impl] : impls_) {
         const std::string& tname  = impl.trait_name;
         const std::string& target = impl.target_type;
         // B-mv-02: resolve the impl's OWN trait (captured canonically at collect
-        // time), not whatever same-name trait holds the bare slot — otherwise a
-        // user `impl Container for Foo` would be checked against a same-named
-        // stdlib trait's supertraits (e.g. fabric::Container: Datatype).
+        // time), not whatever same-name trait holds the bare slot.
         auto* tit = impl.trait_def ? trait_info(impl.trait_def)
                                    : resolve_trait(tname);
         if (!tit) continue;
+        const TypeRef self = impl.self_type ? impl.self_type : impl.target_typeref;
+        if (!self || impl.is_negative) continue;
         ctx_ = std::format("impl {} for {}", tname, target);  // set once per impl
+        auto saved_bounds = current_type_bounds_;
+        for (auto& tp : impl.impl_type_params) current_type_bounds_[tp.name] = tp.bounds;
         for (auto& super : tit->supertraits) {
             // Only the LANG ITEM is exempt from supertrait impl parity.
             if (bound_is_copy_lang_item(super.trait_name,
                                         super.canonical_trait)) continue;
-            // Bug 3: verify supertrait name is a known trait before checking impls.
-            // B-mv-03: ask by the supertrait's IDENTITY, captured on the
-            // TraitBound when the trait declaration was read. `trait Child: Hash`
-            // written next to a package-local `Hash` requires THAT Hash, not
-            // whichever homonym holds the bare registry slot.
-            const std::string& super_q = super.canonical_trait.empty()
-                                             ? super.trait_name : super.canonical_trait;
-            if (!trait_by_key(super_q)) continue;  // already reported above
-            if (has_impl(super_q, target)) continue;
-            // Blanket-derived supertrait satisfaction: if a blanket
-            // `impl<T: BoundTrait> SuperTrait for T` exists and `target`
-            // implements `BoundTrait` (directly or via another blanket),
-            // then `target` transitively implements `SuperTrait`. Mirrors
-            // the blanket-aware lookup in check_type_bounds (line ~282).
-            bool via_blanket = false;
-            for (auto& bi : blanket_impls_) {
-                if (!blanket_implements(bi, super_q)) continue;
-                logos::compiler::StrSet seen_pri;
-                if (!bi.bound_trait.empty() &&
-                    !sema_has_impl_recursive(bi.query_bound_trait(), target, "", seen_pri))
-                    continue;
-                bool all_extra = true;
-                for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
-                    logos::compiler::StrSet seen_eb;
-                    if (!sema_has_impl_recursive(bi.query_extra_bound(ei), target, "", seen_eb))
-                        { all_extra = false; break; }
-                }
-                if (all_extra) { via_blanket = true; break; }
-            }
-            if (via_blanket) continue;
-            // Blanket impl over a bounded type-param: for
-            // `impl<T: Super> Child for T {}`, the supertrait requirement
-            // `T: Super` is discharged by the impl's own where-clause bound
-            // on T. Check whether `target` is one of this impl's type-params
-            // and one of its bounds is (or supertrait-transitively reaches)
-            // the required supertrait.
-            bool via_self_bound = false;
-            for (auto& tp : impl.impl_type_params) {
-                if (tp.name != target) continue;
-                for (auto& b : tp.bounds) {
-                    // direct match, or the bound trait's own supertrait chain
-                    // includes the requirement.
-                    if (b.trait_def && b.trait_def == super.trait_def) { via_self_bound = true; break; }
-                    std::set<DefId> seen_super;
-                    if (trait_has_supertrait(b.trait_def, super.trait_def, seen_super)) {
-                        via_self_bound = true; break;
-                    }
-                }
-                if (via_self_bound) break;
-            }
-            if (via_self_bound) continue;
+            if (!super.trait_def || !trait_info(super.trait_def)) continue;  // reported above
+            if (obl::select(obl_table_now_(), obl_env_(), defs_.path(super.trait_def), self, {}).holds())
+                continue;
             error(std::format("impl {} for {}: missing impl {} for {} (required by supertrait)",
                               tname, target, super.trait_name, target));
         }
+        current_type_bounds_ = std::move(saved_bounds);
     }
 }
 

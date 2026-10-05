@@ -525,6 +525,22 @@ Squeue #709 (`[T; N]: Copy`) and #728 (a concrete tuple impl under a turbofish
 bound) closed by the solver; fixtures `array_copy_by_element`,
 `concrete_tuple_impl_bound`.
 
+Rows (3)-(4), step D: the sema callers of `sema_has_impl_recursive` that hold
+a type ask C-OBL through `implements_(trait, Self)` — the default-method
+where-gate, `rel` column `Hash` (resolved in the declaring trait's package),
+CoerceUnsized, `?`'s `Try` (any type now, not only nominal ones), `?` into
+`Box<dyn E>`, `ref_arg_satisfies_dyn`, the producer traits; `check_supertrait_impls`
+asks it with the impl's own bounds as the parameter environment (a generic
+impl's bounds now count, as rustc's E0277). The string API remains for
+`assoc_eqs_satisfied` / `viable_blanket_impls` (row 5) and itself. A trait
+argument still mentioning a type variable is not decided by the solver (the
+instantiation fixes it). Exposed by the `if` internal error and closed: a
+GENERIC fn used as a value (`g(f)` with `fn f<T>`) named the uninstantiated
+template and the call vanished; it is now an instantiation whose type
+arguments are inference variables, solved by unifying its signature with the
+`F: Fn(A…) -> R` bound it meets (fixture `s9_generic_fn_value_from_bound`,
+imported `autobind-g2`).
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

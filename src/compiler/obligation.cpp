@@ -187,8 +187,12 @@ struct Solver {
             Subst s;
             if (!unify(self, f.self, f.generics, s, f.pack)) continue;
             bool ok = f.trait_args.size() == args.size() || args.empty();
+            // An argument that still mentions a type variable (a generic body's
+            // `Item: IntoPair<A, B>` with the method's own A, B) is not decided
+            // here: the instantiation fixes it.
             for (size_t a = 0; ok && a < args.size() && a < f.trait_args.size(); ++a)
-                ok = !args[a] || unify(args[a], f.trait_args[a], f.generics, s, f.pack);
+                ok = !args[a] || (env.mentions_tv && env.mentions_tv(args[a])) ||
+                     unify(args[a], f.trait_args[a], f.generics, s, f.pack);
             if (!ok) continue;
             if (f.negative) { neg = &f; continue; }
             bool nested = true;

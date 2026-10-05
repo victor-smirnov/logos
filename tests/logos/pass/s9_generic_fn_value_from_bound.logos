@@ -1,0 +1,18 @@
+// ADR 0030 S9: a GENERIC fn used as a value is an instantiation whose type arguments are inference
+// variables, fixed by the use — here the parameter's `F: FnOnce(Vec<i64>) -> i64` / `F: Fn(&[u8]) -> u8`
+// bound (rustc deduces them from the obligation). Before, the reference named the uninstantiated
+// template and the call vanished with its statement. Output as rustc: 7 9.
+package s9_generic_fn_value_from_bound;
+use logos.std.fmt;
+fn f<T>(x: Vec<T>) -> T { return x.into_iter().next().unwrap(); }
+fn first<T: Copy>(x: &[T]) -> T { return x[0]; }
+fn g<F: FnOnce(Vec<i64>) -> i64>(act: F) -> i64 {
+    let mut v: Vec<i64> = vec_new::<i64>();
+    v.push(7i64); v.push(2i64);
+    return act(v);
+}
+fn h<F: Fn(&[u8]) -> u8>(act: F) -> u8 { let a = [9u8, 4u8]; return act(&a); }
+fn main() -> i32 {
+    println!("{} {}", g(f), h(first));
+    return 0i32;
+}
