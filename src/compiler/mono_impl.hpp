@@ -14,8 +14,6 @@
 
 #include "layout_law.hpp"
 #include "mangled_name.hpp"
-#include "trait_engine.hpp"
-#include "trait_rules.hpp"
 
 #include <cstdlib>
 #include <format>
@@ -502,24 +500,6 @@ private:
     // reached out_.traits) is still reachable.
     std::vector<std::string> bare_trait_identities_(const std::string& bare);
 
-    // Sprint 5: side-by-side trait_engine driving the same queries as
-    // mono_has_impl_recursive. Populated lazily from concrete_impls_ +
-    // blanket_impls_ on first use; cleared & repopulated when those
-    // tables change (drain_method_worklist etc.). Once parity is
-    // validated, mono_has_impl_recursive collapses into a thin wrapper.
-    trait_engine::TraitEngine trait_engine_;
-    bool                      trait_engine_dirty_ = true;
-
-    // ADR 0028 S2 (#421): the same facts as trait_engine_, answered by
-    // dl/rules/traits.dl. Built only under LOGOS_DL_SHADOW=traits, where every
-    // query is asked of both and a disagreement is logged; mono still acts on
-    // trait_engine_'s answer until the switch (S3, #422).
-    std::unique_ptr<TraitRules> trait_rules_;
-    bool engine_satisfies_(const std::string& trait, const std::string& type_name);
-
-    // Populate trait_engine_ from concrete_impls_ + blanket_impls_.
-    // Cheap: a few hundred entries even for medium codebases.
-    void populate_trait_engine_();
     // Name → TypeRef for the auto-trait shape predicates (see .cpp).
     TypeRef mono_typeref_by_name_(const std::string& n);
 
@@ -1224,9 +1204,6 @@ private:
         }
     };
 
-    bool mono_has_impl_recursive(const TraitQuery& q,
-                                 const std::string& concrete_name,
-                                 StrSet& seen);
 
     // Structure-aware `$ref_`/`$mut_ref_` impl key for a reference target
     // (`impl Trait for &T`). "" for non-ref types. See definition.

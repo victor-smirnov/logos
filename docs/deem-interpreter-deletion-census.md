@@ -6809,8 +6809,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11956 -> 11956 (+0), NOIMPORTED 7397 -> 7397 (+0), TIERCOMMIT 205 -> 204 (-1) — 2026-10-04: squeue #709 closed (array_copy_by_element pass fixture; soundness row file gone).
 #                ALL 11956 -> 11956 (+0), NOIMPORTED 7397 -> 7397 (+0), TIERCOMMIT 204 -> 203 (-1) — 2026-10-04: squeue #728 closed (concrete_tuple_impl_bound pass fixture; soundness row file gone).
 #                ALL 11956 -> 11957 (+1), NOIMPORTED 7397 -> 7398 (+1), TIERCOMMIT 203 -> 203 (+0) — 2026-10-04: fixture s9_generic_fn_value_from_bound.
-REGISTRY-ALL         11957
-REGISTRY-NOIMPORTED  7398
+#                ALL 11957 -> 11956 (-1), NOIMPORTED 7398 -> 7397 (-1), TIERCOMMIT 203 -> 203 (+0) — 2026-10-04: trait_engine_test retired with mono's TraitEngine.
+REGISTRY-ALL         11956
+REGISTRY-NOIMPORTED  7397
 REGISTRY-TIERCOMMIT  203
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
@@ -7375,9 +7376,10 @@ RENAMED-FIXTURE  tests/imported/admit/regions/regions-glb-free-free--glb-free-fr
 #          42+10+8+2  make_synth_{struct,enum,generic_struct,datatype} — the
 #                     #102 FIX; the literal is the KEY into `synth_owner_pkg_`,
 #                     which SUPPLIES the package. Correct, not a channel.
-#          33         trait_engine_test.cpp (satisfies/add_impl/add_blanket/
+#          33         mono's TraitEngine unit test (satisfies/add_impl/add_blanket/
 #                     add_shape_auto_impl/resolve/trace_satisfies/add_auto_impl/
-#                     add_negative) — a TEST harness, not the compiler.
+#                     add_negative) — a TEST harness, not the compiler; deleted
+#                     with the engine 2026-10-05 (ADR 0030 S9, C-OBL).
 #          33         THE OPEN SET: find_struct_by_name 2, find_enum_by_name 3,
 #                     make_generic_struct 8, make_generic_enum 3, enum_lit 3,
 #                     enum_lit_data 3, try_variant 4, try_prelude 3,

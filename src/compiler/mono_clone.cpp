@@ -1726,22 +1726,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 if (!nc.type_args.empty() && !trait.empty()) {
                     TypeRef T = nc.type_args[0];
                     if (T) {
-                        std::string cname;
-                        if (T.kind() == LogosType::Kind::Struct ||
-                            T.kind() == LogosType::Kind::ZonedStruct)
-                            cname = concrete_struct_name(T);
-                        else if (T.kind() == LogosType::Kind::Enum)
-                            cname = std::string(T.enum_name());
-                        else
-                            cname = type_str(T);
-                        if (auto p = cname.find("$G"); p != std::string::npos)
-                            cname = cname.substr(0, p);
-                        // Sprint 5.7: route through trait_engine (same
-                        // semantics as the inlined walker that used to
-                        // live here). Engine populates lazily from
-                        // concrete_impls_ + blanket_impls_.
+                        // ADR 0030 S9: the type's impl, by C-OBL.
                         StrSet unused;
-                        answer = mono_has_impl_recursive(trait, cname, unused);
+                        answer = mono_concrete_satisfies_bound(TraitQuery(trait), T, unused);
                     }
                 }
                 LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
@@ -1797,21 +1784,9 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 }
                 bool answer = false;
                 if (T && !trait.empty()) {
-                    std::string cname;
-                    if (T.kind() == LogosType::Kind::Struct ||
-                        T.kind() == LogosType::Kind::ZonedStruct)
-                        cname = concrete_struct_name(T);
-                    else if (T.kind() == LogosType::Kind::Enum)
-                        cname = std::string(T.enum_name());
-                    else
-                        cname = type_str(T);
-                    if (auto p = cname.find("$G"); p != std::string::npos)
-                        cname = cname.substr(0, p);
-                    // Sprint 5.7: route through trait_engine. Same
-                    // semantics as the inlined walker that used to
-                    // live here.
+                    // ADR 0030 S9: the type's impl, by C-OBL.
                     StrSet unused;
-                    answer = mono_has_impl_recursive(trait, cname, unused);
+                    answer = mono_concrete_satisfies_bound(TraitQuery(trait), T, unused);
                 }
                 LogosTypeBuilder b_b; b_b.kind = LogosType::Kind::Bool;
                 TypeRef bool_t = out_.type_pool.alloc(std::move(b_b));
@@ -4693,160 +4668,6 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
 
 // ── Struct monomorphization ───────────────────────────────────
 
-// Sprint 5.4: populate the trait_engine from current mono tables.
-// Cheap; called on demand. Invalidated by trait_engine_dirty_ when
-// new impls or blankets land mid-pass.
-namespace {
-bool dl_shadow_traits() {
-    static const bool on = [] {
-        const char* v = std::getenv("LOGOS_DL_SHADOW");
-        return v && std::string_view(v).find("traits") != std::string_view::npos;
-    }();
-    return on;
-}
-} // namespace
-
-void Mono::populate_trait_engine_() {
-    trait_engine_ = trait_engine::TraitEngine{};   // fresh
-    if (dl_shadow_traits()) trait_rules_ = std::make_unique<TraitRules>();
-    // (D) direct impls — concrete_impls_ is keyed by the PAIR
-    // (trait identity, target type). It used to be a composed "trait::type"
-    // string that this loop split back apart at the first "::"; the trait side
-    // is now an identity that can itself be `pkg::Name`, so there is no
-    // separator that could be split correctly. See the concrete_impls_
-    // declaration in mono_impl.hpp for why the pair (and not another
-    // separator) is the fix.
-    for (auto& [k_trait, k_target] : concrete_impls_) {
-        trait_engine_.add_impl(k_trait, k_target);
-        if (trait_rules_) trait_rules_->add_impl(k_trait, k_target);
-    }
-    // (B) blanket impls — preserve "all bounds in one AND" semantics:
-    // primary bound first, then extras. Empty primary bound +
-    // empty extras is the "unconditional impl-for-all" case, which
-    // mono_has_impl_recursive returned true for. Represent as a
-    // blanket with empty bounds list (engine returns true).
-    for (auto& bi : blanket_impls_) {
-        // ⚠ THE BOUNDS ARE IDENTITIES. `impl<T: Hash> Marker for T` written
-        // beside a package-local `trait Hash` used to register the bound as the
-        // raw text "Hash", so the engine answered it with the STDLIB Hash's
-        // concretes and mono instantiated `i32__tag` for a `Marker` nothing
-        // calls on an i32 — a legitimate program failing to compile.
-        std::vector<std::string> bounds;
-        if (!bi.bound_trait.empty())
-            bounds.push_back(bi.identity_bound_trait.empty() ? bi.bound_trait
-                                                             : bi.identity_bound_trait);
-        for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei)
-            bounds.push_back(ei < bi.identity_extra_bounds.size() &&
-                                     !bi.identity_extra_bounds[ei].empty()
-                                 ? bi.identity_extra_bounds[ei]
-                                 : bi.extra_bounds[ei]);
-        // Register under the trait IDENTITY, plus the bare spelling as an
-        // alias when they differ — same superset rule as the concrete facts
-        // (see mono.cpp's concrete_impls_ insert, which carries the measurement
-        // of why THAT alias is load-bearing).
-        //
-        // ── THE BLANKET BARE ALIAS IS GONE. MEASURED, ONE ALIAS AT A TIME. ──
-        //
-        // It filed every blanket row a SECOND time under the trait's bare
-        // spelling, so a query carrying raw text still found it. Every consumer
-        // of that hedge now carries an identity: the blanket's own bound
-        // (impl_keys::IDENTITY_BOUND_TRAIT / IDENTITY_EXTRA_BOUNDS), the eager
-        // candidate list, mono_subst's assoc-type fallback, and method_bound_ok
-        // via TraitQuery. With the alias removed the corpus is fully green —
-        // L2 1908/1908 — and `tests/logos/pass/trait_blanket_bare_alias_bound.logos`
-        // passes on its own merits rather than on this insert.
-        //
-        // ⚠ AND THAT GREEN IS EVIDENCE THIS TIME, WHICH IT WAS NOT BEFORE. The
-        // last round read the same green and it meant nothing: a print inside
-        // the guarded block showed it NEVER EXECUTED in any fixture (nine
-        // blanket rows, all `canon == bare`). The same instrumentation now
-        // reports the branch firing TEN times while compiling that fixture, so
-        // its removal is a measured no-op and not an unobserved one. Anyone
-        // reintroducing a bare alias here owes the same print.
-        //
-        // ⚠ ITS CONCRETE TWIN IN Mono::Mono IS STILL THERE, AND ON PURPOSE.
-        // Disabling THAT one alone still breaks the build (libsd_dst_mod.a) and
-        // reds trait_ident_pkg_chain with a WRONG ANSWER, exit 45. The two are
-        // NOT the same hedge, which is what "they must retire together" got
-        // wrong: this one served queries that can carry an identity, while the
-        // concrete one serves mono's hardcoded bare-text probes
-        // (`has_concrete_impl_("Drop", …)`, "Copy", …). Mono has no trait
-        // registry, so it cannot turn `"Drop"` into `logos.lang.drop::Drop`;
-        // giving it one is the next arc, and until then the concrete alias is
-        // what answers those probes.
-        const std::string& b_canon =
-            bi.identity_trait.empty()
-                ? (bi.canonical_trait.empty() ? bi.trait_name : bi.canonical_trait)
-                : bi.identity_trait;
-        if (trait_rules_) trait_rules_->add_blanket(b_canon, bounds);
-        trait_engine_.add_blanket(b_canon, std::move(bounds));
-    }
-    // (S) shape-auto: closure types satisfy Fn / FnMut / FnOnce.
-    // Sprint 5.5 keystone — the engine can answer
-    // `satisfies("Fn", "|i32| -> i32")` etc. without requiring an
-    // explicit `impl Fn for <every closure>` in stdlib. Canonical
-    // closure type name is "|T1, ...| -> R" (see type_str in
-    // sema.cpp). Sema's bound-resolver picks this up in Sprint 5.7.
-    auto is_closure_typename = [](std::string_view n) {
-        return !n.empty() && n.front() == '|';
-    };
-    for (const char* fnt : {"Fn", "FnMut", "FnOnce"}) {
-        trait_engine_.add_shape_auto_impl(fnt, "closure", is_closure_typename);
-        if (trait_rules_) trait_rules_->add_predicate(fnt, is_closure_typename);
-    }
-    // The built-in Copy handle kinds, as sema's bound check has them: a shared
-    // `&T`, a raw pointer, a fn pointer (`&mut T` is NOT Copy). Without this
-    // `impl<T: Copy> Cell<T>` was never instantiated for `Cell<&i64>` and
-    // `get()` emitted no value (#469).
-    {
-        auto is_copy_handle = [](std::string_view n) {
-            if (n.starts_with("&mut ") || n.starts_with("&'") && n.find(" mut ") != std::string_view::npos)
-                return false;
-            if (n.starts_with("$mut_ref_")) return false;
-            return n.starts_with("$ref_") || n.starts_with("&") || n.starts_with("*const ") ||
-                   n.starts_with("*mut ") || n.starts_with("fn(");
-        };
-        for (const char* ct : {"Copy", "logos.lang.clone::Copy"}) {
-            trait_engine_.add_shape_auto_impl(ct, "copy-handle", is_copy_handle);
-            if (trait_rules_) trait_rules_->add_predicate(ct, is_copy_handle);
-        }
-    }
-    // Slice-target impls (`impl<E> Trait for [E]` → key "$slice$T";
-    // concrete-elem form → "$slice$<elem>"): the engine's name-based facts
-    // can't match a query for "[u8]" against those keys, so register a
-    // shape-auto per such trait accepting slice-spelled names (elem bounds
-    // are validated at instantiation, as with generic-struct impls).
-    {
-        StrSet slice_traits;
-        for (auto& [k_trait, k_target] : concrete_impls_)
-            if (k_target.starts_with("$slice$")) slice_traits.insert(k_trait);
-        auto is_slice_typename = [](std::string_view n) {
-            return !n.empty() && n.front() == '[';
-        };
-        for (auto& tn : slice_traits) {
-            trait_engine_.add_shape_auto_impl(tn, "slice", is_slice_typename);
-            if (trait_rules_) trait_rules_->add_predicate(tn, is_slice_typename);
-        }
-    }
-    // AUTO traits (Fst/Send/Sync/Unpin) as shape-autos: satisfaction is
-    // STRUCTURAL (the is_auto_satisfied engine), which the name-based
-    // derivations (D)/(B) can't see — a blanket bound like
-    // `impl<T: Copy + Fst + …> PkdElem for T` must verify `Fst(u64)`
-    // structurally when the method-instantiation gate asks
-    // `satisfies("PkdElem", "u64")` (the unified-PkdArray path).
-    for (const char* at : {"Fst", "Send", "Sync", "Unpin"}) {
-        std::string atn(at);
-        auto is_auto = [this, atn](std::string_view n) -> bool {
-            TypeRef t = mono_typeref_by_name_(std::string(n));
-            if (!t) return false;   // unknown name — conservative
-            StrSet v;
-            return is_auto_satisfied(t, atn, v);
-        };
-        trait_engine_.add_shape_auto_impl(atn, "auto", is_auto);
-        if (trait_rules_) trait_rules_->add_predicate(atn, is_auto);
-    }
-    trait_engine_dirty_ = false;
-}
 
 // Best-effort NAME → TypeRef for the auto-trait shape predicates above:
 // primitives by spelling; instantiated/plain structs and enums through the
@@ -4931,88 +4752,7 @@ std::vector<std::string> Mono::bare_trait_identities_(const std::string& bare) {
     return out;
 }
 
-bool Mono::mono_has_impl_recursive(const TraitQuery& q,
-                                   const std::string& concrete_name,
-                                   StrSet& /*seen*/) {
-    if (trait_engine_dirty_) populate_trait_engine_();
-    // A query that KNOWS which trait it means asks for exactly that one.
-    if (q.has_identity) return engine_satisfies_(q.identity, concrete_name);
-    // A bare compiler probe means "some trait spelled this" — its pre-existing
-    // meaning. Ask every identity declared under the spelling instead of
-    // relying on a bare-keyed duplicate of every fact.
-    for (auto& id : bare_trait_identities_(q.spelling))
-        if (engine_satisfies_(id, concrete_name)) return true;
-    return false;
-}
 
-// Under LOGOS_DL_SHADOW=traits both engines answer and a disagreement is
-// logged once per (trait, type) per process, with the compile's input file
-// and the rules' derivation. The old engine's answer is the one returned.
-namespace {
-// One line per process at exit: how many queries both engines answered and
-// how many disagreed. Without it, "no disagreement logged" cannot be told
-// apart from "the shadow never ran".
-struct TraitShadowCensus {
-    size_t queries = 0, yes = 0, disagree = 0;
-    ~TraitShadowCensus() {
-        if (!queries) return;
-        std::string cmd, arg, input = "?";
-        if (FILE* f = std::fopen("/proc/self/cmdline", "rb")) {
-            int ch;
-            while ((ch = std::fgetc(f)) != EOF) {
-                if (ch == 0) {
-                    if (arg.ends_with(".logos") || arg.ends_with(".module")) input = arg;
-                    arg.clear();
-                } else arg.push_back(static_cast<char>(ch));
-            }
-            std::fclose(f);
-        }
-        const char* path = std::getenv("LOGOS_DL_SHADOW_LOG");
-        FILE* out = path ? std::fopen(path, "a") : nullptr;
-        std::fprintf(out ? out : stderr, "traits-census\t%s\tqueries=%zu\tyes=%zu\tdisagree=%zu\n",
-                     input.c_str(), queries, yes, disagree);
-        if (out) std::fclose(out);
-    }
-};
-TraitShadowCensus g_trait_shadow_census;
-} // namespace
-
-bool Mono::engine_satisfies_(const std::string& trait, const std::string& type_name) {
-    bool old_answer = trait_engine_.satisfies(trait, type_name);
-    if (!trait_rules_) return old_answer;
-    bool new_answer = trait_rules_->satisfies(trait, type_name);
-    ++g_trait_shadow_census.queries;
-    g_trait_shadow_census.yes += old_answer;
-    if (new_answer == old_answer) return old_answer;
-    ++g_trait_shadow_census.disagree;
-    static std::unordered_set<std::string> reported;
-    if (!reported.insert(trait + '\x1f' + type_name).second) return old_answer;
-    static const std::string input = [] {
-        std::string cmd, arg;
-        if (FILE* f = std::fopen("/proc/self/cmdline", "rb")) {
-            int ch;
-            while ((ch = std::fgetc(f)) != EOF) {
-                if (ch == 0) {
-                    if (arg.ends_with(".logos") || arg.ends_with(".module")) cmd = arg;
-                    arg.clear();
-                } else arg.push_back(static_cast<char>(ch));
-            }
-            std::fclose(f);
-        }
-        return cmd.empty() ? std::string("?") : cmd;
-    }();
-    std::string line = std::format("traits\t{}\t{}\told={}\tnew={}\t{}\n", trait, type_name,
-                                   old_answer ? 1 : 0, new_answer ? 1 : 0, input);
-    std::string why = trait_rules_->explain(trait, type_name);
-    for (size_t p = 0; (p = why.find('\n', p)) != std::string::npos && p + 1 < why.size(); p += 2)
-        why.replace(p, 1, "\n  ");
-    line += "  " + why;
-    const char* path = std::getenv("LOGOS_DL_SHADOW_LOG");
-    FILE* out = path ? std::fopen(path, "a") : nullptr;
-    std::fputs(line.c_str(), out ? out : stderr);
-    if (out) std::fclose(out);
-    return old_answer;
-}
 
 // `impl Trait for &T` / `&mut T` registers under collect_impl's
 // `$ref_`/`$mut_ref_` mangling, which is STRUCTURE-aware (struct pointee →

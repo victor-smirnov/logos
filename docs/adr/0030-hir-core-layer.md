@@ -549,6 +549,10 @@ retired), and a user struct sharing a stdlib name no longer inherits the
 homonym's `StableLayout` verdict (#88's bare-target key). Left with row 5: the
 three assoc-const trait scans and the two projection fallbacks keyed by
 spelled assoc keys.
+Mono's TraitEngine is deleted with its Datalog shadow (`trait_engine.cpp`,
+`trait_rules.cpp`, `dl/rules/traits.dl`, its unit test and dl case): the
+`has_trait` / `has_trait_of` intrinsics ask C-OBL with the type, and the
+eager blanket pass no longer answers a candidate it cannot build a type for.
 
 ## S0–S7 gap audit (2026-10-01)
 

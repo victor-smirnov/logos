@@ -111,8 +111,6 @@ add_executable(logosc
     sema_render.cpp
     sema_stmt.cpp
     sema_decl.cpp
-    trait_engine.cpp
-    trait_rules.cpp
     ctfe.cpp
     rule_ir.cpp
     ${LOGOS_PARSER_CPP}
@@ -120,14 +118,6 @@ add_executable(logosc
     ${EL_PARSER_CPP}
 )
 
-# ---------------------------------------------------------------------------
-# trait_engine_test — Phase 1 unit tests for the trait resolver engine.
-# Pure-data engine, no compiler integration; runs as a standalone bin.
-# ---------------------------------------------------------------------------
-add_executable(trait_engine_test
-    trait_engine.cpp
-    trait_engine_test.cpp
-)
 
 # ---------------------------------------------------------------------------
 # logos_dl — the Datalog engine of ADR 0028 (#419). No dependency on the rest

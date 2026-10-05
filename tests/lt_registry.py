@@ -102,9 +102,6 @@ SINGLETONS = {
           'jit;cpp;tier_full'),
     ],
     'src/compiler': [  # src/compiler/CMakeLists.txt
-        T('trait_engine_test',
-          ['{build}/src/compiler/trait_engine_test'],
-          'trait_engine;cpp;tier_full'),
         T('dl_test',
           ['{build}/src/compiler/dl_test'],
           'dl;cpp;tier_commit'),

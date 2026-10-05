@@ -695,7 +695,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                 auto tref = build_concrete_typeref(cn);
                 bool ok = tref
                     ? mono_concrete_satisfies_bound(bound_q, tref, seen)
-                    : mono_has_impl_recursive(bound_q, cn, seen);
+                    : false;   // no type to ask C-OBL about
                 if (ok) {
                     candidates.push_back(cn);
                     already.insert(cn);
@@ -743,9 +743,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                       TraitQuery(bj.bound_trait, bj.identity_bound_trait),
                                                                 concrete_t_assoc,
                                                                 seen_pri)
-                                : mono_has_impl_recursive(
-                                      TraitQuery(bj.bound_trait, bj.identity_bound_trait),
-                                                          concrete, seen_pri));
+                                : false);
                         if (ok) {
                             for (size_t ei = 0; ei < bj.extra_bounds.size(); ++ei) {
                                 StrSet seen_eb;
@@ -755,7 +753,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                                   : std::string());
                                 bool eb_ok = concrete_t_assoc
                                     ? mono_concrete_satisfies_bound(eq, concrete_t_assoc, seen_eb)
-                                    : mono_has_impl_recursive(eq, concrete, seen_eb);
+                                    : false;
                                 if (!eb_ok) { ok = false; break; }
                             }
                         }
@@ -806,7 +804,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
                                   ? bi.identity_extra_bounds[ei] : std::string());
                 bool ok = candidate_t
                     ? mono_concrete_satisfies_bound(eb, candidate_t, seen)
-                    : mono_has_impl_recursive(eb, concrete, seen);
+                    : false;
                 if (!ok) {
                     all_extra_satisfied = false;
                     break;

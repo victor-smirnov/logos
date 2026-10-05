@@ -652,17 +652,15 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # enum_lit (3), enum_lit_data (3), try_variant (4), try_prelude (3),
 # try_prelude_variant (3), prelude_remap (4), remap (2) — and they are task #98's
 # and #100's subject, not this round's.
-#ARGSCAN add_auto_impl 1 94966d90
-#ARGSCAN add_blanket 3 fea4701d
-#ARGSCAN add_impl 5 81db077d
-#ARGSCAN add_negative 1 94966d90
+# 2026-10-05, ADR 0030 S9 row 4: RETIRED with mono's TraitEngine (trait_engine.cpp / trait_rules.cpp /
+# dl/rules/traits.dl deleted; every mono gate asks C-OBL): add_auto_impl, add_blanket, add_impl,
+# add_negative, add_shape_auto_impl, resolve, satisfies, trace_satisfies hold no bare argument any more.
 # 2026-09-18, ADR 0028 S2 (#421): add_shape_auto_impl 6 -> 3, roster a5242d3e ->
 # 956cbf5c. The three `"Fn"` / `"FnMut"` / `"FnOnce"` calls in
 # Mono::populate_trait_engine_ became one call in a loop over those literals so
 # the same three registrations reach TraitRules too. Same traits, same names,
 # no new site: the literals moved into the loop's array, where this ARGSCAN
 # does not look. The three that remain are trait_engine_test.cpp.
-#ARGSCAN add_shape_auto_impl 3 956cbf5c
 #ARGSCAN at 3 7a506430
 # 2026-09-26: count() 9 -> 10: lower_impl_block's default-method loop saves `current_type_params_.count("Self")` to
 #   restore it after each default — `Self` is the type-parameter slot's own name, the same key the struct-method
@@ -743,8 +741,6 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # resolves ("Send", "Sync", "Unpin", "Fst") — the one place each is turned into
 # an identity, which is what the engine then compares.
 #ARGSCAN impl_trait_id 6 052a7a0c
-#ARGSCAN resolve 2 8a6a5ca7
-#ARGSCAN satisfies 15 0272b985
 # 2026-09-27, ADR 0030 L0 slice 2b: 1 -> 2, roster fae8a925 -> f4b78dc7 — `?`'s E0277 asks for a
 # "Try" impl before the Try dispatch. A bare trait name, as the existing "Hash" row; binding Try as
 # a lang item is the S10 step that lowers `?` through lang items.
@@ -752,7 +748,6 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # sema_has_impl_recursive() to implements_() — the C-OBL question, asked with the trait as written.
 #ARGSCAN implements_ 2 f4b78dc7
 #ARGSCAN string 2 d2bde611
-#ARGSCAN trace_satisfies 1 ff245904
 #ARGSCAN try_prelude 3 80fa0975
 #ARGSCAN try_prelude_variant 3 80fa0975
 #ARGSCAN try_variant 4 c4d77dbf
