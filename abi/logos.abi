@@ -14155,6 +14155,9 @@ sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_null__f__refmut_JsonWri
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_raw__f__refmut_JsonWriter__slice_u8
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_str__f__refmut_JsonWriter__slice_u8
 sym	logos_mem..logos.mem.encoding.json.JsonWriter__write_u64__f__refmut_JsonWriter__u64
+sym	logos_mem..logos.mem.fmt.$blanket$ToString$Display$T__to_string__g__T__f64
+sym	logos_mem..logos.mem.fmt.$blanket$ToString$Display$T__to_string__g__T__i64
+sym	logos_mem..logos.mem.fmt.$blanket$ToString$Display$T__to_string__g__T__u64
 sym	logos_mem..logos.mem.fmt.$mut_ref_$T__Debug__fmt__g__ref_refmut_T__refmut_Formatter__i32
 sym	logos_mem..logos.mem.fmt.$ref_$T__Debug__fmt__g__ref_ref_T__refmut_Formatter__[u8]
 sym	logos_mem..logos.mem.fmt.$ref_$T__Debug__fmt__g__ref_ref_T__refmut_Formatter__i32
@@ -14727,14 +14730,6 @@ sym	logos_mem..logos.mem.string.String__remove__f__refmut_String__i64
 sym	logos_mem..logos.mem.string.String__spare_ptr__f__refmut_String__i64
 sym	logos_mem..logos.mem.string.String__truncate__f__refmut_String__i64
 sym	logos_mem..logos.mem.string.String__with_capacity__f__i64
-sym	logos_mem..logos.mem.string.bool__to_string__f__bool
-sym	logos_mem..logos.mem.string.f32__to_string__f__f32
-sym	logos_mem..logos.mem.string.f64__to_string__f__f64
-sym	logos_mem..logos.mem.string.i16__to_string__f__i16
-sym	logos_mem..logos.mem.string.i32__to_string__f__i32
-sym	logos_mem..logos.mem.string.i64__to_string__f__i64
-sym	logos_mem..logos.mem.string.i8__to_string__f__i8
-sym	logos_mem..logos.mem.string.isize__to_string__f__isize
 sym	logos_mem..logos.mem.string.str__repeat__f__slice_u8__i64
 sym	logos_mem..logos.mem.string.str__to_ascii_lowercase__f__slice_u8
 sym	logos_mem..logos.mem.string.str__to_ascii_uppercase__f__slice_u8
@@ -14742,11 +14737,6 @@ sym	logos_mem..logos.mem.string.str__to_lowercase__f__slice_u8
 sym	logos_mem..logos.mem.string.str__to_owned__f__slice_u8
 sym	logos_mem..logos.mem.string.str__to_string__f__slice_u8
 sym	logos_mem..logos.mem.string.str__to_uppercase__f__slice_u8
-sym	logos_mem..logos.mem.string.u16__to_string__f__u16
-sym	logos_mem..logos.mem.string.u32__to_string__f__u32
-sym	logos_mem..logos.mem.string.u64__to_string__f__u64
-sym	logos_mem..logos.mem.string.u8__to_string__f__u8
-sym	logos_mem..logos.mem.string.usize__to_string__f__usize
 sym	logos_mem..logos.mem.sync.Arc$G1$MemorySnapshot__clone__g__ref_Arc$G1$T
 sym	logos_mem..logos.mem.sync.Arc$G1$MemorySnapshot__clone_arc__g__pmut_Arc$G1$T
 sym	logos_mem..logos.mem.sync.Arc$G1$MemorySnapshot__deref__g__ref_Arc$G1$T
@@ -15745,6 +15735,7 @@ type	logos.lang.cmp.Reverse	fields=[0:T]
 type	logos.lang.control_flow.ControlFlow	variants=[Continue(C),Break(B)]
 type	logos.lang.convert.ConvertError	fields=[]
 type	logos.lang.fabric.Buffer	fields=[storage:DT::Store]
+type	logos.lang.fabric.ByRef	fields=[0:DT]
 type	logos.lang.fabric.PrimVec	fields=[data:*mut T,len:u64,cap:u64]
 type	logos.lang.fabric.string_store.StrDt	fields=[]
 type	logos.lang.fabric.string_store.WritStringStorage	fields=[bytes:*mut u8,b_len:u64,b_cap:u64,ends:*mut u32,o_len:u64,o_cap:u64]

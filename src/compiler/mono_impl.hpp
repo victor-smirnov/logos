@@ -211,15 +211,19 @@ private:
     // where Foo has a `[u8]` tail), leaving them thin Ptr while sema resolved
     // them to DstRef — a representation divergence. This map closes it.
     StrMap<lir_view::StructView> all_structs_;
+    // The struct a (package, name) denotes: the package's own first — a bare
+    // name is whichever homonym registered last (a user `struct String` beside
+    // `logos.mem.string.String`), so it answers only a package-less query or
+    // one whose package registered no such name.
     lir_view::StructView find_any_struct(std::string_view pkg,
                                          std::string_view base) const noexcept {
-        if (auto it = all_structs_.find(std::string(base)); it != all_structs_.end())
-            return it->second;
         if (!pkg.empty()) {
             std::string q; q.reserve(pkg.size()+1+base.size());
             q.append(pkg).append(".").append(base);
             if (auto it = all_structs_.find(q); it != all_structs_.end()) return it->second;
         }
+        if (auto it = all_structs_.find(std::string(base)); it != all_structs_.end())
+            return it->second;
         return {};
     }
     // ── M2: centralized struct_templates_ lookup helpers ─────────────

@@ -1,6 +1,7 @@
 // PodRef: a POD #[datatype] struct too large for by-value transfer gets its Datatype +
-// Container through the stdlib blanket — View = *const DT, Buffer<DT> stores
-// values in a PrimVec<DT>, reads hand back pointers into the store.
+// Container through the stdlib blanket over `ByRef<DT>` — View = *const DT,
+// Buffer<ByRef<DT>> stores values in a PrimVec<DT>, reads hand back pointers
+// into the store.
 package podref_buffer;
 
 use logos.lang.fabric;
@@ -14,7 +15,7 @@ use logos.lang.fabric;
 impl PodRef for Vec3 {}
 
 unsafe fn main() -> i32 {
-    let mut b: Buffer<Vec3> = Buffer::<Vec3>::new();
+    let mut b: Buffer<ByRef<Vec3>> = Buffer::<ByRef<Vec3>>::new();
     let a: Vec3 = Vec3 { x: 1 as i64, y: 2 as i64, z: 3 as i64 };
     let c: Vec3 = Vec3 { x: 10 as i64, y: 20 as i64, z: 30 as i64 };
     b.push(&a as *const Vec3);

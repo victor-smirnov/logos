@@ -16,8 +16,6 @@
 # ⚠ A ROW IS NOT AN EXCUSE, AND THIS FILE IS MEANT TO SHRINK. The bc ledger's
 # discipline, copied: every row's program must STILL exhibit the recorded wrong
 # behaviour or the gate reds — a defect that stopped reproducing is either FIXED
-user_type_homonym_of_stdlib_type_link_refused 3 tests/soundness/open/user_type_homonym_of_stdlib_type_link_refused refuses
-
 struct_lit_mutref_field_unannotated_static_borrow_refused 3 tests/soundness/open/struct_lit_mutref_field_unannotated_static_borrow_refused refuses
 
 vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_refused refuses
@@ -199,8 +197,6 @@ iter_filter_capturing_closure_refused 1 tests/soundness/open/iter_filter_capturi
 let_binding_named_like_const_admitted 1 tests/soundness/open/let_binding_named_like_const_admitted admits
 
 loop_local_move_closure_shares_slot_wrong 1 tests/soundness/open/loop_local_move_closure_shares_slot_wrong run 0
-
-overlapping_trait_impls_admitted 1 tests/soundness/open/overlapping_trait_impls_admitted admits
 
 array_nonconst_length_crash 2 tests/soundness/open/array_nonconst_length_crash refuses
 
@@ -451,5 +447,5 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
-# TOTAL 136
-# SYNC-HASH c4cf176536eefe2de3c32e931462f4dc
+# TOTAL 134
+# SYNC-HASH ba5f87d9c8687328c0569b2846514952

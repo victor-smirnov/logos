@@ -1432,9 +1432,8 @@ impl DebugMap {
 // for T`. The Logos analogue lives here (rather than in mem.string)
 // because Display is declared in mem.fmt and mem.string sits below
 // it in the import order. Users with `use logos.mem.fmt;` automatically
-// get `.to_string()` on any Display-implementing type. Primitive
-// to_string impls live directly in mem.string and don't go through
-// this blanket.
+// get `.to_string()` on any Display-implementing type, the primitives
+// included.
 impl<T: Display> ToString for T {
     fn to_string(self: T) -> String {
         return fmt_display_to_string::<T>(&self);

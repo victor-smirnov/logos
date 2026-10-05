@@ -340,87 +340,10 @@ pub trait ToString {
     fn to_string(self: Self) -> String;
 }
 
-// Explicit primitive impls — Logos's primitive method dispatch looks
-// up `<type>__to_string` directly and doesn't try blanket impls.
-// Bodies write through String's push_i64 / push_u64 / push_str / push_bytes
-// helpers — no dependency on a Display trait.
-impl ToString for bool {
-    fn to_string(self: bool) -> String {
-        let mut s: String = String::new();
-        if self { s.push_str("true"); } else { s.push_str("false"); }
-        return s;
-    }
-}
-impl ToString for i8 {
-    fn to_string(self: i8) -> String {
-        let mut s: String = String::new();
-        s.push_i64(self as i64);
-        return s;
-    }
-}
-impl ToString for i16 {
-    fn to_string(self: i16) -> String {
-        let mut s: String = String::new();
-        s.push_i64(self as i64);
-        return s;
-    }
-}
-impl ToString for i32 {
-    fn to_string(self: i32) -> String {
-        let mut s: String = String::new();
-        s.push_i64(self as i64);
-        return s;
-    }
-}
-impl ToString for i64 {
-    fn to_string(self: i64) -> String {
-        let mut s: String = String::new();
-        s.push_i64(self);
-        return s;
-    }
-}
-impl ToString for u8 {
-    fn to_string(self: u8) -> String {
-        let mut s: String = String::new();
-        s.push_u64(self as u64);
-        return s;
-    }
-}
-impl ToString for u16 {
-    fn to_string(self: u16) -> String {
-        let mut s: String = String::new();
-        s.push_u64(self as u64);
-        return s;
-    }
-}
-impl ToString for u32 {
-    fn to_string(self: u32) -> String {
-        let mut s: String = String::new();
-        s.push_u64(self as u64);
-        return s;
-    }
-}
-impl ToString for u64 {
-    fn to_string(self: u64) -> String {
-        let mut s: String = String::new();
-        s.push_u64(self);
-        return s;
-    }
-}
-impl ToString for usize {
-    fn to_string(self: usize) -> String {
-        let mut s: String = String::new();
-        s.push_u64(self as u64);
-        return s;
-    }
-}
-impl ToString for isize {
-    fn to_string(self: isize) -> String {
-        let mut s: String = String::new();
-        s.push_i64(self as i64);
-        return s;
-    }
-}
+// The primitives' `to_string` is the blanket's (`impl<T: Display> ToString for T`
+// in `mem.fmt`, every primitive is `Display`), as in Rust: a concrete impl beside
+// it would overlap (E0119).
+
 /// An independent copy of the bytes (Rust's `impl Clone for String`).
 impl Clone for String {
     fn clone(&self) -> String { return String::from(self.as_str()); }
@@ -432,26 +355,6 @@ impl Hash for String {
     fn hash<H: Hasher>(&self, state: &mut H) { self.as_str().hash(state); }
 }
 
-impl ToString for f32 {
-    fn to_string(self: f32) -> String {
-        let mut s: String = String::new();
-        let cap: i32 = 400i32;   // Rust's Display: positional, no exponent
-        let ptr: *mut u8 = s.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f32_rust(ptr, cap, self, 0i32) };
-        s.advance_len(n as i64);
-        return s;
-    }
-}
-impl ToString for f64 {
-    fn to_string(self: f64) -> String {
-        let mut s: String = String::new();
-        let cap: i32 = 400i32;   // Rust's Display: positional, no exponent
-        let ptr: *mut u8 = s.spare_ptr(cap as i64);
-        let n: i32 = unsafe { logos_fmt_f64_rust(ptr, cap, self, 0i32) };
-        s.advance_len(n as i64);
-        return s;
-    }
-}
 impl ToString for str {
     fn to_string(self: str) -> String {
         let mut s: String = String::new();

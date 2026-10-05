@@ -15,6 +15,10 @@ pub use logos.mem.sync;      // Arc
 
 // Owning string + conversion traits
 pub use logos.mem.string;    // String, ToString
+// Not re-exported: loads `impl<T: Display> ToString for T` wherever `ToString`
+// is in scope, as Rust's impl sits beside its trait (`Display` is above
+// `String` here, so the blanket lives in mem.fmt).
+use logos.mem.fmt;
 
 // The one heap container that's prelude-worthy
 pub use logos.mem.collections.vec;   // Vec

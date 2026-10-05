@@ -861,6 +861,8 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
 
     // `where <concrete type>: Trait` must hold (E0277); Copy is decided above.
     check_concrete_where_();
+    // ... and no two impls of one trait may apply to one type (E0119).
+    check_impl_overlap_();
 
     // M5 step 3b+5: record only BINARY holders. User holders intentionally
     // skipped — user ASTs must re-walk every call so strict-mode validation
@@ -1531,9 +1533,14 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             }
             f.negative = info.is_negative;
             f.assoc_types = info.assoc_types;
-            std::string key = f.trait + "|" + type_str(f.self) + (f.negative ? "|!" : "|");
-            for (auto a : f.trait_args) key += type_str(a) + ",";
-            for (auto& b : f.bounds) key += "|" + b.param + ":" + b.trait;   // two blankets over one `DT`
+            // One fact per impl (impls_all_ holds an impl once per collect pass): two
+            // impls written alike are two facts, and coherence refuses them (E0119).
+            std::string key = info.impl_node;
+            if (key.empty()) {   // an impl recorded without its node: by content
+                key = f.trait + "|" + type_str(f.self) + (f.negative ? "|!" : "|");
+                for (auto a : f.trait_args) key += type_str(a) + ",";
+                for (auto& b : f.bounds) key += "|" + b.param + ":" + b.trait;
+            }
             if (!seen.insert(key).second) return;
             if (info.target_type == "str") obl_str_facts_(f);
             else obl_table_.add(std::move(f));
@@ -3345,6 +3352,7 @@ void SemaChecker::check_trait_def_identity() {
 void SemaChecker::collect_impl(TinyMapView node) {
     collecting_assoc_types_.clear();
     collecting_assoc_consts_.clear();
+    collecting_method_keys_.clear();
     std::string impl_doc = take_pending_doc();
     std::string trait_name;
     if (node.has_key(la::NAME))
@@ -4998,6 +5006,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     }
                     if (sig_match) { matching = c; break; }
                 }
+                if (matching) collecting_method_keys_[m.name] = matching->decl_key;
                 if (matching) {
                     // E0276: the impl's method may not require more of its own type
                     // parameters than the trait's declaration does (by position; a
@@ -5206,6 +5215,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (m.default_holder) holder_ = m.default_holder;
                     collect_fn(map_of(m.default_ast), def_reg_target, trait_name);
                     holder_ = saved_holder;
+                    for (const std::string& dk : {def_reg_target + "__" + trait_name + targ_sfx + "__" + m.name,
+                                                  def_reg_target + "__" + trait_name + "__" + m.name,
+                                                  def_reg_target + "__" + m.name}) {
+                        auto dfs = find_func_candidates(dk);
+                        const SemaFuncInfo* df = dfs.empty() ? find_generic_func(dk) : dfs.front();
+                        if (df) { collecting_method_keys_[m.name] = df->decl_key; break; }
+                    }
                     if (is_blanket) {
                         BlanketImpl bi_rec;
                         bi_rec.trait_name = trait_name;
@@ -5405,7 +5421,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                           impl_lt_outlives, impl_doc, {}};
         info.assoc_types = std::move(collecting_assoc_types_);
         info.assoc_consts = std::move(collecting_assoc_consts_);
-        impl_items_by_node_[node_key_(node)] = {info.assoc_types, info.assoc_consts};
+        impl_items_by_node_[node_key_(node)] = {info.assoc_types, info.assoc_consts, std::move(collecting_method_keys_)};
+        info.file = file_;
+        info.line = get_line(node);
+        info.from_binary = cur_from_binary_;
         info.impl_node = node_key_(node);
         // B91: coherence — reject a second impl of the same trait for the
         // same target type. Only fires for NON-GENERIC impls (no impl type
@@ -5422,47 +5441,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // out. impls_ ends up pointing at one of the legitimate variants
         // (last wins on insertion order); per-call resolution that needs
         // the args-specific impl walks all_impls_ instead.
-        std::string trait_args_key;
-        if (!trait_type_args.empty()) {
-            trait_args_key = "[";
-            for (size_t i = 0; i < trait_type_args.size(); ++i) {
-                if (i) trait_args_key += ",";
-                trait_args_key += type_str(trait_type_args[i]);
-            }
-            trait_args_key += "]";
-        }
-        // B-mv-02: key coherence by the CANONICAL (scope-resolved) trait name
-        // so a user `impl Hash for i32` and the stdlib's own `Hash` impl for the
-        // same type are NOT seen as conflicting implementations of one trait
-        // (they implement distinct same-name traits). Non-colliding traits
-        // resolve to their bare name → unchanged. impls_ stays bare-keyed;
-        // dispatch composes the bare chosen_trait + target and the target
-        // disambiguates the dispatch entry.
+        // B-mv-02: the CANONICAL (scope-resolved) trait name, for global
+        // supertrait verification.
         std::string coh_trait = trait_name.empty() ? trait_name
                                                     : canonical_trait_name(trait_name);
-        // ── A LOOKUP KEY IS NOT AN IDENTITY: THE TARGET HALF (#88) ───────
-        // The trait half of this key was disambiguated by `canonical_trait_name`
-        // (B-mv-02). The TARGET half stayed BARE, so `impl Drop for String` in a
-        // user package composed the same coherence key as the stdlib's
-        // `impl Drop for logos.mem.string.String` and was refused as
-        // "conflicting implementations of trait 'Drop' for type 'String'".
-        // MEASURED over all 421 stdlib struct names: `String` is the one that
-        // reaches this arm (the other five reach the E0184 arm in sema.cpp).
-        // Coherence is a property of (trait identity, TYPE identity), so the
-        // key takes the target's package when the target resolved to one. A
-        // package-less target (a primitive, `str`, an unresolved name) keeps the
-        // bare spelling — it has no other identity to be keyed by.
-        // ⚠ This is a RE-KEY, not an addition: two entries for one impl would
-        // make the conflict check answer on whichever spelling matched first,
-        // which is the defect. `coherence_keys_` is read only here and by the
-        // snapshot plumbing in sema.cpp (grepped 2026-08-21), so the re-key is
-        // contained; `impls_` keeps its bare target and is NOT touched.
-        // ⚠ NOT `target_resolved`: it is null at this point for every plain
-        // `impl Drop for X` (MEASURED — the debug print showed tr=0 for all 421
-        // sweep names). The one identity available here is "does THIS package
-        // declare a type of this name": if it does, `target` denotes the local
-        // type and the key must say so; if it does not, the target is foreign
-        // and the bare spelling already names the right thing.
+        // The target's package when this package declares a type of that name.
         std::string tgt_pkg;
         if (!cur_package_.empty() && !target.empty()) {
             DefId lk = type_id(cur_package_, target);
@@ -5470,35 +5453,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 tgt_pkg = cur_package_;
         }
         info.target_pkg = tgt_pkg;
-        std::string coh_target = tgt_pkg.empty() ? target : sema_key(tgt_pkg, target);
-        std::string coh_key = coh_trait + trait_args_key + "::" + coh_target;
         std::string key = trait_name + "::" + target;
         info.canonical_trait = coh_trait;  // for global supertrait verification
         info.trait_def = trait_def_of_key(coh_trait);
-        bool is_generic_impl = !impl_tps.empty() || !impl_lt_params.empty();
-        if (!impl_is_negative && !is_generic_impl && coherence_keys_.count(coh_key)) {
-            error(std::format("conflicting implementations of trait '{}' for type '{}'",
-                              trait_name, target));
-        }
-        // Array impls key by PATTERN spelling (`$array$T$N`, `$array$u8$2`), so
-        // two overlapping impls hold different keys: they overlap when their
-        // element spellings unify (`_` / a bare `T` matches anything) and
-        // their lengths agree or one is `N` — rustc E0119.
-        if (!impl_is_negative && target.rfind("$array$", 0) == 0) {
-            const DefId tdef = info.trait_def ? info.trait_def : impl_trait_id(trait_name);
-            for (auto& [k, _v] : impls_all_) {
-                if (k.trait_def != tdef || k.target == target || k.target.rfind("$array$", 0) != 0) continue;
-                if (array_impl_keys_overlap(k.target, target)) {
-                    error(std::format("conflicting implementations of trait '{}' for type '{}' and '{}' (E0119)",
-                                      trait_name, array_impl_key_display(k.target), array_impl_key_display(target)));
-                    break;
-                }
-            }
-        }
-        if (!is_generic_impl) {
-            coherence_keys_.insert(coh_key);
-            if (!cur_from_binary_) user_coherence_keys_.insert(coh_key);
-        }
         // #438 step 4: ONE key — the trait's IDENTITY plus the target. The raw
         // spelling key and the identity key that used to stand side by side are
         // one thing now: a compiler probe spelling "Drop" and a bound carrying
@@ -7176,6 +7133,141 @@ void SemaChecker::check_concrete_where_() {
         error(std::format("the trait bound `{}: {}` is not satisfied (E0277)", type_str(w.subject), w.bound.trait_name));
     }
     concrete_where_.clear();
+    ctx_ = saved_ctx; file_ = saved_file; node_line_ = saved_line;
+}
+
+// Two impls overlap when their heads (Self and the trait's arguments) unify and
+// no bound of either is provably false at that unifier: a bound on a concrete
+// type that does not hold, or on a type no impl of the bound's trait can match
+// (no head unifies and no compiler rule could answer). As rustc: two blankets
+// whose bounds merely differ overlap. Reported at the later impl.
+void SemaChecker::check_impl_overlap_() {
+    using K = LogosType::Kind;
+    const obl::ImplTable& table = obl_table_now_();
+    const obl::Env& env = obl_env_();
+    std::map<std::string, std::vector<uint32_t>> by_trait;
+    for (uint32_t i = 0; i < table.size(); ++i) {
+        const obl::ImplFact& f = table.at(i);
+        // `impl Tr for str`'s facts answer last: Rust's `str` is a type of its own beside
+        // `[u8]` (`impl Hash for str` and `impl<T: Hash> Hash for [T]` coexist there).
+        if (f.negative || f.fallback) continue;
+        by_trait[f.trait].push_back(i);
+    }
+    auto args_of = [&](const obl::ImplFact& f) {
+        if (!f.trait_args.empty()) return f.trait_args;
+        std::vector<TypeRef> args;   // omitted: the trait's defaults, read with Self = the impl's
+        const SemaTraitInfo* ti = trait_info(obl_infos_[f.source]->trait_def);
+        if (!ti) return args;
+        SemaSubst ds{{"Self", f.self}};
+        for (auto& tp : ti->type_params) {
+            if (!tp.default_type) return std::vector<TypeRef>{};
+            args.push_back(subst_type_sema(tp.default_type, ds));
+            ds[tp.name] = args.back();
+        }
+        return args;
+    };
+    auto rule_could_answer = [&](const std::string& trait) {
+        const auto& l = env.lang;
+        if (trait == l.copy || trait == l.sized || trait == l.fn || trait == l.fn_mut || trait == l.fn_once) return true;
+        const SemaTraitInfo* ti = trait_info(impl_trait_id(trait));
+        return ti && ti->is_auto;
+    };
+    // An impl's generics renamed apart (`T` -> `T'…`), so two impls' unifier is one map.
+    auto renaming = [&](const std::vector<std::string>& gs, std::string_view mark, std::vector<std::string>& vars) {
+        SemaSubst r;
+        for (auto& g : gs) {
+            std::string n = g + std::string(mark);
+            r[g] = make_typevar(n);
+            vars.push_back(std::move(n));
+        }
+        return r;
+    };
+    auto resolved = [&](TypeRef t, const obl::Subst& u) {
+        SemaSubst ss(u.begin(), u.end());
+        for (int n = 0; n < 16 && t; ++n) {
+            TypeRef nt = subst_type_sema(t, ss);
+            if (nt == t) break;
+            t = nt;
+        }
+        return t;
+    };
+    // Is a bound `param: B<args>` (names already renamed) provably false under `u`?
+    auto refuted = [&](const std::vector<obl::Bound>& bounds, const SemaSubst& ren, const obl::Subst& u,
+                       const std::vector<std::string>& vars) {
+        for (auto& b : bounds) {
+            auto rit = ren.find(b.param);
+            TypeRef t = resolved(rit != ren.end() ? rit->second : make_typevar(b.param), u);
+            if (!t || TypeRef(t).kind() == K::TypeVar) continue;   // still open
+            std::vector<TypeRef> bargs;
+            for (auto a : b.args) bargs.push_back(resolved(subst_type_sema(a, ren), u));
+            if (!obl::mentions_generic(t, vars) && !(env.mentions_tv && env.mentions_tv(t))) {
+                if (!obl::select(table, env, b.trait, t, bargs).holds()) return true;
+                continue;
+            }
+            if (rule_could_answer(b.trait)) continue;
+            bool some = false;
+            for (uint32_t k : table.of(b.trait)) {
+                const obl::ImplFact& g = table.at(k);
+                if (g.negative) continue;
+                std::vector<std::string> gv = vars;
+                SemaSubst gr = renaming(g.generics, "\"", gv);
+                obl::Subst x = u;
+                if (obl::heads_unify(t, subst_type_sema(g.self, gr), gv, x)) { some = true; break; }
+            }
+            if (!some) return true;
+        }
+        return false;
+    };
+    const std::string saved_ctx = ctx_, saved_file = file_;
+    const uint32_t saved_line = node_line_;
+    for (auto& [trait, ids] : by_trait)
+        for (size_t i = 0; i < ids.size(); ++i)
+            for (size_t j = i + 1; j < ids.size(); ++j) {
+                const obl::ImplFact& a = table.at(ids[i]);
+                const obl::ImplFact& b = table.at(ids[j]);
+                if (a.source == b.source) continue;
+                const SemaImplInfo* ia = obl_infos_[a.source];
+                const SemaImplInfo* ib = obl_infos_[b.source];
+                if (ia->impl_node == ib->impl_node) continue;            // one impl, collected twice
+                if (ia->from_binary && ib->from_binary) continue;       // checked where it was built
+                std::vector<std::string> vars;
+                SemaSubst ra = renaming(a.generics, "'a", vars), rb = renaming(b.generics, "'b", vars);
+                obl::Subst u;
+                if (!obl::heads_unify(subst_type_sema(a.self, ra), subst_type_sema(b.self, rb), vars, u)) continue;
+                auto aa = args_of(a), ab = args_of(b);
+                bool args_unify = aa.size() == ab.size();
+                for (size_t k = 0; args_unify && k < aa.size(); ++k)
+                    args_unify = obl::heads_unify(subst_type_sema(aa[k], ra), subst_type_sema(ab[k], rb), vars, u);
+                if (!args_unify) continue;
+                if (refuted(a.bounds, ra, u, vars) || refuted(b.bounds, rb, u, vars)) continue;
+                // A generic is `Sized` unless it says `?Sized`: an unsized binding refutes.
+                auto unsized_binding = [&](const SemaImplInfo* info, const SemaSubst& ren) {
+                    for (auto& tp : info->impl_type_params) {
+                        bool relaxed = false;
+                        for (auto& tb : tp.bounds) relaxed = relaxed || tb.is_relaxed;
+                        auto rit = ren.find(tp.name);
+                        if (relaxed || rit == ren.end()) continue;
+                        TypeRef t = resolved(rit->second, u);
+                        if (t && (TypeRef(t).kind() == K::UnsizedSlice || TypeRef(t).kind() == K::UnsizedDyn)) return true;
+                    }
+                    return false;
+                };
+                if (unsized_binding(ia, ra) || unsized_binding(ib, rb)) continue;
+                // Reported at the later impl (source order within a file; the
+                // program's own over an archive's), naming the type both apply to.
+                bool b_later = ia->from_binary || (!ib->from_binary && ia->file == ib->file && ib->line >= ia->line) ||
+                               (!ib->from_binary && ia->file != ib->file);
+                const SemaImplInfo* later = b_later ? ib : ia;
+                const SemaImplInfo* earlier = b_later ? ia : ib;
+                if (!overlap_reported_.insert(earlier->impl_node + "|" + later->impl_node).second) continue;
+                TypeRef shared = resolved(subst_type_sema(b_later ? b.self : a.self, b_later ? rb : ra), u);
+                if (!shared || obl::mentions_generic(shared, vars)) shared = b_later ? b.self : a.self;
+                ctx_ = std::format("impl {} for {}", later->trait_name, type_str(b_later ? b.self : a.self));
+                file_ = later->file;
+                node_line_ = later->line;
+                error(std::format("conflicting implementations of trait '{}' for type '{}' (E0119)",
+                                  later->trait_name, type_str(shared)));
+            }
     ctx_ = saved_ctx; file_ = saved_file; node_line_ = saved_line;
 }
 

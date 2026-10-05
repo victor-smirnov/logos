@@ -413,7 +413,6 @@ public:
     StrSet persisted_user_module_const_keys;
     StrSet persisted_user_generic_const_keys;
     std::unordered_set<SemaChecker::ImplKey, SemaChecker::ImplKeyHash> persisted_user_impl_keys;
-    StrSet persisted_user_coherence_keys;
     std::unordered_set<SemaChecker::AssocKey, SemaChecker::AssocKeyHash> persisted_user_assoc_const_impl_keys;
     std::set<DefId> persisted_user_trait_defs;
     StrSet persisted_user_type_alias_keys;
@@ -443,7 +442,6 @@ void SemaCache::reset_user_state() {
         }
         for (auto& k : c->persisted_user_generic_const_keys)    s->generic_consts.erase(k);
         for (auto& k : c->persisted_user_impl_keys)             s->impls.erase(k);
-        for (auto& k : c->persisted_user_coherence_keys)        s->coherence_keys.erase(k);
         for (auto& k : c->persisted_user_assoc_const_impl_keys) s->assoc_const_impls.erase(k);
         for (auto& d : c->persisted_user_trait_defs)            s->traits.erase(d);
         for (auto& k : c->persisted_user_type_alias_keys)       s->type_aliases.erase(k);
@@ -571,7 +569,6 @@ void SemaCache::reset_user_state() {
     c->persisted_user_module_const_keys.clear();
     c->persisted_user_generic_const_keys.clear();
     c->persisted_user_impl_keys.clear();
-    c->persisted_user_coherence_keys.clear();
     c->persisted_user_assoc_const_impl_keys.clear();
     c->persisted_user_trait_defs.clear();
     c->persisted_user_type_alias_keys.clear();
@@ -605,7 +602,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->impls                = std::move(impls_);
     s->impls_all            = std::move(impls_all_);
     ++impls_gen_;
-    s->coherence_keys       = std::move(coherence_keys_);
     s->assoc_const_impls    = std::move(assoc_const_impls_);
     s->impl_assoc_consts    = std::move(impl_assoc_consts_);
     s->blanket_impls        = std::move(blanket_impls_);
@@ -646,7 +642,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
         for (auto& k : user_module_const_keys_)    c->persisted_user_module_const_keys.insert(k);
         for (auto& k : user_generic_const_keys_)   c->persisted_user_generic_const_keys.insert(k);
         for (auto& k : user_impl_keys_)            c->persisted_user_impl_keys.insert(k);
-        for (auto& k : user_coherence_keys_)       c->persisted_user_coherence_keys.insert(k);
         for (auto& k : user_assoc_const_impl_keys_)c->persisted_user_assoc_const_impl_keys.insert(k);
         for (auto& d : user_trait_defs_)           c->persisted_user_trait_defs.insert(d);
         for (auto& k : user_type_alias_keys_)      c->persisted_user_type_alias_keys.insert(k);
@@ -663,7 +658,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     }
     for (auto& k : user_generic_const_keys_)      s->generic_consts.erase(k);
     for (auto& k : user_impl_keys_)               s->impls.erase(k);
-    for (auto& k : user_coherence_keys_)          s->coherence_keys.erase(k);
     for (auto& k : user_assoc_const_impl_keys_)   s->assoc_const_impls.erase(k);
     for (auto& d : user_trait_defs_)              s->traits.erase(d);
     for (auto& k : user_type_alias_keys_)         s->type_aliases.erase(k);
@@ -799,7 +793,6 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     impls_                = std::move(s->impls);
     impls_all_            = std::move(s->impls_all);
     ++impls_gen_;
-    coherence_keys_       = std::move(s->coherence_keys);
     assoc_const_impls_    = std::move(s->assoc_const_impls);
     impl_assoc_consts_    = std::move(s->impl_assoc_consts);
     blanket_impls_        = std::move(s->blanket_impls);
@@ -1768,49 +1761,6 @@ static void array_elem_generalizations(TypeRef t, int d, std::vector<std::string
     out.push_back("_");
 }
 
-// Two `$array$<E>$<N>` impl keys overlap: the lengths agree or one is `N`, and
-// the element spellings unify with `_` (or a whole `T`) as a wildcard.
-static bool array_spelling_unify(std::string_view a, std::string_view b) {
-    auto wild = [](std::string_view x) { return x == "_" || x == "T"; };
-    if (wild(a) || wild(b)) return true;
-    auto split = [](std::string_view x, std::string_view& head, std::vector<std::string_view>& args) {
-        auto lt = x.find('<');
-        if (lt == std::string_view::npos || x.back() != '>') { head = x; return; }
-        head = x.substr(0, lt);
-        std::string_view in = x.substr(lt + 1, x.size() - lt - 2);
-        int depth = 0; size_t st = 0;
-        for (size_t i = 0; i < in.size(); ++i) {
-            char c = in[i];
-            if (c == '<' || c == '(' || c == '[') ++depth;
-            else if (c == '>' || c == ')' || c == ']') --depth;
-            else if (c == ',' && depth == 0) { args.push_back(in.substr(st, i - st)); st = i + 1; }
-        }
-        args.push_back(in.substr(st));
-    };
-    std::string_view ha, hb; std::vector<std::string_view> aa, ab;
-    split(a, ha, aa); split(b, hb, ab);
-    if (ha != hb || aa.size() != ab.size()) return false;
-    for (size_t i = 0; i < aa.size(); ++i)
-        if (!array_spelling_unify(aa[i], ab[i])) return false;
-    return true;
-}
-bool array_impl_keys_overlap(std::string_view ka, std::string_view kb) {
-    auto parts = [](std::string_view k, std::string_view& e, std::string_view& n) {
-        k.remove_prefix(7);                       // "$array$"
-        auto d = k.rfind('$');
-        e = k.substr(0, d); n = k.substr(d + 1);
-    };
-    std::string_view ea, na, eb, nb;
-    parts(ka, ea, na); parts(kb, eb, nb);
-    if (!(na == nb || na == "N" || nb == "N")) return false;
-    return array_spelling_unify(ea, eb);
-}
-std::string array_impl_key_display(std::string_view k) {
-    k.remove_prefix(7);
-    auto d = k.rfind('$');
-    return "[" + std::string(k.substr(0, d)) + "; " + std::string(k.substr(d + 1)) + "]";
-}
-
 std::string array_impl_target_key(TypeRef pattern) {
     if (!pattern || TypeRef(pattern).kind() != LogosType::Kind::Array) return {};
     std::string e = array_elem_pattern_spelling(TypeRef(pattern).elem(), 0);
@@ -2177,6 +2127,19 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_base_and_signature(
         if (same) return fi;
     }
     return nullptr;
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::func_by_decl_(const std::string& decl_key) {
+    if (decl_key.empty()) return nullptr;
+    if (func_by_decl_size_ != funcs_.size() + generic_funcs_.size()) {
+        func_by_decl_index_.clear();
+        for (auto* m : {&funcs_, &generic_funcs_})
+            for (auto& [k, fi] : *m)
+                if (!fi.decl_key.empty()) func_by_decl_index_.try_emplace(fi.decl_key, &fi, k);
+        func_by_decl_size_ = funcs_.size() + generic_funcs_.size();
+    }
+    auto it = func_by_decl_index_.find(decl_key);
+    return it == func_by_decl_index_.end() ? nullptr : it->second.first;
 }
 
 std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(std::string_view base_name) const {

@@ -1,3 +1,6 @@
+// A blanket impl and a specific impl of one trait that both apply to i32 are
+// conflicting implementations (rustc E0119; specialization is unstable in Rust).
+// This used to pass, the specific impl silently winning (ADR 0030 S9 row 6).
 package c2_blanket_conflict;
 trait Foo { fn foo(&self) -> i32; }
 impl<T> Foo for T { fn foo(&self) -> i32 { return 1i32; } }

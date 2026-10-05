@@ -118,6 +118,75 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
     }
 }
 
+bool mentions_generic(TypeRef t, const std::vector<std::string>& g) {
+    if (!t) return false;
+    if ((t.kind() == K::TypeVar || t.kind() == K::ConstVar) && is_generic(g, t.type_var_name())) return true;
+    if (t.kind() == K::Array && !t.arr_size_var().empty() && is_generic(g, t.arr_size_var())) return true;
+    if (mentions_generic(t.pointee(), g) || mentions_generic(t.elem(), g)) return true;
+    for (auto a : t.type_args()) if (mentions_generic(a, g)) return true;
+    for (auto e : t.tuple_elems()) if (mentions_generic(e, g)) return true;
+    for (auto p : t.closure_params()) if (mentions_generic(p, g)) return true;
+    return mentions_generic(t.closure_ret(), g);
+}
+
+bool heads_unify(TypeRef a, TypeRef b, const std::vector<std::string>& vars, Subst& s) {
+    auto var = [&](TypeRef t) {
+        return t && (t.kind() == K::TypeVar || t.kind() == K::ConstVar) && is_generic(vars, t.type_var_name());
+    };
+    auto resolve = [&](TypeRef t) {
+        for (int n = 0; var(t) && n < 64; ++n) {
+            auto it = s.find(std::string(t.type_var_name()));
+            if (it == s.end()) break;
+            t = it->second;
+        }
+        return t;
+    };
+    a = resolve(a);
+    b = resolve(b);
+    if (!a || !b) return false;
+    if (var(a) && var(b) && a.type_var_name() == b.type_var_name()) return true;
+    if (var(a)) { s[std::string(a.type_var_name())] = b; return true; }
+    if (var(b)) { s[std::string(b.type_var_name())] = a; return true; }
+    if (a.kind() != b.kind()) return false;
+    auto all = [&](auto xs, auto ys) {
+        if (xs.size() != ys.size()) return false;
+        for (size_t i = 0; i < xs.size(); ++i)
+            if (!heads_unify(xs[i], ys[i], vars, s)) return false;
+        return true;
+    };
+    switch (a.kind()) {
+    case K::Ptr:
+        return a.mut_ptr() == b.mut_ptr() && heads_unify(a.pointee(), b.pointee(), vars, s);
+    case K::Ref:
+    case K::MutRef:
+        return heads_unify(a.pointee(), b.pointee(), vars, s);
+    case K::Slice:
+    case K::UnsizedSlice:
+        return heads_unify(a.elem(), b.elem(), vars, s);
+    case K::Array:
+        if (a.arr_size_var().empty() && b.arr_size_var().empty() && a.arr_size() != b.arr_size()) return false;
+        return heads_unify(a.elem(), b.elem(), vars, s);
+    case K::Struct:
+    case K::ZonedStruct:
+    case K::Enum: {
+        const bool st = a.kind() != K::Enum;
+        if (!same_nominal(a.pkg_name(), b.pkg_name(), st ? a.struct_name() : a.enum_name(),
+                          st ? b.struct_name() : b.enum_name()))
+            return false;
+        return all(a.type_args(), b.type_args());
+    }
+    case K::Tuple:
+        return all(a.tuple_elems(), b.tuple_elems());
+    case K::FnPtr:
+        if (!all(a.closure_params(), b.closure_params())) return false;
+        if (!a.closure_ret() || !b.closure_ret()) return !a.closure_ret() && !b.closure_ret();
+        return heads_unify(a.closure_ret(), b.closure_ret(), vars, s);
+    default:
+        if (is_primitive_scalar_kind(a.kind())) return true;
+        return types_equal(a, b);
+    }
+}
+
 namespace {
 
 struct Solver {

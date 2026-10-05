@@ -123,6 +123,14 @@ private:
 bool unify(TypeRef concrete, TypeRef pattern, const std::vector<std::string>& generics, Subst& s,
            std::string_view pack = {});
 
+// Coherence (rustc E0119): do two impl heads unify? `vars` are both impls'
+// generics, renamed apart by the caller; `s` collects the unifier (a variable may
+// be bound to another: resolve through it). No occurs check: a cyclic answer only
+// errs toward "overlap".
+bool heads_unify(TypeRef a, TypeRef b, const std::vector<std::string>& vars, Subst& s);
+// Does `t` mention one of `generics`?
+bool mentions_generic(TypeRef t, const std::vector<std::string>& generics);
+
 Selection select(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
                  const std::vector<TypeRef>& args, const FnSig* sig = nullptr);
 

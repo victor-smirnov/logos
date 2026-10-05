@@ -2,7 +2,7 @@
 // method_bound_ok's `seen` set poisoning sibling blanket attempts.
 //
 // `ContainerOrd` has two blanket impls in std.lang.datatypes:
-//   impl<DT: PodRef    + Ord> ContainerOrd for DT { ... }   // (1)
+//   impl<DT: PodRef    + Ord> ContainerOrd for ByRef<DT> { ... }   // (1)
 //   impl<DT: Primitive + Ord> ContainerOrd for DT { ... }   // (2)
 //
 // `U64Key` impls Primitive + Ord but NOT PodRef, so blanket (1) must

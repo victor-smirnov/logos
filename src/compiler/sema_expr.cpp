@@ -6934,11 +6934,26 @@ static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
 // identity (name + declaring package), never inferred from a composed key.
 // `key_out` receives the registry key the candidate was found under.
 const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_view trait, TypeRef self,
-                                                     std::string_view name, std::string* key_out) {
+                                                     std::string_view name, std::string* key_out,
+                                                     const std::vector<TypeRef>& trait_args) {
     using K = LogosType::Kind;
     if (!self) return nullptr;
     const SemaTraitInfo* ti = find_trait_iter_scoped(trait);
     if (!ti) return nullptr;
+    // The item of the one impl C-OBL selects for (Self, the trait's arguments):
+    // `Conv::<Big>::conv(&b)` is the identity impl's even beside `Conv<i64> for Big`.
+    {
+        auto cs = obl::candidates(obl_table_now_(), obl_env_(), defs_.path(ti->def), self, trait_args);
+        if (cs.size() == 1) {
+            auto iit = impl_items_by_node_.find(obl_infos_[cs[0].impl->source]->impl_node);
+            if (iit != impl_items_by_node_.end())
+                if (auto mit = iit->second.methods.find(std::string(name)); mit != iit->second.methods.end())
+                    if (const SemaFuncInfo* fi = func_by_decl_(mit->second)) {
+                        if (key_out) *key_out = func_by_decl_index_[mit->second].second;
+                        return fi;
+                    }
+        }
+    }
     const std::string tbare = ti->name.substr(ti->name.rfind('.') == std::string::npos ? 0 : ti->name.rfind('.') + 1);
     auto same_trait = [&](const SemaFuncInfo* fi) {
         if (!fi || fi->trait_name.empty()) return false;
@@ -6953,7 +6968,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_vi
         ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
         const std::string tn = ck == K::Struct || ck == K::ZonedStruct ? concrete_struct_name(self)
                              : ck == K::Enum ? std::string(TypeRef(self).enum_name()) : type_str(self);
-        for (size_t bi : viable_blanket_impls(name, self, /*report=*/false)) {
+        for (size_t bi : viable_blanket_impls(name, self)) {
             const auto& b = blanket_impls_[bi];
             const std::string sfx = "__" + std::string(name);
             if (b.mangled_name.size() > sfx.size() && b.mangled_name.ends_with(sfx))
@@ -7013,7 +7028,7 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
             ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
             const std::string tn = ck == K::Struct || ck == K::ZonedStruct ? concrete_struct_name(st)
                                  : ck == K::Enum ? std::string(TypeRef(st).enum_name()) : type_str(st);
-            for (size_t bi : viable_blanket_impls(name, st, /*report=*/false)) {
+            for (size_t bi : viable_blanket_impls(name, st)) {
                 const auto& b = blanket_impls_[bi];
                 const std::string sfx = "__" + std::string(name);
                 if (b.mangled_name.size() > sfx.size() && b.mangled_name.ends_with(sfx))
@@ -9554,7 +9569,7 @@ lir::LExprPtr SemaChecker::lower_invoke_on(lir::LExprPtr recv, std::vector<lir::
                                  std::move(arg_exprs), -1, error_t());
 }
 
-std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_name, TypeRef self, bool report) {
+std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_name, TypeRef self) {
     // A blanket impl's method is offered when C-OBL selects that impl for
     // `self` (its bounds, their associated-type clauses included).
     std::vector<size_t> viable_blanket_idxs;
@@ -9573,22 +9588,6 @@ std::vector<size_t> SemaChecker::viable_blanket_impls(std::string_view method_na
             for (auto& c : obl::candidates(table, obl_env_(), tit->second, self, {}))
                 ait->second.insert(obl_infos_[c.impl->source]->impl_node);
         if (ait->second.count(bi.impl_node)) viable_blanket_idxs.push_back(bi_idx);
-    }
-    if (report && viable_blanket_idxs.size() >= 2) {
-        // Distinct blanket impls of the same trait both apply — overlap.
-        // (Multiple entries from one blanket with several methods are
-        // disambiguated by method_name; here all entries already passed
-        // the method_name filter, so they are *different* impls.)
-        std::string trait1 = blanket_impls_[viable_blanket_idxs[0]].trait_name;
-        std::string trait2 = blanket_impls_[viable_blanket_idxs[1]].trait_name;
-        std::string b1 = blanket_impls_[viable_blanket_idxs[0]].bound_trait;
-        std::string b2 = blanket_impls_[viable_blanket_idxs[1]].bound_trait;
-        if (b1.empty()) b1 = "<unbounded>";
-        if (b2.empty()) b2 = "<unbounded>";
-        error(std::format(
-            "method call: ambiguous blanket impl for '{}.{}': "
-            "both `impl<T: {}> {}` and `impl<T: {}> {}` apply",
-            type_str(self), method_name, b1, trait1, b2, trait2));
     }
     return viable_blanket_idxs;
 }
@@ -18478,6 +18477,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             return error_expr();
         }
     }
+    const SemaFuncInfo* ufcs_fi = nullptr;   // the trait item a trait-qualified call resolved to
     if (find_trait_iter_scoped(std::string(class_name)) &&
         !arg_exprs.empty() && !find_enum_by_name(class_name).second &&
         find_struct_by_name(std::string(class_name)).second == nullptr &&
@@ -18517,7 +18517,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // The impl of THIS trait for the receiver's type names the method
         // (resolve_trait_item_); nothing is composed from the spelling.
         std::string key;
-        if (rt && resolve_trait_item_(class_name, rt, method_name, &key)) {
+        // `Trait::<A>::m(x)`: the trait's arguments select among its impls for x's type.
+        std::vector<TypeRef> ufcs_targs = node.has_key(la::TYPE_PARAMS) ? collect_type_args(node) : std::vector<TypeRef>{};
+        if (rt && (ufcs_fi = resolve_trait_item_(class_name, rt, method_name, &key, ufcs_targs))) {
             resolved_class = rname.empty() ? type_str(rt) : rname;
             mangled = key;
         }
@@ -18559,8 +18561,8 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
 
     // Bug 3 fix: look in both funcs_ and generic_funcs_ (generic static methods
     // registered with type params end up in generic_funcs_, not funcs_).
-    const SemaFuncInfo* fi_ptr = nullptr;
-    if (!class_is_abstract_tp) {
+    const SemaFuncInfo* fi_ptr = ufcs_fi;
+    if (!class_is_abstract_tp && !fi_ptr) {
         std::vector<TypeRef> arg_types;
         for (auto& a : arg_exprs) arg_types.push_back(expr_type(a));
         // Bound-discriminated STATIC twins (PkdArray::<str>::format vs

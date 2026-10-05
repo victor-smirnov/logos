@@ -1,0 +1,38 @@
+// ADR 0030 S9 row 6, the admit twin of fail/blanket_impl_overlap and
+// fail/s9 overlap fixtures: impl pairs whose heads unify but which cannot both
+// apply. A blanket over a bound and a concrete type without that bound; a
+// blanket and a newtype the bound's trait has no impl for (fabric's ByRef<DT>);
+// the identity conversion beside a conversion between two distinct types; two
+// impls told apart by their trait arguments. rustc 1.98.1 accepts it.
+package s9_coherence_disjoint_impls;
+
+trait Small { fn w(self: &Self) -> i32; }
+trait Kind { fn k(self: &Self) -> i32; }
+struct Big { a: i64 }
+struct Wrap<T> { v: T }
+impl Small for i32 { fn w(self: &i32) -> i32 { return 1; } }
+
+impl<T: Small> Kind for T { fn k(self: &T) -> i32 { return 10 + self.w(); } }
+impl Kind for Big { fn k(self: &Big) -> i32 { return 20; } }
+impl<T> Kind for Wrap<T> { fn k(self: &Wrap<T>) -> i32 { return 30; } }
+
+trait Conv<T> { fn conv(self: &Self) -> i32; }
+impl<T> Conv<T> for T { fn conv(self: &T) -> i32 { return 1; } }
+impl Conv<i64> for Big { fn conv(self: &Big) -> i32 { return 2; } }
+
+trait Pick<A> { fn pick(self: &Self) -> i32; }
+impl Pick<bool> for Big { fn pick(self: &Big) -> i32 { return 100; } }
+impl Pick<i32> for Big { fn pick(self: &Big) -> i32 { return 200; } }
+
+fn pick_bool<P: Pick<bool>>(p: &P) -> i32 { return p.pick(); }
+fn pick_i32<P: Pick<i32>>(p: &P) -> i32 { return p.pick(); }
+
+fn main() -> i32 {
+    let b = Big { a: 0 };
+    let w = Wrap { v: 0i32 };
+    let x: i32 = 5;
+    let s = x.k() + b.k() + w.k();                    // 11 + 20 + 30
+    let c = Conv::<i64>::conv(&b) + Conv::<Big>::conv(&b);   // 2 + 1
+    let p = pick_bool(&b) + pick_i32(&b);               // 300
+    return s + c + p - 300;                             // 64
+}
