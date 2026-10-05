@@ -156,10 +156,10 @@ struct Solver {
                 if (!sig_matches(self)) return false;
                 // The family the closure's body admits: Fn ⊂ FnMut ⊂ FnOnce.
                 using F = TypeRef::FnFamily;
+                const int need = fn ? 0 : fn_mut ? 1 : 2;
+                if (env.closure_level) return env.closure_level(self) <= need;
                 const F fam = self.closure_fn_family();
-                if (fam == F::Unstated) return true;   // not yet inferred: the closure's own check decides
-                const F need = fn ? F::Fn : fn_mut ? F::FnMut : F::FnOnce;
-                return static_cast<uint8_t>(fam) <= static_cast<uint8_t>(need);
+                return fam == F::Unstated || static_cast<int>(fam) - 1 <= need;
             }
             // `&F: Fn*` when `F: Fn`; `&mut F: FnMut / FnOnce` when `F: FnMut`.
             if (k == K::Ref && self.pointee()) return select(l.fn, self.pointee(), args).holds();

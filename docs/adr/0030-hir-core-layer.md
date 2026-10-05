@@ -492,6 +492,22 @@ impl generics (`impl<'a, T> FnLike<&'a T> for Identity` gave `Identity<T>`):
 the impl's parameters are a struct's arguments only when it has type
 parameters.
 
+Rows (3)-(4), step B: check_type_bounds asks C-OBL. The satisfaction half is
+deleted (−650 lines: the direct / generic-hit / blanket loop / generic-struct /
+slice / array / `&T` / tuple / fn-pointer / trait-object / `$ref_` arms and
+their spelled keys); what stays is the lifetime half (`'static` / caller env),
+the HRTB region check on the SELECTED impl (`region_ok`, verbatim), the
+factory-marker deferral, and the diagnostics in the bound's own words (`&T`
+subject, auto-trait offender, closure family, call shape — the same texts). The
+closure-family error no longer fires in a quiet probe (inventory §7.20). The
+table rebuilds on an impl-registry generation counter, the environment is built
+once (the solver costs 85 selects / 0.1 ms on a deem compile).
+Two more silent drops surfaced on the way and are closed: a `()` receiver
+(`impl Tr for ()`; `&()` as an argument and as a `&self` receiver) lowered to
+nothing in mlir — `trait_4`'s `u.uu()` check and `fmt_session3_structs`' two
+`()` formatting checks were never compiled; and `let _ = <expr>` whose
+expression lowers to nothing is now an internal error like a named `let`.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

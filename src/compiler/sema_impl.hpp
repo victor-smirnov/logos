@@ -6902,20 +6902,22 @@ private:
         return it == impls_.end() ? nullptr : &it->second;
     }
     ImplMap<SemaImplInfo>                     impls_;
-    // ADR 0030 S9 rows 3-4 (SHADOW): the C-OBL impl table built from impls_all_,
-    // asked beside check_type_bounds; a disagreement is logged (LOGOS_S9_SHADOW).
+    // ADR 0030 S9 rows 3-4: the C-OBL impl table built from impls_all_ (the
+    // impl behind each fact in obl_infos_) and the environment sema answers.
     obl::ImplTable obl_table_;
-    size_t         obl_table_impls_ = SIZE_MAX;
+    std::vector<const SemaImplInfo*> obl_infos_;   // by ImplFact::source
+    uint64_t       impls_gen_ = 0;            // bumped wherever impls_all_ changes
+    uint64_t       obl_table_gen_ = UINT64_MAX;
+    std::optional<obl::Env> obl_env_cache_;
+    size_t         obl_env_langs_ = SIZE_MAX;
     size_t         obl_no_self_ = 0;
     const obl::ImplTable& obl_table_now_();
-    obl::Env obl_env_();
+    const obl::Env& obl_env_();
     std::string bound_identity_(const TraitBound& b) const {
         if (b.trait_def) return defs_.path(b.trait_def);
         if (!b.identity_trait.empty()) return b.identity_trait;
         return b.canonical_trait.empty() ? b.trait_name : b.canonical_trait;
     }
-    void s9_shadow_(const TraitBound& b, TypeRef concrete, std::string_view ctx, size_t diags_before,
-                    bool probe_ok_before, const logos::compiler::StrMap<TypeRef>& call_subst);
     // ADR 0030 S9 row 1: the symbol collect gave each declaration, by the
     // declaration's identity (its AST node and the owner it was collected
     // under, with the impl's trait arguments — a trait default is one node

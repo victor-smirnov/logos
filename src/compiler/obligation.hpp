@@ -83,6 +83,8 @@ struct Env {
     // and whether a type still mentions a type variable (then it is undecided).
     std::function<bool(TypeRef a, TypeRef b)> same_shape;
     std::function<bool(TypeRef t)> mentions_tv;
+    // A closure's Fn-family level (0 Fn, 1 FnMut, 2 FnOnce); unset = from its type.
+    std::function<int(TypeRef closure)> closure_level;
 };
 
 class ImplTable {

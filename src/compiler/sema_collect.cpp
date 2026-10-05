@@ -1313,185 +1313,21 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
         }
 
         for (auto& bound : tp.bounds) {
-            // ADR 0030 S9 (SHADOW): compare this bound's verdict with C-OBL's.
-            struct S9G {
-                SemaChecker& s; const TraitBound& b; TypeRef c; std::string_view ctx; size_t n; bool pok;
-                const SemaSubst& cs;
-                ~S9G() {
-                    const bool refused_here = !s.bounds_probe_ok_;
-                    s.s9_shadow_(b, c, ctx, n, !refused_here, cs);
-                    s.bounds_probe_ok_ = pok && !refused_here;
-                }
-            } s9_guard_{*this, bound, concrete, target_name, result_.diags.size(), bounds_probe_ok_, call_subst};
-            bounds_probe_ok_ = true;
-            // B-mv-03: `btn` is the trait IDENTITY this bound denotes — the
-            // registry key spelling, captured where the bound was WRITTEN (see
-            // TraitBound::canonical_trait). Every key composed below and every
-            // traits_/blanket probe uses it; only DIAGNOSTICS keep
-            // `bound.trait_name`, because a message must echo what the user
-            // wrote. For a trait that owns the bare slot the two strings are
-            // equal, so this loop is byte-identical to its pre-B-mv-03 self on
-            // every program with no homonym.
-            const std::string& btn = bound.canonical_trait.empty()
-                                         ? bound.trait_name : bound.canonical_trait;
-            // ⚠ `btn` is a traits_ REGISTRY key; `bid` is the impl-registry
-            // IDENTITY. They differ for every trait that owns the bare slot,
-            // and that difference is the whole defect: probing impls_ with the
-            // bare key reads whatever other homonym is filed under the same raw
-            // alias. Keys are composed from `bid`; traits_ lookups and the
-            // auto-trait probe keep `btn`, which is what they are keyed by.
-            const std::string bid = impl_key_trait(btn);
-            // M7-mt-03: `Sized` is a compiler-builtin marker. Logos has no
-            // unsized types yet, so every concrete type satisfies it; the
-            // bound is admitted as a no-op (matches `T: Sized` being
-            // implicit in Rust). `?Sized` opt-out isn't expressible yet.
+            // ADR 0030 S9 row 4: C-OBL decides whether the bound holds and by
+            // which impl (obligation.hpp); this loop states the diagnostics.
             if (bound.trait_name == "Sized") continue;
-            // A RAW POINTER compares by address: Rust's core::ptr implements
-            // PartialEq / Eq / PartialOrd / Ord for `*const T` / `*mut T`. The
-            // lang items of logos.lang.cmp, by identity.
-            if (cv.kind() == LogosType::Kind::Ptr &&
-                (trait_key_is_lang_item(btn, "eq") || trait_key_is_lang_item(btn, "ord")))
-                continue;
-            // `Copy` is built-in for the bitwise-copyable handle kinds: a shared
-            // reference `&T` (incl. `&dyn Trait`), a raw pointer `*const/*mut T`,
-            // a slice `&[T]`, a fn pointer, and a trait-object fat pointer — none
-            // need an explicit `impl Copy`. `&mut T` is an exclusive (move-only)
-            // borrow and is NOT Copy (falls through → impl lookup → error, as in
-            // Rust). Concrete `impl Copy for <T>` types are handled below.
-            if (bound_is_copy_lang_item(bound.trait_name,
-                                        bound.canonical_trait)) {
-                auto ck = cv.kind();
-                if (ck == LogosType::Kind::Ref ||
-                    ck == LogosType::Kind::Ptr ||
-                    ck == LogosType::Kind::Slice ||
-                    LogosType::is_fn_value_kind(ck) ||
-                    ck == LogosType::Kind::TraitObject)
-                    continue;
-            }
-            // G158-6: a `where &T: Trait` bound (on_ref_subject) is satisfied by
-            // an `impl Trait for &Concrete` (registered under `$ref_<C>` /
-            // `$mut_ref_<C>`), NOT `impl Trait for Concrete`. Check that impl
-            // key instead of the plain one below.
-            if (bound.on_ref_subject) {
-                std::string rk = (bound.is_ref_mut ? "$mut_ref_" : "$ref_") + concrete_str;
-                if (has_impl(bid, rk)) continue;
-                if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
-                error(std::format("'{}': type '{}{}' does not implement trait '{}' "
-                                  "required by parameter '&{}'{}",
-                      target_name, bound.is_ref_mut ? "&mut " : "&", concrete_str,
-                      bound.trait_name, tp.name, bound_lookup_ground(bound)));
-                continue;
-            }
-            // Auto trait: synthesize satisfaction from field types.
-            // #438: the trait this bound denotes, by identity. The auto-trait
-            // engine still matches lang names (Send / Sync / Unpin / Fst) and
-            // the raw impl keys, so it is asked by the trait's own NAME.
-            auto* trit = trait_info(bound.trait_def);
-            if (trit && trit->is_auto) {
-                StrSet visited;
-                last_offender_ = {};
-                if (is_auto_trait_satisfied(concrete, trit->name, visited)) continue;
-                if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
-                if (!last_offender_.field_name.empty()) {
-                    error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
-                                      "(field '{}' of type '{}' is not {})",
-                          target_name, concrete_str, bound.trait_name,
-                          last_offender_.field_name,
-                          last_offender_.field_ty ? type_str(last_offender_.field_ty) : "?",
-                          bound.trait_name));
-                } else {
-                    // Bug 5 fix: say "not inherently Send/Sync" rather than always
-                    // blaming raw pointers — Closures, TraitObjects, etc. also reach here.
-                    error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
-                                      "(type is not inherently {})",
-                          target_name, concrete_str, bound.trait_name, bound.trait_name));
-                }
-                continue;
-            }
-            const DefId bid_def = impl_trait_id(bid);
-            const ImplKey key1{bid_def, concrete_str};
-            const ImplKey key2 = unwrapped_name.empty() ? ImplKey{}
-                                                        : ImplKey{bid_def, unwrapped_name};
-            // Parametrized bound `T: Trait<Args>`: the impls_ registry is keyed
-            // `Trait::Self` and SINGLE-valued, so a Self-name hit proves only that
-            // SOME `Trait` impl exists — NOT one with the right type-args (a type
-            // can impl `From<i32>` AND `From<i16>`, or `Iterator<&T>` where the
-            // bound wants `Iterator<i32>`). `type_args_ok` = does ANY impl for
-            // this Self (enumerated via the multi-valued impls_all_) match the
-            // bound's type-args, after substituting the impl's params from the
-            // concrete Self? When false, the name-keyed acceptance paths below
-            // (direct, generic-struct, tuple, alias) must NOT accept — only a
-            // blanket can. Empty bound.type_args = no constraint (true). Closes
-            // the hole where `I: Iterator<i32>` was satisfied by `Iterator<&i32>`.
-            // Substitute the call's type-params into the bound's type-args so a
-            // bound `Iterator<T>` is checked against T's CONCRETE value (e.g.
-            // turbofish `T=i32`) rather than the bare TypeVar. Without this the
-            // mtv-defer below would punt to mono and miscompile.
             std::vector<TypeRef> bound_targs;
             bound_targs.reserve(bound.type_args.size());
             for (auto& ta : bound.type_args)
-                bound_targs.push_back(ta ? subst_type_sema(TypeRef(ta), call_subst)
-                                         : TypeRef(ta));
-            bool type_args_ok = bound_targs.empty();
-            if (!type_args_ok) {
-                std::function<bool(TypeRef)> mtv = [&](TypeRef t) -> bool {
-                    if (!t) return false;
-                    if (t.kind() == LogosType::Kind::TypeVar) return true;
-                    // A still-unbound CONST param (`impl<const N, …> Trait<…, N>
-                    // for W<N, …>` matched against `W<2, …>`) is abstract in
-                    // exactly the TypeVar sense — undecidable here, validated
-                    // at monomorphization. Without this the concrete const arg
-                    // compared against the impl's ConstVar and every
-                    // const-parameterized generic impl failed its bound.
-                    if (t.kind() == LogosType::Kind::ConstVar) return true;
-                    if (t.pointee() && mtv(t.pointee())) return true;
-                    if (t.elem() && mtv(t.elem()))       return true;
-                    for (auto a : t.type_args())   if (mtv(a)) return true;
-                    for (auto e : t.tuple_elems()) if (mtv(e)) return true;
-                    return false;
-                };
-                auto matches = [&](const SemaImplInfo& info) -> bool {
-                    if (info.trait_type_args.size() < bound_targs.size())
-                        return false;
-                    SemaSubst sub;
-                    if (info.target_typeref)
-                        unify_types(info.target_typeref, concrete, sub);
-                    for (size_t k = 0; k < bound_targs.size(); ++k) {
-                        TypeRef ba = bound_targs[k];
-                        TypeRef ia = info.trait_type_args[k];
-                        if (ia) ia = subst_type_sema(ia, sub);
-                        if (!ba || !ia) continue;
-                        // Either side still abstract → undecidable here; defer
-                        // (mono re-checks the concrete instantiation).
-                        if (mtv(ba) || mtv(ia)) continue;
-                        if (!types_equal(ba, ia)) return false;
-                    }
-                    return true;
-                };
-                // Enumerate under key1/key2 (concrete + unwrapped names) AND the
-                // BARE struct/enum name — a generic impl `impl<T> Trait<…> for
-                // Foo<T>` registers under `Trait::Foo` (bare), not the mangled
-                // `Trait::Foo$G1$i32`, so the generic-struct acceptance path keys
-                // on the bare name; mirror that here.
-                ImplKey key_bare{};
-                if (cv.kind() == LogosType::Kind::Struct ||
-                    cv.kind() == LogosType::Kind::ZonedStruct) {
-                    if (!cv.struct_name().empty())
-                        key_bare = ImplKey{bid_def, std::string(cv.struct_name())};
-                } else if (cv.kind() == LogosType::Kind::Enum) {
-                    if (!cv.enum_name().empty())
-                        key_bare = ImplKey{bid_def, std::string(cv.enum_name())};
-                }
-                const ImplKey* cands[] = {&key1, &key2, &key_bare};
-                for (const ImplKey* kp : cands) {
-                    if (!kp->trait_def || kp->target.empty()) continue;
-                    auto it = impls_all_.find(*kp);
-                    if (it == impls_all_.end()) continue;
-                    for (auto& info : it->second)
-                        if (matches(info)) { type_args_ok = true; break; }
-                    if (type_args_ok) break;
-                }
-            }
+                bound_targs.push_back(ta ? subst_type_sema(TypeRef(ta), call_subst) : TypeRef(ta));
+            obl::FnSig sig;
+            for (auto p : bound.fn_params) sig.params.push_back(p ? subst_type_sema(p, call_subst) : p);
+            sig.ret = bound.fn_ret ? subst_type_sema(bound.fn_ret, call_subst) : TypeRef{};
+            const bool has_sig = bound.is_fn_family && (!bound.fn_params.empty() || bound.fn_ret);
+            // `where &T: Tr`: the subject is the reference.
+            const TypeRef subject = bound.on_ref_subject ? make_ref(bound.is_ref_mut, concrete) : concrete;
+            const obl::Selection sel = obl::select(obl_table_now_(), obl_env_(), bound_identity_(bound), subject,
+                                                   bound_targs, has_sig ? &sig : nullptr);
             // B62/B63: region check — bound's universally-quantified lifetimes
             // must satisfy two properties when matched against an impl's
             // trait-arg lifetimes:
@@ -1591,52 +1427,12 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 }
                 return true;
             };
-            {
-                const SemaImplInfo* found = nullptr;
-                auto i1 = impls_.find(key1);
-                if (i1 != impls_.end()) found = &i1->second;
-                else if (key2.trait_def) {
-                    auto i2 = impls_.find(key2);
-                    if (i2 != impls_.end()) found = &i2->second;
-                }
-                // SL-sl-02: `T: PartialEq` / `T: PartialOrd` accepted via
-                // existing `Eq` / `Ord` impls. Rust's hierarchy is
-                // `Eq: PartialEq` (every Eq is a PartialEq); Logos's `Eq`
-                // currently carries the methods Rust puts on PartialEq.
-                // Until the full split happens (separate Logos trait
-                // hierarchy + per-impl migration), bound-resolution
-                // treats Eq-impls as PartialEq satisfiers.
-                if (!found) {
-                    std::string alias;
-                    if (bound.trait_name == "PartialEq")    alias = "Eq";
-                    else if (bound.trait_name == "PartialOrd") alias = "Ord";
-                    if (!alias.empty()) {
-                        auto i1a = impls_.find(impl_key(alias, concrete_str));
-                        if (i1a != impls_.end()) found = &i1a->second;
-                        else if (!unwrapped_name.empty()) {
-                            auto i2a = impls_.find(impl_key(alias, unwrapped_name));
-                            if (i2a != impls_.end()) found = &i2a->second;
-                        }
-                    }
-                }
-                // A GENERIC impl answers only where its own bounds hold at the
-                // concrete type (`impl<T: Eq> Eq for &T` makes `&E: Eq` only
-                // when `E: Eq`, as rustc).
-                if (found && type_args_ok && !found->impl_type_params.empty() && found->target_typeref) {
-                    StrMap<TypeRef> ib;
-                    unify_types(found->target_typeref, concrete, ib);
-                    std::vector<TypeRef> iargs;
-                    bool all = true;
-                    for (auto& tp : found->impl_type_params) {
-                        auto it = ib.find(tp.name);
-                        if (it == ib.end() || !it->second) { all = false; break; }
-                        iargs.push_back(it->second);
-                    }
-                    if (all && !type_bounds_satisfied_quiet(target_name, found->impl_type_params, iargs))
-                        found = nullptr;
-                }
-                if (found && type_args_ok) {
-                    if (region_ok(*found)) continue;
+            if (sel.holds()) {
+                // The lifetime half of an impl's selection (B62/B63/B85): the
+                // bound's quantified regions against the impl's trait arguments.
+                const SemaImplInfo* found = sel.kind == obl::Kind::Impl && sel.impl
+                                                ? obl_infos_[sel.impl->source] : nullptr;
+                if (found && !region_ok(*found)) {
                     std::string binders_str;
                     if (!bound.hrtb_binders.empty()) {
                         binders_str = " for<";
@@ -1658,405 +1454,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                         binders_str));
                     continue;
                 }
-            }
-            // Blanket-impl satisfaction: a `impl<T: X> bound.trait for T`
-            // makes every `T: X` automatically implement the bound trait.
-            bool via_blanket = false;
-            for (auto& bi : blanket_impls_) {
-                if (!blanket_implements(bi, bid)) continue;
-                auto bound_satisfied = [&](const std::string& bt) {
-                    // A blanket's own bound may be an AUTO trait (Fst/Send/…) —
-                    // the string-recursive impl lookup can't see structural
-                    // satisfaction, so consult the auto engine first.
-                    auto* tit = resolve_trait(bt);
-                    if (tit && tit->is_auto) {
-                        logos::compiler::StrSet av;
-                        return is_auto_trait_satisfied(concrete, tit->name, av);
-                    }
-                    logos::compiler::StrSet seen;
-                    return sema_has_impl_recursive(bt, concrete_str, unwrapped_name, seen);
-                };
-                // Unbounded blanket (`impl<T> Trait for T {}`) trivially satisfies
-                // every concrete type. Bounded blanket: primary + all extras must hold.
-                if (!bi.bound_trait.empty() && !bound_satisfied(bi.query_bound_trait()))
-                    continue;
-                bool all_extra = true;
-                for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei)
-                    if (!bound_satisfied(bi.query_extra_bound(ei))) { all_extra = false; break; }
-                if (!all_extra) continue;
-                // ADR 0008: assoc-type equality clauses must hold.
-                if (!assoc_eqs_satisfied(bi.bound_trait, concrete_str,
-                                          unwrapped_name, bi.primary_assoc_eqs)) continue;
-                bool extra_eqs_ok = true;
-                for (auto& [trait, eqs] : bi.extra_assoc_eqs)
-                    if (!assoc_eqs_satisfied(trait, concrete_str,
-                                              unwrapped_name, eqs)) { extra_eqs_ok = false; break; }
-                if (extra_eqs_ok) { via_blanket = true; break; }
-            }
-            if (via_blanket) continue;
-            // Generic-struct impl: `impl<T: X> Trait for GenericStruct<T>`
-            // registers under the base name ("GenericStruct").  Accept the
-            // bound satisfaction if a generic impl for the concrete's base
-            // struct exists; the impl's own type-param bounds are validated
-            // at monomorphization time by recursive check_type_bounds.
-            if ((cv.kind() == LogosType::Kind::Struct ||
-                 cv.kind() == LogosType::Kind::ZonedStruct) &&
-                !cv.struct_name().empty()) {
-                if (type_args_ok && impls_.count(ImplKey{bid_def, std::string(cv.struct_name())})) continue;
-            }
-            // A generic impl answers only where its own bounds hold at the
-            // concrete type: its parameters bound by unifying its target
-            // pattern with the type, then the bounds asked quietly.
-            auto generic_impl_holds = [&](const std::string& key) -> bool {
-                auto rit = impls_.find(ImplKey{bid_def, key});
-                if (rit == impls_.end()) return false;
-                const SemaImplInfo& ri = rit->second;
-                if (ri.impl_type_params.empty() || !ri.target_typeref) return true;
-                StrMap<TypeRef> ib;
-                unify_types(ri.target_typeref, concrete, ib);
-                std::vector<TypeRef> iargs;
-                for (auto& tp : ri.impl_type_params) {
-                    auto it = ib.find(tp.name);
-                    if (it == ib.end() || !it->second) return true;   // a const / unbound param: not decidable here
-                    iargs.push_back(it->second);
-                }
-                return type_bounds_satisfied_quiet(target_name, ri.impl_type_params, iargs);
-            };
-            // Slice-impl bound satisfaction (the Sized-partition pattern):
-            // `impl<E: …> Trait for [E]` registers under `$slice$T` (concrete
-            // elem impls under `$slice$<elem>`). A concrete [u8] satisfies
-            // the bound through either key; the impl's own element bounds
-            // are validated at monomorphization like the generic-struct and
-            // tuple paths below.
-            if ((cv.kind() == LogosType::Kind::Slice ||
-                 cv.kind() == LogosType::Kind::UnsizedSlice) && type_args_ok) {
-                TypeRef selem = cv.elem();
-                if (impls_.count(ImplKey{bid_def, "$slice$" +
-                        (selem ? type_str(selem) : std::string("?"))})) continue;
-                if (generic_impl_holds("$slice$T")) continue;
-            }
-            // Array-impl bound satisfaction, the same way: any of the
-            // `$array$` keys; element bounds validate at monomorphization.
-            if (cv.kind() == LogosType::Kind::Array && type_args_ok) {
-                bool found = false;
-                for (auto& k : array_impl_lookup_keys(cv))
-                    if (generic_impl_holds(k)) { found = true; break; }
-                if (found) continue;
-            }
-            // `impl<T: …> Trait for &T` / `&mut T` (keyed `$ref_$T` /
-            // `$mut_ref_$T`): a reference of that kind whose REFERENT meets the
-            // impl's own bounds (`impl<T: Eq> Eq for &T`: `&E: Eq` iff `E: Eq`,
-            // as rustc) — asked here, there being no later stage that would.
-            if ((cv.kind() == LogosType::Kind::Ref || cv.kind() == LogosType::Kind::MutRef) && type_args_ok &&
-                generic_impl_holds(cv.kind() == LogosType::Kind::MutRef ? "$mut_ref_$T" : "$ref_$T"))
                 continue;
-            // SL-sl-08 follow-up: tuple-impl bound satisfaction. Tuples
-            // are registered under `$tuple$N` (generic, mirrors the
-            // `$tuple$N$<t1>$<t2>…` concrete form). Recognise both.
-            // The element-level bounds (A: X for elem 0, B: X for elem 1)
-            // are checked recursively below by the same machinery as
-            // generic-struct impls — at monomorphisation time.
-            // Variadic form `impl<A...> Trait for (A...)` registers under
-            // `$tuple$variadic` — accept any tuple arity.
-            if (cv.kind() == LogosType::Kind::Tuple && type_args_ok) {
-                if (impls_.count(ImplKey{bid_def, "$tuple$variadic"})) continue;
-                size_t arity = cv.tuple_elems().size();
-                if (impls_.count(ImplKey{bid_def, "$tuple$" + std::to_string(arity)})) {
-                    // Recursive bound check: every element must itself
-                    // implement bound.trait (matches the impl's
-                    // `<A: trait, B: trait, …>` qualifiers).
-                    bool all_elems_ok = true;
-                    for (auto e : cv.tuple_elems()) {
-                        if (!e) continue;
-                        // Skip TypeVar elements — checked at mono time.
-                        if (TypeRef(e).kind() == LogosType::Kind::TypeVar)
-                            continue;
-                        std::vector<TypeRef> rec_args{e};
-                        // Re-enter check_type_bounds; on failure it
-                        // emits a separate diagnostic, but we want to
-                        // suppress that and just record failure here.
-                        // Simpler: peek by reusing the same key-lookup
-                        // logic against the element type.
-                        std::string e_str = type_str(e);
-                        if (impls_.count(ImplKey{bid_def, e_str})) continue;
-                        // The built-in Copy handle kinds (see the Copy arm above)
-                        // are Copy as tuple elements too: `(&i64, i64): Copy`.
-                        if (bound_is_copy_lang_item(bound.trait_name, bound.canonical_trait)) {
-                            auto ek = TypeRef(e).kind();
-                            if (ek == LogosType::Kind::Ref || ek == LogosType::Kind::Ptr ||
-                                ek == LogosType::Kind::Slice || LogosType::is_fn_value_kind(ek) ||
-                                ek == LogosType::Kind::TraitObject)
-                                continue;
-                        }
-                        // Tuple element is itself a tuple → arity key.
-                        if (TypeRef(e).kind() == LogosType::Kind::Tuple) {
-                            size_t a2 = TypeRef(e).tuple_elems().size();
-                            if (impls_.count(ImplKey{bid_def, "$tuple$" + std::to_string(a2)}))
-                                continue;
-                        }
-                        // Auto trait short-circuit.
-                        auto* tit2 = trait_info(bound.trait_def);
-                        if (tit2 && tit2->is_auto) {
-                            StrSet visited;
-                            if (is_auto_trait_satisfied(e, tit2->name, visited))
-                                continue;
-                        }
-                        all_elems_ok = false;
-                        break;
-                    }
-                    if (all_elems_ok) continue;
-                }
-            }
-            // Sprint 5.7c: Fn-family bound (`F: FnOnce(args) -> R`)
-            // satisfied by a closure or fn-pointer type WHOSE SIGNATURE
-            // MATCHES — arity / arg types / return type are checked below
-            // (#115; they were checked nowhere before). When F resolves to
-            // FnPtr at mono time, the
-            // ClosureCall LIR op rewrites to FnPtrCall in mono_clone.
-            if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
-                                       LogosType::is_fn_value_kind(cv.kind()))) {
-                // Fn-family kind check (Rust E0525): a closure that MUTATES a
-                // capture doesn't implement `Fn`; one that MOVES OUT a capture
-                // implements only `FnOnce`. Fn pointers capture nothing → always
-                // Fn-kind. An unrecorded closure is read-only (Fn). Required
-                // levels: Fn=0, FnMut=1, FnOnce=2; the closure's inferred kind
-                // must not exceed it.
-                if (cv.kind() == LogosType::Kind::Closure) {
-                    int req = (bound.trait_name == "Fn")    ? 0
-                            : (bound.trait_name == "FnMut") ? 1 : 2;
-                    // #90 CLOSED HERE, AND THE NOTE THIS REPLACES WAS TRUE WHEN IT WAS
-                    // WRITTEN. It said the literal's identity "cannot be recovered
-                    // here" and that the repair "reaches make_closure_type, mono and
-                    // the mangler" — true of a type that carried nothing. Since the
-                    // literal's type states its own Fn-family (FN_FAMILY_SHIFT), the
-                    // identity IS here, on `cv`, and the repair is to ASK IT. No mono,
-                    // no mangler, no ABI.
-                    // What the signature-keyed map did instead: it is a MAX over every
-                    // literal of one signature, so
-                    //     let mut h = || -> i64 { n = n + 1i64; return n; };
-                    //     let k = || -> i64 { return 9i64; };
-                    //     apply_val(k)
-                    // refused `k` — "its body mutates a capture" — for `h`'s mutation.
-                    // Deleting `h` admitted the same program: MEASURED both ways.
-                    // The map is still consulted when the type states NOTHING,
-                    // and there the signature key is the only key there is.
-                    // The four signature-SYNTHESIS callers of make_closure_type mint
-                    // `Unstated` — a type built from a BOUND or a FORMAL, never from a
-                    // literal, so it has no literal identity to be keyed by and the
-                    // over-refusal #90 named cannot arise through it: the MAX is taken
-                    // over a population whose members are indistinguishable by
-                    // construction. A carried decision, not an open defect; it retires
-                    // with the map itself at ADR 0029 S6.
-                    int ck;
-                    if (cv.closure_fn_family() != TypeRef::FnFamily::Unstated) {
-                        ck = int(cv.closure_fn_family()) - 1;   // Fn=1.. -> 0..
-                    } else {
-                        // KEY-IDENTITY: a carried decision — see just above. The
-                        // `Unstated` population is built from BOUNDS and FORMALS,
-                        // never from literals, so its members carry no identity to
-                        // be keyed by and #90's over-refusal cannot arise through
-                        // it. Retires with the map at ADR 0029 S6.
-                        auto kit = closure_kind_.find(type_str(cv));
-                        ck = (kit == closure_kind_.end()) ? 0 : kit->second;
-                    }
-                    if (ck > req)
-                        error(std::format(
-                            "closure does not implement `{}`: its body {} a "
-                            "captured variable, so it is `{}`",
-                            bound.trait_name,
-                            ck == 2 ? "moves out (consumes)" : "mutates",
-                            ck == 2 ? "FnOnce" : "FnMut"));
-                }
-                // #115 — THE SIGNATURE, NOT ONLY THE CALLABILITY.
-                // The comment two paragraphs up claimed "Arity / arg-type /
-                // ret-type compatibility is enforced at the call site
-                // (lower_call synthesises a callable type from the bound)".
-                // MEASURED at 93e123df, it is not enforced ANYWHERE:
-                //   `it.find::<fn(Pay) -> bool>(consuming)` against
-                //   `FindFn: FnMut(&Item) -> bool`  -> admitted, rc 134
-                //   `find::<fn(Pay, i64) -> bool>`  (arity)  -> admitted
-                //   `find::<fn(&Pay) -> i64>`       (return) -> admitted
-                // and the turbofish is NOT the hatch — the inferred spelling
-                // `it.find(consuming)` is admitted identically. Only
-                // CALLABILITY was checked (`i64` is refused; any callable of
-                // any shape is accepted). Handing a callee that declared
-                // `Pay` by value a `&Pay` is a type confusion; the double
-                // free is only its most visible symptom.
-                //
-                // Checked here, where the bound and the supplied type meet.
-                // DECIDABILITY: the declared signature may mention type
-                // params (`FnMut(&Item) -> bool`); substitute THIS call's
-                // args and check only when nothing TypeVar-shaped survives —
-                // otherwise defer to mono exactly as the subject type does
-                // (`mentions_tv` above). A bound written without parentheses
-                // (`F: FnMut`) carries no signature and is not checked; that
-                // is the stated limit of this arm.
-                // NOT GENERAL ENOUGH (rustc E0631-class, issue-74400): the
-                // bound's parameter `&T` is elided, so higher-ranked, while its
-                // result is a bare type parameter `S` fixed OUTSIDE the binder;
-                // a callable returning (a borrow from) that very parameter
-                // would need `S` to name the per-call region. Independent of
-                // what `T` is, so it is decided before the TypeVar exit below.
-                if (!bound.fn_params.empty() || bound.fn_ret) {
-                    std::function<bool(TypeRef)> tv_in = [&](TypeRef t) -> bool {
-                        if (!t) return false;
-                        if (t.kind() == LogosType::Kind::TypeVar) return true;
-                        if (t.pointee() && tv_in(t.pointee())) return true;
-                        if (t.elem()    && tv_in(t.elem()))    return true;
-                        for (auto a : t.type_args())      if (tv_in(a)) return true;
-                        for (auto e : t.tuple_elems())    if (tv_in(e)) return true;
-                        for (auto q : t.closure_params()) if (tv_in(q)) return true;
-                        if (t.closure_ret() && tv_in(t.closure_ret())) return true;
-                        return false;
-                    };
-                    bool decidable = true;
-                    std::vector<TypeRef> want;
-                    for (auto pt : bound.fn_params) {
-                        TypeRef q = pt ? TypeRef(subst_type_sema(pt, call_subst))
-                                       : TypeRef(nullptr);
-                        if (!q || tv_in(q)) { decidable = false; break; }
-                        want.push_back(q);
-                    }
-                    TypeRef want_ret{nullptr};
-                    if (decidable && bound.fn_ret) {
-                        want_ret = TypeRef(subst_type_sema(bound.fn_ret, call_subst));
-                        if (!want_ret || tv_in(want_ret)) decidable = false;
-                    }
-                    auto got = cv.closure_params();
-                    for (auto g : got) if (!g || tv_in(TypeRef(g))) decidable = false;
-                    if (cv.closure_ret() && tv_in(TypeRef(cv.closure_ret())))
-                        decidable = false;
-                    if (decidable) {
-                        // LIFETIMES ARE NOT PART OF THIS QUESTION. An HRTB
-                        // bound renders as `Fn(&'a i32) -> &'a i32` while the
-                        // supplied fn-ptr renders as `fn(&i32) -> &i32`;
-                        // Logos has no region inference, so a raw type_str
-                        // comparison would refuse SIX green imported HRTB
-                        // fixtures (measured: hrtb-fn-family-bound,
-                        // hrtb-fn-family-stress, hrtb-fn-trait-bound,
-                        // hrtb-fnmut-via-Fn-family, hrtb-closure-arg,
-                        // fn-bound-with-where-outlives). Compare the SHAPE.
-                        auto shape = [](const std::string& t) {
-                            std::string o;
-                            for (size_t q = 0; q < t.size(); ) {
-                                if (t[q] == '\'' ) {           // 'a / 'static
-                                    ++q;
-                                    while (q < t.size() &&
-                                           (std::isalnum((unsigned char)t[q]) ||
-                                            t[q] == '_')) ++q;
-                                    while (q < t.size() && t[q] == ' ') ++q;
-                                    continue;
-                                }
-                                o += t[q++];
-                            }
-                            return o;
-                        };
-                        std::string why;
-                        if (got.size() != want.size())
-                            why = std::format(
-                                "takes {} parameter(s), the bound declares {}",
-                                got.size(), want.size());
-                        for (size_t q = 0; why.empty() && q < want.size(); ++q)
-                            if (shape(type_str(got[q])) != shape(type_str(want[q])))
-                                why = std::format(
-                                    "parameter {} is '{}', the bound declares '{}'",
-                                    q + 1, type_str(got[q]), type_str(want[q]));
-                        if (why.empty() && want_ret) {
-                            TypeRef gr = TypeRef(cv.closure_ret());
-                            std::string gs = gr ? type_str(gr) : std::string("()");
-                            if (shape(gs) != shape(type_str(want_ret)))
-                                why = std::format(
-                                    "returns '{}', the bound declares '{}'",
-                                    gs, type_str(want_ret));
-                        }
-                        if (!why.empty()) {
-                            if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
-                            std::string sig;
-                            for (size_t q = 0; q < want.size(); ++q) {
-                                if (q) sig += ", ";
-                                sig += type_str(want[q]);
-                            }
-                            error(std::format(
-                                "'{}': callable '{}' does not match the "
-                                "signature of `{}({}){}` required by "
-                                "parameter '{}': it {}",
-                                target_name, concrete_str, bound.trait_name,
-                                sig,
-                                want_ret ? " -> " + type_str(want_ret)
-                                         : std::string(),
-                                tp.name, why));
-                            continue;
-                        }
-                    }
-                }
-                continue;
-            }
-            // G158-1: `&F` / `&mut F` satisfies an Fn-family bound when the
-            // pointee is itself callable (a closure / fn-ptr, or a TypeVar
-            // bounded by Fn that resolves to one at mono). Rust's blanket
-            // `impl<F: Fn> Fn for &F`. The call through such a reference
-            // autoderef-invokes (see lower_call's fn_bound_via_ref path).
-            if (bound.is_fn_family &&
-                (cv.kind() == LogosType::Kind::Ref ||
-                 cv.kind() == LogosType::Kind::MutRef) &&
-                cv.pointee() &&
-                (TypeRef(cv.pointee()).kind() == LogosType::Kind::Closure ||
-                 LogosType::is_fn_value_kind(TypeRef(cv.pointee()).kind()) ||
-                 TypeRef(cv.pointee()).kind() == LogosType::Kind::TypeVar))
-                continue;
-            // G149-6: `impl<A,B,C> Trait for fn(A,B)->C` registers under
-            // `$fnptr$N`; a concrete fn-pointer satisfies the bound by arity.
-            if (LogosType::is_fn_value_kind(cv.kind()) &&
-                impls_.count(ImplKey{bid_def, "$fnptr$" +
-                             std::to_string(cv.closure_params().size())}))
-                continue;
-            // G158-7: a `dyn Trait` trait object satisfies a `T: Trait` bound —
-            // a trait object implements its own trait (Rust's auto rule) + any
-            // supertrait. Enables the `?Sized` generic passthrough
-            // `tick_generic<C: ?Sized + Counter>(c: &mut C)` invoked with a
-            // `&mut dyn Counter`. The downstream method dispatch (`c.tick()` on a
-            // `&mut C` that monomorphises to a trait object) is wired in
-            // mono_clone (vtable-slot resolution) + mlir-gen (ref-wrapped
-            // TraitObject dispatch).
-            if ((cv.kind() == LogosType::Kind::TraitObject ||
-                 cv.kind() == LogosType::Kind::UnsizedDyn) &&
-                !cv.trait_name().empty()) {
-                // #438: does the object's trait REACH the bound's trait, by
-                // identity — its own supertraits name what they denoted where
-                // the trait was declared.
-                std::set<DefId> seen;
-                std::function<bool(DefId)> reaches =
-                    [&](DefId d) -> bool {
-                        if (!d || !seen.insert(d).second) return false;
-                        if (d == bound.trait_def) return true;
-                        auto* it = trait_info(d);
-                        if (!it) return false;
-                        for (auto& s : it->supertraits)
-                            if (reaches(s.trait_def)) return true;
-                        return false;
-                    };
-                if (auto* dyn_ti = resolve_trait(cv.trait_name());
-                    dyn_ti && reaches(dyn_ti->def)) continue;
-            }
-            // `impl Trait for &T` / `&mut T` — a reference Self type. collect_impl
-            // registers these under `$ref_`/`$mut_ref_` mangled keys (symbol-safe:
-            // no `&` for struct pointees), but the primary key1 above used the raw
-            // type_str (`&i32`). Recompute the SAME mangling so a `T: Trait` bound
-            // with T = `&Concrete` is satisfied. General — covers every
-            // `impl Trait for &ConcreteType` (e.g. `Ord for &i32`, the by-ref
-            // iterator `.max()`/`.min()` path), mirroring collect_impl's target
-            // mangling (struct pointee → `$ref_<Name>`; else → `$ref_<type_str>`).
-            if (cv.kind() == LogosType::Kind::Ref ||
-                cv.kind() == LogosType::Kind::MutRef) {
-                std::string pfx = (cv.kind() == LogosType::Kind::MutRef)
-                                      ? "$mut_ref_" : "$ref_";
-                TypeRef pt = cv.pointee();
-                std::string mangled =
-                    (pt && (TypeRef(pt).kind() == LogosType::Kind::Struct ||
-                            TypeRef(pt).kind() == LogosType::Kind::ZonedStruct))
-                        ? pfx + concrete_struct_name(pt)
-                        : pfx + concrete_str;
-                if (has_impl(bid, mangled)) continue;
             }
             // ADR 0021 Phase 4a: a factory-backed metaclass marker's trait
             // impl is GENERATED by the mono→factory drain, which runs after
@@ -2069,6 +1467,78 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 continue;
             }
             if (bounds_probe_) { bounds_probe_ok_ = false; continue; }
+            // Why not, in the bound's own words.
+            if (bound.on_ref_subject) {
+                error(std::format("'{}': type '{}{}' does not implement trait '{}' "
+                                  "required by parameter '&{}'{}",
+                      target_name, bound.is_ref_mut ? "&mut " : "&", concrete_str,
+                      bound.trait_name, tp.name, bound_lookup_ground(bound)));
+                continue;
+            }
+            if (auto* trit = trait_info(bound.trait_def); trit && trit->is_auto) {
+                StrSet visited;
+                last_offender_ = {};
+                (void)is_auto_trait_satisfied(concrete, trit->name, visited);
+                if (!last_offender_.field_name.empty())
+                    error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
+                                      "(field '{}' of type '{}' is not {})",
+                          target_name, concrete_str, bound.trait_name,
+                          last_offender_.field_name,
+                          last_offender_.field_ty ? type_str(last_offender_.field_ty) : "?",
+                          bound.trait_name));
+                else
+                    error(std::format("'{}': type '{}' does not satisfy auto trait '{}' "
+                                      "(type is not inherently {})",
+                          target_name, concrete_str, bound.trait_name, bound.trait_name));
+                continue;
+            }
+            if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
+                                       LogosType::is_fn_value_kind(cv.kind()))) {
+                const int req = bound.trait_name == "Fn" ? 0 : bound.trait_name == "FnMut" ? 1 : 2;
+                if (cv.kind() == LogosType::Kind::Closure) {
+                    const int ck = obl_env_().closure_level(cv);
+                    if (ck > req) {
+                        error(std::format(
+                            "closure does not implement `{}`: its body {} a "
+                            "captured variable, so it is `{}`",
+                            bound.trait_name,
+                            ck == 2 ? "moves out (consumes)" : "mutates",
+                            ck == 2 ? "FnOnce" : "FnMut"));
+                        continue;
+                    }
+                }
+                // The signature (#115): the first difference, as the old arm said it.
+                const auto& env = obl_env_();
+                auto got = cv.closure_params();
+                std::string why;
+                if (got.size() != sig.params.size())
+                    why = std::format("takes {} parameter(s), the bound declares {}", got.size(),
+                                      sig.params.size());
+                for (size_t q = 0; why.empty() && q < sig.params.size(); ++q)
+                    if (!env.same_shape(got[q], sig.params[q]))
+                        why = std::format("parameter {} is '{}', the bound declares '{}'", q + 1,
+                                          type_str(got[q]), type_str(sig.params[q]));
+                if (why.empty() && sig.ret) {
+                    TypeRef gr = TypeRef(cv.closure_ret());
+                    std::string gs = gr ? type_str(gr) : std::string("()");
+                    if (!gr || !env.same_shape(gr, sig.ret))
+                        why = std::format("returns '{}', the bound declares '{}'", gs, type_str(sig.ret));
+                }
+                if (!why.empty()) {
+                    std::string sigs;
+                    for (size_t q = 0; q < sig.params.size(); ++q) {
+                        if (q) sigs += ", ";
+                        sigs += type_str(sig.params[q]);
+                    }
+                    error(std::format(
+                        "'{}': callable '{}' does not match the "
+                        "signature of `{}({}){}` required by "
+                        "parameter '{}': it {}",
+                        target_name, concrete_str, bound.trait_name, sigs,
+                        sig.ret ? " -> " + type_str(sig.ret) : std::string(), tp.name, why));
+                    continue;
+                }
+            }
             error(std::format("'{}': type '{}' does not implement trait '{}' required by parameter '{}'{}",
                   target_name, concrete_str, bound.trait_name, tp.name,
                   bound_lookup_ground(bound)));
@@ -2078,11 +1548,10 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
 
 // ADR 0030 S9 rows 3-4 (SHADOW) — the C-OBL table and environment for sema.
 const obl::ImplTable& SemaChecker::obl_table_now_() {
-    size_t n = 0;
-    for (auto& [k, v] : impls_all_) n += v.size();
-    if (n == obl_table_impls_) return obl_table_;
+    if (impls_gen_ == obl_table_gen_) return obl_table_;
     obl_table_ = {};
-    obl_table_impls_ = n;
+    obl_infos_.clear();
+    obl_table_gen_ = impls_gen_;
     obl_no_self_ = 0;
     uint32_t src = 0;
     std::unordered_set<std::string> seen;   // impls_all_ holds an impl once per collect pass
@@ -2096,6 +1565,7 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             if (info.target_type == "str" || info.target_type == "&[u8]")
                 f.self = make_slice_type(u8_t(), false);
             f.source = src++;
+            obl_infos_.push_back(&info);
             if (!f.self) { ++obl_no_self_; continue; }
             f.trait_args = info.trait_type_args;
             for (auto& tp : info.impl_type_params) {
@@ -2107,24 +1577,30 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             f.negative = info.is_negative;
             std::string key = f.trait + "|" + type_str(f.self) + (f.negative ? "|!" : "|");
             for (auto a : f.trait_args) key += type_str(a) + ",";
+            for (auto& b : f.bounds) key += "|" + b.param + ":" + b.trait;   // two blankets over one `DT`
             if (!seen.insert(key).second) continue;
             obl_table_.add(std::move(f));
         }
     return obl_table_;
 }
 
-obl::Env SemaChecker::obl_env_() {
-    obl::Env e;
+const obl::Env& SemaChecker::obl_env_() {
+    // Built once; the lang identities follow the lang-item table as collection fills it.
+    if (obl_env_cache_ && obl_env_langs_ == lang_items_.size()) return *obl_env_cache_;
     auto lid = [&](std::string_view lang) {
         const LangItem* li = lang_item(lang);
         return li ? (li->package.empty() ? li->name : li->package + "::" + li->name) : std::string();
     };
-    e.lang = {lid("copy"), lid("clone"), lid("sized"), lid("fn"), lid("fn_mut"), lid("fn_once"),
-              lid("eq"), lid("partial_eq"), lid("ord"), lid("partial_ord")};
-    const std::string sized = e.lang.sized;
-    e.param_holds = [this, sized](TypeRef tv, std::string_view trait, const std::vector<TypeRef>&) {
+    obl_env_langs_ = lang_items_.size();
+    obl::LangIds ids{lid("copy"), lid("clone"), lid("sized"), lid("fn"), lid("fn_mut"), lid("fn_once"),
+                     lid("eq"), lid("partial_eq"), lid("ord"), lid("partial_ord")};
+    if (obl_env_cache_) { obl_env_cache_->lang = std::move(ids); return *obl_env_cache_; }
+    obl_env_cache_.emplace();
+    obl::Env& e = *obl_env_cache_;
+    e.lang = std::move(ids);
+    e.param_holds = [this](TypeRef tv, std::string_view trait, const std::vector<TypeRef>&) {
         std::string n(tv.type_var_name());
-        if (trait == sized) return !current_type_relaxed_sized_.count(n);
+        if (trait == obl_env_cache_->lang.sized) return !current_type_relaxed_sized_.count(n);
         auto it = current_type_bounds_.find(n);
         if (it == current_type_bounds_.end()) return false;
         std::vector<const TraitBound*> work;
@@ -2152,9 +1628,15 @@ obl::Env SemaChecker::obl_env_() {
         for (auto& [k, v] : s) ss[k] = v;
         return subst_type_sema(t, ss);
     };
-    // Open: an unsolved inference variable, or a factory-backed metaclass marker
-    // whose impl the mono→factory drain generates after this round.
-    e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t) || factory_backed_marker_hash(t); };
+    e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t); };
+    // A closure literal's type states its family; a type synthesized from a bound
+    // or a formal does not, and the signature-keyed map is the only key there is
+    // (a carried decision, retired with the map at ADR 0029 S6).
+    e.closure_level = [this](TypeRef c) {
+        if (c.closure_fn_family() != TypeRef::FnFamily::Unstated) return int(c.closure_fn_family()) - 1;
+        auto kit = closure_kind_.find(type_str(c));
+        return kit == closure_kind_.end() ? 0 : kit->second;
+    };
     e.object_implements = [this](TypeRef obj, std::string_view trait) {
         if (TypeRef(obj).trait_name().empty()) return false;
         const SemaTraitInfo* dyn_ti = resolve_trait(TypeRef(obj).trait_name());
@@ -2188,46 +1670,22 @@ obl::Env SemaChecker::obl_env_() {
         };
         return shape(type_str(a)) == shape(type_str(b));
     };
-    std::function<bool(TypeRef)> tv_in = [&tv_in](TypeRef t) -> bool {
-        if (!t) return false;
-        if (t.kind() == LogosType::Kind::TypeVar) return true;
-        if (t.pointee() && tv_in(t.pointee())) return true;
-        if (t.elem() && tv_in(t.elem())) return true;
-        for (auto a : t.type_args()) if (tv_in(a)) return true;
-        for (auto x : t.tuple_elems()) if (tv_in(x)) return true;
-        for (auto q : t.closure_params()) if (tv_in(q)) return true;
-        return t.closure_ret() && tv_in(t.closure_ret());
+    e.mentions_tv = [](TypeRef t) {
+        struct W {
+            static bool tv(TypeRef t) {
+                if (!t) return false;
+                if (t.kind() == LogosType::Kind::TypeVar) return true;
+                if (t.pointee() && tv(t.pointee())) return true;
+                if (t.elem() && tv(t.elem())) return true;
+                for (auto a : t.type_args()) if (tv(a)) return true;
+                for (auto x : t.tuple_elems()) if (tv(x)) return true;
+                for (auto q : t.closure_params()) if (tv(q)) return true;
+                return t.closure_ret() && tv(t.closure_ret());
+            }
+        };
+        return W::tv(t);
     };
-    e.mentions_tv = [tv_in](TypeRef t) { return tv_in(t); };
     return e;
-}
-
-void SemaChecker::s9_shadow_(const TraitBound& b, TypeRef concrete, std::string_view ctx, size_t diags_before,
-                             bool probe_ok_before, const SemaSubst& call_subst) {
-    static const char* log = std::getenv("LOGOS_S9_SHADOW");
-    if (!log || !concrete) return;
-    bool old_refused = bounds_probe_ && !probe_ok_before;   // the guard passes "accepted here"
-    for (size_t i = diags_before; !old_refused && i < result_.diags.size(); ++i)
-        old_refused = result_.diags[i].level == Diag::Level::Error;
-    std::vector<TypeRef> bargs;
-    for (auto a : b.type_args) bargs.push_back(a ? subst_type_sema(a, call_subst) : a);
-    // `where &T: Tr`: the subject is the reference.
-    const TypeRef subject = b.on_ref_subject ? make_ref(b.is_ref_mut, concrete) : concrete;
-    obl::FnSig sig;
-    for (auto p : b.fn_params) sig.params.push_back(p ? subst_type_sema(p, call_subst) : p);
-    sig.ret = b.fn_ret ? subst_type_sema(b.fn_ret, call_subst) : TypeRef{};
-    const bool has_sig = b.is_fn_family && (!b.fn_params.empty() || b.fn_ret);
-    const auto sel = obl::select(obl_table_now_(), obl_env_(), bound_identity_(b), subject, bargs,
-                                 has_sig ? &sig : nullptr);
-    if (sel.holds() != old_refused) return;
-    if (FILE* f = std::fopen(log, "a")) {
-        static const char* kinds[] = {"none", "impl", "builtin", "param", "deferred", "ambiguous"};
-        std::fprintf(f, "S9\told=%s\tnew=%s\ttrait=%s\ttype=%s\tkind=%d\tctx=%.*s\tfile=%s\n",
-                     old_refused ? "refuse" : "accept", kinds[int(sel.kind)], bound_identity_(b).c_str(),
-                     type_str(concrete).c_str(), int(TypeRef(concrete).kind()), int(ctx.size()), ctx.data(),
-                     file_.c_str());
-        std::fclose(f);
-    }
 }
 
 // ADR 0020/0021: register `container` declarations (DEF and DONE) into
@@ -5970,6 +5428,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         info.self_type = impl_self_ty;
         impls_[ikey] = info;
         impls_all_[ikey].push_back(info);   // ALL impls (impls_ is last-wins)
+        ++impls_gen_;
         if (!cur_from_binary_) user_impl_keys_.insert(ikey);
         // `str` is a built-in that resolves to Slice<u8>; type_str() produces
         // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
@@ -5982,6 +5441,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
             const ImplKey akey{ikey.trait_def, "&[u8]"};
             impls_[akey] = alias;
             impls_all_[akey].push_back(alias);
+            ++impls_gen_;
         }
     }
 }

@@ -608,6 +608,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->defs                 = std::move(defs_);
     s->impls                = std::move(impls_);
     s->impls_all            = std::move(impls_all_);
+    ++impls_gen_;
     s->coherence_keys       = std::move(coherence_keys_);
     s->assoc_type_impls     = std::move(assoc_type_impls_);
     s->assoc_const_impls    = std::move(assoc_const_impls_);
@@ -800,6 +801,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     defs_                 = std::move(s->defs);
     impls_                = std::move(s->impls);
     impls_all_            = std::move(s->impls_all);
+    ++impls_gen_;
     coherence_keys_       = std::move(s->coherence_keys);
     assoc_type_impls_     = std::move(s->assoc_type_impls);
     assoc_const_impls_    = std::move(s->assoc_const_impls);
