@@ -132,19 +132,24 @@ fn dx_cell(out: &mut String, kind: str, expr: str) {
     else { out.push_str("wql_oracle_str(__od, "); out.push_str(expr); out.push_str("); "); }
 }
 
+// Soufflé's interpreter builds relations up to arity 22 (`interpreter/Util.h`,
+// FOR_EACH_BTREE) and aborts above it, so a source wider than that is outside
+// the fragment.
+fn DX_MAX_ARITY() -> i64 { return 22i64; }
+
 // The fields of a struct row type, in declaration order.
-struct DxCols { pub n: i64, pub names: [str; 16], pub tys: [str; 16] }
+struct DxCols { pub n: i64, pub names: Vec<str>, pub tys: Vec<str> }
 fn dx_struct_cols(view: &OView, tn: str) -> DxCols {
-    let mut c: DxCols = DxCols { n: 0i64, names: [""; 16], tys: [""; 16] };
+    let mut c: DxCols = DxCols { n: 0i64, names: Vec::<str>::new(), tys: Vec::<str>::new() };
     if view.holder == (0 as *mut u8) { return c; }
     let decl: WAny = find_struct_decl(view, tn);
     if decl.is_null() { return c; }
     let nf: u64 = view.ast_struct_field_count(decl);
     let mut i: u64 = 0 as u64;
-    while i < nf && c.n < 16i64 {
+    while i < nf {
         let fld: WAny = view.ast_struct_field(decl, i);
-        c.names[c.n] = reflect_field_name(view, fld);
-        c.tys[c.n] = resolve_alias_name(view, reflect_field_type_name(view, fld));
+        c.names.push(reflect_field_name(view, fld));
+        c.tys.push(resolve_alias_name(view, reflect_field_type_name(view, fld)));
         // a FIELDLESS enum this module declares is its i64 discriminant — the
         // reading the EL itself gives it (reflect.logos, `column_decl_admit`),
         // dumped with `as i64`
@@ -172,18 +177,27 @@ fn dx_fieldless_enum(view: &OView, tn: str) -> bool {
 /// What the exporter knows about each source name of the program.
 pub struct DxEnv {
     pub n: i64,
-    pub src: [str; 16],     // a source name (slice param or rel)
-    pub cn: [i64; 16],      // its column count, names and Logos types
-    pub cnames: [[str; 16]; 16],
-    pub ctys: [[str; 16]; 16],
-    pub scalars: [str; 16], // scalar param names
-    pub stys: [str; 16],    // their Soufflé types
-    pub sltys: [str; 16],   // and their Logos types
+    pub src: Vec<str>,      // a source name (slice param or rel)
+    pub cn: Vec<i64>,       // its column count, names and Logos types
+    pub cnames: Vec<Vec<str>>,
+    pub ctys: Vec<Vec<str>>,
+    pub scalars: Vec<str>,  // scalar param names
+    pub stys: Vec<str>,     // their Soufflé types
+    pub sltys: Vec<str>,    // and their Logos types
     pub ns: i64,
     // native sources left out of the fragment, and why (`dx_atom` reports it)
-    pub skn: [str; 16],
-    pub skw: [str; 16],
+    pub skn: Vec<str>,
+    pub skw: Vec<str>,
     pub nsk: i64,
+}
+
+// Add source `nm` with its columns.
+fn dx_env_add(env: &mut DxEnv, nm: str, names: Vec<str>, tys: Vec<str>) {
+    env.src.push(nm);
+    env.cn.push(names.len());
+    env.cnames.push(names);
+    env.ctys.push(tys);
+    env.n = env.n + 1i64;
 }
 
 fn dx_find(env: &DxEnv, nm: str) -> i64 {
@@ -248,16 +262,16 @@ struct DxClause {
     pub body: String,
     pub ok: bool,
     pub nv: i64,
-    pub vars: [str; 16],
-    pub vsrc: [i64; 16],
+    pub vars: Vec<str>,
+    pub vsrc: Vec<i64>,
     pub nparams: i64,
-    pub params: [str; 16],
+    pub params: Vec<str>,
     // names an aggregate head binds (`key`, the aggregate outputs) → variable
     pub nal: i64,
-    pub al_names: [str; 16],
-    pub al_vars: [str; 16],
-    pub al_tys: [str; 16],    // their Soufflé types (entry typing only)
-    pub al_kinds: [str; 16],  // their dump kinds
+    pub al_names: Vec<str>,
+    pub al_vars: Vec<str>,
+    pub al_tys: Vec<str>,     // their Soufflé types (entry typing only)
+    pub al_kinds: Vec<str>,   // their dump kinds
     // the first construct outside the fragment (`dl_export` writes it to
     // `<q>.skip`, and the gate counts the reasons)
     pub why: str,
@@ -274,9 +288,20 @@ fn dx_set(why: &mut String, w: str) -> bool {
 }
 
 fn dx_new_clause() -> DxClause {
-    return DxClause { body: String::new(), ok: true, nv: 0i64, vars: [""; 16], vsrc: [0i64; 16],
-                      nparams: 0i64, params: [""; 16], nal: 0i64, al_names: [""; 16], al_vars: [""; 16],
-                      al_tys: [""; 16], al_kinds: [""; 16], why: "" };
+    return DxClause { body: String::new(), ok: true, nv: 0i64, vars: Vec::<str>::new(), vsrc: Vec::<i64>::new(),
+                      nparams: 0i64, params: Vec::<str>::new(), nal: 0i64, al_names: Vec::<str>::new(),
+                      al_vars: Vec::<str>::new(), al_tys: Vec::<str>::new(), al_kinds: Vec::<str>::new(), why: "" };
+}
+
+// Start the clause's alias list over with `key` → `gk`.
+fn dx_alias_key(cl: &mut DxClause, ty: str, kind: str) {
+    cl.al_names.clear(); cl.al_vars.clear(); cl.al_tys.clear(); cl.al_kinds.clear();
+    cl.al_names.push("key"); cl.al_vars.push("gk"); cl.al_tys.push(ty); cl.al_kinds.push(kind);
+    cl.nal = 1i64;
+}
+fn dx_alias_add(cl: &mut DxClause, nm: str, var: str, ty: str, kind: str) {
+    cl.al_names.push(nm); cl.al_vars.push(var); cl.al_tys.push(ty); cl.al_kinds.push(kind);
+    cl.nal = cl.nal + 1i64;
 }
 
 fn dx_alias(cl: &DxClause, nm: str) -> i64 {
@@ -289,7 +314,7 @@ fn dx_alias(cl: &DxClause, nm: str) -> i64 {
 }
 
 fn dx_bind(cl: &mut DxClause, v: str, si: i64) {
-    if cl.nv < 16i64 { cl.vars[cl.nv] = v; cl.vsrc[cl.nv] = si; cl.nv = cl.nv + 1i64; }
+    cl.vars.push(v); cl.vsrc.push(si); cl.nv = cl.nv + 1i64;
 }
 
 fn dx_var_src(cl: &DxClause, v: str) -> i64 {
@@ -307,7 +332,7 @@ fn dx_note_param(cl: &mut DxClause, p: str) {
         if str_eq(cl.params[i], p) { return; }
         i = i + 1i64;
     }
-    if cl.nparams < 16i64 { cl.params[cl.nparams] = p; cl.nparams = cl.nparams + 1i64; }
+    cl.params.push(p); cl.nparams = cl.nparams + 1i64;
 }
 
 // The Soufflé variable of row var `v`'s column `c`.
@@ -605,8 +630,8 @@ fn dx_is_id(c: u8) -> bool {
 // Occurrences of `v_…` tokens: the outer scope per token, each brace scope per
 // (token, scope).
 struct DxOcc {
-    pub no: i64, pub otok: [str; 96], pub ocnt: [i64; 96],
-    pub ni: i64, pub itok: [str; 96], pub isc: [i64; 96], pub icnt: [i64; 96],
+    pub no: i64, pub otok: Vec<str>, pub ocnt: Vec<i64>,
+    pub ni: i64, pub itok: Vec<str>, pub isc: Vec<i64>, pub icnt: Vec<i64>,
 }
 
 fn dx_occ_add(o: &mut DxOcc, t: str, sc: i64) {
@@ -616,14 +641,14 @@ fn dx_occ_add(o: &mut DxOcc, t: str, sc: i64) {
             if str_eq(o.otok[i], t) { o.ocnt[i] = o.ocnt[i] + 1i64; return; }
             i = i + 1i64;
         }
-        if o.no < 96i64 { o.otok[o.no] = t; o.ocnt[o.no] = 1i64; o.no = o.no + 1i64; }
+        o.otok.push(t); o.ocnt.push(1i64); o.no = o.no + 1i64;
         return;
     }
     while i < o.ni {
         if str_eq(o.itok[i], t) && o.isc[i] == sc { o.icnt[i] = o.icnt[i] + 1i64; return; }
         i = i + 1i64;
     }
-    if o.ni < 96i64 { o.itok[o.ni] = t; o.isc[o.ni] = sc; o.icnt[o.ni] = 1i64; o.ni = o.ni + 1i64; }
+    o.itok.push(t); o.isc.push(sc); o.icnt.push(1i64); o.ni = o.ni + 1i64;
 }
 
 fn dx_occ_outer(o: &DxOcc, t: str) -> i64 {
@@ -660,8 +685,8 @@ fn dx_has_token(s: str, t: str) -> bool {
 
 fn dx_wild(cl: str) -> String {
     // pass 1: count
-    let mut o: DxOcc = DxOcc { no: 0i64, otok: [""; 96], ocnt: [0i64; 96],
-                               ni: 0i64, itok: [""; 96], isc: [0i64; 96], icnt: [0i64; 96] };
+    let mut o: DxOcc = DxOcc { no: 0i64, otok: Vec::<str>::new(), ocnt: Vec::<i64>::new(),
+                               ni: 0i64, itok: Vec::<str>::new(), isc: Vec::<i64>::new(), icnt: Vec::<i64>::new() };
     let n: i64 = cl.len();
     let mut i: i64 = 0i64;
     let mut sc: i64 = 0i64;
@@ -843,21 +868,14 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     ab.push_str("__ab_"); ab.push_str(head);
     let mut decl: String = String::new();
     decl.push_str(".decl "); decl.push_str(dx_view(&ab)); decl.push_str("(k: "); decl.push_str(kty);
-    let mut cols: [String; 64] = [String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
-                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
-                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
-                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
-                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
-                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
-                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(),
-                                  String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new(), String::new()];
+    let mut cols: Vec<String> = Vec::<String>::new();
     let mut nc: i64 = 0i64;
     let mut vi: i64 = 0i64;
     while vi < kb.nv {
         let si: i64 = kb.vsrc[vi];
         let mut k: i64 = 0i64;
         while k < env.cn[si] {
-            if nc >= 64i64 { return dx_set(why, "aggregate body wider than 20 columns"); }
+            cols.push(String::new());
             dx_push_var(&mut cols[nc], kb.vars[vi], env.cnames[si][k]);
             decl.push_str(", c"); decl.push_i64(nc); decl.push_str(": "); decl.push_str(dl_col_ty(env.ctys[si][k]));
             nc = nc + 1i64;
@@ -889,14 +907,13 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     let mut hb: String = String::new();
     hb.push_str(dx_view(&gk)); hb.push_str("(gk)");
     let mut hcl: DxClause = dx_new_clause();
-    hcl.al_names[0] = "key"; hcl.al_vars[0] = "gk"; hcl.nal = 1i64;
+    dx_alias_key(&mut hcl, "", "");
     let aggs: RQAggArr = g.aggs_arr();
     let mut i: i64 = 0i64;
     while i < aggs.len() {
         let ag: RQAgg = aggs.agg_at(i);
         let f: str = ag.fn_name;
         if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") && !str_eq(f, "avg") { return dx_set(why, "aggregate other than count/sum/min/max/avg (a user-defined aggregate)"); }
-        if hcl.nal >= 16i64 { return dx_set(why, "more than 15 aggregates"); }
         let mut argt: String = String::new();
         let mut abd: DxClause = dx_new_clause();
         let mut vj: i64 = 0i64;
@@ -934,9 +951,7 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
             ci = ci + 1i64;
         }
         hb.push_str(") }");
-        hcl.al_names[hcl.nal] = ag.name;
-        hcl.al_vars[hcl.nal] = "a_";   // rendered as a_<name>
-        hcl.nal = hcl.nal + 1i64;
+        dx_alias_add(&mut hcl, ag.name, "a_", "", "");   // rendered as a_<name>
         i = i + 1i64;
     }
     hcl.body.push_str(dx_view(&hb));
@@ -1122,11 +1137,10 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
             // `key` and the aggregate outputs, typed for `.decl __out` and the dump
             let kty: str = dx_term_ty(g.key_expr(), env, cl);
             let kkd: str = dx_term_kind(g.key_expr(), env, cl);
-            cl.al_names[0] = "key"; cl.al_vars[0] = "gk"; cl.al_tys[0] = kty; cl.al_kinds[0] = kkd;
-            cl.nal = 1i64;
+            dx_alias_key(cl, kty, kkd);
             let aggs: RQAggArr = g.aggs_arr();
             let mut a: i64 = 0i64;
-            while a < aggs.len() && cl.nal < 16i64 {
+            while a < aggs.len() {
                 let ag: RQAgg = aggs.agg_at(a);
                 let mut aty: str = "number";
                 let mut akd: str = "i";
@@ -1141,9 +1155,7 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
                     aty = "float";
                     akd = "F";
                 }
-                cl.al_names[cl.nal] = ag.name; cl.al_vars[cl.nal] = "a_";
-                cl.al_tys[cl.nal] = aty; cl.al_kinds[cl.nal] = akd;
-                cl.nal = cl.nal + 1i64;
+                dx_alias_add(cl, ag.name, "a_", aty, akd);
                 a = a + 1i64;
             }
         }
@@ -1214,7 +1226,7 @@ fn dx_slice(s: str, a: i64, b: i64) -> str {
 }
 
 fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String,
-              dump: &mut String, ddir: str, nparams: &mut [str; 16], nn: &mut i64) -> bool {
+              dump: &mut String, ddir: str, nparams: &mut Vec<str>, nn: &mut i64) -> bool {
     let n: i64 = natspec.len();
     let mut i: i64 = 0i64;
     while i < n {
@@ -1243,8 +1255,8 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
         while i < n && str_byte_at(natspec, i) != 40u8 { i = i + 1i64; }            // '('
         let marg: str = dx_slice(natspec, s3, i);
         i = i + 1i64;
-        let mut cn: [str; 16] = [""; 16];
-        let mut ct: [str; 16] = [""; 16];
+        let mut cn: Vec<str> = Vec::<str>::new();
+        let mut ct: Vec<str> = Vec::<str>::new();
         let mut nc: i64 = 0i64;
         loop {
             let c0: i64 = i;
@@ -1253,13 +1265,13 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
             i = i + 1i64;
             let t0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 44u8 && str_byte_at(natspec, i) != 41u8 { i = i + 1i64; }
-            if nc < 16i64 { cn[nc] = cname; ct[nc] = dx_slice(natspec, t0, i); nc = nc + 1i64; }
+            cn.push(cname); ct.push(dx_slice(natspec, t0, i)); nc = nc + 1i64;
             if i >= n || str_byte_at(natspec, i) == 41u8 { break; }
             i = i + 1i64;
         }
         while i < n && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }            // rest of the entry
         i = i + 1i64;
-        if *nn < 16i64 { nparams[*nn] = marg; *nn = *nn + 1i64; }
+        nparams.push(marg); *nn = *nn + 1i64;
         // left out of the fragment, with the reason `dx_atom` will give
         let mut skw: str = "";
         // ⚠ A STREAM PRODUCER IS NOT DRAINED A SECOND TIME, and that is
@@ -1269,9 +1281,9 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
         // would see only what a narrowed or early-stopping scan reads.
         if iter { skw = "native source is a stream producer (a second drain is observable)"; }
         else if marg2.len() > 0i64 { skw = "native source takes a narrowing argument"; }
-        else if env.n >= 16i64 { skw = "more than 16 sources"; }
+        else if nc > DX_MAX_ARITY() { skw = "a source wider than Soufflé's interpreter arity (22)"; }
         if skw.len() > 0i64 {
-            if env.nsk < 16i64 { env.skn[env.nsk] = reg; env.skw[env.nsk] = skw; env.nsk = env.nsk + 1i64; }
+            env.skn.push(reg); env.skw.push(skw); env.nsk = env.nsk + 1i64;
             continue;
         }
         let mut ok: bool = true;
@@ -1283,13 +1295,11 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
         while k < nc {
             if k > 0i64 { out.push_str(", "); }
             out.push_str(cn[k]); out.push_str(": "); out.push_str(dl_col_ty(ct[k]));
-            env.cnames[env.n][k] = cn[k]; env.ctys[env.n][k] = ct[k];
             k = k + 1i64;
         }
         out.push_str(")\n.input "); out.push_str(reg); out.push_str("\n");
-        env.src[env.n] = reg;
-        env.cn[env.n] = nc;
-        env.n = env.n + 1i64;
+        dx_env_add(env, reg, cn, ct);
+        let ei: i64 = env.n - 1i64;
         // the dump: the materializer again, its rows as facts
         dump.push_str("    { let __nv = "); dump.push_str(mat); dump.push_str("("); dump.push_str(marg);
         dump.push_str("); let __od: i32 = wql_oracle_open(\""); dump.push_str(ddir); dump.push_str("/");
@@ -1299,7 +1309,7 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
             if k > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
             let mut fx: String = String::new();
             if nc == 1i64 { fx.push_str("(*__nr)"); } else { fx.push_str("(__nr)."); fx.push_i64(k); }
-            dx_cell(dump, dx_kind(ct[k]), dx_view(&fx));
+            dx_cell(dump, dx_kind(env.ctys[ei][k]), dx_view(&fx));
             k = k + 1i64;
         }
         dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
@@ -1308,7 +1318,7 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
     return true;
 }
 
-fn dx_is_native_param(nparams: &[str; 16], nn: i64, nm: str) -> bool {
+fn dx_is_native_param(nparams: &Vec<str>, nn: i64, nm: str) -> bool {
     let mut i: i64 = 0i64;
     while i < nn { if str_eq(nparams[i], nm) { return true; } i = i + 1i64; }
     return false;
@@ -1317,11 +1327,11 @@ fn dx_is_native_param(nparams: &[str; 16], nn: i64, nm: str) -> bool {
 pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, dump: &mut String,
                  ddir: str, incrows: &mut String, incsnap: &mut String, why: &mut String) -> bool {
     let view: OView = oview_module_ast();
-    let mut env: DxEnv = DxEnv { n: 0i64, src: [""; 16], cn: [0i64; 16], cnames: [[""; 16]; 16],
-                                 ctys: [[""; 16]; 16], scalars: [""; 16], stys: [""; 16], sltys: [""; 16], ns: 0i64,
-                                 skn: [""; 16], skw: [""; 16], nsk: 0i64 };
+    let mut env: DxEnv = DxEnv { n: 0i64, src: Vec::<str>::new(), cn: Vec::<i64>::new(), cnames: Vec::<Vec<str>>::new(),
+                                 ctys: Vec::<Vec<str>>::new(), scalars: Vec::<str>::new(), stys: Vec::<str>::new(),
+                                 sltys: Vec::<str>::new(), ns: 0i64, skn: Vec::<str>::new(), skw: Vec::<str>::new(), nsk: 0i64 };
     // native sources first: their params are not scalars
-    let mut nparams: [str; 16] = [""; 16];
+    let mut nparams: Vec<str> = Vec::<str>::new();
     let mut nn: i64 = 0i64;
     if !dx_natives(natspec, &mut env, prm, out, dump, ddir, &mut nparams, &mut nn) { return dx_set(why, "native source spec"); }
     // params
@@ -1332,7 +1342,7 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
         } else if prm.is_slice[i] {
             let c: DxCols = dx_struct_cols(&view, prm.tys[i]);
             if c.n == 0i64 { return dx_set(why, "slice of a type with no readable columns"); }
-            if env.n >= 16i64 { return dx_set(why, "more than 16 sources"); }
+            if c.n > DX_MAX_ARITY() { return dx_set(why, "a source wider than Soufflé's interpreter arity (22)"); }
             out.push_str(".decl "); out.push_str(prm.names[i]); out.push_str("(");
             let mut k: i64 = 0i64;
             while k < c.n {
@@ -1372,20 +1382,15 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
                 kr = kr + 1i64;
             }
             incrows.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } }\n");
-            env.src[env.n] = prm.names[i];
-            env.cn[env.n] = c.n;
-            let mut kk: i64 = 0i64;
-            while kk < c.n { env.cnames[env.n][kk] = c.names[kk]; env.ctys[env.n][kk] = c.tys[kk]; kk = kk + 1i64; }
-            env.n = env.n + 1i64;
+            dx_env_add(&mut env, prm.names[i], c.names, c.tys);
         } else {
             let st: str = dl_ty(prm.tys[i]);
             if st.len() == 0i64 { return dx_set(why, "scalar parameter type"); }
-            if env.ns >= 16i64 { return dx_set(why, "more than 16 scalar parameters"); }
             out.push_str(".decl __p_"); out.push_str(prm.names[i]); out.push_str("(v: ");
             out.push_str(st); out.push_str(")\n.input __p_"); out.push_str(prm.names[i]); out.push_str("\n");
-            env.scalars[env.ns] = prm.names[i];
-            env.stys[env.ns] = st;
-            env.sltys[env.ns] = prm.tys[i];
+            env.scalars.push(prm.names[i]);
+            env.stys.push(st);
+            env.sltys.push(prm.tys[i]);
             let sk: str = dx_kind(prm.tys[i]);
             if sk.len() == 0i64 { return dx_set(why, "scalar parameter type"); }
             dump.push_str("    { let __od: i32 = wql_oracle_open(\"");
@@ -1406,21 +1411,20 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
         while r < rels.len() {
             let rel: RQRel = rels.rel_at(r);
             let rc: RQRelColArr = rel.cols_arr();
-            if env.n >= 16i64 { return dx_set(why, "more than 16 sources"); }
             out.push_str(".decl "); out.push_str(rel.name); out.push_str("(");
+            let mut rn: Vec<str> = Vec::<str>::new();
+            let mut rt: Vec<str> = Vec::<str>::new();
             let mut k: i64 = 0i64;
-            while k < rc.len() && k < 16i64 {
+            while k < rc.len() {
                 let col: RQRelCol = rc.col_at(k);
                 let ty: str = dl_col_ty(col.ty_name);
                 if k > 0i64 { out.push_str(", "); }
                 out.push_str(col.name); out.push_str(": "); out.push_str(ty);
-                env.cnames[env.n][k] = col.name; env.ctys[env.n][k] = col.ty_name;
+                rn.push(col.name); rt.push(col.ty_name);
                 k = k + 1i64;
             }
             out.push_str(")\n");
-            env.src[env.n] = rel.name;
-            env.cn[env.n] = k;
-            env.n = env.n + 1i64;
+            dx_env_add(&mut env, rel.name, rn, rt);
             r = r + 1i64;
         }
         r = 0i64;
