@@ -72,7 +72,7 @@ pub struct WqMemoCell { pub res: *const u8, pub endpos: i64, pub endline: i64 }
 pub struct WqTokCell { pub tk: i32, pub tstart: i64, pub tlen: i64, pub tline: i64, pub endpos: i64, pub endline: i64 }
 impl Copy for WqTokCell {}
 
-pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, WqMemoCell>, pub tbuf: Vec<WqTokCell>, pub far: Token }
+pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, WqMemoCell>, pub tbuf: Vec<WqTokCell>, pub far: Token, pub fan_over: bool }
 
 pub fn lexer_new(src: str) -> Lexer {
     let mut tb: Vec<WqTokCell> = vec_new::<WqTokCell>();
@@ -81,7 +81,7 @@ pub fn lexer_new(src: str) -> Lexer {
     while i <= src.len() { tb.push(sent); i = i + 1i64; }
     return Lexer { far: Token { kind: WqTK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,
         la: Token { kind: WqTK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,
-        memo: hashmap_new::<i64, WqMemoCell>(), tbuf: tb };
+        memo: hashmap_new::<i64, WqMemoCell>(), tbuf: tb, fan_over: false };
 }
 
 fn lx_is_digit(c: u8) -> bool { return c >= 48u8 && c <= 57u8; }
@@ -597,6 +597,7 @@ fn alt_rel_list_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQRelArr = doc.make::<RQRelArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
+    if alen > RQREL_MAX() { lex.fan_over = true; }
     while afi < alen && afi < RQREL_MAX() { node.set_rel(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
@@ -670,6 +671,7 @@ fn alt_rel_cols_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQRelColArr = doc.make::<RQRelColArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
+    if alen > RQRELCOL_MAX() { lex.fan_over = true; }
     while afi < alen && afi < RQRELCOL_MAX() { node.set_col(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
@@ -721,6 +723,7 @@ fn alt_rel_bodies_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQBodyArr = doc.make::<RQBodyArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
+    if alen > RQBODY_MAX() { lex.fan_over = true; }
     while afi < alen && afi < RQBODY_MAX() { node.set_body(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
@@ -967,9 +970,33 @@ fn alt_simple_query_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
+fn alt_simple_query_2(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start;
+    if lex.peek().kind != WqTK_KW_SELECT { lex.reset(sp, sln); return WqNULLP; }
+    let tk1: Token = lex.next();
+    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
+    let cap2: *const u8 = rule_sel_body(lex, doc);
+    if cap2 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    let mut cap3: *const u8 = WqNULLP;
+    {
+        let osp: i64 = lex.save_pos(); let osln: i64 = lex.save_line();
+        let sub_r: *const u8 = rule_result_clause(lex, doc);
+        if sub_r != WqNULLP { cap3 = sub_r; } else { lex.reset(osp, osln); }
+    }
+    let node: RQSimple = doc.make::<RQSimple>();
+    node.result_ty = wstr_as_str(cap3);
+    node.select = WRef::<SExpr>::from_any(hand_any(cap2));
+    node.has_result_ty = cap3 != WqNULLP;
+    return node.as_ref().raw() as *const u8;
+}
+
 fn rule_simple_query(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_simple_query_0(lex, doc); if r != WqNULLP { return r; } }
     { let r: *const u8 = alt_simple_query_1(lex, doc); if r != WqNULLP { return r; } }
+    { let r: *const u8 = alt_simple_query_2(lex, doc); if r != WqNULLP { return r; } }
     return WqNULLP;
 }
 
@@ -1608,6 +1635,7 @@ fn alt_gsteps_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQGStepArr = doc.make::<RQGStepArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
+    if alen > RQGSTEP_MAX() { lex.fan_over = true; }
     while afi < alen && afi < RQGSTEP_MAX() { node.set_gstep(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
@@ -1773,6 +1801,7 @@ fn alt_path_segs_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQPathSegArr = doc.make::<RQPathSegArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
+    if alen > RQPSEG_MAX() { lex.fan_over = true; }
     while afi < alen && afi < RQPSEG_MAX() { node.set_seg(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
@@ -1807,6 +1836,7 @@ fn alt_join_steps_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQJoinStepArr = doc.make::<RQJoinStepArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
+    if alen > RQJSTEP_MAX() { lex.fan_over = true; }
     while afi < alen && afi < RQJSTEP_MAX() { node.set_step(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
@@ -2207,6 +2237,7 @@ fn alt_agg_list_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQAggArr = doc.make::<RQAggArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
+    if alen > RQAGG_MAX() { lex.fan_over = true; }
     while afi < alen && afi < RQAGG_MAX() { node.set_agg(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
@@ -2285,13 +2316,13 @@ fn rule_agg_item(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 pub fn parse_program(src: str, doc: &Writ) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_program(&mut lex, doc);
-    if !lex.at_eof() { return unsafe { WAny::ref_to(WqNULLP) }; }
+    if !lex.at_eof() || lex.fan_over { return unsafe { WAny::ref_to(WqNULLP) }; }
     return unsafe { WAny::ref_to(root) };
 }
 pub fn parse_program_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_program(&mut lex, doc);
-    if !lex.at_eof() { *out_root = unsafe { WAny::ref_to(WqNULLP) }; return lex.far.line; }
+    if !lex.at_eof() || lex.fan_over { *out_root = unsafe { WAny::ref_to(WqNULLP) }; return lex.far.line; }
     *out_root = unsafe { WAny::ref_to(root) };
     return lex.far.line;
 }
@@ -2299,13 +2330,13 @@ pub fn parse_program_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
 pub fn parse_rel_list(src: str, doc: &Writ) -> WAny {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_rel_list(&mut lex, doc);
-    if !lex.at_eof() { return unsafe { WAny::ref_to(WqNULLP) }; }
+    if !lex.at_eof() || lex.fan_over { return unsafe { WAny::ref_to(WqNULLP) }; }
     return unsafe { WAny::ref_to(root) };
 }
 pub fn parse_rel_list_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {
     let mut lex: Lexer = lexer_new(src);
     let root: *const u8 = rule_rel_list(&mut lex, doc);
-    if !lex.at_eof() { *out_root = unsafe { WAny::ref_to(WqNULLP) }; return lex.far.line; }
+    if !lex.at_eof() || lex.fan_over { *out_root = unsafe { WAny::ref_to(WqNULLP) }; return lex.far.line; }
     *out_root = unsafe { WAny::ref_to(root) };
     return lex.far.line;
 }

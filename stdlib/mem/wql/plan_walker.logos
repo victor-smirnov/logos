@@ -282,8 +282,8 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
     if ri >= 0i64 {
         // #352: a mapping's non-`pub` rel is its internal — reachable from the
         // same mapping's rels, never from the consumer's query or rels.
-        if ri < 8i64 && prm.fused_hidden[ri] &&
-           !(cur_rel >= 0i64 && cur_rel < 8i64 && str_eq(prm.fused_mapping[cur_rel], prm.fused_mapping[ri])) {
+        if ri < 16i64 && prm.fused_hidden[ri] &&
+           !(cur_rel >= 0i64 && cur_rel < 16i64 && str_eq(prm.fused_mapping[cur_rel], prm.fused_mapping[ri])) {
             let mut m2: String = String::new();
             m2.push_str("wql!: rel `");
             m2.push_str(src);
@@ -1641,30 +1641,46 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     prm.src_root = root;
     let mut deps: RelDeps = rel_deps_new();
     let mut scc: RelScc = rel_scc_new();
-    let mut src_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut src_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
-    let mut dsrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut dsrc_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                      String::new(), String::new(), String::new(), String::new(),
+                                      String::new(), String::new(), String::new(), String::new(),
                                       String::new(), String::new(), String::new(), String::new()];
-    let mut row_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut row_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new(),
+                                     String::new(), String::new(), String::new(), String::new(),
                                      String::new(), String::new(), String::new(), String::new()];
     // Frame-held name backing for NATIVE rels (ADR 0016 M1a) — same lifetime
     // discipline as src_bufs/dsrc_bufs above.
-    let mut nat_src_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut nat_src_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                         String::new(), String::new(), String::new(), String::new(),
+                                         String::new(), String::new(), String::new(), String::new(),
                                          String::new(), String::new(), String::new(), String::new()];
     // Frame-held backing for a chosen narrowing's constant (ADR 0024 S6.3) —
     // same lifetime discipline as the buffers above.
     let mut pick_argb: String = String::new();
-    let mut nat_dsrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut nat_dsrc_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new(),
                                           String::new(), String::new(), String::new(), String::new()];
-    let mut nat_name_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut nat_name_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new(),
                                           String::new(), String::new(), String::new(), String::new()];
     // The STREAM binding names (`__rel_<r>`), same discipline again.
-    let mut nat_ssrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut nat_ssrc_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new(),
                                           String::new(), String::new(), String::new(), String::new()];
     // The SIZE binding names (`__sz_<r>`) — where a measured size lands in the
     // generated fn (ADR 0024 S4). Built in ONE place, so the plan's record and
     // the emitted prelude cannot name it differently.
-    let mut nat_szat_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut nat_szat_bufs: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new(),
+                                          String::new(), String::new(), String::new(), String::new(),
                                           String::new(), String::new(), String::new(), String::new()];
 
     if prog.has_rels() {
@@ -2505,7 +2521,7 @@ fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
 /// have to MOVE rather than be dropped. S2j moves them: the walk below is the S2h
 /// walk unchanged in every arm and every ground, and only its OUTPUT differs.
 pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
-    let pv: [bool; 8] = plan_prove_once(prm, ap);
+    let pv: [bool; 16] = plan_prove_once(prm, ap);
     // THE FALLBACK, and it is the direction that keeps this pass safe. A rel the
     // walk never reached — a source the entry query does not NAME, which the
     // prelude materializes anyway — got no node above and no proof either; it is
@@ -2591,7 +2607,7 @@ pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
 /// trace: a trace can only repeat what the declaration said.
 fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
                     sq: &RQSimple) -> bool {
-    if ri < 0i64 || ri >= 8i64 { return false; }
+    if ri < 0i64 || ri >= 16i64 { return false; }
     if prm.rel_ordcol[ri].len() == 0i64 { return false; }   // (1)
     if !ap_offers(ap, prm, ri) { return false; }            // (2)
     if sq.order_desc {                                      // (3)
@@ -2639,13 +2655,13 @@ fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
 /// So this computes the value `plan_apply_access` is going to install, from the
 /// same two inputs, rather than reading the field before it is written.
 fn ap_effective_batch(prm: &MacroParams, ap: &AccessPlan, ri: i64) -> bool {
-    if ri < 0i64 || ri >= 8i64 { return false; }
+    if ri < 0i64 || ri >= 16i64 { return false; }
     if ap.op[ri] >= 0i64 { return prm.opc_batch[ap.op[ri]]; }
     return prm.rel_batch[ri];
 }
 
-fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
-    let mut pv: [bool; 8] = [false; 8];
+fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 16] {
+    let mut pv: [bool; 16] = [false; 16];
     if prm.src_root.is_null() { return pv; }
     let prog: RQProgram = prm.src_root.view::<RQProgram>();
     // A parse-side rel body may scan a native rel any number of times, and the
@@ -2709,7 +2725,7 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
             let steps: RQJoinStepArr = jq.steps_arr();
             let ns: i64 = steps.len();
             // How many times does the chain NAME each rel?
-            let mut cnt: [i64; 8] = [0i64; 8];
+            let mut cnt: [i64; 16] = [0i64; 16];
             if bi >= 0i64 { cnt[bi] = cnt[bi] + 1i64; }
             let mut c: i64 = 0i64;
             while c < ns {
@@ -3071,14 +3087,14 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
 }
 
 fn register_native_rels(prm: &mut MacroParams, natspec: str,
-                        srcb: &mut [String; 8], dsrcb: &mut [String; 8],
-                        rowtyb: &mut [String; 8], ssrcb: &mut [String; 8],
-                        szatb: &mut [String; 8]) -> bool {
+                        srcb: &mut [String; 16], dsrcb: &mut [String; 16],
+                        rowtyb: &mut [String; 16], ssrcb: &mut [String; 16],
+                        szatb: &mut [String; 16]) -> bool {
     let n: i64 = natspec.len();
     let mut i: i64 = 0i64;
     let mut k: i64 = 0i64;
     while i < n {
-        if k >= 8i64 || prm.rel_n >= 8i64 {
+        if k >= 16i64 || prm.rel_n >= 16i64 {
             error("wql!: too many rels (max 8, native source params included)");
             return false;
         }

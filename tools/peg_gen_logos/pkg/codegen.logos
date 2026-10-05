@@ -1318,9 +1318,9 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // [0, src.len()]), not a HashMap — no hash / slot-probe / key-compare per peek.
     // endpos < 0 is the "not yet lexed" sentinel.
     if cg.uses_raw_text {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token }");
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub fan_over: bool }");
     } else {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token }");
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub fan_over: bool }");
     }
     w.blank();
     w.line("pub fn lexer_new(src: str) -> Lexer {");
@@ -1335,11 +1335,11 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     if cg.uses_raw_text {
         w.line("    return Lexer { far: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,");
         w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false, in_tag: false,");
-        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
+        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb, fan_over: false };");
     } else {
         w.line("    return Lexer { far: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,");
         w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
-        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
+        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb, fan_over: false };");
     }
     w.line("}");
     w.blank();
@@ -3937,12 +3937,17 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
         // Fan-out: spread an ARRAY_CAPTURE ($...) of child edges into the fixed
         // slots via a `&mut self` setter + set_len (the SExprArr / RQWithArr /
         // RQAggArr write API). The collected edges are in `rcap` (a WArray<WAny> of
-        // `WAny::ref_to(edge)` handles) — exactly what the setter expects. Items
-        // beyond the arity cap are dropped (matching el.logos parse_arglist).
+        // `WAny::ref_to(edge)` handles) — exactly what the setter expects. More
+        // items than the slots hold is a PARSE ERROR (`lex.fan_over`, checked by
+        // every entry): dropping them silently made the 9th rel an "unknown
+        // source" and the 9th aggregate an undefined variable in generated code.
         let method: String = fan_method(ftype);
         let maxfn: String = fan_maxfn(ftype);
         w.line("let mut afi: i64 = 0i64;");
         w.line("let alen: i64 = rcap.len();");
+        let mut ov: String = String::new();
+        ov.push_str("if alen > "); ov.push_str(maxfn.as_str()); ov.push_str("() { lex.fan_over = true; }");
+        w.line(ov.as_str());
         let mut cl: String = String::new();
         cl.push_str("while afi < alen && afi < "); cl.push_str(maxfn.as_str());
         cl.push_str("() { ");
@@ -4266,7 +4271,7 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             // A PEG rule can partial-match (e.g. `expr` matches `a` in `a +`,
             // leaving `+`); the hand parsers rejected trailing junk, so a
             // non-EOF remainder is a parse error → null root.
-            w.line("    if !lex.at_eof() { return WAny::ref_to(NULLP); }");
+            w.line("    if !lex.at_eof() || lex.fan_over { return WAny::ref_to(NULLP); }");
             w.line("    return WAny::ref_to(root);");
             w.line("}");
             // The _far twin: identical parse, but reports the FURTHEST line the
@@ -4280,7 +4285,7 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             w.l3("pub fn parse_", e.as_str(), "_far(src: str, doc: &Writ, out_root: &mut WAny) -> i64 {");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
-            w.line("    if !lex.at_eof() { *out_root = WAny::ref_to(NULLP); return lex.far.line; }");
+            w.line("    if !lex.at_eof() || lex.fan_over { *out_root = WAny::ref_to(NULLP); return lex.far.line; }");
             w.line("    *out_root = WAny::ref_to(root);");
             w.line("    return lex.far.line;");
             w.line("}");
@@ -4289,6 +4294,7 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             w.line("    let doc: Writ = writ_new(1048576i64);");
             w.line("    let mut lex: Lexer = lexer_new(src);");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, &doc);");
+            w.line("    if lex.fan_over { doc.set_root(WAny::ref_to(NULLP)); return doc; }");
             w.line("    doc.set_root(WAny::ref_to(root));");
             w.line("    return doc;");
             w.line("}");

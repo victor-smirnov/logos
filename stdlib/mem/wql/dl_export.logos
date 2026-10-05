@@ -1429,6 +1429,17 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
             let bodies: RQBodyArr = rel2.bodies_arr();
             let mut b: i64 = 0i64;
             while b < bodies.len() {
+                // Soufflé rejects an aggregate inside its own recursion ("cyclic
+                // aggregation"); Deem evaluates a recursive min/max as a
+                // semilattice fixpoint (wql_rel_wide_e2e::hops).
+                match bodies.body_any(b).view::<RQuery>() {
+                    RQuery::Aggr(_g) => {
+                        if body_reads_its_head(root, bodies.body_any(b), rel2.name) {
+                            return dx_set(why, "recursive aggregate (Soufflé rejects cyclic aggregation)");
+                        }
+                    }
+                    _ => { }
+                }
                 if !dx_clause(bodies.body_any(b), rel2.name, rel2.cols_arr().len(), &env, out, why) { return false; }
                 b = b + 1i64;
             }

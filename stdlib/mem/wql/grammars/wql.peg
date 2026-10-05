@@ -201,7 +201,7 @@
     RQRel         : code(0x0012_0000_0000_0016) cap(3) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2 }
     RQRelCol      : code(0x0012_0000_0000_0014) cap(2) { name: "str" = 0, ty_name: "str" = 1 }
     RQRelColArr   : code(0x0012_0000_0000_0015) cap(9) { count: "i32" = 0, cols: "fan set_col RQRELCOL_MAX 8" = 1 }
-    RQRelArr      : code(0x0012_0000_0000_0017) cap(9) { count: "i32" = 0, rels: "fan set_rel RQREL_MAX 8" = 1 }
+    RQRelArr      : code(0x0012_0000_0000_0017) cap(17) { count: "i32" = 0, rels: "fan set_rel RQREL_MAX 16" = 1 }
     RQBodyArr     : code(0x0012_0000_0000_0018) cap(9) { count: "i32" = 0, bodies: "fan set_body RQBODY_MAX 8" = 1 }
 }
 

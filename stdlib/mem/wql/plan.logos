@@ -610,9 +610,17 @@ pub schema RQRelArr : code(0x0012_0000_0000_0017) {
     r5: WRef<RQRel> = 6,
     r6: WRef<RQRel> = 7,
     r7: WRef<RQRel> = 8,
+    r8: WRef<RQRel> = 9,
+    r9: WRef<RQRel> = 10,
+    r10: WRef<RQRel> = 11,
+    r11: WRef<RQRel> = 12,
+    r12: WRef<RQRel> = 13,
+    r13: WRef<RQRel> = 14,
+    r14: WRef<RQRel> = 15,
+    r15: WRef<RQRel> = 16,
 }
 
-pub fn RQREL_MAX() -> i64 { return 8i64; }
+pub fn RQREL_MAX() -> i64 { return 16i64; }
 
 impl RQRelArr {
     pub fn len(self: &RQRelArr) -> i64 { return self.count as i64; }
@@ -628,7 +636,15 @@ impl RQRelArr {
         if i == 4i64 { return self.r4.any().raw() as i64; }
         if i == 5i64 { return self.r5.any().raw() as i64; }
         if i == 6i64 { return self.r6.any().raw() as i64; }
-        return self.r7.any().raw() as i64;
+        if i == 7i64 { return self.r7.any().raw() as i64; }
+        if i == 8i64 { return self.r8.any().raw() as i64; }
+        if i == 9i64 { return self.r9.any().raw() as i64; }
+        if i == 10i64 { return self.r10.any().raw() as i64; }
+        if i == 11i64 { return self.r11.any().raw() as i64; }
+        if i == 12i64 { return self.r12.any().raw() as i64; }
+        if i == 13i64 { return self.r13.any().raw() as i64; }
+        if i == 14i64 { return self.r14.any().raw() as i64; }
+        return self.r15.any().raw() as i64;
     }
 
 
@@ -641,7 +657,15 @@ impl RQRelArr {
         if i == 4i64 { return self.r4.any().view::<RQRel>(); }
         if i == 5i64 { return self.r5.any().view::<RQRel>(); }
         if i == 6i64 { return self.r6.any().view::<RQRel>(); }
-        return self.r7.any().view::<RQRel>();
+        if i == 7i64 { return self.r7.any().view::<RQRel>(); }
+        if i == 8i64 { return self.r8.any().view::<RQRel>(); }
+        if i == 9i64 { return self.r9.any().view::<RQRel>(); }
+        if i == 10i64 { return self.r10.any().view::<RQRel>(); }
+        if i == 11i64 { return self.r11.any().view::<RQRel>(); }
+        if i == 12i64 { return self.r12.any().view::<RQRel>(); }
+        if i == 13i64 { return self.r13.any().view::<RQRel>(); }
+        if i == 14i64 { return self.r14.any().view::<RQRel>(); }
+        return self.r15.any().view::<RQRel>();
     }
 
     pub fn set_rel(self: &mut RQRelArr, i: i64, h: WAny) {
@@ -653,7 +677,15 @@ impl RQRelArr {
         if i == 4i64 { self.r4 = r; return; }
         if i == 5i64 { self.r5 = r; return; }
         if i == 6i64 { self.r6 = r; return; }
-        self.r7 = r;
+        if i == 7i64 { self.r7 = r; return; }
+        if i == 8i64 { self.r8 = r; return; }
+        if i == 9i64 { self.r9 = r; return; }
+        if i == 10i64 { self.r10 = r; return; }
+        if i == 11i64 { self.r11 = r; return; }
+        if i == 12i64 { self.r12 = r; return; }
+        if i == 13i64 { self.r13 = r; return; }
+        if i == 14i64 { self.r14 = r; return; }
+        self.r15 = r;
     }
 
     pub fn set_len(self: &mut RQRelArr, n: i64) { self.count = n as i32; }

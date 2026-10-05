@@ -1156,36 +1156,36 @@ fn ct_is_open(t: i32) -> bool { return t == CT_UNKNOWN || t == CT_DYN; }
 // are str views into the Query's own IR doc). The runtime counterpart of the
 // static walker's MacroParams rel section.
 // ═══════════════════════════════════════════════════════════════════════════
-const QREL_MAX:  i64 = 8i64;    // static parity (RQREL_MAX)
-const QRELC_MAX: i64 = 64i64;   // flat column table (8 rels × 8 cols)
+const QREL_MAX:  i64 = 16i64;   // static parity (RQREL_MAX)
+const QRELC_MAX: i64 = 128i64;  // flat column table (16 rels × 8 cols)
 
 pub struct QRelReg {
     n:      i64,
-    names:  [str; 8],
-    ncols:  [i64; 8],
-    coff:   [i64; 8],     // rel → first index into the flat column tables
+    names:  [str; 16],
+    ncols:  [i64; 16],
+    coff:   [i64; 16],     // rel → first index into the flat column tables
     cnames: Vec<str>,     // flat, declaration order (Vec-backed: the Query
     ctys:   Vec<i64>,     // must stay SMALL — big by-value aggregates
                           // scalarize pathologically in codegen; CT_* tags)
     // SCC condensation (compute_rel_scc results, copied flat)
     nscc:  i64,
-    comp:  [i64; 8],
-    rec:   [bool; 8],
-    order: [i64; 8],
+    comp:  [i64; 16],
+    rec:   [bool; 16],
+    order: [i64; 16],
     // RECURSIVE SEMILATTICE AGGREGATION (slice-7): per rel, the AGG_* id of its
     // recursive min/max aggregate head (3 = min, 4 = max; 0 = plain rel). Set by
     // the relaxed stratification check when a single-rel recursive component is an
     // admissible semilattice aggregate. Nonzero ⇒ qrel_push_out routes to the
     // semilattice-ABSORB push (qrel_push_agg) instead of set-dedup.
-    rel_agg: [i32; 8],
+    rel_agg: [i32; 16],
 }
 
 fn qrelreg_new() -> QRelReg {
     return QRelReg {
-        n: 0i64, names: [""; 8], ncols: [0i64; 8], coff: [0i64; 8],
+        n: 0i64, names: [""; 16], ncols: [0i64; 16], coff: [0i64; 16],
         cnames: vec_new::<str>(), ctys: vec_new::<i64>(),
-        nscc: 0i64, comp: [0i64; 8], rec: [false; 8], order: [0i64; 8],
-        rel_agg: [0i32; 8],
+        nscc: 0i64, comp: [0i64; 16], rec: [false; 16], order: [0i64; 16],
+        rel_agg: [0i32; 16],
     };
 }
 

@@ -1362,10 +1362,10 @@ fn ms_target(root: WAny, prm: &MacroParams) -> MsTarget {
 // these, on the same column; a single free occurrence needs all of S.
 
 /// The decisions of one rewrite, in the order they were taken.
-pub struct MsDecisions { pub n: i64, pub rel: [str; 8], pub col: [str; 8], pub rule: [i32; 8] }
+pub struct MsDecisions { pub n: i64, pub rel: [str; 16], pub col: [str; 16], pub rule: [i32; 16] }
 
 fn ms_note(d: &mut MsDecisions, rel: str, col: str, rule: i32) {
-    if d.n >= 8i64 { return; }
+    if d.n >= 16i64 { return; }
     d.rel[d.n] = rel; d.col[d.n] = col; d.rule[d.n] = rule;
     d.n = d.n + 1i64;
 }
@@ -1669,6 +1669,51 @@ pub fn live_rel_mask(root: WAny, fal: &mut i64) -> i64 {
     return live;
 }
 
+// Is the body `qany` of rel `head` RECURSIVE: does it read a rel that reads
+// `head` (or `head` itself), through any chain of rel reads?
+pub fn body_reads_its_head(root: WAny, qany: WAny, head: str) -> bool {
+    let prog: RQProgram = root.view::<RQProgram>();
+    if !prog.has_rels() { return false; }
+    let rels: RQRelArr = prog.rels_arr();
+    let n: i64 = rels.len();
+    // seen: the rels this body reaches
+    let mut seen: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        if ms_reads(qany, rels.rel_at(i).name) > 0i64 { seen = seen | (1i64 << i); }
+        i = i + 1i64;
+    }
+    let mut changed: bool = true;
+    while changed {
+        changed = false;
+        let mut r: i64 = 0i64;
+        while r < n {
+            if (seen & (1i64 << r)) != 0i64 {
+                let bj: RQBodyArr = rels.rel_at(r).bodies_arr();
+                let mut b: i64 = 0i64;
+                while b < bj.len() {
+                    let mut t: i64 = 0i64;
+                    while t < n {
+                        if (seen & (1i64 << t)) == 0i64 && ms_reads(bj.body_any(b), rels.rel_at(t).name) > 0i64 {
+                            seen = seen | (1i64 << t);
+                            changed = true;
+                        }
+                        t = t + 1i64;
+                    }
+                    b = b + 1i64;
+                }
+            }
+            r = r + 1i64;
+        }
+    }
+    let mut h: i64 = 0i64;
+    while h < n {
+        if str_eq(rels.rel_at(h).name, head) && (seen & (1i64 << h)) != 0i64 { return true; }
+        h = h + 1i64;
+    }
+    return false;
+}
+
 // The program's rel count and the name at a position, for the caller's trace.
 pub fn prog_rel_count(root: WAny) -> i64 {
     let prog: RQProgram = root.view::<RQProgram>();
@@ -1717,10 +1762,10 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
     seed.sel_first = false; seed.distinct = false; seed.has_order = false;
     seed.has_limit = false; seed.has_result_ty = false; seed.has_gpath = false;
     // the worklist: (rel, column, seeds)
-    let mut wr: [i64; 8] = [0i64; 8];
-    let mut wc: [i64; 8] = [0i64; 8];
-    let mut ws: [[i64; 8]; 8] = [[0i64; 8]; 8];
-    let mut wn: [i64; 8] = [0i64; 8];
+    let mut wr: [i64; 16] = [0i64; 16];
+    let mut wc: [i64; 16] = [0i64; 16];
+    let mut ws: [[i64; 8]; 16] = [[0i64; 8]; 16];
+    let mut wn: [i64; 16] = [0i64; 16];
     let mut nw: i64 = 1i64;
     wr[0] = ri; wc[0] = ci; ws[0][0] = seed.as_ref().raw(); wn[0] = 1i64;
     let mut w: i64 = 0i64;
@@ -1760,7 +1805,7 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, allow_moving: bool
                         j = j + 1i64;
                     }
                     let sci: i64 = if scol.len() > 0i64 { ms_col_index(root, sri, scol) } else { -1i64 };
-                    if bound && sci >= 0i64 && cnt == ms_reads_all(root, sname, live) && nw < 8i64 {
+                    if bound && sci >= 0i64 && cnt == ms_reads_all(root, sname, live) && nw < 16i64 {
                         wr[nw] = sri; wc[nw] = sci; ws[nw] = ss; wn[nw] = sn;
                         nw = nw + 1i64;
                     } else {

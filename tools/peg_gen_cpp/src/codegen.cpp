@@ -940,6 +940,7 @@ private:
         w.line();
         w.fmt("#pragma once");
         w.line();
+        w.line("#include <string>");
         w.line("#include <string_view>");
         w.line("#include <unordered_map>");
         w.line("#include <vector>");
@@ -1060,6 +1061,8 @@ private:
             w.line("// use this for error reporting instead of next_text()/next_line().");
             w.line("uint32_t         furthest_line() const { return furthest_.line ? furthest_.line : 1; }");
             w.line("std::string_view furthest_text() const { return furthest_.text; }");
+            w.line("// Non-empty when a fan received more items than its slots (the parse failed).");
+            w.line("std::string_view fan_overflow() const { return fan_overflow_; }");
             // 1-based column of furthest_ within source_. Walks back from
             // the token's text pointer to the prior newline. Returns 0 if
             // the token isn't in source_ (defensive — shouldn't happen).
@@ -1224,6 +1227,10 @@ private:
         // SRC_SPAN inputs (ADR 0030 H0): the end offset of the last CONSUMED
         // token, and the offset of source_[0] in the file it is a fragment of.
         w.line("uint32_t                 last_end_ = 0;");
+        // The first fan that received more items than its slots (a parse error
+        // the entry reports; the generated action keeps building so the rule's
+        // control flow is unchanged).
+        w.line("std::string              fan_overflow_;");
         w.line("uint32_t                 offset_base_ = 0;");
         if (!g_.tokens.empty()) {
             w.line("Token                    la_{};");
@@ -2314,7 +2321,7 @@ private:
                 w.fmt("logos::writ::AnyVal {}::parse_{}() {{", parser_class_, e);
                 w.indent();
                 w.fmt("AnyVal root = rule_{}();", e);
-                w.line("if (root.is_null() || !at_eof()) return AnyVal{};");
+                w.line("if (root.is_null() || !at_eof() || !fan_overflow_.empty()) return AnyVal{};");
                 w.line("return root;");
                 w.dedent();
                 w.line("}");
@@ -2339,6 +2346,12 @@ private:
             // Recovery instead of assertion (Meta-Sprint M0.2): parse failure
             // returns an empty Writ doc; the caller's ast.is_null() check
             // takes the error path. Closes B-mv-05/06/07/08 and B-lx-01/02.
+            w.line("if (!root.is_null() && !fan_overflow_.empty()) {");
+            w.indent();
+            w.fmt("std::fprintf(stderr, \"parse error in {}: %s\\n\", fan_overflow_.c_str());", e);
+            w.line("return logos::writ::Writ{};");
+            w.dedent();
+            w.line("}");
             w.line("if (root.is_null()) {");
             w.indent();
             w.fmt("std::fprintf(stderr, \"parse error in {}: expected {} (near line %u)\\n\",",
@@ -3066,8 +3079,12 @@ private:
             if (e.kind != int32_t(ast::ARRAY_CAPTURE) || rcap_var_.empty())
                 schema_error(std::format(
                     "{}.{}: a fan field must be written from `$...`", sd.name, sf.name));
-            // Items past the cap are dropped — same as the Logos backend.
-            w.fmt("{{ uint64_t n_ = {0}.size(); if (n_ > {1}u) n_ = {1}u;", rcap_var_, cap_n);
+            // More items than the slots hold is a PARSE ERROR (reported by the
+            // entry): dropping them silently made the 9th rel an "unknown
+            // source" and the 9th aggregate an undefined variable downstream.
+            w.fmt("{{ uint64_t n_ = {0}.size(); if (n_ > {1}u) {{ if (fan_overflow_.empty()) "
+                  "fan_overflow_ = \"{2}.{3} holds at most {1} items, the input has \" + std::to_string(n_); "
+                  "n_ = {1}u; }}", rcap_var_, cap_n, sd.name, sf.name);
             w.indent();
             w.fmt("for (uint64_t i_ = 0; i_ < n_; ++i_) "
                   "node->put(uint8_t({} + i_), {}.get(i_), {}).get();",

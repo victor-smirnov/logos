@@ -1,0 +1,33 @@
+// More rels than the program's rel list holds (16) is a PARSE ERROR naming the
+// cap. The generated parser used to DROP the items past a fan's slots: at the
+// old cap of 8 the 9th rel was gone, and the query failed as `unknown source`
+// for a rel it does declare (measured, 2026-10-04).
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct X { pub k: i64 }
+
+pub deem bad(xs: &[X]) {
+    rel r1(a: i64) { from xs x select x.k; }
+    rel r2(a: i64) { from xs x select x.k; }
+    rel r3(a: i64) { from xs x select x.k; }
+    rel r4(a: i64) { from xs x select x.k; }
+    rel r5(a: i64) { from xs x select x.k; }
+    rel r6(a: i64) { from xs x select x.k; }
+    rel r7(a: i64) { from xs x select x.k; }
+    rel r8(a: i64) { from xs x select x.k; }
+    rel r9(a: i64) { from xs x select x.k; }
+    rel r10(a: i64) { from xs x select x.k; }
+    rel r11(a: i64) { from xs x select x.k; }
+    rel r12(a: i64) { from xs x select x.k; }
+    rel r13(a: i64) { from xs x select x.k; }
+    rel r14(a: i64) { from xs x select x.k; }
+    rel r15(a: i64) { from xs x select x.k; }
+    rel r16(a: i64) { from xs x select x.k; }
+    rel r17(a: i64) { from xs x select x.k; }
+    from r17 x select x.a
+}
+
+fn main() -> i32 { return 0i32; }

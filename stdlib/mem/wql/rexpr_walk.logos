@@ -6785,13 +6785,13 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // ⚠ THE MEMBERSHIP TEST IS `rel_sccid`, NOT `scc`, because `scc` is not in
     // scope here — `stamp_rel_incr_shape` flattened `comp` onto the registry for
     // exactly this reason. Same array, same scan direction, one derivation.
-    let mut tmem: [i64; 8] = [0i64; 8];
+    let mut tmem: [i64; 16] = [0i64; 16];
     let mut ntm:  i64      = 0i64;
     if rel_m >= 0i64 {
         let mut tk: i64 = 0i64;
         while tk < prm.rel_n {
             if prm.rel_sccid[tk] == prm.rel_sccid[rel_m] {
-                if ntm < 8i64 { tmem[ntm] = tk; ntm = ntm + 1i64; }
+                if ntm < 16i64 { tmem[ntm] = tk; ntm = ntm + 1i64; }
             }
             tk = tk + 1i64;
         }
@@ -6801,7 +6801,9 @@ fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // Idents are pushed into a Vec that outlives any block-local String that
     // built them. This was a single `String` while only one member could be
     // admitted; the array is what makes it survive N.
-    let mut totnm: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
+    let mut totnm: [String; 16] = [String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(),
+                                  String::new(), String::new(), String::new(), String::new(),
                                   String::new(), String::new(), String::new(), String::new()];
     let mut tn0: i64 = 0i64;
     while tn0 < ntm {
@@ -11975,13 +11977,13 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
                params_text: str, prm: &MacroParams, scc: &RelScc,
                incr: bool, h: &Writ) -> bool {
     // Members (declaration order) + the union out-of-SCC dep mask.
-    let mut mem: [i64; 8] = [0i64; 8];
+    let mut mem: [i64; 16] = [0i64; 16];
     let mut nm: i64 = 0i64;
     let mut mask: i64 = 0i64;
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
         if scc.comp[r] == c {
-            if nm < 8i64 { mem[nm] = r; nm = nm + 1i64; }
+            if nm < 16i64 { mem[nm] = r; nm = nm + 1i64; }
             mask = mask | scc.dep_mask[r];
         }
         r = r + 1i64;
@@ -12798,7 +12800,7 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
                    params_text: str, prm: &MacroParams, scc: &RelScc,
                    h: &Writ) -> bool {
-    let mut mem: [i64; 8] = [0i64; 8];
+    let mut mem: [i64; 16] = [0i64; 16];
     let mut nm: i64 = 0i64;
     let mut mask: i64 = 0i64;
     let mut r: i64 = 0i64;
@@ -12808,7 +12810,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
             // a lattice member, so there is no half-built path to mistake for a
             // capability.
             if prm.rel_is_agg[r] { return true; }
-            if nm < 8i64 { mem[nm] = r; nm = nm + 1i64; }
+            if nm < 16i64 { mem[nm] = r; nm = nm + 1i64; }
             mask = mask | scc.dep_mask[r];
         }
         r = r + 1i64;
