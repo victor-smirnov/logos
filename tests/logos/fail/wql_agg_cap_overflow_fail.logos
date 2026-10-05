@@ -1,6 +1,7 @@
-// More aggregates than a `group by` holds (8) is a PARSE ERROR naming the cap.
-// The generated parser used to drop the 9th, which then failed as
-// `undefined variable 'a9'` in the generated code (measured, 2026-10-04).
+// More aggregates than a `group by`'s emitter holds (8) is a named error,
+// checked right after the parse (`lower::plan_caps_ok`). The generated parser
+// used to drop the 9th, which then failed as `undefined variable 'a9'` in the
+// generated code (measured, 2026-10-04).
 package test;
 
 use logos.std.wql.wql;

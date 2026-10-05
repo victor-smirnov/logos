@@ -1293,8 +1293,7 @@ fn alt_arglist_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: SExprArr = doc.make::<SExprArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > SEXPRARR_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < SEXPRARR_MAX() { node.set_arg(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_arg(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }
@@ -1348,8 +1347,7 @@ fn alt_tuple_body_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: SExprArr = doc.make::<SExprArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > SEXPRARR_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < SEXPRARR_MAX() { node.set_arg(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_arg(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }

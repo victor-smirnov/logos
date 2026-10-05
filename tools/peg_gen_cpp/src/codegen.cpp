@@ -108,6 +108,9 @@ struct SchemaField {
         return ftype == "argfan" || ftype.rfind("fan ", 0) == 0;
     }
     bool is_ref() const { return ftype.rfind("ref ", 0) == 0; }
+    // "list <setter>": the ARRAY_CAPTURE itself, held whole in ONE keyed field
+    // (a Writ array of edges), with the node's `count` beside it — no slot cap.
+    bool is_list() const { return ftype.rfind("list ", 0) == 0; }
 
     // "ref TARGET" → TARGET
     std::string ref_target() const {
@@ -3061,6 +3064,24 @@ private:
         bool tok_flt = is_cap && capture_is_token_named(seq, idx, "FLOAT");
         bool tok_str = is_cap && capture_is_token_named(seq, idx, "STRING");
 
+        // ── list: the ARRAY_CAPTURE whole, in one keyed field + the count ──
+        if (sf.is_list()) {
+            if (!sf.has_key)
+                schema_error(std::format(
+                    "{}.{}: list field needs `= <key>`", sd.name, sf.name));
+            const SchemaField* len = sd.find("count");
+            if (!len || !len->has_key)
+                schema_error(std::format(
+                    "{}.{}: a list node must declare its length field "
+                    "`count: \"i32\" = <key>`", sd.name, sf.name));
+            if (e.kind != int32_t(ast::ARRAY_CAPTURE) || rcap_var_.empty())
+                schema_error(std::format(
+                    "{}.{}: a list field must be written from `$...`", sd.name, sf.name));
+            put(std::format("uint8_t({})", sf.key), std::format("{}.to_anyval()", rcap_var_));
+            put(std::format("uint8_t({})", len->key),
+                std::format("AnyVal::from_value(int32_t({}.size()))", rcap_var_));
+            return;
+        }
         // ── fan: spread an ARRAY_CAPTURE across the node's slot keys ──
         if (sf.is_fan()) {
             int cap_n = sf.fan_cap();
@@ -3253,7 +3274,7 @@ private:
     // through to scalar_cast's int64_t default, so a typo'd type in the %schema
     // block silently produced a wrong-width write.
     static bool ftype_is_known(const SchemaField& f) {
-        if (f.is_fan() || f.is_ref()) return true;
+        if (f.is_fan() || f.is_ref() || f.is_list()) return true;
         for (const char* k : {"WAny", "str", "bool",
                               "i8", "i16", "i32", "i56", "i64", "isize",
                               "u8", "u16", "u32", "u64", "usize"})
@@ -3736,6 +3757,7 @@ std::map<std::string, LogosItem> read_logos_schemas(const std::vector<fs::path>&
 // is written the same on both sides.
 std::string logos_type_of(const SchemaField& f) {
     if (f.is_ref()) return "WRef<" + f.ref_target() + ">";
+    if (f.is_list()) return "WAny";
     return f.ftype;
 }
 

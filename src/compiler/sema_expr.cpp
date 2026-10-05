@@ -24742,14 +24742,6 @@ void SemaChecker::emit_token_macro_item_site(
                 if (node_line_ > 0 && wp.furthest_line() > 0)
                     node_line_ = node_line_ + wp.furthest_line() - 1;
                     node_span_ = 0;
-                if (!wp.fan_overflow().empty()) {
-                    error(std::format("'{}': {} — the query has more items there than "
-                                      "the query plan holds",
-                                      ir_entry == IrEntry::RelList ? resource_name
-                                                                   : macro_info->base_name,
-                                      wp.fan_overflow()));
-                    return;
-                }
                 std::string near(wp.furthest_text());
                 std::string near_sfx = near.empty()
                     ? std::string{} : std::format(" (near `{}`)", near);

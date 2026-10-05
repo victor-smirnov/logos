@@ -1,7 +1,8 @@
-// More rels than the program's rel list holds (16) is a PARSE ERROR naming the
-// cap. The generated parser used to DROP the items past a fan's slots: at the
-// old cap of 8 the 9th rel was gone, and the query failed as `unknown source`
-// for a rel it does declare (measured, 2026-10-04).
+// More rels than the rel registry holds (16) is a named error, checked right
+// after the parse (`lower::plan_caps_ok`). The generated parser used to DROP the
+// items past a fan's slots: at the old cap of 8 the 9th rel was gone, and the
+// query failed as `unknown source` for a rel it does declare (measured,
+// 2026-10-04). The parser's lists are unbounded now; the registry is next.
 package test;
 
 use logos.std.wql.wql;

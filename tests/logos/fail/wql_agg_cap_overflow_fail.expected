@@ -1,1 +1,1 @@
-RQAggArr.aggs holds at most 8 items, the input has 9
+a `group by`'s aggregate list holds at most 8 items; this one has 9

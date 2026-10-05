@@ -597,8 +597,7 @@ fn alt_rel_list_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQRelArr = doc.make::<RQRelArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > RQREL_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < RQREL_MAX() { node.set_rel(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_rel(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }
@@ -671,8 +670,7 @@ fn alt_rel_cols_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQRelColArr = doc.make::<RQRelColArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > RQRELCOL_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < RQRELCOL_MAX() { node.set_col(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_col(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }
@@ -723,8 +721,7 @@ fn alt_rel_bodies_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQBodyArr = doc.make::<RQBodyArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > RQBODY_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < RQBODY_MAX() { node.set_body(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_body(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }
@@ -1635,8 +1632,7 @@ fn alt_gsteps_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQGStepArr = doc.make::<RQGStepArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > RQGSTEP_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < RQGSTEP_MAX() { node.set_gstep(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_gstep(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }
@@ -1801,8 +1797,7 @@ fn alt_path_segs_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQPathSegArr = doc.make::<RQPathSegArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > RQPSEG_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < RQPSEG_MAX() { node.set_seg(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_seg(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }
@@ -1836,8 +1831,7 @@ fn alt_join_steps_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQJoinStepArr = doc.make::<RQJoinStepArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > RQJSTEP_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < RQJSTEP_MAX() { node.set_step(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_step(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }
@@ -2237,8 +2231,7 @@ fn alt_agg_list_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let mut node: RQAggArr = doc.make::<RQAggArr>();
     let mut afi: i64 = 0i64;
     let alen: i64 = rcap.len();
-    if alen > RQAGG_MAX() { lex.fan_over = true; }
-    while afi < alen && afi < RQAGG_MAX() { node.set_agg(afi, rcap.get(afi)); afi = afi + 1i64; }
+    while afi < alen { node.set_agg(afi, rcap.get(afi)); afi = afi + 1i64; }
     node.set_len(afi);
     return node.as_ref().raw() as *const u8;
 }

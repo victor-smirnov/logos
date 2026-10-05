@@ -3720,7 +3720,7 @@ fn alt_needs_mut_node(cg: &Codegen, alt_idx: i64, sidx: i64) -> bool {
         let fname: String = String::from(cg.alts.borrow(alt_idx).fields.borrow(fi).name.as_str());
         if !str_eq(fname.as_str(), "CODE") {
             let ftype: String = schema_field_type(cg, sidx, fname.as_str());
-            if ftype_is_fan(ftype.as_str()) { return true; }
+            if ftype_is_fan(ftype.as_str()) || ftype_is_list(ftype.as_str()) { return true; }
         }
         fi = fi + 1i64;
     }
@@ -3738,6 +3738,26 @@ fn ftype_is_fan(ftype: str) -> bool {
         && str_byte_at(ftype, 1i64) == 97u8    // 'a'
         && str_byte_at(ftype, 2i64) == 110u8   // 'n'
         && str_byte_at(ftype, 3i64) == 32u8;   // ' '
+}
+
+// A list field type `"list <method>"`: the $... ARRAY_CAPTURE held whole (a
+// Writ array behind the schema's own setter) — no slot cap.
+fn ftype_is_list(ftype: str) -> bool {
+    return ftype.len() >= 5i64
+        && str_byte_at(ftype, 0i64) == 108u8   // 'l'
+        && str_byte_at(ftype, 1i64) == 105u8   // 'i'
+        && str_byte_at(ftype, 2i64) == 115u8   // 's'
+        && str_byte_at(ftype, 3i64) == 116u8   // 't'
+        && str_byte_at(ftype, 4i64) == 32u8;   // ' '
+}
+
+// The setter method name from a list field type: `"list set_rel"` → `set_rel`.
+fn list_method(ftype: str) -> String {
+    let n: i64 = ftype.len();
+    let mut i: i64 = 5i64;   // past "list "
+    let mut out: String = String::new();
+    while i < n && str_byte_at(ftype, i) != 32u8 { out.push_u8(str_byte_at(ftype, i)); i = i + 1i64; }
+    return out;
 }
 
 // The setter method name from a fan field type. `"argfan"` → `set_arg`;
@@ -3899,7 +3919,7 @@ fn emit_schema_group_action(cg: &mut Codegen, w: &mut CodeWriter, galt: i64, cap
 // used to fall through to a bare `as <ftype>` cast, so a typo in the %schema
 // block produced code that only failed when the GENERATED source was compiled.
 fn ftype_is_known(ftype: str) -> bool {
-    if ftype_is_fan(ftype) || ftype_is_ref(ftype) { return true; }
+    if ftype_is_fan(ftype) || ftype_is_list(ftype) || ftype_is_ref(ftype) { return true; }
     if str_eq(ftype, "WAny") || str_eq(ftype, "str") || str_eq(ftype, "bool") { return true; }
     if str_eq(ftype, "i8")  || str_eq(ftype, "i16") || str_eq(ftype, "i32") { return true; }
     if str_eq(ftype, "i56") || str_eq(ftype, "i64") || str_eq(ftype, "isize") { return true; }
@@ -3933,6 +3953,22 @@ fn emit_schema_field(w: &mut CodeWriter, node_var: str, capvar: str, fname: str,
     let mut lhs: String = String::new();
     lhs.push_str(node_var); lhs.push_str("."); lhs.push_str(fname); lhs.push_str(" = ");
 
+    if ftype_is_list(ftype) {
+        // List: every item of the ARRAY_CAPTURE through the schema's setter,
+        // which appends to the node's array — there is no slot to run out of.
+        let lm: String = list_method(ftype);
+        w.line("let mut afi: i64 = 0i64;");
+        w.line("let alen: i64 = rcap.len();");
+        let mut ll: String = String::new();
+        ll.push_str("while afi < alen { ");
+        ll.push_str(node_var); ll.push_str("."); ll.push_str(lm.as_str());
+        ll.push_str("(afi, rcap.get(afi)); afi = afi + 1i64; }");
+        w.line(ll.as_str());
+        let mut sl2: String = String::new();
+        sl2.push_str(node_var); sl2.push_str(".set_len(afi);");
+        w.line(sl2.as_str());
+        return;
+    }
     if ftype_is_fan(ftype) {
         // Fan-out: spread an ARRAY_CAPTURE ($...) of child edges into the fixed
         // slots via a `&mut self` setter + set_len (the SExprArr / RQWithArr /

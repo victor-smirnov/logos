@@ -323,9 +323,9 @@ fn gp_rvar(i: i64) -> str {
 
 // (e1, e2) tuple projection node.
 fn gp_tuple2(h: &Writ, e1: WRef<SExpr>, e2: WRef<SExpr>) -> WRef<SExpr> {
-    let arr: SExprArr = h.make::<SExprArr>();
-    arr.a0 = e1;
-    arr.a1 = e2;
+    let mut arr: SExprArr = h.make::<SExprArr>();
+    arr.set_arg(0i64, e1.any());
+    arr.set_arg(1i64, e2.any());
     arr.count = 2i32;
     let t: STuple = h.make::<STuple>();
     t.items = WRef::<SExprArr>::from_any(arr.as_ref());
@@ -958,15 +958,11 @@ fn ms_fallible(w: WRef<SExpr>) -> bool {
 fn ms_fallible_arr(a: WRef<SExprArr>) -> bool {
     if a.any().is_null() { return false; }
     let arr: SExprArr = a.any().view::<SExprArr>();
-    let n: i64 = arr.len();
-    if n > 0i64 && ms_fallible(arr.a0) { return true; }
-    if n > 1i64 && ms_fallible(arr.a1) { return true; }
-    if n > 2i64 && ms_fallible(arr.a2) { return true; }
-    if n > 3i64 && ms_fallible(arr.a3) { return true; }
-    if n > 4i64 && ms_fallible(arr.a4) { return true; }
-    if n > 5i64 && ms_fallible(arr.a5) { return true; }
-    if n > 6i64 && ms_fallible(arr.a6) { return true; }
-    if n > 7i64 && ms_fallible(arr.a7) { return true; }
+    let mut k: i64 = 0i64;
+    while k < arr.len() {
+        if ms_fallible(WRef::<SExpr>::from_any(arr.arg_any(k))) { return true; }
+        k = k + 1i64;
+    }
     return false;
 }
 
@@ -1712,6 +1708,133 @@ pub fn body_reads_its_head(root: WAny, qany: WAny, head: str) -> bool {
         h = h + 1i64;
     }
     return false;
+}
+
+// ── THE CONSUMERS' CAPS ───────────────────────────────────────────────────────
+// The parser's lists hold any number of items (2026-10-05); what still has a
+// fixed size is downstream of it — a join chain's per-step arrays, an
+// aggregate's per-aggregate arrays, a rel's column window, the rel registry.
+// Each is checked HERE, once, right after the parse, and named; an item past a
+// cap used to be dropped where it was stored, and the query then failed far
+// away (`unknown source`, `undefined variable` in generated code).
+fn pc_fail(out: &mut String, what: str, cap: i64, n: i64) -> bool {
+    out.push_str("wql!: ");
+    out.push_str(what);
+    out.push_str(" holds at most ");
+    out.push_i64(cap);
+    out.push_str(" items; this one has ");
+    out.push_i64(n);
+    return false;
+}
+
+fn pc_expr(w: WRef<SExpr>, out: &mut String) -> bool {
+    if w.any().is_null() { return true; }
+    let e: SExpr = w.any().view::<SExpr>();
+    match e {
+        SExpr::Bin(b) => { return pc_expr(b.lhs, out) && pc_expr(b.rhs, out); }
+        SExpr::Un(u) => { return pc_expr(u.arg, out); }
+        SExpr::Cast(c) => { return pc_expr(c.arg, out); }
+        SExpr::Field(f) => { return pc_expr(f.base, out); }
+        SExpr::Cond(c) => { return pc_expr(c.c, out) && pc_expr(c.t, out) && pc_expr(c.e, out); }
+        SExpr::Comp(c) => { return pc_expr(c.head, out); }
+        SExpr::Call(c) => { return pc_arr(c.args, "a call's argument list", out); }
+        SExpr::Tuple(t) => { return pc_arr(t.items, "a tuple", out); }
+        _ => { return true; }
+    }
+}
+
+fn pc_arr(a: WRef<SExprArr>, what: str, out: &mut String) -> bool {
+    if a.any().is_null() { return true; }
+    let arr: SExprArr = a.any().view::<SExprArr>();
+    if arr.len() > SEXPRARR_MAX() { return pc_fail(out, what, SEXPRARR_MAX(), arr.len()); }
+    let mut k: i64 = 0i64;
+    while k < arr.len() {
+        if !pc_expr(WRef::<SExpr>::from_any(arr.arg_any(k)), out) { return false; }
+        k = k + 1i64;
+    }
+    return true;
+}
+
+fn pc_gpath(has: bool, g: WAny, out: &mut String) -> bool {
+    if !has || g.is_null() { return true; }
+    let ga: RQGStepArr = g.view::<RQGStepArr>();
+    if ga.len() > RQGSTEP_MAX() { return pc_fail(out, "a graph path", RQGSTEP_MAX(), ga.len()); }
+    return true;
+}
+
+fn pc_steps(sa: WAny, out: &mut String) -> bool {
+    if sa.is_null() { return true; }
+    let steps: RQJoinStepArr = sa.view::<RQJoinStepArr>();
+    if steps.len() > RQJSTEP_MAX() { return pc_fail(out, "a join chain", RQJSTEP_MAX(), steps.len()); }
+    let mut i: i64 = 0i64;
+    while i < steps.len() {
+        let st: RQJoinStep = steps.step_at(i);
+        if st.has_on && !pc_expr(st.on, out) { return false; }
+        if st.is_edge && !st.path.any().is_null() {
+            let ps: RQPathSegArr = st.path.any().view::<RQPathSegArr>();
+            if ps.len() > RQPSEG_MAX() { return pc_fail(out, "a field path", RQPSEG_MAX(), ps.len()); }
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn pc_query(qany: WAny, out: &mut String) -> bool {
+    if qany.is_null() { return true; }
+    match qany.view::<RQuery>() {
+        RQuery::Simple(s) => {
+            return pc_gpath(s.has_gpath, s.gpath.any(), out) && pc_expr(s.select, out)
+                && (!s.has_where || pc_expr(s.where_pred, out))
+                && (!s.has_order || pc_expr(s.order_key, out));
+        }
+        RQuery::Join(j) => {
+            return pc_gpath(j.has_gpath, j.gpath.any(), out) && pc_steps(j.steps.any(), out)
+                && pc_expr(j.select, out)
+                && (!j.has_where || pc_expr(j.where_pred, out))
+                && (!j.has_order || pc_expr(j.order_key, out));
+        }
+        RQuery::Aggr(g) => {
+            if !pc_gpath(g.has_gpath, g.gpath.any(), out) { return false; }
+            if g.has_steps() && !pc_steps(g.steps.any(), out) { return false; }
+            let aggs: RQAggArr = g.aggs_arr();
+            if aggs.len() > RQAGG_MAX() { return pc_fail(out, "a `group by`'s aggregate list", RQAGG_MAX(), aggs.len()); }
+            let mut k: i64 = 0i64;
+            while k < aggs.len() {
+                let a: RQAgg = aggs.agg_at(k);
+                if a.has_arg && !pc_expr(a.arg, out) { return false; }
+                k = k + 1i64;
+            }
+            return pc_expr(g.key, out) && pc_expr(g.select, out)
+                && (!g.has_where || pc_expr(g.where_pred, out))
+                && (!g.has_having || pc_expr(g.having_pred, out))
+                && (!g.has_order || pc_expr(g.order_key, out));
+        }
+        RQuery::Find(f) => { return pc_expr(f.pred, out); }
+    }
+}
+
+/// Every consumer cap of a parsed program, checked once; on a breach `out`
+/// names it and the result is false.
+pub fn plan_caps_ok(root: WAny, out: &mut String) -> bool {
+    let prog: RQProgram = root.view::<RQProgram>();
+    if prog.has_rels() {
+        let rels: RQRelArr = prog.rels_arr();
+        if rels.len() > RQREL_MAX() { return pc_fail(out, "a program's rel list", RQREL_MAX(), rels.len()); }
+        let mut r: i64 = 0i64;
+        while r < rels.len() {
+            let rel: RQRel = rels.rel_at(r);
+            if rel.cols_arr().len() > RQRELCOL_MAX() { return pc_fail(out, "a rel's column list", RQRELCOL_MAX(), rel.cols_arr().len()); }
+            let bj: RQBodyArr = rel.bodies_arr();
+            if bj.len() > RQBODY_MAX() { return pc_fail(out, "a rel's body list", RQBODY_MAX(), bj.len()); }
+            let mut b: i64 = 0i64;
+            while b < bj.len() {
+                if !pc_query(bj.body_any(b), out) { return false; }
+                b = b + 1i64;
+            }
+            r = r + 1i64;
+        }
+    }
+    return pc_query(prog.entry_any(), out);
 }
 
 // The program's rel count and the name at a position, for the caller's trace.

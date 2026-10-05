@@ -25,6 +25,7 @@ use logos.lang.writ.container;
 use logos.lang.writ.allocator;   // Allocator (WritField::to_wany param)
 use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
+use logos.lang.writ.array;   // WArray — a schema's list field
 
 // ── Integer-literal overflow POISON sentinel ──────────────────────────────
 // The three EL/surface/template tokenizers (`wstr_decode_i64`) accumulate an
@@ -71,16 +72,36 @@ impl<S> WritField for WRef<S> {
 // backing TOM to the field count (9 = count + 8 slots), so up to 8 args round-trip
 // structurally. `arg_at(i)` / `len()` are the backend's read API; `set_arg`/
 // `set_len` the parser's write API.
+// ── LIST FIELDS ───────────────────────────────────────────────────────────────
+// A schema's dynamic fan-out: the items are one Writ array held in a `WAny`
+// field. `list_set` writes item `i` through the view's arena allocator `z`
+// (WSchemaH.z): it creates the array on the first write, replaces an item below
+// the length and appends at it; a gap is a defect, so it panics.
+pub fn list_get(items: WAny, i: i64) -> WAny {
+    return items.as_array().get(i);
+}
+
+pub fn list_set(items: WAny, z: *mut u8, i: i64, v: WAny) -> WAny {
+    if z == 0 as *mut u8 { logos.lang.panic::panic("a list field written through a view that carries no arena"); }
+    let mut a: *mut WArray<WAny> = 0 as *mut WArray<WAny>;
+    if items.is_null() || !items.is_array() {
+        a = unsafe { warray_new_in(z, 4i64) };
+    } else {
+        a = items.resolve() as *mut WArray<WAny>;
+    }
+    let n: i64 = unsafe { warray_len(a as *const WArray<WAny>) };
+    if i < n { unsafe { warray_set(a, i, v); } }
+    else if i == n { unsafe { warray_push_in(a, z, v); } }
+    else { logos.lang.panic::panic("a list field written past its end (a gap)"); }
+    return unsafe { WAny::ref_to(a as *const u8) };
+}
+
+// A LIST node (2026-10-05): the items are one Writ array in `args`, written
+// through the parser's `"list set_arg"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
 pub schema SExprArr : code(0x0010_0000_0000_000A) {
     count: i32 = 0,
-    a0: WRef<SExpr> = 1,
-    a1: WRef<SExpr> = 2,
-    a2: WRef<SExpr> = 3,
-    a3: WRef<SExpr> = 4,
-    a4: WRef<SExpr> = 5,
-    a5: WRef<SExpr> = 6,
-    a6: WRef<SExpr> = 7,
-    a7: WRef<SExpr> = 8,
+    args: WAny = 1,
 }
 
 // Max args a single `SExprArr` materializes (the declared slot count).
@@ -94,14 +115,7 @@ impl SExprArr {
     // error; reads the fixed slot key i+1. The slots are a flat fan-out (no
     // chaining) so this is O(1).
     pub fn arg_at(self: SExprArr, i: i64) -> SExpr {
-        if i == 0i64 { return self.a0.any().view::<SExpr>(); }
-        if i == 1i64 { return self.a1.any().view::<SExpr>(); }
-        if i == 2i64 { return self.a2.any().view::<SExpr>(); }
-        if i == 3i64 { return self.a3.any().view::<SExpr>(); }
-        if i == 4i64 { return self.a4.any().view::<SExpr>(); }
-        if i == 5i64 { return self.a5.any().view::<SExpr>(); }
-        if i == 6i64 { return self.a6.any().view::<SExpr>(); }
-        return self.a7.any().view::<SExpr>();
+        return list_get(self.args, i).view::<SExpr>();
     }
 
     // The i-th argument's RAW edge handle (0-based) — for callers that need the
@@ -109,27 +123,13 @@ impl SExprArr {
     // than a bound view. Rebuilt through `raw()` (the step_any provenance-
     // laundering idiom) so no reference to the temporary WRef escapes.
     pub fn arg_any(self: SExprArr, i: i64) -> WAny {
-        if i == 0i64 { return unsafe { WAny::ref_to(self.a0.any().raw() as *const u8) }; }
-        if i == 1i64 { return unsafe { WAny::ref_to(self.a1.any().raw() as *const u8) }; }
-        if i == 2i64 { return unsafe { WAny::ref_to(self.a2.any().raw() as *const u8) }; }
-        if i == 3i64 { return unsafe { WAny::ref_to(self.a3.any().raw() as *const u8) }; }
-        if i == 4i64 { return unsafe { WAny::ref_to(self.a4.any().raw() as *const u8) }; }
-        if i == 5i64 { return unsafe { WAny::ref_to(self.a5.any().raw() as *const u8) }; }
-        if i == 6i64 { return unsafe { WAny::ref_to(self.a6.any().raw() as *const u8) }; }
-        return unsafe { WAny::ref_to(self.a7.any().raw() as *const u8) };
+        return unsafe { WAny::ref_to(list_get(self.args, i).raw() as *const u8) };
     }
 
     // Store the i-th argument edge (0-based). The parser fills slots 0..count-1.
     pub fn set_arg(self: &mut SExprArr, i: i64, h: WAny) {
-        let r: WRef<SExpr> = WRef::<SExpr>::from_any(h);
-        if i == 0i64 { self.a0 = r; return; }
-        if i == 1i64 { self.a1 = r; return; }
-        if i == 2i64 { self.a2 = r; return; }
-        if i == 3i64 { self.a3 = r; return; }
-        if i == 4i64 { self.a4 = r; return; }
-        if i == 5i64 { self.a5 = r; return; }
-        if i == 6i64 { self.a6 = r; return; }
-        self.a7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const SExprArr as *const WSchemaH)).z };
+        self.args = list_set(self.args, z, i, h);
     }
 
     pub fn set_len(self: &mut SExprArr, n: i64) { self.count = n as i32; }
