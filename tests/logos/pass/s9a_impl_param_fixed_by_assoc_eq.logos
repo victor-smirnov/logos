@@ -1,0 +1,14 @@
+// ADR 0030 S9a step A: the Rust-shaped twin of the closed squeue row impl_param_fixed_by_trait_args_refused —
+// `impl<A, I: It<Item = A>> It for W<I>`: A is fixed by I's associated-type equality (mono completed nothing and
+// ICE'd in the borrow checker on `W$G1$i64__nx`). rustc 1.98.1: 3.
+package s9a_impl_param_fixed_by_assoc_eq;
+trait It {
+    type Item;
+    fn nx(&mut self) -> Option<Self::Item>;
+    fn cnt(mut self) -> i64 where Self: Sized { let mut n: i64 = 0; while let Some(_) = self.nx() { n = n + 1; } n }
+}
+struct Up { i: i64 }
+impl It for Up { type Item = i64; fn nx(&mut self) -> Option<i64> { if self.i < 3 { self.i = self.i + 1; Some(self.i) } else { None } } }
+struct W<I> { it: I }
+impl<A, I: It<Item = A>> It for W<I> { type Item = A; fn nx(&mut self) -> Option<A> { self.it.nx() } }
+fn main() -> i32 { let w = W { it: Up { i: 0 } }; return w.cnt() as i32; }

@@ -655,6 +655,14 @@ struct FnTraitBoundView {
         auto it = detail::read_string(self, lir_schema::fn_tbound_keys::TB_IDENTITY.code);
         return it.empty() ? trait_name() : it;
     }
+    // `Tr<Name = X>`'s equalities.
+    std::vector<std::pair<std::string_view, TypeRef>> assoc_eqs(const TypePoolImpl* pool) const noexcept {
+        auto names = detail::read_string_array(self, lir_schema::fn_tbound_keys::TB_ASSOC_NAMES.code);
+        auto types = detail::read_type_array(self, lir_schema::fn_tbound_keys::TB_ASSOC_TYPES.code, pool);
+        std::vector<std::pair<std::string_view, TypeRef>> out;
+        for (size_t i = 0; i < names.size() && i < types.size(); ++i) out.emplace_back(names[i], types[i]);
+        return out;
+    }
     // Derived (not stored): trait is one of Fn / FnMut / FnOnce.
     bool is_fn_family() const noexcept {
         auto t = trait_name();

@@ -1,0 +1,38 @@
+// ADR 0030 S9a step A: a Rust-shaped trait with `type Item` — `I: It<Item = T>` normalizes `I::Item` to T in the body and
+// infers T from the selected impl's item at the call; a sibling bound projects (`F: Fn(I::Item)`). rustc 1.98.1: 76.
+package s9a_assoc_eq_bound_infers;
+trait It {
+    type Item;
+    fn nx(&mut self) -> Option<Self::Item>;
+    fn cnt(mut self) -> i64 where Self: Sized {
+        let mut n: i64 = 0;
+        loop { match self.nx() { Some(_) => { n = n + 1; } None => { return n; } } }
+    }
+    fn first(mut self) -> Option<Self::Item> where Self: Sized { self.nx() }
+}
+struct Up { i: i64, n: i64 }
+impl It for Up {
+    type Item = i64;
+    fn nx(&mut self) -> Option<i64> { if self.i < self.n { self.i = self.i + 1; Some(self.i) } else { None } }
+}
+struct Mp<I, F> { it: I, f: F }
+impl<I: It, F: Fn(I::Item) -> i64> It for Mp<I, F> {
+    type Item = i64;
+    fn nx(&mut self) -> Option<i64> { match self.it.nx() { Some(x) => Some((self.f)(x)), None => None } }
+}
+fn sum<I: It<Item = T>, T: Copy + Into<i64>>(mut it: I) -> i64 {
+    let mut s: i64 = 0;
+    loop { match it.nx() { Some(x) => { s = s + x.into(); } None => { return s; } } }
+}
+fn sum2<I: It<Item = i64>>(mut it: I) -> i64 {
+    let mut s: i64 = 0;
+    while let Some(x) = it.nx() { s = s + x; }
+    s
+}
+fn main() -> i32 {
+    let a = Up { i: 0, n: 4 }.cnt();
+    let b = sum(Up { i: 0, n: 3 });
+    let c = sum2(Mp { it: Up { i: 0, n: 3 }, f: |x: i64| x * 10 });
+    let d = match (Up { i: 5, n: 9 }).first() { Some(v) => v, None => 0 };
+    return (a + b + c + d) as i32;
+}

@@ -3485,6 +3485,12 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     if (exists) { orig_retargetable = true; new_concrete = true; }
                 }
             }
+            // A bound's method on a receiver a where-clause bounds (`where
+            // Self::Item: Into<i64>` in a default synthesized at `Item = i64`):
+            // sema recorded the trait and no callee; the impl answers here.
+            if (!orig_retargetable && orig_inner && resolved_symbol.empty() &&
+                !v.trait_identity().empty() && !tag_trait.empty())
+                orig_retargetable = true;
             // ADR 0030 S8 row 6: a bound's method on a receiver that became a
             // concrete struct is the method of the impl of the bound's trait
             // (`tag_trait`) for that struct — read off the impl, kept a method
@@ -4975,6 +4981,52 @@ std::string Mono::drop_symbol_(TypeRef ty, const std::string& cname) {
     return {};
 }
 
+// An impl parameter its target does not name (`impl<A, I: It<Item = A>> It
+// for W<I>`, `impl<A, I: Iterator<A>> … for W<I>`) is fixed by the bounds of
+// the ones it does name: an associated-type equality is the selected impl's
+// item (C-OBL), a trait argument the selected impl's argument. To a fixpoint.
+void Mono::complete_impl_subst_(lir_view::FunctionView m, SubstMap& s) {
+    auto* pool = out_.type_pool.impl();
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (auto& itp : m.impl_type_params()) {
+            auto sit = s.find(std::string(itp.name()));
+            if (sit == s.end() || !sit->second || contains_typevar(sit->second)) continue;
+            TypeRef self = sit->second;
+            itp.each_bound([&](lir_view::FnTraitBoundView b) {
+                const std::string id(b.identity_trait());
+                std::vector<TypeRef> targs;
+                for (auto a : b.type_args(pool)) targs.push_back(a ? subst_type(a, s) : a);
+                for (auto& [n, x] : b.assoc_eqs(pool)) {
+                    if (!x) continue;
+                    if (TypeRef r = project_assoc_(id, self, targs, n)) {
+                        SubstMap add;
+                        if (unify_impl_target(r, x, add))
+                            for (auto& [k, v] : add) if (!s.count(k)) { s[k] = v; grew = true; }
+                    }
+                }
+                bool open = false;
+                for (auto a : targs) if (a && contains_typevar(a)) open = true;
+                if (!open) return;
+                for (uint32_t ii : impl_candidates_(id, self, nullptr)) {
+                    auto impl = out_.impls[ii];
+                    SubstMap ib;
+                    TypeRef pat = impl.target_typeref(pool);
+                    if (pat && !unify_impl_target(self, pat, ib)) continue;
+                    auto ita = impl.trait_type_args(pool);
+                    SubstMap add;
+                    bool ok = true;
+                    for (size_t k = 0; ok && k < ita.size() && k < targs.size(); ++k)
+                        if (ita[k] && targs[k]) ok = unify_impl_target(subst_type(ita[k], ib), targs[k], add);
+                    if (!ok) continue;
+                    for (auto& [k, v] : add) if (!s.count(k) && !contains_typevar(v)) { s[k] = v; grew = true; }
+                    break;
+                }
+            });
+        }
+    }
+}
+
 bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
     auto* pool = out_.type_pool.impl();
     bool ok = true;
@@ -5136,6 +5188,10 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
             }
         }
         if (pattern_mismatch) continue;
+        if (!m.impl_type_params().empty()) {
+            if (msel != &ms) { ms = *msel; msel = &ms; }
+            complete_impl_subst_(m, ms);
+        }
         if (!method_bound_ok(m, *msel)) continue;
 
         // Compute the final renamed method name first so the binary-symbol

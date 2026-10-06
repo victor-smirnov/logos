@@ -1622,8 +1622,32 @@ static std::string_view pkg_owning_module_id(std::string_view pkg) {
 // Uniquely-named legacy path: stdlib (`logos.*`) is globally unique by name → no
 // suffix; a non-stdlib module type takes the plain "$M<module_id>" coexistence
 // suffix (same-package-across-separately-compiled-modules distinctness).
+// ADR 0030 S9 row 8 step H (transition switch, deleted when it is the only
+// rule): LOGOS_FOLD_ALL folds the declaring package into every nominal type's
+// spelling, independent of which names the program finds ambiguous.
+static bool fold_all_types() {
+    static const bool on = std::getenv("LOGOS_FOLD_ALL") != nullptr;
+    return on;
+}
+static std::string pkg_fold_code(std::string_view pkg) {
+    std::string_view mid = pkg_owning_module_id(pkg);
+    uint64_t h = 1469598103934665603ull;           // FNV-1a 64 offset basis
+    auto mix = [&h](std::string_view s) {
+        for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }  // FNV prime
+    };
+    if (!mid.empty() && !(pkg.size() >= 6 && pkg.substr(0, 6) == "logos.")) {
+        mix(mid);
+        mix(std::string_view("\x1f", 1));
+    }
+    mix(pkg);
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
+    return std::string(buf);
+}
+
 std::string type_module_suffix(std::string_view name, std::string_view pkg) {
     if (pkg.empty()) return {};
+    if (fold_all_types()) return pkg_fold_code(pkg);
     if (g_ambiguous_type_names && !name.empty() &&
         g_ambiguous_type_names->count(std::string(name))) {
         std::string_view mid = pkg_owning_module_id(pkg);
@@ -1676,7 +1700,7 @@ std::string type_module_suffix(std::string_view name, std::string_view pkg) {
 // before, so the archived symbol set and the abi are untouched
 // (`scripts/abi-check.sh`: ADDED 0, ABI-PRESERVING).
 std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_view pkg) {
-    if (pkg.empty() || name.empty()) return {};
+    if (pkg.empty() || name.empty() || fold_all_types()) return {};
     if (!g_ambiguous_type_names || !g_ambiguous_type_names->count(std::string(name)))
         return {};
     if (!type_module_suffix(name, pkg).empty()) return {};  // already folded
@@ -6595,6 +6619,15 @@ std::vector<TypeParam> SemaChecker::read_type_params_from(TinyMapView node, int3
             }
         }
     }
+    // A sibling's bound may name a projection of another parameter
+    // (`impl<I: Iterator, F: Fn(I::Item)>`): the traits each parameter is
+    // bounded by are visible to the projection lookup while the list is read.
+    BoundNamesScope bound_names(*this);
+    for (uint64_t i = 0; i < tpitems.size(); ++i) {
+        auto tpnode = map_of(tpitems.get(i));
+        if (code_of(tpnode) == la::TYPE_PARAM)
+            bound_names.add(std::string(str_of(tpnode.get(la::NAME.code))), tpnode);
+    }
     for (uint64_t i = 0; i < tpitems.size(); ++i) {
         auto tpnode = map_of(tpitems.get(i));
         if (code_of(tpnode) == la::LIFETIME_PARAM) continue;
@@ -6691,6 +6724,15 @@ void SemaChecker::fold_where_bounds(TinyMapView node, std::vector<TypeParam>& re
             auto wnode = map_of(wav);
             if (wnode.has_key(la::ITEMS)) {
                 auto witems = arr_of(wnode.get(la::ITEMS.code));
+                // A clause may project another parameter bounded in a later
+                // clause or in the list (`where I: Iterator, F: Fn(I::Item)`).
+                BoundNamesScope bound_names(*this);
+                for (auto& tp : result) bound_names.add(tp.name, tp.bounds);
+                for (uint64_t i = 0; i < witems.size(); ++i) {
+                    auto c = map_of(witems.get(i));
+                    if (code_of(c) == la::TYPE_PARAM && c.has_key(la::NAME))
+                        bound_names.add(std::string(str_of(c.get(la::NAME.code))), c);
+                }
                 for (uint64_t i = 0; i < witems.size(); ++i) {
                     auto constraint = map_of(witems.get(i));
                     if (code_of(constraint) != la::TYPE_PARAM) continue;
@@ -7539,6 +7581,10 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         // concrete base, or a type parameter whose bounds a blanket impl
         // answers (`K::ViewInStore` under `K: PodRef`); a generic associated
         // type at its own arguments.
+        if (!concrete && subbed_gat_args.empty())
+            if (TypeRef fixed = const_cast<SemaChecker*>(this)->param_assoc_eq_(
+                    subbed_base, strip_trait_targ_suffix(std::string(t.trait_name())), t.assoc_type_name()))
+                return fixed;
         {
             TypeRef pbase = concrete ? concrete : subbed_base;
             std::string bare_tn = strip_trait_targ_suffix(std::string(t.trait_name()));
@@ -7568,6 +7614,58 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
     }
     default: return t;
     }
+}
+
+// The traits a parameter list names for each parameter, visible to the
+// projection lookup (current_type_bounds_) while the list is read; restored
+// when the scope ends.
+void SemaChecker::BoundNamesScope::add(const std::string& name, std::vector<TraitBound> names) {
+    if (names.empty()) return;
+    auto it = sc.current_type_bounds_.find(name);
+    saved.emplace_back(name, it == sc.current_type_bounds_.end()
+                                 ? std::nullopt : std::optional<std::vector<TraitBound>>(it->second));
+    auto& slot = sc.current_type_bounds_[name];
+    slot.insert(slot.end(), names.begin(), names.end());
+}
+void SemaChecker::BoundNamesScope::add(const std::string& name, TinyMapView bounded) {
+    std::vector<TraitBound> names;
+    if (bounded.has_key(la::ITEMS)) {
+        auto bounds = sc.arr_of(bounded.get(la::ITEMS.code));
+        for (uint64_t b = 0; b < bounds.size(); ++b) {
+            auto bnode = sc.map_of(bounds.get(b));
+            if (sc.code_of(bnode) != la::TRAIT_BOUND) continue;
+            TraitBound tb;
+            tb.trait_name = std::string(sc.str_of(bnode.get(la::NAME.code)));
+            names.push_back(std::move(tb));
+        }
+    }
+    add(name, std::move(names));
+}
+SemaChecker::BoundNamesScope::~BoundNamesScope() {
+    for (auto it = saved.rbegin(); it != saved.rend(); ++it) {
+        if (it->second) sc.current_type_bounds_[it->first] = *it->second;
+        else sc.current_type_bounds_.erase(it->first);
+    }
+}
+
+// `T: Tr<Name = X>` in scope fixes the projection: `<T as Tr>::Name` is X
+// (Rust normalizes a projection by the bounds in scope). `trait` empty: any
+// bound of T naming `Name`. Null when no bound fixes it.
+TypeRef SemaChecker::param_assoc_eq_(TypeRef base, std::string_view trait, std::string_view name) {
+    if (!base || TypeRef(base).kind() != LogosType::Kind::TypeVar) return {};
+    // KEY-IDENTITY: a type-parameter name of the signature being checked, as the rows beside it.
+    auto bit = current_type_bounds_.find(std::string(TypeRef(base).type_var_name()));
+    if (bit == current_type_bounds_.end()) return {};
+    auto last = [](std::string_view s) {
+        if (auto p = s.rfind(':'); p != std::string_view::npos) s.remove_prefix(p + 1);
+        return s;
+    };
+    for (auto& b : bit->second) {
+        if (!trait.empty() && last(b.trait_name) != last(trait)) continue;
+        for (auto& [n, ty] : b.assoc_eqs)
+            if (n == name && ty) return ty;
+    }
+    return {};
 }
 
 // ── Type resolution ──────────────────────────────────────────────────────────
@@ -7808,6 +7906,8 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
             }
         } else {
             auto bit = current_type_bounds_.find(tp_name);
+            if (gat_args.empty())
+                if (TypeRef fixed = param_assoc_eq_(base_type, {}, assoc)) return fixed;
             if (bit != current_type_bounds_.end()) {
                 // Walk each bound trait AND its supertrait chain to find
                 // the assoc type. A `Container: Datatype` bound pulls in
@@ -7993,7 +8093,9 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
         TypeRef(base_type).kind() != LogosType::Kind::TypeVar &&
         TypeRef(base_type).kind() != LogosType::Kind::ConstVar &&
         TypeRef(base_type).kind() != LogosType::Kind::CfgSlotType &&
-        TypeRef(base_type).kind() != LogosType::Kind::AssocType && !contains_typevar_sema(base_type)) {
+        TypeRef(base_type).kind() != LogosType::Kind::AssocType) {
+        // A base with type parameters inside (`Mp<I, F, B>` in its own impl)
+        // normalizes too when one impl's pattern answers it (C-OBL).
         const SemaTraitInfo* pti = resolve_trait(trait_for_assoc);
         if (pti)
             if (TypeRef r = project_assoc_(defs_.path(pti->def), base_type, trait_args_for_assoc, assoc)) return r;

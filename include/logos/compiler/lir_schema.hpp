@@ -682,6 +682,9 @@ inline constexpr Key TB_HRTB_BINDERS {"TB_HRTB_BINDERS", 3};  // Array<Varchar> 
 // The bound's trait IDENTITY (`pkg::Trait`, always qualified), captured in the
 // scope the bound was WRITTEN. Sparse; readers fall back to TB_TRAIT_NAME.
 inline constexpr Key TB_IDENTITY     {"TB_IDENTITY",     4};  // Varchar (sparse)
+// `Tr<Name = X>`: the associated-type equalities, names and types in step.
+inline constexpr Key TB_ASSOC_NAMES  {"TB_ASSOC_NAMES",  5};  // Array<Varchar> (sparse)
+inline constexpr Key TB_ASSOC_TYPES  {"TB_ASSOC_TYPES",  6};  // Array<RelPtr<LogosType>> (sparse)
 } // namespace fn_tbound_keys
 
 // where_type_bounds sub-map keys (own space) — pair (subject type, trait name).

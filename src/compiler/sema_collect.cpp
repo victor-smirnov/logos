@@ -5095,22 +5095,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     {
                         auto [spkg_def, ssi_def] = find_struct_by_name(target);
                         auto [dpkg_def, dsi_def] = find_datatype_by_name(target);
-                        auto _shaped_target = [](TypeRef pat) -> bool {
-                            if (!pat) return false;
-                            for (auto a : TypeRef(pat).type_args()) {
-                                if (!a) continue;
-                                auto k = TypeRef(a).kind();
-                                if (k != LogosType::Kind::TypeVar &&
-                                    k != LogosType::Kind::ConstVar)
-                                    return true;
-                            }
-                            return false;
-                        };
                         if (ssi_def) {
-                            // Shaped target → Self = the impl's pattern (see
+                            // A generic target → Self = the impl's pattern (see
                             // sema_decl synthesis; both sides must agree or
                             // declared vs body types of defaults diverge).
-                            if (target_resolved && _shaped_target(target_resolved)) {
+                            if (target_resolved && !TypeRef(target_resolved).type_args().empty()) {
                                 self_type = target_resolved;
                             } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
@@ -5131,7 +5120,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                 self_type = make_struct_type(target, spkg_def);
                             }
                         } else if (dsi_def) {
-                            if (target_resolved && _shaped_target(target_resolved)) {
+                            if (target_resolved && !TypeRef(target_resolved).type_args().empty()) {
                                 self_type = target_resolved;
                             } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
@@ -6760,6 +6749,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         auto combined = impl_type_params_;
         combined.insert(combined.end(), info.type_params.begin(), info.type_params.end());
         info.type_params = std::move(combined);
+        info.impl_tparam_count = uint32_t(impl_type_params_.size());
         // CP-cm-16 follow-up: stamp impl-target pattern onto methods of
         // generic impl blocks (impl_type_params_ non-empty). Null for
         // non-generic impls / blanket impls / primitive targets / etc.

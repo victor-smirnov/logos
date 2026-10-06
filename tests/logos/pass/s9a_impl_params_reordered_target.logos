@@ -1,0 +1,21 @@
+// ADR 0030 S9a step A: `impl<B, I: It<Item = B>> It for Mp<I, B>` — the synthesized default's Self is the impl's
+// target pattern, not the struct name over the impl's parameters in their own order (that made the item `I`). rustc: 12.
+package s9a_impl_params_reordered_target;
+use logos.lang.marker;
+trait It {
+    type Item;
+    fn nx(&mut self) -> Option<Self::Item>;
+    fn tot(mut self) -> i64 where Self: Sized, Self::Item: Into<i64> {
+        let mut s: i64 = 0;
+        while let Some(x) = self.nx() { s = s + x.into(); }
+        s
+    }
+}
+struct W<T> { v: T, n: i64 }
+impl<T: Copy> It for W<T> { type Item = T; fn nx(&mut self) -> Option<T> { if self.n > 0 { self.n = self.n - 1; Some(self.v) } else { None } } }
+struct Mp<I, B> { it: I, _b: PhantomData<B> }
+impl<B, I: It<Item = B>> It for Mp<I, B> {
+    type Item = B;
+    fn nx(&mut self) -> Option<B> { self.it.nx() }
+}
+fn main() -> i32 { let w = Mp { it: W { v: 4i32, n: 3 }, _b: PhantomData::<i32> {} }; return w.tot() as i32; }

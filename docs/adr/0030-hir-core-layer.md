@@ -277,6 +277,7 @@ named reasons. Each step declares a diff budget before it starts.
 | S9 | C-OBL + impl identities + one mangler (PAIR, ABI bump) | S8 |
 | L0 | `#[lang = "…"]` attribute; `lang_item → DefId` table at collection; missing/duplicate is an error; the 11 package-path sites (`k*LangPkg`) and the stdlib names the macro expansions spell bare (`String`, `Formatter`, `fmt_*`, `vec_from_arr`, `vec_from_elem`, `vec_new`; R0 pinned them in key_identity.ledger) move onto it (Q6) | — |
 | S9a | Rust-shaped `Iterator { type Item }`, `Try { type Output; type Residual }`, `FromResidual<R>` | S9 |
+| S9b | sema's function / method registries keyed by DefId (no lookup composes `<type>__<method>`), then the type encoder folds the declaring package unconditionally (`LOGOS_FOLD_ALL` becomes the rule, the ambiguous-name set is deleted); priced 2026-10-06: 491 L0 reds with the fold on | S9 |
 | S10 | HIR `for`, `?`, comprehensions via lang items; C-CLO rest | S8, S9a, L0 |
 
 Retirement is measured, not asserted: each step reports the number of sema
@@ -768,8 +769,18 @@ their arguments through it (byte-identical symbols, ABI unchanged). LEFT for
 this row: an impl's trait arguments in a method symbol (`trait_targ_suffix`,
 the G156-1 `<T>__<Trait>$G…__<m>` re-key of a colliding method) are still
 spelled by type_str; switched to the encoder they re-key the stdlib's
-`ReadDir` iterator methods (ABI diff −260 symbols) — measured, not yet
-explained.
+`ReadDir` iterator methods (ABI diff −260 symbols). Measured cause: the type
+encoder is phase-dependent — the ambiguous-name set that folds `$M<hash>` into
+an ambiguous type's spelling is installed only after collect, so collect mints
+`ReadDir__Iterator$G1$DirEntry__all` and lower asks for
+`…$G1$DirEntry$M381aa463d44202a8__all`: the per-impl defaults lost their
+registration and mono re-instantiated them unqualified. Installing the set
+after collect's first pass (same content — compared over the four stdlib
+builds) breaks the lcm build instead (a `parse_expr` of another package
+answers wql's calls): a key minted with the set and one minted without it
+still meet — dependency-archive and round-snapshot keys. The cure is the
+registries keyed by identity, not a different install point; the generic
+enum's `$M` fold (step C) is the same residue.
 
 Row (9) — operators. `x op= y` over a type parameter calls `<Op>Assign::op_assign`
 (the variable and a field of a generic struct, fixture s9_op_assign_generic);
@@ -789,6 +800,44 @@ without it E0369 — they compared the fat pointers' addresses (interaction
 cluster `dyn-eq-operator-builtin`, fixtures s9_dyn_eq_by_partial_eq_impl,
 s9_dyn_eq_without_impl). No mono BinOp compound rewrite remains: a type
 parameter's `op=` is the method call sema emits.
+
+S9 CLOSED BY ROW 2026-10-06: rows (1)–(9) closed; one residue MOVED to a new
+step S9b — the type encoder is not universe-independent. Whether an ambiguous
+type's spelling carries `$M<hash>` depends on which names are ambiguous in the
+program being compiled: across phases (collect mints before the set exists)
+and across modules (mem's archive is built in a smaller universe than lcm, so
+one function's key differs between the two builds). Priced (step H): the
+declaring package folded into every nominal type's spelling, as Rust's crate
+disambiguator, with no set — the transition switch `LOGOS_FOLD_ALL` in
+type_module_suffix — turns 491 of 8032 L0 tests red (run 1370); the first class
+is sema's method lookups composed as `concrete_struct_name(t) + "__" + method`
+against a registry keyed by the bare declared name (operator dispatch, drop
+glue, Iterator adapters). Each is a lookup by spelling where an identity
+exists; removing them is the registries' rewrite to DefId keys, an order of
+magnitude over row (8)'s budget — a re-plan, step S9b.
+
+## S9a (Rust-shaped `Iterator`, `Try`) — state
+
+Step A, 2026-10-06 — the compiler takes the Rust shape before the stdlib
+moves to it (probes against rustc 1.98.1, fixtures s9a_*): a sibling bound or a
+where-clause projects a parameter another bound names (`impl<I: It, F:
+Fn(I::Item)>`, `where I: It, F: Fn(I::Item) -> i64`); `I: It<Item = T>` fixes
+`I::Item` to T in the body (sema's param_assoc_eq_) and the call infers T from
+the selected impl's item; a projection over a base with parameters inside
+normalizes by C-OBL (`<Mp<I, F, B> as It>::Item` in its own impl); `where
+Self::Item: Tr` holds for the item it names in each synthesized default (it
+was parsed and skipped) — a concrete receiver it bounds is bound-dispatched
+and mono answers it from the impl; E0207 follows RFC 447 (`F: FnMut(..) -> B`
+constrains B). Three positional assumptions fixed on the way: a synthesized
+default's Self is the impl's target pattern (`impl<B, I> … for Mp<I, B>` made
+the item `I`); mono binds a struct method's impl parameters in the impl's
+order when the impl's list is not the struct's own; an impl parameter its
+target does not name (`impl<A, I: It<Item = A>> It for W<I>`) is completed by
+mono from the bounds — associated-type equalities ride on the L-IR bound now
+(TB_ASSOC_NAMES / TB_ASSOC_TYPES) — and a turbofish names the method's own
+parameters (SemaFuncInfo::impl_tparam_count). Closed squeue #732. Filed #734:
+a default method's generics shadowing an impl's of the same name. Next, step
+B: lang.iter moves to `trait Iterator { type Item; … }`.
 
 ## S0–S7 gap audit (2026-10-01)
 
