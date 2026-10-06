@@ -628,6 +628,57 @@ error: a struct instance's methods expanded eagerly, the bound-discriminated
 twins of one method; an instance a call demands that no impl provides is row
 (2)'s mlir miss, an internal error.
 
+Row (6), coherence, step A: one overlap pass over C-OBL's table after
+collection (`check_impl_overlap_`): two impls of a trait overlap when their
+heads unify (`obl::heads_unify`, generics renamed apart, omitted trait
+arguments read as defaults) and no bound of either is provably false — on a
+concrete type, the solver says no; on a type that still mentions a generic, no
+impl head of the bound's trait unifies with it and no compiler rule could
+answer; an unsized binding of an implicitly `Sized` generic. As rustc: two
+blankets whose bounds differ overlap (E0119). One fact per impl (deduped by
+the impl's identity, not its spelling): two impls written alike are two facts.
+Deleted: collect_impl's non-generic-only conflict check, `coherence_keys_`,
+`array_impl_keys_overlap` / `array_impl_key_display`, the call-site
+"ambiguous blanket impl" diagnostic. The stdlib follows Rust: fabric's PodRef
+blankets attach to the newtype `ByRef<DT>` (`Buffer<ByRef<DT>>`; they overlapped
+the Primitive blankets), the primitives' concrete `ToString` impls are gone
+(the `Display` blanket answers; the mem prelude loads mem.fmt so the impl is
+present wherever the trait is) — ABI 0.56.0. Squeue #516 closed;
+`core_3_adv_blanket_specific` (a specific impl winning over a blanket) moved
+to fail/. Found on the way and fixed: `Trait::<A>::m(x)` ignored A
+(`Conv::<Big>::conv(&b)` called `impl Conv<i64> for Big`, a silent
+miscompile; `Pick::<bool>::pick` did not resolve) — resolve_trait_item_ now
+takes the impl C-OBL selects for (Self, A) and its method by declaration
+identity (fixture `s9_ufcs_trait_args_select_impl`). Exposed by the prelude
+now loading mem.fmt and fixed: mono's `find_any_struct` asked the bare name
+before the package-qualified one, so a user `struct String` stood in for
+`logos.mem.string.String` in `fmt::Arguments`' layout (the layout engines
+disagreed, 16 vs 24 bytes); it asks the package's own first — squeue #698
+closed.
+Row (6), step B: the orphan rule (`check_orphan_rule_`, E0117 / E0210, RFC
+2451) — a module is the crate; `&` / `&mut` / `Box` / `Pin` (lang item `pin`
+now) are fundamental outside their own module; a trait object is its trait's;
+a metaclass handler's generated impl is its trait's module's. Census over every
+corpus: 6 refusals, 5 of them programs rustc refuses too (fail fixtures, squeue
+#550 closed), 1 false positive fixed (`dyn LocalTrait` read through the
+caller's scope). The stdlib's one orphan, `impl FromIterator<Result<T, E>> for
+Result<Vec<T>, E>` in mem, is Rust's generic impl in lang.iter now
+(`ResultShunt`). One specialization selection
+(`obl::pick_specialization`): struct specs in sema and mono and function specs
+in mono share the matcher, the bound gate (a bound-discriminated spec, every
+position a variable) and the specificity order; a tie is an error in sema too.
+Deleted: the three selection loops, sema's `specificity_sema`, mono's
+`type_specificity` / `specificity_score` / `specificity_vec`. Row 6 CLOSED BY
+ROW. Seen while writing the fixtures and left to row (9): `*x == *y` on `dyn
+Shape` with a user `PartialEq` compares addresses (interaction cluster
+`dyn-eq-operator-builtin`).
+
+Row (8), step A: one type encoder (`type_symbol_code`, sema's former
+`mangle_type_for_name`): mono's `mangle_type` delegates to it, so a type is
+spelled one way in every symbol — mono used to spell a borrowed slice as its
+`type_str` (`__&[u8]`), an integer const argument as `cN_`, a symbolic array
+length as `arr0`, and kept regions; 893 stdlib symbols change — ABI 0.57.0.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

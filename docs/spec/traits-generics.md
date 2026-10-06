@@ -835,11 +835,17 @@ A blanket impl `impl<S: B1 + ... + Bn> T for S` makes T hold for a type S iff S 
 
 *Source:* `src/compiler/obligation.cpp`
 
-### `trait.resolve.overlap-ambiguous` — Two answering impls are ambiguous
+### `trait.resolve.overlap-refused` — Two impls that may apply to one type are refused (E0119)
 
-When more than one impl answers, satisfaction holds (Ambiguous) but no impl is selected: a projection or an associated item asked of it has no answer, and an associated constant reached through two traits is refused (E0034). Logos's `impl Tr for str` facts answer only when no other impl does.
+After collection, every pair of impls of one trait is checked: they overlap when their heads (Self and the trait's arguments, omitted ones read as the trait's defaults) unify and no bound of either is provably false at that unifier — a bound on a concrete type that does not hold, a bound on a type no impl of the bound's trait can match, or an unsized type for a generic that is implicitly `Sized`. Two blankets whose bounds merely differ overlap, as in rustc (no specialization). The later impl is refused. Logos's `impl Tr for str` facts are exempt (Rust's `str` is a type of its own beside `[u8]`). Trait-qualified calls `Trait::<A>::m(x)` call the item of the impl selected for (x's type, A).
 
-*Source:* `src/compiler/obligation.cpp`, `src/compiler/sema_collect.cpp`
+*Source:* `src/compiler/sema_collect.cpp`, `src/compiler/obligation.cpp`
+
+### `trait.resolve.orphan-rule` — An impl's trait or a type of its header is the impl's module's (E0117 / E0210)
+
+An impl is accepted when its trait is declared in the impl's module, or when, reading Self then the trait's arguments, a type of that module comes before any uncovered type parameter (RFC 2451): a struct, enum or union of the module, or a trait object of its trait. `&T`, `&mut T`, `Box<T>` and `Pin<T>` are fundamental — outside their own module they count as what they wrap. A type parameter met first is E0210; no local type at all is E0117. A module is the crate: the stdlib's `logos.module`s each, a program's own files together. An impl a metaclass handler generates is its trait's module's. An archive's impls were checked where it was built.
+
+*Source:* `src/compiler/sema_collect.cpp`
 
 ### `trait.resolve.cycle-terminates-no-impl` — An obligation that does not terminate does not hold
 

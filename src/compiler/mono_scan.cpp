@@ -589,35 +589,18 @@ lir_view::FunctionView Mono::find_best_spec(
     if (sit == specs_.end()) return {};
 
     auto* fbs_pool = out_.type_pool.impl();
-    lir_view::FunctionView best;
-    std::vector<int>      best_vec;
-    bool                  ambiguous = false;
-
+    std::vector<obl::SpecCand> cands;
     for (auto spec : sit->second) {
-        auto sp = spec.spec_patterns(fbs_pool);
-        if (sp.size() != type_args.size()) continue;
-        SubstMap dummy;
-        bool ok = true;
-        for (size_t i = 0; i < type_args.size(); ++i) {
-            if (!match_type(type_args[i], sp[i], dummy)) {
-                ok = false; break;
-            }
-        }
-        if (!ok) continue;
-        auto svec = specificity_vec(sp);
-        if (!best || svec > best_vec) {
-            best_vec  = svec;
-            best      = spec;
-            ambiguous = false;
-        } else if (svec == best_vec) {
-            ambiguous = true;
-        }
+        obl::SpecCand c;
+        c.patterns = spec.spec_patterns(fbs_pool);
+        for (auto tp : spec.type_params()) c.generics.emplace_back(tp.name());
+        cands.push_back(std::move(c));
     }
-    if (ambiguous) {
+    auto pick = obl::pick_specialization(obl_table_now_(), obl_env_(), cands, type_args, /*open_args_hold=*/true);
+    if (pick.ambiguous)
         in_.diags.diags.push_back({Diag::Level::Error, "mono",
             std::format("ambiguous specializations for function '{}'", base_name), diag_file_, diag_line_});
-    }
-    return best;
+    return pick.index < 0 ? lir_view::FunctionView{} : sit->second[pick.index];
 }
 
 

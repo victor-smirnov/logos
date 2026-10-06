@@ -1,0 +1,21 @@
+// ADR 0030 S9: `Trait::<A>::m(x)` calls the item of the impl C-OBL selects for
+// (x's type, A). It used to ignore A: `Conv::<Big>::conv(&b)` called
+// `impl Conv<i64> for Big` instead of the identity impl (a silent miscompile),
+// and `Pick::<bool>::pick(&b)` beside `Pick<i32>` did not resolve.
+// rustc 1.98.1: exit 21.
+package s9_ufcs_trait_args_select_impl;
+
+trait Conv<T> { fn conv(self: &Self) -> i32; }
+trait Pick<A> { fn pick(self: &Self) -> i32; }
+struct Big { a: i64 }
+impl<T> Conv<T> for T { fn conv(self: &T) -> i32 { return 1; } }
+impl Conv<i64> for Big { fn conv(self: &Big) -> i32 { return 2; } }
+impl Pick<bool> for Big { fn pick(self: &Big) -> i32 { return 100; } }
+impl Pick<i32> for Big { fn pick(self: &Big) -> i32 { return 200; } }
+
+fn main() -> i32 {
+    let b = Big { a: 0 };
+    let c = Conv::<i64>::conv(&b) * 10 + Conv::<Big>::conv(&b);      // 21
+    let p = Pick::<i32>::pick(&b) - Pick::<bool>::pick(&b);          // 100
+    return c + p - 100;
+}

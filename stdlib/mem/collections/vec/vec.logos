@@ -527,31 +527,6 @@ impl<T> FromIterator<T> for Vec<T> {
     }
 }
 
-// Rust's `impl<T, E, V: FromIterator<T>> FromIterator<Result<T, E>>
-// for Result<V, E>` specialised to V = Vec<T>. The impl-target pattern
-// is `Result<Vec<T>, E>` (partial spec — T appears inside Vec, not as
-// the receiver's first type-arg directly). Mono unifies the pattern
-// against the concrete receiver `Result<Vec<i32>, i32>` to bind T=i32
-// (CP-cm-16 follow-up). Driven end-to-end by result::test_collect via
-// `vec.into_iter().collect::<Result<Vec<i32>, i32>>()`.
-impl<T, E> FromIterator<Result<T, E>> for Result<Vec<T>, E> {
-    fn from_iter<I: Iterator<Result<T, E>>>(iter: I) -> Result<Vec<T>, E> {
-        let mut it: I = iter;
-        let mut out: Vec<T> = vec_new::<T>();
-        loop {
-            match it.next() {
-                Option::None    => { return Result::Ok(out); }
-                Option::Some(r) => {
-                    match r {
-                        Result::Ok(x)  => { out.push(x); }
-                        Result::Err(e) => { return Result::Err(e); }
-                    }
-                }
-            }
-        }
-    }
-}
-
 /// Returns `true` if `v` contains an element equal to `val` — linear scan, requires `T: Eq`.
 /// Free-fn form keeps the base `impl<T> Vec<T>` bound-free; see also `Vec::contains`.
 pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {

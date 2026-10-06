@@ -1,0 +1,9 @@
+// Closed squeue user_type_homonym_of_stdlib_type_link_refused (#698): mono resolves a struct by its package first (find_any_struct), so a user `struct String` no longer stands in for logos.mem.string.String in a stdlib struct's layout (ADR 0030 S9).
+package user_type_homonym_of_stdlib_type_link_refused;
+use logos.std.fmt;
+struct String { n: i64 }
+fn main() -> i32 {
+    let u = String { n: 2 };
+    let t = format!("{}", 70);
+    return (u.n + t.len()) as i32;
+}

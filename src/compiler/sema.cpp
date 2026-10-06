@@ -413,7 +413,6 @@ public:
     StrSet persisted_user_module_const_keys;
     StrSet persisted_user_generic_const_keys;
     std::unordered_set<SemaChecker::ImplKey, SemaChecker::ImplKeyHash> persisted_user_impl_keys;
-    StrSet persisted_user_coherence_keys;
     std::unordered_set<SemaChecker::AssocKey, SemaChecker::AssocKeyHash> persisted_user_assoc_const_impl_keys;
     std::set<DefId> persisted_user_trait_defs;
     StrSet persisted_user_type_alias_keys;
@@ -443,7 +442,6 @@ void SemaCache::reset_user_state() {
         }
         for (auto& k : c->persisted_user_generic_const_keys)    s->generic_consts.erase(k);
         for (auto& k : c->persisted_user_impl_keys)             s->impls.erase(k);
-        for (auto& k : c->persisted_user_coherence_keys)        s->coherence_keys.erase(k);
         for (auto& k : c->persisted_user_assoc_const_impl_keys) s->assoc_const_impls.erase(k);
         for (auto& d : c->persisted_user_trait_defs)            s->traits.erase(d);
         for (auto& k : c->persisted_user_type_alias_keys)       s->type_aliases.erase(k);
@@ -571,7 +569,6 @@ void SemaCache::reset_user_state() {
     c->persisted_user_module_const_keys.clear();
     c->persisted_user_generic_const_keys.clear();
     c->persisted_user_impl_keys.clear();
-    c->persisted_user_coherence_keys.clear();
     c->persisted_user_assoc_const_impl_keys.clear();
     c->persisted_user_trait_defs.clear();
     c->persisted_user_type_alias_keys.clear();
@@ -605,7 +602,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->impls                = std::move(impls_);
     s->impls_all            = std::move(impls_all_);
     ++impls_gen_;
-    s->coherence_keys       = std::move(coherence_keys_);
     s->assoc_const_impls    = std::move(assoc_const_impls_);
     s->impl_assoc_consts    = std::move(impl_assoc_consts_);
     s->blanket_impls        = std::move(blanket_impls_);
@@ -646,7 +642,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
         for (auto& k : user_module_const_keys_)    c->persisted_user_module_const_keys.insert(k);
         for (auto& k : user_generic_const_keys_)   c->persisted_user_generic_const_keys.insert(k);
         for (auto& k : user_impl_keys_)            c->persisted_user_impl_keys.insert(k);
-        for (auto& k : user_coherence_keys_)       c->persisted_user_coherence_keys.insert(k);
         for (auto& k : user_assoc_const_impl_keys_)c->persisted_user_assoc_const_impl_keys.insert(k);
         for (auto& d : user_trait_defs_)           c->persisted_user_trait_defs.insert(d);
         for (auto& k : user_type_alias_keys_)      c->persisted_user_type_alias_keys.insert(k);
@@ -663,7 +658,6 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     }
     for (auto& k : user_generic_const_keys_)      s->generic_consts.erase(k);
     for (auto& k : user_impl_keys_)               s->impls.erase(k);
-    for (auto& k : user_coherence_keys_)          s->coherence_keys.erase(k);
     for (auto& k : user_assoc_const_impl_keys_)   s->assoc_const_impls.erase(k);
     for (auto& d : user_trait_defs_)              s->traits.erase(d);
     for (auto& k : user_type_alias_keys_)         s->type_aliases.erase(k);
@@ -799,7 +793,6 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     impls_                = std::move(s->impls);
     impls_all_            = std::move(s->impls_all);
     ++impls_gen_;
-    coherence_keys_       = std::move(s->coherence_keys);
     assoc_const_impls_    = std::move(s->assoc_const_impls);
     impl_assoc_consts_    = std::move(s->impl_assoc_consts);
     blanket_impls_        = std::move(s->blanket_impls);
@@ -1768,49 +1761,6 @@ static void array_elem_generalizations(TypeRef t, int d, std::vector<std::string
     out.push_back("_");
 }
 
-// Two `$array$<E>$<N>` impl keys overlap: the lengths agree or one is `N`, and
-// the element spellings unify with `_` (or a whole `T`) as a wildcard.
-static bool array_spelling_unify(std::string_view a, std::string_view b) {
-    auto wild = [](std::string_view x) { return x == "_" || x == "T"; };
-    if (wild(a) || wild(b)) return true;
-    auto split = [](std::string_view x, std::string_view& head, std::vector<std::string_view>& args) {
-        auto lt = x.find('<');
-        if (lt == std::string_view::npos || x.back() != '>') { head = x; return; }
-        head = x.substr(0, lt);
-        std::string_view in = x.substr(lt + 1, x.size() - lt - 2);
-        int depth = 0; size_t st = 0;
-        for (size_t i = 0; i < in.size(); ++i) {
-            char c = in[i];
-            if (c == '<' || c == '(' || c == '[') ++depth;
-            else if (c == '>' || c == ')' || c == ']') --depth;
-            else if (c == ',' && depth == 0) { args.push_back(in.substr(st, i - st)); st = i + 1; }
-        }
-        args.push_back(in.substr(st));
-    };
-    std::string_view ha, hb; std::vector<std::string_view> aa, ab;
-    split(a, ha, aa); split(b, hb, ab);
-    if (ha != hb || aa.size() != ab.size()) return false;
-    for (size_t i = 0; i < aa.size(); ++i)
-        if (!array_spelling_unify(aa[i], ab[i])) return false;
-    return true;
-}
-bool array_impl_keys_overlap(std::string_view ka, std::string_view kb) {
-    auto parts = [](std::string_view k, std::string_view& e, std::string_view& n) {
-        k.remove_prefix(7);                       // "$array$"
-        auto d = k.rfind('$');
-        e = k.substr(0, d); n = k.substr(d + 1);
-    };
-    std::string_view ea, na, eb, nb;
-    parts(ka, ea, na); parts(kb, eb, nb);
-    if (!(na == nb || na == "N" || nb == "N")) return false;
-    return array_spelling_unify(ea, eb);
-}
-std::string array_impl_key_display(std::string_view k) {
-    k.remove_prefix(7);
-    auto d = k.rfind('$');
-    return "[" + std::string(k.substr(0, d)) + "; " + std::string(k.substr(d + 1)) + "]";
-}
-
 std::string array_impl_target_key(TypeRef pattern) {
     if (!pattern || TypeRef(pattern).kind() != LogosType::Kind::Array) return {};
     std::string e = array_elem_pattern_spelling(TypeRef(pattern).elem(), 0);
@@ -2013,6 +1963,8 @@ std::string SemaChecker::canonical_func_type_name(TypeRef t) const {
     return mangle_type_for_name(t);
 }
 
+std::string type_symbol_code(TypeRef t) { return mangle_type_for_name(t); }
+
 std::string SemaChecker::function_signature_key(std::string_view base_name,
                                                 const std::vector<TypeRef>& param_types,
                                                 bool is_vararg) const {
@@ -2177,6 +2129,19 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_base_and_signature(
         if (same) return fi;
     }
     return nullptr;
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::func_by_decl_(const std::string& decl_key) {
+    if (decl_key.empty()) return nullptr;
+    if (func_by_decl_size_ != funcs_.size() + generic_funcs_.size()) {
+        func_by_decl_index_.clear();
+        for (auto* m : {&funcs_, &generic_funcs_})
+            for (auto& [k, fi] : *m)
+                if (!fi.decl_key.empty()) func_by_decl_index_.try_emplace(fi.decl_key, &fi, k);
+        func_by_decl_size_ = funcs_.size() + generic_funcs_.size();
+    }
+    auto it = func_by_decl_index_.find(decl_key);
+    return it == func_by_decl_index_.end() ? nullptr : it->second.first;
 }
 
 std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(std::string_view base_name) const {
@@ -5350,7 +5315,7 @@ bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
         "stable_layout", "self_describing", "iterator", "default", "error",
         "eq", "partial_eq", "partial_ord", "ord",
         // types
-        "owned_box", "rc", "arc", "unsafe_cell", "phantom_pinned", "atomic_ordering",
+        "owned_box", "pin", "rc", "arc", "unsafe_cell", "phantom_pinned", "atomic_ordering",
         "Option", "Result",
         // the names the HIR's built-in macro expansions spell (hygiene: a user
         // homonym in scope does not capture them)
@@ -9940,16 +9905,6 @@ static bool match_type_sema(TypeRef c, TypeRef p,
     }
 }
 
-static int specificity_sema(TypeRef t) {
-    if (!t || t.kind() == LogosType::Kind::TypeVar) return 0;
-    if (t.kind() == LogosType::Kind::Ptr)   return 1 + specificity_sema(t.pointee());
-    if (t.kind() == LogosType::Kind::Array) return 1 + specificity_sema(t.elem());
-    if (t.kind() == LogosType::Kind::Slice ||
-        t.kind() == LogosType::Kind::UnsizedSlice)
-        return 1 + specificity_sema(t.elem());
-    return 100;
-}
-
 // TypeVar anywhere in the tree — bound gates defer such args to mono.
 static bool contains_typevar_sema(TypeRef t) {
     if (!t) return false;
@@ -9961,94 +9916,32 @@ static bool contains_typevar_sema(TypeRef t) {
     return false;
 }
 
-// Find the most specific spec in struct_specs_sema_ whose patterns match
-// `type_args` under template `base_name`.  Returns nullptr if none match.
+// The most specific partial specialization of `base_name` for `type_args`
+// (obl::pick_specialization; a generic argument applies a bound-discriminated
+// spec only when the scope's bounds imply its bounds). Null when none applies.
 const SemaChecker::SemaStructInfo* SemaChecker::find_best_sema_struct_spec(
         std::string_view base_name,
         const std::vector<TypeRef>& type_args) {
-    const SemaStructInfo* best      = nullptr;
-    std::vector<int>      best_vec;
+    std::vector<const SemaStructInfo*> infos;
+    std::vector<obl::SpecCand> cands;
     for (auto& [key, info] : struct_specs_sema_) {
-        if (info.base_name != base_name) continue;
-        if (info.spec_patterns.size() != type_args.size()) continue;
-        StrMap<TypeRef> binds;
-        bool ok = true;
-        // Bound-DISCRIMINATED spec = selectable ONLY by bounds: every pattern
-        // position is a TypeVar. Specs with structural/concrete positions
-        // (Map<Bitmap, V>, PkdArray<[E]>) select by SHAPE — their pattern
-        // vars' bounds are ordinary constraints, NOT selection gates (the
-        // historical eidos behavior; gating them broke stdlib spec pickup
-        // inside generic bodies whose scope doesn't restate the bounds).
-        bool all_tv = true;
-        for (auto pp : info.spec_patterns)
-            if (!pp || TypeRef(pp).kind() != LogosType::Kind::TypeVar)
-                { all_tv = false; break; }
-        std::vector<int> scores(type_args.size());
-        for (size_t i = 0; i < type_args.size(); ++i) {
-            if (!match_type_sema(type_args[i], info.spec_patterns[i], binds)) { ok = false; break; }
-            scores[i] = specificity_sema(info.spec_patterns[i]);
-            // Bound-discriminated pattern (`struct S<T: Copy + Fst>`): the
-            // spec matches only when the concrete arg SATISFIES the pattern
-            // var's bounds; each bound adds specificity (a bounded pattern
-            // beats the base and less-bounded specs). TypeVar-bearing args
-            // defer to mono (accept here, mono re-gates).
-            TypeRef pat = info.spec_patterns[i];
-            if (all_tv && pat && TypeRef(pat).kind() == LogosType::Kind::TypeVar) {
-                std::string pv(TypeRef(pat).type_var_name());
-                for (auto& tp : info.type_params) {
-                    if (tp.name != pv || tp.bounds.empty()) continue;
-                    TypeRef arg = type_args[i];
-                    if (arg && TypeRef(arg).kind() == LogosType::Kind::TypeVar) {
-                        // Generic context: a bare TypeVar arg matches a
-                        // bounded pattern only when the SCOPE declares the
-                        // var with a superset of the pattern's bounds —
-                        // inside `impl<T: Copy+Fst> S<T>` the receiver
-                        // selects this spec; inside `impl<T: ?Sized> S<T>`
-                        // it selects the base.
-                        std::string avn(TypeRef(arg).type_var_name());
-                        const std::vector<TraitBound>* scope_bounds = nullptr;
-                        if (auto bit = current_type_bounds_.find(avn);
-                            bit != current_type_bounds_.end())
-                            scope_bounds = &bit->second;
-                        if (!scope_bounds)
-                            // Some lowering passes reach here with the scope
-                            // stack unwound but the impl's params still
-                            // published — fall back to them.
-                            for (auto& itp2 : impl_type_params_)
-                                if (itp2.name == avn && !itp2.bounds.empty())
-                                    { scope_bounds = &itp2.bounds; break; }
-                        bool cover = scope_bounds != nullptr;
-                        if (cover) {
-                            for (auto& need : tp.bounds) {
-                                bool found = false;
-                                for (auto& have : *scope_bounds)
-                                    if (have.trait_name == need.trait_name)
-                                        { found = true; break; }
-                                if (!found) { cover = false; break; }
-                            }
-                        }
-                        if (!cover) ok = false;
-                        else scores[i] += static_cast<int>(tp.bounds.size());
-                    } else if (arg && contains_typevar_sema(arg)) {
-                        // Compound TypeVar-bearing arg: defer to mono.
-                        scores[i] += static_cast<int>(tp.bounds.size());
-                    } else if (arg &&
-                               !type_bounds_satisfied_quiet(
-                                   std::string(base_name), {tp}, {arg})) {
-                        ok = false;
-                    } else {
-                        scores[i] += static_cast<int>(tp.bounds.size());
-                    }
-                    break;
-                }
-                if (!ok) break;
-            }
+        if (info.base_name != base_name || info.spec_patterns.size() != type_args.size()) continue;
+        obl::SpecCand c;
+        c.patterns = info.spec_patterns;
+        for (auto& tp : info.type_params) {
+            c.generics.push_back(tp.name);
+            for (auto& b : tp.bounds)
+                if (!b.is_relaxed) c.bounds.push_back({tp.name, bound_identity_(b), b.type_args});
         }
-        if (!ok) continue;
-        // Lexicographic comparison: prefer higher specificity at earlier positions.
-        if (!best || scores > best_vec) { best = &info; best_vec = scores; }
+        infos.push_back(&info);
+        cands.push_back(std::move(c));
     }
-    return best;
+    if (cands.empty()) return nullptr;
+    auto pick = obl::pick_specialization(obl_table_now_(), obl_env_(), cands, type_args, /*open_args_hold=*/false);
+    if (pick.ambiguous)
+        error(std::format("ambiguous specializations for struct '{}': two apply and neither is more specific",
+                          base_name));
+    return pick.index < 0 ? nullptr : infos[pick.index];
 }
 
 TypeRef SemaChecker::field_type_of(std::string_view sname, std::string_view fname,

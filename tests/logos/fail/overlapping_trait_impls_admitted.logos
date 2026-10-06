@@ -1,0 +1,21 @@
+// Closed squeue overlapping_trait_impls_admitted (#516): one overlap pass over the impl table after collection refuses a blanket and a specific impl that both apply (E0119), ADR 0030 S9 row 6.
+package overlapping_trait_impls_admitted;
+
+trait Speak {
+    fn say(self) -> i32;
+}
+
+struct Foo { x: i32 }
+
+impl<T> Speak for T {
+    fn say(self) -> i32 { 1 }
+}
+
+impl Speak for Foo {
+    fn say(self) -> i32 { 2 }
+}
+
+fn main() -> i32 {
+    let f = Foo { x: 0 };
+    f.say()
+}

@@ -254,8 +254,11 @@ impl<DT: Container> Drop for Buffer<DT> {
 //                 copied in/out.  DT is essentially an alias for its Prim
 //                 type at the processing level.
 //
-//   > 16 bytes  → `impl PodRef for DT;` — reference view.  Read-side yields
-//                 `*const DT`, write-side yields `*mut DT`; neither copies.
+//   > 16 bytes  → `impl PodRef for DT;` — reference view through the
+//                 newtype `ByRef<DT>`: `Buffer<ByRef<DT>>` reads yield
+//                 `*const DT`, writes take `*const DT`; neither copies.
+//                 (A newtype, as in Rust: two blankets over `DT: Primitive`
+//                 and `DT: PodRef` would overlap, E0119.)
 //
 // Object eide (relptrs, variable layout) — WritString, ObjectArray, …
 // — carry their own custom fat-pointer view (StringView, etc.) and do not
@@ -300,6 +303,9 @@ impl Primitive for bool { type Prim = bool; }
 
 /// Marks >16-byte POD datatypes viewed by reference: `*const DT` reads, `*mut DT` writes.
 pub trait PodRef {}
+
+/// The by-reference element of a fabric container: `Buffer<ByRef<DT>>` for `DT: PodRef`.
+pub struct ByRef<DT>(pub DT);
 
 // ---------------------------------------------------------------------------
 // PrimVec<T> — generic Vec-like backing store for primitives.
@@ -512,17 +518,17 @@ impl<DT: Primitive> Container for DT {
 }
 
 // ---------------------------------------------------------------------------
-// Blankets: every `PodRef` #[datatype] struct gets `Datatype` + `Container` for free.
-// Read side hands back `*const DT`; push takes a source `*const DT` and
-// copies the value into the store.  Mutable access goes through explicit
-// per-#[datatype] struct accessors on top of the store pointer.
+// Blankets: every `PodRef` #[datatype] struct, as `ByRef<DT>`, gets `Datatype` +
+// `Container` for free. Read side hands back `*const DT`; push takes a source
+// `*const DT` and copies the value into the store.  Mutable access goes through
+// explicit per-#[datatype] struct accessors on top of the store pointer.
 // ---------------------------------------------------------------------------
 
-impl<DT: PodRef> Datatype for DT {
+impl<DT: PodRef> Datatype for ByRef<DT> {
     type View<S: Storage> = *const DT;
 }
 
-impl<DT: PodRef> Container for DT {
+impl<DT: PodRef> Container for ByRef<DT> {
     type Store       = PrimVec<DT>;
     type ViewInStore = *const DT;
     fn new_store() -> PrimVec<DT> { return PrimVec::<DT>::empty(); }
@@ -555,7 +561,7 @@ impl<DT: PodRef> Container for DT {
 // key (in `ViewInStore` shape) against a query key (passed as `*const Self`)
 // without exposing how the view relates to Self.  Each Container picks the
 // right adapter for its view shape; the blanket below covers the PodRef
-// path (ViewInStore = *const DT).  Primitive-path keys (ViewInStore =
+// path (`ByRef<DT>`, ViewInStore = *const DT).  Primitive-path keys (ViewInStore =
 // DT::Prim by value) need a `*const DT → DT::Prim` load helper that lives
 // outside Container today; once that lands, a parallel Primitive blanket
 // becomes possible.
@@ -576,8 +582,8 @@ pub trait ContainerOrd: Container {
     unsafe fn cmp_views(self: *const Self, a: Self::ViewInStore, b: Self::ViewInStore) -> Ordering;
 }
 
-impl<DT: PodRef + Ord> ContainerOrd for DT {
-    unsafe fn cmp_views(self: *const DT, a: *const DT, b: *const DT) -> Ordering {
+impl<DT: PodRef + Ord> ContainerOrd for ByRef<DT> {
+    unsafe fn cmp_views(self: *const ByRef<DT>, a: *const DT, b: *const DT) -> Ordering {
         return (&*a).cmp(&*b);
     }
 }

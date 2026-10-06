@@ -25,6 +25,43 @@ pub trait FromIterator<A> {
     fn from_iter<I: Iterator<A>>(iter: I) -> Self;
 }
 
+/// Yields the `Ok` values of an iterator of `Result`s and stops at the first `Err`,
+/// which it stores through `err` (Rust's `GenericShunt`).
+pub struct ResultShunt<I, E> {
+    iter: I,
+    err: *mut Option<E>,
+}
+
+impl<A, E, I: Iterator<Result<A, E>>> Iterator<A> for ResultShunt<I, E> {
+    fn next(&mut self) -> Option<A> {
+        match self.iter.next() {
+            Option::None => { return Option::None; }
+            Option::Some(r) => {
+                match r {
+                    Result::Ok(x) => { return Option::Some(x); }
+                    Result::Err(e) => {
+                        unsafe { *self.err = Option::Some(e); }
+                        return Option::None;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Collecting `Result`s: the collection of the `Ok` values, or the first `Err` (Rust's
+/// `impl<A, E, V: FromIterator<A>> FromIterator<Result<A, E>> for Result<V, E>`).
+impl<A, E, V: FromIterator<A>> FromIterator<Result<A, E>> for Result<V, E> {
+    fn from_iter<I: Iterator<Result<A, E>>>(iter: I) -> Result<V, E> {
+        let mut err: Option<E> = Option::None;
+        let v: V = V::from_iter(ResultShunt::<I, E> { iter: iter, err: &mut err as *mut Option<E> });
+        match err {
+            Option::Some(e) => { return Result::Err(e); }
+            Option::None => { return Result::Ok(v); }
+        }
+    }
+}
+
 // ── Extend trait ─────────────────────────────────────────────────────────────
 //
 // Rust's `core::iter::Extend<A>`: a collection that can absorb items one at a

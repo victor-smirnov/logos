@@ -4830,7 +4830,6 @@ public:
     }
 private:
     std::unordered_set<ImplKey, ImplKeyHash> user_impl_keys_;   // impls added by user code
-    StrSet user_coherence_keys_;         // "Trait[args]::Target" keys
     std::unordered_set<AssocKey, AssocKeyHash> user_assoc_const_impl_keys_;
     std::set<DefId> user_trait_defs_;    // traits declared by user code (snapshot reset)
     StrSet user_type_alias_keys_;        // bare type alias names from user code
@@ -6348,6 +6347,10 @@ private:
         // name: indices into impl_assoc_consts_.
         std::vector<std::pair<std::string, uint32_t>> assoc_consts;
         std::string impl_node;   // node_key_ of the impl block: the impl's identity
+        std::string file;        // where the impl is written (diagnostics)
+        uint32_t    line = 0;
+        bool        from_binary = false;   // collected from an archive (checked at its own build)
+        std::string module_id;             // the module (crate) the impl is written in
     };
     std::vector<std::pair<std::string, uint32_t>> collecting_assoc_consts_;   // collect_impl's
     std::vector<obl::AssocItem> collecting_assoc_types_;   // collect_impl's
@@ -6965,7 +6968,9 @@ private:
     struct ImplItems {
         std::vector<obl::AssocItem> types;
         std::vector<std::pair<std::string, uint32_t>> consts;   // into impl_assoc_consts_
+        logos::compiler::StrMap<std::string> methods;           // trait item -> its declaration (decl_key)
     };
+    logos::compiler::StrMap<std::string> collecting_method_keys_;   // collect_impl's
     logos::compiler::StrMap<ImplItems> impl_items_by_node_;
     // The impls (by node) whose Self is unsized as collect saw it (`impl … for
     // str` is Self = `[u8]`): lowering synthesizes no `Self: Sized` default for
@@ -6987,12 +6992,6 @@ private:
     // against the impls' actual trait-args (single-valued impls_ can't, which
     // let `I: Iterator<i32>` be satisfied by an `Iterator<&i32>` impl).
     ImplMap<std::vector<SemaImplInfo>> impls_all_;
-    // Coherence-only set keyed by `Trait[arg1,arg2,...]::Target`. impls_ stays
-    // bare (so existing bound-check / has_impl / find_impl callers without
-    // trait_args still hit a registered impl); duplicate-detection uses this
-    // map so e.g. `impl From<i8> for i32` and `impl From<i16> for i32` are
-    // recognised as different impls.
-    logos::compiler::StrSet                   coherence_keys_;
 
     // "TraitName::TypeName::ConstName" → assoc const type (value evaluated lazily at call site)
     struct AssocConstEntry {
@@ -7019,6 +7018,12 @@ private:
     struct ConcreteWhere { TypeRef subject; TraitBound bound; std::string ctx, file; uint32_t line; };
     std::vector<ConcreteWhere> concrete_where_;
     void check_concrete_where_();
+    // Coherence (rustc E0119): no two impls of one trait may apply to one type.
+    void check_impl_overlap_();
+    // Coherence (rustc E0117 / E0210): an impl's trait or a type of its header is
+    // the impl's own module's.
+    void check_orphan_rule_();
+    logos::compiler::StrSet overlap_reported_;
     void record_concrete_where_(sema_detail::TinyMapView constraint, TypeRef subj, const std::string& tname);
     void record_concrete_where_clauses_(sema_detail::TinyMapView node);
     // Phase 6 (GAT projection): current impl's trait name, set during
@@ -9394,6 +9399,10 @@ private:
                                                         const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
+    // The function collected for a declaration (SemaFuncInfo::decl_key); null when none.
+    const SemaFuncInfo* func_by_decl_(const std::string& decl_key);
+    logos::compiler::StrMap<std::pair<const SemaFuncInfo*, std::string>> func_by_decl_index_;   // decl -> (fn, registry key)
+    size_t func_by_decl_size_ = SIZE_MAX;
     // The `<Type>__<op>_assign(&mut Self, Rhs)` impl for a compound assignment:
     // by the RHS's type, then Self; an unsuffixed literal RHS takes the width of
     // the one impl whose Rhs is a matching primitive (`m += 3` over AddAssign<i64>).
@@ -9586,9 +9595,9 @@ private:
         std::string_view method_name,
         const std::string& type_name,
         TypeRef self_t);
-    // Blanket impls providing `method_name` whose bounds `type_name` meets;
-    // ≥2 distinct ones is an overlap error.
-    std::vector<size_t> viable_blanket_impls(std::string_view method_name, TypeRef self, bool report = true);
+    // Blanket impls providing `method_name` that C-OBL selects for `self` (two
+    // overlapping ones are refused at their definitions, E0119).
+    std::vector<size_t> viable_blanket_impls(std::string_view method_name, TypeRef self);
     lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
     lir::LExprPtr lower_invoke_on(lir::LExprPtr recv, std::vector<lir::LExprPtr> arg_exprs);
     bool finish_call_targs_written_ = false;   // lower_generic_call → finish_generic_call
@@ -10557,7 +10566,8 @@ private:
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
     bool type_param_bounds_viable_(const SemaFuncInfo& fi, const SemaSubst& binds, int* bound_count);
     const SemaFuncInfo* resolve_trait_item_(std::string_view trait, TypeRef self, std::string_view name,
-                                            std::string* key_out = nullptr);
+                                            std::string* key_out = nullptr,
+                                            const std::vector<TypeRef>& trait_args = {});
     void reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal);
     lir::LExprPtr method_call_resolved_(lir::EMethodCall mc, TypeRef ret);
     lir::LExprPtr method_call_named_(lir::LExprPtr recv, std::string method,
@@ -11388,7 +11398,6 @@ public:
     DefTable                               defs;
     SemaChecker::ImplMap<SemaChecker::SemaImplInfo>     impls;
     SemaChecker::ImplMap<std::vector<SemaChecker::SemaImplInfo>> impls_all;
-    StrSet                                 coherence_keys;
     SemaChecker::AssocMap<SemaChecker::AssocConstEntry>  assoc_const_impls;
     std::deque<SemaChecker::AssocConstEntry>             impl_assoc_consts;
     std::vector<SemaChecker::BlanketImpl>  blanket_impls;

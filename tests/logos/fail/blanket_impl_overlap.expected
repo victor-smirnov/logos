@@ -1,1 +1,1 @@
-ambiguous blanket impl for 'Foo.run'
+conflicting implementations of trait 'Run' for type 'T' (E0119)

@@ -1,0 +1,1 @@
+conflicting implementations of trait 'Foo' for type 'i32' (E0119)

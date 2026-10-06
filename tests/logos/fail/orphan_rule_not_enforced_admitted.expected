@@ -1,0 +1,1 @@
+only traits defined in the current crate can be implemented for types defined outside of the crate: impl of 'FromIterator' for 'i32' (E0117)

@@ -211,15 +211,19 @@ private:
     // where Foo has a `[u8]` tail), leaving them thin Ptr while sema resolved
     // them to DstRef — a representation divergence. This map closes it.
     StrMap<lir_view::StructView> all_structs_;
+    // The struct a (package, name) denotes: the package's own first — a bare
+    // name is whichever homonym registered last (a user `struct String` beside
+    // `logos.mem.string.String`), so it answers only a package-less query or
+    // one whose package registered no such name.
     lir_view::StructView find_any_struct(std::string_view pkg,
                                          std::string_view base) const noexcept {
-        if (auto it = all_structs_.find(std::string(base)); it != all_structs_.end())
-            return it->second;
         if (!pkg.empty()) {
             std::string q; q.reserve(pkg.size()+1+base.size());
             q.append(pkg).append(".").append(base);
             if (auto it = all_structs_.find(q); it != all_structs_.end()) return it->second;
         }
+        if (auto it = all_structs_.find(std::string(base)); it != all_structs_.end())
+            return it->second;
         return {};
     }
     // ── M2: centralized struct_templates_ lookup helpers ─────────────
@@ -966,103 +970,8 @@ public:
         return enum_instance_name(TypeRef(tr).enum_name(), TypeRef(tr).type_args());
     }
 
-    static std::string mangle_type(TypeRef tr) {
-        if (!tr) return "null";
-        switch (tr.kind()) {
-        case LogosType::Kind::Ptr:
-            return (tr.mut_ptr() ? "pmut_" : "pcst_") + mangle_type(tr.pointee());
-        case LogosType::Kind::Ref:    return "ref_"    + mangle_type(tr.pointee());
-        case LogosType::Kind::MutRef: return "refmut_" + mangle_type(tr.pointee());
-        case LogosType::Kind::Array:
-            return "arr" + std::to_string(tr.arr_size()) + "_" + mangle_type(tr.elem());
-        case LogosType::Kind::Struct:
-            // NOTE (measured, NOT changed here): sema's `mangle_type_for_name`
-            // routes ZonedStruct through this same arm; mono's does not (it
-            // falls to `type_str`). That divergence predates #58/#59 and is a
-            // symbol-TEXT change of its own — recorded, not folded in this
-            // round (no fixture in the corpus reaches it as a free-fn type arg).
-            //
-            // G156-1: the package fingerprint is folded into concrete_struct_name's
-            // canonical identity (byte-identical to sema's mangle_type_for_name).
-            //
-            // #59 — plus the TYPE-ARG-only half. concrete_struct_name folds the
-            // fingerprint into the ARGS of a generic struct (`Vec$G1$ExprBlob$M…`)
-            // because those go through sema's mangle_type_for_name, but the type
-            // handed to THIS function is itself a type ARG (of a generic FREE FN
-            // instance: `vec_new` + "__" + mangle_type(ExprBlob)) and was left
-            // BARE. Measured in one emitted IR: the method channel spelled
-            // `Vec$G1$ExprBlob$M9758…` while the free-fn channel spelled
-            // `vec_new__g__void__ExprBlob` — a symbol T-DEFINED in liblogos-mem.a
-            // at the stdlib ExprBlob, so the user's instance was elided and
-            // `vec_new<T>`'s `init_cap * sizeof::<T>()` allocated for the 8-byte
-            // stdlib homonym (abort at the 5th push of a 16-byte user struct).
-            // Same fold, same predicate, so def==use across both channels.
-            return concrete_struct_name(tr) +
-                   ambiguous_type_arg_fingerprint(tr.struct_name(), tr.pkg_name());
-        // Nested generic enum: bare `type_str(Option<T>)` returns just "Option",
-        // dropping inner type-args. For nested specs like `Option<Option<i32>>`
-        // we need the inner instance encoded so `record_needed_enum` and
-        // payload-layout lookup agree.
-        case LogosType::Kind::Enum: {
-            // Skip recursive mangling if any type-arg is unresolved
-            // (TypeVar) — emitting "T" into a mangled spec name leaks
-            // unresolved symbols. Fall back to the bare enum name in
-            // that case (matching the pre-2026-05-14 behaviour).
-            std::function<bool(TypeRef)> has_tv = [&](TypeRef t) -> bool {
-                if (!t) return false;
-                if (TypeRef(t).kind() == LogosType::Kind::TypeVar) return true;
-                for (auto a : t.type_args()) if (has_tv(a)) return true;
-                if (t.pointee() && has_tv(t.pointee())) return true;
-                if (t.elem() && has_tv(t.elem())) return true;
-                return false;
-            };
-            // Coexistence + G156-1: fold module_id (and package, for ambiguous
-            // names) into the enum identity — byte-identical to sema.
-            //
-            // MEASURED DIVERGENCE (recorded, not fixed here): this case folds
-            // `type_module_suffix(esuf)` into the enum identity;
-            // `enum_instance_name` (the composer `record_needed_enum` /
-            // `clone_enum_def` / mlir-gen's `resolve_tagged_enum` use) does
-            // NOT. Two spellings of ONE instance exist by construction. That
-            // is a real coexistence/G156-1 hazard, but unifying them changes
-            // emitted symbol TEXT and must ride with an ABI bump — design
-            // Step 8, PAIR-gated. Do not "simplify" the two into one here.
-            std::string esuf = type_module_suffix(tr.enum_name(), tr.pkg_name());
-            for (auto a : tr.type_args()) if (has_tv(a)) return std::string(tr.enum_name()) + esuf;
-            std::string r = std::string(tr.enum_name()) + esuf;
-            for (auto a : tr.type_args()) {
-                r += "__";
-                r += mangle_type(a);
-            }
-            return r;
-        }
-        case LogosType::Kind::IntLit:
-        case LogosType::Kind::ConstVar:
-            // Const-generic args (scalar or pack element) carry their value in
-            // const_val. Mangle as `cN_<v>` (negatives as `cN_n<v>`) so distinct
-            // values yield distinct symbol names.
-            if (tr.const_val()) {
-                int64_t v = *tr.const_val();
-                if (v < 0) return "cN_n" + std::to_string(-v);
-                return "cN_" + std::to_string(v);
-            }
-            return type_str(tr);
-        case LogosType::Kind::TraitObject:
-            // Distinguish an OWNING Box<dyn T> from a borrowed &dyn T so that
-            // e.g. Vec<Box<dyn T>> and Vec<&dyn T> mangle to DISTINCT specs —
-            // otherwise mono collapses them and may bind the element type-var
-            // to the borrow form, dropping the owning bit (→ no element drop,
-            // leak). Borrowed &dyn keeps its historical type_str mangling.
-            if (tr.owning_trait_object()) {
-                std::string r = "owndyn_" + std::string(tr.trait_name());
-                for (auto a : tr.type_args()) { r += "__"; r += mangle_type(a); }
-                return r;
-            }
-            return type_str(tr);
-        default:
-            return type_str(tr);
-        }
-    }
+    // A type's spelling in a symbol: the one encoder (ADR 0030 S9 row 8).
+    static std::string mangle_type(TypeRef tr) { return type_symbol_code(tr); }
 
     static std::string mangle(const std::string& name,
                                const std::vector<TypeRef>& type_args) {
@@ -1460,32 +1369,6 @@ private:
         if (p.elem())    collect_pattern_typevars(p.elem(), out);
         for (auto a : p.type_args())    collect_pattern_typevars(a, out);
         for (auto e : p.tuple_elems())  collect_pattern_typevars(e, out);
-    }
-
-    static int type_specificity(TypeRef tr) noexcept {
-        if (!tr || tr.kind() == LogosType::Kind::TypeVar) return 0;
-        if (tr.kind() == LogosType::Kind::Ptr)   return 1 + type_specificity(tr.pointee());
-        if (tr.kind() == LogosType::Kind::Array)  return 1 + type_specificity(tr.elem());
-        if (tr.kind() == LogosType::Kind::Slice ||
-            tr.kind() == LogosType::Kind::UnsizedSlice)
-            return 1 + type_specificity(tr.elem());
-        return 100;
-    }
-
-    static int specificity_score(const std::vector<TypeRef>& patterns) noexcept {
-        int s = 0;
-        for (auto p : patterns) s += type_specificity(p);
-        return s;
-    }
-
-    // Per-position specificity vector for lexicographic comparison.
-    // Enables correct disambiguation of partial specs like Map<Bitmap,V> vs Map<K,AnyVal>
-    // when both score equally by summed specificity but differ positionally.
-    static std::vector<int> specificity_vec(const std::vector<TypeRef>& patterns) noexcept {
-        std::vector<int> v;
-        v.reserve(patterns.size());
-        for (auto p : patterns) v.push_back(type_specificity(p));
-        return v;
     }
 
     // ── Spec selection (defined in mono_scan.cpp) ─────────────────────────
