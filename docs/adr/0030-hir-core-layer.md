@@ -694,6 +694,19 @@ bound through the scalar path, never registered as a tagged-enum local, so
 `s9_match_enum_binding_reassigned`). An enum instance's name is not folded with
 its module (`$M…`): the fold depends on the phase-scoped ambiguous-name set and
 mlir registers no folded enum alias — residue for the mangler step.
+Step C — find_func_op's canonical fallback is DELETED (row (2)'s residue): an
+mlir callee is its definition's exact symbol or nothing. Census over every
+corpus before the deletion: 767 binds, three classes, each fixed at its
+source — mono named a generic struct method's instance without its package's
+module fold (`Buffer$G1$i64__new` for `Buffer$M…$G1$i64__new`, a name two
+stdlib packages declare: the composer relied on the fallback to add it); mlir
+fetched its runtime helpers (`writ_template_install`, `writ_build_array_*`, …)
+by bare name — now by declaring package and declared name; mono composed a
+destructor as `<concrete>__drop` — now the `drop` item of the type's `Drop`
+impl by identity, and no call at all without one (Rust; fields still drop),
+which also retires the case of a user `String` in `Vec<String>` reaching the
+stdlib `String`'s destructor through the fallback (mlir's package guard had
+been catching it). Census after: 0.
 
 ## S0–S7 gap audit (2026-10-01)
 

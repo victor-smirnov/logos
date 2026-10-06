@@ -38,63 +38,11 @@ static mlir::func::FuncOp find_fn_matching(mlir::ModuleOp mod, Pred&& pred) {
     return {};
 }
 
-// Canonicalise a callee/def symbol to its bare comparison key: strip every
-// "$M<alnum>" coexistence run, the free-fn `pkg$` prefix, the method `pkg.`
-// prefix, and the `__f__`/`__g__` signature suffix. find_func_op's fuzzy
-// fallback matches a callee to a def when their canonical keys are equal.
-// Lifted out of find_func_op so the per-call O(n) walk can be replaced by a
-// canonical→FuncOp index that canonicalises each def name exactly once.
-static std::string ffo_canonical(std::string_view in) {
-    std::string s;
-    s.reserve(in.size());
-    for (size_t i = 0; i < in.size();) {
-        if (i + 1 < in.size() && in[i] == '$' && in[i + 1] == 'M') {
-            i += 2;
-            while (i < in.size() && std::isalnum((unsigned char)in[i])) ++i;
-        } else {
-            s.push_back(in[i++]);
-        }
-    }
-    std::string_view nm = s;
-    if (auto d = nm.find('$'); d != std::string_view::npos) {
-        bool gen = (d + 2 < nm.size() && nm[d + 1] == 'G' &&
-                    nm[d + 2] >= '0' && nm[d + 2] <= '9');
-        if (!gen) nm = nm.substr(d + 1);
-    }
-    if (auto d = nm.rfind('.'); d != std::string_view::npos)
-        nm = nm.substr(d + 1);
-    if (auto p = nm.find("__f__"); p != std::string_view::npos)
-        nm = nm.substr(0, p);
-    else if (auto p = nm.find("__g__"); p != std::string_view::npos)
-        nm = nm.substr(0, p);
-    return std::string(nm);
-}
-
-// Package of a symbol, for the package guard in find_func_op. A def is
-// `[<module>..]<pkg>.<Bare>__<method>[__f__sig]`; a callee from mono is
-// `<pkg>.<Bare>__<method>`. Both answer with the dotted run between the
-// module separator ".." (if any) and the LAST '.'. Free functions spell the
-// package with '$' and are deliberately NOT matched here — the guard below
-// only ever fires on the method form.
-static std::string_view ffo_pkg_of(std::string_view nm) {
-    auto dot = nm.rfind('.');
-    if (dot == std::string_view::npos) return {};
-    std::string_view pre = nm.substr(0, dot);
-    if (auto m = pre.rfind(".."); m != std::string_view::npos)
-        pre = pre.substr(m + 2);
-    if (pre.find('$') != std::string_view::npos) return {};
-    return pre;
-}
-
 }  // namespace
 
-// (Re)build the canonical→FuncOp index if the module's FuncOp set changed.
-// Canonicalises every def name once (vs find_func_op's former per-call walk).
+// (Re)build the name→FuncOp indices if the module's FuncOp set changed.
 void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
     if (!ffo_canon_dirty_) return;   // O(1) — no per-call FuncOp recount
-    ffo_canon_index_.clear();
-    ffo_canon_ambig_.clear();
-    ffo_canon_pkg_.clear();
     ffo_symtab_.clear();
     ffo_base_first_.clear();
     for (auto fn : mod.getOps<mlir::func::FuncOp>()) {
@@ -109,16 +57,6 @@ void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
             if (mk != llvm::StringRef::npos)
                 ffo_base_first_.emplace(std::string(nr.substr(0, mk)), fn);  // first-wins
         }
-        // Canonical (sig-stripped / pkg-stripped) → FuncOp, ambiguous-aware.
-        std::string c = ffo_canonical(nm);
-        if (ffo_canon_ambig_.count(c)) continue;
-        auto [it, ins] = ffo_canon_index_.emplace(c, fn);
-        if (ins) ffo_canon_pkg_.emplace(c, std::string(ffo_pkg_of(nm)));
-        if (!ins && it->second != fn) {
-            ffo_canon_ambig_.insert(c);   // overload collision → unresolved
-            ffo_canon_index_.erase(it);
-            ffo_canon_pkg_.erase(c);
-        }
     }
     ffo_canon_dirty_ = false;
 }
@@ -127,6 +65,23 @@ void MLIRGenImpl::ensure_ffo_canon_index(mlir::ModuleOp mod) const {
 // its FuncOp, tolerating the bare↔module-qualified and sig-stripped forms the
 // LIR/mono/bridge produce. A member (not a file-static) so it can consult the
 // per-package module map via link_name_str.
+// A stdlib function mlir-gen calls on its own (a runtime helper), by its
+// declaring package and declared name: the declaration's own link symbol.
+mlir::func::FuncOp MLIRGenImpl::find_pkg_func_(mlir::ModuleOp mod, std::string_view pkg, std::string_view base) const {
+    if (!prog_) return {};
+    for (auto& fn : prog_->functions) {
+        if (!fn || fn.package() != pkg) continue;
+        // `[<module>.]<pkg>$<name>__f__…`: the declared name follows the package.
+        std::string_view nm = fn.name();
+        const std::string head = std::string(pkg) + "$";
+        if (auto at = nm.find(head); at != std::string_view::npos && (at == 0 || nm[at - 1] == '.'))
+            nm.remove_prefix(at + head.size());
+        if (nm.substr(0, mname::sig_boundary(nm, 0)) != base) continue;
+        if (auto f = find_func_op(mod, link_name(fn))) return f;
+    }
+    return {};
+}
+
 mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
                                              std::string_view name) const {
     // The cache covers BOTH resolution paths below, keyed by the raw callee name.
@@ -168,57 +123,9 @@ mlir::func::FuncOp MLIRGenImpl::find_func_op(mlir::ModuleOp mod,
         if (auto q = link_name_str(key); q != name)
             if (auto it = ffo_symtab_.find(q); it != ffo_symtab_.end())
                 return it->second;
-        // (The former exact-name / exact-qualified find_fn_matching walks here
-        // were O(n) and redundant: lookupSymbol above and at the top of
-        // find_func_op already resolve those exact names in O(1) — a
-        // func::FuncOp's getName() IS its symbol-table key.)
-        // Hardcoded stdlib intrinsic lookups (e.g. `writ_build_from_template`)
-        // must also resolve the post-unify pkg-qualified + sig-suffixed form
-        // (`std.writ.ctr$<bare>__f__<sig>`). Match callee↔def by canonical key.
-        //
-        // Symmetric canonical match: canonicalise BOTH the callee and each
-        // candidate (the deleted §P4 bridge did the same). A no-sig / differently
-        // -pkg'd callee (e.g. an assoc-const accessor `pkg.T__kassoc_C` with no
-        // `__f__sig`) only matches its real `…T__kassoc_C__f__sig` def once the
-        // input's pkg+sig are stripped too. UNAMBIGUOUS-only: a canonical key
-        // shared by >1 def (overloads) resolves to nothing — first-match would
-        // bind the wrong one.
-        //
-        // Indexed: canonicalising every def name on every call was O(calls ×
-        // functions) — ~5M string-builds / 1.1s on a 56-test batch. Build a
-        // canonical→FuncOp index (with an ambiguous-key set) ONCE and reuse it;
-        // it's rebuilt only if the module's FuncOp set changes (dirty-gated;
-        // already built at the top of find_func_op).
-        auto cname = ffo_canonical(name);
-        if (ffo_canon_ambig_.count(cname)) return {};
-        if (auto it = ffo_canon_index_.find(cname); it != ffo_canon_index_.end()) {
-            // ⚠ PACKAGE GUARD. ffo_canonical strips the package off BOTH the
-            // callee and every def, which is what lets a no-sig / differently
-            // -pkg'd callee find its real definition — and is also what let a
-            // user type STEAL a homonym's method. mono rewrites a struct
-            // `a == b` that reached it into a call to `<pkg>.<Bare>__eq`
-            // without checking that the method exists, so a user
-            // `struct Ident { k: i64, j: i64 }` in a program that (transitively)
-            // imports logos.std.fmt bound
-            // `logos.std.compiler.metaprog.Ident__eq__f__ref_Ident__ref_Ident`
-            // and SIGSEGV'd at run time (fixture mlirgen_odr_operator_homonym).
-            // The sharp part: the same program under a collision-free name does
-            // NOT compile, so the homonym was accepted ONLY by the theft.
-            //
-            // Refuse the cross-package bind ONLY on the evidence that a homonym
-            // really exists: the callee names a package, that package declares
-            // its own struct of exactly this bare name, and the def lives in a
-            // different package. Every other cross-package canonical bind — the
-            // assoc-const accessors, the sig-stripped stdlib intrinsics, any
-            // callee whose package declares no such struct — is untouched.
-            if (auto cp = ffo_pkg_of(name); !cp.empty()) {
-                auto pit = ffo_canon_pkg_.find(cname);
-                if (pit != ffo_canon_pkg_.end() && !pit->second.empty() &&
-                    pit->second != cp && pkg_owns_symbol_owner(cp, cname))
-                    return {};
-            }
-            return it->second;
-        }
+        // An exact symbol or nothing: the canonical (package- and signature-
+        // stripping) fallback is gone — every callee names its definition
+        // (ADR 0030 S9 rows 2 / 8; census: 0 binds over every corpus).
         return {};
     };
     auto resolved = resolve();
@@ -4106,7 +4013,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
         auto val = gen_expr(v.operand());
         if (!val) return nullptr;
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-        auto build_fn = find_func_op(parent_mod, writ_build_fn);
+        auto build_fn = find_pkg_func_(parent_mod, "logos.lang.writ.typed_arr", writ_build_fn);
         if (!build_fn) {
             bug_printf("'%s' not found — add 'use logos.mem.writ.ctr;'",
                          writ_build_fn.c_str());
@@ -6422,11 +6329,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
 
     // ── Zone-alloc path (C5): one or more captures need varchar/f64 in the zone. ─
     if (any_zone_alloc) {
-        auto new_fn    = find_func_op(parent_mod, "writ_template_ctr_new");
-        auto patch_fn  = find_func_op(parent_mod, "writ_template_install");
-        auto alloc_f64_fn = find_func_op(parent_mod, "writ_ctr_alloc_f64");
-        auto alloc_str_fn = find_func_op(parent_mod, "writ_ctr_alloc_str");
-        auto alloc_cstr_fn = find_func_op(parent_mod, "writ_ctr_alloc_cstr");
+        constexpr std::string_view tmpl_pkg = "logos.lang.writ.tmpl";
+        auto new_fn    = find_pkg_func_(parent_mod, tmpl_pkg, "writ_template_ctr_new");
+        auto patch_fn  = find_pkg_func_(parent_mod, tmpl_pkg, "writ_template_install");
+        auto alloc_f64_fn = find_pkg_func_(parent_mod, tmpl_pkg, "writ_ctr_alloc_f64");
+        auto alloc_str_fn = find_pkg_func_(parent_mod, tmpl_pkg, "writ_ctr_alloc_str");
+        auto alloc_cstr_fn = find_pkg_func_(parent_mod, tmpl_pkg, "writ_ctr_alloc_cstr");
         // C5-fix4: check all alloc helpers upfront — missing functions cause silent null AnyVal.
         if (!new_fn || !patch_fn || !alloc_f64_fn || !alloc_str_fn || !alloc_cstr_fn) {
             bug_printf("writ zone-alloc helpers not found — "
@@ -6599,7 +6507,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
         builder_.create<mlir::LLVM::StoreOp>(loc_, raw_u32, slot_ptr);
     }
 
-    auto build_fn = find_func_op(parent_mod, "writ_build_from_template");
+    auto build_fn = find_pkg_func_(parent_mod, "logos.lang.writ.tmpl", "writ_build_from_template");
     if (!build_fn) {
         bug_printf("writ_build_from_template not found — "
                      "add 'use logos.lang.writ.tmpl;' to your file");
