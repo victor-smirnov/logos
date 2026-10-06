@@ -2660,12 +2660,21 @@ static std::set<std::pair<std::string, std::string>> g_metaprog_impl_facts;
 // "Declared somewhere" is the conservative reading: a name that is declared but
 // not imported still reaches the generated code's own resolution.
 static std::set<std::string> g_metaprog_value_names;
+// The same names' declared TYPES (source spelling, first declaration seen) — a
+// consumer that has to spell the value elsewhere (the Soufflé exporter dumps a
+// const a query reads as a one-row relation, and has to type it).
+static std::map<std::string, std::string> g_metaprog_value_types;
 static void note_metaprog_impl_facts(const logos::compiler::lir::LProgram& prog) {
     for (const auto& c : prog.consts) {
         std::string_view n = c.name();
         size_t cut = n.find_last_of(".:");
         if (cut != std::string_view::npos) n = n.substr(cut + 1);
-        if (!n.empty()) g_metaprog_value_names.emplace(n);
+        if (n.empty()) continue;
+        g_metaprog_value_names.emplace(n);
+        if (!g_metaprog_value_types.count(std::string(n))) {
+            auto t = c.type(prog.type_pool.impl());
+            if (t) g_metaprog_value_types.emplace(std::string(n), logos::compiler::type_str(t, true));
+        }
     }
     for (auto& impl : prog.impls)
         if (!impl.is_blanket() && !impl.is_negative() && !impl.identity_trait().empty())
@@ -2675,6 +2684,14 @@ static void note_metaprog_impl_facts(const logos::compiler::lir::LProgram& prog)
 }
 extern "C" int32_t logos_metaprog_value_known(const uint8_t* name, uint64_t len) {
     return g_metaprog_value_names.count(std::string(reinterpret_cast<const char*>(name), len)) ? 1 : 0;
+}
+// The declared type of a known const/static (source spelling), or empty.
+extern "C" const uint8_t* logos_metaprog_value_type(const uint8_t* name, uint64_t len,
+                                                   uint64_t* out_len) {
+    auto it = g_metaprog_value_types.find(std::string(reinterpret_cast<const char*>(name), len));
+    if (it == g_metaprog_value_types.end()) { *out_len = 0; return reinterpret_cast<const uint8_t*>(""); }
+    *out_len = it->second.size();
+    return reinterpret_cast<const uint8_t*>(it->second.data());
 }
 extern "C" int32_t logos_metaprog_has_impl(const uint8_t* trait, uint64_t trait_len,
                                            const uint8_t* ty, uint64_t ty_len) {
@@ -3744,6 +3761,7 @@ static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
         && bind("logos_metaprog_gensym",           reinterpret_cast<void*>(&logos_metaprog_gensym))
         && bind("logos_metaprog_has_impl",         reinterpret_cast<void*>(&logos_metaprog_has_impl))
         && bind("logos_metaprog_value_known",      reinterpret_cast<void*>(&logos_metaprog_value_known))
+        && bind("logos_metaprog_value_type",       reinterpret_cast<void*>(&logos_metaprog_value_type))
         && bind("logos_metacall_freeze2",          reinterpret_cast<void*>(&logos_metacall_freeze2))
         && bind("logos_metaprog_test_module_blob", reinterpret_cast<void*>(&logos_metaprog_test_module_blob))
         && bind("logos_test_make_bin_op_blob",     reinterpret_cast<void*>(&logos_test_make_bin_op_blob))

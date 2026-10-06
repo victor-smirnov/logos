@@ -293,6 +293,8 @@ struct DxClause {
     pub vsrc: Vec<i64>,
     pub nparams: i64,
     pub params: Vec<str>,
+    // module / imported consts the clause reads (`c_<name>`, bound by `__c_<name>`)
+    pub consts: Vec<str>,
     // names an aggregate head binds (`key`, the aggregate outputs) → variable
     pub nal: i64,
     pub al_names: Vec<str>,
@@ -316,7 +318,7 @@ fn dx_set(why: &mut String, w: str) -> bool {
 
 fn dx_new_clause() -> DxClause {
     return DxClause { body: String::new(), ok: true, nv: 0i64, vars: Vec::<str>::new(), vsrc: Vec::<i64>::new(),
-                      nparams: 0i64, params: Vec::<str>::new(), nal: 0i64, al_names: Vec::<str>::new(),
+                      nparams: 0i64, params: Vec::<str>::new(), consts: Vec::<str>::new(), nal: 0i64, al_names: Vec::<str>::new(),
                       al_vars: Vec::<str>::new(), al_tys: Vec::<str>::new(), al_kinds: Vec::<str>::new(), why: "" };
 }
 
@@ -360,6 +362,19 @@ fn dx_note_param(cl: &mut DxClause, p: str) {
         i = i + 1i64;
     }
     cl.params.push(p); cl.nparams = cl.nparams + 1i64;
+}
+
+// A const or static some module declares, of a type the fragment holds: its
+// value is dumped as the one-row relation `__c_<name>` (`dx_consts`).
+fn dx_const_ty(nm: str) -> str {
+    let t: str = value_type_name(nm);
+    if t.len() == 0i64 || dl_ty(t).len() == 0i64 { return ""; }
+    return t;
+}
+fn dx_note_const(cl: &mut DxClause, c: str) {
+    let mut i: i64 = 0i64;
+    while i < cl.consts.len() { if str_eq(cl.consts[i], c) { return; } i = i + 1i64; }
+    cl.consts.push(c);
 }
 
 // The Soufflé variable of row var `v`'s column `c`.
@@ -421,7 +436,12 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                     if str_eq(cl.al_vars[ai], "a_") { out.push_str(cl.al_names[ai]); }
                     return true;
                 }
-                if !dx_is_scalar(env, f.name) { return dx_no(cl, "name outside the fragment"); }
+                if !dx_is_scalar(env, f.name) {
+                    if dx_const_ty(f.name).len() == 0i64 { return dx_no(cl, "name outside the fragment"); }
+                    dx_note_const(cl, f.name);
+                    out.push_str("c_"); out.push_str(f.name);
+                    return true;
+                }
                 dx_note_param(cl, f.name);
                 out.push_str("p_"); out.push_str(f.name);
                 return true;
@@ -872,6 +892,58 @@ fn dx_param_atoms(cl: &mut DxClause) {
         cl.body.push_str("(p_"); cl.body.push_str(cl.params[p]); cl.body.push_str(")");
         p = p + 1i64;
     }
+    let mut c: i64 = 0i64;
+    while c < cl.consts.len() {
+        cl.body.push_str(", __c_"); cl.body.push_str(cl.consts[c]);
+        cl.body.push_str("(c_"); cl.body.push_str(cl.consts[c]); cl.body.push_str(")");
+        c = c + 1i64;
+    }
+}
+
+// Every const the program's clauses read (`__c_<name>(` in the rendered text),
+// declared once and dumped as a one-row relation. The dump is PREPENDED: the
+// rest of it ends with the run and the answer's write, and a const's value is
+// in scope of the generated fn anyway (the query names it).
+fn dx_consts(out: &mut String, dump: &mut String, ddir: str) {
+    let txt: str = dx_view(out);
+    let mut names: Vec<str> = Vec::<str>::new();
+    let n: i64 = txt.len();
+    let mut i: i64 = 0i64;
+    while i + 4i64 < n {
+        if str_byte_at(txt, i) == 95u8 && str_eq(dx_slice(txt, i, i + 4i64), "__c_")
+           && (i == 0i64 || !dx_is_id(str_byte_at(txt, i - 1i64))) {
+            let s0: i64 = i + 4i64;
+            let mut e: i64 = s0;
+            while e < n && dx_is_id(str_byte_at(txt, e)) { e = e + 1i64; }
+            if e < n && str_byte_at(txt, e) == 40u8 && e > s0 {          // '('
+                let nm: str = dx_slice(txt, s0, e);
+                let mut seen: bool = false;
+                let mut k: i64 = 0i64;
+                while k < names.len() { if str_eq(names[k], nm) { seen = true; } k = k + 1i64; }
+                if !seen { names.push(nm); }
+            }
+            i = e;
+        } else {
+            i = i + 1i64;
+        }
+    }
+    let mut decls: String = String::new();
+    let mut pre: String = String::new();
+    let mut q: i64 = 0i64;
+    while q < names.len() {
+        let ct: str = dx_const_ty(names[q]);
+        decls.push_str(".decl __c_"); decls.push_str(names[q]); decls.push_str("(v: ");
+        decls.push_str(dl_ty(ct)); decls.push_str(")\n.input __c_"); decls.push_str(names[q]); decls.push_str("\n");
+        pre.push_str("    { let __od: i32 = wql_oracle_open(\""); pre.push_str(ddir); pre.push_str("/__c_");
+        pre.push_str(names[q]); pre.push_str(".facts\"); ");
+        dx_cell(&mut pre, dx_kind(ct), names[q]);
+        pre.push_str("wql_oracle_nl(__od); wql_oracle_close(__od); }\n");
+        q = q + 1i64;
+    }
+    out.push_str(dx_view(&decls));
+    pre.push_str(dx_view(dump));
+    dump.clear();
+    dump.push_str(dx_view(&pre));
 }
 
 // `from a x (join|anti join …)* [where P]` as atoms and constraints.
@@ -1130,6 +1202,7 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
                 let ai: i64 = dx_alias(cl, f.name);
                 // static literals (dl_ty's), re-viewed so the answer does not borrow `cl`
                 if ai >= 0i64 { let t: str = cl.al_tys[ai]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
+                if !dx_is_scalar(env, f.name) { let ct: str = dx_const_ty(f.name); if ct.len() > 0i64 { return dl_ty(ct); } }
                 return dx_scalar_ty(env, f.name);
             }
             let b: SExpr = br.any().view::<SExpr>();
@@ -1176,6 +1249,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
                 if bs >= 0i64 && env.byval[bs] { return dx_kind(env.ctys[bs][1]); }
                 let ai: i64 = dx_alias(cl, f.name);
                 if ai >= 0i64 { let k: str = cl.al_kinds[ai]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
+                if !dx_is_scalar(env, f.name) { let ct: str = dx_const_ty(f.name); if ct.len() > 0i64 { return dx_kind(ct); } }
                 return dx_kind(dx_scalar_lty(env, f.name));
             }
             let b: SExpr = br.any().view::<SExpr>();
@@ -1786,7 +1860,9 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
     dump.push_str("            return Result::Ok(__ov);\n        }\n        Result::Err(__oe) => {\n            wql_oracle_unlink(\"");
     dump.push_str(ddir); dump.push_str("/deem.out\");\n            wql_oracle_close(wql_oracle_open(\"");
     dump.push_str(ddir); dump.push_str("/deem.err\"));\n            return Result::Err(__oe);\n        }\n    }\n");
-    return dx_clause(entry, "__out", arity, &env, out, why);
+    if !dx_clause(entry, "__out", arity, &env, out, why) { return false; }
+    dx_consts(out, dump, ddir);
+    return true;
 }
 
 /// `LOGOS_DEEM_ORACLE=<dir>`: write `<dir>/<name>.dl` when the program is in

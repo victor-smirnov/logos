@@ -201,6 +201,17 @@ pub fn value_name_known(name: str) -> bool {
     return unsafe { logos_metaprog_value_known(name.as_ptr(), name.len() as u64) } != 0i32;
 }
 
+extern fn logos_metaprog_value_type(name_ptr: *const u8, name_len: u64, out_len: *mut u64) -> *const u8;
+
+/// The declared type of a const or static `name` (`value_name_known`), in
+/// source spelling (`i64`, `str`), or "" when no module declares it. The bytes
+/// are host-owned and live for the rest of the compilation.
+pub fn value_type_name(name: str) -> str {
+    let mut len: u64 = 0u64;
+    let p: *const u8 = unsafe { logos_metaprog_value_type(name.as_ptr(), name.len() as u64, &mut len as *mut u64) };
+    return unsafe { str_from_raw(p, len as i64) };
+}
+
 /// Returns a fresh hygienic identifier `<prefix>__hyg_<N>`, unique across the whole compile.
 ///
 /// The bytes are host-owned and stay valid for the rest of the compilation.
