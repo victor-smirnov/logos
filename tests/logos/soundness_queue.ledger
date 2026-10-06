@@ -269,8 +269,6 @@ derive_debug_c_field_cstr_refused 3 tests/soundness/open/derive_debug_c_field_cs
 
 collect_into_option_refused 3 tests/soundness/open/collect_into_option_refused refuses
 
-array_by_value_into_iter_refused 3 tests/soundness/open/array_by_value_into_iter_refused refuses
-
 # ── 2026-10-01 long-red fail fixtures re-triaged: holes owned by a later step
 guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_scrutinee_admits admits
 
@@ -279,6 +277,10 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
 default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/default_method_generics_shadow_impl_generics_refused refuses
+
+ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_after_region_erased_binding_refused refuses
+
+method_on_ref_array_impl_refused 3 tests/soundness/open/method_on_ref_array_impl_refused refuses
 
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
@@ -440,5 +442,5 @@ default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/defa
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 130
-# SYNC-HASH 107d938a16370eddfa1c448a85605073
+# TOTAL 131
+# SYNC-HASH 0f4bc34ca63ed621c3af2527e315f3f0

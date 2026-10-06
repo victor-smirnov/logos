@@ -1519,7 +1519,8 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
     auto add = [&](const SemaImplInfo& info, DefId trait_def) {
             obl::ImplFact f;
             f.trait = trait_def ? defs_.path(trait_def) : info.canonical_trait;
-            f.self = info.self_type ? info.self_type : info.target_typeref;
+            f.self = info.written_ref_slice ? info.written_ref_slice
+                   : info.self_type ? info.self_type : info.target_typeref;
             f.source = src++;
             obl_infos_.push_back(&info);
             if (!info.impl_node.empty()) obl_trait_of_node_[info.impl_node] = f.trait;
@@ -3507,6 +3508,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // TYPE is the target type (simple_type, ptr_type, or GENERIC_INST)
     std::string target;
     TypeRef target_resolved = nullptr;  // concrete resolved type (for Self)
+    TypeRef impl_written_ref_slice = nullptr;  // `impl Tr for &[T]`: the reference (the C-OBL fact's Self)
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         if (code_of(tnode) == la::PTR_TYPE) {
@@ -3580,6 +3582,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // the slice-receiver dispatch calls (otherwise Self=Slice diverges
                 // and the body is never emitted under the expected name).
                 target_resolved = make_unsized_slice_type(selem);
+                impl_written_ref_slice = resolved;
             } else if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
                 bool has_tvar = false;
@@ -4548,6 +4551,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         SemaImplInfo pi{trait_name, target, impl_is_unsafe, impl_is_negative, target_resolved, impl_tps,
                         trait_type_args, trait_lt_args, impl_lt_params, impl_lt_outlives, {}, {}};
         pi.self_type = impl_self_ty;
+        pi.written_ref_slice = impl_written_ref_slice;
         pi.assoc_types = collecting_assoc_types_;
         pi.assoc_consts = collecting_assoc_consts_;
         pi.trait_def = impl_trait_id(trait_name);
@@ -5497,6 +5501,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // `impl_trait_id`, and a homonym's impls live under a different one.
         const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), target};
         info.self_type = impl_self_ty;
+        info.written_ref_slice = impl_written_ref_slice;
         if (impl_self_ty && (TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedSlice ||
                              TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedDyn))
             impl_unsized_self_.insert(node_key_(node));

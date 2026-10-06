@@ -4096,27 +4096,6 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             out_, ns.line, cond, then_blk, else_blk);
         break;
     }
-    case SCode::While: {
-        lir_view::SWhileView v{sref};
-        auto cond = subst_child_expr(v.cond());
-        auto body = subst_child_block(v.body());
-        std::string label(v.label());
-        ns.mirror_ptr_ = lir_mirror_emit_while(
-            out_, ns.line, cond, body, label);
-        break;
-    }
-    case SCode::For: {
-        lir_view::SForView v{sref};
-        std::string var(v.var());
-        auto lo = subst_child_expr(v.lo());
-        auto hi = subst_child_expr(v.hi());
-        bool inclusive = v.inclusive();
-        auto body = subst_child_block(v.body());
-        std::string label(v.label());
-        ns.mirror_ptr_ = lir_mirror_emit_for(
-            out_, ns.line, var, lo, hi, inclusive, body, label, v.var_slot(), v.var_mut());  // Phase-1
-        break;
-    }
     case SCode::Loop: {
         lir_view::SLoopView v{sref};
         auto body = subst_child_block(v.body());
@@ -5383,19 +5362,6 @@ void Mono::collect_struct_needs_from_stmt(lir_view::StmtRef s) {
         collect_struct_needs_from_expr(v.cond());
         collect_struct_needs_from_block(v.then_block());
         collect_struct_needs_from_block(v.else_block());
-        break;
-    }
-    case SCode::While: {
-        lir_view::SWhileView v{s};
-        collect_struct_needs_from_expr(v.cond());
-        collect_struct_needs_from_block(v.body());
-        break;
-    }
-    case SCode::For: {
-        lir_view::SForView v{s};
-        collect_struct_needs_from_expr(v.lo());
-        collect_struct_needs_from_expr(v.hi());
-        collect_struct_needs_from_block(v.body());
         break;
     }
     case SCode::ForEach: {

@@ -507,6 +507,13 @@ impl<'a, T> IntoIterator for &'a Vec<T> {
     }
 }
 
+// `for x in &mut v` — mutable borrow, yields &mut T (Rust parity).
+impl<'a, T> IntoIterator for &'a mut Vec<T> {
+    type Item = &'a mut T;
+    type IntoIter = VecIterMut<'a, T>;
+    fn into_iter(self: &'a mut Vec<T>) -> VecIterMut<'a, T> { return self.iter_mut(); }
+}
+
 // ── FromIterator impl ─────────────────────────────────────────────────────────
 
 // Rust's `impl<T> Default for Vec<T>` (the empty vector) and `Extend<T>`;

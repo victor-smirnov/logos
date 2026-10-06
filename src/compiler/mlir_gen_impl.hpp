@@ -2008,8 +2008,6 @@ private:
     void gen_stmt_kind(lir_view::SAssignView v);
     void gen_stmt_kind(lir_view::SReturnView v);
     void gen_stmt_kind(lir_view::SIfView v);
-    void gen_stmt_kind(lir_view::SWhileView v);
-    void gen_stmt_kind(lir_view::SForView v);
     void gen_stmt_kind(lir_view::SLoopView v);
     void gen_stmt_kind(lir_view::SBreakView v);
     void gen_stmt_kind(lir_view::SContinueView v);
@@ -2099,8 +2097,6 @@ private:
     void gen_assign(lir_view::SAssignView v);
     void gen_return(lir_view::SReturnView v);
     void gen_if(lir_view::SIfView v);
-    void gen_while(lir_view::SWhileView v);
-    void gen_for(lir_view::SForView v);
     void gen_loop(lir_view::SLoopView v);
     void gen_break(lir_view::SBreakView v);
     void gen_continue();

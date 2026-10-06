@@ -813,6 +813,7 @@ pub trait Iterator {
 // when `expr` has no direct `next()` method.
 
 /// Converts a value into an iterator over its items; `for x in expr` desugars through this.
+#[lang = "into_iterator"]
 pub trait IntoIterator {
     /// The type of the elements being iterated over.
     type Item;
@@ -820,6 +821,14 @@ pub trait IntoIterator {
     type IntoIter: Iterator<Item = Self::Item>;
     /// Consumes `self`, returning an iterator over its items.
     fn into_iter(self: Self) -> Self::IntoIter;
+}
+
+// Every iterator is `IntoIterator` as itself (Rust's blanket): `for x in it`
+// desugars through `IntoIterator::into_iter` whatever the head is.
+impl<I: Iterator> IntoIterator for I {
+    type Item = I::Item;
+    type IntoIter = I;
+    fn into_iter(self: I) -> I { return self; }
 }
 
 // ── DoubleEndedIterator ──────────────────────────────────────────────────────

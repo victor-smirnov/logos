@@ -3095,10 +3095,6 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SIf>) {
                 lir_view::BlockRef eb = k.else_.has_value() ? *k.else_ : lir_view::BlockRef{};
                 s.mirror_ptr_ = lir_mirror_emit_if_stmt(p, line, k.cond, k.then_, eb);
-            } else if constexpr (std::is_same_v<KT, lir::SWhile>) {
-                s.mirror_ptr_ = lir_mirror_emit_while(p, line, k.cond, k.body, k.label);
-            } else if constexpr (std::is_same_v<KT, lir::SFor>) {
-                s.mirror_ptr_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label, k.slot, k.var_mut);
             } else if constexpr (std::is_same_v<KT, lir::SLoop>) {
                 s.mirror_ptr_ = lir_mirror_emit_loop(p, line, k.body, k.label, k.break_slot, k.result_type);
             } else if constexpr (std::is_same_v<KT, lir::SBreak>) {
@@ -4448,30 +4444,6 @@ private:
     // whole list is lowered, and the consumer takes the value over.
     std::unordered_set<const void*> own_on_sibling_exit_;
     std::vector<std::string> sibling_owned_temps_;
-    // A loop body that ENDS in an unconditional `return` and holds no `break` /
-    // `continue` is left normally only without running: its moves never reach
-    // the loop exit, whose move state is then exactly the pre-loop one.
-    // A while / range-for body may run ZERO times: at the loop exit a local it
-    // moves is moved on SOME paths only. Merge like an `if` without `else`
-    // (#118 drop flag, cleared in the body), except that a body which ENDS in
-    // an unconditional `return` and holds no `break` / `continue` never reaches
-    // the exit with its moves — the exit state is then exactly the pre-loop one.
-    void merge_loop_exit_moves(std::vector<lir_view::StmtRef>& body,
-                               writ::TinyMapView body_ast,
-                               const std::set<std::string>& pre, size_t clear_mark) {
-        if (!body.empty()) {
-            auto br = stmt_ref_of(body.back());
-            if (br && br.kind() == lir_schema::stmt::Code::Return &&
-                !ast_has_break_or_continue(body_ast)) {
-                moved_vars_ = pre;
-                return;
-            }
-        }
-        std::vector<CondMoveBranch> reaching;
-        reaching.push_back({&body, nullptr, moved_vars_, clear_mark, flag_clear_log_.size()});
-        reaching.push_back({nullptr, nullptr, pre, clear_mark, clear_mark});
-        elaborate_cond_moves(pre, reaching);
-    }
     bool is_deferred_init(std::string_view name) const {
         const VarInfo* vi = lookup_var_info(name);
         return vi && vi->deferred_init;
@@ -6346,6 +6318,9 @@ private:
         // generics; a bare generic for a blanket impl), set for EVERY impl —
         // `target_typeref` is null for a plain nominal target.
         TypeRef self_type = nullptr;
+        // `impl Tr for &[T]` (Logos registers it as the `[T]` impl's twin, Self
+        // `[T]` for its methods): the reference Rust's Self is, for C-OBL.
+        TypeRef written_ref_slice = nullptr;
         // ADR 0030 S9 row 5: the impl's associated types (`type Item = T;`, or
         // the trait's default), over its generics — the C-OBL fact's items.
         std::vector<obl::AssocItem> assoc_types;
@@ -8971,6 +8946,10 @@ private:
     // the pass's to see (hir_lower.hpp).
     writ::TinyMapView hir_body_(writ::AnyVal body, bool fragment = true) {
         hir_.set_file(file_);
+        hir_.set_lang_paths([this](std::string_view l) -> std::string {
+            const LangItem* li = lang_item(l);
+            return li ? (li->package.empty() ? li->name : li->package + "::" + li->name) : std::string();
+        });
         writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false, fragment);
         hir_report_();
         return map_of(core);
@@ -10322,15 +10301,6 @@ private:
     // binds `&T` like every other container door.
     struct DbmCtx { bool ref = false; bool mut_ = false; };
     DbmCtx variant_data_dbm_;
-    // G-CONF-1: bind a `for PATTERN in iter` loop variable. `src_var` holds one
-    // element (type `src_type`); defines the pattern's bindings in the current
-    // scope and appends the destructure `let`s to `out`. Returns false (with a
-    // diagnostic) for a pattern shape not yet supported in for-position. A bare
-    // single binding is handled by the caller (NAME fast-path) and never reaches
-    // here.
-    bool emit_for_pattern_destructure(writ::TinyMapView pat,
-                                      const std::string& src_var, TypeRef src_type,
-                                      std::vector<lir_view::StmtRef>& out);
     // K4: recursive AST-level exhaustiveness for nested enum-payload patterns.
     // The LIR-level check skips guarded arms, so a desugared nested match
     // (`Some(Some(v))` / `Some(None)` / `None`) looks non-exhaustive. This
@@ -10590,8 +10560,6 @@ private:
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);
     lir_view::StmtRef lower_if(writ::TinyMapView node);
-    lir_view::StmtRef lower_for(writ::TinyMapView node);
-    lir_view::StmtRef lower_for_each(writ::TinyMapView node);
     lir_view::StmtRef lower_loop(writ::TinyMapView node);
     lir_view::StmtRef lower_place_assign(writ::TinyMapView node);
     bool place_write_supported(writ::TinyMapView place);
@@ -10672,6 +10640,7 @@ private:
     // Empty for no args. Must be byte-identical across collect/lower/dispatch.
     std::string trait_targ_suffix(const std::vector<TypeRef>& args) const;
     TypeRef param_assoc_eq_(TypeRef base, std::string_view trait, std::string_view name);
+    bool ufcs_self_by_value_ = false;   // see lower_static_call's UfcsSelfReset
     struct BoundNamesScope {
         SemaChecker& sc;
         std::vector<std::pair<std::string, std::optional<std::vector<TraitBound>>>> saved;

@@ -494,16 +494,6 @@ void UnitGraph::assign_ownership(const lir::LProgram& post_mono) {
                 walk_block(v.else_block(), out);
                 break;
             }
-            case SC::While: {
-                lir_view::SWhileView v{s};
-                walk_expr(v.cond(), out); walk_block(v.body(), out);
-                break;
-            }
-            case SC::For: {
-                lir_view::SForView v{s};
-                walk_expr(v.lo(), out); walk_expr(v.hi(), out); walk_block(v.body(), out);
-                break;
-            }
             case SC::Loop:  walk_block(lir_view::SLoopView{s}.body(), out); break;
             case SC::Block: walk_block(lir_view::SBlockView{s}.body(), out); break;
             case SC::FieldWrite:      walk_expr(lir_view::SFieldWriteView{s}.value(), out); break;

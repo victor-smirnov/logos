@@ -128,18 +128,24 @@ sym	logos.lang.panic.Location__type_id__g__ref_T
 sym	logos.lang.panic.PanicInfo__from__g__T
 sym	logos.lang.panic.PanicInfo__type_id__g__ref_T
 sym	logos.lang.range.RangeFromI32__from__g__T
+sym	logos.lang.range.RangeFromI32__into_iter__g__I
 sym	logos.lang.range.RangeFromI32__type_id__g__ref_T
 sym	logos.lang.range.RangeFromI64__from__g__T
+sym	logos.lang.range.RangeFromI64__into_iter__g__I
 sym	logos.lang.range.RangeFromI64__type_id__g__ref_T
 sym	logos.lang.range.RangeFull__from__g__T
 sym	logos.lang.range.RangeFull__type_id__g__ref_T
 sym	logos.lang.range.RangeI32__from__g__T
+sym	logos.lang.range.RangeI32__into_iter__g__I
 sym	logos.lang.range.RangeI32__type_id__g__ref_T
 sym	logos.lang.range.RangeI64__from__g__T
+sym	logos.lang.range.RangeI64__into_iter__g__I
 sym	logos.lang.range.RangeI64__type_id__g__ref_T
 sym	logos.lang.range.RangeInclI32__from__g__T
+sym	logos.lang.range.RangeInclI32__into_iter__g__I
 sym	logos.lang.range.RangeInclI32__type_id__g__ref_T
 sym	logos.lang.range.RangeInclI64__from__g__T
+sym	logos.lang.range.RangeInclI64__into_iter__g__I
 sym	logos.lang.range.RangeInclI64__type_id__g__ref_T
 sym	logos.lang.range.RangeOfFull__from__g__T
 sym	logos.lang.range.RangeOfFull__type_id__g__ref_T
@@ -148,30 +154,41 @@ sym	logos.lang.range.RangeToI32__type_id__g__ref_T
 sym	logos.lang.range.RangeToI64__from__g__T
 sym	logos.lang.range.RangeToI64__type_id__g__ref_T
 sym	logos.lang.range.RevRangeI32__from__g__T
+sym	logos.lang.range.RevRangeI32__into_iter__g__I
 sym	logos.lang.range.RevRangeI32__type_id__g__ref_T
 sym	logos.lang.range.RevRangeI64__from__g__T
+sym	logos.lang.range.RevRangeI64__into_iter__g__I
 sym	logos.lang.range.RevRangeI64__type_id__g__ref_T
 sym	logos.lang.str.ByteSplitter__from__g__T
+sym	logos.lang.str.ByteSplitter__into_iter__g__I
 sym	logos.lang.str.ByteSplitter__type_id__g__ref_T
 sym	logos.lang.str.Bytes$M23c60f9d48390b84__from__g__T
+sym	logos.lang.str.Bytes$M23c60f9d48390b84__into_iter__g__I
 sym	logos.lang.str.Bytes$M23c60f9d48390b84__type_id__g__ref_T
 sym	logos.lang.str.Bytes__from__g__T
+sym	logos.lang.str.Bytes__into_iter__g__I
 sym	logos.lang.str.Bytes__type_id__g__ref_T
 sym	logos.lang.str.CharIndices__from__g__T
+sym	logos.lang.str.CharIndices__into_iter__g__I
 sym	logos.lang.str.CharIndices__type_id__g__ref_T
 sym	logos.lang.str.Chars__from__g__T
+sym	logos.lang.str.Chars__into_iter__g__I
 sym	logos.lang.str.Chars__type_id__g__ref_T
 sym	logos.lang.str.Lines__from__g__T
+sym	logos.lang.str.Lines__into_iter__g__I
 sym	logos.lang.str.Lines__type_id__g__ref_T
 sym	logos.lang.str.ParseBoolError__from__g__T
 sym	logos.lang.str.ParseBoolError__type_id__g__ref_T
 sym	logos.lang.str.SplitWhitespace__from__g__T
+sym	logos.lang.str.SplitWhitespace__into_iter__g__I
 sym	logos.lang.str.SplitWhitespace__type_id__g__ref_T
 sym	logos.lang.str.Splitter__from__g__T
+sym	logos.lang.str.Splitter__into_iter__g__I
 sym	logos.lang.str.Splitter__type_id__g__ref_T
 sym	logos.lang.str.Utf8Chunk__from__g__T
 sym	logos.lang.str.Utf8Chunk__type_id__g__ref_T
 sym	logos.lang.str.Utf8Chunks__from__g__T
+sym	logos.lang.str.Utf8Chunks__into_iter__g__I
 sym	logos.lang.str.Utf8Chunks__type_id__g__ref_T
 sym	logos.lang.str.Utf8Error__from__g__T
 sym	logos.lang.str.Utf8Error__type_id__g__ref_T
@@ -506,6 +523,7 @@ sym	logos.std.io.fs.DirEntry$M381aa463d44202a8__type_id__g__ref_T
 sym	logos.std.io.fs.File__from__g__T
 sym	logos.std.io.fs.File__type_id__g__ref_T
 sym	logos.std.io.fs.ReadDir__from__g__T
+sym	logos.std.io.fs.ReadDir__into_iter__g__I
 sym	logos.std.io.fs.ReadDir__type_id__g__ref_T
 sym	logos.std.io.http.ConnTask__from__g__T
 sym	logos.std.io.http.ConnTask__type_id__g__ref_T
@@ -548,6 +566,7 @@ sym	logos.std.process.Child__type_id__g__ref_T
 sym	logos.std.process.ExitStatus__from__g__T
 sym	logos.std.process.ExitStatus__type_id__g__ref_T
 sym	logos.std.process.LineReader__from__g__T
+sym	logos.std.process.LineReader__into_iter__g__I
 sym	logos.std.process.LineReader__type_id__g__ref_T
 sym	logos.std.random.Rng__from__g__T
 sym	logos.std.random.Rng__type_id__g__ref_T
@@ -10391,12 +10410,21 @@ sym	logos_lang..logos.lang.range.RevRangeI64__skip_while__f__RevRangeI64__fn(&i6
 sym	logos_lang..logos.lang.range.RevRangeI64__step_by__f__RevRangeI64__i64
 sym	logos_lang..logos.lang.range.RevRangeI64__take__f__RevRangeI64__i64
 sym	logos_lang..logos.lang.range.RevRangeI64__take_while__f__RevRangeI64__fn(&i64) -> bool
+sym	logos_lang..logos.lang.range.i128__step_backward__f__i128
+sym	logos_lang..logos.lang.range.i128__step_forward__f__i128
+sym	logos_lang..logos.lang.range.i128__step_lt__f__i128__i128
 sym	logos_lang..logos.lang.range.i16__step_backward__f__i16
 sym	logos_lang..logos.lang.range.i16__step_forward__f__i16
 sym	logos_lang..logos.lang.range.i16__step_lt__f__i16__i16
+sym	logos_lang..logos.lang.range.i24__step_backward__f__i24
+sym	logos_lang..logos.lang.range.i24__step_forward__f__i24
+sym	logos_lang..logos.lang.range.i24__step_lt__f__i24__i24
 sym	logos_lang..logos.lang.range.i32__step_backward__f__i32
 sym	logos_lang..logos.lang.range.i32__step_forward__f__i32
 sym	logos_lang..logos.lang.range.i32__step_lt__f__i32__i32
+sym	logos_lang..logos.lang.range.i56__step_backward__f__i56
+sym	logos_lang..logos.lang.range.i56__step_forward__f__i56
+sym	logos_lang..logos.lang.range.i56__step_lt__f__i56__i56
 sym	logos_lang..logos.lang.range.i64__step_backward__f__i64
 sym	logos_lang..logos.lang.range.i64__step_forward__f__i64
 sym	logos_lang..logos.lang.range.i64__step_lt__f__i64__i64
@@ -10406,12 +10434,21 @@ sym	logos_lang..logos.lang.range.i8__step_lt__f__i8__i8
 sym	logos_lang..logos.lang.range.isize__step_backward__f__isize
 sym	logos_lang..logos.lang.range.isize__step_forward__f__isize
 sym	logos_lang..logos.lang.range.isize__step_lt__f__isize__isize
+sym	logos_lang..logos.lang.range.u128__step_backward__f__u128
+sym	logos_lang..logos.lang.range.u128__step_forward__f__u128
+sym	logos_lang..logos.lang.range.u128__step_lt__f__u128__u128
 sym	logos_lang..logos.lang.range.u16__step_backward__f__u16
 sym	logos_lang..logos.lang.range.u16__step_forward__f__u16
 sym	logos_lang..logos.lang.range.u16__step_lt__f__u16__u16
+sym	logos_lang..logos.lang.range.u24__step_backward__f__u24
+sym	logos_lang..logos.lang.range.u24__step_forward__f__u24
+sym	logos_lang..logos.lang.range.u24__step_lt__f__u24__u24
 sym	logos_lang..logos.lang.range.u32__step_backward__f__u32
 sym	logos_lang..logos.lang.range.u32__step_forward__f__u32
 sym	logos_lang..logos.lang.range.u32__step_lt__f__u32__u32
+sym	logos_lang..logos.lang.range.u56__step_backward__f__u56
+sym	logos_lang..logos.lang.range.u56__step_forward__f__u56
+sym	logos_lang..logos.lang.range.u56__step_lt__f__u56__u56
 sym	logos_lang..logos.lang.range.u64__step_backward__f__u64
 sym	logos_lang..logos.lang.range.u64__step_forward__f__u64
 sym	logos_lang..logos.lang.range.u64__step_lt__f__u64__u64
@@ -16307,7 +16344,7 @@ vtable	logos.lang.stream.Rewind	slots=[rewind]
 vtable	logos.lang.stream.RowMajor	slots=[]
 vtable	logos.lang.stream.SizedStream	slots=[size]
 vtable	logos.lang.try_trait.FromResidual	slots=[from_residual]
-vtable	logos.lang.try_trait.Try	slots=[branch]
+vtable	logos.lang.try_trait.Try	slots=[from_residual,from_output,branch]
 vtable	logos.lang.writ.array.WArrTag	slots=[arr_code]
 vtable	logos.lang.writ.container.Resident	slots=[]
 vtable	logos.lang.writ.dview.Datum	slots=[datum_tag,datum_meta,as_datum,from_datum]

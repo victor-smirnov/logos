@@ -161,19 +161,6 @@ void Mono::scan_stmt(lir_view::StmtRef s) {
         scan_block(v.else_block());
         break;
     }
-    case SCode::While: {
-        lir_view::SWhileView v{s};
-        scan_expr(v.cond());
-        scan_block(v.body());
-        break;
-    }
-    case SCode::For: {
-        lir_view::SForView v{s};
-        scan_expr(v.lo());
-        scan_expr(v.hi());
-        scan_block(v.body());
-        break;
-    }
     case SCode::Loop:
         scan_block(lir_view::SLoopView{s}.body());
         break;

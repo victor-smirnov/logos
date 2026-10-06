@@ -58,6 +58,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <initializer_list>
 #include <string>
@@ -84,6 +85,7 @@ enum class Origin : int64_t {
     LabeledBlock    = 12,  // `'a: { B }`
     ExitRefused     = 13,  // a break / continue whose target the pass refused (diagnostic given)
     ExprAssign      = 14,  // an assignment in expression position (`|| x = 5`, `A => s += 1,`)
+    For             = 15,  // `for p in e { B }` (ADR 0030 S10 row 1)
 };
 
 struct Diag {
@@ -110,12 +112,20 @@ public:
     // The file being lowered (dbg! prints it).
     void set_file(std::string_view f) { file_ = f; }
 
+    // The path (`pkg::Name`) of the item `#[lang = "…"]` binds — the `for`
+    // desugaring names IntoIterator / Iterator / Option by it, whatever the
+    // user's scope holds. Empty when the lang item is not declared.
+    void set_lang_paths(std::function<std::string(std::string_view)> f) { lang_path_ = std::move(f); }
+
 private:
     enum class Ctx { Stmt, Expr };
 
     writ::AnyVal lower(writ::AnyVal v, Ctx ctx);
     writ::AnyVal lower_map(writ::AnyVal v, Ctx ctx);
     writ::AnyVal desugar(writ::AnyVal v, Ctx ctx);
+    // `for p in e { B }` → `match IntoIterator::into_iter(e) { mut it => [label:] loop {
+    // match Iterator::next(&mut it) { Option::Some(p) => B, Option::None => break } } }`.
+    writ::AnyVal for_loop(writ::TinyMapView n, writ::AnyVal label);
 
     // Builders: every node takes `from`'s position and the given origin.
     writ::AnyVal node(int32_t code, writ::TinyMapView from, Origin o,
@@ -166,6 +176,7 @@ private:
     std::deque<std::shared_ptr<std::string>> arg_texts_;   // the parsed documents view these
     std::deque<writ::Writ>                   arg_docs_;
     std::string                              file_;
+    std::function<std::string(std::string_view)> lang_path_;
 
     writ::Writ        doc_;
     std::vector<Diag> diags_;

@@ -522,23 +522,6 @@ struct SIf {
     std::optional<LBlockPtr>  else_;
 };
 
-struct SWhile {
-    lir_view::ExprRef  cond;
-    LBlockPtr body = {};
-    std::string label;  // optional loop label (e.g. "'outer"), empty = unlabeled
-};
-
-struct SFor {
-    std::string      var;
-    lir_view::ExprRef         lo;
-    lir_view::ExprRef         hi;
-    bool             inclusive;
-    LBlockPtr        body = {};
-    std::string      label;  // optional loop label, empty = unlabeled
-    uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
-    bool             var_mut = false;     // `for mut i in lo..hi`
-};
-
 struct SLoop {
     LBlockPtr        body = {};
     TypeRef result_type = nullptr;  // non-null when loop yields a value

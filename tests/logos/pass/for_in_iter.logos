@@ -1,20 +1,18 @@
+// ADR 0030 S10 row 1: a `for` head must implement Iterator (Rust E0277 "is not an iterator"); the
+// struct's `next` was an inherent method found by name, over a local `enum Option`.
 package for_in_iter;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
-
-enum Option<T> {
-    None,
-    Some(T),
-}
 
 struct Range {
     current: i32,
     end: i32,
 }
 
-impl Range {
-    unsafe fn next(&mut self) -> Option<i32> {
+impl Iterator for Range {
+    type Item = i32;
+    fn next(&mut self) -> Option<i32> {
         if self.current >= self.end {
             return Option::None;
         }
@@ -23,6 +21,7 @@ impl Range {
         return Option::Some(v);
     }
 }
+
 
 unsafe fn main() -> i32 {
     let mut r = Range { current: 0, end: 4 };

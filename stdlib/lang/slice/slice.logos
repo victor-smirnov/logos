@@ -618,3 +618,25 @@ pub trait SliceCopyMethods<T> {
 impl<T: Copy> SliceCopyMethods<T> for [T] {
     fn copy_from_slice(&mut self, src: &[T]) { slice_copy_from::<T>(self, src); }
 }
+
+// `for x in s` over a slice (Rust's `&[T]` IntoIterator impl). `&mut [T]` is the
+// same impl target as `&[T]` in Logos's type representation (one `$slice$T`);
+// a `for` over `&mut [T]` iterates `iter_mut()`.
+impl<'a, T> IntoIterator for &'a [T] {
+    type Item = &'a T;
+    type IntoIter = SliceIter<'a, T>;
+    fn into_iter(self: &'a [T]) -> SliceIter<'a, T> { return self.iter(); }
+}
+
+// `for x in &arr` / `&mut arr`: a borrowed array iterates its slice.
+impl<'a, T, const N: i64> IntoIterator for &'a [T; N] {
+    type Item = &'a T;
+    type IntoIter = SliceIter<'a, T>;
+    fn into_iter(self: &'a [T; N]) -> SliceIter<'a, T> { let s: &'a [T] = self; return s.iter(); }
+}
+
+impl<'a, T, const N: i64> IntoIterator for &'a mut [T; N] {
+    type Item = &'a mut T;
+    type IntoIter = SliceIterMut<'a, T>;
+    fn into_iter(self: &'a mut [T; N]) -> SliceIterMut<'a, T> { let s: &'a mut [T] = self; return s.iter_mut(); }
+}

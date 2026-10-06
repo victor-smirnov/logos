@@ -382,8 +382,6 @@ void MLIRGenImpl::gen_stmt(lir_view::StmtRef sr) {
     case C::Assign:          gen_stmt_kind(lir_view::SAssignView{sr}); return;
     case C::Return:          gen_stmt_kind(lir_view::SReturnView{sr}); return;
     case C::If:              gen_stmt_kind(lir_view::SIfView{sr}); return;
-    case C::While:           gen_stmt_kind(lir_view::SWhileView{sr}); return;
-    case C::For:             gen_stmt_kind(lir_view::SForView{sr}); return;
     case C::Loop:            gen_stmt_kind(lir_view::SLoopView{sr}); return;
     case C::Break:           gen_stmt_kind(lir_view::SBreakView{sr}); return;
     case C::Continue:        gen_stmt_kind(lir_view::SContinueView{sr}); return;
@@ -406,8 +404,6 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SLetView v)        { gen_let(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SAssignView v)     { gen_assign(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SReturnView v)     { gen_return(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SIfView v)         { gen_if(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SWhileView v)      { gen_while(v); }
-void MLIRGenImpl::gen_stmt_kind(lir_view::SForView v)        { gen_for(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SLoopView v)       { gen_loop(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SBreakView v)      { gen_break(v); }
 void MLIRGenImpl::gen_stmt_kind(lir_view::SContinueView v) {
@@ -2911,157 +2907,6 @@ void MLIRGenImpl::gen_if(lir_view::SIfView v) {
         return;
     }
     builder_.setInsertionPointToStart(merge_block);
-}
-
-// ---------------------------------------------------------------------------
-// gen_while
-// ---------------------------------------------------------------------------
-
-void MLIRGenImpl::gen_while(lir_view::SWhileView v) {
-    if (!v.cond() || !v.body()) return;
-    std::string label(v.label());
-    auto* region     = builder_.getBlock()->getParent();
-    auto* cond_block = new mlir::Block();
-    auto* body_block = new mlir::Block();
-    auto* exit_block = new mlir::Block();
-    region->push_back(cond_block);
-    region->push_back(body_block);
-    region->push_back(exit_block);
-
-    builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
-    builder_.setInsertionPointToStart(cond_block);
-    auto cond = gen_expr(v.cond());
-    if (!cond && !is_terminated(builder_.getBlock()))
-        bug("`while` condition lowered to no value — the loop would be dropped (last method miss: '{}')",
-            last_method_miss_);
-    if (!cond) return;
-    builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
-
-    builder_.setInsertionPointToStart(body_block);
-    // gap C: the loop body is its own lexical scope — restore on exit so a
-    // body-local `let` can't leak its shape onto a later same-named binding.
-    auto body_scope = snapshot_var_scope();
-    loop_stack_.push_back({cond_block, exit_block, {}, label});
-    gen_block(v.body());
-    loop_stack_.pop_back();
-    restore_var_scope(body_scope);
-    if (!is_terminated(builder_.getBlock()))
-        builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
-
-    builder_.setInsertionPointToStart(exit_block);
-}
-
-// ---------------------------------------------------------------------------
-// gen_for
-// ---------------------------------------------------------------------------
-
-void MLIRGenImpl::gen_for(lir_view::SForView v) {
-    if (!v.lo() || !v.hi() || !v.body()) return;
-    struct ForCtx {
-        std::string var;
-        lir_view::ExprRef lo;
-        lir_view::ExprRef hi;
-        bool inclusive;
-        lir_view::BlockRef body;
-        std::string label;
-    };
-    ForCtx s{std::string(v.var()), v.lo(), v.hi(), v.inclusive(), v.body(),
-             std::string(v.label())};
-    TypeRef lo_ty = s.lo.type(pool_impl());
-    TypeRef hi_ty = s.hi.type(pool_impl());
-    auto lo = gen_expr(s.lo);
-    auto hi = gen_expr(s.hi);
-    if (!lo || !hi) return;
-
-    // Use the wider of lo/hi types so i64 bounds aren't truncated to i32.
-    mlir::Type loop_type = builder_.getI32Type();
-    if (auto hi_int = mlir::dyn_cast<mlir::IntegerType>(hi.getType()))
-        if (hi_int.getWidth() > 32) loop_type = hi.getType();
-    if (auto lo_int = mlir::dyn_cast<mlir::IntegerType>(lo.getType()))
-        if (lo_int.getWidth() > mlir::cast<mlir::IntegerType>(loop_type).getWidth())
-            loop_type = lo.getType();
-
-    auto i_alloca = create_entry_alloca(loop_type);
-    bool lo_unsigned = lo_ty &&
-        LogosType::is_unsigned_repr_kind(TypeRef(lo_ty).kind());
-    mlir::Value lo_coerced;
-    if (lo_unsigned && lo.getType() != loop_type)
-        lo_coerced = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, lo);
-    else
-        lo_coerced = coerce_int(lo, loop_type);
-    builder_.create<mlir::LLVM::StoreOp>(loc_, lo_coerced, i_alloca);
-    // gap C: loop var + body are their own lexical scope (restored at exit);
-    // evict first — the loop var may shadow an outer name of another shape.
-    auto for_scope = snapshot_var_scope();
-    evict_var_shapes(s.var);
-    // The NAMED binding is a per-iteration COPY of the induction slot (Rust: a
-    // fresh binding each iteration); a body write must not steer the loop.
-    auto v_alloca = create_entry_alloca(loop_type);
-    scope_[s.var] = v_alloca;
-    shadow_register_slot(v.var_slot(), s.var);
-    let_vars_.insert(s.var);
-    var_elem_types_[s.var] = loop_type;
-
-    auto* region     = builder_.getBlock()->getParent();
-    auto* cond_block = new mlir::Block();
-    auto* body_block = new mlir::Block();
-    auto* incr_block = new mlir::Block();   // increment i, then back to cond
-    auto* exit_block = new mlir::Block();
-    region->push_back(cond_block);
-    region->push_back(body_block);
-    region->push_back(incr_block);
-    region->push_back(exit_block);
-
-    builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
-
-    builder_.setInsertionPointToStart(cond_block);
-    auto i_val  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
-    bool hi_unsigned = hi_ty &&
-        LogosType::is_unsigned_repr_kind(TypeRef(hi_ty).kind());
-    mlir::Value hi_val;
-    if (hi_unsigned && hi.getType() != loop_type)
-        hi_val = builder_.create<mlir::arith::ExtUIOp>(loc_, loop_type, hi);
-    else
-        hi_val = coerce_int(hi, loop_type);
-    mlir::Value cond;
-    if (s.inclusive)
-        cond = builder_.create<mlir::arith::CmpIOp>(loc_,
-            hi_unsigned ? mlir::arith::CmpIPredicate::ule
-                        : mlir::arith::CmpIPredicate::sle,
-            i_val, hi_val);
-    else
-        cond = builder_.create<mlir::arith::CmpIOp>(loc_,
-            hi_unsigned ? mlir::arith::CmpIPredicate::ult
-                        : mlir::arith::CmpIPredicate::slt,
-            i_val, hi_val);
-    builder_.create<mlir::cf::CondBranchOp>(loc_, cond, body_block, exit_block);
-
-    builder_.setInsertionPointToStart(body_block);
-    builder_.create<mlir::LLVM::StoreOp>(loc_,
-        builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca), v_alloca);
-    // continue → incr_block (so that i is incremented before re-checking)
-    loop_stack_.push_back({incr_block, exit_block, {}, s.label});
-    gen_block(s.body);
-    loop_stack_.pop_back();
-    if (!is_terminated(builder_.getBlock()))
-        builder_.create<mlir::cf::BranchOp>(loc_, incr_block);
-
-    // Increment block: i += 1, branch back to condition.
-    // If no predecessor (body always terminates, no continue), mark unreachable.
-    builder_.setInsertionPointToStart(incr_block);
-    if (incr_block->hasNoPredecessors()) {
-        builder_.create<mlir::LLVM::UnreachableOp>(loc_);
-    } else {
-        auto i_cur  = builder_.create<mlir::LLVM::LoadOp>(loc_, loop_type, i_alloca);
-        auto one    = builder_.create<mlir::arith::ConstantIntOp>(
-                          loc_, 1, mlir::cast<mlir::IntegerType>(loop_type).getWidth());
-        auto i_next = builder_.create<mlir::arith::AddIOp>(loc_, i_cur, one);
-        builder_.create<mlir::LLVM::StoreOp>(loc_, i_next, i_alloca);
-        builder_.create<mlir::cf::BranchOp>(loc_, cond_block);
-    }
-
-    builder_.setInsertionPointToStart(exit_block);
-    restore_var_scope(for_scope);
 }
 
 // ---------------------------------------------------------------------------

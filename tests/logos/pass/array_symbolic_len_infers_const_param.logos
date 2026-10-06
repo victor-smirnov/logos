@@ -1,0 +1,27 @@
+// A `[T; M]` parameter's M is inferred from an array whose length is symbolic:
+// a const-pack size `sizeof...(N)` or a deferred `N + 1` (the `for` desugaring
+// over such an array selects `impl<T, const N: usize> IntoIterator for [T; N]`
+// the same way).
+package array_symbolic_len_infers_const_param;
+
+fn g<T, const M: usize>(a: [T; M]) -> usize { return M; }
+
+fn pk<const N...: i64>() -> usize {
+    let arr: [i64; sizeof...(N)] = [N...];
+    let mut s: i64 = 0;
+    for x in arr { s = s + x; }
+    return g(arr) * 100 + (s as usize);
+}
+
+fn h<const N: usize>() -> usize {
+    let a: [i64; N + 1] = [0; N + 1];
+    let mut c: usize = 0;
+    for _x in a { c = c + 1; }
+    return g(a) * 10 + c;
+}
+
+fn main() -> i32 {
+    if pk::<1, 2, 3>() != 306 { return 1; }
+    if h::<3>() != 44 { return 2; }
+    return 7;
+}

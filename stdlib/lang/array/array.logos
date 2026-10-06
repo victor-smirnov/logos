@@ -141,3 +141,11 @@ pub fn array_from_mut<T>(t: &mut T) -> &mut [T; 1] {
         return &mut *(p as *mut [T; 1]);
     }
 }
+
+// `for x in arr` (Rust's array IntoIterator): the owned array yields its
+// elements by value (`&arr` / `&mut arr`: lang.slice).
+impl<T, const N: i64> IntoIterator for [T; N] {
+    type Item = T;
+    type IntoIter = ArrayIntoIter<T, N>;
+    fn into_iter(self: [T; N]) -> ArrayIntoIter<T, N> { return array_into_iter::<T, N>(self); }
+}

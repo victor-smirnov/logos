@@ -826,48 +826,6 @@ public:
         put_line(map_off, line);
         return map_off;
     }
-    const uint8_t* emit_while_direct(uint32_t line,
-                                              lir_view::ExprRef cond,
-                                              lir_view::BlockRef body,
-                                              std::string_view label) {
-        auto cond_av = expr_av(cond);
-        auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
-        writ::AnyVal label_av;
-        if (!label.empty()) label_av = put_string(label);
-        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::While));
-        put(map_off, sk::COND,  cond_av);
-        put(map_off, sk::BODY,  body_av);
-        put(map_off, sk::LABEL, label_av);
-        put_line(map_off, line);
-        return map_off;
-    }
-    const uint8_t* emit_for_direct(uint32_t line,
-                                            std::string_view var,
-                                            lir_view::ExprRef lo,
-                                            lir_view::ExprRef hi,
-                                            bool inclusive,
-                                            lir_view::BlockRef body,
-                                            std::string_view label,
-                                            uint32_t slot = 0xFFFFFFFFu,
-                                            bool var_mut = false) {
-        auto var_av  = put_string(var);
-        auto lo_av   = expr_av(lo);
-        auto hi_av   = expr_av(hi);
-        auto body_av = body ? mref_addr(body.addr()) : writ::AnyVal{};
-        writ::AnyVal label_av;
-        if (!label.empty()) label_av = put_string(label);
-        auto map_off = make_map(writ::schema::lir_stmt(lir_schema::stmt::Code::For), 9);  // + sk::IS_MUT
-        put(map_off, sk::VAR,       var_av);
-        put(map_off, sk::LO,        lo_av);
-        put(map_off, sk::HI,        hi_av);
-        put(map_off, sk::INCLUSIVE, put_bool(inclusive));
-        put(map_off, sk::BODY,      body_av);
-        put(map_off, sk::LABEL,     label_av);
-        if (slot != 0xFFFFFFFFu) put(map_off, sk::VAR_SLOT, put_i64((int64_t)slot));
-        if (var_mut) put(map_off, sk::IS_MUT, put_bool(true));
-        put_line(map_off, line);
-        return map_off;
-    }
     const uint8_t* emit_loop_direct(uint32_t line,
                                              lir_view::BlockRef body,
                                              std::string_view label,
@@ -2347,16 +2305,6 @@ const uint8_t* lir_mirror_emit_if_stmt(lir::LProgram& prog, uint32_t line, lir_v
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_if_stmt_direct(line, cond, then_blk, else_blk);
-}
-const uint8_t* lir_mirror_emit_while(lir::LProgram& prog, uint32_t line, lir_view::ExprRef cond, lir_view::BlockRef body, std::string_view label) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_while_direct(line, cond, body, label);
-}
-const uint8_t* lir_mirror_emit_for(lir::LProgram& prog, uint32_t line, std::string_view var, lir_view::ExprRef lo, lir_view::ExprRef hi, bool inclusive, lir_view::BlockRef body, std::string_view label, uint32_t slot, bool var_mut) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_for_direct(line, var, lo, hi, inclusive, body, label, slot, var_mut);
 }
 const uint8_t* lir_mirror_emit_loop(lir::LProgram& prog, uint32_t line, lir_view::BlockRef body, std::string_view label, std::string_view break_slot, TypeRef result_type) {
     auto& ctr = prog.type_pool.ctr_or_init();

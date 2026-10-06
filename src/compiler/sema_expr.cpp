@@ -2571,6 +2571,30 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             else if (is_lit_var_(ht) && is_integer(lt)) { lit_solve_(ht, lt); incl_t = lt; }
             else if (lt && ht && is_integer(lt) && types_equal(lt, ht)) incl_t = lt;
         }
+        // Bounds of a concrete integer type other than i32 / i64 (`0u32..n`,
+        // `a..b` over u56, usize): the generic `RangeOf<T>` over that type, as
+        // Rust's `Range<T>` — RangeI32 / RangeI64 truncated or widened them.
+        {
+            TypeRef lt = expr_type(lo), ht = expr_type(hi);
+            TypeRef gen_t = nullptr;
+            auto plain = [](TypeRef t) {
+                return t && (TypeRef(t).kind() == LogosType::Kind::I32 || TypeRef(t).kind() == LogosType::Kind::I64);
+            };
+            if (lt && ht && is_integer(lt) && !is_lit_var_(lt) && types_equal(lt, ht) && !plain(lt)) gen_t = lt;
+            else if (lt && is_integer(lt) && !is_lit_var_(lt) && !plain(lt) && is_lit_var_(ht)) { lit_solve_(ht, lt); gen_t = lt; }
+            else if (ht && is_integer(ht) && !is_lit_var_(ht) && !plain(ht) && is_lit_var_(lt)) { lit_solve_(lt, ht); gen_t = ht; }
+            if (gen_t && !inclusive) {
+                auto cands = stdlib_range_cands("range_of");
+                if (!cands.empty()) {
+                    std::vector<lir::LExprPtr> rargs;
+                    rargs.push_back(std::move(lo));
+                    rargs.push_back(std::move(hi));
+                    const SemaFuncInfo* rfi = cands[0];
+                    return finish_generic_call(rfi->symbol_name.empty() ? std::string("range_of") : rfi->symbol_name,
+                                               *rfi, {gen_t}, std::move(rargs));
+                }
+            }
+        }
         auto width = [](LogosType::Kind k) -> int {
             switch (k) {
                 case LogosType::Kind::I64: case LogosType::Kind::U64: return 64;
@@ -6233,6 +6257,16 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
                 // A SYMBOLIC actual length — the caller's own const parameter
                 // (`g(a)` inside `fn f<const N>(a: [T; N])`) — binds N to it.
                 bindings[asv] = current_type_params_[std::string(actual_norm.arr_size_var())];
+            } else if (!asv.empty() && asv.rfind(ARR_LEN_EXPR_PFX, 0) != 0 && !bindings.count(asv) &&
+                       !actual_norm.arr_size_var().empty()) {
+                // Any other symbolic actual length (`sizeof...(P)`, a deferred
+                // `N + 1`) binds N to a ConstVar spelled as that length: the
+                // substitution writes it back as the array's length and mono
+                // folds it with the caller's packs / parameters.
+                LogosTypeBuilder c;
+                c.kind = LogosType::Kind::ConstVar;
+                c.type_var_name = std::string(actual_norm.arr_size_var());
+                bindings[asv] = pool_->alloc(std::move(c));
             } else if (asv.empty() && formal.arr_size() != actual_norm.arr_size()) {
                 // Two CONCRETE lengths that disagree. Unification used to say
                 // nothing here, so `[T; 3]` accepted a `[T; 5]` and the
@@ -7045,13 +7079,29 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_vi
                 keys.push_back(b.mangled_name.substr(0, b.mangled_name.size() - sfx.size()));
         }
     }
+    // A spelled key carries no package: a candidate whose receiver names a
+    // nominal type of another package than Self's (a user `Vec` beside the
+    // stdlib's) is a homonym's impl, not Self's.
+    auto nominal_pkg = [](TypeRef t) -> std::string_view {
+        while (t && (is_ref_like(TypeRef(t).kind()) || TypeRef(t).kind() == K::Ptr) && TypeRef(t).pointee())
+            t = TypeRef(t).pointee();
+        if (!t) return {};
+        auto k = TypeRef(t).kind();
+        return (k == K::Struct || k == K::ZonedStruct || k == K::Enum) ? TypeRef(t).pkg_name() : std::string_view{};
+    };
+    const std::string_view self_pkg = nominal_pkg(self);
+    auto same_owner = [&](const SemaFuncInfo* fi) {
+        if (self_pkg.empty() || !fi || fi->param_types.empty() || !fi->param_types[0]) return true;
+        std::string_view fp = nominal_pkg(fi->param_types[0]);
+        return fp.empty() || fp == self_pkg;
+    };
     for (const auto& k : keys)
         for (const std::string& mk : {k + "__" + tbare + "__" + std::string(name), k + "__" + std::string(name)}) {
             std::vector<const SemaFuncInfo*> fs = find_func_candidates(mk);
             if (auto* g = find_generic_func(mk))
                 if (std::find(fs.begin(), fs.end(), g) == fs.end()) fs.push_back(g);
             for (auto* fi : fs)
-                if (same_trait(fi)) {
+                if (same_trait(fi) && same_owner(fi)) {
                     if (key_out) *key_out = mk;
                     return fi;
                 }
@@ -7555,7 +7605,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], subst);
                 expect_arg_(arg_exprs[i], pt,
-                            TypeRef(fi.param_types[i]).kind() == LogosType::Kind::TypeVar
+                            (TypeRef(fi.param_types[i]).kind() == LogosType::Kind::TypeVar ||
+                             (i == 0 && ufcs_self_by_value_))
                                 ? CoercePos::GenericArg : CoercePos::CallArg,
                             std::format("call to '{}' arg {}", callee_diag, i + 1),
                             call_param_shown_(fi.param_types[i], fi.lifetime_params, fi.param_types, fi.ret_type,
@@ -18587,6 +18638,10 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
     const SemaFuncInfo* ufcs_fi = nullptr;   // the trait item a trait-qualified call resolved to
+    // A trait item whose declared receiver is `self` by value takes the first
+    // argument as `Self` itself (a generic formal: moved, never reborrowed —
+    // `for n in v` over `v: &mut Vec` moves `v`, as rustc says).
+    struct UfcsSelfReset { bool& f; ~UfcsSelfReset() { f = false; } } ufcs_self_reset{ufcs_self_by_value_};
     if (find_trait_iter_scoped(std::string(class_name)) &&
         !arg_exprs.empty() && !find_enum_by_name(class_name).second &&
         find_struct_by_name(std::string(class_name)).second == nullptr &&
@@ -18595,7 +18650,16 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // trait-UFCS instance dispatch on the first arg's type (G159-2 guard).
         find_datatype_by_name(std::string(class_name)).second == nullptr) {
         TypeRef rt = expr_type(arg_exprs[0]);
-        while (rt && (is_ref_like(TypeRef(rt).kind()) ||
+        // Self is the argument's type as the trait method's receiver takes it
+        // (Rust): `fn into_iter(self)` over `&[T; N]` is the `&[T; N]` impl's;
+        // a `&self` / `&mut self` method's argument is `&Self`.
+        const TypeRef arg0_t = rt;
+        bool by_value_self = false;
+        if (auto* tdecl = find_trait_iter_scoped(std::string(class_name)))
+            for (auto& tm : tdecl->methods)
+                if (tm.name == method_name && tm.has_self_receiver && !tm.param_types.empty() && tm.param_types[0])
+                    by_value_self = TypeRef(tm.param_types[0]).kind() == LogosType::Kind::TypeVar;
+        while (!by_value_self && rt && (is_ref_like(TypeRef(rt).kind()) ||
                       TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
                TypeRef(rt).pointee())
             rt = TypeRef(rt).pointee();
@@ -18631,6 +18695,26 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         if (rt && (ufcs_fi = resolve_trait_item_(class_name, rt, method_name, &key, ufcs_targs))) {
             resolved_class = rname.empty() ? type_str(rt) : rname;
             mangled = key;
+            ufcs_self_by_value_ = by_value_self;
+        } else if (by_value_self && arg0_t) {
+            // No impl for the argument's own type: the pointee's (an autoref'd
+            // receiver spelled through UFCS), as before.
+            TypeRef pt = arg0_t;
+            while (pt && (is_ref_like(TypeRef(pt).kind()) || TypeRef(pt).kind() == LogosType::Kind::Ptr) &&
+                   TypeRef(pt).pointee())
+                pt = TypeRef(pt).pointee();
+            if (pt != arg0_t && (ufcs_fi = resolve_trait_item_(class_name, pt, method_name, &key, ufcs_targs))) {
+                resolved_class = type_str(pt);
+                mangled = key;
+            }
+        }
+        // The `for` desugaring's `IntoIterator::into_iter(head)` (ADR 0030 S10):
+        // no impl answers — the head is not iterable (rustc's E0277); nothing
+        // composed from the type's spelling stands in.
+        if (!ufcs_fi && hir_origin_(node) == hir::Origin::For && arg0_t) {
+            error(std::format("`{}` is not an iterator: the trait `IntoIterator` is not implemented "
+                              "for it, so `for` cannot loop over it (E0277)", type_str(arg0_t)));
+            return error_expr();
         }
     }
 
@@ -19034,6 +19118,13 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         if (auto e = try_blanket_static_dispatch(arg_exprs, method_name, class_name,
                                                  lookup_type_by_name(class_name)))
             return e;
+        // The `for` desugaring's `IntoIterator::into_iter(head)` (ADR 0030 S10):
+        // the head is not iterable — rustc's E0277.
+        if (hir_origin_(node) == hir::Origin::For && !arg_exprs.empty() && expr_type(arg_exprs[0])) {
+            error(std::format("`{}` is not an iterator: the trait `IntoIterator` is not implemented "
+                              "for it, so `for` cannot loop over it (E0277)", type_str(expr_type(arg_exprs[0]))));
+            return error_expr();
+        }
         error(std::format("call to undefined static method '{}::{}'", class_name, method_name));
         return builder().call(mangled, {}, std::move(arg_exprs), error_t());
     }
@@ -19889,7 +19980,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     scan_block(v.else_block());
                     break;
                 }
-                case SC::While: scan_block(lir_view::SWhileView{s}.body()); break;
                 case SC::Loop:  scan_block(lir_view::SLoopView{s}.body());  break;
                 case SC::Block: scan_block(lir_view::SBlockView{s}.body()); break;
                 // A `match` statement (an expression statement of a match,
@@ -19905,7 +19995,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     break;
                 }
                 // A return nested in a loop body over a collection counts too.
-                case SC::For:     scan_block(lir_view::SForView{s}.body());     break;
                 case SC::ForEach: scan_block(lir_view::SForEachView{s}.body()); break;
                 default: break;
             }
@@ -20449,19 +20538,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.cond());
                 scan_block_v(v.then_block());
                 scan_block_v(v.else_block());
-                break;
-            }
-            case SC::While: {
-                auto v = lir_view::SWhileView{s};
-                scan_captures_v(v.cond()); scan_block_v(v.body()); break;
-            }
-            case SC::For: {
-                auto v = lir_view::SForView{s};
-                scan_captures_v(v.lo()); scan_captures_v(v.hi());
-                body_scopes.emplace_back();
-                if (!v.var().empty()) body_scopes.back().insert(std::string(v.var()));
-                scan_block_v(v.body());
-                body_scopes.pop_back();
                 break;
             }
             case SC::Loop:       scan_block_v(lir_view::SLoopView{s}.body()); break;

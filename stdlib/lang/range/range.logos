@@ -78,6 +78,36 @@ impl Step for isize {
     fn step_backward(self: isize) -> isize  { return self - (1 as isize); }
     fn step_lt(self: isize, other: isize) -> bool { return self < other; }
 }
+impl Step for i24 {
+    fn step_forward(self: i24)  -> i24  { return self + (1 as i24); }
+    fn step_backward(self: i24) -> i24  { return self - (1 as i24); }
+    fn step_lt(self: i24, other: i24) -> bool { return self < other; }
+}
+impl Step for u24 {
+    fn step_forward(self: u24)  -> u24  { return self + (1 as u24); }
+    fn step_backward(self: u24) -> u24  { return self - (1 as u24); }
+    fn step_lt(self: u24, other: u24) -> bool { return self < other; }
+}
+impl Step for i56 {
+    fn step_forward(self: i56)  -> i56  { return self + (1 as i56); }
+    fn step_backward(self: i56) -> i56  { return self - (1 as i56); }
+    fn step_lt(self: i56, other: i56) -> bool { return self < other; }
+}
+impl Step for u56 {
+    fn step_forward(self: u56)  -> u56  { return self + (1 as u56); }
+    fn step_backward(self: u56) -> u56  { return self - (1 as u56); }
+    fn step_lt(self: u56, other: u56) -> bool { return self < other; }
+}
+impl Step for i128 {
+    fn step_forward(self: i128)  -> i128  { return self + (1 as i128); }
+    fn step_backward(self: i128) -> i128  { return self - (1 as i128); }
+    fn step_lt(self: i128, other: i128) -> bool { return self < other; }
+}
+impl Step for u128 {
+    fn step_forward(self: u128)  -> u128  { return self + (1 as u128); }
+    fn step_backward(self: u128) -> u128  { return self - (1 as u128); }
+    fn step_lt(self: u128, other: u128) -> bool { return self < other; }
+}
 
 // §6.12: generic range types — `RangeOf<T>` / `RangeOfIncl<T>` /
 // `RangeOfFrom<T>`. Named with the `Of` suffix to AVOID collision

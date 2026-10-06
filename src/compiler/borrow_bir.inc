@@ -2505,19 +2505,6 @@ private:
                 cur_ = join;
                 return;
             }
-            case SCode::While: {
-                lir_view::SWhileView v{s};
-                bir::BlockId head = new_block(), body = new_block(), exit = new_block();
-                goto_(head);
-                cur_ = head;
-                bir::Operand c = operand(v.cond());
-                branch(std::move(c), {body, exit});
-                loops_.push_back({std::string(v.label()), head, exit, scopes_.size()});
-                cur_ = body; lower_scoped_block(v.body()); goto_(head);
-                loops_.pop_back();
-                cur_ = exit;
-                return;
-            }
             case SCode::Loop: {
                 lir_view::SLoopView v{s};
                 bir::BlockId body = new_block(), exit = new_block();
@@ -2537,57 +2524,6 @@ private:
                 cur_ = body; lower_scoped_block(v.body()); goto_(body);
                 loops_.pop_back();
                 cur_ = exit;
-                return;
-            }
-            case SCode::For: {
-                lir_view::SForView v{s};
-                bir::Operand lo = operand(v.lo());
-                bir::Operand hi = operand(v.hi());
-                push_scope();   // the counter lives across iterations
-                TypeRef it = v.lo() ? v.lo().type(pool_) : TypeRef{};
-                // As Rust has it: a hidden counter the desugaring steps, and a
-                // FRESH `i` bound from it on every iteration, mutable only when
-                // declared `for mut i`. With the user's `i` doubling as the
-                // counter it had to be `mut`, and `&mut i` on a plain binder
-                // went unrefused.
-                bir::LocalId ctr = temp(it);
-                bir::Rvalue init(bir::Rvalue::K::Use);
-                init.ops.push_back(lo);
-                assign({ctr, {}}, std::move(init));
-                bir::BlockId head = new_block(), body = new_block(), step = new_block(),
-                             exit = new_block();
-                goto_(head);
-                cur_ = head;
-                bir::LocalId c = temp({});
-                bir::Rvalue cmp(bir::Rvalue::K::Op);
-                cmp.what = "<";
-                cmp.ops.push_back(read_place({ctr, {}}, it));
-                cmp.ops.push_back(as_read(hi));
-                assign({c, {}}, std::move(cmp));
-                branch(read_place({c, {}}, {}), {body, exit});
-                // `continue` leaves through `step` and must end this
-                // iteration's `i`, so the loop records the depth BELOW it.
-                loops_.push_back({std::string(v.label()), step, exit, scopes_.size()});
-                cur_ = body;
-                push_scope();
-                bir::LocalId var = new_local(std::string(v.var()), bir::LocalKind::User, it,
-                                             v.var_mut(), v.var_slot(), line_);
-                declare(var);
-                bir::Rvalue bind(bir::Rvalue::K::Use);
-                bind.ops.push_back(read_place({ctr, {}}, it));
-                assign({var, {}}, std::move(bind));
-                lower_scoped_block(v.body());
-                pop_scope();
-                goto_(step);
-                loops_.pop_back();
-                cur_ = step;
-                bir::Rvalue inc(bir::Rvalue::K::Op);
-                inc.what = "+1";
-                inc.ops.push_back(read_place({ctr, {}}, it));
-                assign({ctr, {}}, std::move(inc));
-                goto_(head);
-                cur_ = exit;
-                pop_scope();
                 return;
             }
             case SCode::ForEach: {

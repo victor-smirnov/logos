@@ -1551,12 +1551,6 @@ private:
                 if (auto b = v.else_block()) walk_block(b);
                 break;
             }
-            case Code::While: {
-                SWhileView v{sr};
-                call_effects(v.cond());
-                if (auto b = v.body()) walk_block(b);
-                break;
-            }
             // D1 round 12 / A1: a loop-as-expression deposits into its BREAK
             // SLOT, and `return loop { break v; }` therefore carries v's taint
             // to the result. Measured (LOGOS_DUMP_FLOWS): `pickl` summarised
@@ -1600,9 +1594,6 @@ private:
                 if (v.value()) call_effects(v.value());
                 break;
             }
-            case Code::For:
-                if (auto b = SForView{sr}.body()) walk_block(b);
-                break;
             case Code::ForEach: {
                 SForEachView v{sr};
                 add_taint(std::string(v.var()), taint_of(v.iter()));

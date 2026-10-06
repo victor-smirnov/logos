@@ -53,6 +53,16 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
                 }
                 return tv;
             }
+            // `sizeof...(P)` as a const argument (a `[T; N]` parameter's N
+            // inferred from a pack-sized array): the pack's concrete arity.
+            if (nm.rfind(ARR_LEN_PACK_PFX, 0) == 0) {
+                auto pit = cur_packs_.find(nm.substr(ARR_LEN_PACK_PFX.size()));
+                if (pit != cur_packs_.end()) {
+                    LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit;
+                    lt.const_val = static_cast<int64_t>(pit->second.size());
+                    return out_.type_pool.alloc(lt);
+                }
+            }
         }
         auto it = s.find(tv.type_var_name());   // transparent: no std::string
         if (it != s.end()) return it->second;

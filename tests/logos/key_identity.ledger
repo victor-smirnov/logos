@@ -679,6 +679,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 #   current_type_bounds_ by the type-PARAMETER name it saved (a parameter list's own scope), as the
 #   where-scope save/restore beside it does; no entity is resolved by it.
 #ARGSCAN erase 10 623da684
+# 2026-10-06 (ADR 0030 S10 row 1): str() — the `for` desugaring in the HIR names `Option` and its
+#   variants in the `Some(p)` / `None` patterns: a variant pattern resolves within the SCRUTINEE's enum
+#   (Iterator::next's return, the lang item), and `Option` is the prelude's (sema's prelude remap).
+#ARGSCAN str 2 d23978df
 # 2026-09-19, #438 step 3: find 12 -> 11, roster 1f8dc25a -> 26e8ebd3. The
 # trait registry is keyed by DefId, so `traits_.find(<bare name>)` no longer
 # exists; what replaced it is `resolve_trait`, the row below.

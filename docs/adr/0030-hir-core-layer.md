@@ -881,6 +881,39 @@ stops for a re-plan.
 
 Order: (1), (2), (3), (4).
 
+Row (1), 2026-10-06 — CLOSED. The HIR desugars `for p in e { b }` (both FOR
+forms; a label moves onto the inner `loop`) to `match
+IntoIterator::into_iter(e) { mut __for_it => loop { match __for_it.next() {
+Some(__for_el) => { let p = __for_el; b }, None => break } } }`: the head is a
+UFCS call on the `into_iterator` lang item, a pattern binds as `let PAT`
+(E0005 for a refutable one, "`for` loop binding"), and a head without an
+IntoIterator impl is rustc's E0277 at the call. The stdlib gains `impl<I:
+Iterator> IntoIterator for I` (the lang item), `[T; N]` by value, `&'a [T]`,
+`&'a [T; N]`, `&'a mut [T; N]`, `&'a mut Vec<T>`, and `Step` for the
+remaining integer widths (an integer range over u56 / i128 / … is the generic
+`RangeOf<T>`, as Rust's `Range<T>`). The compiler took: a UFCS call of a
+by-value `self` trait item takes Self as the argument's own type (the `&[T;
+N]` impl for `&arr`, never the pointee's) and moves the argument instead of
+reborrowing it (`for n in v` over `v: &mut Vec` moves `v`, as rustc says); an
+impl written for `&[T]` states Self as written in its fact; the spelled
+fallback of resolve_trait_item_ refuses a homonym's impl from another package;
+an array whose length is symbolic (`sizeof...(P)`, a deferred `N + 1`) infers a
+`[T; M]` parameter's M (the old array path special-cased it; fixture
+array_symbolic_len_infers_const_param).
+Retired: sema's lower_for / lower_for_each (integer range, array, slice,
+`&Vec`, IntoIterator, iterator paths), emit_for_pattern_destructure,
+merge_loop_exit_moves, the L-IR `SFor` and — its neighbour, unproduced since
+the HIR `while` — `SWhile` with every consumer (mono, region inference, borrow
+check, BIR, flow summaries, unit graph, mlir gen_for / gen_while); stmt codes
+4 and 5 are retired. src + include: +252 / −1272. `SForEach` stays: the
+comprehensions still emit it (row 3 retires it). Closed squeue #719
+(`for x in [a, b, c]` by value). Filed #735 (`Iterator::next(&mut it)` in UFCS
+over a region-erased binding is refused — the desugaring calls `.next()` as a
+method until it lands) and #736 (a method on an impl for `&[T; N]` / `&mut [T;
+N]`: the `&mut [T]` impl is not added because it collides with `&[T]` in
+selection). ABI: `Try`'s vtable changed in S9a step C and was not regenerated
+then; regenerated here with the minor bump to 0.60.0.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

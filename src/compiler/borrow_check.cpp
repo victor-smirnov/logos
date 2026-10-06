@@ -12156,19 +12156,6 @@ private:
                 if (auto b = v.else_block()) scan_uses_block(b);
                 break;
             }
-            case Code::While: {
-                SWhileView v{sr};
-                scan_uses_expr(v.cond(), ln);
-                if (auto b = v.body()) scan_uses_block(b);
-                break;
-            }
-            case Code::For: {
-                SForView v{sr};
-                scan_uses_expr(v.lo(), ln);
-                scan_uses_expr(v.hi(), ln);
-                if (auto b = v.body()) scan_uses_block(b);
-                break;
-            }
             case Code::Loop:
                 if (auto b = SLoopView{sr}.body()) scan_uses_block(b);
                 break;
@@ -14767,22 +14754,8 @@ private:
             }
 
             // ── While loop ───────────────────────────────────────────────
-            case Code::While: {
-                SWhileView v{sr};
-                visit(v.cond(), /*consuming=*/true, ln);
-                if (auto b = v.body()) visit_loop_body(b, {}, v.label());
-                break;
-            }
 
             // ── For range loop ───────────────────────────────────────────
-            case Code::For: {
-                SForView v{sr};
-                visit(v.lo(), /*consuming=*/true, ln);
-                visit(v.hi(), /*consuming=*/true, ln);
-                if (auto b = v.body())
-                    visit_loop_body(b, {std::string(v.var())}, v.label(), {}, {}, v.var_mut());
-                break;
-            }
 
             // ── Infinite loop ─────────────────────────────────────────────
             case Code::Loop: {

@@ -128,10 +128,6 @@ const std::vector<size_t>& Mono::compute_const_want(const std::string& base) {
                         visit_block(v.else_block());
                         break;
                     }
-                    case SCode::While: {
-                        lir_view::SWhileView v{s};
-                        visit_expr(v.cond()); visit_block(v.body()); break;
-                    }
                     case SCode::Loop: visit_block(lir_view::SLoopView{s}.body()); break;
                     default: break;
                 }
