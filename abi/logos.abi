@@ -15431,6 +15431,7 @@ sym	logos_mem.logos.std.compiler.metaprog$oview_module_ast__f__void
 sym	logos_mem.logos.std.compiler.metaprog$parse_block__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$parse_expr__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$parse_params__f__slice_u8
+sym	logos_mem.logos.std.compiler.metaprog$parse_raw__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$parse_type__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$parse_type_params__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$parse_wstatic__f__slice_u8

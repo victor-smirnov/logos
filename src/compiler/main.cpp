@@ -923,6 +923,24 @@ extern "C" int32_t logos_emit_item_blob_subst(const void* blob_ptr) {
     return logos_emit_item_blob_subst_in(blob_ptr, nullptr);
 }
 
+// The PACKAGE a spliced quote lands in. Empty: the metacall site's (the
+// originating user module's), which is what every emitter wanted until one did
+// not — `logos.std.wql.deem_bind` renders its metacall into a `package
+// logos.gen;` chunk while the item it emits has to live in the package the
+// container CLASS was declared in, or the call site cannot see the overload.
+// Set only for the duration of `logos_emit_item_blob_subst_pkg`.
+static std::string g_emit_pkg_override;
+
+// `_subst`, landing the item in package `pkg` (dotted, NUL-terminated) instead
+// of the metacall site's. Null/empty `pkg` = `_subst`.
+extern "C" int32_t logos_emit_item_blob_subst_pkg(const void* blob_ptr, const char* pkg) {
+    std::string prev = std::move(g_emit_pkg_override);
+    g_emit_pkg_override = (pkg && *pkg) ? std::string(pkg) : std::string();
+    int32_t r = logos_emit_item_blob_subst_in(blob_ptr, nullptr);
+    g_emit_pkg_override = std::move(prev);
+    return r;
+}
+
 extern "C" int32_t logos_emit_item_blob_subst_in(const void* blob_ptr,
                                                  const char* unit_key) {
     if (!g_any_emitted || !g_asts || !g_filenames || !g_from_binary
@@ -1043,6 +1061,11 @@ extern "C" int32_t logos_emit_item_blob_subst_in(const void* blob_ptr,
                            pods[j].len);
             }
         }
+    }
+    if (!g_emit_pkg_override.empty()) {
+        // the same quote landed in two packages is two items
+        key.push_back('\x1b');
+        key.append(g_emit_pkg_override);
     }
     if (!blob_seen.insert(key).second) {
         return 0;
@@ -2024,7 +2047,43 @@ extern "C" int32_t logos_emit_item_blob_subst_in(const void* blob_ptr,
     // single-file pipeline tolerated empty-package because only the
     // entry ast was in play and bare-key lookups happened to fall
     // through. emit_module bundles surface this bug.
-    if (g_user_root_idx < g_asts->size()) {
+    if (!g_emit_pkg_override.empty()) {
+        // The caller named the package: NAME is its first component and
+        // PATH_PARTS one `{NAME}` node per further component, the parser's
+        // own shape for `package a.b.c;`.
+        std::vector<std::string> comps;
+        {
+            std::string cur;
+            for (char ch : g_emit_pkg_override) {
+                if (ch == '.') { comps.push_back(cur); cur.clear(); }
+                else cur.push_back(ch);
+            }
+            comps.push_back(cur);
+        }
+        auto nm_e = doc.make_string(std::string_view(comps[0]));
+        if (nm_e) {
+            auto nm_off = static_cast<uint32_t>(nm_e->offset().value());
+            (void)root_ptr().put(la::NAME.code,
+                AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(nm_off)));
+        }
+        auto a_e = doc.make_array(std::max<uint64_t>(1, comps.size()));
+        if (a_e) {
+            auto pp_off = static_cast<uint32_t>(a_e->offset().value());
+            for (size_t i = 1; i < comps.size(); ++i) {
+                auto pe = doc.make_tiny_map_view(2);
+                auto se = doc.make_string(std::string_view(comps[i]));
+                if (!pe || !se) continue;
+                auto p_off = static_cast<uint32_t>(pe->offset().value());
+                auto s_off = static_cast<uint32_t>(se->offset().value());
+                (void)TinyMapView(arena_offset_t(p_off), doc.holder()).put(la::NAME.code,
+                    AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(s_off)));
+                (void)ArrayView(arena_offset_t(pp_off), doc.holder()).push_back(
+                    AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(p_off)));
+            }
+            (void)root_ptr().put(la::mod::PATH_PARTS.code,
+                AnyVal::from_offset(WritAccess::base(doc), arena_offset_t(pp_off)));
+        }
+    } else if (g_user_root_idx < g_asts->size()) {
         auto& user_ast_pkg = (*g_asts)[g_user_root_idx];
         auto user_root_pkg = user_ast_pkg.root_object().as_tiny_map();
         auto* user_holder_pkg = user_ast_pkg.holder();
@@ -3428,7 +3487,20 @@ extern "C" const uint8_t* logos_parse_as(const uint8_t* s, uint64_t len,
     for (uint64_t i = 0; empty_tpl && i < len; ++i)
         if (s && s[i] != ' ' && s[i] != '\t') empty_tpl = false;
 
-    if (empty_tpl) {
+    if (rule_id == 6) {
+        // rule 6 (raw group) — the text of a RAW_GROUP_BRACE, unparsed: the
+        // string the parser stores for a `deem`'s body (between the braces,
+        // without them). Splices at `deem #n(…) #(body)` (ADR 0024 S5): the
+        // body is query text the query compiler parses, not Logos.
+        if (!s) return nullptr;
+        auto de = logos::writ::make_doc(4096 + len);
+        if (!de) return nullptr;
+        doc = std::move(de).get();
+        auto se = doc.make_string(std::string_view(reinterpret_cast<const char*>(s), len));
+        if (!se) return nullptr;
+        doc.set_root(AnyVal::from_offset(WritAccess::base(doc),
+                                         arena_offset_t(se->offset().value())));
+    } else if (empty_tpl) {
         auto de = logos::writ::make_doc(4096);
         if (!de) return nullptr;
         doc = std::move(de).get();
@@ -3642,6 +3714,7 @@ static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
         && bind("logos_emit_item_blob",            reinterpret_cast<void*>(&logos_emit_item_blob))
         && bind("logos_emit_item_blob_subst",      reinterpret_cast<void*>(&logos_emit_item_blob_subst))
         && bind("logos_emit_item_blob_subst_in",   reinterpret_cast<void*>(&logos_emit_item_blob_subst_in))
+        && bind("logos_emit_item_blob_subst_pkg",  reinterpret_cast<void*>(&logos_emit_item_blob_subst_pkg))
         && bind("logos_emit_unit_push",            reinterpret_cast<void*>(&logos_emit_unit_push))
         && bind("logos_emit_unit_pop",             reinterpret_cast<void*>(&logos_emit_unit_pop))
         && bind("logos_parse_as",                  reinterpret_cast<void*>(&logos_parse_as))

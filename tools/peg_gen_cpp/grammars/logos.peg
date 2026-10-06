@@ -1403,10 +1403,23 @@
     // T3, item tier): the type-param list rides the same TYPE_PARAMS slot as
     // every other item's and is re-emitted verbatim onto the generated fn
     // heads — one query for a whole container family, no per-element copy.
-    pub_deem_def <- pub_vis IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
+    //
+    // The QUOTED form `deem #n(#(ps)) #(body)` — valid only inside a quote body
+    // (the leading HASH cannot begin a real name): the name an antiquote
+    // (NAME_VAR, as `fn #n` / `struct #n`), the body a splice of a `parse_raw`
+    // fragment, the query text unparsed. It is what lets an emitter that holds
+    // a query NAME and query TEXT as runtime strings emit the item as a quote
+    // (`logos.std.wql.deem_bind`, ADR 0024 S5).
+    pub_deem_def <- pub_vis IDENT HASH IDENT type_param_list? LPAREN param_list? RPAREN deem_body_splice
+                 => { CODE: DEEM_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME_VAR: $4, TYPE_PARAMS: $5, PARAMS: $7, RAW_TEXT: $9 }
+                  / pub_vis IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
                  => { CODE: DEEM_DEF, IS_PUB: 1, VIS: $1, REL_KW: $2, NAME: $3, TYPE_PARAMS: $4, PARAMS: $6, RAW_TEXT: $8 }
-    deem_def     <- IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
+    deem_def     <- IDENT HASH IDENT type_param_list? LPAREN param_list? RPAREN deem_body_splice
+                 => { CODE: DEEM_DEF, REL_KW: $1, NAME_VAR: $3, TYPE_PARAMS: $4, PARAMS: $6, RAW_TEXT: $8 }
+                  / IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
                  => { CODE: DEEM_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RAW_TEXT: $7 }
+    deem_body_splice <- HASH LPAREN expr RPAREN
+                     => { CODE: VAR_REF, NAME_VAR: $3 }
 
     rel_sig  <- IDENT IDENT_ANY LPAREN param_list? RPAREN SEMI
              => { CODE: REL_SIG, REL_KW: $1, NAME: $2, PARAMS: $4 }
