@@ -608,7 +608,6 @@ mlir_gen_types.cpp	all_struct_defs_	O	1	concrete_struct_name(f.type)
 mlir_gen_types.cpp	struct_types_	O	1	std::string(TypeRef(lt).struct_name())
 mono.cpp	poisoned_fns_	Q	1	sym::link_name(fn, out_.pkg_module_ids)
 mono.cpp	poisoned_fns_	Q	1	sym::link_name(m, out_.pkg_module_ids)
-mono_scan.cpp	dyn_coerced_targets_	B#98	1	std::string(TypeRef(tgt).trait_name())
 # 2026-09-21, ADR 0029 S2 — ROW RETIRED BY DELETION OF ITS SITE, not converted:
 # sema_auto_trait.cpp's Send/Sync walk looked the captures up in
 # closure_capture_env_ keyed by the closure SIGNATURE. The captures are IN THE
@@ -784,3 +783,6 @@ sema_expr.cpp	current_type_bounds_	D	1	is_tv ? std::string(TypeRef(pointee).type
 sema_expr.cpp	lit_more_values_	D	1	std::string(TypeRef(var).type_var_name())
 sema_impl.hpp	lit_negated_	D	1	std::string(TypeRef(r).type_var_name())
 sema_expr.cpp	lit_solved_	D	1	std::string(TypeRef(t).type_var_name())
+
+# 2026-10-06, ADR 0030 S9 row 8: mono_scan.cpp dyn_coerced_targets_ (B#98, keyed by the bare trait name)
+# RETIRED — a dyn coercion now demands its vtable by vtable_key, the trait object's identity.

@@ -1525,11 +1525,11 @@ A dyn-Trait vtable is laid out by post-order DFS over the trait's transitive sup
 
 *Source:* `src/compiler/sema_collect.cpp#L4903-L4921`
 
-### `trait.dyn.vtable-static` — dyn-Trait vtables are static, one per (Trait, concrete type)
+### `trait.dyn.vtable-static` — dyn-Trait vtables are static, one per (Trait, trait arguments, concrete type)
 
-Each &dyn Trait coercion of a given concrete type uses a single static vtable global ([N x ptr] of method addresses) shared across all coercions; coercion takes the address of that static vtable rather than allocating/filling a fresh vtable per coercion.
+Each coercion of a concrete type to `dyn Trait<A…>` uses a single static vtable global shared across all such coercions; coercion takes its address. The vtable is keyed by the trait object's identity, its trait arguments and the concrete type (`dyn Conv<i64>` and `dyn Conv<bool>` over one type are two vtables). Each slot is the item of the impl that implements the slot's trait for the concrete type, selected as a bound is (C-OBL) — a blanket impl included (`impl<T: Display> Display for &T` gives `&str` its `dyn Display` vtable); mono instantiates it for the coercion.
 
-*Source:* `src/compiler/mlir_gen_impl.hpp#L457-L470`
+*Source:* `src/compiler/mono.cpp` `Mono::fill_vtables_`, `src/compiler/mlir_gen_dyn.cpp` `MLIRGenImpl::ensure_vtable_global`
 
 ## `trait.object`
 

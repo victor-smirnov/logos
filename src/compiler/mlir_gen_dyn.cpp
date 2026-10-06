@@ -776,94 +776,20 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
 
 
 void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& prog) {
-    // Build a method_base → vector<const LFunction*> index once, so the
-    // per-(trait, impl, method) `resolve_methods` lookup below doesn't walk
-    // prog.functions linearly. Without the index, the loop is quadratic over
-    // (n_impls × n_methods × n_functions); for stdlib that's ~50ms per
-    // mlir_gen invocation.
-    std::unordered_map<std::string, std::vector<lir_view::FunctionView>>
-        method_base_idx;
-    method_base_idx.reserve(256);
-    for (auto& fp : prog.functions)
-        if (fp && !fp.method_base().empty())
-            method_base_idx[std::string(fp.method_base())].push_back(fp);
-    // Also build a per-struct method_base index (used as the last fallback).
-    std::unordered_map<std::string,
-        std::unordered_map<std::string, std::vector<lir_view::FunctionView>>>
-        struct_method_idx;
-    for (auto& sd : prog.structs) {
-        auto& sm = struct_method_idx[std::string(sd.name())];
-        for (auto& mp : sd.methods())
-            if (mp && !mp.method_base().empty())
-                sm[std::string(mp.method_base())].push_back(mp);
-    }
-    // Every function by its L-IR name (free functions and struct methods): an
-    // impl's METHOD_SYMBOLS and mono's instance names are looked up here.
+    // ADR 0030 S9 row 8: a vtable is mono's record for (trait, Self) — each
+    // slot the function of the impl C-OBL selected, by its link name here.
     std::unordered_map<std::string, lir_view::FunctionView> fn_by_name;
     for (auto& fp : prog.functions) if (fp) fn_by_name.emplace(std::string(fp.name()), fp);
     for (auto& sd : prog.structs)
         for (auto& mp : sd.methods()) if (mp) fn_by_name.emplace(std::string(mp.name()), mp);
-
-    // Pre-walk all fns/methods once to build `target_base → set<concrete>`
-    // index. Each name `[pkg.]<base>$G<N>$<args>__method[__fg__sig]` carries
-    // the concrete struct mangling we want grouped under its template's
-    // `<base>` key.
-    std::unordered_map<std::string, std::set<std::string>>
-        concrete_targets_by_base;
-    {
-        // ⚠ SEPARATOR CLASS. This used to cut the concrete owner out of a
-        // method symbol as `name.substr(0, name.find("__", g_pos))` — a GUESS
-        // that lands INSIDE the mangled TYPE ARGUMENT whenever the argument's
-        // own name ends in `_` or contains `__`: `box_$G1$k___s__g__…` yielded
-        // the owner `box_$G1$k`, so NO vtable and NO drop glue were emitted for
-        // `box_<k_>`, the compile exited 0 with no diagnostic, and the program
-        // SIGSEGV'd on the first `&dyn` call. The owner is a CARRIED fact —
-        // `sd.name()` for a method, and a REGISTRY match for a free fn.
-        auto record = [&](std::string_view concrete) {
-            auto g_pos = concrete.find("$G");
-            if (g_pos == std::string_view::npos) return;
-            // An ambiguous or module-local name carries a "$M<tag>" run before
-            // "$G"; the impl's target base is the bare name.
-            auto base = concrete.substr(0, g_pos);
-            if (auto m = base.find("$M"); m != std::string_view::npos) base = base.substr(0, m);
-            concrete_targets_by_base[std::string(base)].insert(std::string(concrete));
-        };
-        auto bare = [](std::string_view n) {
-            if (auto dot = n.rfind('.'); dot != std::string_view::npos)
-                n = n.substr(dot + 1);
-            return n;
-        };
-        // The registry of declared concrete owners: every struct in the
-        // program, by its own name. `$` and `__` are both legal INSIDE these
-        // names, so only the registry can say where one ends.
-        std::unordered_set<std::string> owner_reg;
-        for (auto& sd : prog.structs) {
-            auto n = bare(sd.name());
-            owner_reg.insert(std::string(n));
-            record(n);                      // the owner, carried — no split
+    for (auto& [key, slots] : prog.vtables) {
+        auto& out = vtable_slots_[key];
+        out.clear();
+        for (auto& sym : slots) {
+            auto fit = sym.empty() ? fn_by_name.end() : fn_by_name.find(sym);
+            out.push_back(fit == fn_by_name.end() ? std::string() : link_name(fit->second));
         }
-        auto reg_scan = [&](std::string_view name) {
-            auto n = bare(name);
-            if (n.find("$G") == std::string_view::npos) return;
-            if (auto om = mname::split_by_registry(
-                    n, [&](std::string_view c) {
-                        return owner_reg.count(std::string(c)) != 0;
-                    }))
-                record(om->owner);
-        };
-        for (auto& fp : prog.functions) if (fp) reg_scan(fp.name());
-        // A method may be HOSTED on a struct while naming a different concrete
-        // owner (blanket-impl re-hosting); resolve those through the registry
-        // too rather than assuming the host.
-        for (auto& sd : prog.structs)
-            for (auto& mp : sd.methods()) if (mp) reg_scan(mp.name());
     }
-    auto collect_concrete_targets = [&](const std::string& target_base)
-        -> const std::set<std::string>& {
-        static const std::set<std::string> empty;
-        auto it = concrete_targets_by_base.find(target_base);
-        return it == concrete_targets_by_base.end() ? empty : it->second;
-    };
 
     // Record each trait's method names (vtable slot order) and whether a
     // blanket impl provides it — so build_inline_vtable can synthesize a
@@ -871,7 +797,9 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
     // through the blanket (the blanket impl block registers the typevar
     // target, not each concrete instantiation).
     for (auto& td : prog.traits) {
-        std::string tname(td.name());
+        // Keyed by the trait's identity, as the upcast list names supertraits.
+        std::string tname = td.pkg().empty() ? std::string(td.name())
+                                             : std::string(td.pkg()) + "::" + std::string(td.name());
         auto& mn = trait_method_names_[tname];
         mn.clear();
         // Full supertrait-closure slot order (sema single-sourced this in
@@ -887,161 +815,6 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             auto& us = trait_upcast_supers_[tname];
             us.clear();
             for (auto sv : td.upcast_supertraits()) us.push_back(std::string(sv));
-        }
-        for (auto& ib : prog.impls)
-            if (ib.trait_name() == tname && ib.is_blanket()) {
-                blanket_traits_.insert(tname);
-                break;
-            }
-    }
-
-    for (auto& td : prog.traits) {
-        std::string td_name(td.name());
-        // #438: the trait's IDENTITY (`pkg::Trait`). Pairing a trait decl with
-        // its impls by SPELLING matched both packages' impls when two packages
-        // declare the same trait name, and their vtables then shared a key.
-        const std::string td_ident =
-            td.pkg().empty() ? td_name : std::string(td.pkg()) + "::" + td_name;
-        for (auto& ib : prog.impls) {
-            const std::string_view ib_ident = ib.identity_trait();
-            if (!ib_ident.empty() && ib_ident != td_name) {
-                if (ib_ident != td_ident) continue;      // a homonym's impl
-            } else if (ib.trait_name() != td_name) {
-                continue;                                 // archive with no identity
-            }
-            std::string_view want_pkg = ib.pkg();
-            // ADR 0030 S9 row 8: a slot's method is the item of the impl that
-            // implements the slot's trait for this impl's Self, read off that
-            // impl's METHOD_SYMBOLS by its declared name; at an instance of a
-            // generic impl, the method mono cloned from one of those templates
-            // (its ORIGIN). Empty when that does not answer.
-            const TypePoolImpl* vpool = pool_impl();
-            auto by_impl = [&](std::string_view owner, std::string_view mname,
-                               std::string_view concrete) -> std::string {
-                lir_view::ImplView src = ib;
-                if (!owner.empty() && owner != td_name && owner != td_ident) {
-                    src = {};
-                    TypeRef me = ib.self_type(vpool);
-                    for (auto& sb : prog.impls) {
-                        std::string_view sid = sb.identity_trait();
-                        bool same = sid == owner || (sid.empty() && sb.trait_name() == owner) ||
-                                    (sid.size() > owner.size() + 2 && sid.ends_with(owner) &&
-                                     sid.substr(sid.size() - owner.size() - 2, 2) == "::");
-                        if (!same) continue;
-                        TypeRef ss = sb.self_type(vpool);
-                        if (!me || !ss || !types_equal(me, ss)) continue;
-                        if (src) return {};   // two answer: not this resolver's
-                        src = sb;
-                    }
-                    if (!src) return {};
-                }
-                const auto syms = src.method_symbols();
-                if (concrete.empty()) {
-                    for (auto sym : syms)
-                        if (auto fit = fn_by_name.find(std::string(sym));
-                            fit != fn_by_name.end() && fit->second.method_base() == mname)
-                            return link_name(fit->second);
-                    return {};
-                }
-                // A generic impl at a concrete instance: the instance mono cloned
-                // for the concrete struct from one of this impl's templates.
-                std::string found;
-                bool two = false;
-                auto consider = [&](lir_view::FunctionView c) {
-                    if (c.origin().empty() || std::find(syms.begin(), syms.end(), c.origin()) == syms.end()) return;
-                    std::string_view nm = c.name();
-                    if (auto dot = nm.rfind('.'); dot != std::string_view::npos) nm = nm.substr(dot + 1);
-                    if (!nm.starts_with(concrete) || nm.substr(concrete.size(), 2) != "__") return;
-                    std::string l = link_name(c);
-                    if (!found.empty() && found != l) two = true;
-                    found = std::move(l);
-                };
-                if (auto sit = struct_method_idx.find(std::string(concrete)); sit != struct_method_idx.end())
-                    if (auto mit = sit->second.find(std::string(mname)); mit != sit->second.end())
-                        for (auto c : mit->second) consider(c);
-                if (found.empty())
-                    if (auto mit = method_base_idx.find(std::string(mname)); mit != method_base_idx.end())
-                        for (auto c : mit->second) consider(c);
-                return two ? std::string() : found;
-                return {};
-            };
-            // The vtable slots of this impl at `target`, in the trait's slot order
-            // (supertrait closure): each the slot trait's impl item by identity
-            // (by_impl). A slot no impl item answers — a method with generics of
-            // its own (not callable through `dyn`), or one this target lacks — is
-            // empty, and build_inline_vtable leaves it out.
-            auto resolve_methods = [&](std::string_view target) -> std::vector<std::string> {
-                const bool at_instance = target != std::string_view(ib.target_type());
-                std::vector<std::string> methods;
-                auto vmo2 = td.vtable_method_order();
-                if (!vmo2.empty()) {
-                    for (auto& [owner, mname] : vmo2)
-                        methods.push_back(by_impl(owner, mname, at_instance ? target : std::string_view{}));
-                } else {
-                    td.each_method([&](lir_view::TraitMethodSigView m) {
-                        methods.push_back(by_impl({}, m.name(), at_instance ? target : std::string_view{}));
-                    });
-                }
-                return methods;
-            };
-
-            // Bare-target entry — used by non-generic impls and as a default
-            // fallback. For non-generic structs, this is also the lookup key.
-            std::string ib_target(ib.target_type());
-            {
-                auto meth = resolve_methods(ib_target);
-                // The bare key stays exactly as it was — every lookup that
-                // resolves through it today keeps resolving through it.
-                // The identity key is what a lookup that knows the trait's
-                // package probes first; the bare key stays for the lookups
-                // (and archives) that do not carry one.
-                dyn_vtable_methods_[td_ident + "::" + ib_target] = meth;
-                if (td_ident != td_name)
-                    dyn_vtable_methods_[td_name + "::" + ib_target] = meth;
-                // ADDITIVE package-qualified twin. `ensure_vtable_global`'s
-                // lookup key is `trait::concrete_struct_name(T)`, which carries
-                // the G156-1 `$M<hash>` fold for a name declared in more than
-                // one package, and it probes that key FIRST — falling back to
-                // the bare one only when it misses. Filing the twin here is
-                // what makes that first probe hit, so two packages' impls of
-                // same-named traits for same-named targets stop sharing one
-                // slot. type_module_suffix returns "" wherever the name is not
-                // ambiguous, and then no twin is written at all.
-                if (!want_pkg.empty()) {
-                    std::string suffix = type_module_suffix(ib_target, want_pkg);
-                    if (!suffix.empty()) {
-                        dyn_vtable_methods_[td_ident + "::" + ib_target + suffix] = meth;
-                        if (td_ident != td_name)
-                            dyn_vtable_methods_[td_name + "::" + ib_target + suffix] = meth;
-                    }
-                }
-            }
-
-            // Concrete-target entries — for generic impls, register one
-            // vtable per concrete struct instantiation found in mono's
-            // output (prog.functions / struct.methods). Lookup at
-            // `coerce_to_dyn` keys on the concrete-mangled struct name
-            // (`Foo$G1$arg`), so this is what makes generic-impl method
-            // dispatch resolve to the right monomorphised symbols.
-            //
-            // The concrete-targets index keys instantiations under the BARE
-            // struct base (`Foo`), but a generic impl's `target_type` is the
-            // parameterised pattern (`impl<A> Clam<A> for Foo<A>` →
-            // `Foo$G1$A`). Strip the `$G…` suffix to recover the bare base so
-            // `&dyn Clam<i64>` over a `Foo<i64>` finds its `Foo$G1$i64` vtable
-            // (otherwise: no entry → null vtable slot → SIGSEGV; G158-10).
-            std::string_view target_base = ib_target;
-            if (auto g = target_base.find("$G"); g != std::string_view::npos)
-                target_base = target_base.substr(0, g);
-            // A generic impl answers at each instance of its target; a concrete
-            // one only at its own target (the bare entry above).
-            if (!ib.impl_type_params_empty())
-            for (auto& concrete : collect_concrete_targets(std::string(target_base))) {
-                auto cmeth = resolve_methods(concrete);
-                dyn_vtable_methods_[td_ident + "::" + concrete] = cmeth;
-                if (td_ident != td_name)
-                    dyn_vtable_methods_[td_name + "::" + concrete] = std::move(cmeth);
-            }
         }
     }
 }
@@ -1139,8 +912,9 @@ std::string MLIRGenImpl::emit_closure_drop_glue(
 mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
                                                std::string_view type_name,
                                                TypeRef concrete_ty,
-                                               std::string_view trait_pkg) {
-    std::string sym = ensure_vtable_global(trait_name, type_name, concrete_ty, trait_pkg);
+                                               std::string_view trait_pkg,
+                                               const std::vector<TypeRef>& trait_args) {
+    std::string sym = ensure_vtable_global(trait_name, type_name, concrete_ty, trait_pkg, trait_args);
     if (sym.empty()) return nullptr;
     // AddressOf the `[N x ptr]` global → a `ptr` to the table (the vtable ptr).
     return builder_.create<mlir::LLVM::AddressOfOp>(loc_, ptr_type(), sym);
@@ -1149,91 +923,21 @@ mlir::Value MLIRGenImpl::build_inline_vtable(std::string_view trait_name,
 std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
                                               std::string_view type_name,
                                               TypeRef concrete_ty,
-                                              std::string_view trait_pkg) {
-    // #438: the identity key `<pkg>::<trait>::<type>` first — two packages'
-    // same-named traits have two vtables. The bare key answers when the caller
-    // has no package (an archive predating it, a supertrait recursion).
-    std::string key;
-    if (!trait_pkg.empty()) {
-        key.append(trait_pkg); key.append("::");
-    }
-    key.append(trait_name); key.append("::"); key.append(type_name);
-    if (!trait_pkg.empty() && !dyn_vtable_methods_.count(key) &&
-        !dyn_vtable_globals_.count(key)) {
-        key.assign(trait_name); key.append("::"); key.append(type_name);
-    }
+                                              std::string_view trait_pkg,
+                                              const std::vector<TypeRef>& trait_args) {
+    // ADR 0030 S9 row 8: the vtable mono recorded for this coercion.
+    const std::string trait_id = trait_pkg.empty() ? std::string(trait_name)
+                                                   : std::string(trait_pkg) + "::" + std::string(trait_name);
+    const std::string key = concrete_ty ? vtable_key(trait_id, trait_args, concrete_ty) : std::string();
     // Already built (also breaks supertrait-diamond recursion).
     if (auto git = dyn_vtable_globals_.find(key); git != dyn_vtable_globals_.end())
         return git->second;
-    auto vit = dyn_vtable_methods_.find(key);
-    // Coexistence: the lookup's type_name is concrete_struct_name, which carries
-    // a "$M<module_id>" suffix for a non-stdlib MODULE type, but the registration
-    // keyed on the bare `ib.target_type`. Within one compile a (trait, type) pair
-    // is unique, so fall back to the bare key — the vtable SYMBOL stays
-    // module-qualified (built from the qualified type_name) for link distinctness.
-    // Without this, `&ImportedWidget as &dyn ImportedTrait` finds no methods →
-    // null vtable → SIGSEGV.
-    if (vit == dyn_vtable_methods_.end()) {
-        if (auto mp = type_name.find("$M"); mp != std::string_view::npos) {
-            std::string bare_key;
-            if (!trait_pkg.empty()) { bare_key.append(trait_pkg); bare_key += "::"; }
-            bare_key.append(trait_name);
-            bare_key += "::";
-            bare_key.append(type_name.substr(0, mp));
-            vit = dyn_vtable_methods_.find(bare_key);
-            if (vit == dyn_vtable_methods_.end() && !trait_pkg.empty()) {
-                bare_key.assign(trait_name); bare_key += "::";
-                bare_key.append(type_name.substr(0, mp));
-                vit = dyn_vtable_methods_.find(bare_key);
-            }
-        }
-    }
-    // Blanket fallback: no explicit (trait, type) vtable was registered, but
-    // the trait has a blanket impl (`impl<T> Trait for T`) — so this concrete
-    // type's methods are the blanket instantiations `<type>__<method>`.
-    // Synthesize + cache the entry (verifying each symbol exists in the
-    // module). Closes `&Concrete as &dyn BlanketTrait` (e.g. core::any::Any).
-    if (vit == dyn_vtable_methods_.end()) {
-        std::string tn(trait_name);
-        if (blanket_traits_.count(tn)) {
-            auto mnit = trait_method_names_.find(tn);
-            if (mnit != trait_method_names_.end()) {
-                auto parent = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
-                std::vector<std::string> synth;
-                synth.reserve(mnit->second.size());
-                bool all_found = true;
-                for (auto& mname : mnit->second) {
-                    std::string want = std::string(type_name) + "__" + mname;
-                    std::string sym;
-                    // The blanket instantiation may be pkg-qualified and carry
-                    // a `__g__<sig>` / `__f__<sig>` mangling suffix (the
-                    // method's `&self` over the blanket typevar). Match a
-                    // symbol whose bare tail is `<type>__<method>` exactly or
-                    // followed by `__g__` / `__f__`.
-                    for (auto f : parent.getOps<mlir::func::FuncOp>()) {
-                        std::string_view nm = f.getSymName();
-                        std::string_view bare = nm;
-                        if (auto d = bare.rfind('.'); d != std::string_view::npos)
-                            bare = bare.substr(d + 1);
-                        if (bare.size() < want.size()) continue;
-                        if (bare.compare(0, want.size(), want) != 0) continue;
-                        std::string_view rest = bare.substr(want.size());
-                        if (rest.empty() ||
-                            rest.compare(0, 5, "__g__") == 0 ||
-                            rest.compare(0, 5, "__f__") == 0) {
-                            sym = std::string(nm); break;
-                        }
-                    }
-                    if (sym.empty()) { all_found = false; break; }
-                    synth.push_back(std::move(sym));
-                }
-                if (all_found) {
-                    vit = dyn_vtable_methods_.emplace(key, std::move(synth)).first;
-                }
-            }
-        }
-        if (vit == dyn_vtable_methods_.end()) return "";
-    }
+    auto vit = vtable_slots_.find(key);
+    if (vit == vtable_slots_.end()) return "";
+    for (size_t i = 0; i < vit->second.size(); ++i)
+        if (vit->second[i].empty())
+            bug("vtable of '{}' as 'dyn {}': slot {} has no function — no impl item answered it",
+                type_name, trait_id, i);
     // Rust-faithful vtable header: [ drop_in_place, size_of_T, align_of_T,
     // method0..N ]. size/align come from the unified layout_of(T) and are
     // encoded as `__logos_lit__<N>` slots — the post-lowering materializer
@@ -1254,7 +958,7 @@ std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
     // to recover Super's vtable. Recurse to ensure each super's global exists;
     // the `__logos_vtref__<sym>` marker tells the post-lowering materializer to
     // AddressOf that global (vs. a method func or a size/align literal).
-    if (auto sit = trait_upcast_supers_.find(std::string(trait_name));
+    if (auto sit = trait_upcast_supers_.find(trait_id);
         sit != trait_upcast_supers_.end()) {
         for (auto& super : sit->second) {
             std::string ssym = ensure_vtable_global(super, type_name, concrete_ty);
@@ -1279,8 +983,9 @@ std::string MLIRGenImpl::ensure_vtable_global(std::string_view trait_name,
     } else {
         sym = "__logos_vtable__";
         sym.reserve(sym.size() + key.size());
-        for (char c : key)
-            sym += (std::isalnum((unsigned char)c) || c == '_' || c == '$') ? c : '_';
+        for (char c : key)   // `<trait>[$<arg>…]@<self>` → `<trait>…__<self>`
+            if (c == '@') sym += "__";
+            else sym += (std::isalnum((unsigned char)c) || c == '_' || c == '$') ? c : '_';
         if (!parent_mod.lookupSymbol(sym)) {
             auto arr_type = mlir::LLVM::LLVMArrayType::get(ptr_type(), n ? n : 1);
             mlir::OpBuilder::InsertionGuard guard(builder_);
@@ -1307,6 +1012,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
                                         std::string_view src_type_name,
                                         TypeRef concrete_ty,
                                         std::string_view trait_pkg,
+                                        const std::vector<TypeRef>& trait_args,
                                         std::source_location sl) {
     coerce_census_("coerce_to_dyn", sl);
     auto dyn_struct = dyn_llvm_type();
@@ -1328,7 +1034,7 @@ mlir::Value MLIRGenImpl::coerce_to_dyn(mlir::Value data_ptr, std::string_view tr
         loc_, ptr_type(), dyn_struct, alloca, idx0);
     builder_.create<mlir::LLVM::StoreOp>(loc_, data_ptr, dp);
     // Store vtable pointer at field 1
-    auto vtable = build_inline_vtable(trait_name, src_type_name, concrete_ty, trait_pkg);
+    auto vtable = build_inline_vtable(trait_name, src_type_name, concrete_ty, trait_pkg, trait_args);
     if (vtable) {
         llvm::SmallVector<mlir::LLVM::GEPArg> idx1{int32_t(0), int32_t(1)};
         auto vp = builder_.create<mlir::LLVM::GEPOp>(
@@ -1389,7 +1095,8 @@ mlir::Value MLIRGenImpl::coerce_value_to_dyn_if_needed(
     bug_printf("an aggregate slot of type `%s` received a `%s` value without its unsize — "
                "sema owes the coercion at the element (ADR 0030 C-EXP)",
                type_str(slot_lt).c_str(), type_str(val_lt).c_str());
-    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name, vt_type, TypeRef(ptl).pkg_name(), sl);
+    auto fat = coerce_to_dyn(val, std::string(TypeRef(ptl).trait_name()), vt_name, vt_type, TypeRef(ptl).pkg_name(),
+                             TypeRef(ptl).type_args(), sl);
     return fat ? fat : val;
 }
 

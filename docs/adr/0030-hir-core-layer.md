@@ -740,6 +740,27 @@ closed). Mono's dyn-receiver retarget (`C: ?Sized + Tr` instantiated at
 no supertraits — and now reads the trait's vtable order like sema and mlir
 (fixture dyn-compatibility-sized-self-return-Self-b158 crashed on the first
 layout change). All six verdicts measured against rustc 1.98.1.
+Step F — a vtable per coercion: mono records the (trait object identity,
+trait arguments, Self) of every unsize coercion it sees (a cast to `dyn`, a
+`Box` / `Rc` / `Arc` value, a custom DST's tail, `vtable_of`) with its
+upcast supertraits, and fills each slot of the trait's vtable order with the
+item of the impl C-OBL selects at Self (trait_item_symbol_, which instantiates
+it); mlir lays the vtable out from that record (LProgram::vtables, by
+vtable_key) and a slot no impl item answered is an internal error. Deleted:
+emit_trait_vtables' per-impl × per-instance registration (Iterator alone was
+~237k slot resolutions in one program), its blanket synthesis by
+`<type>__<method>` symbol scan and `$M` fallback, mono's supplementary blanket
+pass and its bare-trait-keyed coerced-target index (key-identity row B#98
+retired). Closed: gap `no-vtable-str-literal-to-dyn` (the blanket
+`impl Display for &T` at `&str` / `&i64`); two impls `Conv<i64>` / `Conv<bool>`
+of one type shared one vtable — `&s as &dyn Conv<bool>` called `Conv<i64>`'s
+method (builds before this step exit 2; fixture s9_dyn_vtable_by_trait_args).
+The vtable order names owners and upcast targets by identity (`pkg::Name`): a
+supertrait spelled `Add` in a package that shadows `ops::Add` was looked up as
+the prelude trait. A lifetime-extended borrowed temporary under a `&dyn`
+annotation (`let x: &dyn Tr = &C { .. };`) bound `&C` without judging the
+annotation, leaving the unsize to mlir; it is now an explicit cast like every
+let (fixture s9_dyn_let_borrowed_temp).
 
 ## S0–S7 gap audit (2026-10-01)
 
@@ -793,7 +814,7 @@ bodies after `hir_body_`, where an expression exit reaching lowering is the
 | `rangefrom-iterator-empty` | L0 | DONE 2026-10-01 (gap round 1; fixture `gap1001_*`) | `(5i64..).next()` is None and `(5..).take(3).collect()` is [] in Logos; rustc gives Some(5) and [5, 6, 7] |
 | `parse-target-unresolved-ice` | S8 | CLOSED 2026-10-04 (S8 row 6): a method generic nothing at the call fixes is an inference variable (`?iN`) the annotated `let` solves through `.unwrap()`; unsolved it is E0282, solved to a type outside the bound it is the bound's error at the call (the check waits for the solution) — pass/s8_parse_target_through_unwrap, fail/parse_target_unannotated_e0282, fail/parse_target_solution_not_fromstr | `let parsed: i32 = "42".parse().unwrap();` gives no sema error; mono skips `str__parse__g__slice_u8__<error>`, demotes main to a trap stub, and mlir reports "function 'main' was de |
 | `collect-into-vec-underscore-refused` | S9 | CLOSED 2026-10-01 by the S7 gap round (hole completion through the bound; untyped closure parameter = type variable) | `let w: Vec<_> = it.collect();` and `it.collect::<Vec<_>>()` are refused: `could not infer type arguments for generic method 'MapIter__collect'` / `let 'w': expected Vec<_>, got C` |
-| `no-vtable-str-literal-to-dyn` | S9 | MOVED to S9 | `let d: &dyn Display = &"lit";` and `let r = &k; let d: &dyn Display = &r;` pass sema, then mlir_gen fails: 'internal: no vtable for '&[u8]' / '&i64' as '&dyn Display''. rustc prin |
+| `no-vtable-str-literal-to-dyn` | S9 | CLOSED 2026-10-06 by S9 row 8 step F (vtable per coercion, fixture s9_dyn_vtable_ref_blanket) | `let d: &dyn Display = &"lit";` and `let r = &k; let d: &dyn Display = &r;` pass sema, then mlir_gen fails: 'internal: no vtable for '&[u8]' / '&i64' as '&dyn Display''. rustc prin |
 | `rawptr-write-closure-classified-fnmut` | S10 | MOVED to S10 | `let push = \|c\| unsafe { (*ps).push(c) }` (ps: *mut String) is refused: "cannot borrow 'ps' as mutable, not declared as mutable" and 'push' needs mut. rustc treats the closure as |
 | `move-closure-capture-shares-slot` | ADR0029 | MOVED to ADR0029 | A `move \|\| p.w * 10` (or `t.0`) then `p.w = 7` gives 70 (rustc 20). A `move \|\| q.w` then `q = P{w:9}` gives 9 (rustc 3). The non-escaping move closure captures the field by poi |
 | `move-closure-capture-shares-slot/box-capture-block-tail` | ADR0029 | MOVED to ADR0029 | A move closure owning a Box/Rc, built in a block and returned as the block's value, reads freed memory: `{ let c = Box::new(5); move \|k\| *c + k }` then `inc(1)` gives garbage (ru |

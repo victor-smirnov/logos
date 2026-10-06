@@ -7122,9 +7122,12 @@ void SemaChecker::trait_vtable_layout(
                 continue;   // marker, no vtable
             walk(s.trait_name);
         }
-        if (tn != trait) upcast_supers.push_back(tn);
+        // Owners and upcast targets by identity (`pkg::Name`): a supertrait's
+        // spelling can name another package's trait elsewhere (`Add`).
+        const std::string id = trait_path(*it);
+        if (tn != trait) upcast_supers.push_back(id);
         for (auto& m : it->methods)
-            if (!m.requires_sized_self) method_order.push_back({tn, &m});
+            if (!m.requires_sized_self) method_order.push_back({id, &m});
     };
     walk(trait);
 }

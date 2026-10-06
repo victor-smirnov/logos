@@ -241,7 +241,17 @@ void Mono::scan_expr(lir_view::ExprRef e) {
     switch (e.kind()) {
     case ECode::Call: {
         lir_view::ECallView v{e};
-        if (v.has_type_args()) {
+        if (v.has_type_args() && v.callee().starts_with("__vtable_of__")) {
+            auto tas = v.type_args(out_.type_pool.impl());
+            std::string trait;
+            v.each_arg([&](lir_view::ExprRef a) {
+                if (trait.empty() && a.kind() == ECode::LitStr)
+                    trait = std::string(lir_view::ELitStrView{a}.value());
+            });
+            if (trait.size() >= 2 && trait.front() == '"' && trait.back() == '"')
+                trait = trait.substr(1, trait.size() - 2);
+            if (!trait.empty() && !tas.empty() && tas[0]) demand_vtable_(std::move(trait), {}, tas[0]);
+        } else if (v.has_type_args()) {
             // Post-substitution generic call: callee is already mangled.
             enqueue_if_needed(std::string(v.callee()), v.type_args(out_.type_pool.impl()));
         } else if (!entry_points_.empty()) {
@@ -363,54 +373,38 @@ void Mono::scan_expr(lir_view::ExprRef e) {
             auto bf = cv.writ_build_fn();
             if (!bf.empty()) enqueue_free_fn(std::string(bf));
         }
-        // `&prim as &dyn Trait` / `box prim as Box<dyn Trait>`: record the
-        // PRIMITIVE→trait coercion so the post-drain pass can instantiate the
-        // blanket impl for that primitive (the eager blanket pass skips
-        // primitives; eagerly cloning ALL of them breaks integer-bodied blankets
-        // on f32/f64 — so we target only actually-coerced primitives).
+        // A coercion to `dyn Trait` needs Self's vtable (ADR 0030 S9 row 8).
+        // Self as the coercion derives it: the pointee of a `&` / `*` source,
+        // the pointee of a `Box` / `Rc` / `Arc` value, a custom DST's tail argument.
         TypeRef tgt = e.type(out_.type_pool.impl());
         if (tgt && TypeRef(tgt).kind() == LogosType::Kind::Ptr && TypeRef(tgt).pointee())
             tgt = TypeRef(tgt).pointee();
-        if (tgt && TypeRef(tgt).kind() == LogosType::Kind::TraitObject) {
-            // Mirror the ECast dyn-coercion's Self-type derivation EXACTLY so the
-            // blanket instance name matches the vtable key:
-            //   • `&X as &dyn` / `*X as *dyn` → Self = the pointee X (NO Box
-            //     unwrap — `&Box<i64> as &dyn` keys on `Box$G1$i64`).
-            //   • `box X as Box<dyn>` (source is a Box<…> VALUE) → Self = the
-            //     boxed type (unwrap ONE Box — `box i64 → Box<i64>` keys on `i64`).
-            TypeRef src = cv.operand().type(out_.type_pool.impl());
-            if (src && (TypeRef(src).kind() == LogosType::Kind::Ptr ||
-                        TypeRef(src).kind() == LogosType::Kind::Ref ||
-                        TypeRef(src).kind() == LogosType::Kind::MutRef) &&
-                TypeRef(src).pointee()) {
-                src = TypeRef(src).pointee();   // ref/ptr source: pointee IS Self
-            } else if (is_stdlib_box(src) &&
-                       TypeRef(src).type_args().size() == 1) {
-                src = TypeRef(src).type_args()[0];  // box-value source: unwrap once
-            }
-            // Record the concrete coercion target keyed by its name. Primitives
-            // (i64/bool/…) and GENERIC STRUCT INSTANTIATIONS (Box$G1$i64) are the
-            // cases the eager blanket pass misses; plain non-generic structs are
-            // also recorded but the supplementary pass dedups them via done_.
-            if (src) {
-                auto k = TypeRef(src).kind();
-                std::string nm;
-                if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-                    nm = concrete_struct_name(src);
-                else if (k != LogosType::Kind::TraitObject &&
-                         k != LogosType::Kind::TypeVar && k != LogosType::Kind::Error)
-                    nm = type_str(src);   // primitives, etc.
-                // KEY-IDENTITY: OPEN #98 — the coercion-target index is keyed by
-                // a BARE trait name, so two packages declaring the same trait
-                // share one target set and each other's devirtualisation
-                // candidates. Not measured this round; a user `trait Hash` with
-                // `&dyn Hash` dispatch was measured to bind correctly in the
-                // enumeration round, which is evidence about DISPATCH, not
-                // about this index.
-                if (!nm.empty())
-                    dyn_coerced_targets_[std::string(TypeRef(tgt).trait_name())]
-                        .emplace(std::move(nm), src);
-            }
+        TypeRef src = cv.operand().type(out_.type_pool.impl());
+        if (tgt && TypeRef(tgt).kind() == LogosType::Kind::DstRef && !TypeRef(tgt).type_args().empty()) {
+            TypeRef tail = TypeRef(tgt).type_args().back();
+            TypeRef sp = src && TypeRef(src).pointee() ? TypeRef(TypeRef(src).pointee()) : TypeRef{};
+            if (tail && (TypeRef(tail).kind() == LogosType::Kind::TraitObject ||
+                         TypeRef(tail).kind() == LogosType::Kind::UnsizedDyn) && sp &&
+                !TypeRef(sp).type_args().empty()) {
+                tgt = tail;
+                src = TypeRef(sp).type_args().back();
+            } else tgt = {};
+        } else if (src && (TypeRef(src).kind() == LogosType::Kind::Ptr ||
+                           TypeRef(src).kind() == LogosType::Kind::Ref ||
+                           TypeRef(src).kind() == LogosType::Kind::MutRef) &&
+                   TypeRef(src).pointee()) {
+            src = TypeRef(src).pointee();
+        } else if ((is_stdlib_box(src) || type_is_lang_item(src, "rc") || type_is_lang_item(src, "arc")) &&
+                   TypeRef(src).type_args().size() == 1) {
+            src = TypeRef(src).type_args()[0];
+        }
+        if (tgt && (TypeRef(tgt).kind() == LogosType::Kind::TraitObject ||
+                    TypeRef(tgt).kind() == LogosType::Kind::UnsizedDyn) && src &&
+            TypeRef(src).kind() != LogosType::Kind::TraitObject &&
+            TypeRef(src).kind() != LogosType::Kind::UnsizedDyn) {
+            std::string id(TypeRef(tgt).trait_name());
+            if (!TypeRef(tgt).pkg_name().empty()) id = std::string(TypeRef(tgt).pkg_name()) + "::" + id;
+            demand_vtable_(std::move(id), TypeRef(tgt).type_args(), src);
         }
         break;
     }

@@ -1,0 +1,13 @@
+// ADR 0030 S9 row 8: `let x: &dyn Tr = &C { .. };` (a borrowed temporary, lifetime-extended) is an
+// explicit unsize like every let — the extension path used to bind `&C` under the `&dyn` annotation
+// and leave the coercion to mlir, so no vtable was demanded. rustc 1.98.1: 4 + 9.
+package s9_dyn_let_borrowed_temp;
+trait Shape { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+fn main() -> i32 {
+    let x: &dyn Shape = &Sq { s: 2 };
+    let q = Sq { s: 3 };
+    let y: &dyn Shape = &q;
+    return (x.area() + y.area()) as i32;
+}

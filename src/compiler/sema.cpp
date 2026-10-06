@@ -1964,6 +1964,13 @@ std::string SemaChecker::canonical_func_type_name(TypeRef t) const {
 }
 
 std::string type_symbol_code(TypeRef t) { return mangle_type_for_name(t); }
+std::string vtable_key(std::string_view trait, const std::vector<TypeRef>& args, TypeRef self) {
+    std::string k(trait);
+    for (auto a : args) { k += '$'; k += mangle_type_for_name(a); }
+    k += '@';
+    k += mangle_type_for_name(self);
+    return k;
+}
 
 std::string SemaChecker::function_signature_key(std::string_view base_name,
                                                 const std::vector<TypeRef>& param_types,

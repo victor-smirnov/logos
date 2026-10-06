@@ -1,0 +1,18 @@
+// ADR 0030 S9 row 8: a vtable is keyed by the trait object's arguments too. Two impls of
+// Conv<_> for one type had one vtable; builds before step F answered via_b with Conv<i64>'s
+// method (exit 2). rustc 1.98.1 runs the Rust twin to exit 0.
+package s9_dyn_vtable_by_trait_args;
+trait Conv<T> { fn c(&self) -> i64; }
+struct S { v: i64 }
+impl Conv<i64> for S { fn c(&self) -> i64 { self.v + 1 } }
+impl Conv<bool> for S { fn c(&self) -> i64 { self.v + 20 } }
+fn via_i(d: &dyn Conv<i64>) -> i64 { d.c() }
+fn via_b(d: &dyn Conv<bool>) -> i64 { d.c() }
+fn main() -> i32 {
+    let s = S { v: 100 };
+    let a = via_i(&s);
+    let b = via_b(&s);
+    if a != 101 { return 1; }
+    if b != 120 { return 2; }
+    return 0;
+}

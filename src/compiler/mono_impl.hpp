@@ -439,7 +439,14 @@ private:
     // blanket ONLY for these actually-coerced targets. trait → {concrete name →
     // its TypeRef} (the TypeRef drives the blanket substitution directly, so the
     // target struct need not yet be in out_.structs).
-    StrMap<StrMap<TypeRef>> dyn_coerced_targets_;
+    // ADR 0030 S9 row 8: the vtables the output needs — (trait identity,
+    // trait args, Self) per dyn coercion — filled by fill_vtables_.
+    struct VtableDemand { std::string trait; std::vector<TypeRef> args; TypeRef self; };
+    std::vector<VtableDemand> vtable_demand_;
+    StrSet vtable_demand_seen_;
+    void demand_vtable_(std::string trait, std::vector<TypeRef> args, TypeRef self);
+    void fill_vtables_();
+    void drain_all_();
     // Enqueue every `$blanket$…__method` template (matching tmpl_prefix) cloned
     // for `concrete` (candidate_t) into the worklist as `concrete__method`.
     void enqueue_blanket_concrete(const BlanketImplInfo& bi,
