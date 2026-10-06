@@ -856,6 +856,31 @@ user's Rust-shaped `impl Iterator for Counter { type Item = i64; … }`). ABI
 unchanged (symbols and layouts are the same). Next, step C: `Try { type Output;
 type Residual }` and `FromResidual<R>`.
 
+Step C, 2026-10-06 — `trait Try: FromResidual<Self::Residual> { type Output;
+type Residual; fn from_output(..) -> Self; fn branch(self) ->
+ControlFlow<Self::Residual, Self::Output>; }`, `trait FromResidual<R> { fn
+from_residual(r: R) -> Self; }` — Rust's shape; an impl without the supertrait
+impl for its residual is refused (fixture s9a_try_requires_from_residual). The
+`?` dispatch on a user type is unchanged (`branch` + `from_residual`); Result
+and Option keep the name-based path until S10 desugars `?` through these items.
+S9a CLOSED BY ROW: Iterator, IntoIterator, Try, FromResidual are Rust-shaped.
+
+## S10 (HIR `for`, `?`, comprehensions via lang items; C-CLO rest) — rows
+
+Started 2026-10-06. The surface forms that still take a sema path of their
+own become HIR desugarings over the lang items S9a made Rust-shaped; closure
+capture becomes one core (C-CLO). Diff budget per row; a row over budget
+stops for a re-plan.
+
+| row | content | retires | budget |
+|---|---|---|---|
+| (1) `for` | the HIR desugars `for p in e { b }` to `match IntoIterator::into_iter(e) { mut it => loop { match Iterator::next(&mut it) { Some(p) => b, None => break } } }` over the lang items; the stdlib gains Rust's `impl<I: Iterator> IntoIterator for I`, arrays, slices, `&mut Vec<T>` (interaction clusters `for-in-over-generic-iterator-param`, `temp-lifetime-for-head-const-promotion`, `open-range-for-head-parse`, `rangefrom-iterator-empty`, `range-literal-element-type`) | lower_for's integer-range path, lower_for_each's array / slice / `&Vec` / IntoIterator / iterator paths and their mlir counterparts | +300 / −900 |
+| (2) `?` | the HIR desugars `e?` to `match Try::branch(e) { Continue(v) => v, Break(r) => return FromResidual::from_residual(r) }`; the stdlib gains Rust's `Try` / `FromResidual` impls for Result and Option (`impl<T, E, F: From<E>> FromResidual<Result<Infallible, E>> for Result<T, F>`) (clusters `question-in-closure-attributed-to-fn`, `from-bound-ignored-by-question-into`) | sema's name-based Result / Option `?` lowering, the reparsed `match (..).branch()` text, ETry | +250 / −500 |
+| (3) comprehensions | list / set / map comprehensions are HIR desugarings over (1) and the collection's `push` / `insert` | sema's comprehension lowering | +100 / −300 |
+| (4) C-CLO | one capture analysis: per-capture mode (by ref, by unique ref, by value) and path (RFC 2229 places), the Fn-family level from the body's uses, recorded on the closure type (clusters `fnonce-closure-treated-copy`, `move-closure-returning-capture-double-drop`, `move-closure-capture-shares-slot`, `disjoint-closure-capture-missing`, `closure-capture-raw-pointer-undefined`, `closure-captured-mut-param-needs-mut`, `move-closure-self-field-through-ref`, gap row `rawptr-write-closure-classified-fnmut`) | the capture-mode role of `body_ever_moved_`, the per-site capture classifiers | +400 / −600 |
+
+Order: (1), (2), (3), (4).
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

@@ -7,7 +7,14 @@ use logos.lang.try_trait;
 struct WrapErr {}
 struct Wrap { v: i32 }
 
-impl Try<i32, WrapErr> for Wrap {
+impl FromResidual<WrapErr> for Wrap {
+    fn from_residual(_r: WrapErr) -> Wrap { return Wrap { v: 0i32 - 1i32 }; }
+}
+
+impl Try for Wrap {
+    type Output = i32;
+    type Residual = WrapErr;
+    fn from_output(output: i32) -> Wrap { return Wrap { v: output }; }
     fn branch(self: Wrap) -> ControlFlow<WrapErr, i32> {
         return ControlFlow::Continue(self.v);
     }

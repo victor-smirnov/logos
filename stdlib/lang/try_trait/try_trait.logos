@@ -7,13 +7,11 @@
 // `branch`) plus `FromResidual` on the OUTER fn's return type
 // (synthesize the early-return value from a Break residual).
 //
-// Logos's simplified shape (vs Rust's): `Try` carries a `Continue`
-// type plus a `Residual` type via free generic params rather than
-// associated types — the current Logos trait surface doesn't yet
-// have associated types wired for `?` lowering (P-trait-04 is the
-// follow-up). Result and Option still go through the legacy name-
-// based path for slice 1; this is the new trait surface user types
-// can implement to participate.
+// Rust's shape (ADR 0030 S9a): `Try` declares `type Output` (the value `?`
+// continues with) and `type Residual` (what it propagates), and requires
+// `FromResidual<Self::Residual>` so the type can rebuild itself from its own
+// residual. Result and Option still go through the name-based path until
+// S10 desugars `?` through these items.
 //
 // §6.5 trait surface. Sema's `?` lowering at sema_expr.cpp:862
 // branches by inner-enum-name first; if the inner type isn't
@@ -25,11 +23,15 @@ package logos.lang.try_trait;
 use logos.lang.control_flow;
 
 /// Types that can be short-circuited by the `?` operator.
-/// `Continue`/`Residual` are Rust's `type Continue`/`type Residual` associated types,
-/// lifted to free generic params (slice-1 surface; no associated types yet).
-pub trait Try<Continue, Residual> {
+pub trait Try: FromResidual<Self::Residual> {
+    /// The value `?` produces when it does not short-circuit.
+    type Output;
+    /// What `?` propagates to the enclosing function when it short-circuits.
+    type Residual;
+    /// Builds the type from its `Output` (`Ok(v)`, `Some(v)`).
+    fn from_output(output: Self::Output) -> Self;
     /// Splits `self` into a `Continue` value or a `Break` residual for `?` to act on.
-    fn branch(self: Self) -> ControlFlow<Residual, Continue>;
+    fn branch(self: Self) -> ControlFlow<Self::Residual, Self::Output>;
 }
 
 /// Types a `?`-propagated residual can be converted into at the early-return site.

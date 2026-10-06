@@ -6827,8 +6827,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11983 -> 11984 (+1), NOIMPORTED 7424 -> 7425 (+1), TIERCOMMIT 195 -> 194 (-1) — 2026-10-04: fixtures s9a_impl_param_fixed_by_assoc_eq and the closed squeue row impl_param_fixed_by_trait_args_refused (tier-commit -1).
 #                ALL 11984 -> 11985 (+1), NOIMPORTED 7425 -> 7426 (+1), TIERCOMMIT 194 -> 195 (+1) — 2026-10-04: squeue row default_method_generics_shadow_impl_generics_refused (#734, tier-commit +1).
 #                ALL 11985 -> 11985 (+0), NOIMPORTED 7426 -> 7426 (+0), TIERCOMMIT 195 -> 193 (-2) — 2026-10-04: closed squeue rows custom_iterator_item_assoc_type_refused, iterator_trait_item_assoc_type_refused landed as pass fixtures (tier-commit -2).
-REGISTRY-ALL         11985
-REGISTRY-NOIMPORTED  7426
+#                ALL 11985 -> 11986 (+1), NOIMPORTED 7426 -> 7427 (+1), TIERCOMMIT 193 -> 193 (+0) — 2026-10-04: fail fixture s9a_try_requires_from_residual.
+REGISTRY-ALL         11986
+REGISTRY-NOIMPORTED  7427
 REGISTRY-TIERCOMMIT  193
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
