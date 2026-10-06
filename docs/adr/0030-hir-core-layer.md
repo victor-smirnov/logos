@@ -768,8 +768,18 @@ their arguments through it (byte-identical symbols, ABI unchanged). LEFT for
 this row: an impl's trait arguments in a method symbol (`trait_targ_suffix`,
 the G156-1 `<T>__<Trait>$G…__<m>` re-key of a colliding method) are still
 spelled by type_str; switched to the encoder they re-key the stdlib's
-`ReadDir` iterator methods (ABI diff −260 symbols) — measured, not yet
-explained.
+`ReadDir` iterator methods (ABI diff −260 symbols). Measured cause: the type
+encoder is phase-dependent — the ambiguous-name set that folds `$M<hash>` into
+an ambiguous type's spelling is installed only after collect, so collect mints
+`ReadDir__Iterator$G1$DirEntry__all` and lower asks for
+`…$G1$DirEntry$M381aa463d44202a8__all`: the per-impl defaults lost their
+registration and mono re-instantiated them unqualified. Installing the set
+after collect's first pass (same content — compared over the four stdlib
+builds) breaks the lcm build instead (a `parse_expr` of another package
+answers wql's calls): a key minted with the set and one minted without it
+still meet — dependency-archive and round-snapshot keys. The cure is the
+registries keyed by identity, not a different install point; the generic
+enum's `$M` fold (step C) is the same residue.
 
 Row (9) — operators. `x op= y` over a type parameter calls `<Op>Assign::op_assign`
 (the variable and a field of a generic struct, fixture s9_op_assign_generic);
@@ -789,6 +799,16 @@ without it E0369 — they compared the fat pointers' addresses (interaction
 cluster `dyn-eq-operator-builtin`, fixtures s9_dyn_eq_by_partial_eq_impl,
 s9_dyn_eq_without_impl). No mono BinOp compound rewrite remains: a type
 parameter's `op=` is the method call sema emits.
+
+S9 STATE 2026-10-06: rows (1)–(7) and (9) done; row (8) done but for one
+residue, which keeps S9 open — the type encoder is not universe-independent.
+Whether an ambiguous type's spelling carries `$M<hash>` depends on which names
+are ambiguous in the program being compiled: across phases (collect mints
+before the set exists) and across modules (mem's archive is built in a smaller
+universe than lcm, so one function's key differs between the two builds). Next
+step (H): the type-argument spelling folds the declaring package always, as
+Rust's crate disambiguator — no set — and the encoder's consumers that parse
+names (`find("$G")` / `find("$M")`: 65 sites) are censused first.
 
 ## S0–S7 gap audit (2026-10-01)
 
