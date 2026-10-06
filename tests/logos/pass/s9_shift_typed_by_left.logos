@@ -1,0 +1,17 @@
+// ADR 0030 S9 row 9: a shift is typed by its left operand (Rust Shl<Rhs>/Shr<Rhs>, Output = Self).
+// Codegen widened the left operand to the count's width, so `0x80u8 << 1i32 == 0u8` was false
+// (the u8 result kept its ninth bit). rustc 1.98.1 exits 7; builds before row 9 exit 2.
+package s9_shift_typed_by_left;
+fn main() -> i32 {
+    let a: u8 = 0x80u8;
+    let b: bool = (a << 1i32) == 0u8;
+    let c: i32 = 1i32;
+    let d: bool = (c << 31u8) < 0i32;
+    let e: u16 = 0xFFFFu16;
+    let f: bool = (e << 4i64) == 0xFFF0u16;
+    let mut r: i32 = 0;
+    if b { r = r + 1; }
+    if d { r = r + 2; }
+    if f { r = r + 4; }
+    return r;
+}

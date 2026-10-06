@@ -958,6 +958,10 @@ std::string concrete_struct_name(TypeRef t);
 // (a generic instance's arguments, a function signature's parameters). Sema and
 // mono both spell through it; nothing else composes a type into a symbol.
 std::string type_symbol_code(TypeRef t);
+// ADR 0030 S9 row 8: the code of a generic argument list in a symbol —
+// `$G<n>` then `$<type_symbol_code>` per argument; "" for none. The one
+// spelling of a struct / enum instance's and an impl's trait arguments.
+std::string generic_args_code(const std::vector<TypeRef>& args);
 // ADR 0030 S9 row 8: the key of the vtable of `self` as `dyn trait<args>`
 // (LProgram::vtables). `trait` is the trait object's identity (`pkg::Name`,
 // or the spelling a supertrait list / `vtable_of` carries).

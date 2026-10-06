@@ -1034,6 +1034,24 @@ Integer `+`, `-`, `*` are checked: on overflow execution aborts (trap). Signed/u
 
 *Source:* `src/compiler/mlir_gen_expr.cpp#L909-L922`
 
+### `expr.binop.shift-typed-by-left` — A shift is typed by its left operand
+
+`a << n` / `a >> n` take any integer count `n` (Rust's `Shl<Rhs>` / `Shr<Rhs>` for every integer `Rhs`): the result has `a`'s type and width. The count traps when it is `>=` the bit width of `a`'s type, compared in `n`'s own type (a negative count is huge, and traps); it is then fitted to `a`'s width. `0x80u8 << 1i32` is `0u8`.
+
+*Source:* `src/compiler/mlir_gen_expr.cpp` `MLIRGenImpl::gen_binop`, `src/compiler/sema_expr.cpp` `SemaChecker::lower_binop`
+
+### `expr.binop.mixed-width-explicit` — A mixed-width integer operator widens by an explicit cast
+
+Two integer operands of different widths that the blessed widening (DIVERGENCES A18) admits are typed by the wider one: sema casts the narrower operand (`as`, sign- or zero-extending by its own signedness); compound assignment widens its right operand to the place's type the same way. Codegen never picks a width — operands of two widths reaching it are an internal error.
+
+*Source:* `src/compiler/sema_expr.cpp` `SemaChecker::lower_binop`, `src/compiler/sema_stmt.cpp` `SemaChecker::lower_compound_assign`
+
+### `expr.binop.dyn-eq-partial-eq` — `==` over trait objects is the trait object's PartialEq
+
+`==` / `!=` between trait objects (`*x == *y`, or `x == y` for `x, y: &dyn Tr`) call `impl PartialEq for dyn Tr`; without that impl it is E0369. There is no builtin (address) equality for `dyn` / `&dyn` — `ptr::eq` compares addresses.
+
+*Source:* `src/compiler/sema_expr.cpp` `SemaChecker::lower_binop`
+
 ### `expr.binop.bitwise-and-shift-set` — Integer bitwise and shift operators
 
 `&`,`|`,`^` are bitwise and/or/xor; `<<` is logical left shift. `&&`/`||` applied to already-i1 values reduce to bitwise and/or.
@@ -2577,7 +2595,7 @@ Writing to a union field is safe (no `unsafe` required for the write): the place
 
 ### `expr.compound-assign.op-trait-mapping` — Compound-assign operator → *Assign trait/method
 
-Each compound-assign operator `op=` maps to a trait + method: `+=`→AddAssign::add_assign, `-=`→SubAssign::sub_assign, `*=`→MulAssign::mul_assign, `/=`→DivAssign::div_assign, `%=`→RemAssign::rem_assign, `&=`→BitAndAssign::bitand_assign, `|=`→BitOrAssign::bitor_assign, `^=`→BitXorAssign::bitxor_assign, `<<=`→ShlAssign::shl_assign, `>>=`→ShrAssign::shr_assign. Operators outside this set have no *Assign trait.
+Each compound-assign operator `op=` maps to a trait + method: `+=`→AddAssign::add_assign, `-=`→SubAssign::sub_assign, `*=`→MulAssign::mul_assign, `/=`→DivAssign::div_assign, `%=`→RemAssign::rem_assign, `&=`→BitAndAssign::bitand_assign, `|=`→BitOrAssign::bitor_assign, `^=`→BitXorAssign::bitxor_assign, `<<=`→ShlAssign::shl_assign, `>>=`→ShrAssign::shr_assign. Operators outside this set have no *Assign trait. Over a struct, an enum or a type parameter `x op= y` is that method on `&mut x` — never `x = x op y`: a type without the impl, or a type parameter not bounded by the assign trait (directly or through a supertrait), is E0368.
 
 *Source:* `src/compiler/sema_stmt.cpp#L2269-L2283`
 

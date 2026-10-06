@@ -761,6 +761,34 @@ the prelude trait. A lifetime-extended borrowed temporary under a `&dyn`
 annotation (`let x: &dyn Tr = &C { .. };`) bound `&C` without judging the
 annotation, leaving the unsize to mlir; it is now an explicit cast like every
 let (fixture s9_dyn_let_borrowed_temp).
+Step G — one encoder for a generic argument list (`generic_args_code`:
+`$G<n>` then each argument's type_symbol_code): the struct instance
+(concrete_struct_name / _raw), the generic enum and the DST reference spell
+their arguments through it (byte-identical symbols, ABI unchanged). LEFT for
+this row: an impl's trait arguments in a method symbol (`trait_targ_suffix`,
+the G156-1 `<T>__<Trait>$G…__<m>` re-key of a colliding method) are still
+spelled by type_str; switched to the encoder they re-key the stdlib's
+`ReadDir` iterator methods (ABI diff −260 symbols) — measured, not yet
+explained.
+
+Row (9) — operators. `x op= y` over a type parameter calls `<Op>Assign::op_assign`
+(the variable and a field of a generic struct, fixture s9_op_assign_generic);
+without the assign trait (directly or through a supertrait, C-OBL) it is E0368
+as in Rust — it was desugared to `x = x op y` and admitted (fixture
+s9_op_assign_needs_assign_trait). A shift is typed by its left operand in
+codegen too: the count traps at >= the left operand's width, compared in the
+count's own width, and is then fitted to it — codegen widened the left operand
+to the count's width, so `0x80u8 << 1i32 == 0u8` was false (fixture
+s9_shift_typed_by_left; rustc 7, builds before 2). A mixed-width integer
+operator (the blessed widening, A18) is an explicit cast in sema, the
+compound-assignment desugars included (six of them built the BinOp without
+it); codegen's implicit width unification is an internal error now (census
+over pass, imported, interactions, spec and the stdlib build: 0). `==` / `!=`
+over trait objects call `impl PartialEq for dyn Tr` (`*x == *y` and `x == y`),
+without it E0369 — they compared the fat pointers' addresses (interaction
+cluster `dyn-eq-operator-builtin`, fixtures s9_dyn_eq_by_partial_eq_impl,
+s9_dyn_eq_without_impl). No mono BinOp compound rewrite remains: a type
+parameter's `op=` is the method call sema emits.
 
 ## S0–S7 gap audit (2026-10-01)
 
