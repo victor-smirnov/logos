@@ -813,25 +813,34 @@ fn emit_branch_node(name: str, kty: str, cow: bool) {
                 assert(n > 0u32, "max_sep: empty branch");
                 return self.sep_at(n - 1u32);
             }
-            pub fn total_size(self: &#nm) -> u64 {
-                let n: u32 = self.child_count();
-                let mut s: u64 = 0u64;
-                let mut i: u32 = 0u32;
-                while i < n {
-                    s = s + self.size_at(i);
-                    i = i + 1u32;
+            // The scans below resolve their column ONCE (`values`) and walk
+            // the slice: a `size_at`/`sep_at` per child re-resolved the slot
+            // (dim lookup + block lookup) per element — on every descent, in
+            // `find`, `insert` and every landing alike.
+            pub fn size_prefix(self: &#nm, c: u32) -> u64 {
+                unsafe {
+                    let b: PdtBuf = self.szc();
+                    let v: &[u64] = b.values(0u32);
+                    let mut s: u64 = 0u64;
+                    let mut i: u32 = 0u32;
+                    while i < c { s = s + v[i as i64]; i = i + 1u32; }
+                    return s;
                 }
-                return s;
             }
+            pub fn total_size(self: &#nm) -> u64 { return self.size_prefix(self.child_count()); }
             pub fn find_child(self: &#nm, key: #(kid)) -> u32 {
-                let n: u32 = self.child_count();
-                let mut i: u32 = 0u32;
-                while i < n {
-                    if self.sep_at(i) >= key {
-                        return i;
-                    } i = i + 1u32;
+                unsafe {
+                    let b: PdtBuf = self.sep();
+                    let n: u32 = b.size() as u32;
+                    let v: &[u64] = b.values(0u32);
+                    let mut i: u32 = 0u32;
+                    while i < n {
+                        if v[i as i64] as #(kid) >= key {
+                            return i;
+                        } i = i + 1u32;
+                    }
+                    return if n > 0u32 { n - 1u32 } else { 0u32 };
                 }
-                return if n > 0u32 { n - 1u32 } else { 0u32 };
             }
             pub fn rank(self: &#nm, key: #(kid), lb: fn(*mut u8, #(kid)) -> u32) -> u64 {
                 let n: u32 = self.child_count();
@@ -1044,6 +1053,7 @@ fn emit_bt_branch_impl(bname: str, kty: str) {
             fn total_size(self: &#nm) -> u64 { return self.total_size(); }
             fn totals(self: &#nm, out: &mut [u64; 1]) { out[0] = self.total_size(); }
             fn count_at(self: &#nm, i: u32, _s: u32) -> u64 { return self.size_at(i); }
+            fn count_prefix(self: &#nm, c: u32, _s: u32) -> u64 { return self.size_prefix(c); }
             fn find_child(self: &#nm, key: #(kid)) -> u32 { return self.find_child(key); }
             fn push_row(self: &mut #nm, sep: #(kid), cnt: &[u64; 1], ptr: *mut u8) { self.push_child(sep, cnt[0], ptr); }
             fn insert_row(self: &mut #nm, pos: u32, sep: #(kid), cnt: &[u64; 1], ptr: *mut u8) { self.insert_child(pos, sep, cnt[0], ptr); }

@@ -346,6 +346,10 @@ pub trait BtBranch<K, const N: u32> {
     /// it per child so `bt_seek_at` can descend BY POSITION: subtract child
     /// counts until the remainder falls inside one subtree.
     fn count_at(self: &Self, i: u32, s: u32) -> u64;
+    /// The sum of children `0..c`'s counts for stream `s` — a key's RANK
+    /// contribution at this level. One column resolve for the whole prefix,
+    /// where `c` calls of `count_at` resolved it `c` times.
+    fn count_prefix(self: &Self, c: u32, s: u32) -> u64;
     /// Index of the child whose subtree may contain `key` (clamped to the last
     /// child when `key` exceeds every separator; `0` when the branch is empty).
     fn find_child(self: &Self, key: K) -> u32;

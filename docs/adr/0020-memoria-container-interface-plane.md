@@ -516,7 +516,10 @@ is itself EDB, queryable by Deem; the loop closes.
    `advance()` re-descended from the root although the landing had the leaf,
    and it binary-searched the leaf a second time for the key bound although the
    landing's ordinal bound was exact. Now one descent per probe, as `find`,
-   and 1.60x in instructions (callgrind; the gate's ceiling is 1.75x). The rest
+   and 1.60x in instructions (callgrind), then 1.32x once a branch's scans
+   (`find_child`, `total_size`, the rank prefix) resolved their column once
+   instead of per child — which also cut `find` itself by 42 % and a 100k
+   insert run by 44 % (the gate's ceiling is 1.45x). The rest
    is named: the landing computes the row's ORDINAL (`bt_cur_seek_key` sums the
    left siblings' counts per level; `find` does not), and a query returns a
    `Vec`. A range or full scan pays the same one descent per leaf

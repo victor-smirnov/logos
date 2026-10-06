@@ -16,8 +16,9 @@
 #   PRICE — the query's inclusive instruction count over the direct call's is
 #     at most CEIL. It is not 1.0 and the gap is named: the landing computes the
 #     row's ORDINAL (`seek_key` sums the left siblings' counts per level; `find`
-#     does not), and a query returns a `Vec`. Measured at landing: 1.60. Before
-#     #362: 2.6 (wall time, interleaved).
+#     does not), and a query returns a `Vec`. Measured at landing: 1.60; 1.32
+#     once branch scans resolve their column once (both paths got faster, the
+#     query more). Before #362: 2.6 (wall time, interleaved).
 #
 # CONTROL (measured when the gate landed): taking the landing cursor out of
 # `advance()` (always `cp.seek(self.at)`) reds STRUCTURE and PRICE both.
@@ -27,7 +28,7 @@ LOGOSC="${1:?logosc path}"
 FIXTURE="${2:?fixture .logos}"
 LIB_DIR="${3:?stdlib archive dir}"
 EXTRACTOR="${4:?callgrind_calls.py path}"
-CEIL_X100=175
+CEIL_X100=145
 
 for f in "$LOGOSC" "$FIXTURE" "$EXTRACTOR"; do
     if [ ! -e "$f" ]; then echo "FAIL(2): missing input: $f"; exit 2; fi

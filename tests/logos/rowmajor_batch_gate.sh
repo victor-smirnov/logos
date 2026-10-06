@@ -109,10 +109,16 @@ want "$CB" ".next_batch();"        "the outer pull is the inherent batch door"
 # ── ROW-MAJOR: the row IS the index; no cell accessor anywhere ──────────────
 want "$RM" "[(__bj0 as i64)]"      "the row is read by index off the slice batch"
 want "$RM" "(__bb0.len() as u64)"  "the slice counter is cast to the pull counter's type"
-deny "$RM" "_at(__bj0)"            "a row-major batch has no per-column accessor"
+deny "$RM" "at(__bj0)"             "a row-major batch has no per-column accessor"
+deny "$RM" ".col_"                 "a row-major batch has no column view to hoist"
 
 # ── COLUMNAR: the row is built cell by cell; no slice index ─────────────────
-want "$CB" "_at(__bj0)"            "the columnar row is built from per-column accessors"
+# Since #341 each column is a typed VIEW bound once per batch above the row loop
+# (`let __bb0_c<k> = __bb0.col_<c>();`), and a cell is `__bb0_c<k>.at(__bj0)`;
+# the per-cell accessor `<c>_at(__bj0)` re-resolved the column on every cell.
+want "$CB" "__bb0.col_"            "each column is resolved once per batch, above the row loop"
+want "$CB" "_c0.at(__bj0)"         "the columnar row is built from the hoisted column views"
+deny "$CB" "_at(__bj0)"            "no per-cell accessor — it re-resolves the column per cell"
 deny "$CB" "[(__bj0 as i64)]"      "a columnar batch is not indexed as a slice"
 deny "$CB" ".len() as u64)"        "a ColsBatch length is already u64 — no cast"
 
