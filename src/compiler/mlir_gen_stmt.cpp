@@ -4524,9 +4524,23 @@ void MLIRGenImpl::bind_name_at_slot(const std::string& name, mlir::Value slot_pt
         // STORAGE, so `logos_to_mlir(ty)` is the wrong load type here: it binds
         // the first payload word as the whole value (segfault at the next
         // match). PROBES.md 2026-09-09d §3.
+        // A tagged enum bound by value is a COPY in its own inline storage,
+        // registered as a tagged-enum local (as a payload binder is), so a later
+        // `n = Option::None` copies the enum in instead of storing its address.
         if (ty && TypeRef(ty).kind() == LogosType::Kind::Enum)
-            if (auto* te = resolve_tagged_enum(std::string(TypeRef(ty).enum_name()), ty))
-                elem_mlir = te->llvm_type;
+            if (auto* te = resolve_tagged_enum(std::string(TypeRef(ty).enum_name()), ty); te && te->llvm_type) {
+                mlir::Value target;
+                if (shared)
+                    if (auto it = shared->find(name); it != shared->end())
+                        if (auto al = it->second.getDefiningOp<mlir::LLVM::AllocaOp>())
+                            if (al.getElemType() == te->llvm_type) target = it->second;
+                if (!target) target = create_entry_alloca(te->llvm_type);
+                builder_.create<mlir::LLVM::MemcpyOp>(loc_, target, slot_ptr, size_const(ty), /*isVolatile=*/false);
+                scope_[name] = target;
+                let_vars_.insert(name);
+                var_tagged_enum_.insert(name);
+                return;
+            }
         // Aggregate (struct/tuple lowers to a struct/ptr): bind the slot
         // pointer directly. Scalars: load + store into a fresh/shared alloca.
         // An ARRAY binder: a copy of the matched array, registered with its

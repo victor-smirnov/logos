@@ -535,7 +535,7 @@ Mono::AbiLayout Mono::mono_enum_layout(TypeRef t) {
     // under — so a generic enum's row really lands in the cross-engine
     // comparison instead of in `n_unmatched`. A non-generic enum is its bare
     // name in all three engines, which is why the C-LIKE cells match at all.
-    std::string ekey = enum_instance_name(ename, t.type_args());
+    std::string ekey = enum_instance_name(ename, t.type_args(), t.pkg_name());
     lay::record("mono_abi_layout", lay::type_key(t.pkg_name(), ekey), ans);
     return { ans.layout.size, ans.layout.align };
 }
@@ -1245,9 +1245,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             TypeRef rt(rt_);
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
-                std::string cname = std::string(rt.enum_name());
-                for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
-                enum_name = std::move(cname);
+                enum_name = enum_instance_name(rt);
                 record_needed_enum(rt_);
             }
             mp_ = lir_mirror_emit_enum_lit(
@@ -1262,9 +1260,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             TypeRef rt(rt_);
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
-                std::string cname = std::string(rt.enum_name());
-                for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
-                enum_name = std::move(cname);
+                enum_name = enum_instance_name(rt);
                 record_needed_enum(rt_);
             } else {
                 enum_name = std::string(v.enum_name());

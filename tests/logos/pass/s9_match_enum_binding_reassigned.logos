@@ -1,0 +1,13 @@
+// A tagged enum bound by value in a match (a catch-all `mut n` or `mut n @ P`)
+// is its own copy, and reassigning it stores an enum value, not the address of
+// the literal's temporary (found under ADR 0030 S9 row 8's enum instance
+// names: `n = Option::None` wrote a pointer over the disc). rustc: exit 0.
+package s9_match_enum_binding_reassigned;
+fn main() -> i32 {
+    let o: Option<i64> = Option::Some(1i64);
+    let mut out: i32 = 0;
+    match o { mut n => { n = Option::None; if n.is_none() { out = out + 1; } } }
+    match o { mut n @ Option::Some(_) => { n = Option::None; if n.is_none() { out = out + 2; } } Option::None => {} }
+    if o.is_some() { out = out + 4; }        // the scrutinee is untouched
+    return 7 - out;
+}

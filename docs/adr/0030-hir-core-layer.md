@@ -678,6 +678,22 @@ Row (8), step A: one type encoder (`type_symbol_code`, sema's former
 spelled one way in every symbol — mono used to spell a borrowed slice as its
 `type_str` (`__&[u8]`), an integer const argument as `cN_`, a symbolic array
 length as `arr0`, and kept regions; 893 stdlib symbols change — ABI 0.57.0.
+Step B: a generic enum instance is named as a generic struct instance is
+(`concrete_struct_name_raw`: base, module fold, `$G<n>$`, each argument's
+type code) — `Option$G1$String`, the spelling a signature already used for
+the same type, where mono, mlir and the borrow checker said `Option__String`;
+the two hand composers in mono's EnumLit lowering call it. ABI 0.58.0. Found
+by the imported tier on the way: row 6's `ResultShunt` crashed
+`collect::<Result<Vec<_>, _>>()` — an impl parameter fixed only by the trait's
+arguments (`impl<A, I: Iterator<Result<A, E>>> Iterator<A> for ResultShunt<I,
+E>`) is not bound when the impl's methods are instantiated; `A` rides in the
+type now (`PhantomData<A>`), and the gap is squeue #732. Also exposed and
+fixed: a tagged enum bound by value in a match (`mut n =>`, `mut n @ P`) was
+bound through the scalar path, never registered as a tagged-enum local, so
+`n = Option::None` stored the literal's address over the disc (fixture
+`s9_match_enum_binding_reassigned`). An enum instance's name is not folded with
+its module (`$M…`): the fold depends on the phase-scoped ambiguous-name set and
+mlir registers no folded enum alias — residue for the mangler step.
 
 ## S0–S7 gap audit (2026-10-01)
 
