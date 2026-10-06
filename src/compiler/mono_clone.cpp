@@ -4422,7 +4422,7 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
     // start, so in_ is moved-from (the same gotcha that bit clone_enum_def).
     const TypePoolImpl* pool = out_.type_pool.impl();
     // Direct-build: write the substituted fn mirror STRAIGHT into out_.
-    DeclBuilder nf(out_, lir_schema::decl::Code::Func, /*cap=*/40);
+    DeclBuilder nf(out_, lir_schema::decl::Code::Func, /*cap=*/44);
     nf.str_always(dk::NAME,         fn.name());
     nf.str(dk::METHOD_BASE,         fn.method_base());
     nf.str(dk::PKG,                 fn.package());
@@ -4471,6 +4471,7 @@ DeclBuilder Mono::clone_fn(lir_view::FunctionView fn, const SubstMap& s_in,
     if (fn.from_binary_module() && !s_in.empty() && packs.empty() &&
         (!fn.type_params_empty() || !fn.impl_type_params_empty()))
         nf.flag(dk::INSTANCE_OF_BINARY, true);
+    if (!s_in.empty()) nf.str(dk::ORIGIN, fn.origin().empty() ? fn.name() : fn.origin());
     nf.type(dk::RET_TYPE, subst_type(fn.ret_type(pool), s));
     // ADR 0028: keep the signature as DECLARED (before substitution) for the
     // borrow checker's elision; a clone of a clone keeps the first one.
@@ -4591,7 +4592,7 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
     namespace dk = lir_schema::decl_keys;
     cur_packs_ = packs;
     const TypePoolImpl* pool = out_.type_pool.impl();  // see clone_fn (moved-pool)
-    DeclBuilder nf(out_, lir_schema::decl::Code::Func, /*cap=*/40);
+    DeclBuilder nf(out_, lir_schema::decl::Code::Func, /*cap=*/44);
     nf.str_always(dk::NAME,         fn.name());
     nf.str(dk::METHOD_BASE,         fn.method_base());
     nf.str(dk::PKG,                 fn.package());
@@ -4614,6 +4615,7 @@ DeclBuilder Mono::clone_fn_signature(lir_view::FunctionView fn,
     nf.i64_if(dk::LOCAL_COUNT, (int64_t)fn.local_count());  // Phase-1: preserve slot count.
     if (fn.is_vararg())   nf.flag(dk::IS_VARARG, true);
     if (fn.from_lazy_module()) nf.flag(dk::FROM_LAZY_MODULE, true);  // Phase 6 — see clone_fn.
+    if (!s.empty()) nf.str(dk::ORIGIN, fn.origin().empty() ? fn.name() : fn.origin());  // see clone_fn
     nf.type(dk::RET_TYPE, subst_type(fn.ret_type(pool), s));
     if (!s.empty()) nf.type(dk::DECL_RET_TYPE, localize_type(fn.decl_ret_type(pool)));
     {

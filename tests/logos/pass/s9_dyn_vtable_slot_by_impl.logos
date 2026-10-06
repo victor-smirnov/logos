@@ -1,0 +1,15 @@
+// ADR 0030 S9 row 8: a vtable slot is the slot trait's impl item by identity. The
+// name matcher it replaced filled `dyn Debug` / `dyn UpperHex`… of a primitive with
+// its `Display` impl's `fmt` (same method name, first match). rustc prints 'a' / true.
+package s9_dyn_vtable_slot_by_impl;
+use logos.mem.fmt;
+use logos.std.fmt;
+use logos.std.io;
+fn show(d: &dyn Debug) -> String { return format!("{:?}", d); }
+fn main() -> i32 {
+    let s: String = show(&'a');
+    println_string(&s);
+    let t: String = show(&true);
+    println_string(&t);
+    return 0;
+}

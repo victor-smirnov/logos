@@ -6818,8 +6818,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11960 -> 11961 (+1), NOIMPORTED 7401 -> 7402 (+1), TIERCOMMIT 197 -> 196 (-1) — 2026-10-04: S9 row 6: squeue #550 (orphan rule) closed as a fail fixture; fixture s9_orphan_rule_admits_local.
 #                ALL 11961 -> 11962 (+1), NOIMPORTED 7402 -> 7403 (+1), TIERCOMMIT 196 -> 197 (+1) — 2026-10-04: squeue #732 (impl parameter fixed by trait arguments) added.
 #                ALL 11962 -> 11963 (+1), NOIMPORTED 7403 -> 7404 (+1), TIERCOMMIT 197 -> 197 (+0) — 2026-10-04: fixture s9_match_enum_binding_reassigned.
-REGISTRY-ALL         11963
-REGISTRY-NOIMPORTED  7404
+#                ALL 11963 -> 11964 (+1), NOIMPORTED 7404 -> 7405 (+1), TIERCOMMIT 197 -> 197 (+0) — 2026-10-04: fixture s9_dyn_vtable_slot_by_impl.
+REGISTRY-ALL         11964
+REGISTRY-NOIMPORTED  7405
 REGISTRY-TIERCOMMIT  197
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

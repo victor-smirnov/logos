@@ -646,6 +646,10 @@ inline constexpr Key WHERE_PARAM_BOUNDS {"WHERE_PARAM_BOUNDS", 43}; // Array<Rel
 // precompiled module is instantiated with them (LProgram::infer_substs does not
 // cross a module boundary).
 inline constexpr Key INFER_SUBSTS       {"INFER_SUBSTS",       44}; // Array<RelPtr<param sub-map>> (sparse)
+// A mono instance's template: the L-IR name of the function it was cloned
+// from (the first template, for a clone of a clone). An impl's METHOD_SYMBOLS
+// name templates; this is how an instance is found by the impl item it is.
+inline constexpr Key ORIGIN             {"ORIGIN",             45}; // Varchar (sparse)
 } // namespace decl_keys
 
 // Function PARAM sub-map keys (own small key space — distinct map schema).

@@ -725,6 +725,9 @@ struct FunctionView {
     std::string_view method_base() const noexcept {
         return detail::read_string(self, lir_schema::decl_keys::METHOD_BASE.code);
     }
+    std::string_view origin() const noexcept {
+        return detail::read_string(self, lir_schema::decl_keys::ORIGIN.code);
+    }
     std::string_view package() const noexcept {
         return detail::read_string(self, lir_schema::decl_keys::PKG.code);
     }
