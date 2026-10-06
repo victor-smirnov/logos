@@ -1,0 +1,33 @@
+// A typed dense map or array of more than 64 entries parses whole (2026-10-06).
+// The SDN text parser collected `<K>{k: v, …}` and `<T>[e, …]` into fixed
+// 64-slot buffers and dropped every entry past the 64th without a word: a
+// 70-entry map came back with 64. The buffers are Vecs now.
+//
+// exit 0 = both containers hold 70 entries and the 70th is the one written.
+package writ_parse_typed_wide;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.mem.writ.parser;
+use logos.lang.rc;
+
+unsafe fn main() -> i32 {
+    let rc: Rc<Writ> = writ_rc(65536);
+    let h: &Writ = rc.deref();
+    // the typed map: header n | n | keys (relative) | values (relative)
+    let m: WAny = parse(h, "<I64>{0: 0, 1: 10, 2: 20, 3: 30, 4: 40, 5: 50, 6: 60, 7: 70, 8: 80, 9: 90, 10: 100, 11: 110, 12: 120, 13: 130, 14: 140, 15: 150, 16: 160, 17: 170, 18: 180, 19: 190, 20: 200, 21: 210, 22: 220, 23: 230, 24: 240, 25: 250, 26: 260, 27: 270, 28: 280, 29: 290, 30: 300, 31: 310, 32: 320, 33: 330, 34: 340, 35: 350, 36: 360, 37: 370, 38: 380, 39: 390, 40: 400, 41: 410, 42: 420, 43: 430, 44: 440, 45: 450, 46: 460, 47: 470, 48: 480, 49: 490, 50: 500, 51: 510, 52: 520, 53: 530, 54: 540, 55: 550, 56: 560, 57: 570, 58: 580, 59: 590, 60: 600, 61: 610, 62: 620, 63: 630, 64: 640, 65: 650, 66: 660, 67: 670, 68: 680, 69: 690}");
+    if m.is_null() { return 1; }
+    let mh: i64 = m.resolve() as i64;
+    if *(mh as *const i64) != 70i64 { return 2; }
+    let kf: i64 = mh + 16i64;
+    let keys: i64 = kf + *(kf as *const i64);
+    if *((keys + 69i64 * 8i64) as *const i64) != 69i64 { return 3; }
+    // the typed array: header n | n | data (relative)
+    let a: WAny = parse(h, "<I64>[0, 3, 6, 9, 12, 15, 18, 21, 24, 27, 30, 33, 36, 39, 42, 45, 48, 51, 54, 57, 60, 63, 66, 69, 72, 75, 78, 81, 84, 87, 90, 93, 96, 99, 102, 105, 108, 111, 114, 117, 120, 123, 126, 129, 132, 135, 138, 141, 144, 147, 150, 153, 156, 159, 162, 165, 168, 171, 174, 177, 180, 183, 186, 189, 192, 195, 198, 201, 204, 207]");
+    if a.is_null() { return 4; }
+    let ah: i64 = a.resolve() as i64;
+    if *(ah as *const i64) != 70i64 { return 5; }
+    let df: i64 = ah + 16i64;
+    let data: i64 = df + *(df as *const i64);
+    if *((data + 69i64 * 8i64) as *const i64) != 207i64 { return 6; }
+    return 0;
+}
