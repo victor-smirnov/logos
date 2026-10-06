@@ -1069,22 +1069,23 @@ fn ms_note(d: &mut MsDecisions, rel: str, col: str, rule: i32) {
 // so every magic set is a set of values the program already holds (the
 // termination argument Soufflé gives for weakly bound head variables).
 
-struct MtAtom { pub src: str, pub var: str, pub anti: bool, pub edge: bool }
+// `base` is a traversal step's base row var ("" for every other atom).
+struct MtAtom { pub src: str, pub var: str, pub anti: bool, pub edge: bool, pub base: str }
 
 // The atoms of a clause in SIPS order: the base, then each step.
 fn mt_atoms(qany: WAny) -> Vec<MtAtom> {
     let mut out: Vec<MtAtom> = Vec::<MtAtom>::new();
     match qany.view::<RQuery>() {
-        RQuery::Simple(s) => { out.push(MtAtom { src: s.src_name, var: s.var_name, anti: false, edge: false }); }
+        RQuery::Simple(s) => { out.push(MtAtom { src: s.src_name, var: s.var_name, anti: false, edge: false, base: "" }); }
         RQuery::Join(j) => {
-            out.push(MtAtom { src: j.a_name, var: j.x_var, anti: false, edge: false });
+            out.push(MtAtom { src: j.a_name, var: j.x_var, anti: false, edge: false, base: "" });
             mt_step_atoms(j.steps.any(), &mut out);
         }
         RQuery::Aggr(g) => {
-            out.push(MtAtom { src: g.a_name, var: g.x_var, anti: false, edge: false });
+            out.push(MtAtom { src: g.a_name, var: g.x_var, anti: false, edge: false, base: "" });
             if g.has_steps() { mt_step_atoms(g.steps.any(), &mut out); }
         }
-        RQuery::Find(f) => { out.push(MtAtom { src: f.src_name, var: f.var_name, anti: false, edge: false }); }
+        RQuery::Find(f) => { out.push(MtAtom { src: f.src_name, var: f.var_name, anti: false, edge: false, base: "" }); }
     }
     return out;
 }
@@ -1095,7 +1096,8 @@ fn mt_step_atoms(sa: WAny, out: &mut Vec<MtAtom>) {
     let mut i: i64 = 0i64;
     while i < st.len() {
         let x: RQJoinStep = st.step_at(i);
-        out.push(MtAtom { src: x.src_name, var: x.var_name, anti: x.is_anti, edge: x.is_edge });
+        let base: str = if x.is_edge { x.base_var } else { "" };
+        out.push(MtAtom { src: x.src_name, var: x.var_name, anti: x.is_anti, edge: x.is_edge, base: base });
         i = i + 1i64;
     }
 }
@@ -1358,6 +1360,15 @@ fn mt_join(h: &Writ, a: str, x: str, sel: WRef<SExpr>) -> RQJoin {
     return j;
 }
 
+// A head column as an expression of the body: `v.f`, or the bare `v` (f = "").
+fn mt_head_ref(h: &Writ, v: str, f: str) -> WRef<SExpr> {
+    if f.len() > 0i64 { return gp_field(h, v, f); }
+    let b: SField = h.make::<SField>();
+    b.base = null_sref();
+    b.name = v;
+    return WRef::<SExpr>::from_any(b.as_ref());
+}
+
 // The magic rule body for an occurrence whose SIPS visit came after the
 // atoms `order[0..upto)`: those atoms in that order, each conjunct of the
 // clause placed on the step of the last atom it reads (the base's go to the
@@ -1372,7 +1383,7 @@ fn mt_magic_body(qany: WAny, atoms: &Vec<MtAtom>, order: &Vec<i64>, upto: i64, i
         let a: i64 = mt_atom_of(atoms, hv[k]);
         if a >= 0i64 && inc[a] {
             let c: String = mt_col_name(hi[k]);
-            link = gp_and(h, link, gp_bin(h, OP_EQ(), gp_field(h, "__mm", lw_str(&c)), gp_field(h, hv[k], hf[k])));
+            link = gp_and(h, link, gp_bin(h, OP_EQ(), gp_field(h, "__mm", lw_str(&c)), mt_head_ref(h, hv[k], hf[k])));
         }
         k = k + 1i64;
     }
@@ -1386,7 +1397,7 @@ fn mt_magic_body(qany: WAny, atoms: &Vec<MtAtom>, order: &Vec<i64>, upto: i64, i
             while q < hv.len() && !done {
                 if hi[q] == binds[b].hi {
                     let a2: i64 = mt_atom_of(atoms, hv[q]);
-                    if a2 >= 0i64 && inc[a2] { items.push(gp_field(h, hv[q], hf[q]).any().raw() as i64); done = true; }
+                    if a2 >= 0i64 && inc[a2] { items.push(mt_head_ref(h, hv[q], hf[q]).any().raw() as i64); done = true; }
                 }
                 q = q + 1i64;
             }
@@ -1437,8 +1448,17 @@ fn mt_magic_body(qany: WAny, atoms: &Vec<MtAtom>, order: &Vec<i64>, upto: i64, i
         let mut on: WRef<SExpr> = null_sref();
         let mut c4: i64 = 0i64;
         while c4 < conj.len() { if cpos[c4] == t2 { on = gp_and(h, on, mt_sref(conj[c4])); } c4 = c4 + 1i64; }
-        if on.any().is_null() { on = make_bool_lit(h, true); }
-        sa.set_step(n, mt_step(h, mt_src_at(qany, order[t2]), atoms[order[t2]].var, on).as_ref());
+        if atoms[order[t2]].edge {
+            // the traversal itself, its `on` the conjuncts placed here (none:
+            // containment is the join)
+            let es: RQJoinStep = mt_copy_step(h, mt_step_view(qany, order[t2]));
+            es.has_on = !on.any().is_null();
+            es.on = on;
+            sa.set_step(n, es.as_ref());
+        } else {
+            if on.any().is_null() { on = make_bool_lit(h, true); }
+            sa.set_step(n, mt_step(h, mt_src_at(qany, order[t2]), atoms[order[t2]].var, on).as_ref());
+        }
         n = n + 1i64;
         t2 = t2 + 1i64;
     }
@@ -1461,33 +1481,38 @@ fn mt_magic_body(qany: WAny, atoms: &Vec<MtAtom>, order: &Vec<i64>, upto: i64, i
 // the written order, so a body bound on a later atom, `from tc t join es e on
 // e.src == t.b` with the head's column from `e`, binds `tc` through `es`), and
 // for each atom reading a program rel of index < nrel0, its bound columns and
-// how each is bound. `ok` is false for a clause with a traversal step (left as
-// written: its atoms read whole).
-struct MtPlan { pub ok: bool, pub order: Vec<i64>, pub sri: Vec<i64>, pub cols: Vec<Vec<i64>>, pub binds: Vec<Vec<MtBind>> }
+// how each is bound. A TRAVERSAL step's rows are a function of its base row,
+// so it is visited right after its base (it binds its row var's fields for
+// nothing) and never before it; it reads no rel and is never adorned. An anti
+// atom, or a traversal off one, is never visited.
+struct MtPlan { pub order: Vec<i64>, pub sri: Vec<i64>, pub cols: Vec<Vec<i64>>, pub binds: Vec<Vec<MtBind>> }
 
 fn mt_sips(root: WAny, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<str>, hf: &Vec<str>, hi: &Vec<i64>,
            nrel0: i64, prm: &MacroParams) -> MtPlan {
-    let mut pl: MtPlan = MtPlan { ok: true, order: Vec::<i64>::new(), sri: Vec::<i64>::new(),
+    let mut pl: MtPlan = MtPlan { order: Vec::<i64>::new(), sri: Vec::<i64>::new(),
                                   cols: Vec::<Vec<i64>>::new(), binds: Vec::<Vec<MtBind>>::new() };
     let mut z: i64 = 0i64;
     while z < atoms.len() {
-        if atoms[z].edge { pl.ok = false; }
         pl.sri.push(-1i64); pl.cols.push(Vec::<i64>::new()); pl.binds.push(Vec::<MtBind>::new());
         z = z + 1i64;
     }
-    if !pl.ok { return pl; }
     let mut inc: Vec<bool> = Vec::<bool>::new();
     let mut seen: Vec<bool> = Vec::<bool>::new();
     let mut z2: i64 = 0i64;
-    while z2 < atoms.len() { inc.push(false); seen.push(atoms[z2].anti || atoms[z2].src.len() == 0i64); z2 = z2 + 1i64; }
+    while z2 < atoms.len() { inc.push(false); seen.push(atoms[z2].anti || (atoms[z2].src.len() == 0i64 && !atoms[z2].edge)); z2 = z2 + 1i64; }
     loop {
         let mut best: i64 = -1i64;
         let mut bestn: i64 = -1i64;
         let mut q: i64 = 0i64;
         while q < atoms.len() {
             if !seen[q] {
-                let nb: i64 = mt_bound_count(root, atoms[q].src, atoms[q].var, conj, atoms, &inc, hv, hf, hi, prm);
-                if nb > bestn { best = q; bestn = nb; }
+                if atoms[q].edge {
+                    let bq: i64 = mt_atom_of(atoms, atoms[q].base);
+                    if bq >= 0i64 && inc[bq] && bestn < 1000000000i64 { best = q; bestn = 1000000000i64; }
+                } else {
+                    let nb: i64 = mt_bound_count(root, atoms[q].src, atoms[q].var, conj, atoms, &inc, hv, hf, hi, prm);
+                    if nb > bestn { best = q; bestn = nb; }
+                }
             }
             q = q + 1i64;
         }
@@ -1514,15 +1539,24 @@ fn mt_sips(root: WAny, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<str>, hf: 
 }
 
 // The head's bound columns that are plain columns of the body: `hv.hf` is the
-// head's bound column number `hi` (its position in the adornment).
+// head's bound column number `hi` (its position in the adornment). A bare name
+// (`select (u.x, k)`, `k` a traversal over a scalar collection) is the whole
+// value of that atom: `hf` is "".
 struct MtHead { pub hv: Vec<str>, pub hf: Vec<str>, pub hi: Vec<i64> }
 fn mt_head(qany: WAny, cols: Vec<i64>, ncols: i64) -> MtHead {
     let mut hd: MtHead = MtHead { hv: Vec::<str>::new(), hf: Vec::<str>::new(), hi: Vec::<i64>::new() };
     let sel: WRef<SExpr> = ms_select(qany);
     let mut k: i64 = 0i64;
     while k < cols.len() {
-        let item: MsCol = ms_col_ref(ms_sel_item(sel, cols[k], ncols));
+        let ie: SExpr = ms_sel_item(sel, cols[k], ncols);
+        let item: MsCol = ms_col_ref(ie);
         if item.var.len() > 0i64 { hd.hv.push(item.var); hd.hf.push(item.fld); hd.hi.push(k); }
+        else {
+            match ie {
+                SExpr::Field(f) => { if f.base.any().is_null() { hd.hv.push(f.name); hd.hf.push(""); hd.hi.push(k); } }
+                _ => { }
+            }
+        }
         k = k + 1i64;
     }
     return hd;
@@ -1547,7 +1581,6 @@ fn mt_clause(root: WAny, qany: WAny, hk: i64, nrel0: i64, ctx: &mut MtCtx, prm: 
     }
     let hmrel: str = lw_str(&hms);
     let pl: MtPlan = mt_sips(root, &atoms, &conj, &hd.hv, &hd.hf, &hd.hi, nrel0, prm);
-    if !pl.ok { return; }
     let mut inc: Vec<bool> = Vec::<bool>::new();
     let mut z: i64 = 0i64;
     while z < atoms.len() { inc.push(false); z = z + 1i64; }
@@ -1611,19 +1644,13 @@ fn mt_free_rels(root: WAny, nrel0: i64, refuse: &Vec<i32>, prm: &MacroParams) ->
             let pl: MtPlan = mt_sips(root, &atoms, &conj, &hd.hv, &hd.hf, &hd.hi, nrel0, prm);
             let mut p: i64 = 0i64;
             while p < atoms.len() {
-                let sri: i64 = if pl.ok { pl.sri[p] } else { -1i64 };
-                // a traversal clause reads its rels whole
-                let mut sr2: i64 = sri;
-                if !pl.ok && !atoms[p].anti && atoms[p].src.len() > 0i64 && !str_starts_with(atoms[p].src, "__") {
-                    let f: i64 = gp_rel_find(root, atoms[p].src);
-                    if f >= 0i64 && f < nrel0 { sr2 = f; }
-                }
+                let mut sr2: i64 = pl.sri[p];
                 if atoms[p].anti && atoms[p].src.len() > 0i64 {
                     let f2: i64 = gp_rel_find(root, atoms[p].src);
                     if f2 >= 0i64 && f2 < nrel0 { sr2 = f2; }
                 }
                 if sr2 >= 0i64 {
-                    let bound: bool = pl.ok && !atoms[p].anti && pl.cols[p].len() > 0i64 && refuse[sr2] == MS_DEMAND();
+                    let bound: bool = !atoms[p].anti && pl.cols[p].len() > 0i64 && refuse[sr2] == MS_DEMAND();
                     let mut key: String = String::new();
                     key.push_i64(sr2);
                     key.push_str(":");
@@ -1685,6 +1712,18 @@ fn mt_add_fld(flds: &mut Vec<str>, f: str) {
     let mut i: i64 = 0i64;
     while i < flds.len() { if str_eq(flds[i], f) { return; } i = i + 1i64; }
     flds.push(f);
+}
+
+// The join step of atom `q` (>= 1) of a clause.
+fn mt_step_view(qany: WAny, q: i64) -> RQJoinStep {
+    let mut sa: WAny = WAny::null();
+    match qany.view::<RQuery>() {
+        RQuery::Join(j) => { sa = j.steps.any(); }
+        RQuery::Aggr(g) => { if g.has_steps() { sa = g.steps.any(); } }
+        _ => { }
+    }
+    if sa.is_null() { logos.lang.panic::panic("mt_step_view: an atom past the base of a clause with no steps"); }
+    return sa.view::<RQJoinStepArr>().step_at(q - 1i64);
 }
 
 // The source atom `q` of a clause reads, as its node says now.
