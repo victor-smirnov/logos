@@ -1,0 +1,13 @@
+// ADR 0030 S9 row 8: a `where Self: Sized` method — generic here — has no vtable slot and leaves the trait dyn compatible; the concrete receiver calls it. rustc 1.98.1 accepts the Rust twin.
+package s9_dyn_sized_only_method_excluded;
+trait T {
+    fn g<U>(&self, u: U) -> i32 where Self: Sized { 7 }
+    fn f(&self) -> i32;
+}
+struct S { v: i32 }
+impl T for S { fn f(&self) -> i32 { self.v } }
+fn main() -> i32 {
+    let s = S { v: 5 };
+    let d: &dyn T = &s;
+    d.f() + s.g(1)
+}

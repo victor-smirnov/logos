@@ -25277,7 +25277,7 @@ counter-examples: five shapes written BEFORE the edit, plus the two narrowing
   queue rows below. Sources: src/compiler/probes/2026-09-06-dropmemo/ce/.
 
 ## rmsclass — THE CLASS, ENUMERATED BY THE PROPERTY
-site: src/compiler/mlir_gen_impl.hpp::pkg_owns_symbol_owner
+site: src/compiler/mlir_gen_impl.hpp::resolve_method_symbol
 build: 596f7b385e46f0fe
 measured: 2026-09-06
 fires: 171
@@ -25304,6 +25304,9 @@ note: property — *a pure query over the immutable `prog_` implemented as a FUL
   seven times in 2870 programs. ⚠ A GREP CERTIFIES WHAT IT CANNOT SEE — the
   membership above is settled by arrival and iteration COUNTS taken in the same
   build as the fix, not by the grep that nominated the candidates.
+  2026-10-05: `pkg_owns_symbol_owner` was deleted with find_func_op's canonical
+  fallback (ADR 0030 S9 row 8); the record's site moved to the class's
+  surviving member `resolve_method_symbol`. The numbers above are 2026-09-06's.
 
 # ROUND 2026-09-06e (PRICING, soundness queue) — A SCALAR CORE NEEDS **ZERO** REFERENCE
 # LAYERS, AND THE DOORS THAT MUST SAY SO ARE FOUR, NOT ONE

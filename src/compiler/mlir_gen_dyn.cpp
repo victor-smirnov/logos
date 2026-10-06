@@ -4,6 +4,7 @@
 
 #include "mlir_gen_impl.hpp"
 #include "mangled_name.hpp"
+#include "mono_impl.hpp"
 #include <algorithm>
 #include <cstdio>
 #include <map>
@@ -796,6 +797,12 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             if (mp && !mp.method_base().empty())
                 sm[std::string(mp.method_base())].push_back(mp);
     }
+    // Every function by its L-IR name (free functions and struct methods): an
+    // impl's METHOD_SYMBOLS and mono's instance names are looked up here.
+    std::unordered_map<std::string, lir_view::FunctionView> fn_by_name;
+    for (auto& fp : prog.functions) if (fp) fn_by_name.emplace(std::string(fp.name()), fp);
+    for (auto& sd : prog.structs)
+        for (auto& mp : sd.methods()) if (mp) fn_by_name.emplace(std::string(mp.name()), mp);
 
     // Pre-walk all fns/methods once to build `target_base → set<concrete>`
     // index. Each name `[pkg.]<base>$G<N>$<args>__method[__fg__sig]` carries
@@ -902,129 +909,78 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             } else if (ib.trait_name() != td_name) {
                 continue;                                 // archive with no identity
             }
-
-            // Resolve method-symbol given a TARGET (bare or concrete).
-            //
-            // Match strategy:
-            //   1. fn.method_base == trait method name (exact, no string
-            //      manipulation of the mangled symbol)
-            //   2. fn.name belongs to `target` — strip pkg prefix, then
-            //      check the symbol starts with `target__` (bare) or
-            //      `concrete__` (post-mono concrete clone).
-            //
-            // Replaces the old try_match heuristic that walked mangling
-            // suffixes with strncmp; method_base is set by sema's
-            // lower_fn (raw_name from AST) and propagated by
-            // mono_clone's clone_fn.
-            // The impl's OWN package (impl_keys::IMPL_PKG), empty on a
-            // package-less compile or a pre-key archive. Two packages of one
-            // module can declare the SAME trait name AND the SAME target type,
-            // so `belongs_to_target` — which strips the pkg prefix before
-            // matching `<Owner>__<method>` — matches BOTH packages' methods and
-            // takes whichever mono emitted first. Every such impl then
-            // dispatched through one package's method. `want_pkg` makes the
-            // package-exact candidate win when one exists; when none does the
-            // first match is still taken, so this cannot lose a resolution that
-            // resolved before.
             std::string_view want_pkg = ib.pkg();
-            // Package segment of an emitted symbol `<module_id>..<pkg>.<Owner>__<m>`
-            // (or `<pkg>.<Owner>__<m>`): the last dotted segment BEFORE the
-            // owner. Empty for an unqualified symbol.
-            // ⚠ THE PACKAGE IS THE WHOLE DOTTED PATH, NOT ITS LAST SEGMENT.
-            // This read the segment before the owner ("lhom") and compared it
-            // with `ib.pkg()` ("trait_ident_chain.lhom"), so for every package
-            // whose name has a dot the comparison could not hold and the
-            // package-exact preference silently degraded to "first match".
-            // MEASURED on two packages of ONE module (the module id is shared,
-            // so the `$M` fold cannot tell their same-named types apart):
-            // `lhom2::Cell`'s trait object dispatched `lhom::Cell`'s method —
-            // a silent wrong answer, pinned by
-            // tests/logos/pass/dyn_vtable_homonym_target.logos.
-            auto sym_in_pkg = [](std::string_view nm, std::string_view pkg) {
-                auto dot = nm.rfind('.');
-                if (dot == std::string_view::npos) return pkg.empty();
-                std::string_view owner_prefix = nm.substr(0, dot);  // [<module>..]<pkg>
-                if (owner_prefix.size() < pkg.size()) return false;
-                if (owner_prefix.compare(owner_prefix.size() - pkg.size(), pkg.size(), pkg) != 0)
-                    return false;
-                // The character before the package (if any) must be a separator,
-                // so `a.b` does not match a symbol of package `xa.b`.
-                if (owner_prefix.size() == pkg.size()) return true;
-                return owner_prefix[owner_prefix.size() - pkg.size() - 1] == '.';
-            };
-            auto resolve_methods = [&](std::string_view target) -> std::vector<std::string> {
-                auto belongs_to_target = [&](std::string_view nm) -> bool {
-                    if (auto dot = nm.rfind('.'); dot != std::string_view::npos)
-                        nm = nm.substr(dot + 1);
-                    if (nm.size() < target.size() + 2) return false;
-                    if (nm.compare(0, target.size(), target) != 0) return false;
-                    return nm[target.size()] == '_' && nm[target.size() + 1] == '_';
+            // ADR 0030 S9 row 8: a slot's method is the item of the impl that
+            // implements the slot's trait for this impl's Self, read off that
+            // impl's METHOD_SYMBOLS by its declared name; at an instance of a
+            // generic impl, the method mono cloned from one of those templates
+            // (its ORIGIN). Empty when that does not answer.
+            const TypePoolImpl* vpool = pool_impl();
+            auto by_impl = [&](std::string_view owner, std::string_view mname,
+                               std::string_view concrete) -> std::string {
+                lir_view::ImplView src = ib;
+                if (!owner.empty() && owner != td_name && owner != td_ident) {
+                    src = {};
+                    TypeRef me = ib.self_type(vpool);
+                    for (auto& sb : prog.impls) {
+                        std::string_view sid = sb.identity_trait();
+                        bool same = sid == owner || (sid.empty() && sb.trait_name() == owner) ||
+                                    (sid.size() > owner.size() + 2 && sid.ends_with(owner) &&
+                                     sid.substr(sid.size() - owner.size() - 2, 2) == "::");
+                        if (!same) continue;
+                        TypeRef ss = sb.self_type(vpool);
+                        if (!me || !ss || !types_equal(me, ss)) continue;
+                        if (src) return {};   // two answer: not this resolver's
+                        src = sb;
+                    }
+                    if (!src) return {};
+                }
+                const auto syms = src.method_symbols();
+                if (concrete.empty()) {
+                    for (auto sym : syms)
+                        if (auto fit = fn_by_name.find(std::string(sym));
+                            fit != fn_by_name.end() && fit->second.method_base() == mname)
+                            return link_name(fit->second);
+                    return {};
+                }
+                // A generic impl at a concrete instance: the instance mono cloned
+                // for the concrete struct from one of this impl's templates.
+                std::string found;
+                bool two = false;
+                auto consider = [&](lir_view::FunctionView c) {
+                    if (c.origin().empty() || std::find(syms.begin(), syms.end(), c.origin()) == syms.end()) return;
+                    std::string_view nm = c.name();
+                    if (auto dot = nm.rfind('.'); dot != std::string_view::npos) nm = nm.substr(dot + 1);
+                    if (!nm.starts_with(concrete) || nm.substr(concrete.size(), 2) != "__") return;
+                    std::string l = link_name(c);
+                    if (!found.empty() && found != l) two = true;
+                    found = std::move(l);
                 };
+                if (auto sit = struct_method_idx.find(std::string(concrete)); sit != struct_method_idx.end())
+                    if (auto mit = sit->second.find(std::string(mname)); mit != sit->second.end())
+                        for (auto c : mit->second) consider(c);
+                if (found.empty())
+                    if (auto mit = method_base_idx.find(std::string(mname)); mit != method_base_idx.end())
+                        for (auto c : mit->second) consider(c);
+                return two ? std::string() : found;
+                return {};
+            };
+            // The vtable slots of this impl at `target`, in the trait's slot order
+            // (supertrait closure): each the slot trait's impl item by identity
+            // (by_impl). A slot no impl item answers — a method with generics of
+            // its own (not callable through `dyn`), or one this target lacks — is
+            // empty, and build_inline_vtable leaves it out.
+            auto resolve_methods = [&](std::string_view target) -> std::vector<std::string> {
+                const bool at_instance = target != std::string_view(ib.target_type());
                 std::vector<std::string> methods;
-                // Resolve symbols in the full supertrait-closure slot order so
-                // a supertrait method (provided by `impl Super for Concrete`)
-                // gets its slot; falls back to own methods when no supertraits.
-                std::vector<std::string> slot_names;
                 auto vmo2 = td.vtable_method_order();
-                if (!vmo2.empty())
-                    for (auto& on : vmo2) slot_names.push_back(std::string(on.second));
-                else
-                    td.each_method([&](lir_view::TraitMethodSigView m) { slot_names.push_back(std::string(m.name())); });
-                for (auto& mname : slot_names) {
-                    std::string sym;
-                    // Stage E: LImplBlock.methods was always empty — method
-                    // resolution goes straight through the method_base index.
-                    if (sym.empty()) {
-                        if (auto it = method_base_idx.find(mname);
-                            it != method_base_idx.end()) {
-                            for (auto fp : it->second) {
-                                if (!belongs_to_target(fp.name())) continue;
-                                if (sym.empty()) sym = link_name(fp);   // first match
-                                if (want_pkg.empty()) break;
-                                if (!sym_in_pkg(fp.name(), want_pkg)) continue;
-                                sym = link_name(fp); break;             // package-exact wins
-                            }
-                        }
-                    }
-                    if (sym.empty()) {
-                        if (auto sit = struct_method_idx.find(std::string(target));
-                            sit != struct_method_idx.end()) {
-                            if (auto it = sit->second.find(mname);
-                                it != sit->second.end()) {
-                                for (auto mp : it->second) {
-                                    if (!belongs_to_target(mp.name())) continue;
-                                    if (sym.empty()) sym = link_name(mp);
-                                    if (want_pkg.empty()) break;
-                                    if (!sym_in_pkg(mp.name(), want_pkg)) continue;
-                                    sym = link_name(mp); break;
-                                }
-                            }
-                        }
-                    }
-                    if (sym.empty()) {
-                        // Object-safety check: if every fn carrying this
-                        // method_base has method-level type-params
-                        // (`fn fold<Acc>(...)`), the method is not callable
-                        // through &dyn Trait — Rust's object-safety rule.
-                        // Emit an empty sentinel so build_inline_vtable
-                        // skips silently instead of warning "not found".
-                        bool any_concrete = false;
-                        bool any_generic  = false;
-                        if (auto it = method_base_idx.find(mname);
-                            it != method_base_idx.end()) {
-                            for (auto fp : it->second) {
-                                if (fp.impl_type_params_empty()) any_concrete = true;
-                                else                              any_generic  = true;
-                            }
-                        }
-                        if (any_generic && !any_concrete) {
-                            // Method-generic only — non-dispatchable slot.
-                            methods.emplace_back();
-                            continue;
-                        }
-                        sym = std::string(target) + "__" + mname;
-                    }
-                    methods.push_back(std::move(sym));
+                if (!vmo2.empty()) {
+                    for (auto& [owner, mname] : vmo2)
+                        methods.push_back(by_impl(owner, mname, at_instance ? target : std::string_view{}));
+                } else {
+                    td.each_method([&](lir_view::TraitMethodSigView m) {
+                        methods.push_back(by_impl({}, m.name(), at_instance ? target : std::string_view{}));
+                    });
                 }
                 return methods;
             };
@@ -1077,6 +1033,9 @@ void MLIRGenImpl::emit_trait_vtables(mlir::ModuleOp /*mod*/, const LProgram& pro
             std::string_view target_base = ib_target;
             if (auto g = target_base.find("$G"); g != std::string_view::npos)
                 target_base = target_base.substr(0, g);
+            // A generic impl answers at each instance of its target; a concrete
+            // one only at its own target (the bare entry above).
+            if (!ib.impl_type_params_empty())
             for (auto& concrete : collect_concrete_targets(std::string(target_base))) {
                 auto cmeth = resolve_methods(concrete);
                 dyn_vtable_methods_[td_ident + "::" + concrete] = cmeth;

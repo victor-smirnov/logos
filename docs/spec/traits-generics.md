@@ -1495,9 +1495,9 @@ A method call on a `&dyn Trait` receiver is dispatched indirectly: the receiver 
 
 ### `trait.dyn.object-safety` — Object-safety (dyn-compatibility) constraints (E0038)
 
-A trait may be used as `dyn Trait` only if every method has a vtable slot. A method is rejected if it: is generic (`fn f<T>`); has no `self` receiver (associated fn); returns `Self` by value; returns `impl Trait` (opaque); takes `Self` by value as a parameter; or takes `impl Trait` as a parameter. A method with a `where Self: Sized` bound is excluded from the vtable and so never affects object-safety. A trait owning a generic associated type (GAT) is also not object-safe. The diagnostic is emitted once per trait.
+As Rust's dyn compatibility. A trait may be used as `dyn Trait` only if: every supertrait is dyn compatible; `Sized` is not a supertrait; no supertrait argument (written or defaulted, `trait A: PartialEq` = `PartialEq<Self>`) names `Self`; it has no associated const; it has no generic associated type; and every method not bounded `where Self: Sized` is dispatchable — no type parameters, a `self` receiver, `Self` nowhere in its parameters but the receiver, `Self` not in its return type, no `impl Trait` in its signature. The diagnostic is emitted once per trait.
 
-*Source:* `src/compiler/sema.cpp#L3031-L3130`
+*Source:* `src/compiler/sema.cpp` `SemaChecker::dyn_incompatibility_`
 
 ### `trait.dyn.supertrait-vtable-slots` — Supertrait pointer slots and upcast layout
 
@@ -1533,6 +1533,12 @@ Each &dyn Trait coercion of a given concrete type uses a single static vtable gl
 
 ## `trait.object`
 
+### `trait.object.additional-auto-only` — beyond the principal trait, only auto traits (E0225)
+
+`dyn A + B` names one principal trait; every further trait must be an auto trait (`Send`, `Sync`, `Unpin`, ... — declared `auto trait`). `dyn A + B` with `B` a non-auto trait is refused (E0225), as in Rust.
+
+*Source:* `src/compiler/sema.cpp` `SemaChecker::resolve_type` (AUTO_TRAIT_BOUND)
+
 ### `trait.object.object-safety-required` — Trait objects require object-safe traits
 
 A trait used as a trait object (`&dyn`/`*dyn`/`Box<dyn>`) must be object-safe (dyn-compatible, Rust E0038); a non-object-safe trait used this way is an error, checked when the `dyn Trait` type is resolved and reported once per offending trait.
@@ -1543,13 +1549,13 @@ A trait used as a trait object (`&dyn`/`*dyn`/`Box<dyn>`) must be object-safe (d
 
 ### `trait.object-safety.method-generic-not-dispatchable` — method-level generic methods are not dispatchable through dyn
 
-A trait method whose every implementation carries method-level type parameters (e.g. `fn fold<Acc>(...)`) is not callable through `&dyn Trait`: it occupies a non-dispatchable (empty) vtable slot rather than a method pointer (Rust object-safety rule).
+A trait method with type parameters of its own (`fn fold<Acc>(...)`) has no vtable slot: without `where Self: Sized` it makes the trait dyn incompatible (`trait.dyn.object-safety`), with it the method is excluded from the vtable (`trait.object-safety.sized-self-method-excluded`).
 
-*Source:* `src/compiler/mlir_gen_dyn.cpp#L909-L931`
+*Source:* `src/compiler/sema.cpp` `SemaChecker::dyn_incompatibility_`
 
 ### `trait.object-safety.sized-self-method-excluded` — where Self: Sized method excluded from vtable
 
-A trait method with `where Self: Sized` is excluded from the trait's vtable and ignored for object-safety determination.
+A trait method with `where Self: Sized` has no slot in the trait's vtable (`trait_vtable_layout`, the one order sema, mono and mlir index by) and is ignored for dyn compatibility. Calling it on a trait object is an error: "the `m` method cannot be invoked on a trait object" (rustc's sentence); a concrete receiver calls it as usual.
 
 *Source:* `src/compiler/sema_impl.hpp#L2622-L2623`
 

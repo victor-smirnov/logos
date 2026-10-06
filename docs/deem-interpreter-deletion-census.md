@@ -6830,9 +6830,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11987 -> 11988 (+1), NOIMPORTED 7428 -> 7429 (+1) — 2026-10-06: fixture writ_parse_typed_wide (a typed dense map or array keeps every entry).
 #                ALL 11988 -> 11989 (+1), NOIMPORTED 7429 -> 7430 (+1) — 2026-10-06: fixture quote_deem_pkg (a deem item quoted into a named package).
 #                ALL 11989 -> 11991 (+2), NOIMPORTED 7430 -> 7432 (+2) — 2026-10-06 (#729): fixtures wql_unknown_name_fail, wql_known_names_e2e.
-REGISTRY-ALL         11991
-REGISTRY-NOIMPORTED  7432
-REGISTRY-TIERCOMMIT  197
+#                ALL 11991 -> 11998 (+7), NOIMPORTED 7432 -> 7439 (+7), TIERCOMMIT 197 -> 195 (-2) — (main, merged into `deem`) 2026-10-06: S9 row 8 (vtable slots by impl identity, dyn compatibility)
+REGISTRY-ALL         11998
+REGISTRY-NOIMPORTED  7439
+REGISTRY-TIERCOMMIT  195
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

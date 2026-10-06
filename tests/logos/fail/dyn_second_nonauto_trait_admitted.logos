@@ -1,0 +1,15 @@
+// Closed squeue dyn_second_nonauto_trait_admitted (#583): beyond the principal trait a trait object names auto traits only (E0225), ADR 0030 S9 row 8.
+package dyn_second_nonauto_trait_admitted;
+trait A { fn a(&self) -> i32; }
+trait B { fn b(&self) -> i32; }
+
+struct S { v: i32 }
+impl A for S { fn a(&self) -> i32 { return self.v; } }
+impl B for S { fn b(&self) -> i32 { return self.v + 1; } }
+
+fn use_dyn(x: &dyn A + B) -> i32 { return x.a(); }
+
+fn main() -> i32 {
+    let s = S { v: 10 };
+    return use_dyn(&s);
+}

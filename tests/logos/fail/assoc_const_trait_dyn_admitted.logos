@@ -1,0 +1,13 @@
+// Closed squeue assoc_const_trait_dyn_admitted (#569): dyn compatibility as Rust's: an associated const disqualifies (E0038), ADR 0030 S9 row 8.
+package assoc_const_trait_dyn_admitted;
+trait HasConst {
+    const N: i32 = 3;
+    fn f(self: &Self) -> i32;
+}
+pub struct S {}
+impl HasConst for S { fn f(self: &Self) -> i32 { 1 } }
+fn main() -> i32 {
+    let s = S {};
+    let d: &dyn HasConst = &s;
+    d.f()
+}

@@ -7124,7 +7124,7 @@ void SemaChecker::trait_vtable_layout(
         }
         if (tn != trait) upcast_supers.push_back(tn);
         for (auto& m : it->methods)
-            method_order.push_back({tn, &m});
+            if (!m.requires_sized_self) method_order.push_back({tn, &m});
     };
     walk(trait);
 }

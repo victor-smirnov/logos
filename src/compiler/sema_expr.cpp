@@ -10159,6 +10159,23 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
             }
         }
     }
+    if (tit) {
+        std::set<std::string> seen;
+        std::function<bool(const SemaTraitInfo*)> sized_only = [&](const SemaTraitInfo* t) {
+            if (!t || !seen.insert(trait_path(*t)).second) return false;
+            for (auto& m : t->methods)
+                if (m.name == method_name && m.requires_sized_self) return true;
+            for (auto& s : t->supertraits)
+                if (sized_only(trait_by_key(s.canonical_trait.empty() ? s.trait_name : s.canonical_trait)))
+                    return true;
+            return false;
+        };
+        if (sized_only(tit)) {
+            error(std::format("the `{}` method cannot be invoked on a trait object "
+                              "(it requires `Self: Sized`)", method_name));
+            return error_expr();
+        }
+    }
     error(std::format("trait '{}' has no method '{}'", tname, method_name));
     return error_expr();
 }

@@ -1,0 +1,1 @@
+its method `eq2` references `Self` in a parameter

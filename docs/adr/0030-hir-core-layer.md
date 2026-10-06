@@ -707,6 +707,39 @@ impl by identity, and no call at all without one (Rust; fields still drop),
 which also retires the case of a user `String` in `Vec<String>` reaching the
 stdlib `String`'s destructor through the fallback (mlir's package guard had
 been catching it). Census after: 0.
+Step D — vtable slots by impl identity: a slot is the item of the impl that
+implements the slot's trait (its supertrait closure's) for the impl's Self,
+read off that impl's METHOD_SYMBOLS by declared name; at an instance of a
+generic impl, the function mono cloned from one of those templates — a mono
+instance now carries its template (`decl_keys::ORIGIN`). A generic impl answers
+at each instance of its target, a concrete impl only at its own (every impl
+of `Sub` used to be resolved at every `Saturating<T>` instance). Deleted: the
+name-matched `resolve_methods` (method base + target prefix + package
+preference) and the invented `<target>__<method>` slot. Census of the two
+side by side over the dyn / vtable fixtures: 8785 disagreements before the
+ORIGIN key, 118 after, all explained — the name matcher filled `dyn Debug` /
+`UpperHex` / `Octal` / `LowerHex` / `Binary` / `UpperExp` / `LowerExp` of a
+primitive with its `Display` impl's `fmt` (fixture
+`s9_dyn_vtable_slot_by_impl`), a method-generic slot (`hash<H>`, `zip<U>`) is
+empty, and `dyn From<_>` / `dyn TryFrom<_>` over several impls of one type is
+keyed without its trait arguments by both (residue). Seen: the vtable pass
+resolves every impl of every trait at every instance of its target in every
+compile (Iterator: ~237k slot resolutions in one program) — a performance
+residue for this row.
+Step E — the vtable layout and dyn compatibility agree, as Rust's: the vtable
+holds exactly the dispatchable methods (a `where Self: Sized` method has no
+slot; ABI 0.59.0 — `Ord`'s vtable is `[cmp]`), and a trait is dyn compatible
+when every supertrait is, `Sized` is not a supertrait, no supertrait argument
+names `Self` (a defaulted `Rhs = Self` included), it has no associated const
+(squeue #569 closed) and no GAT, and each slot's method is dispatchable — `Self`
+nowhere in its parameters but the receiver (the old check saw only a by-value
+`Self`). Calling a `where Self: Sized` method on a trait object is refused with
+rustc's sentence. `dyn A + B` with a non-auto `B` is E0225 (squeue #583
+closed). Mono's dyn-receiver retarget (`C: ?Sized + Tr` instantiated at
+`dyn Tr`) kept a private slot order — the trait's own methods by bare name,
+no supertraits — and now reads the trait's vtable order like sema and mlir
+(fixture dyn-compatibility-sized-self-return-Self-b158 crashed on the first
+layout change). All six verdicts measured against rustc 1.98.1.
 
 ## S0–S7 gap audit (2026-10-01)
 
