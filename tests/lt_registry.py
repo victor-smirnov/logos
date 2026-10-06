@@ -320,6 +320,12 @@ SINGLETONS = {
         T('logos_09_ctr_leaf_descent',
           ['{tsrc}/ctr_leaf_descent_gate.sh', '{logosc}', '{tsrc}/pass/ctr_leaf_descent_count.logos', '{libdir}', '{tsrc}/callgrind_calls.py', 'bt_seek_at', 'bt_cur_next'],
           'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
+        # ADR 0020 §10 step 3 (#362) — THE PARITY GATE: a bound-key seek through
+        # the generated projection descends once, as the direct `find` does, and
+        # costs at most the gate's ceiling of it in instructions (callgrind).
+        T('logos_09_ctr_point_parity',
+          ['{tsrc}/ctr_point_parity_gate.sh', '{logosc}', '{tsrc}/pass/wql_ctr_point_parity.logos', '{libdir}', '{tsrc}/callgrind_calls.py'],
+          'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
         # ADR 0025 §2 (#341) — THE EMITTED SCAN RESOLVES EACH COLUMN ONCE PER BATCH:
         # `pdt_col` calls under callgrind = columns × leaf batches, not × rows.
         T('logos_09_ctr_col_hoist',

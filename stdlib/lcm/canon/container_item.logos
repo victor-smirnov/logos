@@ -1922,6 +1922,15 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 /// what keeps the borrow (see `advance`).
                 clo: u32,
                 chi: u32,
+                /// The LANDING's descent, kept (#362): the leaf block and row
+                /// index of ordinal `pat`, valid while `pok`. The first
+                /// `advance()` at that ordinal starts from it instead of
+                /// descending again, so a landed walk pays one descent per
+                /// leaf INCLUDING its landing — before, a point probe paid two.
+                pblk: *mut u8,
+                pidx: u32,
+                pat: u64,
+                pok: bool,
             }
             impl #bsid {
                 /// Land on the next LEAF and make its window current; `false` =
@@ -1962,45 +1971,44 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                     if self.at >= self.endr { return false; }
                     unsafe {
                         let cp: &#nm = &*self.c;
-                        let cu: #cid = cp.seek(self.at);      // ONE descent, per LEAF
-                        if !cu.valid() { return false; }
-                        let lf: #lid = #lid::adopt(cu.leaf_block());
-                        let lo: u32 = cu.leaf_idx();
+                        let mut blk: *mut u8 = self.pblk;
+                        let mut lo: u32 = self.pidx;
+                        if !(self.pok && self.at == self.pat) {
+                            let cu: #cid = cp.seek(self.at);      // ONE descent, per LEAF
+                            if !cu.valid() { return false; }
+                            blk = cu.leaf_block();
+                            lo = cu.leaf_idx();
+                        }
+                        let lf: #lid = #lid::adopt(blk);
                         let cnt: u32 = lf.count();
-                        let mut hi: u32 = cnt;
+                        // The window ends by ORDINAL (#362): every landing
+                        // computes `endr` exactly, so the rows this leaf owns
+                        // are `min(cnt - lo, endr - at)` — arithmetic. The key
+                        // bound used to be found again here by a binary search
+                        // over the leaf, a second search after the landing's
+                        // own; it is now CHECKED at the window's two edges
+                        // instead (O(1)): the last row is within the bound,
+                        // and a row cut off inside the leaf is past it.
+                        let avail: u64 = (cnt - lo) as u64;
+                        let rem: u64 = self.endr - self.at;
+                        let n: u64 = if rem < avail { rem } else { avail };
+                        assert(n > 0u64, "leaf batch: the leaf window is empty inside the landing");
+                        let hi: u32 = lo + (n as u32);
                         match self.hi {
                             Option::Some(h) => {
-                                // The bound lands INSIDE the leaf: one binary
-                                // search over the leaf's key column, not a
-                                // per-row compare. `lower_bound` is the first
-                                // key >= h; the walk's bound is inclusive, so
-                                // an equal run belongs to the window (the
-                                // loop runs zero times on unique keys, which
-                                // is what this family's upsert guarantees).
-                                let mut lb: u32 = lf.lower_bound(h);
-                                while lb < cnt && lf.key_at(lb) == h { lb = lb + 1u32; }
-                                hi = lb;
+                                assert(lf.key_at(hi - 1u32) <= h,
+                                       "leaf batch: the key bound and the ordinal bound disagree");
+                                if hi < cnt && self.at + n == self.endr {
+                                    assert(lf.key_at(hi) > h,
+                                           "leaf batch: the key bound and the ordinal bound disagree");
+                                }
                             }
                             Option::None => { }
                         }
-                        // `endr` said rows remain, so the trim must leave at
-                        // least one — if it does not, the ordinal bound and
-                        // the key bound disagree, and one of them is lying
-                        // about which rows this stream owns.
-                        assert(hi > lo, "leaf batch: the key bound and the ordinal bound disagree");
-                        let n: u64 = (hi - lo) as u64;
-                        self.nv = node_view_at(cu.leaf_block());
+                        self.nv = node_view_at(blk);
                         self.clo = lo;
                         self.chi = hi;
-                        if hi < cnt {
-                            // Trimmed inside the leaf ⇒ every later key exceeds
-                            // the bound ⇒ this is the last batch.
-                            assert(self.at + n == self.endr,
-                                   "leaf batch: key-trimmed window disagrees with the row count");
-                            self.at = self.endr;
-                        } else {
-                            self.at = self.at + n;
-                        }
+                        self.at = self.at + n;
                         return true;
                     }
                 }
@@ -2189,7 +2197,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 return #bsid { c: c as *const #nm, nv: node_view_at(cu.leaf_block()),
                                at: 0u64, base: 0u64,
                                endr: n, n0: n, hi: Option::None,
-                               clo: 0u32, chi: 0u32 };
+                               clo: 0u32, chi: 0u32,
+                               pblk: cu.leaf_block(), pidx: cu.leaf_idx(), pat: 0u64, pok: cu.valid() };
             }
             /// A POINT probe: the rows whose key equals `k` — at most one for
             /// this family, so the ordinal bound is the landing plus a hit.
@@ -2201,7 +2210,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 return #bsid { c: c as *const #nm, nv: node_view_at(cu.leaf_block()),
                                at: st, base: st,
                                endr: e, n0: e - st, hi: Option::Some(k),
-                               clo: 0u32, chi: 0u32 };
+                               clo: 0u32, chi: 0u32,
+                               pblk: cu.leaf_block(), pidx: cu.leaf_idx(), pat: st, pok: cu.valid() };
             }
             /// A SUFFIX of the key order: land on the lower bound in one
             /// descent, then take leaves to the end.
@@ -2213,7 +2223,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                                at: st, base: st,
                                endr: n,
                                n0: if n > st { n - st } else { 0u64 },
-                               hi: Option::None, clo: 0u32, chi: 0u32 };
+                               hi: Option::None, clo: 0u32, chi: 0u32,
+                               pblk: cu.leaf_block(), pidx: cu.leaf_idx(), pat: st, pok: cu.valid() };
             }
             /// A PREFIX of the key order: start at the first leaf and stop ON
             /// the bound. The extra `seek_key` here is the price of an honest
@@ -2241,7 +2252,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                 return #bsid { c: c as *const #nm, nv: node_view_at(c0.leaf_block()),
                                at: 0u64, base: 0u64,
                                endr: e, n0: e, hi: Option::Some(hi),
-                               clo: 0u32, chi: 0u32 };
+                               clo: 0u32, chi: 0u32,
+                               pblk: c0.leaf_block(), pidx: c0.leaf_idx(), pat: 0u64, pok: c0.valid() };
             }
         };
         unsafe { logos_emit_item_blob_subst(&lq); }
@@ -3456,6 +3468,11 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                 /// The absolute ordinal of the current window's row 0 — the
                 /// batch's `p0`. Held here because only the PULL knows it.
                 cp0: u64,
+                /// The LANDING's descent, kept (#362) — see the ordered arm.
+                pblk: *mut u8,
+                pidx: u32,
+                pat: u64,
+                pok: bool,
             }
             impl #bsid {
                 /// Land on the next LEAF and make its window current; `false` =
@@ -3469,13 +3486,19 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                     if self.at >= self.endr { return false; }
                     unsafe {
                         let cp: &#nm = &*self.c;
-                        let cu: #cid = cp.seek(self.at);      // ONE descent, per LEAF
-                        if !cu.valid() { return false; }
-                        let nv0: NodeView = node_view_at(cu.leaf_block());
+                        let mut blk: *mut u8 = self.pblk;
+                        let mut li: u32 = self.pidx;
+                        if !(self.pok && self.at == self.pat) {
+                            let cu: #cid = cp.seek(self.at);      // ONE descent, per LEAF
+                            if !cu.valid() { return false; }
+                            blk = cu.leaf_block();
+                            li = cu.leaf_idx();
+                        }
+                        let nv0: NodeView = node_view_at(blk);
                         // The leaf's row count through the SLOT, not through an
                         // adopted leaf type: this family has none.
                         let cnt: u64 = nv0.col(0u32).size();
-                        let lo: u64 = cu.leaf_idx() as u64;
+                        let lo: u64 = li as u64;
                         let avail: u64 = cnt - lo;
                         let rem: u64 = self.endr - self.at;
                         let mut hi: u64 = cnt;
@@ -3621,7 +3644,8 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                 let n: u64 = c.size();
                 return #bsid { c: c as *const #nm, nv: node_view_at(cu.leaf_block()),
                                at: 0u64, base: 0u64, endr: n, n0: n,
-                               clo: 0u32, chi: 0u32, cp0: 0u64 };
+                               clo: 0u32, chi: 0u32, cp0: 0u64,
+                               pblk: cu.leaf_block(), pidx: cu.leaf_idx(), pat: 0u64, pok: cu.valid() };
             }
             /// A POINT probe on POSITION: at most one row, so the ordinal bound
             /// is the landing plus a hit. `pi: i64` — the emitter types the
@@ -3636,7 +3660,8 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                 if cu.valid() { e = p + 1u64; }
                 return #bsid { c: c as *const #nm, nv: node_view_at(cu.leaf_block()),
                                at: p, base: p, endr: e, n0: e - p,
-                               clo: 0u32, chi: 0u32, cp0: p };
+                               clo: 0u32, chi: 0u32, cp0: p,
+                               pblk: cu.leaf_block(), pidx: cu.leaf_idx(), pat: p, pok: cu.valid() };
             }
             /// A SUFFIX: land on the position in one descent, then take leaves
             /// to the end. EXACT for `>=`.
@@ -3647,7 +3672,8 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                 let st: u64 = if p > n { n } else { p };
                 return #bsid { c: c as *const #nm, nv: node_view_at(cu.leaf_block()),
                                at: st, base: st, endr: n, n0: n - st,
-                               clo: 0u32, chi: 0u32, cp0: st };
+                               clo: 0u32, chi: 0u32, cp0: st,
+                               pblk: cu.leaf_block(), pidx: cu.leaf_idx(), pat: p, pok: cu.valid() && p <= n };
             }
             /// A PREFIX, INCLUSIVE of the bound — the walk stops ON the
             /// position, which is what makes it EXACT for `<=`. The bound is an
@@ -3659,7 +3685,8 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                 let e: u64 = if pi < 0i64 { 0u64 } else if pi as u64 >= n { n } else { pi as u64 + 1u64 };
                 return #bsid { c: c as *const #nm, nv: node_view_at(c0.leaf_block()),
                                at: 0u64, base: 0u64, endr: e, n0: e,
-                               clo: 0u32, chi: 0u32, cp0: 0u64 };
+                               clo: 0u32, chi: 0u32, cp0: 0u64,
+                               pblk: c0.leaf_block(), pidx: c0.leaf_idx(), pat: 0u64, pok: c0.valid() };
             }
             /// The same four landings AS METHODS. The declaration plane names
             /// FREE fns, but a family's type has no spelling a human can write

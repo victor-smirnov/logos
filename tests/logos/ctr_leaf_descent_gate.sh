@@ -48,18 +48,19 @@
 #
 # THE CLAIMS (all exact — a tolerance here would absorb exactly the regression
 # this exists to catch):
-#   1. batch descents  == leaf count            (per leaf …)
+#   1. batch descents  == leaf count - 1        (per leaf; the first is the
+#      landing's, whose cursor the first `advance` reuses since #362)
 #   2. leaf count      == the row walk's own boundary crossings (independent)
 #   3. leaf count      == LEAVES declared by the fixture, and >= 3
 #   4. row-cursor steps == N declared by the fixture           (… not per row)
 #   5. batch pulls     == leaves + 1            (the terminating None, no more)
-#   6. TOTAL descents in the whole program == 3*leaves + 3 — the forward batch
-#      scan's landing + its per-leaf advances, the oracle's `seek(0)` + its
+#   6. TOTAL descents in the whole program == 3*leaves + 2 — the forward batch
+#      scan's landing + its advances past the first leaf, the oracle's `seek(0)` + its
 #      boundary crossings, and the BACKWARD scan's landing + its per-leaf
 #      retreats. This is the clause that closes "something else descends": any
 #      third route to the descent primitive breaks it — INCLUDING a `land_end`
 #      that finds the end by descending instead of by ordinal arithmetic, which
-#      was run as a control and reds HERE (28 vs 27 ordered, 40 vs 39
+#      was run as a control and reds HERE (pre-#362 counts: 28 vs 27 ordered, 40 vs 39
 #      positional) and not at clause 9. See clause 9's note.
 #
 # ── THE BACKWARD CLAIMS (ADR 0025 S3-desc), 7-9 ────────────────────────────
@@ -236,9 +237,16 @@ echo "measured: leaves(batch)=$BATCH_DESCENTS leaves(row-oracle)=$ROW_DESCENTS" 
 fail() { echo "FAIL(1): $1"; exit 1; }
 
 # 1/3 — per leaf, and the leaf count is the one the fixture is about.
-[ "$BATCH_DESCENTS" = "$WANT_LEAVES" ] || fail \
-    "the batch scan descended $BATCH_DESCENTS times over $WANT_LEAVES leaves —
-         ADR 0025 §5 says ONE descent per leaf. $ROW_STEPS would be per ROW."
+# The FIRST leaf is the landing's: since #362 the walk keeps the landing's
+# cursor and its first `advance()` does not descend again, so `advance` pays
+# one descent per leaf AFTER the first — LEAVES - 1 — and the scan as a whole
+# (landing + advances) exactly one per leaf. Before #362 it was LEAVES + 1.
+WANT_ADV=$((WANT_LEAVES - 1))
+[ "$BATCH_DESCENTS" = "$WANT_ADV" ] || fail \
+    "the batch scan's advances descended $BATCH_DESCENTS times over $WANT_LEAVES leaves —
+         ADR 0025 §5 says ONE descent per leaf, the first one paid by the landing
+         ($WANT_ADV). $ROW_STEPS would be per ROW; $WANT_LEAVES means the landing's
+         cursor was dropped and the first leaf descended twice."
 [ "$WANT_LEAVES" -ge 3 ] 2>/dev/null || fail \
     "the fixture spans $WANT_LEAVES leaves; below 3 the per-leaf claim is vacuous."
 # 2 — the independent leaf count agrees.
@@ -281,17 +289,17 @@ EXP_REV_PULLS=$((WANT_LEAVES + 1))
          \`land_end\` re-derived as a descent or a skip loop was MEASURED to
          leave this number at 2 and to red clause 6 instead. See the header."
 # 6 — no third route descends.
-EXP_TOTAL=$((3 * WANT_LEAVES + 3))
+EXP_TOTAL=$((3 * WANT_LEAVES + 2))
 [ "$TOTAL_DESCENTS" = "$EXP_TOTAL" ] || fail \
     "the program made $TOTAL_DESCENTS root-to-leaf descents in total; expected
-         $EXP_TOTAL = the forward batch scan's landing (1) + its $WANT_LEAVES
-         per-leaf advances, the oracle's seek(0) (1) + its $WANT_LEAVES boundary
+         $EXP_TOTAL = the forward batch scan's landing (1) + its $WANT_ADV
+         advances past the landing's leaf, the oracle's seek(0) (1) + its $WANT_LEAVES boundary
          crossings, and the backward scan's landing (1) + its $WANT_LEAVES
          per-leaf retreats. A different total means some OTHER path descends, and
          the per-caller numbers above no longer account for the cost."
 
-echo "OK: ADR 0025 §5 — $ROW_STEPS rows scanned in $BATCH_DESCENTS descents"
+echo "OK: ADR 0025 §5 — $ROW_STEPS rows scanned in 1 + $BATCH_DESCENTS descents"
 echo "    ($WANT_LEAVES leaves), against $ROW_STEPS per-row container calls on the"
 echo "    oracle side; §3 — the same $WANT_LEAVES descents BACKWARD after a landing"
-echo "    that cost none; total descents $TOTAL_DESCENTS = 3*$WANT_LEAVES+3, fully accounted."
+echo "    that cost none; total descents $TOTAL_DESCENTS = 3*$WANT_LEAVES+2, fully accounted."
 exit 0
