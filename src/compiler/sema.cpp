@@ -1622,8 +1622,32 @@ static std::string_view pkg_owning_module_id(std::string_view pkg) {
 // Uniquely-named legacy path: stdlib (`logos.*`) is globally unique by name → no
 // suffix; a non-stdlib module type takes the plain "$M<module_id>" coexistence
 // suffix (same-package-across-separately-compiled-modules distinctness).
+// ADR 0030 S9 row 8 step H (transition switch, deleted when it is the only
+// rule): LOGOS_FOLD_ALL folds the declaring package into every nominal type's
+// spelling, independent of which names the program finds ambiguous.
+static bool fold_all_types() {
+    static const bool on = std::getenv("LOGOS_FOLD_ALL") != nullptr;
+    return on;
+}
+static std::string pkg_fold_code(std::string_view pkg) {
+    std::string_view mid = pkg_owning_module_id(pkg);
+    uint64_t h = 1469598103934665603ull;           // FNV-1a 64 offset basis
+    auto mix = [&h](std::string_view s) {
+        for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }  // FNV prime
+    };
+    if (!mid.empty() && !(pkg.size() >= 6 && pkg.substr(0, 6) == "logos.")) {
+        mix(mid);
+        mix(std::string_view("\x1f", 1));
+    }
+    mix(pkg);
+    char buf[24];
+    std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
+    return std::string(buf);
+}
+
 std::string type_module_suffix(std::string_view name, std::string_view pkg) {
     if (pkg.empty()) return {};
+    if (fold_all_types()) return pkg_fold_code(pkg);
     if (g_ambiguous_type_names && !name.empty() &&
         g_ambiguous_type_names->count(std::string(name))) {
         std::string_view mid = pkg_owning_module_id(pkg);
@@ -1676,7 +1700,7 @@ std::string type_module_suffix(std::string_view name, std::string_view pkg) {
 // before, so the archived symbol set and the abi are untouched
 // (`scripts/abi-check.sh`: ADDED 0, ABI-PRESERVING).
 std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_view pkg) {
-    if (pkg.empty() || name.empty()) return {};
+    if (pkg.empty() || name.empty() || fold_all_types()) return {};
     if (!g_ambiguous_type_names || !g_ambiguous_type_names->count(std::string(name)))
         return {};
     if (!type_module_suffix(name, pkg).empty()) return {};  // already folded

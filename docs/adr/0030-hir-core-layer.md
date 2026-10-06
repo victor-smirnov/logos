@@ -277,6 +277,7 @@ named reasons. Each step declares a diff budget before it starts.
 | S9 | C-OBL + impl identities + one mangler (PAIR, ABI bump) | S8 |
 | L0 | `#[lang = "…"]` attribute; `lang_item → DefId` table at collection; missing/duplicate is an error; the 11 package-path sites (`k*LangPkg`) and the stdlib names the macro expansions spell bare (`String`, `Formatter`, `fmt_*`, `vec_from_arr`, `vec_from_elem`, `vec_new`; R0 pinned them in key_identity.ledger) move onto it (Q6) | — |
 | S9a | Rust-shaped `Iterator { type Item }`, `Try { type Output; type Residual }`, `FromResidual<R>` | S9 |
+| S9b | sema's function / method registries keyed by DefId (no lookup composes `<type>__<method>`), then the type encoder folds the declaring package unconditionally (`LOGOS_FOLD_ALL` becomes the rule, the ambiguous-name set is deleted); priced 2026-10-06: 491 L0 reds with the fold on | S9 |
 | S10 | HIR `for`, `?`, comprehensions via lang items; C-CLO rest | S8, S9a, L0 |
 
 Retirement is measured, not asserted: each step reports the number of sema
@@ -800,15 +801,20 @@ cluster `dyn-eq-operator-builtin`, fixtures s9_dyn_eq_by_partial_eq_impl,
 s9_dyn_eq_without_impl). No mono BinOp compound rewrite remains: a type
 parameter's `op=` is the method call sema emits.
 
-S9 STATE 2026-10-06: rows (1)–(7) and (9) done; row (8) done but for one
-residue, which keeps S9 open — the type encoder is not universe-independent.
-Whether an ambiguous type's spelling carries `$M<hash>` depends on which names
-are ambiguous in the program being compiled: across phases (collect mints
-before the set exists) and across modules (mem's archive is built in a smaller
-universe than lcm, so one function's key differs between the two builds). Next
-step (H): the type-argument spelling folds the declaring package always, as
-Rust's crate disambiguator — no set — and the encoder's consumers that parse
-names (`find("$G")` / `find("$M")`: 65 sites) are censused first.
+S9 CLOSED BY ROW 2026-10-06: rows (1)–(9) closed; one residue MOVED to a new
+step S9b — the type encoder is not universe-independent. Whether an ambiguous
+type's spelling carries `$M<hash>` depends on which names are ambiguous in the
+program being compiled: across phases (collect mints before the set exists)
+and across modules (mem's archive is built in a smaller universe than lcm, so
+one function's key differs between the two builds). Priced (step H): the
+declaring package folded into every nominal type's spelling, as Rust's crate
+disambiguator, with no set — the transition switch `LOGOS_FOLD_ALL` in
+type_module_suffix — turns 491 of 8032 L0 tests red (run 1370); the first class
+is sema's method lookups composed as `concrete_struct_name(t) + "__" + method`
+against a registry keyed by the bare declared name (operator dispatch, drop
+glue, Iterator adapters). Each is a lookup by spelling where an identity
+exists; removing them is the registries' rewrite to DefId keys, an order of
+magnitude over row (8)'s budget — a re-plan, step S9b.
 
 ## S0–S7 gap audit (2026-10-01)
 
