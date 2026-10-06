@@ -36,6 +36,73 @@ void Mono::ensure_blanket_tmpl_index() {
     }
 }
 
+// Drain every worklist to a fixpoint: functions, methods, struct and enum
+// instances (each may demand more of the others).
+void Mono::drain_all_() {
+    while (!method_worklist_.empty() || !worklist_.empty() || !needed_struct_insts_.empty()) {
+        drain_method_worklist();
+        while (!worklist_.empty()) {
+            auto item = std::move(worklist_.back());
+            worklist_.pop_back();
+            depth_ = item.depth;
+            if (binary_has_link(item.mangled, item.tmpl.package())) {
+                auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
+                stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
+                out_.functions.push_back(stub.view<lir_view::FunctionView>());
+                continue;
+            }
+            auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
+            auto inst_v = inst.view<lir_view::FunctionView>();
+            out_.functions.push_back(inst_v);
+            scan_fn(inst_v);
+        }
+        if (!needed_struct_insts_.empty()) instantiate_struct_templates();
+        instantiate_enum_templates();
+        depth_ = 0;
+    }
+}
+
+// ADR 0030 S9 row 8: Self's vtable as `dyn trait<args>` is needed. Recorded
+// once per key; its supertraits' vtables (the stored upcast slots) with it.
+void Mono::demand_vtable_(std::string trait, std::vector<TypeRef> args, TypeRef self) {
+    if (!self || contains_typevar(self)) return;
+    for (auto a : args) if (!a || contains_typevar(a)) return;
+    if (!vtable_demand_seen_.insert(vtable_key(trait, args, self)).second) return;
+    vtable_demand_.push_back({std::move(trait), std::move(args), self});
+}
+
+// Each demanded vtable's slots, in the trait's vtable order: the item of the
+// impl C-OBL selects for the slot's trait at Self (trait_item_symbol_, which
+// instantiates it). Instantiation can reach new coercions, so this runs to a
+// fixpoint. A slot no impl answers stays empty; mlir refuses to dispatch it.
+void Mono::fill_vtables_() {
+    auto trait_decl = [&](std::string_view t) -> lir_view::TraitView {
+        for (auto& td : out_.traits) {
+            if (td.name() == t) return td;
+            if (!td.pkg().empty() && t.size() == td.pkg().size() + 2 + td.name().size() &&
+                t.starts_with(td.pkg()) && t.substr(td.pkg().size(), 2) == "::" && t.ends_with(td.name()))
+                return td;
+        }
+        return {};
+    };
+    for (size_t i = 0; i < vtable_demand_.size(); ++i) {
+        const VtableDemand d = vtable_demand_[i];
+        lir_view::TraitView td = trait_decl(d.trait);
+        if (!td) continue;
+        std::vector<std::string> slots;
+        for (auto& [owner, mname] : td.vtable_method_order()) {
+            const bool own = owner == td.name() || owner == d.trait;
+            slots.push_back(trait_item_symbol_(own ? std::string_view(d.trait) : owner, d.self, mname, -1,
+                                               nullptr, own ? &d.args : nullptr));
+            if (TypeRef(d.self).kind() == LogosType::Kind::Struct && !TypeRef(d.self).type_args().empty())
+                enqueue_method_inst(d.self, std::string(mname));
+        }
+        out_.vtables[vtable_key(d.trait, d.args, d.self)] = std::move(slots);
+        for (auto sup : td.upcast_supertraits()) demand_vtable_(std::string(sup), {}, d.self);
+        drain_all_();
+    }
+}
+
 void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
                                     const std::string& tmpl_prefix,
                                     const std::string& concrete, TypeRef candidate_t) {
@@ -842,73 +909,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     }
     depth_ = 0;
 
-    // Supplementary blanket pass: scan_fn (above) recorded every concrete type
-    // coerced to a `dyn Trait` that the eager blanket pass misses — PRIMITIVES
-    // (`&i64 as &dyn Any`) and GENERIC STRUCT INSTANTIATIONS (`&Box<i64> as &dyn`,
-    // created later by instantiate_struct_templates). Instantiate each blanket
-    // ONLY for those actually-coerced targets (a sema-validated coercion means the
-    // type satisfies any bound; done_ dedups types the eager loop already did).
-    // The collected TypeRef drives the substitution directly, so the target need
-    // not yet exist in out_.structs. Then drain the new worklist items.
-    // (Runs in prune mode too: dyn_coerced_targets_ is populated by scan_fn
-    // over the reachable closure, so this instantiates blanket methods only
-    // for types actually coerced to `dyn` by reachable code — needed or the
-    // vtable slot stays null and dispatch jumps to 0x0.)
-    if (!dyn_coerced_targets_.empty()) {
-        for (auto& bi : blanket_impls_) {
-            auto pit = dyn_coerced_targets_.find(bi.trait_name);
-            if (pit == dyn_coerced_targets_.end()) continue;
-            std::string tmpl_prefix =
-                "$blanket$" + bi.trait_name + "$" + bi.bound_trait
-                + "$" + bi.target_typevar + "__";
-            for (auto& [nm, tref] : pit->second) {
-                // The scan over-collects coerced targets: generic container
-                // code (Vec etc.) emits raw-buffer reinterprets like
-                // `*const u8 as &dyn Trait` that look like a dyn-coercion but
-                // are not — their pointee (u8) does NOT satisfy the blanket's
-                // bound. Instantiating the blanket for it clones e.g. `u8__d`
-                // whose `self.tag()` resolves to a nonexistent `u8__tag` →
-                // MLIR verify failure. Mirror the eager pass's bound filter:
-                // instantiate only for targets that actually satisfy the bound.
-                if (tref) {
-                    if (!bi.bound_trait.empty()) {
-                        StrSet seen;
-                        if (!mono_concrete_satisfies_bound(
-                                TraitQuery(bi.bound_trait, bi.identity_bound_trait),
-                                tref, seen))
-                            continue;
-                    }
-                    bool extra_ok = true;
-                    for (size_t ei = 0; ei < bi.extra_bounds.size(); ++ei) {
-                        StrSet seen;
-                        TraitQuery eb(bi.extra_bounds[ei],
-                                      ei < bi.identity_extra_bounds.size()
-                                          ? bi.identity_extra_bounds[ei] : std::string());
-                        if (!mono_concrete_satisfies_bound(eb, tref, seen)) { extra_ok = false; break; }
-                    }
-                    if (!extra_ok) continue;
-                }
-                enqueue_blanket_concrete(bi, tmpl_prefix, nm, tref);
-            }
-        }
-        while (!worklist_.empty()) {
-            auto item = std::move(worklist_.back());
-            worklist_.pop_back();
-            depth_ = item.depth;
-            if (binary_has_link(item.mangled, item.tmpl.package())) {
-                auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
-                stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
-                out_.functions.push_back(stub.view<lir_view::FunctionView>());
-                continue;
-            }
-            auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
-            auto inst_v = inst.view<lir_view::FunctionView>();
-            out_.functions.push_back(inst_v);
-            scan_fn(inst_v);
-        }
-        depth_ = 0;
-    }
-
     // Demand instantiation of generic structs declared via #[type_code=N] eidos Foo<T>;
     // even when no Logos code directly references Foo<T> as a variable type.
     // This ensures that blanket trait-impl methods (e.g. `impl<T> WritStringify for
@@ -1099,28 +1099,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             }
         }
         // Re-drain — methods may transitively pull in more functions/methods.
-        while (!method_worklist_.empty() || !worklist_.empty() ||
-               !needed_struct_insts_.empty()) {
-            drain_method_worklist();
-            while (!worklist_.empty()) {
-                auto item = std::move(worklist_.back());
-                worklist_.pop_back();
-                depth_ = item.depth;
-                if (binary_has_link(item.mangled, item.tmpl.package())) {
-                    auto stub = clone_fn_signature(item.tmpl, item.subst, item.packs);
-                    stub.str_always(lir_schema::decl_keys::NAME, item.mangled);
-                    out_.functions.push_back(stub.view<lir_view::FunctionView>());
-                    continue;
-                }
-                auto inst = instantiate_fn(item.tmpl, item.mangled, item.subst, item.packs);
-                auto inst_v = inst.view<lir_view::FunctionView>();
-                out_.functions.push_back(inst_v);
-                scan_fn(inst_v);
-            }
-            if (!needed_struct_insts_.empty()) instantiate_struct_templates();
-            instantiate_enum_templates();
-            depth_ = 0;
-        }
+        drain_all_();
     }
 
     // Emit dispatch entries for generic-trait-impls over generic structs
@@ -1188,6 +1167,8 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             }
         }
     }
+
+    fill_vtables_();
 
     out_.diags          = std::move(in_.diags);
     out_.binary_symbols = std::move(in_.binary_symbols);

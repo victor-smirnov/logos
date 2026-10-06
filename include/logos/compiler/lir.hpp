@@ -837,6 +837,12 @@ struct LProgram {
     // argument when it clones the function, which rewrites every node's type.
     std::unordered_map<std::string, std::vector<std::pair<std::string, TypeRef>>> infer_substs;
 
+    // ADR 0030 S9 row 8 (mono → mlir, in-process): the vtable of every
+    // (trait, Self) a dyn coercion names, by vtable_key: the function each
+    // slot of the trait's vtable order calls (L-IR names; "" = no impl item
+    // answers). mono fills it from the impl C-OBL selects; mlir lays it out.
+    std::unordered_map<std::string, std::vector<std::string>> vtables;
+
     // ADR 0007 slice 1c: pools for WritVal / EClosure. Append-only,
     // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME
     // underlying deque (SemaCache holds a ref so cached raw handles survive past

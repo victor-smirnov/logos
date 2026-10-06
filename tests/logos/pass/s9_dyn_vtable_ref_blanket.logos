@@ -1,0 +1,19 @@
+// ADR 0030 S9 row 8 (gap no-vtable-str-literal-to-dyn): the vtable of `&str` / `&i64` as
+// `dyn Display` is the blanket `impl Display for &T` instantiated on demand. mlir used to stop
+// with "no vtable for &[u8] as &dyn Display". rustc 1.98.1 prints lit / 4.
+package s9_dyn_vtable_ref_blanket;
+use logos.mem.fmt;
+use logos.std.fmt;
+use logos.std.io;
+fn show(d: &dyn Display) -> String { return format!("{}", d); }
+fn main() -> i32 {
+    let d: &dyn Display = &"lit";
+    let k: i64 = 4;
+    let r = &k;
+    let e: &dyn Display = &r;
+    let a: String = show(d);
+    println_string(&a);
+    let b: String = show(e);
+    println_string(&b);
+    0
+}

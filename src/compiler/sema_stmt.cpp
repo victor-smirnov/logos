@@ -1930,6 +1930,12 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
                         TypeRef at = expr_type(addr);
                         addr = builder().addr_of_temp(std::move(addr), false, make_ref(false, at), BorrowOrigin::Explicit);
                     }
+                    // The annotation is judged, as at every let: `let x: &dyn Tr =
+                    // &C { .. };` unsizes here, explicitly (ADR 0030 S4 / S9 row 8 —
+                    // the vtable is demanded by the cast).
+                    if (ann && TypeRef(ann).kind() != LogosType::Kind::Error)
+                        expect_type(addr, ann, CoercePos::LetInit,
+                                    std::format("let '{}': type mismatch —", name));
                     lir::SLet sl_user;
                     sl_user.name   = std::string(name);
                     sl_user.type   = ann ? ann : expr_type(addr);

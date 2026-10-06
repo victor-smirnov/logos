@@ -6820,8 +6820,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11962 -> 11963 (+1), NOIMPORTED 7403 -> 7404 (+1), TIERCOMMIT 197 -> 197 (+0) — 2026-10-04: fixture s9_match_enum_binding_reassigned.
 #                ALL 11963 -> 11964 (+1), NOIMPORTED 7404 -> 7405 (+1), TIERCOMMIT 197 -> 197 (+0) — 2026-10-04: fixture s9_dyn_vtable_slot_by_impl.
 #                ALL 11964 -> 11970 (+6), NOIMPORTED 7405 -> 7411 (+6), TIERCOMMIT 197 -> 195 (-2) — 2026-10-04: pass fixture s9_dyn_sized_only_method_excluded; fail s9_dyn_{sized_only_method_call,self_in_param,sized_supertrait,supertrait_generic_method,supertrait_self_arg} and the closed squeue rows assoc_const_trait_dyn_admitted, dyn_second_nonauto_trait_admitted (tier-commit -2).
-REGISTRY-ALL         11970
-REGISTRY-NOIMPORTED  7411
+#                ALL 11970 -> 11972 (+2), NOIMPORTED 7411 -> 7413 (+2), TIERCOMMIT 195 -> 195 (+0) — 2026-10-04: fixtures s9_dyn_vtable_by_trait_args, s9_dyn_vtable_ref_blanket.
+#                ALL 11972 -> 11973 (+1), NOIMPORTED 7413 -> 7414 (+1), TIERCOMMIT 195 -> 195 (+0) — 2026-10-04: fixtures s9_dyn_vtable_by_trait_args, s9_dyn_vtable_ref_blanket, s9_dyn_let_borrowed_temp.
+REGISTRY-ALL         11973
+REGISTRY-NOIMPORTED  7414
 REGISTRY-TIERCOMMIT  195
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

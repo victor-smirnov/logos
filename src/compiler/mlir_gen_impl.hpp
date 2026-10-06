@@ -909,8 +909,9 @@ private:
     // emitted global symbol name.
     std::unordered_map<std::string, std::string> writ_lit_global_cache_;
 
-    // "Trait::Type" → mangled method names in vtable slot order
-    std::unordered_map<std::string, std::vector<std::string>> dyn_vtable_methods_;
+    // vtable_key → the link names of the vtable's method slots (mono's
+    // LProgram::vtables record, ADR 0030 S9 row 8).
+    std::unordered_map<std::string, std::vector<std::string>> vtable_slots_;
     // "Trait::Type" → symbol name of the STATIC vtable global (emitted once,
     // `[N x ptr]` of method addresses). A `&dyn` coercion takes its address
     // instead of malloc'ing+filling a fresh vtable per coercion (the recurring
@@ -923,13 +924,8 @@ private:
     // valid) → a true `.data.rel.ro`/`.rodata` static vtable. Carried to the
     // pipeline via the `logos.vtable_specs` module attribute set in generate().
     std::vector<std::pair<std::string, std::vector<std::string>>> dyn_vtable_specs_;
-    // Trait name → its method names in vtable slot order, and whether the
-    // trait has a blanket impl (`impl<T> Trait for T`). Used by
-    // build_inline_vtable to synthesize a `<Concrete>__<method>` vtable on the
-    // fly when a concrete type reaches `&dyn Trait` only through a blanket
-    // (whose impl block registered the typevar target, not each concrete).
+    // Trait name → its method names in vtable slot order (the upcast slot index).
     std::unordered_map<std::string, std::vector<std::string>> trait_method_names_;
-    std::unordered_set<std::string> blanket_traits_;
     // Trait name → ordered transitive supertraits (LTraitDef.upcast_supertraits,
     // single-sourced by sema). Drives the stored super-vtable-pointer slots that
     // each `dyn Trait` vtable carries after its method slots, and the upcast
@@ -1880,7 +1876,8 @@ private:
     mlir::Value build_inline_vtable(std::string_view trait_name,
                                      std::string_view type_name,
                                      TypeRef concrete_ty = {},
-                                     std::string_view trait_pkg = {});
+                                     std::string_view trait_pkg = {},
+                                     const std::vector<TypeRef>& trait_args = {});
     // Ensure the `[N x ptr]` vtable global for (trait, type) exists (placeholder
     // + recorded spec) and return its symbol; "" if no methods are registered.
     // build_inline_vtable = ensure_vtable_global + AddressOf. Recurses to build
@@ -1888,7 +1885,8 @@ private:
     std::string ensure_vtable_global(std::string_view trait_name,
                                      std::string_view type_name,
                                      TypeRef concrete_ty,
-                                     std::string_view trait_pkg = {});
+                                     std::string_view trait_pkg = {},
+                                     const std::vector<TypeRef>& trait_args = {});
     // Build a fat {data,vtable} pair. `heap=false` (default) → stack alloca:
     // used for borrow `&dyn`/`&mut dyn` (value-fat-pair model; no leak). The
     // CONSUMER copies the 16 bytes when it escapes (struct field / array /
@@ -1900,6 +1898,7 @@ private:
                                std::string_view src_type_name,
                                TypeRef concrete_ty = {},
                                std::string_view trait_pkg = {},
+                               const std::vector<TypeRef>& trait_args = {},
                                std::source_location sl = std::source_location::current());
     // G168-A: unsize-coerce a concrete `Box<Concrete>` / `&Concrete` / struct
     // value into a fat `{data,vtable}` handle when the destination SLOT is a
