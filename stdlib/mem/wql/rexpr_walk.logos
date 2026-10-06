@@ -1481,6 +1481,7 @@ fn emit_stream_direct(fn_name: str, params_text: str, tps: str, elem_ty: str,
     let mut lenx: String = String::new();
     batch_len_text_at(&mut lenx, rowmaj, string_as_str(&s_bb));
     let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+    let hoist_f: ExprBlob = batch_hoist_frag_at(prm, rel_ix, rowmaj, string_as_str(&s_bb));
     let vnm:   Ident    = Ident::new(var_name);
     let row_f: ExprBlob = parse_type(row_ty);
     let bind_f: ExprBlob = batch_row_bind_frag(rowmaj, vnm, row_f, rowe_f, n_br);
@@ -1523,6 +1524,7 @@ fn emit_stream_direct(fn_name: str, params_text: str, tps: str, elem_ty: str,
                     {
                         let #n_bb = #n_ob.unwrap();
                         let #n_bn: u64 = #(lene_f);
+                        #(hoist_f);
                         let mut #n_bj: u64 = 0u64;
                         self.sc.clear();
                         while #n_bj < #n_bn {
@@ -2567,6 +2569,18 @@ fn slice_stream_wrap_frag(row_ty: str, src_name: str, k: i64) -> ExprBlob {
 //
 // ONE FUNCTION, both pull directions: forward and backward differ in the loop,
 // never in what a row is.
+
+// ADR 0025 §2 (#341) — the column hoist (`params::batch_hoist_text_at`) as a
+// spliceable STATEMENT fragment: `#(f);` inlines its `let`s into the enclosing
+// batch scope (`parse_block`'s statement slot), so the row text below reads them.
+fn batch_hoist_frag_at(prm: &MacroParams, r: i64, rowmaj: bool, bvar: str) -> ExprBlob {
+    let mut t: String = String::new();
+    t.push_str("{ ");
+    batch_hoist_text_at(&mut t, prm, r, rowmaj, bvar);
+    t.push_str("}");
+    return parse_block(string_as_str(&t));
+}
+
 fn batch_row_bind_frag(rowmaj: bool, vnm: Ident, row_f: ExprBlob,
                        rowe_f: ExprBlob, n_br: Ident) -> ExprBlob {
     if rowmaj {
@@ -2634,6 +2648,7 @@ fn batch_scan_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
     let mut lenx: String = String::new();
     batch_len_text_at(&mut lenx, rowmaj, string_as_str(&s_bb));
     let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+    let hoist_f: ExprBlob = batch_hoist_frag_at(prm, r, rowmaj, string_as_str(&s_bb));
     let bind_f: ExprBlob = batch_row_bind_frag(rowmaj, vnm, row_f, rowe_f, n_br);
     return quote_block! {
         loop {
@@ -2643,6 +2658,7 @@ fn batch_scan_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
                 {
                     let #n_bb = #n_ob.unwrap();
                     let #n_bn: u64 = #(lene_f);
+                    #(hoist_f);
                     let mut #n_bj: u64 = 0u64;
                     while #n_bj < #n_bn {
                         #(brk_i);
@@ -2705,6 +2721,7 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
     let mut lenx: String = String::new();
     batch_len_text_at(&mut lenx, rowmaj, string_as_str(&s_bb));
     let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+    let hoist_f: ExprBlob = batch_hoist_frag_at(prm, r, rowmaj, string_as_str(&s_bb));
     let bind_f: ExprBlob = batch_row_bind_frag(rowmaj, vnm, row_f, rowe_f, n_br);
     return quote_block! {
         (#(src_f)).land_end();
@@ -2715,6 +2732,7 @@ fn batch_scan_rev_frag(prm: &MacroParams, r: i64, k: i64, src_f: ExprBlob,
                 {
                     let #n_bb = #n_ob.unwrap();
                     let #n_bn: u64 = #(lene_f);
+                    #(hoist_f);
                     let mut #n_bj: u64 = #n_bn;
                     while #n_bj > 0u64 {
                         #n_bj = #n_bj - 1u64;
@@ -4276,6 +4294,7 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
         let mut lenx: String = String::new();
         batch_len_text(&mut lenx, prm, bri, string_as_str(&s_bb));
         let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+        let hoist_f: ExprBlob = batch_hoist_frag_at(prm, bri, prm.rel_rowmaj[bri], string_as_str(&s_bb));
         plan_trace(src, "build-side batch pull", var,
                    "ADR 0025 R-D — streamed batch source on a join build side");
         // The row is bound to an OWNED local even on the row-major arm (where
@@ -4291,6 +4310,7 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
                         {
                             let #n_bb = #n_bo.unwrap();
                             let #n_bn: u64 = #(lene_f);
+                            #(hoist_f);
                             let mut #n_bj: u64 = 0u64;
                             while #n_bj < #n_bn {
                                 let #n_br: #(rowt) = #(rowe_f);

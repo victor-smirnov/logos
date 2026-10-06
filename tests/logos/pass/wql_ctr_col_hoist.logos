@@ -1,0 +1,102 @@
+// ADR 0025 §2 (#341) — THE EMITTED SCAN RESOLVES EACH COLUMN ONCE PER BATCH.
+//
+// A `deem` over a container family reads its rows through the family's typed
+// column views (`col_key()` / `col_val()` on the ordered arm, `col_pos()` /
+// `col_val()` on the vector arm), bound ABOVE the row loop; the cell read is
+// `<view>.at(j)`. Before #341 the row text was `bb.key_at(j)`, which resolves
+// the column's `(allocator, slot)` again for every cell.
+//
+// Run as a plain pass fixture this checks the ANSWER: both queries, every row,
+// against sums computed here. `logos_09_ctr_col_hoist` runs the same binary
+// under callgrind and checks the COST: a column is resolved once per column per
+// batch — 2 × LEAVES per ordered query, VLEAVES for the vector one (its `pos`
+// is arithmetic) — never once per cell. Both come from the constants below.
+package wql_ctr_col_hoist;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+pub container Vled {
+    kind vector;
+    entry { elem: u64 }
+    measure count;
+}
+
+const N: u64 = 1000u64;
+// The leaf count of this shape (1000 entries of two u64 columns), the same
+// shape `ctr_family_leaf_batches` measures.
+const LEAVES: u64 = 8u64;
+// The vector arm: 3000 one-column elements, the shape
+// `ctr_vec_leaf_descent_count` measures. Its `pos` column has no cell, so a
+// vector batch resolves ONE column (`val`).
+const VN: u64 = 3000u64;
+const VLEAVES: u64 = 12u64;
+
+pub deem all_rows(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e select (e.key, e.val)
+}
+
+pub deem big_vals(m: &<typeof(Led) as CtrFamily>::Handle) {
+    from m e where e.val >= 5000 select e.key
+}
+
+pub deem vec_rows(v: &<typeof(Vled) as CtrFamily>::Handle) {
+    from v r select (r.pos, r.val)
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 2u64, i * 10u64); i = i + 1u64; }
+
+    let a: Vec<(u64, u64)> = match all_rows(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != N as i64 { return 2i32; }
+    let mut ks: u64 = 0u64;
+    let mut vs: u64 = 0u64;
+    let mut j: i64 = 0i64;
+    while j < a.len() {
+        if a.get(j).0 != (j as u64) * 2u64 { return 3i32; }
+        if a.get(j).1 != (j as u64) * 10u64 { return 4i32; }
+        ks = ks + a.get(j).0; vs = vs + a.get(j).1;
+        j = j + 1i64;
+    }
+    if ks != N * (N - 1u64) { return 5i32; }
+    if vs != 5u64 * N * (N - 1u64) { return 6i32; }
+
+    // val >= 5000 ⇔ i >= 500: the upper half, keys 1000, 1002, …, 1998.
+    let b: Vec<u64> = match big_vals(&c)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if b.len() != (N / 2u64) as i64 { return 8i32; }
+    if b.get(0i64) != N { return 9i32; }
+    if b.get(b.len() - 1i64) != 2u64 * (N - 1u64) { return 10i32; }
+
+    let mut w = create_ctr::<typeof(Vled)>(&snap, 2u64);
+    let mut p: u64 = 0u64;
+    while p < VN { w.append(p * 10u64); p = p + 1u64; }
+    let r: Vec<(i64, u64)> = match vec_rows(&w)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if r.len() != VN as i64 { return 12i32; }
+    let mut q: i64 = 0i64;
+    while q < r.len() {
+        if r.get(q).0 != q { return 13i32; }
+        if r.get(q).1 != (q as u64) * 10u64 { return 14i32; }
+        q = q + 1i64;
+    }
+    return 0i32;
+}

@@ -24666,10 +24666,9 @@ void SemaChecker::emit_token_macro_item_site(
             // THIS, not from hardcoded type-name compares.
             blobs.push_back(pack_blob(natspec));
             // Slot 4 carries the ir_entry's own trailing text: for RelList the
-            // canonical rules TEXT (the mapping item's runtime artifact — the
-            // handler emits `<M>__rules() -> str` from it, so dynamically
-            // compiled queries can FUSE a statically declared mapping), for
-            // Program the deem's TYPE-PARAM list (re-emitted onto the generated
+            // canonical rules TEXT (the mapping handler reads none of it — a
+            // mapping emits no items, #353; fusion takes the rules from the
+            // `mappings_` pre-scan), for Program the deem's TYPE-PARAM list (re-emitted onto the generated
             // fn heads — one query per container family). Both are `rules_text`
             // at this seam; only the callee's reading of it differs.
             blobs.push_back(pack_blob(rules_text));
@@ -25658,10 +25657,13 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
                     mname, rn);
                 return false;
             }
-            if (ncols > 8) {
+            // The bound is the query plane's, not the mapping's: a rel row is
+            // a tuple, and tuple `Hash`/`Clone` stop at 12 (lang.hash), so the
+            // consuming deem refuses a 13th column after the splice anyway.
+            if (ncols > 12) {
                 out.err = std::format(
-                    "mapping '{}': rel '{}' has {} columns — at most 8 "
-                    "(current engine limit)", mname, rn, ncols);
+                    "mapping '{}': rel '{}' has {} columns — at most 12 (a rel "
+                    "row is a tuple, and tuple Hash stops at 12)", mname, rn, ncols);
                 return false;
             }
             if (!r.has_key(la::RAW_TEXT.code)) {
@@ -25685,12 +25687,6 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
         out.err = std::format(
             "mapping '{}': no `rel` declarations — a mapping is a set of "
             "rels (`rel name(col: ty, …) {{ … }}`)", mname);
-        return false;
-    }
-    if (out.rel_names.size() > 8) {
-        out.err = std::format(
-            "mapping '{}': {} rels — at most 8 per mapping (current engine "
-            "limit)", mname, out.rel_names.size());
         return false;
     }
     return true;

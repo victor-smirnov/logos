@@ -866,10 +866,12 @@ pub fn size_binding_text(out: &mut String, prm: &MacroParams, r: i64) {
 /// arrive in (`rel entry(key: K, val: V)` ⇒ `key_at(i)` / `val_at(i)`), so the
 /// emitter stays declaration-driven and knows no source type — a third layout
 /// is a row in this function, not a branch in every consumer. The point-read
-/// form is v1: §2's resolve-once hoist (`col_<c>()` out of the row loop) needs
-/// a per-column accessor the family does not publish yet and is recorded as
-/// owed, NOT silently skipped — it costs a slot re-resolve per cell, never a
-/// descent, so §5's per-leaf claim is unaffected.
+/// cell is read through the column's HOISTED view, `<bvar>_c<k>.at(i)`, bound
+/// above the row loop by `batch_hoist_text_at` from the family's `col_<c>()` —
+/// §2's resolve-once (#341): one slot resolve per column per BATCH, not per
+/// cell. A caller that spells this row text must spell that hoist in the same
+/// batch scope; a missing hoist is an unknown name at compile time, not a
+/// silent per-cell re-resolve.
 ///
 /// A single-column rel's row is the BARE value, not a 1-tuple — the same rule
 /// `register_native_rels` applies when it builds `rel_rowty`.
@@ -922,14 +924,46 @@ pub fn batch_row_text_at(out: &mut String, prm: &MacroParams, r: i64,
     while c < nc {
         if c > 0i64 { out.push_str(", "); }
         out.push_str(bvar);
-        out.push_str(".");
-        out.push_str(prm.relc_name[off + c]);
-        out.push_str("_at(");
+        out.push_str("_c");
+        out.push_i64(c);
+        out.push_str(".at(");
         out.push_str(ivar);
         out.push_str(")");
         c = c + 1i64;
     }
     if nc != 1i64 { out.push_str(")"); }
+}
+
+/// ADR 0025 §2 (#341) — THE COLUMN HOIST of a columnar batch: one statement per
+/// declared column, `let <bvar>_c<k> = <bvar>.col_<c>();`, spelled where the
+/// batch is bound and BEFORE its row loop; `batch_row_text_at` reads the cells
+/// through these. Empty on the row-major arm, whose row is one index.
+pub fn batch_hoist_text_at(out: &mut String, prm: &MacroParams, r: i64,
+                           rowmaj: bool, bvar: str) {
+    if rowmaj { return; }
+    if r < 0i64 {
+        logos.lang.panic::panic("wql!: batch_hoist_text_at reached the COLUMNAR arm with a rel-less source (r = -1)");
+    }
+    let off: i64 = prm.rel_coff[r];
+    let nc: i64  = prm.rel_ccnt[r];
+    let mut c: i64 = 0i64;
+    while c < nc {
+        out.push_str("let ");
+        out.push_str(bvar);
+        out.push_str("_c");
+        out.push_i64(c);
+        out.push_str(" = ");
+        out.push_str(bvar);
+        out.push_str(".col_");
+        out.push_str(prm.relc_name[off + c]);
+        out.push_str("(); ");
+        c = c + 1i64;
+    }
+}
+
+/// The REL-KEYED entry point (see `batch_row_text`).
+pub fn batch_hoist_text(out: &mut String, prm: &MacroParams, r: i64, bvar: str) {
+    batch_hoist_text_at(out, prm, r, prm.rel_rowmaj[r], bvar);
 }
 
 /// The REL-KEYED entry point: the layout is the registry's (`rel_rowmaj[r]`).

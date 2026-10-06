@@ -1659,6 +1659,15 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         let mut bb_s: String = String::new();
         bb_s.push_str(name); bb_s.push_str("LeafBatch");
         let bbid: Ident = Ident::new(bb_s.as_str());
+        // #341 — the per-column views `col_<c>()` hands out, one per DECLARED
+        // column of the rel this family names (`entry(key, val)` here,
+        // `row(pos, val)` on the vector arm).
+        let mut c1_s: String = String::new();
+        c1_s.push_str(name); c1_s.push_str("KeyCol");
+        let c1id: Ident = Ident::new(c1_s.as_str());
+        let mut c2_s: String = String::new();
+        c2_s.push_str(name); c2_s.push_str("ValCol");
+        let c2id: Ident = Ident::new(c2_s.as_str());
         let mut bs_s: String = String::new();
         bs_s.push_str(name); bs_s.push_str("LeafWalk");
         let bsid: Ident = Ident::new(bs_s.as_str());
@@ -1819,25 +1828,44 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
                     n: hi - lo,
                 };
             }
+            /// The `key` column of one batch, RESOLVED ONCE and typed: what
+            /// `col_key()` hands out and the emitted scan hoists above its row
+            /// loop (ADR 0025 §2, #341). `at` is the ONE spelling of the cell
+            /// conversion; `key_at` below delegates to it.
+            #[borrow_carrying]
+            pub struct #c1id { c: PdtCol }
+            impl #c1id {
+                pub fn at(self: &#c1id, i: u64) -> #(kid) { return self.c.at(i) as #(kid); }
+            }
+            /// The `val` column of one batch — same contract as the key view.
+            #[borrow_carrying]
+            pub struct #c2id { c: PdtCol }
+            impl #c2id {
+                pub fn at(self: &#c2id, i: u64) -> #(vo) {
+                    let __raw: u64 = self.c.at(i);
+                    return #(vconv);
+                }
+            }
             impl #bbid {
                 /// Rows in the window. `0` is a legal tick, not an end (§1).
                 pub fn len(self: &#bbid) -> u64 { return self.n; }
                 /// The key column, RESOLVED HERE: one `(allocator, slot)`
-                /// lookup plus the window offset. The scan loop hoists this
-                /// out of the row loop — that hoist IS the resolve-once of
-                /// ADR §2, and it is why `key_at` below is not the scan shape.
+                /// lookup plus the window offset — paid once per batch when a
+                /// loop hoists it, which is ADR §2's resolve-once.
                 pub fn keys(self: &#bbid) -> PdtCol { return pdt_col(&self.nv, &self.kb, 0u32); }
                 /// The value column, same contract.
                 pub fn vals(self: &#bbid) -> PdtCol { return pdt_col(&self.nv, &self.vb, 0u32); }
+                /// The declared `key` column as a typed view — the name the
+                /// emitter spells off the rel declaration (`col_<c>()`).
+                pub fn col_key(self: &#bbid) -> #c1id { return #c1id { c: self.keys() }; }
+                /// The declared `val` column as a typed view.
+                pub fn col_val(self: &#bbid) -> #c2id { return #c2id { c: self.vals() }; }
                 /// Row `i`'s key, for a POINT read (a probe, a bound check).
-                /// Re-resolves the column, so a loop over rows must hoist
-                /// `keys()` instead of calling this per row.
-                pub fn key_at(self: &#bbid, i: u64) -> #(kid) { return self.keys().at(i) as #(kid); }
+                /// Re-resolves the column, so a loop over rows hoists
+                /// `col_key()` instead of calling this per row.
+                pub fn key_at(self: &#bbid, i: u64) -> #(kid) { return self.col_key().at(i); }
                 /// Row `i`'s value — same point-read contract as `key_at`.
-                pub fn val_at(self: &#bbid, i: u64) -> #(vo) {
-                    let __raw: u64 = self.vals().at(i);
-                    return #(vconv);
-                }
+                pub fn val_at(self: &#bbid, i: u64) -> #(vo) { return self.col_val().at(i); }
             }
             /// The relation as a stream of LEAF BATCHES (ADR 0025 §5) — the
             /// family's ONE relation producer since S1, with four landings and
@@ -3212,6 +3240,15 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
         let mut bb_s: String = String::new();
         bb_s.push_str(name); bb_s.push_str("LeafBatch");
         let bbid: Ident = Ident::new(bb_s.as_str());
+        // #341 — the per-column views `col_<c>()` hands out, one per DECLARED
+        // column of the rel this family names (`entry(key, val)` here,
+        // `row(pos, val)` on the vector arm).
+        let mut c1_s: String = String::new();
+        c1_s.push_str(name); c1_s.push_str("PosCol");
+        let c1id: Ident = Ident::new(c1_s.as_str());
+        let mut c2_s: String = String::new();
+        c2_s.push_str(name); c2_s.push_str("ValCol");
+        let c2id: Ident = Ident::new(c2_s.as_str());
         let mut bs_s: String = String::new();
         bs_s.push_str(name); bs_s.push_str("LeafWalk");
         let bsid: Ident = Ident::new(bs_s.as_str());
@@ -3339,27 +3376,43 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                     n: hi - lo,
                 };
             }
+            /// The `pos` column of one batch: no cell, only the window's first
+            /// ordinal — `at` is arithmetic. `i64` because that is the declared
+            /// column type (`rel row(pos: i64, …)`). What `col_pos()` hands out
+            /// (ADR 0025 §2, #341); `pos_at` delegates to it.
+            pub struct #c1id { p0: u64, n: u64 }
+            impl #c1id {
+                pub fn at(self: &#c1id, i: u64) -> i64 {
+                    assert(i < self.n, "leaf batch: row past the window");
+                    return (self.p0 + i) as i64;
+                }
+            }
+            /// The `val` column of one batch, RESOLVED ONCE and typed; `at` is
+            /// the ONE spelling of the cell conversion.
+            #[borrow_carrying]
+            pub struct #c2id { c: PdtCol }
+            impl #c2id {
+                pub fn at(self: &#c2id, i: u64) -> #(vt) {
+                    let __raw: u64 = self.c.at(i);
+                    return #(vconv);
+                }
+            }
             impl #bbid {
                 /// Rows in the window. `0` is a legal tick, not an end (§1).
                 pub fn len(self: &#bbid) -> u64 { return self.n; }
                 /// The value column, RESOLVED HERE: one `(allocator, slot)`
-                /// lookup plus the window offset. The scan loop hoists this out
-                /// of the row loop — that hoist IS §2's resolve-once.
+                /// lookup plus the window offset — paid once per batch when a
+                /// loop hoists it, which is §2's resolve-once.
                 pub fn vals(self: &#bbid) -> PdtCol { return pdt_col(&self.nv, &self.vb, 0u32); }
+                /// The declared `pos` column as a view (`col_<c>()`).
+                pub fn col_pos(self: &#bbid) -> #c1id { return #c1id { p0: self.p0, n: self.n }; }
+                /// The declared `val` column as a typed view.
+                pub fn col_val(self: &#bbid) -> #c2id { return #c2id { c: self.vals() }; }
                 /// Row `i`'s value, for a POINT read. Re-resolves the column, so
-                /// a loop over rows must hoist `vals()` instead.
-                pub fn val_at(self: &#bbid, i: u64) -> #(vt) {
-                    let __raw: u64 = self.vals().at(i);
-                    return #(vconv);
-                }
-                /// Row `i`'s ORDINAL — arithmetic, not a read: the column the
-                /// relation declares as `pos` is implied by position, and the
-                /// window knows where it starts. `i64` because that is the
-                /// declared column type (`rel row(pos: i64, …)`).
-                pub fn pos_at(self: &#bbid, i: u64) -> i64 {
-                    assert(i < self.n, "leaf batch: row past the window");
-                    return (self.p0 + i) as i64;
-                }
+                /// a loop over rows hoists `col_val()` instead.
+                pub fn val_at(self: &#bbid, i: u64) -> #(vt) { return self.col_val().at(i); }
+                /// Row `i`'s ORDINAL — arithmetic, not a read.
+                pub fn pos_at(self: &#bbid, i: u64) -> i64 { return self.col_pos().at(i); }
                 /// The ordinal of window row 0 — the hoistable half of `pos_at`.
                 pub fn base_pos(self: &#bbid) -> u64 { return self.p0; }
             }

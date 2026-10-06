@@ -320,6 +320,11 @@ SINGLETONS = {
         T('logos_09_ctr_leaf_descent',
           ['{tsrc}/ctr_leaf_descent_gate.sh', '{logosc}', '{tsrc}/pass/ctr_leaf_descent_count.logos', '{libdir}', '{tsrc}/callgrind_calls.py', 'bt_seek_at', 'bt_cur_next'],
           'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
+        # ADR 0025 §2 (#341) — THE EMITTED SCAN RESOLVES EACH COLUMN ONCE PER BATCH:
+        # `pdt_col` calls under callgrind = columns × leaf batches, not × rows.
+        T('logos_09_ctr_col_hoist',
+          ['{tsrc}/ctr_col_hoist_gate.sh', '{logosc}', '{tsrc}/pass/wql_ctr_col_hoist.logos', '{libdir}', '{tsrc}/callgrind_calls.py'],
+          'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
         # #121-A — THE DROP-FLAG KEYSPACE, MEASURED BY AN INSTRUMENT THE PROGRAM DOES
         T('logos_09_cond_move_field_valgrind',
           ['{tsrc}/cond_move_field_valgrind_gate.sh', '{logosc}', '{tsrc}/pass/cond_move_field_overlap.logos', '{libdir}'],

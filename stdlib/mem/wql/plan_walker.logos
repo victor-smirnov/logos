@@ -3534,11 +3534,15 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                 batch_row_text(&mut rowx, prm, r, "__bb", "__bj");
                 let mut lenx: String = String::new();
                 batch_len_text(&mut lenx, prm, r, "__bb");
+                let mut hoistx: String = String::new();
+                batch_hoist_text(&mut hoistx, prm, r, "__bb");
                 prelude.push_str("    loop { let __db = __it_");
                 prelude.push_str(prm.rel_names[r]);
                 prelude.push_str(".next_batch(); if __db.is_some() { { let __bb = __db.unwrap(); let __bn: u64 = ");
                 prelude.push_str(string_as_str(&lenx));
-                prelude.push_str("; let mut __bj: u64 = 0u64; while __bj < __bn { ");
+                prelude.push_str("; ");
+                prelude.push_str(string_as_str(&hoistx));
+                prelude.push_str("let mut __bj: u64 = 0u64; while __bj < __bn { ");
                 push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
                 prelude.push_str(".push(");
                 prelude.push_str(string_as_str(&rowx));

@@ -1,0 +1,85 @@
+// A mapping is not capped at 8 rels or 8 columns (#354 follow-up, 2026-10-06).
+// sema's `reconstruct_mapping_def` refused a 9th rel and a 9th column "(current
+// engine limit)" after the query plane had gone dynamic: the consumer splices
+// the rules into the deem and every per-rel table there is a Vec. The column
+// bound left is the query plane's own — a rel row is a tuple, and tuple Hash
+// stops at 12 (`wql_rel_cols13_fail`).
+//
+// Ten chained rels (r_k keeps the ports above k, reading r_(k-1)) and one rel of
+// ten columns, each checked against a value computed here.
+package test;
+
+use logos.lang.writ.container;
+use logos.mem.writ.parser;
+use logos.mem.collections.vec;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+
+pub mapping Wide(g: &Writ) {
+    pub rel r0(p: i64) {
+        from g .ports [*] q where q.vi > 0 select q.vi;
+    }
+    pub rel r1(p: i64) {
+        from r0 a where a.p > 1 select a.p;
+    }
+    pub rel r2(p: i64) {
+        from r1 a where a.p > 2 select a.p;
+    }
+    pub rel r3(p: i64) {
+        from r2 a where a.p > 3 select a.p;
+    }
+    pub rel r4(p: i64) {
+        from r3 a where a.p > 4 select a.p;
+    }
+    pub rel r5(p: i64) {
+        from r4 a where a.p > 5 select a.p;
+    }
+    pub rel r6(p: i64) {
+        from r5 a where a.p > 6 select a.p;
+    }
+    pub rel r7(p: i64) {
+        from r6 a where a.p > 7 select a.p;
+    }
+    pub rel r8(p: i64) {
+        from r7 a where a.p > 8 select a.p;
+    }
+    pub rel r9(p: i64) {
+        from r8 a where a.p > 9 select a.p;
+    }
+    pub rel wide(c0: i64, c1: i64, c2: i64, c3: i64, c4: i64, c5: i64, c6: i64, c7: i64, c8: i64, c9: i64) {
+        from g .ports [*] q select (q.vi + 0, q.vi + 1, q.vi + 2, q.vi + 3, q.vi + 4, q.vi + 5, q.vi + 6, q.vi + 7, q.vi + 8, q.vi + 9);
+    }
+}
+
+pub deem last_chain(w: Wide) { from r9 a select a.p }
+
+pub deem wide_rows(w: Wide) {
+    from wide x select (x.c0, x.c9)
+}
+
+fn main() -> i32 {
+    let doc: Writ = parse_writ(r#"{ ports: [3, 8, 10, 12, 40] }"#);
+    if doc.root().is_null() { return 90i32; }
+    // r9 keeps ports > 9 (every r_k filters > k on the previous): 10, 12, 40.
+    let a: Vec<i64> = match last_chain(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 3i64 { return 2i32; }
+    let mut s: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < a.len() { s = s + a.get(i); i = i + 1i64; }
+    if s != 62i64 { return 3i32; }
+    // wide: one row per port, c0 = port, c9 = port + 9.
+    let b: Vec<(i64, i64)> = match wide_rows(&doc)
+    { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    if b.len() != 5i64 { return 5i32; }
+    let mut s0: i64 = 0i64;
+    let mut s9: i64 = 0i64;
+    i = 0i64;
+    while i < b.len() {
+        if b.get(i).1 != b.get(i).0 + 9i64 { return 6i32; }
+        s0 = s0 + b.get(i).0; s9 = s9 + b.get(i).1;
+        i = i + 1i64;
+    }
+    if s0 != 73i64 || s9 != 118i64 { return 7i32; }
+    return 0i32;
+}

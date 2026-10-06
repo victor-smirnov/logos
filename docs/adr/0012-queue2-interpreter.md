@@ -1,6 +1,8 @@
 # ADR 0012 — Queue-2: the runtime interpreter (dynamic WQL + Trama)
 
-Status: ACCEPTED (design), slices I1–I3 in flight. Parent: [0012-writ-query-language.md](0012-writ-query-language.md).
+Status: ACCEPTED (design); I1–I3 shipped; the QUERY half was DELETED at P5 (`e1dd0ac5e`, "DELETE THE DEEM INTERPRETER"). Parent: [0012-writ-query-language.md](0012-writ-query-language.md).
+
+> **Status note (P5).** `Query` / `QRows` / `Query::compile` / `run`, the dynamic checker and executor (`query.logos`, `check.logos`, `exec.logos`), the runtime `rel` fixpoint and lenient/erased binding (§4a) no longer exist; the static `deem` item is the only query surface. The TEMPLATE half survives: `Tpl` (`stdlib/mem/deem/tpl.logos`) with `SchemaCatalog`, `QEnv`, `RtVal`, `QError` (`stdlib/mem/deem/deem.logos`), package `logos.mem.deem` (not `logos.std.query` as §3 names it). The design below is kept as written; read its query-side text as the record of the deleted subsystem. Census: `docs/deem-interpreter-deletion-census.md` §6 (L8 survives, L10 is this ADR's query half).
 Prereq: queue-1 static engine COMPLETE (tuples/rel/semi-naïve/REdge; IR final-shaped).
 
 ## 1. What queue-2 is
@@ -172,7 +174,7 @@ later.
   the delta variant is a LOOP VARIABLE (which scan node reads the delta region), no IR
   rewriting; termination = the standard Datalog contract, generative recursion deliberately
   NOT capped (static parity).
-- Later (not scheduled): native-struct bridge via TypeInfo; queue-3 VM.
+- Later (not scheduled): native-struct bridge via TypeInfo; queue-3 VM. ⚠ No subject since P5: both extended the runtime QUERY interpreter, which was deleted (`e1dd0ac5e`); neither is planned against the surviving template walk.
 
 ## 9. Non-goals (queue-2)
 
