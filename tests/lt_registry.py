@@ -258,8 +258,8 @@ SINGLETONS = {
         # access path — the rule that fired and the negative explanation, asserted on
         # LOGOS_TRACE_PLAN=facts.
         T('logos_09_plan_ground_facts',
-          ['{tsrc}/plan_ground_facts_gate.sh', '{logosc}', '{tsrc}/pass'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB, processors=8),
+          ['{tsrc}/plan_ground_facts_gate.sh', '{logosc}', '{tsrc}/pass', '{tbin}/facts'],
+          'logos;pass;suite_semantic_core;tier_full', timeout=120, env=LIB, fixtures_required=['logos_facts_glob']),
         # SOUFFLÉ AS AN INDEPENDENT ORACLE: every wql_/deem_ pass fixture, compiled
         # with LOGOS_DEEM_ORACLE, its exported deems run on /usr/bin/souffle over the
         # dumped facts and compared as sets. Four shards so lt schedules the work
