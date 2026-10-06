@@ -113,3 +113,9 @@ One emitter per DPlan kind: one scan (all landings, both layouts), one probe, on
 5. Surface feature freeze during R0–R6: a new construct lands only as a lowering into Core.
 
 **R0's verifier is STRUCTURAL.** Lowering runs before the walker, which is what diagnoses a user's scope errors; so in R0 `core_verify` checks only what the lowering itself guarantees (a clause's body opens with a positive atom, literals are well-formed, rel indices resolve, the envelope is sane). The binding invariants (every variable bound before use, renamed apart) join it in R2, when the scope checks move onto Core — a user error must never surface as an ICE.
+
+## 7. Progress
+
+- **R0 — 43c6a88da.** `logos.std.wql.core`; structural `core_verify` (ICE); `LOGOS_DEEM_DUMP=core`; gate `logos_09_core_dump` against a hand-written golden of 8 shapes.
+- **R1 — the oracle reads Core.** `dl_export` renders rules from `CRule`s (`dx_rule`, `dx_core_body`, `dx_aggr_rule`, the entry helpers); the surface-reading clause/join/aggregate/entry functions are deleted, and the recursive-aggregate test is `core_rule_reaches`. Acceptance: the exported Datalog and the skip reasons of all 223 oracle fixtures are byte-identical to the pre-R1 export (the one difference is `wql_rel_fact_e2e`, which the R0 verifier had made an ICE before the fix and so had no baseline).
+

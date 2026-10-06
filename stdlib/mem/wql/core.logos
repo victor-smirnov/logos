@@ -319,6 +319,46 @@ pub fn lower_program(root: WAny) -> CProgram {
     return CProgram { rels: rels, entry: CRule { clause: entry, env: env } };
 }
 
+// ── queries over the core ──────────────────────────────────────────────────
+
+// The rels a clause's atoms read, positively or negated, by index.
+fn clause_reads(cl: &CClause, out: &mut Vec<i64>) {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { match &a.src { CSrc::Rel(r) => { out.push(*r); } CSrc::Param(_n) => { } CSrc::Unit => { } } }
+            CLit::Trav(_t) => { }
+            CLit::Cond(_e) => { }
+        }
+        i = i + 1i64;
+    }
+}
+
+/// Whether rel `target` is reached from `ru` — read by one of its atoms, or by
+/// a rule of a rel those atoms read, transitively.
+pub fn core_rule_reaches(p: &CProgram, ru: &CRule, target: i64) -> bool {
+    let n: i64 = p.rels.len();
+    let mut seen: Vec<bool> = Vec::<bool>::new();
+    let mut k: i64 = 0i64;
+    while k < n { seen.push(false); k = k + 1i64; }
+    let mut work: Vec<i64> = Vec::<i64>::new();
+    clause_reads(&ru.clause, &mut work);
+    let rels: &[CRel] = p.rels.as_slice();
+    while work.len() > 0i64 {
+        let r: i64 = work.get(work.len() - 1i64);
+        work.pop();
+        if r == target { return true; }
+        if !seen[r] {
+            seen[r] = true;
+            let rs: &[CRule] = rels[r].rules.as_slice();
+            let mut b: i64 = 0i64;
+            while b < rels[r].rules.len() { clause_reads(&rs[b].clause, &mut work); b = b + 1i64; }
+        }
+    }
+    return false;
+}
+
 // ── verification: what the LOWERING guarantees, checked; a violation is an ICE ─
 //
 // R0 checks STRUCTURE only. A user's scope error (an unknown variable) is

@@ -40,6 +40,7 @@ use logos.std.wql.params;          // MacroParams
 use logos.std.wql.reflect;         // find_struct_decl / resolve_alias_name / reflect_field_*
 use logos.std.wql.lower;           // null_sref
 use logos.std.wql.oracle_rt;       // wql_f64_hex (a float literal's spelling)
+use logos.std.wql.core;            // the Deem core (ADR 0031): what this exporter reads
 
 extern fn getenv(name: *const u8) -> *const u8;
 extern fn open(path: *const u8, flags: i32, mode: i32) -> i32;
@@ -578,13 +579,11 @@ fn dx_atom(cl: &mut DxClause, env: &DxEnv, src: str, v: str) -> bool {
 // The relation a traversal step reads: `<base's source>__<field>`, declared
 // when the base's source has that collection (−1 otherwise, and for a path of
 // more than one segment).
-fn dx_edge_src(env: &DxEnv, cl: &DxClause, st: RQJoinStep) -> i64 {
-    if st.path.any().is_null() { return -1i64; }
-    let segs: RQPathSegArr = st.path_arr();
-    if segs.len() != 1i64 { return -1i64; }
-    let vs: i64 = dx_var_src(cl, st.base_var);
+fn dx_trav_src(env: &DxEnv, cl: &DxClause, base: str, path: &Vec<str>) -> i64 {
+    if path.len() != 1i64 { return -1i64; }
+    let vs: i64 = dx_var_src(cl, base);
     if vs < 0i64 { return -1i64; }
-    let seg: str = segs.seg_at(0i64).name;
+    let seg: str = path.get(0i64);
     let mut i: i64 = 0i64;
     while i < env.n {
         if env.parent[i] == vs && str_eq(env.field[i], seg) { return i; }
@@ -842,45 +841,122 @@ fn dx_wild(cl: str) -> String {
 }
 
 // One query → one clause `head :- body.` appended to `out`.
-fn dx_clause(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String,
-             why: &mut String) -> bool {
+fn dx_rule(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out: &mut String,
+           why: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
-    if dx_clause_in(qany, head, arity, env, out, &mut cl, why) { return true; }
+    if dx_rule_in(p, ru, head, arity, env, out, &mut cl, why) { return true; }
     return dx_set(why, cl.why);
 }
 
-fn dx_clause_in(qany: WAny, head: str, arity: i64, env: &DxEnv, out: &mut String,
-                cl0: &mut DxClause, why: &mut String) -> bool {
+// One rule of the core as one Datalog clause (or, grouped, as the three of
+// `dx_aggr_rule`). A rel body's envelope must be the default one; the entry's
+// is the caller's (`__out`'s first/limit comments).
+fn dx_rule_in(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out: &mut String,
+              cl0: &mut DxClause, why: &mut String) -> bool {
     let cl: &mut DxClause = cl0;
     let mut hd: String = String::new();
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(s) => {
-            if s.has_gpath { return dx_no(cl, "graph path source"); }
-            if (s.sel_first || s.has_limit) && !str_eq(head, "__out") { return dx_no(cl, "first / limit in a rel body"); }
-            if s.src_name.len() == 0i64 {
-                cl.body.push_str("__unit(_)");
-            } else if !dx_atom(cl, env, s.src_name, s.var_name) { return false; }
-            if s.has_where && !dx_pred(s.where_pred.any().view::<SExpr>(), env, cl) { return false; }
-            if !dx_head(head, s.select.any().view::<SExpr>(), arity, env, cl, &mut hd) { return false; }
-        }
-        RQuery::Join(j) => {
-            if j.has_gpath { return dx_no(cl, "graph path source"); }
-            if (j.sel_first || j.has_limit) && !str_eq(head, "__out") { return dx_no(cl, "first / limit in a rel body"); }
-            if !dx_join_body(cl, env, j.a_name, j.x_var, j.steps.any(), j.has_where, j.where_pred) { return false; }
-            if !dx_head(head, j.select.any().view::<SExpr>(), arity, env, cl, &mut hd) { return false; }
-        }
-        RQuery::Aggr(g) => {
-            if g.has_gpath { return dx_no(cl, "graph path source"); }
-            if (g.sel_first || g.has_limit) && !str_eq(head, "__out") { return dx_no(cl, "first / limit in a rel body"); }
-            return dx_aggr_clause(g, head, arity, env, out, why);
-        }
-        _ => { return dx_no(cl, "query form (sort, union, comprehension, …)"); }
+    let mut first: bool = false;
+    match &ru.env.mode {
+        CMode::Find => { return dx_no(cl, "query form (sort, union, comprehension, …)"); }
+        CMode::First => { first = true; }
+        CMode::All => { }
     }
+    let limited: bool = match &ru.env.limit { CLimit::None => { false } CLimit::N(_n) => { true } CLimit::Param(_q) => { true } };
+    if (first || limited) && !str_eq(head, "__out") { return dx_no(cl, "first / limit in a rel body"); }
+    match &ru.clause.group {
+        Option::Some(g) => { return dx_aggr_rule(p, &ru.clause, g, head, arity, env, out, why); }
+        Option::None => { }
+    }
+    if !dx_core_body(p, cl, env, &ru.clause.body) { return false; }
+    if !dx_head(head, ru.clause.head.view::<SExpr>(), arity, env, cl, &mut hd) { return false; }
     dx_param_atoms(cl);
     let mut c1: String = String::new();
     c1.push_str(dx_view(&hd)); c1.push_str(" :- "); c1.push_str(dx_view(&cl.body)); c1.push_str(".\n");
     out.push_str(dx_view(&dx_wild(dx_view(&c1))));
+    return true;
+}
+
+fn dx_src_name<'a>(p: &'a CProgram, s: &'a CSrc) -> &'a str {
+    match s {
+        CSrc::Rel(r) => { return p.rels.as_slice()[*r].name; }
+        CSrc::Param(n) => { return *n; }
+        CSrc::Unit => { return "__unit"; }
+    }
+}
+
+// A core body as atoms and constraints: positive atoms bind, a negated atom is
+// `!rel(…)` with its `on`'s equalities in their columns' positions, a
+// traversal is an atom of the collection's relation joined to its base row
+// through the base's id, a condition is a constraint.
+fn dx_core_body(p: &CProgram, cl: &mut DxClause, env: &DxEnv, body: &Vec<CLit>) -> bool {
+    let bs: &[CLit] = body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => {
+                match &a.src {
+                    CSrc::Unit => {
+                        if cl.body.len() > 0i64 { cl.body.push_str(", "); }
+                        cl.body.push_str("__unit(_)");
+                    }
+                    _ => {
+                        let src: str = dx_src_name(p, &a.src);
+                        if a.neg {
+                            if a.conds.len() == 0i64 { return dx_no(cl, "anti join without on"); }
+                            let si: i64 = dx_find(env, src);
+                            if si < 0i64 { return dx_no(cl, dx_skip_why(env, src)); }
+                            let on: SExpr = a.conds.get(0i64).view::<SExpr>();
+                            if !dx_neg_only_eqs(on, a.var) { return dx_no(cl, "anti join on a non-equality"); }
+                            cl.body.push_str(", !");
+                            cl.body.push_str(src);
+                            cl.body.push_str("(");
+                            let mut k: i64 = 0i64;
+                            while k < env.cn[si] {
+                                if k > 0i64 { cl.body.push_str(", "); }
+                                let mut x: String = String::new();
+                                if dx_neg_arg(on, a.var, env.cnames[si][k], env, cl, &mut x) {
+                                    cl.body.push_str(dx_view(&x));
+                                } else {
+                                    cl.body.push_str("_");
+                                }
+                                k = k + 1i64;
+                            }
+                            cl.body.push_str(")");
+                        } else if !dx_atom(cl, env, src, a.var) { return false; }
+                    }
+                }
+            }
+            CLit::Trav(t) => {
+                let cs: i64 = dx_trav_src(env, cl, t.base, &t.path);
+                if cs < 0i64 { return dx_no(cl, "traversal outside the fragment (a nested path, or a collection wider than Soufflé's arity)"); }
+                if t.neg {
+                    let has_on: bool = t.conds.len() > 0i64;
+                    if has_on && !dx_neg_only_eqs(t.conds.get(0i64).view::<SExpr>(), t.var) { return dx_no(cl, "anti join on a non-equality"); }
+                    cl.body.push_str(", !");
+                    dx_rel_name(&mut cl.body, env, cs);
+                    cl.body.push_str("(");
+                    let bsrc: i64 = env.parent[cs];
+                    dx_push_var(&mut cl.body, t.base, if env.parent[bsrc] < 0i64 { "__i" } else { "__k" });
+                    let mut ka: i64 = 1i64;
+                    while ka < env.cn[cs] {
+                        cl.body.push_str(", ");
+                        let mut x: String = String::new();
+                        if has_on && dx_neg_arg(t.conds.get(0i64).view::<SExpr>(), t.var, env.cnames[cs][ka], env, cl, &mut x) {
+                            cl.body.push_str(dx_view(&x));
+                        } else {
+                            cl.body.push_str("_");
+                        }
+                        ka = ka + 1i64;
+                    }
+                    cl.body.push_str(")");
+                } else {
+                    dx_edge_atom(cl, env, cs, t.base, t.var);
+                }
+            }
+            CLit::Cond(e) => { if !dx_pred((*e).view::<SExpr>(), env, cl) { return false; } }
+        }
+        i = i + 1i64;
+    }
     return true;
 }
 
@@ -946,81 +1022,6 @@ fn dx_consts(out: &mut String, dump: &mut String, ddir: str) {
     dump.push_str(dx_view(&pre));
 }
 
-// `from a x (join|anti join …)* [where P]` as atoms and constraints.
-fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAny,
-                has_where: bool, where_pred: WRef<SExpr>) -> bool {
-    if !dx_atom(cl, env, a_name, x_var) { return false; }
-    if !sa.is_null() {
-        let steps: RQJoinStepArr = sa.view::<RQJoinStepArr>();
-        let mut i: i64 = 0i64;
-        while i < steps.len() {
-            let st: RQJoinStep = steps.step_at(i);
-            if st.is_edge {
-                // a traversal: an atom of the collection's relation, joined to
-                // its base row through the base's id
-                let cs: i64 = dx_edge_src(env, cl, st);
-                if cs < 0i64 { return dx_no(cl, "traversal outside the fragment (a nested path, or a collection wider than Soufflé's arity)"); }
-                if st.is_anti {
-                    // no element (satisfying `on`): a negated atom, the `on`'s
-                    // equalities in their columns' positions
-                    if st.has_on && !dx_neg_only_eqs(st.on.any().view::<SExpr>(), st.var_name) { return dx_no(cl, "anti join on a non-equality"); }
-                    cl.body.push_str(", !");
-                    dx_rel_name(&mut cl.body, env, cs);
-                    cl.body.push_str("(");
-                    let bs: i64 = env.parent[cs];
-                    dx_push_var(&mut cl.body, st.base_var, if env.parent[bs] < 0i64 { "__i" } else { "__k" });
-                    let mut ka: i64 = 1i64;
-                    while ka < env.cn[cs] {
-                        cl.body.push_str(", ");
-                        let mut a: String = String::new();
-                        if st.has_on && dx_neg_arg(st.on.any().view::<SExpr>(), st.var_name, env.cnames[cs][ka], env, cl, &mut a) {
-                            cl.body.push_str(dx_view(&a));
-                        } else {
-                            cl.body.push_str("_");
-                        }
-                        ka = ka + 1i64;
-                    }
-                    cl.body.push_str(")");
-                    i = i + 1i64;
-                    continue;
-                }
-                dx_edge_atom(cl, env, cs, st.base_var, st.var_name);
-                if st.has_on && !dx_pred(st.on.any().view::<SExpr>(), env, cl) { return false; }
-                i = i + 1i64;
-                continue;
-            }
-            if st.is_anti {
-                if !st.has_on { return dx_no(cl, "anti join without on"); }
-                let si: i64 = dx_find(env, st.src_name);
-                if si < 0i64 { return dx_no(cl, dx_skip_why(env, st.src_name)); }
-                let on: SExpr = st.on.any().view::<SExpr>();
-                if !dx_neg_only_eqs(on, st.var_name) { return dx_no(cl, "anti join on a non-equality"); }
-                cl.body.push_str(", !");
-                cl.body.push_str(st.src_name);
-                cl.body.push_str("(");
-                let mut k: i64 = 0i64;
-                while k < env.cn[si] {
-                    if k > 0i64 { cl.body.push_str(", "); }
-                    let mut a: String = String::new();
-                    if dx_neg_arg(on, st.var_name, env.cnames[si][k], env, cl, &mut a) {
-                        cl.body.push_str(dx_view(&a));
-                    } else {
-                        cl.body.push_str("_");
-                    }
-                    k = k + 1i64;
-                }
-                cl.body.push_str(")");
-            } else {
-                if !dx_atom(cl, env, st.src_name, st.var_name) { return false; }
-                if st.has_on && !dx_pred(st.on.any().view::<SExpr>(), env, cl) { return false; }
-            }
-            i = i + 1i64;
-        }
-    }
-    if has_where && !dx_pred(where_pred.any().view::<SExpr>(), env, cl) { return false; }
-    return true;
-}
-
 // A grouped aggregate (Deem's `group by K aggregate a = f(e), …`), as
 //   __ab_<head>(K, <every body column>) :- B.     -- one tuple per join row
 //   __gk_<head>(k) :- __ab_<head>(k, _, …).
@@ -1033,12 +1034,12 @@ fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAn
 // measured 9 for Deem's 18), and named single-use variables inside the braces
 // abort Soufflé 2.5 (wql_gpath_e2e::kind_hist). `key` and the aggregate names
 // in select/having are the variables gk / a_<a>.
-fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut String,
-                  why: &mut String) -> bool {
-    let key: SExpr = g.key_expr();
+fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, env: &DxEnv,
+                out: &mut String, why: &mut String) -> bool {
+    let key: SExpr = g.key.view::<SExpr>();
     match key { SExpr::Tuple(_t) => { return dx_set(why, "tuple group key"); } _ => { } }
     let mut kb: DxClause = dx_new_clause();
-    if !dx_join_body(&mut kb, env, g.a_name, g.x_var, g.steps.any(), g.has_where, g.where_pred) { return dx_set(why, kb.why); }
+    if !dx_core_body(p, &mut kb, env, &c.body) { return dx_set(why, kb.why); }
     let mut kt: String = String::new();
     if !dx_term(&mut kt, key, env, &mut kb) { return dx_set(why, kb.why); }
     let kty: str = dx_term_ty(key, env, &kb);
@@ -1091,20 +1092,21 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     hb.push_str(dx_view(&gk)); hb.push_str("(gk)");
     let mut hcl: DxClause = dx_new_clause();
     dx_alias_key(&mut hcl, "", "");
-    let aggs: RQAggArr = g.aggs_arr();
+    let ags: &[CAgg] = g.aggs.as_slice();
     let mut i: i64 = 0i64;
-    while i < aggs.len() {
-        let ag: RQAgg = aggs.agg_at(i);
-        let f: str = ag.fn_name;
+    while i < g.aggs.len() {
+        let ag: &CAgg = &ags[i];
+        let f: str = ag.func;
         if !str_eq(f, "count") && !str_eq(f, "sum") && !str_eq(f, "min") && !str_eq(f, "max") && !str_eq(f, "avg") { return dx_set(why, "aggregate other than count/sum/min/max/avg (a user-defined aggregate)"); }
         let mut argt: String = String::new();
         let mut abd: DxClause = dx_new_clause();
         let mut vj: i64 = 0i64;
         while vj < kb.nv { dx_bind(&mut abd, kb.vars[vj], kb.vsrc[vj]); vj = vj + 1i64; }
         if !str_eq(f, "count") {
-            if !ag.has_arg { return dx_set(why, "aggregate without an argument"); }
-            if !dx_term(&mut argt, ag.arg_expr(), env, &mut abd) { return dx_set(why, abd.why); }
-            let aat: str = dx_term_ty(ag.arg_expr(), env, &abd);
+            let arg: WAny = match &ag.arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
+            if arg.is_null() { return dx_set(why, "aggregate without an argument"); }
+            if !dx_term(&mut argt, arg.view::<SExpr>(), env, &mut abd) { return dx_set(why, abd.why); }
+            let aat: str = dx_term_ty(arg.view::<SExpr>(), env, &abd);
             // a float `sum` rounds in fold order, which the two engines do not share
             if str_eq(aat, "float") && (str_eq(f, "sum") || str_eq(f, "avg")) { return dx_set(why, "float sum/avg (rounding depends on fold order)"); }
             // an integer `avg` is Deem's f64 running total over the count, and
@@ -1138,9 +1140,12 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
         i = i + 1i64;
     }
     hcl.body.push_str(dx_view(&hb));
-    if g.has_having && !dx_pred(g.having_expr(), env, &mut hcl) { return dx_set(why, hcl.why); }
+    match &g.having {
+        Option::Some(h) => { if !dx_pred((*h).view::<SExpr>(), env, &mut hcl) { return dx_set(why, hcl.why); } }
+        Option::None => { }
+    }
     let mut hd: String = String::new();
-    if !dx_head(head, g.select_expr(), arity, env, &mut hcl, &mut hd) { return dx_set(why, hcl.why); }
+    if !dx_head(head, c.head.view::<SExpr>(), arity, env, &mut hcl, &mut hd) { return dx_set(why, hcl.why); }
     dx_param_atoms(&mut hcl);
     let mut c3: String = String::new();
     c3.push_str(dx_view(&hd)); c3.push_str(" :- "); c3.push_str(dx_view(&hcl.body)); c3.push_str(".\n");
@@ -1294,53 +1299,50 @@ fn dx_scalar_ty<'a>(env: &'a DxEnv, nm: str) -> &'a str {
 }
 
 // The entry's row vars bound (types for `.decl __out` need them).
-fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(s) => { let si: i64 = dx_find(env, s.src_name); if si >= 0i64 { dx_bind(cl, s.var_name, si); } }
-        RQuery::Join(j) => {
-            let si: i64 = dx_find(env, j.a_name);
-            if si >= 0i64 { dx_bind(cl, j.x_var, si); }
-            let steps: RQJoinStepArr = j.steps_arr();
-            let mut i: i64 = 0i64;
-            while i < steps.len() {
-                let st: RQJoinStep = steps.step_at(i);
-                let sj: i64 = if st.is_edge { dx_edge_src(env, cl, st) } else { dx_find(env, st.src_name) };
-                if sj >= 0i64 && !st.is_anti { dx_bind(cl, st.var_name, sj); }
-                i = i + 1i64;
-            }
-        }
-        RQuery::Aggr(g) => {
-            let si: i64 = dx_find(env, g.a_name);
-            if si >= 0i64 { dx_bind(cl, g.x_var, si); }
-            if g.has_steps() {
-                let steps: RQJoinStepArr = g.steps_arr();
-                let mut i: i64 = 0i64;
-                while i < steps.len() {
-                    let st: RQJoinStep = steps.step_at(i);
-                    let sj: i64 = if st.is_edge { dx_edge_src(env, cl, st) } else { dx_find(env, st.src_name) };
-                    if sj >= 0i64 && !st.is_anti { dx_bind(cl, st.var_name, sj); }
-                    i = i + 1i64;
+fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
+    match &ru.env.mode { CMode::Find => { return; } _ => { } }
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => {
+                match &a.src {
+                    CSrc::Unit => { }
+                    _ => {
+                        let si: i64 = dx_find(env, dx_src_name(p, &a.src));
+                        if si >= 0i64 && !a.neg { dx_bind(cl, a.var, si); }
+                    }
                 }
             }
-            // `key` and the aggregate outputs, typed for `.decl __out` and the dump
-            let kty: str = dx_term_ty(g.key_expr(), env, cl);
-            let kkd: str = dx_term_kind(g.key_expr(), env, cl);
+            CLit::Trav(t) => {
+                let sj: i64 = dx_trav_src(env, cl, t.base, &t.path);
+                if sj >= 0i64 && !t.neg { dx_bind(cl, t.var, sj); }
+            }
+            CLit::Cond(_e) => { }
+        }
+        i = i + 1i64;
+    }
+    match &ru.clause.group {
+        Option::Some(g) => {
+            let key: SExpr = g.key.view::<SExpr>();
+            let kty: str = dx_term_ty(key, env, cl);
+            let kkd: str = dx_term_kind(key, env, cl);
             dx_alias_key(cl, kty, kkd);
-            let aggs: RQAggArr = g.aggs_arr();
+            let ags: &[CAgg] = g.aggs.as_slice();
             let mut a: i64 = 0i64;
-            while a < aggs.len() {
-                let ag: RQAgg = aggs.agg_at(a);
+            while a < g.aggs.len() {
+                let ag: &CAgg = &ags[a];
+                let arg: WAny = match &ag.arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
                 let mut aty: str = "number";
                 let mut akd: str = "i";
-                if (str_eq(ag.fn_name, "min") || str_eq(ag.fn_name, "max")) && ag.has_arg {
-                    aty = dx_term_ty(ag.arg_expr(), env, cl);
-                    akd = dx_term_kind(ag.arg_expr(), env, cl);
-                } else if str_eq(ag.fn_name, "sum") && ag.has_arg
-                          && str_eq(dx_term_ty(ag.arg_expr(), env, cl), "unsigned") {
+                if (str_eq(ag.func, "min") || str_eq(ag.func, "max")) && !arg.is_null() {
+                    aty = dx_term_ty(arg.view::<SExpr>(), env, cl);
+                    akd = dx_term_kind(arg.view::<SExpr>(), env, cl);
+                } else if str_eq(ag.func, "sum") && !arg.is_null()
+                          && str_eq(dx_term_ty(arg.view::<SExpr>(), env, cl), "unsigned") {
                     aty = "unsigned";
                     akd = "U";
-                } else if str_eq(ag.fn_name, "avg") {
+                } else if str_eq(ag.func, "avg") {
                     aty = "float";
                     akd = "F";
                 }
@@ -1348,25 +1350,22 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
                 a = a + 1i64;
             }
         }
-        _ => { }
+        Option::None => { }
     }
 }
 
-// The entry's `first` / `limit N|p`, read off whichever shape it is.
 struct DxLimit { pub first: bool, pub has: bool, pub n: i64, pub param: str }
-fn dx_entry_limit(qany: WAny) -> DxLimit {
+fn dx_entry_limit(ru: &CRule) -> DxLimit {
     let mut l: DxLimit = DxLimit { first: false, has: false, n: 0i64, param: "" };
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(s) => { l.first = s.sel_first; l.has = s.has_limit; l.n = s.limit_n; if s.limit_is_param { l.param = s.limit_param; } }
-        RQuery::Join(j)   => { l.first = j.sel_first; l.has = j.has_limit; l.n = j.limit_n; if j.limit_is_param { l.param = j.limit_param; } }
-        RQuery::Aggr(g)   => { l.first = g.sel_first; l.has = g.has_limit; l.n = g.limit_n; if g.limit_is_param { l.param = g.limit_param; } }
-        _ => { }
+    match &ru.env.mode { CMode::First => { l.first = true; } CMode::All => { } CMode::Find => { return l; } }
+    match &ru.env.limit {
+        CLimit::N(n) => { l.has = true; l.n = *n; }
+        CLimit::Param(q) => { l.has = true; l.param = *q; }
+        CLimit::None => { }
     }
     return l;
 }
 
-// The number of output columns a select names (a tuple's items, else 1).
 fn dx_sel_len(sel: SExpr) -> i64 {
     match sel {
         SExpr::Tuple(t) => { return t.items.any().view::<SExprArr>().len(); }
@@ -1383,33 +1382,11 @@ fn dx_tuple_item(sel: SExpr, i: i64) -> SExpr {
 
 // Does the entry name a result type (`select … : Row`)? A struct row has no
 // positional fields for the dump to read.
-fn dx_entry_struct_result(qany: WAny) -> bool {
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(s) => { return s.has_result_ty; }
-        RQuery::Join(j) => { return j.has_result_ty; }
-        RQuery::Aggr(g) => { return g.has_result_ty; }
-        _ => { return true; }
-    }
+fn dx_entry_struct_result(ru: &CRule) -> bool {
+    match &ru.env.mode { CMode::Find => { return true; } _ => { } }
+    return ru.env.result_ty.len() > 0i64;
 }
 
-fn dx_entry_select(qany: WAny) -> WRef<SExpr> {
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(s) => { return s.select; }
-        RQuery::Join(j) => { return j.select; }
-        RQuery::Aggr(g) => { return g.select; }
-        _ => { return null_sref(); }
-    }
-}
-
-/// Render the program as Soufflé text into `out`; false = outside the fragment.
-// ── NATIVE SOURCES from the natspec ─────────────────────────────────────────
-// `<reg>=<mat>[!flags][#arg2][@module]:<param>(<col> <ty>,…)…;` — a source the
-// compiler binds to a materializer (a `&Writ`'s `writ_graph_edges`, a user
-// type's `rel r = fn;`). One that returns a `Vec` is exported like a slice: its
-// rows are what the materializer returns, and the dump calls it again. An
-// iterator or batch producer (`!i`/`!b`) is left out of the fragment.
 fn dx_slice(s: str, a: i64, b: i64) -> str {
     return unsafe { str_from_raw(((s.as_ptr() as i64) + a) as *const u8, b - a) };
 }
@@ -1636,7 +1613,7 @@ fn dx_is_native_param(nparams: &Vec<str>, nn: i64, nm: str) -> bool {
     return false;
 }
 
-pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, dump: &mut String,
+pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String, dump: &mut String,
                  ddir: str, incrows: &mut String, incsnap: &mut String, why: &mut String,
                  has_coll: &mut bool) -> bool {
     let view: OView = oview_module_ast();
@@ -1735,71 +1712,63 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
     }
     out.push_str(".decl __unit(u: number)\n__unit(0).\n");
     // rels: declarations first (a body may read a rel declared after it)
-    let prog: RQProgram = root.view::<RQProgram>();
-    if prog.has_rels() {
-        let rels: RQRelArr = prog.rels_arr();
-        let mut r: i64 = 0i64;
-        while r < rels.len() {
-            let rel: RQRel = rels.rel_at(r);
-            let rc: RQRelColArr = rel.cols_arr();
-            out.push_str(".decl "); out.push_str(rel.name); out.push_str("(");
-            let mut rn: Vec<str> = Vec::<str>::new();
-            let mut rt: Vec<str> = Vec::<str>::new();
-            let mut k: i64 = 0i64;
-            while k < rc.len() {
-                let col: RQRelCol = rc.col_at(k);
-                let ty: str = dl_col_ty(col.ty_name);
-                if k > 0i64 { out.push_str(", "); }
-                out.push_str(col.name); out.push_str(": "); out.push_str(ty);
-                rn.push(col.name); rt.push(col.ty_name);
-                k = k + 1i64;
-            }
-            out.push_str(")\n");
-            dx_env_add(&mut env, rel.name, rn, rt);
-            r = r + 1i64;
+    let rels: &[CRel] = p.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let rel: &CRel = &rels[r];
+        out.push_str(".decl "); out.push_str(rel.name); out.push_str("(");
+        let mut rn: Vec<str> = Vec::<str>::new();
+        let mut rt: Vec<str> = Vec::<str>::new();
+        let cols: &[CCol] = rel.cols.as_slice();
+        let mut k: i64 = 0i64;
+        while k < rel.cols.len() {
+            let ty: str = dl_col_ty(cols[k].ty);
+            if k > 0i64 { out.push_str(", "); }
+            out.push_str(cols[k].name); out.push_str(": "); out.push_str(ty);
+            rn.push(cols[k].name); rt.push(cols[k].ty);
+            k = k + 1i64;
         }
-        r = 0i64;
-        while r < rels.len() {
-            let rel2: RQRel = rels.rel_at(r);
-            let bodies: RQBodyArr = rel2.bodies_arr();
-            let mut b: i64 = 0i64;
-            while b < bodies.len() {
-                // Soufflé rejects an aggregate inside its own recursion ("cyclic
-                // aggregation"); Deem evaluates a recursive min/max as a
-                // semilattice fixpoint (wql_rel_wide_e2e::hops).
-                match bodies.body_any(b).view::<RQuery>() {
-                    RQuery::Aggr(_g) => {
-                        if body_reads_its_head(root, bodies.body_any(b), rel2.name) {
-                            return dx_set(why, "recursive aggregate (Soufflé rejects cyclic aggregation)");
-                        }
-                    }
-                    _ => { }
-                }
-                if !dx_clause(bodies.body_any(b), rel2.name, rel2.cols_arr().len(), &env, out, why) { return false; }
-                b = b + 1i64;
-            }
-            r = r + 1i64;
-        }
+        out.push_str(")\n");
+        dx_env_add(&mut env, rel.name, rn, rt);
+        r = r + 1i64;
     }
-    // the entry
-    let entry: WAny = prog.entry_any();
-    let sel: WRef<SExpr> = dx_entry_select(entry);
-    if sel.any().is_null() { return dx_set(why, "entry without a select"); }
+    r = 0i64;
+    while r < p.rels.len() {
+        let rel2: &CRel = &rels[r];
+        let rules: &[CRule] = rel2.rules.as_slice();
+        let mut b: i64 = 0i64;
+        while b < rel2.rules.len() {
+            match &rules[b].clause.group {
+                Option::Some(_g) => {
+                    if core_rule_reaches(p, &rules[b], r) {
+                        return dx_set(why, "recursive aggregate (Soufflé rejects cyclic aggregation)");
+                    }
+                }
+                Option::None => { }
+            }
+            if !dx_rule(p, &rules[b], rel2.name, rel2.cols.len(), &env, out, why) { return false; }
+            b = b + 1i64;
+        }
+        r = r + 1i64;
+    }
+    let entry: &CRule = &p.entry;
+    let sel: WAny = match &entry.env.mode { CMode::Find => { WAny::null() } _ => { entry.clause.head } };
+    if sel.is_null() { return dx_set(why, "entry without a select"); }
     let mut cl0: DxClause = dx_new_clause();
-    dx_entry_vars(entry, &env, &mut cl0);
+    dx_entry_vars(p, entry, &env, &mut cl0);
     let mut cols: String = String::new();
-    let arity: i64 = dx_out_cols(sel.any().view::<SExpr>(), &env, &cl0, &mut cols);
+    let arity: i64 = dx_out_cols(sel.view::<SExpr>(), &env, &cl0, &mut cols);
     if arity < 1i64 {
         // name the cause, not the symptom: the first item without a Soufflé
         // type is either refused as a term (its own reason) or a value of a
         // type outside the fragment
-        let sel1: SExpr = sel.any().view::<SExpr>();
+        let sel1: SExpr = sel.view::<SExpr>();
         let n1: i64 = dx_sel_len(sel1);
         // the body's own refusal first (a graph step, a source outside the
         // fragment): the head is typed before the body would have said it
         let mut sc_out: String = String::new();
         let mut sc_why: String = String::new();
-        if !dx_clause(entry, "__out", n1, &env, &mut sc_out, &mut sc_why) && sc_why.len() > 0i64 {
+        if !dx_rule(p, entry, "__out", n1, &env, &mut sc_out, &mut sc_why) && sc_why.len() > 0i64 {
             return dx_set(why, dx_view(&sc_why));
         }
         let mut a1: i64 = 0i64;
@@ -1830,7 +1799,7 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
     // `first` answers an Option: zero or one row, the loop runs at most once
     if lim.first { dump.push_str(ddir); dump.push_str("/deem.out\"); if __ov.is_some() { let __orow = __ov.as_ref().unwrap(); "); }
     else { dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.borrow(__oi); "); }
-    let sel0: SExpr = sel.any().view::<SExpr>();
+    let sel0: SExpr = sel.view::<SExpr>();
     let mut a: i64 = 0i64;
     while a < arity {
         let item: SExpr = if arity == 1i64 { sel0 } else { dx_tuple_item(sel0, a) };
@@ -1860,7 +1829,7 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
     dump.push_str("            return Result::Ok(__ov);\n        }\n        Result::Err(__oe) => {\n            wql_oracle_unlink(\"");
     dump.push_str(ddir); dump.push_str("/deem.out\");\n            wql_oracle_close(wql_oracle_open(\"");
     dump.push_str(ddir); dump.push_str("/deem.err\"));\n            return Result::Err(__oe);\n        }\n    }\n");
-    if !dx_clause(entry, "__out", arity, &env, out, why) { return false; }
+    if !dx_rule(p, entry, "__out", arity, &env, out, why) { return false; }
     dx_consts(out, dump, ddir);
     return true;
 }
@@ -1869,7 +1838,7 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
 /// the fragment, and `<dir>/<name>.skip` (one line, the reason) when it is not:
 /// the gate counts which deems it could check and why it could not check the
 /// rest.
-pub fn dl_export(root: WAny, name: str, natspec: str, prm: &mut MacroParams) {
+pub fn dl_export(core: &CProgram, name: str, natspec: str, prm: &mut MacroParams) {
     let mut ev: String = String::new();
     ev.push_str("LOGOS_DEEM_ORACLE");
     ev.push_u8(0u8);
@@ -1889,7 +1858,7 @@ pub fn dl_export(root: WAny, name: str, natspec: str, prm: &mut MacroParams) {
     text.push_str("// deem "); text.push_str(name); text.push_str("\n");
     let mut why: String = String::new();
     let mut has_coll: bool = false;
-    if !dl_render(root, prm, natspec, &mut text, &mut dump, dx_view(&ddir), &mut incrows, &mut incsnap, &mut why, &mut has_coll) {
+    if !dl_render(core, prm, natspec, &mut text, &mut dump, dx_view(&ddir), &mut incrows, &mut incsnap, &mut why, &mut has_coll) {
         // outside the fragment: `<dir>/<name>.skip` names the first construct
         // that put it there, so the gate can count what the oracle cannot see
         if why.len() == 0i64 { why.push_str("unnamed"); }
