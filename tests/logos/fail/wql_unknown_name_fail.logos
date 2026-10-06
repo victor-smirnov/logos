@@ -1,0 +1,18 @@
+// A name the query does not declare, that no module declares either, is a
+// named error at the query (2026-10-06, #729). It was reported only by the
+// generated fn (`error [fn q_run]: undefined variable 'zz'`), located in
+// generated code. The handler cannot resolve imports from its one-module AST
+// view, so it asks the compiler whether a const or static of that name exists
+// anywhere (`metaprog::value_name_known`): Canon's `where o.verb != OP_SEEK`
+// (an imported const) still compiles.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub m: i64 }
+
+pub deem q(xs: &[A], ys: &[B]) { from xs a join ys b on b.m == zz.k select a.v }
+
+fn main() -> i32 { return 0i32; }

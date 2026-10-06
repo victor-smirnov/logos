@@ -2652,12 +2652,29 @@ extern "C" void logos_qib_free_cursors(const uint8_t* blob) {
 // and an impl never disappears. Blanket and negative impls are not facts here —
 // a type they alone cover answers false (deny is the conservative answer).
 static std::set<std::pair<std::string, std::string>> g_metaprog_impl_facts;
+// Name-keyed VALUE query for metaprog code (#729): the simple names of every
+// const and static the discovery loop has lowered so far, whatever package or
+// module declared them. A query handler asks it about a bare name its own
+// scope does not bind — Canon's `where` clauses read IMPORTED consts
+// (`o.verb != OP_SEEK`), which the handler's one-module AST view cannot see.
+// "Declared somewhere" is the conservative reading: a name that is declared but
+// not imported still reaches the generated code's own resolution.
+static std::set<std::string> g_metaprog_value_names;
 static void note_metaprog_impl_facts(const logos::compiler::lir::LProgram& prog) {
+    for (const auto& c : prog.consts) {
+        std::string_view n = c.name();
+        size_t cut = n.find_last_of(".:");
+        if (cut != std::string_view::npos) n = n.substr(cut + 1);
+        if (!n.empty()) g_metaprog_value_names.emplace(n);
+    }
     for (auto& impl : prog.impls)
         if (!impl.is_blanket() && !impl.is_negative() && !impl.identity_trait().empty())
             g_metaprog_impl_facts.emplace(std::string(impl.identity_trait()), std::string(impl.target_type()));
     // An impl a derive handler is synthesizing this round (#723).
     for (const auto& f : prog.pending_trait_facts) g_metaprog_impl_facts.insert(f);
+}
+extern "C" int32_t logos_metaprog_value_known(const uint8_t* name, uint64_t len) {
+    return g_metaprog_value_names.count(std::string(reinterpret_cast<const char*>(name), len)) ? 1 : 0;
 }
 extern "C" int32_t logos_metaprog_has_impl(const uint8_t* trait, uint64_t trait_len,
                                            const uint8_t* ty, uint64_t ty_len) {
@@ -3726,6 +3743,7 @@ static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
         && bind("logos_qib_free_cursors",          reinterpret_cast<void*>(&logos_qib_free_cursors))
         && bind("logos_metaprog_gensym",           reinterpret_cast<void*>(&logos_metaprog_gensym))
         && bind("logos_metaprog_has_impl",         reinterpret_cast<void*>(&logos_metaprog_has_impl))
+        && bind("logos_metaprog_value_known",      reinterpret_cast<void*>(&logos_metaprog_value_known))
         && bind("logos_metacall_freeze2",          reinterpret_cast<void*>(&logos_metacall_freeze2))
         && bind("logos_metaprog_test_module_blob", reinterpret_cast<void*>(&logos_metaprog_test_module_blob))
         && bind("logos_test_make_bin_op_blob",     reinterpret_cast<void*>(&logos_test_make_bin_op_blob))

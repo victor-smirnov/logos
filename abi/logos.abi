@@ -15438,6 +15438,7 @@ sym	logos_mem.logos.std.compiler.metaprog$parse_wstatic__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$schema_pack__f__void
 sym	logos_mem.logos.std.compiler.metaprog$template_of_at__f__u32
 sym	logos_mem.logos.std.compiler.metaprog$type_from_anyval__f__WAny
+sym	logos_mem.logos.std.compiler.metaprog$value_name_known__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$view_of_str__f__slice_u8
 sym	logos_mem.logos.std.compiler.metaprog$view_of_string__f__ref_String
 sym	logos_mem.logos.std.compiler.tokens$span_unknown__f__void

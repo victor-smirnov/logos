@@ -633,11 +633,13 @@ struct NameScope {
     pub own: i64,      // the step whose `on` this is (-1 outside one)
     pub grouped: bool, // after `group by` in the entry
     pub comp: str,     // a comprehension head's loop var ("" outside one)
+    pub known: Vec<str>, // names bound outside the chain: `key`, aggregate outputs
 }
 
 fn ns_new() -> NameScope {
     return NameScope { vars: Vec::<str>::new(), anti: Vec::<bool>::new(), nv: 0i64,
-                       upto: 0i64, own: -1i64, grouped: false, comp: "" };
+                       upto: 0i64, own: -1i64, grouped: false, comp: "",
+                       known: Vec::<str>::new() };
 }
 
 // The scope of a chain's base alone.
@@ -662,7 +664,7 @@ fn ns_chain(sc: &mut NameScope, base: str, steps: RQJoinStepArr, has: bool) {
     sc.upto = sc.nv;
 }
 
-fn ns_name_ok(nm: str, sc: &NameScope, clause: str) -> bool {
+fn ns_name_ok(nm: str, sc: &NameScope, prm: &MacroParams, clause: str) -> bool {
     if sc.comp.len() > 0i64 && name_refs(nm, sc.comp) { return true; }
     let mut k: i64 = -1i64;
     let mut i: i64 = 0i64;
@@ -670,7 +672,26 @@ fn ns_name_ok(nm: str, sc: &NameScope, clause: str) -> bool {
         if name_refs(nm, sc.vars[i]) { k = i; }
         i = i + 1i64;
     }
-    if k < 0i64 { return true; }
+    if k < 0i64 {
+        // Not a row var of the chain: a scalar parameter, `key` or an
+        // aggregate output, or a const/static some module declares (an
+        // imported one included — this handler's AST view is one module, so
+        // it asks the compiler, #729). A name that is none of those is a
+        // misspelling, reported HERE rather than as an undefined variable
+        // inside the generated fn.
+        if prm.is_scalar(nm) { return true; }
+        let mut q: i64 = 0i64;
+        while q < sc.known.len() { if str_eq(sc.known[q], nm) { return true; } q = q + 1i64; }
+        if value_name_known(nm) { return true; }
+        let mut mu: String = String::new();
+        mu.push_str("wql!: `");
+        mu.push_str(nm);
+        mu.push_str("` in the `");
+        mu.push_str(clause);
+        mu.push_str("` clause is not a row variable of the query, a parameter, or a const or static of any module");
+        error(string_as_str(&mu));
+        return false;
+    }
     let v: str = sc.vars[k];
     let mut m: String = String::new();
     if sc.grouped {
@@ -697,27 +718,27 @@ fn ns_name_ok(nm: str, sc: &NameScope, clause: str) -> bool {
     return false;
 }
 
-fn ns_expr_ok(e: SExpr, sc: &mut NameScope, clause: str) -> bool {
+fn ns_expr_ok(e: SExpr, sc: &mut NameScope, prm: &MacroParams, clause: str) -> bool {
     match e {
-        SExpr::Var(v) => { return ns_name_ok(v.name, sc, clause); }
+        SExpr::Var(v) => { return ns_name_ok(v.name, sc, prm, clause); }
         SExpr::Field(f) => {
             let bref: WRef<SExpr> = f.base;
-            if bref.any().is_null() { return ns_name_ok(f.name, sc, clause); }
-            return ns_expr_ok(f.base_expr(), sc, clause);
+            if bref.any().is_null() { return ns_name_ok(f.name, sc, prm, clause); }
+            return ns_expr_ok(f.base_expr(), sc, prm, clause);
         }
-        SExpr::Bin(b)  => { return ns_expr_ok(b.lhs_expr(), sc, clause) && ns_expr_ok(b.rhs_expr(), sc, clause); }
-        SExpr::Un(u)   => { return ns_expr_ok(u.arg_expr(), sc, clause); }
-        SExpr::Cast(c) => { return ns_expr_ok(c.arg_expr(), sc, clause); }
+        SExpr::Bin(b)  => { return ns_expr_ok(b.lhs_expr(), sc, prm, clause) && ns_expr_ok(b.rhs_expr(), sc, prm, clause); }
+        SExpr::Un(u)   => { return ns_expr_ok(u.arg_expr(), sc, prm, clause); }
+        SExpr::Cast(c) => { return ns_expr_ok(c.arg_expr(), sc, prm, clause); }
         SExpr::Cond(c) => {
-            return ns_expr_ok(c.cond_expr(), sc, clause)
-                && ns_expr_ok(c.then_expr(), sc, clause)
-                && ns_expr_ok(c.else_expr(), sc, clause);
+            return ns_expr_ok(c.cond_expr(), sc, prm, clause)
+                && ns_expr_ok(c.then_expr(), sc, prm, clause)
+                && ns_expr_ok(c.else_expr(), sc, prm, clause);
         }
         SExpr::Call(c) => {
             let args: SExprArr = c.args_arr();
             let mut i: i64 = 0i64;
             while i < args.len() {
-                if !ns_expr_ok(args.arg_at(i), sc, clause) { return false; }
+                if !ns_expr_ok(args.arg_at(i), sc, prm, clause) { return false; }
                 i = i + 1i64;
             }
             return true;
@@ -726,7 +747,7 @@ fn ns_expr_ok(e: SExpr, sc: &mut NameScope, clause: str) -> bool {
         SExpr::Comp(cp) => {
             let outer: str = sc.comp;
             sc.comp = cp.var;
-            let ok: bool = ns_expr_ok(cp.head_expr(), sc, clause);
+            let ok: bool = ns_expr_ok(cp.head_expr(), sc, prm, clause);
             sc.comp = outer;
             return ok;
         }
@@ -734,7 +755,7 @@ fn ns_expr_ok(e: SExpr, sc: &mut NameScope, clause: str) -> bool {
             let items: SExprArr = tp.items_arr();
             let mut i: i64 = 0i64;
             while i < items.len() {
-                if !ns_expr_ok(items.arg_at(i), sc, clause) { return false; }
+                if !ns_expr_ok(items.arg_at(i), sc, prm, clause) { return false; }
                 i = i + 1i64;
             }
             return true;
@@ -743,14 +764,14 @@ fn ns_expr_ok(e: SExpr, sc: &mut NameScope, clause: str) -> bool {
     }
 }
 
-fn ns_steps_ok(steps: RQJoinStepArr, sc: &mut NameScope) -> bool {
+fn ns_steps_ok(steps: RQJoinStepArr, sc: &mut NameScope, prm: &MacroParams) -> bool {
     let mut i: i64 = 0i64;
     while i < steps.len() {
         let st: RQJoinStep = steps.step_at(i);
         if st.has_on {
             sc.upto = i + 2i64;
             sc.own = i + 1i64;
-            if !ns_expr_ok(st.on_expr(), sc, "on") { return false; }
+            if !ns_expr_ok(st.on_expr(), sc, prm, "on") { return false; }
         }
         i = i + 1i64;
     }
@@ -760,46 +781,50 @@ fn ns_steps_ok(steps: RQJoinStepArr, sc: &mut NameScope) -> bool {
 }
 
 // Every clause of one query (an entry or a rel body), against the chain's scope.
-fn query_names_ok(qa: WAny, entry: bool, h: &Writ) -> bool {
+fn query_names_ok(qa: WAny, entry: bool, prm: &MacroParams, h: &Writ) -> bool {
     let mut sc: NameScope = ns_new();
     match qa.view::<RQuery>() {
         RQuery::Simple(_) => {
             let s: RQSimple = rq_fat_simple(qa, h);
             ns_base(&mut sc, s.var_name);
-            if !ns_expr_ok(s.select_expr(), &mut sc, "select") { return false; }
-            if s.has_where && !ns_expr_ok(s.where_expr(), &mut sc, "where") { return false; }
-            if s.has_order && !ns_expr_ok(s.order_expr(), &mut sc, "order by") { return false; }
+            if !ns_expr_ok(s.select_expr(), &mut sc, prm, "select") { return false; }
+            if s.has_where && !ns_expr_ok(s.where_expr(), &mut sc, prm, "where") { return false; }
+            if s.has_order && !ns_expr_ok(s.order_expr(), &mut sc, prm, "order by") { return false; }
         }
         RQuery::Join(_) => {
             let j: RQJoin = rq_fat_join(qa, h);
             ns_chain(&mut sc, j.x_var, j.steps_arr(), true);
-            if !ns_steps_ok(j.steps_arr(), &mut sc) { return false; }
-            if !ns_expr_ok(j.select_expr(), &mut sc, "select") { return false; }
-            if j.has_where && !ns_expr_ok(j.where_expr(), &mut sc, "where") { return false; }
-            if j.has_order && !ns_expr_ok(j.order_expr(), &mut sc, "order by") { return false; }
+            if !ns_steps_ok(j.steps_arr(), &mut sc, prm) { return false; }
+            if !ns_expr_ok(j.select_expr(), &mut sc, prm, "select") { return false; }
+            if j.has_where && !ns_expr_ok(j.where_expr(), &mut sc, prm, "where") { return false; }
+            if j.has_order && !ns_expr_ok(j.order_expr(), &mut sc, prm, "order by") { return false; }
         }
         RQuery::Aggr(_) => {
             let g: RQAggr = rq_fat_aggr(qa, h);
             ns_chain(&mut sc, g.x_var, g.steps_arr(), g.has_steps());
-            if g.has_steps() && !ns_steps_ok(g.steps_arr(), &mut sc) { return false; }
-            if g.has_where && !ns_expr_ok(g.where_expr(), &mut sc, "where") { return false; }
-            if !ns_expr_ok(g.key_expr(), &mut sc, "group by") { return false; }
+            if g.has_steps() && !ns_steps_ok(g.steps_arr(), &mut sc, prm) { return false; }
+            if g.has_where && !ns_expr_ok(g.where_expr(), &mut sc, prm, "where") { return false; }
+            if !ns_expr_ok(g.key_expr(), &mut sc, prm, "group by") { return false; }
             let gaggs: RQAggArr = g.aggs_arr();
+            // `key` and the aggregate outputs are names of the GROUP row
+            sc.known.push("key");
+            let mut gk: i64 = 0i64;
+            while gk < gaggs.len() { sc.known.push(gaggs.agg_at(gk).name); gk = gk + 1i64; }
             let mut ga: i64 = 0i64;
             while ga < gaggs.len() {
                 let a: RQAgg = gaggs.agg_at(ga);
-                if a.has_arg && !ns_expr_ok(a.arg_expr(), &mut sc, "aggregate") { return false; }
+                if a.has_arg && !ns_expr_ok(a.arg_expr(), &mut sc, prm, "aggregate") { return false; }
                 ga = ga + 1i64;
             }
             sc.grouped = entry;
-            if !ns_expr_ok(g.select_expr(), &mut sc, "select") { return false; }
-            if g.has_having && !ns_expr_ok(g.having_expr(), &mut sc, "having") { return false; }
-            if g.has_order && !ns_expr_ok(g.order_expr(), &mut sc, "order by") { return false; }
+            if !ns_expr_ok(g.select_expr(), &mut sc, prm, "select") { return false; }
+            if g.has_having && !ns_expr_ok(g.having_expr(), &mut sc, prm, "having") { return false; }
+            if g.has_order && !ns_expr_ok(g.order_expr(), &mut sc, prm, "order by") { return false; }
         }
         RQuery::Find(_) => {
             let f: RQFind = rq_fat_find(qa, h);
             ns_base(&mut sc, f.var_name);
-            if !ns_expr_ok(f.pred_expr(), &mut sc, "where") { return false; }
+            if !ns_expr_ok(f.pred_expr(), &mut sc, prm, "where") { return false; }
         }
     }
     return true;
@@ -1775,7 +1800,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 if !check_rel_body(bodies.body_any(b), rel2.name, i2, prm, &mut deps, h) {
                     return false;
                 }
-                if !query_names_ok(bodies.body_any(b), false, h) { return false; }
+                if !query_names_ok(bodies.body_any(b), false, prm, h) { return false; }
                 b = b + 1i64;
             }
             i2 = i2 + 1i64;
@@ -1934,7 +1959,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             f.row_ty = sr4.row_ty;
         }
     }
-    if !query_names_ok(entry_any, true, h) { return false; }
+    if !query_names_ok(entry_any, true, prm, h) { return false; }
 
     // ── Emit the rel helper fns + build the entry prelude ───────────────────
     // Materialization order = the condensation TOPO order (dependencies first
