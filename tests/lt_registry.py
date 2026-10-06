@@ -431,9 +431,11 @@ SINGLETONS = {
           ['{src}/tests/lforge/dump_metacall.sh', '{build}/bin/lforge', '{logosc}', '{libdir}'],
           'logos;lforge;suite_lforge;tier_full', timeout=90),
         # B1.7: logosc --only-file <path> per-file emit.
+        # 180 s: the gate's own work is ~64 s of serial compiles (measured
+        # 2026-10-06 under load 45), and at 60 s it timed out in every run.
         T('logos_15_emit_file',
           ['{src}/tests/lforge/emit_file.sh', '{logosc}', '{libdir}'],
-          'logos;lforge;suite_lforge;tier_full', timeout=60),
+          'logos;lforge;suite_lforge;tier_full', timeout=180),
         # Archive integrity: a package must never vanish from a module archive
         T('logos_15_archive_integrity',
           ['{src}/tests/lforge/archive_integrity.sh', '{logosc}', '{libdir}'],
