@@ -7303,6 +7303,8 @@ private:
     // resolved; reported once per offending trait (dedup set).
     std::set<std::string> dyn_safety_reported_;
     void check_trait_object_safe(const std::string& trait_name);
+    std::string dyn_incompatibility_(const SemaTraitInfo& ti,
+                                     std::set<const SemaTraitInfo*>& seen);
     // Scope-aware iterator into traits_: probes `cur_package_::name`, then each
     // imported/re-exported package, then the bare name (legacy slot). Same
     // resolution order as find_trait_by_name / lookup_qualified_, but returns

@@ -3391,14 +3391,19 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             TypeRef(nrt).kind() == LogosType::Kind::UnsizedDyn) &&
                     !TypeRef(nrt).trait_name().empty()) {
                     std::string tname(TypeRef(nrt).trait_name());
+                    // The slot is the method's index in the trait's vtable
+                    // order (supertrait closure, dispatchable methods only) —
+                    // the order sema emitted and mlir lays the vtable out by.
                     int slot = -1;
+                    const std::string_view tpkg = TypeRef(nrt).pkg_name();
                     for (auto& td : out_.traits) {
-                        if (td.name() != tname) continue;
+                        if (td.name() != tname || (!tpkg.empty() && !td.pkg().empty() && td.pkg() != tpkg))
+                            continue;
                         int mi = 0;
-                        td.each_method([&](lir_view::TraitMethodSigView m) {
-                            if (slot < 0 && m.name() == method) slot = mi;
+                        for (auto& [owner, mname] : td.vtable_method_order()) {
+                            if (slot < 0 && mname == method) slot = mi;
                             ++mi;
-                        });
+                        }
                         break;
                     }
                     if (slot >= 0) {

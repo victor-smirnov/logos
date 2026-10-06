@@ -4227,105 +4227,78 @@ std::string SemaChecker::trait_targ_suffix(const std::vector<TypeRef>& args) con
     return s;
 }
 
-// P2-15 object-safety (Rust E0038 / dyn-compatibility). A trait coerced to a
-// trait object must be dyn-dispatchable: every method needs a vtable slot. Reject
-// (once per trait) when a method can't have one. A method with `where Self: Sized`
-// is EXCLUDED from the vtable, so it never affects object-safety (skipped here).
-// Detected E0038 cases:
-//   • generic method (`fn f<T>`)         — no single monomorphized slot;
-//   • no `self` receiver (associated fn) — nothing to dispatch on;
-//   • returns `Self` by value            — size unknown behind the object;
-//   • `Self` by value in a parameter     — caller can't name the erased type.
+// Rust's dyn compatibility (E0038). A trait is dyn compatible when every
+// supertrait is, `Sized` is not a supertrait, no supertrait argument is `Self`,
+// it has no associated const and no generic associated type, and every method
+// not excluded by `where Self: Sized` is dispatchable: no type parameters, a
+// `self` receiver, `Self` nowhere but the receiver, no opaque type in its
+// signature. The vtable holds exactly the dispatchable methods
+// (trait_vtable_layout). Returns why `ti` is not dyn compatible, or "".
+std::string SemaChecker::dyn_incompatibility_(const SemaTraitInfo& ti,
+                                              std::set<const SemaTraitInfo*>& seen) {
+    if (!seen.insert(&ti).second) return {};
+    std::function<bool(TypeRef, LogosType::Kind)> mentions;
+    mentions = [&](TypeRef t, LogosType::Kind k) -> bool {
+        if (!t) return false;
+        if (t.kind() == k && (k != LogosType::Kind::TypeVar || t.type_var_name() == "Self"))
+            return true;
+        for (auto a : t.type_args()) if (mentions(a, k)) return true;
+        if (t.pointee() && mentions(TypeRef(t.pointee()), k)) return true;
+        if (t.elem() && mentions(TypeRef(t.elem()), k)) return true;
+        for (auto e : t.tuple_elems()) if (mentions(e, k)) return true;
+        return false;
+    };
+    auto mentions_self = [&](TypeRef t) { return mentions(t, LogosType::Kind::TypeVar); };
+    auto mentions_opaque = [&](TypeRef t) { return mentions(t, LogosType::Kind::ImplTrait); };
+    for (auto& s : ti.supertraits) {
+        const std::string key = s.canonical_trait.empty() ? s.trait_name : s.canonical_trait;
+        if (trait_key_is_lang_item(key, "sized"))
+            return "it requires `Self: Sized`";
+        const SemaTraitInfo* sti = trait_by_key(key);
+        if (!sti) continue;   // an unknown supertrait is refused where it is written
+        for (size_t i = 0; i < sti->type_params.size(); ++i) {
+            TypeRef arg = i < s.type_args.size() ? s.type_args[i] : sti->type_params[i].default_type;
+            if (mentions_self(arg))
+                return "it uses `Self` as a type parameter (supertrait `" + s.trait_name + "`)";
+        }
+        if (auto r = dyn_incompatibility_(*sti, seen); !r.empty()) return r;
+    }
+    if (!ti.assoc_consts.empty())
+        return "it contains associated const `" + ti.assoc_consts[0].name + "`";
+    for (auto& at : ti.assoc_types)
+        if (!at.type_params.empty())
+            return "it has a generic associated type `" + at.name + "<" +
+                   at.type_params[0].name + ">` — GAT instantiation needs a concrete impl";
+    for (auto& m : ti.methods) {
+        if (m.requires_sized_self) continue;   // not in the vtable
+        if (!m.type_params.empty())
+            return "it has a generic method `" + m.name + "` (a generic method has no vtable slot)";
+        if (!m.has_self_receiver)
+            return "its associated function `" + m.name + "` has no `self` receiver (nothing to dispatch on)";
+        if (mentions_self(m.ret_type))
+            return "its method `" + m.name + "` returns `Self` (size unknown behind a trait object)";
+        if (mentions_opaque(m.ret_type))
+            return "its method `" + m.name + "` returns `impl Trait` (opaque return type — no single vtable slot ABI)";
+        for (size_t i = 1; i < m.param_types.size(); ++i) {
+            if (mentions_self(m.param_types[i]))
+                return "its method `" + m.name + "` references `Self` in a parameter";
+            if (mentions_opaque(m.param_types[i]))
+                return "its method `" + m.name + "` takes `impl Trait` as a parameter (opaque type — no single vtable slot ABI)";
+        }
+    }
+    return {};
+}
+
 void SemaChecker::check_trait_object_safe(const std::string& trait_name) {
     if (dyn_safety_reported_.count(trait_name)) return;  // dedup: report once
     auto [pkg, ti] = find_trait_by_name(trait_name);
     if (!ti) return;  // unknown trait already diagnosed at the call site
-    auto is_self = [](TypeRef t) {
-        return t && TypeRef(t).kind() == LogosType::Kind::TypeVar &&
-               std::string(TypeRef(t).type_var_name()) == "Self";
-    };
-    std::function<bool(TypeRef)> mentions_self = [&](TypeRef t) -> bool {
-        if (!t) return false;
-        if (is_self(t)) return true;
-        for (auto a : TypeRef(t).type_args()) if (mentions_self(a)) return true;
-        if (TypeRef(t).pointee() && mentions_self(TypeRef(t).pointee())) return true;
-        if (TypeRef(t).elem() && mentions_self(TypeRef(t).elem())) return true;
-        for (auto e : TypeRef(t).tuple_elems()) if (mentions_self(e)) return true;
-        return false;
-    };
-    // logos-core 3.3: a trait with a Generic Associated Type item is
-    // NOT object-safe — GAT instantiation requires a concrete impl
-    // (the type is parameterised by something the vtable can't know).
-    // Rust E0038 lists this; pre-fix it was undocumented in
-    // check_trait_object_safe and slipped through to a runtime
-    // segfault on dispatch.
-    for (auto& at : ti->assoc_types) {
-        if (!at.type_params.empty()) {
-            dyn_safety_reported_.insert(trait_name);
-            error(std::format("the trait `{}` is not object-safe (cannot be a "
-                              "`dyn {}` trait object) because it has a generic "
-                              "associated type `{}<{}>` — GAT instantiation "
-                              "needs a concrete impl",
-                              trait_name, trait_name, at.name,
-                              at.type_params.empty() ? std::string()
-                                                      : at.type_params[0].name));
-            return;
-        }
-    }
-    // logos-core 2.8 (opaque return): a method that returns `impl Trait`
-    // (or has `impl Trait` in a param) is NOT object-safe — the concrete
-    // type isn't known until monomorphisation, so the vtable slot has no
-    // single ABI. Walk param/ret recursively for any ImplTrait kind.
-    std::function<bool(TypeRef)> mentions_impl_trait = [&](TypeRef t) -> bool {
-        if (!t) return false;
-        if (TypeRef(t).kind() == LogosType::Kind::ImplTrait) return true;
-        for (auto a : TypeRef(t).type_args()) if (mentions_impl_trait(a)) return true;
-        if (TypeRef(t).pointee() && mentions_impl_trait(TypeRef(t).pointee())) return true;
-        if (TypeRef(t).elem() && mentions_impl_trait(TypeRef(t).elem())) return true;
-        for (auto e : TypeRef(t).tuple_elems()) if (mentions_impl_trait(e)) return true;
-        return false;
-    };
-    for (auto& m : ti->methods) {
-        if (m.requires_sized_self) continue;   // excluded from the vtable
-        std::string reason;
-        if (!m.type_params.empty())
-            reason = "it has a generic method `" + m.name +
-                     "` (a generic method has no vtable slot)";
-        else if (!m.has_self_receiver)
-            reason = "its associated function `" + m.name +
-                     "` has no `self` receiver (nothing to dispatch on)";
-        else if (mentions_self(m.ret_type))
-            reason = "its method `" + m.name + "` returns `Self` (size unknown "
-                     "behind a trait object)";
-        else if (mentions_impl_trait(m.ret_type))
-            reason = "its method `" + m.name + "` returns `impl Trait` "
-                     "(opaque return type — no single vtable slot ABI)";
-        else {
-            for (size_t i = 1; i < m.param_types.size(); ++i)
-                if (is_self(m.param_types[i])) {
-                    reason = "its method `" + m.name +
-                             "` takes `Self` by value as a parameter";
-                    break;
-                }
-            if (reason.empty()) {
-                for (size_t i = 1; i < m.param_types.size(); ++i)
-                    if (mentions_impl_trait(m.param_types[i])) {
-                        reason = "its method `" + m.name +
-                                 "` takes `impl Trait` as a parameter "
-                                 "(opaque type — no single vtable slot ABI)";
-                        break;
-                    }
-            }
-        }
-        if (!reason.empty()) {
-            dyn_safety_reported_.insert(trait_name);
-            error(std::format("the trait `{}` is not object-safe (cannot be a "
-                              "`dyn {}` trait object) because {} — give it a "
-                              "`where Self: Sized` bound or avoid `dyn`",
-                              trait_name, trait_name, reason));
-            return;
-        }
-    }
+    std::set<const SemaTraitInfo*> seen;
+    std::string reason = dyn_incompatibility_(*ti, seen);
+    if (reason.empty()) return;
+    dyn_safety_reported_.insert(trait_name);
+    error(std::format("the trait `{}` is not object-safe (cannot be a `dyn {}` trait "
+                      "object) because {} (E0038)", trait_name, trait_name, reason));
 }
 
 // #121 — emit the guarded destructor for every conditionally-moved FIELD PATH
@@ -9176,8 +9149,13 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                     auto bname = std::string(str_of(item.get(la::NAME.code)));
                     if (bname == "Send") req_send = true;
                     else if (bname == "Sync") req_sync = true;
-                    // Other auto-traits (Copy, Unpin, ...) recorded as no-ops
-                    // — extend the bit-field when they become load-bearing.
+                    // Beyond the principal trait a trait object names auto
+                    // traits only (E0225); the others are no-ops here.
+                    else if (auto* bti = find_trait_by_name(bname).second; !bti)
+                        error(std::format("unknown trait '{}' in `dyn {}` (E0405)", bname, tname));
+                    else if (!bti->is_auto && !trait_key_is_lang_item(bname, "sized"))
+                        error(std::format("only auto traits can be used as additional traits in a "
+                                          "trait object: `dyn {} + {}` (E0225)", tname, bname));
                     continue;
                 }
                 if (ic == la::AUTO_LIFE_BOUND.code) {

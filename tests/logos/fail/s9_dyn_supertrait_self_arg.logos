@@ -1,0 +1,8 @@
+// ADR 0030 S9 row 8: dyn compatibility as Rust's (E0038); rustc 1.98.1 refuses the Rust twin with the same error.
+package s9_dyn_supertrait_self_arg;
+trait Eqish<Rhs = Self> { fn same(&self, o: &Rhs) -> bool; }
+trait T: Eqish { fn f(&self) -> i32; }
+struct S { v: i32 }
+impl Eqish for S { fn same(&self, o: &S) -> bool { self.v == o.v } }
+impl T for S { fn f(&self) -> i32 { self.v } }
+fn main() -> i32 { let s = S { v: 5 }; let d: &dyn T = &s; d.f() }
