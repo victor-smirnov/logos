@@ -137,10 +137,15 @@ fn dx_cell(out: &mut String, kind: str, expr: str) {
 // the fragment.
 fn DX_MAX_ARITY() -> i64 { return 22i64; }
 
-// The fields of a struct row type, in declaration order.
-struct DxCols { pub n: i64, pub names: Vec<str>, pub tys: Vec<str> }
+// The fields of a struct row type, in declaration order: its scalar COLUMNS,
+// and apart from them its COLLECTION fields (`Vec<E>`, `[E; N]`, `&[E]` — what
+// a traversal step walks), each with its traversal kind (`field_traversal_kind`:
+// 1 = Vec, 2 = the slice/array family) and element type name.
+struct DxCols { pub n: i64, pub names: Vec<str>, pub tys: Vec<str>,
+                pub coll: Vec<str>, pub ckind: Vec<i32>, pub celem: Vec<str> }
 fn dx_struct_cols(view: &OView, tn: str) -> DxCols {
-    let mut c: DxCols = DxCols { n: 0i64, names: Vec::<str>::new(), tys: Vec::<str>::new() };
+    let mut c: DxCols = DxCols { n: 0i64, names: Vec::<str>::new(), tys: Vec::<str>::new(),
+                                 coll: Vec::<str>::new(), ckind: Vec::<i32>::new(), celem: Vec::<str>::new() };
     if view.holder == (0 as *mut u8) { return c; }
     let decl: WAny = find_struct_decl(view, tn);
     if decl.is_null() { return c; }
@@ -148,7 +153,14 @@ fn dx_struct_cols(view: &OView, tn: str) -> DxCols {
     let mut i: u64 = 0 as u64;
     while i < nf {
         let fld: WAny = view.ast_struct_field(decl, i);
-        c.names.push(reflect_field_name(view, fld));
+        let fname: str = reflect_field_name(view, fld);
+        let tk: i32 = field_traversal_kind(view, decl, fname);
+        if tk > 0i32 {
+            c.coll.push(fname); c.ckind.push(tk); c.celem.push(field_traversal_elem(view, decl, fname));
+            i = i + (1 as u64);
+            continue;
+        }
+        c.names.push(fname);
         c.tys.push(resolve_alias_name(view, reflect_field_type_name(view, fld)));
         // a FIELDLESS enum this module declares is its i64 discriminant — the
         // reading the EL itself gives it (reflect.logos, `column_decl_admit`),
@@ -188,11 +200,26 @@ pub struct DxEnv {
     // native sources left out of the fragment, and why (`dx_atom` reports it)
     pub skn: Vec<str>,
     pub skw: Vec<str>,
+    // a source whose rows are SCALARS (a collection of `i64`, `str`, …): its one
+    // value column is `v`, and its row var is read bare (`k`, not `k.v`)
+    pub byval: Vec<bool>,
+    // a COLLECTION relation's parent source and field (−1 / "" for a source of
+    // the program): its name is `<parent>__<field>`, spelled where it is printed
+    // and never stored (`src` is "" for it, so `dx_find` cannot match it)
+    pub parent: Vec<i64>,
+    pub field: Vec<str>,
     pub nsk: i64,
 }
 
 // Add source `nm` with its columns.
 fn dx_env_add(env: &mut DxEnv, nm: str, names: Vec<str>, tys: Vec<str>) {
+    dx_env_add_rows(env, nm, names, tys, false, -1i64, "");
+}
+fn dx_env_add_rows(env: &mut DxEnv, nm: str, names: Vec<str>, tys: Vec<str>, byval: bool,
+                   parent: i64, field: str) {
+    env.byval.push(byval);
+    env.parent.push(parent);
+    env.field.push(field);
     env.src.push(nm);
     env.cn.push(names.len());
     env.cnames.push(names);
@@ -203,7 +230,7 @@ fn dx_env_add(env: &mut DxEnv, nm: str, names: Vec<str>, tys: Vec<str>) {
 fn dx_find(env: &DxEnv, nm: str) -> i64 {
     let mut i: i64 = 0i64;
     while i < env.n {
-        if str_eq(env.src[i], nm) { return i; }
+        if env.parent[i] < 0i64 && str_eq(env.src[i], nm) { return i; }
         i = i + 1i64;
     }
     return -1i64;
@@ -386,6 +413,8 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
             if br.any().is_null() {
+                let bs: i64 = dx_var_src(cl, f.name);
+                if bs >= 0i64 && env.byval[bs] { dx_push_var(out, f.name, "v"); return true; }
                 let ai: i64 = dx_alias(cl, f.name);
                 if ai >= 0i64 {
                     out.push_str(cl.al_vars[ai]);
@@ -526,6 +555,51 @@ fn dx_atom(cl: &mut DxClause, env: &DxEnv, src: str, v: str) -> bool {
     return true;
 }
 
+// The relation a traversal step reads: `<base's source>__<field>`, declared
+// when the base's source has that collection (−1 otherwise, and for a path of
+// more than one segment).
+fn dx_edge_src(env: &DxEnv, cl: &DxClause, st: RQJoinStep) -> i64 {
+    if st.path.any().is_null() { return -1i64; }
+    let segs: RQPathSegArr = st.path_arr();
+    if segs.len() != 1i64 { return -1i64; }
+    let vs: i64 = dx_var_src(cl, st.base_var);
+    if vs < 0i64 { return -1i64; }
+    let seg: str = segs.seg_at(0i64).name;
+    let mut i: i64 = 0i64;
+    while i < env.n {
+        if env.parent[i] == vs && str_eq(env.field[i], seg) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+// The name of relation `i`: a source's own, or `<parent>__<field>` for a
+// collection relation.
+fn dx_rel_name(out: &mut String, env: &DxEnv, i: i64) {
+    if env.parent[i] < 0i64 { out.push_str(env.src[i]); return; }
+    dx_rel_name(out, env, env.parent[i]);
+    out.push_str("__"); out.push_str(env.field[i]);
+}
+
+// The atom of traversal row var `v` over collection relation `cs`, joined to
+// its base row var `base` on the parent row index.
+fn dx_edge_atom(cl: &mut DxClause, env: &DxEnv, cs: i64, base: str, v: str) {
+    dx_bind(cl, v, cs);
+    if cl.body.len() > 0i64 { cl.body.push_str(", "); }
+    dx_rel_name(&mut cl.body, env, cs);
+    cl.body.push_str("(");
+    // the base row's id: a source row's index, or a nested element's counter
+    let bs: i64 = env.parent[cs];
+    dx_push_var(&mut cl.body, base, if env.parent[bs] < 0i64 { "__i" } else { "__k" });
+    let mut k: i64 = 1i64;
+    while k < env.cn[cs] {
+        cl.body.push_str(", ");
+        dx_push_var(&mut cl.body, v, env.cnames[cs][k]);
+        k = k + 1i64;
+    }
+    cl.body.push_str(")");
+}
+
 // The column `s.f` an equality conjunct of `on` binds for the negated row var
 // `v`: the other side's term, or "" when no conjunct binds it.
 fn dx_neg_arg(on: SExpr, v: str, col: str, env: &DxEnv, cl: &mut DxClause, out: &mut String) -> bool {
@@ -550,7 +624,9 @@ fn dx_is_col(e: SExpr, v: str, col: str) -> bool {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
-            if br.any().is_null() || !str_eq(f.name, col) { return false; }
+            // a scalar element's row var, read bare, is its `v` column
+            if br.any().is_null() { return str_eq(col, "v") && str_eq(f.name, v); }
+            if !str_eq(f.name, col) { return false; }
             let b: SExpr = br.any().view::<SExpr>();
             match b {
                 SExpr::Field(bf) => { return bf.base.any().is_null() && str_eq(bf.name, v); }
@@ -581,7 +657,7 @@ fn dx_names_var(e: SExpr, v: str) -> bool {
     match e {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
-            if br.any().is_null() { return false; }
+            if br.any().is_null() { return str_eq(f.name, v); }
             let b: SExpr = br.any().view::<SExpr>();
             match b {
                 SExpr::Field(bf) => { return bf.base.any().is_null() && str_eq(bf.name, v); }
@@ -807,7 +883,40 @@ fn dx_join_body(cl: &mut DxClause, env: &DxEnv, a_name: str, x_var: str, sa: WAn
         let mut i: i64 = 0i64;
         while i < steps.len() {
             let st: RQJoinStep = steps.step_at(i);
-            if st.is_edge { return dx_no(cl, "graph edge step"); }
+            if st.is_edge {
+                // a traversal: an atom of the collection's relation, joined to
+                // its base row through the base's id
+                let cs: i64 = dx_edge_src(env, cl, st);
+                if cs < 0i64 { return dx_no(cl, "traversal outside the fragment (a nested path, or a collection wider than Soufflé's arity)"); }
+                if st.is_anti {
+                    // no element (satisfying `on`): a negated atom, the `on`'s
+                    // equalities in their columns' positions
+                    if st.has_on && !dx_neg_only_eqs(st.on.any().view::<SExpr>(), st.var_name) { return dx_no(cl, "anti join on a non-equality"); }
+                    cl.body.push_str(", !");
+                    dx_rel_name(&mut cl.body, env, cs);
+                    cl.body.push_str("(");
+                    let bs: i64 = env.parent[cs];
+                    dx_push_var(&mut cl.body, st.base_var, if env.parent[bs] < 0i64 { "__i" } else { "__k" });
+                    let mut ka: i64 = 1i64;
+                    while ka < env.cn[cs] {
+                        cl.body.push_str(", ");
+                        let mut a: String = String::new();
+                        if st.has_on && dx_neg_arg(st.on.any().view::<SExpr>(), st.var_name, env.cnames[cs][ka], env, cl, &mut a) {
+                            cl.body.push_str(dx_view(&a));
+                        } else {
+                            cl.body.push_str("_");
+                        }
+                        ka = ka + 1i64;
+                    }
+                    cl.body.push_str(")");
+                    i = i + 1i64;
+                    continue;
+                }
+                dx_edge_atom(cl, env, cs, st.base_var, st.var_name);
+                if st.has_on && !dx_pred(st.on.any().view::<SExpr>(), env, cl) { return false; }
+                i = i + 1i64;
+                continue;
+            }
             if st.is_anti {
                 if !st.has_on { return dx_no(cl, "anti join without on"); }
                 let si: i64 = dx_find(env, st.src_name);
@@ -873,7 +982,9 @@ fn dx_aggr_clause(g: RQAggr, head: str, arity: i64, env: &DxEnv, out: &mut Strin
     let mut vi: i64 = 0i64;
     while vi < kb.nv {
         let si: i64 = kb.vsrc[vi];
-        let mut k: i64 = 0i64;
+        // a collection relation's `__p` is its base row's id, which the atom
+        // binds as the BASE's column (`dx_edge_atom`) — it has no var of its own
+        let mut k: i64 = if env.parent[si] >= 0i64 { 1i64 } else { 0i64 };
         while k < env.cn[si] {
             cols.push(String::new());
             dx_push_var(&mut cols[nc], kb.vars[vi], env.cnames[si][k]);
@@ -1014,6 +1125,8 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
             if br.any().is_null() {
+                let bs: i64 = dx_var_src(cl, f.name);
+                if bs >= 0i64 && env.byval[bs] { return dl_ty(env.ctys[bs][1]); }
                 let ai: i64 = dx_alias(cl, f.name);
                 // static literals (dl_ty's), re-viewed so the answer does not borrow `cl`
                 if ai >= 0i64 { let t: str = cl.al_tys[ai]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
@@ -1059,6 +1172,8 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         SExpr::Field(f) => {
             let br: WRef<SExpr> = f.base;
             if br.any().is_null() {
+                let bs: i64 = dx_var_src(cl, f.name);
+                if bs >= 0i64 && env.byval[bs] { return dx_kind(env.ctys[bs][1]); }
                 let ai: i64 = dx_alias(cl, f.name);
                 if ai >= 0i64 { let k: str = cl.al_kinds[ai]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
                 return dx_kind(dx_scalar_lty(env, f.name));
@@ -1116,7 +1231,7 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
             let mut i: i64 = 0i64;
             while i < steps.len() {
                 let st: RQJoinStep = steps.step_at(i);
-                let sj: i64 = dx_find(env, st.src_name);
+                let sj: i64 = if st.is_edge { dx_edge_src(env, cl, st) } else { dx_find(env, st.src_name) };
                 if sj >= 0i64 && !st.is_anti { dx_bind(cl, st.var_name, sj); }
                 i = i + 1i64;
             }
@@ -1129,7 +1244,7 @@ fn dx_entry_vars(qany: WAny, env: &DxEnv, cl: &mut DxClause) {
                 let mut i: i64 = 0i64;
                 while i < steps.len() {
                     let st: RQJoinStep = steps.step_at(i);
-                    let sj: i64 = dx_find(env, st.src_name);
+                    let sj: i64 = if st.is_edge { dx_edge_src(env, cl, st) } else { dx_find(env, st.src_name) };
                     if sj >= 0i64 && !st.is_anti { dx_bind(cl, st.var_name, sj); }
                     i = i + 1i64;
                 }
@@ -1318,6 +1433,129 @@ fn dx_natives(natspec: str, env: &mut DxEnv, prm: &MacroParams, out: &mut String
     return true;
 }
 
+// Each collection field of a row type (columns `c`) as its own relation
+// `<parent>__<field>(__p, [__k,] …)`: the parent's id (`__i`, the source row's
+// index, for a collection of the source's rows; the parent element's `__k`
+// below that), the element's own id `__k` when the element has collections of
+// its own, then the element — one column `v` for a scalar element, the element
+// struct's columns otherwise. Recursive, so `join d.emps e join e.skills s`
+// reads `depts__emps(v_d___i, v_e___k, …)` and `depts__emps__skills(v_e___k,
+// v_s_v)`. An element id is a RUNNING COUNTER over the relation's elements in
+// dump order; every dump walks the same nested loops in the same order, so a
+// child's `__p` meets its parent's `__k`. A relation wider than Soufflé's
+// arity is not declared (a traversal over it is refused where it is read).
+//
+// `ps` is the parent's environment index; `cf`/`ck` the fields and traversal
+// kinds from the source down to the parent (empty for the source itself).
+fn dx_children(view: &OView, src: str, c: &DxCols, env: &mut DxEnv, out: &mut String,
+               dump: &mut String, ddir: str, ps: i64, cf: &Vec<str>, ck: &Vec<i32>) {
+    let mut f: i64 = 0i64;
+    while f < c.coll.len() {
+        let el: str = c.celem[f];
+        let mut cn: Vec<str> = Vec::<str>::new();
+        let mut ct: Vec<str> = Vec::<str>::new();
+        cn.push("__p"); ct.push("i64");
+        let mut byval: bool = false;
+        let mut ok: bool = true;
+        let mut sub: bool = false;
+        // a struct this module declares is read by its columns; anything else is
+        // a scalar element (an opaque one is dumped as its placeholder and a
+        // term reading it is refused, as for a column)
+        let ec: DxCols = dx_struct_cols(view, el);
+        if ec.n == 0i64 && ec.coll.len() == 0i64 {
+            cn.push("v"); ct.push(el); byval = true;
+        } else {
+            sub = ec.coll.len() > 0i64;
+            if sub { cn.push("__k"); ct.push("i64"); }
+            let mut k: i64 = 0i64;
+            while k < ec.n { cn.push(ec.names[k]); ct.push(ec.tys[k]); k = k + 1i64; }
+        }
+        if cn.len() > DX_MAX_ARITY() { ok = false; }
+        if ok {
+            let mut nm: String = String::new();
+            nm.push_str(src);
+            let mut q: i64 = 0i64;
+            while q < cf.len() { nm.push_str("__"); nm.push_str(cf[q]); q = q + 1i64; }
+            nm.push_str("__"); nm.push_str(c.coll[f]);
+            out.push_str(".decl "); out.push_str(dx_view(&nm)); out.push_str("(");
+            let mut k2: i64 = 0i64;
+            while k2 < cn.len() {
+                if k2 > 0i64 { out.push_str(", "); }
+                out.push_str(cn[k2]); out.push_str(": "); out.push_str(dl_col_ty(ct[k2]));
+                k2 = k2 + 1i64;
+            }
+            out.push_str(")\n.input "); out.push_str(dx_view(&nm)); out.push_str("\n");
+            // the dump: the nested loops from the source down to this field
+            let mut lf: Vec<str> = Vec::<str>::new();
+            let mut lk: Vec<i32> = Vec::<i32>::new();
+            let mut q2: i64 = 0i64;
+            while q2 < cf.len() { lf.push(cf[q2]); lk.push(ck[q2]); q2 = q2 + 1i64; }
+            lf.push(c.coll[f]); lk.push(c.ckind[f]);
+            dump.push_str("    { let __od: i32 = wql_oracle_open(\"");
+            dump.push_str(ddir); dump.push_str("/"); dump.push_str(dx_view(&nm));
+            dump.push_str(".facts\"); ");
+            let depth: i64 = lf.len();
+            let mut t: i64 = 1i64;
+            while t <= depth { dump.push_str("let mut __c"); dump.push_i64(t); dump.push_str(": i64 = 0i64; "); t = t + 1i64; }
+            dump.push_str("let mut __o0: i64 = 0i64; while __o0 < ("); dump.push_str(src); dump.push_str(").len() { ");
+            let mut row: String = String::new();
+            row.push_str("("); row.push_str(src); row.push_str(")[__o0]");
+            let mut t2: i64 = 1i64;
+            while t2 <= depth {
+                let mut seq: String = String::new();
+                if lk[t2 - 1i64] == 1i32 {
+                    // a Vec field is read through its slice view (`reflect::field_traversal_kind`)
+                    dump.push_str("let __v"); dump.push_i64(t2); dump.push_str(" = (");
+                    dump.push_str(dx_view(&row)); dump.push_str("."); dump.push_str(lf[t2 - 1i64]);
+                    dump.push_str(").as_slice(); ");
+                    seq.push_str("__v"); seq.push_i64(t2);
+                } else {
+                    seq.push_str("("); seq.push_str(dx_view(&row)); seq.push_str("."); seq.push_str(lf[t2 - 1i64]); seq.push_str(")");
+                }
+                dump.push_str("let mut __o"); dump.push_i64(t2); dump.push_str(": i64 = 0i64; while __o"); dump.push_i64(t2);
+                dump.push_str(" < ("); dump.push_str(dx_view(&seq)); dump.push_str(").len() { ");
+                row.clear();
+                row.push_str("("); row.push_str(dx_view(&seq)); row.push_str(")[__o"); row.push_i64(t2); row.push_str("]");
+                t2 = t2 + 1i64;
+            }
+            // the row: the parent's id, this element's id, its columns
+            let mut pid: String = String::new();
+            if depth == 1i64 { pid.push_str("__o0"); } else { pid.push_str("__c"); pid.push_i64(depth - 1i64); }
+            dx_cell(dump, "i", dx_view(&pid));
+            let mut k3: i64 = 1i64;
+            while k3 < cn.len() {
+                dump.push_str("wql_oracle_tab(__od); ");
+                if str_eq(cn[k3], "__k") {
+                    let mut kid: String = String::new();
+                    kid.push_str("__c"); kid.push_i64(depth);
+                    dx_cell(dump, "i", dx_view(&kid));
+                } else {
+                    let mut ex: String = String::new();
+                    ex.push_str(dx_view(&row));
+                    if !byval { ex.push_str("."); ex.push_str(cn[k3]); }
+                    dx_cell(dump, dx_kind(ct[k3]), dx_view(&ex));
+                }
+                k3 = k3 + 1i64;
+            }
+            dump.push_str("wql_oracle_nl(__od); ");
+            // close the loops, innermost first: each level counts its elements
+            let mut t3: i64 = depth;
+            while t3 >= 1i64 {
+                dump.push_str("__c"); dump.push_i64(t3); dump.push_str(" = __c"); dump.push_i64(t3); dump.push_str(" + 1i64; ");
+                dump.push_str("__o"); dump.push_i64(t3); dump.push_str(" = __o"); dump.push_i64(t3); dump.push_str(" + 1i64; } ");
+                t3 = t3 - 1i64;
+            }
+            dump.push_str("__o0 = __o0 + 1i64; } wql_oracle_close(__od); }\n");
+            dx_env_add_rows(env, "", cn, ct, byval, ps, c.coll[f]);
+            if sub {
+                let me: i64 = env.n - 1i64;
+                dx_children(view, src, &ec, env, out, dump, ddir, me, &lf, &lk);
+            }
+        }
+        f = f + 1i64;
+    }
+}
+
 fn dx_is_native_param(nparams: &Vec<str>, nn: i64, nm: str) -> bool {
     let mut i: i64 = 0i64;
     while i < nn { if str_eq(nparams[i], nm) { return true; } i = i + 1i64; }
@@ -1325,11 +1563,13 @@ fn dx_is_native_param(nparams: &Vec<str>, nn: i64, nm: str) -> bool {
 }
 
 pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, dump: &mut String,
-                 ddir: str, incrows: &mut String, incsnap: &mut String, why: &mut String) -> bool {
+                 ddir: str, incrows: &mut String, incsnap: &mut String, why: &mut String,
+                 has_coll: &mut bool) -> bool {
     let view: OView = oview_module_ast();
     let mut env: DxEnv = DxEnv { n: 0i64, src: Vec::<str>::new(), cn: Vec::<i64>::new(), cnames: Vec::<Vec<str>>::new(),
                                  ctys: Vec::<Vec<str>>::new(), scalars: Vec::<str>::new(), stys: Vec::<str>::new(),
-                                 sltys: Vec::<str>::new(), ns: 0i64, skn: Vec::<str>::new(), skw: Vec::<str>::new(), nsk: 0i64 };
+                                 sltys: Vec::<str>::new(), ns: 0i64, skn: Vec::<str>::new(), skw: Vec::<str>::new(), nsk: 0i64,
+                                 byval: Vec::<bool>::new(), parent: Vec::<i64>::new(), field: Vec::<str>::new() };
     // native sources first: their params are not scalars
     let mut nparams: Vec<str> = Vec::<str>::new();
     let mut nn: i64 = 0i64;
@@ -1341,13 +1581,18 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
             // bound through its materializer above (or left out of the fragment)
         } else if prm.is_slice[i] {
             let c: DxCols = dx_struct_cols(&view, prm.tys[i]);
-            if c.n == 0i64 { return dx_set(why, "slice of a type with no readable columns"); }
-            if c.n > DX_MAX_ARITY() { return dx_set(why, "a source wider than Soufflé's interpreter arity (22)"); }
+            // a row with collections carries its row INDEX as a leading column
+            // `__i`, which each collection's relation is keyed by
+            let nested: bool = c.coll.len() > 0i64;
+            if c.n == 0i64 && !nested { return dx_set(why, "slice of a type with no readable columns"); }
+            let width: i64 = if nested { c.n + 1i64 } else { c.n };
+            if width > DX_MAX_ARITY() { return dx_set(why, "a source wider than Soufflé's interpreter arity (22)"); }
             out.push_str(".decl "); out.push_str(prm.names[i]); out.push_str("(");
+            if nested { out.push_str("__i: number"); }
             let mut k: i64 = 0i64;
             while k < c.n {
                 let ty: str = dl_col_ty(c.tys[k]);
-                if k > 0i64 { out.push_str(", "); }
+                if k > 0i64 || nested { out.push_str(", "); }
                 out.push_str(c.names[k]); out.push_str(": "); out.push_str(ty);
                 k = k + 1i64;
             }
@@ -1357,11 +1602,12 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
             dump.push_str(ddir); dump.push_str("/"); dump.push_str(prm.names[i]);
             dump.push_str(".facts\"); let mut __oi: i64 = 0i64; while __oi < (");
             dump.push_str(prm.names[i]); dump.push_str(").len() { ");
+            if nested { dx_cell(dump, "i", "__oi"); }
             let mut kc: i64 = 0i64;
             while kc < c.n {
                 let fk: str = dx_kind(c.tys[kc]);
                 if fk.len() == 0i64 { return dx_set(why, "input column type"); }
-                if kc > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
+                if kc > 0i64 || nested { dump.push_str("wql_oracle_tab(__od); "); }
                 let mut fx: String = String::new();
                 fx.push_str("("); fx.push_str(prm.names[i]); fx.push_str(")[__oi].");
                 fx.push_str(c.names[kc]);
@@ -1369,7 +1615,8 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
                 kc = kc + 1i64;
             }
             dump.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } wql_oracle_close(__od); }\n");
-            // the incremental log's row writer: the same cells, signed
+            // the incremental log's row writer: the same cells, signed (a row
+            // with collections keeps no log: see `nested`)
             incrows.push_str("{ let mut __oi: i64 = 0i64; while __oi < (");
             incrows.push_str(prm.names[i]); incrows.push_str(").len() { wql_oracle_str(__od, __osg); ");
             let mut kr: i64 = 0i64;
@@ -1382,7 +1629,17 @@ pub fn dl_render(root: WAny, prm: &MacroParams, natspec: str, out: &mut String, 
                 kr = kr + 1i64;
             }
             incrows.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } }\n");
-            dx_env_add(&mut env, prm.names[i], c.names, c.tys);
+            let mut en: Vec<str> = Vec::<str>::new();
+            let mut et: Vec<str> = Vec::<str>::new();
+            if nested { en.push("__i"); et.push("i64"); }
+            let mut ke: i64 = 0i64;
+            while ke < c.n { en.push(c.names[ke]); et.push(c.tys[ke]); ke = ke + 1i64; }
+            dx_env_add(&mut env, prm.names[i], en, et);
+            if nested {
+                *has_coll = true;
+                let pe: i64 = env.n - 1i64;
+                dx_children(&view, prm.names[i], &c, &mut env, out, dump, ddir, pe, &Vec::<str>::new(), &Vec::<i32>::new());
+            }
         } else {
             let st: str = dl_ty(prm.tys[i]);
             if st.len() == 0i64 { return dx_set(why, "scalar parameter type"); }
@@ -1555,7 +1812,8 @@ pub fn dl_export(root: WAny, name: str, natspec: str, prm: &mut MacroParams) {
     let mut incsnap: String = String::new();
     text.push_str("// deem "); text.push_str(name); text.push_str("\n");
     let mut why: String = String::new();
-    if !dl_render(root, prm, natspec, &mut text, &mut dump, dx_view(&ddir), &mut incrows, &mut incsnap, &mut why) {
+    let mut has_coll: bool = false;
+    if !dl_render(root, prm, natspec, &mut text, &mut dump, dx_view(&ddir), &mut incrows, &mut incsnap, &mut why, &mut has_coll) {
         // outside the fragment: `<dir>/<name>.skip` names the first construct
         // that put it there, so the gate can count what the oracle cannot see
         if why.len() == 0i64 { why.push_str("unnamed"); }
@@ -1574,11 +1832,13 @@ pub fn dl_export(root: WAny, name: str, natspec: str, prm: &mut MacroParams) {
     unsafe { mkdir(dz.as_ptr(), 493i32); }   // 0755; an existing dir is fine
     prm.oracle_dump = dump;
     // the incremental log: only for exactly one slice param and nothing else
-    // (the epoch's delta is then that param's rows, and nothing else is input)
+    // (the epoch's delta is then that param's rows, and nothing else is input),
+    // and not for a row with collections (its collection relations are keyed by
+    // the row's index, which an epoch's delta does not carry)
     let mut nslice: i64 = 0i64;
     let mut pi: i64 = 0i64;
     while pi < prm.n { if prm.is_slice[pi] { nslice = nslice + 1i64; } pi = pi + 1i64; }
-    if nslice == 1i64 && prm.n == 1i64 && natspec.len() == 0i64 {
+    if nslice == 1i64 && prm.n == 1i64 && natspec.len() == 0i64 && !has_coll {
         prm.oracle_dir = String::from_str(dx_view(&ddir));
         prm.oracle_inc_rows = incrows;
         prm.oracle_inc_snap = incsnap;
