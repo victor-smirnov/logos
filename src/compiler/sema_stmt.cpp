@@ -903,6 +903,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
             std::string nm = std::format("__rtmp_{}", destruct_counter_++);
             register_stmt_temp(nm, ptt, std::move(p), false);
             auto cur = builder().deref(builder().var_ref(nm, ptt), el);
+            if (bop != "<<" && bop != ">>") widen_int_expr(r, el, builder());
             auto bin = builder().bin_op(bop, std::move(cur), std::move(r), el);
             return builder().stmt_deref_write(builder().var_ref(nm, ptt), std::move(bin), node_line_);
         };
@@ -948,6 +949,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
                                                      /*want_mut=*/true);
                 if (rcall && tgt) {
                     auto cur_val = builder().deref(std::move(*rcall), tgt);
+                    if (base_op != "<<" && base_op != ">>") widen_int_expr(rhs, tgt, builder());
                     auto binop = builder().bin_op(base_op, std::move(cur_val),
                                                   std::move(rhs), tgt);
                     return builder().stmt_deref_write(std::move(*wcall),
@@ -987,6 +989,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         // by re-lowering.
         auto ptr_again = lower_mut_place(ptr_node);
         auto cur_val   = builder().deref(std::move(ptr_again), elem);
+        if (base_op != "<<" && base_op != ">>") widen_int_expr(rhs, elem, builder());
         auto binop     = builder().bin_op(base_op, std::move(cur_val), std::move(rhs), elem);
         return builder().stmt_deref_write(std::move(ptr), std::move(binop), node_line_);
     }
@@ -2516,7 +2519,13 @@ std::optional<lir_view::StmtRef> SemaChecker::typevar_op_assign_(TypeRef t, writ
         if (auto p = tn.rfind('.'); p != std::string_view::npos) tn.remove_prefix(p + 1);
         if (tn == atrait) { bounded = true; break; }
     }
-    if (!bounded) return std::nullopt;
+    // A supertrait's `<Op>Assign` holds too (C-OBL elaborates the bounds).
+    // Rust has no `x = x op y` fallback: without the assign trait it is E0368.
+    if (!bounded && !implements_(atrait, t)) {
+        error(std::format("binary assignment operation `{}=` cannot be applied to type `{}` (E0368)",
+                          base_op, type_str(t)));
+        return builder().stmt_expr(error_expr(), node_line_);
+    }
     auto call = synth_node(la::METHOD_CALL.code, node_line_,
                            {{la::RECEIVER.code, recv_av}, {la::NAME.code, synth_str(amethod)},
                             {la::ARGS.code, synth_array({val_av})}});
@@ -2581,6 +2590,7 @@ lir_view::StmtRef SemaChecker::lower_compound_assign(TinyMapView node) {
     expect_type(rhs, var_type, CoercePos::Operand,
                 std::format("compound assignment to '{}': type mismatch —", name));
     // Synthesize the binop LIR node
+    if (base_op != "<<" && base_op != ">>") widen_int_expr(rhs, var_type, builder());
     auto binop = builder().bin_op(base_op, std::move(lhs_ref), std::move(rhs), var_type);
     return builder().stmt_assign(std::string(name), std::move(binop), node_line_);
 }
@@ -2686,6 +2696,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                             std::string nm = std::format("__rtmp_{}", destruct_counter_++);
                             register_stmt_temp(nm, ref_o, std::move(wc), false);
                             auto cur1 = builder().deref(builder().var_ref(nm, ref_o), out_t);
+                            if (base_op != "<<" && base_op != ">>") widen_int_expr(rhs2, out_t, builder());
                             auto comb = builder().bin_op(base_op, std::move(cur1), std::move(rhs2), out_t);
                             return builder().stmt_deref_write(builder().var_ref(nm, ref_o),
                                                               std::move(comb), node_line_);
@@ -2708,6 +2719,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                                       {}, std::move(ra), ref_o);
                             cur = builder().deref(std::move(rc), out_t);
                         }
+                        if (base_op != "<<" && base_op != ">>") widen_int_expr(rhs2, out_t, builder());
                         auto combined = builder().bin_op(base_op, std::move(cur), std::move(rhs2), out_t);
                         std::vector<lir::LExprPtr> wa;
                         wa.push_back(builder().addr_of(arr_name, make_ref(true, arr_type), BorrowOrigin::OperatorAutoref));
@@ -2753,7 +2765,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                 expect_type(rhs1, pt1, CoercePos::Operand,
                             std::format("compound assignment to '{}': type mismatch —",
                                         render_place_node(place_node)));
-            widen_int_expr(rhs1, pt1, builder());
+            if (base_op != "<<" && base_op != ">>") widen_int_expr(rhs1, pt1, builder());
             auto cur1 = builder().deref(builder().var_ref(nm, ref_t), pt1);
             auto newval1 = builder().bin_op(base_op, std::move(cur1), std::move(rhs1), pt1);
             track_write_move(newval1);
@@ -2803,7 +2815,7 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
         expect_type(rhs, pt, CoercePos::Operand,
                     std::format("compound assignment to '{}': type mismatch —",
                                 render_place_node(place_node)));
-    widen_int_expr(rhs, pt, builder());
+    if (base_op != "<<" && base_op != ">>") widen_int_expr(rhs, pt, builder());
     auto newval = builder().bin_op(base_op, std::move(place_read), std::move(rhs),
                                    pt ? pt : error_t());
     auto addr = builder().addr_of_temp(lower_mut_place(place_node), /*is_mut=*/true,  // eval #2

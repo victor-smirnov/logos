@@ -1,0 +1,6 @@
+// ADR 0030 S9 row 9: Rust has no `x = x op y` fallback — `x += y` with only `T: Add` is E0368
+// (rustc 1.98.1). It was desugared to `x = x + y` and admitted.
+package s9_op_assign_needs_assign_trait;
+use logos.lang.ops;
+fn g<T: Add<Output = T> + Copy>(mut x: T, y: T) -> T { x += y; x }
+fn main() -> i32 { return g(1i64, 2i64) as i32; }

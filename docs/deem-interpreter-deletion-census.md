@@ -6832,8 +6832,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11989 -> 11991 (+2), NOIMPORTED 7430 -> 7432 (+2) — 2026-10-06 (#729): fixtures wql_unknown_name_fail, wql_known_names_e2e.
 #                ALL 11991 -> 11998 (+7), NOIMPORTED 7432 -> 7439 (+7), TIERCOMMIT 197 -> 195 (-2) — (main, merged into `deem`) 2026-10-06: S9 row 8 (vtable slots by impl identity, dyn compatibility)
 #                ALL 11998 -> 12001 (+3), NOIMPORTED 7439 -> 7442 (+3), TIERCOMMIT 195 -> 195 (+0) — (main, merged into `deem`) 2026-10-06: S9 row 8 (a vtable per coercion)
-REGISTRY-ALL         12001
-REGISTRY-NOIMPORTED  7442
+#                ALL 12001 -> 12006 (+5), NOIMPORTED 7442 -> 7447 (+5), TIERCOMMIT 195 -> 195 (+0) — (main, merged into `deem`) 2026-10-06: S9 row 9 (operators typed by sema)
+REGISTRY-ALL         12006
+REGISTRY-NOIMPORTED  7447
 REGISTRY-TIERCOMMIT  195
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

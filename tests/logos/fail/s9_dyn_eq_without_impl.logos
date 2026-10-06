@@ -1,0 +1,13 @@
+// ADR 0030 S9 row 9: no builtin equality for `&dyn Tr` — without a PartialEq impl `x == y` is E0369
+// (rustc 1.98.1). It compared addresses and was admitted.
+package s9_dyn_eq_without_impl;
+trait Shape { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+fn main() -> i32 {
+    let a = Sq { s: 2 };
+    let x: &dyn Shape = &a;
+    let y: &dyn Shape = &a;
+    if x == y { return 1; }
+    return 0;
+}

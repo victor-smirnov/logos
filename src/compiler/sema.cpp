@@ -1808,12 +1808,7 @@ std::string concrete_struct_name(TypeRef t) {
     // Coexistence + G156-1: fold module_id (and, for ambiguous names, the full
     // package) into the CANONICAL identity — one spelling for def + all refs.
     base += type_module_suffix(TypeRef(t).struct_name(), TypeRef(t).pkg_name());
-    if (!TypeRef(t).type_args().empty()) {
-        base += "$G";
-        base += std::to_string(TypeRef(t).type_args().size());
-        for (auto a : TypeRef(t).type_args()) { base += "$"; base += mangle_type_for_name(a); }
-    }
-    return base;
+    return base + generic_args_code(TypeRef(t).type_args());
 }
 
 // pkg-aware variant: callers that build a name from a base string must pass the
@@ -1822,14 +1817,7 @@ std::string concrete_struct_name(TypeRef t) {
 std::string concrete_struct_name_raw(std::string_view base_name,
                                      const std::vector<TypeRef>& type_args,
                                      std::string_view pkg) {
-    std::string suffix = type_module_suffix(base_name, pkg);
-    if (type_args.empty()) return std::string(base_name) + suffix;
-    std::string r(base_name);
-    r += suffix;
-    r += "$G";
-    r += std::to_string(type_args.size());
-    for (auto a : type_args) { r += "$"; r += mangle_type_for_name(a); }
-    return r;
+    return std::string(base_name) + type_module_suffix(base_name, pkg) + generic_args_code(type_args);
 }
 
 static std::string mangle_type_for_name(TypeRef t) {
@@ -1872,12 +1860,7 @@ static std::string mangle_type_for_name(TypeRef t) {
         // `Vec<Option<(i64, i64)>>` ONE instance (`VecIntoIter$G1$Option`), so
         // one program iterating both strode the first by the second's layout
         // (a `Some(5)` read as `None`).
-        if (!TypeRef(t).type_args().empty()) {
-            r += "$G";
-            r += std::to_string(TypeRef(t).type_args().size());
-            for (auto a : TypeRef(t).type_args()) { r += "$"; r += mangle_type_for_name(a); }
-        }
-        return r;
+        return r + generic_args_code(TypeRef(t).type_args());
     }
     case LogosType::Kind::Tuple: {
         std::string r = "tup$" + std::to_string(TypeRef(t).tuple_elems().size());
@@ -1896,14 +1879,7 @@ static std::string mangle_type_for_name(TypeRef t) {
         // two instantiations') arrays must not collide in symbols.
         std::string base(TypeRef(t).struct_name());
         base += type_module_suffix(TypeRef(t).struct_name(), TypeRef(t).pkg_name());  // G156-1 identity
-        if (!TypeRef(t).type_args().empty()) {
-            base += "$G";
-            base += std::to_string(TypeRef(t).type_args().size());
-            for (auto a : TypeRef(t).type_args()) {
-                base += "$";
-                base += mangle_type_for_name(a);
-            }
-        }
+        base += generic_args_code(TypeRef(t).type_args());
         return (TypeRef(t).mut_ptr() ? "dstmutref_" : "dstref_") + base;
     }
     case LogosType::Kind::AssocType:
@@ -1964,6 +1940,12 @@ std::string SemaChecker::canonical_func_type_name(TypeRef t) const {
 }
 
 std::string type_symbol_code(TypeRef t) { return mangle_type_for_name(t); }
+std::string generic_args_code(const std::vector<TypeRef>& args) {
+    if (args.empty()) return {};
+    std::string r = "$G" + std::to_string(args.size());
+    for (auto a : args) { r += '$'; r += mangle_type_for_name(a); }
+    return r;
+}
 std::string vtable_key(std::string_view trait, const std::vector<TypeRef>& args, TypeRef self) {
     std::string k(trait);
     for (auto a : args) { k += '$'; k += mangle_type_for_name(a); }

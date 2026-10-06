@@ -741,26 +741,39 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EBinOpView v, TypeRef) {
 
     auto rhs = gen_expr(v.rhs());
     if (!rhs) return nullptr;
-    // Widen narrower integer operand, using zero-extend for unsigned types.
-    if (auto li = mlir::dyn_cast<mlir::IntegerType>(lhs.getType())) {
-        if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType())) {
-            if (li.getWidth() < ri.getWidth()) {
-                bool lhs_unsigned = lhs_ty &&
-                    LogosType::is_unsigned_repr_kind(TypeRef(lhs_ty).kind());
-                if (lhs_unsigned)
-                    lhs = builder_.create<mlir::arith::ExtUIOp>(loc_, rhs.getType(), lhs);
-                else
-                    lhs = builder_.create<mlir::arith::ExtSIOp>(loc_, rhs.getType(), lhs);
-            } else if (ri.getWidth() < li.getWidth()) {
-                bool rhs_unsigned = rhs_ty &&
-                    LogosType::is_unsigned_repr_kind(TypeRef(rhs_ty).kind());
-                if (rhs_unsigned)
-                    rhs = builder_.create<mlir::arith::ExtUIOp>(loc_, lhs.getType(), rhs);
-                else
-                    rhs = builder_.create<mlir::arith::ExtSIOp>(loc_, lhs.getType(), rhs);
-            }
+    // A shift is typed by its left operand (Rust's `Shl<Rhs>` / `Shr<Rhs>`):
+    // the count traps at >= the left operand's width, compared in the count's
+    // own width (unsigned: a negative count is huge), then is fitted to it.
+    if ((op == "<<" || op == ">>") && mlir::isa<mlir::IntegerType>(lhs.getType()) &&
+        mlir::isa<mlir::IntegerType>(rhs.getType()) && lhs.getType() != rhs.getType()) {
+        auto li = mlir::cast<mlir::IntegerType>(lhs.getType());
+        auto ri = mlir::cast<mlir::IntegerType>(rhs.getType());
+        if (overflow_checks_) {
+            auto wv = builder_.create<mlir::arith::ConstantIntOp>(loc_, (int64_t)li.getWidth(), ri);
+            auto ovf_v = builder_.create<mlir::arith::CmpIOp>(loc_, mlir::arith::CmpIPredicate::uge, rhs, wv);
+            auto* parent_region = builder_.getInsertionBlock()->getParent();
+            auto* trap_block = new mlir::Block();
+            auto* cont_block = new mlir::Block();
+            parent_region->getBlocks().push_back(trap_block);
+            parent_region->getBlocks().push_back(cont_block);
+            builder_.create<mlir::cf::CondBranchOp>(loc_, ovf_v, trap_block, cont_block);
+            builder_.setInsertionPointToStart(trap_block);
+            builder_.create<mlir::LLVM::Trap>(loc_);
+            builder_.create<mlir::LLVM::UnreachableOp>(loc_);
+            builder_.setInsertionPointToStart(cont_block);
         }
+        rhs = ri.getWidth() > li.getWidth()
+            ? builder_.create<mlir::arith::TruncIOp>(loc_, li, rhs).getResult()
+            : builder_.create<mlir::arith::ExtUIOp>(loc_, li, rhs).getResult();
     }
+    // Integer operands of two widths: sema types every operator (a shift above,
+    // the blessed widening as an explicit cast, ADR 0030 S9 row 9) — codegen
+    // does not pick a width.
+    if (auto li = mlir::dyn_cast<mlir::IntegerType>(lhs.getType()))
+        if (auto ri = mlir::dyn_cast<mlir::IntegerType>(rhs.getType()); ri && li.getWidth() != ri.getWidth()) {
+            bug("operator '{}' over i{} and i{}: sema owes the operand's width", op, li.getWidth(), ri.getWidth());
+            return nullptr;
+        }
     // Unify operand types for mixed arithmetic:
     // float+int → convert int to float; float+float of different widths → widen narrower.
     if (mlir::isa<mlir::FloatType>(lhs.getType()) &&

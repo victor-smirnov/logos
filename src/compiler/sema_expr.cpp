@@ -3433,6 +3433,34 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         // codegen fast-path (CP-cm-08) or to the historic pointer-cmp.
     }
 
+    // `==` / `!=` over trait objects (`*x == *y`, `x == y` for `x, y: &dyn Tr`):
+    // the trait object's own PartialEq impl (`impl PartialEq for dyn Tr`), as
+    // in Rust — there is no builtin equality for `dyn` / `&dyn` (E0369 without
+    // the impl). Codegen compared the fat pointers' addresses.
+    {
+        auto dyn_of = [](TypeRef t) -> TypeRef {
+            if (t && is_ref_like(TypeRef(t).kind()) && TypeRef(t).pointee()) t = TypeRef(t).pointee();
+            return t && (TypeRef(t).kind() == LogosType::Kind::TraitObject ||
+                         TypeRef(t).kind() == LogosType::Kind::UnsizedDyn) ? t : TypeRef{};
+        };
+        TypeRef ld = dyn_of(lt), rd = dyn_of(rt);
+        if ((op == "==" || op == "!=") && ld && rd) {
+            const std::string key = "$dyn$" + std::string(TypeRef(ld).trait_name()) + "__eq";
+            const SemaFuncInfo* f = nullptr;
+            for (auto* c : find_func_candidates(key))
+                if (c && c->param_types.size() == 2) { f = c; break; }
+            if (!f) {
+                error(std::format("binary operation `{}` cannot be applied to type `{}` (E0369)", op, type_str(lt)));
+                return error_expr();
+            }
+            std::vector<lir::LExprPtr> args;
+            args.push_back(std::move(lhs));
+            args.push_back(std::move(rhs));
+            auto call = builder().call(f->symbol_name.empty() ? key : f->symbol_name, {}, std::move(args), bool_t());
+            if (op == "==") return call;
+            return builder().unary(std::string("!"), std::move(call), bool_t());
+        }
+    }
     // Operator overloading: if LHS is a struct, desugar to trait method call.
     // A reference pair to structs looks the impl up on the pointee and passes the references themselves.
     const bool struct_ref_pair = ref_pair_to(LogosType::Kind::Struct);
@@ -4534,6 +4562,18 @@ binop_bounded_tv:
         if (by_value_op && (is_tv(lt) || is_tv(rt))) {
             if (lhs) mark_moved_expr(expr_ref_of(lhs));
             if (rhs) mark_moved_expr(expr_ref_of(rhs));
+        }
+    }
+    // A mixed-width integer operator (the blessed widening, DIVERGENCES A18):
+    // the narrower operand is cast to the wider one here, so codegen sees one
+    // width. A shift keeps its operands — its count is not unified (Rust's
+    // `Shl<Rhs>` for every integer `Rhs`, Output the left operand's type).
+    if (op != "<<" && op != ">>" && lhs && rhs) {
+        TypeRef a(expr_type(lhs)), b(expr_type(rhs));
+        if (a && b && is_integer_kind(a.kind()) && is_integer_kind(b.kind()) && !types_equal(a, b)) {
+            TypeRef w = unify_int(a, b);
+            if (!types_equal(a, w)) lhs = builder().cast(std::move(lhs), w);
+            if (!types_equal(b, w)) rhs = builder().cast(std::move(rhs), w);
         }
     }
     return builder().bin_op(std::string(op), std::move(lhs), std::move(rhs), result_type);

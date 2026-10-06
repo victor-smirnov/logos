@@ -1,0 +1,18 @@
+// ADR 0030 S9 row 9: `x op= y` over a type parameter calls `<Op>Assign::op_assign` — the variable
+// and a field of a generic struct. rustc 1.98.1 exits 52 (1 + 2*10, 1 + 3*10).
+package s9_op_assign_generic;
+use logos.lang.ops;
+
+struct V { a: i64 }
+impl Clone for V { fn clone(&self) -> V { V { a: self.a } } }
+impl Copy for V {}
+impl AddAssign for V { fn add_assign(&mut self, o: V) { self.a = self.a + o.a * 10; } }
+impl Add for V { type Output = V; fn add(self, o: V) -> V { V { a: self.a + o.a } } }
+fn f<T: AddAssign + Copy>(mut x: T, y: T) -> T { x += y; x }
+struct H<T> { v: T }
+fn g<T: AddAssign + Copy>(mut h: H<T>, y: T) -> T { h.v += y; h.v }
+fn main() -> i32 {
+    let r = f(V { a: 1 }, V { a: 2 });
+    let s = g(H { v: V { a: 1 } }, V { a: 3 });
+    return (r.a + s.a) as i32;
+}

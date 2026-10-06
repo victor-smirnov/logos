@@ -1,0 +1,19 @@
+// ADR 0030 S9 row 9 (interaction cluster dyn-eq-operator-builtin): `==` / `!=` over trait objects call
+// `impl PartialEq for dyn Shape` — `*x == *y` and `x == y` alike. Codegen compared the fat pointers'
+// addresses (exit 4). rustc 1.98.1 exits 3.
+package s9_dyn_eq_by_partial_eq_impl;
+trait Shape { fn area(self: &Self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(self: &Sq) -> i64 { return self.s * self.s; } }
+impl PartialEq for dyn Shape { fn eq(self: &dyn Shape, o: &dyn Shape) -> bool { return self.area() == o.area(); } }
+fn main() -> i32 {
+    let a = Sq { s: 2 };
+    let b = Sq { s: 2 };
+    let x: &dyn Shape = &a;
+    let y: &dyn Shape = &b;
+    let mut r: i32 = 0;
+    if *x == *y { r = r + 1; }
+    if x == y { r = r + 2; }
+    if *x != *y { r = r + 4; }
+    return r;
+}
