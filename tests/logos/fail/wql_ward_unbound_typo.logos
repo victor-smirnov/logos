@@ -5,6 +5,12 @@
 // downstream error; now it gets a clean, specific diagnostic that points at the
 // column / scalar-param / fresh() alternatives. (Distinct from the wardedness
 // messages — proves the marker path and the bug path do not collide.)
+//
+// Since ADR 0031 R2 the first check to see the typo is the SCOPE check (on the
+// core, before the walker and its wardedness analysis), whose message names the
+// clause. The claim is unchanged — a typo gets a specific diagnostic, never an
+// undefined Logos variable downstream and never a wardedness message — and is
+// pinned on that check's text.
 package test;
 
 use logos.std.wql.wql;

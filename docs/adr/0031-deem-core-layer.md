@@ -85,17 +85,35 @@ One emitter per DPlan kind: one scan (all landings, both layouts), one probe, on
 
 ## 4. Rows (each leaves the tree green; the old path is DELETED in the row that replaces it, after a census of every corpus)
 
+**Order revised 2026-10-06 (Victor: «переставь порядок, R5/R6 вперёд»).** A Core → Core rewrite (magic sets, liveness, typing) has no consumer while the walker and the emitters read the surface: it would have to be raised back into the surface or done twice. So the plan IR and the emitters move onto Core first, and the rewrites follow onto a core that something already reads.
+
 | Row | Content | Acceptance |
 |---|---|---|
 | R0 | Core types + `core_verify` + dump; `lower_program` for all four shapes and rel bodies; nothing consumes it yet | every corpus query lowers and verifies (gate over the pass corpus) |
 | R1 | `dl_export` reads Core | byte-identical Datalog on the oracle corpus, then delete the surface-reading exporter |
-| R2 | scope / wardedness / stamping checks on Core | same diagnostics corpus-wide; the rel-aggregate check gap (§1) closes by construction |
-| R3 | magic sets, liveness, fact desugar, fusion as Core → Core | `wql_rel_sips*`, demand fixtures, census pins hold |
-| R4 | typed columns + expression types on Core (ADR 0024 S2 remainder, S3) | `u64` / user-type rel columns admitted by trait; Deem-side diagnostics at positions |
+| R2 | scope / rule-shape / wardedness checks on Core, run on the program as written (before any rewrite) | same diagnostics corpus-wide; the rel-aggregate check gap (§1) closes by construction |
 | R5 | DPlan + one-shot translator; planners on DPlan | plan traces and census pins hold; join order now chosen for rel bodies and aggregates |
 | R6 | emitters from DPlan; delete per-shape emitters, `RExpr`, `JChain`, `JCh` | full L0 + the oracle; `rexpr_walk` shrinks by its per-shape share |
+| R3 | magic sets, liveness, fact desugar, fusion as Core → Core | `wql_rel_sips*`, demand fixtures, census pins hold |
+| R4 | typed columns + expression types on Core (ADR 0024 S2 remainder, S3) | `u64` / user-type rel columns admitted by trait; Deem-side diagnostics at positions |
 | R7 | semi-naive, DRed, incremental as translators | incremental fixtures + the diff harness |
 | R8 | layer lint on; surface types confined to parse + lower | the lint, with a planted-violation canary |
+
+### 4.1 R5/R6 broken down (from a measured map of the planner and the emitters, 2026-10-06)
+
+Three facts set the start: (1) the R0 core is built before the demand rewrite and the fact desugar, and the walker then renames sources and stamps row types onto the surface — so until R3 the plan reads a SECOND, "planned" core lowered after those rewrites and before the walker, with a resolver binding each atom to a source id and a row type; (2) join ORDER is decided inside `emit_join_chain` for the entry join only — rel bodies and aggregates over joins get no order and no strategy; (3) eight decisions exist only at emission time (join order, NDV facts, the peepholes, group-frame purity — computed twice —, arrange / key-vector / group-frame nodes, incremental / retraction / DRed choices, direct-door eligibility, prepared-plan grounds). DPlan needs, beyond the list in §3.4, a `Choose` node (up to four candidate nests, the discriminant fixed / from the prepared plan / deferred to run, with the cost table) and the statements `Call`, `Guard`, `Latch`/`Compact`, `Txn`.
+
+Acceptance instrument for every step: the corpus's `--gen-dir` units and `LOGOS_TRACE_PLAN=facts` traces (`build/tests/logos/facts/*/{gen,plan.err}`), snapshotted before and after and compared per fixture by item (all deems, not only `wql_`/`deem_`: 26 of the 40 direct doors live in `memoria_*`/`container_item_*`).
+
+| Step | What | Acceptance |
+|---|---|---|
+| R5.0 | DPlan types, `dplan_verify` (ICE), `LOGOS_DEEM_DUMP=dplan`, the planned core + resolver, a translator for the entry's simple scan, in SHADOW mode (ICE when DPlan disagrees with what the emitter reads) | hand-written golden; snapshot unchanged |
+| R5.1 | planners write DPlan; the old fields become one-way projections of it; the IR is no longer mutated | gen + traces byte-identical; census pins hold |
+| R5.2 | join order moves from the emitter into the planner (entry) | gen identical; traces equal as a per-fixture multiset |
+| R5.3 | join order + strategy for rel bodies and aggregates over joins (a BEHAVIOUR change, own commit) | oracle + L0; pins re-derived by hand |
+| R6.1–R6.5 | emitters from DPlan: door + prepared surface, scans + envelope, find, joins (`Probe`/`Arrange`/`Choose`), aggregates | byte snapshot per step; the step's named gates |
+| R6.6 | landings and rel / SCC bodies from DPlan (driver skeletons wait for R7) | fixpoint census pins, `incr_*` gates |
+| R6.7 | delete `RExpr`, `JChain`, `JCh`, `simplify_rexpr_ref`, `set_occ_src` | census of every corpus |
 
 ## 5. Relation to other ADRs
 
@@ -117,5 +135,6 @@ One emitter per DPlan kind: one scan (all landings, both layouts), one probe, on
 ## 7. Progress
 
 - **R0 — 43c6a88da.** `logos.std.wql.core`; structural `core_verify` (ICE); `LOGOS_DEEM_DUMP=core`; gate `logos_09_core_dump` against a hand-written golden of 8 shapes.
+- **R2 — checks on Core.** `logos.std.wql.check`: the scope checks (`core_scope_ok`, moved from the walker's `query_names_ok`, same clause order and texts) and the rule-shape checks (`core_rules_ok`: a rel body's default envelope, a rel aggregate's single aggregate, unique row vars) run on the program as written, before any rewrite. Closed a live gap: an aggregating rel body's `order by` / `limit` / `select first` was silently dropped (fail/wql_rel_aggr_order_fail). Conditions carry their site (`CCond { e, site: Where | On }`). Wardedness and the element-type checks move with typing (R4).
 - **R1 — the oracle reads Core.** `dl_export` renders rules from `CRule`s (`dx_rule`, `dx_core_body`, `dx_aggr_rule`, the entry helpers); the surface-reading clause/join/aggregate/entry functions are deleted, and the recursive-aggregate test is `core_rule_reaches`. Acceptance: the exported Datalog and the skip reasons of all 223 oracle fixtures are byte-identical to the pre-R1 export (the one difference is `wql_rel_fact_e2e`, which the R0 verifier had made an ICE before the fix and so had no baseline).
 

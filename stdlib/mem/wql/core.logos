@@ -59,11 +59,23 @@ pub struct CTrav {
     pub conds: Vec<WAny>,
 }
 
+/// Where a condition was written — what a diagnostic about it names, and the
+/// scope it reads (a step's `on` reads the vars bound at or before its step).
+pub enum CSite {
+    Where,
+    On,
+}
+
+/// A condition over the variables bound before it.
+pub struct CCond {
+    pub e: WAny,
+    pub site: CSite,
+}
+
 pub enum CLit {
     Atom(CAtom),
     Trav(CTrav),
-    /// A condition over the variables bound before it.
-    Cond(WAny),
+    Cond(CCond),
 }
 
 pub struct CAgg {
@@ -204,7 +216,7 @@ fn lower_steps(rels: &Vec<str>, steps: WAny, body: &mut Vec<CLit>) {
             body.push(CLit::Atom(CAtom { src: src_of(rels, st.src_name), var: st.var_name,
                                          row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
         }
-        if !st.is_anti && has_on { body.push(CLit::Cond(on)); }
+        if !st.is_anti && has_on { body.push(CLit::Cond(CCond { e: on, site: CSite::On })); }
         i = i + 1i64;
     }
 }
@@ -223,7 +235,7 @@ pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
     match q.view::<RQuery>() {
         RQuery::Simple(s) => {
             body.push(base_atom(rels, s.src_name, s.var_name, s.row_ty));
-            if s.has_where { body.push(CLit::Cond(s.where_pred.any())); }
+            if s.has_where { body.push(CLit::Cond(CCond { e: s.where_pred.any(), site: CSite::Where })); }
             env.mode = if s.sel_first { CMode::First } else { CMode::All };
             env.distinct = s.distinct;
             env.order = opt(s.has_order, s.order_key.any());
@@ -235,7 +247,7 @@ pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
         RQuery::Join(j) => {
             body.push(base_atom(rels, j.a_name, j.x_var, j.a_ty));
             lower_steps(rels, j.steps.any(), &mut body);
-            if j.has_where { body.push(CLit::Cond(j.where_pred.any())); }
+            if j.has_where { body.push(CLit::Cond(CCond { e: j.where_pred.any(), site: CSite::Where })); }
             env.mode = if j.sel_first { CMode::First } else { CMode::All };
             env.distinct = j.distinct;
             env.order = opt(j.has_order, j.order_key.any());
@@ -247,7 +259,7 @@ pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
         RQuery::Aggr(g) => {
             body.push(base_atom(rels, g.a_name, g.x_var, g.a_ty));
             lower_steps(rels, g.steps.any(), &mut body);
-            if g.has_where { body.push(CLit::Cond(g.where_pred.any())); }
+            if g.has_where { body.push(CLit::Cond(CCond { e: g.where_pred.any(), site: CSite::Where })); }
             let mut aggs: Vec<CAgg> = Vec::<CAgg>::new();
             if !g.aggs.any().is_null() {
                 let aa: RQAggArr = g.aggs_arr();
@@ -270,7 +282,7 @@ pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
         }
         RQuery::Find(f) => {
             body.push(base_atom(rels, f.src_name, f.var_name, f.row_ty));
-            body.push(CLit::Cond(f.pred.any()));
+            body.push(CLit::Cond(CCond { e: f.pred.any(), site: CSite::Where }));
             env.mode = CMode::Find;
             return CClause { head: WAny::null(), body: body, group: Option::None };
         }
@@ -411,7 +423,7 @@ fn verify_clause(p: &CProgram, cl: &CClause, rel: str, entry_find: bool) {
                 if t.path.len() == 0i64 { ice("a traversal with an empty path", rel); }
                 if !t.neg && t.conds.len() > 0i64 { ice("a positive traversal carries scoped conditions", rel); }
             }
-            CLit::Cond(e) => { if (*e).is_null() { ice("a null condition", rel); } }
+            CLit::Cond(c) => { if c.e.is_null() { ice("a null condition", rel); } }
         }
         i = i + 1i64;
     }
@@ -561,7 +573,7 @@ fn clause_text(p: &CProgram, cl: &CClause, out: &mut String) {
                 out.push_str("("); out.push_str(t.var); out.push_str(")");
                 conds_text(&t.conds, out);
             }
-            CLit::Cond(e) => { any_text(*e, out); }
+            CLit::Cond(c) => { any_text(c.e, out); }
         }
         i = i + 1i64;
     }

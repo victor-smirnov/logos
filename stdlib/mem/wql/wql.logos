@@ -70,6 +70,7 @@ use logos.std.wql.lower;                 // desugar_program_gpaths — graph-pat
 use logos.std.wql.codegen;               // plan_trace — the demand decision on the [plan] channel
 use logos.std.wql.dl_export;             // dl_export — the Soufflé oracle's program text
 use logos.std.wql.core;                  // the Deem core (ADR 0031): lowered once, verified
+use logos.std.wql.check;                 // the checks over the core (ADR 0031 R2)
 use logos.std.wql.why;                   // ms_render / ms_name — the demand decision's words
 use logos.mem.string;                    // String — the desugar error buffer
 use logos.lang.str;                      // str_from_raw — error-text view
@@ -218,6 +219,10 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // (entry and rel bodies alike) and verified; a broken invariant is an ICE.
     // Nothing reads it yet; `LOGOS_DEEM_DUMP=core` prints it.
     let core: CProgram = core_build(root, name);
+    // ADR 0031 R2 — the user's names, checked on the core as written: before
+    // the demand rewrite or the fact desugar invent a rel or a clause.
+    if !core_rules_ok(&core) { return out; }
+    if !core_scope_ok(&core, &prm) { return out; }
     // DEMAND (#349): the rel the entry reads with a bound column is evaluated
     // on demand (magic sets, `lower::magic_program`). Before the fact
     // desugar: a seed can be a fact. `LOGOS_DEEM_NO_DEMAND` (any value) turns

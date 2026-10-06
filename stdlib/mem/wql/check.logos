@@ -1,0 +1,384 @@
+// logos.std.wql.check — the checks that read the Deem CORE (ADR 0031 R2).
+//
+// They run right after the core is built, on the program as the user wrote it
+// (Soufflé's SemanticChecker placement): before the demand rewrite, the fact
+// desugar or the walker invent anything, so a diagnostic speaks of the user's
+// rels and clauses, and a synthetic rel is never checked as if written.
+package logos.std.wql.check;
+
+use logos.std.compiler.metaprog;  // error, value_name_known
+use logos.lang.writ.anyval;       // WAny
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.ir;             // SExpr and its nodes
+use logos.std.wql.params;         // MacroParams (is_scalar)
+use logos.std.wql.optimize;       // name_refs
+use logos.std.wql.codegen;        // string_as_str
+use logos.std.wql.core;           // the core
+
+// ── The chain's row vars, in the scope of each clause ────────────────────────
+// A row var the chain declares is readable only where it is bound:
+//   - in a step's `on`: the vars bound at or before its step, an anti-join var
+//     only in its own `on`;
+//   - in a clause after the chain: every var but an anti one;
+//   - after `group by` in the ENTRY (an aggregate's select / having / order
+//     by): the BASE var, whose group row is its first (`wql_group_rowvar_e2e`);
+//     a step var has no representative there, not even as the grouped
+//     expression (`group by b.m … select (b.m, n)`: measured). A rel body's
+//     aggregate is a Datalog rule and reads its key's vars
+//     (`wql_rel_sssp_e2e`: `group by e.dst … select (e.dst, d)`).
+// Each of these compiled through the planner and failed in the GENERATED code
+// as `undefined variable`, a name the query does declare. A name the chain does
+// not declare is left to the generated fn's own name resolution: it is a
+// scalar param, `key` or an aggregate name, or a module item — Canon's `where`
+// clauses read imported consts (`o.verb != OP_SEEK`), which this handler's
+// reflection (one module's AST) cannot see.
+struct NameScope {
+    pub vars: Vec<str>, pub anti: Vec<bool>, pub nv: i64,   // the chain, in binding order
+    pub upto: i64,     // vars[0..upto) are bound at this clause
+    pub own: i64,      // the step whose `on` this is (-1 outside one)
+    pub grouped: bool, // after `group by` in the entry
+    pub comp: str,     // a comprehension head's loop var ("" outside one)
+    pub known: Vec<str>, // names bound outside the chain: `key`, aggregate outputs
+}
+
+fn ns_new() -> NameScope {
+    return NameScope { vars: Vec::<str>::new(), anti: Vec::<bool>::new(), nv: 0i64,
+                       upto: 0i64, own: -1i64, grouped: false, comp: "",
+                       known: Vec::<str>::new() };
+}
+
+// The scope of a chain's base alone.
+fn ns_name_ok(nm: str, sc: &NameScope, prm: &MacroParams, clause: str) -> bool {
+    if sc.comp.len() > 0i64 && name_refs(nm, sc.comp) { return true; }
+    let mut k: i64 = -1i64;
+    let mut i: i64 = 0i64;
+    while i < sc.nv && k < 0i64 {
+        if name_refs(nm, sc.vars[i]) { k = i; }
+        i = i + 1i64;
+    }
+    if k < 0i64 {
+        // Not a row var of the chain: a scalar parameter, `key` or an
+        // aggregate output, or a const/static some module declares (an
+        // imported one included — this handler's AST view is one module, so
+        // it asks the compiler, #729). A name that is none of those is a
+        // misspelling, reported HERE rather than as an undefined variable
+        // inside the generated fn.
+        if prm.is_scalar(nm) { return true; }
+        let mut q: i64 = 0i64;
+        while q < sc.known.len() { if str_eq(sc.known[q], nm) { return true; } q = q + 1i64; }
+        if value_name_known(nm) { return true; }
+        let mut mu: String = String::new();
+        mu.push_str("wql!: `");
+        mu.push_str(nm);
+        mu.push_str("` in the `");
+        mu.push_str(clause);
+        mu.push_str("` clause is not a row variable of the query, a parameter, or a const or static of any module");
+        error(string_as_str(&mu));
+        return false;
+    }
+    let v: str = sc.vars[k];
+    let mut m: String = String::new();
+    if sc.grouped {
+        if k == 0i64 { return true; }
+        m.push_str("wql!: `");
+        m.push_str(v);
+        m.push_str("` in the `");
+        m.push_str(clause);
+        m.push_str("` clause after `group by` — a join step's var has no representative row in a group; read the grouped expression as `key`, or the var through an aggregate");
+    } else if sc.anti[k] && k != sc.own {
+        m.push_str("wql!: `");
+        m.push_str(v);
+        m.push_str("` is an anti-join variable — it binds only inside its own `on` predicate, and no row of it reaches a later step or clause");
+    } else if k >= sc.upto {
+        m.push_str("wql!: the `on` of the step binding `");
+        m.push_str(sc.vars[sc.own]);
+        m.push_str("` reads `");
+        m.push_str(v);
+        m.push_str("`, which a later step binds — a step's `on` reads only the row vars bound at or before it");
+    } else {
+        return true;
+    }
+    error(string_as_str(&m));
+    return false;
+}
+
+fn ns_expr_ok(e: SExpr, sc: &mut NameScope, prm: &MacroParams, clause: str) -> bool {
+    match e {
+        SExpr::Var(v) => { return ns_name_ok(v.name, sc, prm, clause); }
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            if bref.any().is_null() { return ns_name_ok(f.name, sc, prm, clause); }
+            return ns_expr_ok(f.base_expr(), sc, prm, clause);
+        }
+        SExpr::Bin(b)  => { return ns_expr_ok(b.lhs_expr(), sc, prm, clause) && ns_expr_ok(b.rhs_expr(), sc, prm, clause); }
+        SExpr::Un(u)   => { return ns_expr_ok(u.arg_expr(), sc, prm, clause); }
+        SExpr::Cast(c) => { return ns_expr_ok(c.arg_expr(), sc, prm, clause); }
+        SExpr::Cond(c) => {
+            return ns_expr_ok(c.cond_expr(), sc, prm, clause)
+                && ns_expr_ok(c.then_expr(), sc, prm, clause)
+                && ns_expr_ok(c.else_expr(), sc, prm, clause);
+        }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < args.len() {
+                if !ns_expr_ok(args.arg_at(i), sc, prm, clause) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        // The head reads the comprehension's loop var; its source plan is its own.
+        SExpr::Comp(cp) => {
+            let outer: str = sc.comp;
+            sc.comp = cp.var;
+            let ok: bool = ns_expr_ok(cp.head_expr(), sc, prm, clause);
+            sc.comp = outer;
+            return ok;
+        }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                if !ns_expr_ok(items.arg_at(i), sc, prm, clause) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => { return true; }
+    }
+}
+
+
+// The row vars of a clause, in binding order: every atom and traversal, a
+// negated one marked (it binds only inside its own conditions).
+fn ns_clause(sc: &mut NameScope, cl: &CClause) {
+    sc.vars.clear(); sc.anti.clear(); sc.nv = 0i64;
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { sc.vars.push(a.var); sc.anti.push(a.neg); sc.nv = sc.nv + 1i64; }
+            CLit::Trav(t) => { sc.vars.push(t.var); sc.anti.push(t.neg); sc.nv = sc.nv + 1i64; }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    sc.upto = sc.nv;
+    sc.own = -1i64;
+}
+
+// Every `on` of the chain, in step order: a positive step's conditions follow
+// its atom, a negated step's live inside it; each reads the vars bound at or
+// before its step (`own` = that step).
+fn ns_ons_ok(sc: &mut NameScope, cl: &CClause, prm: &MacroParams) -> bool {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut j: i64 = -1i64;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => {
+                j = j + 1i64;
+                let mut k: i64 = 0i64;
+                while k < a.conds.len() {
+                    sc.upto = j + 1i64; sc.own = j;
+                    if !ns_expr_ok(a.conds.get(k).view::<SExpr>(), sc, prm, "on") { return false; }
+                    k = k + 1i64;
+                }
+            }
+            CLit::Trav(t) => {
+                j = j + 1i64;
+                let mut k: i64 = 0i64;
+                while k < t.conds.len() {
+                    sc.upto = j + 1i64; sc.own = j;
+                    if !ns_expr_ok(t.conds.get(k).view::<SExpr>(), sc, prm, "on") { return false; }
+                    k = k + 1i64;
+                }
+            }
+            CLit::Cond(c) => {
+                match &c.site {
+                    CSite::On => {
+                        sc.upto = j + 1i64; sc.own = j;
+                        if !ns_expr_ok(c.e.view::<SExpr>(), sc, prm, "on") { return false; }
+                    }
+                    CSite::Where => { }
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+    sc.upto = sc.nv;
+    sc.own = -1i64;
+    return true;
+}
+
+// The `where` conditions (`label` names the clause in a diagnostic: `find`'s
+// predicate reads as `where`).
+fn ns_wheres_ok(sc: &mut NameScope, cl: &CClause, prm: &MacroParams, label: str) -> bool {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => {
+                match &c.site {
+                    CSite::Where => { if !ns_expr_ok(c.e.view::<SExpr>(), sc, prm, label) { return false; } }
+                    CSite::On => { }
+                }
+            }
+            CLit::Atom(_a) => { }
+            CLit::Trav(_t) => { }
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// One rule's names, clause by clause, in the order the diagnostics have always
+// been issued: the steps' `on`s, then select, where and order by — or, grouped,
+// where, group by, the aggregates' arguments, then select, having and order by
+// with the group's names (`key`, the aggregate outputs) in scope.
+fn rule_scope_ok(ru: &CRule, entry: bool, prm: &MacroParams) -> bool {
+    let mut sc: NameScope = ns_new();
+    let cl: &CClause = &ru.clause;
+    ns_clause(&mut sc, cl);
+    match &ru.env.mode {
+        CMode::Find => { return ns_wheres_ok(&mut sc, cl, prm, "where"); }
+        CMode::All => { }
+        CMode::First => { }
+    }
+    if !ns_ons_ok(&mut sc, cl, prm) { return false; }
+    match &cl.group {
+        Option::Some(g) => {
+            if !ns_wheres_ok(&mut sc, cl, prm, "where") { return false; }
+            if !ns_expr_ok(g.key.view::<SExpr>(), &mut sc, prm, "group by") { return false; }
+            sc.known.push("key");
+            let ags: &[CAgg] = g.aggs.as_slice();
+            let mut k: i64 = 0i64;
+            while k < g.aggs.len() { sc.known.push(ags[k].name); k = k + 1i64; }
+            k = 0i64;
+            while k < g.aggs.len() {
+                match &ags[k].arg {
+                    Option::Some(x) => { if !ns_expr_ok((*x).view::<SExpr>(), &mut sc, prm, "aggregate") { return false; } }
+                    Option::None => { }
+                }
+                k = k + 1i64;
+            }
+            sc.grouped = entry;
+            if !ns_expr_ok(cl.head.view::<SExpr>(), &mut sc, prm, "select") { return false; }
+            match &g.having {
+                Option::Some(h) => { if !ns_expr_ok((*h).view::<SExpr>(), &mut sc, prm, "having") { return false; } }
+                Option::None => { }
+            }
+        }
+        Option::None => {
+            if !ns_expr_ok(cl.head.view::<SExpr>(), &mut sc, prm, "select") { return false; }
+            if !ns_wheres_ok(&mut sc, cl, prm, "where") { return false; }
+        }
+    }
+    match &ru.env.order {
+        Option::Some(o) => { if !ns_expr_ok((*o).view::<SExpr>(), &mut sc, prm, "order by") { return false; } }
+        Option::None => { }
+    }
+    return true;
+}
+
+/// Every rule's names: each rel body, then the entry. A name the chain does
+/// not bind must be a scalar parameter, a group's name, or a known const or
+/// static; a bound name must be readable at its clause.
+pub fn core_scope_ok(p: &CProgram, prm: &MacroParams) -> bool {
+    let rels: &[CRel] = p.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let rs: &[CRule] = rels[r].rules.as_slice();
+        let mut b: i64 = 0i64;
+        while b < rels[r].rules.len() {
+            if !rule_scope_ok(&rs[b], false, prm) { return false; }
+            b = b + 1i64;
+        }
+        r = r + 1i64;
+    }
+    return rule_scope_ok(&p.entry, true, prm);
+}
+
+fn rel_err(rel: str, what: str) -> bool {
+    let mut m: String = String::new();
+    m.push_str("wql!: rel '"); m.push_str(rel); m.push_str("': "); m.push_str(what);
+    error(string_as_str(&m));
+    return false;
+}
+
+// A rel body's envelope is the default one: a rel is a SET, so no single-row
+// mode, no ordering, no limit, no result type, no `distinct`. Checked on the
+// CORE, so every body shape gets it — the surface walker asked it of the
+// simple and join shapes only, and an aggregating body's `order by` / `limit`
+// / `select first` was silently dropped.
+fn rel_rule_ok(rel: str, ru: &CRule) -> bool {
+    match &ru.env.mode {
+        CMode::Find => { return rel_err(rel, "`find` is not allowed in a rel body — bodies produce relations (from/join/where/select only)"); }
+        CMode::First => { return rel_err(rel, "`select first` is not allowed in a rel body — bodies produce relations (single-row modes are entry-query concerns)"); }
+        CMode::All => { }
+    }
+    if ru.env.distinct { return rel_err(rel, "`distinct` is not allowed in a rel body — rels are SETS, deduplication is implicit"); }
+    match &ru.env.order { Option::Some(_o) => { return rel_err(rel, "`order by` is not allowed in a rel body — rels are unordered sets (order in the entry query)"); } Option::None => { } }
+    match &ru.env.limit { CLimit::None => { } CLimit::N(_n) => { return rel_err(rel, "`limit` is not allowed in a rel body (an entry-query concern)"); } CLimit::Param(_q) => { return rel_err(rel, "`limit` is not allowed in a rel body (an entry-query concern)"); } }
+    if ru.env.result_ty.len() > 0i64 { return rel_err(rel, "a `: ResultTy` annotation is not allowed in a rel body — the row type is the declared column list"); }
+    match &ru.clause.group {
+        Option::Some(g) => {
+            if g.aggs.len() != 1i64 {
+                let mut ma: String = String::new();
+                ma.push_str("a recursive aggregate rel supports exactly ONE aggregate (slice-1); found ");
+                ma.push_i64(g.aggs.len());
+                return rel_err(rel, string_as_str(&ma));
+            }
+        }
+        Option::None => { }
+    }
+    return true;
+}
+
+// Every row var of a chain is unique (every shape: the surface asked it of the
+// join chains it stamped, not of an aggregate rel body's steps).
+fn chain_vars_ok(cl: &CClause) -> bool {
+    let mut seen: Vec<str> = Vec::<str>::new();
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        let v: str = match &bs[i] { CLit::Atom(a) => { a.var } CLit::Trav(t) => { t.var } CLit::Cond(_c) => { "" } };
+        if v.len() > 0i64 {
+            let mut k: i64 = 0i64;
+            while k < seen.len() {
+                if str_eq(seen.get(k), v) {
+                    let mut m: String = String::new();
+                    m.push_str("wql!: duplicate row variable `");
+                    m.push_str(v);
+                    m.push_str("` in the join chain — every `from`/`join` row var must be unique");
+                    error(string_as_str(&m));
+                    return false;
+                }
+                k = k + 1i64;
+            }
+            seen.push(v);
+        }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+/// The rules' own shape: a rel body's envelope, a rel aggregate's arity, and
+/// unique row vars in every chain.
+pub fn core_rules_ok(p: &CProgram) -> bool {
+    let rels: &[CRel] = p.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let rs: &[CRule] = rels[r].rules.as_slice();
+        let mut b: i64 = 0i64;
+        while b < rels[r].rules.len() {
+            if !rel_rule_ok(rels[r].name, &rs[b]) { return false; }
+            if !chain_vars_ok(&rs[b].clause) { return false; }
+            b = b + 1i64;
+        }
+        r = r + 1i64;
+    }
+    return chain_vars_ok(&p.entry.clause);
+}

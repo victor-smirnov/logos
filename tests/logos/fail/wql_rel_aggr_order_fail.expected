@@ -1,0 +1,1 @@
+wql!: rel 'dist': `order by` is not allowed in a rel body — rels are unordered sets (order in the entry query)

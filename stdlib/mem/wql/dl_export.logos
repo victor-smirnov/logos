@@ -953,7 +953,7 @@ fn dx_core_body(p: &CProgram, cl: &mut DxClause, env: &DxEnv, body: &Vec<CLit>) 
                     dx_edge_atom(cl, env, cs, t.base, t.var);
                 }
             }
-            CLit::Cond(e) => { if !dx_pred((*e).view::<SExpr>(), env, cl) { return false; } }
+            CLit::Cond(c) => { if !dx_pred(c.e.view::<SExpr>(), env, cl) { return false; } }
         }
         i = i + 1i64;
     }
