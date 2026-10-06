@@ -1,6 +1,6 @@
 # ADR 0031 — The Deem core layer: one normalised clause form between the surface and the plan
 
-Status: PROPOSED (draft for PAIR review, 2026-10-06). Parent: [0024-deem-typed-plan-ir.md](0024-deem-typed-plan-ir.md).
+Status: ACCEPTED 2026-10-06 (Victor: «Отлично. Заканчивай текущую работу и берись за ADR 0031. Потом — уже всё остальное будем делать с учётом ADR 0031»; §6 taken as recommended). Parent: [0024-deem-typed-plan-ir.md](0024-deem-typed-plan-ir.md).
 Reference architecture: Soufflé 2.5 (`~/sandbox/souffle`, = `/usr/bin/souffle`).
 
 ## 0. Mandate
@@ -104,10 +104,12 @@ One emitter per DPlan kind: one scan (all landings, both layouts), one probe, on
 - ADR 0016: fusion becomes a Core operation (R3).
 - ADR 0030: same lesson in the host compiler; Deem's Core is its HIR.
 
-## 6. Open questions (PAIR)
+## 6. Decisions (the draft's open questions, taken as recommended)
 
-1. Core as Logos types (recommended, exhaustiveness by the compiler) vs a Writ schema like the surface.
-2. Entry = ordinary rel + envelope (recommended) vs an entry-specific node.
-3. Order against the typed-domain line: R4 after R0–R3 (recommended: typing lands once, on Core) vs typing the surface first.
-4. Incremental (R7) — inside this arc, or after R6 as its own ADR (it is 28.6 % of `rexpr_walk`).
-5. Feature freeze on the surface during R0–R6: new constructs land only as lowerings into Core (recommended).
+1. The core is LOGOS TYPES (enums / structs) — exhaustiveness of every match is checked by the compiler. Scalar expressions stay `SExpr` handles (already one algebra for every shape) until a row needs otherwise.
+2. The entry is an ordinary clause plus the output ENVELOPE (`CEnvelope`: mode, distinct, order, limit, result type) — nothing else is entry-only.
+3. Typed columns and expression types (ADR 0024 S2 remainder, S3) land ON Core, as R4 — after R0–R3.
+4. Incremental (R7) stays in this arc, after R6.
+5. Surface feature freeze during R0–R6: a new construct lands only as a lowering into Core.
+
+**R0's verifier is STRUCTURAL.** Lowering runs before the walker, which is what diagnoses a user's scope errors; so in R0 `core_verify` checks only what the lowering itself guarantees (a clause's body opens with a positive atom, literals are well-formed, rel indices resolve, the envelope is sane). The binding invariants (every variable bound before use, renamed apart) join it in R2, when the scope checks move onto Core — a user error must never surface as an ICE.

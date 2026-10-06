@@ -320,6 +320,11 @@ SINGLETONS = {
         T('logos_09_ctr_leaf_descent',
           ['{tsrc}/ctr_leaf_descent_gate.sh', '{logosc}', '{tsrc}/pass/ctr_leaf_descent_count.logos', '{libdir}', '{tsrc}/callgrind_calls.py', 'bt_seek_at', 'bt_cur_next'],
           'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
+        # ADR 0031 R0 — the Deem CORE of every surface shape, compared as text with a
+        # hand-written golden (LOGOS_DEEM_DUMP=core).
+        T('logos_09_core_dump',
+          ['{tsrc}/core_dump_gate.sh', '{logosc}', '{tsrc}/pass/wql_core_shapes.logos', '{tsrc}/wql_core_shapes.core'],
+          'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),
         # ADR 0020 §10 step 3 (#362) — THE PARITY GATE: a bound-key seek through
         # the generated projection descends once, as the direct `find` does, and
         # costs at most the gate's ceiling of it in instructions (callgrind).

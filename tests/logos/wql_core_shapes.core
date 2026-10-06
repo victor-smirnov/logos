@@ -1,0 +1,31 @@
+[core] deem s_simple
+  entry order r.k desc limit 3
+    r.k :- param rs(r), (r.a > 1)
+[core] deem s_join
+  entry
+    (r.k, e.dst) :- param rs(r), param es(e), (e.src == r.k), !param es(f) [(f.src == e.dst)]
+[core] deem s_aggr
+  entry
+    (key, n, t) :- param rs(r), (r.a >= 0)
+      group r.k { n = count(), t = sum(r.a) } having (n > 1)
+[core] deem s_find
+  entry find
+    <none> :- param rs(r), (r.a == 7)
+[core] deem s_first
+  entry first
+    r.a :- param rs(r)
+[core] deem s_trav
+  entry
+    (d.dname, s) :- param ds(d), d.emps(e), e.skills(s)
+[core] deem s_rel
+  rel tc(a: i64, b: i64)
+    (e.src, e.dst) :- param es(e)
+    (x.a, e.dst) :- tc(x), param es(e), (e.src == x.b)
+  entry
+    (t.a, t.b) :- tc(t)
+[core] deem s_fact
+  rel color(name: str, rank: i64)
+    ("red", 1) :- __unit(__u)
+    ("blue", 9) :- __unit(__u)
+  entry
+    c.name :- color(c), (c.rank > 2)

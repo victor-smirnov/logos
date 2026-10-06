@@ -1,0 +1,68 @@
+// ADR 0031 R0 — THE CORE OF EVERY SURFACE SHAPE, pinned as text.
+//
+// One deem per shape and modifier the surface offers; `logos_09_core_dump`
+// compiles this file with `LOGOS_DEEM_DUMP=core` and compares the `[core]`
+// blocks with `wql_core_shapes.core`, which was WRITTEN BY HAND from the
+// queries below before the dump was first run. Run as a pass fixture it checks
+// that the queries still answer.
+package wql_core_shapes;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+
+struct Row  { pub k: i64, pub a: i64 }
+struct Edge { pub src: i64, pub dst: i64 }
+struct Emp  { pub name: str, pub skills: Vec<str> }
+struct Dept { pub dname: str, pub emps: Vec<Emp> }
+
+// Simple: where, order desc, limit.
+pub deem s_simple(rs: &[Row]) { from rs r where r.a > 1 select r.k order by r.k desc limit 3 }
+
+// Join with an anti join: the anti's `on` stays inside the negation.
+pub deem s_join(rs: &[Row], es: &[Edge]) {
+    from rs r join es e on e.src == r.k anti join es f on f.src == e.dst select (r.k, e.dst)
+}
+
+// Aggregate: where before the group, having after it.
+pub deem s_aggr(rs: &[Row]) {
+    from rs r where r.a >= 0 group by r.k aggregate n = count(), t = sum(r.a) having n > 1 select (key, n, t)
+}
+
+// Find.
+pub deem s_find(rs: &[Row]) { from rs r find r.a == 7 }
+
+// Select first.
+pub deem s_first(rs: &[Row]) { from rs r select first r.a }
+
+// Traversals.
+pub deem s_trav(ds: &[Dept]) { from ds d join d.emps e join e.skills s select (d.dname, s) }
+
+// A recursive rel.
+pub deem s_rel(es: &[Edge]) {
+    rel tc(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        from tc x join es e on e.src == x.b select (x.a, e.dst);
+    }
+    from tc t select (t.a, t.b)
+}
+
+// Facts: a rel body with no `from` reads the one-row `__unit`.
+pub deem s_fact(rs: &[Row]) {
+    rel color(name: str, rank: i64) {
+        select ("red", 1);
+        select ("blue", 9);
+    }
+    from color c where c.rank > 2 select c.name
+}
+
+fn main() -> i32 {
+    let rs: Vec<Row> = vec![Row { k: 1, a: 7 }, Row { k: 1, a: 3 }, Row { k: 2, a: 0 }];
+    let es: Vec<Edge> = vec![Edge { src: 1, dst: 2 }, Edge { src: 2, dst: 3 }];
+    let a: Vec<i64> = match s_simple(&rs) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 2i64 || a.get(0i64) != 1i64 { return 2i32; }
+    let t: Vec<(i64, i64)> = match s_rel(&es) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if t.len() != 3i64 { return 4i32; }
+    return 0i32;
+}
