@@ -25696,6 +25696,9 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
                                     lir::LProgram& prog) {
     node_line_ = get_line(node);   // errors point at THIS item, not at stale state
     node_span_ = get_span(node);
+    // The diagnostic context is THIS item too — without it a mapping error
+    // was labelled with whatever fn sema lowered last (`[fn Arc__deref]`).
+    ctx_ = std::format("mapping {}", str_of(node.get(la::NAME.code)));
     MappingParts parts;
     if (!reconstruct_mapping_def(node, parts)) {
         error(parts.err);
