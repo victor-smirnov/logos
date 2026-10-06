@@ -535,7 +535,7 @@ Mono::AbiLayout Mono::mono_enum_layout(TypeRef t) {
     // under — so a generic enum's row really lands in the cross-engine
     // comparison instead of in `n_unmatched`. A non-generic enum is its bare
     // name in all three engines, which is why the C-LIKE cells match at all.
-    std::string ekey = enum_instance_name(ename, t.type_args());
+    std::string ekey = enum_instance_name(ename, t.type_args(), t.pkg_name());
     lay::record("mono_abi_layout", lay::type_key(t.pkg_name(), ekey), ans);
     return { ans.layout.size, ans.layout.align };
 }
@@ -1245,9 +1245,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             TypeRef rt(rt_);
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
-                std::string cname = std::string(rt.enum_name());
-                for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
-                enum_name = std::move(cname);
+                enum_name = enum_instance_name(rt);
                 record_needed_enum(rt_);
             }
             mp_ = lir_mirror_emit_enum_lit(
@@ -1262,9 +1260,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             TypeRef rt(rt_);
             if (rt && rt.kind() == LogosType::Kind::Enum &&
                 !rt.type_args().empty()) {
-                std::string cname = std::string(rt.enum_name());
-                for (auto a : rt.type_args()) { cname += "__"; cname += mangle_type(a); }
-                enum_name = std::move(cname);
+                enum_name = enum_instance_name(rt);
                 record_needed_enum(rt_);
             } else {
                 enum_name = std::string(v.enum_name());
@@ -3275,14 +3271,18 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                     if (resolved) args = std::move(pargs);
                                 }
                             }
-                            // Method-call callee: the BASE struct name stays bare
-                            // (a generic type-arg still qualifies via mangle_type_for_name).
-                            // The method's module qualification is applied later by the
-                            // find_func_op chokepoint (§P3); qualifying the base here too
-                            // would double-apply and produce a symbol find_func_op can't
-                            // resolve (cross-module `&imported as &dyn`, generic method on
-                            // an imported type).
-                            std::string cname = concrete_struct_name_raw(struct_part, args);
+                            // Method-call callee: the struct instance named as its
+                            // definition is — the package's own module fold included
+                            // (a name two packages declare, `Buffer`, is `Buffer$M…`);
+                            // the module prefix of the symbol is mlir's link name.
+                            const std::string_view spkg = sit_ptr.pkg();
+                            std::string sbare = struct_part, sprefix;
+                            if (!spkg.empty() && sbare.size() > spkg.size() + 1 &&
+                                sbare.compare(0, spkg.size(), spkg) == 0 && sbare[spkg.size()] == '.') {
+                                sprefix = sbare.substr(0, spkg.size() + 1);
+                                sbare = sbare.substr(spkg.size() + 1);
+                            }
+                            std::string cname = sprefix + concrete_struct_name_raw(sbare, args, spkg);
                             nc.callee = cname + method_part;
                             nc.type_args.clear();
                             rewritten_as_struct_method = true;
@@ -4232,7 +4232,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             if (ty && (TypeRef(ty).kind() == LogosType::Kind::Struct ||
                        TypeRef(ty).kind() == LogosType::Kind::ZonedStruct)) {
                 auto cname = concrete_struct_name(ty);
-                if (!cname.empty()) drop_fn = cname + "__drop";
+                if (!cname.empty()) drop_fn = drop_symbol_(ty, cname);
                 // Propagate drop_fields=true so mlir-gen's SDrop walks
                 // the substituted struct's droppable fields. Mirrors
                 // sema's make_drop_stmt convention for direct SDrops
@@ -4342,7 +4342,7 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
              TypeRef(ty).kind() == LogosType::Kind::ZonedStruct) &&
             !TypeRef(ty).type_args().empty()) {
             auto cname = concrete_struct_name(ty);
-            if (!cname.empty()) drop_fn = cname + "__drop";
+            if (!cname.empty()) drop_fn = drop_symbol_(ty, cname);
         }
         std::vector<std::string> moved_fields;
         v.each_moved_field([&](std::string_view f) { moved_fields.emplace_back(f); });
@@ -4956,6 +4956,18 @@ bool Mono::bound_holds_(lir_view::FnTraitBoundView b, TypeRef concrete, const Su
 // The obligations of a method instance: its impl's parameters' bounds at their
 // arguments, and its `where` clauses at their substituted subjects (§8.5: `fn
 // max() where Item: Ord` on `impl<T> Iterator<&T> for VecIter<T>`).
+// A struct's destructor: the `drop` item of its `Drop` impl, by identity (an
+// archive defines it under its own spelling — `String__drop…` where a homonym
+// in this program folds the name to `String$M…`). Without an impl there is no
+// destructor to call (Rust); the fields are still dropped (drop_fields).
+std::string Mono::drop_symbol_(TypeRef ty, const std::string& cname) {
+    (void)cname;
+    const std::string drop_id(lang_item_identity("drop"));
+    if (!drop_id.empty() && obl::select(obl_table_now_(), obl_env_(), drop_id, ty, {}).kind == obl::Kind::Impl)
+        return trait_item_symbol_(drop_id, ty, "drop", 1);
+    return {};
+}
+
 bool Mono::method_bound_ok(lir_view::FunctionView m, const SubstMap& s) {
     auto* pool = out_.type_pool.impl();
     bool ok = true;

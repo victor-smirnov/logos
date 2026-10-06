@@ -445,5 +445,7 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
-# TOTAL 133
-# SYNC-HASH bc73f53b1dcc8e1f621bb84248927d40
+impl_param_fixed_by_trait_args_refused 3 tests/soundness/open/impl_param_fixed_by_trait_args_refused refuses
+
+# TOTAL 134
+# SYNC-HASH 4672ab8bd1afb7ce90914f2f5c9942b8

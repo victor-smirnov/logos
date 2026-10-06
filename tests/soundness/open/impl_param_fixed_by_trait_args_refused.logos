@@ -1,0 +1,15 @@
+// SOUNDNESS QUEUE row impl_param_fixed_by_trait_args_refused (tier 3, `refuses`). Found 2026-10-05 (ADR 0030 S9 row 6, writing lang.iter's ResultShunt): an impl parameter fixed only by the trait's arguments (`impl<A, I: Iterator<A>> Iterator<A> for W<I>`) is not inferred in the impl's synthesized default methods.
+// Logos: error [fn W__max_by]: type annotations needed: cannot infer the type argument `I` of method `W__next` — supply it via turbofish (E0282).
+// rustc: the twin (Iterator<Item = A>) compiles and exits 3 (rustc 1.98.1 --edition 2024); Logos's generic-parameter Iterator<A> is the same impl header.
+// fix hint: default-method synthesis / mono: bind an impl generic from the impl's trait arguments (Iterator<A>) as well as from its Self pattern.
+package impl_param_fixed_by_trait_args_refused;
+struct W<I> { it: I }
+impl<A, I: Iterator<A>> Iterator<A> for W<I> {
+    fn next(&mut self) -> Option<A> { return self.it.next(); }
+}
+fn main() -> i32 {
+    let v: Vec<i32> = vec![1, 2, 3];
+    let w = W { it: v.into_iter() };
+    let s: Vec<i32> = w.collect::<Vec<i32>>();
+    return s.len() as i32;
+}

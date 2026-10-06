@@ -954,20 +954,20 @@ public:
     // mangle_type(arg)` anywhere: a spelling composed in six places is six
     // chances for a producer and a consumer to disagree.
     //
-    // NOTE (measured divergence, deliberately preserved for now): this
-    // composer does NOT fold `type_module_suffix` into the base, while
-    // `mangle_type`'s Enum case DOES. Two spellings of one instance therefore
-    // exist by construction today. Naming them separately makes the gap
-    // visible; merging them is a symbol-TEXT change and belongs with
-    // abi-check (design Step 8, PAIR-gated).
-    static std::string enum_instance_name(std::string_view base,
-                                          const std::vector<TypeRef>& args) {
-        std::string cname(base);
-        for (auto a : args) { cname += "__"; cname += mangle_type(a); }
-        return cname;
+    // A generic enum instance is named as a generic struct instance is (`$G<n>$`
+    // and each argument's type_symbol_code) — one composer for every instance
+    // name (ADR 0030 S9 row 8). Without the module fold: it depends on the
+    // phase-scoped ambiguous-name set, and mlir registers no folded enum alias
+    // (structs have one) — a residue of the mangler step.
+    static std::string enum_instance_name(std::string_view base, const std::vector<TypeRef>& args,
+                                          std::string_view /*pkg*/ = {}) {
+        if (args.empty()) return std::string(base);
+        return concrete_struct_name_raw(base, args, {});
     }
     static std::string enum_instance_name(TypeRef tr) {
-        return enum_instance_name(TypeRef(tr).enum_name(), TypeRef(tr).type_args());
+        auto ta = TypeRef(tr).type_args();
+        return enum_instance_name(TypeRef(tr).enum_name(), std::vector<TypeRef>(ta.begin(), ta.end()),
+                                  TypeRef(tr).pkg_name());
     }
 
     // A type's spelling in a symbol: the one encoder (ADR 0030 S9 row 8).
@@ -1073,6 +1073,7 @@ private:
     // bounds are not satisfied under substitution `s`.
     bool method_bound_ok(lir_view::FunctionView m, const SubstMap& s);
     bool bound_holds_(lir_view::FnTraitBoundView b, TypeRef concrete, const SubstMap& s);
+    std::string drop_symbol_(TypeRef ty, const std::string& cname);
 
     // Recursive trait-satisfaction at mono-time: does `concrete_name`
     // implement `trait_name` directly via concrete_impls_, or transitively

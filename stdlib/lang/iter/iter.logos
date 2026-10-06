@@ -12,6 +12,7 @@ use logos.lang.ops;
 use logos.lang.clone;               // #112: Clone-bounded duplication (intersperse / repeat)
 use logos.lang.panic;               // step_by(0) panics (Rust)
 use logos.lang.mem;                 // #112: mem::replace — move OUT of a field we still own
+use logos.lang.marker;              // PhantomData (ResultShunt)
 
 // ── FromIterator trait ───────────────────────────────────────────────────────
 //
@@ -26,13 +27,16 @@ pub trait FromIterator<A> {
 }
 
 /// Yields the `Ok` values of an iterator of `Result`s and stops at the first `Err`,
-/// which it stores through `err` (Rust's `GenericShunt`).
-pub struct ResultShunt<I, E> {
+/// which it stores through `err` (Rust's `GenericShunt`). `A` rides in the type
+/// (squeue impl_param_fixed_by_trait_args_refused: an impl parameter fixed only by
+/// the trait's arguments is not inferred in its synthesized default methods).
+pub struct ResultShunt<I, A, E> {
     iter: I,
     err: *mut Option<E>,
+    _a: PhantomData<A>,
 }
 
-impl<A, E, I: Iterator<Result<A, E>>> Iterator<A> for ResultShunt<I, E> {
+impl<A, E, I: Iterator<Result<A, E>>> Iterator<A> for ResultShunt<I, A, E> {
     fn next(&mut self) -> Option<A> {
         match self.iter.next() {
             Option::None => { return Option::None; }
@@ -54,7 +58,9 @@ impl<A, E, I: Iterator<Result<A, E>>> Iterator<A> for ResultShunt<I, E> {
 impl<A, E, V: FromIterator<A>> FromIterator<Result<A, E>> for Result<V, E> {
     fn from_iter<I: Iterator<Result<A, E>>>(iter: I) -> Result<V, E> {
         let mut err: Option<E> = Option::None;
-        let v: V = V::from_iter(ResultShunt::<I, E> { iter: iter, err: &mut err as *mut Option<E> });
+        let v: V = V::from_iter(ResultShunt::<I, A, E> {
+            iter: iter, err: &mut err as *mut Option<E>, _a: PhantomData::<A> {},
+        });
         match err {
             Option::Some(e) => { return Result::Err(e); }
             Option::None => { return Result::Ok(v); }

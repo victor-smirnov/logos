@@ -6013,7 +6013,7 @@ lay::ArmDesc SemaChecker::sema_niche_arm(TypeRef t, logos::compiler::StrSet& see
 static std::string sema_enum_key(TypeRef tv) {
     std::vector<TypeRef> args;
     for (auto a : TypeRef(tv).type_args()) args.push_back(a);
-    return Mono::enum_instance_name(TypeRef(tv).enum_name(), args);
+    return Mono::enum_instance_name(TypeRef(tv).enum_name(), args, TypeRef(tv).pkg_name());
 }
 
 SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,

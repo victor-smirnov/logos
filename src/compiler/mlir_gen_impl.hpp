@@ -1321,6 +1321,7 @@ private:
     // THE callee-resolution chokepoint (defined in mlir_gen_expr.cpp). Resolves
     // a callee symbol to its FuncOp across the bare↔module-qualified and
     // sig-stripped forms the LIR/mono/bridge produce.
+    mlir::func::FuncOp find_pkg_func_(mlir::ModuleOp mod, std::string_view pkg, std::string_view base) const;
     mlir::func::FuncOp find_func_op(mlir::ModuleOp mod,
                                     std::string_view name) const;
     // Memoised SUCCESSFUL resolutions (callee string → FuncOp). FuncOp defs are
@@ -1330,15 +1331,7 @@ private:
     // are NOT cached (a name may resolve once a later forward-decl is emitted).
     mutable std::unordered_map<std::string, mlir::func::FuncOp> find_func_op_cache_;
 
-    // find_func_op's canonical-match index (see find_func_op). Maps each def's
-    // canonical key → its FuncOp; ambiguous keys (shared by >1 def) live in the
-    // set and resolve to nothing. Rebuilt lazily when the module's FuncOp count
-    // changes (stable during body-gen, so built once). Replaces a per-call O(n)
-    // canonicalising walk.
-    mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_canon_index_;
-    mutable std::unordered_set<std::string> ffo_canon_ambig_;
-    // Direct symbol-name → FuncOp index, built in the SAME dirty-gated pass as
-    // the canonical index. Replaces find_func_op's mod.lookupSymbol(name) calls
+    // Direct symbol-name → FuncOp index, built in a dirty-gated pass. Replaces find_func_op's mod.lookupSymbol(name) calls
     // — MLIR's lookupSymbolIn is an O(funcs) LINEAR SCAN reading each sym_name
     // (getInherentAttr). This makes both the direct and qualified lookups O(1).
     mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_symtab_;
@@ -1349,41 +1342,7 @@ private:
     mutable std::unordered_map<std::string, mlir::func::FuncOp> ffo_base_first_;
     // Set true whenever a func::FuncOp is added to the module (mark_funcs_dirty
     // at every create site). ensure_ffo_canon_index rebuilds only when dirty —
-    // replacing the per-call O(funcs) staleness recount. A stale-by-miss index
-    // is self-correcting via L4: a canonical-fallback callee would fail to
-    // resolve, breaking a cross-module test.
-    // ⚠ THE CANONICAL FALLBACK IS PACKAGE-BLIND (see find_func_op). It maps a
-    // callee to a def by a key that ffo_canonical STRIPS the package off, so
-    // `test.Ident__eq` bound
-    // `logos_mem..logos.std.compiler.metaprog.Ident__eq__f__ref_Ident__ref_Ident`
-    // — a foreign package's method, handed two `%test.Ident`s. `ffo_canon_pkg_`
-    // records the package of whichever def each canonical key resolved to, so
-    // that bind can be REFUSED when the callee names a package that declares
-    // its own struct of that name. Same key set as ffo_canon_index_.
-    mutable std::unordered_map<std::string, std::string> ffo_canon_pkg_;
-    // Does `pkg` declare a struct that OWNS this `<Owner>__<method>…` symbol?
-    // ⚠ ANCHORED ON A CARRIED PART, NOT A `__` SPLIT: the owner is not guessed
-    // by cutting at the first `__` (legal inside an identifier — the separator
-    // class), it is each candidate struct's own NAME, recomposed with `__` and
-    // compared as a prefix. Index: pkg → the struct names it declares.
-    mutable std::unordered_map<std::string, std::vector<std::string>> pkg_struct_names_;
-    mutable bool pkg_struct_names_built_ = false;
-    bool pkg_owns_symbol_owner(std::string_view pkg, std::string_view sym) const {
-        if (!prog_ || pkg.empty() || sym.empty()) return false;
-        if (!pkg_struct_names_built_) {
-            for (auto& sd : prog_->structs)
-                pkg_struct_names_[std::string(sd.pkg())].emplace_back(sd.name());
-            pkg_struct_names_built_ = true;
-        }
-        auto it = pkg_struct_names_.find(std::string(pkg));
-        if (it == pkg_struct_names_.end()) return false;
-        for (auto& nm : it->second) {
-            if (nm.empty() || sym.size() <= nm.size() + 2) continue;
-            if (sym.compare(0, nm.size(), nm) != 0) continue;
-            if (sym.compare(nm.size(), 2, "__") == 0) return true;
-        }
-        return false;
-    }
+    // replacing the per-call O(funcs) staleness recount.
     mutable bool ffo_canon_dirty_ = true;
     void mark_funcs_dirty() const noexcept { ffo_canon_dirty_ = true; }
     void ensure_ffo_canon_index(mlir::ModuleOp mod) const;

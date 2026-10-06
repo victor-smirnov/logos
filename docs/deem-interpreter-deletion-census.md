@@ -6826,9 +6826,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11979 -> 11981 (+2), NOIMPORTED 7420 -> 7422 (+2) — 2026-10-05 fixed-table sweep 2: +1 pass wql_params_wide_e2e, +1 fail wql_ward_wide_split (wql_ward_capacity renamed wql_ward_wide_accept).
 #                ALL 11981 -> 11984 (+3), NOIMPORTED 7422 -> 7425 (+3), TIERCOMMIT 199 -> 196 (-3) — (main, merged into `deem`) 2026-10-05: S9 row 6 — fixtures s9_coherence_disjoint_impls, s9_ufcs_trait_args_select_impl, s9_orphan_rule_admits_local; core_3_adv_blanket_specific pass -> fail; squeue #516 #550 #698 closed.
 #                ALL 11984 -> 11985 (+1), NOIMPORTED 7425 -> 7426 (+1) — 2026-10-05: fixture wql_rel_sips_edge_e2e (demand through a traversal).
-REGISTRY-ALL         11985
-REGISTRY-NOIMPORTED  7426
-REGISTRY-TIERCOMMIT  196
+#                ALL 11985 -> 11987 (+2), NOIMPORTED 7426 -> 7428 (+2), TIERCOMMIT 196 -> 197 (+1) — (main, merged into `deem`) 2026-10-06: S9 row 8 — squeue #732 added; fixture s9_match_enum_binding_reassigned.
+REGISTRY-ALL         11987
+REGISTRY-NOIMPORTED  7428
+REGISTRY-TIERCOMMIT  197
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

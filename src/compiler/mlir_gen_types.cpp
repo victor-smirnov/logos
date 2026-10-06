@@ -1258,7 +1258,7 @@ const lir_view::EnumView* MLIRGenImpl::find_enum_decl(std::string_view name,
         // `name` is the BASE the caller carried in (it may or may not equal
         // the type's own enum_name — e.g. an alias spelling), so compose from
         // it rather than from the TypeRef. THE ONE composer either way.
-        inst = Mono::enum_instance_name(name, TypeRef(type).type_args());
+        inst = Mono::enum_instance_name(name, TypeRef(type).type_args(), pkg);
     if (!pkg.empty()) {
         if (auto it = enum_types_.find(qualify_pkg(pkg, name)); it != enum_types_.end())
             return &it->second;
