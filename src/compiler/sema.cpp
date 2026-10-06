@@ -7904,6 +7904,31 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                 if (pit == current_type_params_.end() || !pit->second) { trait_args_for_assoc.clear(); break; }
                 trait_args_for_assoc.push_back(pit->second);
             }
+            // An item a supertrait declares (`trait DoubleEndedIterator:
+            // Iterator` naming `Self::Item`) is that supertrait's projection.
+            if (auto* own = find_trait_iter_scoped(current_trait_name_)) {
+                bool declares = false;
+                for (auto& at : own->assoc_types) if (at.name == assoc) declares = true;
+                if (!declares) {
+                    std::vector<std::pair<const SemaTraitInfo*, std::vector<TypeRef>>> work{{own, trait_args_for_assoc}};
+                    StrSet seen;
+                    for (size_t wi = 0; wi < work.size() && !declares; ++wi) {
+                        for (auto& sup : work[wi].first->supertraits) {
+                            auto* st = find_trait_iter_scoped(sup.trait_name);
+                            if (!st || !seen.insert(trait_path(*st)).second) continue;
+                            for (auto& at : st->assoc_types)
+                                if (at.name == assoc) {
+                                    trait_for_assoc = sup.trait_name;
+                                    trait_args_for_assoc = sup.type_args;
+                                    declares = true;
+                                    break;
+                                }
+                            if (declares) break;
+                            work.push_back({st, sup.type_args});
+                        }
+                    }
+                }
+            }
         } else {
             auto bit = current_type_bounds_.find(tp_name);
             if (gat_args.empty())

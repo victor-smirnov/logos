@@ -78,7 +78,8 @@ static mut PULLED: i64 = 0i64;
 pub struct Src { pub n: i64 }
 pub struct SrcIter { pub n: i64, pub i: i64 }
 
-impl Iterator<(i64, i64)> for SrcIter {
+impl Iterator for SrcIter {
+    type Item = (i64, i64);
     fn next(self: &mut SrcIter) -> Option<(i64, i64)> {
         unsafe { TICKS = TICKS + 1i64; }
         if self.i >= self.n { return Option::None; }

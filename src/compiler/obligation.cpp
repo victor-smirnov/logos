@@ -351,6 +351,14 @@ struct Solver {
                 if (!best) best = r;
                 else if (!same_type(best, r)) ambiguous = true;
             }
+        if (!best && !ambiguous && env.supertraits && depth < 48) {
+            struct Depth { int& d; Depth(int& x) : d(x) { ++d; } ~Depth() { --d; } } guard{depth};
+            for (auto& sup : env.supertraits(trait))
+                if (auto r = project(sup, self, {}, name, item_args)) {
+                    if (!best) best = *r;
+                    else if (!same_type(best, *r)) ambiguous = true;
+                }
+        }
         if (ambiguous || !best) return std::nullopt;
         return best;
     }

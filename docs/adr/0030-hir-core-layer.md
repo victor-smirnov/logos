@@ -839,6 +839,23 @@ parameters (SemaFuncInfo::impl_tparam_count). Closed squeue #732. Filed #734:
 a default method's generics shadowing an impl's of the same name. Next, step
 B: lang.iter moves to `trait Iterator { type Item; … }`.
 
+Step B, 2026-10-06 — the iterator family is Rust-shaped: `trait Iterator {
+type Item; … }`, `trait IntoIterator { type Item; type IntoIter: Iterator<Item =
+Self::Item>; … }`, `DoubleEndedIterator` / `ExactSizeIterator` / `FusedIterator:
+Iterator` with no parameter; every impl declares `type Item` and every bound is
+`I: Iterator<Item = T>` (145 impls, 173 bounds in the stdlib, 38 / 60 in the
+test corpora — a mechanical rewrite, scratchpad migrate.py, then the trait
+declarations by hand). The compiler took four more pieces: `Self::Item` in a
+subtrait names the supertrait's item; C-OBL projects an item a supertrait
+declares through it (Env::supertraits: `<I as DoubleEndedIterator>::Item`); a
+`where Self::Item: Ord` gate on a default (`max`, `min`, `unzip`) is decided per
+impl from the item it declares (the Rust form of the §8.5 gate); an impl's
+associated types are header types for implied bounds (`type Item = &'a T`
+implies `T: 'a`, as the trait argument did). Closed squeue #489 and #528 (a
+user's Rust-shaped `impl Iterator for Counter { type Item = i64; … }`). ABI
+unchanged (symbols and layouts are the same). Next, step C: `Try { type Output;
+type Residual }` and `FromResidual<R>`.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

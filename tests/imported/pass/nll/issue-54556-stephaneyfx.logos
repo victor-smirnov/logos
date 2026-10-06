@@ -24,7 +24,7 @@
 //   · `struct Statement;` (unit) -> `struct Statement { n: i64 }`, and
 //     `struct Rows<'stmt>(&'stmt Statement)` -> a named field. A field-less struct
 //     is Copy here under docs/DIVERGENCES.md A16, which would change the subject.
-//   · `type Item = String;` -> the stdlib trait's type PARAMETER (`Iterator<String>`)
+//   · `type Item = String;` -> the stdlib trait's type PARAMETER (`Iterator<Item = String>`)
 //   · `let rows` -> `let mut rows` (`next` takes `&mut self`)
 //   · assert -> exit code: `fn main() -> i32`
 package issue_54556_stephaneyfx;
@@ -32,7 +32,8 @@ use logos.mem.string;
 struct Statement { n: i64 }
 struct Rows<'stmt> { s: &'stmt Statement }
 impl<'stmt> Drop for Rows<'stmt> { fn drop(self: &mut Rows<'stmt>) { } }
-impl<'stmt> Iterator<String> for Rows<'stmt> {
+impl<'stmt> Iterator for Rows<'stmt> {
+    type Item = String;
     fn next(self: &mut Rows<'stmt>) -> Option<String> { return Option::None; }
 }
 fn get_names() -> Option<String> {

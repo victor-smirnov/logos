@@ -174,7 +174,8 @@ pub struct BTreeSetIter<'a, K> {
     inner: BTreeMapIter<'a, K, u8>,
 }
 
-impl<'a, K: Ord> Iterator<&'a K> for BTreeSetIter<'a, K> {
+impl<'a, K: Ord> Iterator for BTreeSetIter<'a, K> {
+    type Item = &'a K;
     fn next(self: &mut BTreeSetIter<'a, K>) -> Option<&'a K> {
         match self.inner.next() {
             Option::Some(p) => { return Option::Some(p.first); }
@@ -188,7 +189,8 @@ pub struct BTreeSetIntoIter<K> {
     inner: BTreeMapIntoIter<K, u8>,
 }
 
-impl<K> Iterator<K> for BTreeSetIntoIter<K> {
+impl<K> Iterator for BTreeSetIntoIter<K> {
+    type Item = K;
     fn next(self: &mut BTreeSetIntoIter<K>) -> Option<K> {
         match self.inner.next() {
             Option::Some(kv) => { let (k, _v) = kv; return Option::Some(k); }
@@ -204,8 +206,9 @@ impl<K> Drop for BTreeSetIntoIter<K> {
     fn drop(self: &mut BTreeSetIntoIter<K>) { }
 }
 
-impl<K: Ord> IntoIterator<K> for BTreeSet<K> {
-    type Iter = BTreeSetIntoIter<K>;
+impl<K: Ord> IntoIterator for BTreeSet<K> {
+    type Item = K;
+    type IntoIter = BTreeSetIntoIter<K>;
     fn into_iter(self: BTreeSet<K>) -> BTreeSetIntoIter<K> {
         let s: BTreeSet<K> = self;
         return BTreeSetIntoIter { inner: s.inner.into_iter() };
@@ -218,7 +221,7 @@ impl<K: Ord> Default for BTreeSet<K> {
 
 // `iter.collect::<BTreeSet<K>>()`; a duplicate element is dropped.
 impl<K: Ord> FromIterator<K> for BTreeSet<K> {
-    fn from_iter<I: Iterator<K>>(iter: I) -> BTreeSet<K> {
+    fn from_iter<I: Iterator<Item = K>>(iter: I) -> BTreeSet<K> {
         let mut s: BTreeSet<K> = BTreeSet::<K>::new();
         let mut it: I = iter;
         loop {

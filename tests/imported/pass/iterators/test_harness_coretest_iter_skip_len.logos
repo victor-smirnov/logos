@@ -10,7 +10,7 @@
 // - `xs.iter().skip(N)` → `iter_skip::<…>(iter_copied::<SliceIter<i32>, i32>(iter_over_slice(&xs)), N, zero)`.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
-// Stdlib companion: `impl<I: ESI<T>, T> ExactSizeIterator<T> for
+// Stdlib companion: `impl<I: ESI<T>, T> ExactSizeIterator<Item = T> for
 // SkipIter<I, T>` — len = max(0, inner.len() - remaining).
 
 package test_iter_skip_len;

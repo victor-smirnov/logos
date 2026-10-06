@@ -22,12 +22,13 @@ use logos.lang.hash;
 use logos.lang.convert;
 use logos.mem.fmt;
 use logos.std.compiler.metaprog;
-trait Scorer { fn score(&self, x: i64) -> i64; fn best<I: Iterator<i64>>(&self, mut it: I) -> i64 { let mut m = i64::MIN; while let Some(x) = it.next() { let s = self.score(x); if s > m { m = s; } } return m; } }
+trait Scorer { fn score(&self, x: i64) -> i64; fn best<I: Iterator<Item = i64>>(&self, mut it: I) -> i64 { let mut m = i64::MIN; while let Some(x) = it.next() { let s = self.score(x); if s > m { m = s; } } return m; } }
 struct Neg; struct Mod(i64);
 impl Scorer for Neg { fn score(&self, x: i64) -> i64 { -x } }
 impl Scorer for Mod { fn score(&self, x: i64) -> i64 { x % self.0 } }
 struct Countdown(i64);
-impl Iterator<i64> for Countdown { fn next(&mut self) -> Option<i64> { if self.0 == 0 { None } else { self.0 -= 1; Some(self.0 + 1) } } }
+impl Iterator for Countdown {
+    type Item = i64; fn next(&mut self) -> Option<i64> { if self.0 == 0 { None } else { self.0 -= 1; Some(self.0 + 1) } } }
 fn total_score<S: Scorer>(s: &S, xs: &[i64]) -> i64 { xs.iter().map(|x| s.score(*x)).sum::<i64>() }
 fn main() {
     let v = vec![3i64, 9, 4, 7];

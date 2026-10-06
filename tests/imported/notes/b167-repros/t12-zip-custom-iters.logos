@@ -12,7 +12,8 @@ use logos.lang.option;
 
 struct Counter { cur: i32, max: i32 }
 
-impl Iterator<i32> for Counter {
+impl Iterator for Counter {
+    type Item = i32;
     fn next(self: &mut Counter) -> Option<i32> {
         if self.cur > self.max { return Option::None; }
         let v: i32 = self.cur;

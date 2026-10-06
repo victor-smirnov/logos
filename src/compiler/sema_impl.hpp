@@ -6247,6 +6247,9 @@ private:
             DefId       trait_def;
         };
         std::vector<ParamBound> where_param_bounds;
+        // `where Self::Name: Bound` (the Rust shape of the gate above): the
+        // associated item named, and its bound — per-impl synthesis gating.
+        std::vector<std::pair<std::string, TraitBound>> self_proj_bounds;
         writ::AnyVal default_ast{};    // AST node for default method (valid when has_default)
         writ::MemHolder* default_holder = nullptr;  // zone that owns default_ast
         std::string doc;     // Phase A.2: outer `///` doc-comment

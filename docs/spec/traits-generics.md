@@ -34,7 +34,7 @@ When a user-defined trait's bare name collides with an already-registered trait 
 trait Foo: Bar + Baz { }
 auto trait Send { }
 unsafe trait Sync { }
-pub trait Iterator<T> { }
+pub trait Into<T> { }
 ```
 
 *Source:* `tools/peg_gen_cpp/grammars/logos.peg#L844-L904`
@@ -1253,7 +1253,7 @@ A qualified call `Z::m(args)` / `Z::m::<T..>(args)`, where Z is a type-parameter
 
 ### `trait.default-method.conditional-on-param-bounds` — Conditional default methods gated by per-method param bounds
 
-A per-method `where` bound whose subject is a trait type-parameter (e.g. `where Item: Ord` on `fn max()` in `Iterator<Item>`) gates default-method synthesis per impl: when an impl substitutes the type-parameter with a concrete type, the bound is rewritten under the substitution and checked; if unsatisfied, the default method is not synthesized for that impl (the method is simply unavailable), matching Rust's conditional-default-method semantics.
+A per-method `where` bound whose subject is a trait type-parameter, or an associated item of `Self` (`where Self::Item: Ord` on `Iterator::max`), gates default-method synthesis per impl: the subject is taken at the impl (its trait argument, or the item it declares — through a supertrait when the supertrait declares it); a concrete subject that does not meet the bound gets no synthesized default (the method is unavailable for that impl, as Rust's where-clause makes it uncallable), a generic one is re-gated at instantiation.
 
 *Source:* `src/compiler/sema_impl.hpp#L2624-L2637`
 
@@ -2099,7 +2099,7 @@ When a type parameter carrying `?Sized` is passed as a type-argument to a callee
 
 ### `generic.bounds.substitute-call-args` — Call's type-args substituted into parametrized bounds
 
-Before checking a parametrized bound `I: Iterator<T>`, the call's mapping of type-params to concrete args is substituted into the bound's type-args, so the bound is checked against the concrete value of T (e.g. turbofish T=i32) rather than the bare TypeVar.
+Before checking a parametrized bound `I: Into<T>`, the call's mapping of type-params to concrete args is substituted into the bound's type-args, so the bound is checked against the concrete value of T (e.g. turbofish T=i32) rather than the bare TypeVar.
 
 *Source:* `src/compiler/sema_collect.cpp#L815-L825`, `src/compiler/sema_collect.cpp#L947-L955`
 
@@ -2433,7 +2433,7 @@ For an `Enum` receiver type (e.g. `Option<T>`, `Result<T,E>`) with non-empty `ty
 
 ### `generic.method-subst.owning-trait-params-from-impl` — Owning-trait type-params bound from the receiver's impl
 
-For a method belonging to a trait, the trait's type-parameters (e.g. `Iterator<Item>`) are bound from the receiver type's `impl Trait for Recv` trait-type-args (positional, only filling names not already bound by the receiver's own type-args), so Fn-family bound argument types resolve concretely for closure-formal hints.
+For a method belonging to a trait, the trait's type-parameters (e.g. `Into<T>`) are bound from the receiver type's `impl Trait for Recv` trait-type-args (positional, only filling names not already bound by the receiver's own type-args), so Fn-family bound argument types resolve concretely for closure-formal hints.
 
 *Source:* `src/compiler/sema_expr.cpp#L7895-L7918`
 
@@ -2453,7 +2453,7 @@ For a `Struct`/`ZonedStruct` receiver type with non-empty `type_args`, a substit
 
 ### `generic.method-turbofish.tail-binding` — Method turbofish binds only the method's own trailing type params
 
-Explicit method turbofish (`recv.method::<T1,T2>(args)`) type args win over inference. When `fi.type_params` carries the receiver struct's/enum's own type params as a prefix (a struct-method-template clone of a trait default method, e.g. `impl<I,T,R> Iterator<R> for MapIter<I,T,R> { fn fold<Acc> }`), the turbofish args are assigned starting at the first `fi.type_params` entry whose name is NOT one of the receiver struct's/enum's own type-param names, not at index 0 — so `mi.fold::<i32>()` binds `Acc=i32`, never clobbering a struct-level param already bound from the receiver.
+Explicit method turbofish (`recv.method::<T1,T2>(args)`) type args win over inference. A method of an impl carries the impl's type params first (`impl<I, T, R> Iterator for MapIter<I, T, R> { fn fold<Acc> }` has `[I, T, R, Acc]`); the turbofish args are assigned to the method's own params, after the impl's — so `mi.fold::<i32>()` binds `Acc=i32`, never clobbering an impl param bound from the receiver, also when the impl names a param its target does not (`impl<A, I: Iterator<Item = A>> … for W<I>`).
 
 *Source:* `src/compiler/sema_expr.cpp#L8831-L8884`
 

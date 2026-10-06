@@ -3,7 +3,7 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7.
 //
 // Validates:
-//   * std/lang/iter: new trait `ExactSizeIterator<Item>: Iterator<Item>`
+//   * std/lang/iter: new trait `ExactSizeIterator<Item = Item>: Iterator<Item = Item>`
 //     with `.len(&self) -> i64`. Impls on SliceIter / VecIter /
 //     TakeIter (delegates to inner).
 //   * std/lang/iter: `impl DoubleEndedIterator for TakeIter<…>` —

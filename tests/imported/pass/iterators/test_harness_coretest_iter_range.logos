@@ -9,8 +9,8 @@
 //   `(0..N).rev()` → `range_i32(0, N).rev()`.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
-// Stdlib companion: `impl DoubleEndedIterator<i32>` +
-// `impl ExactSizeIterator<i32>` for RangeI32 (and RangeI64) added
+// Stdlib companion: `impl DoubleEndedIterator<Item = i32>` +
+// `impl ExactSizeIterator<Item = i32>` for RangeI32 (and RangeI64) added
 // to std/lang/range/range.logos. RangeI32.next_back decrements
 // end and yields; .len returns end - current.
 

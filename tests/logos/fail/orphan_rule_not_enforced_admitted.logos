@@ -3,7 +3,7 @@ package orphan_rule_not_enforced_admitted;
 use logos.lang.iter;
 
 impl FromIterator<i32> for i32 {
-    fn from_iter<I: Iterator<i32>>(iter: I) -> i32 { 0 }
+    fn from_iter<I: Iterator<Item = i32>>(iter: I) -> i32 { 0 }
 }
 
 fn main() -> i32 { 0 }

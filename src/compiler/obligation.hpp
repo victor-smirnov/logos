@@ -104,6 +104,9 @@ struct Env {
     // `[E]` for a `&[E]` (Slice): a `&T` pattern takes a slice with T = `[E]`,
     // as Rust's `impl<T: ?Sized> Tr for &T` does (the phase's pool allocates).
     std::function<TypeRef(TypeRef slice)> unsized_of;
+    // A trait's direct supertraits by identity: an item a supertrait declares
+    // projects through it (`<I as DoubleEndedIterator>::Item` is Iterator's).
+    std::function<std::vector<std::string>(std::string_view trait)> supertraits;
 };
 
 class ImplTable {

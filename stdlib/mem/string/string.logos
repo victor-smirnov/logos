@@ -650,7 +650,7 @@ impl AsRef<str> for String {
 // Rust's `impl FromIterator<char> / <&str> / <String> for String`:
 // `iter.collect::<String>()` concatenates the items.
 impl FromIterator<char> for String {
-    fn from_iter<I: Iterator<char>>(iter: I) -> String {
+    fn from_iter<I: Iterator<Item = char>>(iter: I) -> String {
         let mut out: String = String::new();
         let mut it: I = iter;
         loop {
@@ -663,7 +663,7 @@ impl FromIterator<char> for String {
 }
 
 impl<'a> FromIterator<&'a str> for String {
-    fn from_iter<I: Iterator<&'a str>>(iter: I) -> String {
+    fn from_iter<I: Iterator<Item = &'a str>>(iter: I) -> String {
         let mut out: String = String::new();
         let mut it: I = iter;
         loop {
@@ -676,7 +676,7 @@ impl<'a> FromIterator<&'a str> for String {
 }
 
 impl FromIterator<String> for String {
-    fn from_iter<I: Iterator<String>>(iter: I) -> String {
+    fn from_iter<I: Iterator<Item = String>>(iter: I) -> String {
         let mut out: String = String::new();
         let mut it: I = iter;
         loop {

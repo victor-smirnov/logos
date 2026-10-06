@@ -34,7 +34,8 @@ static mut PULLED: i64 = 0i64;
 pub struct Steps { pub n: i64 }
 pub struct StepsIter { pub n: i64, pub i: i64 }
 
-impl Iterator<(i64, i64)> for StepsIter {
+impl Iterator for StepsIter {
+    type Item = (i64, i64);
     fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
         if self.i >= self.n { return Option::None; }
         unsafe { PULLED = PULLED + 1i64; }

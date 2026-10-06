@@ -1,0 +1,17 @@
+// Closed squeue iterator_trait_item_assoc_type_refused (#489): lang.iter's iterator family is Rust-shaped (trait Iterator { type Item; }, I: Iterator<Item = T>); ADR 0030 S9a step B.
+package iterator_trait_item_assoc_type_refused;
+struct Counter { n: i64, max: i64 }
+impl Iterator for Counter {
+    type Item = i64;
+    fn next(self: &mut Self) -> Option<i64> {
+        if self.n < self.max { self.n = self.n + 1i64; return Some(self.n); }
+        return None;
+    }
+}
+fn main() -> i32 {
+    let mut c = Counter { n: 0i64, max: 5i64 };
+    let mut s: i64 = 0i64;
+    loop { match c.next() { Some(x) => { s = s + x; } None => { break; } } }
+    if s != 15i64 { return 1i32; }
+    return 0i32;
+}

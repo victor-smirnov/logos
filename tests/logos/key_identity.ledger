@@ -675,7 +675,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 #ARGSCAN count 11 f4ae94e0
 #ARGSCAN enum_lit 3 d49e815d
 #ARGSCAN enum_lit_data 3 1eae352f
-#ARGSCAN erase 9 ab9caa8e
+# 2026-10-06: erase() 9 -> 10, roster ab9caa8e -> 623da684 (ADR 0030 S9a): BoundNamesScope restores
+#   current_type_bounds_ by the type-PARAMETER name it saved (a parameter list's own scope), as the
+#   where-scope save/restore beside it does; no entity is resolved by it.
+#ARGSCAN erase 10 623da684
 # 2026-09-19, #438 step 3: find 12 -> 11, roster 1f8dc25a -> 26e8ebd3. The
 # trait registry is keyed by DefId, so `traits_.find(<bare name>)` no longer
 # exists; what replaced it is `resolve_trait`, the row below.

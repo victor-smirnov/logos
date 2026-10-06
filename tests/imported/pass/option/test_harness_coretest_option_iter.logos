@@ -9,7 +9,7 @@
 // - `.size_hint()` assertions dropped (no SizeHint surface yet).
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
-// Stdlib companion: `impl<T> IntoIterator<T> for Option<T>` (with
+// Stdlib companion: `impl<T> IntoIterator<Item = T> for Option<T>` (with
 // `type Iter = OptionIter<T>`) in std/lang/iter/iter.logos. Backing
 // struct holds `state: Option<T>`; `.next()` `.take`s and yields.
 

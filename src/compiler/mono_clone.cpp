@@ -4895,6 +4895,20 @@ const obl::Env& Mono::obl_env_() {
         us.elem = TypeRef(s).elem();
         return out_.type_pool.alloc(us);
     };
+    e.supertraits = [this](std::string_view trait) {
+        std::vector<std::string> out;
+        for (auto& td : out_.traits) {
+            std::string id = td.pkg().empty() ? std::string(td.name())
+                                              : std::string(td.pkg()) + "::" + std::string(td.name());
+            if (id != trait && td.name() != trait) continue;
+            for (auto sp : td.supertraits()) {
+                auto ids = bare_trait_identities_(std::string(sp));
+                if (!ids.empty()) out.push_back(ids.front());
+            }
+            break;
+        }
+        return out;
+    };
     return e;
 }
 

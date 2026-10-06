@@ -247,7 +247,8 @@ pub struct HashMapIter<'a, K, V> {
 // Yields `(&K, &V)` (Rust-conformant: `HashMap::iter()` borrows). The entries
 // array is stable during iteration (resize only on insert), so `next()` returns
 // references into the occupied slot rather than copying.
-impl<'a, K: Hash + Eq, V> Iterator<ZipPair<&'a K, &'a V>> for HashMapIter<'a, K, V> {
+impl<'a, K: Hash + Eq, V> Iterator for HashMapIter<'a, K, V> {
+    type Item = ZipPair<&'a K, &'a V>;
     fn next(self: &mut HashMapIter<'a, K, V>) -> Option<ZipPair<&'a K, &'a V>> {
         unsafe {
             while self.idx < self.cap {
@@ -276,7 +277,8 @@ pub struct HashMapKeys<'a, K, V> {
     idx:     i64,
 }
 
-impl<'a, K: Hash + Eq, V> Iterator<&'a K> for HashMapKeys<'a, K, V> {
+impl<'a, K: Hash + Eq, V> Iterator for HashMapKeys<'a, K, V> {
+    type Item = &'a K;
     fn next(self: &mut HashMapKeys<'a, K, V>) -> Option<&'a K> {
         unsafe {
             while self.idx < self.cap {
@@ -302,7 +304,8 @@ pub struct HashMapValues<'a, K, V> {
     idx:     i64,
 }
 
-impl<'a, K: Hash + Eq, V> Iterator<&'a V> for HashMapValues<'a, K, V> {
+impl<'a, K: Hash + Eq, V> Iterator for HashMapValues<'a, K, V> {
+    type Item = &'a V;
     fn next(self: &mut HashMapValues<'a, K, V>) -> Option<&'a V> {
         unsafe {
             while self.idx < self.cap {
@@ -502,7 +505,8 @@ pub struct HashMapIterMut<'a, K, V> {
     _inv:    PhantomData<&'a mut V>,
 }
 
-impl<'a, K: Hash + Eq, V> Iterator<ZipPair<&'a K, &'a mut V>> for HashMapIterMut<'a, K, V> {
+impl<'a, K: Hash + Eq, V> Iterator for HashMapIterMut<'a, K, V> {
+    type Item = ZipPair<&'a K, &'a mut V>;
     fn next(self: &mut HashMapIterMut<'a, K, V>) -> Option<ZipPair<&'a K, &'a mut V>> {
         unsafe {
             while self.idx < self.cap {
@@ -532,7 +536,8 @@ pub struct HashMapValuesMut<'a, K, V> {
     _inv:    PhantomData<&'a mut V>,
 }
 
-impl<'a, K: Hash + Eq, V> Iterator<&'a mut V> for HashMapValuesMut<'a, K, V> {
+impl<'a, K: Hash + Eq, V> Iterator for HashMapValuesMut<'a, K, V> {
+    type Item = &'a mut V;
     fn next(self: &mut HashMapValuesMut<'a, K, V>) -> Option<&'a mut V> {
         unsafe {
             while self.idx < self.cap {
@@ -559,7 +564,8 @@ pub struct HashMapIntoIter<K, V> {
     idx:     i64,
 }
 
-impl<K, V> Iterator<(K, V)> for HashMapIntoIter<K, V> {
+impl<K, V> Iterator for HashMapIntoIter<K, V> {
+    type Item = (K, V);
     fn next(self: &mut HashMapIntoIter<K, V>) -> Option<(K, V)> {
         unsafe {
             while self.idx < self.cap {
@@ -601,8 +607,9 @@ impl<K, V> Drop for HashMapIntoIter<K, V> {
 
 // `for (k, v) in map` — consumes the map: the buffers move to the iterator and
 // the map's own drop becomes a no-op (null `states`).
-impl<K: Hash + Eq, V> IntoIterator<(K, V)> for HashMap<K, V> {
-    type Iter = HashMapIntoIter<K, V>;
+impl<K: Hash + Eq, V> IntoIterator for HashMap<K, V> {
+    type Item = (K, V);
+    type IntoIter = HashMapIntoIter<K, V>;
     fn into_iter(self: HashMap<K, V>) -> HashMapIntoIter<K, V> {
         let it: HashMapIntoIter<K, V> = HashMapIntoIter {
             states: self.states, entries: self.entries, cap: self.cap, idx: 0 as i64,
@@ -620,7 +627,7 @@ impl<K: Hash + Eq, V> Default for HashMap<K, V> {
 // `iter.collect::<HashMap<K, V>>()` over `(K, V)` pairs; a later duplicate key
 // replaces the earlier value (Rust's `impl FromIterator<(K, V)> for HashMap`).
 impl<K: Hash + Eq, V> FromIterator<(K, V)> for HashMap<K, V> {
-    fn from_iter<I: Iterator<(K, V)>>(iter: I) -> HashMap<K, V> {
+    fn from_iter<I: Iterator<Item = (K, V)>>(iter: I) -> HashMap<K, V> {
         let mut m: HashMap<K, V> = hashmap_new::<K, V>();
         let mut it: I = iter;
         loop {

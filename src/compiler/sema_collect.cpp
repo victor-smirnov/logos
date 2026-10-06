@@ -1664,6 +1664,12 @@ const obl::Env& SemaChecker::obl_env_() {
     };
     e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t); };
     e.unsized_of = [this](TypeRef s) { return make_unsized_slice_type(TypeRef(s).elem()); };
+    e.supertraits = [this](std::string_view trait) {
+        std::vector<std::string> out;
+        if (const SemaTraitInfo* ti = trait_by_key(trait))
+            for (auto& sp : ti->supertraits) out.push_back(bound_identity_(sp));
+        return out;
+    };
     // A closure literal's type states its family; a type synthesized from a bound
     // or a formal does not, and the signature-keyed map is the only key there is
     // (a carried decision, retired with the map at ADR 0029 S6).
@@ -3230,8 +3236,27 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         for (uint64_t wi = 0; wi < witems.size(); ++wi) {
                             auto witem = map_of(witems.get(wi));
                             if (code_of(witem) != la::TYPE_PARAM) continue;
+                            if (!witem.has_key(la::NAME) && witem.has_key(la::TYPE) && witem.has_key(la::ITEMS)) {
+                                // `where Self::Item: Ord`: a bound on an item of Self.
+                                auto subj = map_of(witem.get(la::TYPE.code));
+                                if (code_of(subj) != la::ASSOC_TYPE_REF || !subj.has_key(la::RECEIVER)) continue;
+                                auto base = map_of(subj.get(la::RECEIVER.code));
+                                if (!base.has_key(la::NAME) || str_of(base.get(la::NAME.code)) != "Self") continue;
+                                std::string an(str_of(subj.get(la::FIELD.code)));
+                                auto inner = arr_of(witem.get(la::ITEMS.code));
+                                for (uint64_t bj = 0; bj < inner.size(); ++bj) {
+                                    auto bnode = map_of(inner.get(bj));
+                                    if (code_of(bnode) != la::TRAIT_BOUND) continue;
+                                    TraitBound rb;
+                                    rb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                                    read_trait_bound_args(bnode, rb);
+                                    resolve_bound_trait_(rb);
+                                    mi.self_proj_bounds.emplace_back(an, std::move(rb));
+                                }
+                                continue;
+                            }
                             std::string subject(str_of(witem.get(la::NAME.code)));
-                            if (!witem.has_key(la::ITEMS)) continue;
+                            if (subject.empty() || !witem.has_key(la::ITEMS)) continue;
                             auto inner = arr_of(witem.get(la::ITEMS.code));
                             for (uint64_t bj = 0; bj < inner.size(); ++bj) {
                                 auto bnode = map_of(inner.get(bj));
@@ -4563,10 +4588,22 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (!t) return false;
                     // TypeVar = generic type param (T); AssocType = T::Item
                     // Both are polymorphic from the trait's perspective and
-                    // match any concrete type in the impl.
+                    // match any concrete type in the impl. A projection
+                    // nested in the slot (`Option<Self::Item>` of a supertrait's
+                    // item, not normalized while the impls are collected) too.
                     TypeRef tv{t};
-                    return tv.kind() == LogosType::Kind::TypeVar ||
-                           tv.kind() == LogosType::Kind::AssocType;
+                    if (tv.kind() == LogosType::Kind::TypeVar ||
+                        tv.kind() == LogosType::Kind::AssocType) return true;
+                    std::function<bool(TypeRef)> has_proj = [&](TypeRef x) -> bool {
+                        if (!x) return false;
+                        if (x.kind() == LogosType::Kind::AssocType) return true;
+                        for (auto a : x.type_args()) if (has_proj(a)) return true;
+                        if (x.pointee() && has_proj(x.pointee())) return true;
+                        if (x.elem() && has_proj(x.elem())) return true;
+                        for (auto e : x.tuple_elems()) if (has_proj(e)) return true;
+                        return false;
+                    };
+                    return has_proj(tv);
                 };
                 // Fn-family epic step B: detect a variadic trait type
                 // param (`pub trait Fn<A...> { fn call(&self, args: A...)

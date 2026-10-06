@@ -206,7 +206,8 @@ pub fn str_chars(s: str) -> Chars {
     return Chars { ptr: s.as_ptr(), pos: 0, len: s.len() };
 }
 
-impl Iterator<char> for Chars {
+impl Iterator for Chars {
+    type Item = char;
     fn next(self: &mut Chars) -> Option<char> {
         if self.pos >= self.len {
             return Option::None;
@@ -244,7 +245,8 @@ pub fn str_char_indices(s: str) -> CharIndices {
     return CharIndices { ptr: s.as_ptr(), pos: 0, len: s.len() };
 }
 
-impl Iterator<(i64, char)> for CharIndices {
+impl Iterator for CharIndices {
+    type Item = (i64, char);
     fn next(self: &mut CharIndices) -> Option<(i64, char)> {
         if self.pos >= self.len {
             return Option::None;
@@ -285,7 +287,8 @@ pub fn str_bytes(s: str) -> Bytes {
     return Bytes { ptr: s.as_ptr(), pos: 0, len: s.len() };
 }
 
-impl Iterator<u8> for Bytes {
+impl Iterator for Bytes {
+    type Item = u8;
     fn next(self: &mut Bytes) -> Option<u8> {
         if self.pos >= self.len { return Option::None; }
         unsafe {
@@ -322,7 +325,8 @@ pub fn str_lines<'a>(s: &'a str) -> Lines<'a> {
     return Lines { ptr: s.as_ptr(), pos: 0, len: s.len() };
 }
 
-impl<'a> Iterator<&'a str> for Lines<'a> {
+impl<'a> Iterator for Lines<'a> {
+    type Item = &'a str;
     fn next(self: &mut Lines<'a>) -> Option<&'a str> {
         if self.pos >= self.len { return Option::None; }
         unsafe {
@@ -486,7 +490,8 @@ pub unsafe fn utf8_chunks_from_raw(ptr: *const u8, len: i64) -> Utf8Chunks {
     return Utf8Chunks { ptr: ptr, pos: 0, len: len };
 }
 
-impl<'a> Iterator<Utf8Chunk<'a>> for Utf8Chunks<'a> {
+impl<'a> Iterator for Utf8Chunks<'a> {
+    type Item = Utf8Chunk<'a>;
     fn next(self: &mut Utf8Chunks<'a>) -> Option<Utf8Chunk<'a>> {
         if self.pos >= self.len { return Option::None; }
         unsafe {
@@ -672,7 +677,8 @@ pub fn str_matches<'a, P: Pattern>(s: &'a str, p: P) -> Matches<'a, P> {
     return Matches::<P> { haystack: s, pat: p, pos: 0i64 };
 }
 
-impl<'a, P: Pattern + Copy> Iterator<&'a str> for Matches<'a, P> {
+impl<'a, P: Pattern + Copy> Iterator for Matches<'a, P> {
+    type Item = &'a str;
     fn next(self: &mut Matches<'a, P>) -> Option<&'a str> {
         let idx: i64 = self.pat.find_in(self.haystack, self.pos);
         if idx < 0i64 { return Option::None; }
@@ -700,7 +706,8 @@ pub fn str_match_indices<'a, P: Pattern>(s: &'a str, p: P) -> MatchIndices<'a, P
     return MatchIndices::<P> { haystack: s, pat: p, pos: 0i64 };
 }
 
-impl<'a, P: Pattern + Copy> Iterator<(i64, &'a str)> for MatchIndices<'a, P> {
+impl<'a, P: Pattern + Copy> Iterator for MatchIndices<'a, P> {
+    type Item = (i64, &'a str);
     fn next(self: &mut MatchIndices<'a, P>) -> Option<(i64, &'a str)> {
         let idx: i64 = self.pat.find_in(self.haystack, self.pos);
         if idx < 0i64 { return Option::None; }

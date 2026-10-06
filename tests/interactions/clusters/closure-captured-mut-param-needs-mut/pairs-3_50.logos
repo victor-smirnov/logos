@@ -21,7 +21,8 @@ fn depth(t: &Tree) -> i64 { 1 + t.kids.iter().map(|k| depth(k)).max().unwrap_or(
 fn values(t: &Tree) -> Vec<i64> { let mut out = vec![t.v]; for k in t.kids.iter() { out.extend(values(k)); } out }
 fn evens_at_depth(t: &Tree, d: i64, out: &mut Vec<(i64, i64)>) { if t.v % 2 == 0 { out.push((d, t.v)); } for k in t.kids.iter() { evens_at_depth(k, d + 1, out); } }
 struct Countdown { n: i64 }
-impl Iterator<i64> for Countdown { fn next(&mut self) -> Option<i64> { if self.n <= 0 { None } else { self.n -= 1; Some(self.n + 1) } } }
+impl Iterator for Countdown {
+    type Item = i64; fn next(&mut self) -> Option<i64> { if self.n <= 0 { None } else { self.n -= 1; Some(self.n + 1) } } }
 fn fib(n: i64) -> i64 { if n < 2 { n } else { fib(n - 1) + fib(n - 2) } }
 fn perms(xs: &[i64]) -> Vec<Vec<i64>> {
     if xs.len() <= 1 { let one: Vec<Vec<i64>> = vec![xs.to_vec()]; return one; }

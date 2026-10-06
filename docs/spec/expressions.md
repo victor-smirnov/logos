@@ -1230,7 +1230,7 @@ For `for i in lo..hi` / `for i in lo..=hi`, the induction variable `i` takes the
 
 ### `expr.range.family` — Range expressions
 
-Range value-expressions: `lo..hi` (half-open), `lo..=hi` (inclusive), `lo..` (from), `..hi` (to), `..=hi` (to-inclusive), `..` (full). Grammar: `expr <- range_expr`, i.e. range is the top-level value-expression production — it binds loosest of all operators in the precedence cascade (below it: logical operators). An omitted side leaves the corresponding bound unspecified/unfilled; sema fills the open side. Sema lowers each form to a stdlib `RangeI64`/`RangeI32` struct implementing `Iterator<T>`.
+Range value-expressions: `lo..hi` (half-open), `lo..=hi` (inclusive), `lo..` (from), `..hi` (to), `..=hi` (to-inclusive), `..` (full). Grammar: `expr <- range_expr`, i.e. range is the top-level value-expression production — it binds loosest of all operators in the precedence cascade (below it: logical operators). An omitted side leaves the corresponding bound unspecified/unfilled; sema fills the open side. Sema lowers each form to a stdlib `RangeI64`/`RangeI32` struct implementing `Iterator<Item = T>`.
 
 ```logos
 let r = 0..10;

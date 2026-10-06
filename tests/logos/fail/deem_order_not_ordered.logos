@@ -30,7 +30,8 @@ pub struct StepsIter { pub n: i64, pub i: i64 }
 // `OrderedBy`, no `Bidirectional`, no `RandomAccess`. Its rows happen to come
 // out ascending, which is exactly the trap: the AUTHOR knows that and the TYPE
 // does not, and a plan may only act on what the type says.
-impl Iterator<(i64, i64)> for StepsIter {
+impl Iterator for StepsIter {
+    type Item = (i64, i64);
     fn next(self: &mut StepsIter) -> Option<(i64, i64)> {
         if self.i >= self.n { return Option::None; }
         let v: (i64, i64) = (self.i, self.i * 10i64);

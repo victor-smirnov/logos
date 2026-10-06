@@ -1,7 +1,8 @@
 // Closed squeue impl_param_fixed_by_trait_args_refused (#732): an impl parameter its target does not name is fixed by the bounds of the ones it does (trait arguments, associated-type equalities): mono completes the method subst, the call binds impl parameters in impl order and a turbofish names the method's own; ADR 0030 S9a step A.
 package impl_param_fixed_by_trait_args_refused;
 struct W<I> { it: I }
-impl<A, I: Iterator<A>> Iterator<A> for W<I> {
+impl<A, I: Iterator<Item = A>> Iterator for W<I> {
+    type Item = A;
     fn next(&mut self) -> Option<A> { return self.it.next(); }
 }
 fn main() -> i32 {

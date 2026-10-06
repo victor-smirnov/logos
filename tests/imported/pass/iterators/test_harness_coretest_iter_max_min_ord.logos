@@ -10,7 +10,7 @@
 //   `v.cmp(&b)` on a tparam.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
-// Stdlib companion: `iter_max<I: Iterator<T>, T: Ord>` and
+// Stdlib companion: `iter_max<I: Iterator<Item = T>, T: Ord>` and
 // `iter_min<I, T: Ord>` free fns in std/lang/iter/iter.logos.
 // Use raw-ptr-copy idiom on non-Copy T to dodge the move-of-
 // moved-value gotcha when comparing.

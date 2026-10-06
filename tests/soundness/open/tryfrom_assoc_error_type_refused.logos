@@ -1,7 +1,7 @@
 // SOUNDNESS QUEUE row tryfrom_assoc_error_type_refused (tier 2, `refuses`). Rust-parity audit 2026-09-26 (high): TryFrom has no associated Error type (hard-coded ConvertError)
 // Logos: error [fn Small__try_from]: impl TryFrom for Small: method 'try_from' does not match the trait declaration (return type mismatch). Confirmed stdlib/lang/convert/convert.logos hardcodes `fn try_from(val: T) -> Result<Self, ConvertE
 // rustc: compiles, exit 0
-// fix hint: stdlib convert.logos: Rust-shaped TryFrom<T> { type Error; } / TryInto; same family as Iterator<Item> and Index<Output> param-vs-assoc.
+// fix hint: stdlib convert.logos: Rust-shaped TryFrom<T> { type Error; } / TryInto; same family as Iterator<Item = Item> and Index<Output> param-vs-assoc.
 package tryfrom_assoc_error_type_refused;
 use logos.lang.convert;
 use logos.lang.result;

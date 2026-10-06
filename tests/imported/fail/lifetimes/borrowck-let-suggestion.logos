@@ -14,7 +14,7 @@
 //     x.use_mut();
 // Modifications:
 //   · `vec![1]` -> `mkv() -> Vecish`, `.iter()` -> an inherent `iter(&'s self) ->
-//     Iter<'s>`; upstream's `Vec`/`slice::Iter` pair is exactly this shape (a
+//     Iter<'s>`; upstream's `Vec`/`slice::IntoIter` pair is exactly this shape (a
 //     receiver temporary and an iterator STRUCT carrying a borrow of it), and the
 //     borrow-carrying return type is the whole subject.
 //   · the `Fake` blanket-impl trait (`use_mut`) exists upstream only to give the

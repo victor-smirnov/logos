@@ -7,8 +7,8 @@
 //   tuples (`.0` / `.1`).
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
-// Stdlib companion: `impl DoubleEndedIterator<(T, U)>` +
-// `impl ExactSizeIterator<…>` for ZipIter<A, B, T, U>. Both halves
+// Stdlib companion: `impl DoubleEndedIterator<Item = (T, U)>` +
+// `impl ExactSizeIterator<Item = …>` for ZipIter<A, B, T, U>. Both halves
 // must be DEI + ESI; the impl drops `max(alen,blen) -
 // min(alen,blen)` items from the longer side's back first to
 // align lengths, then pulls next_back from both.

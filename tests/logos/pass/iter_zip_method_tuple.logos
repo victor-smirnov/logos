@@ -1,4 +1,4 @@
-// `Iterator::zip(other)` infers the other side's item type from `other: Iterator<U>` (the unconstrained
+// `Iterator::zip(other)` infers the other side's item type from `other: Iterator<Item = U>` (the unconstrained
 // `ZipOtherItem` parameter could not be inferred, and a wrong turbofish was never checked) and yields the
 // Rust tuple `(A, B)` (was a named `ZipPair { first, second }`); it stops at the shorter side.
 // rustc twin: 0.
