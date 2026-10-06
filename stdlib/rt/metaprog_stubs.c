@@ -139,6 +139,20 @@ int32_t logos_metaprog_has_impl(const uint8_t* trait, uint64_t trait_len,
     metaprog_unavailable("logos_metaprog_has_impl");
 }
 
+// #729: the value-name table a query handler consults. JIT-bound in the
+// compiler; a binary that links the stdlib carries the handler's code dead.
+__attribute__((weak))
+int32_t logos_metaprog_value_known(const uint8_t* name, uint64_t len) {
+    (void)name; (void)len;
+    metaprog_unavailable("logos_metaprog_value_known");
+}
+
+__attribute__((weak))
+const uint8_t* logos_metaprog_value_type(const uint8_t* name, uint64_t len, uint64_t* out_len) {
+    (void)name; (void)len; (void)out_len;
+    metaprog_unavailable("logos_metaprog_value_type");
+}
+
 __attribute__((weak))
 const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
     (void)site_id; (void)arg_idx;
@@ -165,6 +179,13 @@ __attribute__((weak))
 int32_t logos_emit_item_blob_subst_in(const void* blob, const char* unit_key) {
     (void)blob; (void)unit_key;
     metaprog_unavailable("logos_emit_item_blob_subst_in");
+}
+
+// #345: the splice into a named package (logos.std.wql.deem_bind).
+__attribute__((weak))
+int32_t logos_emit_item_blob_subst_pkg(const void* blob, const char* pkg) {
+    (void)blob; (void)pkg;
+    metaprog_unavailable("logos_emit_item_blob_subst_pkg");
 }
 
 // UnitGraph §1.2 unit-scope declaration. Same reason as every stub above:
