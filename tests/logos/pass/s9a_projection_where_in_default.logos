@@ -1,0 +1,15 @@
+// ADR 0030 S9a step A: `where Self::Item: Into<i64>` on a default method holds for the item it names in each
+// impl's synthesized copy (a parameter here). It was parsed and skipped. rustc 1.98.1: 12.
+package s9a_projection_where_in_default;
+trait It {
+    type Item;
+    fn nx(&mut self) -> Option<Self::Item>;
+    fn tot(mut self) -> i64 where Self: Sized, Self::Item: Into<i64> {
+        let mut s: i64 = 0;
+        while let Some(x) = self.nx() { s = s + x.into(); }
+        s
+    }
+}
+struct W<T> { v: T, n: i64 }
+impl<T: Copy> It for W<T> { type Item = T; fn nx(&mut self) -> Option<T> { if self.n > 0 { self.n = self.n - 1; Some(self.v) } else { None } } }
+fn main() -> i32 { let w = W { v: 4i32, n: 3 }; return w.tot() as i32; }

@@ -6115,6 +6115,9 @@ private:
                             // correctly instead of positional binding of
                             // type_args. Null otherwise.
                             TypeRef impl_target_pattern = nullptr;
+                            // How many of type_params are the impl's (they come
+                            // first): a turbofish names the method's own.
+                            uint32_t impl_tparam_count = 0;
                             std::vector<std::string> lifetime_params;  // for B-gn-09 lint
                             // B69: declared `where 'a: 'b` outlives pairs.
                             // Used by call-site cross-check: caller must
@@ -10665,6 +10668,15 @@ private:
     // bare_fn_name preserves it (a plain `$` is stripped as a pkg separator).
     // Empty for no args. Must be byte-identical across collect/lower/dispatch.
     std::string trait_targ_suffix(const std::vector<TypeRef>& args) const;
+    TypeRef param_assoc_eq_(TypeRef base, std::string_view trait, std::string_view name);
+    struct BoundNamesScope {
+        SemaChecker& sc;
+        std::vector<std::pair<std::string, std::optional<std::vector<TraitBound>>>> saved;
+        explicit BoundNamesScope(SemaChecker& c) : sc(c) {}
+        void add(const std::string& name, std::vector<TraitBound> names);
+        void add(const std::string& name, sema_detail::TinyMapView bounded);
+        ~BoundNamesScope();
+    };
     // G156-1: strip a `$G<n>$...` trait-type-arg suffix baked into an
     // AssocType's trait_name, recovering the bare trait name. No-op when absent.
     static std::string strip_trait_targ_suffix(std::string_view s) {

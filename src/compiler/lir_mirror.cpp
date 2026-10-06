@@ -186,6 +186,14 @@ public:
             for (auto& s : tb.hrtb_binders) array_push(arr_off, put_string(s));
             put(map_off, tbk::TB_HRTB_BINDERS, mref_addr(arr_off));
         }
+        if (!tb.assoc_eqs.empty()) {
+            auto names_off = make_array(tb.assoc_eqs.size());
+            std::vector<TypeRef> types;
+            for (auto& [n, t] : tb.assoc_eqs) { array_push(names_off, put_string(n)); types.push_back(t); }
+            put(map_off, tbk::TB_ASSOC_NAMES, mref_addr(names_off));
+            auto ta = type_array(types);
+            if (!ta.is_null()) put(map_off, tbk::TB_ASSOC_TYPES, ta);
+        }
         return mref_addr(map_off);
     }
     // TYPE_PARAMS / IMPL_TYPE_PARAMS array element (fn TypeParam sub-map; richer

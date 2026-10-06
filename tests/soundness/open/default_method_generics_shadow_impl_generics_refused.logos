@@ -1,0 +1,31 @@
+// SOUNDNESS QUEUE row default_method_generics_shadow_impl_generics_refused (tier 3, `refuses`). Found 2026-10-06 (ADR 0030 S9a step A): a trait default method's generics (`fn mp<B, F>`) synthesized into an impl whose own generics share the names (`impl<I, F: FnMut(I::Item) -> B, B> It for Mp<I, F, B>`) collide — the default is not registered for the impl.
+// Logos: error [fn main]: method call: 'Mp$G3$Up$|i64| -> i64$i64' has no method 'mp'.
+// rustc: the twin (Rust's own scoping: a trait method's generics and an impl's are separate) compiles and exits 48 (rustc 1.98.1 --edition 2024).
+// fix hint: default-method synthesis: alpha-rename the trait method's generics that an impl generic shadows (the spelling maps to a fresh TypeVar) in the registered signature and the lowered body.
+package default_method_generics_shadow_impl_generics_refused;
+use logos.lang.marker;
+trait It {
+    type Item;
+    fn nx(&mut self) -> Option<Self::Item>;
+    fn mp<B, F: FnMut(Self::Item) -> B>(self, f: F) -> Mp<Self, F, B> where Self: Sized { Mp { it: self, f: f, _b: PhantomData::<B> {} } }
+    fn fold_sum(mut self) -> i64 where Self: Sized, Self::Item: Into<i64> {
+        let mut s: i64 = 0;
+        while let Some(x) = self.nx() { s = s + x.into(); }
+        s
+    }
+}
+struct Up { i: i64, n: i64 }
+impl It for Up {
+    type Item = i64;
+    fn nx(&mut self) -> Option<i64> { if self.i < self.n { self.i = self.i + 1; Some(self.i) } else { None } }
+}
+struct Mp<I, F, B> { it: I, f: F, _b: PhantomData<B> }
+impl<I: It, F: FnMut(I::Item) -> B, B> It for Mp<I, F, B> {
+    type Item = B;
+    fn nx(&mut self) -> Option<B> { match self.it.nx() { Some(x) => Some((self.f)(x)), None => None } }
+}
+fn main() -> i32 {
+    let a = Up { i: 0, n: 3 }.mp(|x: i64| x * 10).fold_sum();
+    let b = Up { i: 0, n: 2 }.mp(|x: i64| x + 1).mp(|y: i64| y * 100).fold_sum();
+    return (a + b) as i32;
+}

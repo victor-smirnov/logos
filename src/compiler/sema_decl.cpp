@@ -871,7 +871,20 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                     auto witem = map_of(witems.get(i));
                     if (code_of(witem) != la::TYPE_PARAM) continue;
                     if (!witem.has_key(la::ITEMS)) continue;
-                    std::string tname(str_of(witem.get(la::NAME.code)));
+                    std::string tname;
+                    if (witem.has_key(la::NAME)) tname = std::string(str_of(witem.get(la::NAME.code)));
+                    else if (witem.has_key(la::TYPE) &&
+                             code_of(map_of(witem.get(la::TYPE.code))) == la::ASSOC_TYPE_REF) {
+                        // A projection subject (`where Self::Item: Ord`): its
+                        // bounds hold for the type it names here — the impl's
+                        // item in a synthesized default, a parameter, or the
+                        // projection itself — keyed as a receiver is keyed.
+                        TypeRef subj = resolve_type(map_of(witem.get(la::TYPE.code)));
+                        if (!subj || TypeRef(subj).kind() == LogosType::Kind::Error) continue;
+                        tname = TypeRef(subj).kind() == LogosType::Kind::TypeVar
+                                    ? std::string(TypeRef(subj).type_var_name()) : type_str(subj);
+                    }
+                    if (tname.empty()) continue;
                     auto inner = arr_of(witem.get(la::ITEMS.code));
                     for (uint64_t j = 0; j < inner.size(); ++j) {
                         auto inode = map_of(inner.get(j));
@@ -2442,6 +2455,29 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         };
         walk(node.get(la::TYPE.code));
         if (!trait_name.empty() && node.has_key(la::TYPE_PARAMS)) walk(node.get(la::TYPE_PARAMS.code));
+        // RFC 447: a parameter fixed by an associated-type equality whose
+        // input is constrained is constrained too — `F: FnMut(I::Item) -> B`
+        // (B is `<F as FnOnce<..>>::Output`), `I: Tr<Item = B>`.
+        std::function<void(TypeRef)> names_in = [&](TypeRef t) {
+            if (!t) return;
+            if (t.kind() == LogosType::Kind::TypeVar) seen.insert(std::string(t.type_var_name()));
+            for (auto a : t.type_args()) names_in(a);
+            if (t.pointee()) names_in(t.pointee());
+            if (t.elem()) names_in(t.elem());
+            for (auto e : t.tuple_elems()) names_in(e);
+        };
+        for (bool grew = true; grew;) {
+            grew = false;
+            const size_t before = seen.size();
+            for (auto& tp : impl_tps) {
+                if (!seen.count(tp.name)) continue;
+                for (auto& b : tp.bounds) {
+                    if (b.is_fn_family) names_in(b.fn_ret);
+                    for (auto& [n, ty] : b.assoc_eqs) names_in(ty);
+                }
+            }
+            grew = seen.size() != before;
+        }
         node_line_ = get_line(node);
         node_span_ = get_span(node);
         for (auto& tp : impl_tps)
@@ -3422,25 +3458,15 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     } else {
                         auto [spkg2, ssi2] = find_struct_by_name(target);
                         auto [dpkg2, dsi2] = find_datatype_by_name(target);
-                        auto _shaped_target = [](TypeRef pat) -> bool {
-                            if (!pat) return false;
-                            for (auto a : TypeRef(pat).type_args()) {
-                                if (!a) continue;
-                                auto k = TypeRef(a).kind();
-                                if (k != LogosType::Kind::TypeVar &&
-                                    k != LogosType::Kind::ConstVar)
-                                    return true;
-                            }
-                            return false;
-                        };
                         if (ssi2) {
-                            if (impl_target_typeref && _shaped_target(impl_target_typeref)) {
-                                // Shaped generic impl (`impl<I,T> … for
-                                // CopiedIter<I, &T>`): Self must be the impl's
-                                // structured TARGET PATTERN, not base-name +
-                                // positional impl params (CopiedIter<I, T>) —
-                                // the positional shape mis-unified self at
-                                // every call (`.max()` inferred T=&i32).
+                            if (impl_target_typeref && !TypeRef(impl_target_typeref).type_args().empty()) {
+                                // A generic impl: Self is the impl's TARGET
+                                // PATTERN, not base-name + positional impl
+                                // params — that shape mis-unified a shaped
+                                // target (`CopiedIter<I, &T>`: `.max()`
+                                // inferred T=&i32) and mis-ordered one whose
+                                // parameter list differs from the target's
+                                // arguments (`impl<B, I> … for Mp<I, B>`).
                                 self_type = impl_target_typeref;
                             } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;
@@ -3451,7 +3477,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 self_type = make_struct_type(target, spkg2);
                             }
                         } else if (dsi2) {
-                            if (impl_target_typeref && _shaped_target(impl_target_typeref)) {
+                            if (impl_target_typeref && !TypeRef(impl_target_typeref).type_args().empty()) {
                                 self_type = impl_target_typeref;  // same shape rule
                             } else if (!impl_tps.empty()) {
                                 std::vector<TypeRef> tv_args;

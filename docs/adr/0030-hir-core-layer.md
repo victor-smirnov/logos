@@ -816,6 +816,29 @@ glue, Iterator adapters). Each is a lookup by spelling where an identity
 exists; removing them is the registries' rewrite to DefId keys, an order of
 magnitude over row (8)'s budget — a re-plan, step S9b.
 
+## S9a (Rust-shaped `Iterator`, `Try`) — state
+
+Step A, 2026-10-06 — the compiler takes the Rust shape before the stdlib
+moves to it (probes against rustc 1.98.1, fixtures s9a_*): a sibling bound or a
+where-clause projects a parameter another bound names (`impl<I: It, F:
+Fn(I::Item)>`, `where I: It, F: Fn(I::Item) -> i64`); `I: It<Item = T>` fixes
+`I::Item` to T in the body (sema's param_assoc_eq_) and the call infers T from
+the selected impl's item; a projection over a base with parameters inside
+normalizes by C-OBL (`<Mp<I, F, B> as It>::Item` in its own impl); `where
+Self::Item: Tr` holds for the item it names in each synthesized default (it
+was parsed and skipped) — a concrete receiver it bounds is bound-dispatched
+and mono answers it from the impl; E0207 follows RFC 447 (`F: FnMut(..) -> B`
+constrains B). Three positional assumptions fixed on the way: a synthesized
+default's Self is the impl's target pattern (`impl<B, I> … for Mp<I, B>` made
+the item `I`); mono binds a struct method's impl parameters in the impl's
+order when the impl's list is not the struct's own; an impl parameter its
+target does not name (`impl<A, I: It<Item = A>> It for W<I>`) is completed by
+mono from the bounds — associated-type equalities ride on the L-IR bound now
+(TB_ASSOC_NAMES / TB_ASSOC_TYPES) — and a turbofish names the method's own
+parameters (SemaFuncInfo::impl_tparam_count). Closed squeue #732. Filed #734:
+a default method's generics shadowing an impl's of the same name. Next, step
+B: lang.iter moves to `trait Iterator { type Item; … }`.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

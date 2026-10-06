@@ -2127,9 +2127,9 @@ private:
     [[noreturn]] void resolve_ice(lir_view::EMethodCallView v, const std::string& why) const {
         fprintf(stderr,
                 "internal compiler error: borrow check: the callee of method call `.%s(..)` "
-                "(symbol `%s`) in `%s` is not resolved: %s. Refusing to guess a signature.\n",
+                "(symbol `%s`, trait `%s`) in `%s` is not resolved: %s. Refusing to guess a signature.\n",
                 std::string(v.method()).c_str(), std::string(v.resolved_symbol()).c_str(),
-                body_.name.c_str(), why.c_str());
+                std::string(v.trait_identity()).c_str(), body_.name.c_str(), why.c_str());
         std::abort();
     }
     // The callee of a method call, resolved exactly: its symbol, a type

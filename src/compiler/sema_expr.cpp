@@ -561,8 +561,10 @@ bool SemaChecker::is_builtin_box_deref(TypeRef bt) const {
 // stands (a vtable / tagged dispatch, or a receiver whose method is its
 // bounds', stays for mono / the dyn emission).
 lir::LExprPtr SemaChecker::method_call_resolved_(lir::EMethodCall mc, TypeRef ret) {
+    // A bound-dispatched call (its trait's identity recorded) is answered by
+    // the impl at instantiation, not by a probe of the receiver's methods.
     if (mc.resolved_symbol.empty() && mc.vtable_index < 0 && mc.tag_system.empty() &&
-        mc.receiver && expr_type(mc.receiver)) {
+        mc.trait_identity.empty() && mc.receiver && expr_type(mc.receiver)) {
         ProbePick pk = probe_method_(expr_type(mc.receiver), mc.method);
         // At the receiver's own step (the call site applies any autoref); among
         // overloads, the one candidate the arguments fit.
@@ -6691,6 +6693,34 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
         auto tbit = bindings.find(tp.name);
         if (tbit == bindings.end() || !tbit->second) continue;
         TypeRef actual = tbit->second;
+        // `I: Tr<Name = X>` with I known: X is the selected impl's item
+        // (`fn sum<I: Iterator<Item = T>, T>(it: I)` gives T = I's Item).
+        // I itself a parameter of the caller bounded by the same trait
+        // (`self.next()` inside an impl's synthesized default, `I: Iterator<A>`
+        // in scope): the caller's bound gives the arguments and items.
+        // KEY-IDENTITY: a type-parameter name of the calling signature, as the rows beside it.
+        if (TypeRef(actual).kind() == LogosType::Kind::TypeVar)
+            if (auto cb = current_type_bounds_.find(std::string(TypeRef(actual).type_var_name()));
+                cb != current_type_bounds_.end())
+                for (auto& b : tp.bounds)
+                    for (auto& have : cb->second) {
+                        if (bound_identity_(have) != bound_identity_(b)) continue;
+                        for (size_t k = 0; k < b.type_args.size() && k < have.type_args.size(); ++k)
+                            if (b.type_args[k] && have.type_args[k]) unify_types(b.type_args[k], have.type_args[k], bindings);
+                        for (auto& [n, eq] : b.assoc_eqs)
+                            if (eq)
+                                if (TypeRef fx = param_assoc_eq_(actual, have.trait_name, n)) unify_types(eq, fx, bindings);
+                    }
+        if (type_is_concrete(actual))
+            for (auto& b : tp.bounds)
+                for (auto& [n, eq] : b.assoc_eqs) {
+                    if (!eq) continue;
+                    std::vector<TypeRef> targs;
+                    for (auto a : b.type_args)
+                        targs.push_back(a ? subst_type_sema(a, SemaSubst(bindings.begin(), bindings.end())) : a);
+                    if (TypeRef r = project_assoc_(bound_identity_(b), actual, targs, n, {}))
+                        unify_types(eq, r, bindings);
+                }
         if (TypeRef(actual).kind() != LogosType::Kind::Struct &&
             TypeRef(actual).kind() != LogosType::Kind::ZonedStruct)
             continue;
@@ -10650,9 +10680,29 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (at.name == an)
                     for (auto& b : at.bounds) probe(b.trait_name);
         }
+        // A where-clause on the projection (`where Self::Item: Ord`) provides too.
+        if (auto wit = current_type_bounds_.find(recv_bound_key); wit != current_type_bounds_.end())
+            for (auto& b : wit->second) probe(b.trait_name);
         if (!found_nondefault) recv_is_assoc = false;  // defer to the old path
     }
-    if (recv_is_tv || recv_is_assoc) {
+    // A concrete receiver whose type a where-clause bounds (`where
+    // Self::Item: Into<i64>` in a default synthesized for `Item = i64`): the
+    // method is the bound's, as the parameter environment says in Rust.
+    bool recv_where_bounded = false;
+    if (!recv_is_tv && !recv_is_assoc && recv_inner)
+        if (auto wit = current_type_bounds_.find(recv_bound_key); wit != current_type_bounds_.end()) {
+            StrSet pv;
+            std::function<bool(const std::string&)> provides = [&](const std::string& tn) -> bool {
+                if (!pv.insert(tn).second) return false;
+                auto* it = find_trait_iter_scoped(tn);
+                if (!it) return false;
+                for (auto& m : it->methods) if (m.name == method_name) return true;
+                for (auto& sp : it->supertraits) if (provides(sp.trait_name)) return true;
+                return false;
+            };
+            for (auto& b : wit->second) if (provides(b.trait_name)) { recv_where_bounded = true; break; }
+        }
+    if (recv_is_tv || recv_is_assoc || recv_where_bounded) {
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args = arr_of(node.get(la::ARGS.code));
@@ -11958,12 +12008,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // this, `mi.fold::<i32>` bound `I = i32` and clobbered the
         // receiver-derived `I = SliceIter<i32>` set above.
         if (!user_type_args.empty()) {
-            size_t method_tp_start = 0;
+            size_t method_tp_start = fi.impl_tparam_count;
             TypeRef rst2 = expr_type(recv);
             if (rst2 && (TypeRef(rst2).kind() == LogosType::Kind::Ptr ||
                          is_ref_like(TypeRef(rst2).kind())) && TypeRef(rst2).pointee())
                 rst2 = TypeRef(rst2).pointee();
-            if (rst2 && (TypeRef(rst2).kind() == LogosType::Kind::Struct ||
+            if (method_tp_start) {
+                // The impl's parameters lead; the method's own follow.
+            } else if (rst2 && (TypeRef(rst2).kind() == LogosType::Kind::Struct ||
                          TypeRef(rst2).kind() == LogosType::Kind::ZonedStruct)) {
                 SemaStructInfo* si3 = nullptr;
                 { auto [p, si] = struct_of(TypeRef(rst2)); si3 = si; }

@@ -829,6 +829,10 @@ void Mono::enqueue_if_needed(const std::string& mangled_callee,
                             std::vector<std::string> itp_names;
                             for (auto& itp : tmpl.impl_type_params())
                                 itp_names.push_back(std::string(itp.name()));
+                            // An impl whose parameter list is not the struct's own
+                            // (`impl<A, I: It<Item = A>> It for W<I>`): the call
+                            // names the impl's parameters, in the impl's order.
+                            if (itp_names != sd_tpars) shaped = true;
                             if (shaped && type_args.size() >= itp_names.size()) {
                                 SubstMap subst;
                                 size_t ai = 0;
@@ -1741,6 +1745,7 @@ void Mono::drain_method_worklist() {
         }
         if (exists) continue;
 
+        complete_impl_subst_(tmpl, item.subst);
         if (!method_bound_ok(tmpl, item.subst)) continue;
 
         depth_ = item.depth;

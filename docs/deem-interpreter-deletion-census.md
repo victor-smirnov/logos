@@ -6823,8 +6823,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11970 -> 11972 (+2), NOIMPORTED 7411 -> 7413 (+2), TIERCOMMIT 195 -> 195 (+0) — 2026-10-04: fixtures s9_dyn_vtable_by_trait_args, s9_dyn_vtable_ref_blanket.
 #                ALL 11972 -> 11973 (+1), NOIMPORTED 7413 -> 7414 (+1), TIERCOMMIT 195 -> 195 (+0) — 2026-10-04: fixtures s9_dyn_vtable_by_trait_args, s9_dyn_vtable_ref_blanket, s9_dyn_let_borrowed_temp.
 #                ALL 11973 -> 11978 (+5), NOIMPORTED 7414 -> 7419 (+5), TIERCOMMIT 195 -> 195 (+0) — 2026-10-04: fixtures s9_shift_typed_by_left, s9_op_assign_generic, s9_dyn_eq_by_partial_eq_impl; fail s9_op_assign_needs_assign_trait, s9_dyn_eq_without_impl.
-REGISTRY-ALL         11978
-REGISTRY-NOIMPORTED  7419
+#                ALL 11978 -> 11983 (+5), NOIMPORTED 7419 -> 7424 (+5), TIERCOMMIT 195 -> 195 (+0) — 2026-10-04: S9a step A fixtures s9a_assoc_eq_bound_infers, s9a_assoc_eq_bound_where_form, s9a_projection_where_in_default, s9a_impl_params_reordered_target, s9a_map_adapter_item_from_fn_output.
+#                ALL 11983 -> 11984 (+1), NOIMPORTED 7424 -> 7425 (+1), TIERCOMMIT 195 -> 194 (-1) — 2026-10-04: fixtures s9a_impl_param_fixed_by_assoc_eq and the closed squeue row impl_param_fixed_by_trait_args_refused (tier-commit -1).
+#                ALL 11984 -> 11985 (+1), NOIMPORTED 7425 -> 7426 (+1), TIERCOMMIT 194 -> 195 (+1) — 2026-10-04: squeue row default_method_generics_shadow_impl_generics_refused (#734, tier-commit +1).
+REGISTRY-ALL         11985
+REGISTRY-NOIMPORTED  7426
 REGISTRY-TIERCOMMIT  195
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
