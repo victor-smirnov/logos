@@ -6933,6 +6933,15 @@ private:
         if (o.ref && o.shape != "_") take(OwnerId{{}, o.ref, "_"});
         return out;
     }
+    // A non-generic method of `self_t` itself: `arity` parameters, no type
+    // parameters, and the receiver (by value or through `&` / `&mut`) exactly
+    // `self_t` — the index also answers the owner's other instances' impls.
+    static bool concrete_self_method_(const SemaFuncInfo* c, TypeRef self_t, size_t arity) {
+        if (!c || c->param_types.size() != arity || !c->type_params.empty() || arity == 0) return false;
+        TypeRef p0 = c->param_types[0];
+        if (p0 && is_ref_like(TypeRef(p0).kind()) && TypeRef(p0).pointee()) p0 = TypeRef(p0).pointee();
+        return p0 && types_equal(p0, self_t);
+    }
     // An impl asked by a SPELLED target only (the deem pipeline matches sources
     // by their type's text): the exact key, else the impls of this trait whose
     // target is that spelling under its package fold — a type declared in a
@@ -9450,6 +9459,10 @@ private:
     const SemaFuncInfo* find_func_by_base_and_signature(std::string_view base_name,
                                                         const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;
+    const SemaFuncInfo* find_method_by_signature_(TypeRef owner, std::string_view method,
+                                                  const std::vector<TypeRef>& param_types, bool is_vararg);
+    static const SemaFuncInfo* pick_by_signature_(const std::vector<const SemaFuncInfo*>& cands,
+                                                  const std::vector<TypeRef>& param_types, bool is_vararg);
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
     // The function collected for a declaration (SemaFuncInfo::decl_key); null when none.
     const SemaFuncInfo* func_by_decl_(const std::string& decl_key);
@@ -9458,7 +9471,7 @@ private:
     // The `<Type>__<op>_assign(&mut Self, Rhs)` impl for a compound assignment:
     // by the RHS's type, then Self; an unsuffixed literal RHS takes the width of
     // the one impl whose Rhs is a matching primitive (`m += 3` over AddAssign<i64>).
-    const SemaFuncInfo* find_op_assign_impl(const std::string& mangled, TypeRef ref_t,
+    const SemaFuncInfo* find_op_assign_impl(std::string_view method, TypeRef ref_t,
                                             TypeRef self_t, lir::LExprPtr& rhs);
 
     // ── A BUILTIN NAME IS NOT AN IDENTITY ────────────────────────────────

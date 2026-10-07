@@ -2122,7 +2122,22 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_base_and_signature(
         std::string_view base_name,
         const std::vector<TypeRef>& param_types,
         bool is_vararg) const {
-    for (auto* fi : find_func_candidates(base_name)) {
+    return pick_by_signature_(find_func_candidates(base_name), param_types, is_vararg);
+}
+
+// ADR 0030 S9b row 2: the method of `owner` named `method` whose declared
+// parameters are exactly `param_types` — asked of the owner's identity.
+const SemaChecker::SemaFuncInfo* SemaChecker::find_method_by_signature_(
+        TypeRef owner, std::string_view method,
+        const std::vector<TypeRef>& param_types, bool is_vararg) {
+    return pick_by_signature_(methods_of_(owner, method), param_types, is_vararg);
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::pick_by_signature_(
+        const std::vector<const SemaFuncInfo*>& cands,
+        const std::vector<TypeRef>& param_types,
+        bool is_vararg) {
+    for (auto* fi : cands) {
         if (fi->is_vararg != is_vararg) continue;
         if (fi->param_types.size() != param_types.size()) continue;
         bool same = true;
