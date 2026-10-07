@@ -76,6 +76,7 @@ use logos.std.wql.ir;             // RExpr, WRef
 use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, rq_fat_* (allocator-carrying views)
 use logos.std.wql.params;         // MacroParams — the parsed deem!(…) param list + rel registry
 use logos.std.wql.core;           // the planned core (ADR 0031 R5)
+use logos.std.wql.dplan;          // plan_entry_simple (ADR 0031 R6.2)
 use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
 use logos.std.wql.el;             // el_ret_class — scalar-element classification (slice D)
@@ -106,7 +107,10 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
                 if s.has_limit { wql_error(prm, "`select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
                 mode = SELM_FIRST();
             }
-            return lower_simplify_emit(plan, s.fn_name, params_text, prm, s.result_ty, s.has_result_ty, mode, prelude, h);
+            match plan_entry_simple(&prm.plan_core, prm.plan_where_retired, h) {
+                Option::Some(ds) => { return emit_entry_simple(&ds, s.fn_name, params_text, prm, s.result_ty, s.has_result_ty, mode, prelude, h); }
+                Option::None => { logos.lang.panic::panic("ICE: a `Simple` entry is not a single-source rule of the planned core (ADR 0031 R6.2)"); return false; }
+            }
         }
         RQuery::Join(j) => {
             let mut mode: i32 = SELM_ALL();
@@ -124,7 +128,10 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
         RQuery::Find(f) => {
             // `find P` — no result-type / tail modifiers exist on this shape
             // (the grammar admits only the predicate).
-            return lower_simplify_emit(plan, f.fn_name, params_text, prm, "", false, SELM_FIND(), prelude, h);
+            match plan_entry_simple(&prm.plan_core, prm.plan_where_retired, h) {
+                Option::Some(ds) => { return emit_entry_simple(&ds, f.fn_name, params_text, prm, "", false, SELM_FIND(), prelude, h); }
+                Option::None => { logos.lang.panic::panic("ICE: a `find` entry is not a single-source rule of the planned core (ADR 0031 R6.2)"); return false; }
+            }
         }
     }
 }

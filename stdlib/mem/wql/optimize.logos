@@ -449,7 +449,7 @@ fn rsimp(root: WRef<RExpr>) -> RSimplified {
 // i.e. `select v` where `v` is the scan's row variable. In the self-describing
 // IR a bare identifier parses to an `SField` with a NULL base whose `name` is the
 // identifier; an identity projection is such a field-root naming the loop var.
-fn is_identity_sel(sel: WRef<SExpr>, var_name: str) -> bool {
+pub fn is_identity_sel(sel: WRef<SExpr>, var_name: str) -> bool {
     let a: WAny = sel.any();
     if a.is_null() { return false; }
     let e: SExpr = a.view::<SExpr>();

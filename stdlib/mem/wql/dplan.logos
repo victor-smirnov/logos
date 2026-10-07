@@ -17,6 +17,8 @@ use logos.std.wql.core;            // the core: the clauses a decision reads
 use logos.std.wql.ir;              // SExpr
 use logos.lang.writ.anyval;        // WAny::view
 use logos.std.wql.codegen;         // sexpr_over_group_names
+use logos.std.wql.optimize;        // simplify_sexpr, sexpr_const, is_identity_sel
+use logos.lang.writ.container;     // Writ
 use logos.mem.collections.vec;
 use logos.lang.option;
 
@@ -113,6 +115,119 @@ pub fn plan_group_pure(ru: &CRule) -> bool {
             return true;
         }
     }
+}
+
+/// What a single-source entry (the `Simple` and `find` shapes) is, once its
+/// constant clauses are folded: no rows at all, the source itself (or its first
+/// row), or a scan.
+pub enum DForm {
+    /// `where` folds to false, or `limit 0`: an empty answer, no scan.
+    Empty,
+    /// Nothing filters, sorts, dedups or limits, and the row IS the select
+    /// (or `find` with nothing left to test): the source / its first row.
+    Identity,
+    Scan,
+}
+
+/// The single-source entry, its clauses folded (ADR 0031 R6.2): what the scan
+/// emitter is handed. `pred` / `sort_key` null = none left.
+pub struct DSimple {
+    pub form: DForm,
+    pub src: str,
+    pub row_ty: str,
+    pub var: str,
+    pub pred: WAny,
+    pub sel: WAny,
+    pub sort_key: WAny,
+    pub sort_desc: bool,
+    pub distinct: bool,
+    pub has_limit: bool,
+    pub limit_n: i64,
+    pub limit_is_param: bool,
+    pub limit_param: str,
+}
+
+/// The planned core's entry as a single-source query, or None when it is not
+/// one (a join, a traversal, a group). The folding is the relational
+/// simplifier's, rule for rule: a constant `where` disappears (true) or empties
+/// the answer (false); a constant sort key drops the sort; `limit 0` empties
+/// it; identity needs a bare scan with no distinct or limit and a select that
+/// is the row variable. `where_retired`: an exact access op answers the
+/// `where` (`plan_where_retired`).
+pub fn plan_entry_simple(p: &CProgram, where_retired: bool, h: &Writ) -> Option<DSimple> {
+    let ru: &CRule = &p.entry;
+    match &ru.clause.group { Option::Some(_g) => { return Option::None; } Option::None => { } }
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    if ru.clause.body.len() < 1i64 { return Option::None; }
+    let mut src: str = "";
+    let mut row_ty: str = "";
+    let mut var: str = "";
+    match &bs[0i64] {
+        CLit::Atom(a) => {
+            if a.neg || a.conds.len() > 0i64 { return Option::None; }
+            src = a.name; row_ty = a.row_ty; var = a.var;
+        }
+        CLit::Trav(_t) => { return Option::None; }
+        CLit::Cond(_c) => { return Option::None; }
+    }
+    let mut cond: WAny = WAny::null();
+    let mut i: i64 = 1i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => {
+                match &c.site { CSite::Where => { } CSite::On => { return Option::None; } }
+                if !cond.is_null() { return Option::None; }
+                cond = c.e;
+            }
+            CLit::Atom(_a) => { return Option::None; }
+            CLit::Trav(_t) => { return Option::None; }
+        }
+        i = i + 1i64;
+    }
+    let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
+    let mut empty: bool = false;
+    let mut pred: WAny = WAny::null();
+    if !cond.is_null() && !(where_retired && !find) {
+        let ph: WRef<SExpr> = simplify_sexpr(cond.view::<SExpr>(), h);
+        let pc: ConstVal = sexpr_const(ph.any().view::<SExpr>());
+        if pc.is_bool() {
+            if !pc.b { empty = true; }
+        } else {
+            pred = ph.any();
+        }
+    }
+    let mut sort_key: WAny = WAny::null();
+    match &ru.env.order {
+        Option::Some(o) => {
+            if !empty {
+                let kh: WRef<SExpr> = simplify_sexpr((*o).view::<SExpr>(), h);
+                let mut lit: bool = false;
+                match kh.any().view::<SExpr>() { SExpr::Lit(_l) => { lit = true; } _ => { } }
+                if !lit { sort_key = kh.any(); }
+            }
+        }
+        Option::None => { }
+    }
+    let mut has_limit: bool = false;
+    let mut limit_n: i64 = 0i64;
+    let mut limit_is_param: bool = false;
+    let mut limit_param: str = "";
+    match &ru.env.limit {
+        CLimit::None => { }
+        CLimit::N(n) => { has_limit = true; limit_n = *n; if *n == 0i64 { empty = true; } }
+        CLimit::Param(q) => { has_limit = true; limit_is_param = true; limit_param = *q; }
+    }
+    let mut form: DForm = DForm::Scan;
+    if empty {
+        form = DForm::Empty;
+    } else if !has_limit && !ru.env.distinct && sort_key.is_null() && pred.is_null()
+              && (find || is_identity_sel(WRef::<SExpr>::from_any(ru.clause.head), var)) {
+        form = DForm::Identity;
+    }
+    return Option::Some(DSimple { form: form, src: src, row_ty: row_ty, var: var, pred: pred,
+                                  sel: ru.clause.head, sort_key: sort_key, sort_desc: ru.env.desc,
+                                  distinct: ru.env.distinct, has_limit: has_limit, limit_n: limit_n,
+                                  limit_is_param: limit_is_param, limit_param: limit_param });
 }
 
 /// The arm runs the sort phases.

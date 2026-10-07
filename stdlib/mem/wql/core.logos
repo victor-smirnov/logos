@@ -45,6 +45,9 @@ pub struct CAtom {
     /// The source's index in the walker's registry (`MacroParams.rel_srcs`) in
     /// a PLANNED core (ADR 0031 R5), -1 otherwise or for a slice parameter.
     pub reg: i64,
+    /// The source as the lowered program spells it (a planned core: the
+    /// walker's emitted name, `__rel_<r>_sl` for a rel).
+    pub name: str,
     pub var: str,
     pub row_ty: str,
     pub neg: bool,
@@ -204,7 +207,7 @@ fn base_atom(lx: &CLower, src: str, var: str, row_ty: str) -> CLit {
     // A FROM-less `select` names no row; its one row is `__unit`'s, bound to
     // `__u` — the names `desugar_program_facts` gives the same rewrite.
     let v: str = if src.len() == 0i64 && var.len() == 0i64 { "__u" } else { var };
-    return CLit::Atom(CAtom { src: src_of(lx, src), reg: reg_of(lx, src), var: v, row_ty: row_ty,
+    return CLit::Atom(CAtom { src: src_of(lx, src), reg: reg_of(lx, src), name: src, var: v, row_ty: row_ty,
                               neg: false, conds: Vec::<WAny>::new() });
 }
 
@@ -229,7 +232,7 @@ fn lower_steps(lx: &CLower, steps: WAny, body: &mut Vec<CLit>) {
             body.push(CLit::Trav(CTrav { base: st.base_var, path: path, var: st.var_name,
                                          row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
         } else {
-            body.push(CLit::Atom(CAtom { src: src_of(lx, st.src_name), reg: reg_of(lx, st.src_name), var: st.var_name,
+            body.push(CLit::Atom(CAtom { src: src_of(lx, st.src_name), reg: reg_of(lx, st.src_name), name: st.src_name, var: st.var_name,
                                          row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
         }
         if !st.is_anti && has_on { body.push(CLit::Cond(CCond { e: on, site: CSite::On })); }

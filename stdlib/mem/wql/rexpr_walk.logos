@@ -118,7 +118,7 @@ pub fn lower_simplify_emit(plan: RQuery, fn_name: str,
                            params_text: str, prm: &MacroParams,
                            result_ty: str, has_result_ty: bool,
                            sel_mode: i32, prelude: str, h: &Writ) -> bool {
-    let root: WRef<RExpr> = lower_rquery_to_rexpr(plan, h, prm.plan_where_retired);
+    let root: WRef<RExpr> = lower_rquery_to_rexpr(plan, h);
     let sig: RSimplified = simplify_rexpr_ref(root, root.any().view::<RExpr>(), h);
     let rx: RExpr = sig.root.any().view::<RExpr>();
     return emit_rexpr_opt(rx, sig.empty, sig.identity,
@@ -2345,6 +2345,48 @@ fn emit_identity(scan_e: RExpr,
 // `sig` carries the Phase-3 peephole signals (empty / identity); when either is
 // set the thin emitter above runs INSTEAD of the loop-nest walker.
 // ══════════════════════════════════════════════════════════════════════════
+/// ADR 0031 R6.2 — THE SINGLE-SOURCE ENTRY FROM THE PLAN. A `Simple` or `find`
+/// query no longer goes through the relational tree: its folded form is a plan
+/// value (`dplan::plan_entry_simple`, read off the planned core) and this routes
+/// it to the same emitters the tree routed it to — the empty / head-row /
+/// identity constants, `emit_find`, `emit_simple`.
+pub fn emit_entry_simple(ds: &DSimple, fn_name: str, params_text: str, prm: &MacroParams,
+                         result_ty: str, has_result_ty: bool, sel_mode: i32,
+                         prelude: str, h: &Writ) -> bool {
+    let scan_e: RExpr = make_scan(h, ds.src, ds.row_ty, ds.var).any().view::<RExpr>();
+    let sel: WRef<SExpr> = WRef::<SExpr>::from_any(ds.sel);
+    match &ds.form {
+        DForm::Empty => {
+            if sel_mode == SELM_FIND() { return emit_none_find(scan_e, fn_name, params_text, prm, h); }
+            return emit_empty(scan_e, sel, fn_name, params_text, prm, result_ty,
+                              has_result_ty, sel_mode == SELM_FIRST(), h);
+        }
+        DForm::Identity => {
+            if sel_mode != SELM_ALL() { return emit_head_row(scan_e, fn_name, params_text, prm, h); }
+            return emit_identity(scan_e, fn_name, params_text, prm, h);
+        }
+        DForm::Scan => {
+            let mut mods: QMods = qmods_none();
+            mods.has_sort = !ds.sort_key.is_null();
+            if mods.has_sort { mods.sort_key = WRef::<SExpr>::from_any(ds.sort_key); }
+            mods.sort_desc = ds.sort_desc;
+            mods.distinct = ds.distinct;
+            mods.has_limit = ds.has_limit;
+            mods.limit_n = ds.limit_n;
+            mods.limit_is_param = ds.limit_is_param;
+            mods.limit_param = ds.limit_param;
+            if !check_limit_param(&mods, prm) { return false; }
+            let pred: WRef<SExpr> = if ds.pred.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.pred) };
+            let has_pred: bool = !ds.pred.is_null();
+            if sel_mode == SELM_FIND() {
+                return emit_find(scan_e, pred, has_pred, fn_name, params_text, prm, prelude, h);
+            }
+            return emit_simple(scan_e, pred, has_pred, sel, mods, fn_name, params_text, prm,
+                               result_ty, has_result_ty, sel_mode == SELM_FIRST(), prelude, h);
+        }
+    }
+}
+
 pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                       fn_name: str, params_text: str, prm: &MacroParams,
                       result_ty: str, has_result_ty: bool, sel_mode: i32,
@@ -2400,8 +2442,8 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
             // FIND mode — the body is a (possibly filtered) scan; the selector is
             // the identity, so the emitter returns the row BORROW directly.
             if sel_mode == SELM_FIND() {
-                let pl: Peeled = peel_filter(body);
-                return emit_find(pl.inner, pl.pred, pl.has_pred, fn_name, params_text, prm, prelude, h);
+                logos.lang.panic::panic("ICE: a `find` entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.2)");
+                return false;
             }
             let first: bool = sel_mode == SELM_FIRST();
             match body {
@@ -2443,15 +2485,14 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
                                                   fn_name, params_text, prm, result_ty, has_result_ty, prelude, h);
                         }
                         _ => {
-                            return emit_simple(f.input_expr(), f.pred, true, sel, mods,
-                                               fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h);
+                            logos.lang.panic::panic("ICE: a filtered single-source body reached the relational emitter — single-source entries are emitted from the plan (ADR 0031 R6.2)");
+                            return false;
                         }
                     }
                 }
                 _ => {
-                    // Bare RScan — simple, no `where`.
-                    return emit_simple(body, null_sref(), false, sel, mods,
-                                       fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h);
+                    logos.lang.panic::panic("ICE: a single-source body reached the relational emitter — single-source entries are emitted from the plan (ADR 0031 R6.2)");
+                    return false;
                 }
             }
         }

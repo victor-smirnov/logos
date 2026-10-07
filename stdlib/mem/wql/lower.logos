@@ -114,24 +114,6 @@ pub fn make_ident_sel(h: &Writ, name: str) -> WRef<SExpr> {
 // Pipeline order: where → order → project → distinct → limit. RSort sits UNDER
 // the projection (its key ranges over the row var); RDistinct/RLimit sit ABOVE
 // it (they act on the projected values).
-fn lower_simple(s: RQSimple, h: &Writ, where_retired: bool) -> WRef<RExpr> {
-    let scan: WRef<RExpr> = make_scan(h, s.src_name, s.row_ty, s.var_name);
-    let mut input: WRef<RExpr> = scan;
-    if s.has_where && !where_retired {
-        input = make_filter(h, input, s.where_pred);
-    }
-    if s.has_order {
-        input = make_sort(h, input, s.order_key, s.order_desc);
-    }
-    let mut root: WRef<RExpr> = make_proj(h, input, s.select);
-    if s.distinct {
-        root = make_distinct(h, root);
-    }
-    if s.has_limit {
-        root = make_limit(h, root, s.limit_n, s.limit_is_param, s.limit_param);
-    }
-    return root;
-}
 
 // Fold a join-step fan-out LEFT-DEEP onto a base input: step k wraps the
 // accumulated tree in RJoin(acc, RScan_k, on_k) — or RAnti at an anti step —
@@ -269,11 +251,6 @@ fn lower_aggr(g: RQAggr, h: &Writ) -> WRef<RExpr> {
 // envelope mode, not an algebra node. The Phase-3 peepholes apply unchanged:
 // const-false pred → empty (constant None), const-true pred → identity (head
 // row, no filter loop).
-fn lower_find(f: RQFind, h: &Writ) -> WRef<RExpr> {
-    let scan: WRef<RExpr> = make_scan(h, f.src_name, f.row_ty, f.var_name);
-    let flt: WRef<RExpr> = make_filter(h, scan, f.pred);
-    return make_proj(h, flt, make_ident_sel(h, f.var_name));
-}
 
 // The lowering entry: surface PLAN → real RExpr algebra tree.
 
@@ -2094,14 +2071,14 @@ pub fn desugar_program_gpaths(root: WAny, h: &Writ, err: &mut String) -> bool {
     return true;
 }
 
-/// `where_retired`: the plan decided an exact access op answers the entry's
-/// whole `where` (`MacroParams.plan_where_retired`), so no filter is built.
-pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ, where_retired: bool) -> WRef<RExpr> {
+/// The `Join` and `Aggr` shapes only: a single-source entry (`Simple`, `find`)
+/// is emitted from the plan (`dplan::plan_entry_simple`, ADR 0031 R6.2).
+pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
     match plan {
-        RQuery::Simple(s) => { return lower_simple(s, h, where_retired); }
+        RQuery::Simple(_s) => { logos.lang.panic::panic("ICE: a `Simple` entry reached the relational lowering — it is emitted from the plan (ADR 0031 R6.2)"); return null_rref(); }
         RQuery::Join(j)   => { return lower_join(j, h); }
         RQuery::Aggr(g)   => { return lower_aggr(g, h); }
-        RQuery::Find(f)   => { return lower_find(f, h); }
+        RQuery::Find(_f) => { logos.lang.panic::panic("ICE: a `find` entry reached the relational lowering — it is emitted from the plan (ADR 0031 R6.2)"); return null_rref(); }
     }
 }
 
