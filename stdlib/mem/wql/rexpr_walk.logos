@@ -11724,51 +11724,28 @@ fn occ_push(o: &mut OccList, pos: i64, rel: i64) {
 }
 
 // Scan a (walker-rewritten) body for sources landing in SCC `c`.
-fn body_scc_occs(body_any: WAny, prm: &MacroParams, scc: &RelScc, c: i64,
-                 h: &Writ) -> OccList {
+// The rule's occurrences of SCC `c`'s rels: position -1 = the base, k = step k
+// (the chain slots the delta overrides name), read off the planned core.
+fn body_scc_occs(ri: i64, b: i64, prm: &MacroParams, scc: &RelScc, c: i64) -> OccList {
     let mut o: OccList = occ_new();
-    let q: RQuery = body_any.view::<RQuery>();
-    match q {
-        RQuery::Simple(_) => {
-            let s: RQSimple = rq_fat_simple(body_any, h);
-            let ri: i64 = prm.rel_find_src(s.src_name);
-            if ri >= 0i64 && scc.comp[ri] == c { occ_push(&mut o, -1i64, ri); }
+    let ru: &CRule = rel_rule_of(prm, ri, b);
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut slot: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < ru.clause.body.len() {
+        let mut name: str = "";
+        let mut is_lit: bool = false;
+        match &bs[i] {
+            CLit::Atom(a) => { name = a.name; is_lit = true; }
+            CLit::Trav(t) => { name = t.name; is_lit = true; }
+            CLit::Cond(_c) => { }
         }
-        RQuery::Join(_) => {
-            let j: RQJoin = rq_fat_join(body_any, h);
-            let ri0: i64 = prm.rel_find_src(j.a_name);
-            if ri0 >= 0i64 && scc.comp[ri0] == c { occ_push(&mut o, -1i64, ri0); }
-            let steps: RQJoinStepArr = j.steps_arr();
-            let ns: i64 = steps.len();
-            let mut i: i64 = 0i64;
-            while i < ns {
-                let st: RQJoinStep = rq_fat_step(steps.step_any(i), h);
-                let ri1: i64 = prm.rel_find_src(st.src_name);
-                if ri1 >= 0i64 && scc.comp[ri1] == c { occ_push(&mut o, i, ri1); }
-                i = i + 1i64;
-            }
+        if is_lit {
+            let r: i64 = prm.rel_find_src(name);
+            if r >= 0i64 && scc.comp[r] == c { occ_push(&mut o, slot - 1i64, r); }
+            slot = slot + 1i64;
         }
-        RQuery::Aggr(_) => {
-            // A recursive-aggregate body (min/max): its base + join-step sources
-            // participate in the SCC exactly like a join body's — the self-ref to
-            // the aggregate rel is the in-SCC occurrence the semi-naïve driver
-            // binds to the improvement delta.
-            let g: RQAggr = rq_fat_aggr(body_any, h);
-            let rig: i64 = prm.rel_find_src(g.a_name);
-            if rig >= 0i64 && scc.comp[rig] == c { occ_push(&mut o, -1i64, rig); }
-            if g.has_steps() {
-                let gsteps: RQJoinStepArr = g.steps_arr();
-                let gns: i64 = gsteps.len();
-                let mut gi: i64 = 0i64;
-                while gi < gns {
-                    let gst: RQJoinStep = rq_fat_step(gsteps.step_any(gi), h);
-                    let rig1: i64 = prm.rel_find_src(gst.src_name);
-                    if rig1 >= 0i64 && scc.comp[rig1] == c { occ_push(&mut o, gi, rig1); }
-                    gi = gi + 1i64;
-                }
-            }
-        }
-        _ => { }
+        i = i + 1i64;
     }
     return o;
 }
@@ -12095,7 +12072,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut b1: i64 = 0i64;
         while b1 < nb {
-            let oc1: OccList = body_scc_occs(bodies.body_any(b1), prm, scc, c, h);
+            let oc1: OccList = body_scc_occs(ri, b1, prm, scc, c);
             // FROM SCRATCH: a seed is a body with NO in-SCC source. CROSS-EPOCH:
             // EVERY body runs, at its canonical (total) source names — round 0 is
             // a full naïve pass, see (2) in this fn's header.
@@ -12243,7 +12220,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
         let mut b3: i64 = 0i64;
         while b3 < nb6 {
             let body_any: WAny = bodies6.body_any(b3);
-            let oc: OccList = body_scc_occs(body_any, prm, scc, c, h);
+            let oc: OccList = body_scc_occs(ri6, b3, prm, scc, c);
             if oc.n > 0i64 {
                 let mut v: i64 = 0i64;
                 while v < oc.n {
@@ -12961,7 +12938,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         let mut b9: i64 = 0i64;
         while b9 < nb9 {
             let body_any: WAny = bodies9.body_any(b9);
-            let oc: OccList = body_scc_occs(body_any, prm, scc, c, h);
+            let oc: OccList = body_scc_occs(ri9, b9, prm, scc, c);
             if oc.n > 0i64 {
                 let mut v: i64 = 0i64;
                 while v < oc.n {
