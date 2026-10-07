@@ -6615,68 +6615,6 @@ bool SemaChecker::raw_self_symbol_(std::string_view sym) {
 }
 
 // ── ADR 0030 S8 row 4: the method probe ─────────────────────────────────
-std::vector<std::string> SemaChecker::impl_lookup_keys_(TypeRef t) {
-    std::vector<std::string> keys;
-    if (!t) return keys;
-    using K = LogosType::Kind;
-    auto push = [&](std::string k) {
-        if (!k.empty() && std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(std::move(k));
-    };
-    switch (TypeRef(t).kind()) {
-    case K::Struct: case K::ZonedStruct: case K::DstRef:
-        // A non-generic nominal's methods register under its owner base
-        // (impl_method_base_, ADR 0030 S9b) — the struct's encoding whatever
-        // form the receiver takes (a DstRef too).
-        if (TypeRef(t).type_args().empty())
-            push(method_owner_base_(std::string(TypeRef(t).struct_name())));
-        push(concrete_struct_name(t));
-        push(std::string(TypeRef(t).struct_name()));
-        break;
-    case K::Enum:
-        push(std::string(TypeRef(t).enum_name()));
-        break;
-    case K::Slice: case K::UnsizedSlice:
-        if (TypeRef(t).elem() && TypeRef(TypeRef(t).elem()).kind() == K::U8) push("str");   // `str` ≡ `[u8]`
-        if (TypeRef(t).elem()) push("$slice$" + type_str_regions_erased(TypeRef(t).elem()));
-        push("$slice$T");
-        break;
-    case K::Ptr:
-        if (TypeRef(t).pointee()) for (auto& k : impl_lookup_keys_(TypeRef(t).pointee())) push(k);
-        break;
-    case K::Array:
-        for (auto& k : array_impl_lookup_keys(t)) push(k);
-        break;
-    case K::Tuple: {
-        auto es = TypeRef(t).tuple_elems();
-        std::string k = "$tuple$" + std::to_string(es.size());
-        std::string full = k;
-        for (auto e : es) { full += "$"; full += e ? type_str(e) : std::string("?"); }
-        push(full);
-        push(k);
-        break;
-    }
-    case K::Ref: case K::MutRef: {
-        TypeRef pt = TypeRef(t).pointee();
-        if (!pt) break;
-        const std::string pfx = TypeRef(t).kind() == K::MutRef ? "$mut_ref_" : "$ref_";
-        for (auto& k : impl_lookup_keys_(pt)) push(pfx + k);
-        // `impl Tr for &i64` keys the reference type's spelling; `impl<T> Tr
-        // for &T` keys `$ref_$T`.
-        push(pfx + type_str_regions_erased(t));
-        push(pfx + "$T");
-        break;
-    }
-    case K::TraitObject: case K::UnsizedDyn:
-        push("$dyn$" + std::string(TypeRef(t).trait_name()));
-        break;
-    default:
-        if (is_integer(t) || TypeRef(t).kind() == K::Bool || TypeRef(t).kind() == K::F64 ||
-            TypeRef(t).kind() == K::F32 || TypeRef(t).kind() == K::Char || TypeRef(t).kind() == K::Void)
-            push(type_str(t));
-        break;
-    }
-    return keys;
-}
 
 // Does a candidate's declared self (`pat`, its impl's parameters as type
 // variables) match the receiver step `act` structurally? A type variable
@@ -6684,7 +6622,7 @@ std::vector<std::string> SemaChecker::impl_lookup_keys_(TypeRef t) {
 // index answers an owner's impls at every argument — `impl W<i64>` and
 // `impl<T> W<T>`, `impl Tr for str` and `impl<T> Tr for [T]` — so the self
 // type, not the lookup key, decides which apply).
-static bool self_pattern_match_(TypeRef pat, TypeRef act, int depth = 0) {
+bool SemaChecker::self_pattern_match_(TypeRef pat, TypeRef act, int depth) {
     using K = LogosType::Kind;
     if (!pat || !act || depth > 16) return false;
     const auto pk = TypeRef(pat).kind(), ak = TypeRef(act).kind();
@@ -11627,19 +11565,28 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // Trait-aware method mangling: if the method name collided across
         // multiple traits on this type, the plain base was removed from the
         // registry — surface a disambiguation hint instead of "no method".
-        if (auto rit = trait_method_registry_.find(
-                mbase + "__" + std::string(method_name));
-            rit != trait_method_registry_.end() && rit->second.size() > 1) {
+        // E0034 (the probe declined a tie between two traits' methods): name
+        // the traits, from the receiver type's methods by identity.
+        std::vector<std::string> tied_traits;
+        {
+            TypeRef rt = expr_type(recv);
+            while (rt && is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee()) rt = TypeRef(rt).pointee();
+            for (auto* fi : filter_visible_(methods_of_(rt, method_name)))
+                if (fi && !fi->trait_name.empty() &&
+                    std::find(tied_traits.begin(), tied_traits.end(), fi->trait_name) == tied_traits.end())
+                    tied_traits.push_back(fi->trait_name);
+        }
+        if (tied_traits.size() > 1) {
             std::string traits_list;
-            for (size_t i = 0; i < rit->second.size(); ++i) {
+            for (size_t i = 0; i < tied_traits.size(); ++i) {
                 if (i) traits_list += ", ";
-                traits_list += rit->second[i];
+                traits_list += tied_traits[i];
             }
             error(std::format(
                 "method '{}' on '{}' is provided by multiple traits ({}); "
                 "disambiguate by calling through the trait, e.g. a generic "
                 "fn bounded `T: {}` or an explicit trait-qualified call",
-                method_name, sname, traits_list, rit->second.front()));
+                method_name, sname, traits_list, tied_traits.front()));
             return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
         }
         // N7: not a method, but the receiver struct may carry a FIELD of this
@@ -12580,8 +12527,7 @@ lir::LExprPtr SemaChecker::lower_field_read_impl(TinyMapView node) {
                         pml, {0, tail_l.align});
                     std::string cname = concrete_struct_name(sd_pointee);
                     TypeRef self_cptr = make_ptr(false, sd_pointee);
-                    auto* fit = find_func_by_base_and_signature(cname + "__dst_len", {self_cptr}, false);
-                    if (!fit) fit = find_func_by_base_and_signature(psn + "__dst_len", {self_cptr}, false);
+                    auto* fit = find_method_by_signature_(sd_pointee, "dst_len", {self_cptr}, false);   // S9b row 2
                     if (fit) {
                         auto recv_u8  = builder().cast(recv, make_ptr(false, u8_t()));
                         auto off_lit  = builder().lit_int(static_cast<int64_t>(off),

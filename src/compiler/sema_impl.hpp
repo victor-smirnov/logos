@@ -6939,6 +6939,9 @@ private:
         std::stable_sort(out.begin(), out.end(), [](auto* a, auto* b) { return a->reg_seq < b->reg_seq; });
         return out;
     }
+    // Does a candidate's declared self (its impl's parameters as type variables)
+    // match `act` structurally? (sema_expr.cpp)
+    static bool self_pattern_match_(TypeRef pat, TypeRef act, int depth = 0);
     // A non-generic method of `self_t` itself: `arity` parameters, no type
     // parameters, and the receiver (by value or through `&` / `&mut`) exactly
     // `self_t` — the index also answers the owner's other instances' impls.
@@ -10619,8 +10622,8 @@ private:
     TypeRef deref_target_type_(TypeRef t);
     // ADR 0030 S8 row 4 — THE method probe (rustc's): receiver steps by
     // value, `&`, `&mut`, then one deref (reference, Box / user Deref, array
-    // unsize); at a step inherent before trait. `impl_lookup_keys_` is every
-    // impl-registry target key a concrete type is found under.
+    // unsize); at a step inherent before trait. A step's candidates are the
+    // methods declared on its type (methods_of_, ADR 0030 S9b row 2).
     // `autoref`: 0 by value, 1 `&`, 2 `&mut` — never a raw pointer. `tied`: every candidate of the best
     // rank — overloads by argument type are select_overload's, not the probe's.
     // `via_arm`: no impl candidate — step `derefs` is answered by another arm:
@@ -10628,7 +10631,6 @@ private:
     // its self is `&mut`), or a type parameter / projection (its bounds).
     struct ProbePick { const SemaFuncInfo* fi = nullptr; int derefs = 0; int autoref = 0; std::string key;
                        std::vector<const SemaFuncInfo*> tied; bool via_arm = false; bool dyn_mut = false; };
-    std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
     bool type_param_bounds_viable_(const SemaFuncInfo& fi, const SemaSubst& binds, int* bound_count);
     const SemaFuncInfo* resolve_trait_item_(std::string_view trait, TypeRef self, std::string_view name,

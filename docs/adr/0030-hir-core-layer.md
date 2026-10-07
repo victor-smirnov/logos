@@ -1060,6 +1060,21 @@ draining the method calls deferred on them — a `for` in a generic impl method
 `drain_deferred_methods_` now runs in every instantiating loop
 (pass/for_in_struct_method_instance_demand).
 
+**Rows (1)–(2), 2026-10-07.** Row 1 (2eb39f1f6): every method carries its
+owner as an `OwnerId` (a nominal type's DefId, `&`/`&mut` of one, or a
+non-nominal owner's type constructor) and its impl's Self; `methods_of_` answers
+from an index over the registries. Row 2 switched the readers in groups —
+bare-name sites (fcf32e66b: three fold regressions), operators / Index / Deref
+(484e513f5), the method probe with a structural self match (8b824ad98; squeue
+#736, #537 closed), trait items / closure hints (227e8537a), drop / E0034 /
+dst_len (the 2e commit); `impl_lookup_keys_` is deleted. **Static calls stay
+spelled**: `Type::m` and an `A::bar` value path resolve a WRITTEN path — through
+the one encoder, so consistent under the fold — and resolving written paths by
+DefId is Q1 (path resolution into the HIR), not this row. Still on row 2: the
+`impls_` registry by OwnerId, tuple / `dyn` operator keys, collect_impl's
+completeness checks; `trait_method_registry_` remains as collect_fn's
+collision-naming state only.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

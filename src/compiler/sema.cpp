@@ -3759,97 +3759,24 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         auto cp = TypeRef(cand_struct).pkg_name();
         return cp.empty() || t_pkg.empty() || cp == t_pkg;
     };
-    std::vector<TypeRef> sig{t};
-    if (auto* fi = find_func_by_base_and_signature(mangled, sig, false))
-        if (is_drop_impl_(fi))
-            return fi->symbol_name.empty() ? mangled : fi->symbol_name;
-    for (auto* cand : find_func_candidates(mangled)) {
-        if (!cand || cand->param_types.size() != 1) continue;
-        if (!is_drop_impl_(cand)) continue;
-        auto pt = cand->param_types[0];
-        if (pt && types_equal(pt, t))
-            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
-    }
-    // `fn drop(&mut self)` / `fn drop(&self)` — the canonical stdlib `Drop`
-    // shape. The param type is `&mut T` / `&T` (a ref to the struct), not the
-    // struct by value, so the by-value checks above miss it. The SDrop codegen
-    // already calls the drop fn with the value's address (same ABI as the
-    // by-value form, since structs pass by pointer), so matching the ref form
-    // here is sufficient — no codegen change needed.
-    for (auto* cand : find_func_candidates(mangled)) {
-        if (!cand || cand->param_types.size() != 1) continue;
-        if (!is_drop_impl_(cand)) continue;
-        auto pt = cand->param_types[0];
-        if (!pt) continue;
-        auto pk = TypeRef(pt).kind();
-        if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-            TypeRef(pt).pointee() && types_equal(TypeRef(pt).pointee(), t) &&
-            pkg_matches(TypeRef(pt).pointee()))
-            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
-    }
-    // Generic Drop impl: `impl<T> Drop for Foo<T>` registers Foo__drop with
-    // param Foo<TypeVar>. Strict types_equal can't match a concrete
-    // Foo<i64>. Fall back to a base-name match — any one-param candidate
-    // whose param is a struct of the same base name accepts the concrete
-    // after monomorphisation. mono_clone's SDrop case re-mangles the
-    // returned template name to <concrete_struct_name>__drop at clone time,
-    // matching the symbol clone_struct_def emits when instantiating the
-    // struct's methods.
-    for (auto* cand : find_func_candidates(mangled)) {
-        if (!cand || cand->param_types.size() != 1) continue;
-        if (!is_drop_impl_(cand)) continue;
-        auto pt = cand->param_types[0];
-        if (!pt) continue;
-        auto pk = TypeRef(pt).kind();
-        // Accept `&mut self` / `&self` by peeling one ref level.
-        if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-            TypeRef(pt).pointee()) {
+    // ADR 0030 S9b row 2: the `Drop` impl's `drop` declared on `t`, asked of
+    // its identity — a trait-qualified registration (G156-5's
+    // `<T>__Drop__drop`, beside an inherent `drop`) included, since the index
+    // keys the declared name. A self exactly `t` (by value or through `&` /
+    // `&mut`) first; else a generic impl whose self matches (`impl<T> Drop for
+    // Foo<T>` at `Foo<i64>` — mono re-mangles the template to the instance).
+    const SemaFuncInfo* by_pattern = nullptr;
+    for (auto* cand : const_cast<SemaChecker*>(this)->methods_of_(t, "drop")) {
+        if (!cand || cand->param_types.size() != 1 || !is_drop_impl_(cand)) continue;
+        TypeRef pt = cand->param_types[0];
+        if (pt && (TypeRef(pt).kind() == LogosType::Kind::Ref || TypeRef(pt).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(pt).pointee())
             pt = TypeRef(pt).pointee();
-            pk = TypeRef(pt).kind();
-        }
-        if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct) continue;
-        if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
-            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
+        if (!pt) continue;
+        if (types_equal(pt, t)) return cand->symbol_name.empty() ? mangled : cand->symbol_name;
+        if (!by_pattern && pkg_matches(pt) && self_pattern_match_(pt, t)) by_pattern = cand;
     }
-    // The plain base is not the only key: `collect_fn`'s G156-5 files a trait
-    // method under `<T>__<Trait>__<m>` when an inherent one holds the plain
-    // base. PROBES.md 2026-09-04d §3.
-    {
-        auto rit = trait_method_registry_.find(mangled);
-        const bool reg_has_drop =
-            rit != trait_method_registry_.end() &&
-            std::find(rit->second.begin(), rit->second.end(), "Drop") != rit->second.end();
-        if (reg_has_drop) {
-            logos::probe::census("dropfor.qualified.miss");
-            std::string qual = type_name + "__Drop__drop";
-            for (auto* cand : find_func_candidates(qual)) {
-                if (!cand || cand->param_types.size() != 1) continue;
-                if (!is_drop_impl_(cand)) continue;
-                auto pt = cand->param_types[0];
-                if (!pt) continue;
-                auto pk = TypeRef(pt).kind();
-                if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-                    TypeRef(pt).pointee()) {
-                    pt = TypeRef(pt).pointee();
-                    pk = TypeRef(pt).kind();
-                }
-                // ENUMS TOO: `type_name` above is the ENUM name for an enum,
-                // so `E__Drop__drop` is minted for enums as it is for structs —
-                // but this arm accepted only Struct/ZonedStruct, so a qualified
-                // enum `Drop` resolved to NOTHING and the destructor was skipped.
-                // Unreachable until G156-5b. PROBES.md 2026-09-09drop.
-                if (pk == LogosType::Kind::Enum) {
-                    if (TypeRef(pt).enum_name() == TypeRef(t).enum_name())
-                        return cand->symbol_name.empty() ? qual : cand->symbol_name;
-                    continue;
-                }
-                if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct)
-                    continue;
-                if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
-                    return cand->symbol_name.empty() ? qual : cand->symbol_name;
-            }
-        }
-    }
+    if (by_pattern) return by_pattern->symbol_name.empty() ? mangled : by_pattern->symbol_name;
     return {};
 }
 
