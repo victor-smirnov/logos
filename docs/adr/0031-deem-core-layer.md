@@ -118,6 +118,19 @@ Acceptance instrument for every step: the corpus's `--gen-dir` units and `LOGOS_
 | R6.6 | landings and rel / SCC bodies from DPlan (driver skeletons wait for R7) | fixpoint census pins, `incr_*` gates |
 | R6.7 | delete `RExpr`, `JChain`, `JCh`, `simplify_rexpr_ref`, `set_occ_src` | census of every corpus |
 
+### 4.2 R3 broken down (2026-10-07)
+
+The pipeline today (`wql.logos`): mapping fusion (renames on the parse tree) → graph-path desugar → **the R0 core** + the R2 checks → the oracle export → demand (magic sets, `lower::magic_program`) → live rels (`live_rel_mask`) → fact desugar → the walker, which registers every rel, records the dependency edges and checks every body **on the parse tree**, and lowers the planned core from it. A rewrite moved onto the core needs a walker that reads the core, because the rewrites ADD rels (magic rels, adorned copies, `__unit`) that the registry must hold.
+
+| Step | What | Acceptance |
+|---|---|---|
+| R3.0 | the walker on the core: registration (names, columns, natives after), dependency edges, the per-body checks (sources, traversals, scalar-element fields, whole-row selects, bare-ident classification) — the planned core lowered once, before the walker, from the rewritten surface | same diagnostics corpus-wide; gen + traces byte-identical |
+| R3.1 | fact desugar Core → Core | SHADOW first: the core rewrite against the lowering of the rewritten surface, compared by `core_text`, ICE on a difference; then the surface pass is deleted |
+| R3.2 | live rels Core → Core | same |
+| R3.3 | demand (magic sets / SIPS) Core → Core | same; `wql_rel_sips*`, demand fixtures, census pins |
+| R3.4 | graph paths lowered straight into the core (no surface desugar) | same |
+| R3.5 | mapping fusion on the core | same |
+
 ## 5. Relation to other ADRs
 
 - ADR 0024: S0 (positions) feeds Core spans; S2/S3 land ON Core (R4) instead of on the surface; S4's "plan as data" becomes DPlan; S5 ("emitters read the IR") is R6.
