@@ -177,8 +177,7 @@ pub fn type_clause(view: &OView, prm: &MacroParams, cl: &CClause, to_trav: bool)
 // lowered, and the walker's resolution reports it.
 
 /// One atom: a slice parameter takes its element type; a rel (a program rel
-/// or a native source, by name or by its emitted name) takes its registry
-/// index and row type.
+/// or a native source) takes its registry index and row type.
 fn resolve_atom(a: &mut CAtom, nrels: i64, prm: &MacroParams) {
     let n: str = a.name;
     if n.len() == 0i64 { return; }
@@ -188,8 +187,7 @@ fn resolve_atom(a: &mut CAtom, nrels: i64, prm: &MacroParams) {
         a.row_ty = prm.tys[pi];
         return;
     }
-    let mut ri: i64 = prm.rel_find_name(n);
-    if ri < 0i64 { ri = prm.rel_find_src(n); }
+    let ri: i64 = prm.rel_find_name(n);
     if ri < 0i64 { return; }
     // The atom keeps the name as WRITTEN: the spelling the emitter scans is
     // the plan's (a streamed native rel binds `__rel_<r>`, not `__rel_<r>_sl`,

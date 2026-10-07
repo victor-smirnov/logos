@@ -73,7 +73,7 @@ use logos.std.compiler.metaprog;  // error, OView, oview_module_ast
 use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.std.wql.ir;             // RExpr, WRef
-use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, rq_fat_* (allocator-carrying views)
+use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*
 use logos.std.wql.params;         // MacroParams — the parsed deem!(…) param list + rel registry
 use logos.std.wql.core;           // the planned core (ADR 0031 R5)
 use logos.std.wql.dplan;          // plan_entry_simple (ADR 0031 R6.2)
@@ -94,7 +94,7 @@ use logos.std.wql.optimize;       // refs_mask — does a clause read a row var
 // ── The walker entry: entry RQuery plan → RExpr algebra → emitted native fn ──
 // `prelude` — statements spliced after the generated fn's opening brace (the
 // rel materialization lines; "" for a rel-less program).
-pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
+pub fn walk_query(plan: RQuery, name: str, params_text: str, prm: &MacroParams,
                   prelude: str, h: &Writ) -> bool {
     // `select first` is a SINGLE-ROW mode: it subsumes/contradicts the multi-row
     // tail modifiers, so `distinct`/`limit` alongside it are compile-time errors
@@ -109,7 +109,7 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
                 mode = SELM_FIRST();
             }
             match plan_entry_simple(&prm.plan_core, prm.plan_where_retired, h) {
-                Option::Some(ds) => { return emit_entry_simple(&ds, s.fn_name, params_text, prm, s.result_ty, s.has_result_ty, mode, prelude, h); }
+                Option::Some(ds) => { return emit_entry_simple(&ds, name, params_text, prm, s.result_ty, s.has_result_ty, mode, prelude, h); }
                 Option::None => { logos.lang.panic::panic("ICE: a `Simple` entry is not a single-source rule of the planned core (ADR 0031 R6.2)"); return false; }
             }
         }
@@ -121,14 +121,14 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
                 mode = SELM_FIRST();
             }
             match plan_entry_chain(&prm.plan_core, h) {
-                Option::Some(ds) => { return emit_entry_join(&ds, j.fn_name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h); }
+                Option::Some(ds) => { return emit_entry_join(&ds, name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h); }
                 Option::None => { logos.lang.panic::panic("ICE: a `Join` entry is not a join chain of the planned core (ADR 0031 R6.4)"); return false; }
             }
         }
         RQuery::Aggr(g) => {
             if g.sel_first { wql_error(prm, "`select first` is not supported on aggregate queries"); return false; }
             match plan_entry_group(&prm.plan_core, h) {
-                Option::Some(ds) => { return emit_entry_group(&ds, g.fn_name, params_text, prm, g.result_ty, g.has_result_ty, prelude, h); }
+                Option::Some(ds) => { return emit_entry_group(&ds, name, params_text, prm, g.result_ty, g.has_result_ty, prelude, h); }
                 Option::None => { logos.lang.panic::panic("ICE: an `Aggr` entry is not a group of the planned core (ADR 0031 R6.5)"); return false; }
             }
         }
@@ -136,16 +136,12 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
             // `find P` — no result-type / tail modifiers exist on this shape
             // (the grammar admits only the predicate).
             match plan_entry_simple(&prm.plan_core, prm.plan_where_retired, h) {
-                Option::Some(ds) => { return emit_entry_simple(&ds, f.fn_name, params_text, prm, "", false, SELM_FIND(), prelude, h); }
+                Option::Some(ds) => { return emit_entry_simple(&ds, name, params_text, prm, "", false, SELM_FIND(), prelude, h); }
                 Option::None => { logos.lang.panic::panic("ICE: a `find` entry is not a single-source rule of the planned core (ADR 0031 R6.2)"); return false; }
             }
         }
     }
 }
-
-// Fat (allocator-carrying) view wrappers — shared with the emitter, see
-// plan.logos (`rq_fat_*`): str-field writes box into the arena and need z.
-// The variant is chosen off a cheap read-only match first.
 
 // ── RelDeps + compute_rel_scc — MOVED to logos.std.wql.params (queue-2 I3) ──
 // The pure graph half (dependency edge list + Warshall/Kahn condensation) is
@@ -313,19 +309,6 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
         }
         return SrcRes { ok: true, is_rel: true, idx: ri, row_ty: string_as_str(&prm.rel_rowty[ri]) };
     }
-    // A rel reference the walker has ALREADY resolved names its rel by the
-    // emitted source name (`__rel_<r>_sl`) — the rewrite below is destructive.
-    // Accepting that name as an alias makes the walk IDEMPOTENT, so one parsed
-    // plan can be walked once per mapping rel instead of re-parsed each time.
-    // Registration is deterministic from the rel names, so the alias is stable
-    // across walks.
-    let si: i64 = prm.rel_find_src(src);
-    if si >= 0i64 {
-        if cur_rel >= 0i64 {
-            deps.add(cur_rel, si);
-        }
-        return SrcRes { ok: true, is_rel: true, idx: si, row_ty: string_as_str(&prm.rel_rowty[si]) };
-    }
     let mut msg: String = String::new();
     msg.push_str("wql!: unknown source `");
     msg.push_str(src);
@@ -334,77 +317,68 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
     return src_fail();
 }
 
-// Resolve + REWRITE one scan source on a fat plan-node view: slice params keep
-// their name (row_ty stamped from the element type); rels rewrite src_name →
-// the emitted `__rel_<r>_sl` and row_ty → the tuple row type. On a rel hit the
-// bound VAR is appended to `relvars` (the whole-row/find gating set).
-// Returns the SrcRes (ok=false ⇒ error already surfaced).
-
 // ── Rel-body modifier gate ────────────────────────────────────────────────────
 // Bodies are RELATION PRODUCERS: from/join/where/select only. Every select-tail
 // modifier is an entry-query concern; `distinct` is additionally IMPLICIT
 // (set semantics dedup on insert).
 
-// Resolve + rewrite a join-step fan-out (body OR entry: `cur_rel` = -1 for the
-// entry) and check ROW-VAR UNIQUENESS across the whole chain. Rel-sourced step
+// Resolve and check a join-step fan-out (body OR entry: `cur_rel` = -1 for the
+// entry). Nothing is written to the parse tree: what a source resolves to is
+// the core's (`typing::core_resolve`, ADR 0031 R4.0); this pass diagnoses and
+// records the dependency edges. Rel-sourced step
 // vars append to `relvars`. A BODY's rel-sourced ANTI step records a negation
 // edge (afrom/ato) — the post-SCC stratification check errors when it lands
 // inside the head rel's own SCC.
 //
 // TRAVERSAL steps (`is_edge`, slice D) skip source resolution entirely: the
 // field path validates against the BASE var's row type via module-AST
-// reflection (stamp_edge_step), `src_name` is REWRITTEN to the full source
-// EXPRESSION text (`d.emps` — arena-boxed), and `row_ty` stamped to the
-// ELEMENT type. Scalar-element vars (Vec<str> → str) append to `cv` — the
+// reflection (check_edge_step), which yields the ELEMENT type. Scalar-element vars (Vec<str> → str) append to `cv` — the
 // callers reject field access rooted at them across every clause. Which NAMES a
 // clause may read is `check::core_scope_ok`'s (ADR 0031 R2).
-fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroParams,
+fn check_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroParams,
                cur_rel: i64, deps: &mut RelDeps,
                relvars: &mut Vec<str>, nrelv: &mut i64,
                cv: &mut ClauseVars, h: &Writ) -> bool {
     let n: i64 = steps.len();
     let mut vars: Vec<str> = str_vec(n + 1i64);
-    let mut vtys: Vec<str> = str_vec(n + 1i64);
+    let mut vtys: Vec<String> = Vec::<String>::new();
     let mut vanti: Vec<bool> = vec![false; n + 1i64];
     vars[0] = base_var;
-    vtys[0] = base_ty;
+    vtys.push(String::from_str(base_ty));
     let mut nv: i64 = 1i64;
     let mut i: i64 = 0i64;
     while i < n {
-        let st: RQJoinStep = rq_fat_step(steps.step_any(i), h);
+        let st: RQJoinStep = steps.step_at(i);
+        let mut vty: String = String::new();
         if st.is_edge {
-            if !stamp_edge_step(st, &vars, &vtys, &vanti, nv,
-                                relvars, *nrelv, cv) { return false; }
+            if !check_edge_step(st, &vars, &vtys, &vanti, nv, relvars, *nrelv, cv, &mut vty) { return false; }
         } else {
             let sr: SrcRes = resolve_source(prm, st.src_name, cur_rel, deps);
             if !sr.ok { return false; }
             if sr.is_rel {
-                st.src_name = string_as_str(&prm.rel_srcs[sr.idx]);
                 if st.is_anti && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
                 relvars.push(st.var_name); *nrelv = *nrelv + 1i64;
             }
-            st.row_ty = sr.row_ty;
+            vty.push_str(sr.row_ty);
         }
-        // Uniqueness against every var bound so far.
         let v: str = st.var_name;
-        vars[nv] = v; vtys[nv] = st.row_ty; vanti[nv] = st.is_anti; nv = nv + 1i64;
+        vars[nv] = v; vtys.push(vty); vanti[nv] = st.is_anti; nv = nv + 1i64;
         i = i + 1i64;
     }
     return true;
 }
 
-// ── Traversal-step validation + stamping (slice D) ───────────────────────────
+// ── Traversal-step validation (slice D) ───────────────────────────
 // `[anti] join <base>.<f>[.<g>…] <var> [on P]` — containment IS the join. The
 // base var must be a NON-ANTI struct-rowed var bound EARLIER in the chain (the
 // from-var included); intermediate path segments must be SINGULAR plain struct
 // fields; the FINAL segment must be a collection (Vec<E> / &[E] / [E; N] —
-// single references `&T`/`Box<T>` are the named error below). On success the
-// step's `src_name` becomes the full source expression text and `row_ty` the
-// element type — the emitters then scan `(src_name)` uniformly.
-fn stamp_edge_step(st: RQJoinStep,
-                   vars: &Vec<str>, vtys: &Vec<str>, vanti: &Vec<bool>, nv: i64,
+// single references `&T`/`Box<T>` are the named error below). On success
+// `elem_out` holds the element type.
+fn check_edge_step(st: RQJoinStep,
+                   vars: &Vec<str>, vtys: &Vec<String>, vanti: &Vec<bool>, nv: i64,
                    relvars: &Vec<str>, nrelv: i64,
-                   cv: &mut ClauseVars) -> bool {
+                   cv: &mut ClauseVars, elem_out: &mut String) -> bool {
     let bv: str = st.base_var;
     // 1. The base var: bound earlier, non-anti, not rel-rowed, not scalar.
     let mut bi: i64 = -1i64;
@@ -447,14 +421,14 @@ fn stamp_edge_step(st: RQJoinStep,
         }
         r0 = r0 + 1i64;
     }
-    if el_ret_class(vtys[bi]) >= 0i32 {
+    if el_ret_class(string_as_str(&vtys[bi])) >= 0i32 {
         let mut m3: String = String::new();
         m3.push_str("wql!: traversal `join ");
         m3.push_str(bv);
         m3.push_str(".…`: `");
         m3.push_str(bv);
         m3.push_str("` binds a scalar element (");
-        m3.push_str(vtys[bi]);
+        m3.push_str(string_as_str(&vtys[bi]));
         m3.push_str(") — scalars have no fields");
         error(string_as_str(&m3));
         return false;
@@ -464,8 +438,7 @@ fn stamp_edge_step(st: RQJoinStep,
     let segs: RQPathSegArr = st.path_arr();
     let np: i64 = segs.len();
     if np < 1i64 { error("wql!: empty traversal path"); return false; }   // unreachable via grammar
-    let mut cur_ty: str = vtys[bi];
-    let mut fin_kind: i32 = 0i32;
+    let mut cur_ty: str = string_as_str(&vtys[bi]);
     let mut k: i64 = 0i64;
     while k < np {
         let seg: str = segs.seg_at(k).name;
@@ -521,9 +494,7 @@ fn stamp_edge_step(st: RQJoinStep,
             }
             cur_ty = tn;
         } else {
-            // FINAL segment: must be a collection field. The KIND drives the
-            // emitted source spelling (Vec → hoist a `.as_slice()` view).
-            fin_kind = field_traversal_kind(&view, decl, seg);
+            // FINAL segment: must be a collection field.
             if elem.len() == 0i64 {
                 let tn2: str = field_type_name(&view, decl, seg);
                 let mut m8: String = String::new();
@@ -545,30 +516,14 @@ fn stamp_edge_step(st: RQJoinStep,
                 error(string_as_str(&m8));
                 return false;
             }
-            st.row_ty = elem;
+            elem_out.push_str(elem);
         }
         k = k + 1i64;
     }
-    // 3. Rewrite src_name → the full source expression text (arena-boxed by
-    // the fat-view str write; the local String may die). A Vec-typed final
-    // segment takes a `.as_slice()` view — the emitters then index a SLICE
-    // (the native fat-element path); slice/array fields index in place.
-    // (Plain `vec[i]` on fat elements works too — the fat-element deref
-    // class is fixed, see tests/logos/pass/fat_elem_{borrow_deref,
-    // index_field}.logos — the `.as_slice()` spelling is kept as the more
-    // explicit form, not as a workaround.)
-    let mut buf: String = String::new();
-    buf.push_str(bv);
-    let mut k2: i64 = 0i64;
-    while k2 < np {
-        buf.push_str(".");
-        buf.push_str(segs.seg_at(k2).name);
-        k2 = k2 + 1i64;
-    }
-    if fin_kind == 1i32 { buf.push_str(".as_slice()"); }
-    st.src_name = string_as_str(&buf);
+    // 3. The source expression the emitters scan (`d.emps`, a Vec field through
+    // `.as_slice()`) is `typing::core_resolve`'s, on the core (ADR 0031 R4.0).
     // 4. Scalar-element var (Vec<str> → str) → the no-fields diagnostic set.
-    if el_ret_class(st.row_ty) >= 0i32 {
+    if el_ret_class(string_as_str(elem_out)) >= 0i32 {
         cv_push(cv, st.var_name);
     }
     return true;
@@ -712,12 +667,9 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
     let mut relvars: Vec<str> = Vec::<str>::new();
     let mut nrelv: i64 = 0i64;
     match q {
-        RQuery::Simple(_) => {
-            let s: RQSimple = rq_fat_simple(body_any, h);
+        RQuery::Simple(s) => {
             let sr: SrcRes = resolve_source(prm, s.src_name, cur_rel, deps);
             if !sr.ok { return false; }
-            if sr.is_rel { s.src_name = string_as_str(&prm.rel_srcs[sr.idx]); }
-            s.row_ty = sr.row_ty;
             // Classify bare select idents (typo vs bound column / scalar param /
             // fresh() marker) — Track A.
             let mut bv: Vec<str> = str_vec(1i64);
@@ -725,14 +677,11 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             if !ward_sel_idents_ok(s.select_expr(), &bv, 1i64, prm, rel_name) { return false; }
             return true;
         }
-        RQuery::Join(_) => {
-            let j: RQJoin = rq_fat_join(body_any, h);
+        RQuery::Join(j) => {
             let sr: SrcRes = resolve_source(prm, j.a_name, cur_rel, deps);
             if !sr.ok { return false; }
-            if sr.is_rel { j.a_name = string_as_str(&prm.rel_srcs[sr.idx]); }
-            j.a_ty = sr.row_ty;
             let mut cv: ClauseVars = clause_vars_new();
-            if !stamp_steps(j.steps_arr(), j.x_var, sr.row_ty, prm, cur_rel, deps,
+            if !check_steps(j.steps_arr(), j.x_var, sr.row_ty, prm, cur_rel, deps,
                             &mut relvars, &mut nrelv, &mut cv, h) { return false; }
             // Scalar-element vars (traversal over Vec<str> etc.): no field
             // access rooted at them in any clause of this body.
@@ -760,34 +709,30 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             if !ward_sel_idents_ok(j.select_expr(), &bv, nbv, prm, rel_name) { return false; }
             return true;
         }
-        RQuery::Aggr(_) => {
+        RQuery::Aggr(g) => {
             // An aggregate rel body. In slice-1 the ADMISSIBLE case is a
             // RECURSIVE min/max (idempotent semilattice) closing a self-cycle —
             // the fixpoint's per-key lattice. The classification (min/max vs
             // group) is recorded here (head_agg_dir) and the SOURCES are
-            // resolved + REWRITTEN to the rel-slice spelling (recursion needs it;
-            // the semi-naïve driver swaps in the per-round delta). The final
+            // resolved, recording the aggregate's dependency edges. The final
             // admit/reject decision is POST-SCC (check_stratified): an in-cycle
             // semilattice is accepted, an in-cycle group is the non-stratifiable
             // error, a non-recursive aggregate is deferred.
-            let g: RQAggr = rq_fat_aggr(body_any, h);
             let sra: SrcRes = resolve_source(prm, g.a_name, cur_rel, deps);
             if !sra.ok { return false; }
-            if sra.is_rel { g.a_name = string_as_str(&prm.rel_srcs[sra.idx]); deps.add_agg(cur_rel, sra.idx); }
-            g.a_ty = sra.row_ty;
+            if sra.is_rel { deps.add_agg(cur_rel, sra.idx); }
             if g.has_steps() {
                 let gsteps: RQJoinStepArr = g.steps_arr();
                 let gn: i64 = gsteps.len();
                 let mut gi: i64 = 0i64;
                 while gi < gn {
-                    let gst: RQJoinStep = rq_fat_step(gsteps.step_any(gi), h);
+                    let gst: RQJoinStep = gsteps.step_at(gi);
                     // Traversal steps have no SOURCE to resolve (field path of a
                     // bound var) — they cannot form rel dependency edges.
                     if !gst.is_edge {
                         let srs: SrcRes = resolve_source(prm, gst.src_name, cur_rel, deps);
                         if !srs.ok { return false; }
-                        if srs.is_rel { gst.src_name = string_as_str(&prm.rel_srcs[srs.idx]); deps.add_agg(cur_rel, srs.idx); }
-                        gst.row_ty = srs.row_ty;
+                        if srs.is_rel { deps.add_agg(cur_rel, srs.idx); }
                     }
                     gi = gi + 1i64;
                 }
@@ -1154,78 +1099,68 @@ fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
     return 0i32;
 }
 
-// A SIMPLE rel body → one rule (single body atom, no `on`).
-fn ward_rule_simple(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
-                    rel_i: i64, s: RQSimple) -> i32 {
-    let r: i64 = wp.begin_rule(rel_i);
-    let hst: i32 = ward_emit_head(x, wp, prm, rel_i, r, s.select_expr());
-    if hst != 0i32 { return hst; }
-    let ridx0: i64 = prm.rel_find_src(s.src_name);
-    return ward_emit_atom(x, wp, prm, r, s.var_name, ridx0, s.src_name);
-}
-
-// A JOIN rel body → one rule (base + step atoms; `on` equalities are the shared
-// Datalog variables). Anti / traversal steps are outside the positive-TGD
-// fragment → reject (returns 2).
-fn ward_rule_join(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
-                  rel_i: i64, j: RQJoin) -> i32 {
-    let r: i64 = wp.begin_rule(rel_i);
-    let steps: RQJoinStepArr = j.steps_arr();
-    let ns: i64 = steps.len();
+// One rel rule → one WardProg rule: the shared Datalog variables are the
+// unions of every equi-`on` (collected BEFORE any var id is read), then the
+// head, then the atoms in order. Anti atoms, traversals, aggregates and `find`
+// are outside the positive-TGD fragment → reject (returns 2). The atoms are the
+// core's, resolved from the declarations (ADR 0031 R4.0): a rel atom carries
+// its registry index.
+fn ward_rule(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
+             rel_i: i64, ru: &CRule) -> i32 {
+    let cl: &CClause = &ru.clause;
+    let out_of_fragment: bool = match &cl.group { Option::Some(_g) => true, Option::None => false }
+                                || match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
+    if out_of_fragment { ward_frag_err(prm.rel_names[rel_i]); return 2i32; }
+    let bs: &[CLit] = cl.body.as_slice();
+    let n: i64 = cl.body.len();
     // 1) fragment guard + collect ALL `on` unions BEFORE any var id is read.
-    let mut si: i64 = 0i64;
-    while si < ns {
-        let st: RQJoinStep = steps.step_at(si);
-        if st.is_anti || st.is_edge { ward_frag_err(prm.rel_names[rel_i]); return 2i32; }
-        if st.has_on { wx_collect_on(x, st.on_expr()); }
-        si = si + 1i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        match &bs[i] {
+            CLit::Atom(a) => { if a.neg { ward_frag_err(prm.rel_names[rel_i]); return 2i32; } }
+            CLit::Trav(_t) => { ward_frag_err(prm.rel_names[rel_i]); return 2i32; }
+            CLit::Cond(c) => {
+                match &c.site { CSite::On => { wx_collect_on(x, c.e.view::<SExpr>()); } CSite::Where => { } }
+            }
+        }
+        i = i + 1i64;
     }
+    let r: i64 = wp.begin_rule(rel_i);
     // 2) head (needs final union roots).
-    let hst: i32 = ward_emit_head(x, wp, prm, rel_i, r, j.select_expr());
+    let hst: i32 = ward_emit_head(x, wp, prm, rel_i, r, cl.head.view::<SExpr>());
     if hst != 0i32 { return hst; }
-    // 3) base atom, then step atoms.
-    let ridx0: i64 = prm.rel_find_src(j.a_name);
-    let bst0: i32 = ward_emit_atom(x, wp, prm, r, j.x_var, ridx0, j.a_name);
-    if bst0 != 0i32 { return bst0; }
-    let mut sj: i64 = 0i64;
-    while sj < ns {
-        let st2: RQJoinStep = steps.step_at(sj);
-        let ridxk: i64 = prm.rel_find_src(st2.src_name);
-        let bstk: i32 = ward_emit_atom(x, wp, prm, r, st2.var_name, ridxk, st2.src_name);
-        if bstk != 0i32 { return bstk; }
-        sj = sj + 1i64;
+    // 3) the atoms, base first.
+    let mut k: i64 = 0i64;
+    while k < n {
+        match &bs[k] {
+            CLit::Atom(a) => {
+                let st: i32 = ward_emit_atom(x, wp, prm, r, a.var, a.reg, a.name);
+                if st != 0i32 { return st; }
+            }
+            CLit::Trav(_t) => { }
+            CLit::Cond(_c) => { }
+        }
+        k = k + 1i64;
     }
     return 0i32;
 }
 
-// Extract the whole rel program into `wp`. Predicate id == rel declaration index
-// (so "rel k as a head" and "rel k as a body atom" share affected positions).
-// Returns 0 (built) or 2 (out-of-fragment) — the error already emitted.
-fn ward_build(rels: RQRelArr, nr: i64, prm: &MacroParams,
-              x: &mut WardX, wp: &mut WardProg, h: &Writ) -> i32 {
+fn ward_build(pc: &CProgram, nr: i64, prm: &MacroParams,
+              x: &mut WardX, wp: &mut WardProg) -> i32 {
     let mut ri: i64 = 0i64;
     while ri < nr {
         wp.add_pred(prm.rel_ccnt[ri]);
         ri = ri + 1i64;
     }
+    let rels: &[CRel] = pc.rels.as_slice();
     let mut rel_i: i64 = 0i64;
     while rel_i < nr {
-        let rel: RQRel = rels.rel_at(rel_i);
-        let bodies: RQBodyArr = rel.bodies_arr();
-        let nb: i64 = bodies.len();
+        let rules: &[CRule] = rels[rel_i].rules.as_slice();
         let mut bi: i64 = 0i64;
-        while bi < nb {
+        while bi < rels[rel_i].rules.len() {
             x.prel.push(rel_i); x.pbod.push(bi);
             wardx_reset(x);
-            let body_any: WAny = bodies.body_any(bi);
-            let q: RQuery = body_any.view::<RQuery>();
-            let mut st: i32 = 0i32;
-            match q {
-                RQuery::Simple(s) => { st = ward_rule_simple(x, wp, prm, rel_i, s); }
-                RQuery::Join(jj)  => { st = ward_rule_join(x, wp, prm, rel_i, jj); }
-                RQuery::Aggr(_)   => { ward_frag_err(prm.rel_names[rel_i]); st = 2i32; }
-                RQuery::Find(_)   => { ward_frag_err(prm.rel_names[rel_i]); st = 2i32; }
-            }
+            let st: i32 = ward_rule(x, wp, prm, rel_i, &rules[bi]);
             if st != 0i32 { return st; }
             bi = bi + 1i64;
         }
@@ -1237,23 +1172,15 @@ fn ward_build(rels: RQRelArr, nr: i64, prm: &MacroParams,
 // ── Marker scan ───────────────────────────────────────────────────────────────
 struct FreshScan { pub has: bool, pub rel: i64 }
 
-fn program_fresh_scan(rels: RQRelArr, nr: i64) -> FreshScan {
+fn program_fresh_scan(pc: &CProgram, nr: i64) -> FreshScan {
+    let rels: &[CRel] = pc.rels.as_slice();
     let mut ri: i64 = 0i64;
     while ri < nr {
-        let rel: RQRel = rels.rel_at(ri);
-        let bodies: RQBodyArr = rel.bodies_arr();
-        let nb: i64 = bodies.len();
+        let rules: &[CRule] = rels[ri].rules.as_slice();
         let mut bi: i64 = 0i64;
-        while bi < nb {
-            let q: RQuery = bodies.body_any(bi).view::<RQuery>();
-            let mut hf: bool = false;
-            match q {
-                RQuery::Simple(s) => { hf = sx_has_fresh(s.select_expr()); }
-                RQuery::Join(jj)  => { hf = sx_has_fresh(jj.select_expr()); }
-                RQuery::Aggr(g)   => { hf = sx_has_fresh(g.select_expr()); }
-                RQuery::Find(_)   => { hf = false; }
-            }
-            if hf { return FreshScan { has: true, rel: ri }; }
+        while bi < rels[ri].rules.len() {
+            let hd: WAny = rules[bi].clause.head;
+            if !hd.is_null() && sx_has_fresh(hd.view::<SExpr>()) { return FreshScan { has: true, rel: ri }; }
             bi = bi + 1i64;
         }
         ri = ri + 1i64;
@@ -1266,12 +1193,12 @@ fn program_fresh_scan(rels: RQRelArr, nr: i64) -> FreshScan {
 // diagnostic was raised" (both the warded-accept and non-warded cases stop —
 // only the message differs; an accepted existential rule is NOT lowered because
 // the chase is blocked on the identity foundation).
-fn ward_verdict(rels: RQRelArr, nr: i64, prm: &MacroParams, h: &Writ) -> bool {
-    let fs: FreshScan = program_fresh_scan(rels, nr);
+fn ward_verdict(pc: &CProgram, nr: i64, prm: &MacroParams) -> bool {
+    let fs: FreshScan = program_fresh_scan(pc, nr);
     if !fs.has { return true; }   // vanilla Datalog → trivially warded, unchanged path.
     let mut wx: WardX = wardx_new();
     let mut wp: WardProg = ward_prog_new();
-    let bst: i32 = ward_build(rels, nr, prm, &mut wx, &mut wp, h);
+    let bst: i32 = ward_build(pc, nr, prm, &mut wx, &mut wp);
     if bst != 0i32 { return false; }   // out-of-fragment (already emitted).
     let res: WardResult = check_warded(&wp);
     if res.ok {
@@ -1558,7 +1485,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // (Runs on the COMPLETE registry/deps/SCC, before any emission. Vanilla
         // Datalog — no `fresh(...)` marker — takes the fast path unchanged; an
         // existential program is classified and GRACEFULLY refuses lowering.)
-        if !ward_verdict(rels, nr, prm, h) { return false; }
+        if !ward_verdict(&early, nr, prm) { return false; }
     } else {
         // No parse-side rels — native params may still register (an entry
         // query scanning `g` directly); condense the body-less registry so
@@ -1587,39 +1514,31 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         }
     }
 
-    // ── The ENTRY query: stamp fn name + resolve/rewrite sources ────────────
+    // ── The ENTRY query: resolve + check its sources ────────────────────────
     let entry_any: WAny = prog.entry_any();
     if entry_any.is_null() { error("wql!: missing entry query"); return false; }
     let eplan: RQuery = entry_any.view::<RQuery>();
     let mut relvars: Vec<str> = Vec::<str>::new();
     let mut nrelv: i64 = 0i64;
     match eplan {
-        RQuery::Simple(_) => {
-            let s: RQSimple = rq_fat_simple(entry_any, h);
-            s.fn_name = name;
+        RQuery::Simple(s) => {
             let sr: SrcRes = resolve_source(prm, s.src_name, -1i64, &mut deps);
             if !sr.ok { return false; }
             if sr.is_rel {
-                s.src_name = string_as_str(&prm.rel_srcs[sr.idx]);
                 relvars.push(s.var_name);
                 nrelv = 1i64;
             }
-            s.row_ty = sr.row_ty;
             if !sel_whole_row_ok(s.select_expr(), &relvars, nrelv) { return false; }
         }
-        RQuery::Join(_) => {
-            let j: RQJoin = rq_fat_join(entry_any, h);
-            j.fn_name = name;
+        RQuery::Join(j) => {
             let sr2: SrcRes = resolve_source(prm, j.a_name, -1i64, &mut deps);
             if !sr2.ok { return false; }
             if sr2.is_rel {
-                j.a_name = string_as_str(&prm.rel_srcs[sr2.idx]);
                 relvars.push(j.x_var);
                 nrelv = 1i64;
             }
-            j.a_ty = sr2.row_ty;
             let mut cv: ClauseVars = clause_vars_new();
-            if !stamp_steps(j.steps_arr(), j.x_var, sr2.row_ty, prm, -1i64, &mut deps,
+            if !check_steps(j.steps_arr(), j.x_var, sr2.row_ty, prm, -1i64, &mut deps,
                             &mut relvars, &mut nrelv, &mut cv, h) { return false; }
             if !sel_whole_row_ok(j.select_expr(), &relvars, nrelv) { return false; }
             // Scalar-element traversal vars: no field access rooted at them.
@@ -1634,21 +1553,17 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 if !steps_clause_ok(j.steps_arr(), &cv) { return false; }
             }
         }
-        RQuery::Aggr(_) => {
-            let g: RQAggr = rq_fat_aggr(entry_any, h);
-            g.fn_name = name;
+        RQuery::Aggr(g) => {
             let sr3: SrcRes = resolve_source(prm, g.a_name, -1i64, &mut deps);
             if !sr3.ok { return false; }
             if sr3.is_rel {
-                g.a_name = string_as_str(&prm.rel_srcs[sr3.idx]);
                 relvars.push(g.x_var);
                 nrelv = 1i64;
             }
-            g.a_ty = sr3.row_ty;
             // Optional join steps — the aggregate over a JOINED stream.
             if g.has_steps() {
                 let mut cv2: ClauseVars = clause_vars_new();
-                if !stamp_steps(g.steps_arr(), g.x_var, sr3.row_ty, prm, -1i64, &mut deps,
+                if !check_steps(g.steps_arr(), g.x_var, sr3.row_ty, prm, -1i64, &mut deps,
                                 &mut relvars, &mut nrelv, &mut cv2, h) { return false; }
                 if cv2.n > 0i64 {
                     if !no_scalar_field(g.select_expr(), &cv2) { return false; }
@@ -1675,9 +1590,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 }
             }
         }
-        RQuery::Find(_) => {
-            let f: RQFind = rq_fat_find(entry_any, h);
-            f.fn_name = name;
+        RQuery::Find(f) => {
             let sr4: SrcRes = resolve_source(prm, f.src_name, -1i64, &mut deps);
             if !sr4.ok { return false; }
             if sr4.is_rel {
@@ -1691,7 +1604,6 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 error(string_as_str(&m));
                 return false;
             }
-            f.row_ty = sr4.row_ty;
         }
     }
 
@@ -1740,7 +1652,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             p = p + 1i64;
         }
     }
-    return walk_query(entry_any.view::<RQuery>(), params_text, prm,
+    return walk_query(entry_any.view::<RQuery>(), name, params_text, prm,
                       string_as_str(&prelude), h);
 }
 
