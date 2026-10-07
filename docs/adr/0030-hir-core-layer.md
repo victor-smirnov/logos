@@ -1034,6 +1034,32 @@ two coincide for every non-ambiguous name, by luck. No function has a DefId
 Order: (1), (2), (3), (4). Each row's acceptance: the main build's gate stays
 green, and the fold build's L0 reds fall (0 after row 3).
 
+**Executed 2026-10-07 — row (4) first, the encoder before the index.** The fold
+was turned on as the rule (`fold_all_types`, `LOGOS_NO_FOLD` as the transition
+switch) and every registration and lookup of a nominal owner was put on ONE
+encoder, `concrete_struct_name`, so the two sides agree by construction instead
+of by luck: `impl_method_base_` / `method_owner_base_` (collect_impl,
+lower_impl_block, struct-body methods, static calls, `impl_key`, the method
+probe's keys, tag dispatch), `ref_impl_target_` (`impl Tr for &S`), the method
+call's owner base, `explicit_destructor_call`, the value path `S::m`, the
+lang-item hygiene pin (in the lang item's package). Mono keeps a non-generic
+struct's method symbols (no substitution, no rename); borrow check's name sets
+register the declared base (`declared_base_of`); a text-only lookup (the deem
+pipeline's sources) filters impls by the unfolded spelling and refuses two;
+diagnostics and public symbols (`__logos_dispatch_lookup__…`) print declared
+names (`strip_fold_codes`). The priced set: 492 → 0; task s9 L0 (8047) green
+with the fold as the default.
+
+Still open in this step: rows (1)–(3) — the DefId index replaces the string
+keys the encoder now keeps consistent; the ambiguous-name set,
+`ambiguous_type_arg_fingerprint` and the switch go with it.
+
+Found in passing (S10 row 1): mono's `drain_all_` instantiated structs without
+draining the method calls deferred on them — a `for` in a generic impl method
+(`BinaryHeap<E>::from`) called a `next` that was never cloned. One
+`drain_deferred_methods_` now runs in every instantiating loop
+(pass/for_in_struct_method_instance_demand).
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

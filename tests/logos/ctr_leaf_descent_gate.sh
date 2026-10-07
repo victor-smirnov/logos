@@ -186,6 +186,9 @@ if ! python3 "$EXTRACTOR" "$TMPD/cg.out" > "$TMPD/edges" 2> "$TMPD/edges.err"; t
     cat "$TMPD/edges.err"
     exit 2
 fi
+# The edges are matched by DECLARED spelling: a type's package fold
+# (`$M<hex16>`, ADR 0030 S9b) is stripped from caller and callee names.
+sed -i -E 's/\$M[0-9a-f]{16}//g' "$TMPD/edges"
 
 # ── the edges, by name ──────────────────────────────────────────────────────
 # Names are mangled and carry the generated family's hash, so they are matched

@@ -3585,14 +3585,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 impl_written_ref_slice = resolved;
             } else if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
-                bool has_tvar = false;
-                for (auto a : TypeRef(pointee).type_args())
-                    if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { has_tvar = true; break; }
-                if (TypeRef(pointee).type_args().empty() || has_tvar) {
-                    target = prefix + std::string(TypeRef(pointee).struct_name());
-                } else {
-                    target = prefix + concrete_struct_name(pointee);
-                }
+                target = ref_impl_target_(prefix, pointee);
             } else if (pointee && TypeRef(pointee).kind() == LogosType::Kind::TypeVar) {
                 // Phase 1B-8: generic ref-blanket `impl<T> Trait for &T` /
                 // `impl<T> Trait for &mut T`. Use a fixed sentinel name so
@@ -3708,6 +3701,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
             }
         }
     }
+    // ADR 0030 S9b: the base a METHOD registers under. A plain nominal struct
+    // target is spelled by the one encoder the lookups compose with
+    // (concrete_struct_name): the bare written name matched it only while the
+    // name was unambiguous (no `$M` fold), by luck.
+    const std::string method_base = impl_method_base_(node.has_key(la::TYPE) ? map_of(node.get(la::TYPE.code)) : TinyMapView{}, target, target_resolved);
     // Note: impl_tps are left in current_type_params_ until after collect_fn calls below.
     // CP-cm-16 follow-up: publish impl-target pattern so collect_fn can plant
     // it onto each method's SemaFuncInfo. Carries the full pattern with
@@ -4303,7 +4301,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // `impl<DT: PodRef> T for DT`) register under separate keys.
                 std::string reg_target = is_blanket
                     ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
-                    : target;
+                    : method_base;
                 auto mangled = reg_target + "__" + mname;
                 collect_fn(m, reg_target, trait_name);
                 // The written `self:` type of an INHERENT impl method,
@@ -4541,7 +4539,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // same mapping here so the completeness check sees the real methods.
     std::string check_target = is_blanket
         ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
-        : target;
+        : method_base;
     // C-OBL sees this impl while its methods are checked against the trait.
     struct PendingImpl {
         SemaChecker& s;
@@ -5202,7 +5200,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     // entry pushed so try_blanket_method_dispatch surfaces it on
                     // any concrete receiver satisfying Bound. Without this, the
                     // trait's defaults are invisible on a blanket impl.
-                    std::string def_reg_target = is_blanket ? check_target : target;
+                    std::string def_reg_target = is_blanket ? check_target : method_base;
                     // An inherited default's Self takes the header's NAMED anonymous binders.
                     if (!is_blanket && self_type && impl_self_ty &&
                         TypeRef(self_type).kind() == TypeRef(impl_self_ty).kind() &&
@@ -5446,7 +5444,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
     impl_target_typeref_ = nullptr;
     // Register the impl mapping (only for trait impls)
     if (!trait_name.empty()) {
-        SemaImplInfo info{trait_name, target, impl_is_unsafe, impl_is_negative,
+        // ADR 0030 S9b: the impl is filed under the same owner base its methods
+        // register under (impl_method_base_): one encoder for lookups.
+        SemaImplInfo info{trait_name, method_base, impl_is_unsafe, impl_is_negative,
                           target_resolved, impl_tps,
                           trait_type_args, trait_lt_args, impl_lt_params,
                           impl_lt_outlives, impl_doc, {}};
@@ -5499,7 +5499,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // one thing now: a compiler probe spelling "Drop" and a bound carrying
         // `logos.lang.drop::Drop` both arrive at the same DefId through
         // `impl_trait_id`, and a homonym's impls live under a different one.
-        const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), target};
+        const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), method_base};
         info.self_type = impl_self_ty;
         info.written_ref_slice = impl_written_ref_slice;
         if (impl_self_ty && (TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedSlice ||
@@ -6081,7 +6081,11 @@ void SemaChecker::collect_struct(TinyMapView node) {
             auto method = map_of(methods.get(m));
             if (try_append_doc(pending_doc_, method)) continue;
             int32_t mc = code_of(method);
-            if (mc == la::FN || mc == la::STATIC_FN) collect_fn(method, sname);
+            // ADR 0030 S9b: a non-generic struct's methods register under the
+            // encoder the lookups use (impl_method_base_'s rule).
+            if (mc == la::FN || mc == la::STATIC_FN)
+                collect_fn(method, structs_[skey].type_params.empty()
+                                       ? concrete_struct_name(make_struct_type(sname, cur_package_)) : sname);
         }
     }
     if (had_self) current_type_params_["Self"] = saved_self;

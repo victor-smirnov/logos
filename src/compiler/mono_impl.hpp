@@ -446,6 +446,7 @@ private:
     StrSet vtable_demand_seen_;
     void demand_vtable_(std::string trait, std::vector<TypeRef> args, TypeRef self);
     void fill_vtables_();
+    void drain_deferred_methods_();
     void drain_all_();
     // Enqueue every `$blanket$…__method` template (matching tmpl_prefix) cloned
     // for `concrete` (candidate_t) into the worklist as `concrete__method`.
@@ -758,6 +759,10 @@ private:
         if (pkg.empty())
             for (auto& s : out_.structs)
                 if (s.name() == name) { pkg = std::string(s.pkg()); break; }
+        // A generic struct is a TEMPLATE, never in out_.structs: its package is
+        // the template's (the type `type_of::<Pair<..>>()` names carries it).
+        if (pkg.empty())
+            if (auto t = find_struct_template_pkg_first({}, name); t.valid()) pkg = std::string(t.pkg());
         sb.pkg_name  = std::move(pkg);
         sb.type_args = std::move(args);
         return out_.type_pool.alloc(std::move(sb));

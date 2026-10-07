@@ -553,7 +553,9 @@ void MLIRGenImpl::emit_tag_dispatch_tables(mlir::ModuleOp mod, const LProgram& p
 
         for (auto& key : all_keys) {
             const std::string base = key.join();
-            auto lookup_sym = "__logos_dispatch_lookup__" + base;
+            // A PUBLIC symbol, written by its callers with the declared names:
+            // the tag system's package fold (ADR 0030 S9b) is not part of it.
+            auto lookup_sym = "__logos_dispatch_lookup__" + SemaResult::strip_fold_codes(base);
             bool has_t1 = tier1_tables.count(key) > 0;
             bool has_t2 = tier2_valid_entries.count(key) > 0;
             if (!has_t1 && !has_t2) continue;

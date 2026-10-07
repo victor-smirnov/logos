@@ -6260,6 +6260,39 @@ private:
     // Propagated to SemaFuncInfo::impl_target_pattern for impl methods so
     // finish_generic_call can pattern-unify against concrete receivers.
     TypeRef impl_target_typeref_ = nullptr;
+    // ADR 0030 S9b: the base an impl's METHODS register under (collect_impl and
+    // lower_impl_block alike): the target's spelling, except that a plain
+    // nominal struct (no type arguments) is spelled by concrete_struct_name —
+    // the encoder every lookup composes with.
+    std::string impl_method_base_(writ::TinyMapView tnode, const std::string& target, TypeRef target_resolved) {
+        if (target_resolved || tnode.is_null()) return target;
+        return method_owner_base_(target);
+    }
+    // The method-registry base of a WRITTEN nominal name (a static call's
+    // `Type::`, an impl target): a non-generic struct by concrete_struct_name,
+    // anything else as written. A quiet lookup — no diagnostic.
+    // `impl Tr for &S` / `&mut S` (collect_impl and lower_impl_block alike): a
+    // generic pointee keys by its base, a concrete one — a non-generic struct
+    // included — by concrete_struct_name.
+    std::string ref_impl_target_(const std::string& prefix, TypeRef pointee) {
+        for (auto a : TypeRef(pointee).type_args())
+            if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar)
+                return prefix + std::string(TypeRef(pointee).struct_name());
+        return prefix + concrete_struct_name(pointee);
+    }
+    // `in_pkg` pins the package (a macro expansion's lang item, ADR 0030 L0)
+    // instead of resolving the name from the current one.
+    std::string method_owner_base_(const std::string& name, std::string_view in_pkg = {}) {
+        if (name.empty() || name[0] == '$' || name.find('$') != std::string::npos) return name;
+        if (!in_pkg.empty()) {
+            auto it = structs_.find(type_id(in_pkg, name));
+            if (it == structs_.end() || !it->second.type_params.empty()) return name;
+            return concrete_struct_name(make_struct_type(name, std::string(in_pkg)));
+        }
+        auto [spkg, si] = lookup_qualified_<false>(structs_, name);   // no privacy check: a key, not a use
+        if (!si || !si->type_params.empty()) return name;
+        return concrete_struct_name(make_struct_type(name, spkg));
+    }
     // Set when the upcoming collect_fn/lower_fn carries `#[no_mangle]` on
     // its annotation list. Reset to false at the end of each collect_fn /
     // lower_fn invocation so the flag never leaks across items.
@@ -6789,8 +6822,11 @@ private:
         auto seg = trait_last_seg(trait_key);
         return defs_.intern(DefKind::Trait, {}, seg);
     }
+    // The target is filed by its owner base (ADR 0030 S9b, impl_method_base_):
+    // a bare non-generic struct name asked here is normalized the same way.
     ImplKey impl_key(std::string_view trait_key, std::string_view target) const {
-        return ImplKey{impl_trait_id(trait_key), std::string(target)};
+        return ImplKey{impl_trait_id(trait_key),
+                       const_cast<SemaChecker*>(this)->method_owner_base_(std::string(target))};
     }
     bool has_impl(std::string_view trait_key, std::string_view target) const {
         return impls_.count(impl_key(trait_key, target)) != 0;
@@ -6798,6 +6834,27 @@ private:
     SemaImplInfo* find_impl(std::string_view trait_key, std::string_view target) {
         auto it = impls_.find(impl_key(trait_key, target));
         return it == impls_.end() ? nullptr : &it->second;
+    }
+    // An impl asked by a SPELLED target only (the deem pipeline matches sources
+    // by their type's text): the exact key, else the impls of this trait whose
+    // target is that spelling under its package fold — a type declared in a
+    // package the asking one does not import (`logos.gen`'s factory families)
+    // folds by its own package. More than one is an internal error.
+    SemaImplInfo* find_impl_by_spelling_(std::string_view trait_key, std::string_view target) {
+        ImplKey k = impl_key(trait_key, target);
+        if (auto it = impls_.find(k); it != impls_.end()) return &it->second;
+        SemaImplInfo* hit = nullptr;
+        for (auto& [ik, info] : impls_) {
+            if (ik.trait_def != k.trait_def || SemaResult::strip_fold_codes(ik.target) != target) continue;
+            if (hit) {
+                std::fprintf(stderr, "internal compiler error: impl %.*s for `%.*s`: more than one package's "
+                             "type answers the spelling\n", (int)trait_key.size(), trait_key.data(),
+                             (int)target.size(), target.data());
+                std::abort();
+            }
+            hit = &info;
+        }
+        return hit;
     }
     ImplMap<SemaImplInfo>                     impls_;
     // ADR 0030 S9 rows 3-4: the C-OBL impl table built from impls_all_ (the

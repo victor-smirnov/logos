@@ -142,6 +142,8 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         if (!msuffix.empty()) {
             std::string qname = sd_name + msuffix;
             if (!all_struct_defs_.count(qname)) all_struct_defs_[qname] = sd;
+            // and pkg-qualified, the spelling a struct_types_ key carries.
+            if (std::string pq = qualify_pkg(sd_pkg, qname); !all_struct_defs_.count(pq)) all_struct_defs_[pq] = sd;
         }
     }
 

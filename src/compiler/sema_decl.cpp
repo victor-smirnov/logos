@@ -525,6 +525,13 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // Some trait-default bodies and impl methods refer to `Self` in their
     // parameter types.  Keep a concrete Self binding alive for the duration
     // of lowering if the surrounding impl context already determined it.
+    // ADR 0030 S9b: a non-generic struct's methods carry its owner base
+    // (`Name$M<code>`, impl_method_base_); Self is the struct the NAME denotes.
+    std::string self_ctx_buf;
+    if (auto m = struct_ctx.find("$M"); m != std::string_view::npos && struct_ctx.find("$G") == std::string_view::npos) {
+        self_ctx_buf = std::string(struct_ctx.substr(0, m));
+    }
+    const std::string_view self_ctx = self_ctx_buf.empty() ? struct_ctx : std::string_view(self_ctx_buf);
     if (!struct_ctx.empty()) {
         // G153-4 / G141-2: only KEEP an existing Self if it names the SAME type
         // as this method's impl (the impl-block may have set `Self = Foo<T>`
@@ -547,17 +554,17 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                 cur_name = cur_name.substr(d + 1);
             if (auto g = cur_name.find("$G"); g != std::string::npos)
                 cur_name = cur_name.substr(0, g);
-            if (cur_name == struct_ctx) need_set = false;
+            if (cur_name == self_ctx) need_set = false;
         }
         if (need_set) {
             // Prefer datatype Self when a name exists in both tables.
-            auto [dpkg, dsi] = find_datatype_by_name(struct_ctx);
-            auto [spkg, ssi] = find_struct_by_name(struct_ctx);
+            auto [dpkg, dsi] = find_datatype_by_name(self_ctx);
+            auto [spkg, ssi] = find_struct_by_name(self_ctx);
             if (dsi)
-                current_type_params_["Self"] = make_datatype_type(struct_ctx, dpkg);
+                current_type_params_["Self"] = make_datatype_type(self_ctx, dpkg);
             else if (ssi)
-                current_type_params_["Self"] = make_struct_type(struct_ctx, spkg);
-            else if (auto prim_t = lookup_type_by_name(struct_ctx))
+                current_type_params_["Self"] = make_struct_type(self_ctx, spkg);
+            else if (auto prim_t = lookup_type_by_name(self_ctx))
                 current_type_params_["Self"] = prim_t;
         }
     }
@@ -1906,7 +1913,7 @@ DeclBuilder SemaChecker::lower_struct_def(TinyMapView node) {
             int32_t mc = code_of(method);
             if (mc != la::FN && mc != la::STATIC_FN) continue;
             if (!struct_is_generic) {
-                auto mfn = lower_fn(method, sname);
+                auto mfn = lower_fn(method, concrete_struct_name(make_struct_type(sname, cur_package_)));
                 ma.push_ref(mfn.view<lir_view::FunctionView>().self.addr());
                 continue;
             }
@@ -2538,14 +2545,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 target_resolved = make_unsized_slice_type(selem);
             } else if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
-                bool has_tvar = false;
-                for (auto a : TypeRef(pointee).type_args())
-                    if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { has_tvar = true; break; }
-                if (TypeRef(pointee).type_args().empty() || has_tvar) {
-                    target = prefix + std::string(TypeRef(pointee).struct_name());
-                } else {
-                    target = prefix + concrete_struct_name(pointee);
-                }
+                target = ref_impl_target_(prefix, pointee);
             } else if (pointee && TypeRef(pointee).kind() == LogosType::Kind::TypeVar) {
                 // Phase 1B-8: parallel to sema_collect.cpp — `impl<T> Trait
                 // for &T` uses sentinel `$ref$T` / `$mut_ref$T` so lowering
@@ -3088,7 +3088,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // collide with `T::method` for any other generic `T` in the program.
     std::string lower_target = impl_is_blanket
         ? ("$blanket$" + trait_name + "$" + impl_bound_trait + "$" + target)
-        : target;
+        : impl_method_base_(node.has_key(la::TYPE) ? map_of(node.get(la::TYPE.code)) : writ::TinyMapView{},
+                            target, target_resolved);   // mirrors collect_impl
     // Phase 1B-11: when target_resolved holds an unsized self-type kind
     // (UnsizedSlice / UnsizedDyn), seed `Self` before lower_fn so the
     // method body's `self: &Self` / `&Self` references resolve correctly.
@@ -3758,7 +3759,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     if (!trait_name.empty() && impl_tps.empty()) {
         std::string tag_system;
         for (auto& td : prog.traits) {
-            if (td.name() == trait_name) { tag_system = std::string(td.tag_dispatch_system()); break; }
+            // The tag system's registry base (ADR 0030 S9b): codegen composes
+            // `<base>__read_tag` and keys the dispatch table by it.
+            if (td.name() == trait_name) { tag_system = method_owner_base_(std::string(td.tag_dispatch_system())); break; }
         }
         if (!tag_system.empty()) {
             // Prefer the type_code from prog.structs (which has annotation-applied codes,
@@ -3815,7 +3818,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     for (auto& m : tit->methods) {
                         // Only emit entry if the method is actually lowered.
                         // A method exists iff: explicitly overridden OR has a default body.
-                        auto mangled = target + "__" + m.name;
+                        auto mangled = lower_target + "__" + m.name;
                         if (!overridden.count(mangled) && !m.has_default) continue;
 
                         // Resolve the bare convention-name to the actual mangled

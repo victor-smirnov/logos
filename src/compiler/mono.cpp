@@ -36,6 +36,26 @@ void Mono::ensure_blanket_tmpl_index() {
     }
 }
 
+// A method call reached before its receiver's struct instance existed was
+// deferred (enqueue_method_inst); enqueue every one whose struct is now
+// EMITTED (in out_.structs, not merely known — see struct_emitted()). Every
+// loop that instantiates structs drains it, or a method body cloned in that
+// loop's last round calls a method that is never instantiated.
+void Mono::drain_deferred_methods_() {
+    if (deferred_method_enqueues_.empty()) return;
+    stats_.defer_rescans += deferred_method_enqueues_.size();
+    std::vector<std::pair<std::string, std::string>> still;
+    for (auto& [cname, mname] : deferred_method_enqueues_) {
+        auto cit = concrete_struct_types_.find(cname);
+        if (cit != concrete_struct_types_.end() &&
+            struct_emitted(concrete_struct_name(cit->second), TypeRef(cit->second).pkg_name()))
+            enqueue_method_inst(cit->second, mname);
+        else
+            still.emplace_back(std::move(cname), std::move(mname));
+    }
+    deferred_method_enqueues_ = std::move(still);
+}
+
 // Drain every worklist to a fixpoint: functions, methods, struct and enum
 // instances (each may demand more of the others).
 void Mono::drain_all_() {
@@ -58,6 +78,7 @@ void Mono::drain_all_() {
         }
         if (!needed_struct_insts_.empty()) instantiate_struct_templates();
         instantiate_enum_templates();
+        drain_deferred_methods_();
         depth_ = 0;
     }
 }
@@ -91,7 +112,12 @@ void Mono::fill_vtables_() {
         if (!td) continue;
         std::vector<std::string> slots;
         for (auto& [owner, mname] : td.vtable_method_order()) {
-            const bool own = owner == td.name() || owner == d.trait;
+            // The slot is the trait's own when its owner names the trait — by
+            // its identity (`pkg::Trait`) or the demand's spelling.
+            const bool own = owner == td.name() || owner == d.trait ||
+                             (!td.pkg().empty() && owner.size() == td.pkg().size() + 2 + td.name().size() &&
+                              owner.starts_with(td.pkg()) && owner.substr(td.pkg().size(), 2) == "::" &&
+                              owner.ends_with(td.name()));
             slots.push_back(trait_item_symbol_(own ? std::string_view(d.trait) : owner, d.self, mname, -1,
                                                nullptr, own ? &d.args : nullptr));
             if (TypeRef(d.self).kind() == LogosType::Kind::Struct && !TypeRef(d.self).type_args().empty())
@@ -978,22 +1004,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // method_worklist_; the rest stay in deferred for later drain inside
     // the fixpoint loop below. One-shot to avoid the loop spinning on
     // entries whose concrete struct is never produced.
-    if (!deferred_method_enqueues_.empty()) {
-        stats_.defer_rescans += deferred_method_enqueues_.size();
-        std::vector<std::pair<std::string, std::string>> still;
-        for (auto& [cname, mname] : deferred_method_enqueues_) {
-            auto cit = concrete_struct_types_.find(cname);
-            // Gate on the struct actually being EMITTED (in out_.structs), not
-            // merely known in concrete_struct_types_ — see struct_emitted().
-            if (cit != concrete_struct_types_.end() &&
-                struct_emitted(concrete_struct_name(cit->second),
-                               TypeRef(cit->second).pkg_name()))
-                enqueue_method_inst(cit->second, mname);
-            else
-                still.emplace_back(std::move(cname), std::move(mname));
-        }
-        deferred_method_enqueues_ = std::move(still);
-    }
+    drain_deferred_methods_();
 
     // L1.1: lazy-method drain fixpoint. No-op in eager mode (default) since
     // method_worklist_ stays empty. When LOGOS_LAZY_METHODS=1, scan_fn enqueues
@@ -1027,21 +1038,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         }
         if (!needed_struct_insts_.empty()) instantiate_struct_templates();
         instantiate_enum_templates();
-        // Resolve deferred method enqueues whose concrete struct now exists.
-        if (!deferred_method_enqueues_.empty()) {
-            stats_.defer_rescans += deferred_method_enqueues_.size();
-            std::vector<std::pair<std::string, std::string>> still;
-            for (auto& [cname, mname] : deferred_method_enqueues_) {
-                auto cit = concrete_struct_types_.find(cname);
-                if (cit != concrete_struct_types_.end() &&
-                    struct_emitted(concrete_struct_name(cit->second),
-                                   TypeRef(cit->second).pkg_name()))
-                    enqueue_method_inst(cit->second, mname);
-                else
-                    still.emplace_back(std::move(cname), std::move(mname));
-            }
-            deferred_method_enqueues_ = std::move(still);
-        }
+        drain_deferred_methods_();
         depth_ = 0;
     }
 

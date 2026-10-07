@@ -1626,7 +1626,7 @@ static std::string_view pkg_owning_module_id(std::string_view pkg) {
 // rule): LOGOS_FOLD_ALL folds the declaring package into every nominal type's
 // spelling, independent of which names the program finds ambiguous.
 static bool fold_all_types() {
-    static const bool on = std::getenv("LOGOS_FOLD_ALL") != nullptr;
+    static const bool on = std::getenv("LOGOS_NO_FOLD") == nullptr;   // S9b: ON (transition)
     return on;
 }
 static std::string pkg_fold_code(std::string_view pkg) {
@@ -3688,7 +3688,10 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         return "__typevar_pending__drop";
     }
     std::string type_name;
-    if (TypeRef(t).kind() == LogosType::Kind::Struct) type_name = std::string(TypeRef(t).struct_name());
+    // A non-generic struct's methods are registered under concrete_struct_name
+    // (ADR 0030 S9b, impl_method_base_); a generic one's template under its name.
+    if (TypeRef(t).kind() == LogosType::Kind::Struct)
+        type_name = TypeRef(t).type_args().empty() ? concrete_struct_name(t) : std::string(TypeRef(t).struct_name());
     // Enums can carry a user `Drop` impl too (`impl Drop for E`). Keyed by the
     // enum name → `E__drop`. The SDrop codegen loads the heap pointer (enums
     // are heap-ptr-to-struct) before calling the drop fn.
@@ -4199,10 +4202,14 @@ void SemaChecker::compute_auto_copy_types() {
             // types get their own DefIds in a later step), so the root's
             // identity first and then the one struct of that name — the same
             // two probes this did as strings.
-            auto sit = structs_.find(type_id({}, target));
+            // A non-generic struct's target carries its package fold (ADR 0030
+            // S9b): the declaration is the impl's `target_pkg` + its name.
+            const std::string tname = SemaResult::strip_fold_codes(target);
+            auto sit = structs_.find(type_id(info.target_pkg, tname));
+            if (sit == structs_.end()) sit = structs_.find(type_id({}, tname));
             if (sit == structs_.end())
                 for (auto it = structs_.begin(); it != structs_.end(); ++it)
-                    if (defs_[it->first].name == target) { sit = it; break; }
+                    if (defs_[it->first].name == tname) { sit = it; break; }
             if (sit == structs_.end()) continue;   // primitives / unknown: no field check
             for (auto& f : sit->second.fields) {
                 std::string why;
@@ -4210,7 +4217,7 @@ void SemaChecker::compute_auto_copy_types() {
                     error(std::format(
                         "impl StableLayout for {}: field '{}' breaks the "
                         "layout-freeze contract — {}",
-                        target, std::string(f.name), why));
+                        tname, std::string(f.name), why));
                 }
             }
         }
@@ -5945,6 +5952,11 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         if (!seen.insert(cn).second) return {8, 8};
         struct Pop { logos::compiler::StrSet& s; const std::string& k;
                      ~Pop() { s.erase(k); } } pop{seen, cn};
+        // The ledger key is the EMITTED struct's name, which the verifier joins
+        // on: a non-generic struct is emitted under its declared name, an
+        // instance under the encoder (ADR 0030 S9b — the fold is in the
+        // instance's name, not in a plain struct's).
+        const std::string lk = tv.type_args().empty() ? std::string(tv.struct_name()) : cn;
         // PKG-QUALIFIED and pub-check-FREE: visibility is irrelevant to a
         // layout question, and the pub-checking bare-name lookup answered
         // "unknown" — i.e. the `{8,8}` default — for every foreign package's
@@ -5956,7 +5968,7 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         // answer and enters no ledger, so nothing downstream can tell it from a
         // computed layout. Recorded so the verifier's census can count it.
         if (!ssi) {
-            lay::record_declined("sema_abi_layout", lay::type_key(tv.pkg_name(), cn),
+            lay::record_declined("sema_abi_layout", lay::type_key(tv.pkg_name(), lk),
                                  "no struct repr registered for this type");
             return {8, 8};
         }
@@ -5973,7 +5985,7 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         for (auto& f : ssi->fields) ml.push_back(fl(f.type));
         auto ans = lay::aggregate_layout(
             lay::agg_shape(ssi->repr_transparent, ssi->is_union, ssi->fields.size()), ml);
-        lay::record("sema_abi_layout", lay::type_key(tv.pkg_name(), cn), ans);
+        lay::record("sema_abi_layout", lay::type_key(tv.pkg_name(), lk), ans);
         return { ans.layout.size, ans.layout.align };
     }
     case K::Enum: {

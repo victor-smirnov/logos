@@ -1487,6 +1487,11 @@ void MLIRGenImpl::verify_layout_engines() {
     for (auto& kv : struct_types_) infos.push_back(&kv.second);
     std::sort(infos.begin(), infos.end(),
               [](const StructInfo* a, const StructInfo* b) { return a->name < b->name; });
+    // One type, once: struct_types_ also keys a type under its alias spellings
+    // (bare, pkg-qualified, folded — ADR 0030 S9b), each a copy of one info.
+    infos.erase(std::unique(infos.begin(), infos.end(),
+                            [](const StructInfo* a, const StructInfo* b) { return a->name == b->name; }),
+                infos.end());
 
     // ⚠ THE CANARY for the two engines that are asked RIGHT HERE (see
     // layout_law.hpp). `sema_abi_layout`/`mono_abi_layout` are moved on the way

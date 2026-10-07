@@ -6625,6 +6625,11 @@ std::vector<std::string> SemaChecker::impl_lookup_keys_(TypeRef t) {
     };
     switch (TypeRef(t).kind()) {
     case K::Struct: case K::ZonedStruct: case K::DstRef:
+        // A non-generic nominal's methods register under its owner base
+        // (impl_method_base_, ADR 0030 S9b) — the struct's encoding whatever
+        // form the receiver takes (a DstRef too).
+        if (TypeRef(t).type_args().empty())
+            push(method_owner_base_(std::string(TypeRef(t).struct_name())));
         push(concrete_struct_name(t));
         push(std::string(TypeRef(t).struct_name()));
         break;
@@ -6926,7 +6931,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     for (size_t i = 0; targs_written && i < type_args.size() && i < fi.type_params.size(); ++i)
         if (type_args[i] && TypeRef(type_args[i]).kind() != LogosType::Kind::InferredType)
             written_tparams.insert(fi.type_params[i].name);
-    std::string callee_diag = callee;
+    std::string callee_diag = SemaResult::strip_fold_codes(callee);   // a package fold is not a name
     if (auto p = callee_diag.find("__g__"); p != std::string::npos)
         callee_diag.resize(p);
     else if (auto p = callee_diag.find("__f__"); p != std::string::npos)
@@ -9775,7 +9780,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
         mc.method      = std::string(method_name);
         mc.args        = std::move(arg_exprs);
         mc.vtable_index = -1;
-        mc.tag_system  = std::string(ts_name);
+        mc.tag_system  = method_owner_base_(std::string(ts_name));   // the dispatch entries' key
         mc.tag_trait   = std::string(tname);
         return builder().method_call_v(std::move(mc), ret_type);
     }
@@ -10880,6 +10885,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
 
     auto sname = struct_name_from_type(expr_type(recv));
+    // The method registry's owner base (ADR 0030 S9b): the encoder, a
+    // non-generic struct included. `sname` stays the declared spelling (the
+    // struct lookups and diagnostics below).
+    std::string mbase = sname;
+    if (TypeRef rt = expr_type(recv)) {
+        if (is_ref_like(rt.kind()) && rt.pointee()) rt = rt.pointee();
+        if ((rt.kind() == LogosType::Kind::Struct || rt.kind() == LogosType::Kind::ZonedStruct) &&
+            rt.type_args().empty() && !sname.empty())
+            mbase = concrete_struct_name(rt);
+    }
 
     // ARGS shape: legacy alt has flat array, turbofish alt wraps as
     // { ITEMS: [...] } (mirroring GENERIC_CALL / STATIC_CALL).
@@ -10897,7 +10912,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         std::vector<TypeRef> out;
         std::string lookup_name;
         if (!sname.empty()) {
-            lookup_name = sname + "__" + std::string(method_name);
+            lookup_name = mbase + "__" + std::string(method_name);
         } else if (expr_type(recv)) {
             // Enum receiver: try base + method.
             TypeRef rte(expr_type(recv));
@@ -11414,7 +11429,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
 
-    auto mangled = std::string(sname) + "__" + std::string(method_name);
+    auto mangled = mbase + "__" + std::string(method_name);
     // The name WAS found; remember WHY every candidate was rejected.
     // Spec: `expr.method.candidate-rejection-reason`.
     int mwhy_cands_ = 0;
@@ -11572,7 +11587,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // multiple traits on this type, the plain base was removed from the
         // registry — surface a disambiguation hint instead of "no method".
         if (auto rit = trait_method_registry_.find(
-                std::string(sname) + "__" + std::string(method_name));
+                mbase + "__" + std::string(method_name));
             rit != trait_method_registry_.end() && rit->second.size() > 1) {
             std::string traits_list;
             for (size_t i = 0; i < rit->second.size(); ++i) {
@@ -14890,7 +14905,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         // var-ref over its signature, mirroring the bare-fn-name path in
         // lower_var_ref. The call site `f(&a)` then dispatches as a fn-ptr call.
         {
-            std::string msym = cname_str + "__" + mname_str;
+            std::string msym = method_owner_base_(cname_str) + "__" + mname_str;
             const SemaFuncInfo* mfi = nullptr;
             auto mcands = find_func_candidates(msym);
             if (mcands.size() == 1) mfi = mcands[0];
@@ -15077,7 +15092,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // var-ref over its signature, mirroring the bare-fn-name path in
         // lower_var_ref. The call site `f(&a)` then dispatches as a fn-ptr call.
         {
-            std::string msym = cname_str + "__" + mname_str;
+            std::string msym = method_owner_base_(cname_str) + "__" + mname_str;
             const SemaFuncInfo* mfi = nullptr;
             auto mcands = find_func_candidates(msym);
             if (mcands.size() == 1) mfi = mcands[0];
@@ -17618,10 +17633,12 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         PkgQualGuard(std::string& r) : q(r), saved(r) {}
         ~PkgQualGuard() { q = saved; }
     } pkg_qual_guard_(call_pkg_qualifier_), pkg_qual_name_guard_(call_pkg_qualifier_name_);
+    std::string lang_pkg;   // the lang item's package, when the expansion pinned one
     if (hir_origin_(node) == hir::Origin::Macro)
         if (const LangItem* li = lang_item(class_name); li && li->target == AttrTarget::Struct) {
             call_pkg_qualifier_ = li->package;
             call_pkg_qualifier_name_ = class_name + "__" + std::string(method_name);
+            lang_pkg = li->package;
         }
 
     // T2-28 (Increment 2): a qualified `pkg.path.Type::member(args)` is parsed
@@ -17728,11 +17745,17 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             auto aliased = ait->second.type;
             if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
                             TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
-                resolved_class = TypeRef(aliased).type_args().empty()
-                    ? TypeRef(aliased).struct_name().to_string()
-                    : concrete_struct_name(aliased);
+                resolved_class = concrete_struct_name(aliased);
             }
         }
+    }
+    // ADR 0030 S9b: the registry's base — in the lang item's package when the
+    // expansion pinned one.
+    if (!lang_pkg.empty()) {
+        resolved_class = method_owner_base_(resolved_class, lang_pkg);
+        call_pkg_qualifier_name_ = resolved_class + "__" + std::string(method_name);
+    } else {
+        resolved_class = method_owner_base_(resolved_class);
     }
     std::string mangled = resolved_class + "__" + std::string(method_name);
 
@@ -24565,8 +24588,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             std::string base = ptype_stripped;
             if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
             while (!base.empty() && base.back() == ' ') base.pop_back();
-            if (auto iit = impls_.find(impl_key(b.trait_name, base));
-                iit != impls_.end()) {
+            if (auto* impl = find_impl_by_spelling_(b.trait_name, base)) {
                 // A GENERIC source impl (`impl<K,V> MapSource<K,V> for
                 // HashMap<K,V>`) states its trait args as its own TYPE PARAMS,
                 // so taking them verbatim yields `K`/`V` and the query is typed
@@ -24600,7 +24622,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
                     if (!cur.empty()) site_args.push_back(cur);
                 }
                 size_t ai = 0;
-                for (auto ta : iit->second.trait_type_args) {
+                for (auto ta : impl->trait_type_args) {
                     TypeRef t(ta);
                     std::string as = type_str(ta);
                     // An arg that is still a TYPE VAR is the impl's own
@@ -26948,12 +26970,15 @@ bool SemaChecker::explicit_destructor_call(TypeRef recv_type) {
            TypeRef(rt).pointee())
         rt = TypeRef(rt).pointee();
     if (!rt) return false;
+    // The impl's owner base: a non-generic struct by the encoder (ADR 0030
+    // S9b), a generic one by its template base.
     std::string bare;
     if (TypeRef(rt).kind() == LogosType::Kind::Struct || TypeRef(rt).kind() == LogosType::Kind::ZonedStruct)
-        bare = std::string(TypeRef(rt).struct_name());
+        bare = TypeRef(rt).type_args().empty() ? concrete_struct_name(rt) : std::string(TypeRef(rt).struct_name());
     else if (TypeRef(rt).kind() == LogosType::Kind::Enum)
         bare = std::string(TypeRef(rt).enum_name());
-    if (auto d = bare.find('$'); d != std::string::npos) bare = bare.substr(0, d);
+    if (!TypeRef(rt).type_args().empty())
+        if (auto d = bare.find('$'); d != std::string::npos) bare = bare.substr(0, d);
     if (bare.empty()) return false;
     // `S__drop` is also drop_fn_for's key: only a `Drop`-trait candidate counts (PROBES.md §3).
     bool from_drop = false;

@@ -104,6 +104,7 @@ evid_dis, vac_dis, evid, vac, report = sys.argv[1:6]
 RC   = re.compile(r'(Arc|Rc)\$G\d+\$.*__(clone_ref|drop|inc|dec)(__|$)|__rc_(inc|dec)(__|$)')
 SETUP= re.compile(r'^main$|__create__|__open__|create_ctr')
 WALK = re.compile(r'__ctr_b|__ctr_leafbatch')
+FOLD = re.compile(r'\$M[0-9a-f]{16}')
 
 def parse(path):
     sec = None
@@ -111,6 +112,9 @@ def parse(path):
     locks = collections.Counter()
     funcs = []
     for ln in open(path, errors='replace'):
+        # Names are classified by their DECLARED spelling: a type's package
+        # fold (`$M<hex16>`, ADR 0030 S9b) is stripped first.
+        ln = FOLD.sub('', ln)
         m = re.match(r'^Disassembly of section \.text\.(.+):$', ln.rstrip('\n'))
         if m:
             sec = m.group(1); funcs.append(sec); edges[sec]; continue

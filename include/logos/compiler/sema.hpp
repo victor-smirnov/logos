@@ -1262,7 +1262,12 @@ struct SemaResult {
         // underlying issue.
         static std::set<std::string> g_seen;
         bool as_json = (diag_format_global() == DiagFormat::Json);
-        for (auto& d : diags) {
+        for (auto& d0 : diags) {
+            // A spelling's package fold (`$M` + 16 hex, ADR 0030 S9b) is an
+            // identity for symbols, not a name: diagnostics print declared names.
+            Diag d = d0;
+            d.context = strip_fold_codes(d.context);
+            d.message = strip_fold_codes(d.message);
             std::string key = std::format("{}|{}|{}|{}",
                 int(d.level), d.file, d.line, d.message);
             if (!g_seen.insert(std::move(key)).second) continue;
@@ -1285,6 +1290,21 @@ struct SemaResult {
             else
                 std::fprintf(fp, "%s [%s]: %s\n", lev, d.context.c_str(), d.message.c_str());
         }
+    }
+
+    static std::string strip_fold_codes(const std::string& s) {
+        std::string out;
+        out.reserve(s.size());
+        for (size_t i = 0; i < s.size();) {
+            if (s[i] == '$' && i + 18 <= s.size() && s[i + 1] == 'M') {
+                bool hex = true;
+                for (size_t k = i + 2; k < i + 18 && hex; ++k)
+                    hex = (s[k] >= '0' && s[k] <= '9') || (s[k] >= 'a' && s[k] <= 'f');
+                if (hex) { i += 18; continue; }
+            }
+            out.push_back(s[i++]);
+        }
+        return out;
     }
 
     // Minimal JSON string escape — write `"...escaped..."` to fp.

@@ -31,6 +31,9 @@ syms_of() {
     local base="$1" out="$2"
     "$LOGOSC" "$PASS_DIR/$base.logos" -o "$TMPD/$base.o" >/dev/null 2>"$TMPD/err.txt"
     nm -g "$TMPD/$base.o" > "$out"
+    # Shapes are judged on the DECLARED spelling: a type's package fold
+    # (`$M<hex16>`, ADR 0030 S9b) is stripped before matching.
+    sed -i -E 's/\$M[0-9a-f]{16}//g' "$out"
 }
 
 want() {   # want <symfile> <fixture> <substring> <why>
