@@ -617,6 +617,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->copy_types           = std::move(copy_types_);
     s->conditional_copy     = std::move(conditional_copy_);
     s->pkg_reexports        = std::move(pkg_reexports_);
+    ++reexports_gen_;
     s->collected_holders    = std::move(collected_holders_);
     s->trait_rels           = std::move(trait_rels_);
     s->source_impls         = std::move(source_impls_);
@@ -803,6 +804,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     copy_types_           = std::move(s->copy_types);
     conditional_copy_     = std::move(s->conditional_copy);
     pkg_reexports_        = std::move(s->pkg_reexports);
+    ++reexports_gen_;
     collected_holders_    = std::move(s->collected_holders);
     trait_rels_           = std::move(s->trait_rels);
     source_impls_         = std::move(s->source_impls);

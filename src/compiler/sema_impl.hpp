@@ -7208,7 +7208,10 @@ private:
 
     // Build the full set of packages to search when resolving a name in context of cur_imports_.
     // Includes directly imported packages AND their transitive pub-use re-exports.
-    std::vector<std::string> effective_import_pkgs() const {
+    // Memoised on the import list and the re-export graph's generation — asked
+    // by every qualified type lookup (method_owner_base_ / impl_key among them).
+    const std::vector<std::string>& effective_import_pkgs() const {
+        if (eip_gen_ == reexports_gen_ && eip_key_ == cur_imports_.wildcard_packages) return eip_cache_;
         std::vector<std::string> result;
         StrSet visited;
         for (auto& pkg : cur_imports_.wildcard_packages) {
@@ -7217,8 +7220,14 @@ private:
                 collect_reexports(pkg, visited, result);
             }
         }
-        return result;
+        eip_cache_ = std::move(result);
+        eip_key_ = cur_imports_.wildcard_packages;
+        eip_gen_ = reexports_gen_;
+        return eip_cache_;
     }
+    mutable std::vector<std::string> eip_cache_, eip_key_;
+    mutable uint64_t eip_gen_ = ~0ull;
+    uint64_t reexports_gen_ = 0;   // bumped whenever pkg_reexports_ changes
 
     // Find struct by user-written name (searches cur_package_ then imports+reexports then unqualified)
     // Generic lookup: try cur_package_ → imported packages → bare key.

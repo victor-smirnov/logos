@@ -231,6 +231,7 @@ void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
                           use_node.get(la::IS_PUB.code).is_value() &&
                           use_node.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
             if (is_pub && !cur_package_.empty()) {
+                ++reexports_gen_;
                 auto& vec = pkg_reexports_[cur_package_];
                 if (std::find(vec.begin(), vec.end(), dotted) == vec.end())
                     vec.push_back(dotted);
