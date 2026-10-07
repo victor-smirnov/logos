@@ -979,8 +979,6 @@ private:
                 if (can_carry(ot)) return taint_of(op);
                 return addr_arith_taint(op);
             }
-            case Code::Try:
-                return can_carry(t) ? taint_of(ETryView{e}.inner()) : 0;
             case Code::StructLit: {
                 uint64_t m = 0;
                 EStructLitView{e}.each_field_value([&](ExprRef fv){ m |= taint_of(fv); });
@@ -1284,7 +1282,6 @@ private:
             case Code::TupleIndex:  f(ETupleIndexView{e}.receiver()); break;
             case Code::Deref:       f(EDerefView{e}.operand()); break;
             case Code::Cast:        f(ECastView{e}.operand()); break;
-            case Code::Try:         f(ETryView{e}.inner()); break;
             case Code::AddrOfTemp:  f(EAddrOfTempView{e}.inner()); break;
             case Code::Unary:       f(EUnaryView{e}.operand()); break;
             case Code::BinOp: {

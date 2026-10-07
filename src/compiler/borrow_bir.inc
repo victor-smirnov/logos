@@ -1352,21 +1352,6 @@ private:
                 lower_match(v.scrut(), [&](auto&& f) { v.each_arm(f); }, &dest);
                 return;
             }
-            case ECode::Try: {
-                lir_view::ETryView v{e};
-                bir::Place src = place_or_temp(v.inner());
-                bir::BlockId ok = new_block(), err = new_block();
-                branch(read_place(src, v.inner().type(pool_)), {ok, err});
-                cur_ = err;
-                // The error path returns early: every scope dies.
-                exit_scopes(0, 0);
-                terminate(bir::Term(bir::Term::K::Return));
-                cur_ = ok;
-                bir::Rvalue rv(bir::Rvalue::K::Use);
-                rv.ops.push_back(read_place(src.with(bir::Proj(bir::Proj::K::Field, "Ok#0")), e.type(pool_)));
-                assign(dest, std::move(rv));
-                return;
-            }
             case ECode::Call: case ECode::MethodCall: case ECode::ClosureCall:
             case ECode::FnPtrCall: case ECode::FormatCall:
                 lower_call(dest, e);

@@ -71,7 +71,6 @@ public:
     lir_view::ExprRef slice_index(lir_view::ExprRef slice, lir_view::ExprRef index, TypeRef ty);
     lir_view::ExprRef arr_lit  (std::vector<lir_view::ExprRef> elems, TypeRef ty);
     lir_view::ExprRef tuple_lit(std::vector<lir_view::ExprRef> elems, TypeRef ty);
-    lir_view::ExprRef try_expr(lir_view::ExprRef inner, int32_t ok_disc, int32_t err_disc, TypeRef ty);
     lir_view::ExprRef call(std::string callee,
                        std::vector<TypeRef> type_args,
                        std::vector<lir_view::ExprRef> args,

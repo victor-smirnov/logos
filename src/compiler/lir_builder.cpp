@@ -142,14 +142,6 @@ lir_view::ExprRef LirBuilder::tuple_lit(std::vector<lir::LExprPtr> elems, TypeRe
         [&](auto& p, TypeRef t){ return lir_mirror_emit_tuple_lit(p, t, elems); });
 }
 
-lir_view::ExprRef LirBuilder::try_expr(lir::LExprPtr inner, int32_t ok_disc,
-                                    int32_t err_disc, TypeRef ty) {
-    return direct(prog_, ty,
-        [&](auto& p, TypeRef t){
-            return lir_mirror_emit_try(p, t, inner, ok_disc, err_disc);
-        });
-}
-
 lir_view::ExprRef LirBuilder::call(std::string callee,
                                 std::vector<TypeRef> type_args,
                                 std::vector<lir::LExprPtr> args,

@@ -1,7 +1,7 @@
 // ADR 0030 S9a step C: `Try` is Rust-shaped — `trait Try: FromResidual<Self::Residual> { type Output; type Residual; ... }`;
 // an impl without the supertrait impl for its own residual is refused (Rust: E0277 on the supertrait bound).
 package s9a_try_requires_from_residual;
-use logos.lang.control_flow;
+use logos.lang.ops;
 use logos.lang.try_trait;
 struct E {}
 struct W { v: i32 }

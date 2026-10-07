@@ -914,6 +914,52 @@ N]`: the `&mut [T]` impl is not added because it collides with `&[T]` in
 selection). ABI: `Try`'s vtable changed in S9a step C and was not regenerated
 then; regenerated here with the minor bump to 0.60.0.
 
+Row (2), 2026-10-06 — CLOSED. The HIR desugars `e?` to `match Try::branch(e) {
+ControlFlow::Continue(v) => v, ControlFlow::Break(r) => return
+FromResidual::from_residual(r) }` over the lang items `try`, `from_residual`,
+`control_flow` (the variant patterns name their enum by its lang path; a
+missing lang item is an internal diagnostic, never a name in scope). The
+stdlib gains Rust's impls: `Try` / `FromResidual<Result<Infallible, E>>` for
+`Result<T, F>` with `F: From<E>`, `Try` / `FromResidual<Option<Infallible>>`
+for `Option<T>`, and `impl<'a, E: Error + 'a> From<E> for Box<dyn Error + 'a>`;
+the duplicate `logos.lang.control_flow` package is deleted (one ControlFlow,
+`lang.ops`'s, as `core::ops`). Self of a receiver-less trait item called
+through UFCS is the call's expected type (`return from_residual(r)`: the
+body's return type), as rustc infers it; in a closure whose return type is
+inferred later, the one impl of `FromResidual<residual>` names Self with
+inference variables, and every return of the closure unifies with the type it
+settles on (cluster `question-in-closure-attributed-to-fn`; a `?` the
+closure's type cannot take is E0277). Diagnostics are rustc's: no `Try` impl,
+no `FromResidual` impl for the return type, "`?` couldn't convert the error"
+(with `E: Error` named for `Box<dyn Error>`). Three defects the desugaring
+reached, fixed: an impl whose parameters only the trait's arguments name
+(`impl<E> Mk<E> for H`, the Box impl) was hosted on a struct template — by
+impl lowering, and again by the orphan-adoption pass by NAME — and emitted
+with its parameter unbound (both now decide by whether the target names an
+impl parameter); C-OBL and mono's impl unifier compared a trait object with
+its region (`dyn Error + 'a` against `dyn Error`); the orphan rule took
+`Box<dyn Error>` for a foreign type in Box's own module. Retired: sema's
+TRY_EXPR lowering (name-based Result / Option arms, the heterogeneous-error
+`From` lookup, the `Box<dyn>` special case, the reparsed `match (..).branch()`
+text and lower_reparsed_tail_expr), unit_match_stmt_, the L-IR ETry with every
+consumer (expr code 32, keys 50/51). src + include: +332 / −680 — over the
++250 budget by the three defects above. Fixtures: s10_try_desugar (rustc twin,
+same stdout), fail s10_try_error_without_from_refused,
+s10_try_in_plain_fn_refused, s10_try_option_in_result_fn_refused; the
+interaction clusters' programs run as rustc's. ABI: the control_flow package's
+symbols are gone — minor bump to 0.61.0.
+PRICE, measured 2026-10-06 against c5894e741 built beside it (one process,
+interleaved, 5 runs, box load ~10): a program whose reachable stdlib code uses
+`?` compiles 20–25% slower (gap1001_parse_target_through_question 2.06 →
+2.57 s, memoria_gendrop_probe 3.04 → 3.64 s); mono +23–38% (enum instances
+55 → 139, method instances +200: each generic stdlib body's `?` now
+instantiates `branch` / `from_residual` / `From::from` and a
+`ControlFlow<residual, output>`), sema +0–17%; the object gains 3 functions;
+the stdlib archives +3% (instances of `Option<Infallible>` /
+`Result<Infallible, E>` methods, 3275 ABI symbols). rustc pays the same
+instantiations. No fast path keyed on the resolved lang-item impl: the Q3
+decision (no `for` fast path) applies to `?` alike.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

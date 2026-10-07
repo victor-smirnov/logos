@@ -674,7 +674,9 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 #   generic const is not promoted, so a homonym can only send `&K` down the old (frame) path.
 #ARGSCAN count 11 f4ae94e0
 #ARGSCAN enum_lit 3 d49e815d
-#ARGSCAN enum_lit_data 3 1eae352f
+# 2026-10-06 (ADR 0030 S10 row 2): enum_lit_data 3 -> 2: sema's name-based `?` lowering (the two
+#   `Err(..)` literals of its Result arms) is gone; `e?` is the HIR's match over Try::branch.
+#ARGSCAN enum_lit_data 2 1ee7c452
 # 2026-10-06: erase() 9 -> 10, roster ab9caa8e -> 623da684 (ADR 0030 S9a): BoundNamesScope restores
 #   current_type_bounds_ by the type-PARAMETER name it saved (a parameter list's own scope), as the
 #   where-scope save/restore beside it does; no entity is resolved by it.
@@ -683,6 +685,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 #   variants in the `Some(p)` / `None` patterns: a variant pattern resolves within the SCRUTINEE's enum
 #   (Iterator::next's return, the lang item), and `Option` is the prelude's (sema's prelude remap).
 #ARGSCAN str 2 d23978df
+# 2026-10-06 (ADR 0030 S10 row 2): arm() — the `?` desugaring's two arms name the VARIANTS `Continue` /
+#   `Break` of the enum the pattern names by its lang-item path (control_flow); a variant resolves
+#   within that enum, never by a bare name in scope.
+#ARGSCAN arm 2 3816f704
 # 2026-09-19, #438 step 3: find 12 -> 11, roster 1f8dc25a -> 26e8ebd3. The
 # trait registry is keyed by DefId, so `traits_.find(<bare name>)` no longer
 # exists; what replaced it is `resolve_trait`, the row below.
@@ -756,7 +762,9 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # a lang item is the S10 step that lowers `?` through lang items.
 # 2026-10-05, ADR 0030 S9 row 4: the same two bare trait names ("Try", "Hash") move from
 # sema_has_impl_recursive() to implements_() — the C-OBL question, asked with the trait as written.
-#ARGSCAN implements_ 2 f4b78dc7
+# 2026-10-06 (ADR 0030 S10 row 2): implements_ 2 -> 1: the "Try" ask went with sema's `?` lowering;
+#   the HIR names Try / FromResidual by their lang items.
+#ARGSCAN implements_ 1 fae8a925
 #ARGSCAN string 2 d2bde611
 #ARGSCAN try_prelude 3 80fa0975
 #ARGSCAN try_prelude_variant 3 80fa0975

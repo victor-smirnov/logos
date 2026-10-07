@@ -1892,13 +1892,6 @@ struct EUnaryView {
     ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
 };
 
-struct ETryView {
-    ExprRef self;
-    ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
-    int32_t ok_disc()  const noexcept { return int32_t(detail::read_u32(self, ek::OK_DISC.code)); }
-    int32_t err_disc() const noexcept { return int32_t(detail::read_u32(self, ek::ERR_DISC.code)); }
-};
-
 struct ESliceLitView {
     ExprRef self;
     ExprRef base() const noexcept { return self.sub_expr(ek::BASE_PTR.code); }
@@ -3331,7 +3324,7 @@ inline bool is_place_projection(lir_schema::expr::Code k) noexcept {
         case C::Cast: case C::IfExpr: case C::TupleLit: case C::SliceLit:
         case C::SliceLen: case C::SlicePtr: case C::ClosureBox:
         case C::ClosureCall: case C::FnPtrCall: case C::FormatCall:
-        case C::PackExpand: case C::Try: case C::MatchExpr: case C::SizeOf:
+        case C::PackExpand: case C::MatchExpr: case C::SizeOf:
         case C::TypeCodeOf: case C::BlockExpr: case C::WritLit:
         case C::PtrArith: case C::PtrDiff: case C::ReflectOf: case C::AlignOf:
         case C::GenericRef:

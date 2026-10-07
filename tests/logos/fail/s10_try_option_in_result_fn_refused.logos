@@ -1,0 +1,6 @@
+// ADR 0030 S10 row 2: `?` on an Option in a fn returning Result — `Result<_, E>` has no impl of
+// `FromResidual<Option<Infallible>>` (rustc E0277).
+package s10_try_option_in_result_fn_refused;
+struct E1 { c: i32 }
+fn k(x: Option<i32>) -> Result<i32, E1> { let v = x?; return Ok(v); }
+fn main() -> i32 { return 0; }

@@ -1,1 +1,1 @@
-cannot infer outer fn return type for FromResidual dispatch
+the `?` operator can only be used in a closure that returns `Result` or `Option`

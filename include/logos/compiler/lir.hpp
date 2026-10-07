@@ -471,16 +471,6 @@ struct ETypeCodeOf {
     TypeRef elem_type = nullptr;
 };
 
-// Try expression: expr? — extract Ok(v) or early-return Err(e).
-// inner must have enum type "Result" with 2 type args [T, E].
-// ok_disc / err_disc are the discriminant values for Ok and Err variants.
-// The ETry expression itself has type T (the Ok payload type).
-struct ETry {
-    LExprPtr inner = {};
-    int32_t  ok_disc  = 0;   // discriminant of Ok  (typically 0)
-    int32_t  err_disc = 1;   // discriminant of Err (typically 1)
-};
-
 // Represents an inline block of statements returning a final value
 struct EBlockExpr {
     LBlockPtr block = {};

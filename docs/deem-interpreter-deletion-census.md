@@ -6829,8 +6829,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 11985 -> 11985 (+0), NOIMPORTED 7426 -> 7426 (+0), TIERCOMMIT 195 -> 193 (-2) — 2026-10-04: closed squeue rows custom_iterator_item_assoc_type_refused, iterator_trait_item_assoc_type_refused landed as pass fixtures (tier-commit -2).
 #                ALL 11985 -> 11986 (+1), NOIMPORTED 7426 -> 7427 (+1), TIERCOMMIT 193 -> 193 (+0) — 2026-10-04: fail fixture s9a_try_requires_from_residual.
 #                ALL 11986 -> 11989 (+3), NOIMPORTED 7427 -> 7430 (+3), TIERCOMMIT 193 -> 194 (+1) — 2026-10-06: ADR 0030 S10 row 1: +2 pass fixtures (array_by_value_into_iter_refused — row closed; array_symbolic_len_infers_const_param), +2 open rows (ufcs_next_after_region_erased_binding_refused, method_on_ref_array_impl_refused), −1 closed row file.
-REGISTRY-ALL         11989
-REGISTRY-NOIMPORTED  7430
+#                ALL 11989 -> 11993 (+4), NOIMPORTED 7430 -> 7434 (+4), TIERCOMMIT 194 -> 194 (+0) — 2026-10-06: ADR 0030 S10 row 2: +1 pass fixture s10_try_desugar, +3 fail fixtures s10_try_*_refused.
+REGISTRY-ALL         11993
+REGISTRY-NOIMPORTED  7434
 REGISTRY-TIERCOMMIT  194
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

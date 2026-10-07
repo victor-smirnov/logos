@@ -2981,6 +2981,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // For `impl<V> PartialSpec<Concrete, V>` attach to the matching partial spec
     // (so mono picks up methods when instantiating the spec, not the base template).
     lir_view::StructView* target_struct_tmpl = nullptr;
+    bool target_is_spec = false;   // a partial / full specialization's template
     if (!impl_tps.empty()) {
         // Try matching a partial/full spec first.  The impl's target type,
         // resolved with impl_tps' TypeVars bound, should match a spec's
@@ -3035,7 +3036,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 TypeRef(p).kind() == LogosType::Kind::TypeVar) { match = false; break; }
                             if (!types_equal(a, p)) { match = false; break; }
                         }
-                        if (match) { target_struct_tmpl = &ss; break; }
+                        if (match) { target_struct_tmpl = &ss; target_is_spec = true; break; }
                     }
                 }
             }
@@ -3066,6 +3067,25 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 for (auto& sd : prog.structs)
                     if (sd.name() == target) { target_struct_tmpl = &sd; break; }
             }
+        }
+        // Only a struct instance that names the impl's parameters carries them
+        // (mono re-injects them per instance). An impl whose target names none
+        // (`impl<E> Mk<E> for H`, `impl<E: Error> From<E> for Box<dyn Error>`:
+        // only the trait's arguments do) is a generic function of them.
+        if (target_struct_tmpl && !target_is_spec) {
+            TypeRef tt = node.has_key(la::TYPE) ? resolve_type(map_of(node.get(la::TYPE.code))) : TypeRef(nullptr);
+            std::function<bool(TypeRef)> names_param = [&](TypeRef t) -> bool {
+                if (!t) return false;
+                if (TypeRef(t).kind() == LogosType::Kind::TypeVar || TypeRef(t).kind() == LogosType::Kind::ConstVar)
+                    for (auto& tp : impl_tps) if (tp.name == TypeRef(t).type_var_name()) return true;
+                for (auto a : TypeRef(t).type_args()) if (names_param(a)) return true;
+                if (!TypeRef(t).arr_size_var().empty())
+                    for (auto& tp : impl_tps) if (tp.name == TypeRef(t).arr_size_var()) return true;
+                return names_param(TypeRef(t).pointee()) || names_param(TypeRef(t).elem());
+            };
+            const bool struct_target = tt && (TypeRef(tt).kind() == LogosType::Kind::Struct ||
+                                              TypeRef(tt).kind() == LogosType::Kind::ZonedStruct);
+            if (!struct_target || !names_param(tt)) target_struct_tmpl = nullptr;
         }
     }
     StrSet overridden;

@@ -18,7 +18,7 @@
 // return value (here just `-1`).
 package core_6_5_try_on_user_type;
 
-use logos.lang.control_flow;
+use logos.lang.ops;
 use logos.lang.try_trait;
 
 struct WrapErr {}

@@ -2190,7 +2190,6 @@ private:
     mlir::Value gen_expr_kind(lir_view::EAlignOfView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::ETypeCodeOfView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EBlockExprView v, TypeRef);
-    mlir::Value gen_expr_kind(lir_view::ETryView v, TypeRef type);
     mlir::Value gen_expr_kind(lir_view::EWritLitView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EPtrArithView v, TypeRef);
     mlir::Value gen_expr_kind(lir_view::EPtrDiffView v, TypeRef);

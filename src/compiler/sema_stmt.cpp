@@ -3086,6 +3086,10 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
 
 lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vnode,
                                              bool bind_temps) {
+    // A closure whose return type is inferred: every return's type, for the
+    // closure to unify with the type it settles on.
+    if (!ret_type_ && closure_returns_ && val && expr_type(val))
+        closure_returns_->push_back({expr_type(val), hir_origin_(vnode) == hir::Origin::Try, node_line_});
     // A RETURN IS A COERCION SITE: `return h.r;` with `h: &mut Inner`
     // and `-> &mut Vec<..>` reborrows `&mut *h.r` as rustc does, instead
     // of moving the `&mut` out from behind `h` (#465).
@@ -3328,7 +3332,8 @@ lir::Pattern SemaChecker::build_pattern_variant(TinyMapView pnode, TypeRef scrut
     // where `type OptAlias<T> = Opt<T>`). Mirrors the construction-side peel
     // (G160-2) but also handles GENERIC aliases — the variant resolves on the
     // base enum name; the type-args are irrelevant to which variant matches.
-    if (!find_enum_by_name(pename).second) {
+    const auto path_eit = path_enum_(pename);
+    if (path_eit == enums_.end() && !find_enum_by_name(pename).second) {
         auto ait = alias_find(pename);
         if (ait != type_aliases_.end() && ait->second.type &&
             TypeRef(ait->second.type).kind() == LogosType::Kind::Enum) {
@@ -3338,7 +3343,8 @@ lir::Pattern SemaChecker::build_pattern_variant(TinyMapView pnode, TypeRef scrut
     }
     int32_t disc = 0;
     auto [epkg_pv, esi_pv] = find_enum_by_name(pename);
-    auto eit = esi_pv ? enums_.find(type_id(epkg_pv, pename)) : enums_.end();
+    auto eit = path_eit != enums_.end() ? path_eit
+             : esi_pv ? enums_.find(type_id(epkg_pv, pename)) : enums_.end();
     if (eit == enums_.end()) eit = enums_.find(type_id({}, pename));   // the root's
     if (eit == enums_.end()) {
         error(std::format("pattern: unknown enum '{}'", pename));
@@ -3495,7 +3501,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     // G172-3: peel a (possibly generic) type-alias to an enum in a data-variant
     // pattern (`OptAlias::S(v)` where `type OptAlias<T> = Opt<T>`). Mirrors the
     // unit-variant peel in build_pattern_variant.
-    if (!pvname.empty() && !find_enum_by_name(pename).second) {
+    const auto path_eit = path_enum_(pename);
+    if (!pvname.empty() && path_eit == enums_.end() && !find_enum_by_name(pename).second) {
         auto ait = alias_find(pename);
         if (ait != type_aliases_.end() && ait->second.type &&
             TypeRef(ait->second.type).kind() == LogosType::Kind::Enum) {
@@ -3506,7 +3513,8 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
     int32_t disc = 0;
     const SemaVariantInfo* vinfo = nullptr;
     auto [epkg_pvd, esi_pvd] = find_enum_by_name(pename);
-    auto eit = esi_pvd ? enums_.find(type_id(epkg_pvd, pename)) : enums_.end();
+    auto eit = path_eit != enums_.end() ? path_eit
+             : esi_pvd ? enums_.find(type_id(epkg_pvd, pename)) : enums_.end();
     if (eit == enums_.end()) eit = enums_.find(type_id({}, pename));   // the root's
     if (eit == enums_.end()) {
         error(std::format("pattern: unknown enum '{}'", pename));
@@ -8846,6 +8854,7 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
     }
     lir::LExprPtr scrut = nullptr;
     TypeRef scrut_type = error_t();
+    if (hir_origin_(node) == hir::Origin::Try) try_match_shape_ = shape_ ? shape_ : expected_;
     if (node.has_key(la::VALUE)) {
         // `*x` over a Deref-impl struct: the step is MUTABLE exactly when an
         // arm binds by `ref mut` (see `arms_bind_ref_mut`). `matchderefsite` is
@@ -9418,18 +9427,6 @@ lir_view::StmtRef SemaChecker::lower_match(TinyMapView node) {
     lir::SExprStmt es;
     es.expr = std::move(e);
     return make_stmt_emit(match_line, std::move(es));
-}
-
-lir_view::StmtRef SemaChecker::unit_match_stmt_(
-        lir::LExprPtr scrut, std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms) {
-    lir::EMatchExpr me;
-    me.scrut = std::move(scrut);
-    for (auto& [pat, body] : arms)
-        me.arms.push_back({std::move(pat), std::nullopt,
-                           builder().block_expr(lir_mirror_block(*cur_prog_, body), nullptr, void_t())});
-    lir::SExprStmt es;
-    es.expr = builder().match_expr_v(std::move(me), void_t());
-    return make_stmt_emit(node_line_, std::move(es));
 }
 
 lir::LExprPtr SemaChecker::lower_match_expr(TinyMapView node) {

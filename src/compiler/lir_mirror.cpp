@@ -376,16 +376,6 @@ public:
         if (ty) put(map_off, ec::TYPE, type_av(ty));
         return map_off;
     }
-    const uint8_t* emit_try_direct(TypeRef ty, lir_view::ExprRef inner,
-                                            int32_t ok_disc, int32_t err_disc) {
-        auto in_av = expr_av(inner);
-        auto map_off = make_map(writ::schema::lir_expr(lir_schema::expr::Code::Try));
-        put(map_off, ek::INNER,    in_av);
-        put(map_off, ek::OK_DISC,  put_i32(ok_disc));
-        put(map_off, ek::ERR_DISC, put_i32(err_disc));
-        if (ty) put(map_off, ec::TYPE, type_av(ty));
-        return map_off;
-    }
     const uint8_t* emit_slice_lit_direct(TypeRef ty, lir_view::ExprRef base,
                                                   lir_view::ExprRef len) {
         auto b_av = expr_av(base);
@@ -2187,11 +2177,6 @@ const uint8_t* lir_mirror_emit_cast(lir::LProgram& prog, TypeRef ty, lir_view::E
     auto& ctr = prog.type_pool.ctr_or_init();
     LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
     return em.emit_cast_direct(ty, operand, writ_build_fn);
-}
-const uint8_t* lir_mirror_emit_try(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef inner, int32_t ok_disc, int32_t err_disc) {
-    auto& ctr = prog.type_pool.ctr_or_init();
-    LirMirrorEmitter em(ctr, *prog.mirror_table, prog.type_pool);
-    return em.emit_try_direct(ty, inner, ok_disc, err_disc);
 }
 const uint8_t* lir_mirror_emit_slice_lit(lir::LProgram& prog, TypeRef ty, lir_view::ExprRef base, lir_view::ExprRef len) {
     auto& ctr = prog.type_pool.ctr_or_init();

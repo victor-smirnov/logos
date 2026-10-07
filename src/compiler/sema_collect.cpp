@@ -7226,6 +7226,11 @@ void SemaChecker::check_orphan_rule_() {
                 if (tk == K::Struct || tk == K::ZonedStruct || tk == K::Enum)
                     return module_of(TypeRef(t).pkg_name()) == info.module_id;
                 if (tk == K::TraitObject || tk == K::UnsizedDyn) {
+                    // `Box<dyn Tr>` is a Box: local in Box's own module, as `Box<T>` is.
+                    if (tk == K::TraitObject && TypeRef(t).owning_trait_object() &&
+                        TypeRef(t).trait_owning_kind() == TypeRef::OwningKind::Box)
+                        if (const LangItem* bx = lang_item("owned_box"); bx && module_of(bx->package) == info.module_id)
+                            return true;
                     // The object's trait, by its package when the type carries one.
                     std::string_view tn = TypeRef(t).trait_name();
                     std::string_view tp = TypeRef(t).pkg_name();

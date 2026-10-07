@@ -79,7 +79,7 @@ enum class Code : int32_t {
     FnPtrCall     = 29,
     FormatCall    = 30,
     PackExpand    = 31,
-    Try           = 32,
+    // 32 retired: ETry (ADR 0030 S10 — `?` is a HIR match over Try::branch)
     MatchExpr     = 33,
     SizeOf        = 34,
     TypeCodeOf    = 35,
@@ -274,9 +274,7 @@ inline constexpr Key CLOSURE           {"CLOSURE",         48};   // RelPtr<EClo
 // ESizeOf / ETypeCodeOf / EReflectOf
 inline constexpr Key ELEM_TYPE         {"ELEM_TYPE",       49};   // RelPtr<LogosType>
 
-// ETry
-inline constexpr Key OK_DISC           {"OK_DISC",         50};   // i32
-inline constexpr Key ERR_DISC          {"ERR_DISC",        51};   // i32
+// 50, 51 retired with ETry (OK_DISC, ERR_DISC)
 
 } // namespace expr_keys
 

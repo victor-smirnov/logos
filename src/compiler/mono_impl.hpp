@@ -1352,6 +1352,19 @@ private:
             if (!p.closure_ret() || !c.closure_ret()) return !p.closure_ret() && !c.closure_ret();
             return unify_impl_target(c.closure_ret(), p.closure_ret(), bindings);
         }
+        case LogosType::Kind::TraitObject: {
+            // As C-OBL's unify: the object's trait, form and trait arguments;
+            // not its region (`Box<dyn Error + 'a>` matches `Box<dyn Error>`).
+            if (p.trait_name() != c.trait_name() || p.pkg_name() != c.pkg_name() ||
+                p.const_val().value_or(0) != c.const_val().value_or(0))
+                return false;
+            auto pa = p.type_args();
+            auto ca = c.type_args();
+            if (pa.size() != ca.size()) return false;
+            for (size_t i = 0; i < pa.size(); ++i)
+                if (!unify_impl_target(ca[i], pa[i], bindings)) return false;
+            return true;
+        }
         default:
             // A primitive scalar IS its kind: two `i32` nodes are one type,
             // whichever pool (or none, for a static primitive) carries them.

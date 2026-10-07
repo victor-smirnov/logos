@@ -11,6 +11,7 @@ use logos.lang.marker;
 use logos.lang.ops;
 use logos.lang.default;
 use logos.lang.convert;
+use logos.lang.error;
 use logos.mem.manually_drop;
 
 /// Owns a heap-allocated `T` exclusively; move-only, drops the value and frees the block on
@@ -105,6 +106,12 @@ impl<T> Box<T> {
 // so use sites need no `unsafe`. Same surface as Rc/Arc — the compiler's deref
 // machinery dispatches uniformly (no Box-specific path).
 // Rust's `impl<T: Default> Default for Box<T>`: a box of `T::default()`.
+/// Any error boxes into a `Box<dyn Error>` — what `?` uses to convert a concrete
+/// error into a fn's `Result<_, Box<dyn Error>>`.
+impl<'a, E: Error + 'a> From<E> for Box<dyn Error + 'a> {
+    fn from(err: E) -> Box<dyn Error + 'a> { return Box::new(err); }
+}
+
 impl<T: Default> Default for Box<T> {
     fn default() -> Box<T> { return box_new::<T>(T::default()); }
 }

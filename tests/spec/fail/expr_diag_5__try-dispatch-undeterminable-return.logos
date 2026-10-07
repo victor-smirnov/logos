@@ -1,7 +1,7 @@
 // @rule expr.try.trait-dispatch-from-residual
 package expr_diag_5_try_dispatch_undeterminable_return;
 
-use logos.lang.control_flow;
+use logos.lang.ops;
 use logos.lang.try_trait;
 
 struct WrapErr {}

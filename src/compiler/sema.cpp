@@ -5299,10 +5299,10 @@ bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
         "copy", "clone", "drop", "hash", "deref", "deref_mut", "index", "index_mut",
         "fn", "fn_mut", "fn_once", "sized", "send", "sync", "unpin", "fst",
         "stable_layout", "self_describing", "iterator", "into_iterator", "default", "error",
-        "eq", "partial_eq", "partial_ord", "ord",
+        "eq", "partial_eq", "partial_ord", "ord", "try", "from_residual",
         // types
         "owned_box", "pin", "rc", "arc", "unsafe_cell", "phantom_pinned", "atomic_ordering",
-        "Option", "Result",
+        "Option", "Result", "control_flow",
         // the names the HIR's built-in macro expansions spell (hygiene: a user
         // homonym in scope does not capture them)
         "String", "Formatter", "ok", "fmt_display", "fmt_debug", "fmt_lower_hex",
@@ -10542,6 +10542,21 @@ void SemaChecker::lower_program(const std::vector<writ::Writ>& asts, lir::LProgr
             // and a latent mis-hosting/miscompile channel).
             auto base = is_impl_method_shape(fp);
             lir_view::StructView* host = nullptr;
+            // An impl whose recorded target names none of its parameters
+            // (`impl<E: Error> From<E> for Box<dyn Error>`) left its methods
+            // free on purpose (impl lowering): the name does not re-host them.
+            if (TypeRef itp = fp.impl_target_pattern(prog.type_pool.impl())) {
+                std::function<bool(TypeRef)> has_var = [&](TypeRef t) -> bool {
+                    if (!t) return false;
+                    auto k = TypeRef(t).kind();
+                    if (k == LogosType::Kind::TypeVar || k == LogosType::Kind::ConstVar) return true;
+                    for (auto a : TypeRef(t).type_args()) if (has_var(a)) return true;
+                    return has_var(TypeRef(t).pointee()) || has_var(TypeRef(t).elem());
+                };
+                const auto k = TypeRef(itp).kind();
+                if ((k != LogosType::Kind::Struct && k != LogosType::Kind::ZonedStruct) || !has_var(itp))
+                    base = {};
+            }
             if (!base.empty()) {
                 auto it = templates_by_name.find(std::string(base));
                 if (it != templates_by_name.end()) {

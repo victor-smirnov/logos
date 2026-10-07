@@ -2120,9 +2120,6 @@ static void ref_source_places(lir_view::ExprRef val, const TypePoolImpl* pool,
         // a non-VarRef and yields nothing, so `let s: &mut Vec<B> =
         // pick(&mut vs)?;` names no source place at all while the direct-
         // return twin `pickd(&mut vs)` refuses.
-        case Code::Try:
-            ref_source_places(ETryView{val}.inner(), pool, out, depth + 1);
-            return;
         // D1 round 13 / P1: an ARRAY LITERAL names what its ELEMENTS name.
         // The read side of the whole-container convention above: the array
         // place is the key every element's edge is recorded on, so the value
@@ -2648,7 +2645,6 @@ private:
             case Code::Unary:    return rec(EUnaryView{e}.operand());
             case Code::Deref:    return rec(EDerefView{e}.operand());
             case Code::Cast:     return rec(ECastView{e}.operand());
-            case Code::Try:      return rec(ETryView{e}.inner());
             case Code::FieldRead:  return rec(EFieldReadView{e}.receiver());
             case Code::TupleIndex: return rec(ETupleIndexView{e}.receiver());
             case Code::SliceLen:   return rec(ESliceLenView{e}.slice());
@@ -4426,38 +4422,6 @@ private:
                     [&](lir_view::EMatchArmRef arm) {
                         collect_ref_sources_paths(arm.value(), path, out);
                     });
-                return;
-            //
-            // ⚠ THIS ARM IS UNEXERCISED, AND SO ARE ROUND 13's TWO — MEASURED.
-            // A fire-count print inside all three `Code::Try` arms (this one,
-            // `ref_source_places`', `ref_sources_of`') counted ZERO fires over
-            // every `?`-using file in the corpus, INCLUDING round 13's own
-            // witness fail/bc_d1r13_p0c_try.logos. Control revert: with all
-            // three arms DELETED, that witness still refuses (rc=1), its twin
-            // still refuses, and its dead_admit control still admits — so
-            // round 13's P0c credit belongs to the OTHER half of that round
-            // (`ref_source_admissible` admitting a graph-recorded place whose
-            // root no `let` declared, i.e. sema's synthesized `__try_ok_N`),
-            // not to the Try arms.
-            //
-            // THE REASON: sema desugars `?` into a MATCH before the borrow
-            // checker runs, so a `Code::Try` never reaches any of these
-            // walkers. Round 14's `?` witness is fixed by Q6 below (the two
-            // missing pattern propagators at the rvalue-match site), which is
-            // where the shape actually arrives.
-            //
-            // KEPT, NOT DELETED, and the reason is the one this file's own
-            // rule warns about: the consumer may be on the other side.
-            // `lir_mirror.cpp`'s `emit_try_direct` can CONSTRUCT this node, so
-            // a round-tripped or metaprog-emitted LIR can carry a Try that the
-            // sema path never produces. An arm that agrees with the other
-            // three costs nothing and keeps round 8's one-shape-enumeration
-            // invariant true by inspection; deleting three arms on a corpus
-            // that cannot reach them would be trading a provable invariant for
-            // an unprovable absence. It is flagged here rather than pinned by
-            // a test because NO fixture can reach it through the front end.
-            case EC::Try:
-                collect_ref_sources_paths(lir_view::ETryView{e}.inner(), path, out);
                 return;
             case EC::Deref:
                 // `*rr` names what `rr` names. The projection walk in
@@ -11949,9 +11913,6 @@ private:
             case Code::Cast:
                 scan_uses_expr(ECastView{e}.operand(), line);
                 break;
-            case Code::Try:
-                scan_uses_expr(ETryView{e}.inner(), line);
-                break;
             case Code::FieldRead:
                 scan_uses_expr(EFieldReadView{e}.receiver(), line);
                 break;
@@ -12979,10 +12940,6 @@ private:
             // is never consulted at all. Measured: `let s: &mut Vec<B> =
             // pick(&mut vs)?;` admitted a later `c.bump()` while the direct-
             // return twin `pickd(&mut vs)` refused it.
-            case Code::Try:
-                for (auto& p : ref_sources_of(ETryView{val}.inner(), depth + 1))
-                    add(std::move(p));
-                break;
             default: break;
         }
         return ok;
@@ -16808,9 +16765,6 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         }
 
         // ── Try expression: expr? ──────────────────────────────────────
-        case Code::Try:
-            visit(ETryView{e}.inner(), consuming, line);
-            break;
 
         // ── Slice ──────────────────────────────────────────────────────
         case Code::SliceLit: {

@@ -2183,324 +2183,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         }
         return materialize_recv_ref(std::move(inner), true, __ty_inner, BorrowOrigin::Explicit);
     }
-    case la::TRY_EXPR: {
-        // expr? — two flavours:
-        //   Result<T, E>  →  extract Ok(v), early-return Err(e) in a fn : Result<?, E>
-        //   Option<T>     →  extract Some(v), early-return None in a fn : Option<?>
-        // The operand's shape is the fn's carrier around this node's
-        // expectation: `Ok(s.parse()?)` under `-> Result<i64, E>` reads
-        // `Result<i64, _>` (rustc infers `parse::<F>`'s F through `?`).
-        TypeRef try_shape = nullptr;
-        if (shape_ && ret_type_) {
-            if (type_is_lang_item(ret_type_, "Result") && TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
-                try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {shape_, inferred_t()}, {},
-                                              TypeRef(ret_type_).pkg_name());
-            else if (type_is_lang_item(ret_type_, "Option") && TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
-                try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {shape_}, {},
-                                              TypeRef(ret_type_).pkg_name());
-        }
-        auto inner = expr.has_key(la::VALUE)
-            ? lower_expr_expecting(map_of(expr.get(la::VALUE.code)), nullptr, try_shape)
-            : error_expr();
-        auto inner_t = expr_type(inner);
-        // The lang items (ADR 0030 L0): a user `enum Result` is not `?`'s.
-        bool is_result = type_is_lang_item(inner_t, "Result")
-                         && TypeRef(inner_t).type_args().size() >= 2;
-        bool is_option = type_is_lang_item(inner_t, "Option")
-                         && TypeRef(inner_t).type_args().size() >= 1;
-        // An operand that failed to type-check is reported; the Try dispatch
-        // below would lower it a second time and report it again.
-        if (inner_t && TypeRef(inner_t).kind() == LogosType::Kind::Error) return error_expr();
-        if (!is_result && !is_option) {
-            // §6.5: trait-based ? dispatch. The inner type isn't a
-            // stdlib Result/Option; route through the Try /
-            // FromResidual trait surface. Lower as
-            //   match (<inner>).branch() {
-            //       ControlFlow::Continue(__c) => __c,
-            //       ControlFlow::Break(__r) =>
-            //           return <RetType>::from_residual(__r),
-            //   }
-            // The RetType is rendered from the current fn's
-            // ret_type_ so `from_residual`'s receiver is explicit
-            // (Logos doesn't infer trait Self from context).
-            // rustc E0277: `?` needs a `Try` impl. A type parameter is its
-            // bounds' business; any other type without an impl is refused here,
-            // not by the dispatch it would fail inside.
-            if (TypeRef it(inner_t); it && it.kind() != LogosType::Kind::TypeVar) {
-                if (!implements_("Try", it)) {
-                    error(std::format("the `?` operator can only be applied to values that implement "
-                                      "`Try`: `{}` does not (E0277)", type_str(inner_t)));
-                    return error_expr();
-                }
-            }
-            std::string inner_src = render_expr_src(map_of(expr.get(la::VALUE.code)));
-            std::string rt_src = ret_type_
-                ? type_str(ret_type_)
-                : std::string{};
-            if (rt_src.empty()) {
-                error("'?' operator: cannot infer outer fn return type "
-                      "for FromResidual dispatch");
-                return error_expr();
-            }
-            std::string body = std::format(
-                "match ({}).branch() {{"
-                "  ControlFlow::Continue(__try_c) => __try_c,"
-                "  ControlFlow::Break(__try_r) => return {}::from_residual(__try_r),"
-                "}}",
-                inner_src, rt_src);
-            return lower_reparsed_tail_expr(body, "?-operator (Try dispatch)");
-        }
-        if (!ret_type_ || TypeRef(ret_type_).kind() != LogosType::Kind::Enum
-            || TypeRef(ret_type_).enum_name() != TypeRef(inner_t).enum_name()) {
-            if (is_option)
-                error("'?' on Option used in function that does not return Option<T>");
-            else
-                error("'?' operator used in function that does not return Result<T, E>");
-            return error_expr();
-        }
-        // Find the "ok-like" and "err-like" discriminants from the enum def.
-        // Result: Ok/Err.  Option: Some/None.
-        int32_t ok_disc = 0, err_disc = 1;
-        const char* ok_name  = is_option ? "Some" : "Ok";
-        const char* err_name = is_option ? "None" : "Err";
-        auto [epkg_res, esi_res] = enum_of(TypeRef(inner_t));
-        auto eit = esi_res ? enums_.find(type_id(epkg_res, TypeRef(inner_t).enum_name())) : enums_.end();
-        if (eit == enums_.end()) eit = enums_.find(type_id({}, TypeRef(inner_t).enum_name()));
-        if (eit != enums_.end()) {
-            for (auto& v : eit->second.variants) {
-                if (v.name == ok_name)  ok_disc  = v.value;
-                if (v.name == err_name) err_disc = v.value;
-            }
-        }
-        auto ok_type = TypeRef(inner_t).type_args()[0];  // T
-
-        // (gap B) `?` CONSUMES its operand — both arms of the desugar below
-        // move the payload out — so a PLACE operand (`r?` on a named local)
-        // must be marked moved, or its scope-exit drop double-frees the
-        // extracted payload. mark_moved_expr self-gates to places of move
-        // types (a Copy Result / rvalue operand is a no-op).
-        if (inner && inner_t)
-            mark_moved_expr(expr_ref_of(inner));
-
-        // Heterogeneous-E desugar (Result<T, E_inner> → Result<U, E_outer>).
-        // ETry's codegen byte-copies the err payload, which is wrong when E
-        // types differ. Desugar to:
-        //
-        //   match <inner_expr> {
-        //       Ok(__try_ok_v)  => __try_ok_v,
-        //       Err(__try_err_e) => return Err(<E_outer>::from(__try_err_e))
-        //   }
-        //
-        // This reuses existing match + return + EnumLitData lowering, which
-        // already handles aggregate calling conventions.
-        if (is_result) {
-            auto iargs = TypeRef(inner_t).type_args();
-            auto rargs = TypeRef(ret_type_).type_args();
-            if (iargs.size() >= 2 && rargs.size() >= 2
-                && !types_equal(iargs[1], rargs[1])) {
-                TypeRef e_inner = iargs[1];
-                TypeRef e_outer = rargs[1];
-
-                // Find `impl From<E_inner> for E_outer`.
-                std::string base_target;
-                if (e_outer.kind() == LogosType::Kind::Struct
-                 || e_outer.kind() == LogosType::Kind::ZonedStruct) {
-                    base_target = std::string(e_outer.struct_name());
-                } else if (e_outer.kind() == LogosType::Kind::Enum) {
-                    base_target = std::string(e_outer.enum_name());
-                } else {
-                    base_target = type_str(e_outer);
-                }
-                std::string from_bare = base_target + "__from";
-                std::string from_sym;
-                for (auto* cand : find_func_candidates(from_bare)) {
-                    if (!cand || cand->param_types.size() != 1) continue;
-                    if (types_equal(cand->param_types[0], e_inner)) {
-                        from_sym = cand->symbol_name;
-                        break;
-                    }
-                }
-                // Rust's `impl<E: Error> From<E> for Box<dyn Error>` (and the
-                // same for any `Box<dyn Tr>` the inner error implements): box
-                // the error and let the unsizing coercion at `Err(..)` check
-                // `E: Tr`. Same reparse route as the Try dispatch above.
-                const bool outer_box_dyn =
-                    e_outer.kind() == LogosType::Kind::TraitObject &&
-                    TypeRef(e_outer).owning_trait_object() &&
-                    TypeRef(e_outer).trait_owning_kind() == TypeRef::OwningKind::Box;
-                if (from_sym.empty() && outer_box_dyn) {
-                    // E0277 at the `?`, as rustc: the boxed error must implement
-                    // the trait (the coercion itself is re-judged only in the backend).
-                    const std::string tr(TypeRef(e_outer).trait_name());
-                    const std::string ci = type_str_regions_erased(e_inner);
-                    if (type_is_concrete(e_inner) && !implements_(tr, e_inner)) {
-                        error(std::format("'?' couldn't convert the error: `{}: {}` is not satisfied "
-                                          "(the outer error type is `Box<dyn {}>`)", ci, tr, tr));
-                        return error_expr();
-                    }
-                    std::string inner_src = render_expr_src(map_of(expr.get(la::VALUE.code)));
-                    std::string body = std::format(
-                        "match ({}) {{"
-                        "  Result::Ok(__try_bd_v) => __try_bd_v,"
-                        "  Result::Err(__try_bd_e) => return Result::Err(Box::new(__try_bd_e)),"
-                        "}}",
-                        inner_src);
-                    return lower_reparsed_tail_expr(body, "?-operator (Box<dyn> conversion)");
-                }
-                if (from_sym.empty()) {
-                    // A `Box<dyn Tr>` is a TraitObject whose plain rendering is
-                    // `&dyn Tr`; name the type the user wrote.
-                    auto shown = [&](TypeRef t) {
-                        if (t && t.kind() == LogosType::Kind::TraitObject &&
-                            TypeRef(t).owning_trait_object()) {
-                            const char* w = "Box";
-                            if (TypeRef(t).trait_owning_kind() == TypeRef::OwningKind::Rc) w = "Rc";
-                            if (TypeRef(t).trait_owning_kind() == TypeRef::OwningKind::Arc) w = "Arc";
-                            return std::string(w) + "<dyn " + std::string(TypeRef(t).trait_name()) + ">";
-                        }
-                        return type_str(t);
-                    };
-                    error(std::string("'?' operator: inner error type '")
-                        + type_str(e_inner)
-                        + "' does not implement `From` for outer error type '"
-                        + shown(e_outer) + "' — add `impl From<"
-                        + type_str(e_inner) + "> for " + shown(e_outer)
-                        + "` or use `.map_err(...)?`.");
-                    return error_expr();
-                }
-
-                // Generate unique binding names.
-                std::string ok_name_b  = "__try_ok_" + std::to_string(tmp_var_count_++);
-                std::string err_name_b = "__try_err_" + std::to_string(tmp_var_count_++);
-
-                // VOID ok payload (`Result<(), E1>? in a Result<(), E2> fn`):
-                // same rule as the homogeneous desugar below — a void-typed
-                // match-EXPRESSION silently no-ops in mlir-gen, so lower to a
-                // match STATEMENT inside a void block-expression instead.
-                bool void_ok = ok_type &&
-                    (TypeRef(ok_type).kind() == LogosType::Kind::Void ||
-                     TypeRef(ok_type).kind() == LogosType::Kind::Never);
-
-                // Ok(__try_ok_v) pattern (bare Ok when the payload is void).
-                lir::Pattern ok_pat;
-                if (void_ok)
-                    ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
-                        *cur_prog_, "Result", "Ok", ok_disc);
-                else
-                    ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                        *cur_prog_, "Result", "Ok", ok_disc, {ok_name_b}, {ok_type});
-
-                // Err(__try_err_e) pattern.
-                lir::Pattern err_pat;
-                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                    *cur_prog_, "Result", "Err", err_disc, {err_name_b}, {e_inner});
-
-                // Ok arm value: VarRef(__try_ok_v) (unused in the void form).
-                auto ok_arm_val = builder().var_ref(ok_name_b, ok_type);
-
-                // Err arm value: { return Err(<E_outer>::from(__try_err_e)) }.
-                auto e_var = builder().var_ref(err_name_b, e_inner);
-                auto from_call = builder().call(
-                    from_sym, {}, std::vector<lir::LExprPtr>{std::move(e_var)},
-                    e_outer);
-                std::vector<lir::LExprPtr> err_payload;
-                err_payload.push_back(std::move(from_call));
-                auto err_lit = builder().enum_lit_data(
-                    "Result", "Err", err_disc, std::move(err_payload), ret_type_);
-                // (gap B) route the early return through the shared return-drop
-                // sequence — a bare SReturn here skipped every live local's
-                // drop (leak on the Err path).
-                auto err_block = make_return_with_drops(std::move(err_lit));
-                if (void_ok) {
-                    std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms;
-                    arms.emplace_back(std::move(ok_pat), std::vector<lir_view::StmtRef>{});
-                    arms.emplace_back(std::move(err_pat), std::move(err_block));
-                    std::vector<lir_view::StmtRef> blk;
-                    blk.push_back(unit_match_stmt_(std::move(inner), std::move(arms)));
-                    return builder().block_expr(
-                        lir_mirror_block(*cur_prog_, blk), nullptr, ok_type);
-                }
-                auto err_arm_val = builder().block_expr(
-                    lir_mirror_block(*cur_prog_, err_block), nullptr, ok_type);
-
-                lir::EMatchExpr me;
-                me.scrut = std::move(inner);
-                me.arms.push_back({std::move(ok_pat), std::nullopt, std::move(ok_arm_val)});
-                me.arms.push_back({std::move(err_pat), std::nullopt, std::move(err_arm_val)});
-                return builder().match_expr_v(std::move(me), ok_type);
-            }
-        }
-        // Homogeneous `?` (same E / same Option): desugar to
-        //
-        //   match <inner> {
-        //       Ok(__try_ok_v)   => __try_ok_v,
-        //       Err(__try_err_e) => { <drops>; return Err(__try_err_e) }
-        //   }
-        //
-        // (gap B — replaces the ETry node, whose codegen emitted a BARE early
-        // return: every live local leaked on the Err/None path.) The err arm
-        // routes through make_return_with_drops — the SAME value-first +
-        // collect_all_drops + terminator sequence lower_block emits for an
-        // explicit `return` statement, so `?` and `return` unwind identically.
-        {
-            std::string enum_nm = std::string(TypeRef(inner_t).enum_name());
-            // A VOID ok payload (`Result<(), E>` — the statement-position
-            // `f()?;` shape, or `let _u: () = f()?;`): a void-typed
-            // match-EXPRESSION is a silent no-op in mlir-gen (logos_to_mlir
-            // (void) is null → the whole match, scrutinee call included,
-            // vanishes) and a void payload BINDING is equally meaningless.
-            // Desugar to a match STATEMENT (whose codegen fully supports void
-            // arms + embedded returns) inside a void block-expression: the
-            // expression keeps type `()` for the checker, the block emits the
-            // match unconditionally.
-            bool void_ok = ok_type &&
-                (TypeRef(ok_type).kind() == LogosType::Kind::Void ||
-                 TypeRef(ok_type).kind() == LogosType::Kind::Never);
-            std::string ok_b = "__try_ok_" + std::to_string(tmp_var_count_++);
-            lir::Pattern ok_pat;
-            if (void_ok)
-                ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
-                    *cur_prog_, enum_nm, ok_name, ok_disc);
-            else
-                ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                    *cur_prog_, enum_nm, ok_name, ok_disc, {ok_b}, {ok_type});
-            lir::Pattern err_pat;
-            lir::LExprPtr err_lit = nullptr;
-            if (is_result) {
-                TypeRef e_t = TypeRef(inner_t).type_args()[1];
-                std::string err_b = "__try_err_" + std::to_string(tmp_var_count_++);
-                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                    *cur_prog_, enum_nm, err_name, err_disc, {err_b}, {e_t});
-                std::vector<lir::LExprPtr> err_payload;
-                err_payload.push_back(builder().var_ref(err_b, e_t));
-                err_lit = builder().enum_lit_data(enum_nm, err_name, err_disc,
-                                                  std::move(err_payload), ret_type_);
-            } else {
-                // Option: None carries no payload.
-                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
-                    *cur_prog_, enum_nm, err_name, err_disc);
-                err_lit = builder().enum_lit(enum_nm, err_name, err_disc, ret_type_);
-            }
-            auto err_block = make_return_with_drops(std::move(err_lit));
-            if (void_ok) {
-                std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms;
-                arms.emplace_back(std::move(ok_pat), std::vector<lir_view::StmtRef>{});
-                arms.emplace_back(std::move(err_pat), std::move(err_block));
-                std::vector<lir_view::StmtRef> blk;
-                blk.push_back(unit_match_stmt_(std::move(inner), std::move(arms)));
-                return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
-                                            nullptr, ok_type);
-            }
-            auto ok_val = builder().var_ref(ok_b, ok_type);
-            auto err_val = builder().block_expr(
-                lir_mirror_block(*cur_prog_, err_block), nullptr, ok_type);
-            lir::EMatchExpr me;
-            me.scrut = std::move(inner);
-            me.arms.push_back({std::move(ok_pat), std::nullopt, std::move(ok_val)});
-            me.arms.push_back({std::move(err_pat), std::nullopt, std::move(err_val)});
-            return builder().match_expr_v(std::move(me), ok_type);
-        }
-    }
+    case la::TRY_EXPR:      // a MATCH over Try::branch by now (the HIR pass)
+        hir_gate_(expr);
+        return error_expr();
 
     case la::RANGE_EXPR: {
         // `lo..hi` / `lo..=hi` — synthesise a stdlib `RangeI64` /
@@ -18399,6 +18084,7 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
+    const TypeRef call_expected = expected_;   // the call's own expectation (args overwrite expected_)
     // Phase 1B-5 parity for TYPE-side turbofish (`PkdArray::<str>::format`):
     // bare `[T]`/`str`-as-unsized/`dyn` type args are legal when the class's
     // param is `?Sized` (or a partial spec may govern). resolve_generic's
@@ -18576,9 +18262,25 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             auto args = map_of(args_av);
             if (args.has_key(la::ITEMS)) {
                 auto items = arr_of(args.get(la::ITEMS.code));
+                // `Try::branch(e)` of `e?`: e's shape is the fn's carrier around
+                // the `?`'s own expectation (`Result<that, _>` / `Option<that>`).
+                TypeRef try_shape = nullptr;
+                if (hir_origin_(node) == hir::Origin::Try && method_name == "branch") {
+                    TypeRef sh = std::exchange(try_match_shape_, TypeRef(nullptr));
+                    if (sh && ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Enum) {
+                        if (type_is_lang_item(ret_type_, "Result"))
+                            try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {sh, inferred_t()}, {},
+                                                          TypeRef(ret_type_).pkg_name());
+                        else if (type_is_lang_item(ret_type_, "Option"))
+                            try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {sh}, {},
+                                                          TypeRef(ret_type_).pkg_name());
+                    }
+                }
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     TypeRef ah = i < arg_hints_.size() ? arg_hints_[i] : TypeRef(nullptr);
-                    arg_exprs.push_back(lower_expr_expecting(map_of(items.get(i)), ah));
+                    arg_exprs.push_back(try_shape && i == 0
+                                            ? lower_expr_expecting(map_of(items.get(i)), nullptr, try_shape)
+                                            : lower_expr_expecting(map_of(items.get(i)), ah));
                     // An unsuffixed literal takes the width the expected result
                     // pins (`let b: Box<i64> = Box::new(5)` built a Box<i32>).
                     if (ah && arg_exprs.back() && expr_type(arg_exprs.back())) {
@@ -18655,10 +18357,84 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // a `&self` / `&mut self` method's argument is `&Self`.
         const TypeRef arg0_t = rt;
         bool by_value_self = false;
-        if (auto* tdecl = find_trait_iter_scoped(std::string(class_name)))
+        // A trait item without a `self` receiver (`FromResidual::from_residual(r)`,
+        // `Default::default()`-like with arguments): Self is not the first
+        // argument's type but what the call is expected to produce, as rustc
+        // infers it; the trait's arguments are the arguments' types where the
+        // item's parameter is a trait parameter.
+        const SemaTraitInfo* tdecl = find_trait_iter_scoped(std::string(class_name));
+        const SemaTraitMethodInfo* titem = nullptr;
+        bool self_from_expected = false;
+        TypeRef chosen_self = nullptr;   // Self of a receiver-less item, when chosen above
+        if (tdecl)
             for (auto& tm : tdecl->methods)
-                if (tm.name == method_name && tm.has_self_receiver && !tm.param_types.empty() && tm.param_types[0])
-                    by_value_self = TypeRef(tm.param_types[0]).kind() == LogosType::Kind::TypeVar;
+                if (tm.name == method_name) {
+                    titem = &tm;
+                    if (tm.has_self_receiver && !tm.param_types.empty() && tm.param_types[0])
+                        by_value_self = TypeRef(tm.param_types[0]).kind() == LogosType::Kind::TypeVar;
+                    break;
+                }
+        // The expectation names Self when it is a type, not a hole (a generic
+        // fn's `Result<*mut W<K>, E>` is one).
+        const bool expected_names_self = call_expected &&
+            TypeRef(call_expected).kind() != LogosType::Kind::Error &&
+            TypeRef(call_expected).kind() != LogosType::Kind::TypeVar && !is_lit_var_(call_expected);
+        if (titem && !titem->has_self_receiver && expected_names_self) {
+            std::vector<TypeRef> targs = node.has_key(la::TYPE_PARAMS) ? collect_type_args(node) : std::vector<TypeRef>{};
+            if (targs.empty() && !tdecl->type_params.empty()) {
+                targs.assign(tdecl->type_params.size(), TypeRef(nullptr));
+                for (size_t i = 0; i < titem->param_types.size() && i < arg_exprs.size(); ++i) {
+                    TypeRef pt = titem->param_types[i];
+                    if (!pt || TypeRef(pt).kind() != LogosType::Kind::TypeVar) continue;
+                    for (size_t k = 0; k < tdecl->type_params.size(); ++k)
+                        if (tdecl->type_params[k].name == TypeRef(pt).type_var_name() && !targs[k])
+                            targs[k] = expr_type(arg_exprs[i]);
+                }
+                for (auto t : targs) if (!t) { targs.clear(); break; }
+            }
+            std::string skey;
+            if ((ufcs_fi = resolve_trait_item_(class_name, call_expected, method_name, &skey, targs))) {
+                resolved_class = type_str(call_expected);
+                mangled = skey;
+                self_from_expected = true;
+                chosen_self = call_expected;
+            }
+        } else if (titem && !titem->has_self_receiver && hir_origin_(node) == hir::Origin::Try &&
+                   !arg_exprs.empty() && type_is_concrete(expr_type(arg_exprs[0])) &&
+                   class_name.find("::") != std::string_view::npos) {
+            // `?` in a closure whose return type is inferred later: as rustc,
+            // the one impl of FromResidual<residual> names Self, its parameters
+            // the residual does not fix being inference variables the closure's
+            // return type solves (`|a| { let v = get(a)?; Some(v) }`).
+            const TypeRef res_t = expr_type(arg_exprs[0]);
+            const auto& tab = obl_table_now_();
+            const obl::ImplFact* one = nullptr;
+            obl::Subst one_s;
+            int n = 0;
+            for (auto i : tab.of(class_name)) {
+                const auto& f = tab.at(i);
+                if (f.trait_args.size() != 1 || f.negative) continue;
+                obl::Subst su;
+                if (obl::unify(res_t, f.trait_args[0], f.generics, su)) { ++n; one = &f; one_s = std::move(su); }
+            }
+            if (n == 1 && one->self) {
+                SemaSubst ss;
+                for (auto& g : one->generics)
+                    ss[g] = one_s.count(g) ? one_s[g]
+                          : mint_infer_var_(std::format("the type `{}` of the value `?` returns from this closure — "
+                                                        "annotate the closure's return type", g));
+                TypeRef self_t = subst_type_sema(one->self, ss);
+                std::string skey;
+                if (self_t && (ufcs_fi = resolve_trait_item_(class_name, self_t, method_name, &skey,
+                                                             std::vector<TypeRef>{res_t}))) {
+                    resolved_class = type_str(self_t);
+                    mangled = skey;
+                    self_from_expected = true;
+                    chosen_self = self_t;
+                    expected_ = self_t;   // the call produces Self: its parameters bind off it
+                }
+            }
+        }
         while (!by_value_self && rt && (is_ref_like(TypeRef(rt).kind()) ||
                       TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
                TypeRef(rt).pointee())
@@ -18692,7 +18468,9 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         std::string key;
         // `Trait::<A>::m(x)`: the trait's arguments select among its impls for x's type.
         std::vector<TypeRef> ufcs_targs = node.has_key(la::TYPE_PARAMS) ? collect_type_args(node) : std::vector<TypeRef>{};
-        if (rt && (ufcs_fi = resolve_trait_item_(class_name, rt, method_name, &key, ufcs_targs))) {
+        if (ufcs_fi) {
+            // Self came from the expected type (above).
+        } else if (rt && (ufcs_fi = resolve_trait_item_(class_name, rt, method_name, &key, ufcs_targs))) {
             resolved_class = rname.empty() ? type_str(rt) : rname;
             mangled = key;
             ufcs_self_by_value_ = by_value_self;
@@ -18714,6 +18492,49 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         if (!ufcs_fi && hir_origin_(node) == hir::Origin::For && arg0_t) {
             error(std::format("`{}` is not an iterator: the trait `IntoIterator` is not implemented "
                               "for it, so `for` cannot loop over it (E0277)", type_str(arg0_t)));
+            return error_expr();
+        }
+        // The `?` desugaring (ADR 0030 S10): `Try::branch(e)` with no impl for
+        // e's type, `FromResidual::from_residual(r)` with none for the body's
+        // return type — rustc's two E0277s. An operand already refused is not
+        // reported again.
+        // The selected impl must be FromResidual<the residual's type>: a Result
+        // fn has none for `Option<Infallible>`, and `Result<_, F>`'s for
+        // `Result<Infallible, E>` needs `F: From<E>` (rustc's "couldn't convert").
+        if (hir_origin_(node) == hir::Origin::Try && titem && !titem->has_self_receiver &&
+            self_from_expected && arg0_t && !implements_(class_name, chosen_self, {arg0_t})) {
+            if (type_is_lang_item(chosen_self, "Result") && type_is_lang_item(arg0_t, "Result") &&
+                TypeRef(chosen_self).type_args().size() == 2 && TypeRef(arg0_t).type_args().size() == 2) {
+                TypeRef e = TypeRef(arg0_t).type_args()[1], f = TypeRef(chosen_self).type_args()[1];
+                std::string why;
+                if (TypeRef(f).kind() == LogosType::Kind::TraitObject && TypeRef(f).owning_trait_object())
+                    why = std::format(": `{}: {}` is not satisfied, required for `{}` to implement `From<{}>`",
+                                      type_str(e), TypeRef(f).trait_name(), type_str_owning_(f), type_str(e));
+                else
+                    why = std::format(": the trait `From<{}>` is not implemented for `{}`", type_str(e), type_str(f));
+                error(std::format("`?` couldn't convert the error to `{}`{} (E0277)", type_str_owning_(f), why));
+                return error_expr();
+            }
+            self_from_expected = false;
+        }
+        if (hir_origin_(node) == hir::Origin::Try && titem && !titem->has_self_receiver && !self_from_expected) {
+            ufcs_fi = nullptr;   // never Self from the residual's own type
+            if (arg0_t && TypeRef(arg0_t).kind() != LogosType::Kind::Error) {
+                if (call_expected && type_is_concrete(call_expected))
+                    error(std::format("the `?` operator can only be used in a function that returns `Result` or "
+                                      "`Option` (or another type that implements `FromResidual`): `{}` does not "
+                                      "implement `FromResidual<{}>` (E0277)",
+                                      type_str(call_expected), type_str(arg0_t)));
+                else
+                    error("the `?` operator needs the return type of its function or closure to convert the "
+                          "residual into: it is not known here — annotate the closure's return type (E0277)");
+            }
+            return error_expr();
+        }
+        if (!ufcs_fi && hir_origin_(node) == hir::Origin::Try && arg0_t) {
+            if (TypeRef(arg0_t).kind() != LogosType::Kind::Error)
+                error(std::format("the `?` operator can only be applied to values that implement `Try`: "
+                                  "`{}` does not (E0277)", type_str(arg0_t)));
             return error_expr();
         }
     }
@@ -19839,6 +19660,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     auto saved_ret = ret_type_;
     bool saved_unsafe = inside_unsafe_;
     ret_type_ = has_annot ? ret_type : nullptr;
+    std::vector<ClosureReturn> body_returns;
+    auto* saved_closure_returns = std::exchange(closure_returns_, has_annot ? nullptr : &body_returns);
     inside_unsafe_ = false;
     // THE CONSUMPTION FACT IS ALREADY COMPUTED — IT WAS NEVER WRITTEN DOWN.
     // Lowering the body runs `mark_moved_expr` at every by-value position, and
@@ -19939,6 +19762,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     }
     ret_type_ = saved_ret;
     inside_unsafe_ = saved_unsafe;
+    closure_returns_ = saved_closure_returns;
     pop_scope();
     // §7.1: which outer vars did the body itself move?
     StrSet body_moved_outer;
@@ -20002,6 +19826,28 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         for (auto& s : body) {
             if (inferred) break;
             scan_stmt(s);
+        }
+        // Every return is the closure's return type (Rust): one that holds an
+        // inference variable (`?`'s `Option<?T>`) is solved by the others.
+        for (auto& r : body_returns)
+            if (inferred && r.type && has_infer_var_(r.type)) infer_unify_(r.type, inferred);
+        if (inferred && has_infer_var_(inferred))
+            for (auto& r : body_returns)
+                if (r.type && !has_infer_var_(r.type)) { infer_unify_(inferred, r.type); break; }
+        if (inferred) inferred = zonk_(inferred);
+        // A `?` whose residual this closure's return type cannot take (no
+        // value at all: the body ends in `()`) is rustc's E0277.
+        for (auto& r : body_returns) {
+            if (!r.from_try || !r.type) continue;
+            TypeRef rt = zonk_(r.type);
+            if (inferred ? types_equal(rt, inferred) : TypeRef(rt).kind() == LogosType::Kind::Void) continue;
+            const uint32_t saved_line = node_line_;
+            node_line_ = r.line;
+            error(std::format("the `?` operator can only be used in a closure that returns `Result` or `Option` "
+                              "(or another type that implements `FromResidual`): this closure returns `{}` (E0277)",
+                              inferred ? type_str(inferred) : std::string("()")));
+            node_line_ = saved_line;
+            break;
         }
         if (inferred) ret_type = inferred;
     }
@@ -20492,7 +20338,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 v.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
                 break;
             }
-            case EC::Try:          scan_captures_v(lir_view::ETryView{e}.inner()); break;
             case EC::BlockExpr: {
                 auto v = lir_view::EBlockExprView{e};
                 if (auto b = v.block()) scan_block_v(b);
@@ -23895,57 +23740,6 @@ SemaChecker::MacroArgs SemaChecker::parse_macro_args_(TinyMapView call,
     macro_arg_docs_.push_back(std::move(doc));
     out.ok = true;
     return out;
-}
-
-lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body,
-                                                    std::string_view err_ctx) {
-    using logos::writ::AnyVal;
-    using logos::writ::WritAccess;
-    using logos::writ::TinyObjectMap;
-    std::string wrap_src = std::format(
-        "package __reparsed_expr;\nfn __f() -> i32 {{ {} }}\n", wrap_body);
-    logos::compiler::LogosParser parser(wrap_src);
-    auto doc = parser.parse_module();
-    if (doc.is_null() || !parser.at_eof()) {
-        error(std::format("{}: arguments do not parse as an expression", err_ctx));
-        return error_expr();
-    }
-    auto src_holder = doc.holder();
-    auto root = doc.root_object().as_tiny_map();
-    if (root.is_null()) { error(std::format("{}: parse produced null module", err_ctx)); return error_expr(); }
-    auto nav_array_first = [&](TinyMapView tom, uint8_t key) -> TinyMapView {
-        if (!tom || !tom.has_key(key)) return {};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return {};
-        auto arr = writ::as_array(av, src_holder);
-        if (arr.size() == 0) return {};
-        AnyVal el = arr.get(0);
-        if (!el.is_pointer()) return {};
-        return writ::as_tinymap(el, src_holder);
-    };
-    TinyMapView module_tom = root;
-    TinyMapView fn_def  = nav_array_first(module_tom, la::ITEMS.code);
-    if (!fn_def || !fn_def.has_key(la::BODY.code)) {
-        error(std::format("{}: arguments do not parse as an expression", err_ctx));
-        return error_expr();
-    }
-    AnyVal body_av = fn_def.get(la::BODY.code);
-    if (!body_av.is_pointer()) {
-        error(std::format("{}: arguments do not parse as an expression", err_ctx));
-        return error_expr();
-    }
-    // Lower the WHOLE fn body block as a block-expression: its statements run
-    // and its tail expression is the value. Handles both a single tail expr
-    // (include!) and a multi-statement push-block (vec! of non-Copy elements:
-    // `{ let mut __v = …; __v.push(e0); …; __v }`).
-    auto inc_holder = doc.holder();
-    auto prev = holder_;
-    holder_ = inc_holder;
-    // A reparsed body is a body: it goes through the HIR pass like any other.
-    TinyMapView body_view = hir_body_(body_av);
-    auto r = lower_expr(body_view);   // la::BLOCK → lower_block_expr
-    holder_ = prev;
-    return r;
 }
 
 lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {

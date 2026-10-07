@@ -1,0 +1,7 @@
+// ADR 0030 S10 row 2: `?` over `Result<_, E1>` in a fn returning `Result<_, E2>` needs `E2: From<E1>` (rustc E0277).
+package s10_try_error_without_from_refused;
+struct E1 { c: i32 }
+struct E2 { d: i32 }
+fn f(x: i32) -> Result<i32, E1> { if x > 0 { return Ok(x); } return Err(E1 { c: 4 }); }
+fn g(x: i32) -> Result<i32, E2> { let v = f(x)?; return Ok(v + 1); }
+fn main() -> i32 { return 0; }

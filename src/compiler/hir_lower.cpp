@@ -93,6 +93,7 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
     if (c == la::FIELD_SHORTHAND.code) return true;
     if (c == la::LABELED_BLOCK.code) return true;
     if (c == la::FOR.code || c == la::FOR_EACH.code) return true;
+    if (c == la::TRY_EXPR.code) return true;
     // `'a: for …`: the label moves onto the loop inside the desugared `for`.
     if (c == la::LABELED_LOOP.code && n.has_key(la::BODY)) {
         TinyMapView b = map_of(n.get(la::BODY.code));
@@ -300,6 +301,7 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
         return node(la::LABELED_LOOP.code, n, Origin::LabeledBlock, {{la::LABEL.code, label}, {la::BODY.code, lb}});
     }
     if (c == la::FOR.code || c == la::FOR_EACH.code) return for_loop(n, AnyVal{});
+    if (c == la::TRY_EXPR.code) return try_expr(n);
     if (c == la::LABELED_LOOP.code) {            // 'a: for … — relabel the inner loop
         TinyMapView m = map_of(n.get(la::BODY.code));
         writ::ArrayView arms(m.get(la::ITEMS.code), nullptr);
@@ -338,10 +340,6 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
 AnyVal Lowering::for_loop(TinyMapView n, AnyVal label) {
     (void)label;
     const Origin o = Origin::For;
-    auto lang = [&](std::string_view l, std::string_view fallback) {
-        std::string p = lang_path_ ? lang_path_(l) : std::string();
-        return p.empty() ? std::string(fallback) : p;
-    };
     AnyVal head;
     if (code_of(n) == la::FOR.code) {
         head = node(la::RANGE_EXPR.code, n, o,
@@ -360,9 +358,7 @@ AnyVal Lowering::for_loop(TinyMapView n, AnyVal label) {
         return node(la::STATIC_CALL.code, n, o,
                     {{la::RECEIVER.code, str(ty)}, {la::NAME.code, str(m)}, {la::ARGS.code, list_map(a)}});
     };
-    // The pattern names Option as the prelude does (a variant pattern resolves
-    // its enum by name in sema).
-    const std::string opt = "Option";
+    const std::string opt = lang_item_path(n, "Option");
     // A pattern that is not a plain binding (`(a, b)`, `&x`, `S { .. }`) is
     // bound by a `let` at the top of the body: the element is matched by a
     // fresh name, then destructured (the for pattern is irrefutable).
@@ -417,8 +413,50 @@ AnyVal Lowering::for_loop(TinyMapView n, AnyVal label) {
     AnyVal bind = node(la::PAT_WILD.code, n, o, {{la::NAME.code, str(it)}, {la::IS_MUT.code, AnyVal::from_value(true)}});
     AnyVal arm = node(la::MATCH_ARM.code, n, o, {{la::LHS.code, bind}, {la::BODY.code, loop}});
     return node(la::MATCH.code, n, o,
-                {{la::VALUE.code, static_call(lang("into_iterator", "IntoIterator"), "into_iter", {head})},
+                {{la::VALUE.code, static_call(lang_item_path(n, "into_iterator"), "into_iter", {head})},
                  {la::ITEMS.code, array({arm})}});
+}
+
+// `e?` (ADR 0030 S10 row 2), as rustc desugars it, over the lang items:
+//   match Try::branch(e) {
+//       ControlFlow::Continue(v) => v,
+//       ControlFlow::Break(r) => return FromResidual::from_residual(r),
+//   }
+// The `return` leaves the innermost fn or closure; from_residual's Self is
+// that body's return type.
+AnyVal Lowering::try_expr(TinyMapView n) {
+    const Origin o = Origin::Try;
+    auto static_call = [&](const std::string& ty, std::string_view m, AnyVal arg) {
+        return node(la::STATIC_CALL.code, n, o,
+                    {{la::RECEIVER.code, str(ty)}, {la::NAME.code, str(m)}, {la::ARGS.code, list_map({arg})}});
+    };
+    const std::string cf = lang_item_path(n, "control_flow");
+    const std::string v = std::format("__try_v{}", fresh_++), r = std::format("__try_r{}", fresh_++);
+    // An arm's value is its EXPR; a BODY is a block (the diverging arm).
+    auto arm = [&](std::string_view variant, const std::string& bind, uint8_t key, AnyVal body) {
+        AnyVal pat = node(la::PAT_VARIANT_DATA.code, n, o,
+                          {{la::NAME.code, str(cf)}, {la::FIELD.code, str(variant)},
+                           {la::ARGS.code, list_map({node(la::PAT_WILD.code, n, o, {{la::NAME.code, str(bind)}})})}});
+        return node(la::MATCH_ARM.code, n, o, {{la::LHS.code, pat}, {key, body}});
+    };
+    AnyVal residual = static_call(lang_item_path(n, "from_residual"), "from_residual",
+                                  node(la::VAR_REF.code, n, o, {{la::NAME.code, str(r)}}));
+    AnyVal ret = block({node(la::RETURN.code, n, o, {{la::VALUE.code, residual}})}, n, o);
+    return node(la::MATCH.code, n, o,
+                {{la::VALUE.code, static_call(lang_item_path(n, "try"), "branch", n.get(la::VALUE.code))},
+                 {la::ITEMS.code, array({arm("Continue", v, la::EXPR.code, node(la::VAR_REF.code, n, o, {{la::NAME.code, str(v)}})),
+                                         arm("Break", r, la::BODY.code, ret)})}});
+}
+
+// The path of a lang item (`pkg::Name`). A missing one is a malformed stdlib:
+// said loudly, never answered by a name in the user's scope.
+std::string Lowering::lang_item_path(TinyMapView at, std::string_view l) {
+    std::string p = lang_path_ ? lang_path_(l) : std::string();
+    if (p.empty()) {
+        diags_.push_back({line_of(at), std::format("internal: the lang item `{}` is not defined", l)});
+        return std::string(l);
+    }
+    return p;
 }
 
 // ── builders ────────────────────────────────────────────────────────────────

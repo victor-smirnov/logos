@@ -7268,6 +7268,17 @@ private:
         return it == enums_.end() ? std::pair<std::string, SemaEnumInfo*>{}
                                   : std::pair<std::string, SemaEnumInfo*>{li->package, &it->second};
     }
+    // A pattern's enum written as a path `pkg::Enum` (the HIR names lang items
+    // so): that enum by identity, and `name` becomes its bare name. end() for
+    // a single name.
+    auto path_enum_(std::string& name) -> decltype(enums_.end()) {
+        auto p = name.rfind("::");
+        if (p == std::string::npos) return enums_.end();
+        auto it = enums_.find(defs_.find(DefNs::Type, std::string_view(name).substr(0, p),
+                                         std::string_view(name).substr(p + 2)));
+        if (it != enums_.end()) name = name.substr(p + 2);
+        return it;
+    }
     std::pair<std::string, SemaEnumInfo*> find_enum_by_name(std::string_view name) {
         return lookup_qualified_<true>(enums_, name);
     }
@@ -9718,8 +9729,6 @@ private:
     const SemaFuncInfo* macro_in_scope_(const std::string& callee_name);
     std::deque<writ::Writ> macro_arg_docs_;
     std::deque<std::shared_ptr<std::string>> macro_arg_texts_;
-    lir::LExprPtr lower_reparsed_tail_expr(const std::string& wrap_body,
-                                           std::string_view err_ctx);
     lir::LExprPtr lower_macro_concat(writ::TinyMapView node);
     lir::LExprPtr lower_macro_concat_bytes(writ::TinyMapView node);
     // Bare `{ stmts; tail_expr }` as expression — lowers a BLOCK AST node
@@ -10604,11 +10613,6 @@ private:
                                               lir::LExprPtr scrut, TypeRef scrut_type);
     lir::LExprPtr lower_match_expr(writ::TinyMapView node);
     lir::LExprPtr match_expr_of_(MatchCore& mc);
-    // A `()`-typed match whose arms are statement blocks (a compiler-built
-    // match: `?` over a unit Ok, the `for` desugar). ADR 0030 S3.4c: there is
-    // no statement match, only an expression statement of a match.
-    lir_view::StmtRef unit_match_stmt_(lir::LExprPtr scrut,
-                                       std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms);
     // G156-2: mark a by-value move-type match scrutinee (var or place) moved
     // when THIS arm's pattern binds+moves out of it (whole-binding / struct /
     // tuple / variant payload). Called PER ARM, inside the arm's own move
@@ -10641,6 +10645,24 @@ private:
     std::string trait_targ_suffix(const std::vector<TypeRef>& args) const;
     TypeRef param_assoc_eq_(TypeRef base, std::string_view trait, std::string_view name);
     bool ufcs_self_by_value_ = false;   // see lower_static_call's UfcsSelfReset
+    // The `?` desugaring's match: its expected type, read by the
+    // `Try::branch(operand)` call so the operand sees the fn's carrier
+    // around it (`Ok(s.parse()?)` infers `parse::<F>` through `?`).
+    TypeRef try_match_shape_ = nullptr;
+    // The return types of the closure body being lowered without a declared
+    // return type (lower_closure_expr); null outside one.
+    struct ClosureReturn { TypeRef type; bool from_try; uint32_t line; };
+    std::vector<ClosureReturn>* closure_returns_ = nullptr;
+    // A type as written: an owning trait object prints as `Box<dyn Tr>` /
+    // `Rc<dyn Tr>` / `Arc<dyn Tr>` (type_str gives every trait object as `&dyn Tr`).
+    std::string type_str_owning_(TypeRef t) {
+        if (t && TypeRef(t).kind() == LogosType::Kind::TraitObject && TypeRef(t).owning_trait_object()) {
+            const auto k = TypeRef(t).trait_owning_kind();
+            const char* w = k == TypeRef::OwningKind::Rc ? "Rc" : k == TypeRef::OwningKind::Arc ? "Arc" : "Box";
+            return std::format("{}<dyn {}>", w, TypeRef(t).trait_name());
+        }
+        return type_str(t);
+    }
     struct BoundNamesScope {
         SemaChecker& sc;
         std::vector<std::pair<std::string, std::optional<std::vector<TraitBound>>>> saved;

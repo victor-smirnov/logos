@@ -576,6 +576,7 @@ pub trait IndexMut<Idx, Output>: Index<Idx, Output> {
 //     once the broader `core::ops::try_trait` surface lands.
 
 /// Directs short-circuiting operations: keep going with a `C`, or halt early with a `B`.
+#[lang = "control_flow"]
 pub enum ControlFlow<B, C> {
     /// Keeps the operation going, carrying the updated accumulator/state.
     Continue(C),

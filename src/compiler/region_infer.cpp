@@ -562,9 +562,6 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                 walk_expr(v.index(), "");
                 return;
             }
-            case ECode::Try:
-                walk_expr(ETryView{e}.inner(), "");
-                return;
             default:
                 return;
         }
@@ -742,9 +739,6 @@ void RegionInferer::use_def_for_stmt(lir_view::StmtRef sr,
                 walk_use(v.slice()); walk_use(v.index());
                 return;
             }
-            case ECode::Try:
-                walk_use(ETryView{e}.inner());
-                return;
             default:
                 return;
         }

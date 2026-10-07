@@ -462,9 +462,6 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
         break;
     }
-    case ECode::Try:
-        scan_expr(lir_view::ETryView{e}.inner());
-        break;
     case ECode::MatchExpr: {
         lir_view::EMatchExprView v{e};
         scan_expr(v.scrut());

@@ -947,15 +947,6 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 out_, rt_, op, hbf);
             break;
         }
-        case C::Try: {
-            lir_view::ETryView v{eref};
-            int32_t ok_disc  = v.ok_disc();
-            int32_t err_disc = v.err_disc();
-            auto inner = subst_child_expr(v.inner());
-            mp_ = lir_mirror_emit_try(
-                out_, rt_, inner, ok_disc, err_disc);
-            break;
-        }
         case C::SliceLit: {
             lir_view::ESliceLitView v{eref};
             auto base = subst_child_expr(v.base());
@@ -5587,9 +5578,6 @@ void Mono::collect_struct_needs_from_expr(lir_view::ExprRef e) {
         v.each_arg([&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
         break;
     }
-    case ECode::Try:
-        collect_struct_needs_from_expr(lir_view::ETryView{e}.inner());
-        break;
     case ECode::AddrOfTemp:
         collect_struct_needs_from_expr(lir_view::EAddrOfTempView{e}.inner());
         break;
