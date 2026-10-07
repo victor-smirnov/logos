@@ -112,6 +112,19 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
     }
     case K::IntLit:
         return p.const_val() && c.const_val() ? *p.const_val() == *c.const_val() : types_equal(c, p);
+    case K::TraitObject: {
+        // `Box<dyn Error + 'a>` is `Box<dyn Error>` to selection: the object's
+        // trait, form (owning kind, auto bounds) and trait arguments decide;
+        // its region does not (selection is region-erased, as in rustc).
+        if (!same_nominal(p.pkg_name(), c.pkg_name(), p.trait_name(), c.trait_name()) ||
+            p.const_val().value_or(0) != c.const_val().value_or(0))
+            return false;
+        auto pa = p.type_args(), ca = c.type_args();
+        if (pa.size() != ca.size()) return false;
+        for (size_t i = 0; i < pa.size(); ++i)
+            if (!unify(ca[i], pa[i], generics, s, pack)) return false;
+        return true;
+    }
     default:
         if (is_primitive_scalar_kind(p.kind())) return true;
         return types_equal(c, p);
@@ -351,6 +364,14 @@ struct Solver {
                 if (!best) best = r;
                 else if (!same_type(best, r)) ambiguous = true;
             }
+        if (!best && !ambiguous && env.supertraits && depth < 48) {
+            struct Depth { int& d; Depth(int& x) : d(x) { ++d; } ~Depth() { --d; } } guard{depth};
+            for (auto& sup : env.supertraits(trait))
+                if (auto r = project(sup, self, {}, name, item_args)) {
+                    if (!best) best = *r;
+                    else if (!same_type(best, *r)) ambiguous = true;
+                }
+        }
         if (ambiguous || !best) return std::nullopt;
         return best;
     }

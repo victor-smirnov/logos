@@ -1,7 +1,7 @@
 // SL-sl-05: `CycleIter<I, T>` — adapter that repeats `iter` forever.
 // Requires `I: Clone`; user struct uses `#[derive_clone]` from
 // logos.std.compiler.metaprog to satisfy the bound. The trait engine's
-// supertrait check now resolves `I: Iterator<T> + Clone` against an
+// supertrait check now resolves `I: Iterator<Item = T> + Clone` against an
 // `impl Clone for Counter` emitted by the metaprog hook.
 
 package iter_cycle_test;
@@ -15,7 +15,8 @@ use logos.lang.option;
 #[derive_clone]
 struct Counter { cur: i32, max: i32 }
 
-impl Iterator<i32> for Counter {
+impl Iterator for Counter {
+    type Item = i32;
     fn next(self: &mut Counter) -> Option<i32> {
         if self.cur >= self.max { return Option::None; }
         let v: i32 = self.cur;

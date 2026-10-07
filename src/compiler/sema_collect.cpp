@@ -1454,7 +1454,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             }
             if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
                                        LogosType::is_fn_value_kind(cv.kind()))) {
-                const int req = bound.trait_name == "Fn" ? 0 : bound.trait_name == "FnMut" ? 1 : 2;
+                const int req = bound.fn_level;
                 if (cv.kind() == LogosType::Kind::Closure) {
                     const int ck = obl_env_().closure_level(cv);
                     if (ck > req) {
@@ -1519,7 +1519,8 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
     auto add = [&](const SemaImplInfo& info, DefId trait_def) {
             obl::ImplFact f;
             f.trait = trait_def ? defs_.path(trait_def) : info.canonical_trait;
-            f.self = info.self_type ? info.self_type : info.target_typeref;
+            f.self = info.written_ref_slice ? info.written_ref_slice
+                   : info.self_type ? info.self_type : info.target_typeref;
             f.source = src++;
             obl_infos_.push_back(&info);
             if (!info.impl_node.empty()) obl_trait_of_node_[info.impl_node] = f.trait;
@@ -1664,6 +1665,12 @@ const obl::Env& SemaChecker::obl_env_() {
     };
     e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t); };
     e.unsized_of = [this](TypeRef s) { return make_unsized_slice_type(TypeRef(s).elem()); };
+    e.supertraits = [this](std::string_view trait) {
+        std::vector<std::string> out;
+        if (const SemaTraitInfo* ti = trait_by_key(trait))
+            for (auto& sp : ti->supertraits) out.push_back(bound_identity_(sp));
+        return out;
+    };
     // A closure literal's type states its family; a type synthesized from a bound
     // or a formal does not, and the signature-keyed map is the only key there is
     // (a carried decision, retired with the map at ADR 0029 S6).
@@ -3230,8 +3237,27 @@ void SemaChecker::collect_trait(TinyMapView node) {
                         for (uint64_t wi = 0; wi < witems.size(); ++wi) {
                             auto witem = map_of(witems.get(wi));
                             if (code_of(witem) != la::TYPE_PARAM) continue;
+                            if (!witem.has_key(la::NAME) && witem.has_key(la::TYPE) && witem.has_key(la::ITEMS)) {
+                                // `where Self::Item: Ord`: a bound on an item of Self.
+                                auto subj = map_of(witem.get(la::TYPE.code));
+                                if (code_of(subj) != la::ASSOC_TYPE_REF || !subj.has_key(la::RECEIVER)) continue;
+                                auto base = map_of(subj.get(la::RECEIVER.code));
+                                if (!base.has_key(la::NAME) || str_of(base.get(la::NAME.code)) != "Self") continue;
+                                std::string an(str_of(subj.get(la::FIELD.code)));
+                                auto inner = arr_of(witem.get(la::ITEMS.code));
+                                for (uint64_t bj = 0; bj < inner.size(); ++bj) {
+                                    auto bnode = map_of(inner.get(bj));
+                                    if (code_of(bnode) != la::TRAIT_BOUND) continue;
+                                    TraitBound rb;
+                                    rb.trait_name = std::string(str_of(bnode.get(la::NAME.code)));
+                                    read_trait_bound_args(bnode, rb);
+                                    resolve_bound_trait_(rb);
+                                    mi.self_proj_bounds.emplace_back(an, std::move(rb));
+                                }
+                                continue;
+                            }
                             std::string subject(str_of(witem.get(la::NAME.code)));
-                            if (!witem.has_key(la::ITEMS)) continue;
+                            if (subject.empty() || !witem.has_key(la::ITEMS)) continue;
                             auto inner = arr_of(witem.get(la::ITEMS.code));
                             for (uint64_t bj = 0; bj < inner.size(); ++bj) {
                                 auto bnode = map_of(inner.get(bj));
@@ -3482,6 +3508,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // TYPE is the target type (simple_type, ptr_type, or GENERIC_INST)
     std::string target;
     TypeRef target_resolved = nullptr;  // concrete resolved type (for Self)
+    TypeRef impl_written_ref_slice = nullptr;  // `impl Tr for &[T]`: the reference (the C-OBL fact's Self)
     if (node.has_key(la::TYPE)) {
         auto tnode = map_of(node.get(la::TYPE.code));
         if (code_of(tnode) == la::PTR_TYPE) {
@@ -3555,6 +3582,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // the slice-receiver dispatch calls (otherwise Self=Slice diverges
                 // and the body is never emitted under the expected name).
                 target_resolved = make_unsized_slice_type(selem);
+                impl_written_ref_slice = resolved;
             } else if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
                 bool has_tvar = false;
@@ -4523,6 +4551,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         SemaImplInfo pi{trait_name, target, impl_is_unsafe, impl_is_negative, target_resolved, impl_tps,
                         trait_type_args, trait_lt_args, impl_lt_params, impl_lt_outlives, {}, {}};
         pi.self_type = impl_self_ty;
+        pi.written_ref_slice = impl_written_ref_slice;
         pi.assoc_types = collecting_assoc_types_;
         pi.assoc_consts = collecting_assoc_consts_;
         pi.trait_def = impl_trait_id(trait_name);
@@ -4563,10 +4592,22 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (!t) return false;
                     // TypeVar = generic type param (T); AssocType = T::Item
                     // Both are polymorphic from the trait's perspective and
-                    // match any concrete type in the impl.
+                    // match any concrete type in the impl. A projection
+                    // nested in the slot (`Option<Self::Item>` of a supertrait's
+                    // item, not normalized while the impls are collected) too.
                     TypeRef tv{t};
-                    return tv.kind() == LogosType::Kind::TypeVar ||
-                           tv.kind() == LogosType::Kind::AssocType;
+                    if (tv.kind() == LogosType::Kind::TypeVar ||
+                        tv.kind() == LogosType::Kind::AssocType) return true;
+                    std::function<bool(TypeRef)> has_proj = [&](TypeRef x) -> bool {
+                        if (!x) return false;
+                        if (x.kind() == LogosType::Kind::AssocType) return true;
+                        for (auto a : x.type_args()) if (has_proj(a)) return true;
+                        if (x.pointee() && has_proj(x.pointee())) return true;
+                        if (x.elem() && has_proj(x.elem())) return true;
+                        for (auto e : x.tuple_elems()) if (has_proj(e)) return true;
+                        return false;
+                    };
+                    return has_proj(tv);
                 };
                 // Fn-family epic step B: detect a variadic trait type
                 // param (`pub trait Fn<A...> { fn call(&self, args: A...)
@@ -5460,6 +5501,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // `impl_trait_id`, and a homonym's impls live under a different one.
         const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), target};
         info.self_type = impl_self_ty;
+        info.written_ref_slice = impl_written_ref_slice;
         if (impl_self_ty && (TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedSlice ||
                              TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedDyn))
             impl_unsized_self_.insert(node_key_(node));
@@ -7184,6 +7226,11 @@ void SemaChecker::check_orphan_rule_() {
                 if (tk == K::Struct || tk == K::ZonedStruct || tk == K::Enum)
                     return module_of(TypeRef(t).pkg_name()) == info.module_id;
                 if (tk == K::TraitObject || tk == K::UnsizedDyn) {
+                    // `Box<dyn Tr>` is a Box: local in Box's own module, as `Box<T>` is.
+                    if (tk == K::TraitObject && TypeRef(t).owning_trait_object() &&
+                        TypeRef(t).trait_owning_kind() == TypeRef::OwningKind::Box)
+                        if (const LangItem* bx = lang_item("owned_box"); bx && module_of(bx->package) == info.module_id)
+                            return true;
                     // The object's trait, by its package when the type carries one.
                     std::string_view tn = TypeRef(t).trait_name();
                     std::string_view tp = TypeRef(t).pkg_name();

@@ -979,8 +979,6 @@ private:
                 if (can_carry(ot)) return taint_of(op);
                 return addr_arith_taint(op);
             }
-            case Code::Try:
-                return can_carry(t) ? taint_of(ETryView{e}.inner()) : 0;
             case Code::StructLit: {
                 uint64_t m = 0;
                 EStructLitView{e}.each_field_value([&](ExprRef fv){ m |= taint_of(fv); });
@@ -1284,7 +1282,6 @@ private:
             case Code::TupleIndex:  f(ETupleIndexView{e}.receiver()); break;
             case Code::Deref:       f(EDerefView{e}.operand()); break;
             case Code::Cast:        f(ECastView{e}.operand()); break;
-            case Code::Try:         f(ETryView{e}.inner()); break;
             case Code::AddrOfTemp:  f(EAddrOfTempView{e}.inner()); break;
             case Code::Unary:       f(EUnaryView{e}.operand()); break;
             case Code::BinOp: {
@@ -1551,12 +1548,6 @@ private:
                 if (auto b = v.else_block()) walk_block(b);
                 break;
             }
-            case Code::While: {
-                SWhileView v{sr};
-                call_effects(v.cond());
-                if (auto b = v.body()) walk_block(b);
-                break;
-            }
             // D1 round 12 / A1: a loop-as-expression deposits into its BREAK
             // SLOT, and `return loop { break v; }` therefore carries v's taint
             // to the result. Measured (LOGOS_DUMP_FLOWS): `pickl` summarised
@@ -1598,16 +1589,6 @@ private:
                 // exact shape of tests/logos/fail/bc_d1r13_p2_outparam_deposit
                 // put behind one `loop`/`break`.
                 if (v.value()) call_effects(v.value());
-                break;
-            }
-            case Code::For:
-                if (auto b = SForView{sr}.body()) walk_block(b);
-                break;
-            case Code::ForEach: {
-                SForEachView v{sr};
-                add_taint(std::string(v.var()), taint_of(v.iter()));
-                call_effects(v.iter());
-                if (auto b = v.body()) walk_block(b);
                 break;
             }
             case Code::Block:

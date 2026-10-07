@@ -2120,9 +2120,6 @@ static void ref_source_places(lir_view::ExprRef val, const TypePoolImpl* pool,
         // a non-VarRef and yields nothing, so `let s: &mut Vec<B> =
         // pick(&mut vs)?;` names no source place at all while the direct-
         // return twin `pickd(&mut vs)` refuses.
-        case Code::Try:
-            ref_source_places(ETryView{val}.inner(), pool, out, depth + 1);
-            return;
         // D1 round 13 / P1: an ARRAY LITERAL names what its ELEMENTS name.
         // The read side of the whole-container convention above: the array
         // place is the key every element's edge is recorded on, so the value
@@ -2648,7 +2645,6 @@ private:
             case Code::Unary:    return rec(EUnaryView{e}.operand());
             case Code::Deref:    return rec(EDerefView{e}.operand());
             case Code::Cast:     return rec(ECastView{e}.operand());
-            case Code::Try:      return rec(ETryView{e}.inner());
             case Code::FieldRead:  return rec(EFieldReadView{e}.receiver());
             case Code::TupleIndex: return rec(ETupleIndexView{e}.receiver());
             case Code::SliceLen:   return rec(ESliceLenView{e}.slice());
@@ -4426,38 +4422,6 @@ private:
                     [&](lir_view::EMatchArmRef arm) {
                         collect_ref_sources_paths(arm.value(), path, out);
                     });
-                return;
-            //
-            // ⚠ THIS ARM IS UNEXERCISED, AND SO ARE ROUND 13's TWO — MEASURED.
-            // A fire-count print inside all three `Code::Try` arms (this one,
-            // `ref_source_places`', `ref_sources_of`') counted ZERO fires over
-            // every `?`-using file in the corpus, INCLUDING round 13's own
-            // witness fail/bc_d1r13_p0c_try.logos. Control revert: with all
-            // three arms DELETED, that witness still refuses (rc=1), its twin
-            // still refuses, and its dead_admit control still admits — so
-            // round 13's P0c credit belongs to the OTHER half of that round
-            // (`ref_source_admissible` admitting a graph-recorded place whose
-            // root no `let` declared, i.e. sema's synthesized `__try_ok_N`),
-            // not to the Try arms.
-            //
-            // THE REASON: sema desugars `?` into a MATCH before the borrow
-            // checker runs, so a `Code::Try` never reaches any of these
-            // walkers. Round 14's `?` witness is fixed by Q6 below (the two
-            // missing pattern propagators at the rvalue-match site), which is
-            // where the shape actually arrives.
-            //
-            // KEPT, NOT DELETED, and the reason is the one this file's own
-            // rule warns about: the consumer may be on the other side.
-            // `lir_mirror.cpp`'s `emit_try_direct` can CONSTRUCT this node, so
-            // a round-tripped or metaprog-emitted LIR can carry a Try that the
-            // sema path never produces. An arm that agrees with the other
-            // three costs nothing and keeps round 8's one-shape-enumeration
-            // invariant true by inspection; deleting three arms on a corpus
-            // that cannot reach them would be trading a provable invariant for
-            // an unprovable absence. It is flagged here rather than pinned by
-            // a test because NO fixture can reach it through the front end.
-            case EC::Try:
-                collect_ref_sources_paths(lir_view::ETryView{e}.inner(), path, out);
                 return;
             case EC::Deref:
                 // `*rr` names what `rr` names. The projection walk in
@@ -11949,9 +11913,6 @@ private:
             case Code::Cast:
                 scan_uses_expr(ECastView{e}.operand(), line);
                 break;
-            case Code::Try:
-                scan_uses_expr(ETryView{e}.inner(), line);
-                break;
             case Code::FieldRead:
                 scan_uses_expr(EFieldReadView{e}.receiver(), line);
                 break;
@@ -12156,31 +12117,12 @@ private:
                 if (auto b = v.else_block()) scan_uses_block(b);
                 break;
             }
-            case Code::While: {
-                SWhileView v{sr};
-                scan_uses_expr(v.cond(), ln);
-                if (auto b = v.body()) scan_uses_block(b);
-                break;
-            }
-            case Code::For: {
-                SForView v{sr};
-                scan_uses_expr(v.lo(), ln);
-                scan_uses_expr(v.hi(), ln);
-                if (auto b = v.body()) scan_uses_block(b);
-                break;
-            }
             case Code::Loop:
                 if (auto b = SLoopView{sr}.body()) scan_uses_block(b);
                 break;
             case Code::Block:
                 if (auto b = SBlockView{sr}.body()) scan_uses_block(b);
                 break;
-            case Code::ForEach: {
-                SForEachView v{sr};
-                scan_uses_expr(v.iter(), ln);
-                if (auto b = v.body()) scan_uses_block(b);
-                break;
-            }
             case Code::LetElse: {
                 SLetElseView v{sr};
                 scan_uses_expr(v.scrut(), ln);
@@ -12992,10 +12934,6 @@ private:
             // is never consulted at all. Measured: `let s: &mut Vec<B> =
             // pick(&mut vs)?;` admitted a later `c.bump()` while the direct-
             // return twin `pickd(&mut vs)` refused it.
-            case Code::Try:
-                for (auto& p : ref_sources_of(ETryView{val}.inner(), depth + 1))
-                    add(std::move(p));
-                break;
             default: break;
         }
         return ok;
@@ -14767,22 +14705,8 @@ private:
             }
 
             // ── While loop ───────────────────────────────────────────────
-            case Code::While: {
-                SWhileView v{sr};
-                visit(v.cond(), /*consuming=*/true, ln);
-                if (auto b = v.body()) visit_loop_body(b, {}, v.label());
-                break;
-            }
 
             // ── For range loop ───────────────────────────────────────────
-            case Code::For: {
-                SForView v{sr};
-                visit(v.lo(), /*consuming=*/true, ln);
-                visit(v.hi(), /*consuming=*/true, ln);
-                if (auto b = v.body())
-                    visit_loop_body(b, {std::string(v.var())}, v.label(), {}, {}, v.var_mut());
-                break;
-            }
 
             // ── Infinite loop ─────────────────────────────────────────────
             case Code::Loop: {
@@ -14835,45 +14759,6 @@ private:
             }
 
             // ── For-each loop ─────────────────────────────────────────────
-            case Code::ForEach: {
-                SForEachView v{sr};
-                // ── CEILING PROBE `foreachitermove` — `for n in v` where
-                // `v: &mut Vec<T>` MOVES `v` in Rust: `IntoIterator for &mut
-                // Vec<T>` takes `self` BY VALUE, and `&mut T` is not Copy. This
-                // arm visits the iterable NON-consuming, so two consecutive
-                // `for n in v { … }` loops over one `&mut` compile (E0382).
-                // ⚠ SMALL POPULATION (rule 4): coverage 2026-08-28 gives this
-                // switch arm 104 arrivals over the whole instrumented run, so a
-                // zero here is NOT a refutation of the mechanism.
-                // ── MEASURED 2026-08-29: CEILING 0 / COST 0, SITE PROVEN LIVE
-                // AND THE PREDICATE TRUE. issue-83924 fires the probe TWICE —
-                // once per `for n in v` — so the arm is reached and the
-                // iterable IS `&mut Vec<i64>`, and the program still compiles
-                // rc 0. `visit` consumes a move type only at a bare VarRef, so
-                // the iterable is not one: sema has wrapped it, the same
-                // implicit-reborrow wrap that defeats `mrgenerictv` and
-                // `mrletann`. Confirmed on a 9-line repro with two loops over
-                // one `&mut Vec`: 2 fires, rc 0 armed and unarmed. All three
-                // `&mut T is not Copy` rows are blocked by ONE upstream fact,
-                // not three; the next round belongs at the WRAP, not here.
-                bool p_fim = logos::probe::on("foreachitermove") &&
-                             v.iter() && v.iter().type(pool) &&
-                             v.iter().type(pool).kind() ==
-                                 LogosType::Kind::MutRef;
-                visit(v.iter(), /*consuming=*/p_fim, ln);
-                // LANDED 2026-08-31r (`foreachitertmp`) — see PROBES.md.
-                if (v.iter() && is_ref_kind(v.iter().type(pool)))
-                    take_ref_borrows(v.iter(), ln,
-                                     "__foreach_it_" +
-                                         std::to_string(++scrut_tmp_seq_),
-                                     /*record_only=*/true);
-                if (auto b = v.body())
-                    // SForEachView carries no label accessor; unlabeled
-                    // break/continue (the common case) still target it as the
-                    // innermost frame.
-                    visit_loop_body(b, {std::string(v.var())}, {}, {}, {}, v.var_mut());
-                break;
-            }
 
             // SBreak / SContinue: capture the current move-state for the target
             // loop's dataflow (break → after-loop, continue → back-edge), then
@@ -16835,9 +16720,6 @@ void BorrowChecker::visit(lir_view::ExprRef e, bool consuming, uint32_t line) {
         }
 
         // ── Try expression: expr? ──────────────────────────────────────
-        case Code::Try:
-            visit(ETryView{e}.inner(), consuming, line);
-            break;
 
         // ── Slice ──────────────────────────────────────────────────────
         case Code::SliceLit: {

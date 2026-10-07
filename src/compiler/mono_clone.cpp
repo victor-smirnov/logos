@@ -947,15 +947,6 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 out_, rt_, op, hbf);
             break;
         }
-        case C::Try: {
-            lir_view::ETryView v{eref};
-            int32_t ok_disc  = v.ok_disc();
-            int32_t err_disc = v.err_disc();
-            auto inner = subst_child_expr(v.inner());
-            mp_ = lir_mirror_emit_try(
-                out_, rt_, inner, ok_disc, err_disc);
-            break;
-        }
         case C::SliceLit: {
             lir_view::ESliceLitView v{eref};
             auto base = subst_child_expr(v.base());
@@ -4096,27 +4087,6 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
             out_, ns.line, cond, then_blk, else_blk);
         break;
     }
-    case SCode::While: {
-        lir_view::SWhileView v{sref};
-        auto cond = subst_child_expr(v.cond());
-        auto body = subst_child_block(v.body());
-        std::string label(v.label());
-        ns.mirror_ptr_ = lir_mirror_emit_while(
-            out_, ns.line, cond, body, label);
-        break;
-    }
-    case SCode::For: {
-        lir_view::SForView v{sref};
-        std::string var(v.var());
-        auto lo = subst_child_expr(v.lo());
-        auto hi = subst_child_expr(v.hi());
-        bool inclusive = v.inclusive();
-        auto body = subst_child_block(v.body());
-        std::string label(v.label());
-        ns.mirror_ptr_ = lir_mirror_emit_for(
-            out_, ns.line, var, lo, hi, inclusive, body, label, v.var_slot(), v.var_mut());  // Phase-1
-        break;
-    }
     case SCode::Loop: {
         lir_view::SLoopView v{sref};
         auto body = subst_child_block(v.body());
@@ -4359,25 +4329,6 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
         v.each_moved_field([&](std::string_view f) { moved_fields.emplace_back(f); });
         ns.mirror_ptr_ = lir_mirror_emit_drop(
             out_, ns.line, var_name, drop_fn, ty, drop_fields, moved_fields, v.var_slot());
-        break;
-    }
-    case SCode::ForEach: {
-        lir_view::SForEachView v{sref};
-        std::string var(v.var());
-        auto iter = subst_child_expr(v.iter());
-        TypeRef elem_type = subst_type(v.elem_type(pool), s);
-        int64_t arr_size = v.arr_size();
-        bool is_slice = v.is_slice();
-        // Symbolic-length iterables (e.g. `for x in arr` where arr has type
-        // `[T; sizeof...(P)]`) record arr_size==0 at sema; re-derive from the
-        // substituted iter type once the pack length is concrete.
-        TypeRef iter_t = iter ? iter.type(out_.type_pool.impl()) : TypeRef{};
-        if (arr_size == 0 && !is_slice && iter && iter_t &&
-            iter_t.kind() == LogosType::Kind::Array)
-            arr_size = (int64_t)iter_t.arr_size();
-        auto body = subst_child_block(v.body());
-        ns.mirror_ptr_ = lir_mirror_emit_for_each(
-            out_, ns.line, var, iter, elem_type, arr_size, is_slice, body, v.var_slot(), v.var_mut(), v.label());  // Phase-1
         break;
     }
     case SCode::LetElse: {
@@ -4895,6 +4846,20 @@ const obl::Env& Mono::obl_env_() {
         us.elem = TypeRef(s).elem();
         return out_.type_pool.alloc(us);
     };
+    e.supertraits = [this](std::string_view trait) {
+        std::vector<std::string> out;
+        for (auto& td : out_.traits) {
+            std::string id = td.pkg().empty() ? std::string(td.name())
+                                              : std::string(td.pkg()) + "::" + std::string(td.name());
+            if (id != trait && td.name() != trait) continue;
+            for (auto sp : td.supertraits()) {
+                auto ids = bare_trait_identities_(std::string(sp));
+                if (!ids.empty()) out.push_back(ids.front());
+            }
+            break;
+        }
+        return out;
+    };
     return e;
 }
 
@@ -5371,26 +5336,6 @@ void Mono::collect_struct_needs_from_stmt(lir_view::StmtRef s) {
         collect_struct_needs_from_block(v.else_block());
         break;
     }
-    case SCode::While: {
-        lir_view::SWhileView v{s};
-        collect_struct_needs_from_expr(v.cond());
-        collect_struct_needs_from_block(v.body());
-        break;
-    }
-    case SCode::For: {
-        lir_view::SForView v{s};
-        collect_struct_needs_from_expr(v.lo());
-        collect_struct_needs_from_expr(v.hi());
-        collect_struct_needs_from_block(v.body());
-        break;
-    }
-    case SCode::ForEach: {
-        lir_view::SForEachView v{s};
-        collect_type_for_structs(v.elem_type(pool));
-        collect_struct_needs_from_expr(v.iter());
-        collect_struct_needs_from_block(v.body());
-        break;
-    }
     case SCode::Break:
         if (auto v = lir_view::SBreakView{s}.value())
             collect_struct_needs_from_expr(v);
@@ -5607,9 +5552,6 @@ void Mono::collect_struct_needs_from_expr(lir_view::ExprRef e) {
         v.each_arg([&](lir_view::ExprRef a) { collect_struct_needs_from_expr(a); });
         break;
     }
-    case ECode::Try:
-        collect_struct_needs_from_expr(lir_view::ETryView{e}.inner());
-        break;
     case ECode::AddrOfTemp:
         collect_struct_needs_from_expr(lir_view::EAddrOfTempView{e}.inner());
         break;

@@ -17,7 +17,7 @@
 //         type IntoIter = std::collections::btree_map::Values<'a, i32, T>;
 // Modifications:
 //   · `IntoIterator` -> a local `Tr` with the same two associated types and one
-//     method. The stdlib's `IntoIterator<Item>` takes the item as a TYPE PARAMETER,
+//     method. The stdlib's `IntoIterator<Item = Item>` takes the item as a TYPE PARAMETER,
 //     not an associated type, so it cannot carry this test; what E0207 is about is
 //     the impl's own lifetime parameter, which is unchanged.
 //   · `std::collections::btree_map::Values<'a, i32, T>` -> `&'a i64`. The only thing

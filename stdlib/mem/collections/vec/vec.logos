@@ -148,8 +148,8 @@ impl<T> Vec<T> {
 
     /// Appends every item of `iter` (Rust's `Extend::extend`): a `Vec`, an array,
     /// any `IntoIterator` of `T`.
-    pub fn extend<I: IntoIterator<T>>(&mut self, iter: I) {
-        vec_push_all::<I::Iter, T>(self, iter.into_iter());
+    pub fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        vec_push_all::<I::IntoIter, T>(self, iter.into_iter());
     }
 
     /// Writes `val` at index `i`. Panics on out-of-bounds.
@@ -338,9 +338,9 @@ impl<T: Clone> Clone for Vec<T> {
 // ── VecIter<T> ────────────────────────────────────────────────────────────────
 
 /// Borrowing iterator over a `Vec<T>` (`Vec::iter()` / `for x in &v`); yields `&T`.
-/// Owns nothing; `Drop` is a no-op. Mirrors Rust's `slice::Iter`.
+/// Owns nothing; `Drop` is a no-op. Mirrors Rust's `slice::IntoIter`.
 // `'a` is the Vec's borrow: items borrow the Vec, not the iterator (Rust's
-// `slice::Iter<'a, T>`).
+// `slice::IntoIter<'a, T>`).
 #[borrow_carrying]
 pub struct VecIter<'a, T> {
     data: *const T,
@@ -349,7 +349,8 @@ pub struct VecIter<'a, T> {
     back_idx: i64,
 }
 
-impl<'a, T> Iterator<&'a T> for VecIter<'a, T> {
+impl<'a, T> Iterator for VecIter<'a, T> {
+    type Item = &'a T;
     fn next(self: &mut VecIter<'a, T>) -> Option<&'a T> {
         if self.idx >= self.back_idx {
             return Option::None;
@@ -364,7 +365,7 @@ impl<'a, T> Iterator<&'a T> for VecIter<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator<&'a T> for VecIter<'a, T> {
+impl<'a, T> DoubleEndedIterator for VecIter<'a, T> {
     fn next_back(self: &mut VecIter<'a, T>) -> Option<&'a T> {
         if self.idx >= self.back_idx {
             return Option::None;
@@ -378,7 +379,7 @@ impl<'a, T> DoubleEndedIterator<&'a T> for VecIter<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator<&'a T> for VecIter<'a, T> {
+impl<'a, T> ExactSizeIterator for VecIter<'a, T> {
     fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 
@@ -395,7 +396,8 @@ pub struct VecIntoIter<T> {
     back_idx: i64,
 }
 
-impl<T> Iterator<T> for VecIntoIter<T> {
+impl<T> Iterator for VecIntoIter<T> {
+    type Item = T;
     fn next(self: &mut VecIntoIter<T>) -> Option<T> {
         if self.idx >= self.back_idx {
             return Option::None;
@@ -408,7 +410,7 @@ impl<T> Iterator<T> for VecIntoIter<T> {
     }
 }
 
-impl<T> DoubleEndedIterator<T> for VecIntoIter<T> {
+impl<T> DoubleEndedIterator for VecIntoIter<T> {
     fn next_back(self: &mut VecIntoIter<T>) -> Option<T> {
         if self.idx >= self.back_idx {
             return Option::None;
@@ -421,7 +423,7 @@ impl<T> DoubleEndedIterator<T> for VecIntoIter<T> {
     }
 }
 
-impl<T> ExactSizeIterator<T> for VecIntoIter<T> {
+impl<T> ExactSizeIterator for VecIntoIter<T> {
     fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 
@@ -455,7 +457,8 @@ pub struct VecIterMut<'a, T> {
     _inv: PhantomData<&'a mut T>,
 }
 
-impl<'a, T> Iterator<&'a mut T> for VecIterMut<'a, T> {
+impl<'a, T> Iterator for VecIterMut<'a, T> {
+    type Item = &'a mut T;
     fn next(self: &mut VecIterMut<'a, T>) -> Option<&'a mut T> {
         if self.idx >= self.len {
             return Option::None;
@@ -472,8 +475,9 @@ impl<'a, T> Iterator<&'a mut T> for VecIterMut<'a, T> {
 // ── IntoIterator impls ────────────────────────────────────────────────────────
 
 // `for x in v` — consumes the Vec, yields T by value (Rust parity).
-impl<T> IntoIterator<T> for Vec<T> {
-    type Iter = VecIntoIter<T>;
+impl<T> IntoIterator for Vec<T> {
+    type Item = T;
+    type IntoIter = VecIntoIter<T>;
     fn into_iter(self: Vec<T>) -> VecIntoIter<T> {
         // Transfer buffer ownership to the iterator: its Drop frees the heap.
         // Suppress self's auto-Drop by zeroing self.ptr through unsafe pointer
@@ -492,14 +496,22 @@ impl<T> IntoIterator<T> for Vec<T> {
 }
 
 // `for x in &v` — borrows, yields &T by reference (Rust parity).
-impl<'a, T> IntoIterator<&'a T> for &'a Vec<T> {
-    type Iter = VecIter<'a, T>;
+impl<'a, T> IntoIterator for &'a Vec<T> {
+    type Item = &'a T;
+    type IntoIter = VecIter<'a, T>;
     fn into_iter(self: &'a Vec<T>) -> VecIter<'a, T> {
         return VecIter {
             data: self.ptr as *const T, len: self.len,
             idx: 0i64, back_idx: self.len,
         };
     }
+}
+
+// `for x in &mut v` — mutable borrow, yields &mut T (Rust parity).
+impl<'a, T> IntoIterator for &'a mut Vec<T> {
+    type Item = &'a mut T;
+    type IntoIter = VecIterMut<'a, T>;
+    fn into_iter(self: &'a mut Vec<T>) -> VecIterMut<'a, T> { return self.iter_mut(); }
 }
 
 // ── FromIterator impl ─────────────────────────────────────────────────────────
@@ -515,7 +527,7 @@ impl<T> Extend<T> for Vec<T> {
 }
 
 impl<T> FromIterator<T> for Vec<T> {
-    fn from_iter<I: Iterator<T>>(iter: I) -> Vec<T> {
+    fn from_iter<I: Iterator<Item = T>>(iter: I) -> Vec<T> {
         let mut v: Vec<T> = vec_new::<T>();
         let mut it: I = iter;
         loop {
@@ -581,7 +593,7 @@ impl<T> Drop for Vec<T> {
 // `collect::<Result<Vec<T>, E>>()`).
 /// Collects an iterator of `Result<T, E>` into `Result<Vec<T>, E>`,
 /// short-circuiting on the first `Err`.
-pub fn iter_collect_result_vec<I: Iterator<Result<T, E>>, T, E>(iter: I) -> Result<Vec<T>, E> {
+pub fn iter_collect_result_vec<I: Iterator<Item = Result<T, E>>, T, E>(iter: I) -> Result<Vec<T>, E> {
     let mut it: I = iter;
     let mut out: Vec<T> = vec_new::<T>();
     loop {
@@ -602,7 +614,7 @@ pub fn iter_collect_result_vec<I: Iterator<Result<T, E>>, T, E>(iter: I) -> Resu
 // (and turbofish on a method-generic call) that isn't wired up yet. Lives
 // in this package — `iter` can't depend on `vec` (cycle).
 /// Drains an iterator into a new `Vec<T>`.
-pub fn iter_collect_vec<I: Iterator<T>, T>(iter: I) -> Vec<T> {
+pub fn iter_collect_vec<I: Iterator<Item = T>, T>(iter: I) -> Vec<T> {
     let mut it: I = iter;
     let mut out: Vec<T> = vec_new::<T>();
     loop {
@@ -616,7 +628,7 @@ pub fn iter_collect_vec<I: Iterator<T>, T>(iter: I) -> Vec<T> {
 
 /// Splits an iterator into two `Vec`s by a predicate: items where `pred` is true go to
 /// `first`, the rest to `second`. Rust's `Iterator::partition::<Vec<T>>` in free-fn form.
-pub fn iter_partition_vec<I: Iterator<T>, T>(
+pub fn iter_partition_vec<I: Iterator<Item = T>, T>(
     iter: I, pred: fn(&T) -> bool,
 ) -> ZipPair<Vec<T>, Vec<T>> {
     let mut it: I = iter;
@@ -647,7 +659,7 @@ pub instantiate Vec<i32>;
 
 // `Vec::extend`'s drain, over the iterator as a plain type parameter (whose
 // drop at the end is then scheduled like any generic local's).
-fn vec_push_all<J: Iterator<T>, T>(v: &mut Vec<T>, it: J) {
+fn vec_push_all<J: Iterator<Item = T>, T>(v: &mut Vec<T>, it: J) {
     let mut it2: J = it;
     loop {
         match it2.next() {

@@ -191,7 +191,8 @@ pub struct BTreeMapIter<'a, K, V> {
 // Yields `(&K, &V)` (Rust-conformant: `BTreeMap::iter()` borrows entries). The
 // keys/vals parallel arrays are stable during iteration, so `next()` returns
 // references into them rather than copying.
-impl<'a, K: Ord, V> Iterator<ZipPair<&'a K, &'a V>> for BTreeMapIter<'a, K, V> {
+impl<'a, K: Ord, V> Iterator for BTreeMapIter<'a, K, V> {
+    type Item = ZipPair<&'a K, &'a V>;
     fn next(self: &mut BTreeMapIter<'a, K, V>) -> Option<ZipPair<&'a K, &'a V>> {
         if self.idx >= self.len { return Option::None; }
         unsafe {
@@ -328,7 +329,8 @@ pub struct BTreeMapIterMut<'a, K, V> {
     _inv: PhantomData<&'a mut V>,
 }
 
-impl<'a, K: Ord, V> Iterator<ZipPair<&'a K, &'a mut V>> for BTreeMapIterMut<'a, K, V> {
+impl<'a, K: Ord, V> Iterator for BTreeMapIterMut<'a, K, V> {
+    type Item = ZipPair<&'a K, &'a mut V>;
     fn next(self: &mut BTreeMapIterMut<'a, K, V>) -> Option<ZipPair<&'a K, &'a mut V>> {
         if self.idx >= self.len { return Option::None; }
         unsafe {
@@ -351,7 +353,8 @@ pub struct BTreeMapValuesMut<'a, K, V> {
     _inv: PhantomData<&'a mut V>,
 }
 
-impl<'a, K: Ord, V> Iterator<&'a mut V> for BTreeMapValuesMut<'a, K, V> {
+impl<'a, K: Ord, V> Iterator for BTreeMapValuesMut<'a, K, V> {
+    type Item = &'a mut V;
     fn next(self: &mut BTreeMapValuesMut<'a, K, V>) -> Option<&'a mut V> {
         if self.idx >= self.len { return Option::None; }
         unsafe {
@@ -372,7 +375,8 @@ pub struct BTreeMapIntoIter<K, V> {
     idx:  i64,
 }
 
-impl<K, V> Iterator<(K, V)> for BTreeMapIntoIter<K, V> {
+impl<K, V> Iterator for BTreeMapIntoIter<K, V> {
+    type Item = (K, V);
     fn next(self: &mut BTreeMapIntoIter<K, V>) -> Option<(K, V)> {
         if self.idx >= self.len { return Option::None; }
         unsafe {
@@ -403,8 +407,9 @@ impl<K, V> Drop for BTreeMapIntoIter<K, V> {
 
 // `for (k, v) in map` — consumes the map: the arrays move to the iterator and the
 // map's own drop becomes a no-op (null `keys`/`vals`).
-impl<K: Ord, V> IntoIterator<(K, V)> for BTreeMap<K, V> {
-    type Iter = BTreeMapIntoIter<K, V>;
+impl<K: Ord, V> IntoIterator for BTreeMap<K, V> {
+    type Item = (K, V);
+    type IntoIter = BTreeMapIntoIter<K, V>;
     fn into_iter(self: BTreeMap<K, V>) -> BTreeMapIntoIter<K, V> {
         let it: BTreeMapIntoIter<K, V> = BTreeMapIntoIter {
             keys: self.keys, vals: self.vals, len: self.len, idx: 0 as i64,
@@ -424,7 +429,7 @@ impl<K: Ord, V> Default for BTreeMap<K, V> {
 // `iter.collect::<BTreeMap<K, V>>()` over `(K, V)` pairs; a later duplicate key
 // replaces the earlier value.
 impl<K: Ord, V> FromIterator<(K, V)> for BTreeMap<K, V> {
-    fn from_iter<I: Iterator<(K, V)>>(iter: I) -> BTreeMap<K, V> {
+    fn from_iter<I: Iterator<Item = (K, V)>>(iter: I) -> BTreeMap<K, V> {
         let mut m: BTreeMap<K, V> = btreemap_new::<K, V>();
         let mut it: I = iter;
         loop {

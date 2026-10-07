@@ -22,167 +22,6 @@ vec_box_invariant_in_t_refused 3 tests/soundness/open/vec_box_invariant_in_t_ref
 
 fnonce_generic_consume_skips_capture_drop 2 tests/soundness/open/fnonce_generic_consume_skips_capture_drop run 1
 
-# ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
-
-# ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
-# Read on the binary of build 10f55b7c2fa44145 43 (HEAD 69210911f): every cell
-# compiled, linked, RUN, and its DESTRUCTOR COUNT read off a raw-pointer counter —
-# a count for "how many", a `*c = *c * 10 + v` sequence counter for "in what order".
-# Six roots, named by symbol in each program's header, not by spelling.
-
-# (delete the row, decrement `# TOTAL`, land the program as a pass/fail fixture,
-# all in the same commit) or was never real. Before this file existed the queue
-# lived in prose and failed twice in four days: one defect was recorded under an
-# innocent program, and a "five owner fixtures wall this" verdict was carried six
-# rounds after four of the five had been repaired.
-#
-# ⚠ THE RECORDED BEHAVIOUR IS A MEASUREMENT WITH A DATE. It was read on the
-# binary of 2026-09-04 (HEAD ac27d1a99): compiled, linked, RUN, exit code and
-# stdout read, valgrind where a heap error was possible. A row's wrong behaviour
-# was never copied from a description — three of the five 2026-09-04 tier-1
-# candidates and the "type with both drops runs the inherent one" candidate did
-# not survive re-running and are not here.
-#
-# Format:  <id> <tier> <path relative to the repo root, no .logos> <observed...>
-#
-# `observed` is the WRONG behaviour today, machine-checkable, one of:
-#   admits          compiles with no diagnostic; rustc refuses the program
-#   refuses         does not compile clean (a diagnostic, or the compiler died);
-#                   the program is legal Rust
-#   run <rc>        compiles clean, links, and the binary exits <rc> (wrong)
-#   diag <text...>  refused, and stderr contains <text> — the program is
-#                   illegal, the SENTENCE is the defect
-# The reader compiles the way the pass tier does (LOGOS_VERIFY_LAYOUT=1), so a
-# compiler crash the fixture corpus would meet is a `refuses` here.
-#
-# `tier`:  1 memory corruption / wrong code runs      2 a class is not checked
-#          3 legal Rust refused                        4 diagnostics and hygiene
-#
-
-# 2026-09-14n-autoreftemp: seven spill sites of one class (an rvalue auto-borrowed with no owner) + an order guard + two unrelated defects its battery caught
-# 2026-09-14o-autoreffund: the autoref landing's neighbours rowed with a named reason, and out-of-class defects its battery caught
-
-# ── 2026-09-15b-refeqland (tier 1: a comparison of two references compares THROUGH them, sema lower_binop) ──
-# Five rows CLOSED (nested_ref_eq, ref_struct_eq, ref_pair_aggregate_eq, generic_ref_typevar_eq, ref_pair_ordering). Five rows
-# OPENED by the landing's hand battery (ref_pair_nonprim_tuple is ref_pair_aggregate's PART 4, re-rowed), each measured on base 854d99ae9a2e2fbd AND the landed binary; reason in each header.
-
-# ── 2026-09-15e-consume (PRICING, tier 1: a by-value operand placed into a consuming node is not marked moved — array literal elements,
-#    operator-overload operands, *Assign rhs) ── No row closes (no compiler change lands). Ten rows OPENED by the round's hand battery, each
-#    measured on base 72c2afc955f79321 43 and on the probe build 8477d9e792aadea6 43 unarmed and armed; the reason is in each program's header.
-
-# ── 2026-09-16j-arrpath2 (LANDING, tier 1: the move PATH under an array element, at BOTH pattern doors) ── Two rows CLOSE
-#    (match_array_nested_destructure_elem_double_drop, let_array_pattern_field_base_unbound_elem_leak); their programs are now pass fixtures.
-#    FIVE rows OPEN, every one of them a hand program of that round measured on BOTH binaries. The two `run 1` rows have the RIGHT destructor
-#    COUNT and the WRONG order/timing — they were INVISIBLE until the count was fixed, and no count- or rc-based oracle can see them.
-
-# ── 2026-09-15d-argrefland (tier 1: `&<reference binding>` is the address of the binding; a `&`-pattern chain loads to its core) ──
-# Six rows CLOSED (addr_of_struct_ref_local_arg, addr_of_ref_foreach_elem, addr_of_ref_match_binder, addr_of_ref_closure_capture,
-# addr_of_ref_closure_param _passes_referent_run, struct_pattern_over_double_ref_reads_slot_run) -> pass/bc_argrefland_*_admit. Four rows
-# OPENED by the landing's hand battery, each measured on base b96b980fb AND the candidate; the reason is in each program's header.
-
-# 2026-09-14i-harvest2: y3 (2026-09-12r-escroot) made exit-visible by a clobbering call; r22 (2026-09-14e-thruref) still admitted.
-# Both reproduce on build c52dcb19dff987ff 43; legality by reading. R6 (2026-09-09g) joined impl_fn_return_stack_env_dangles as its PART 3.
-
-# ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
-# Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
-# src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md. Five of the six CLOSED at the 2026-09-15 landing
-# (below); closure_param_shadow_double_drop stays, reason 1 (a closure parameter carries no slot).
-# ── 2026-09-15 shadowslot LANDING (tier 1: a drop resolves its binding by SLOT; a shadowed binding keeps its name-keyed records) ──
-# Eight rows CLOSED (shadowed_binding_never_dropped, shadow_over_param_double_drop, shadow_rebind_after_move_refused and five of
-# 14p's six). Four rows OPENED by the landing's hand battery, each measured on the base binary AND the landed binary:
-
-# ⚠ RE-OBSERVED 2026-09-17j-ptrland2, NOT FIXED AND NOT CLOSED. The collect_param_regions_ Ptr arm landed in that
-# commit opens this program's FIRST door, so it no longer reads 'variance mismatch — expected &*mut &'static i64'.
-# It now COMPILES and ANSWERS 1 where rustc 1.98.1 answers 0 (MEASURED, twin 2026-09-16l-refptee/rust/r01_rawptr.rs).
-# The `refuses` oracle would call that a closure; it is a MISCOMPILE, so the row is re-observed as `run 1` — a
-# stricter oracle than before (it now pins the wrong VALUE, not merely the refusal). Its second door is the tier-1
-# row refptr_param_eq_compares_outer_ref: control D02, which has no inner reference at all, runs 1 on the BASE
-# binary with nothing armed while its rustc twin runs 0. Carriers L03 and X03 of the same hand battery behave
-# identically and are covered by that tier-1 row rather than opening duplicates.
-
-# ── 2026-09-17b-ptrmentionland: TWO DEFECTS FOUND BY THE ABUSE DIRECTION OF A CONDEMNED ARM ──
-# Both reproduce on the SHIPPED compiler with NO probe installed (build_hash 8f5483d04b7c49ac 43).
-# They were found by carrier-varied counter-examples written to price `collect_param_regions_`
-# gaining a K::Ptr arm; that arm was MEASURED, REFUTED and NOT landed (it admits two programs
-# rustc refuses, E0597 each). These two rows need no arm and are independent of it.
-#
-# ptr_under_struct_field_region_escape_admitted — CLOSED 2026-09-17h-ptrland, run-verified.
-#    `type_is_ha` and `bc_holds_any_ref_type` gained a `Ptr` arm recursing into the pointee, so a
-#    raw pointer TO a reference now carries one: `Holder` enters `holds_any_ref`, the by-value
-#    parameter is seeded, the summary no longer claims `result<-0 EXACT`, and the program is
-#    REFUSED — "'r' does not live long enough … (E0597)", the escaping borrow named rather than the
-#    variance accident. Landed as tests/logos/fail/bc_0917h_ptrland_hb_x1_refuse; the TUPLE-field
-#    and ARRAY-field carriers, which were unrowed and ran 8 and 6 on the shipped binary, are closed
-#    by the SAME change and landed beside it as hb_x2/hb_x3.
-#
-# refptr_param_eq_compares_outer_ref — `==` on a `&*mut T` PARAMETER compares the OUTER REFERENCE
-#    instead of the pointer, so two copies of one pointer compare unequal: exit 1 where rustc gives 0.
-#    ⚠ It CORRECTS a recorded claim: round 2026-09-17a saw this only through `&*mut &'a i64`, whose
-#    shape is refused on base by an unrelated region defect, and recorded it as "unreachable until
-#    the region door opens — doors in series". With no inner reference it is reachable TODAY.
-#    Control on the same binary: the direct `p == q` spelling runs 0, correctly.
-
-# ── 2026-09-14j-fnptrbinder: defects the pricing round's hand battery found around a fn-pointer type's own regions (an elided
-# slot read as a wildcard, a `for<..>` binder read as the enclosing scope's name), each reproducing on build c52dcb19dff987ff 43
-# before any edit; the reason a neighbour is rowed rather than moved is in each program's header.
-
-# ── 2026-09-14b-ptrcoerceland: the landing's five rowed neighbours (reason in each program's header) and nine
-# defects its hand battery found, each reproducing identically on base 6d1bbee8344b2a81 and landed 33067b51ad15d447.
-
-# ── 2026-09-14f-thrurefland: defects the landing round's hand battery found beside the pointer-comparison arm and the
-# overwrite-through-reference readers, each reproducing on base baa2a38e8b650fb3 43 before any edit; hands in each header.
-
-# ── 2026-09-17d-arrlit: TWO ESCAPE CARRIERS THE ArrLit ARM DOES NOT REACH ──
-# Both reproduce on the binary this commit ships (the ArrLit arm INSTALLED) and both were
-# MEASURED unmoved by it — they are rowed, not deferred, each with its reason:
-#
-# try_operator_result_local_borrow_escape_admitted — reason 1, NO CARRIER IN THAT ARM. The
-#    borrow leaves through the `?` operator, a DIFFERENT node kind: `prov_of_raw` has no
-#    `Try` arm at all. tools/dlog (`prov_arms.dl`) names `Try` with SIX sibling walkers that
-#    do have it. Armed binary: cc=0, runs 0. rustc 1.98.1 REFUSES (E0515).
-#
-# struct_ref_param_field_return_exact_summary_escape_admitted — reason 1, the fact has no
-#    carrier at this site: the argument is never merged AT ALL, because the callee's flow
-#    summary reads `result<-0 EXACT` (param 0 "does not reach the result") although `pick`
-#    returns `x.r` — and being EXACT it also cancels elision. So no arm in `prov_of_raw`
-#    can see it; the repair is in the summary's taint mask. Armed binary: cc=0, RUNS 9,
-#    reading a dead local. rustc 1.98.1 REFUSES (E0515). ⚠ NOT the same row as
-#    ptr_under_struct_field_region_escape_admitted (raw pointer + region collection) — that row
-#    was CLOSED 2026-09-17h-ptrland by a `Ptr` arm in the holds_any_ref walkers, and THIS row was
-#    MEASURED UNMOVED by that same change (cc=0, still RUNS 9): the grouping that paired them on
-#    an identical `result<-0 EXACT` summary is refuted by one armed change. Its own door is
-#    `stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`.
-# ── 2026-09-14e-thruref: eight defects the pricing round's hand battery found around issue-51117's three doors and the
-# pointer-comparison arm, each reproducing on base baa2a38e8b650fb3 43 (read) before any edit; reason and hands in each header.
-# ── 2026-09-14l-storeedge: defects the pricing round's hand battery found around apply_flow_outparams' A2 alias edge (a
-# container that STORES a reference recorded as an alias of its referent) and its neighbours, each reproducing on build
-# 0230e503bd682184 43 before any edit; the probe measurements and the reason a neighbour is rowed are in each header.
-
-# ── 2026-09-15c-argref (PRICING, tier 1: `&<reference binding>` is one level short — scope_ holds the reference VALUE, EAddrOf returns it) ──
-# Nine rows OPENED by the round's hand battery, each measured on build/ 98ca3fa669468808 43 unarmed. Four are members of
-# addr_of_struct_ref_local_arg_passes_referent_run's class at binders with a DIFFERENT record (for-each R, match/if-let VT, capture V,
-# closure parameter none); argrefland moves the first three, argreflandx all four (src/compiler/probes/2026-09-15c-argref/RESULT.txt).
-# Five are out-of-class legal refusals the battery met.
-# ── 2026-09-16n-arrstore2 (LANDING, tier 3: the array place write's TWO guards are doors in SERIES) ── Two rows CLOSE
-#    (array_store_value_reads_loan_refused, array_index_store_index_reads_loan_refused): borrow_check.cpp's place-write
-#    exclusivity report AND the second guard of the same `AddrOfTemp` arm both ask store_loans_die_in_stmt_ now, the
-#    second one scoped to the store's own LHS. 16m opened the first alone and measured CEILING 0 — doors in series.
-#    Both programs are now pass fixtures, each COMPILING and RUNNING exit 0 against its rustc 1.98.1 twin.
-#    ONE row OPENS: the same shape with the array as a STRUCT FIELD. Neighbour rowed with its reason (no carrier):
-#    it is refused by take_field_borrow_path_'s FIELD-PATH guard, and the store-liveness query returns false by its
-#    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
-#    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
-
-# ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
-# array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
-# moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
-# MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
-
-# 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
-# 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
-# listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
-iterator_trait_item_assoc_type_refused 3 tests/soundness/open/iterator_trait_item_assoc_type_refused refuses
-
 str_slice_char_boundary_unchecked 2 tests/soundness/open/str_slice_char_boundary_unchecked run 0
 
 partialeq_heterogeneous_rhs_refused 3 tests/soundness/open/partialeq_heterogeneous_rhs_refused refuses
@@ -207,8 +46,6 @@ closure_mixed_return_types_crash 2 tests/soundness/open/closure_mixed_return_typ
 closure_move_capture_drop_delayed_wrong 2 tests/soundness/open/closure_move_capture_drop_delayed_wrong run 1
 
 closure_param_type_from_usage_refused 2 tests/soundness/open/closure_param_type_from_usage_refused refuses
-
-custom_iterator_item_assoc_type_refused 2 tests/soundness/open/custom_iterator_item_assoc_type_refused refuses
 
 destructuring_assign_assignee_forms_refused 2 tests/soundness/open/destructuring_assign_assignee_forms_refused refuses
 
@@ -432,8 +269,6 @@ derive_debug_c_field_cstr_refused 3 tests/soundness/open/derive_debug_c_field_cs
 
 collect_into_option_refused 3 tests/soundness/open/collect_into_option_refused refuses
 
-array_by_value_into_iter_refused 3 tests/soundness/open/array_by_value_into_iter_refused refuses
-
 # ── 2026-10-01 long-red fail fixtures re-triaged: holes owned by a later step
 guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_scrutinee_admits admits
 
@@ -443,5 +278,169 @@ raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused r
 
 default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/default_method_generics_shadow_impl_generics_refused refuses
 
-# TOTAL 132
-# SYNC-HASH 3c20b5348d5dc2f0f166b1b91d89c4d0
+ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_after_region_erased_binding_refused refuses
+
+method_on_ref_array_impl_refused 3 tests/soundness/open/method_on_ref_array_impl_refused refuses
+
+# ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
+
+# ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
+# Read on the binary of build 10f55b7c2fa44145 43 (HEAD 69210911f): every cell
+# compiled, linked, RUN, and its DESTRUCTOR COUNT read off a raw-pointer counter —
+# a count for "how many", a `*c = *c * 10 + v` sequence counter for "in what order".
+# Six roots, named by symbol in each program's header, not by spelling.
+
+# (delete the row, decrement `# TOTAL`, land the program as a pass/fail fixture,
+# all in the same commit) or was never real. Before this file existed the queue
+# lived in prose and failed twice in four days: one defect was recorded under an
+# innocent program, and a "five owner fixtures wall this" verdict was carried six
+# rounds after four of the five had been repaired.
+#
+# ⚠ THE RECORDED BEHAVIOUR IS A MEASUREMENT WITH A DATE. It was read on the
+# binary of 2026-09-04 (HEAD ac27d1a99): compiled, linked, RUN, exit code and
+# stdout read, valgrind where a heap error was possible. A row's wrong behaviour
+# was never copied from a description — three of the five 2026-09-04 tier-1
+# candidates and the "type with both drops runs the inherent one" candidate did
+# not survive re-running and are not here.
+#
+# Format:  <id> <tier> <path relative to the repo root, no .logos> <observed...>
+#
+# `observed` is the WRONG behaviour today, machine-checkable, one of:
+#   admits          compiles with no diagnostic; rustc refuses the program
+#   refuses         does not compile clean (a diagnostic, or the compiler died);
+#                   the program is legal Rust
+#   run <rc>        compiles clean, links, and the binary exits <rc> (wrong)
+#   diag <text...>  refused, and stderr contains <text> — the program is
+#                   illegal, the SENTENCE is the defect
+# The reader compiles the way the pass tier does (LOGOS_VERIFY_LAYOUT=1), so a
+# compiler crash the fixture corpus would meet is a `refuses` here.
+#
+# `tier`:  1 memory corruption / wrong code runs      2 a class is not checked
+#          3 legal Rust refused                        4 diagnostics and hygiene
+#
+
+# 2026-09-14n-autoreftemp: seven spill sites of one class (an rvalue auto-borrowed with no owner) + an order guard + two unrelated defects its battery caught
+# 2026-09-14o-autoreffund: the autoref landing's neighbours rowed with a named reason, and out-of-class defects its battery caught
+
+# ── 2026-09-15b-refeqland (tier 1: a comparison of two references compares THROUGH them, sema lower_binop) ──
+# Five rows CLOSED (nested_ref_eq, ref_struct_eq, ref_pair_aggregate_eq, generic_ref_typevar_eq, ref_pair_ordering). Five rows
+# OPENED by the landing's hand battery (ref_pair_nonprim_tuple is ref_pair_aggregate's PART 4, re-rowed), each measured on base 854d99ae9a2e2fbd AND the landed binary; reason in each header.
+
+# ── 2026-09-15e-consume (PRICING, tier 1: a by-value operand placed into a consuming node is not marked moved — array literal elements,
+#    operator-overload operands, *Assign rhs) ── No row closes (no compiler change lands). Ten rows OPENED by the round's hand battery, each
+#    measured on base 72c2afc955f79321 43 and on the probe build 8477d9e792aadea6 43 unarmed and armed; the reason is in each program's header.
+
+# ── 2026-09-16j-arrpath2 (LANDING, tier 1: the move PATH under an array element, at BOTH pattern doors) ── Two rows CLOSE
+#    (match_array_nested_destructure_elem_double_drop, let_array_pattern_field_base_unbound_elem_leak); their programs are now pass fixtures.
+#    FIVE rows OPEN, every one of them a hand program of that round measured on BOTH binaries. The two `run 1` rows have the RIGHT destructor
+#    COUNT and the WRONG order/timing — they were INVISIBLE until the count was fixed, and no count- or rc-based oracle can see them.
+
+# ── 2026-09-15d-argrefland (tier 1: `&<reference binding>` is the address of the binding; a `&`-pattern chain loads to its core) ──
+# Six rows CLOSED (addr_of_struct_ref_local_arg, addr_of_ref_foreach_elem, addr_of_ref_match_binder, addr_of_ref_closure_capture,
+# addr_of_ref_closure_param _passes_referent_run, struct_pattern_over_double_ref_reads_slot_run) -> pass/bc_argrefland_*_admit. Four rows
+# OPENED by the landing's hand battery, each measured on base b96b980fb AND the candidate; the reason is in each program's header.
+
+# 2026-09-14i-harvest2: y3 (2026-09-12r-escroot) made exit-visible by a clobbering call; r22 (2026-09-14e-thruref) still admitted.
+# Both reproduce on build c52dcb19dff987ff 43; legality by reading. R6 (2026-09-09g) joined impl_fn_return_stack_env_dangles as its PART 3.
+
+# ── 2026-09-14p-shadowslot (PRICING, tier 1: a drop names its binding by a NAME that denotes a later binding) ──
+# Six rows OPENED by the round's hand battery, each measured on the unarmed binary; the priced arms that move them are in
+# src/compiler/probes/2026-09-14p-shadowslot/RESULT.txt and src/compiler/PROBES.md. Five of the six CLOSED at the 2026-09-15 landing
+# (below); closure_param_shadow_double_drop stays, reason 1 (a closure parameter carries no slot).
+# ── 2026-09-15 shadowslot LANDING (tier 1: a drop resolves its binding by SLOT; a shadowed binding keeps its name-keyed records) ──
+# Eight rows CLOSED (shadowed_binding_never_dropped, shadow_over_param_double_drop, shadow_rebind_after_move_refused and five of
+# 14p's six). Four rows OPENED by the landing's hand battery, each measured on the base binary AND the landed binary:
+
+# ⚠ RE-OBSERVED 2026-09-17j-ptrland2, NOT FIXED AND NOT CLOSED. The collect_param_regions_ Ptr arm landed in that
+# commit opens this program's FIRST door, so it no longer reads 'variance mismatch — expected &*mut &'static i64'.
+# It now COMPILES and ANSWERS 1 where rustc 1.98.1 answers 0 (MEASURED, twin 2026-09-16l-refptee/rust/r01_rawptr.rs).
+# The `refuses` oracle would call that a closure; it is a MISCOMPILE, so the row is re-observed as `run 1` — a
+# stricter oracle than before (it now pins the wrong VALUE, not merely the refusal). Its second door is the tier-1
+# row refptr_param_eq_compares_outer_ref: control D02, which has no inner reference at all, runs 1 on the BASE
+# binary with nothing armed while its rustc twin runs 0. Carriers L03 and X03 of the same hand battery behave
+# identically and are covered by that tier-1 row rather than opening duplicates.
+
+# ── 2026-09-17b-ptrmentionland: TWO DEFECTS FOUND BY THE ABUSE DIRECTION OF A CONDEMNED ARM ──
+# Both reproduce on the SHIPPED compiler with NO probe installed (build_hash 8f5483d04b7c49ac 43).
+# They were found by carrier-varied counter-examples written to price `collect_param_regions_`
+# gaining a K::Ptr arm; that arm was MEASURED, REFUTED and NOT landed (it admits two programs
+# rustc refuses, E0597 each). These two rows need no arm and are independent of it.
+#
+# ptr_under_struct_field_region_escape_admitted — CLOSED 2026-09-17h-ptrland, run-verified.
+#    `type_is_ha` and `bc_holds_any_ref_type` gained a `Ptr` arm recursing into the pointee, so a
+#    raw pointer TO a reference now carries one: `Holder` enters `holds_any_ref`, the by-value
+#    parameter is seeded, the summary no longer claims `result<-0 EXACT`, and the program is
+#    REFUSED — "'r' does not live long enough … (E0597)", the escaping borrow named rather than the
+#    variance accident. Landed as tests/logos/fail/bc_0917h_ptrland_hb_x1_refuse; the TUPLE-field
+#    and ARRAY-field carriers, which were unrowed and ran 8 and 6 on the shipped binary, are closed
+#    by the SAME change and landed beside it as hb_x2/hb_x3.
+#
+# refptr_param_eq_compares_outer_ref — `==` on a `&*mut T` PARAMETER compares the OUTER REFERENCE
+#    instead of the pointer, so two copies of one pointer compare unequal: exit 1 where rustc gives 0.
+#    ⚠ It CORRECTS a recorded claim: round 2026-09-17a saw this only through `&*mut &'a i64`, whose
+#    shape is refused on base by an unrelated region defect, and recorded it as "unreachable until
+#    the region door opens — doors in series". With no inner reference it is reachable TODAY.
+#    Control on the same binary: the direct `p == q` spelling runs 0, correctly.
+
+# ── 2026-09-14j-fnptrbinder: defects the pricing round's hand battery found around a fn-pointer type's own regions (an elided
+# slot read as a wildcard, a `for<..>` binder read as the enclosing scope's name), each reproducing on build c52dcb19dff987ff 43
+# before any edit; the reason a neighbour is rowed rather than moved is in each program's header.
+
+# ── 2026-09-14b-ptrcoerceland: the landing's five rowed neighbours (reason in each program's header) and nine
+# defects its hand battery found, each reproducing identically on base 6d1bbee8344b2a81 and landed 33067b51ad15d447.
+
+# ── 2026-09-14f-thrurefland: defects the landing round's hand battery found beside the pointer-comparison arm and the
+# overwrite-through-reference readers, each reproducing on base baa2a38e8b650fb3 43 before any edit; hands in each header.
+
+# ── 2026-09-17d-arrlit: TWO ESCAPE CARRIERS THE ArrLit ARM DOES NOT REACH ──
+# Both reproduce on the binary this commit ships (the ArrLit arm INSTALLED) and both were
+# MEASURED unmoved by it — they are rowed, not deferred, each with its reason:
+#
+# try_operator_result_local_borrow_escape_admitted — reason 1, NO CARRIER IN THAT ARM. The
+#    borrow leaves through the `?` operator, a DIFFERENT node kind: `prov_of_raw` has no
+#    `Try` arm at all. tools/dlog (`prov_arms.dl`) names `Try` with SIX sibling walkers that
+#    do have it. Armed binary: cc=0, runs 0. rustc 1.98.1 REFUSES (E0515).
+#
+# struct_ref_param_field_return_exact_summary_escape_admitted — reason 1, the fact has no
+#    carrier at this site: the argument is never merged AT ALL, because the callee's flow
+#    summary reads `result<-0 EXACT` (param 0 "does not reach the result") although `pick`
+#    returns `x.r` — and being EXACT it also cancels elision. So no arm in `prov_of_raw`
+#    can see it; the repair is in the summary's taint mask. Armed binary: cc=0, RUNS 9,
+#    reading a dead local. rustc 1.98.1 REFUSES (E0515). ⚠ NOT the same row as
+#    ptr_under_struct_field_region_escape_admitted (raw pointer + region collection) — that row
+#    was CLOSED 2026-09-17h-ptrland by a `Ptr` arm in the holds_any_ref walkers, and THIS row was
+#    MEASURED UNMOVED by that same change (cc=0, still RUNS 9): the grouping that paired them on
+#    an identical `result<-0 EXACT` summary is refuted by one armed change. Its own door is
+#    `stored_shared_extract`, which cancels whenever the projection spine's root is a `Ref`.
+# ── 2026-09-14e-thruref: eight defects the pricing round's hand battery found around issue-51117's three doors and the
+# pointer-comparison arm, each reproducing on base baa2a38e8b650fb3 43 (read) before any edit; reason and hands in each header.
+# ── 2026-09-14l-storeedge: defects the pricing round's hand battery found around apply_flow_outparams' A2 alias edge (a
+# container that STORES a reference recorded as an alias of its referent) and its neighbours, each reproducing on build
+# 0230e503bd682184 43 before any edit; the probe measurements and the reason a neighbour is rowed are in each header.
+
+# ── 2026-09-15c-argref (PRICING, tier 1: `&<reference binding>` is one level short — scope_ holds the reference VALUE, EAddrOf returns it) ──
+# Nine rows OPENED by the round's hand battery, each measured on build/ 98ca3fa669468808 43 unarmed. Four are members of
+# addr_of_struct_ref_local_arg_passes_referent_run's class at binders with a DIFFERENT record (for-each R, match/if-let VT, capture V,
+# closure parameter none); argrefland moves the first three, argreflandx all four (src/compiler/probes/2026-09-15c-argref/RESULT.txt).
+# Five are out-of-class legal refusals the battery met.
+# ── 2026-09-16n-arrstore2 (LANDING, tier 3: the array place write's TWO guards are doors in SERIES) ── Two rows CLOSE
+#    (array_store_value_reads_loan_refused, array_index_store_index_reads_loan_refused): borrow_check.cpp's place-write
+#    exclusivity report AND the second guard of the same `AddrOfTemp` arm both ask store_loans_die_in_stmt_ now, the
+#    second one scoped to the store's own LHS. 16m opened the first alone and measured CEILING 0 — doors in series.
+#    Both programs are now pass fixtures, each COMPILING and RUNNING exit 0 against its rustc 1.98.1 twin.
+#    ONE row OPENS: the same shape with the array as a STRUCT FIELD. Neighbour rowed with its reason (no carrier):
+#    it is refused by take_field_borrow_path_'s FIELD-PATH guard, and the store-liveness query returns false by its
+#    first line whenever the root has any shared_field_borrows — which is that program exactly, so the repair is a
+#    different change, not a strict extension of the landed one. MEASURED unmoved by the arm (nerr 1).
+
+# ── 2026-09-17j-ptrland2: the row this round's OWN carrier battery found. J05 varied the carrier to
+# array-nested-in-tuple; on base it was refused by the region door this commit closes, and closing that door
+# moved it onto a SECOND door in the backend (an llvm.getelementptr on an array VALUE). Legal Rust, rustc
+# MEASURED accepts and runs 0. Doors in series — reason 2 — the reason in the program's header.
+
+# 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
+# 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
+# listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
+
+# TOTAL 131
+# SYNC-HASH 0f4bc34ca63ed621c3af2527e315f3f0

@@ -114,7 +114,8 @@ impl<T: Ord> Default for BinaryHeap<T> {
 }
 
 /// `for x in heap` — consumes the heap, yielding its elements in arbitrary order.
-impl<T: Ord> IntoIterator<T> for BinaryHeap<T> {
-    type Iter = VecIntoIter<T>;
+impl<T: Ord> IntoIterator for BinaryHeap<T> {
+    type Item = T;
+    type IntoIter = VecIntoIter<T>;
     fn into_iter(self: BinaryHeap<T>) -> VecIntoIter<T> { return self.into_vec().into_iter(); }
 }

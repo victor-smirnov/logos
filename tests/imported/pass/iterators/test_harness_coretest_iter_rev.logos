@@ -13,7 +13,7 @@
 //   `cloned` skipped — those adapters are deferred (see SL-sl-05 row).
 //
 // Surfaces exercised (closures of these gaps):
-// - SL-sl-05: DoubleEndedIterator<i32> for SliceIter, RevIter adapter,
+// - SL-sl-05: DoubleEndedIterator<Item = i32> for SliceIter, RevIter adapter,
 //   `.rev()` trait-default, `.nth(n)` trait-default.
 // - CP-cm-14: `.collect::<Vec<i32>>()` through method-tparam inference.
 

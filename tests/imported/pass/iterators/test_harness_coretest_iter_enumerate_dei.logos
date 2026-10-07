@@ -9,7 +9,7 @@
 // - `(i, x)` tuple yield, read via `.0` / `.1`.
 // - assert_eq! family imports via logos.std.fmt + std.lang.text.
 //
-// Stdlib companion: `impl DoubleEndedIterator<(i64, T)> for
+// Stdlib companion: `impl DoubleEndedIterator<Item = (i64, T)> for
 // EnumIter<I, T>` (where I: DEI + ExactSizeIterator). Position
 // computed as `self.idx + inner.len()` after the back-pull.
 

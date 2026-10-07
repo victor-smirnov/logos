@@ -8,7 +8,8 @@ use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
 struct Words<'a> { s: &'a str, done: bool }
-impl<'a> Iterator<&'a str> for Words<'a> {
+impl<'a> Iterator for Words<'a> {
+    type Item = &'a str;
     fn next(self: &mut Words<'a>) -> Option<&'a str> {
         if self.done { return None; }
         self.done = true;

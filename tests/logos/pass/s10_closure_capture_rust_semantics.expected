@@ -1,0 +1,14 @@
+exit: 0
+stdout:
+20 7
+3 9
+apply 6
+drop 3
+once 3
+count 2 2
+raw 6 2
+tuple 5
+made
+drop 4
+done
+drop 2

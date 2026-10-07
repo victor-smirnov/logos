@@ -1892,13 +1892,6 @@ struct EUnaryView {
     ExprRef operand() const noexcept { return self.sub_expr(ek::OPERAND.code); }
 };
 
-struct ETryView {
-    ExprRef self;
-    ExprRef inner() const noexcept { return self.sub_expr(ek::INNER.code); }
-    int32_t ok_disc()  const noexcept { return int32_t(detail::read_u32(self, ek::OK_DISC.code)); }
-    int32_t err_disc() const noexcept { return int32_t(detail::read_u32(self, ek::ERR_DISC.code)); }
-};
-
 struct ESliceLitView {
     ExprRef self;
     ExprRef base() const noexcept { return self.sub_expr(ek::BASE_PTR.code); }
@@ -3137,28 +3130,6 @@ struct SIfView {
     BlockRef else_block() const noexcept { return detail::stmt_sub_block(self, sk::ELSE_BLOCK.code); }
 };
 
-struct SWhileView {
-    StmtRef self;
-    ExprRef  cond() const noexcept  { return detail::stmt_sub_expr(self, sk::COND.code); }
-    BlockRef body() const noexcept  { return detail::stmt_sub_block(self, sk::BODY.code); }
-    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
-};
-
-struct SForView {
-    StmtRef self;
-    std::string_view var() const noexcept   { return detail::stmt_str(self, sk::VAR.code); }
-    ExprRef          lo() const noexcept    { return detail::stmt_sub_expr(self, sk::LO.code); }
-    ExprRef          hi() const noexcept    { return detail::stmt_sub_expr(self, sk::HI.code); }
-    BlockRef         body() const noexcept  { return detail::stmt_sub_block(self, sk::BODY.code); }
-    bool             inclusive() const noexcept { return detail::read_bool(self, sk::INCLUSIVE.code); }
-    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }
-    uint32_t var_slot() const noexcept {  // Phase-1
-        auto v = detail::read_i64_opt(self, sk::VAR_SLOT.code);
-        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
-    }
-    bool var_mut() const noexcept { return detail::read_bool(self, sk::IS_MUT.code); }  // `for mut i` (sparse)
-};
-
 struct SLoopView {
     StmtRef self;
     BlockRef         body() const noexcept       { return detail::stmt_sub_block(self, sk::BODY.code); }
@@ -3175,24 +3146,6 @@ struct SBlockView {
     // Sema-synthesized transparent wrapper — a CARRIED fact, see
     // stmt_keys::TRANSPARENT. Absent ⇒ false ⇒ a real lexical scope.
     bool transparent() const noexcept { return detail::read_bool(self, sk::TRANSPARENT.code); }
-};
-
-struct SForEachView {
-    StmtRef self;
-    std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
-    ExprRef          iter() const noexcept { return detail::stmt_sub_expr(self, sk::ITER.code); }
-    BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
-    bool             is_slice() const noexcept { return detail::read_bool(self, sk::IS_SLICE.code); }
-    bool             var_mut() const noexcept { return detail::read_bool(self, sk::IS_MUT.code); }  // `for mut x` (sparse)
-    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }       // `'l: for` (sparse)
-    int64_t          arr_size() const noexcept { return detail::read_i64(self, sk::ARR_SIZE.code); }
-    TypeRef          elem_type(const TypePoolImpl* pool) const noexcept {
-        return detail::stmt_type(self, sk::ELEM_TYPE.code, pool);
-    }
-    uint32_t var_slot() const noexcept {  // Phase-1
-        auto v = detail::read_i64_opt(self, sk::VAR_SLOT.code);
-        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
-    }
 };
 
 struct SLetElseView {
@@ -3353,7 +3306,7 @@ inline bool is_place_projection(lir_schema::expr::Code k) noexcept {
         case C::Cast: case C::IfExpr: case C::TupleLit: case C::SliceLit:
         case C::SliceLen: case C::SlicePtr: case C::ClosureBox:
         case C::ClosureCall: case C::FnPtrCall: case C::FormatCall:
-        case C::PackExpand: case C::Try: case C::MatchExpr: case C::SizeOf:
+        case C::PackExpand: case C::MatchExpr: case C::SizeOf:
         case C::TypeCodeOf: case C::BlockExpr: case C::WritLit:
         case C::PtrArith: case C::PtrDiff: case C::ReflectOf: case C::AlignOf:
         case C::GenericRef:

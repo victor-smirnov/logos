@@ -1572,16 +1572,29 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     // borrowing the outer var's address. The capture is moved INTO the env (an
     // inline-by-value env field, memcpy'd at the creation site), the body binds
     // it to the inline field address (one level), and the env-glue drops it.
-    // The ORIGINAL scope must NOT drop it (sema removes it from
-    // closure_owned_drop_) — the predicate here MUST match that sema decision
-    // exactly (else double-free / leak). `&dyn` (capture_is_dyn) stays a borrow:
+    // The ORIGINAL scope must NOT drop it (sema marks it moved) — the
+    // predicate here MUST match that sema decision exactly (else double-free /
+    // leak). `&dyn` (capture_is_dyn) stays a borrow:
     // a dyn value-fat-pair is itself a borrowed handle, not owned storage.
     // The decision needs `heap_env`, computed identically to the creation site.
+    // A `move` closure OWNS its captures whether or not it escapes (sema's
+    // ownership block, ADR 0030 S10 row 4): the value is memcpy'd into the env
+    // at the literal, so a later write to the source is not seen.
     bool heap_env_pre = v.escapes() && !captures.empty();
     std::vector<bool> capture_own_inline(captures.size(), false);
-    if (heap_env_pre && v.is_move()) {
+    // By the capture's MODE (sema's analysis): a ByValue capture — every one of
+    // a `move` closure's, and one a body consumes — is owned by the env.
+    auto by_value = [&](size_t i) { return v.capture_mode(i) == 2; };
+    {
         for (size_t i = 0; i < captures.size(); ++i) {
+            if (!by_value(i)) continue;
             if (!capture_is_pointer_repr[i]) continue;
+            // A captured REFERENCE / raw pointer (`self: &C` bound like a struct
+            // variable) is a Copy handle: the env holds the handle, not a copy
+            // of what it points at.
+            if (auto ck = TypeRef(capture_types[i]).kind();
+                ck == LogosType::Kind::Ref || ck == LogosType::Kind::MutRef || ck == LogosType::Kind::Ptr)
+                continue;
             // PROBE clowndyn (2026-09-04five, root 4): an OWNING `Box<dyn Tr>` IS
             // owned storage, and leaving it a borrow makes an escaping `move`
             // closure read its defining fn's dead slot. The owning bit is on the
@@ -1600,10 +1613,8 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     // Box<dyn Fn> drop, so the field's Drop runs. Non-escaping stays borrow-by-
     // pointer (whole-root model) — sema's mark_moved(path) is also gated on
     // escaping so the original root still drops the field at scope-exit.
-    if (heap_env_pre && v.is_move()) {
-        for (size_t i = 0; i < captures.size(); ++i)
-            if (capture_field_ts[i]) capture_own_inline[i] = true;
-    }
+    for (size_t i = 0; i < captures.size(); ++i)
+        if (by_value(i) && capture_field_ts[i]) capture_own_inline[i] = true;
 
     // A 16-byte handle captured BY VALUE: a borrowed `&str` / `&[T]` {ptr, len},
     // or a closure value {fn, env} (a closure PARAMETER, which is not a
@@ -1737,7 +1748,9 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
     auto saved_once_env = closure_once_env_;
     closure_once_sym_.clear();
     closure_once_env_ = {};
-    if (v.fn_once() && v.is_move() && v.escapes() && !captures.empty()) {
+    bool any_by_value = false;
+    for (size_t i = 0; i < captures.size(); ++i) any_by_value = any_by_value || by_value(i);
+    if (v.fn_once() && any_by_value) {
         std::vector<bool> once_drops(captures.size(), false);
         for (size_t i = 0; i < captures.size(); ++i) {
             if (v.capture_body_moved(i)) continue;
@@ -1746,7 +1759,7 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
             once_drops[i] = drop_t && value_needs_drop(drop_t);
         }
         closure_once_sym_ = emit_closure_drop_glue(closure_id, cap_struct, captures, capture_types,
-                                                   capture_field_ts, once_drops, /*heap_env=*/true,
+                                                   capture_field_ts, once_drops, heap_env_pre,
                                                    "__closure_once__");
         closure_once_env_ = entry->getArgument(0);
     }
@@ -1949,18 +1962,15 @@ mlir::Value MLIRGenImpl::gen_closure(lir_view::EClosureBoxView v, TypeRef) {
         // from the outer owner — dropping here would double-free. A mut_ref
         // capture borrows. An env_mut capture owns a scalar copy (Copy → no
         // drop). So a droppable owned capture is a non-pointer-repr,
-        // non-mut-ref capture whose type needs drop AND the closure is `move`
-        // (a non-move closure borrows; only `move` transfers ownership).
-        if (!v.is_move()) continue;
+        // non-mut-ref capture whose type needs drop AND whose mode is ByValue
+        // (a by-ref capture borrows; a ByValue one is moved into the env).
+        if (!by_value(i)) continue;
         // An owned inline (moved-in) struct/array/tuple/enum capture: the env
         // OWNS the value, so the env-glue drops it (and the original scope does
         // NOT — sema's matching ownership transfer). Other pointer-repr / mut-ref
         // captures borrow and are not dropped here.
         if (!capture_own_inline[i]) {
             if (capture_is_pointer_repr[i] || capture_is_mut_ref[i]) continue;
-            // A handle carried by value into a STACK env is a copy: its source
-            // keeps the obligation (sema's owned_by_closure is escaping-only).
-            if (capture_is_fat_slice(i) && !heap_env) continue;
         }
         // RFC-2229 phase-2: for a narrow capture the env owns the FIELD value
         // only; its dropability is the FIELD's, not the root's.

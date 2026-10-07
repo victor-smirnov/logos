@@ -3,7 +3,7 @@
 // Pre-Wave-8 stdlib had only concrete `RangeI32` / `RangeI64` —
 // ports of `Range<usize>` / `Range<char>` etc. had no equivalent.
 // Wave 8 adds the `Step` trait + a generic `Range<T: Step + Copy>`
-// struct with Iterator<T> impl. The pre-existing concrete
+// struct with Iterator<Item = T> impl. The pre-existing concrete
 // `RangeI32`/`RangeI64` stay wired (for-loop desugar still
 // constructs them); user code wanting the generic shape uses
 // `range_of::<T>(start, end)` or `Range { current, end }`

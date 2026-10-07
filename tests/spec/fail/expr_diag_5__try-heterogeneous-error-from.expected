@@ -1,1 +1,1 @@
-does not implement `From` for outer error type
+`?` couldn't convert the error to `EB`: the trait `From<EA>` is not implemented for `EB`

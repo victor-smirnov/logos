@@ -78,6 +78,36 @@ impl Step for isize {
     fn step_backward(self: isize) -> isize  { return self - (1 as isize); }
     fn step_lt(self: isize, other: isize) -> bool { return self < other; }
 }
+impl Step for i24 {
+    fn step_forward(self: i24)  -> i24  { return self + (1 as i24); }
+    fn step_backward(self: i24) -> i24  { return self - (1 as i24); }
+    fn step_lt(self: i24, other: i24) -> bool { return self < other; }
+}
+impl Step for u24 {
+    fn step_forward(self: u24)  -> u24  { return self + (1 as u24); }
+    fn step_backward(self: u24) -> u24  { return self - (1 as u24); }
+    fn step_lt(self: u24, other: u24) -> bool { return self < other; }
+}
+impl Step for i56 {
+    fn step_forward(self: i56)  -> i56  { return self + (1 as i56); }
+    fn step_backward(self: i56) -> i56  { return self - (1 as i56); }
+    fn step_lt(self: i56, other: i56) -> bool { return self < other; }
+}
+impl Step for u56 {
+    fn step_forward(self: u56)  -> u56  { return self + (1 as u56); }
+    fn step_backward(self: u56) -> u56  { return self - (1 as u56); }
+    fn step_lt(self: u56, other: u56) -> bool { return self < other; }
+}
+impl Step for i128 {
+    fn step_forward(self: i128)  -> i128  { return self + (1 as i128); }
+    fn step_backward(self: i128) -> i128  { return self - (1 as i128); }
+    fn step_lt(self: i128, other: i128) -> bool { return self < other; }
+}
+impl Step for u128 {
+    fn step_forward(self: u128)  -> u128  { return self + (1 as u128); }
+    fn step_backward(self: u128) -> u128  { return self - (1 as u128); }
+    fn step_lt(self: u128, other: u128) -> bool { return self < other; }
+}
 
 // §6.12: generic range types — `RangeOf<T>` / `RangeOfIncl<T>` /
 // `RangeOfFrom<T>`. Named with the `Of` suffix to AVOID collision
@@ -100,7 +130,8 @@ pub fn range_of<T: Step + Copy>(start: T, end: T) -> RangeOf<T> {
     return RangeOf { current: start, end: end };
 }
 
-impl<T: Step + Copy> Iterator<T> for RangeOf<T> {
+impl<T: Step + Copy> Iterator for RangeOf<T> {
+    type Item = T;
     fn next(self: &mut RangeOf<T>) -> Option<T> {
         if self.current.step_lt(self.end) {
             let v: T = self.current;
@@ -142,7 +173,8 @@ impl<T: Step + Copy> RangeOfIncl<T> {
     }
 }
 
-impl<T: Step + Copy> Iterator<T> for RangeOfIncl<T> {
+impl<T: Step + Copy> Iterator for RangeOfIncl<T> {
+    type Item = T;
     fn next(self: &mut RangeOfIncl<T>) -> Option<T> {
         if self.done { return Option::None; }
         let v: T = self.current;
@@ -170,7 +202,8 @@ pub fn range_from_of<T: Step + Copy>(start: T) -> RangeOfFrom<T> {
     return RangeOfFrom { current: start };
 }
 
-impl<T: Step + Copy> Iterator<T> for RangeOfFrom<T> {
+impl<T: Step + Copy> Iterator for RangeOfFrom<T> {
+    type Item = T;
     fn next(self: &mut RangeOfFrom<T>) -> Option<T> {
         let v: T = self.current;
         self.current = self.current.step_forward();
@@ -237,7 +270,8 @@ pub fn range_i32(lo: i32, hi: i32) -> RangeI32 {
     return RangeI32 { current: lo, end: hi };
 }
 
-impl Iterator<i32> for RangeI32 {
+impl Iterator for RangeI32 {
+    type Item = i32;
     fn next(self: &mut RangeI32) -> Option<i32> {
         if self.current >= self.end { return Option::None; }
         let v: i32 = self.current;
@@ -246,7 +280,7 @@ impl Iterator<i32> for RangeI32 {
     }
 }
 
-impl DoubleEndedIterator<i32> for RangeI32 {
+impl DoubleEndedIterator for RangeI32 {
     fn next_back(self: &mut RangeI32) -> Option<i32> {
         if self.current >= self.end { return Option::None; }
         self.end = self.end - 1;
@@ -254,7 +288,7 @@ impl DoubleEndedIterator<i32> for RangeI32 {
     }
 }
 
-impl ExactSizeIterator<i32> for RangeI32 {
+impl ExactSizeIterator for RangeI32 {
     fn len(&self) -> i64 {
         if self.current >= self.end { return 0 as i64; }
         return (self.end - self.current) as i64;
@@ -271,7 +305,8 @@ pub struct RevRangeI32 {
     pub start:   i32,
 }
 
-impl Iterator<i32> for RevRangeI32 {
+impl Iterator for RevRangeI32 {
+    type Item = i32;
     fn next(self: &mut RevRangeI32) -> Option<i32> {
         if self.current <= self.start { return Option::None; }
         self.current = self.current - 1;
@@ -316,7 +351,8 @@ pub fn range_i64(lo: i64, hi: i64) -> RangeI64 {
     return RangeI64 { current: lo, end: hi };
 }
 
-impl Iterator<i64> for RangeI64 {
+impl Iterator for RangeI64 {
+    type Item = i64;
     fn next(self: &mut RangeI64) -> Option<i64> {
         if self.current >= self.end { return Option::None; }
         let v: i64 = self.current;
@@ -325,7 +361,7 @@ impl Iterator<i64> for RangeI64 {
     }
 }
 
-impl DoubleEndedIterator<i64> for RangeI64 {
+impl DoubleEndedIterator for RangeI64 {
     fn next_back(self: &mut RangeI64) -> Option<i64> {
         if self.current >= self.end { return Option::None; }
         self.end = self.end - 1 as i64;
@@ -333,7 +369,7 @@ impl DoubleEndedIterator<i64> for RangeI64 {
     }
 }
 
-impl ExactSizeIterator<i64> for RangeI64 {
+impl ExactSizeIterator for RangeI64 {
     fn len(&self) -> i64 {
         if self.current >= self.end { return 0 as i64; }
         return self.end - self.current;
@@ -350,7 +386,8 @@ pub struct RevRangeI64 {
     pub start:   i64,
 }
 
-impl Iterator<i64> for RevRangeI64 {
+impl Iterator for RevRangeI64 {
+    type Item = i64;
     fn next(self: &mut RevRangeI64) -> Option<i64> {
         if self.current <= self.start { return Option::None; }
         self.current = self.current - 1 as i64;
@@ -379,10 +416,10 @@ impl RangeI64 {
 }
 
 // FusedIterator: ranges yield None forever after exhaustion.
-impl FusedIterator<i32> for RangeI32 {}
-impl FusedIterator<i32> for RevRangeI32 {}
-impl FusedIterator<i64> for RangeI64 {}
-impl FusedIterator<i64> for RevRangeI64 {}
+impl FusedIterator for RangeI32 {}
+impl FusedIterator for RevRangeI32 {}
+impl FusedIterator for RangeI64 {}
+impl FusedIterator for RevRangeI64 {}
 
 // ── Range family — RangeFrom / RangeTo / RangeFull / RangeInclusive ──────────
 //
@@ -408,7 +445,8 @@ pub fn range_from_i32(start: i32) -> RangeFromI32 { return RangeFromI32 { curren
 /// Creates the unbounded `i64` range `[start, ..)`; terminate externally (e.g. `.take(n)`).
 pub fn range_from_i64(start: i64) -> RangeFromI64 { return RangeFromI64 { current: start }; }
 
-impl Iterator<i32> for RangeFromI32 {
+impl Iterator for RangeFromI32 {
+    type Item = i32;
     fn next(self: &mut RangeFromI32) -> Option<i32> {
         let v: i32 = self.current;
         self.current = self.current + 1;
@@ -416,7 +454,8 @@ impl Iterator<i32> for RangeFromI32 {
     }
 }
 
-impl Iterator<i64> for RangeFromI64 {
+impl Iterator for RangeFromI64 {
+    type Item = i64;
     fn next(self: &mut RangeFromI64) -> Option<i64> {
         let v: i64 = self.current;
         self.current = self.current + 1i64;
@@ -501,7 +540,8 @@ pub fn range_incl_i64(lo: i64, hi: i64) -> RangeInclI64 {
     return RangeInclI64 { current: lo, end: hi, done: lo > hi };
 }
 
-impl Iterator<i32> for RangeInclI32 {
+impl Iterator for RangeInclI32 {
+    type Item = i32;
     fn next(self: &mut RangeInclI32) -> Option<i32> {
         if self.done { return Option::None; }
         let v: i32 = self.current;
@@ -514,7 +554,8 @@ impl Iterator<i32> for RangeInclI32 {
     }
 }
 
-impl Iterator<i64> for RangeInclI64 {
+impl Iterator for RangeInclI64 {
+    type Item = i64;
     fn next(self: &mut RangeInclI64) -> Option<i64> {
         if self.done { return Option::None; }
         let v: i64 = self.current;
@@ -545,7 +586,7 @@ impl RangeInclI64 {
     pub fn is_empty(self: RangeInclI64) -> bool { return self.done; }
 }
 
-impl FusedIterator<i32> for RangeFromI32 {}
-impl FusedIterator<i64> for RangeFromI64 {}
-impl FusedIterator<i32> for RangeInclI32 {}
-impl FusedIterator<i64> for RangeInclI64 {}
+impl FusedIterator for RangeFromI32 {}
+impl FusedIterator for RangeFromI64 {}
+impl FusedIterator for RangeInclI32 {}
+impl FusedIterator for RangeInclI64 {}

@@ -169,17 +169,11 @@
 ; AXIS axis_anyval
 ; CHECK-DAG: define {{.*}}@{{[^(]*}}axis_anyval{{[^(]*}}(ptr noalias noundef readonly align 8 dereferenceable(8) %0)
 
-; ── RESIDUE: CONSERVATIVE ON AN UNRESOLVABLE POINTEE ────────────────────────
-; `Id::call`'s second parameter is the HRTB binder's `&'a T` — a bare TypeVar,
-; no instance of which exists. `align`/`dereferenceable` are a LAYOUT CLAIM and
-; must be OMITTED rather than guessed (a declined `layout_of` used to return
-; `{8,8}`, and that guess was written into the object file). `noalias`/
-; `readonly` are absent too, because nothing is known about the pointee — this
-; is the `default:` arm of the predicate, the conservative-on-unknown one.
-;
-; ⚠ THIS LINE IS THE STRICTEST IN THE FILE AND MUST STAY THAT WAY. It pins the
-; WHOLE parameter list including the leading by-value `self`, so an `align` or
-; `dereferenceable` reappearing on a residue param — the exact regression that
-; wrote a guessed alignment into an object file — cannot hide behind a wildcard.
-; AXIS axis_residue
-; CHECK-DAG: define {{.*}}@{{[^(]*}}Id__call{{[^(]*}}(ptr %0, ptr noundef %1)
+; ── FORMER RESIDUE: `Id::call` IS AN INSTANCE NOW ──────────────────────────
+; `impl<'a, T> FnLike<&'a T, &'a T> for Id` names T only in the trait's
+; arguments. Until ADR 0030 S10 row 2 its method was emitted UNINSTANTIATED
+; with the bare TypeVar `&'a T` (the predicate's conservative `default:` arm,
+; then this file's axis_residue); it is instantiated at `T = i32` now, so its
+; parameter is a known `&i32` with the attributes every `&i32` gets. The
+; default arm is NO-AXIS in freeze_arms.ledger (unreached).
+; CHECK-DAG: define {{.*}}@{{[^(]*}}Id__call{{[^(]*}}i32(ptr %0, ptr noalias noundef readonly align 4 dereferenceable(4) %1)

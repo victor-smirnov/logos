@@ -1,7 +1,8 @@
 package p03c;
 use logos.mem.collections.vec; use logos.mem.string; use logos.lang.str; use logos.lang.option; use logos.std.fmt; use logos.lang.result; use logos.lang.cmp; use logos.lang.rc; use logos.lang.iter; use logos.mem.boxed; use logos.lang.cell; use logos.lang.ops; use logos.lang.ptr; use logos.lang.mem; use logos.lang.error; use logos.mem.collections.hashmap; use logos.mem.collections.btree; use logos.mem.collections.set; use logos.mem.collections.deque; use logos.lang.hash; use logos.lang.convert;
 struct Counter { n: i64 }
-impl Iterator<i64> for Counter { fn next(&mut self) -> Option<i64> { if self.n < 5 { self.n += 1; Some(self.n) } else { None } } }
-fn total_g<I: Iterator<i64>>(it: I) -> i64 { let mut t: i64 = 0; for x in it { t += x; } return t; }
-fn total(it: impl Iterator<i64>) -> i64 { let mut t: i64 = 0; for x in it { t += x; } return t; }
+impl Iterator for Counter {
+    type Item = i64; fn next(&mut self) -> Option<i64> { if self.n < 5 { self.n += 1; Some(self.n) } else { None } } }
+fn total_g<I: Iterator<Item = i64>>(it: I) -> i64 { let mut t: i64 = 0; for x in it { t += x; } return t; }
+fn total(it: impl Iterator<Item = i64>) -> i64 { let mut t: i64 = 0; for x in it { t += x; } return t; }
 fn main() { println!("{} {}", total_g(Counter { n: 2 }), total(Counter { n: 0 })); }

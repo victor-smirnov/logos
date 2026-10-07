@@ -1,0 +1,23 @@
+// ADR 0030 S10 row 3: a comprehension is the HIR's block over a `for` (row 1), so it iterates
+// whatever `for` iterates and binds `x` to the iterator's item (DIVERGENCES
+// expr.comprehension.iterable-into-iterator): a range, an iterator adapter, a slice (`x: &i64`),
+// an array by value; map comprehensions likewise.
+package s10_comprehension_over_iterators;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+fn main() -> i32 {
+    let a: Vec<i64> = [x * 2 for x in 0i64..5i64];                       // 0 2 4 6 8
+    let src: Vec<i64> = vec![1, 2, 3, 4];
+    let b: Vec<i64> = [*x + 10 for x in src.as_slice() if *x % 2 == 0];   // 12 14
+    let c: Vec<i64> = [x * x for x in src.iter().map(|v| *v + 1)];        // 4 9 16 25
+    let arr: [i64; 3] = [7, 8, 9];
+    let d: Vec<i64> = [x - 7 for x in arr];                               // 0 1 2
+    let m: HashMap<i64, i64> = {x: x * 100 for x in 1i64..4i64};
+    let mut s: i64 = 0;
+    for v in a.iter() { s = s + *v; }        // 20
+    for v in b.iter() { s = s + *v; }        // +26 = 46
+    for v in c.iter() { s = s + *v; }        // +54 = 100
+    for v in d.iter() { s = s + *v; }        // +3 = 103
+    if m.len() != 3 { return 1; }
+    return (s - 100) as i32 * 10 + a.len() as i32 + b.len() as i32;   // 30 + 5 + 2 = 37
+}

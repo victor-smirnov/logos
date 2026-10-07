@@ -4749,7 +4749,7 @@ instrument rather than nine 230 s pricings. It cost one build and answered rule
 
 ## mraffvecfor — THE `&mut Vec` FOR-HEAD (1 row)
 
-site: src/compiler/sema_stmt.cpp::lower_for_each   (the `&Vec -> as_slice()` desugar)
+site: src/compiler/hir_lower.cpp::for_loop   (successor: lower_for / lower_for_each / gen_for were retired by ADR 0030 S10 — `for` is a HIR desugaring over IntoIterator / Iterator::next)
 build: 7c488f42de25e539 (READ) armed; landed on 42036f427872e528
 measured: 2026-08-30
 fires: 18 · ceiling 1 · cost 0 · cfail 0/1028 · stdlib all four layers
@@ -24514,7 +24514,7 @@ note: nest + wrdeleg + cmprefuse + dwptrmc under one name.
 ##    probes/2026-09-09a-bindmut/.
 
 ## formutbit
-site: src/compiler/sema_stmt.cpp::lower_for
+site: src/compiler/hir_lower.cpp::for_loop   (successor: lower_for / lower_for_each / gen_for were retired by ADR 0030 S10 — `for` is a HIR desugaring over IntoIterator / Iterator::next)
 build: a4e09d1260502d78
 measured: 2026-09-09
 fires: 31
@@ -24523,7 +24523,7 @@ cost: 0 pass / cfail 0 / stdlib ok / hand: f02 refused E0384, f04 refused E0596;
 verdict: FUND inside formutall
 
 ## formutslot
-site: src/compiler/mlir_gen_stmt.cpp::gen_for
+site: src/compiler/hir_lower.cpp::for_loop   (successor: lower_for / lower_for_each / gen_for were retired by ADR 0030 S10 — `for` is a HIR desugaring over IntoIterator / Iterator::next)
 build: a4e09d1260502d78
 measured: 2026-09-09
 fires: 30
@@ -24541,7 +24541,7 @@ cost: exact 0 over the corpus (no arrival); hand: f03 `bump(&mut i)` compiles (r
 verdict: FUND inside formutall
 
 ## formutall
-site: src/compiler/sema_stmt.cpp::lower_for
+site: src/compiler/hir_lower.cpp::for_loop   (successor: lower_for / lower_for_each / gen_for were retired by ADR 0030 S10 — `for` is a HIR desugaring over IntoIterator / Iterator::next)
 build: a4e09d1260502d78 (cap-9 rerun aaf32ab45092b34c)
 measured: 2026-09-09
 fires: 61

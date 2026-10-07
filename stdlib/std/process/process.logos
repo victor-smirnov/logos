@@ -209,7 +209,8 @@ pub struct LineReader {
     eof:       bool,
 }
 
-impl Iterator<String> for LineReader {
+impl Iterator for LineReader {
+    type Item = String;
     fn next(self: &mut LineReader) -> Option<String> {
         unsafe {
             loop {

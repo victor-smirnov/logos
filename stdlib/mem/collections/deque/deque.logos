@@ -137,7 +137,8 @@ pub struct VecDequeIntoIter<T> {
     dq: VecDeque<T>,
 }
 
-impl<T> Iterator<T> for VecDequeIntoIter<T> {
+impl<T> Iterator for VecDequeIntoIter<T> {
+    type Item = T;
     fn next(self: &mut VecDequeIntoIter<T>) -> Option<T> {
         unsafe {
             let p: *mut VecDeque<T> = &mut self.dq as *mut VecDeque<T>;
@@ -153,7 +154,7 @@ impl<T> Drop for VecDequeIntoIter<T> {
     fn drop(self: &mut VecDequeIntoIter<T>) { }
 }
 
-impl<T> DoubleEndedIterator<T> for VecDequeIntoIter<T> {
+impl<T> DoubleEndedIterator for VecDequeIntoIter<T> {
     fn next_back(self: &mut VecDequeIntoIter<T>) -> Option<T> {
         unsafe {
             let p: *mut VecDeque<T> = &mut self.dq as *mut VecDeque<T>;
@@ -162,8 +163,9 @@ impl<T> DoubleEndedIterator<T> for VecDequeIntoIter<T> {
     }
 }
 
-impl<T> IntoIterator<T> for VecDeque<T> {
-    type Iter = VecDequeIntoIter<T>;
+impl<T> IntoIterator for VecDeque<T> {
+    type Item = T;
+    type IntoIter = VecDequeIntoIter<T>;
     fn into_iter(self: VecDeque<T>) -> VecDequeIntoIter<T> { return VecDequeIntoIter { dq: self }; }
 }
 

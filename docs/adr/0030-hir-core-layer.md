@@ -839,6 +839,201 @@ parameters (SemaFuncInfo::impl_tparam_count). Closed squeue #732. Filed #734:
 a default method's generics shadowing an impl's of the same name. Next, step
 B: lang.iter moves to `trait Iterator { type Item; … }`.
 
+Step B, 2026-10-06 — the iterator family is Rust-shaped: `trait Iterator {
+type Item; … }`, `trait IntoIterator { type Item; type IntoIter: Iterator<Item =
+Self::Item>; … }`, `DoubleEndedIterator` / `ExactSizeIterator` / `FusedIterator:
+Iterator` with no parameter; every impl declares `type Item` and every bound is
+`I: Iterator<Item = T>` (145 impls, 173 bounds in the stdlib, 38 / 60 in the
+test corpora — a mechanical rewrite, scratchpad migrate.py, then the trait
+declarations by hand). The compiler took four more pieces: `Self::Item` in a
+subtrait names the supertrait's item; C-OBL projects an item a supertrait
+declares through it (Env::supertraits: `<I as DoubleEndedIterator>::Item`); a
+`where Self::Item: Ord` gate on a default (`max`, `min`, `unzip`) is decided per
+impl from the item it declares (the Rust form of the §8.5 gate); an impl's
+associated types are header types for implied bounds (`type Item = &'a T`
+implies `T: 'a`, as the trait argument did). Closed squeue #489 and #528 (a
+user's Rust-shaped `impl Iterator for Counter { type Item = i64; … }`). ABI
+unchanged (symbols and layouts are the same). Next, step C: `Try { type Output;
+type Residual }` and `FromResidual<R>`.
+
+Step C, 2026-10-06 — `trait Try: FromResidual<Self::Residual> { type Output;
+type Residual; fn from_output(..) -> Self; fn branch(self) ->
+ControlFlow<Self::Residual, Self::Output>; }`, `trait FromResidual<R> { fn
+from_residual(r: R) -> Self; }` — Rust's shape; an impl without the supertrait
+impl for its residual is refused (fixture s9a_try_requires_from_residual). The
+`?` dispatch on a user type is unchanged (`branch` + `from_residual`); Result
+and Option keep the name-based path until S10 desugars `?` through these items.
+S9a CLOSED BY ROW: Iterator, IntoIterator, Try, FromResidual are Rust-shaped.
+
+## S10 (HIR `for`, `?`, comprehensions via lang items; C-CLO rest) — rows
+
+Started 2026-10-06. The surface forms that still take a sema path of their
+own become HIR desugarings over the lang items S9a made Rust-shaped; closure
+capture becomes one core (C-CLO). Diff budget per row; a row over budget
+stops for a re-plan.
+
+| row | content | retires | budget |
+|---|---|---|---|
+| (1) `for` | the HIR desugars `for p in e { b }` to `match IntoIterator::into_iter(e) { mut it => loop { match Iterator::next(&mut it) { Some(p) => b, None => break } } }` over the lang items; the stdlib gains Rust's `impl<I: Iterator> IntoIterator for I`, arrays, slices, `&mut Vec<T>` (interaction clusters `for-in-over-generic-iterator-param`, `temp-lifetime-for-head-const-promotion`, `open-range-for-head-parse`, `rangefrom-iterator-empty`, `range-literal-element-type`) | lower_for's integer-range path, lower_for_each's array / slice / `&Vec` / IntoIterator / iterator paths and their mlir counterparts | +300 / −900 |
+| (2) `?` | the HIR desugars `e?` to `match Try::branch(e) { Continue(v) => v, Break(r) => return FromResidual::from_residual(r) }`; the stdlib gains Rust's `Try` / `FromResidual` impls for Result and Option (`impl<T, E, F: From<E>> FromResidual<Result<Infallible, E>> for Result<T, F>`) (clusters `question-in-closure-attributed-to-fn`, `from-bound-ignored-by-question-into`) | sema's name-based Result / Option `?` lowering, the reparsed `match (..).branch()` text, ETry | +250 / −500 |
+| (3) comprehensions | list / set / map comprehensions are HIR desugarings over (1) and the collection's `push` / `insert` | sema's comprehension lowering | +100 / −300 |
+| (4) C-CLO | one capture analysis: per-capture mode (by ref, by unique ref, by value) and path (RFC 2229 places), the Fn-family level from the body's uses, recorded on the closure type (clusters `fnonce-closure-treated-copy`, `move-closure-returning-capture-double-drop`, `move-closure-capture-shares-slot`, `disjoint-closure-capture-missing`, `closure-capture-raw-pointer-undefined`, `closure-captured-mut-param-needs-mut`, `move-closure-self-field-through-ref`, gap row `rawptr-write-closure-classified-fnmut`) | the capture-mode role of `body_ever_moved_`, the per-site capture classifiers | +400 / −600 |
+
+Order: (1), (2), (3), (4).
+
+Row (1), 2026-10-06 — CLOSED. The HIR desugars `for p in e { b }` (both FOR
+forms; a label moves onto the inner `loop`) to `match
+IntoIterator::into_iter(e) { mut __for_it => loop { match __for_it.next() {
+Some(__for_el) => { let p = __for_el; b }, None => break } } }`: the head is a
+UFCS call on the `into_iterator` lang item, a pattern binds as `let PAT`
+(E0005 for a refutable one, "`for` loop binding"), and a head without an
+IntoIterator impl is rustc's E0277 at the call. The stdlib gains `impl<I:
+Iterator> IntoIterator for I` (the lang item), `[T; N]` by value, `&'a [T]`,
+`&'a [T; N]`, `&'a mut [T; N]`, `&'a mut Vec<T>`, and `Step` for the
+remaining integer widths (an integer range over u56 / i128 / … is the generic
+`RangeOf<T>`, as Rust's `Range<T>`). The compiler took: a UFCS call of a
+by-value `self` trait item takes Self as the argument's own type (the `&[T;
+N]` impl for `&arr`, never the pointee's) and moves the argument instead of
+reborrowing it (`for n in v` over `v: &mut Vec` moves `v`, as rustc says); an
+impl written for `&[T]` states Self as written in its fact; the spelled
+fallback of resolve_trait_item_ refuses a homonym's impl from another package;
+an array whose length is symbolic (`sizeof...(P)`, a deferred `N + 1`) infers a
+`[T; M]` parameter's M (the old array path special-cased it; fixture
+array_symbolic_len_infers_const_param).
+Retired: sema's lower_for / lower_for_each (integer range, array, slice,
+`&Vec`, IntoIterator, iterator paths), emit_for_pattern_destructure,
+merge_loop_exit_moves, the L-IR `SFor` and — its neighbour, unproduced since
+the HIR `while` — `SWhile` with every consumer (mono, region inference, borrow
+check, BIR, flow summaries, unit graph, mlir gen_for / gen_while); stmt codes
+4 and 5 are retired. src + include: +252 / −1272. `SForEach` stays: the
+comprehensions still emit it (row 3 retires it). Closed squeue #719
+(`for x in [a, b, c]` by value). Filed #735 (`Iterator::next(&mut it)` in UFCS
+over a region-erased binding is refused — the desugaring calls `.next()` as a
+method until it lands) and #736 (a method on an impl for `&[T; N]` / `&mut [T;
+N]`: the `&mut [T]` impl is not added because it collides with `&[T]` in
+selection). ABI: `Try`'s vtable changed in S9a step C and was not regenerated
+then; regenerated here with the minor bump to 0.60.0.
+
+Row (2), 2026-10-06 — CLOSED. The HIR desugars `e?` to `match Try::branch(e) {
+ControlFlow::Continue(v) => v, ControlFlow::Break(r) => return
+FromResidual::from_residual(r) }` over the lang items `try`, `from_residual`,
+`control_flow` (the variant patterns name their enum by its lang path; a
+missing lang item is an internal diagnostic, never a name in scope). The
+stdlib gains Rust's impls: `Try` / `FromResidual<Result<Infallible, E>>` for
+`Result<T, F>` with `F: From<E>`, `Try` / `FromResidual<Option<Infallible>>`
+for `Option<T>`, and `impl<'a, E: Error + 'a> From<E> for Box<dyn Error + 'a>`;
+the duplicate `logos.lang.control_flow` package is deleted (one ControlFlow,
+`lang.ops`'s, as `core::ops`). Self of a receiver-less trait item called
+through UFCS is the call's expected type (`return from_residual(r)`: the
+body's return type), as rustc infers it; in a closure whose return type is
+inferred later, the one impl of `FromResidual<residual>` names Self with
+inference variables, and every return of the closure unifies with the type it
+settles on (cluster `question-in-closure-attributed-to-fn`; a `?` the
+closure's type cannot take is E0277). Diagnostics are rustc's: no `Try` impl,
+no `FromResidual` impl for the return type, "`?` couldn't convert the error"
+(with `E: Error` named for `Box<dyn Error>`). Three defects the desugaring
+reached, fixed: an impl whose parameters only the trait's arguments name
+(`impl<E> Mk<E> for H`, the Box impl) was hosted on a struct template — by
+impl lowering, and again by the orphan-adoption pass by NAME — and emitted
+with its parameter unbound (both now decide by whether the target names an
+impl parameter); C-OBL and mono's impl unifier compared a trait object with
+its region (`dyn Error + 'a` against `dyn Error`); the orphan rule took
+`Box<dyn Error>` for a foreign type in Box's own module. Retired: sema's
+TRY_EXPR lowering (name-based Result / Option arms, the heterogeneous-error
+`From` lookup, the `Box<dyn>` special case, the reparsed `match (..).branch()`
+text and lower_reparsed_tail_expr), unit_match_stmt_, the L-IR ETry with every
+consumer (expr code 32, keys 50/51). src + include: +332 / −680 — over the
++250 budget by the three defects above. Fixtures: s10_try_desugar (rustc twin,
+same stdout), fail s10_try_error_without_from_refused,
+s10_try_in_plain_fn_refused, s10_try_option_in_result_fn_refused; the
+interaction clusters' programs run as rustc's. ABI: the control_flow package's
+symbols are gone — minor bump to 0.61.0.
+PRICE, measured 2026-10-06 against c5894e741 built beside it (one process,
+interleaved, 5 runs, box load ~10): a program whose reachable stdlib code uses
+`?` compiles 20–25% slower (gap1001_parse_target_through_question 2.06 →
+2.57 s, memoria_gendrop_probe 3.04 → 3.64 s); mono +23–38% (enum instances
+55 → 139, method instances +200: each generic stdlib body's `?` now
+instantiates `branch` / `from_residual` / `From::from` and a
+`ControlFlow<residual, output>`), sema +0–17%; the object gains 3 functions;
+the stdlib archives +3% (instances of `Option<Infallible>` /
+`Result<Infallible, E>` methods, 3275 ABI symbols). rustc pays the same
+instantiations. No fast path keyed on the resolved lang-item impl: the Q3
+decision (no `for` fast path) applies to `?` alike.
+
+Row (3), 2026-10-06 — CLOSED. A comprehension is the HIR's block that builds
+the collection with a `for` (row 1) and evaluates to it: `[v for x in it if
+g]` is `{ let mut c = vec_new::<_>(); for x in it { if g { c.push(v); } } c }`,
+`{k: v for …}` the same over `hashmap_new::<_, _>()` / `insert` (the key and
+value are bound before an `unsafe` block holding only the call: the stdlib's
+`HashMap::insert` is an `unsafe fn`, and the old lowering skipped the check),
+`@[…]` / `@{…}` over `writ_list_comp_new` / `writ_list_comp_push` and
+`writ_map_comp_new` / `writ_map_comp_put`, whose element sema coerces to WAny
+in the container at the builder call the pass marks (DIVERGENCES
+coerce.writ-anyval.scalar-helpers; a non-`str` Writ key and a non-bool guard
+keep their Logos messages). A comprehension now iterates whatever `for`
+iterates and binds `x` to the item — a slice yields `&T` (spec rule
+`expr.list-comp.iter-array-or-slice-only` replaced by
+`expr.comprehension.iterable-into-iterator`). The capacity hints are
+constants: WMap grows (the "no auto-grow" comment was stale). Retired:
+lower_list_comp, lower_map_comp, lower_writ_list_comp, lower_writ_map_comp
+and the L-IR SForEach with every consumer (mlir gen_for_each, BIR, borrow,
+region, flow, mono; stmt code 16). src + include: +116 / −1016 (budget
++100 / −300; the deletions are SForEach). Fixture
+s10_comprehension_over_iterators.
+
+Row (4), 2026-10-07 — CLOSED. C-CLO: ONE capture analysis in
+lower_closure_expr. Per capture: whether the body consumes it (the root or a
+place under it), its mode as rustc's upvar kinds (`move` or a consuming body:
+ByValue; a mutation: MutBorrow; else ImmBorrow), and from those the Fn-family
+(a mutation through a widened path is FnMut), the closure type's captures and
+the per-literal list — the three disagreeing "body consumed" tests are one.
+Capture precision is rustc's: a Copy place is captured precisely even under a
+type with Drop (the truncation is for a moved place); a by-value capture
+through `&` / `&mut` / a raw pointer captures the pointer; a `&mut` through a
+raw pointer is not a mutation of the capture; the scan reads PtrArith /
+PtrDiff and the receivers of field-index / deref-field writes, and `t.0 = v`
+mutates `t`. A closure OWNS its ByValue captures (all of a `move` closure's, and one its
+body consumes — an uncalled `|| eat(a)` drops `a` with the closure) whether
+or not it escapes: moved (or copied) into the env at the literal, dropped by the env
+glue (on the closure's drop — a closure owning a droppable capture is
+OWNED_ENV — or after an FnOnce call); a captured reference is a handle in the
+env. The bound's Fn-family is decided once where the bound is minted
+(TraitBound::fn_level). Retired: the non-escaping drop-handover protocol
+(closure_owned_drop_, closure_deferred_moves_, capture_owner_,
+closure_drop_group_, the pending lists, mark_moved_deferred_only,
+elaborate_cond_releases, Frame::cond_release_flagged — the source kept a
+captured value's drop and the env borrowed it, so a later write to the source
+reached the closure), closure_capture_env_ (write-only), the three
+bound-name ladders. The seven clusters' sixteen programs and the gap row
+`rawptr-write-closure-classified-fnmut` match rustc; three fixtures asserted the
+old behaviour against rustc (adv1_capture_drop_order, two imported fail
+adaptations reading a Copy field where upstream captured an Arc / a Box whole)
+and are corrected to rustc. Left for ADR 0029 (S1 identity, S3/S4 the body as
+an L-IR function): `closure_kind_`, the signature-keyed family of a type with
+no stated family (a bare `|T| -> R` declaration — D5, undecided). src + include: +173 / −540 (budget +400 / −600). Fixture
+s10_closure_capture_rust_semantics (rustc twin). S10 CLOSED BY ROW.
+
+## S9b (registries by identity; the package fold as the rule) — rows
+
+Started 2026-10-07. Re-priced on cef000d9e in a fold-built universe (stdlib and
+tests both under `LOGOS_FOLD_ALL=1`, build-fold): 492 of 8046 L0 red — 359
+runtime (exit code / stdout: missing drops, wrong dispatch), ~55 operator
+dispatch refused, 51 diagnostics. The cause is one: a method of a plain
+nominal target is REGISTERED under the bare written name and LOOKED UP under a
+composed spelling (`concrete_struct_name(t) + "__" + m`); without the fold the
+two coincide for every non-ambiguous name, by luck. No function has a DefId
+(DefNs::Value / DefKind::Fn are declared and unused).
+
+| row | content | retires | budget |
+|---|---|---|---|
+| (1) identities | every function and impl item gets a DefId at collection (free fn: package + name; impl item: the impl's identity + item name); a method index keyed by OWNER identity — a nominal type's DefId, `&` / `&mut` of one, or the shape for a target with no nominal (slice, tuple, array, fn pointer, dyn) — and by trait identity | — | +250 / −0 |
+| (2) sema lookups | the composed-key read sites (operator dispatch, Index / Deref, drop_fn_for / explicit_destructor_call, Default, static calls, the method probe's key generator, WritField / dst_len, collect's completeness checks) ask the index | impl_lookup_keys_'s spellings, the csn-then-bare fallbacks, trait_method_registry_ | +200 / −450 |
+| (3) mono / mlir | resolve_method_symbol / resolve_drop_symbol's prefix scans over composed names read the impl's METHOD_SYMBOLS / C-OBL, as trait_item_symbol_ does | strip_struct_pkg composition, the `__g__` prefix scans | +150 / −200 |
+| (4) the fold is the rule | the declaring package folds into every nominal type's spelling (Rust's crate disambiguator); user-facing type_str prints declared names | the ambiguous-name set, ambiguous_type_arg_fingerprint, LOGOS_FOLD_ALL; ABI minor bump | +80 / −250 |
+
+Order: (1), (2), (3), (4). Each row's acceptance: the main build's gate stays
+green, and the fold build's L0 reds fall (0 after row 3).
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

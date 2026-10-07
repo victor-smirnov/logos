@@ -163,7 +163,8 @@ pub struct SplitWhitespace<'a> {
     pos: i64,
 }
 
-impl<'a> Iterator<&'a str> for SplitWhitespace<'a> {
+impl<'a> Iterator for SplitWhitespace<'a> {
+    type Item = &'a str;
     fn next(self: &mut SplitWhitespace<'a>) -> Option<&'a str> {
         let n: i64 = self.haystack.len();
         unsafe {

@@ -1,1 +1,1 @@
-couldn't convert the error: `NotErr: Error` is not satisfied
+`NotErr: Error` is not satisfied, required for `Box<dyn Error>` to implement `From<NotErr>`

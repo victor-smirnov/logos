@@ -26,7 +26,8 @@ pub struct Splitter<'a> {
     done: bool,     // true after final segment yielded
 }
 
-impl<'a> Iterator<&'a str> for Splitter<'a> {
+impl<'a> Iterator for Splitter<'a> {
+    type Item = &'a str;
     fn next(self: &mut Splitter<'a>) -> Option<&'a str> {
         if self.done { return Option::None; }
         let n: i64 = self.rest.len();
@@ -68,7 +69,8 @@ pub struct ByteSplitter<'a> {
     done: bool,
 }
 
-impl<'a> Iterator<&'a str> for ByteSplitter<'a> {
+impl<'a> Iterator for ByteSplitter<'a> {
+    type Item = &'a str;
     fn next(self: &mut ByteSplitter<'a>) -> Option<&'a str> {
         if self.done { return Option::None; }
         let n: i64 = self.rest.len();
@@ -120,7 +122,8 @@ pub fn str_split_pat<'a, P: Pattern>(s: &'a str, p: P) -> SplitPat<'a, P> {
     return SplitPat::<P> { haystack: s, pat: p, pos: 0i64, done: false };
 }
 
-impl<'a, P: Pattern + Copy> Iterator<&'a str> for SplitPat<'a, P> {
+impl<'a, P: Pattern + Copy> Iterator for SplitPat<'a, P> {
+    type Item = &'a str;
     fn next(self: &mut SplitPat<'a, P>) -> Option<&'a str> {
         if self.done { return Option::None; }
         // Mirror Matches's "advancing pos over immutable haystack" shape

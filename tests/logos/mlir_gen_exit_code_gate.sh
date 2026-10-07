@@ -328,10 +328,15 @@ fi
 # new `bug_printf` in mlir_gen_expr.cpp, 14 -> 15. This is the census doing its
 # job — it noticed a report appearing, which is the same mechanism that refuses
 # one disappearing.
+# 2026-10-06, moved DELIBERATELY in the DELETING direction, and the only way that
+# is right: ADR 0030 S10 row 2 retired the L-IR ETry kind (`?` is the HIR's match
+# over Try::branch; nothing produced ETry any more), and its codegen arm with it —
+# the arm's "ETry: cannot resolve Result enum" report went with the arm, not
+# with a shape that can still arrive. mlir_gen_expr.cpp 17 -> 16.
 REPORT_PIN=$(cat <<'REPORTS'
 mlir_gen.cpp 5
 mlir_gen_dyn.cpp 1
-mlir_gen_expr.cpp 17
+mlir_gen_expr.cpp 16
 mlir_gen_impl.hpp 11
 mlir_gen_stmt.cpp 15
 mlir_gen_types.cpp 5

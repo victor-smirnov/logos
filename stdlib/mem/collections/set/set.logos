@@ -73,7 +73,8 @@ pub struct HashSetIter<'a, K> {
 
 // Yields `&K` (Rust-conformant: `HashSet::iter()` borrows) — follows the
 // underlying `HashMapKeys` which now yields `&K`.
-impl<'a, K: Hash + Eq> Iterator<&'a K> for HashSetIter<'a, K> {
+impl<'a, K: Hash + Eq> Iterator for HashSetIter<'a, K> {
+    type Item = &'a K;
     fn next(self: &mut HashSetIter<'a, K>) -> Option<&'a K> {
         return self.inner.next();
     }
@@ -161,7 +162,8 @@ pub struct HashSetIntoIter<K> {
     inner: HashMapIntoIter<K, u8>,
 }
 
-impl<K> Iterator<K> for HashSetIntoIter<K> {
+impl<K> Iterator for HashSetIntoIter<K> {
+    type Item = K;
     fn next(self: &mut HashSetIntoIter<K>) -> Option<K> {
         match self.inner.next() {
             Option::Some(kv) => { let (k, _v) = kv; return Option::Some(k); }
@@ -176,8 +178,9 @@ impl<K> Drop for HashSetIntoIter<K> {
     fn drop(self: &mut HashSetIntoIter<K>) { }
 }
 
-impl<K: Hash + Eq> IntoIterator<K> for HashSet<K> {
-    type Iter = HashSetIntoIter<K>;
+impl<K: Hash + Eq> IntoIterator for HashSet<K> {
+    type Item = K;
+    type IntoIter = HashSetIntoIter<K>;
     fn into_iter(self: HashSet<K>) -> HashSetIntoIter<K> {
         let s: HashSet<K> = self;
         return HashSetIntoIter { inner: s.inner.into_iter() };
@@ -190,7 +193,7 @@ impl<K: Hash + Eq> Default for HashSet<K> {
 
 // `iter.collect::<HashSet<K>>()`; a duplicate element is dropped.
 impl<K: Hash + Eq> FromIterator<K> for HashSet<K> {
-    fn from_iter<I: Iterator<K>>(iter: I) -> HashSet<K> {
+    fn from_iter<I: Iterator<Item = K>>(iter: I) -> HashSet<K> {
         let mut s: HashSet<K> = hashset_new::<K>();
         let mut it: I = iter;
         loop {

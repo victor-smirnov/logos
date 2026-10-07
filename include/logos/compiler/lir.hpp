@@ -471,16 +471,6 @@ struct ETypeCodeOf {
     TypeRef elem_type = nullptr;
 };
 
-// Try expression: expr? — extract Ok(v) or early-return Err(e).
-// inner must have enum type "Result" with 2 type args [T, E].
-// ok_disc / err_disc are the discriminant values for Ok and Err variants.
-// The ETry expression itself has type T (the Ok payload type).
-struct ETry {
-    LExprPtr inner = {};
-    int32_t  ok_disc  = 0;   // discriminant of Ok  (typically 0)
-    int32_t  err_disc = 1;   // discriminant of Err (typically 1)
-};
-
 // Represents an inline block of statements returning a final value
 struct EBlockExpr {
     LBlockPtr block = {};
@@ -520,23 +510,6 @@ struct SIf {
     lir_view::ExprRef                  cond;
     LBlockPtr                 then_ = {};
     std::optional<LBlockPtr>  else_;
-};
-
-struct SWhile {
-    lir_view::ExprRef  cond;
-    LBlockPtr body = {};
-    std::string label;  // optional loop label (e.g. "'outer"), empty = unlabeled
-};
-
-struct SFor {
-    std::string      var;
-    lir_view::ExprRef         lo;
-    lir_view::ExprRef         hi;
-    bool             inclusive;
-    LBlockPtr        body = {};
-    std::string      label;  // optional loop label, empty = unlabeled
-    uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
-    bool             var_mut = false;     // `for mut i in lo..hi`
 };
 
 struct SLoop {
@@ -606,17 +579,6 @@ struct STupleWrite {
 };
 
 // for item in array { body } — iterates over a fixed-size array
-struct SForEach {
-    std::string      var;         // loop variable name (item)
-    lir_view::ExprRef         iter;        // the array or slice expression
-    TypeRef elem_type;   // element type
-    int64_t          arr_size;    // static array size; 0 for slices
-    bool             is_slice = false;  // true → iter is &[T] (dynamic length from fat pointer)
-    bool             var_mut  = false;  // `for mut x in …` (sk::IS_MUT, sparse)
-    LBlockPtr        body = {};
-    uint32_t         slot = 0xFFFFFFFFu;  // Phase-1: loop var's dense slot
-    std::string      label;       // optional loop label (`'l: for x in v`), empty = unlabeled
-};
 
 // let-else: let Pat = expr else { block (must diverge) };
 // After this statement, the pattern's bindings are in scope.

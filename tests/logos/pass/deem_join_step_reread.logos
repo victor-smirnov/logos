@@ -43,7 +43,8 @@ static mut PULLED: i64 = 0i64;
 pub struct Dup { pub n: i64 }
 pub struct DupIter { pub i: i64 }
 
-impl Iterator<(i64, i64)> for DupIter {
+impl Iterator for DupIter {
+    type Item = (i64, i64);
     fn next(self: &mut DupIter) -> Option<(i64, i64)> {
         if self.i >= 5i64 { return Option::None; }
         unsafe { PULLED = PULLED + 1i64; }

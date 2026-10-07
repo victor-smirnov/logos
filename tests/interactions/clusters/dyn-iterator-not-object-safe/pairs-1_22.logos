@@ -17,9 +17,10 @@ use logos.lang.cmp;
 use logos.lang.clone;
 use logos.std.fmt;
 struct Up { i: i64, n: i64 }
-impl Iterator<i64> for Up { fn next(&mut self) -> Option<i64> { if self.i < self.n { self.i += 1; Some(self.i) } else { None } } }
-fn pick(which: i64) -> Box<dyn Iterator<i64>> { if which == 0 { Box::new(Up { i: 0, n: 3 }) } else { Box::new(vec![10i64, 20, 30].into_iter()) } }
-fn drain(it: &mut dyn Iterator<i64>) -> i64 { let mut s = 0i64; while let Some(x) = it.next() { s += x; } s }
+impl Iterator for Up {
+    type Item = i64; fn next(&mut self) -> Option<i64> { if self.i < self.n { self.i += 1; Some(self.i) } else { None } } }
+fn pick(which: i64) -> Box<dyn Iterator<Item = i64>> { if which == 0 { Box::new(Up { i: 0, n: 3 }) } else { Box::new(vec![10i64, 20, 30].into_iter()) } }
+fn drain(it: &mut dyn Iterator<Item = i64>) -> i64 { let mut s = 0i64; while let Some(x) = it.next() { s += x; } s }
 trait Shape { const SIDES: i64; fn sides(&self) -> i64 { Self::SIDES } }
 trait Area { fn area(&self) -> i64; }
 struct Tri; struct Sq2;

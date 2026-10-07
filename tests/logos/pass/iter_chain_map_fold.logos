@@ -7,7 +7,7 @@
 //
 // Root cause: sema's struct-method dispatch for methods whose
 // `fi.type_params` carry BOTH the struct's tparams (impl-attached
-// from a trait-default-method clone — `impl<I,T,R> Iterator<R> for
+// from a trait-default-method clone — `impl<I,T,R> Iterator<Item = R> for
 // MapIter<I,T,R> { fn fold<Acc>(...) }` gives fold a type_params
 // list [I,T,R,Acc]) AND its own method-level tparams.  Turbofish
 // `mi.fold::<i32>` injected user_type_args[0] = i32 into

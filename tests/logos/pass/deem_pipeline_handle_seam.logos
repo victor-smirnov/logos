@@ -77,7 +77,8 @@ pub struct SeamSrc<'a> { pub rows: &'a [(u64, u64)], pub ctr: *mut i64 }
 
 pub struct SeamIter<'a> { pub rows: &'a [(u64, u64)], pub i: i64, pub ctr: *mut i64 }
 
-impl<'a> Iterator<(u64, u64)> for SeamIter<'a> {
+impl<'a> Iterator for SeamIter<'a> {
+    type Item = (u64, u64);
     fn next(self: &mut SeamIter) -> Option<(u64, u64)> {
         if self.i >= self.rows.len() { return Option::None; }
         unsafe { self.ctr[0] = self.ctr[0] + 1i64; }

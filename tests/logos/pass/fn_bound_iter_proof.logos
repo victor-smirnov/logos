@@ -22,7 +22,7 @@ use logos.lang.range;
 use logos.lang.iter;
 use logos.lang.option;
 
-unsafe fn each_doubled<I: Iterator<i32>, F: Fn(i32) -> i32>(iter: I, f: F) -> i32 {
+unsafe fn each_doubled<I: Iterator<Item = i32>, F: Fn(i32) -> i32>(iter: I, f: F) -> i32 {
     let mut it: I = iter;
     let mut s: i32 = 0;
     loop {

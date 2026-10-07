@@ -32,7 +32,7 @@
 //     `Iterator::collect` default method reports "type parameter 'C' shadows an
 //     existing type / trait", which would put a diagnostic on an admit-shelf file.
 //     A rename, nothing more.
-//   · `type Item = C<'a>;` -> the stdlib trait's type PARAMETER (`Iterator<Cr<'a>>`)
+//   · `type Item = C<'a>;` -> the stdlib trait's type PARAMETER (`Iterator<Item = Cr<'a>>`)
 //   · `vec![]` -> `Vec::new()`
 //   · assert -> exit code: `fn main() -> i32`
 package issue_53773;
@@ -40,7 +40,8 @@ struct Child { n: i64 }
 struct Cr<'a> { raw: &'a mut Child }
 impl<'a> Drop for Cr<'a> { fn drop(self: &mut Cr<'a>) { self.raw.n = 99i64; } }
 struct Iter<'a> { c: Option<Cr<'a>> }
-impl<'a> Iterator<Cr<'a>> for Iter<'a> {
+impl<'a> Iterator for Iter<'a> {
+    type Item = Cr<'a>;
     fn next(self: &mut Iter<'a>) -> Option<Cr<'a>> { return self.c.take(); }
 }
 fn error(it: Iter) {

@@ -1,0 +1,11 @@
+// SOUNDNESS QUEUE row method_on_ref_array_impl_refused (tier 3, `refuses`). Found 2026-10-06 (ADR 0030 S10 row 1): a method of an impl over `&'a [T; N]` called on `&a` is refused (the UFCS form `Tr::g(&a)` is accepted).
+// Logos: error [fn main]: method call: receiver is not a struct (got &[i64; 3]).
+// rustc: the twin compiles and exits 3 (rustc 1.98.1 --edition 2024).
+// fix hint: method probe: the receiver `&[T; N]` is a candidate step for an impl whose Self is a reference to an array, as for `&Struct`.
+package method_on_ref_array_impl_refused;
+trait Tr { fn g(self) -> i64; }
+impl<'a, T, const N: i64> Tr for &'a [T; N] { fn g(self) -> i64 { N } }
+fn main() -> i32 {
+    let a: [i64; 3] = [1, 2, 3];
+    return (&a).g() as i32;
+}

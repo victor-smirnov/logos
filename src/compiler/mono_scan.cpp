@@ -161,19 +161,6 @@ void Mono::scan_stmt(lir_view::StmtRef s) {
         scan_block(v.else_block());
         break;
     }
-    case SCode::While: {
-        lir_view::SWhileView v{s};
-        scan_expr(v.cond());
-        scan_block(v.body());
-        break;
-    }
-    case SCode::For: {
-        lir_view::SForView v{s};
-        scan_expr(v.lo());
-        scan_expr(v.hi());
-        scan_block(v.body());
-        break;
-    }
     case SCode::Loop:
         scan_block(lir_view::SLoopView{s}.body());
         break;
@@ -213,12 +200,6 @@ void Mono::scan_stmt(lir_view::StmtRef s) {
     case SCode::ExprStmt:
         scan_expr(lir_view::SExprStmtView{s}.expr());
         break;
-    case SCode::ForEach: {
-        lir_view::SForEachView v{s};
-        scan_expr(v.iter());
-        scan_block(v.body());
-        break;
-    }
     case SCode::LetElse: {
         lir_view::SLetElseView v{s};
         scan_expr(v.scrut());
@@ -475,9 +456,6 @@ void Mono::scan_expr(lir_view::ExprRef e) {
         v.each_arg([&](lir_view::ExprRef a) { scan_expr(a); });
         break;
     }
-    case ECode::Try:
-        scan_expr(lir_view::ETryView{e}.inner());
-        break;
     case ECode::MatchExpr: {
         lir_view::EMatchExprView v{e};
         scan_expr(v.scrut());

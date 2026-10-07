@@ -124,7 +124,7 @@ ARMS
 15	enum-payload-nonfreeze	axis_opt_cell	return false;
 16	enum-payload-freeze	axis_opt_plain	return true;
 17	enum-clike-fallback	axis_clike	return true;
-18	default-unknown-kind	axis_residue	return false;
+18	default-unknown-kind	NO-AXIS:UNREACHED since ADR 0030 S10 row 2 — its one source shape was an impl method whose parameter only the trait's arguments name (Id::call's `&'a T` in the lattice), emitted UNINSTANTIATED with a TypeVar pointee; it is instantiated now (`Id__call__g__..__i32`, a known `&i32`), and the answer (false) stays the conservative one	return false;
 #
 # ── SECTION `EXTRA_AXES` ─────────────────────────────────────────────────────
 # Axes that pin a PROPERTY of the predicate rather than one verdict site. They

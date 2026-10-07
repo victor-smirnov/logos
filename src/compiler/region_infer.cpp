@@ -259,36 +259,6 @@ void RegionInferer::walk_block(lir_view::BlockRef br0, uint32_t blk_id,
                 cur = after_id;
                 break;
             }
-            case SCode::While: {
-                SWhileView v{sr};
-                uint32_t body_id  = RegionInferer_alloc_block(cfg_);
-                uint32_t after_id = RegionInferer_alloc_block(cfg_);
-                cfg_.blocks[cur].successors = {body_id, after_id};
-                if (auto b = v.body()) walk_block(b, body_id, prog);
-                cfg_.blocks[body_id].successors.push_back(cur);  // back-edge
-                cur = after_id;
-                break;
-            }
-            case SCode::For: {
-                SForView v{sr};
-                uint32_t body_id  = RegionInferer_alloc_block(cfg_);
-                uint32_t after_id = RegionInferer_alloc_block(cfg_);
-                cfg_.blocks[cur].successors = {body_id, after_id};
-                if (auto b = v.body()) walk_block(b, body_id, prog);
-                cfg_.blocks[body_id].successors.push_back(cur);  // back-edge
-                cur = after_id;
-                break;
-            }
-            case SCode::ForEach: {
-                SForEachView v{sr};
-                uint32_t body_id  = RegionInferer_alloc_block(cfg_);
-                uint32_t after_id = RegionInferer_alloc_block(cfg_);
-                cfg_.blocks[cur].successors = {body_id, after_id};
-                if (auto b = v.body()) walk_block(b, body_id, prog);
-                cfg_.blocks[body_id].successors.push_back(cur);
-                cur = after_id;
-                break;
-            }
             case SCode::Loop: {
                 SLoopView v{sr};
                 uint32_t body_id  = RegionInferer_alloc_block(cfg_);
@@ -582,9 +552,6 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
                 walk_expr(v.index(), "");
                 return;
             }
-            case ECode::Try:
-                walk_expr(ETryView{e}.inner(), "");
-                return;
             default:
                 return;
         }
@@ -650,18 +617,6 @@ void RegionInferer::walk_stmt(lir_view::StmtRef sr,
             break;
         case SCode::If:
             walk_expr(SIfView{sr}.cond(), "");
-            break;
-        case SCode::While:
-            walk_expr(SWhileView{sr}.cond(), "");
-            break;
-        case SCode::For: {
-            SForView v{sr};
-            walk_expr(v.lo(), "");
-            walk_expr(v.hi(), "");
-            break;
-        }
-        case SCode::ForEach:
-            walk_expr(SForEachView{sr}.iter(), "");
             break;
         case SCode::LetElse:
             walk_expr(SLetElseView{sr}.scrut(), "");
@@ -771,9 +726,6 @@ void RegionInferer::use_def_for_stmt(lir_view::StmtRef sr,
                 walk_use(v.slice()); walk_use(v.index());
                 return;
             }
-            case ECode::Try:
-                walk_use(ETryView{e}.inner());
-                return;
             default:
                 return;
         }
@@ -848,21 +800,6 @@ void RegionInferer::use_def_for_stmt(lir_view::StmtRef sr,
         case SCode::If:
             walk_use(SIfView{sr}.cond());
             break;
-        case SCode::While:
-            walk_use(SWhileView{sr}.cond());
-            break;
-        case SCode::For: {
-            SForView v{sr};
-            walk_use(v.lo()); walk_use(v.hi());
-            def.insert(live_key(v.var(), v.var_slot()));
-            break;
-        }
-        case SCode::ForEach: {
-            SForEachView v{sr};
-            walk_use(v.iter());
-            def.insert(live_key(v.var(), v.var_slot()));
-            break;
-        }
         case SCode::LetElse:
             walk_use(SLetElseView{sr}.scrut());
             break;

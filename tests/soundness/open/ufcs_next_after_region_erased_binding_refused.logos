@@ -1,0 +1,16 @@
+// SOUNDNESS QUEUE row ufcs_next_after_region_erased_binding_refused (tier 3, `refuses`). Found 2026-10-06 (ADR 0030 S10 row 1, the HIR `for` desugaring): `Iterator::next(&mut it)` over an iterator bound through a generic call (`IntoIterator::into_iter(self.v.iter())`) is refused — the binding's type lost its region (`VecIter<i64>`) and the UFCS argument check compares it with the impl's `VecIter<'a, i64>`.
+// Logos: error [fn S__sum]: call to 'logos.mem.collections.vec.VecIter__next' arg 1: variance mismatch — expected &mut VecIter<'a, i64>, got &mut VecIter<i64> — lifetime structure incompatible.
+// rustc: the twin compiles and exits 6 (rustc 1.98.1 --edition 2024).
+// fix hint: the region of a type a generic call binds to a type parameter survives the binding (or the UFCS check instantiates the impl's regions as the method-call path does); the for desugaring then calls Iterator::next by UFCS.
+package ufcs_next_after_region_erased_binding_refused;
+struct S { v: Vec<i64> }
+impl S {
+    fn sum(&self) -> i64 {
+        let mut s: i64 = 0;
+        match IntoIterator::into_iter(self.v.iter()) {
+            mut it => loop { match Iterator::next(&mut it) { Some(x) => { s = s + *x; } None => { break; } } }
+        }
+        s
+    }
+}
+fn main() -> i32 { let s = S { v: vec![1, 2, 3] }; return s.sum() as i32; }

@@ -2510,14 +2510,8 @@ private:
     void collect_ast_pat_bindings(writ::TinyMapView pat,
                                   std::vector<std::string>& out);
 
-    // T1-7 (audit-v2): capture types per interned closure type, recorded at
-    // closure-literal lowering and consumed by the auto-trait engine
-    // (Send/Sync walk captures, not parameter types). Keyed by type_str of
-    // the Closure TypeRef; same-signature literals UNION their captures
-    // (conservative-correct). By-ref captures are stored as `&[mut] T`.
-    std::unordered_map<std::string, std::vector<TypeRef>> closure_capture_env_;
     // Inferred Fn-family kind of each closure literal, keyed by the interned
-    // closure type_str (same union-by-signature model as closure_capture_env_):
+    // closure type_str (a union over same-signature literals):
     // 0 = Fn (reads captures only), 1 = FnMut (mutates a capture), 2 = FnOnce
     // (consumes/moves a capture out of the env). Stored as the MAX (most
     // restrictive) across same-signature literals — conservative-correct: if any
@@ -2572,7 +2566,7 @@ private:
         for (auto& b : bit->second) {
             if (!b.is_fn_family) continue;
             has_fn_family = true;
-            if (b.trait_name == "Fn" || b.trait_name == "FnMut") has_multi_call = true;
+            if (b.fn_level < 2) has_multi_call = true;
         }
         return has_fn_family && !has_multi_call;
     }
@@ -3095,10 +3089,6 @@ private:
             } else if constexpr (std::is_same_v<KT, lir::SIf>) {
                 lir_view::BlockRef eb = k.else_.has_value() ? *k.else_ : lir_view::BlockRef{};
                 s.mirror_ptr_ = lir_mirror_emit_if_stmt(p, line, k.cond, k.then_, eb);
-            } else if constexpr (std::is_same_v<KT, lir::SWhile>) {
-                s.mirror_ptr_ = lir_mirror_emit_while(p, line, k.cond, k.body, k.label);
-            } else if constexpr (std::is_same_v<KT, lir::SFor>) {
-                s.mirror_ptr_ = lir_mirror_emit_for(p, line, k.var, k.lo, k.hi, k.inclusive, k.body, k.label, k.slot, k.var_mut);
             } else if constexpr (std::is_same_v<KT, lir::SLoop>) {
                 s.mirror_ptr_ = lir_mirror_emit_loop(p, line, k.body, k.label, k.break_slot, k.result_type);
             } else if constexpr (std::is_same_v<KT, lir::SBreak>) {
@@ -3115,8 +3105,6 @@ private:
                 s.mirror_ptr_ = lir_mirror_emit_field_index_write(p, line, k.receiver, k.field, k.index, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SExprStmt>) {
                 s.mirror_ptr_ = lir_mirror_emit_expr_stmt(p, line, k.expr);
-            } else if constexpr (std::is_same_v<KT, lir::SForEach>) {
-                s.mirror_ptr_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body, k.slot, k.var_mut, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {
                 s.mirror_ptr_ = lir_mirror_emit_deref_write(p, line, k.ptr, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SDrop>) {
@@ -4448,37 +4436,11 @@ private:
     // whole list is lowered, and the consumer takes the value over.
     std::unordered_set<const void*> own_on_sibling_exit_;
     std::vector<std::string> sibling_owned_temps_;
-    // A loop body that ENDS in an unconditional `return` and holds no `break` /
-    // `continue` is left normally only without running: its moves never reach
-    // the loop exit, whose move state is then exactly the pre-loop one.
-    // A while / range-for body may run ZERO times: at the loop exit a local it
-    // moves is moved on SOME paths only. Merge like an `if` without `else`
-    // (#118 drop flag, cleared in the body), except that a body which ENDS in
-    // an unconditional `return` and holds no `break` / `continue` never reaches
-    // the exit with its moves — the exit state is then exactly the pre-loop one.
-    void merge_loop_exit_moves(std::vector<lir_view::StmtRef>& body,
-                               writ::TinyMapView body_ast,
-                               const std::set<std::string>& pre, size_t clear_mark) {
-        if (!body.empty()) {
-            auto br = stmt_ref_of(body.back());
-            if (br && br.kind() == lir_schema::stmt::Code::Return &&
-                !ast_has_break_or_continue(body_ast)) {
-                moved_vars_ = pre;
-                return;
-            }
-        }
-        std::vector<CondMoveBranch> reaching;
-        reaching.push_back({&body, nullptr, moved_vars_, clear_mark, flag_clear_log_.size()});
-        reaching.push_back({nullptr, nullptr, pre, clear_mark, clear_mark});
-        elaborate_cond_moves(pre, reaching);
-    }
     bool is_deferred_init(std::string_view name) const {
         const VarInfo* vi = lookup_var_info(name);
         return vi && vi->deferred_init;
     }
-    // A closure LITERAL's captures, by closure_id (per literal — the
-    // signature-keyed closure_capture_env_ is a union and answers a different
-    // question). By-ref capture of a SHARED reference is the reborrow `&'a T`
+    // A closure LITERAL's captures, by closure_id (per literal). By-ref capture of a SHARED reference is the reborrow `&'a T`
     // itself; any other by-ref capture is `&T` with no region (a borrow of the
     // local). Second of the pair = the captured binding's own closure_id.
     std::unordered_map<std::string, std::vector<std::pair<TypeRef, std::string>>> closure_caps_by_id_;
@@ -4536,10 +4498,6 @@ private:
         // Recorded here instead, on the frame that owns the root, so it
         // survives exactly as long as the local it describes.
         std::set<std::string> cond_move_static_moves;
-        // Locals whose `cond_move_flags` flag guards a RELEASE of a move-closure
-        // capture (the closure was consumed on SOME paths only): their drop stays
-        // with the frame (closure_owned_drop_) and is emitted guarded.
-        std::set<std::string> cond_release_flagged;
         // (outer frame, name, hidden key) of an outer binding this frame shadows; restored at pop_scope.
         std::vector<std::tuple<size_t, std::string, std::string>> shadow_outer_renames;
     };
@@ -4594,36 +4552,6 @@ private:
     // (the ones whose tail is a return/break/continue/panic) contribute nothing.
     // Loops are conservative: vars assigned only inside the body do not become
     // init at the outer scope. Closures get their own (saved+restored) tracker.
-    // G156-7: vars moved into a `move` closure that nonetheless must still be
-    // DROPPED at their scope exit. A move closure's env stores a POINTER to the
-    // source's storage (borrows it; closures have no capture drop-glue), and the
-    // source is marked moved (so use-after-move is enforced) — but suppressing
-    // its drop would leak. So the source stays in moved_vars_ (use-check works)
-    // AND is recorded here; collect_drops/collect_all_drops un-skip it so its
-    // destructor runs exactly once. Monotonic (no save/restore needed).
-    std::set<std::string> closure_owned_drop_;
-    // Rust capture-drop ORDER for the un-skipped captures above: they drop
-    // WITH their owning closure binding (at its var_order slot, in capture
-    // order), not at their own slots. Populated by lower_let when its direct
-    // RHS is a closure; consumed by emit_frame_drops. Same-frame only — an
-    // owner in a different frame falls back to own-slot drops (a closure
-    // created in a conditional inner block must not hoist the outer
-    // capture's drop into branch-only code).
-    std::vector<std::string> pending_closure_capture_drops_;
-    // WHEN A CLOSURE BODY'S MOVE HAPPENS. A `move` closure whose BODY moves a
-    // capture out is an `FnOnce`: the move it performs happens AT THE CALL, and
-    // the call runs zero or one time. Sema recorded it at the LITERAL instead
-    // and stood the source scope down, so a closure that is never called leaked
-    // the capture (rows closure_capture_body_moved_never_dropped /
-    // closure_narrow_capture_never_dropped). The drop obligation is therefore
-    // left with the source (`closure_owned_drop_`, which un-skips it) and
-    // handed over HERE, at the point the callable is consumed — which is exactly
-    // where Rust hands it over. Keyed by the closure BINDING; the entries are
-    // capture ROOTS (whole-var capture) and dotted PATHS (RFC-2229 narrow).
-    std::unordered_map<std::string, std::vector<std::string>> closure_deferred_moves_;
-    std::vector<std::string> pending_closure_deferred_moves_;
-    std::unordered_map<std::string, std::vector<std::string>> closure_drop_group_;
-    std::unordered_map<std::string, std::string> capture_owner_;
     // Shared per-frame drop emission (group-aware) — the single inner loop
     // behind collect_drops / collect_all_drops / collect_drops_to_loop and
     // the fn-epilogue param walk (was 4 drifting copies).
@@ -4897,31 +4825,8 @@ private:
     // is a Copy type and which have no `impl Drop`. Called after
     // check_supertrait_impls so manual `impl Copy` entries are already in.
     void compute_auto_copy_types();
-    // The cascade alone: release the deferred drop obligations a callable
-    // binding is holding, WITHOUT marking the binding itself moved. Called on
-    // every read of a name (lower_var_ref) — reading a callable is the one
-    // observable act that can make its body run.
-    void mark_moved_deferred_only(const std::string& name) {
-        auto dm = closure_deferred_moves_.find(name);
-        if (dm == closure_deferred_moves_.end()) return;
-        for (const auto& nm : dm->second) {
-            moved_vars_.insert(nm);
-            body_ever_moved_.insert(nm);
-            closure_owned_drop_.erase(nm);
-        }
-    }
     void mark_moved(const std::string& name) {
         moved_vars_.insert(name);
-        // CONSUMING THE CALLABLE CONSUMES WHAT ITS BODY MOVES OUT. Until the
-        // closure is called (or passed by value, or rebound), the source keeps
-        // the drop obligation for those captures — see closure_deferred_moves_.
-        // The moment it is consumed the BODY becomes the drop site, so the
-        // source's obligation is released: a whole-var capture leaves
-        // `closure_owned_drop_` (its scope-exit drop is skipped again) and a
-        // narrow PATH re-enters the container's `moved_fields` the same way.
-        // Direct set writes, not a recursive mark_moved: a capture is not a
-        // callable and carries no deferred set of its own.
-        mark_moved_deferred_only(name);
         // §7.1 follow-up: track EVER-moved across branches. per-branch
         // save/restore (lower_if / lower_match) reverts moved_vars_ on
         // diverging branches, but Logos's mlir-gen merges branches into a
@@ -5183,19 +5088,9 @@ private:
         std::set<std::string> moves;
         size_t clear_mark = 0;   // flag_clear_log_ size before this branch
         size_t clear_end  = 0;   // ... and after it
-        // closure_owned_drop_ at the end of this branch (read only when the
-        // caller passes `owned_pre`).
-        std::set<std::string> owned;
     };
-    // `owned_pre` (closure_owned_drop_ before the branches) also merges the
-    // RELEASES of move-closure captures — a closure consumed on some reaching
-    // paths only: the capture stays owned by the frame, flagged, the flag
-    // cleared in the releasing branches. Sets closure_owned_drop_ to the merge.
     void elaborate_cond_moves(const std::set<std::string>& pre,
-                              std::vector<CondMoveBranch>& reaching,
-                              const std::set<std::string>* owned_pre = nullptr);
-    void elaborate_cond_releases(const std::set<std::string>& owned_pre,
-                                 std::vector<CondMoveBranch>& reaching);
+                              std::vector<CondMoveBranch>& reaching);
 
     // ── ONE JOIN (ADR 0030 S5.3) ─────────────────────────────────────────
     // Every construct whose branches rejoin — `if` (statement and expression),
@@ -5210,35 +5105,32 @@ private:
     struct JoinBuilder {
         SemaChecker& s;
         std::set<std::string> pre, post;
-        std::set<std::string> owned_pre;
         std::vector<CondMoveBranch> reaching;
         bool any_falls_through = false;
         size_t mark = 0;
         explicit JoinBuilder(SemaChecker& sc)
-            : s(sc), pre(sc.moved_vars_), owned_pre(sc.closure_owned_drop_) {}
+            : s(sc), pre(sc.moved_vars_) {}
         void begin() {
             s.moved_vars_ = pre;
             mark = s.flag_clear_log_.size();
         }
         void end(std::vector<lir_view::StmtRef>* blk, lir::LExprPtr* val, BranchExit ex) {
             if (ex != BranchExit::Returns)
-                reaching.push_back({blk, val, s.moved_vars_, mark, s.flag_clear_log_.size(),
-                                    s.closure_owned_drop_});
+                reaching.push_back({blk, val, s.moved_vars_, mark, s.flag_clear_log_.size()});
             if (ex == BranchExit::FallsThrough) {
                 any_falls_through = true;
                 post.insert(s.moved_vars_.begin(), s.moved_vars_.end());
             }
-            s.closure_owned_drop_ = owned_pre;
         }
         // A path that runs no branch (an `if` without `else`).
         void fall_through_unchanged() {
             size_t m = s.flag_clear_log_.size();
-            reaching.push_back({nullptr, nullptr, pre, m, m, owned_pre});
+            reaching.push_back({nullptr, nullptr, pre, m, m});
             any_falls_through = true;
             post.insert(pre.begin(), pre.end());
         }
         void merge() { s.moved_vars_ = any_falls_through ? post : pre; }
-        void elaborate() { s.elaborate_cond_moves(pre, reaching, &owned_pre); }
+        void elaborate() { s.elaborate_cond_moves(pre, reaching); }
         void finish() { merge(); elaborate(); }
     };
     // An arm VALUE's exit: `!` is a `return` (or panic) unless it leaves a loop.
@@ -5869,7 +5761,7 @@ private:
     static bool shadow_is_path_of(const std::string& m, const std::string& root) {
         return m == root || (m.size() > root.size() && m[root.size()] == '.' && m.compare(0, root.size(), root) == 0);
     }
-    // Re-key ONE binding's name-keyed records (move state + closure capture state); tools/dlog/shadow_binding_state.dl.
+    // Re-key ONE binding's name-keyed records (move state); tools/dlog/shadow_binding_state.dl.
     void shadow_rekey(Frame& f, const std::string& from, const std::string& to) {
         auto rk = [&](const std::string& m) { return to + m.substr(from.size()); };
         auto rekey_set = [&](std::set<std::string>& st) {
@@ -5877,26 +5769,12 @@ private:
             for (auto& m : st) if (shadow_is_path_of(m, from)) v.push_back(m);
             for (auto& m : v) { st.erase(m); st.insert(rk(m)); }
         };
-        auto rekey_list = [&](std::vector<std::string>& l) {
-            for (auto& m : l) if (shadow_is_path_of(m, from)) m = rk(m);
-        };
         rekey_set(moved_vars_);
         rekey_set(f.cond_move_static_moves);
         rekey_set(body_ever_moved_);
-        rekey_set(closure_owned_drop_);
         std::vector<std::pair<std::string, std::string>> fl;
         for (auto& [k, v] : f.cond_move_flags) if (shadow_is_path_of(k, from)) fl.emplace_back(k, v);
         for (auto& [k, v] : fl) { f.cond_move_flags.erase(k); f.cond_move_flags[rk(k)] = v; }
-        std::vector<std::pair<std::string, std::string>> co;
-        for (auto& [k, v] : capture_owner_) {
-            if (v == from) v = to;
-            if (shadow_is_path_of(k, from)) co.emplace_back(k, v);
-        }
-        for (auto& [k, v] : co) { capture_owner_.erase(k); capture_owner_[rk(k)] = v; }
-        for (auto& [k, v] : closure_drop_group_) rekey_list(v);
-        if (auto g = closure_drop_group_.extract(from)) { g.key() = to; closure_drop_group_.insert(std::move(g)); }
-        for (auto& [k, v] : closure_deferred_moves_) rekey_list(v);
-        if (auto d = closure_deferred_moves_.extract(from)) { d.key() = to; closure_deferred_moves_.insert(std::move(d)); }
     }
     // The popped inner binding's records die with its frame.
     void shadow_forget(const std::string& name) {
@@ -5905,13 +5783,6 @@ private:
         };
         erase_paths(moved_vars_);
         erase_paths(body_ever_moved_);
-        erase_paths(closure_owned_drop_);
-        for (auto it = capture_owner_.begin(); it != capture_owner_.end();)
-            it = (shadow_is_path_of(it->first, name) || it->second == name) ? capture_owner_.erase(it) : std::next(it);
-        closure_drop_group_.erase(name);
-        closure_deferred_moves_.erase(name);
-        for (auto& [k, v] : closure_drop_group_)
-            v.erase(std::remove_if(v.begin(), v.end(), [&](const std::string& m) { return shadow_is_path_of(m, name); }), v.end());
     }
     static std::string shadow_user_name(const std::string& n) {
         auto p = n.find('\x1f');
@@ -6247,6 +6118,9 @@ private:
             DefId       trait_def;
         };
         std::vector<ParamBound> where_param_bounds;
+        // `where Self::Name: Bound` (the Rust shape of the gate above): the
+        // associated item named, and its bound — per-impl synthesis gating.
+        std::vector<std::pair<std::string, TraitBound>> self_proj_bounds;
         writ::AnyVal default_ast{};    // AST node for default method (valid when has_default)
         writ::MemHolder* default_holder = nullptr;  // zone that owns default_ast
         std::string doc;     // Phase A.2: outer `///` doc-comment
@@ -6343,6 +6217,9 @@ private:
         // generics; a bare generic for a blanket impl), set for EVERY impl —
         // `target_typeref` is null for a plain nominal target.
         TypeRef self_type = nullptr;
+        // `impl Tr for &[T]` (Logos registers it as the `[T]` impl's twin, Self
+        // `[T]` for its methods): the reference Rust's Self is, for C-OBL.
+        TypeRef written_ref_slice = nullptr;
         // ADR 0030 S9 row 5: the impl's associated types (`type Item = T;`, or
         // the trait's default), over its generics — the C-OBL fact's items.
         std::vector<obl::AssocItem> assoc_types;
@@ -7289,6 +7166,17 @@ private:
         auto it = enums_.find(defs_.find(DefNs::Type, li->package, li->name));
         return it == enums_.end() ? std::pair<std::string, SemaEnumInfo*>{}
                                   : std::pair<std::string, SemaEnumInfo*>{li->package, &it->second};
+    }
+    // A pattern's enum written as a path `pkg::Enum` (the HIR names lang items
+    // so): that enum by identity, and `name` becomes its bare name. end() for
+    // a single name.
+    auto path_enum_(std::string& name) -> decltype(enums_.end()) {
+        auto p = name.rfind("::");
+        if (p == std::string::npos) return enums_.end();
+        auto it = enums_.find(defs_.find(DefNs::Type, std::string_view(name).substr(0, p),
+                                         std::string_view(name).substr(p + 2)));
+        if (it != enums_.end()) name = name.substr(p + 2);
+        return it;
     }
     std::pair<std::string, SemaEnumInfo*> find_enum_by_name(std::string_view name) {
         return lookup_qualified_<true>(enums_, name);
@@ -8968,6 +8856,10 @@ private:
     // the pass's to see (hir_lower.hpp).
     writ::TinyMapView hir_body_(writ::AnyVal body, bool fragment = true) {
         hir_.set_file(file_);
+        hir_.set_lang_paths([this](std::string_view l) -> std::string {
+            const LangItem* li = lang_item(l);
+            return li ? (li->package.empty() ? li->name : li->package + "::" + li->name) : std::string();
+        });
         writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false, fragment);
         hir_report_();
         return map_of(core);
@@ -9637,10 +9529,6 @@ private:
     lir::LExprPtr lower_index_place(writ::TinyMapView node, bool is_mut);
     lir::LExprPtr lower_arr_lit(writ::TinyMapView node);
     lir::LExprPtr lower_arr_fill_lit(writ::TinyMapView node);
-    lir::LExprPtr lower_list_comp(writ::TinyMapView node);
-    lir::LExprPtr lower_map_comp(writ::TinyMapView node);
-    lir::LExprPtr lower_writ_list_comp(writ::TinyMapView node);
-    lir::LExprPtr lower_writ_map_comp(writ::TinyMapView node);
     lir::LExprPtr coerce_to_writ_anyval(lir::LExprPtr val,
                                           const std::string& ctr_var,
                                           TypeRef ctr_t,
@@ -9736,8 +9624,6 @@ private:
     const SemaFuncInfo* macro_in_scope_(const std::string& callee_name);
     std::deque<writ::Writ> macro_arg_docs_;
     std::deque<std::shared_ptr<std::string>> macro_arg_texts_;
-    lir::LExprPtr lower_reparsed_tail_expr(const std::string& wrap_body,
-                                           std::string_view err_ctx);
     lir::LExprPtr lower_macro_concat(writ::TinyMapView node);
     lir::LExprPtr lower_macro_concat_bytes(writ::TinyMapView node);
     // Bare `{ stmts; tail_expr }` as expression — lowers a BLOCK AST node
@@ -10319,15 +10205,6 @@ private:
     // binds `&T` like every other container door.
     struct DbmCtx { bool ref = false; bool mut_ = false; };
     DbmCtx variant_data_dbm_;
-    // G-CONF-1: bind a `for PATTERN in iter` loop variable. `src_var` holds one
-    // element (type `src_type`); defines the pattern's bindings in the current
-    // scope and appends the destructure `let`s to `out`. Returns false (with a
-    // diagnostic) for a pattern shape not yet supported in for-position. A bare
-    // single binding is handled by the caller (NAME fast-path) and never reaches
-    // here.
-    bool emit_for_pattern_destructure(writ::TinyMapView pat,
-                                      const std::string& src_var, TypeRef src_type,
-                                      std::vector<lir_view::StmtRef>& out);
     // K4: recursive AST-level exhaustiveness for nested enum-payload patterns.
     // The LIR-level check skips guarded arms, so a desugared nested match
     // (`Some(Some(v))` / `Some(None)` / `None`) looks non-exhaustive. This
@@ -10587,8 +10464,6 @@ private:
                       TypeRef scrut_type = nullptr);
     void bind_pattern_ref(lir_view::PatRef pr, TypeRef scrut_type);
     lir_view::StmtRef lower_if(writ::TinyMapView node);
-    lir_view::StmtRef lower_for(writ::TinyMapView node);
-    lir_view::StmtRef lower_for_each(writ::TinyMapView node);
     lir_view::StmtRef lower_loop(writ::TinyMapView node);
     lir_view::StmtRef lower_place_assign(writ::TinyMapView node);
     bool place_write_supported(writ::TinyMapView place);
@@ -10633,11 +10508,6 @@ private:
                                               lir::LExprPtr scrut, TypeRef scrut_type);
     lir::LExprPtr lower_match_expr(writ::TinyMapView node);
     lir::LExprPtr match_expr_of_(MatchCore& mc);
-    // A `()`-typed match whose arms are statement blocks (a compiler-built
-    // match: `?` over a unit Ok, the `for` desugar). ADR 0030 S3.4c: there is
-    // no statement match, only an expression statement of a match.
-    lir_view::StmtRef unit_match_stmt_(lir::LExprPtr scrut,
-                                       std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms);
     // G156-2: mark a by-value move-type match scrutinee (var or place) moved
     // when THIS arm's pattern binds+moves out of it (whole-binding / struct /
     // tuple / variant payload). Called PER ARM, inside the arm's own move
@@ -10669,6 +10539,25 @@ private:
     // Empty for no args. Must be byte-identical across collect/lower/dispatch.
     std::string trait_targ_suffix(const std::vector<TypeRef>& args) const;
     TypeRef param_assoc_eq_(TypeRef base, std::string_view trait, std::string_view name);
+    bool ufcs_self_by_value_ = false;   // see lower_static_call's UfcsSelfReset
+    // The `?` desugaring's match: its expected type, read by the
+    // `Try::branch(operand)` call so the operand sees the fn's carrier
+    // around it (`Ok(s.parse()?)` infers `parse::<F>` through `?`).
+    TypeRef try_match_shape_ = nullptr;
+    // The return types of the closure body being lowered without a declared
+    // return type (lower_closure_expr); null outside one.
+    struct ClosureReturn { TypeRef type; bool from_try; uint32_t line; };
+    std::vector<ClosureReturn>* closure_returns_ = nullptr;
+    // A type as written: an owning trait object prints as `Box<dyn Tr>` /
+    // `Rc<dyn Tr>` / `Arc<dyn Tr>` (type_str gives every trait object as `&dyn Tr`).
+    std::string type_str_owning_(TypeRef t) {
+        if (t && TypeRef(t).kind() == LogosType::Kind::TraitObject && TypeRef(t).owning_trait_object()) {
+            const auto k = TypeRef(t).trait_owning_kind();
+            const char* w = k == TypeRef::OwningKind::Rc ? "Rc" : k == TypeRef::OwningKind::Arc ? "Arc" : "Box";
+            return std::format("{}<dyn {}>", w, TypeRef(t).trait_name());
+        }
+        return type_str(t);
+    }
     struct BoundNamesScope {
         SemaChecker& sc;
         std::vector<std::pair<std::string, std::optional<std::vector<TraitBound>>>> saved;

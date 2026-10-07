@@ -56,7 +56,8 @@ pub struct Ticks { pub n: i64 }
 /// Rows `(i, i*10)` for `i` in `[0, n)`, produced on demand.
 pub struct TicksIter { pub n: i64, pub i: i64 }
 
-impl Iterator<(i64, i64)> for TicksIter {
+impl Iterator for TicksIter {
+    type Item = (i64, i64);
     fn next(self: &mut TicksIter) -> Option<(i64, i64)> {
         if self.i >= self.n { return Option::None; }
         unsafe { PULLED = PULLED + 1i64; }

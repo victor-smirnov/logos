@@ -1,5 +1,5 @@
 package m68;
 use logos.std.fmt;
 use logos.lang.iter;
-fn doubled(it: impl Iterator<i64>) -> impl Iterator<i64> { it.map(|x| x * 2) }
+fn doubled(it: impl Iterator<Item = i64>) -> impl Iterator<Item = i64> { it.map(|x| x * 2) }
 fn main() { let mut d = doubled(0..3i64); println!("{:?}", d.next()); }

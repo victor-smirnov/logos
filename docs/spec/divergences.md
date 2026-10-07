@@ -2107,10 +2107,10 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: A range index `recv[lo..hi]`, `recv[lo..]`, `recv[..hi]`, `recv[..]`, or inclusive `recv[lo..=hi]` produces a sub-slice `&[T]` via `slice_get_range(recv, lo, hi)`. The receiver must be a slice, array (decayed to `&[T]` via addr-of + slice-coercion), or reference-to-slice; otherwise an error is reported. Missing `lo` defaults to 0; missing `hi` defaults to INT64_MAX (clamped to len); an inclusive upper bound is lowered as `hi+1`. Bounds are widened to i64. `slice_get_range` must be in scope (`use logos.lang.slice`).
 - **Source**: `src/compiler/sema_expr.cpp#L10328-L10389`
 
-### `expr.list-comp.iter-array-or-slice-only` — Comprehension iterables restricted to array/slice
-- **Divergence**: Narrower than Rust: only concrete array/slice, no IntoIterator/Iterator protocol.
-- **Rule**: The iterable of any comprehension form must have type `[T; N]` (array) or `[T]` (slice); any other iterator type is rejected. Element type defaults to i32 when the array/slice element type is absent.
-- **Source**: `src/compiler/sema_expr.cpp#L10896-L10907`, `src/compiler/sema_expr.cpp#L11002-L11013`, `src/compiler/sema_expr.cpp#L11112-L11123`, `src/compiler/sema_expr.cpp#L11245-L11256`
+### `expr.comprehension.iterable-into-iterator` — A comprehension iterates as `for` does
+- **Divergence**: Logos-specific surface syntax; the iteration itself is Rust's `for`.
+- **Rule**: The iterable of any comprehension form is iterated by the `for` desugaring (ADR 0030 S10): it must implement `IntoIterator`, and `x` is bound to its `Item` (an array by value yields `T`, a slice `&T`, an iterator its own item). A non-iterable is E0277, as for `for`.
+- **Source**: `src/compiler/hir_lower.cpp` (Lowering::comprehension)
 
 ### `expr.method-dispatch.callable-field-call` — Call syntax on a callable struct field with no matching method
 - **Divergence**: Rust method-call syntax `recv.f(args)` never falls back to a callable field of the same name (E0599 even when a field `f: fn(..)`/`impl Fn` exists; caller must write `(recv.f)(args)`). Logos accepts the field-call form directly.

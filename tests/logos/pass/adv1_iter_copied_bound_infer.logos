@@ -1,7 +1,7 @@
 // Adversarial #1 (E, root): trait-bound-driven type-arg inference. T appears
-// only inside I's bound — `iter_copied<I: Iterator<&T>, T>(it: I)` — and is
+// only inside I's bound — `iter_copied<I: Iterator<Item = &T>, T>(it: I)` — and is
 // deduced from I's own Iterator impl. Was "could not infer all type
-// arguments" on every Iterator<&T> consumer.
+// arguments" on every Iterator<Item = &T> consumer.
 package adv1_iter_copied_bound_infer;
 use logos.lang.iter;
 fn main() -> i32 {

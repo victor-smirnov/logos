@@ -1,1 +1,1 @@
-for-in: `&Vec<i64>` is not an iterator — it has no `next()` and no `into_iter()` (E0277)
+`&Vec<i64>` is not an iterator: the trait `IntoIterator` is not implemented for it, so `for` cannot loop over it (E0277)

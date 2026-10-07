@@ -22,7 +22,7 @@ use logos.lang.hash;
 use logos.lang.cell;
 use logos.lang.ptr;
 fn main() {
-    let b: Box<dyn Iterator<i64>> = Box::new(0..4);
+    let b: Box<dyn Iterator<Item = i64>> = Box::new(0..4);
     let s: i64 = b.map(|x| x * 3).sum();
     println!("{}", s);
 }

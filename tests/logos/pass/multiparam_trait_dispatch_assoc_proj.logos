@@ -1,11 +1,11 @@
 package x;
 
-// "Iterator<Item>" analog
+// "Iterator<Item = Item>" analog
 trait Producer<Item> {
     fn produce(self: &Self) -> Item;
 }
 
-// A concrete producer whose Item is &i32 (mirrors VecIter: Iterator<&i32>)
+// A concrete producer whose Item is &i32 (mirrors VecIter: Iterator<Item = &i32>)
 struct RefProd { v: i32 }
 impl Producer<&i32> for RefProd {
     fn produce(self: &RefProd) -> &i32 { return &self.v; }

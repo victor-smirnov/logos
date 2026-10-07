@@ -7,15 +7,17 @@ use logos.lang.option;
 use logos.lang.iter;
 pub struct Vec<T> { a: i64, b: i64 }
 pub struct VIt { cur: i64, end: i64 }
-impl Iterator<i64> for VIt {
+impl Iterator for VIt {
+    type Item = i64;
     fn next(&mut self) -> Option<i64> {
         if self.cur >= self.end { return Option::None; }
         self.cur = self.cur + 1i64;
         return Option::Some(self.cur);
     }
 }
-impl<T> IntoIterator<i64> for &Vec<T> {
-    type Iter = VIt;
+impl<T> IntoIterator for &Vec<T> {
+    type Item = i64;
+    type IntoIter = VIt;
     fn into_iter(self: Self) -> VIt { return VIt { cur: self.a, end: self.b }; }
 }
 fn main() -> i32 {

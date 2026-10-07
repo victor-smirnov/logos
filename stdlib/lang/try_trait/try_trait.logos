@@ -7,33 +7,73 @@
 // `branch`) plus `FromResidual` on the OUTER fn's return type
 // (synthesize the early-return value from a Break residual).
 //
-// Logos's simplified shape (vs Rust's): `Try` carries a `Continue`
-// type plus a `Residual` type via free generic params rather than
-// associated types — the current Logos trait surface doesn't yet
-// have associated types wired for `?` lowering (P-trait-04 is the
-// follow-up). Result and Option still go through the legacy name-
-// based path for slice 1; this is the new trait surface user types
-// can implement to participate.
-//
-// §6.5 trait surface. Sema's `?` lowering at sema_expr.cpp:862
-// branches by inner-enum-name first; if the inner type isn't
-// Result/Option, the lowering will (in a follow-up slice) look up
-// a `Try` impl and dispatch through it.
+// Rust's shape (ADR 0030 S9a): `Try` declares `type Output` (the value `?`
+// continues with) and `type Residual` (what it propagates), and requires
+// `FromResidual<Self::Residual>` so the type can rebuild itself from its own
+// residual. `e?` is the HIR's `match Try::branch(e) { Continue(v) => v,
+// Break(r) => return FromResidual::from_residual(r) }` (ADR 0030 S10).
 
 package logos.lang.try_trait;
 
-use logos.lang.control_flow;
+use logos.lang.ops;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.marker;
+use logos.lang.convert;
 
 /// Types that can be short-circuited by the `?` operator.
-/// `Continue`/`Residual` are Rust's `type Continue`/`type Residual` associated types,
-/// lifted to free generic params (slice-1 surface; no associated types yet).
-pub trait Try<Continue, Residual> {
+#[lang = "try"]
+pub trait Try: FromResidual<Self::Residual> {
+    /// The value `?` produces when it does not short-circuit.
+    type Output;
+    /// What `?` propagates to the enclosing function when it short-circuits.
+    type Residual;
+    /// Builds the type from its `Output` (`Ok(v)`, `Some(v)`).
+    fn from_output(output: Self::Output) -> Self;
     /// Splits `self` into a `Continue` value or a `Break` residual for `?` to act on.
-    fn branch(self: Self) -> ControlFlow<Residual, Continue>;
+    fn branch(self: Self) -> ControlFlow<Self::Residual, Self::Output>;
 }
 
 /// Types a `?`-propagated residual can be converted into at the early-return site.
+#[lang = "from_residual"]
 pub trait FromResidual<R> {
     /// Builds the outer fn's early-return value from a `Break` residual `r`.
     fn from_residual(r: R) -> Self;
+}
+
+impl<T, E> Try for Result<T, E> {
+    type Output = T;
+    type Residual = Result<Infallible, E>;
+    fn from_output(output: T) -> Result<T, E> { return Result::Ok(output); }
+    fn branch(self) -> ControlFlow<Result<Infallible, E>, T> {
+        match self {
+            Result::Ok(v) => { return ControlFlow::Continue(v); }
+            Result::Err(e) => { return ControlFlow::Break(Result::Err(e)); }
+        }
+    }
+}
+
+/// `?` on a `Result<_, E>` in a fn returning `Result<_, F>` converts the error by `From`.
+impl<T, E, F: From<E>> FromResidual<Result<Infallible, E>> for Result<T, F> {
+    fn from_residual(residual: Result<Infallible, E>) -> Result<T, F> {
+        match residual {
+            Result::Err(e) => { return Result::Err(F::from(e)); }
+        }
+    }
+}
+
+impl<T> Try for Option<T> {
+    type Output = T;
+    type Residual = Option<Infallible>;
+    fn from_output(output: T) -> Option<T> { return Option::Some(output); }
+    fn branch(self) -> ControlFlow<Option<Infallible>, T> {
+        match self {
+            Option::Some(v) => { return ControlFlow::Continue(v); }
+            Option::None => { return ControlFlow::Break(Option::None); }
+        }
+    }
+}
+
+impl<T> FromResidual<Option<Infallible>> for Option<T> {
+    fn from_residual(_residual: Option<Infallible>) -> Option<T> { return Option::None; }
 }

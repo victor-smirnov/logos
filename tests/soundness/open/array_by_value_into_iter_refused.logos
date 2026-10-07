@@ -1,6 +1,0 @@
-// SOUNDNESS QUEUE row array_by_value_into_iter_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster const-N-not-inferred-from-array/array-by-value-into_iter (outside ADR 0030: stdlib): `[T; N].into_iter()` is refused
-// Logos: `method call: receiver is not a struct (got [i64; 2])`.
-// rustc: exit 9.
-// fix hint: stdlib: `impl<T, const N: usize> IntoIterator for [T; N]` (by-value array iterator).
-package array_by_value_into_iter_refused;
-fn main() -> i32 { let mut s = 0i64; for x in [4i64, 5].into_iter() { s += x; } return s as i32; }

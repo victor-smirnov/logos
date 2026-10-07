@@ -93,7 +93,8 @@ impl<T, const N: i64> Drop for ArrayIntoIter<T, N> {
     }
 }
 
-impl<T, const N: i64> Iterator<T> for ArrayIntoIter<T, N> {
+impl<T, const N: i64> Iterator for ArrayIntoIter<T, N> {
+    type Item = T;
     fn next(self: &mut ArrayIntoIter<T, N>) -> Option<T> {
         if self.idx >= N { return Option::<T>::None; }
         // Move the element out via a raw-pointer read (Rust's array IntoIter
@@ -110,14 +111,14 @@ impl<T, const N: i64> Iterator<T> for ArrayIntoIter<T, N> {
     }
 }
 
-impl<T, const N: i64> ExactSizeIterator<T> for ArrayIntoIter<T, N> {
+impl<T, const N: i64> ExactSizeIterator for ArrayIntoIter<T, N> {
     fn len(&self) -> i64 {
         if self.idx >= N { return 0i64; }
         return N - self.idx;
     }
 }
 
-impl<T, const N: i64> FusedIterator<T> for ArrayIntoIter<T, N> {}
+impl<T, const N: i64> FusedIterator for ArrayIntoIter<T, N> {}
 
 // ── from_ref / from_mut ─────────────────────────────────────────────────
 //
@@ -139,4 +140,12 @@ pub fn array_from_mut<T>(t: &mut T) -> &mut [T; 1] {
         let p: *mut T = t as *mut T;
         return &mut *(p as *mut [T; 1]);
     }
+}
+
+// `for x in arr` (Rust's array IntoIterator): the owned array yields its
+// elements by value (`&arr` / `&mut arr`: lang.slice).
+impl<T, const N: i64> IntoIterator for [T; N] {
+    type Item = T;
+    type IntoIter = ArrayIntoIter<T, N>;
+    fn into_iter(self: [T; N]) -> ArrayIntoIter<T, N> { return array_into_iter::<T, N>(self); }
 }

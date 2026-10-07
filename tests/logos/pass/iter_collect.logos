@@ -2,7 +2,7 @@
 // method routed through `FromIterator<A>` trait. Exercises mono's
 // method-tparam inference for trait-static dispatch via a type-param
 // receiver: `.collect`'s body is `C::from_iter(self)` with C tparam
-// and method-level `I: Iterator<A>`; mono infers I from the arg type
+// and method-level `I: Iterator<Item = A>`; mono infers I from the arg type
 // at the substitution site.
 
 package iter_collect_test;
@@ -14,7 +14,8 @@ use logos.mem.collections.vec;
 
 struct Counter { cur: i32, max: i32 }
 
-impl Iterator<i32> for Counter {
+impl Iterator for Counter {
+    type Item = i32;
     fn next(self: &mut Counter) -> Option<i32> {
         if self.cur >= self.max { return Option::None; }
         let v: i32 = self.cur;

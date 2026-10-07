@@ -502,7 +502,7 @@ pub trait Fn<A...> {
 //
 // Mirrors `core::ops::{Deref, DerefMut}`. Rust uses an associated type
 // `type Target;`; Logos models `Target` as a trait type-parameter to
-// share the trait machinery used by `Iterator<Item>` (associated types
+// share the trait machinery used by `Iterator<Item = Item>` (associated types
 // outside the Fn-family aren't wired yet).
 //
 // Semantic surface today:
@@ -576,6 +576,7 @@ pub trait IndexMut<Idx, Output>: Index<Idx, Output> {
 //     once the broader `core::ops::try_trait` surface lands.
 
 /// Directs short-circuiting operations: keep going with a `C`, or halt early with a `B`.
+#[lang = "control_flow"]
 pub enum ControlFlow<B, C> {
     /// Keeps the operation going, carrying the updated accumulator/state.
     Continue(C),

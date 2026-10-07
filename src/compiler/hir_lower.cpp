@@ -92,6 +92,19 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
     if (c == la::DESTRUCTURE_ASSIGN.code) return true;
     if (c == la::FIELD_SHORTHAND.code) return true;
     if (c == la::LABELED_BLOCK.code) return true;
+    if (c == la::FOR.code || c == la::FOR_EACH.code) return true;
+    if (c == la::TRY_EXPR.code) return true;
+    if (c == la::LIST_COMP.code || c == la::MAP_COMP.code || c == la::WRIT_LIST_COMP.code ||
+        c == la::WRIT_MAP_COMP.code)
+        return true;
+    // `'a: for …`: the label moves onto the loop inside the desugared `for`.
+    if (c == la::LABELED_LOOP.code && n.has_key(la::BODY)) {
+        TinyMapView b = map_of(n.get(la::BODY.code));
+        if (code_of(b) == la::MATCH.code && b.has_key(la::ORIGIN) &&
+            b.get(la::ORIGIN.code).is_value() &&
+            static_cast<Origin>(b.get(la::ORIGIN.code).as_value<int64_t>()) == Origin::For)
+            return true;
+    }
     if (is_assign_code(c)) return true;   // surface only in expression position (desugar)
     return false;
 }
@@ -290,6 +303,22 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
         if (ctx == Ctx::Stmt) lb = node(la::LOOP.code, n, Origin::LabeledBlock, {{la::BODY.code, lb}});
         return node(la::LABELED_LOOP.code, n, Origin::LabeledBlock, {{la::LABEL.code, label}, {la::BODY.code, lb}});
     }
+    if (c == la::FOR.code || c == la::FOR_EACH.code) return for_loop(n, AnyVal{});
+    if (c == la::TRY_EXPR.code) return try_expr(n);
+    if (c == la::LIST_COMP.code || c == la::MAP_COMP.code || c == la::WRIT_LIST_COMP.code ||
+        c == la::WRIT_MAP_COMP.code)
+        return comprehension(n);
+    if (c == la::LABELED_LOOP.code) {            // 'a: for … — relabel the inner loop
+        TinyMapView m = map_of(n.get(la::BODY.code));
+        writ::ArrayView arms(m.get(la::ITEMS.code), nullptr);
+        TinyMapView arm = map_of(arms.get(0));
+        AnyVal labeled = node(la::LABELED_LOOP.code, n, Origin::For,
+                              {{la::LABEL.code, n.get(la::LABEL.code)}, {la::BODY.code, arm.get(la::BODY.code)}});
+        AnyVal arm2 = node(la::MATCH_ARM.code, arm, Origin::For,
+                           {{la::LHS.code, arm.get(la::LHS.code)}, {la::BODY.code, labeled}});
+        return node(la::MATCH.code, m, Origin::For,
+                    {{la::VALUE.code, m.get(la::VALUE.code)}, {la::ITEMS.code, array({arm2})}});
+    }
     if (c == la::DESTRUCTURE_ASSIGN.code) return destructure(n);
     if (c == la::FIELD_SHORTHAND.code)
         return node(la::FIELD_INIT.code, n, Origin::FieldShorthand,
@@ -305,6 +334,204 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
         return block({recoded(n, sc, o)}, n, Origin::ExprExit);
     }
     return v;
+}
+
+// `for p in e { B }` (ADR 0030 S10 row 1), as rustc desugars it, over the lang
+// items so the user's scope cannot redirect it:
+//   match IntoIterator::into_iter(e) {
+//       mut it => loop { match Iterator::next(&mut it) { Option::Some(p) => B, Option::None => break } }
+//   }
+// The head is a match scrutinee so its temporaries live through the loop. The
+// range form `for i in lo..hi` is the same over the range value.
+AnyVal Lowering::for_loop(TinyMapView n, AnyVal label) {
+    (void)label;
+    const Origin o = Origin::For;
+    AnyVal head;
+    if (code_of(n) == la::FOR.code) {
+        head = node(la::RANGE_EXPR.code, n, o,
+                    {{la::LHS.code, n.get(la::LHS.code)}, {la::RHS.code, n.get(la::RHS.code)},
+                     {la::INCLUSIVE.code, n.has_key(la::INCLUSIVE) ? n.get(la::INCLUSIVE.code) : AnyVal{}}});
+    } else {
+        head = n.get(la::ITER.code);
+    }
+    AnyVal pat;
+    if (n.has_key(la::PAT)) pat = n.get(la::PAT.code);
+    else pat = node(la::PAT_WILD.code, n, o,
+                    {{la::NAME.code, n.get(la::NAME.code)},
+                     {la::IS_MUT.code, n.has_key(la::IS_MUT) ? n.get(la::IS_MUT.code) : AnyVal{}}});
+    const std::string it = std::format("__for_it{}", fresh_++);
+    auto static_call = [&](const std::string& ty, std::string_view m, std::vector<AnyVal> a) {
+        return node(la::STATIC_CALL.code, n, o,
+                    {{la::RECEIVER.code, str(ty)}, {la::NAME.code, str(m)}, {la::ARGS.code, list_map(a)}});
+    };
+    const std::string opt = lang_item_path(n, "Option");
+    // A pattern that is not a plain binding (`(a, b)`, `&x`, `S { .. }`) is
+    // bound by a `let` at the top of the body: the element is matched by a
+    // fresh name, then destructured (the for pattern is irrefutable).
+    AnyVal body = n.get(la::BODY.code);
+    {
+        TinyMapView pm = map_of(pat);
+        TinyMapView inner = pm;
+        if (code_of(pm) == la::PAT_OR.code && pm.has_key(la::ITEMS)) {
+            writ::ArrayView alts(pm.get(la::ITEMS.code), nullptr);
+            if (alts.size() == 1) inner = map_of(alts.get(0));
+        }
+        if (code_of(inner) == la::PAT_WILD.code && code_of(pm) == la::PAT_OR.code) {
+            writ::ArrayView alts(pm.get(la::ITEMS.code), nullptr);
+            pat = alts.get(0);                         // a plain binding, unwrapped
+        } else if (code_of(inner) != la::PAT_WILD.code) {
+            const std::string el = std::format("__for_el{}", fresh_++);
+            AnyVal inner_v = pat;
+            if (code_of(pm) == la::PAT_OR.code && pm.has_key(la::ITEMS)) {
+                writ::ArrayView alts(pm.get(la::ITEMS.code), nullptr);
+                if (alts.size() == 1) inner_v = alts.get(0);
+            }
+            AnyVal let = node(la::LET_PAT.code, n, o,
+                              {{la::PAT.code, inner_v},
+                               {la::VALUE.code, node(la::VAR_REF.code, n, o, {{la::NAME.code, str(el)}})}});
+            std::vector<AnyVal> items{let};
+            TinyMapView bm = map_of(as_block(body, n, o));
+            if (bm.has_key(la::ITEMS)) {
+                writ::ArrayView bi(bm.get(la::ITEMS.code), nullptr);
+                for (uint64_t i = 0; i < bi.size(); ++i) items.push_back(bi.get(i));
+            }
+            body = block(items, n, o);
+            pat = node(la::PAT_WILD.code, n, o, {{la::NAME.code, str(el)}});
+        }
+    }
+    AnyVal some = node(la::PAT_VARIANT_DATA.code, n, o,
+                       {{la::NAME.code, str(opt)}, {la::FIELD.code, str("Some")},
+                        {la::ARGS.code, list_map({pat})}});
+    AnyVal none = node(la::PAT_VARIANT.code, n, o, {{la::NAME.code, str(opt)}, {la::FIELD.code, str("None")}});
+    // `it.next()`: rustc writes `Iterator::next(&mut it)`; the UFCS form is
+    // refused over an iterator whose region a type parameter erased (squeue
+    // ufcs_next_after_region_erased_binding_refused), so the method call
+    // stands in until it is fixed.
+    AnyVal next = node(la::METHOD_CALL.code, n, o,
+                       {{la::RECEIVER.code, node(la::VAR_REF.code, n, o, {{la::NAME.code, str(it)}})},
+                        {la::NAME.code, str("next")}, {la::ARGS.code, array({})}});
+    AnyVal arm_some = node(la::MATCH_ARM.code, n, o,
+                           {{la::LHS.code, some}, {la::BODY.code, as_block(body, n, o)}});
+    AnyVal arm_none = node(la::MATCH_ARM.code, n, o,
+                           {{la::LHS.code, none}, {la::BODY.code, block({node(la::BREAK.code, n, o, {})}, n, o)}});
+    AnyVal step = node(la::MATCH.code, n, o, {{la::VALUE.code, next}, {la::ITEMS.code, array({arm_some, arm_none})}});
+    AnyVal loop = node(la::LOOP.code, n, o, {{la::BODY.code, block({step}, n, o)}});
+    AnyVal bind = node(la::PAT_WILD.code, n, o, {{la::NAME.code, str(it)}, {la::IS_MUT.code, AnyVal::from_value(true)}});
+    AnyVal arm = node(la::MATCH_ARM.code, n, o, {{la::LHS.code, bind}, {la::BODY.code, loop}});
+    return node(la::MATCH.code, n, o,
+                {{la::VALUE.code, static_call(lang_item_path(n, "into_iterator"), "into_iter", {head})},
+                 {la::ITEMS.code, array({arm})}});
+}
+
+// `e?` (ADR 0030 S10 row 2), as rustc desugars it, over the lang items:
+//   match Try::branch(e) {
+//       ControlFlow::Continue(v) => v,
+//       ControlFlow::Break(r) => return FromResidual::from_residual(r),
+//   }
+// The `return` leaves the innermost fn or closure; from_residual's Self is
+// that body's return type.
+AnyVal Lowering::try_expr(TinyMapView n) {
+    const Origin o = Origin::Try;
+    auto static_call = [&](const std::string& ty, std::string_view m, AnyVal arg) {
+        return node(la::STATIC_CALL.code, n, o,
+                    {{la::RECEIVER.code, str(ty)}, {la::NAME.code, str(m)}, {la::ARGS.code, list_map({arg})}});
+    };
+    const std::string cf = lang_item_path(n, "control_flow");
+    const std::string v = std::format("__try_v{}", fresh_++), r = std::format("__try_r{}", fresh_++);
+    // An arm's value is its EXPR; a BODY is a block (the diverging arm).
+    auto arm = [&](std::string_view variant, const std::string& bind, uint8_t key, AnyVal body) {
+        AnyVal pat = node(la::PAT_VARIANT_DATA.code, n, o,
+                          {{la::NAME.code, str(cf)}, {la::FIELD.code, str(variant)},
+                           {la::ARGS.code, list_map({node(la::PAT_WILD.code, n, o, {{la::NAME.code, str(bind)}})})}});
+        return node(la::MATCH_ARM.code, n, o, {{la::LHS.code, pat}, {key, body}});
+    };
+    AnyVal residual = static_call(lang_item_path(n, "from_residual"), "from_residual",
+                                  node(la::VAR_REF.code, n, o, {{la::NAME.code, str(r)}}));
+    AnyVal ret = block({node(la::RETURN.code, n, o, {{la::VALUE.code, residual}})}, n, o);
+    return node(la::MATCH.code, n, o,
+                {{la::VALUE.code, static_call(lang_item_path(n, "try"), "branch", n.get(la::VALUE.code))},
+                 {la::ITEMS.code, array({arm("Continue", v, la::EXPR.code, node(la::VAR_REF.code, n, o, {{la::NAME.code, str(v)}})),
+                                         arm("Break", r, la::BODY.code, ret)})}});
+}
+
+// A comprehension (ADR 0030 S10 row 3; a Logos addition, DIVERGENCES
+// expr.comprehension.list-and-map) is a block that builds the collection with
+// a `for` over the iterable (row 1's desugaring) and evaluates to it:
+//   [v for x in it if g]   { let mut c = vec_new(); for x in it { if g { c.push(v); } } c }
+//   {k: v for x in it}     the same over hashmap_new() / c.insert(k, v)
+//   @[v for x in it]       writ_list_comp_new(128) / writ_list_comp_push(&c, v)
+//   @{k: v for x in it}    writ_map_comp_new(4096, 64) / writ_map_comp_put(&c, k, v)
+// The builders are the names the spec says must be in scope (`use
+// logos.mem.collections.vec;` …); a Writ value's coercion to WAny is sema's,
+// at the builder call this pass marks.
+AnyVal Lowering::comprehension(TinyMapView n) {
+    const Origin o = Origin::Comprehension;
+    const int32_t c = code_of(n);
+    const bool writ = c == la::WRIT_LIST_COMP.code || c == la::WRIT_MAP_COMP.code;
+    const bool map = c == la::MAP_COMP.code || c == la::WRIT_MAP_COMP.code;
+    const std::string coll = std::format("__comp{}", fresh_++);
+    auto var = [&]() { return node(la::VAR_REF.code, n, o, {{la::NAME.code, str(coll)}}); };
+    auto lit = [&](int v) { return node(la::LIT_INT.code, n, o, {{la::VALUE.code, str(std::to_string(v))}}); };
+    auto call = [&](std::string_view fn, std::vector<AnyVal> a) {
+        return node(la::CALL.code, n, o, {{la::CALLEE.code, str(fn)}, {la::ARGS.code, array(a)}});
+    };
+    // `vec_new::<_>()` / `hashmap_new::<_, _>()`: the element types are holes the
+    // pushes / inserts solve (vec!'s own expansion of `vec![]`).
+    auto hole = [&]() { return node(la::TYPE_REF.code, n, o, {{la::NAME.code, str("_")}}); };
+    auto generic_call = [&](std::string_view fn, std::vector<AnyVal> tps) {
+        return node(la::GENERIC_CALL.code, n, o, {{la::CALLEE.code, str(fn)}, {la::TYPE_PARAMS.code, list_map(tps)},
+                                                  {la::ARGS.code, list_map({})}});
+    };
+    AnyVal init = writ ? (map ? call("writ_map_comp_new", {lit(4096), lit(64)}) : call("writ_list_comp_new", {lit(128)}))
+                       : map ? generic_call("hashmap_new", {hole(), hole()}) : generic_call("vec_new", {hole()});
+    std::vector<AnyVal> vals;
+    if (map) vals.push_back(n.get(la::KEY.code));
+    vals.push_back(n.get(la::VALUE.code));
+    AnyVal add;
+    if (writ) {
+        std::vector<AnyVal> a{node(la::UNARY.code, n, o, {{la::OP.code, str("&")}, {la::VALUE.code, var()}})};
+        a.insert(a.end(), vals.begin(), vals.end());
+        add = call(map ? "writ_map_comp_put" : "writ_list_comp_push", a);
+    } else if (!map) {
+        add = node(la::METHOD_CALL.code, n, o, {{la::RECEIVER.code, var()}, {la::NAME.code, str("push")},
+                                                {la::ARGS.code, array(vals)}});
+    }
+    AnyVal step;
+    if (map && !writ) {
+        // The stdlib's HashMap::insert is an `unsafe fn` (the old lowering
+        // skipped the check): only the call is in the `unsafe` block — the key
+        // and the value, the user's expressions, are evaluated before it.
+        const std::string k = std::format("__compk{}", fresh_), v = std::format("__compv{}", fresh_++);
+        auto ref = [&](const std::string& nm) { return node(la::VAR_REF.code, n, o, {{la::NAME.code, str(nm)}}); };
+        add = node(la::METHOD_CALL.code, n, o, {{la::RECEIVER.code, var()}, {la::NAME.code, str("insert")},
+                                                {la::ARGS.code, array({ref(k), ref(v)})}});
+        step = node(la::BLOCK_STMT.code, n, o, {{la::BODY.code, block({
+            node(la::LET.code, n, o, {{la::NAME.code, str(k)}, {la::VALUE.code, vals[0]}}),
+            node(la::LET.code, n, o, {{la::NAME.code, str(v)}, {la::VALUE.code, vals[1]}}),
+            node(la::UNSAFE_BLOCK.code, n, o, {{la::BODY.code, block({node(la::EXPR_STMT.code, n, o, {{la::VALUE.code, add}})}, n, o)}})}, n, o)}});
+    } else {
+        step = node(la::EXPR_STMT.code, n, o, {{la::VALUE.code, add}});
+    }
+    AnyVal body = n.has_key(la::GUARD)
+        ? block({node(la::IF.code, n, o, {{la::COND.code, n.get(la::GUARD.code)}, {la::THEN.code, block({step}, n, o)}})}, n, o)
+        : block({step}, n, o);
+    AnyVal each = node(la::FOR_EACH.code, n, o, {{la::NAME.code, n.get(la::NAME.code)}, {la::ITER.code, n.get(la::ITER.code)},
+                                                {la::BODY.code, body}});
+    return block({node(la::LET.code, n, o, {{la::NAME.code, str(coll)}, {la::VALUE.code, init},
+                                            {la::IS_MUT.code, writ ? AnyVal{} : AnyVal::from_value(true)}}),
+                  for_loop(map_of(each), AnyVal{}),
+                  node(la::TAIL_EXPR.code, n, o, {{la::VALUE.code, var()}})}, n, o);
+}
+
+// The path of a lang item (`pkg::Name`). A missing one is a malformed stdlib:
+// said loudly, never answered by a name in the user's scope.
+std::string Lowering::lang_item_path(TinyMapView at, std::string_view l) {
+    std::string p = lang_path_ ? lang_path_(l) : std::string();
+    if (p.empty()) {
+        diags_.push_back({line_of(at), std::format("internal: the lang item `{}` is not defined", l)});
+        return std::string(l);
+    }
+    return p;
 }
 
 // ── builders ────────────────────────────────────────────────────────────────

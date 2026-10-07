@@ -939,12 +939,6 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // entry would suppress a needed clear.
     pending_frame_lets_.clear();
     flag_clear_log_.clear();
-    closure_drop_group_.clear();  // capture-drop groups are per-fn (name-keyed)
-    closure_deferred_moves_.clear();  // ditto: keyed on the binding NAME
-    closure_owned_drop_.clear();      // ditto: a name another fn's closure owned is not this fn's
-    capture_owner_.clear();
-    pending_closure_capture_drops_.clear();
-    pending_closure_deferred_moves_.clear();
     decl_uninit_vars_.clear();  // B8: reset declared-uninit tracking per fn
     infer_solved_.clear();      // local type inference is per function body
     infer_node_vars_.clear();
@@ -2981,6 +2975,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // For `impl<V> PartialSpec<Concrete, V>` attach to the matching partial spec
     // (so mono picks up methods when instantiating the spec, not the base template).
     lir_view::StructView* target_struct_tmpl = nullptr;
+    bool target_is_spec = false;   // a partial / full specialization's template
     if (!impl_tps.empty()) {
         // Try matching a partial/full spec first.  The impl's target type,
         // resolved with impl_tps' TypeVars bound, should match a spec's
@@ -3035,7 +3030,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                                 TypeRef(p).kind() == LogosType::Kind::TypeVar) { match = false; break; }
                             if (!types_equal(a, p)) { match = false; break; }
                         }
-                        if (match) { target_struct_tmpl = &ss; break; }
+                        if (match) { target_struct_tmpl = &ss; target_is_spec = true; break; }
                     }
                 }
             }
@@ -3066,6 +3061,25 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                 for (auto& sd : prog.structs)
                     if (sd.name() == target) { target_struct_tmpl = &sd; break; }
             }
+        }
+        // Only a struct instance that names the impl's parameters carries them
+        // (mono re-injects them per instance). An impl whose target names none
+        // (`impl<E> Mk<E> for H`, `impl<E: Error> From<E> for Box<dyn Error>`:
+        // only the trait's arguments do) is a generic function of them.
+        if (target_struct_tmpl && !target_is_spec) {
+            TypeRef tt = node.has_key(la::TYPE) ? resolve_type(map_of(node.get(la::TYPE.code))) : TypeRef(nullptr);
+            std::function<bool(TypeRef)> names_param = [&](TypeRef t) -> bool {
+                if (!t) return false;
+                if (TypeRef(t).kind() == LogosType::Kind::TypeVar || TypeRef(t).kind() == LogosType::Kind::ConstVar)
+                    for (auto& tp : impl_tps) if (tp.name == TypeRef(t).type_var_name()) return true;
+                for (auto a : TypeRef(t).type_args()) if (names_param(a)) return true;
+                if (!TypeRef(t).arr_size_var().empty())
+                    for (auto& tp : impl_tps) if (tp.name == TypeRef(t).arr_size_var()) return true;
+                return names_param(TypeRef(t).pointee()) || names_param(TypeRef(t).elem());
+            };
+            const bool struct_target = tt && (TypeRef(tt).kind() == LogosType::Kind::Struct ||
+                                              TypeRef(tt).kind() == LogosType::Kind::ZonedStruct);
+            if (!struct_target || !names_param(tt)) target_struct_tmpl = nullptr;
         }
     }
     StrSet overridden;
@@ -3530,6 +3544,49 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             if (t.elem()) walk_implied(t.elem(), under);
                         };
                         for (auto ta : impl_trait_args) walk_implied(ta, "");
+                        // The impl's associated types are header types too
+                        // (`type Item = &'a T` implies `T: 'a`, as the trait
+                        // argument `Iterator<&'a T>` did).
+                        // (keyed in the impl's own zone: holder_ is the default body's here)
+                        const std::string impl_key_here = std::format(
+                            "{}:{}", reinterpret_cast<uintptr_t>(saved_holder), node.offset().value());
+                        if (auto iit = impl_items_by_node_.find(impl_key_here); iit != impl_items_by_node_.end())
+                            for (auto& at : iit->second.types) walk_implied(at.type, "");
+                    }
+                    // `where Self::Item: Ord`: the item THIS impl names must meet
+                    // it — a concrete item that does not is no method of the impl
+                    // (the gate above, Rust-shaped); a generic one is re-gated in
+                    // mono (WHERE_TYPE_BOUNDS below).
+                    std::vector<std::pair<TypeRef, std::string>> proj_type_bounds;
+                    bool proj_skip = false;
+                    if (!impl_is_blanket && self_type)
+                        for (auto& [an, pb] : m.self_proj_bounds) {
+                            const SemaTraitInfo* owner = nullptr;
+                            std::vector<const SemaTraitInfo*> work{tit};
+                            StrSet seen_t;
+                            for (size_t wi = 0; wi < work.size() && !owner; ++wi) {
+                                if (!seen_t.insert(trait_path(*work[wi])).second) continue;
+                                for (auto& at : work[wi]->assoc_types) if (at.name == an) owner = work[wi];
+                                for (auto& sp : work[wi]->supertraits)
+                                    if (auto* st = find_trait_iter_scoped(sp.trait_name)) work.push_back(st);
+                            }
+                            if (!owner) continue;
+                            TypeRef item = project_assoc_(trait_path(*owner), self_type,
+                                                          owner == tit ? impl_trait_args : std::vector<TypeRef>{}, an);
+                            if (!item) continue;
+                            if (type_is_concrete(item)) {
+                                if (!implements_(bound_identity_(pb), item, pb.type_args)) { proj_skip = true; break; }
+                            } else {
+                                proj_type_bounds.emplace_back(item, pb.trait_name);
+                            }
+                        }
+                    if (proj_skip) {
+                        implied_type_lt_outlives_.clear();
+                        shadow_scope_ = nullptr;
+                        holder_ = saved_holder;
+                        if (dm_had_self) current_type_params_["Self"] = dm_prev_self;
+                        else current_type_params_.erase("Self");
+                        continue;
                     }
                     auto fn = lower_fn(map_of(m.default_ast), lower_target, &type_params);
                     impl_method_syms.emplace_back(fn.view<lir_view::FunctionView>().name());
@@ -3549,7 +3606,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // rejected at mono — without it, deferral would
                     // synthesise `max`/`min` for every iterator and the
                     // `iter_max` body would fail to typecheck.
-                    std::vector<std::pair<TypeRef, std::string>> where_type_bounds;
+                    std::vector<std::pair<TypeRef, std::string>> where_type_bounds = proj_type_bounds;
                     if (!impl_is_blanket) {
                         for (auto& wb : m.where_param_bounds) {
                             size_t pidx = SIZE_MAX;

@@ -1271,20 +1271,6 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                                       make_ptr(smut, t));
         return builder().deref(std::move(addr), t);
     }
-    // ANY USE OF A DEFERRING CALLABLE RELEASES THE SOURCE'S OBLIGATION, and
-    // this is deliberately the WIDEST hook rather than the most precise one.
-    // A `move` closure whose body consumes a capture leaves that capture's
-    // destructor with the source until the callable is consumed (see
-    // closure_deferred_moves_); the routes that consume it are calling it,
-    // passing it by value, rebinding it, storing it into a container and
-    // returning it, and EVERY one of them reads the binding through here. A
-    // release the compiler misses is a DOUBLE FREE (measured: `let g = f;
-    // g();` read 2 for 1 while the enumerated store sites were being widened
-    // one at a time), whereas a release it makes too eagerly is at worst
-    // today's leak — a closure handed to a callee that never invokes it. The
-    // safe direction is therefore "release on any read", not "release on the
-    // stores I could name".
-    if (!closure_deferred_moves_.empty()) mark_moved_deferred_only(std::string(name));
     // Phase-1: attach the resolved dense variable slot (shadowing-correct via
     // the scope stack). NO_SLOT for anything not a current local binding.
     return builder().var_ref(std::string(name), t, lookup_slot(name));
@@ -2183,324 +2169,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         }
         return materialize_recv_ref(std::move(inner), true, __ty_inner, BorrowOrigin::Explicit);
     }
-    case la::TRY_EXPR: {
-        // expr? — two flavours:
-        //   Result<T, E>  →  extract Ok(v), early-return Err(e) in a fn : Result<?, E>
-        //   Option<T>     →  extract Some(v), early-return None in a fn : Option<?>
-        // The operand's shape is the fn's carrier around this node's
-        // expectation: `Ok(s.parse()?)` under `-> Result<i64, E>` reads
-        // `Result<i64, _>` (rustc infers `parse::<F>`'s F through `?`).
-        TypeRef try_shape = nullptr;
-        if (shape_ && ret_type_) {
-            if (type_is_lang_item(ret_type_, "Result") && TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
-                try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {shape_, inferred_t()}, {},
-                                              TypeRef(ret_type_).pkg_name());
-            else if (type_is_lang_item(ret_type_, "Option") && TypeRef(ret_type_).kind() == LogosType::Kind::Enum)
-                try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {shape_}, {},
-                                              TypeRef(ret_type_).pkg_name());
-        }
-        auto inner = expr.has_key(la::VALUE)
-            ? lower_expr_expecting(map_of(expr.get(la::VALUE.code)), nullptr, try_shape)
-            : error_expr();
-        auto inner_t = expr_type(inner);
-        // The lang items (ADR 0030 L0): a user `enum Result` is not `?`'s.
-        bool is_result = type_is_lang_item(inner_t, "Result")
-                         && TypeRef(inner_t).type_args().size() >= 2;
-        bool is_option = type_is_lang_item(inner_t, "Option")
-                         && TypeRef(inner_t).type_args().size() >= 1;
-        // An operand that failed to type-check is reported; the Try dispatch
-        // below would lower it a second time and report it again.
-        if (inner_t && TypeRef(inner_t).kind() == LogosType::Kind::Error) return error_expr();
-        if (!is_result && !is_option) {
-            // §6.5: trait-based ? dispatch. The inner type isn't a
-            // stdlib Result/Option; route through the Try /
-            // FromResidual trait surface. Lower as
-            //   match (<inner>).branch() {
-            //       ControlFlow::Continue(__c) => __c,
-            //       ControlFlow::Break(__r) =>
-            //           return <RetType>::from_residual(__r),
-            //   }
-            // The RetType is rendered from the current fn's
-            // ret_type_ so `from_residual`'s receiver is explicit
-            // (Logos doesn't infer trait Self from context).
-            // rustc E0277: `?` needs a `Try` impl. A type parameter is its
-            // bounds' business; any other type without an impl is refused here,
-            // not by the dispatch it would fail inside.
-            if (TypeRef it(inner_t); it && it.kind() != LogosType::Kind::TypeVar) {
-                if (!implements_("Try", it)) {
-                    error(std::format("the `?` operator can only be applied to values that implement "
-                                      "`Try`: `{}` does not (E0277)", type_str(inner_t)));
-                    return error_expr();
-                }
-            }
-            std::string inner_src = render_expr_src(map_of(expr.get(la::VALUE.code)));
-            std::string rt_src = ret_type_
-                ? type_str(ret_type_)
-                : std::string{};
-            if (rt_src.empty()) {
-                error("'?' operator: cannot infer outer fn return type "
-                      "for FromResidual dispatch");
-                return error_expr();
-            }
-            std::string body = std::format(
-                "match ({}).branch() {{"
-                "  ControlFlow::Continue(__try_c) => __try_c,"
-                "  ControlFlow::Break(__try_r) => return {}::from_residual(__try_r),"
-                "}}",
-                inner_src, rt_src);
-            return lower_reparsed_tail_expr(body, "?-operator (Try dispatch)");
-        }
-        if (!ret_type_ || TypeRef(ret_type_).kind() != LogosType::Kind::Enum
-            || TypeRef(ret_type_).enum_name() != TypeRef(inner_t).enum_name()) {
-            if (is_option)
-                error("'?' on Option used in function that does not return Option<T>");
-            else
-                error("'?' operator used in function that does not return Result<T, E>");
-            return error_expr();
-        }
-        // Find the "ok-like" and "err-like" discriminants from the enum def.
-        // Result: Ok/Err.  Option: Some/None.
-        int32_t ok_disc = 0, err_disc = 1;
-        const char* ok_name  = is_option ? "Some" : "Ok";
-        const char* err_name = is_option ? "None" : "Err";
-        auto [epkg_res, esi_res] = enum_of(TypeRef(inner_t));
-        auto eit = esi_res ? enums_.find(type_id(epkg_res, TypeRef(inner_t).enum_name())) : enums_.end();
-        if (eit == enums_.end()) eit = enums_.find(type_id({}, TypeRef(inner_t).enum_name()));
-        if (eit != enums_.end()) {
-            for (auto& v : eit->second.variants) {
-                if (v.name == ok_name)  ok_disc  = v.value;
-                if (v.name == err_name) err_disc = v.value;
-            }
-        }
-        auto ok_type = TypeRef(inner_t).type_args()[0];  // T
-
-        // (gap B) `?` CONSUMES its operand — both arms of the desugar below
-        // move the payload out — so a PLACE operand (`r?` on a named local)
-        // must be marked moved, or its scope-exit drop double-frees the
-        // extracted payload. mark_moved_expr self-gates to places of move
-        // types (a Copy Result / rvalue operand is a no-op).
-        if (inner && inner_t)
-            mark_moved_expr(expr_ref_of(inner));
-
-        // Heterogeneous-E desugar (Result<T, E_inner> → Result<U, E_outer>).
-        // ETry's codegen byte-copies the err payload, which is wrong when E
-        // types differ. Desugar to:
-        //
-        //   match <inner_expr> {
-        //       Ok(__try_ok_v)  => __try_ok_v,
-        //       Err(__try_err_e) => return Err(<E_outer>::from(__try_err_e))
-        //   }
-        //
-        // This reuses existing match + return + EnumLitData lowering, which
-        // already handles aggregate calling conventions.
-        if (is_result) {
-            auto iargs = TypeRef(inner_t).type_args();
-            auto rargs = TypeRef(ret_type_).type_args();
-            if (iargs.size() >= 2 && rargs.size() >= 2
-                && !types_equal(iargs[1], rargs[1])) {
-                TypeRef e_inner = iargs[1];
-                TypeRef e_outer = rargs[1];
-
-                // Find `impl From<E_inner> for E_outer`.
-                std::string base_target;
-                if (e_outer.kind() == LogosType::Kind::Struct
-                 || e_outer.kind() == LogosType::Kind::ZonedStruct) {
-                    base_target = std::string(e_outer.struct_name());
-                } else if (e_outer.kind() == LogosType::Kind::Enum) {
-                    base_target = std::string(e_outer.enum_name());
-                } else {
-                    base_target = type_str(e_outer);
-                }
-                std::string from_bare = base_target + "__from";
-                std::string from_sym;
-                for (auto* cand : find_func_candidates(from_bare)) {
-                    if (!cand || cand->param_types.size() != 1) continue;
-                    if (types_equal(cand->param_types[0], e_inner)) {
-                        from_sym = cand->symbol_name;
-                        break;
-                    }
-                }
-                // Rust's `impl<E: Error> From<E> for Box<dyn Error>` (and the
-                // same for any `Box<dyn Tr>` the inner error implements): box
-                // the error and let the unsizing coercion at `Err(..)` check
-                // `E: Tr`. Same reparse route as the Try dispatch above.
-                const bool outer_box_dyn =
-                    e_outer.kind() == LogosType::Kind::TraitObject &&
-                    TypeRef(e_outer).owning_trait_object() &&
-                    TypeRef(e_outer).trait_owning_kind() == TypeRef::OwningKind::Box;
-                if (from_sym.empty() && outer_box_dyn) {
-                    // E0277 at the `?`, as rustc: the boxed error must implement
-                    // the trait (the coercion itself is re-judged only in the backend).
-                    const std::string tr(TypeRef(e_outer).trait_name());
-                    const std::string ci = type_str_regions_erased(e_inner);
-                    if (type_is_concrete(e_inner) && !implements_(tr, e_inner)) {
-                        error(std::format("'?' couldn't convert the error: `{}: {}` is not satisfied "
-                                          "(the outer error type is `Box<dyn {}>`)", ci, tr, tr));
-                        return error_expr();
-                    }
-                    std::string inner_src = render_expr_src(map_of(expr.get(la::VALUE.code)));
-                    std::string body = std::format(
-                        "match ({}) {{"
-                        "  Result::Ok(__try_bd_v) => __try_bd_v,"
-                        "  Result::Err(__try_bd_e) => return Result::Err(Box::new(__try_bd_e)),"
-                        "}}",
-                        inner_src);
-                    return lower_reparsed_tail_expr(body, "?-operator (Box<dyn> conversion)");
-                }
-                if (from_sym.empty()) {
-                    // A `Box<dyn Tr>` is a TraitObject whose plain rendering is
-                    // `&dyn Tr`; name the type the user wrote.
-                    auto shown = [&](TypeRef t) {
-                        if (t && t.kind() == LogosType::Kind::TraitObject &&
-                            TypeRef(t).owning_trait_object()) {
-                            const char* w = "Box";
-                            if (TypeRef(t).trait_owning_kind() == TypeRef::OwningKind::Rc) w = "Rc";
-                            if (TypeRef(t).trait_owning_kind() == TypeRef::OwningKind::Arc) w = "Arc";
-                            return std::string(w) + "<dyn " + std::string(TypeRef(t).trait_name()) + ">";
-                        }
-                        return type_str(t);
-                    };
-                    error(std::string("'?' operator: inner error type '")
-                        + type_str(e_inner)
-                        + "' does not implement `From` for outer error type '"
-                        + shown(e_outer) + "' — add `impl From<"
-                        + type_str(e_inner) + "> for " + shown(e_outer)
-                        + "` or use `.map_err(...)?`.");
-                    return error_expr();
-                }
-
-                // Generate unique binding names.
-                std::string ok_name_b  = "__try_ok_" + std::to_string(tmp_var_count_++);
-                std::string err_name_b = "__try_err_" + std::to_string(tmp_var_count_++);
-
-                // VOID ok payload (`Result<(), E1>? in a Result<(), E2> fn`):
-                // same rule as the homogeneous desugar below — a void-typed
-                // match-EXPRESSION silently no-ops in mlir-gen, so lower to a
-                // match STATEMENT inside a void block-expression instead.
-                bool void_ok = ok_type &&
-                    (TypeRef(ok_type).kind() == LogosType::Kind::Void ||
-                     TypeRef(ok_type).kind() == LogosType::Kind::Never);
-
-                // Ok(__try_ok_v) pattern (bare Ok when the payload is void).
-                lir::Pattern ok_pat;
-                if (void_ok)
-                    ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
-                        *cur_prog_, "Result", "Ok", ok_disc);
-                else
-                    ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                        *cur_prog_, "Result", "Ok", ok_disc, {ok_name_b}, {ok_type});
-
-                // Err(__try_err_e) pattern.
-                lir::Pattern err_pat;
-                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                    *cur_prog_, "Result", "Err", err_disc, {err_name_b}, {e_inner});
-
-                // Ok arm value: VarRef(__try_ok_v) (unused in the void form).
-                auto ok_arm_val = builder().var_ref(ok_name_b, ok_type);
-
-                // Err arm value: { return Err(<E_outer>::from(__try_err_e)) }.
-                auto e_var = builder().var_ref(err_name_b, e_inner);
-                auto from_call = builder().call(
-                    from_sym, {}, std::vector<lir::LExprPtr>{std::move(e_var)},
-                    e_outer);
-                std::vector<lir::LExprPtr> err_payload;
-                err_payload.push_back(std::move(from_call));
-                auto err_lit = builder().enum_lit_data(
-                    "Result", "Err", err_disc, std::move(err_payload), ret_type_);
-                // (gap B) route the early return through the shared return-drop
-                // sequence — a bare SReturn here skipped every live local's
-                // drop (leak on the Err path).
-                auto err_block = make_return_with_drops(std::move(err_lit));
-                if (void_ok) {
-                    std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms;
-                    arms.emplace_back(std::move(ok_pat), std::vector<lir_view::StmtRef>{});
-                    arms.emplace_back(std::move(err_pat), std::move(err_block));
-                    std::vector<lir_view::StmtRef> blk;
-                    blk.push_back(unit_match_stmt_(std::move(inner), std::move(arms)));
-                    return builder().block_expr(
-                        lir_mirror_block(*cur_prog_, blk), nullptr, ok_type);
-                }
-                auto err_arm_val = builder().block_expr(
-                    lir_mirror_block(*cur_prog_, err_block), nullptr, ok_type);
-
-                lir::EMatchExpr me;
-                me.scrut = std::move(inner);
-                me.arms.push_back({std::move(ok_pat), std::nullopt, std::move(ok_arm_val)});
-                me.arms.push_back({std::move(err_pat), std::nullopt, std::move(err_arm_val)});
-                return builder().match_expr_v(std::move(me), ok_type);
-            }
-        }
-        // Homogeneous `?` (same E / same Option): desugar to
-        //
-        //   match <inner> {
-        //       Ok(__try_ok_v)   => __try_ok_v,
-        //       Err(__try_err_e) => { <drops>; return Err(__try_err_e) }
-        //   }
-        //
-        // (gap B — replaces the ETry node, whose codegen emitted a BARE early
-        // return: every live local leaked on the Err/None path.) The err arm
-        // routes through make_return_with_drops — the SAME value-first +
-        // collect_all_drops + terminator sequence lower_block emits for an
-        // explicit `return` statement, so `?` and `return` unwind identically.
-        {
-            std::string enum_nm = std::string(TypeRef(inner_t).enum_name());
-            // A VOID ok payload (`Result<(), E>` — the statement-position
-            // `f()?;` shape, or `let _u: () = f()?;`): a void-typed
-            // match-EXPRESSION is a silent no-op in mlir-gen (logos_to_mlir
-            // (void) is null → the whole match, scrutinee call included,
-            // vanishes) and a void payload BINDING is equally meaningless.
-            // Desugar to a match STATEMENT (whose codegen fully supports void
-            // arms + embedded returns) inside a void block-expression: the
-            // expression keeps type `()` for the checker, the block emits the
-            // match unconditionally.
-            bool void_ok = ok_type &&
-                (TypeRef(ok_type).kind() == LogosType::Kind::Void ||
-                 TypeRef(ok_type).kind() == LogosType::Kind::Never);
-            std::string ok_b = "__try_ok_" + std::to_string(tmp_var_count_++);
-            lir::Pattern ok_pat;
-            if (void_ok)
-                ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
-                    *cur_prog_, enum_nm, ok_name, ok_disc);
-            else
-                ok_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                    *cur_prog_, enum_nm, ok_name, ok_disc, {ok_b}, {ok_type});
-            lir::Pattern err_pat;
-            lir::LExprPtr err_lit = nullptr;
-            if (is_result) {
-                TypeRef e_t = TypeRef(inner_t).type_args()[1];
-                std::string err_b = "__try_err_" + std::to_string(tmp_var_count_++);
-                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant_data(
-                    *cur_prog_, enum_nm, err_name, err_disc, {err_b}, {e_t});
-                std::vector<lir::LExprPtr> err_payload;
-                err_payload.push_back(builder().var_ref(err_b, e_t));
-                err_lit = builder().enum_lit_data(enum_nm, err_name, err_disc,
-                                                  std::move(err_payload), ret_type_);
-            } else {
-                // Option: None carries no payload.
-                err_pat.mirror_ptr_ = lir_mirror_emit_pat_variant(
-                    *cur_prog_, enum_nm, err_name, err_disc);
-                err_lit = builder().enum_lit(enum_nm, err_name, err_disc, ret_type_);
-            }
-            auto err_block = make_return_with_drops(std::move(err_lit));
-            if (void_ok) {
-                std::vector<std::pair<lir::Pattern, std::vector<lir_view::StmtRef>>> arms;
-                arms.emplace_back(std::move(ok_pat), std::vector<lir_view::StmtRef>{});
-                arms.emplace_back(std::move(err_pat), std::move(err_block));
-                std::vector<lir_view::StmtRef> blk;
-                blk.push_back(unit_match_stmt_(std::move(inner), std::move(arms)));
-                return builder().block_expr(lir_mirror_block(*cur_prog_, blk),
-                                            nullptr, ok_type);
-            }
-            auto ok_val = builder().var_ref(ok_b, ok_type);
-            auto err_val = builder().block_expr(
-                lir_mirror_block(*cur_prog_, err_block), nullptr, ok_type);
-            lir::EMatchExpr me;
-            me.scrut = std::move(inner);
-            me.arms.push_back({std::move(ok_pat), std::nullopt, std::move(ok_val)});
-            me.arms.push_back({std::move(err_pat), std::nullopt, std::move(err_val)});
-            return builder().match_expr_v(std::move(me), ok_type);
-        }
-    }
+    case la::TRY_EXPR:      // a MATCH over Try::branch by now (the HIR pass)
+        hir_gate_(expr);
+        return error_expr();
 
     case la::RANGE_EXPR: {
         // `lo..hi` / `lo..=hi` — synthesise a stdlib `RangeI64` /
@@ -2570,6 +2241,30 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             else if (is_lit_var_(lt) && is_integer(ht)) { lit_solve_(lt, ht); incl_t = ht; }
             else if (is_lit_var_(ht) && is_integer(lt)) { lit_solve_(ht, lt); incl_t = lt; }
             else if (lt && ht && is_integer(lt) && types_equal(lt, ht)) incl_t = lt;
+        }
+        // Bounds of a concrete integer type other than i32 / i64 (`0u32..n`,
+        // `a..b` over u56, usize): the generic `RangeOf<T>` over that type, as
+        // Rust's `Range<T>` — RangeI32 / RangeI64 truncated or widened them.
+        {
+            TypeRef lt = expr_type(lo), ht = expr_type(hi);
+            TypeRef gen_t = nullptr;
+            auto plain = [](TypeRef t) {
+                return t && (TypeRef(t).kind() == LogosType::Kind::I32 || TypeRef(t).kind() == LogosType::Kind::I64);
+            };
+            if (lt && ht && is_integer(lt) && !is_lit_var_(lt) && types_equal(lt, ht) && !plain(lt)) gen_t = lt;
+            else if (lt && is_integer(lt) && !is_lit_var_(lt) && !plain(lt) && is_lit_var_(ht)) { lit_solve_(ht, lt); gen_t = lt; }
+            else if (ht && is_integer(ht) && !is_lit_var_(ht) && !plain(ht) && is_lit_var_(lt)) { lit_solve_(lt, ht); gen_t = ht; }
+            if (gen_t && !inclusive) {
+                auto cands = stdlib_range_cands("range_of");
+                if (!cands.empty()) {
+                    std::vector<lir::LExprPtr> rargs;
+                    rargs.push_back(std::move(lo));
+                    rargs.push_back(std::move(hi));
+                    const SemaFuncInfo* rfi = cands[0];
+                    return finish_generic_call(rfi->symbol_name.empty() ? std::string("range_of") : rfi->symbol_name,
+                                               *rfi, {gen_t}, std::move(rargs));
+                }
+            }
         }
         auto width = [](LogosType::Kind k) -> int {
             switch (k) {
@@ -2657,10 +2352,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::INDEX_READ:  return lower_index_read(expr);
     case la::ARR_LIT:      return lower_arr_lit(expr);
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
-    case la::LIST_COMP:    return lower_list_comp(expr);
-    case la::MAP_COMP:     return lower_map_comp(expr);
-    case la::WRIT_LIST_COMP: return lower_writ_list_comp(expr);
-    case la::WRIT_MAP_COMP:  return lower_writ_map_comp(expr);
+    case la::LIST_COMP: case la::MAP_COMP:            // a block over a `for` by now (the HIR pass)
+    case la::WRIT_LIST_COMP: case la::WRIT_MAP_COMP:
+        hir_gate_(expr);
+        return error_expr();
     case la::WRIT_MAP:
     case la::WRIT_ARRAY:
     case la::WRIT_TYPED_ARRAY:
@@ -2979,7 +2674,6 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // never READS `v` at statement level, which is the compound-assign
     // lowering's site and needs its own name.
     bool sc_fork = (op == "&&" || op == "||");
-    const auto owned_pre = closure_owned_drop_;
     const size_t hoist_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
     // A comparison's right operand is expected at the LEFT's type (Rust
     // `PartialEq<Rhs = Self>`): a literal there (`c == (Option::None, 2)`,
@@ -3005,12 +2699,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // RESTORED after it. Strictly conservative — a name is only ever put BACK
     // into the uninit set, never taken out — and it is the same fork
     // `if` / `match` / loops already carry for this tracker.
-    if (sc_fork && (moved_vars_ != rhs_pre || closure_owned_drop_ != owned_pre)) {
+    if (sc_fork && moved_vars_ != rhs_pre) {
         size_t rm = flag_clear_log_.size();
         std::vector<CondMoveBranch> rb;
-        rb.push_back({nullptr, &rhs, moved_vars_, rm, rm, closure_owned_drop_});   // RHS evaluated
-        rb.push_back({nullptr, nullptr, rhs_pre, rm, rm, owned_pre});              // short-circuited
-        elaborate_cond_moves(rhs_pre, rb, &owned_pre);
+        rb.push_back({nullptr, &rhs, moved_vars_, rm, rm});   // RHS evaluated
+        rb.push_back({nullptr, nullptr, rhs_pre, rm, rm});    // short-circuited
+        elaborate_cond_moves(rhs_pre, rb);
     }
     // An open type variable (an untyped closure parameter) meeting a
     // primitive operand takes its type: the built-in operator is homogeneous
@@ -5363,11 +5057,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 // Fn / FnMut can be invoked repeatedly (by &self / &mut self);
                 // FnOnce invokes by-value (call_once(self)) — a lone FnOnce
                 // bound means the call CONSUMES the callable.
-                if (b.trait_name == "Fn" || b.trait_name == "FnMut")
-                    has_multi_call = true;
+                if (b.fn_level < 2) has_multi_call = true;
                 using CM = lir_schema::expr::CallMode;
-                CM m = b.trait_name == "Fn" ? CM::Shared
-                     : b.trait_name == "FnMut" ? CM::Mut : CM::Once;
+                CM m = b.fn_level == 0 ? CM::Shared : b.fn_level == 1 ? CM::Mut : CM::Once;
                 if (fn_bound_mode == CM::Unknown || uint8_t(m) < uint8_t(fn_bound_mode))
                     fn_bound_mode = m;
             }
@@ -5630,6 +5322,31 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     at += cur_stmt_temp_hoist_->size() - before;
                 }
             }
+        }
+        // A Writ comprehension's element (the HIR's `writ_*_comp_push/put(&c, .., v)`)
+        // is coerced to WAny in the container `c` (DIVERGENCES
+        // coerce.writ-anyval.scalar-helpers).
+        // The builder call is the one whose first argument borrows the container.
+        TinyMapView a0 = args.size() >= 2 ? map_of(args.get(0)) : TinyMapView{};
+        if (hir_origin_(node) == hir::Origin::Comprehension && arg_exprs.size() >= 2 && arg_exprs[0] &&
+            code_of(a0) == la::UNARY) {
+            TinyMapView cv = a0.has_key(la::VALUE) ? map_of(a0.get(la::VALUE.code)) : TinyMapView{};
+            TypeRef rt = expr_type(arg_exprs[0]);
+            const bool is_map = arg_exprs.size() == 3;
+            // A Writ map's key is a `str` (the WMap<WString, _> root).
+            if (TypeRef kt = is_map ? expr_type(arg_exprs[1]) : TypeRef(nullptr);
+                kt && TypeRef(kt).kind() != LogosType::Kind::Error &&
+                !(TypeRef(kt).kind() == LogosType::Kind::Slice && TypeRef(kt).elem() &&
+                  TypeRef(TypeRef(kt).elem()).kind() == LogosType::Kind::U8)) {
+                error(std::format("writ map comprehension: key expression must be str (got {})", type_str(kt)));
+                return error_expr();
+            }
+            if (code_of(cv) == la::VAR_REF && rt && TypeRef(rt).pointee())
+                arg_exprs.back() = coerce_to_writ_anyval(std::move(arg_exprs.back()),
+                                                         std::string(str_of(cv.get(la::NAME.code))),
+                                                         TypeRef(rt).pointee(),
+                                                         is_map ? "writ map comprehension value"
+                                                                : "writ list comprehension element");
         }
     }
     uint64_t n_args = arg_exprs.size();
@@ -6233,6 +5950,16 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
                 // A SYMBOLIC actual length — the caller's own const parameter
                 // (`g(a)` inside `fn f<const N>(a: [T; N])`) — binds N to it.
                 bindings[asv] = current_type_params_[std::string(actual_norm.arr_size_var())];
+            } else if (!asv.empty() && asv.rfind(ARR_LEN_EXPR_PFX, 0) != 0 && !bindings.count(asv) &&
+                       !actual_norm.arr_size_var().empty()) {
+                // Any other symbolic actual length (`sizeof...(P)`, a deferred
+                // `N + 1`) binds N to a ConstVar spelled as that length: the
+                // substitution writes it back as the array's length and mono
+                // folds it with the caller's packs / parameters.
+                LogosTypeBuilder c;
+                c.kind = LogosType::Kind::ConstVar;
+                c.type_var_name = std::string(actual_norm.arr_size_var());
+                bindings[asv] = pool_->alloc(std::move(c));
             } else if (asv.empty() && formal.arr_size() != actual_norm.arr_size()) {
                 // Two CONCRETE lengths that disagree. Unification used to say
                 // nothing here, so `[T; 3]` accepted a `[T; 5]` and the
@@ -7045,13 +6772,29 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_vi
                 keys.push_back(b.mangled_name.substr(0, b.mangled_name.size() - sfx.size()));
         }
     }
+    // A spelled key carries no package: a candidate whose receiver names a
+    // nominal type of another package than Self's (a user `Vec` beside the
+    // stdlib's) is a homonym's impl, not Self's.
+    auto nominal_pkg = [](TypeRef t) -> std::string_view {
+        while (t && (is_ref_like(TypeRef(t).kind()) || TypeRef(t).kind() == K::Ptr) && TypeRef(t).pointee())
+            t = TypeRef(t).pointee();
+        if (!t) return {};
+        auto k = TypeRef(t).kind();
+        return (k == K::Struct || k == K::ZonedStruct || k == K::Enum) ? TypeRef(t).pkg_name() : std::string_view{};
+    };
+    const std::string_view self_pkg = nominal_pkg(self);
+    auto same_owner = [&](const SemaFuncInfo* fi) {
+        if (self_pkg.empty() || !fi || fi->param_types.empty() || !fi->param_types[0]) return true;
+        std::string_view fp = nominal_pkg(fi->param_types[0]);
+        return fp.empty() || fp == self_pkg;
+    };
     for (const auto& k : keys)
         for (const std::string& mk : {k + "__" + tbare + "__" + std::string(name), k + "__" + std::string(name)}) {
             std::vector<const SemaFuncInfo*> fs = find_func_candidates(mk);
             if (auto* g = find_generic_func(mk))
                 if (std::find(fs.begin(), fs.end(), g) == fs.end()) fs.push_back(g);
             for (auto* fi : fs)
-                if (same_trait(fi)) {
+                if (same_trait(fi) && same_owner(fi)) {
                     if (key_out) *key_out = mk;
                     return fi;
                 }
@@ -7555,7 +7298,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], subst);
                 expect_arg_(arg_exprs[i], pt,
-                            TypeRef(fi.param_types[i]).kind() == LogosType::Kind::TypeVar
+                            (TypeRef(fi.param_types[i]).kind() == LogosType::Kind::TypeVar ||
+                             (i == 0 && ufcs_self_by_value_))
                                 ? CoercePos::GenericArg : CoercePos::CallArg,
                             std::format("call to '{}' arg {}", callee_diag, i + 1),
                             call_param_shown_(fi.param_types[i], fi.lifetime_params, fi.param_types, fi.ret_type,
@@ -14841,515 +14585,6 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     return builder().arr_lit(std::move(elems), ty);
 }
 
-// List comprehension:  [elem_expr for x in iter_expr (if guard)?]
-// Desugars to a block expression that creates a Vec<T>, iterates over
-// iter_expr, optionally filters by guard, and pushes elem_expr into the Vec.
-// Requires `use logos.mem.collections.vec;` in scope.
-// Iterator support: array / slice (via SForEach); generic iterator path
-// (types with .next() returning Option<T>) is deferred.
-lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
-
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
-    TypeRef iter_type = expr_type(iter);
-
-    // Only array/slice iteration supported for now.
-    TypeRef elem_type = nullptr;
-    int64_t arr_size = 0;
-    bool is_slice = false;
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        arr_size  = (int64_t)TypeRef(iter_type).arr_size();
-    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        is_slice  = true;
-    } else {
-        error(std::format(
-            "list comprehension: only array/slice iteration supported (got {})",
-            type_str(iter_type)));
-        return error_expr();
-    }
-
-    // Require Vec<T> available (via `use std.vec`).
-    {
-        auto [vpkg, vsi] = find_struct_by_name("Vec");
-        if (!vsi) {
-            error("list comprehension requires `use logos.mem.collections.vec;`");
-            return error_expr();
-        }
-    }
-    auto* vec_new_fi = find_generic_func("vec_new");
-    if (!vec_new_fi) {
-        error("list comprehension: vec_new not found; add `use logos.mem.collections.vec;`");
-        return error_expr();
-    }
-
-    std::string vec_var = "__lc_v_" + std::to_string(tmp_var_count_++);
-
-    // Lower VALUE + optional GUARD with var_name in scope. The collection holds
-    // the VALUES (A6: `expr.list-comp.desugar-vec`, "T is the type of
-    // `value`"): `[P { k: x } for x in src]` is a Vec<P>. An untyped literal
-    // value keeps the iterator's element type, as before.
-    push_scope();
-    define(std::string(var_name), elem_type, false);
-    auto elem_expr = lower_expr(map_of(node.get(la::VALUE.code)));
-    lir::LExprPtr guard_expr = nullptr;
-    if (node.has_key(la::GUARD))
-        guard_expr = lower_expr(map_of(node.get(la::GUARD.code)));
-    pop_scope();
-    TypeRef val_type = elem_expr ? expr_type(elem_expr) : TypeRef(nullptr);
-    if (!val_type || TypeRef(val_type).kind() == LogosType::Kind::IntLit ||
-        TypeRef(val_type).kind() == LogosType::Kind::FloatLit ||
-        TypeRef(val_type).kind() == LogosType::Kind::Error)
-        val_type = elem_type;
-
-    TypeRef vec_t = make_synth_generic_struct("Vec", {val_type});
-
-    // SLet: let mut vec_var: Vec<T> = vec_new::<T>();
-    // Use symbol_name (may include __g__... suffix for method-level generics).
-    std::string vec_new_sym = vec_new_fi->symbol_name.empty() ? "vec_new"
-                                                              : vec_new_fi->symbol_name;
-    auto call_new = builder().call(vec_new_sym, {val_type}, {}, vec_t);
-    lir::SLet let_v;
-    let_v.name   = vec_var;
-    let_v.type   = vec_t;
-    let_v.is_mut = true;
-    let_v.value  = std::move(call_new);
-
-
-    // `vec_var.push(elem)`: a method call whose callee the probe records — the
-    // instance is mono's to name, not `Vec$G1$<T>__push` composed (ADR 0030 S8).
-    auto recv = builder().addr_of(vec_var, make_ref(true, vec_t), BorrowOrigin::Desugar);
-    std::vector<lir::LExprPtr> push_args;
-    push_args.push_back(std::move(elem_expr));
-    auto push_call = method_call_named_(std::move(recv), "push", std::move(push_args), -1, void_t());
-
-    lir::SExprStmt push_stmt;
-    push_stmt.expr = std::move(push_call);
-
-    std::vector<lir_view::StmtRef> loop_body;
-    if (guard_expr) {
-        lir::SIf sif;
-        sif.cond = std::move(guard_expr);
-        std::vector<lir_view::StmtRef> then_blk;
-        then_blk.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
-        sif.then_ = lir_mirror_block(*cur_prog_, then_blk);
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sif)));
-    } else {
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
-    }
-
-    lir::SForEach sfe;
-    sfe.var       = std::string(var_name);
-    sfe.iter      = std::move(iter);
-    sfe.elem_type = elem_type;
-    sfe.arr_size  = arr_size;
-    sfe.is_slice  = is_slice;
-    sfe.body      = lir_mirror_block(*cur_prog_, loop_body);
-
-    std::vector<lir_view::StmtRef> outer;
-    outer.push_back(make_stmt_emit(node_line_, std::move(let_v)));
-    outer.push_back(make_stmt_emit(node_line_, std::move(sfe)));
-
-    auto result = builder().var_ref(vec_var, vec_t);
-    return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), vec_t);
-}
-
-// Map comprehension:  {kexpr: vexpr for x in iter_expr (if guard)?}
-// Desugars to a block that creates a HashMap<K,V>, iterates over iter_expr,
-// optionally filters by guard, and inserts (kexpr, vexpr) pairs.
-// Requires `use logos.mem.collections.hashmap;` in scope.
-lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
-
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
-    TypeRef iter_type = expr_type(iter);
-
-    TypeRef elem_type = nullptr;
-    int64_t arr_size = 0;
-    bool is_slice = false;
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        arr_size  = (int64_t)TypeRef(iter_type).arr_size();
-    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        is_slice  = true;
-    } else {
-        error(std::format(
-            "map comprehension: only array/slice iteration supported (got {})",
-            type_str(iter_type)));
-        return error_expr();
-    }
-
-    {
-        auto [hmpkg, hmsi] = find_struct_by_name("HashMap");
-        if (!hmsi) {
-            error("map comprehension requires `use logos.mem.collections.hashmap;`");
-            return error_expr();
-        }
-    }
-    auto* hm_new_fi = find_generic_func("hashmap_new");
-    if (!hm_new_fi) {
-        error("map comprehension: hashmap_new not found; add `use logos.mem.collections.hashmap;`");
-        return error_expr();
-    }
-
-    std::string hm_var = "__mc_m_" + std::to_string(tmp_var_count_++);
-
-    push_scope();
-    define(std::string(var_name), elem_type, false);
-    auto key_expr_body = lower_expr(map_of(node.get(la::KEY.code)));
-    auto val_expr_body = lower_expr(map_of(node.get(la::VALUE.code)));
-    lir::LExprPtr guard_body = nullptr;
-    if (node.has_key(la::GUARD))
-        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
-    pop_scope();
-
-    TypeRef k_type = expr_type(key_expr_body);
-    TypeRef v_type = expr_type(val_expr_body);
-    TypeRef hm_t = make_generic_struct("HashMap", {k_type, v_type});
-
-    std::string hm_new_sym = hm_new_fi->symbol_name.empty() ? "hashmap_new"
-                                                            : hm_new_fi->symbol_name;
-    auto call_new = builder().call(hm_new_sym, {k_type, v_type}, {}, hm_t);
-    lir::SLet let_m;
-    let_m.name   = hm_var;
-    let_m.type   = hm_t;
-    let_m.is_mut = true;
-    let_m.value  = std::move(call_new);
-
-    // `hm_var.insert(key, val)`: a method call whose callee the probe records.
-    auto recv = builder().addr_of(hm_var, make_ref(true, hm_t), BorrowOrigin::Desugar);
-    std::vector<lir::LExprPtr> ins_args;
-    ins_args.push_back(std::move(key_expr_body));
-    ins_args.push_back(std::move(val_expr_body));
-    // The comprehension's own insert: Logos's `HashMap::insert` is an `unsafe
-    // fn` (Rust's is safe), and the user wrote no call — the desugaring is
-    // the compiler's, so it carries its own unsafe context.
-    bool was_unsafe = inside_unsafe_;
-    inside_unsafe_ = true;
-    auto ins_call = method_call_named_(std::move(recv), "insert", std::move(ins_args), -1, void_t());
-    inside_unsafe_ = was_unsafe;
-
-    lir::SExprStmt ins_stmt;
-    ins_stmt.expr = std::move(ins_call);
-
-    std::vector<lir_view::StmtRef> loop_body;
-    if (guard_body) {
-        lir::SIf sif;
-        sif.cond = std::move(guard_body);
-        std::vector<lir_view::StmtRef> then_blk;
-        then_blk.push_back(make_stmt_emit(node_line_, std::move(ins_stmt)));
-        sif.then_ = lir_mirror_block(*cur_prog_, then_blk);
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sif)));
-    } else {
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(ins_stmt)));
-    }
-
-    lir::SForEach sfe;
-    sfe.var       = std::string(var_name);
-    sfe.iter      = std::move(iter);
-    sfe.elem_type = elem_type;
-    sfe.arr_size  = arr_size;
-    sfe.is_slice  = is_slice;
-    sfe.body      = lir_mirror_block(*cur_prog_, loop_body);
-
-    std::vector<lir_view::StmtRef> outer;
-    outer.push_back(make_stmt_emit(node_line_, std::move(let_m)));
-    outer.push_back(make_stmt_emit(node_line_, std::move(sfe)));
-
-    auto result = builder().var_ref(hm_var, hm_t);
-    return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), hm_t);
-}
-
-// Writ list comprehension:  @[expr for x in iter_expr (if guard)?]
-// Desugars to a block that builds a Writ whose root is an
-// ObjectArray of AnyVals, iterating over iter_expr and optionally
-// filtering by guard.  Element expression must evaluate to AnyVal
-// (user coerces scalars explicitly via AnyVal::embed_i24 etc.).
-// Requires `use logos.mem.writ.ctr;` in scope.
-lir::LExprPtr SemaChecker::lower_writ_list_comp(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
-
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
-    TypeRef iter_type = expr_type(iter);
-
-    // Short-circuit on upstream error to avoid cascading diagnostics.
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Error)
-        return error_expr();
-
-    TypeRef elem_type = nullptr;
-    int64_t arr_size = 0;
-    bool is_slice = false;
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        arr_size  = (int64_t)TypeRef(iter_type).arr_size();
-    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        is_slice  = true;
-    } else {
-        error(std::format(
-            "writ list comprehension: only array/slice iteration supported (got {})",
-            type_str(iter_type)));
-        return error_expr();
-    }
-
-    // writ builder: yields Rc<Writ> (see lang.writ.comp_builder).
-    auto new_cands  = find_func_candidates("writ_list_comp_new");
-    auto push_cands = find_func_candidates("writ_list_comp_push");
-    const SemaFuncInfo* new_fi  = nullptr;
-    const SemaFuncInfo* push_fi = nullptr;
-    for (auto* fi : new_cands)  if (fi->param_types.size() == 1) { new_fi  = fi; break; }
-    for (auto* fi : push_cands) if (fi->param_types.size() == 2) { push_fi = fi; break; }
-    if (!new_fi || !push_fi) {
-        error("writ list comprehension requires `use logos.lang.writ.comp_builder;`");
-        return error_expr();
-    }
-
-    // The container type is whatever the builder returns (Rc<Writ>).
-    TypeRef ctr_t = new_fi->ret_type;
-
-    std::string ctr_var = "__hlc_c_" + std::to_string(tmp_var_count_++);
-
-    push_scope();
-    define(ctr_var, ctr_t, true);
-    define(std::string(var_name), elem_type, false);
-    auto val_expr_body = lower_expr(map_of(node.get(la::VALUE.code)));
-    lir::LExprPtr guard_body = nullptr;
-    if (node.has_key(la::GUARD))
-        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
-    pop_scope();
-
-    // Coerce VALUE to AnyVal (no-op if already AnyVal).
-    val_expr_body = coerce_to_writ_anyval(
-        std::move(val_expr_body), ctr_var, ctr_t,
-        "writ list comprehension element");
-    if (!val_expr_body || TypeRef(expr_type(val_expr_body)).kind() == LogosType::Kind::Error)
-        return error_expr();
-
-    // Guard must be Bool; any other type (including Error) is rejected here to
-    // avoid cascading diagnostics and to prevent an MLIR verification crash
-    // from feeding a non-i1 value into cf.cond_br.
-    if (guard_body) {
-        auto gk = expr_type(guard_body) ? TypeRef(expr_type(guard_body)).kind()
-                                   : LogosType::Kind::Error;
-        if (gk == LogosType::Kind::Error)
-            return error_expr();
-        if (gk != LogosType::Kind::Bool) {
-            error(std::format(
-                "writ list comprehension: guard must be bool (got {})",
-                type_str(expr_type(guard_body))));
-            return error_expr();
-        }
-    }
-
-    // SLet: let mut __hlc_c = writ_list_comp_new(128);
-    std::string new_sym = new_fi->symbol_name.empty() ? "writ_list_comp_new"
-                                                      : new_fi->symbol_name;
-    std::vector<lir::LExprPtr> new_args;
-    int64_t cap_hint = arr_size > 0 ? (arr_size * 8 + 128) : 128;
-    new_args.push_back(builder().lit_int(cap_hint, prim(LogosType::Kind::I64)));
-    auto call_new = builder().call(new_sym, {}, std::move(new_args), ctr_t);
-    lir::SLet let_c;
-    let_c.name   = ctr_var;
-    let_c.type   = ctr_t;
-    let_c.is_mut = true;
-    let_c.value  = std::move(call_new);
-
-    // writ_list_comp_push(&mut __hlc_c, val);
-    std::string push_sym = push_fi->symbol_name.empty() ? "writ_list_comp_push"
-                                                        : push_fi->symbol_name;
-    // push takes `&Rc<Writ>` (shared) — was `&mut Writ`.
-    auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t), BorrowOrigin::Desugar);
-    std::vector<lir::LExprPtr> push_args;
-    push_args.push_back(std::move(recv));
-    push_args.push_back(std::move(val_expr_body));
-    auto push_call = builder().call(push_sym, {}, std::move(push_args), void_t());
-
-    lir::SExprStmt push_stmt;
-    push_stmt.expr = std::move(push_call);
-
-    std::vector<lir_view::StmtRef> loop_body;
-    if (guard_body) {
-        lir::SIf sif;
-        sif.cond = std::move(guard_body);
-        std::vector<lir_view::StmtRef> then_blk;
-        then_blk.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
-        sif.then_ = lir_mirror_block(*cur_prog_, then_blk);
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sif)));
-    } else {
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
-    }
-
-    lir::SForEach sfe;
-    sfe.var       = std::string(var_name);
-    sfe.iter      = std::move(iter);
-    sfe.elem_type = elem_type;
-    sfe.arr_size  = arr_size;
-    sfe.is_slice  = is_slice;
-    sfe.body      = lir_mirror_block(*cur_prog_, loop_body);
-
-    std::vector<lir_view::StmtRef> outer;
-    outer.push_back(make_stmt_emit(node_line_, std::move(let_c)));
-    outer.push_back(make_stmt_emit(node_line_, std::move(sfe)));
-
-    auto result = builder().var_ref(ctr_var, ctr_t);
-    return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), ctr_t);
-}
-
-// Writ map comprehension:  @{kexpr: vexpr for x in iter (if guard)?}
-// v1: string keys only (`str`); values must be AnyVal.
-// Requires `use logos.mem.writ.ctr;` in scope.
-lir::LExprPtr SemaChecker::lower_writ_map_comp(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
-
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
-    TypeRef iter_type = expr_type(iter);
-
-    // Short-circuit on upstream error to avoid cascading diagnostics.
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Error)
-        return error_expr();
-
-    TypeRef elem_type = nullptr;
-    int64_t arr_size = 0;
-    bool is_slice = false;
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        arr_size  = (int64_t)TypeRef(iter_type).arr_size();
-    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        is_slice  = true;
-    } else {
-        error(std::format(
-            "writ map comprehension: only array/slice iteration supported (got {})",
-            type_str(iter_type)));
-        return error_expr();
-    }
-
-    // writ builder: yields Rc<Writ> (see lang.writ.comp_builder).
-    auto new_cands = find_func_candidates("writ_map_comp_new");
-    auto put_cands = find_func_candidates("writ_map_comp_put");
-    const SemaFuncInfo* new_fi = nullptr;
-    const SemaFuncInfo* put_fi = nullptr;
-    for (auto* fi : new_cands) if (fi->param_types.size() == 2) { new_fi = fi; break; }
-    for (auto* fi : put_cands) if (fi->param_types.size() == 3) { put_fi = fi; break; }
-    if (!new_fi || !put_fi) {
-        error("writ map comprehension requires `use logos.lang.writ.comp_builder;`");
-        return error_expr();
-    }
-
-    // The container type is whatever the builder returns (Rc<Writ>).
-    TypeRef ctr_t = new_fi->ret_type;
-
-    std::string ctr_var = "__hmc_c_" + std::to_string(tmp_var_count_++);
-
-    push_scope();
-    define(ctr_var, ctr_t, true);
-    define(std::string(var_name), elem_type, false);
-    auto key_expr = lower_expr(map_of(node.get(la::KEY.code)));
-    auto val_expr = lower_expr(map_of(node.get(la::VALUE.code)));
-    lir::LExprPtr guard_body = nullptr;
-    if (node.has_key(la::GUARD))
-        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
-    pop_scope();
-
-    // Require KEY to be str (&[u8] slice).  Short-circuit on Error to avoid
-    // cascading diagnostics when the key subexpression already failed.
-    TypeRef kt = expr_type(key_expr);
-    if (kt && TypeRef(kt).kind() == LogosType::Kind::Error)
-        return error_expr();
-    if (!(kt && TypeRef(kt).kind() == LogosType::Kind::Slice && TypeRef(kt).elem()
-              && TypeRef(kt).elem().kind() == LogosType::Kind::U8)) {
-        error(std::format(
-            "writ map comprehension: key expression must be str (got {})",
-            type_str(kt)));
-        return error_expr();
-    }
-
-    // Coerce VALUE to AnyVal (no-op if already AnyVal).
-    val_expr = coerce_to_writ_anyval(
-        std::move(val_expr), ctr_var, ctr_t,
-        "writ map comprehension value");
-    if (!val_expr || TypeRef(expr_type(val_expr)).kind() == LogosType::Kind::Error)
-        return error_expr();
-
-    // Guard must be Bool; reject anything else early to avoid MLIR crashes
-    // (cf.cond_br requires i1) and to silence cascades when the guard errored.
-    if (guard_body) {
-        auto gk = expr_type(guard_body) ? TypeRef(expr_type(guard_body)).kind()
-                                   : LogosType::Kind::Error;
-        if (gk == LogosType::Kind::Error)
-            return error_expr();
-        if (gk != LogosType::Kind::Bool) {
-            error(std::format(
-                "writ map comprehension: guard must be bool (got {})",
-                type_str(expr_type(guard_body))));
-            return error_expr();
-        }
-    }
-
-    std::string new_sym = new_fi->symbol_name.empty() ? "writ_map_comp_new"
-                                                      : new_fi->symbol_name;
-    // Byte-cap hint for zone, and slot-count hint for map buckets.
-    // For slices (arr_size==0 at compile time) we don't know iter length, so
-    // use a generous default to reduce the risk of silent drops.  This is a
-    // v1 limitation — objectmap_set has no auto-grow.
-    int64_t slot_hint = arr_size > 0 ? arr_size : 64;
-    int64_t cap_hint  = arr_size > 0 ? (arr_size * 48 + 256) : 4096;
-    std::vector<lir::LExprPtr> new_args;
-    new_args.push_back(builder().lit_int(cap_hint, prim(LogosType::Kind::I64)));
-    new_args.push_back(builder().lit_int(slot_hint, prim(LogosType::Kind::I64)));
-    auto call_new = builder().call(new_sym, {}, std::move(new_args), ctr_t);
-    lir::SLet let_c;
-    let_c.name   = ctr_var;
-    let_c.type   = ctr_t;
-    let_c.is_mut = true;
-    let_c.value  = std::move(call_new);
-
-    std::string put_sym = put_fi->symbol_name.empty() ? "writ_map_comp_put"
-                                                      : put_fi->symbol_name;
-    auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t), BorrowOrigin::Desugar);  // &Rc<Writ>
-    std::vector<lir::LExprPtr> put_args;
-    put_args.push_back(std::move(recv));
-    put_args.push_back(std::move(key_expr));
-    put_args.push_back(std::move(val_expr));
-    auto put_call = builder().call(put_sym, {}, std::move(put_args), void_t());
-
-    lir::SExprStmt put_stmt;
-    put_stmt.expr = std::move(put_call);
-
-    std::vector<lir_view::StmtRef> loop_body;
-    if (guard_body) {
-        lir::SIf sif;
-        sif.cond = std::move(guard_body);
-        std::vector<lir_view::StmtRef> then_blk;
-        then_blk.push_back(make_stmt_emit(node_line_, std::move(put_stmt)));
-        sif.then_ = lir_mirror_block(*cur_prog_, then_blk);
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sif)));
-    } else {
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(put_stmt)));
-    }
-
-    lir::SForEach sfe;
-    sfe.var       = std::string(var_name);
-    sfe.iter      = std::move(iter);
-    sfe.elem_type = elem_type;
-    sfe.arr_size  = arr_size;
-    sfe.is_slice  = is_slice;
-    sfe.body      = lir_mirror_block(*cur_prog_, loop_body);
-
-    std::vector<lir_view::StmtRef> outer;
-    outer.push_back(make_stmt_emit(node_line_, std::move(let_c)));
-    outer.push_back(make_stmt_emit(node_line_, std::move(sfe)));
-
-    auto result = builder().var_ref(ctr_var, ctr_t);
-    return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), ctr_t);
-}
-
 // Coerce an arbitrary value to AnyVal for use inside a Writ comprehension.
 // Returns the original expr if already AnyVal; otherwise wraps in a call to
 // one of the `writ_coerce_*` helpers in writ/ctr.logos. String coercion
@@ -18348,6 +17583,7 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
+    const TypeRef call_expected = expected_;   // the call's own expectation (args overwrite expected_)
     // Phase 1B-5 parity for TYPE-side turbofish (`PkdArray::<str>::format`):
     // bare `[T]`/`str`-as-unsized/`dyn` type args are legal when the class's
     // param is `?Sized` (or a partial spec may govern). resolve_generic's
@@ -18525,9 +17761,25 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             auto args = map_of(args_av);
             if (args.has_key(la::ITEMS)) {
                 auto items = arr_of(args.get(la::ITEMS.code));
+                // `Try::branch(e)` of `e?`: e's shape is the fn's carrier around
+                // the `?`'s own expectation (`Result<that, _>` / `Option<that>`).
+                TypeRef try_shape = nullptr;
+                if (hir_origin_(node) == hir::Origin::Try && method_name == "branch") {
+                    TypeRef sh = std::exchange(try_match_shape_, TypeRef(nullptr));
+                    if (sh && ret_type_ && TypeRef(ret_type_).kind() == LogosType::Kind::Enum) {
+                        if (type_is_lang_item(ret_type_, "Result"))
+                            try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {sh, inferred_t()}, {},
+                                                          TypeRef(ret_type_).pkg_name());
+                        else if (type_is_lang_item(ret_type_, "Option"))
+                            try_shape = make_generic_enum(TypeRef(ret_type_).enum_name(), {sh}, {},
+                                                          TypeRef(ret_type_).pkg_name());
+                    }
+                }
                 for (uint64_t i = 0; i < items.size(); ++i) {
                     TypeRef ah = i < arg_hints_.size() ? arg_hints_[i] : TypeRef(nullptr);
-                    arg_exprs.push_back(lower_expr_expecting(map_of(items.get(i)), ah));
+                    arg_exprs.push_back(try_shape && i == 0
+                                            ? lower_expr_expecting(map_of(items.get(i)), nullptr, try_shape)
+                                            : lower_expr_expecting(map_of(items.get(i)), ah));
                     // An unsuffixed literal takes the width the expected result
                     // pins (`let b: Box<i64> = Box::new(5)` built a Box<i32>).
                     if (ah && arg_exprs.back() && expr_type(arg_exprs.back())) {
@@ -18587,6 +17839,10 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         }
     }
     const SemaFuncInfo* ufcs_fi = nullptr;   // the trait item a trait-qualified call resolved to
+    // A trait item whose declared receiver is `self` by value takes the first
+    // argument as `Self` itself (a generic formal: moved, never reborrowed —
+    // `for n in v` over `v: &mut Vec` moves `v`, as rustc says).
+    struct UfcsSelfReset { bool& f; ~UfcsSelfReset() { f = false; } } ufcs_self_reset{ufcs_self_by_value_};
     if (find_trait_iter_scoped(std::string(class_name)) &&
         !arg_exprs.empty() && !find_enum_by_name(class_name).second &&
         find_struct_by_name(std::string(class_name)).second == nullptr &&
@@ -18595,7 +17851,90 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // trait-UFCS instance dispatch on the first arg's type (G159-2 guard).
         find_datatype_by_name(std::string(class_name)).second == nullptr) {
         TypeRef rt = expr_type(arg_exprs[0]);
-        while (rt && (is_ref_like(TypeRef(rt).kind()) ||
+        // Self is the argument's type as the trait method's receiver takes it
+        // (Rust): `fn into_iter(self)` over `&[T; N]` is the `&[T; N]` impl's;
+        // a `&self` / `&mut self` method's argument is `&Self`.
+        const TypeRef arg0_t = rt;
+        bool by_value_self = false;
+        // A trait item without a `self` receiver (`FromResidual::from_residual(r)`,
+        // `Default::default()`-like with arguments): Self is not the first
+        // argument's type but what the call is expected to produce, as rustc
+        // infers it; the trait's arguments are the arguments' types where the
+        // item's parameter is a trait parameter.
+        const SemaTraitInfo* tdecl = find_trait_iter_scoped(std::string(class_name));
+        const SemaTraitMethodInfo* titem = nullptr;
+        bool self_from_expected = false;
+        TypeRef chosen_self = nullptr;   // Self of a receiver-less item, when chosen above
+        if (tdecl)
+            for (auto& tm : tdecl->methods)
+                if (tm.name == method_name) {
+                    titem = &tm;
+                    if (tm.has_self_receiver && !tm.param_types.empty() && tm.param_types[0])
+                        by_value_self = TypeRef(tm.param_types[0]).kind() == LogosType::Kind::TypeVar;
+                    break;
+                }
+        // The expectation names Self when it is a type, not a hole (a generic
+        // fn's `Result<*mut W<K>, E>` is one).
+        const bool expected_names_self = call_expected &&
+            TypeRef(call_expected).kind() != LogosType::Kind::Error &&
+            TypeRef(call_expected).kind() != LogosType::Kind::TypeVar && !is_lit_var_(call_expected);
+        if (titem && !titem->has_self_receiver && expected_names_self) {
+            std::vector<TypeRef> targs = node.has_key(la::TYPE_PARAMS) ? collect_type_args(node) : std::vector<TypeRef>{};
+            if (targs.empty() && !tdecl->type_params.empty()) {
+                targs.assign(tdecl->type_params.size(), TypeRef(nullptr));
+                for (size_t i = 0; i < titem->param_types.size() && i < arg_exprs.size(); ++i) {
+                    TypeRef pt = titem->param_types[i];
+                    if (!pt || TypeRef(pt).kind() != LogosType::Kind::TypeVar) continue;
+                    for (size_t k = 0; k < tdecl->type_params.size(); ++k)
+                        if (tdecl->type_params[k].name == TypeRef(pt).type_var_name() && !targs[k])
+                            targs[k] = expr_type(arg_exprs[i]);
+                }
+                for (auto t : targs) if (!t) { targs.clear(); break; }
+            }
+            std::string skey;
+            if ((ufcs_fi = resolve_trait_item_(class_name, call_expected, method_name, &skey, targs))) {
+                resolved_class = type_str(call_expected);
+                mangled = skey;
+                self_from_expected = true;
+                chosen_self = call_expected;
+            }
+        } else if (titem && !titem->has_self_receiver && hir_origin_(node) == hir::Origin::Try &&
+                   !arg_exprs.empty() && type_is_concrete(expr_type(arg_exprs[0])) &&
+                   class_name.find("::") != std::string_view::npos) {
+            // `?` in a closure whose return type is inferred later: as rustc,
+            // the one impl of FromResidual<residual> names Self, its parameters
+            // the residual does not fix being inference variables the closure's
+            // return type solves (`|a| { let v = get(a)?; Some(v) }`).
+            const TypeRef res_t = expr_type(arg_exprs[0]);
+            const auto& tab = obl_table_now_();
+            const obl::ImplFact* one = nullptr;
+            obl::Subst one_s;
+            int n = 0;
+            for (auto i : tab.of(class_name)) {
+                const auto& f = tab.at(i);
+                if (f.trait_args.size() != 1 || f.negative) continue;
+                obl::Subst su;
+                if (obl::unify(res_t, f.trait_args[0], f.generics, su)) { ++n; one = &f; one_s = std::move(su); }
+            }
+            if (n == 1 && one->self) {
+                SemaSubst ss;
+                for (auto& g : one->generics)
+                    ss[g] = one_s.count(g) ? one_s[g]
+                          : mint_infer_var_(std::format("the type `{}` of the value `?` returns from this closure — "
+                                                        "annotate the closure's return type", g));
+                TypeRef self_t = subst_type_sema(one->self, ss);
+                std::string skey;
+                if (self_t && (ufcs_fi = resolve_trait_item_(class_name, self_t, method_name, &skey,
+                                                             std::vector<TypeRef>{res_t}))) {
+                    resolved_class = type_str(self_t);
+                    mangled = skey;
+                    self_from_expected = true;
+                    chosen_self = self_t;
+                    expected_ = self_t;   // the call produces Self: its parameters bind off it
+                }
+            }
+        }
+        while (!by_value_self && rt && (is_ref_like(TypeRef(rt).kind()) ||
                       TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
                TypeRef(rt).pointee())
             rt = TypeRef(rt).pointee();
@@ -18628,9 +17967,74 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         std::string key;
         // `Trait::<A>::m(x)`: the trait's arguments select among its impls for x's type.
         std::vector<TypeRef> ufcs_targs = node.has_key(la::TYPE_PARAMS) ? collect_type_args(node) : std::vector<TypeRef>{};
-        if (rt && (ufcs_fi = resolve_trait_item_(class_name, rt, method_name, &key, ufcs_targs))) {
+        if (ufcs_fi) {
+            // Self came from the expected type (above).
+        } else if (rt && (ufcs_fi = resolve_trait_item_(class_name, rt, method_name, &key, ufcs_targs))) {
             resolved_class = rname.empty() ? type_str(rt) : rname;
             mangled = key;
+            ufcs_self_by_value_ = by_value_self;
+        } else if (by_value_self && arg0_t) {
+            // No impl for the argument's own type: the pointee's (an autoref'd
+            // receiver spelled through UFCS), as before.
+            TypeRef pt = arg0_t;
+            while (pt && (is_ref_like(TypeRef(pt).kind()) || TypeRef(pt).kind() == LogosType::Kind::Ptr) &&
+                   TypeRef(pt).pointee())
+                pt = TypeRef(pt).pointee();
+            if (pt != arg0_t && (ufcs_fi = resolve_trait_item_(class_name, pt, method_name, &key, ufcs_targs))) {
+                resolved_class = type_str(pt);
+                mangled = key;
+            }
+        }
+        // The `for` desugaring's `IntoIterator::into_iter(head)` (ADR 0030 S10):
+        // no impl answers — the head is not iterable (rustc's E0277); nothing
+        // composed from the type's spelling stands in.
+        if (!ufcs_fi && hir_origin_(node) == hir::Origin::For && arg0_t) {
+            error(std::format("`{}` is not an iterator: the trait `IntoIterator` is not implemented "
+                              "for it, so `for` cannot loop over it (E0277)", type_str(arg0_t)));
+            return error_expr();
+        }
+        // The `?` desugaring (ADR 0030 S10): `Try::branch(e)` with no impl for
+        // e's type, `FromResidual::from_residual(r)` with none for the body's
+        // return type — rustc's two E0277s. An operand already refused is not
+        // reported again.
+        // The selected impl must be FromResidual<the residual's type>: a Result
+        // fn has none for `Option<Infallible>`, and `Result<_, F>`'s for
+        // `Result<Infallible, E>` needs `F: From<E>` (rustc's "couldn't convert").
+        if (hir_origin_(node) == hir::Origin::Try && titem && !titem->has_self_receiver &&
+            self_from_expected && arg0_t && !implements_(class_name, chosen_self, {arg0_t})) {
+            if (type_is_lang_item(chosen_self, "Result") && type_is_lang_item(arg0_t, "Result") &&
+                TypeRef(chosen_self).type_args().size() == 2 && TypeRef(arg0_t).type_args().size() == 2) {
+                TypeRef e = TypeRef(arg0_t).type_args()[1], f = TypeRef(chosen_self).type_args()[1];
+                std::string why;
+                if (TypeRef(f).kind() == LogosType::Kind::TraitObject && TypeRef(f).owning_trait_object())
+                    why = std::format(": `{}: {}` is not satisfied, required for `{}` to implement `From<{}>`",
+                                      type_str(e), TypeRef(f).trait_name(), type_str_owning_(f), type_str(e));
+                else
+                    why = std::format(": the trait `From<{}>` is not implemented for `{}`", type_str(e), type_str(f));
+                error(std::format("`?` couldn't convert the error to `{}`{} (E0277)", type_str_owning_(f), why));
+                return error_expr();
+            }
+            self_from_expected = false;
+        }
+        if (hir_origin_(node) == hir::Origin::Try && titem && !titem->has_self_receiver && !self_from_expected) {
+            ufcs_fi = nullptr;   // never Self from the residual's own type
+            if (arg0_t && TypeRef(arg0_t).kind() != LogosType::Kind::Error) {
+                if (call_expected && type_is_concrete(call_expected))
+                    error(std::format("the `?` operator can only be used in a function that returns `Result` or "
+                                      "`Option` (or another type that implements `FromResidual`): `{}` does not "
+                                      "implement `FromResidual<{}>` (E0277)",
+                                      type_str(call_expected), type_str(arg0_t)));
+                else
+                    error("the `?` operator needs the return type of its function or closure to convert the "
+                          "residual into: it is not known here — annotate the closure's return type (E0277)");
+            }
+            return error_expr();
+        }
+        if (!ufcs_fi && hir_origin_(node) == hir::Origin::Try && arg0_t) {
+            if (TypeRef(arg0_t).kind() != LogosType::Kind::Error)
+                error(std::format("the `?` operator can only be applied to values that implement `Try`: "
+                                  "`{}` does not (E0277)", type_str(arg0_t)));
+            return error_expr();
         }
     }
 
@@ -19034,6 +18438,13 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         if (auto e = try_blanket_static_dispatch(arg_exprs, method_name, class_name,
                                                  lookup_type_by_name(class_name)))
             return e;
+        // The `for` desugaring's `IntoIterator::into_iter(head)` (ADR 0030 S10):
+        // the head is not iterable — rustc's E0277.
+        if (hir_origin_(node) == hir::Origin::For && !arg_exprs.empty() && expr_type(arg_exprs[0])) {
+            error(std::format("`{}` is not an iterator: the trait `IntoIterator` is not implemented "
+                              "for it, so `for` cannot loop over it (E0277)", type_str(expr_type(arg_exprs[0]))));
+            return error_expr();
+        }
         error(std::format("call to undefined static method '{}::{}'", class_name, method_name));
         return builder().call(mangled, {}, std::move(arg_exprs), error_t());
     }
@@ -19704,14 +19115,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             }
         }
     }
-    // §7.1: snapshot body_ever_moved_ before the closure body so we can
-    // compute the body-MOVED set of OUTER (capture-source) vars. With fn
-    // params now dropping at scope-end (Rust-conformant), the historical
-    // `closure_owned_drop_` source-side drop double-drops on shapes where
-    // the body itself moves a capture into a callee that drops (e.g.
-    // `consume(drop_me)`) — the callee's param drop is already the
-    // canonical drop site. Per-capture, skip `closure_owned_drop_` iff
-    // the body moved that capture.
+    // Snapshot body_ever_moved_ before the closure body: the difference is what
+    // the BODY moves out of its captures (the capture analysis' consumption).
     auto outer_ever_moved_pre = body_ever_moved_;
 
     // Push a new scope with closure params. It is a DROP BOUNDARY (G156-7): a
@@ -19748,21 +19153,9 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     auto saved_ret = ret_type_;
     bool saved_unsafe = inside_unsafe_;
     ret_type_ = has_annot ? ret_type : nullptr;
+    std::vector<ClosureReturn> body_returns;
+    auto* saved_closure_returns = std::exchange(closure_returns_, has_annot ? nullptr : &body_returns);
     inside_unsafe_ = false;
-    // THE CONSUMPTION FACT IS ALREADY COMPUTED — IT WAS NEVER WRITTEN DOWN.
-    // Lowering the body runs `mark_moved_expr` at every by-value position, and
-    // a capture resolves in an ENCLOSING scope, so a body that consumes one
-    // leaves its name in `moved_vars_`. (Measured: `let f = || { let y: String
-    // = x; }; let z = x;` is already refused with "use of moved variable 'x'".)
-    // The snapshot makes the reading precise: only what THIS body moved, not
-    // what was already moved before the closure was written.
-    std::set<std::string> moved_before_body = moved_vars_;
-    // ⚠ AND THE EVER-SET, because `lower_if` / `lower_match` SAVE AND RESTORE
-    // `moved_vars_` around a diverging branch: a capture consumed only inside
-    // an `if` would be reverted out of it by the time this is read, and the
-    // mode would silently fall back to a borrow. `body_ever_moved_` exists for
-    // exactly that reason — it is what the fn epilogue's param drops consult.
-    auto ever_before_body = body_ever_moved_;
     std::vector<lir_view::StmtRef> body;
     if (node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
@@ -19848,6 +19241,7 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     }
     ret_type_ = saved_ret;
     inside_unsafe_ = saved_unsafe;
+    closure_returns_ = saved_closure_returns;
     pop_scope();
     // §7.1: which outer vars did the body itself move?
     StrSet body_moved_outer;
@@ -19889,7 +19283,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     scan_block(v.else_block());
                     break;
                 }
-                case SC::While: scan_block(lir_view::SWhileView{s}.body()); break;
                 case SC::Loop:  scan_block(lir_view::SLoopView{s}.body());  break;
                 case SC::Block: scan_block(lir_view::SBlockView{s}.body()); break;
                 // A `match` statement (an expression statement of a match,
@@ -19905,14 +19298,34 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     break;
                 }
                 // A return nested in a loop body over a collection counts too.
-                case SC::For:     scan_block(lir_view::SForView{s}.body());     break;
-                case SC::ForEach: scan_block(lir_view::SForEachView{s}.body()); break;
                 default: break;
             }
         };
         for (auto& s : body) {
             if (inferred) break;
             scan_stmt(s);
+        }
+        // Every return is the closure's return type (Rust): one that holds an
+        // inference variable (`?`'s `Option<?T>`) is solved by the others.
+        for (auto& r : body_returns)
+            if (inferred && r.type && has_infer_var_(r.type)) infer_unify_(r.type, inferred);
+        if (inferred && has_infer_var_(inferred))
+            for (auto& r : body_returns)
+                if (r.type && !has_infer_var_(r.type)) { infer_unify_(inferred, r.type); break; }
+        if (inferred) inferred = zonk_(inferred);
+        // A `?` whose residual this closure's return type cannot take (no
+        // value at all: the body ends in `()`) is rustc's E0277.
+        for (auto& r : body_returns) {
+            if (!r.from_try || !r.type) continue;
+            TypeRef rt = zonk_(r.type);
+            if (inferred ? types_equal(rt, inferred) : TypeRef(rt).kind() == LogosType::Kind::Void) continue;
+            const uint32_t saved_line = node_line_;
+            node_line_ = r.line;
+            error(std::format("the `?` operator can only be used in a closure that returns `Result` or `Option` "
+                              "(or another type that implements `FromResidual`): this closure returns `{}` (E0277)",
+                              inferred ? type_str(inferred) : std::string("()")));
+            node_line_ = saved_line;
+            break;
         }
         if (inferred) ret_type = inferred;
     }
@@ -20050,7 +19463,28 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // restrict_precision_for_drop_types): `move || t.v` with `B: Drop`
         // captures `t` whole, and a second such closure is a use after move.
         std::string path = path_in;
-        if (is_move)
+        // Only a place that is MOVED is truncated: a Copy place is copied out
+        // of the Drop type, precisely (rustc returns early for a Copy place
+        // type) — `move || d.n` with `n: i64` leaves `d` where it is.
+        // A by-value capture through a reference captures the REFERENCE
+        // (rustc's truncate_capture_for_move at the first deref of `&`/`&mut`/
+        // a raw pointer): `move || self.items.len()` with `self: &C` copies
+        // `self`, it does not move `items` out from behind it.
+        if (is_move && path.size() > root.size()) {
+            TypeRef cur = lookup(root);
+            size_t at = root.size();
+            while (cur && at < path.size()) {
+                const auto k = TypeRef(cur).kind();
+                if (is_ref_like(k) || k == LogosType::Kind::Ptr) { path.resize(at); break; }
+                size_t nx = path.find('.', at + 1);
+                if (nx == std::string::npos) nx = path.size();
+                cur = field_type_for_path(lookup(root), path.substr(0, nx), root);
+                at = nx;
+            }
+        }
+        TypeRef leaf_t = path == root ? lookup(root) : field_type_for_path(lookup(root), path, root);
+        const bool copy_place = leaf_t && !is_move_type(leaf_t);
+        if (is_move && !copy_place)
             if (TypeRef cur = lookup(root)) {
                 auto has_drop = [&](TypeRef x) {
                     return x && TypeRef(x).kind() == LogosType::Kind::Struct &&
@@ -20287,7 +19721,25 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // has by then recorded the PRECISE path (`s.a`), so marking does
                 // not push a whole-root capture and RFC-2229 disjointness
                 // (`|| s.a = 1` beside a read of `s.b`) survives.
-                if (v.is_mut() && inner) {
+                // A `&mut` THROUGH A RAW POINTER (`(*ps).push(c)`) mutates the
+                // pointee, not the capture: rustc truncates the place before a
+                // raw-pointer deref and captures the pointer by shared borrow.
+                auto through_raw_deref = [&](lir_view::ExprRef x) {
+                    for (int d = 0; x && d < 64; ++d) {
+                        const auto xk = x.kind();
+                        if (xk == EC::Deref) {
+                            auto op = lir_view::EDerefView{x}.operand();
+                            TypeRef ot = op ? op.type(cur_prog_->type_pool.impl()) : TypeRef(nullptr);
+                            if (ot && TypeRef(ot).kind() == LogosType::Kind::Ptr) return true;
+                            x = op;
+                        } else if (xk == EC::FieldRead) x = lir_view::EFieldReadView{x}.receiver();
+                        else if (xk == EC::TupleIndex) x = lir_view::ETupleIndexView{x}.receiver();
+                        else if (xk == EC::IndexRead) x = lir_view::EIndexReadView{x}.receiver();
+                        else return false;
+                    }
+                    return false;
+                };
+                if (v.is_mut() && inner && !through_raw_deref(inner)) {
                     if (auto fp = try_path(inner)) mark_mut_capture(fp->first);
                 }
                 break;
@@ -20367,6 +19819,14 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.slice()); scan_captures_v(v.index()); break;
             }
             case EC::SliceLen:     scan_captures_v(lir_view::ESliceLenView{e}.slice()); break;
+            case EC::PtrArith: {
+                auto v = lir_view::EPtrArithView{e};
+                scan_captures_v(v.ptr()); scan_captures_v(v.offset()); break;
+            }
+            case EC::PtrDiff: {
+                auto v = lir_view::EPtrDiffView{e};
+                scan_captures_v(v.lhs()); scan_captures_v(v.rhs()); break;
+            }
             case EC::SlicePtr:     scan_captures_v(lir_view::ESlicePtrView{e}.slice()); break;
             case EC::ClosureBox: {
                 // A nested closure literal transitively captures its free vars
@@ -20403,7 +19863,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 v.each_arg([&](lir_view::ExprRef a){ scan_captures_v(a); });
                 break;
             }
-            case EC::Try:          scan_captures_v(lir_view::ETryView{e}.inner()); break;
             case EC::BlockExpr: {
                 auto v = lir_view::EBlockExprView{e};
                 if (auto b = v.block()) scan_block_v(b);
@@ -20451,19 +19910,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_block_v(v.else_block());
                 break;
             }
-            case SC::While: {
-                auto v = lir_view::SWhileView{s};
-                scan_captures_v(v.cond()); scan_block_v(v.body()); break;
-            }
-            case SC::For: {
-                auto v = lir_view::SForView{s};
-                scan_captures_v(v.lo()); scan_captures_v(v.hi());
-                body_scopes.emplace_back();
-                if (!v.var().empty()) body_scopes.back().insert(std::string(v.var()));
-                scan_block_v(v.body());
-                body_scopes.pop_back();
-                break;
-            }
             case SC::Loop:       scan_block_v(lir_view::SLoopView{s}.body()); break;
             case SC::Break:      scan_captures_v(lir_view::SBreakView{s}.value()); break;
             case SC::Block:      scan_block_v(lir_view::SBlockView{s}.body()); break;
@@ -20491,25 +19937,33 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.index()); scan_captures_v(v.value()); break;
             }
             case SC::FieldIndexWrite: {
+                // `a.p[i] = v` writes THROUGH the pointer field: `a` is read
+                // (captured), not mutated.
                 auto v = lir_view::SFieldIndexWriteView{s};
+                std::string r(v.receiver());
+                add_capture_path(r, r);
                 scan_captures_v(v.index()); scan_captures_v(v.value()); break;
             }
             case SC::ExprStmt:   scan_captures_v(lir_view::SExprStmtView{s}.expr()); break;
-            case SC::ForEach: {
-                auto v = lir_view::SForEachView{s};
-                scan_captures_v(v.iter());
-                body_scopes.emplace_back();
-                if (!v.var().empty()) body_scopes.back().insert(std::string(v.var()));
-                scan_block_v(v.body());
-                body_scopes.pop_back();
-                break;
-            }
             case SC::DerefWrite: {
                 auto v = lir_view::SDerefWriteView{s};
                 scan_captures_v(v.ptr()); scan_captures_v(v.value()); break;
             }
-            case SC::DerefFieldWrite: scan_captures_v(lir_view::SDerefFieldWriteView{s}.value()); break;
-            case SC::TupleWrite:      scan_captures_v(lir_view::STupleWriteView{s}.value()); break;
+            case SC::DerefFieldWrite: {
+                // `(*p).f = v`: the pointer `p` is read (captured), not mutated.
+                auto v = lir_view::SDerefFieldWriteView{s};
+                std::string r(v.receiver());
+                add_capture_path(r, r);
+                scan_captures_v(v.value());
+                break;
+            }
+            case SC::TupleWrite: {
+                // `t.0 = v` mutates `t`.
+                auto v = lir_view::STupleWriteView{s};
+                mark_mut_capture(v.receiver());
+                scan_captures_v(v.value());
+                break;
+            }
             default: break;
         }
     };
@@ -20520,10 +19974,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ec->ret_type      = ret_type;
     ec->body          = lir_mirror_block(*cur_prog_, body);
     ec->is_move       = is_move;
-    std::vector<std::string> unskipped_captures;  // capture order (drop group)
-    // Capture roots / narrow PATHS whose drop this closure's own CALL takes
-    // over (see closure_deferred_moves_). Until then the source keeps them.
-    std::vector<std::string> deferred_moves;
     // G167-3b: a closure lowered where the expected type is `Box<…Fn…>` is
     // being BOXED — its captured env must live on the heap (boxing confers
     // heap lifetime; a stack env would dangle once the creating fn returns).
@@ -20567,211 +20017,65 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // recover which of the two it was. The borrow checker needs the mode of the
     // capture (rustc's upvar kinds) and, separately, whether the place it is
     // recorded for is wider than the one touched.
+    // ADR 0030 S10 row 4 (C-CLO): THE CAPTURE ANALYSIS, ONE PLACE. Per capture:
+    // does the body consume it (the root or a place under it — the RFC-2229
+    // narrow spelling records `x.d`; segment-wise prefix), is it mutated, and
+    // from those its MODE as rustc's upvar kinds: `move` or a consuming body
+    // makes it ByValue, a mutation MutBorrow, else ImmBorrow. The Fn-family,
+    // the closure type's captures and the per-literal tables below all read
+    // these three vectors; nothing downstream re-derives them.
+    ec->capture_body_moved.assign(ec->captures.size(), 0);
+    for (size_t i = 0; i < ec->captures.size(); ++i) {
+        const std::string& c = ec->captures[i];
+        for (const auto& mv : body_moved_outer)
+            if (mv == c || (mv.size() > c.size() && mv.compare(0, c.size(), c) == 0 && mv[c.size()] == '.')) {
+                ec->capture_body_moved[i] = 1;
+                break;
+            }
+    }
     ec->capture_modes.assign(ec->captures.size(), 0);
     ec->ret_tied = ret_tied_by_bound_;
     ec->capture_widened.assign(ec->captures.size(), 0);
     for (size_t i = 0; i < ec->captures.size(); ++i) {
-        const bool consumed_by_body =
-            (moved_vars_.count(ec->captures[i]) > 0 &&
-             moved_before_body.count(ec->captures[i]) == 0) ||
-            (body_ever_moved_.count(ec->captures[i]) > 0 &&
-             ever_before_body.count(ec->captures[i]) == 0);
-        // rustc keys ByValue on whether the BODY consumes the capture, not on
-        // the `move` keyword; `move` forces it, a consuming body earns it.
-        ec->capture_modes[i] = (is_move || consumed_by_body) ? uint8_t(2)   // ByValue
+        ec->capture_modes[i] = (is_move || ec->capture_body_moved[i]) ? uint8_t(2)   // ByValue
                              : mut_captures_set.count(ec->captures[i]) > 0
-                                 ? uint8_t(1)                              // MutBorrow
-                                 : uint8_t(0);                             // ImmBorrow
+                                 ? uint8_t(1)                                        // MutBorrow
+                                 : uint8_t(0);                                       // ImmBorrow
         ec->capture_widened[i] = widened_roots.count(ec->captures[i]) ? 1 : 0;
     }
 
-    if (is_move) {
+    // A closure OWNS its ByValue captures, as in Rust (all of a `move` closure's,
+    // and one its body consumes): each —
+    // the root, or the RFC-2229 narrow path (the analysis cut it at a root with
+    // a user Drop, which a `move` closure captures whole) — is moved into the
+    // env at the literal, whether or not the closure escapes; a Copy one is
+    // copied. The env's glue drops what it owns: when the closure is dropped,
+    // or after an FnOnce call (mlir-gen's capture_own_inline / capture_drops).
+    bool owns_droppable_capture = false;
+    {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
-            // RFC-2229 phase-2: a narrow capture (capture_field_types[i] non-
-            // null) marks the PATH moved (not the root) — leaving sibling
-            // fields usable — but ONLY when the closure ESCAPES. Non-escaping
-            // closures stay whole-root borrow-by-pointer; sema marks nothing
-            // moved for narrow non-escaping, so the original root drops its
-            // field at scope-exit (no leak). Codegen matches this gating in
-            // mlir_gen_dyn (capture_own_inline narrow gated on heap_env_pre).
-            bool is_narrow = i < ec->capture_field_types.size() &&
-                              ec->capture_field_types[i];
-            bool narrow_owned = ec->escapes && is_narrow;
-            // Non-escaping narrow: env borrows a pointer to outer root (codegen
-            // gate); the outer root keeps ownership + drops the field at scope-
-            // exit. Skip mark_moved entirely — phase-1's borrow-check exclusivity
-            // on the field path is enough for soundness, and `let yy = p.y`
-            // stays usable (whole `p` is not moved).
-            if (is_narrow && !ec->escapes) {
-                // RFC 2229 drop-order rule: a `move` closure capturing a
-                // path whose ROOT type has a USER Drop impl captures the
-                // WHOLE variable — Rust does this precisely so the value
-                // drops with the closure, not at the root's own scope slot.
-                // ONLY a user `impl Drop` triggers it (drop_fn_for) — mere
-                // drop glue from droppable FIELDS keeps disjoint capture
-                // (rfc2229_move_disjoint_field: sibling p.y stays usable).
-                // Fall through as a whole-var move capture (env repr stays
-                // the borrowed pointer; ordering comes from the drop group).
-                if (!(ec->is_move &&
-                      !drop_fn_for(TypeRef(ec->capture_types[i])).empty()))
-                    continue;
-            }
-            TypeRef move_check_t = narrow_owned
-                ? TypeRef(ec->capture_field_types[i])
-                : TypeRef(ec->capture_types[i]);
-            const std::string& move_target =
-                narrow_owned ? ec->capture_paths[i] : ec->captures[i];
-            if (is_move_type(move_check_t)) {
-                mark_moved(move_target);
-                // Phase-2 narrow capture: env owns just the field's value (the
-                // closure drop-glue drops it); the root stays in the original
-                // scope. moved_vars_ tracks the path, so the root's scope-exit
-                // drop skips the moved field — no double-free. Skip the
-                // whole-root closure_owned_drop_ machinery below.
-                if (narrow_owned) continue;
-                if (!needs_drop(ec->capture_types[i])) continue;
-                // OWNERSHIP TRANSFER (must match mlir-gen `capture_own_inline`):
-                // an ESCAPING (heap-env) `move` closure capturing a droppable
-                // struct/array/tuple/enum (NOT a borrow / `&dyn`) MOVES it INTO
-                // the env by value and its env drop-glue (__closure_drop__)
-                // drops it — so the ORIGINAL scope must NOT drop it. Leave it
-                // OUT of closure_owned_drop_ (kept in moved_vars_ → not dropped).
-                TypeRef ct{ec->capture_types[i]};
-                bool owned_by_closure = false;
-                if (ec->escapes) {
-                    auto k = ct.kind();
-                    owned_by_closure =
-                        (k == LogosType::Kind::Struct ||
-                         k == LogosType::Kind::ZonedStruct ||
-                         k == LogosType::Kind::Array ||
-                         k == LogosType::Kind::Tuple ||
-                         k == LogosType::Kind::Enum ||
-                         // An OWNING `Box<dyn Tr>` is owned storage too (row
-                         // closure_owned_dyn_capture): moved into the env and
-                         // dropped by its glue, as mlir-gen's capture_own_inline.
-                         (k == LogosType::Kind::TraitObject && ct.owning_trait_object()) ||
-                         // A closure owning its heap env, and a type parameter
-                         // (the instance decides the representation; each is
-                         // owned by an escaping env — mlir-gen's
-                         // capture_own_inline / capture_drops per instance).
-                         (k == LogosType::Kind::Closure && ct.closure_owns_env()) ||
-                         k == LogosType::Kind::TypeVar);
-                }
-                if (owned_by_closure) continue;
-                // NON-escaping (stack-env) move closure: the env only borrows the
-                // source's storage (mlir-gen keeps a pointer-repr borrow), so the
-                // SOURCE scope still drops it. Keep it moved (use-after-move
-                // enforced) but record it so collect_drops un-skips the dtor.
-                //
-                // §7.1, CORRECTED: if the closure body itself moves this
-                // capture out, the body IS the canonical drop site — but only
-                // WHEN THE BODY RUNS, and a closure that is never called never
-                // runs it. The historical `continue` here stood the source
-                // scope down unconditionally and delegated to a site that does
-                // not exist for a non-escaping closure: measured 0 destructor
-                // calls for 1 value at all fourteen payload kinds of the
-                // lattice's `a_move_nocall_consume_*` row, and `nm` finds no
-                // `__closure_drop__` symbol in the object at all (need_glue is
-                // false for a stack env). So the source KEEPS the obligation
-                // and hands it over at the point the callable is consumed —
-                // Rust's own handover point, since a body that moves a capture
-                // out makes the closure `FnOnce` and `call_once` takes self by
-                // value. `deferred_moves` is that hand-over list; the cascade
-                // in mark_moved applies it.
-                // ⚠ AN INNER CLOSURE'S BINDING IS ALREADY A DROP SITE, AND IT
-                // IS INSIDE THE BODY. `move || { let g = move || x.v; g() }`
-                // "moves" x only by handing it to a NESTED literal, whose own
-                // `let` already claimed x's destructor (`capture_owner_[x] =
-                // "g"`, a binding in the body's frame). Deferring it to the
-                // OUTER binding overwrites that owner and the cascade then
-                // releases a drop nobody re-takes — measured as g_nested_closure
-                // 1 -> 0 while every other cell moved the right way. An owner
-                // already recorded is the historical skip's one correct case.
-                if (body_moved_outer.count(ec->captures[i]) &&
-                    capture_owner_.count(ec->captures[i]))
-                    continue;
-                if (body_moved_outer.count(ec->captures[i])) {
-                    // CANDIDATE, not a decision: the obligation can only be
-                    // handed over to a site that can also RELEASE it, and that
-                    // site is the closure's BINDING. `lower_let` claims this
-                    // list when the literal is its direct RHS and only then
-                    // enters the capture in `closure_owned_drop_`. Anything
-                    // else — `Box::new(move || …)`, a closure passed straight
-                    // as an argument, a nested literal — keeps the historical
-                    // skip exactly, because there is no binding to consume and
-                    // dropping at the source would DOUBLE-FREE what the body
-                    // destroys (measured: lattice g_box_dyn_fnonce went 1 -> 2
-                    // and g_nested_closure 1 -> 0 when this was unconditional).
-                    deferred_moves.push_back(ec->captures[i]);
-                    unskipped_captures.push_back(ec->captures[i]);
-                    continue;
-                }
-                closure_owned_drop_.insert(ec->captures[i]);
-                unskipped_captures.push_back(ec->captures[i]);
-            }
+            if (ec->capture_modes[i] != 2) continue;   // ByValue: `move`, or a consuming body
+            const bool is_narrow = i < ec->capture_field_types.size() && ec->capture_field_types[i];
+            TypeRef t = is_narrow ? TypeRef(ec->capture_field_types[i]) : TypeRef(ec->capture_types[i]);
+            if (!t || !is_move_type(t)) continue;
+            mark_moved(is_narrow ? ec->capture_paths[i] : ec->captures[i]);
+            if (needs_drop(t)) owns_droppable_capture = true;
         }
     }
-
-    // Rust capture-drop order: captures whose dtor the SOURCE scope runs
-    // (closure_owned_drop_ un-skip) must drop WITH the closure — at the
-    // closure binding's slot, in capture order — not at their own
-    // var_order slots. Publish this closure's list; lower_let claims it
-    // when the closure is the let's direct RHS.
-    // RFC-2229 NARROW, NON-ESCAPING: the walk above `continue`s before the
-    // move check (the env borrows a pointer to the outer root and the root
-    // keeps ownership of the field), so a body that moves `x.d` out leaves the
-    // path in `moved_vars_` and the root's own drop then SKIPS the field —
-    // 0 destructor calls for 1 value at six payload kinds
-    // (`b_narrow_consume_nocall_*`). Same handover, spelled as a path: the
-    // root keeps the field's drop (make_drop_stmt's `closure_owned_drop_`
-    // un-skip) until the callable is consumed.
-    if (is_move && !ec->escapes) {
-        // Enumerated by the PROPERTY — "the body moved a PATH rooted at a
-        // capture" — and not by the RFC-2229 narrow spelling. The first form of
-        // this walk asked `capture_field_types[i]`, which is minted for a
-        // STRUCT root only, so `move || { let t: D = x.0; }` over a tuple root
-        // was captured whole-var and its element still vanished: make_drop_stmt
-        // read `x.0` out of moved_vars_ and put "0" in `moved_fields`, so the
-        // root's drop skipped the element that nothing else destroys. Two cells
-        // (b_narrow_consume_nocall_tuple / _tuple2) separated the two
-        // spellings; the property covers both.
-        for (const auto& mv : body_moved_outer) {
-            auto dot = mv.find('.');
-            if (dot == std::string::npos) continue;
-            std::string root = mv.substr(0, dot);
-            bool is_cap = false;
-            for (const auto& c : ec->captures) if (c == root) { is_cap = true; break; }
-            if (!is_cap) continue;
-            deferred_moves.push_back(mv);   // claimed by lower_let, as above
-        }
-    }
-    pending_closure_deferred_moves_ = std::move(deferred_moves);
-    pending_closure_capture_drops_ = std::move(unskipped_captures);
 
     // #440: THE KIND IS COMPUTED BEFORE THE TYPE IS MINTED, so the literal's
     // type can state it. The computation needs only `body_moved_outer` (set at
     // the top of this function), `ec->captures` and `ec->mut_captures`, all of
     // which are final by here; the two side-map stores below keep their place
     // and now read this value instead of recomputing it.
+    // The Fn-family from the analysis: FnOnce if the body consumes a capture
+    // (moving a field out of a capture is moving out of it), FnMut if it
+    // mutates one — through a widened path too — else Fn. `move` alone does
+    // not raise it (Rust: the family is set by USE, not by capture mode).
     int closure_kind_value = 0;
-    {
-        // MOVING A FIELD OUT OF A CAPTURE IS MOVING OUT OF THE CAPTURE. The
-        // body's move set records a PATH (`x.d`) while the capture is spelled by
-        // its ROOT (`x`), so a bare membership test answered "not FnOnce" for
-        // `move || { let t: D = x.d; }` — measured as a DOUBLE FREE at the second
-        // call. Segment-wise prefix, so `x.dq` is not a prefix of `x.d`.
-        auto body_consumed = [&](const std::string& root) {
-            if (body_moved_outer.count(root)) return true;
-            for (const auto& m : body_moved_outer)
-                if (m.size() > root.size() && m[root.size()] == '.' &&
-                    m.compare(0, root.size(), root) == 0)
-                    return true;
-            return false;
-        };
-        for (size_t i = 0; i < ec->captures.size(); ++i) {
-            if (body_consumed(ec->captures[i])) { closure_kind_value = 2; break; }
-            if (i < ec->mut_captures.size() && ec->mut_captures[i]) closure_kind_value = 1;
-        }
+    for (size_t i = 0; i < ec->captures.size(); ++i) {
+        if (ec->capture_body_moved[i]) { closure_kind_value = 2; break; }
+        if (mut_captures_set.count(ec->captures[i])) closure_kind_value = 1;
     }
     // ADR 0029 S2: THE CAPTURE TYPES ARE COMPUTED BEFORE THE TYPE IS MINTED,
     // so the literal's type can carry its own env — the same move #440 forced
@@ -20788,8 +20092,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                          ? TypeRef(ec->capture_field_types[i])
                          : TypeRef(ec->capture_types[i]);
         if (!ct) continue;
-        bool mut_cap = i < ec->mut_captures.size() && ec->mut_captures[i];
-        literal_captures.push_back(is_move ? ct : make_ref(mut_cap, ct));
+        // The capture as the env holds it, by its mode.
+        literal_captures.push_back(ec->capture_modes[i] == 2 ? ct : make_ref(ec->capture_modes[i] == 1, ct));
     }
     auto ctype = make_closure_type(
         std::move(param_types), ret_type,
@@ -20798,43 +20102,29 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                                 : TypeRef::FnFamily::Fn,
         closure_literal_identity(cur_package_, closure_id),
         literal_captures);
-    // T1-7 (audit-v2, Send/Sync soundness): record this literal's CAPTURE
-    // types against the interned closure type so the auto-trait engine
-    // walks captures, not parameter types. Closure types intern by
-    // params/ret (not per-literal), so the table accumulates the UNION of
-    // captures across same-signature literals — conservative-correct: if
-    // ANY literal of this signature captures a !Send value, the type is
-    // !Send. By-ref captures enter as `&T`/`&mut T` so the engine's
-    // reference rules (&T: Send ⇔ T: Sync) apply per spec
-    // (lang-types.auto-traits.closure); owned (move) captures enter as T.
-    // RFC-2229 narrow captures use the captured FIELD's type.
+    // A closure owning a droppable capture is itself dropped (its env glue
+    // drops the captures) and moved — Rust's closure owning a non-Copy capture.
+    if (owns_droppable_capture && !TypeRef(ctype).closure_owns_env()) {
+        auto cb = TypeRef(ctype).to_builder();
+        cb.const_val = int64_t(uint64_t(cb.const_val.value_or(0)) | TypeRef::OWNED_ENV_BIT);
+        ctype = pool_->alloc(std::move(cb));
+    }
+    // The per-literal capture list the `dyn` coercion's lifetime check reads,
+    // by mode as the type's (a shared `&T` capture is kept as itself: a reborrow).
     {
-        // KEY-IDENTITY: signature-keyed BY DESIGN — this is the write side of
-        // the Send/Sync union; see the read site in sema_auto_trait.cpp for why
-        // union-over-literals is conservative in the safe direction and must
-        // NOT be converted along with closure_kind_ (#90).
-        auto& env = closure_capture_env_[type_str(ctype)];
         auto& caps = closure_caps_by_id_[closure_id];
-        size_t cap_i = 0;
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             TypeRef ct = (i < ec->capture_field_types.size() &&
                           ec->capture_field_types[i])
                              ? TypeRef(ec->capture_field_types[i])
                              : TypeRef(ec->capture_types[i]);
             if (!ct) continue;
-            bool by_ref = !is_move;
-            bool mut_cap = i < ec->mut_captures.size() && ec->mut_captures[i];
-            // ONE list, not two: the type's captures were built by this exact
-            // rule above, so the table is filled FROM it rather than beside it.
-            // S6 deletes the table; until then two copies that could drift are
-            // the defect, not the safeguard.
-            env.push_back(literal_captures[cap_i++]);
+            const bool mut_cap = ec->capture_modes[i] == 1;
             const VarInfo* cvi = lookup_var_info(ec->captures[i]);
-            caps.emplace_back((by_ref && !(TypeRef(ct).kind() == LogosType::Kind::Ref && !mut_cap))
+            caps.emplace_back((ec->capture_modes[i] != 2 && !(TypeRef(ct).kind() == LogosType::Kind::Ref && !mut_cap))
                                   ? make_ref(mut_cap, ct) : ct,
                               cvi ? cvi->closure_id : std::string());
         }
-        if (ec->captures.empty()) (void)env;  // entry exists even if empty
     }
     // Fn-family kind inference: classify this literal by how its body uses the
     // captures. FnOnce (2) if it moves a capture OUT of the env (consumes it);
@@ -20869,17 +20159,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // callable_is_fn_once). No max: a literal has exactly one kind.
         closure_kind_by_id_[closure_id] = kind;
         ec->fn_once = kind == 2;
-    }
-    // Per capture: does the BODY move it out (the root, or a path under it —
-    // the RFC-2229 narrow spelling records `x.d`; segment-wise prefix).
-    ec->capture_body_moved.assign(ec->captures.size(), 0);
-    for (size_t i = 0; i < ec->captures.size(); ++i) {
-        const std::string& c = ec->captures[i];
-        for (const auto& mv : body_moved_outer)
-            if (mv == c || (mv.size() > c.size() && mv.compare(0, c.size(), c) == 0 && mv[c.size()] == '.')) {
-                ec->capture_body_moved[i] = 1;
-                break;
-            }
     }
     return builder().closure_box(std::move(ec), ctype);
 }
@@ -23819,57 +23098,6 @@ SemaChecker::MacroArgs SemaChecker::parse_macro_args_(TinyMapView call,
     macro_arg_docs_.push_back(std::move(doc));
     out.ok = true;
     return out;
-}
-
-lir::LExprPtr SemaChecker::lower_reparsed_tail_expr(const std::string& wrap_body,
-                                                    std::string_view err_ctx) {
-    using logos::writ::AnyVal;
-    using logos::writ::WritAccess;
-    using logos::writ::TinyObjectMap;
-    std::string wrap_src = std::format(
-        "package __reparsed_expr;\nfn __f() -> i32 {{ {} }}\n", wrap_body);
-    logos::compiler::LogosParser parser(wrap_src);
-    auto doc = parser.parse_module();
-    if (doc.is_null() || !parser.at_eof()) {
-        error(std::format("{}: arguments do not parse as an expression", err_ctx));
-        return error_expr();
-    }
-    auto src_holder = doc.holder();
-    auto root = doc.root_object().as_tiny_map();
-    if (root.is_null()) { error(std::format("{}: parse produced null module", err_ctx)); return error_expr(); }
-    auto nav_array_first = [&](TinyMapView tom, uint8_t key) -> TinyMapView {
-        if (!tom || !tom.has_key(key)) return {};
-        AnyVal av = tom.get(key);
-        if (!av.is_pointer()) return {};
-        auto arr = writ::as_array(av, src_holder);
-        if (arr.size() == 0) return {};
-        AnyVal el = arr.get(0);
-        if (!el.is_pointer()) return {};
-        return writ::as_tinymap(el, src_holder);
-    };
-    TinyMapView module_tom = root;
-    TinyMapView fn_def  = nav_array_first(module_tom, la::ITEMS.code);
-    if (!fn_def || !fn_def.has_key(la::BODY.code)) {
-        error(std::format("{}: arguments do not parse as an expression", err_ctx));
-        return error_expr();
-    }
-    AnyVal body_av = fn_def.get(la::BODY.code);
-    if (!body_av.is_pointer()) {
-        error(std::format("{}: arguments do not parse as an expression", err_ctx));
-        return error_expr();
-    }
-    // Lower the WHOLE fn body block as a block-expression: its statements run
-    // and its tail expression is the value. Handles both a single tail expr
-    // (include!) and a multi-statement push-block (vec! of non-Copy elements:
-    // `{ let mut __v = …; __v.push(e0); …; __v }`).
-    auto inc_holder = doc.holder();
-    auto prev = holder_;
-    holder_ = inc_holder;
-    // A reparsed body is a body: it goes through the HIR pass like any other.
-    TinyMapView body_view = hir_body_(body_av);
-    auto r = lower_expr(body_view);   // la::BLOCK → lower_block_expr
-    holder_ = prev;
-    return r;
 }
 
 lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {

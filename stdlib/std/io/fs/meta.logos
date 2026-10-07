@@ -273,7 +273,8 @@ pub struct ReadDir {
     done:   bool,
 }
 
-impl Iterator<DirEntry> for ReadDir {
+impl Iterator for ReadDir {
+    type Item = DirEntry;
     fn next(self: &mut ReadDir) -> Option<DirEntry> {
         if self.done { return Option::None; }
         if self.handle == 0 as *mut u8 { return Option::None; }

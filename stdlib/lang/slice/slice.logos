@@ -173,7 +173,8 @@ pub fn slice_chunks<'a, T: 'a>(s: &'a [T], size: i64) -> Chunks<'a, T> {
     };
 }
 
-impl<'a, T: 'a> Iterator<&'a [T]> for Chunks<'a, T> {
+impl<'a, T: 'a> Iterator for Chunks<'a, T> {
+    type Item = &'a [T];
     fn next(self: &mut Chunks<'a, T>) -> Option<&'a [T]> {
         if self.pos >= self.len { return Option::None; }
         let take: i64 = if self.pos + self.step > self.len
@@ -217,7 +218,8 @@ pub fn slice_windows<'a, T: 'a>(s: &'a [T], size: i64) -> Windows<'a, T> {
     };
 }
 
-impl<'a, T: 'a> Iterator<&'a [T]> for Windows<'a, T> {
+impl<'a, T: 'a> Iterator for Windows<'a, T> {
+    type Item = &'a [T];
     fn next(self: &mut Windows<'a, T>) -> Option<&'a [T]> {
         if self.size <= 0i64 { return Option::None; }
         if self.pos + self.size > self.len { return Option::None; }
@@ -337,7 +339,8 @@ pub struct SliceIterMut<'a, T> {
     _inv: PhantomData<&'a mut T>,
 }
 
-impl<'a, T> Iterator<&'a mut T> for SliceIterMut<'a, T> {
+impl<'a, T> Iterator for SliceIterMut<'a, T> {
+    type Item = &'a mut T;
     fn next(self: &mut SliceIterMut<'a, T>) -> Option<&'a mut T> {
         if self.idx >= self.back_idx { return Option::None; }
         unsafe {
@@ -349,7 +352,7 @@ impl<'a, T> Iterator<&'a mut T> for SliceIterMut<'a, T> {
     }
 }
 
-impl<'a, T> DoubleEndedIterator<&'a mut T> for SliceIterMut<'a, T> {
+impl<'a, T> DoubleEndedIterator for SliceIterMut<'a, T> {
     fn next_back(self: &mut SliceIterMut<'a, T>) -> Option<&'a mut T> {
         if self.idx >= self.back_idx { return Option::None; }
         unsafe {
@@ -361,7 +364,7 @@ impl<'a, T> DoubleEndedIterator<&'a mut T> for SliceIterMut<'a, T> {
     }
 }
 
-impl<'a, T> ExactSizeIterator<&'a mut T> for SliceIterMut<'a, T> {
+impl<'a, T> ExactSizeIterator for SliceIterMut<'a, T> {
     fn len(&self) -> i64 { return self.back_idx - self.idx; }
 }
 
@@ -614,4 +617,26 @@ pub trait SliceCopyMethods<T> {
 
 impl<T: Copy> SliceCopyMethods<T> for [T] {
     fn copy_from_slice(&mut self, src: &[T]) { slice_copy_from::<T>(self, src); }
+}
+
+// `for x in s` over a slice (Rust's `&[T]` IntoIterator impl). `&mut [T]` is the
+// same impl target as `&[T]` in Logos's type representation (one `$slice$T`);
+// a `for` over `&mut [T]` iterates `iter_mut()`.
+impl<'a, T> IntoIterator for &'a [T] {
+    type Item = &'a T;
+    type IntoIter = SliceIter<'a, T>;
+    fn into_iter(self: &'a [T]) -> SliceIter<'a, T> { return self.iter(); }
+}
+
+// `for x in &arr` / `&mut arr`: a borrowed array iterates its slice.
+impl<'a, T, const N: i64> IntoIterator for &'a [T; N] {
+    type Item = &'a T;
+    type IntoIter = SliceIter<'a, T>;
+    fn into_iter(self: &'a [T; N]) -> SliceIter<'a, T> { let s: &'a [T] = self; return s.iter(); }
+}
+
+impl<'a, T, const N: i64> IntoIterator for &'a mut [T; N] {
+    type Item = &'a mut T;
+    type IntoIter = SliceIterMut<'a, T>;
+    fn into_iter(self: &'a mut [T; N]) -> SliceIterMut<'a, T> { let s: &'a mut [T] = self; return s.iter_mut(); }
 }

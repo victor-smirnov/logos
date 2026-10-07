@@ -1,0 +1,34 @@
+// ADR 0030 S10 row 2: `e?` is the HIR's `match Try::branch(e) { Continue(v) => v, Break(r) => return
+// FromResidual::from_residual(r) }` over the lang items, with the stdlib's Rust-shaped impls: an error
+// converted by `From`, Option, `Box<dyn Error>` (`impl<E: Error> From<E> for Box<dyn Error>`), a closure
+// whose return type is inferred, a generic `E: From<E1>`; and an impl whose parameter only the trait's
+// arguments name, on a concrete Self (`impl<E> Mk<E> for H`). rustc twin: same stdout.
+package s10_try_desugar;
+use logos.std.fmt;
+use logos.lang.error;
+use logos.mem.boxed;
+struct E1 { c: i64 }
+struct E2 { d: i64 }
+impl From<E1> for E2 { fn from(e: E1) -> E2 { E2 { d: e.c * 10 } } }
+impl Error for E1 { fn source(&self) -> Option<&dyn Error> { None } }
+fn low(x: i64) -> Result<i64, E1> { if x > 0 { Ok(x) } else { Err(E1 { c: 4 }) } }
+fn conv(x: i64) -> Result<i64, E2> { let v = low(x)?; Ok(v + 1) }
+fn opt(x: Option<i64>) -> Option<i64> { let v = x?; Some(v * 2) }
+fn boxed(x: i64) -> Result<i64, Box<dyn Error>> { let v = low(x)?; Ok(v + 2) }
+fn lift<E: From<E1>>(x: i64) -> Result<i64, E> { let a = low(x)?; Ok(a) }
+trait Mk<E> { fn mk(e: E) -> Self; }
+struct H { v: i64 }
+struct W<T> { t: T }
+impl<E> Mk<E> for H { fn mk(e: E) -> H { let w = W { t: e }; let _t = w.t; H { v: 6 } } }
+fn main() {
+    let a = match conv(2) { Ok(v) => v, Err(_) => 100 };
+    let b = match conv(-1) { Ok(_) => 100, Err(e) => e.d };
+    let c = opt(Some(3)).unwrap_or(100) + opt(None).unwrap_or(1);
+    let d = match boxed(5) { Ok(v) => v, Err(_) => 100 } + match boxed(-5) { Ok(_) => 100, Err(_) => 1 };
+    let f = |s: i64| { let v = opt(Some(s))?; Some(v + 1) };
+    let e = f(4).unwrap_or(100);
+    let g: Result<i64, E2> = lift(-3);
+    let gv = match g { Ok(_) => 100, Err(e) => e.d };
+    let h: H = Mk::mk(5i32);
+    println!("{} {} {} {} {} {} {}", a, b, c, d, e, gv, h.v);
+}

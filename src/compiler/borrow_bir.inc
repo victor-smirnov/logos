@@ -1352,21 +1352,6 @@ private:
                 lower_match(v.scrut(), [&](auto&& f) { v.each_arm(f); }, &dest);
                 return;
             }
-            case ECode::Try: {
-                lir_view::ETryView v{e};
-                bir::Place src = place_or_temp(v.inner());
-                bir::BlockId ok = new_block(), err = new_block();
-                branch(read_place(src, v.inner().type(pool_)), {ok, err});
-                cur_ = err;
-                // The error path returns early: every scope dies.
-                exit_scopes(0, 0);
-                terminate(bir::Term(bir::Term::K::Return));
-                cur_ = ok;
-                bir::Rvalue rv(bir::Rvalue::K::Use);
-                rv.ops.push_back(read_place(src.with(bir::Proj(bir::Proj::K::Field, "Ok#0")), e.type(pool_)));
-                assign(dest, std::move(rv));
-                return;
-            }
             case ECode::Call: case ECode::MethodCall: case ECode::ClosureCall:
             case ECode::FnPtrCall: case ECode::FormatCall:
                 lower_call(dest, e);
@@ -2505,19 +2490,6 @@ private:
                 cur_ = join;
                 return;
             }
-            case SCode::While: {
-                lir_view::SWhileView v{s};
-                bir::BlockId head = new_block(), body = new_block(), exit = new_block();
-                goto_(head);
-                cur_ = head;
-                bir::Operand c = operand(v.cond());
-                branch(std::move(c), {body, exit});
-                loops_.push_back({std::string(v.label()), head, exit, scopes_.size()});
-                cur_ = body; lower_scoped_block(v.body()); goto_(head);
-                loops_.pop_back();
-                cur_ = exit;
-                return;
-            }
             case SCode::Loop: {
                 lir_view::SLoopView v{s};
                 bir::BlockId body = new_block(), exit = new_block();
@@ -2537,136 +2509,6 @@ private:
                 cur_ = body; lower_scoped_block(v.body()); goto_(body);
                 loops_.pop_back();
                 cur_ = exit;
-                return;
-            }
-            case SCode::For: {
-                lir_view::SForView v{s};
-                bir::Operand lo = operand(v.lo());
-                bir::Operand hi = operand(v.hi());
-                push_scope();   // the counter lives across iterations
-                TypeRef it = v.lo() ? v.lo().type(pool_) : TypeRef{};
-                // As Rust has it: a hidden counter the desugaring steps, and a
-                // FRESH `i` bound from it on every iteration, mutable only when
-                // declared `for mut i`. With the user's `i` doubling as the
-                // counter it had to be `mut`, and `&mut i` on a plain binder
-                // went unrefused.
-                bir::LocalId ctr = temp(it);
-                bir::Rvalue init(bir::Rvalue::K::Use);
-                init.ops.push_back(lo);
-                assign({ctr, {}}, std::move(init));
-                bir::BlockId head = new_block(), body = new_block(), step = new_block(),
-                             exit = new_block();
-                goto_(head);
-                cur_ = head;
-                bir::LocalId c = temp({});
-                bir::Rvalue cmp(bir::Rvalue::K::Op);
-                cmp.what = "<";
-                cmp.ops.push_back(read_place({ctr, {}}, it));
-                cmp.ops.push_back(as_read(hi));
-                assign({c, {}}, std::move(cmp));
-                branch(read_place({c, {}}, {}), {body, exit});
-                // `continue` leaves through `step` and must end this
-                // iteration's `i`, so the loop records the depth BELOW it.
-                loops_.push_back({std::string(v.label()), step, exit, scopes_.size()});
-                cur_ = body;
-                push_scope();
-                bir::LocalId var = new_local(std::string(v.var()), bir::LocalKind::User, it,
-                                             v.var_mut(), v.var_slot(), line_);
-                declare(var);
-                bir::Rvalue bind(bir::Rvalue::K::Use);
-                bind.ops.push_back(read_place({ctr, {}}, it));
-                assign({var, {}}, std::move(bind));
-                lower_scoped_block(v.body());
-                pop_scope();
-                goto_(step);
-                loops_.pop_back();
-                cur_ = step;
-                bir::Rvalue inc(bir::Rvalue::K::Op);
-                inc.what = "+1";
-                inc.ops.push_back(read_place({ctr, {}}, it));
-                assign({ctr, {}}, std::move(inc));
-                goto_(head);
-                cur_ = exit;
-                pop_scope();
-                return;
-            }
-            case SCode::ForEach: {
-                lir_view::SForEachView v{s};
-                // Iterating an array or slice. The sequence is evaluated once
-                // into a place; the index starts at 0 and steps each
-                // iteration. Over a borrowed sequence (`&xs`, `&mut xs`, a
-                // slice) the variable is a reference to the element, as in
-                // Rust's IntoIterator for &[T] / &mut [T]; otherwise the
-                // element itself.
-                TypeRef st = v.iter().type(pool_);
-                bool by_ref = st && (st.kind() == LogosType::Kind::Ref ||
-                                     st.kind() == LogosType::Kind::MutRef ||
-                                     (st.kind() == LogosType::Kind::Slice && !st.owning_slice()));
-                bool mut_ref = st && (st.kind() == LogosType::Kind::MutRef ||
-                                      (st.kind() == LogosType::Kind::Slice && st.mut_ptr()));
-                bir::Place seq = place_or_temp(v.iter());
-                if (by_ref || is_pointer_kind(st)) seq = seq.with(bir::Proj(bir::Proj::K::Deref));
-                push_scope();
-                // By value, `for d in xs` is `IntoIterator::into_iter(xs)`: the
-                // sequence is moved into the iterator ONCE, and each `next()`
-                // hands an element out of it. Reading `xs[i]` as a move per
-                // iteration moved the whole array again on the second pass
-                // ("use of moved '_t5'" over `for d in [a, b]`).
-                bool by_value_iter = !by_ref && !is_pointer_kind(st);
-                if (by_value_iter) {
-                    bir::LocalId it = temp(st);
-                    bir::Rvalue into(bir::Rvalue::K::Use);
-                    into.ops.push_back(read_place(seq, st));
-                    assign({it, {}}, std::move(into));
-                    seq = bir::Place{it, {}};
-                }
-                bir::LocalId ix = temp({});
-                assign({ix, {}}, bir::Rvalue(bir::Rvalue::K::Use));   // ix = 0
-                bir::BlockId head = new_block(), body = new_block(), step = new_block(),
-                             exit = new_block();
-                goto_(head);
-                cur_ = head;
-                bir::Rvalue more(bir::Rvalue::K::Op);
-                more.what = "has_next";
-                more.ops.push_back(read_place({ix, {}}, {}));
-                bir::LocalId c = temp({});
-                assign({c, {}}, std::move(more));
-                branch(read_place({c, {}}, {}), {body, exit});
-                loops_.push_back({"", step, exit, scopes_.size()});
-                cur_ = body;
-                push_scope();
-                TypeRef et = v.elem_type(pool_);
-                bir::LocalId var = new_local(std::string(v.var()), bir::LocalKind::User,
-                                             by_ref ? TypeRef{} : et, v.var_mut(), v.var_slot(), line_);
-                bir::Proj pj(bir::Proj::K::Index);
-                pj.index = ix;
-                bir::Place elem = seq.with(std::move(pj));
-                if (by_ref) {
-                    body_.locals[var].synth_ref = true;
-                    body_.locals[var].synth_mut = mut_ref;
-                    body_.locals[var].synth_pointee = et;
-                    assign({var, {}}, ref_of(std::move(elem), mut_ref, false));
-                } else {
-                    // `next()`: the element comes out of the iterator, which
-                    // stays whole (and keeps whatever loans the elements hold).
-                    bir::Rvalue get(bir::Rvalue::K::Op);
-                    get.what = "next";
-                    get.ops.push_back(as_read(read_place(std::move(elem), et)));
-                    assign({var, {}}, std::move(get));
-                }
-                declare(var);
-                if (auto b = v.body()) lower_block_stmts(b);
-                pop_scope();
-                goto_(step);
-                loops_.pop_back();
-                cur_ = step;
-                bir::Rvalue inc(bir::Rvalue::K::Op);
-                inc.what = "+1";
-                inc.ops.push_back(read_place({ix, {}}, {}));
-                assign({ix, {}}, std::move(inc));
-                goto_(head);
-                cur_ = exit;
-                pop_scope();
                 return;
             }
             case SCode::Break: {
