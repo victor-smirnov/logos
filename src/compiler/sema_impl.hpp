@@ -2566,7 +2566,7 @@ private:
         for (auto& b : bit->second) {
             if (!b.is_fn_family) continue;
             has_fn_family = true;
-            if (b.trait_name == "Fn" || b.trait_name == "FnMut") has_multi_call = true;
+            if (b.fn_level < 2) has_multi_call = true;
         }
         return has_fn_family && !has_multi_call;
     }
@@ -4498,10 +4498,6 @@ private:
         // Recorded here instead, on the frame that owns the root, so it
         // survives exactly as long as the local it describes.
         std::set<std::string> cond_move_static_moves;
-        // Locals whose `cond_move_flags` flag guards a RELEASE of a move-closure
-        // capture (the closure was consumed on SOME paths only): their drop stays
-        // with the frame (closure_owned_drop_) and is emitted guarded.
-        std::set<std::string> cond_release_flagged;
         // (outer frame, name, hidden key) of an outer binding this frame shadows; restored at pop_scope.
         std::vector<std::tuple<size_t, std::string, std::string>> shadow_outer_renames;
     };
@@ -4556,36 +4552,6 @@ private:
     // (the ones whose tail is a return/break/continue/panic) contribute nothing.
     // Loops are conservative: vars assigned only inside the body do not become
     // init at the outer scope. Closures get their own (saved+restored) tracker.
-    // G156-7: vars moved into a `move` closure that nonetheless must still be
-    // DROPPED at their scope exit. A move closure's env stores a POINTER to the
-    // source's storage (borrows it; closures have no capture drop-glue), and the
-    // source is marked moved (so use-after-move is enforced) — but suppressing
-    // its drop would leak. So the source stays in moved_vars_ (use-check works)
-    // AND is recorded here; collect_drops/collect_all_drops un-skip it so its
-    // destructor runs exactly once. Monotonic (no save/restore needed).
-    std::set<std::string> closure_owned_drop_;
-    // Rust capture-drop ORDER for the un-skipped captures above: they drop
-    // WITH their owning closure binding (at its var_order slot, in capture
-    // order), not at their own slots. Populated by lower_let when its direct
-    // RHS is a closure; consumed by emit_frame_drops. Same-frame only — an
-    // owner in a different frame falls back to own-slot drops (a closure
-    // created in a conditional inner block must not hoist the outer
-    // capture's drop into branch-only code).
-    std::vector<std::string> pending_closure_capture_drops_;
-    // WHEN A CLOSURE BODY'S MOVE HAPPENS. A `move` closure whose BODY moves a
-    // capture out is an `FnOnce`: the move it performs happens AT THE CALL, and
-    // the call runs zero or one time. Sema recorded it at the LITERAL instead
-    // and stood the source scope down, so a closure that is never called leaked
-    // the capture (rows closure_capture_body_moved_never_dropped /
-    // closure_narrow_capture_never_dropped). The drop obligation is therefore
-    // left with the source (`closure_owned_drop_`, which un-skips it) and
-    // handed over HERE, at the point the callable is consumed — which is exactly
-    // where Rust hands it over. Keyed by the closure BINDING; the entries are
-    // capture ROOTS (whole-var capture) and dotted PATHS (RFC-2229 narrow).
-    std::unordered_map<std::string, std::vector<std::string>> closure_deferred_moves_;
-    std::vector<std::string> pending_closure_deferred_moves_;
-    std::unordered_map<std::string, std::vector<std::string>> closure_drop_group_;
-    std::unordered_map<std::string, std::string> capture_owner_;
     // Shared per-frame drop emission (group-aware) — the single inner loop
     // behind collect_drops / collect_all_drops / collect_drops_to_loop and
     // the fn-epilogue param walk (was 4 drifting copies).
@@ -4859,31 +4825,8 @@ private:
     // is a Copy type and which have no `impl Drop`. Called after
     // check_supertrait_impls so manual `impl Copy` entries are already in.
     void compute_auto_copy_types();
-    // The cascade alone: release the deferred drop obligations a callable
-    // binding is holding, WITHOUT marking the binding itself moved. Called on
-    // every read of a name (lower_var_ref) — reading a callable is the one
-    // observable act that can make its body run.
-    void mark_moved_deferred_only(const std::string& name) {
-        auto dm = closure_deferred_moves_.find(name);
-        if (dm == closure_deferred_moves_.end()) return;
-        for (const auto& nm : dm->second) {
-            moved_vars_.insert(nm);
-            body_ever_moved_.insert(nm);
-            closure_owned_drop_.erase(nm);
-        }
-    }
     void mark_moved(const std::string& name) {
         moved_vars_.insert(name);
-        // CONSUMING THE CALLABLE CONSUMES WHAT ITS BODY MOVES OUT. Until the
-        // closure is called (or passed by value, or rebound), the source keeps
-        // the drop obligation for those captures — see closure_deferred_moves_.
-        // The moment it is consumed the BODY becomes the drop site, so the
-        // source's obligation is released: a whole-var capture leaves
-        // `closure_owned_drop_` (its scope-exit drop is skipped again) and a
-        // narrow PATH re-enters the container's `moved_fields` the same way.
-        // Direct set writes, not a recursive mark_moved: a capture is not a
-        // callable and carries no deferred set of its own.
-        mark_moved_deferred_only(name);
         // §7.1 follow-up: track EVER-moved across branches. per-branch
         // save/restore (lower_if / lower_match) reverts moved_vars_ on
         // diverging branches, but Logos's mlir-gen merges branches into a
@@ -5145,19 +5088,9 @@ private:
         std::set<std::string> moves;
         size_t clear_mark = 0;   // flag_clear_log_ size before this branch
         size_t clear_end  = 0;   // ... and after it
-        // closure_owned_drop_ at the end of this branch (read only when the
-        // caller passes `owned_pre`).
-        std::set<std::string> owned;
     };
-    // `owned_pre` (closure_owned_drop_ before the branches) also merges the
-    // RELEASES of move-closure captures — a closure consumed on some reaching
-    // paths only: the capture stays owned by the frame, flagged, the flag
-    // cleared in the releasing branches. Sets closure_owned_drop_ to the merge.
     void elaborate_cond_moves(const std::set<std::string>& pre,
-                              std::vector<CondMoveBranch>& reaching,
-                              const std::set<std::string>* owned_pre = nullptr);
-    void elaborate_cond_releases(const std::set<std::string>& owned_pre,
-                                 std::vector<CondMoveBranch>& reaching);
+                              std::vector<CondMoveBranch>& reaching);
 
     // ── ONE JOIN (ADR 0030 S5.3) ─────────────────────────────────────────
     // Every construct whose branches rejoin — `if` (statement and expression),
@@ -5172,35 +5105,32 @@ private:
     struct JoinBuilder {
         SemaChecker& s;
         std::set<std::string> pre, post;
-        std::set<std::string> owned_pre;
         std::vector<CondMoveBranch> reaching;
         bool any_falls_through = false;
         size_t mark = 0;
         explicit JoinBuilder(SemaChecker& sc)
-            : s(sc), pre(sc.moved_vars_), owned_pre(sc.closure_owned_drop_) {}
+            : s(sc), pre(sc.moved_vars_) {}
         void begin() {
             s.moved_vars_ = pre;
             mark = s.flag_clear_log_.size();
         }
         void end(std::vector<lir_view::StmtRef>* blk, lir::LExprPtr* val, BranchExit ex) {
             if (ex != BranchExit::Returns)
-                reaching.push_back({blk, val, s.moved_vars_, mark, s.flag_clear_log_.size(),
-                                    s.closure_owned_drop_});
+                reaching.push_back({blk, val, s.moved_vars_, mark, s.flag_clear_log_.size()});
             if (ex == BranchExit::FallsThrough) {
                 any_falls_through = true;
                 post.insert(s.moved_vars_.begin(), s.moved_vars_.end());
             }
-            s.closure_owned_drop_ = owned_pre;
         }
         // A path that runs no branch (an `if` without `else`).
         void fall_through_unchanged() {
             size_t m = s.flag_clear_log_.size();
-            reaching.push_back({nullptr, nullptr, pre, m, m, owned_pre});
+            reaching.push_back({nullptr, nullptr, pre, m, m});
             any_falls_through = true;
             post.insert(pre.begin(), pre.end());
         }
         void merge() { s.moved_vars_ = any_falls_through ? post : pre; }
-        void elaborate() { s.elaborate_cond_moves(pre, reaching, &owned_pre); }
+        void elaborate() { s.elaborate_cond_moves(pre, reaching); }
         void finish() { merge(); elaborate(); }
     };
     // An arm VALUE's exit: `!` is a `return` (or panic) unless it leaves a loop.
@@ -5831,7 +5761,7 @@ private:
     static bool shadow_is_path_of(const std::string& m, const std::string& root) {
         return m == root || (m.size() > root.size() && m[root.size()] == '.' && m.compare(0, root.size(), root) == 0);
     }
-    // Re-key ONE binding's name-keyed records (move state + closure capture state); tools/dlog/shadow_binding_state.dl.
+    // Re-key ONE binding's name-keyed records (move state); tools/dlog/shadow_binding_state.dl.
     void shadow_rekey(Frame& f, const std::string& from, const std::string& to) {
         auto rk = [&](const std::string& m) { return to + m.substr(from.size()); };
         auto rekey_set = [&](std::set<std::string>& st) {
@@ -5839,26 +5769,12 @@ private:
             for (auto& m : st) if (shadow_is_path_of(m, from)) v.push_back(m);
             for (auto& m : v) { st.erase(m); st.insert(rk(m)); }
         };
-        auto rekey_list = [&](std::vector<std::string>& l) {
-            for (auto& m : l) if (shadow_is_path_of(m, from)) m = rk(m);
-        };
         rekey_set(moved_vars_);
         rekey_set(f.cond_move_static_moves);
         rekey_set(body_ever_moved_);
-        rekey_set(closure_owned_drop_);
         std::vector<std::pair<std::string, std::string>> fl;
         for (auto& [k, v] : f.cond_move_flags) if (shadow_is_path_of(k, from)) fl.emplace_back(k, v);
         for (auto& [k, v] : fl) { f.cond_move_flags.erase(k); f.cond_move_flags[rk(k)] = v; }
-        std::vector<std::pair<std::string, std::string>> co;
-        for (auto& [k, v] : capture_owner_) {
-            if (v == from) v = to;
-            if (shadow_is_path_of(k, from)) co.emplace_back(k, v);
-        }
-        for (auto& [k, v] : co) { capture_owner_.erase(k); capture_owner_[rk(k)] = v; }
-        for (auto& [k, v] : closure_drop_group_) rekey_list(v);
-        if (auto g = closure_drop_group_.extract(from)) { g.key() = to; closure_drop_group_.insert(std::move(g)); }
-        for (auto& [k, v] : closure_deferred_moves_) rekey_list(v);
-        if (auto d = closure_deferred_moves_.extract(from)) { d.key() = to; closure_deferred_moves_.insert(std::move(d)); }
     }
     // The popped inner binding's records die with its frame.
     void shadow_forget(const std::string& name) {
@@ -5867,13 +5783,6 @@ private:
         };
         erase_paths(moved_vars_);
         erase_paths(body_ever_moved_);
-        erase_paths(closure_owned_drop_);
-        for (auto it = capture_owner_.begin(); it != capture_owner_.end();)
-            it = (shadow_is_path_of(it->first, name) || it->second == name) ? capture_owner_.erase(it) : std::next(it);
-        closure_drop_group_.erase(name);
-        closure_deferred_moves_.erase(name);
-        for (auto& [k, v] : closure_drop_group_)
-            v.erase(std::remove_if(v.begin(), v.end(), [&](const std::string& m) { return shadow_is_path_of(m, name); }), v.end());
     }
     static std::string shadow_user_name(const std::string& n) {
         auto p = n.find('\x1f');

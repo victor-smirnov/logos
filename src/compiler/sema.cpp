@@ -4478,7 +4478,7 @@ bool SemaChecker::emit_open_drop(const Frame& frame, const std::string& root,
     // Paths under the root moved on every path (no flag of their own).
     std::set<std::string> gone;
     for (auto& mv : moved_vars_)
-        if (under(mv, root) && !closure_owned_drop_.count(mv)) gone.insert(mv);
+        if (under(mv, root)) gone.insert(mv);
     for (auto& q : frame.cond_move_static_moves)
         if (under(q, root)) gone.insert(q);
     for (auto& [q, _f] : frame.cond_move_flags) gone.erase(q);
@@ -4618,17 +4618,6 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
         for (auto& mv : moved_vars_) {
             if (mv.size() <= prefix.size()) continue;
             if (mv.compare(0, prefix.size(), prefix) != 0) continue;
-            // A PATH THE SOURCE STILL OWNS IS NOT A MOVED FIELD. The same
-            // un-skip `emit_frame_drops`'s `eligible` applies to whole-var
-            // captures of a `move` closure applies to an RFC-2229 NARROW
-            // capture, which is spelled as a dotted path and so never reached
-            // that test: the body of an uncalled `move || { let t = x.d; }`
-            // is no drop site at all, and suppressing the container's field
-            // drop on its say-so leaked `x.d` at six payload kinds
-            // (closure_narrow_capture_never_dropped). The path leaves
-            // `closure_owned_drop_` when the callable is actually consumed —
-            // see the cascade in mark_moved.
-            if (closure_owned_drop_.count(mv)) continue;
             std::string path = mv.substr(prefix.size());
             bool seen = false;
             for (auto& f : moved_fields) if (f == path) { seen = true; break; }
@@ -4643,30 +4632,20 @@ std::optional<lir_view::StmtRef> SemaChecker::make_drop_stmt(
                              info.slot));
 }
 
-// Single inner loop behind every drop walk (was 4 drifting copies).
-// G156-7 baseline: a var moved into a `move` closure stays in moved_vars_
-// (use-after-move enforced) but its dtor must still run — the closure only
-// borrows its storage — so closure_owned_drop_ entries are un-skipped.
-// Rust capture-drop ORDER on top: those un-skipped captures drop at their
-// OWNING closure binding's slot, in capture order (closure_drop_group_),
-// not at their own var_order slots — same-frame only (cross-frame owners
-// would hoist drops into branch-only code).
+// Single inner loop behind every drop walk (was 4 drifting copies). A value
+// moved into a `move` closure is the closure's: its env glue drops it (ADR
+// 0030 S10 row 4), so a moved local is simply not dropped here.
 void SemaChecker::emit_frame_drops(const Frame& frame,
                                    std::vector<lir_view::StmtRef>& drops,
                                    const std::set<std::string>* extra_skip) const {
     auto eligible = [&](const std::string& n) -> const VarInfo* {
         if (extra_skip && extra_skip->count(n)) return nullptr;
-        if (moved_vars_.count(n) && !closure_owned_drop_.count(n)) return nullptr;
+        if (moved_vars_.count(n)) return nullptr;
         auto vit = frame.vars.find(n);
         return vit == frame.vars.end() ? nullptr : &vit->second;
     };
     for (auto it = frame.var_order.rbegin(); it != frame.var_order.rend(); ++it) {
         const std::string& n = *it;
-        // A capture owned by a SAME-FRAME closure binding drops at the
-        // owner's slot below, not here.
-        if (auto co = capture_owner_.find(n);
-            co != capture_owner_.end() && frame.vars.count(co->second))
-            continue;
         // #118 — a local whose ownership at this point depends on the PATH
         // TAKEN carries a runtime drop flag; its destructor is emitted
         // GUARDED rather than skipped. This arm must precede `eligible`,
@@ -4674,27 +4653,6 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
         // merge puts a conditionally-moved local there, which is precisely
         // how the leak was produced (`if c { k = a } else { k = b }` skipped
         // BOTH sources, so whichever branch was not taken lost its value).
-        // ⚠ A `move`-CLOSURE CAPTURE IS NOT A CONDITIONAL MOVE, AND THIS ARM
-        // MUST YIELD TO IT. `closure_owned_drop_` marks a var whose value was
-        // moved INTO a `move` closure: it stays in `moved_vars_` on purpose,
-        // and `eligible` un-skips it so the drop is emitted UNGUARDED — the
-        // closure owns the value and the frame still destroys it exactly once.
-        // The first version of this arm sat above `eligible` and never asked,
-        // so a `move` closure inside ANY branch — `if true { … }` included, so
-        // not a path question at all — cleared its flag on the taken path and
-        // LOST the capture. MEASURED by this round's verify across eight
-        // spellings (if / if-else / match / nested / plain block containing an
-        // if / while-cond / `&&` / `||`), each EXACT before and LEAKING after,
-        // with the unconditional twins unchanged. The invariant was stated in
-        // this function's own header comment three lines above the insertion.
-        //
-        // The corpus could not catch it: all ten `move |` sites in
-        // tests/logos/pass are unconditional, and the dedicated regression
-        // fixture `move_closure_capture_drop_once.logos` puts its closure in a
-        // plain block. One `if` away from red, and green.
-        // The one exception is `cond_release_flagged`: a capture whose closure
-        // was CONSUMED on some paths only (elaborate_cond_releases) — its flag
-        // tracks exactly that release, so the frame's drop is guarded by it.
         // #121 — A FIELD PATH ROOTED AT THIS LOCAL CARRIES ITS OWN FLAG. The
         // container's SDrop below already SKIPS the path statically (the union
         // merge put `h.p` in moved_vars_, and make_drop_stmt turns that into a
@@ -4712,8 +4670,7 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
             auto cf = frame.cond_move_flags.find(n);
             const VarInfo* vi = nullptr;
             if (cf != frame.cond_move_flags.end()) {
-                if (!closure_owned_drop_.count(n) || frame.cond_release_flagged.count(n))
-                    if (auto vit = frame.vars.find(n); vit != frame.vars.end()) vi = &vit->second;
+                if (auto vit = frame.vars.find(n); vit != frame.vars.end()) vi = &vit->second;
             } else vi = eligible(n);
             std::vector<lir_view::StmtRef> od;
             if (vi && emit_open_drop(frame, n, *vi, od)) {
@@ -4799,10 +4756,8 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
                 }
         }
         if (enum_path_pair || opened) {
-            // the closure drop group below still runs
         } else if (auto cf = frame.cond_move_flags.find(n);
-            cf != frame.cond_move_flags.end() &&
-            (!closure_owned_drop_.count(n) || frame.cond_release_flagged.count(n))) {
+            cf != frame.cond_move_flags.end()) {
             // ⚠ `extra_skip` is DELIBERATELY not consulted here. Its one
             // caller passes `body_ever_moved_` — the fn-epilogue's
             // conservative "a param moved on ANY branch gets no drop at all"
@@ -4817,23 +4772,6 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
             if (auto d = make_drop_stmt(n, *info, &fd))
                 drops.push_back(std::move(*d));
         }
-        // A closure binding's drop group: its captures drop here, in
-        // capture order — even when the binding's own drop was skipped
-        // (the group preserves the drop SET, fixes only the order).
-        if (auto g = closure_drop_group_.find(n); g != closure_drop_group_.end())
-            for (auto& c : g->second)
-                if (auto* cinfo = eligible(c))
-                    if (auto d = make_drop_stmt(c, *cinfo)) {
-                        // A capture released on SOME paths (the closure consumed
-                        // in one branch) drops under its flag.
-                        std::string fl;
-                        for (size_t i = scope_.size(); i-- > 0 && fl.empty(); )
-                            if (scope_[i].cond_release_flagged.count(c))
-                                if (auto cf = scope_[i].cond_move_flags.find(c);
-                                    cf != scope_[i].cond_move_flags.end()) fl = cf->second;
-                        if (!fl.empty()) drops.push_back(guard_with_flag(fl, std::move(*d)));
-                        else drops.push_back(std::move(*d));
-                    }
     }
 }
 
@@ -4851,9 +4789,7 @@ void SemaChecker::emit_frame_drops(const Frame& frame,
 // local moved on none keeps today's unguarded drop. Cost is therefore one i8
 // and one branch per CONDITIONALLY-moved local, zero for the rest.
 void SemaChecker::elaborate_cond_moves(const std::set<std::string>& pre,
-                                       std::vector<CondMoveBranch>& reaching,
-                                       const std::set<std::string>* owned_pre) {
-    if (owned_pre) elaborate_cond_releases(*owned_pre, reaching);
+                                       std::vector<CondMoveBranch>& reaching) {
     if (reaching.size() < 2) return;
     std::set<std::string> cand;
     for (auto& b : reaching)
@@ -4910,31 +4846,6 @@ void SemaChecker::elaborate_cond_moves(const std::set<std::string>& pre,
             flag_clear_log_.push_back(n);
         }
     }
-}
-
-void SemaChecker::elaborate_cond_releases(const std::set<std::string>& owned_pre,
-                                          std::vector<CondMoveBranch>& reaching) {
-    if (reaching.empty()) { closure_owned_drop_ = owned_pre; return; }   // nothing reaches the merge
-    if (reaching.size() == 1) { closure_owned_drop_ = reaching[0].owned; return; }
-    std::set<std::string> merged;
-    for (auto& b : reaching) merged.insert(b.owned.begin(), b.owned.end());
-    for (const auto& n : owned_pre) {
-        size_t released = 0;
-        for (auto& b : reaching) if (!b.owned.count(n)) ++released;
-        if (released == 0) continue;
-        if (released == reaching.size()) { merged.erase(n); continue; }   // released on every path
-        std::string fl = cond_move_flag_for(n);
-        if (fl.empty()) { merged.erase(n); continue; }
-        for (size_t i = scope_.size(); i-- > 0; )
-            if (scope_[i].vars.count(n)) { scope_[i].cond_release_flagged.insert(n); break; }
-        merged.insert(n);   // the frame still owns it on the other paths
-        for (auto& b : reaching) {
-            if (b.owned.count(n)) continue;
-            if (b.blk)      splice_flag_clear(*b.blk, cond_move_clear_stmt(fl));
-            else if (b.val) *b.val = append_stmt_to_value(*b.val, cond_move_clear_stmt(fl));
-        }
-    }
-    closure_owned_drop_ = std::move(merged);
 }
 
 // #118 — `if <flag> { <drop> }`. const like its only caller (emit_frame_drops
@@ -6217,8 +6128,10 @@ void SemaChecker::read_trait_bound_args(TinyMapView bnode, TraitBound& tb) {
     // own `trait FnMut` is a different trait and gets no family shortcut.
     if (tb.trait_name == "Fn" || tb.trait_name == "FnMut" || tb.trait_name == "FnOnce") {
         const std::string& key = tb.canonical_trait.empty() ? tb.trait_name : tb.canonical_trait;
-        if (trait_key_is_lang_item(key, fn_family_lang(tb.trait_name)))
+        if (trait_key_is_lang_item(key, fn_family_lang(tb.trait_name))) {
             tb.is_fn_family = true;
+            tb.fn_level = tb.trait_name == "Fn" ? 0 : tb.trait_name == "FnMut" ? 1 : 2;
+        }
     }
     if (bnode.has_key(la::PARAMS)) {
         auto pav = bnode.get(la::PARAMS.code);

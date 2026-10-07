@@ -8,5 +8,7 @@ once 3
 count 2 2
 raw 6 2
 tuple 5
+made
+drop 4
 done
 drop 2

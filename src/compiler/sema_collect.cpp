@@ -1454,7 +1454,7 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
             }
             if (bound.is_fn_family && (cv.kind() == LogosType::Kind::Closure ||
                                        LogosType::is_fn_value_kind(cv.kind()))) {
-                const int req = bound.trait_name == "Fn" ? 0 : bound.trait_name == "FnMut" ? 1 : 2;
+                const int req = bound.fn_level;
                 if (cv.kind() == LogosType::Kind::Closure) {
                     const int ck = obl_env_().closure_level(cv);
                     if (ck > req) {

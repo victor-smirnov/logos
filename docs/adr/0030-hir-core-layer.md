@@ -981,6 +981,38 @@ region, flow, mono; stmt code 16). src + include: +116 / −1016 (budget
 +100 / −300; the deletions are SForEach). Fixture
 s10_comprehension_over_iterators.
 
+Row (4), 2026-10-07 — CLOSED. C-CLO: ONE capture analysis in
+lower_closure_expr. Per capture: whether the body consumes it (the root or a
+place under it), its mode as rustc's upvar kinds (`move` or a consuming body:
+ByValue; a mutation: MutBorrow; else ImmBorrow), and from those the Fn-family
+(a mutation through a widened path is FnMut), the closure type's captures and
+the per-literal list — the three disagreeing "body consumed" tests are one.
+Capture precision is rustc's: a Copy place is captured precisely even under a
+type with Drop (the truncation is for a moved place); a by-value capture
+through `&` / `&mut` / a raw pointer captures the pointer; a `&mut` through a
+raw pointer is not a mutation of the capture; the scan reads PtrArith /
+PtrDiff and the receivers of field-index / deref-field writes, and `t.0 = v`
+mutates `t`. A closure OWNS its ByValue captures (all of a `move` closure's, and one its
+body consumes — an uncalled `|| eat(a)` drops `a` with the closure) whether
+or not it escapes: moved (or copied) into the env at the literal, dropped by the env
+glue (on the closure's drop — a closure owning a droppable capture is
+OWNED_ENV — or after an FnOnce call); a captured reference is a handle in the
+env. The bound's Fn-family is decided once where the bound is minted
+(TraitBound::fn_level). Retired: the non-escaping drop-handover protocol
+(closure_owned_drop_, closure_deferred_moves_, capture_owner_,
+closure_drop_group_, the pending lists, mark_moved_deferred_only,
+elaborate_cond_releases, Frame::cond_release_flagged — the source kept a
+captured value's drop and the env borrowed it, so a later write to the source
+reached the closure), closure_capture_env_ (write-only), the three
+bound-name ladders. The seven clusters' sixteen programs and the gap row
+`rawptr-write-closure-classified-fnmut` match rustc; three fixtures asserted the
+old behaviour against rustc (adv1_capture_drop_order, two imported fail
+adaptations reading a Copy field where upstream captured an Arc / a Box whole)
+and are corrected to rustc. Left for ADR 0029 (S1 identity, S3/S4 the body as
+an L-IR function): `closure_kind_`, the signature-keyed family of a type with
+no stated family (a bare `|T| -> R` declaration — D5, undecided). src + include: +173 / −540 (budget +400 / −600). Fixture
+s10_closure_capture_rust_semantics (rustc twin). S10 CLOSED BY ROW.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

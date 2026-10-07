@@ -2,7 +2,8 @@
 // captures (copied at the literal: later writes to the source are not seen), a Copy place is captured
 // precisely even under a type with `Drop` (`d2.n`), a by-value capture through a reference captures the
 // reference (`self.items` with `self: &C`), a raw pointer used by a method or written through is a
-// shared capture (not FnMut), `t.0 = v` mutates `t` (FnMut). rustc twin: same stdout.
+// shared capture (not FnMut), `t.0 = v` mutates `t` (FnMut), and a body that consumes a capture makes it
+// ByValue: an uncalled closure drops it. rustc twin: same stdout.
 package s10_closure_capture_rust_semantics;
 use logos.std.fmt;
 use logos.mem.string;
@@ -44,5 +45,10 @@ fn main() {
     let mut set = || t.0 = 5;
     set();
     println!("tuple {}", t.0);
+    {
+        let a = D { n: 4 };
+        let _f = || { let x = a; x.n };
+        println!("made");
+    }
     println!("done");
 }

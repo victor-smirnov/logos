@@ -396,7 +396,11 @@
 # 2026-09-27, ADR 0030 L0 slice 2a: UnsafeCell / PhantomPinned / Box / Rc / Arc / the atomic Ordering
 # are asked by lang identity (type_is_lang_item[_exact]); the bare-name tests leave: sema.cpp 48 -> 45
 # (the Box/Rc/Arc owning-kind table ×3; UnsafeCell variance compared inside std::string()).
-#SCAN sema.cpp 45 e1b0c978
+# 2026-10-06 (ADR 0030 S10 row 4 step C): the Fn-family of a BOUND is decided once, where the
+#   bound is minted (TraitBound::fn_level, beside is_fn_family's lang-item gate) — the three
+#   per-site ladders over `trait_name == "Fn" / "FnMut"` read it now. sema_expr.cpp 149 -> 145,
+#   sema_collect.cpp 39 -> 37, sema_impl.hpp 36 -> 34, sema.cpp 45 -> 47 (the mint's own two).
+#SCAN sema.cpp 47 09dd3de8
 # 2026-09-19, #438 step 6: sema_auto_trait.cpp 16 -> 2, roster a2c3b0b4 ->
 # 0120090a. Fourteen of those intercepts were the literal comparisons
 # `trait_name == "Send"` / `"Sync"` / `"Unpin"` / `"Fst"` — the engine resolves
@@ -407,7 +411,7 @@
 # 2026-10-04, ADR 0030 S9 row 4: sema_collect.cpp 40 -> 39, roster 0f9e28cc -> 6d1adfc6 — check_type_bounds'
 # satisfaction half is deleted (C-OBL answers); its `PartialEq`/`PartialOrd` -> `Eq`/`Ord` spelling alias went
 # with it (SL-sl-02 is the solver's, by lang identity).
-#SCAN sema_collect.cpp 39 6d1adfc6
+#SCAN sema_collect.cpp 37 98c3f805
 #SCAN sema_decl.cpp 2 ce09ff69
 # sema_expr.cpp 162 -> 160, 2026-09-10h. The Deref/DerefMut bound-autoderef
 # fallback (`lower_method_call`) is the LAST lang-item trait decision in this
@@ -467,7 +471,7 @@
 # 2026-10-03, ADR 0030 S8 row 5: 150 -> 149, roster e56669fa -> a4e883ed — the `$ref_$T` arm's
 #   `tp.name == "T"` (it bound `impl<T> Tr for &T`'s `T` to the referent by name) left with the arm;
 #   the pick goes through the common selection, which infers `T` from the receiver formal.
-#SCAN sema_expr.cpp 149 a4e883ed
+#SCAN sema_expr.cpp 145 d48540bf
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
 # against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
 # the predicate that answers "is this callable consumed by its call?":
@@ -508,7 +512,7 @@
 # name to pick the lang name to ask for — fn_family_lang ("Fn"/"FnMut"/"FnOnce") and
 # bound_is_deref_lang_item's "Deref" → "deref"/"deref_mut". The identity answer is the table's;
 # the callers already gated on the same spellings (unchanged).
-#SCAN sema_impl.hpp 36 c5c53a9b
+#SCAN sema_impl.hpp 34 5a3e774e
 # 2026-09-06d, -4 (15 -> 11), roster fa9e12e1 -> 1ff7800a: four `nm == "_"`
 # discard-name tests vanished with mark_match_scrutinee_moved's AST re-derivation
 # (the move question is now read off the LIR pattern by `pattern_moves_out`, whose

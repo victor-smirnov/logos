@@ -849,6 +849,9 @@ struct TraitBound {
     std::vector<TypeRef> fn_params;
     TypeRef              fn_ret = nullptr;
     bool                 is_fn_family = false;  // trait is one of Fn / FnMut / FnOnce
+    // Its family, decided ONCE where the bound is minted (as a `dyn Fn*`'s is,
+    // ADR 0029 D7): 0 Fn, 1 FnMut, 2 FnOnce. Read only when is_fn_family.
+    uint8_t              fn_level = 0;
     // Phase 1: `?Trait` relaxed-bound marker. Only `?Sized` is accepted by
     // sema; any other relaxed trait is a hard error at bound-collection time.
     // When set, the bound does NOT add a positive bound on the type param —

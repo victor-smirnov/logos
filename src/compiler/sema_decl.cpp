@@ -939,12 +939,6 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // entry would suppress a needed clear.
     pending_frame_lets_.clear();
     flag_clear_log_.clear();
-    closure_drop_group_.clear();  // capture-drop groups are per-fn (name-keyed)
-    closure_deferred_moves_.clear();  // ditto: keyed on the binding NAME
-    closure_owned_drop_.clear();      // ditto: a name another fn's closure owned is not this fn's
-    capture_owner_.clear();
-    pending_closure_capture_drops_.clear();
-    pending_closure_deferred_moves_.clear();
     decl_uninit_vars_.clear();  // B8: reset declared-uninit tracking per fn
     infer_solved_.clear();      // local type inference is per function body
     infer_node_vars_.clear();

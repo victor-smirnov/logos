@@ -1271,20 +1271,6 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                                       make_ptr(smut, t));
         return builder().deref(std::move(addr), t);
     }
-    // ANY USE OF A DEFERRING CALLABLE RELEASES THE SOURCE'S OBLIGATION, and
-    // this is deliberately the WIDEST hook rather than the most precise one.
-    // A `move` closure whose body consumes a capture leaves that capture's
-    // destructor with the source until the callable is consumed (see
-    // closure_deferred_moves_); the routes that consume it are calling it,
-    // passing it by value, rebinding it, storing it into a container and
-    // returning it, and EVERY one of them reads the binding through here. A
-    // release the compiler misses is a DOUBLE FREE (measured: `let g = f;
-    // g();` read 2 for 1 while the enumerated store sites were being widened
-    // one at a time), whereas a release it makes too eagerly is at worst
-    // today's leak — a closure handed to a callee that never invokes it. The
-    // safe direction is therefore "release on any read", not "release on the
-    // stores I could name".
-    if (!closure_deferred_moves_.empty()) mark_moved_deferred_only(std::string(name));
     // Phase-1: attach the resolved dense variable slot (shadowing-correct via
     // the scope stack). NO_SLOT for anything not a current local binding.
     return builder().var_ref(std::string(name), t, lookup_slot(name));
@@ -2688,7 +2674,6 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // never READS `v` at statement level, which is the compound-assign
     // lowering's site and needs its own name.
     bool sc_fork = (op == "&&" || op == "||");
-    const auto owned_pre = closure_owned_drop_;
     const size_t hoist_mark_ = cur_stmt_temp_hoist_ ? cur_stmt_temp_hoist_->size() : 0;
     // A comparison's right operand is expected at the LEFT's type (Rust
     // `PartialEq<Rhs = Self>`): a literal there (`c == (Option::None, 2)`,
@@ -2714,12 +2699,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // RESTORED after it. Strictly conservative — a name is only ever put BACK
     // into the uninit set, never taken out — and it is the same fork
     // `if` / `match` / loops already carry for this tracker.
-    if (sc_fork && (moved_vars_ != rhs_pre || closure_owned_drop_ != owned_pre)) {
+    if (sc_fork && moved_vars_ != rhs_pre) {
         size_t rm = flag_clear_log_.size();
         std::vector<CondMoveBranch> rb;
-        rb.push_back({nullptr, &rhs, moved_vars_, rm, rm, closure_owned_drop_});   // RHS evaluated
-        rb.push_back({nullptr, nullptr, rhs_pre, rm, rm, owned_pre});              // short-circuited
-        elaborate_cond_moves(rhs_pre, rb, &owned_pre);
+        rb.push_back({nullptr, &rhs, moved_vars_, rm, rm});   // RHS evaluated
+        rb.push_back({nullptr, nullptr, rhs_pre, rm, rm});    // short-circuited
+        elaborate_cond_moves(rhs_pre, rb);
     }
     // An open type variable (an untyped closure parameter) meeting a
     // primitive operand takes its type: the built-in operator is homogeneous
@@ -5072,11 +5057,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 // Fn / FnMut can be invoked repeatedly (by &self / &mut self);
                 // FnOnce invokes by-value (call_once(self)) — a lone FnOnce
                 // bound means the call CONSUMES the callable.
-                if (b.trait_name == "Fn" || b.trait_name == "FnMut")
-                    has_multi_call = true;
+                if (b.fn_level < 2) has_multi_call = true;
                 using CM = lir_schema::expr::CallMode;
-                CM m = b.trait_name == "Fn" ? CM::Shared
-                     : b.trait_name == "FnMut" ? CM::Mut : CM::Once;
+                CM m = b.fn_level == 0 ? CM::Shared : b.fn_level == 1 ? CM::Mut : CM::Once;
                 if (fn_bound_mode == CM::Unknown || uint8_t(m) < uint8_t(fn_bound_mode))
                     fn_bound_mode = m;
             }
@@ -19132,14 +19115,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             }
         }
     }
-    // §7.1: snapshot body_ever_moved_ before the closure body so we can
-    // compute the body-MOVED set of OUTER (capture-source) vars. With fn
-    // params now dropping at scope-end (Rust-conformant), the historical
-    // `closure_owned_drop_` source-side drop double-drops on shapes where
-    // the body itself moves a capture into a callee that drops (e.g.
-    // `consume(drop_me)`) — the callee's param drop is already the
-    // canonical drop site. Per-capture, skip `closure_owned_drop_` iff
-    // the body moved that capture.
+    // Snapshot body_ever_moved_ before the closure body: the difference is what
+    // the BODY moves out of its captures (the capture analysis' consumption).
     auto outer_ever_moved_pre = body_ever_moved_;
 
     // Push a new scope with closure params. It is a DROP BOUNDARY (G156-7): a
@@ -19997,10 +19974,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     ec->ret_type      = ret_type;
     ec->body          = lir_mirror_block(*cur_prog_, body);
     ec->is_move       = is_move;
-    std::vector<std::string> unskipped_captures;  // capture order (drop group)
-    // Capture roots / narrow PATHS whose drop this closure's own CALL takes
-    // over (see closure_deferred_moves_). Until then the source keeps them.
-    std::vector<std::string> deferred_moves;
     // G167-3b: a closure lowered where the expected type is `Box<…Fn…>` is
     // being BOXED — its captured env must live on the heap (boxing confers
     // heap lifetime; a stack env would dangle once the creating fn returns).
@@ -20071,15 +20044,17 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         ec->capture_widened[i] = widened_roots.count(ec->captures[i]) ? 1 : 0;
     }
 
-    // A `move` closure OWNS its captures, as in Rust: each ByValue capture —
+    // A closure OWNS its ByValue captures, as in Rust (all of a `move` closure's,
+    // and one its body consumes): each —
     // the root, or the RFC-2229 narrow path (the analysis cut it at a root with
     // a user Drop, which a `move` closure captures whole) — is moved into the
     // env at the literal, whether or not the closure escapes; a Copy one is
     // copied. The env's glue drops what it owns: when the closure is dropped,
     // or after an FnOnce call (mlir-gen's capture_own_inline / capture_drops).
     bool owns_droppable_capture = false;
-    if (is_move) {
+    {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
+            if (ec->capture_modes[i] != 2) continue;   // ByValue: `move`, or a consuming body
             const bool is_narrow = i < ec->capture_field_types.size() && ec->capture_field_types[i];
             TypeRef t = is_narrow ? TypeRef(ec->capture_field_types[i]) : TypeRef(ec->capture_types[i]);
             if (!t || !is_move_type(t)) continue;
@@ -20087,8 +20062,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             if (needs_drop(t)) owns_droppable_capture = true;
         }
     }
-    pending_closure_deferred_moves_ = std::move(deferred_moves);
-    pending_closure_capture_drops_ = std::move(unskipped_captures);
 
     // #440: THE KIND IS COMPUTED BEFORE THE TYPE IS MINTED, so the literal's
     // type can state it. The computation needs only `body_moved_outer` (set at
