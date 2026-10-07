@@ -1013,6 +1013,27 @@ an L-IR function): `closure_kind_`, the signature-keyed family of a type with
 no stated family (a bare `|T| -> R` declaration — D5, undecided). src + include: +173 / −540 (budget +400 / −600). Fixture
 s10_closure_capture_rust_semantics (rustc twin). S10 CLOSED BY ROW.
 
+## S9b (registries by identity; the package fold as the rule) — rows
+
+Started 2026-10-07. Re-priced on cef000d9e in a fold-built universe (stdlib and
+tests both under `LOGOS_FOLD_ALL=1`, build-fold): 492 of 8046 L0 red — 359
+runtime (exit code / stdout: missing drops, wrong dispatch), ~55 operator
+dispatch refused, 51 diagnostics. The cause is one: a method of a plain
+nominal target is REGISTERED under the bare written name and LOOKED UP under a
+composed spelling (`concrete_struct_name(t) + "__" + m`); without the fold the
+two coincide for every non-ambiguous name, by luck. No function has a DefId
+(DefNs::Value / DefKind::Fn are declared and unused).
+
+| row | content | retires | budget |
+|---|---|---|---|
+| (1) identities | every function and impl item gets a DefId at collection (free fn: package + name; impl item: the impl's identity + item name); a method index keyed by OWNER identity — a nominal type's DefId, `&` / `&mut` of one, or the shape for a target with no nominal (slice, tuple, array, fn pointer, dyn) — and by trait identity | — | +250 / −0 |
+| (2) sema lookups | the composed-key read sites (operator dispatch, Index / Deref, drop_fn_for / explicit_destructor_call, Default, static calls, the method probe's key generator, WritField / dst_len, collect's completeness checks) ask the index | impl_lookup_keys_'s spellings, the csn-then-bare fallbacks, trait_method_registry_ | +200 / −450 |
+| (3) mono / mlir | resolve_method_symbol / resolve_drop_symbol's prefix scans over composed names read the impl's METHOD_SYMBOLS / C-OBL, as trait_item_symbol_ does | strip_struct_pkg composition, the `__g__` prefix scans | +150 / −200 |
+| (4) the fold is the rule | the declaring package folds into every nominal type's spelling (Rust's crate disambiguator); user-facing type_str prints declared names | the ambiguous-name set, ambiguous_type_arg_fingerprint, LOGOS_FOLD_ALL; ABI minor bump | +80 / −250 |
+
+Order: (1), (2), (3), (4). Each row's acceptance: the main build's gate stays
+green, and the fold build's L0 reds fall (0 after row 3).
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against
