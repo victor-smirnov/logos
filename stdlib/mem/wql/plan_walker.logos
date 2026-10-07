@@ -1512,11 +1512,12 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         early = lower_program(root);
         core_resolve(&mut early, &oview_module_ast(), prm);
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
-        plan_decide_joins(prm, h);
-        plan_insert_drains(prm, &mut pick_ap);
+        plan_decide_joins(prm, &mut early, h);
+        plan_insert_drains(prm, &early, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
+        core_bind_sources(&mut early, prm);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
         // — recursion is legal, realized by the SCC fixpoint. Dep edges + the
@@ -1566,11 +1567,12 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         early = lower_program(root);
         core_resolve(&mut early, &oview_module_ast(), prm);
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
-        plan_decide_joins(prm, h);
-        plan_insert_drains(prm, &mut pick_ap);
+        plan_decide_joins(prm, &mut early, h);
+        plan_insert_drains(prm, &early, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
+        core_bind_sources(&mut early, prm);
         // ADR 0025 R-G — the explain call moved out of `plan_apply_access`, and
         // on THIS branch it lands in the same position it always occupied: no
         // parse-side rels means no rel block, so no rel helper and no recursive
@@ -1694,15 +1696,13 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     }
 
     // ── ADR 0031 R5 — THE PLANNED CORE ──────────────────────────────────────
-    // The program as it will be emitted (every rewrite applied, every source
-    // stamped and registered), lowered once more and resolved against the
-    // registry; verified like the first core. What reads it moves onto it row
-    // by row.
-    let mut regs: Vec<str> = Vec::<str>::new();
-    let mut rg: i64 = 0i64;
-    while rg < prm.rel_n { regs.push(string_as_str(&prm.rel_srcs[rg])); rg = rg + 1i64; }
-    prm.plan_core = core_build_planned(root, name, regs);
-    core_resolve_shadow(&early, &prm.plan_core, prm);
+    // The program as it will be emitted: lowered after every rewrite, its atoms
+    // resolved and typed from the declarations once the registry was complete
+    // (R4.0), the join decisions recorded on them, the plan's source spellings
+    // bound. The walker's stamping of the parse tree above is no longer read
+    // through it.
+    core_planned_done(&early, name);
+    prm.plan_core = early;
 
     // ── Emit the rel helper fns + build the entry prelude ───────────────────
     // Materialization order = the condensation TOPO order (dependencies first
@@ -2103,97 +2103,83 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 // two sides and rejects a mixed-type `==`, so a key that types differently on
 // the two sides would select a different strategy — and since the emitter now
 // READS this answer, a wrong one is not a slower plan but a hash index built
-// with the wrong key type, or worse, a rescan promised as a single read. The
-// stamping order below mirrors `emit_join_chain` exactly: per source, schema
-// then rel columns, then the scalar params, then the module's UDF returns.
+// with the wrong key type, or worse, a rescan promised as a single read. Both
+// type through `typing` (`type_clause` here, `type_chain` there): per source,
+// schema then rel columns, then the scalar params, then the module's UDF returns.
 
-/// Seed one source's contribution to the type dict, from the UNSTAMPED query
-/// node (`resolve_source` has not run yet, so the node still names the rel).
-fn plan_stamp_src(t: &mut ElTypes, view: &OView, prm: &MacroParams, src: str, var: str) {
-    let pi: i64 = prm.index_of(src);
-    if pi >= 0i64 && prm.is_slice[pi] {
-        stamp_types_from_schema(view, t, prm.tys[pi], var);
-        return;
-    }
-    let ri: i64 = prm.rel_find_name(src);
-    if ri >= 0i64 { let _b: bool = stamp_rel_columns(t, view, prm, ri, var); return; }
-    // An already-rewritten source name (the idempotent re-walk) or an unknown
-    // one: the later resolve reports it. Nothing to stamp, and a step whose
-    // sides do not type stays a nested loop, which is the safe answer.
-    let si: i64 = prm.rel_find_src(src);
-    if si >= 0i64 { let _b2: bool = stamp_rel_columns(t, view, prm, si, var); }
-}
-
-/// Decide every classic step of ONE chain and stamp the decision on the nodes.
+/// Decide every classic step of ONE clause and record the decision on its atoms.
 ///
-/// Traversal (`is_edge`) steps are nested loops by construction. They also STOP
-/// the walk: a traversal binds a row var whose element type the planner cannot
-/// reflect before `stamp_edge_step` has run, so any later step's `on` may
-/// reference a name this type dict does not have. Deciding it anyway would risk
-/// a key typed here and typed differently there. Later steps are left
-/// `JS_NONE`; `plan_insert_drains` reads that as "not proven read-once" and
-/// drains the step's source on `MG_UNDECIDED`.
-fn plan_decide_chain(prm: &MacroParams, view: &OView,
-                     base_src: str, base_var: str,
-                     steps: RQJoinStepArr, h: &Writ) {
-    let mut t: ElTypes = el_types_new();
-    plan_stamp_src(&mut t, view, prm, base_src, base_var);
-    let ns: i64 = steps.len();
-    let mut i: i64 = 0i64;
-    while i < ns {
-        let st0: RQJoinStep = steps.step_at(i);
-        if st0.is_edge { i = ns; }
-        else {
-            plan_stamp_src(&mut t, view, prm, st0.src_name, st0.var_name);
-            i = i + 1i64;
+/// The type dict is `typing::type_clause` over the core's atoms, resolved from
+/// the declarations (ADR 0031 R4.0) — the function the emitter types with.
+///
+/// Traversal steps are nested loops by construction. They also STOP the walk,
+/// and the dict stops at the first one: the decisions below were made, and
+/// measured, without the traversal's element type in the dict, and a flat
+/// column name a later traversal's struct also declares would type an earlier
+/// key differently. Later steps are left `JS_NONE`; `plan_insert_drains` reads
+/// that as "not proven read-once" and drains the step's source on
+/// `MG_UNDECIDED`.
+fn plan_decide_chain(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ) {
+    let t: ElTypes = type_clause(view, prm, cl, true);
+    let n: i64 = cl.body.len();
+    let mut i: i64 = 1i64;
+    while i < n {
+        // the `on` a positive step carries: the On condition right after it
+        let mut next_on: WAny = WAny::null();
+        if i + 1i64 < n {
+            match &cl.body[i + 1i64] {
+                CLit::Cond(c) => { match &c.site { CSite::On => { next_on = c.e; } CSite::Where => { } } }
+                CLit::Atom(_a) => { }
+                CLit::Trav(_t) => { }
+            }
         }
-    }
-    apply_scalar_params(&mut t, view, prm);
-    stamp_udfs_from_module(view, &mut t);
-    let mut k: i64 = 0i64;
-    while k < ns {
-        let st: RQJoinStep = rq_fat_step(steps.step_any(k), h);
-        if st.is_edge {
-            let ts: StepSel = traversal_step_sel();
-            st.jstrat = ts.strat;
-            st.jsel = -1i32;      st.jground = jg_pack(&ts.g);
-            return;               // and every step after it stays undecided
+        match &mut cl.body[i] {
+            CLit::Atom(a) => {
+                let on: WAny = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64) } else { WAny::null() } } else { next_on };
+                let ss: StepSel = decide_join_step(WRef::<SExpr>::from_any(on), a.var, &t, h);
+                a.strat = ss.strat;
+                a.jsel  = ss.sel as i32;
+                a.ground = jg_pack(&ss.g);
+                // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read
+                // `el_class_repr(ss.key_ty)` — the class's representative — so a `u64`
+                // key was announced as `hash join on i64` while the emitted map is
+                // `HashMap<u64, …>`. A justification that names a type the code does not
+                // use is not a justification of that code.
+                trace_step(a.var, &ss);
+            }
+            CLit::Trav(_t) => { return; }   // and every step after it stays undecided
+            CLit::Cond(_c) => { }
         }
-        let ss: StepSel = decide_join_step(st.on, st.var_name, &t, h);
-        st.jstrat = ss.strat;
-        st.jsel   = ss.sel as i32;
-        st.jground = jg_pack(&ss.g);
-        // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read
-        // `el_class_repr(ss.key_ty)` — the class's representative — so a `u64`
-        // key was announced as `hash join on i64` while the emitted map is
-        // `HashMap<u64, …>`. A justification that names a type the code does not
-        // use is not a justification of that code.
-        trace_step(st.var_name, &ss);
-        k = k + 1i64;
+        i = i + 1i64;
     }
 }
 
-/// Decide the join steps of the ENTRY query.
+/// Decide the join steps of the ENTRY query (a clause with more than one source).
 ///
 /// Rel BODIES are not visited: a program with rel blocks materializes every
 /// source anyway (a body may scan a native rel any number of times), so no
-/// decision of theirs could widen anything. Their nodes stay `JS_NONE` and the
+/// decision of theirs could widen anything. Their atoms stay `JS_NONE` and the
 /// emitter decides them by the same rule at emission — stated in `analyze_chain`.
-fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
-    if prm.src_root.is_null() { return; }
-    let prog: RQProgram = prm.src_root.view::<RQProgram>();
+fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
     let view: OView = oview_module_ast();
-    match prog.entry_any().view::<RQuery>() {
-        RQuery::Join(jq) => {
-            plan_decide_chain(prm, &view, jq.a_name, jq.x_var, jq.steps_arr(), h);
+    plan_decide_chain(prm, &view, &mut pc.entry.clause, h);
+}
+
+/// The strategy the planner decided for step `k` of a clause (the `k+1`-th
+/// source literal); `JS_NONE` for a traversal or a step never decided.
+fn core_step_strat(cl: &CClause, k: i64) -> i32 {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut src: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if src == k + 1i64 { return a.strat; } src = src + 1i64; }
+            CLit::Trav(_t) => { if src == k + 1i64 { return JS_NONE(); } src = src + 1i64; }
+            CLit::Cond(_c) => { }
         }
-        RQuery::Aggr(gq) => {
-            if gq.has_steps() {
-                plan_decide_chain(prm, &view, gq.a_name, gq.x_var, gq.steps_arr(), h);
-            }
-        }
-        _ => { }
+        i = i + 1i64;
     }
+    return JS_NONE();
 }
 
 /// INSERT THE PRELUDE'S MATERIALIZATION NODES (ADR 0025 §4, S2j).
@@ -2274,8 +2260,8 @@ fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
 /// conservative one — both return the same rows — and therefore that the grounds
 /// have to MOVE rather than be dropped. S2j moves them: the walk below is the S2h
 /// walk unchanged in every arm and every ground, and only its OUTPUT differs.
-pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
-    let pv: Vec<bool> = plan_prove_once(prm, ap);
+pub fn plan_insert_drains(prm: &MacroParams, pc: &CProgram, ap: &mut AccessPlan) {
+    let pv: Vec<bool> = plan_prove_once(prm, pc, ap);
     // THE FALLBACK, and it is the direction that keeps this pass safe. A rel the
     // walk never reached — a source the entry query does not NAME, which the
     // prelude materializes anyway — got no node above and no proof either; it is
@@ -2414,7 +2400,7 @@ fn ap_effective_batch(prm: &MacroParams, ap: &AccessPlan, ri: i64) -> bool {
     return prm.rel_batch[ri];
 }
 
-fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> Vec<bool> {
+fn plan_prove_once(prm: &MacroParams, pc: &CProgram, ap: &mut AccessPlan) -> Vec<bool> {
     let mut pv: Vec<bool> = Vec::<bool>::new();
     let mut zpv: i64 = 0i64;
     while zpv < prm.rel_n { pv.push(false); zpv = zpv + 1i64; }
@@ -2514,10 +2500,10 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> Vec<bool> {
                     } else if jq.has_order {
                         ap_drain(ap, prm, si, MG_ORDER_BY(),
                             "materialized: `order by` re-binds joined rows by index after collecting the matches");
-                    } else if st.jstrat == JS_NONE() {
+                    } else if core_step_strat(&pc.entry.clause, k) == JS_NONE() {
                         ap_drain(ap, prm, si, MG_UNDECIDED(),
                             "materialized: no strategy was decided for this step — a traversal earlier in the chain binds a var the plan cannot type yet");
-                    } else if js_reads_once(st.jstrat) {
+                    } else if js_reads_once(core_step_strat(&pc.entry.clause, k)) {
                         pv[si] = true;
                     } else {
                         ap_drain(ap, prm, si, MG_RESCAN(),

@@ -156,20 +156,10 @@ pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
     has_on:   bool         = 6,
     base_var: str          = 7,
     path:     WRef<RQPathSegArr> = 8,
-    // THE PLAN'S DECISION for this step (ADR 0024 S4) — how the step's source
-    // will be read. `jstrat` is `JS_NONE` until a planner decides; `jsel` names
-    // the term of the const-folded `on` conjunction that supplies the equi-key
-    // (-1 = none). Recorded here rather than derived in the emitter because
-    // materialize-vs-stream depends on it and is settled BEFORE any code
-    // exists: hash and tree read the source once, loop rescans it.
-    jstrat:   i32          = 9,
-    // key 10 was `jkey`, the equi-key's CLASS — retired in E4.3: the key's
-    // type is re-derived from the recorded term (`jsel`), and its class is a view.
-    jsel:     i32          = 11,
-    // The GROUND of the decision (why.logos `jg_pack`): the rule that fired and
-    // the facts it fired on, one word. It held the rendered SENTENCE until
-    // 2026-10-02; text is produced at the edge now (`jg_render_packed`).
-    jground:  i64          = 12,
+    // Keys 9–12 held THE PLAN'S DECISION for the step (strategy, key term,
+    // ground). The planner records it on the planned core's atom now
+    // (`core::CAtom.strat/jsel/ground`, ADR 0031 R4.0); the parse tree does not
+    // carry it.
 }
 
 impl RQJoinStep {

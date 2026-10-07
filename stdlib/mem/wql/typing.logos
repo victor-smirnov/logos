@@ -120,18 +120,49 @@ pub fn type_chain(view: &OView, prm: &MacroParams, base_src: str, base_ty: str, 
                   srcs: &Vec<str>, tys: &Vec<str>, vars: &Vec<str>, byval: &Vec<bool>, n: i64,
                   comp_sel: WAny) -> ElTypes {
     let mut ty: ElTypes = el_types_new();
-    stamp_types_from_schema(view, &mut ty, base_ty, base_var);
-    stamp_rel_source(&mut ty, view, prm, base_src, base_var);
+    type_source(&mut ty, view, prm, prm.rel_find_src(base_src), base_ty, base_var, false);
     let mut si: i64 = 0i64;
     while si < n {
-        stamp_types_from_schema(view, &mut ty, tys.get(si), vars.get(si));
-        stamp_rel_source(&mut ty, view, prm, srcs.get(si), vars.get(si));
-        if byval.get(si) { ty.set_ty_named(vars.get(si), resolve_alias_name(view, tys.get(si))); }
+        type_source(&mut ty, view, prm, prm.rel_find_src(srcs.get(si)), tys.get(si), vars.get(si), byval.get(si));
         si = si + 1i64;
     }
-    apply_scalar_params(&mut ty, view, prm);
-    if !comp_sel.is_null() { stamp_comp_vars(comp_sel.view::<SExpr>(), &mut ty, prm); }
-    stamp_udfs_from_module(view, &mut ty);
+    type_finish(&mut ty, view, prm, comp_sel);
+    return ty;
+}
+
+/// One bound variable: its row type's schema, a rel's columns (`reg` >= 0),
+/// and a by-value element's own type.
+fn type_source(ty: &mut ElTypes, view: &OView, prm: &MacroParams, reg: i64, row_ty: str, var: str, byval: bool) {
+    stamp_types_from_schema(view, ty, row_ty, var);
+    if reg >= 0i64 { let _b: bool = stamp_rel_columns(ty, view, prm, reg, var); }
+    if byval { ty.set_ty_named(var, resolve_alias_name(view, row_ty)); }
+}
+
+fn type_finish(ty: &mut ElTypes, view: &OView, prm: &MacroParams, comp_sel: WAny) {
+    apply_scalar_params(ty, view, prm);
+    if !comp_sel.is_null() { stamp_comp_vars(comp_sel.view::<SExpr>(), ty, prm); }
+    stamp_udfs_from_module(view, ty);
+}
+
+/// The variables of a core clause, typed from its resolved atoms. `to_trav`:
+/// stop at the first traversal (the planner's view — see `plan_decide_chain`).
+pub fn type_clause(view: &OView, prm: &MacroParams, cl: &CClause, to_trav: bool) -> ElTypes {
+    let mut ty: ElTypes = el_types_new();
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    let mut stop: bool = false;
+    while i < cl.body.len() && !stop {
+        match &bs[i] {
+            CLit::Atom(a) => { type_source(&mut ty, view, prm, a.reg, a.row_ty, a.var, false); }
+            CLit::Trav(t) => {
+                if to_trav { stop = true; }
+                else { type_source(&mut ty, view, prm, -1i64, t.row_ty, t.var, el_ret_class(t.row_ty) >= 0i32); }
+            }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    type_finish(&mut ty, view, prm, WAny::null());
     return ty;
 }
 
@@ -162,7 +193,7 @@ fn resolve_atom(a: &mut CAtom, nrels: i64, prm: &MacroParams) {
     if ri < 0i64 { return; }
     // The atom keeps the name as WRITTEN: the spelling the emitter scans is
     // the plan's (a streamed native rel binds `__rel_<r>`, not `__rel_<r>_sl`,
-    // and the access plan decides that after this runs) — `atom_src` reads it.
+    // and the access plan decides that after this runs) — `core_bind_sources` binds it.
     a.reg = ri;
     a.row_ty = string_as_str(&prm.rel_rowty[ri]);
     a.src = if ri < nrels { CSrc::Rel(ri) } else { CSrc::Param(n) };
@@ -250,74 +281,39 @@ pub fn core_resolve(p: &mut CProgram, view: &OView, prm: &MacroParams) {
     while strs.len() > 0i64 { p.strs.push(strs.remove(0i64)); }
 }
 
-/// The source an atom scans as the plan spells it: a rel's CURRENT emitted
-/// name in the registry, a parameter's own.
-pub fn atom_src<'a>(prm: &'a MacroParams, a: &'a CAtom) -> &'a str {
-    if a.reg >= 0i64 { return string_as_str(&prm.rel_srcs[a.reg]); }
-    return a.name;
+/// Bind each rel atom to the source the PLAN scans: the registry's emitted
+/// name, read once the access plan is applied (a streamed native rel is
+/// `__rel_<r>`, otherwise `__rel_<r>_sl`). After this the core's `name` is
+/// the plan's spelling, as every emitter reads it.
+pub fn core_bind_sources(p: &mut CProgram, prm: &MacroParams) {
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let mut b: i64 = 0i64;
+        while b < p.rels[r].rules.len() {
+            bind_clause(&mut p.rels[r].rules[b].clause, prm);
+            b = b + 1i64;
+        }
+        r = r + 1i64;
+    }
+    bind_clause(&mut p.entry.clause, prm);
 }
 
-// SHADOW (R4.0 step 2): the resolution must agree with the walker's stamping,
-// literal by literal; a disagreement is an ICE naming the first one.
-fn shadow_ice(what: str, a: str, b: str) {
-    let mut m: String = String::new();
-    m.push_str("ICE: deem core_resolve disagrees with the walker's stamping: ");
-    m.push_str(what);
-    m.push_str(": declarations `");
-    m.push_str(a);
-    m.push_str("`, stamped `");
-    m.push_str(b);
-    m.push_str("`");
-    logos.lang.panic::panic(string_as_str(&m));
-}
-
-fn shadow_clause(x: &CClause, y: &CClause, prm: &MacroParams) {
-    if x.body.len() != y.body.len() { shadow_ice("literal count", "", ""); }
-    let xs: &[CLit] = x.body.as_slice();
-    let ys: &[CLit] = y.body.as_slice();
+fn bind_clause(cl: &mut CClause, prm: &MacroParams) {
     let mut i: i64 = 0i64;
-    while i < x.body.len() {
-        match &xs[i] {
+    while i < cl.body.len() {
+        match &mut cl.body[i] {
             CLit::Atom(a) => {
-                match &ys[i] {
-                    CLit::Atom(b) => {
-                        if !str_eq(atom_src(prm, a), b.name) { shadow_ice("atom name", atom_src(prm, a), b.name); }
-                        if !str_eq(a.row_ty, b.row_ty) { shadow_ice("atom row type", a.row_ty, b.row_ty); }
-                        if a.reg != b.reg { shadow_ice("atom registry index", a.name, b.name); }
-                        let sa: i64 = match &a.src { CSrc::Rel(r) => *r, CSrc::Param(_n) => -2i64, CSrc::Unit => -3i64 };
-                        let sb: i64 = match &b.src { CSrc::Rel(r2) => *r2, CSrc::Param(_n2) => -2i64, CSrc::Unit => -3i64 };
-                        if sa != sb { shadow_ice("atom source kind", a.name, b.name); }
-                    }
-                    _ => { shadow_ice("literal kind", "atom", ""); }
+                if a.reg >= 0i64 {
+                    // The registry's Strings live as long as the params the
+                    // planned core is stored in; a raw view does not borrow them.
+                    let sp: *const u8 = prm.rel_srcs[a.reg].as_ptr();
+                    let sn: i64 = prm.rel_srcs[a.reg].len();
+                    a.name = unsafe { str_from_raw(sp, sn) };
                 }
             }
-            CLit::Trav(t) => {
-                match &ys[i] {
-                    CLit::Trav(u) => {
-                        if !str_eq(t.name, u.name) { shadow_ice("traversal source", t.name, u.name); }
-                        if !str_eq(t.row_ty, u.row_ty) { shadow_ice("traversal row type", t.row_ty, u.row_ty); }
-                    }
-                    _ => { shadow_ice("literal kind", "traversal", ""); }
-                }
-            }
+            CLit::Trav(_t) => { }
             CLit::Cond(_c) => { }
         }
         i = i + 1i64;
     }
-}
-
-pub fn core_resolve_shadow(x: &CProgram, y: &CProgram, prm: &MacroParams) {
-    if x.rels.len() != y.rels.len() { shadow_ice("rel count", "", ""); }
-    let xr: &[CRel] = x.rels.as_slice();
-    let yr: &[CRel] = y.rels.as_slice();
-    let mut r: i64 = 0i64;
-    while r < x.rels.len() {
-        if xr[r].rules.len() != yr[r].rules.len() { shadow_ice("rule count", xr[r].name, yr[r].name); }
-        let xs: &[CRule] = xr[r].rules.as_slice();
-        let ys: &[CRule] = yr[r].rules.as_slice();
-        let mut b: i64 = 0i64;
-        while b < xr[r].rules.len() { shadow_clause(&xs[b].clause, &ys[b].clause, prm); b = b + 1i64; }
-        r = r + 1i64;
-    }
-    shadow_clause(&x.entry.clause, &y.entry.clause, prm);
 }

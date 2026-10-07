@@ -969,7 +969,7 @@ pub fn jg_render(r: i32) -> str {
     return "UNSET JOIN GROUND — a decision recorded no rule (a defect, not a reason)";
 }
 
-/// THE GROUND AS ONE WORD — what the plan IR carries (`RQJoinStep.jground`,
+/// THE GROUND AS ONE WORD — what the plan carries (`core::CAtom.ground`,
 /// `RJoin`/`RAnti.jground`) and the chain arrays copy, in place of the sentence
 /// they used to carry: rule in bits 0-7, `asked` in 8-23, `held` in 24-39. One
 /// `i64` in the slot the `str` held, so no node's key layout or capacity moves.

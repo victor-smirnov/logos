@@ -43,18 +43,19 @@ pub enum CSrc {
 pub struct CAtom {
     pub src: CSrc,
     /// The source's index in the walker's registry (`MacroParams.rel_srcs`) in
-    /// a PLANNED core (ADR 0031 R5), -1 otherwise or for a slice parameter.
+    /// a PLANNED core (ADR 0031 R4.0, `typing::core_resolve`), -1 otherwise or
+    /// for a slice parameter.
     pub reg: i64,
-    /// The source as the lowered program spells it (a planned core: the
-    /// walker's emitted name, `__rel_<r>_sl` for a rel).
+    /// The source as the program spells it (a planned core: the plan's
+    /// emitted name for a rel, `typing::core_bind_sources`).
     pub name: str,
     pub var: str,
     pub row_ty: str,
     pub neg: bool,
     pub conds: Vec<WAny>,
-    /// A join step's strategy as the planner recorded it on the step (a
-    /// PROJECTION, until the planner writes it to the plan itself): `jstrat`,
-    /// `jsel`, `jground`. 0 / -1 / 0 for a base atom.
+    /// A join step's strategy as the planner decided it (`plan_decide_chain`,
+    /// on a planned core's entry): `JS_*`, the equi-key term, the packed ground.
+    /// 0 / -1 / 0 = undecided (a base atom, a rel body's step).
     pub strat: i32,
     pub jsel: i32,
     pub ground: i64,
@@ -63,7 +64,8 @@ pub struct CAtom {
 /// A traversal: binds `var` to each element reached from the row bound to
 /// `base` along `path` (`join n.kids k`). Negated = an anti traversal.
 pub struct CTrav {
-    /// The walker's stamped source expression for the collection.
+    /// The source expression the emitters scan for the collection (`d.emps`),
+    /// in a planned core (`typing::core_resolve`).
     pub name: str,
     pub base: str,
     pub path: Vec<str>,
@@ -180,13 +182,11 @@ fn prog_rel_names(root: WAny) -> Vec<str> {
     return out;
 }
 
-/// What a lowering resolves a source name against: the program's rel names
-/// and, for a PLANNED core, the registry's emitted source names (the walker
-/// has rewritten a rel's source to `__rel_<r>_sl` by then, and registered the
-/// native rels after the program's own).
+/// What a lowering resolves a source name against: the program's rel names.
+/// (The registry — native rels, emitted names, row types — is the
+/// declarations', read by `typing::core_resolve`.)
 pub struct CLower {
     pub names: Vec<str>,
-    pub reg: Vec<str>,
 }
 
 fn rel_index(rels: &Vec<str>, name: str) -> i64 {
@@ -198,14 +198,10 @@ fn rel_index(rels: &Vec<str>, name: str) -> i64 {
     return -1i64;
 }
 
-fn reg_of(lx: &CLower, name: str) -> i64 { return rel_index(&lx.reg, name); }
-
 fn src_of(lx: &CLower, name: str) -> CSrc {
     if name.len() == 0i64 { return CSrc::Unit; }
     let r: i64 = rel_index(&lx.names, name);
     if r >= 0i64 { return CSrc::Rel(r); }
-    let g: i64 = reg_of(lx, name);
-    if g >= 0i64 && g < lx.names.len() { return CSrc::Rel(g); }
     return CSrc::Param(name);
 }
 
@@ -218,7 +214,7 @@ fn base_atom(lx: &CLower, src: str, var: str, row_ty: str) -> CLit {
     // A FROM-less `select` names no row; its one row is `__unit`'s, bound to
     // `__u` — the names `desugar_program_facts` gives the same rewrite.
     let v: str = if src.len() == 0i64 && var.len() == 0i64 { "__u" } else { var };
-    return CLit::Atom(CAtom { src: src_of(lx, src), reg: reg_of(lx, src), name: src, var: v, row_ty: row_ty,
+    return CLit::Atom(CAtom { src: src_of(lx, src), reg: -1i64, name: src, var: v, row_ty: row_ty,
                               neg: false, conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
 }
 
@@ -243,9 +239,9 @@ fn lower_steps(lx: &CLower, steps: WAny, body: &mut Vec<CLit>) {
             body.push(CLit::Trav(CTrav { name: st.src_name, base: st.base_var, path: path, var: st.var_name,
                                          row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
         } else {
-            body.push(CLit::Atom(CAtom { src: src_of(lx, st.src_name), reg: reg_of(lx, st.src_name), name: st.src_name, var: st.var_name,
+            body.push(CLit::Atom(CAtom { src: src_of(lx, st.src_name), reg: -1i64, name: st.src_name, var: st.var_name,
                                          row_ty: st.row_ty, neg: st.is_anti, conds: conds,
-                                         strat: st.jstrat, jsel: st.jsel, ground: st.jground }));
+                                         strat: 0i32, jsel: -1i32, ground: 0i64 }));
         }
         if !st.is_anti && has_on { body.push(CLit::Cond(CCond { e: on, site: CSite::On })); }
         i = i + 1i64;
@@ -327,12 +323,7 @@ pub fn envelope_new() -> CEnvelope {
 
 /// The whole program: every rel's bodies, then the entry.
 pub fn lower_program(root: WAny) -> CProgram {
-    return lower_program_reg(root, Vec::<str>::new());
-}
-
-/// The lowering with a registry to resolve against (a PLANNED core).
-pub fn lower_program_reg(root: WAny, reg: Vec<str>) -> CProgram {
-    let lx: CLower = CLower { names: prog_rel_names(root), reg: reg };
+    let lx: CLower = CLower { names: prog_rel_names(root) };
     let names: &Vec<str> = &lx.names;
     let prog: RQProgram = root.view::<RQProgram>();
     let mut rels: Vec<CRel> = Vec::<CRel>::new();
@@ -705,19 +696,16 @@ pub fn core_empty() -> CProgram {
                       strs: Vec::<String>::new() };
 }
 
-/// The PLANNED core (ADR 0031 R5): the program the walker is about to emit —
-/// after the demand rewrite, the fact desugar and the walker's own source
-/// rewrites — lowered again, each atom resolved against the registry.
+/// The PLANNED core (ADR 0031 R5) is complete: the program the walker is about
+/// to emit, resolved, decided and bound. Verified like the first core;
 /// `LOGOS_DEEM_DUMP=pcore` prints it.
-pub fn core_build_planned(root: WAny, name: str, reg: Vec<str>) -> CProgram {
-    let p: CProgram = lower_program_reg(root, reg);
-    core_verify(&p);
+pub fn core_planned_done(p: &CProgram, name: str) {
+    core_verify(p);
     if core_dump_mode("pcore") {
         let mut s: String = String::new();
-        core_text(&p, name, &mut s);
+        core_text(p, name, &mut s);
         unsafe { write(2i32, s.as_ptr(), s.len()); }
     }
-    return p;
 }
 
 /// Lower, verify, and dump when asked. The one entry point the handler calls.
