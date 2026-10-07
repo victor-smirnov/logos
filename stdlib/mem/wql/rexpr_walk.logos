@@ -3736,12 +3736,60 @@ fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, ktn: str,
 // promises this cannot happen (it only marks a step read-once when its
 // strategy reads once); the check is here because the cost of the promise
 // being broken is silence rather than a crash.
+/// ADR 0031 R6.7b — THE STEPS OF ONE NEST, analysed once: per step its build
+/// and probe texts, residual and full predicate, the plan's strategy, the key's
+/// emitted type, and the residual / equi-key / streamed flags. One record for
+/// every nest emitter (entry join, aggregate over a join, rel body), which
+/// used to carry nine parallel vectors each.
+struct NestSteps {
+    build:  Vec<String>,
+    probe:  Vec<String>,
+    resid:  Vec<String>,
+    pred:   Vec<String>,
+    strat:  Vec<i32>,
+    ktn:    Vec<str>,
+    hasres: Vec<bool>,
+    equi:   Vec<bool>,
+    stream: Vec<bool>,
+}
+
+fn nest_steps_new(n: i64) -> NestSteps {
+    return NestSteps { build: vec![String::new(); n], probe: vec![String::new(); n],
+                       resid: vec![String::new(); n], pred: vec![String::new(); n],
+                       strat: vec![0i32; n], ktn: str_vec(n), hasres: vec![false; n],
+                       equi: vec![false; n], stream: vec![false; n] };
+}
+
+/// Wrap `inner` in the nest's steps, innermost (last-bound) step first.
+fn nest_wrap(prm: &MacroParams, ch: &DNest, ns: &NestSteps, inner0: ExprBlob,
+             lim_f: ExprBlob, has_lim_use: bool) -> ExprBlob {
+    let mut inner: ExprBlob = inner0;
+    let mut ki: i64 = ch.n - 1i64;
+    while ki >= 0i64 {
+        inner = step_wrap(prm, inner, ki + 1i64, ns.strat[ki], ch.anti[ki],
+                          ns.hasres[ki], ns.ktn[ki], ch.src[ki], ch.ty[ki],
+                          ch.var[ki], ch.byval[ki], string_as_str(&ns.probe[ki]),
+                          string_as_str(&ns.resid[ki]), string_as_str(&ns.pred[ki]),
+                          lim_f, has_lim_use, ns.stream[ki]);
+        ki = ki - 1i64;
+    }
+    return inner;
+}
+
+/// One build phase per step (and its Arrange node on the plan), in step order.
+fn nest_builds(prm: &MacroParams, ch: &DNest, ns: &NestSteps, bps: &mut Vec<ExprBlob>) {
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        arrange_node(prm, ch.src[bpi], ch.var[bpi], ns.strat[bpi]);
+        bps.push(build_phase_frag(prm, bpi + 1i64, ns.strat[bpi], ch.anti[bpi], ns.hasres[bpi],
+                                  ns.ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                                  string_as_str(&ns.build[bpi]), ns.stream[bpi]));
+        bpi = bpi + 1i64;
+    }
+}
+
 fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
-                 st_build: &mut Vec<String>, st_probe: &mut Vec<String>,
-                 st_resid: &mut Vec<String>, st_pred: &mut Vec<String>,
-                 st_strat: &mut Vec<i32>, st_ktn: &mut Vec<str>,
-                 st_hasres: &mut Vec<bool>, st_equi: &mut Vec<bool>,
-                 st_stream: &mut Vec<bool>) -> bool {
+                 ns: &mut NestSteps) -> bool {
     let mut i: i64 = 0i64;
     while i < ch.n {
         // ADR 0025 S2g — THE PLAN'S NODE, not a shape read off a boolean. A
@@ -3751,17 +3799,17 @@ fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams
         // authority — see `MacroParams::rel_src_unmaterialized`, which carries
         // the equivalence argument (`plan_apply_access` writes `AD_NONE`
         // under exactly the `ap.stream[ri]` that sets `rel_stream[ri]`).
-        st_stream[i] = prm.rel_src_unmaterialized(ch.src[i]);
+        ns.stream[i] = prm.rel_src_unmaterialized(ch.src[i]);
         if ch.edge[i] {
-            st_strat[i]  = JS_LOOP();
-            st_ktn[i]    = "";
-            st_hasres[i] = false;
-            st_equi[i]   = false;
+            ns.strat[i]  = JS_LOOP();
+            ns.ktn[i]    = "";
+            ns.hasres[i] = false;
+            ns.equi[i]   = false;
             if ch.onw[i] != 0i64 {
                 let on_opt: WRef<SExpr> = simplify_sexpr(sexpr_of_word(ch.onw[i]), h);
-                emit_sexpr(&mut st_pred[i], on_opt.any().view::<SExpr>(), t, var0);
+                emit_sexpr(&mut ns.pred[i], on_opt.any().view::<SExpr>(), t, var0);
             } else {
-                st_pred[i].push_str("true");
+                ns.pred[i].push_str("true");
             }
         } else {
             let onr: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(ch.onw[i] as *const u8) });
@@ -3784,7 +3832,7 @@ fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams
                     }
                 }
             }
-            if st_stream[i] && !js_reads_once(strat) {
+            if ns.stream[i] && !js_reads_once(strat) {
                 let mut m: String = String::new();
                 m.push_str("wql!: internal — join step over `");
                 m.push_str(ch.src[i]);
@@ -3792,12 +3840,12 @@ fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams
                 error(string_as_str(&m));
                 return false;
             }
-            st_strat[i]  = strat;
-            st_hasres[i] = emit_step_texts(onr, ch.var[i], sel, ktn, t, var0, h,
-                                           &mut st_build[i], &mut st_probe[i],
-                                           &mut st_resid[i], &mut st_pred[i]);
-            st_ktn[i]    = ktn;
-            st_equi[i]   = sel >= 0i64;
+            ns.strat[i]  = strat;
+            ns.hasres[i] = emit_step_texts(onr, ch.var[i], sel, ktn, t, var0, h,
+                                           &mut ns.build[i], &mut ns.probe[i],
+                                           &mut ns.resid[i], &mut ns.pred[i]);
+            ns.ktn[i]    = ktn;
+            ns.equi[i]   = sel >= 0i64;
         }
         i = i + 1i64;
     }
@@ -4661,19 +4709,8 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
                    qvars: &Vec<str>, nq: i64,
                    bps: &mut Vec<ExprBlob>, out: &mut ExprBlob) -> bool {
     // Per-step strategy analysis (Part 2) — chosen by the plan, read here.
-    let mut st_build: Vec<String> = vec![String::new(); ch.n];
-    let mut st_probe: Vec<String> = vec![String::new(); ch.n];
-    let mut st_resid: Vec<String> = vec![String::new(); ch.n];
-    let mut st_pred:  Vec<String> = vec![String::new(); ch.n];
-    let mut st_strat:  Vec<i32>  = vec![0i32; ch.n];
-    let mut st_ktn:    Vec<str>  = str_vec(ch.n);
-    let mut st_hasres: Vec<bool> = vec![false; ch.n];
-    let mut st_equi:   Vec<bool> = vec![false; ch.n];
-    let mut st_stream: Vec<bool> = vec![false; ch.n];
-    if !analyze_chain(ch, ty, ch.base_var, h, prm,
-                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
-                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
-                      &mut st_stream) { return false; }
+    let mut ns: NestSteps = nest_steps_new(ch.n);
+    if !analyze_chain(ch, ty, ch.base_var, h, prm, &mut ns) { return false; }
 
     // The bound sources of THIS order: the generated row-index expression each
     // one contributes to the sort's tuple, and the query slot it belongs in.
@@ -4685,7 +4722,7 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     let mut bi: i64 = 0i64;
     while bi < ch.n {
         if !ch.anti[bi] {
-            if st_strat[bi] == JS_LOOP() { bidx[nb].push_str("__j"); }
+            if ns.strat[bi] == JS_LOOP() { bidx[nb].push_str("__j"); }
             else                         { bidx[nb].push_str("__ri"); }
             bidx[nb].push_i64(bi + 1i64);
             bslot[nb] = qslot_of(qvars, nq, ch.var[bi]);
@@ -4723,15 +4760,7 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     }
 
     // Wrap one step at a time, innermost step LAST-bound first.
-    let mut ki: i64 = ch.n - 1i64;
-    while ki >= 0i64 {
-        inner = step_wrap(prm, inner, ki + 1i64, st_strat[ki], ch.anti[ki],
-                          st_hasres[ki], st_ktn[ki], ch.src[ki], ch.ty[ki],
-                          ch.var[ki], ch.byval[ki], string_as_str(&st_probe[ki]),
-                          string_as_str(&st_resid[ki]), string_as_str(&st_pred[ki]),
-                          lim_f, has_lim_use, st_stream[ki]);
-        ki = ki - 1i64;
-    }
+    inner = nest_wrap(prm, ch, &ns, inner, lim_f, has_lim_use);
 
     // The base loop. The DRIVING side may stream: it is the outermost loop of a
     // left-deep nest, so it is read once by construction — which is the fact the
@@ -4819,14 +4848,7 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
 
     // Build phases — one per hash/tree step, spliced by the caller BEFORE the
     // nest (at body level for one order, inside the branch for two).
-    let mut bpi: i64 = 0i64;
-    while bpi < ch.n {
-        arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
-        bps.push(build_phase_frag(prm, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
-                                  st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                                  string_as_str(&st_build[bpi]), st_stream[bpi]));
-        bpi = bpi + 1i64;
-    }
+    nest_builds(prm, ch, &ns, bps);
     *out = nest;
     return true;
 }
@@ -5687,19 +5709,8 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
                            &agg_flt, &agg_cast, &acc, &mut agg_body) { return false; }
 
     // Per-step strategy analysis (the same Part-2 cascade as the join shape).
-    let mut st_build: Vec<String> = vec![String::new(); ch.n];
-    let mut st_probe: Vec<String> = vec![String::new(); ch.n];
-    let mut st_resid: Vec<String> = vec![String::new(); ch.n];
-    let mut st_pred:  Vec<String> = vec![String::new(); ch.n];
-    let mut st_strat:  Vec<i32>  = vec![0i32; ch.n];
-    let mut st_ktn:    Vec<str>  = str_vec(ch.n);
-    let mut st_hasres: Vec<bool> = vec![false; ch.n];
-    let mut st_equi:   Vec<bool> = vec![false; ch.n];
-    let mut st_stream: Vec<bool> = vec![false; ch.n];
-    if !analyze_chain(&ch, &ty, ch.base_var, h, prm,
-                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
-                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
-                      &mut st_stream) { return false; }
+    let mut ns: NestSteps = nest_steps_new(ch.n);
+    if !analyze_chain(&ch, &ty, ch.base_var, h, prm, &mut ns) { return false; }
 
     // ══ the BODY is a QUOTE too (ADR 0024 S5) ═════════════════════════════
     // This emitter carries BOTH runtime-shaped dimensions at once — a nest
@@ -5730,14 +5741,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     // ⚠ The `// join strategy: …` trace line is GONE — see emit_join_chain.
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut bpi: i64 = 0i64;
-    while bpi < ch.n {
-        arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
-        bps.push(build_phase_frag(prm, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
-                                  st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                                  string_as_str(&st_build[bpi]), st_stream[bpi]));
-        bpi = bpi + 1i64;
-    }
+    nest_builds(prm, &ch, &ns, &mut bps);
 
     // Accumulator columns: one Vec per aggregate, plus the group key, the row
     // count, and the group's REPRESENTATIVE base row.
@@ -5902,15 +5906,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // The joined-stream nest (NO limit on the match loops — grouping needs
     // every row; `limit` caps the group-row OUTPUT phase below).
     let no_lim: ExprBlob = parse_expr("0i64");
-    let mut ki2: i64 = ch.n - 1i64;
-    while ki2 >= 0i64 {
-        inner = step_wrap(prm, inner, ki2 + 1i64, st_strat[ki2], ch.anti[ki2],
-                          st_hasres[ki2], st_ktn[ki2], ch.src[ki2], ch.ty[ki2],
-                          ch.var[ki2], ch.byval[ki2], string_as_str(&st_probe[ki2]),
-                          string_as_str(&st_resid[ki2]), string_as_str(&st_pred[ki2]),
-                          no_lim, false, st_stream[ki2]);
-        ki2 = ki2 - 1i64;
-    }
+    inner = nest_wrap(prm, &ch, &ns, inner, no_lim, false);
     // ── ADR 0025 S5-D5: THE AGGREGATE'S BASE IS A SCAN LIKE ANY OTHER ───────
     //
     // S4 left the fold single-pass at the OPERATOR and indexed at the ARTIFACT:
@@ -11153,19 +11149,8 @@ fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
     }
 
     // Per-step strategy analysis (the same cascade as the query join shape).
-    let mut st_build: Vec<String> = vec![String::new(); ch.n];
-    let mut st_probe: Vec<String> = vec![String::new(); ch.n];
-    let mut st_resid: Vec<String> = vec![String::new(); ch.n];
-    let mut st_pred:  Vec<String> = vec![String::new(); ch.n];
-    let mut st_strat:  Vec<i32>  = vec![0i32; ch.n];
-    let mut st_ktn:    Vec<str>  = str_vec(ch.n);
-    let mut st_hasres: Vec<bool> = vec![false; ch.n];
-    let mut st_equi:   Vec<bool> = vec![false; ch.n];
-    let mut st_stream: Vec<bool> = vec![false; ch.n];
-    if !analyze_chain(ch, &ty, ch.base_var, h, prm,
-                      &mut st_build, &mut st_probe, &mut st_resid, &mut st_pred,
-                      &mut st_strat, &mut st_ktn, &mut st_hasres, &mut st_equi,
-                      &mut st_stream) { return false; }
+    let mut ns: NestSteps = nest_steps_new(ch.n);
+    if !analyze_chain(ch, &ty, ch.base_var, h, prm, &mut ns) { return false; }
 
     // The body block: builds + nest + shared inner push. A FRAGMENT — the
     // caller collects one per rel body and splices the run into its fn.
@@ -11188,24 +11173,9 @@ fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
         push_f = quote_block! { if (#(where_f)) #(push_f) };
     }
     let no_lim: ExprBlob = parse_expr("0i64");
-    let mut ki: i64 = ch.n - 1i64;
-    while ki >= 0i64 {
-        push_f = step_wrap(prm, push_f, ki + 1i64, st_strat[ki], ch.anti[ki],
-                           st_hasres[ki], st_ktn[ki], ch.src[ki], ch.ty[ki],
-                           ch.var[ki], ch.byval[ki], string_as_str(&st_probe[ki]),
-                           string_as_str(&st_resid[ki]), string_as_str(&st_pred[ki]),
-                           no_lim, false, st_stream[ki]);
-        ki = ki - 1i64;
-    }
+    push_f = nest_wrap(prm, ch, &ns, push_f, no_lim, false);
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut bpi: i64 = 0i64;
-    while bpi < ch.n {
-        arrange_node(prm, ch.src[bpi], ch.var[bpi], st_strat[bpi]);
-        bps.push(build_phase_frag(prm, bpi + 1i64, st_strat[bpi], ch.anti[bpi], st_hasres[bpi],
-                                  st_ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                                  string_as_str(&st_build[bpi]), st_stream[bpi]));
-        bpi = bpi + 1i64;
-    }
+    nest_builds(prm, ch, &ns, &mut bps);
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
     let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
     let base_vnm:   Ident    = Ident::new(ch.base_var);
