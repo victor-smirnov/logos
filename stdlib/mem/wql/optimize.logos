@@ -397,46 +397,6 @@ pub fn simplify_sexpr(e: SExpr, h: &Writ) -> WRef<SExpr> {
     }
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Phase 3 — RELATIONAL optimizer passes over the RExpr algebra tree.
-//
-// `simplify_rexpr` is the RExpr→RExpr peephole pipeline, run AFTER the embedded
-// scalar clauses are const-folded (`simplify_sexpr`) and BEFORE emission. It
-// preserves semantics EXACTLY — a folded/rewritten plan computes identical rows —
-// while shrinking the tree the emitter walks. Three rules (all provably safe):
-//
-//   (a) FILTER FOLDING — an `RFilter` whose predicate const-folds to
-//         • `true`  → the filter is DROPPED (return its input; every row passes);
-//         • `false` → the whole sub-plan is EMPTY (signalled to the emitter so it
-//                     emits an empty `Vec` directly, skipping the scan loop).
-//   (b) IDENTITY PROJECTION — `RProj(RScan, select v)` where the projection is
-//       exactly the row identity (a bare loop-var reference `v`) over an
-//       UNFILTERED scan: the result IS the source slice, so the emitter can BORROW
-//       and return `&[Row]` instead of copying every row into a fresh `Vec` (the
-//       accessor-collapse peephole).
-//   (c) PROJECTION COMPOSITION — `RProj(RProj(x, _inner), outer)` collapses to a
-//       single `RProj(x, outer)` (the inner projection's rows are re-projected, so
-//       only the outer selection survives). A safety net; the surface never stacks
-//       projections today, but the peephole makes the pass total over the algebra.
-//
-// The pass returns an `RSimplified` carrying the rewritten root PLUS two emission
-// signals (`empty`, `identity`) — cheaper than adding an `REmpty`/`RPass` schema
-// variant (which would churn every exhaustive `match RExpr` in-tree). The emitter
-// reads the flags and emits the thinner form; when neither fires it walks the
-// (possibly filter-collapsed) tree exactly as before.
-// ════════════════════════════════════════════════════════════════════════════
-
-// The result of the RExpr peephole pass:
-//   • `root`     — the rewritten algebra tree (an `RProj` root, or the input's
-//                  input when a const-true filter was dropped);
-//   • `empty`    — a const-false filter proved the plan yields NO rows; the
-//                  emitter emits an empty `Vec` (no scan loop);
-//   • `identity` — an unfiltered identity projection; the emitter returns the
-//                  source slice directly (`&[Row]`), skipping the copy loop.
-// `empty` and `identity` are mutually exclusive; when both are false the emitter
-// walks `root` unchanged.
-
-
 // True iff `sel` is a BARE identity reference to the loop variable `var_name` —
 // i.e. `select v` where `v` is the scan's row variable. In the self-describing
 // IR a bare identifier parses to an `SField` with a NULL base whose `name` is the
@@ -456,56 +416,6 @@ pub fn is_identity_sel(sel: WRef<SExpr>, var_name: str) -> bool {
         _ => { return false; }
     }
 }
-
-// The RScan var-name reachable under a (possibly filtered) relational input, or
-// "" if the input is not a bare scan / filtered-scan. Used to test identity
-// projection against the loop variable.
-
-// Rebuild an `RFilter(input, pred)` node in `h`.
-
-// Rebuild an `RProj(input, sel)` node in `h`.
-
-// Rebuild an `RSort(input, key, desc)` node in `h`.
-
-// Rebuild an `RLimit(input, n, is_param, param)` node in `h`.
-
-// Rebuild an `RDistinct(input)` node in `h`.
-
-// Peel RDistinct wrappers down to the projection root — the EMPTY signal's root
-// must be a bare `RProj` (the thin emitter reads the scan signature + `sel` off
-// it), so an empty-collapse under a wrapper hands back the unwrapped proj edge.
-
-// Simplify a RELATIONAL sub-tree that is NOT the projection root — a scan /
-// filter / (nested) sub-plan. Returns the rewritten edge + empty signal. Filter
-// folding lives here (rule a). Scans and the join/anti/aggr bodies pass through
-// unchanged (their embedded scalar clauses are folded by `emit_rexpr`, which runs
-// `simplify_sexpr` per clause; the RELATIONAL shape of those is not rewritten in
-// Phase 3 — only filters over them collapse).
-// Takes the input's edge HANDLE (`in_ref`) so the pass-through case returns it
-// verbatim (no `as_ref` re-derivation off a local view, which the borrow checker
-// rejects). `e` is that handle's view.
-
-// ── simplify_rexpr — the RExpr→RExpr pass entry ───────────────────────────────
-// The lowered plan is rooted at `RLimit?( RDistinct?( RProj(body, sel) ) )`.
-// The wrapper cases recurse inward first, then fold:
-//   • limit 0 (literal)            → EMPTY (no output can survive);
-//   • limit / distinct over EMPTY  → EMPTY (wrapper dropped);
-//   • otherwise the wrapper is rebuilt over the simplified inner root — and the
-//     IDENTITY collapse is GATED OFF (a distinct/limit changes the row set, so
-//     the source slice can NOT be returned unchanged).
-// Under the projection root: simplify the body (rules a + d: filter/sort
-// folding, propagating the empty signal), then apply the projection peepholes
-// (rules b, c). Takes the root edge HANDLE `root_ref` so the pass-through case
-// returns it without re-deriving a ref.
-
-// Assemble the projection root over an already-simplified body, applying the
-// identity-projection peephole (rule b): a bare identity `select v` over an
-// UNFILTERED scan whose loop var is `v` needs no per-row copy — the emitter can
-// return the source slice. Otherwise rebuild `RProj(body, sel)`.
-
-// Wrap an EMPTY body (a const-false filter proved it yields no rows) back into a
-// `RProj(body, sel)` so the emitter sees a full projection root — it reads the
-// scan (signature) + `sel` (result type) off it, then emits an empty-Vec return.
 
 // ════════════════════════════════════════════════════════════════════════════
 // SHARED IR-LEVEL JOIN-STEP ANALYSIS (the pure half of the join-strategy

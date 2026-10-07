@@ -56,48 +56,6 @@ pub fn make_scan(h: &Writ, src_name: str, row_ty: str, var_name: str) -> WRef<RE
     return WRef::<RExpr>::from_any(n.as_ref());
 }
 
-// Wrap `input` in an RFilter over `pred`.
-pub fn make_filter(h: &Writ, input: WRef<RExpr>, pred: WRef<SExpr>) -> WRef<RExpr> {
-    let n: RFilter = h.make::<RFilter>();
-    n.input = input;
-    n.pred  = pred;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RProj over the projection `sel`.
-pub fn make_proj(h: &Writ, input: WRef<RExpr>, sel: WRef<SExpr>) -> WRef<RExpr> {
-    let n: RProj = h.make::<RProj>();
-    n.input = input;
-    n.sel   = sel;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RSort by `key` (asc; `desc` flips).
-pub fn make_sort(h: &Writ, input: WRef<RExpr>, key: WRef<SExpr>, desc: bool) -> WRef<RExpr> {
-    let n: RSort = h.make::<RSort>();
-    n.input = input;
-    n.key   = key;
-    n.desc  = desc;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RLimit (first-n; literal or scalar-param name).
-pub fn make_limit(h: &Writ, input: WRef<RExpr>, n0: i64, is_param: bool, param: str) -> WRef<RExpr> {
-    let n: RLimit = h.make::<RLimit>();
-    n.input    = input;
-    n.n        = n0;
-    n.is_param = is_param;
-    n.param    = param;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
-// Wrap `input` in an RDistinct (dedup the projected values).
-pub fn make_distinct(h: &Writ, input: WRef<RExpr>) -> WRef<RExpr> {
-    let n: RDistinct = h.make::<RDistinct>();
-    n.input = input;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
-
 // An IDENTITY projection selector — a bare identifier naming the loop var (the
 // exact node shape the EL parser builds for a bare ident: SField, NULL base).
 // `find P` lowers with this selector so the tree stays a well-formed RProj and

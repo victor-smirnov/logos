@@ -2132,7 +2132,7 @@ fn emit_none_find(scan_e: RExpr, fn_name: str, params_text: str,
     // the list the chunk route builds for every other emitter.
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), "",
                   quote_block! { return Result::Ok(Option::None); }, prm,
-                  prep_ground(WG_FALSE_PRED(), input_axis(scan_e)));
+                  prep_ground(WG_FALSE_PRED(), chain_axis(0i64)));
     return true;
 }
 
@@ -2161,7 +2161,7 @@ fn emit_head_row(scan_e: RExpr, fn_name: str, params_text: str,
         return Result::Ok(Option::None);
     };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), "", bt, prm,
-                  prep_ground(WG_HEAD(), input_axis(scan_e)));
+                  prep_ground(WG_HEAD(), chain_axis(0i64)));
     return true;
 }
 
@@ -2187,7 +2187,7 @@ fn emit_identity(scan_e: RExpr,
     let s1: ExprBlob = parse_expr(src_name);
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), "",
                   quote_block! { return Result::Ok(#(s1)); }, prm,
-                  prep_ground(WG_IDENTITY(), input_axis(scan_e)));
+                  prep_ground(WG_IDENTITY(), chain_axis(0i64)));
     return true;
 }
 
@@ -2243,22 +2243,11 @@ pub fn emit_entry_simple(ds: &DSimple, fn_name: str, params_text: str, prm: &Mac
 
 
 
-// The RScan bound under a (possibly wrapped) input. TOTAL over the algebra
-// (every compound node recurses into its input / left child) — an unexpected
-// shape resolves to SOME scan rather than diverging.
+// The RScan bound under a (possibly filtered) comprehension source.
 fn scan_of(e: RExpr) -> RScan {
     match e {
         RExpr::Scan(sc)     => { return sc; }
         RExpr::Filter(f)    => { return scan_of(f.input_expr()); }
-        RExpr::Sort(s)      => { return scan_of(s.input_expr()); }
-        RExpr::Proj(p)      => { return scan_of(p.input_expr()); }
-        RExpr::Limit(l)     => { return scan_of(l.input_expr()); }
-        RExpr::Distinct(d)  => { return scan_of(d.input_expr()); }
-        RExpr::Aggr(ag)     => { return scan_of(ag.input_expr()); }
-        RExpr::Join(jn)     => { return scan_of(jn.left_expr()); }
-        RExpr::Anti(an)     => { return scan_of(an.left_expr()); }
-        RExpr::Edge(ed)     => { return scan_of(ed.input_expr()); }
-        RExpr::Fix(fx)      => { return scan_of(fx.base.any().view::<RExpr>()); }
     }
 }
 
@@ -3426,7 +3415,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // its `direct` form instead, and the two would collide on one name.
     let selem: str = if first || dx_on { "" } else { result_elem };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, body_f, prm,
-                  prep_ground(WG_SCAN(), input_axis(scan_e)));
+                  prep_ground(WG_SCAN(), chain_axis(0i64)));
     if dx_on {
         emit_stream_direct(fn_name, params_text, prm.tparams, result_elem, prm,
                            dx_rel, dx_rowmaj, string_as_str(&dx_walk), string_as_str(&dx_ctor),
@@ -3529,7 +3518,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     rty.push_str(row_ty);
     rty.push_str(">, ElError>");
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), "", body_f, prm,
-                  prep_ground(WG_SCAN(), input_axis(scan_e)));
+                  prep_ground(WG_SCAN(), chain_axis(0i64)));
     return true;
 }
 
@@ -3613,51 +3602,6 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 fn chain_axis(n: i64) -> i32 {
     if n > 0i64 { return AX_REFUSED(); }
     return AX_NONE();
-}
-
-/// The same question asked of an un-linearized input. `emit_aggregate` and
-/// `emit_join_chain` already hold a `DNest` and pass `ch.n` to `chain_axis`
-/// directly; the thin emitters do not, so they walk the spine once here.
-fn input_axis(e: RExpr) -> i32 {
-    let mut ch: DNest = dnest_new();
-    collect_chain(e, &mut ch);
-    return chain_axis(ch.n);
-}
-
-// Walk the left spine of the binary join tree: the recursion bottoms out at
-// the base scan, then each unwind appends one step (source order preserved).
-fn collect_chain(e: RExpr, ch: &mut DNest) {
-    match e {
-        RExpr::Join(jn) => {
-            collect_chain(jn.left_expr(), ch);
-            let rs: RScan = scan_of(jn.right_expr());
-            dn_push(ch, rs.src_name, rs.row_ty, rs.var_name, false, jn.on.any().raw(), false, false,
-                    jn.jstrat, jn.jsel as i64, jn.jground);
-            return;
-        }
-        RExpr::Anti(an) => {
-            collect_chain(an.left_expr(), ch);
-            let rs: RScan = scan_of(an.right_expr());
-            dn_push(ch, rs.src_name, rs.row_ty, rs.var_name, true, an.on.any().raw(), false, false,
-                    an.jstrat, an.jsel as i64, an.jground);
-            return;
-        }
-        RExpr::Edge(ed) => {
-            // TRAVERSAL step (slice D): unary — recurse into the input, then
-            // append one edge step (src = the field-path expression text).
-            collect_chain(ed.input_expr(), ch);
-            let eon: i64 = if ed.has_on { ed.on.any().raw() } else { 0i64 };
-            dn_push(ch, ed.src, ed.row_ty, ed.var_name, ed.is_anti, eon, true,
-                    el_ret_class(ed.row_ty) >= 0i32, 0i32, -1i64, 0i64);
-            return;
-        }
-        _ => {
-            let sc: RScan = scan_of(e);
-            ch.base_src = sc.src_name;
-            ch.base_ty  = sc.row_ty;
-            ch.base_var = sc.var_name;
-        }
-    }
 }
 
 // Rebuild an SExpr view from a raw arena word (the provenance-laundering idiom).

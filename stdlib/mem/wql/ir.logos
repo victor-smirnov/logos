@@ -282,62 +282,19 @@ impl RAggArr {
 // name) so the executable algebra is self-sufficient to emit the scan loop — the
 // query-PLAN's `from src:[Ty] var` recovered onto the leaf, self-describing IR.
 pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name: str = 1, row_ty: str = 2, var_name: str = 3 } // scan a source: name + row-type + loop var
-// REdge — the GRAPH STEP (slice D, collection-field traversal): range a new row
-// var over a COLLECTION FIELD PATH of an already-bound row var. Self-describing:
-//   `base_var`/`path` — the semantic step (`d` + "emps.skills" — queue-2's
-//   interpreter re-resolves these against its own row bindings);
-//   `src` — the full source EXPRESSION text (`d.emps.skills`, walker-stamped) —
-//   the static emitter's scan spelling (`while i < (src).len()`);
-//   `var_name`/`row_ty` — the new binding + its ELEMENT type;
-//   `on`/`has_on` — the OPTIONAL residual filter (containment IS the join);
-//   `is_anti` — anti-traversal: keep the bound row iff NO element satisfies
-//   `on` (no `on` ⇒ iff the collection is empty).
-// Traversal is ALWAYS nested-loop (its source depends on outer row vars, so no
-// build-once index exists) — the join-strategy cascade bypasses REdge steps.
-pub schema REdge   : code(0x0011_0000_0000_0001) { input: WRef<RExpr> = 0, src: str = 1, base_var: str = 2, path: str = 3, var_name: str = 4, row_ty: str = 5, on: WRef<SExpr> = 6, has_on: bool = 7, is_anti: bool = 8 }
 pub schema RFilter : code(0x0011_0000_0000_0002) { input: WRef<RExpr> = 0, pred: WRef<SExpr> = 1 }    // σ
-pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, sel: WRef<SExpr> = 1 }     // π — the projection expr
-// RJoin / RAnti carry the PLAN's decision for the step, not just its shape
-// (ADR 0024 S4): `jstrat` — hash / tree / loop, `JS_NONE` when no planner has
-// looked at this node; `jkey` — the equi-key's value class; `jsel` — WHICH term
-// of the const-folded `on` conjunction supplies the key (-1 = none), so the
-// emitter composes build/probe/residual without re-running the selection rule;
-// `jground` — the ground (rule + facts, why.logos `jg_pack`), travelling with
-// the decision; its sentence is rendered at the edge. Lowering copies these off
-// the surface step; the relational peephole passes the join subtree through
-// unchanged, so they survive to the emitter.
-pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jsel: i32 = 5, jground: i64 = 6 }
-pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jsel: i32 = 5, jground: i64 = 6 }
-pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, aggs: WRef<RAggArr> = 2 } // γ — single group key + agg specs
-pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: WRef<RExpr> = 1 }      // fixpoint — DECLARED, NOT impl in queue 1
-// ── ORDER/LIMIT/DISTINCT tier (`select [distinct] S [order by O [desc]] [limit …]`) ──
-// RSort sits UNDER the projection (its key ranges over the input rows — the scan
-// vars, or the group key + aggregate outputs); RDistinct / RLimit sit ABOVE the
-// projection (they act on the PROJECTED values). `having` has NO node of its own:
-// it lowers to an RFilter over the RAggr output (one filter mechanism).
-pub schema RSort     : code(0x0011_0000_0000_0008) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, desc: bool = 2 } // τ — ONE sort key, asc/desc
-pub schema RLimit    : code(0x0011_0000_0000_0009) { input: WRef<RExpr> = 0, n: i64 = 1, is_param: bool = 2, param: str = 3 } // first-n (literal or scalar-param name)
-pub schema RDistinct : code(0x0011_0000_0000_000A) { input: WRef<RExpr> = 0 }                          // δ — dedup projected values
-
+// ADR 0031 R6.7c — what is left of the relational algebra is a COMPREHENSION's
+// source and filter (`[h for x in xs if p]`, built by the EL parser). Joins,
+// anti joins, traversals, aggregates, projections and the envelope nodes were
+// the deleted relational entry path's; the plan is `dplan` over the core.
 pub schema enum RExpr : category(0x0011_0000_0000_0000) {
-    Scan(RScan), Edge(REdge), Filter(RFilter), Proj(RProj),
-    Join(RJoin), Anti(RAnti), Aggr(RAggr), Fix(RFix),
-    Sort(RSort), Limit(RLimit), Distinct(RDistinct),
+    Scan(RScan), Filter(RFilter),
 }
 
 // Relational-node edge handles (same provenance-laundering rationale as the
 // scalar `as_ref` above): the WAny ref targets the node's TOM in the arena.
 impl RScan   { pub fn as_ref(self: RScan)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl REdge   { pub fn as_ref(self: REdge)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl RFilter { pub fn as_ref(self: RFilter) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RProj   { pub fn as_ref(self: RProj)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RJoin   { pub fn as_ref(self: RJoin)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RAnti   { pub fn as_ref(self: RAnti)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RAggr   { pub fn as_ref(self: RAggr)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RFix    { pub fn as_ref(self: RFix)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RSort     { pub fn as_ref(self: RSort)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RLimit    { pub fn as_ref(self: RLimit)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RDistinct { pub fn as_ref(self: RDistinct) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // ── Typed edge RESOLVERS (the IR-walking convenience API) ─────────────────
 // Read a `WRef<S>` field → resolve the handle → bind the target view. These are
@@ -379,32 +336,3 @@ impl RFilter {
     pub fn input_expr(self: RFilter) -> RExpr { return self.input.any().view::<RExpr>(); }
     pub fn pred_expr(self: RFilter) -> SExpr { return self.pred.any().view::<SExpr>(); }
 }
-impl REdge {
-    pub fn input_expr(self: REdge) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn on_expr(self: REdge) -> SExpr { return self.on.any().view::<SExpr>(); }
-}
-impl RProj {
-    pub fn input_expr(self: RProj) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn sel_expr(self: RProj) -> SExpr { return self.sel.any().view::<SExpr>(); }
-}
-impl RJoin {
-    pub fn left_expr(self: RJoin) -> RExpr { return self.left.any().view::<RExpr>(); }
-    pub fn right_expr(self: RJoin) -> RExpr { return self.right.any().view::<RExpr>(); }
-    pub fn on_expr(self: RJoin) -> SExpr { return self.on.any().view::<SExpr>(); }
-}
-impl RAnti {
-    pub fn left_expr(self: RAnti) -> RExpr { return self.left.any().view::<RExpr>(); }
-    pub fn right_expr(self: RAnti) -> RExpr { return self.right.any().view::<RExpr>(); }
-    pub fn on_expr(self: RAnti) -> SExpr { return self.on.any().view::<SExpr>(); }
-}
-impl RAggr {
-    pub fn input_expr(self: RAggr) -> RExpr   { return self.input.any().view::<RExpr>(); }
-    pub fn key_expr(self: RAggr) -> SExpr   { return self.key.any().view::<SExpr>(); }
-    pub fn aggs_arr(self: RAggr) -> RAggArr { return self.aggs.any().view::<RAggArr>(); }
-}
-impl RSort {
-    pub fn input_expr(self: RSort) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn key_expr(self: RSort) -> SExpr { return self.key.any().view::<SExpr>(); }
-}
-impl RLimit    { pub fn input_expr(self: RLimit) -> RExpr { return self.input.any().view::<RExpr>(); } }
-impl RDistinct { pub fn input_expr(self: RDistinct) -> RExpr { return self.input.any().view::<RExpr>(); } }

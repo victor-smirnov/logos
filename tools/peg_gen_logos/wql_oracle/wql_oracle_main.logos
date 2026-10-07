@@ -182,12 +182,6 @@ fn eq_rexpr(a: RExpr, b: RExpr) -> bool {
                 _ => { return false; }
             }
         }
-        RExpr::Edge(_) => { match b { RExpr::Edge(_) => { return true; } _ => { return false; } } }
-        RExpr::Proj(_) => { match b { RExpr::Proj(_) => { return true; } _ => { return false; } } }
-        RExpr::Join(_) => { match b { RExpr::Join(_) => { return true; } _ => { return false; } } }
-        RExpr::Anti(_) => { match b { RExpr::Anti(_) => { return true; } _ => { return false; } } }
-        RExpr::Aggr(_) => { match b { RExpr::Aggr(_) => { return true; } _ => { return false; } } }
-        RExpr::Fix(_)  => { match b { RExpr::Fix(_)  => { return true; } _ => { return false; } } }
     }
 }
 
