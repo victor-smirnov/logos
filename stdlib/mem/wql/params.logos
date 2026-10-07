@@ -23,6 +23,7 @@ use logos.lang.str;
 use logos.lang.writ.anyval;   // WAny — the parsed query root (ADR 0024 S0)
 use logos.mem.string;   // String — native_use_text builds the chunk's use-decl text
 use logos.mem.collections.vec;   // per-module use-decl dedup
+use logos.std.wql.core;          // the planned core the emitters read (ADR 0031 R5)
 
 fn mp_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
 fn mp_is_alpha(c: u8) -> bool {
@@ -220,6 +221,9 @@ pub struct MacroParams {
     pub plan_where_retired: bool,
     /// ADR 0031 R5.1 — the entry aggregate's group frame is PURE (`dplan::plan_group_pure`).
     pub plan_group_pure: bool,
+    /// ADR 0031 R5 — the PLANNED core: the program the walker emits, lowered
+    /// after every rewrite, each atom resolved against this registry.
+    pub plan_core: CProgram,
     /// The producer's RETURN TYPE, as text. The emitted binding is annotated
     /// with it rather than inferring: a generated producer's signature is not
     /// always resolvable in the round its consumer is compiled, and an inferred
@@ -408,6 +412,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_rowmaj:  Vec::<bool>::new(),
         plan_where_retired: false,
         plan_group_pure: false,
+        plan_core: core_empty(),
         rel_itty:    Vec::<str>::new(),
         rel_ordered: Vec::<bool>::new(),
         rel_bidir:   Vec::<bool>::new(),

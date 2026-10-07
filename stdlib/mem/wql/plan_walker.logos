@@ -75,6 +75,7 @@ use logos.lang.writ.anyval;       // WAny
 use logos.std.wql.ir;             // RExpr, WRef
 use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, rq_fat_* (allocator-carrying views)
 use logos.std.wql.params;         // MacroParams — the parsed deem!(…) param list + rel registry
+use logos.std.wql.core;           // the planned core (ADR 0031 R5)
 use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
 use logos.std.wql.el;             // el_ret_class — scalar-element classification (slice D)
@@ -1670,6 +1671,16 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             f.row_ty = sr4.row_ty;
         }
     }
+
+    // ── ADR 0031 R5 — THE PLANNED CORE ──────────────────────────────────────
+    // The program as it will be emitted (every rewrite applied, every source
+    // stamped and registered), lowered once more and resolved against the
+    // registry; verified like the first core. What reads it moves onto it row
+    // by row.
+    let mut regs: Vec<str> = Vec::<str>::new();
+    let mut rg: i64 = 0i64;
+    while rg < prm.rel_n { regs.push(string_as_str(&prm.rel_srcs[rg])); rg = rg + 1i64; }
+    prm.plan_core = core_build_planned(root, name, regs);
 
     // ── Emit the rel helper fns + build the entry prelude ───────────────────
     // Materialization order = the condensation TOPO order (dependencies first

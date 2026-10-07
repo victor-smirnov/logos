@@ -42,6 +42,9 @@ pub enum CSrc {
 /// the negation (`!exists var in src: conds`).
 pub struct CAtom {
     pub src: CSrc,
+    /// The source's index in the walker's registry (`MacroParams.rel_srcs`) in
+    /// a PLANNED core (ADR 0031 R5), -1 otherwise or for a slice parameter.
+    pub reg: i64,
     pub var: str,
     pub row_ty: str,
     pub neg: bool,
@@ -163,6 +166,15 @@ fn prog_rel_names(root: WAny) -> Vec<str> {
     return out;
 }
 
+/// What a lowering resolves a source name against: the program's rel names
+/// and, for a PLANNED core, the registry's emitted source names (the walker
+/// has rewritten a rel's source to `__rel_<r>_sl` by then, and registered the
+/// native rels after the program's own).
+pub struct CLower {
+    pub names: Vec<str>,
+    pub reg: Vec<str>,
+}
+
 fn rel_index(rels: &Vec<str>, name: str) -> i64 {
     let mut i: i64 = 0i64;
     while i < rels.len() {
@@ -172,10 +184,14 @@ fn rel_index(rels: &Vec<str>, name: str) -> i64 {
     return -1i64;
 }
 
-fn src_of(rels: &Vec<str>, name: str) -> CSrc {
+fn reg_of(lx: &CLower, name: str) -> i64 { return rel_index(&lx.reg, name); }
+
+fn src_of(lx: &CLower, name: str) -> CSrc {
     if name.len() == 0i64 { return CSrc::Unit; }
-    let r: i64 = rel_index(rels, name);
+    let r: i64 = rel_index(&lx.names, name);
     if r >= 0i64 { return CSrc::Rel(r); }
+    let g: i64 = reg_of(lx, name);
+    if g >= 0i64 && g < lx.names.len() { return CSrc::Rel(g); }
     return CSrc::Param(name);
 }
 
@@ -184,18 +200,18 @@ fn opt(present: bool, e: WAny) -> Option<WAny> {
     return Option::None;
 }
 
-fn base_atom(rels: &Vec<str>, src: str, var: str, row_ty: str) -> CLit {
+fn base_atom(lx: &CLower, src: str, var: str, row_ty: str) -> CLit {
     // A FROM-less `select` names no row; its one row is `__unit`'s, bound to
     // `__u` — the names `desugar_program_facts` gives the same rewrite.
     let v: str = if src.len() == 0i64 && var.len() == 0i64 { "__u" } else { var };
-    return CLit::Atom(CAtom { src: src_of(rels, src), var: v, row_ty: row_ty,
+    return CLit::Atom(CAtom { src: src_of(lx, src), reg: reg_of(lx, src), var: v, row_ty: row_ty,
                               neg: false, conds: Vec::<WAny>::new() });
 }
 
 // A join chain's steps, in order: each step an atom (or a traversal), and a
 // positive step's `on` a condition right after it; an anti step keeps its
 // `on` inside the negation.
-fn lower_steps(rels: &Vec<str>, steps: WAny, body: &mut Vec<CLit>) {
+fn lower_steps(lx: &CLower, steps: WAny, body: &mut Vec<CLit>) {
     if steps.is_null() { return; }
     let sa: RQJoinStepArr = steps.view::<RQJoinStepArr>();
     let mut i: i64 = 0i64;
@@ -213,7 +229,7 @@ fn lower_steps(rels: &Vec<str>, steps: WAny, body: &mut Vec<CLit>) {
             body.push(CLit::Trav(CTrav { base: st.base_var, path: path, var: st.var_name,
                                          row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
         } else {
-            body.push(CLit::Atom(CAtom { src: src_of(rels, st.src_name), var: st.var_name,
+            body.push(CLit::Atom(CAtom { src: src_of(lx, st.src_name), reg: reg_of(lx, st.src_name), var: st.var_name,
                                          row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
         }
         if !st.is_anti && has_on { body.push(CLit::Cond(CCond { e: on, site: CSite::On })); }
@@ -230,11 +246,11 @@ fn limit_of(has: bool, n: i64, is_param: bool, param: str) -> CLimit {
 /// One surface query → its clause and its envelope. A rel body's envelope is
 /// read too: the walker refuses the modifiers a rel body may not carry, and
 /// the core keeps what was written so that refusal has a single source.
-pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
+pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
     let mut body: Vec<CLit> = Vec::<CLit>::new();
     match q.view::<RQuery>() {
         RQuery::Simple(s) => {
-            body.push(base_atom(rels, s.src_name, s.var_name, s.row_ty));
+            body.push(base_atom(lx, s.src_name, s.var_name, s.row_ty));
             if s.has_where { body.push(CLit::Cond(CCond { e: s.where_pred.any(), site: CSite::Where })); }
             env.mode = if s.sel_first { CMode::First } else { CMode::All };
             env.distinct = s.distinct;
@@ -245,8 +261,8 @@ pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
             return CClause { head: s.select.any(), body: body, group: Option::None };
         }
         RQuery::Join(j) => {
-            body.push(base_atom(rels, j.a_name, j.x_var, j.a_ty));
-            lower_steps(rels, j.steps.any(), &mut body);
+            body.push(base_atom(lx, j.a_name, j.x_var, j.a_ty));
+            lower_steps(lx, j.steps.any(), &mut body);
             if j.has_where { body.push(CLit::Cond(CCond { e: j.where_pred.any(), site: CSite::Where })); }
             env.mode = if j.sel_first { CMode::First } else { CMode::All };
             env.distinct = j.distinct;
@@ -257,8 +273,8 @@ pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
             return CClause { head: j.select.any(), body: body, group: Option::None };
         }
         RQuery::Aggr(g) => {
-            body.push(base_atom(rels, g.a_name, g.x_var, g.a_ty));
-            lower_steps(rels, g.steps.any(), &mut body);
+            body.push(base_atom(lx, g.a_name, g.x_var, g.a_ty));
+            lower_steps(lx, g.steps.any(), &mut body);
             if g.has_where { body.push(CLit::Cond(CCond { e: g.where_pred.any(), site: CSite::Where })); }
             let mut aggs: Vec<CAgg> = Vec::<CAgg>::new();
             if !g.aggs.any().is_null() {
@@ -281,7 +297,7 @@ pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
             return CClause { head: g.select.any(), body: body, group: Option::Some(grp) };
         }
         RQuery::Find(f) => {
-            body.push(base_atom(rels, f.src_name, f.var_name, f.row_ty));
+            body.push(base_atom(lx, f.src_name, f.var_name, f.row_ty));
             body.push(CLit::Cond(CCond { e: f.pred.any(), site: CSite::Where }));
             env.mode = CMode::Find;
             return CClause { head: WAny::null(), body: body, group: Option::None };
@@ -289,14 +305,20 @@ pub fn lower_query(rels: &Vec<str>, q: WAny, env: &mut CEnvelope) -> CClause {
     }
 }
 
-fn envelope_new() -> CEnvelope {
+pub fn envelope_new() -> CEnvelope {
     return CEnvelope { mode: CMode::All, distinct: false, order: Option::None, desc: false,
                        limit: CLimit::None, result_ty: "" };
 }
 
 /// The whole program: every rel's bodies, then the entry.
 pub fn lower_program(root: WAny) -> CProgram {
-    let names: Vec<str> = prog_rel_names(root);
+    return lower_program_reg(root, Vec::<str>::new());
+}
+
+/// The lowering with a registry to resolve against (a PLANNED core).
+pub fn lower_program_reg(root: WAny, reg: Vec<str>) -> CProgram {
+    let lx: CLower = CLower { names: prog_rel_names(root), reg: reg };
+    let names: &Vec<str> = &lx.names;
     let prog: RQProgram = root.view::<RQProgram>();
     let mut rels: Vec<CRel> = Vec::<CRel>::new();
     let mut r: i64 = 0i64;
@@ -318,7 +340,7 @@ pub fn lower_program(root: WAny) -> CProgram {
             let mut b: i64 = 0i64;
             while b < ba.len() {
                 let mut env: CEnvelope = envelope_new();
-                let cl: CClause = lower_query(&names, ba.body_any(b), &mut env);
+                let cl: CClause = lower_query(&lx, ba.body_any(b), &mut env);
                 rules.push(CRule { clause: cl, env: env });
                 b = b + 1i64;
             }
@@ -327,7 +349,7 @@ pub fn lower_program(root: WAny) -> CProgram {
         r = r + 1i64;
     }
     let mut env: CEnvelope = envelope_new();
-    let entry: CClause = lower_query(&names, prog.entry.any(), &mut env);
+    let entry: CClause = lower_query(&lx, prog.entry.any(), &mut env);
     return CProgram { rels: rels, entry: CRule { clause: entry, env: env } };
 }
 
@@ -562,6 +584,7 @@ fn clause_text(p: &CProgram, cl: &CClause, out: &mut String) {
             CLit::Atom(a) => {
                 if a.neg { out.push_str("!"); }
                 src_text(p, &a.src, out);
+                if a.reg >= 0i64 { out.push_str("#"); out.push_i64(a.reg); }
                 out.push_str("("); out.push_str(a.var); out.push_str(")");
                 conds_text(&a.conds, out);
             }
@@ -646,15 +669,39 @@ pub fn core_text(p: &CProgram, name: str, out: &mut String) {
 }
 
 /// `LOGOS_DEEM_DUMP=core`: the core of every deem, on stderr.
-pub fn core_dump_on() -> bool {
+pub fn core_dump_on() -> bool { return core_dump_mode("core"); }
+
+fn core_dump_mode(mode: str) -> bool {
     let mut c: String = String::new();
     c.push_str("LOGOS_DEEM_DUMP");
     c.push_u8(0u8);
     unsafe {
         let v: *const u8 = getenv(c.as_ptr());
         if v == 0 as *const u8 { return false; }
-        return str_eq(str_from_cstr(v), "core");
+        return str_eq(str_from_cstr(v), mode);
     }
+}
+
+/// An empty program (the registry's placeholder before a plan exists).
+pub fn core_empty() -> CProgram {
+    return CProgram { rels: Vec::<CRel>::new(),
+                      entry: CRule { clause: CClause { head: WAny::null(), body: Vec::<CLit>::new(), group: Option::None },
+                                     env: envelope_new() } };
+}
+
+/// The PLANNED core (ADR 0031 R5): the program the walker is about to emit —
+/// after the demand rewrite, the fact desugar and the walker's own source
+/// rewrites — lowered again, each atom resolved against the registry.
+/// `LOGOS_DEEM_DUMP=pcore` prints it.
+pub fn core_build_planned(root: WAny, name: str, reg: Vec<str>) -> CProgram {
+    let p: CProgram = lower_program_reg(root, reg);
+    core_verify(&p);
+    if core_dump_mode("pcore") {
+        let mut s: String = String::new();
+        core_text(&p, name, &mut s);
+        unsafe { write(2i32, s.as_ptr(), s.len()); }
+    }
+    return p;
 }
 
 /// Lower, verify, and dump when asked. The one entry point the handler calls.
