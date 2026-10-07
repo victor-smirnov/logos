@@ -761,7 +761,10 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # 2026-10-02: impl_key 9 -> 7, roster fabf7587 -> 37c1f856 (ADR 0030 S8 row 4). The method
 # autoderef loop's two `Deref` probes (concrete, then base struct name) are gone with the loop: the
 # method probe takes its deref steps through deref_target_type_, whose two probes remain.
-#ARGSCAN impl_key 7 37c1f856
+# 2026-10-07, ADR 0030 S9b row 2: impl_key 7 -> 1, roster 37c1f856 -> 3e679cff. The Index / IndexMut
+# (place, read, write) and Deref (target type) probes ask the impl index by the TYPE's identity and the
+# lang trait's identity (find_lang_impl_ / impls_for_lang_) — no bare trait name, no spelled target.
+#ARGSCAN impl_key 1 3e679cff
 # 2026-09-19, steps 6 + 8: impl_trait_id 2 -> 6, roster ec08d4b9 -> 052a7a0c.
 # The four new arguments are the lang-item spellings the auto-trait engine
 # resolves ("Send", "Sync", "Unpin", "Fst") — the one place each is turned into

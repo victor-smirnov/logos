@@ -1209,9 +1209,8 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                     TypeRef base = resolve_type(map_of(tn.get(la::RECEIVER.code)));
                     using KP = LogosType::Kind;
                     if (base && base.kind() != KP::TypeVar && base.kind() != KP::AssocType && !written.empty()) {
-                        auto iit = impls_.find(impl_key(qtrait, type_str(base)));
-                        if (iit != impls_.end()) {
-                            const auto& info = iit->second;
+                        if (const SemaImplInfo* infop = find_impl_(qtrait, base)) {   // S9b row 2
+                            const auto& info = *infop;
                             std::unordered_map<std::string, std::string> map_;
                             for (size_t i = 0; i < info.trait_lifetime_args.size() && i < written.size(); ++i)
                                 map_[info.trait_lifetime_args[i]] = written[i];

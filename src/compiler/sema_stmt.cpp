@@ -7120,8 +7120,7 @@ TypeRef SemaChecker::resolve_place_type(writ::TinyMapView place) {
 TypeRef SemaChecker::index_output_type_(TypeRef st) {
     if (!st || TypeRef(st).kind() != LogosType::Kind::Struct) return nullptr;
     const SemaImplInfo* ii = nullptr;
-    if (auto it = impls_.find(impl_key("Index", concrete_struct_name(st))); it != impls_.end()) ii = &it->second;
-    else if (auto it2 = impls_.find(impl_key("Index", std::string(TypeRef(st).struct_name()))); it2 != impls_.end()) ii = &it2->second;
+    ii = find_lang_impl_("index", st);   // S9b row 2: by identity
     if (!ii || ii->trait_type_args.size() < 2) return nullptr;
     SemaSubst subst;
     if (ii->target_typeref) {
@@ -7184,8 +7183,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_, drop_old);
     }
     const SemaImplInfo* ii = nullptr;
-    if (auto it = impls_.find(impl_key("IndexMut", type_name)); it != impls_.end()) ii = &it->second;
-    else if (auto it2 = impls_.find(impl_key("IndexMut", base_name)); it2 != impls_.end()) ii = &it2->second;
+    ii = find_lang_impl_("index_mut", arr_type);   // S9b row 2: by identity
     if (ii && ii->trait_type_args.size() >= 2) {
         SemaSubst subst;
         if (ii->target_typeref) {

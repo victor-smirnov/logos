@@ -652,10 +652,9 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
     const char* tr     = want_mut ? "DerefMut" : "Deref";  // may degrade below
     auto pick = [&](const char* trname) -> const SemaImplInfo* {
         const SemaImplInfo* loose = nullptr;
-        for (const ImplKey& key : {impl_key(trname, cname), impl_key(trname, base)}) {
-            auto ait = impls_all_.find(key);
-            if (ait == impls_all_.end()) continue;
-            for (const auto& info : ait->second) {
+        {
+            for (const SemaImplInfo* infop : impls_for_lang_(std::string_view(trname) == "DerefMut" ? "deref_mut" : "deref", rt)) {   // S9b row 2
+                const auto& info = *infop;
                 if (info.is_negative) continue;
                 // The key is the target's SPELLING: an impl for another
                 // package's same-named type is not a candidate.
@@ -6279,20 +6278,19 @@ bool SemaChecker::type_param_bounds_viable_(const SemaFuncInfo& fi, const SemaSu
 TypeRef SemaChecker::deref_target_type_(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return nullptr;
-    auto it = impls_.find(impl_key("Deref", concrete_struct_name(t)));
-    if (it == impls_.end()) it = impls_.find(impl_key("Deref", std::string(TypeRef(t).struct_name())));
-    if (it == impls_.end()) return nullptr;
-    if (it->second.trait_type_args.empty()) {
+    const SemaImplInfo* dii = find_lang_impl_("deref", t);   // S9b row 2: by identity
+    if (!dii) return nullptr;
+    if (dii->trait_type_args.empty()) {
         // `type Target = B;` — read it off `deref`'s return `&B`.
         for (auto* fi : methods_of_(t, "deref"))   // S9b row 2: by the type's identity
             if (concrete_self_method_(fi, t, 1) && fi->ret_type && is_ref_like(TypeRef(fi->ret_type).kind()))
                 return TypeRef(fi->ret_type).pointee();
         return nullptr;
     }
-    TypeRef tgt = it->second.trait_type_args[0];
-    if (it->second.target_typeref) {
+    TypeRef tgt = dii->trait_type_args[0];
+    if (dii->target_typeref) {
         StrMap<TypeRef> b;
-        unify_types(it->second.target_typeref, t, b);
+        unify_types(dii->target_typeref, t, b);
         tgt = subst_type_sema(tgt, SemaSubst(b.begin(), b.end()));
     }
     return tgt;
@@ -6461,9 +6459,9 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
             // trait name and are correct only because that trait owns the bare
             // slot. This is one of the ~15 whose target comes from a resolved
             // TypeRef and could take a qualified probe ahead of the bare one.
-            auto iit = impls_.find(impl_key(b.trait_name, std::string(TypeRef(actual).struct_name())));
-            if (iit == impls_.end()) continue;
-            auto& imp = iit->second;
+            const SemaImplInfo* impp = find_impl_(b.trait_name, actual);   // S9b row 2: by identity
+            if (!impp) continue;
+            auto& imp = *impp;
             if (imp.trait_type_args.empty()) continue;
             StrMap<TypeRef> impl_bind;
             if (imp.target_typeref)
@@ -10968,18 +10966,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             else if (TypeRef(rst).kind() == LogosType::Kind::Enum)
                 recv_bare = std::string(TypeRef(rst).enum_name());
             if (!recv_bare.empty()) {
-                auto iit = impls_.find(impl_key(fi->trait_name, recv_bare));
+                const SemaImplInfo* rimp = find_impl_(fi->trait_name, rst);   // S9b row 2: by identity
                 auto* tit = resolve_trait(fi->trait_name);
-                if (iit != impls_.end() && tit) {
+                if (rimp && tit) {
                     auto& tps   = tit->type_params;
-                    auto& targs = iit->second.trait_type_args;
+                    auto& targs = rimp->trait_type_args;
                     // The impl's trait args are written over the IMPL's params
                     // (`impl<I, T> Iterator<T> for Copied<I, &T>`): read them
                     // through the receiver (target unified with `rst`).
                     SemaSubst impl_binds;
-                    if (iit->second.target_typeref) {
+                    if (rimp->target_typeref) {
                         logos::compiler::StrMap<TypeRef> b;
-                        unify_types(iit->second.target_typeref, rst, b);
+                        unify_types(rimp->target_typeref, rst, b);
                         impl_binds = SemaSubst(b.begin(), b.end());
                     }
                     for (size_t i = 0; i < tps.size() && i < targs.size(); ++i)
@@ -14247,8 +14245,7 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             // Output = the impl's `Index<Idx, Output>` 2nd trait-arg, with the
             // struct's type-args substituted for the impl's type params.
             const SemaImplInfo* ii = nullptr;
-            if (auto it = impls_.find(impl_key(std::string(itr), type_name)); it != impls_.end()) ii = &it->second;
-            else if (auto it2 = impls_.find(impl_key(std::string(itr), base_name)); it2 != impls_.end()) ii = &it2->second;
+            ii = find_lang_impl_(mut_ctx ? "index_mut" : "index", arr_type);   // S9b row 2: by identity
             // Rust spelling `impl Index<Idx> for G<T> { type Output = T; … }`:
             // ONE trait argument, the Output is the associated type — read it
             // off the impl's own `index` / `index_mut` return type (`&Output`).

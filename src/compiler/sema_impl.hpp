@@ -6951,6 +6951,65 @@ private:
         if (p0 && is_ref_like(TypeRef(p0).kind()) && TypeRef(p0).pointee()) p0 = TypeRef(p0).pointee();
         return p0 && types_equal(p0, self_t);
     }
+    // ADR 0030 S9b row 2: impls by (trait identity, owner identity) — a cache
+    // over impls_, rebuilt when impls_gen_ moves. find_impl_ answers the impl
+    // of `trait_key` for `t`: an exact Self first, else one whose Self pattern
+    // matches (`impl<T> Tr for W<T>` at `W<i64>`).
+    std::map<std::pair<uint64_t, OwnerId>, std::vector<std::pair<ImplKey, size_t>>> impl_index_;
+    uint64_t impl_index_gen_ = ~0ull;
+    // Every impl of `trait_key` whose owner is `t`'s (all of impls_all_, which
+    // keeps the impls one spelled key holds several of — Pin<&T> / Pin<&mut
+    // T> / Pin<Box<T>>). Pointers are valid until the next registration.
+    std::vector<const SemaImplInfo*> impls_for_(std::string_view trait_key, TypeRef t) {
+        std::vector<const SemaImplInfo*> out;
+        if (!t || trait_key.empty()) return out;
+        if (impl_index_gen_ != impls_gen_) {
+            impl_index_.clear();
+            for (auto& [k, infos] : impls_all_)
+                for (size_t i = 0; i < infos.size(); ++i) {
+                    TypeRef st = infos[i].self_type ? infos[i].self_type : infos[i].target_typeref;
+                    if (OwnerId o = owner_id_of_(st)) impl_index_[{k.trait_def.v, o}].push_back({k, i});
+                }
+            impl_index_gen_ = impls_gen_;
+        }
+        const DefId tid = impl_trait_id(trait_key);
+        auto take = [&](const OwnerId& o) {
+            auto it = impl_index_.find({tid.v, o});
+            if (it == impl_index_.end()) return;
+            for (auto& [k, i] : it->second)
+                if (auto ait = impls_all_.find(k); ait != impls_all_.end() && i < ait->second.size())
+                    out.push_back(&ait->second[i]);
+        };
+        OwnerId o = owner_id_of_(t);
+        if (!o) return out;
+        take(o);
+        if (o.ref && o.shape != "_") take(OwnerId{{}, o.ref, "_"});
+        return out;
+    }
+    // The same, for a lang trait named by its lang key (`index`, `deref`) — its
+    // identity, never a bare spelling a homonym trait could answer.
+    std::string lang_trait_key_(std::string_view lang) const {
+        const LangItem* li = lang_item(lang);
+        if (!li) return {};
+        return li->package.empty() ? li->name : li->package + "::" + li->name;
+    }
+    std::vector<const SemaImplInfo*> impls_for_lang_(std::string_view lang, TypeRef t) {
+        return impls_for_(lang_trait_key_(lang), t);
+    }
+    const SemaImplInfo* find_lang_impl_(std::string_view lang, TypeRef t) {
+        return find_impl_(lang_trait_key_(lang), t);
+    }
+    const SemaImplInfo* find_impl_(std::string_view trait_key, TypeRef t) {
+        const SemaImplInfo* by_pattern = nullptr;
+        for (auto* info : impls_for_(trait_key, t)) {
+            if (info->is_negative) continue;
+            TypeRef st = info->self_type ? info->self_type : info->target_typeref;
+            if (!st) continue;
+            if (types_equal(st, t)) return info;
+            if (!by_pattern && self_pattern_match_(st, t)) by_pattern = info;
+        }
+        return by_pattern;
+    }
     // An impl asked by a SPELLED target only (the deem pipeline matches sources
     // by their type's text): the exact key, else the impls of this trait whose
     // target is that spelling under its package fold — a type declared in a
