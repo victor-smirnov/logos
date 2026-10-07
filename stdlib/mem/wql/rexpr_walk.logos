@@ -44,6 +44,7 @@ use logos.std.wql.join_sel;   // JS_* / StepSel / step_terms / decide_join_step 
 use logos.std.wql.join_order; // JoinOrder / decide_join_orders / JCh — WHICH ORDER DRIVES
 use logos.std.wql.join_cost;  // JCTable / jc_* — THE cost function, one copy
 use logos.std.wql.prepared;   // Prepared / prep_* — THE PLAN AS A RUNTIME VALUE
+use logos.std.wql.dplan;      // DScan / plan_entry_scan — the plan as data (ADR 0031 R5)
 use logos.std.wql.why;        // Why / why_render — THE JUSTIFICATION AS A RECORD, and its ONE renderer
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
@@ -2517,8 +2518,7 @@ fn scan_of(e: RExpr) -> RScan {
 
 /// Does this source need the R-A wrap? No rel identity, and a declared slice param.
 fn slice_stream_src(prm: &MacroParams, src_name: str) -> bool {
-    if prm.rel_find_src(src_name) >= 0i64 { return false; }
-    return prm.is_source(src_name);
+    return dp_slice_stream_src(prm, src_name);
 }
 
 /// The wrap's binding name at scan site `k` — `__ss<k>`, numbered like every other
@@ -3200,8 +3200,11 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // IS a bounded walk over an ordered source: `order by key limit 10` pulls
     // leaves until ten rows are out, instead of draining the container, sorting
     // it and taking the head. Nothing else in this file changed to get that.
+    // ADR 0031 R5.0 — the scan's shape is the PLAN's (`dplan::plan_entry_scan`):
+    // the elision and the arm are read from it below, never re-derived here.
+    let ds: DScan = plan_entry_scan(prm, src_name, mods.has_sort);
     let mut mods: QMods = mods;
-    if mods.has_sort && prm.rel_src_ord_noop(src_name) { mods.has_sort = false; }
+    if ds.sort_elided { mods.has_sort = false; }
 
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
@@ -3327,7 +3330,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // ONE scan shape: a `has_sort` query that kept the indexed walk while the
     // plain one moved would be §1's two-shapes defect re-created inside a single
     // emitter, behind a green gate.
-    let r_a_wrap: bool  = slice_stream_src(prm, src_name);
+    let r_a_wrap: bool  = ds.slice;
     let s_ss0:    String = ss_name(0i64);
     // ── ADR 0025 §12 `direct` — THE SOURCE HALF OF THE DECISION ─────────────
     // The SHAPE half (no sort/distinct/limit/first, concrete, owned element,
@@ -3356,7 +3359,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     // takes a SHARED `&[R]`, so the wrap and the direct index are two shared
     // borrows of the same rows. `as_slice()` keeps its consumer in
     // `pass/stream_slice_stream_seam`, where the projection is owned.
-    if mods.has_sort {
+    if dscan_sorts(&ds) {
         // Phase 1: collect matching row indices + sort keys.
         let key_f:  ExprBlob = parse_expr(string_as_str(&key_body));
         let keyt_f: ExprBlob = parse_type(key_ty);
@@ -3436,7 +3439,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             #(proj_phase);
         };
         }
-    } else if prm.rel_src_unmaterialized(src_name) {
+    } else if dscan_pulls(&ds) {
         // STREAMED (ADR 0024 S4). The plan proved this source is read exactly
         // once, so no Vec is built: rows arrive from `next()` and the loop ends
         // when the iterator does. With `first` this is the whole point — the
@@ -3453,8 +3456,8 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
         // pull per LEAF and the old row loop as its inner loop. Nothing here
         // knows the source type; the flag and the column names both arrive as
         // data.
-        let bri: i64 = prm.rel_find_src(src_name);
-        if bri >= 0i64 && prm.rel_batch[bri] {
+        let bri: i64 = ds.rel;
+        if dscan_batches(&ds) {
             let mut brk_i: ExprBlob = quote_block! { };
             if mods.has_limit {
                 let lim_i: ExprBlob = limit_expr(&mods);
@@ -3464,7 +3467,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
             // (`rel_ord_rev`), never re-derived from `mods`: `has_sort` was
             // cleared above, so by here the emitter no longer holds the query's
             // `desc` at all, and that is deliberate — one decision, carried.
-            if prm.rel_src_ord_rev(src_name) {
+            if dscan_backward(&ds) {
                 scan_f = batch_scan_rev_frag(prm, bri, 0i64, src_f, vnm, row_f, row_f2,
                                              brk_f, brk_i);
             } else {

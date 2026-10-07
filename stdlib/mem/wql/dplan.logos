@@ -1,0 +1,168 @@
+// logos.std.wql.dplan — the Deem PLAN as data (ADR 0031 R5).
+//
+// A decision the planner makes is a value of this module's types, made by a
+// pure function of the facts it reads and RECORDED with its ground; an emitter
+// reads the value and never re-derives it. R5 moves the decisions here one at a
+// time, each move checked by a byte-identical snapshot of the emitted code and
+// the plan traces of the whole corpus (ADR 0031 §4.1).
+//
+// R5.0 — the entry's SCAN: which of the seven scan shapes a single-source
+// query runs, and whether its `order by` is elided by the source's own order.
+package logos.std.wql.dplan;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.wql.params;          // MacroParams: the source registry the decision reads
+
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+/// The shape a single-source scan runs. Exhaustive: an emitter `match`es it.
+pub enum DScanArm {
+    /// `order by` over a slice parameter: collect index + key over the
+    /// `SliceStream` wrap, sort the permutation, project through it.
+    SortSlice,
+    /// `order by` over anything else: the same three phases over an indexed walk.
+    SortIndexed,
+    /// An unmaterialised batch producer read BACKWARD (`order by … desc` over
+    /// its own order): `land_end`, `prev_batch`, a decrementing inner loop.
+    BatchRev,
+    /// An unmaterialised batch producer read forward: §1's one batch shape.
+    BatchFwd,
+    /// An unmaterialised row producer: `next()` until `None`.
+    RowPull,
+    /// A slice parameter with no registry identity: the `SliceStream` wrap.
+    SliceWrap,
+    /// Everything else (a materialised rel, a drained source): an indexed walk.
+    Indexed,
+}
+
+pub struct DScan {
+    /// The source as the query names it.
+    pub src: str,
+    /// Its registry index, or -1 (a slice parameter has none).
+    pub rel: i64,
+    pub arm: DScanArm,
+    /// The source's rows already arrive in the `order by`'s order
+    /// (`AccessPlan.ord_noop`), so the query's sort is dropped.
+    pub sort_elided: bool,
+    /// The source is a slice parameter read through a `SliceStream` wrap.
+    pub slice: bool,
+}
+
+/// A slice parameter with no registry identity — read through a `SliceStream`
+/// wrap (ADR 0025 R-A). THE one copy of this predicate.
+pub fn dp_slice_stream_src(prm: &MacroParams, src: str) -> bool {
+    if prm.rel_find_src(src) >= 0i64 { return false; }
+    return prm.is_source(src);
+}
+
+/// The entry scan's shape, from the facts the access plan left on the
+/// registry. `has_sort`: the query writes an `order by`.
+pub fn plan_entry_scan(prm: &MacroParams, src: str, has_sort: bool) -> DScan {
+    let elided: bool = has_sort && prm.rel_src_ord_noop(src);
+    let sorts: bool = has_sort && !elided;
+    let slice: bool = dp_slice_stream_src(prm, src);
+    let rel: i64 = prm.rel_find_src(src);
+    let mut arm: DScanArm = DScanArm::Indexed;
+    if sorts {
+        arm = if slice { DScanArm::SortSlice } else { DScanArm::SortIndexed };
+    } else if prm.rel_src_unmaterialized(src) {
+        if rel >= 0i64 && prm.rel_batch[rel] {
+            arm = if prm.rel_src_ord_rev(src) { DScanArm::BatchRev } else { DScanArm::BatchFwd };
+        } else {
+            arm = DScanArm::RowPull;
+        }
+    } else if slice {
+        arm = DScanArm::SliceWrap;
+    }
+    let d: DScan = DScan { src: src, rel: rel, arm: arm, sort_elided: elided, slice: slice };
+    dplan_dump_scan(&d);
+    return d;
+}
+
+/// The arm runs the sort phases.
+pub fn dscan_sorts(d: &DScan) -> bool {
+    match &d.arm {
+        DScanArm::SortSlice => { return true; }
+        DScanArm::SortIndexed => { return true; }
+        DScanArm::BatchRev => { return false; }
+        DScanArm::BatchFwd => { return false; }
+        DScanArm::RowPull => { return false; }
+        DScanArm::SliceWrap => { return false; }
+        DScanArm::Indexed => { return false; }
+    }
+}
+
+/// The arm pulls an unmaterialised producer (batch or row).
+pub fn dscan_pulls(d: &DScan) -> bool {
+    match &d.arm {
+        DScanArm::BatchRev => { return true; }
+        DScanArm::BatchFwd => { return true; }
+        DScanArm::RowPull => { return true; }
+        DScanArm::SortSlice => { return false; }
+        DScanArm::SortIndexed => { return false; }
+        DScanArm::SliceWrap => { return false; }
+        DScanArm::Indexed => { return false; }
+    }
+}
+
+/// The arm pulls whole batches (forward or backward).
+pub fn dscan_batches(d: &DScan) -> bool {
+    match &d.arm {
+        DScanArm::BatchRev => { return true; }
+        DScanArm::BatchFwd => { return true; }
+        DScanArm::RowPull => { return false; }
+        DScanArm::SortSlice => { return false; }
+        DScanArm::SortIndexed => { return false; }
+        DScanArm::SliceWrap => { return false; }
+        DScanArm::Indexed => { return false; }
+    }
+}
+
+/// The arm reads its producer backward.
+pub fn dscan_backward(d: &DScan) -> bool {
+    match &d.arm {
+        DScanArm::BatchRev => { return true; }
+        DScanArm::BatchFwd => { return false; }
+        DScanArm::RowPull => { return false; }
+        DScanArm::SortSlice => { return false; }
+        DScanArm::SortIndexed => { return false; }
+        DScanArm::SliceWrap => { return false; }
+        DScanArm::Indexed => { return false; }
+    }
+}
+
+pub fn dscan_arm_name(d: &DScan) -> str {
+    match &d.arm {
+        DScanArm::SortSlice => { return "sort-slice"; }
+        DScanArm::SortIndexed => { return "sort-indexed"; }
+        DScanArm::BatchRev => { return "batch-rev"; }
+        DScanArm::BatchFwd => { return "batch"; }
+        DScanArm::RowPull => { return "row-pull"; }
+        DScanArm::SliceWrap => { return "slice-wrap"; }
+        DScanArm::Indexed => { return "indexed"; }
+    }
+}
+
+/// `LOGOS_DEEM_DUMP=dplan`: each plan value as it is decided, on stderr.
+pub fn dplan_dump_on() -> bool {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_DEEM_DUMP");
+    c.push_u8(0u8);
+    unsafe {
+        let v: *const u8 = getenv(c.as_ptr());
+        if v == 0 as *const u8 { return false; }
+        return str_eq(str_from_cstr(v), "dplan");
+    }
+}
+
+fn dplan_dump_scan(d: &DScan) {
+    if !dplan_dump_on() { return; }
+    let mut s: String = String::new();
+    s.push_str("[dplan] scan "); s.push_str(d.src);
+    s.push_str(" arm="); s.push_str(dscan_arm_name(d));
+    if d.sort_elided { s.push_str(" sort-elided"); }
+    s.push_str("\n");
+    unsafe { write(2i32, s.as_ptr(), s.len()); }
+}
