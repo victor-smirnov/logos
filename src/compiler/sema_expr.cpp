@@ -3142,7 +3142,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         if ((op == "==" || op == "!=") && ld && rd) {
             const std::string key = "$dyn$" + std::string(TypeRef(ld).trait_name()) + "__eq";
             const SemaFuncInfo* f = nullptr;
-            for (auto* c : find_func_candidates(key))
+            for (auto* c : methods_of_(ld, "eq"))   // S9b row 2: the `dyn Tr` owner's, by identity
                 if (c && c->param_types.size() == 2) { f = c; break; }
             if (!f) {
                 error(std::format("binary operation `{}` cannot be applied to type `{}` (E0369)", op, type_str(lt)));
@@ -9860,11 +9860,12 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
         std::vector<TypeRef> mtypes;
         mtypes.push_back(expr_type(recv));
         for (auto& a : d_args) mtypes.push_back(expr_type(a));
-        const SemaFuncInfo* dfi = nullptr;
-        if (auto fit = find_func_by_base_and_signature(dyn_key, mtypes, false))
-            dfi = fit;
-        else if (auto git = find_generic_func(dyn_key))
-            dfi = git;
+        // S9b row 2: the `dyn Tr` owner's methods by identity — exact signature
+        // first, else a generic one.
+        const SemaFuncInfo* dfi = find_method_by_signature_(dyn_t, method_name, mtypes, false);
+        if (!dfi)
+            for (auto* c : methods_of_(dyn_t, method_name))
+                if (c && !c->type_params.empty()) { dfi = c; break; }
         if (dfi) {
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
@@ -10038,19 +10039,17 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
     TypeRef elem = TypeRef(arr_t).elem();
     if (!elem) return std::nullopt;
     bool found = false, wants_mut = false;
-    auto probe = [&](const std::string& key) {
-        std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
-        if (auto* g = find_generic_func(key)) cands.push_back(g);
-        for (auto* fi : cands) {
-            if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
-            found = true;
-            if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
-                TypeRef(fi->param_types[0]).mut_ptr())
-                wants_mut = true;
-        }
-    };
-    probe("$slice$" + type_str(elem) + "__" + std::string(method_name));
-    probe("$slice$T__" + std::string(method_name));
+    // S9b row 2: the slice `[elem]`'s methods by identity — an impl whose Self
+    // matches (`impl<T> .. for [T]`, `impl .. for [u8]`, not `str`'s for `[i64]`).
+    const TypeRef sl = make_unsized_slice_type(elem);
+    for (auto* fi : filter_visible_(methods_of_(sl, method_name))) {
+        if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
+        if (fi->owner_self && !self_pattern_match_(fi->owner_self, sl)) continue;
+        found = true;
+        if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
+            TypeRef(fi->param_types[0]).mut_ptr())
+            wants_mut = true;
+    }
     if (!found) return std::nullopt;
     if (!recv_is_ref)
         recv = materialize_recv_ref(std::move(recv), wants_mut, make_ref(wants_mut, arr_t),
