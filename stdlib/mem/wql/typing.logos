@@ -1,0 +1,135 @@
+// logos.std.wql.typing — ONE typing of a clause's variables (ADR 0031).
+//
+// Every emitter used to assemble its `ElTypes` by hand — the base's schema and
+// registry columns, each step's, a by-value element's own type, the scalar
+// parameters, the comprehension variables, the module's UDFs — seven copies of
+// one sequence. `type_chain` is that sequence, once; the helpers it calls moved
+// here from the emitter so the planner can type a clause too.
+package logos.std.wql.typing;
+
+use logos.std.compiler.metaprog;  // OView
+use logos.lang.writ.anyval;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.ir;             // SExpr, RExpr
+use logos.std.wql.el;             // ElTypes
+use logos.std.wql.params;         // MacroParams
+use logos.std.wql.reflect;        // stamp_types_from_schema, resolve_alias_name, stamp_udfs_from_module
+
+// Shared: when `src_name` names a REL (slice B — the emitted `__rel_<r>_sl`
+// source, resolved against the MacroParams rel registry), stamp its COLUMN
+// value-types into the flat dict AND bind (var, col) → tuple-component-index
+// entries so `emit_sexpr`/`infer_ty` emit the positional `var.k` access with
+// the right type. A non-rel source is a no-op (returns false). This is the
+// rel counterpart of `stamp_types_from_schema` — called right beside it at
+// every scan-source stamping site.
+//
+// ⚠ `view` IS HERE FOR THE SAME REASON IT IS IN `stamp_types_from_schema`: a
+// declared type NAME is a SPELLING until it is resolved through the module's
+// aliases, and `el` — which answers every question asked about it — holds no
+// module view. Every name recorded on an `ElTypes` goes through
+// `reflect::resolve_alias_name` at the point it is read, so a rel column declared
+// `Score` is an i64 to the licence, the width check and the lattice alike.
+pub fn stamp_rel_source(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
+                        src_name: str, var_name: str) -> bool {
+    let ri: i64 = prm.rel_find_src(src_name);
+    if ri < 0i64 { return false; }
+    return stamp_rel_columns(ty, view, prm, ri, var_name);
+}
+
+/// The same stamping, by rel INDEX. The planner reaches a rel before its
+/// source name has been written onto the query node, so it has the index and
+/// not the name; splitting the lookup off the stamping is what lets one copy of
+/// the column binding serve both.
+pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
+                         ri: i64, var_name: str) -> bool {
+    if ri < 0i64 { return false; }
+    let off: i64 = prm.rel_coff[ri];
+    let nc: i64  = prm.rel_ccnt[ri];
+    if nc == 1i64 {
+        // 1-column rel: SCALAR rows (`Vec<i64>` etc. — no 1-tuple exists), so
+        // the column binds the WHOLE row (idx -1 → the codegen emits `(*var)`).
+        let cn0: str = prm.relc_name[off];
+        // The column's DECLARED type, which for a native source came from the
+        // impl's trait args (ADR 0024 S2/S3) — not just its four-value class.
+        let tn0: str = resolve_alias_name(view, prm.relc_ty[off]);
+        ty.set_ty_named(cn0, tn0);
+        ty.rel_bind_named(var_name, cn0, COL_WHOLE(), tn0);
+        return true;
+    }
+    let mut k: i64 = 0i64;
+    while k < nc {
+        let cn: str = prm.relc_name[off + k];
+        let tnk: str = resolve_alias_name(view, prm.relc_ty[off + k]);
+        ty.set_ty_named(cn, tnk);
+        ty.rel_bind_named(var_name, cn, k, tnk);
+        k = k + 1i64;
+    }
+    return true;
+}
+
+// Shared: seed the type dict with each SCALAR param's declared value-type off
+// the parsed `deem!(…)` list — the replacement for the retired `with` overlay.
+// Slice params are SOURCES (their row schemas are reflected separately); a
+// scalar param referenced BARE in EL (`e.salary > min_sal`, `limit n`) types
+// through this seeding — resolved through the module's aliases first, for the
+// reason stated on `stamp_rel_source`.
+pub fn apply_scalar_params(ty: &mut ElTypes, view: &OView, prm: &MacroParams) {
+    let mut i: i64 = 0i64;
+    while i < prm.n {
+        if !prm.is_slice[i] {
+            ty.set_ty_named(prm.names[i], resolve_alias_name(view, prm.tys[i]));
+        }
+        i = i + 1i64;
+    }
+}
+
+/// A comprehension's loop variable has the ELEMENT type of the slice it ranges
+/// over (`n` in `[n * 2 for n in nums]` with `nums: &[u8]` is a `u8`). Slice
+/// params are not in the binding table (only scalar ones are), so without this
+/// the variable typed as the `i64` baseline and the head's arithmetic with it
+/// (E4.4). Recorded in the same table the emitter reads.
+pub fn stamp_comp_vars(e: SExpr, ty: &mut ElTypes, prm: &MacroParams) {
+    match e {
+        SExpr::Comp(cp) => {
+            let mut src: str = "";
+            match cp.plan_expr() {
+                RExpr::Scan(sc) => { src = sc.src_name; }
+                RExpr::Filter(fl) => {
+                    match fl.input_expr() {
+                        RExpr::Scan(sc2) => { src = sc2.src_name; }
+                        _ => { }
+                    }
+                }
+                _ => { }
+            }
+            let pi: i64 = prm.index_of(src);
+            if pi >= 0i64 && prm.is_slice[pi] { ty.set_ty_named(cp.var, prm.tys[pi]); }
+            stamp_comp_vars(cp.head_expr(), ty, prm);
+        }
+        _ => { }
+    }
+}
+
+/// The variables of a chain — the base, then each step (a by-value element
+/// typed as its own type) — the scalar parameters, the comprehension variables
+/// of `comp_sel` (null = none), and the module's UDFs.
+pub fn type_chain(view: &OView, prm: &MacroParams, base_src: str, base_ty: str, base_var: str,
+                  srcs: &Vec<str>, tys: &Vec<str>, vars: &Vec<str>, byval: &Vec<bool>, n: i64,
+                  comp_sel: WAny) -> ElTypes {
+    let mut ty: ElTypes = el_types_new();
+    stamp_types_from_schema(view, &mut ty, base_ty, base_var);
+    stamp_rel_source(&mut ty, view, prm, base_src, base_var);
+    let mut si: i64 = 0i64;
+    while si < n {
+        stamp_types_from_schema(view, &mut ty, tys.get(si), vars.get(si));
+        stamp_rel_source(&mut ty, view, prm, srcs.get(si), vars.get(si));
+        if byval.get(si) { ty.set_ty_named(vars.get(si), resolve_alias_name(view, tys.get(si))); }
+        si = si + 1i64;
+    }
+    apply_scalar_params(&mut ty, view, prm);
+    if !comp_sel.is_null() { stamp_comp_vars(comp_sel.view::<SExpr>(), &mut ty, prm); }
+    stamp_udfs_from_module(view, &mut ty);
+    return ty;
+}

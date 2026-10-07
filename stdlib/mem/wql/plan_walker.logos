@@ -78,6 +78,7 @@ use logos.std.wql.params;         // MacroParams — the parsed deem!(…) param
 use logos.std.wql.core;           // the planned core (ADR 0031 R5)
 use logos.std.wql.dplan;          // plan_entry_simple (ADR 0031 R6.2)
 use logos.std.wql.rexpr_walk;     // emit_entry_* / emit_rel_fns
+use logos.std.wql.typing;         // stamp_rel_columns / apply_scalar_params (ADR 0031)
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
 use logos.std.wql.el;             // el_ret_class — scalar-element classification (slice D)
 use logos.std.wql.reflect;        // find_decl_by_name / has_field / field_traversal_elem (slice D)
