@@ -11361,6 +11361,12 @@ fn rel_rule_of(prm: &MacroParams, ri: i64, b: i64) -> &CRule {
     return &rules[b];
 }
 
+/// How many rules rel `ri` has (the planned core's).
+fn rel_nrules(prm: &MacroParams, ri: i64) -> i64 {
+    let rels: &[CRel] = prm.plan_core.rels.as_slice();
+    return rels[ri].rules.len();
+}
+
 fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
                  prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     let ru: &CRule = rel_rule_of(prm, ri, b);
@@ -11388,9 +11394,7 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
     return rel_body_join_frag(&ru.clause, &ch, ri, prm, out, h);
 }
 
-// A rel body's chain: the per-step strategy is not the planner's for a rel body
-// (it records it for the entry only), so every step reads 0 / -1 / 0 as the
-// surface chain builders wrote; and each slot takes its override, if any.
+// A rel body's chain for one emission: each slot takes its override, if any.
 fn jchain_rel_rename(ch: &mut JChain, ovr: &Vec<str>) {
     // The strategies are the rule's (decided once by the planner): a delta
     // variant renames a source, it does not re-decide how it is read.
@@ -11422,7 +11426,7 @@ fn rule_where(cl: &CClause) -> WAny {
 // out Vec + shadow HashSet (O(1) dedup membership, see emit_rel_push; the raw
 // pointer rides alongside because HashSet's mutators take `*mut self`), then
 // every body's loop nest, dedup-pushing into the shared pair.
-fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
+fn emit_rel_fn_oneshot(ri: i64, fn_name: str,
                        params_text: str, prm: &MacroParams, scc: &RelScc,
                        h: &Writ) -> bool {
     let row_ty: str = string_as_str(&prm.rel_rowty[ri]);
@@ -11451,8 +11455,7 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
     let rt4: ExprBlob = parse_type(row_ty);
     let rt5: ExprBlob = parse_type(row_ty);
     let rt6: ExprBlob = parse_type(row_ty);
-    let bodies: RQBodyArr = rel.bodies_arr();
-    let nbod: i64 = bodies.len();
+    let nbod: i64 = rel_nrules(prm, ri);
     let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut b: i64 = 0i64;
     while b < nbod {
@@ -11689,7 +11692,7 @@ fn body_scc_occs(ri: i64, b: i64, prm: &MacroParams, scc: &RelScc, c: i64) -> Oc
 // PRESENCE bit; there is no multiplicity vector beside `__tot_<m>` to carry one,
 // which is what makes "weights may not flow into an SCC" structural rather than
 // disciplinary — counting derivations through a cycle diverges.
-fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
+fn emit_scc_fn(c: i64, fn_name: str,
                params_text: str, prm: &MacroParams, scc: &RelScc,
                incr: bool, h: &Writ) -> bool {
     // Members (declaration order) + the union out-of-SCC dep mask.
@@ -11884,8 +11887,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     let mut m2: i64 = 0i64;
     while m2 < nm {
         let ri: i64 = mem[m2];
-        let bodies: RQBodyArr = rels.rel_at(ri).bodies_arr();
-        let nb: i64 = bodies.len();
+        let nb: i64 = rel_nrules(prm, ri);
         let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut b1: i64 = 0i64;
         while b1 < nb {
@@ -12031,12 +12033,10 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
     let mut m6: i64 = 0i64;
     while m6 < nm {
         let ri6: i64 = mem[m6];
-        let bodies6: RQBodyArr = rels.rel_at(ri6).bodies_arr();
-        let nb6: i64 = bodies6.len();
+        let nb6: i64 = rel_nrules(prm, ri6);
         let mut runs6: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut b3: i64 = 0i64;
         while b3 < nb6 {
-            let body_any: WAny = bodies6.body_any(b3);
             let oc: OccList = body_scc_occs(ri6, b3, prm, scc, c);
             if oc.n > 0i64 {
                 let mut v: i64 = 0i64;
@@ -12511,7 +12511,7 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // Victor's open decision, and neither is in this slice; the entry-side refusal
 // (`incr_retract_eligible`) is what actually withholds the capability, and it
 // stands untouched.
-fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
+fn emit_scc_od_fns(c: i64, fn_name: str,
                    params_text: str, prm: &MacroParams, scc: &RelScc,
                    h: &Writ) -> bool {
     let mut mem: Vec<i64> = Vec::<i64>::new();
@@ -12602,8 +12602,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut m3: i64 = 0i64;
     while m3 < nm {
         let ri: i64 = mem[m3];
-        let bodies: RQBodyArr = rels.rel_at(ri).bodies_arr();
-        let nb: i64 = bodies.len();
+        let nb: i64 = rel_nrules(prm, ri);
         let mut rr: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut b1: i64 = 0i64;
         while b1 < nb {
@@ -12749,12 +12748,10 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
     let mut m9: i64 = 0i64;
     while m9 < nm {
         let ri9: i64 = mem[m9];
-        let bodies9: RQBodyArr = rels.rel_at(ri9).bodies_arr();
-        let nb9: i64 = bodies9.len();
+        let nb9: i64 = rel_nrules(prm, ri9);
         let mut runs9: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut b9: i64 = 0i64;
         while b9 < nb9 {
-            let body_any: WAny = bodies9.body_any(b9);
             let oc: OccList = body_scc_occs(ri9, b9, prm, scc, c);
             if oc.n > 0i64 {
                 let mut v: i64 = 0i64;
@@ -13070,7 +13067,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
 // validated columns/shapes/modifiers, resolved + REWRITTEN every body source,
 // and checked stratification. `fn_name` is the entry resource name — it
 // prefixes the helper names so multiple wql! resources per module coexist.
-pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
+pub fn emit_rel_fns(fn_name: str, params_text: str,
                     prm: &MacroParams, scc: &RelScc, h: &Writ) -> bool {
     // ── the items are QUOTES (ADR 0024 S5) ────────────────────────────────
     // ⚠ THE ONE MULTI-ITEM EMITTER. The chunk held every rel fn at once; a
@@ -13085,7 +13082,7 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
     while p < scc.nscc {
         let c: i64 = scc.order[p];
         if scc.rec[c] {
-            if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, false, h) { return false; }
+            if !emit_scc_fn(c, fn_name, params_text, prm, scc, false, h) { return false; }
             // P3b — the CROSS-EPOCH sibling, emitted from the SHAPE and not from
             // a request. ⚠ It is emitted whenever the shape admits it, even if
             // the entry query then declines the handle for an unrelated reason
@@ -13125,7 +13122,7 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                 // admitted member.
                 plan_trace("rel incr driver", "EMITTED", vis_strip(fn_name),
                            "one cross-epoch semi-naive driver per admitted recursive SCC — its member totals are POSITIONAL out-params, so the SCC id is the whole argument and the member scan decides only WHETHER, never WHICH");
-                if !emit_scc_fn(rels, c, fn_name, params_text, prm, scc, true, h) { return false; }
+                if !emit_scc_fn(c, fn_name, params_text, prm, scc, true, h) { return false; }
                 // DRed PHASE 1 — the over-delete siblings. Emitted from the
                 // SHAPE beside `_i`, on the same admission and once per SCC for
                 // the same reason (the member scan decides WHETHER, never
@@ -13135,16 +13132,16 @@ pub fn emit_rel_fns(rels: RQRelArr, fn_name: str, params_text: str,
                 // `emit_scc_od_fns` for what is in fence and what is not.
                 plan_trace("rel od driver", "EMITTED", vis_strip(fn_name),
                            "DRed phases 1 and 2 — `_od` (seed: base+recursive bodies at the deleted rows over the previous total), `_odp` (propagate: recursive bodies only, over the survivors, read==write==od) and `_cpt` (compact: in-place retain+pop to T∖OD, handing back the removed rows in `__rm_<m>`, refusing before it writes if OD⊄T). PHASE 3 IS `_i` RE-ENTERED OVER THE SURVIVOR EDB WITH THE COMPACTED TOTAL — no fourth sibling is emitted for it. THE SURFACE THAT FOLLOWS IS `<q>_retract`, emitted under `emit_incremental`'s `dred` and forwarding to `__wql_<q>_scc<c>_dred`, NOT from here.");
-                if !emit_scc_od_fns(rels, c, fn_name, params_text, prm, scc, h) { return false; }
+                if !emit_scc_od_fns(c, fn_name, params_text, prm, scc, h) { return false; }
             }
         } else {
             let mut i: i64 = 0i64;
             while i < prm.rel_n {
-                // NATIVE rels (ADR 0016 M1a) have no parse-side RQRel and no
+                // NATIVE rels (ADR 0016 M1a) have no rules and no
                 // emitted helper fn — their prelude calls the stdlib walk.
                 // (Registry idx 0..nr-1 is parse-aligned; natives sit after.)
                 if scc.comp[i] == c && !prm.rel_native[i] {
-                    if !emit_rel_fn_oneshot(rels.rel_at(i), i, fn_name,
+                    if !emit_rel_fn_oneshot(i, fn_name,
                                             params_text, prm, scc, h) { return false; }
                 }
                 i = i + 1i64;
