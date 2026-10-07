@@ -2913,11 +2913,8 @@ std::string type_str(TypeRef t, bool source_form) {
         // real message about two different types — the class c3ca80270 has a
         // commit about, and the reason that commit exists.
         // ⚠ SOURCE FORM ONLY. The canonical `type_str` is the KEY of
-        // `closure_capture_env_`, whose signature keying is DELIBERATE (its own
-        // note: the Send/Sync question is asked of the TYPE, answered by union
-        // over every literal of that signature, and "#90's fix must SPLIT the
-        // two maps, not convert them together"). Putting the identity in the
-        // canonical form would silently re-key that map.
+        // `closure_kind_` (a union over same-signature literals): putting the
+        // identity in the canonical form would silently re-key that map.
         if (source_form && TypeRef(t).closure_literal_id()) {
             // AND ITS FAMILY, because that is what a mismatch against a written
             // `dyn Fn*` is ABOUT: rustc says "this closure only implements

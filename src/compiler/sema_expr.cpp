@@ -19179,20 +19179,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     std::vector<ClosureReturn> body_returns;
     auto* saved_closure_returns = std::exchange(closure_returns_, has_annot ? nullptr : &body_returns);
     inside_unsafe_ = false;
-    // THE CONSUMPTION FACT IS ALREADY COMPUTED — IT WAS NEVER WRITTEN DOWN.
-    // Lowering the body runs `mark_moved_expr` at every by-value position, and
-    // a capture resolves in an ENCLOSING scope, so a body that consumes one
-    // leaves its name in `moved_vars_`. (Measured: `let f = || { let y: String
-    // = x; }; let z = x;` is already refused with "use of moved variable 'x'".)
-    // The snapshot makes the reading precise: only what THIS body moved, not
-    // what was already moved before the closure was written.
-    std::set<std::string> moved_before_body = moved_vars_;
-    // ⚠ AND THE EVER-SET, because `lower_if` / `lower_match` SAVE AND RESTORE
-    // `moved_vars_` around a diverging branch: a capture consumed only inside
-    // an `if` would be reverted out of it by the time this is read, and the
-    // mode would silently fall back to a borrow. `body_ever_moved_` exists for
-    // exactly that reason — it is what the fn epilogue's param drops consult.
-    auto ever_before_body = body_ever_moved_;
     std::vector<lir_view::StmtRef> body;
     if (node.has_key(la::BODY)) {
         auto body_node = map_of(node.get(la::BODY.code));
@@ -19994,21 +19980,30 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // recover which of the two it was. The borrow checker needs the mode of the
     // capture (rustc's upvar kinds) and, separately, whether the place it is
     // recorded for is wider than the one touched.
+    // ADR 0030 S10 row 4 (C-CLO): THE CAPTURE ANALYSIS, ONE PLACE. Per capture:
+    // does the body consume it (the root or a place under it — the RFC-2229
+    // narrow spelling records `x.d`; segment-wise prefix), is it mutated, and
+    // from those its MODE as rustc's upvar kinds: `move` or a consuming body
+    // makes it ByValue, a mutation MutBorrow, else ImmBorrow. The Fn-family,
+    // the closure type's captures and the per-literal tables below all read
+    // these three vectors; nothing downstream re-derives them.
+    ec->capture_body_moved.assign(ec->captures.size(), 0);
+    for (size_t i = 0; i < ec->captures.size(); ++i) {
+        const std::string& c = ec->captures[i];
+        for (const auto& mv : body_moved_outer)
+            if (mv == c || (mv.size() > c.size() && mv.compare(0, c.size(), c) == 0 && mv[c.size()] == '.')) {
+                ec->capture_body_moved[i] = 1;
+                break;
+            }
+    }
     ec->capture_modes.assign(ec->captures.size(), 0);
     ec->ret_tied = ret_tied_by_bound_;
     ec->capture_widened.assign(ec->captures.size(), 0);
     for (size_t i = 0; i < ec->captures.size(); ++i) {
-        const bool consumed_by_body =
-            (moved_vars_.count(ec->captures[i]) > 0 &&
-             moved_before_body.count(ec->captures[i]) == 0) ||
-            (body_ever_moved_.count(ec->captures[i]) > 0 &&
-             ever_before_body.count(ec->captures[i]) == 0);
-        // rustc keys ByValue on whether the BODY consumes the capture, not on
-        // the `move` keyword; `move` forces it, a consuming body earns it.
-        ec->capture_modes[i] = (is_move || consumed_by_body) ? uint8_t(2)   // ByValue
+        ec->capture_modes[i] = (is_move || ec->capture_body_moved[i]) ? uint8_t(2)   // ByValue
                              : mut_captures_set.count(ec->captures[i]) > 0
-                                 ? uint8_t(1)                              // MutBorrow
-                                 : uint8_t(0);                             // ImmBorrow
+                                 ? uint8_t(1)                                        // MutBorrow
+                                 : uint8_t(0);                                       // ImmBorrow
         ec->capture_widened[i] = widened_roots.count(ec->captures[i]) ? 1 : 0;
     }
 
@@ -20180,25 +20175,14 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
     // the top of this function), `ec->captures` and `ec->mut_captures`, all of
     // which are final by here; the two side-map stores below keep their place
     // and now read this value instead of recomputing it.
+    // The Fn-family from the analysis: FnOnce if the body consumes a capture
+    // (moving a field out of a capture is moving out of it), FnMut if it
+    // mutates one — through a widened path too — else Fn. `move` alone does
+    // not raise it (Rust: the family is set by USE, not by capture mode).
     int closure_kind_value = 0;
-    {
-        // MOVING A FIELD OUT OF A CAPTURE IS MOVING OUT OF THE CAPTURE. The
-        // body's move set records a PATH (`x.d`) while the capture is spelled by
-        // its ROOT (`x`), so a bare membership test answered "not FnOnce" for
-        // `move || { let t: D = x.d; }` — measured as a DOUBLE FREE at the second
-        // call. Segment-wise prefix, so `x.dq` is not a prefix of `x.d`.
-        auto body_consumed = [&](const std::string& root) {
-            if (body_moved_outer.count(root)) return true;
-            for (const auto& m : body_moved_outer)
-                if (m.size() > root.size() && m[root.size()] == '.' &&
-                    m.compare(0, root.size(), root) == 0)
-                    return true;
-            return false;
-        };
-        for (size_t i = 0; i < ec->captures.size(); ++i) {
-            if (body_consumed(ec->captures[i])) { closure_kind_value = 2; break; }
-            if (i < ec->mut_captures.size() && ec->mut_captures[i]) closure_kind_value = 1;
-        }
+    for (size_t i = 0; i < ec->captures.size(); ++i) {
+        if (ec->capture_body_moved[i]) { closure_kind_value = 2; break; }
+        if (mut_captures_set.count(ec->captures[i])) closure_kind_value = 1;
     }
     // ADR 0029 S2: THE CAPTURE TYPES ARE COMPUTED BEFORE THE TYPE IS MINTED,
     // so the literal's type can carry its own env — the same move #440 forced
@@ -20215,8 +20199,8 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                          ? TypeRef(ec->capture_field_types[i])
                          : TypeRef(ec->capture_types[i]);
         if (!ct) continue;
-        bool mut_cap = i < ec->mut_captures.size() && ec->mut_captures[i];
-        literal_captures.push_back(is_move ? ct : make_ref(mut_cap, ct));
+        // The capture as the env holds it, by its mode.
+        literal_captures.push_back(ec->capture_modes[i] == 2 ? ct : make_ref(ec->capture_modes[i] == 1, ct));
     }
     auto ctype = make_closure_type(
         std::move(param_types), ret_type,
@@ -20225,43 +20209,22 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                                 : TypeRef::FnFamily::Fn,
         closure_literal_identity(cur_package_, closure_id),
         literal_captures);
-    // T1-7 (audit-v2, Send/Sync soundness): record this literal's CAPTURE
-    // types against the interned closure type so the auto-trait engine
-    // walks captures, not parameter types. Closure types intern by
-    // params/ret (not per-literal), so the table accumulates the UNION of
-    // captures across same-signature literals — conservative-correct: if
-    // ANY literal of this signature captures a !Send value, the type is
-    // !Send. By-ref captures enter as `&T`/`&mut T` so the engine's
-    // reference rules (&T: Send ⇔ T: Sync) apply per spec
-    // (lang-types.auto-traits.closure); owned (move) captures enter as T.
-    // RFC-2229 narrow captures use the captured FIELD's type.
+    // The per-literal capture list the `dyn` coercion's lifetime check reads,
+    // by mode as the type's (a shared `&T` capture is kept as itself: a reborrow).
     {
-        // KEY-IDENTITY: signature-keyed BY DESIGN — this is the write side of
-        // the Send/Sync union; see the read site in sema_auto_trait.cpp for why
-        // union-over-literals is conservative in the safe direction and must
-        // NOT be converted along with closure_kind_ (#90).
-        auto& env = closure_capture_env_[type_str(ctype)];
         auto& caps = closure_caps_by_id_[closure_id];
-        size_t cap_i = 0;
         for (size_t i = 0; i < ec->captures.size(); ++i) {
             TypeRef ct = (i < ec->capture_field_types.size() &&
                           ec->capture_field_types[i])
                              ? TypeRef(ec->capture_field_types[i])
                              : TypeRef(ec->capture_types[i]);
             if (!ct) continue;
-            bool by_ref = !is_move;
-            bool mut_cap = i < ec->mut_captures.size() && ec->mut_captures[i];
-            // ONE list, not two: the type's captures were built by this exact
-            // rule above, so the table is filled FROM it rather than beside it.
-            // S6 deletes the table; until then two copies that could drift are
-            // the defect, not the safeguard.
-            env.push_back(literal_captures[cap_i++]);
+            const bool mut_cap = ec->capture_modes[i] == 1;
             const VarInfo* cvi = lookup_var_info(ec->captures[i]);
-            caps.emplace_back((by_ref && !(TypeRef(ct).kind() == LogosType::Kind::Ref && !mut_cap))
+            caps.emplace_back((ec->capture_modes[i] != 2 && !(TypeRef(ct).kind() == LogosType::Kind::Ref && !mut_cap))
                                   ? make_ref(mut_cap, ct) : ct,
                               cvi ? cvi->closure_id : std::string());
         }
-        if (ec->captures.empty()) (void)env;  // entry exists even if empty
     }
     // Fn-family kind inference: classify this literal by how its body uses the
     // captures. FnOnce (2) if it moves a capture OUT of the env (consumes it);
@@ -20296,17 +20259,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // callable_is_fn_once). No max: a literal has exactly one kind.
         closure_kind_by_id_[closure_id] = kind;
         ec->fn_once = kind == 2;
-    }
-    // Per capture: does the BODY move it out (the root, or a path under it —
-    // the RFC-2229 narrow spelling records `x.d`; segment-wise prefix).
-    ec->capture_body_moved.assign(ec->captures.size(), 0);
-    for (size_t i = 0; i < ec->captures.size(); ++i) {
-        const std::string& c = ec->captures[i];
-        for (const auto& mv : body_moved_outer)
-            if (mv == c || (mv.size() > c.size() && mv.compare(0, c.size(), c) == 0 && mv[c.size()] == '.')) {
-                ec->capture_body_moved[i] = 1;
-                break;
-            }
     }
     return builder().closure_box(std::move(ec), ctype);
 }

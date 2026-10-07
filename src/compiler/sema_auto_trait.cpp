@@ -279,10 +279,8 @@ bool SemaChecker::is_auto_trait_satisfied(
     //    Send/Sync. closure_params on the type are the PARAMETER types
     //    (FnPtr-style envelope) — walking those was unsound (T1-7: a
     //    closure capturing `*mut i32` passed `T: Send`). Captures are
-    //    recorded per interned closure type at lowering
-    //    (closure_capture_env_, union across same-signature literals —
-    //    conservative-correct; by-ref captures stored as `&[mut] T` so the
-    //    reference rules apply). A closure type with NO recorded literal
+    //    the literal's own type (ADR 0029 S2; by-ref captures as `&[mut] T`
+    //    so the reference rules apply). A closure type with NO recorded literal
     //    (e.g. a bare `dyn Fn` annotation) is conservative `false` — like
     //    Rust's `dyn Fn()` without an explicit `+ Send`.
     case Kind::Closure: {

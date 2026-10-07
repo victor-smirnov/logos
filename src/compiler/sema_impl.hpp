@@ -2510,14 +2510,8 @@ private:
     void collect_ast_pat_bindings(writ::TinyMapView pat,
                                   std::vector<std::string>& out);
 
-    // T1-7 (audit-v2): capture types per interned closure type, recorded at
-    // closure-literal lowering and consumed by the auto-trait engine
-    // (Send/Sync walk captures, not parameter types). Keyed by type_str of
-    // the Closure TypeRef; same-signature literals UNION their captures
-    // (conservative-correct). By-ref captures are stored as `&[mut] T`.
-    std::unordered_map<std::string, std::vector<TypeRef>> closure_capture_env_;
     // Inferred Fn-family kind of each closure literal, keyed by the interned
-    // closure type_str (same union-by-signature model as closure_capture_env_):
+    // closure type_str (a union over same-signature literals):
     // 0 = Fn (reads captures only), 1 = FnMut (mutates a capture), 2 = FnOnce
     // (consumes/moves a capture out of the env). Stored as the MAX (most
     // restrictive) across same-signature literals — conservative-correct: if any
@@ -4446,9 +4440,7 @@ private:
         const VarInfo* vi = lookup_var_info(name);
         return vi && vi->deferred_init;
     }
-    // A closure LITERAL's captures, by closure_id (per literal — the
-    // signature-keyed closure_capture_env_ is a union and answers a different
-    // question). By-ref capture of a SHARED reference is the reborrow `&'a T`
+    // A closure LITERAL's captures, by closure_id (per literal). By-ref capture of a SHARED reference is the reborrow `&'a T`
     // itself; any other by-ref capture is `&T` with no region (a borrow of the
     // local). Second of the pair = the captured binding's own closure_id.
     std::unordered_map<std::string, std::vector<std::pair<TypeRef, std::string>>> closure_caps_by_id_;
