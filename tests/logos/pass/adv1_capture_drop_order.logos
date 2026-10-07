@@ -1,7 +1,9 @@
 // Adversarial #1 (C): Rust capture-drop semantics for move closures.
-// RFC 2229 drop-order rule: a path capture whose ROOT type impls Drop
-// captures the WHOLE variable; the captures drop WITH the closure binding
-// (at its drop slot, in capture order) — rustc prints "s3 d1 d2 ".
+// `a.id` / `b.id` are Copy places: rustc captures them PRECISELY (the Drop
+// truncation applies to a MOVED place only), so `a` and `b` stay where they are
+// and drop at their own slots, in reverse declaration order — rustc 1.98.1
+// prints "s3 d2 d1 " (2021 and 2024). This file asserted "s3 d1 d2" until
+// ADR 0030 S10 row 4; the oracle says otherwise.
 package adv1_capture_drop_order;
 extern fn printf(fmt: *const u8, ...) -> i32;
 fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }

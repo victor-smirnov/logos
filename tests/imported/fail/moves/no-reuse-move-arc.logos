@@ -1,14 +1,17 @@
 // rustc moves/no-reuse-move-arc.rs — upstream E0382
 // imported batch B167 @ da5114692c9ebe46b869488c5f34f92eb10b98c1 (rust 1.100.0)
 // shelf: pin
+// ADAPTATION, corrected 2026-10-06 (ADR 0030 S10 row 4): upstream's closure captures an
+// `Arc` WHOLE; reading the Copy field `h.v` is captured precisely by rustc (no move, no
+// E0382 — rustc 1.98.1 accepts it). The closure uses `h` whole, as upstream's does.
 package no_reuse_move_arc;
 // moves/no-reuse-move-arc.rs — E0382 use after move into a `move` closure
 struct H { v: i64 }
 impl Drop for H { fn drop(self: &mut H) {} }
 fn main() -> i32 {
     let h = H { v: 4i64 };
-    let c = move || -> i64 { return h.v; };
-    let _ = h.v;
+    let c = move || -> i64 { let r = &h; return r.v; };
+    let _x = h.v;
     let _ = c();
     return 0i32;
 }

@@ -1,0 +1,48 @@
+// ADR 0030 S10 row 4 (C-CLO): one capture analysis, Rust's upvar rules. A `move` closure owns its
+// captures (copied at the literal: later writes to the source are not seen), a Copy place is captured
+// precisely even under a type with `Drop` (`d2.n`), a by-value capture through a reference captures the
+// reference (`self.items` with `self: &C`), a raw pointer used by a method or written through is a
+// shared capture (not FnMut), `t.0 = v` mutates `t` (FnMut). rustc twin: same stdout.
+package s10_closure_capture_rust_semantics;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+#[derive_copy]
+struct P { w: i64 }
+struct D { n: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.n); } }
+struct C { items: Vec<i64> }
+impl C { fn counter(&self) -> impl Fn() -> i64 { move || self.items.len() as i64 } }
+fn apply<F: Fn() -> i64>(f: F) -> i64 { f() }
+fn main() {
+    let mut p = P { w: 2 };
+    let s2 = move || p.w * 10;
+    p.w = 7;
+    println!("{} {}", s2(), p.w);
+    let mut q = P { w: 3 };
+    let s3 = move || q.w;
+    q = P { w: 9 };
+    println!("{} {}", s3(), q.w);
+    let d2 = D { n: 2 };
+    println!("apply {}", apply(move || d2.n * 3));
+    let d3 = D { n: 3 };
+    let once = move || { let x = d3; x.n };
+    println!("once {}", once());
+    let c = C { items: vec![1, 2] };
+    let k = c.counter();
+    println!("count {} {}", k(), c.items.len());
+    let x = [5i64, 6];
+    let base: *const i64 = &x[0];
+    let at = |i: i64| -> i64 { unsafe { *base.add(i) } };
+    let mut s = String::new();
+    let ps: *mut String = &mut s;
+    let push = |c: char| unsafe { (*ps).push(c) };
+    push('a');
+    push('b');
+    println!("raw {} {}", at(1), s.len());
+    let mut t = (1i64, 2i64);
+    let mut set = || t.0 = 5;
+    set();
+    println!("tuple {}", t.0);
+    println!("done");
+}

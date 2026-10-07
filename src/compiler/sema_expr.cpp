@@ -19486,7 +19486,28 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // restrict_precision_for_drop_types): `move || t.v` with `B: Drop`
         // captures `t` whole, and a second such closure is a use after move.
         std::string path = path_in;
-        if (is_move)
+        // Only a place that is MOVED is truncated: a Copy place is copied out
+        // of the Drop type, precisely (rustc returns early for a Copy place
+        // type) — `move || d.n` with `n: i64` leaves `d` where it is.
+        // A by-value capture through a reference captures the REFERENCE
+        // (rustc's truncate_capture_for_move at the first deref of `&`/`&mut`/
+        // a raw pointer): `move || self.items.len()` with `self: &C` copies
+        // `self`, it does not move `items` out from behind it.
+        if (is_move && path.size() > root.size()) {
+            TypeRef cur = lookup(root);
+            size_t at = root.size();
+            while (cur && at < path.size()) {
+                const auto k = TypeRef(cur).kind();
+                if (is_ref_like(k) || k == LogosType::Kind::Ptr) { path.resize(at); break; }
+                size_t nx = path.find('.', at + 1);
+                if (nx == std::string::npos) nx = path.size();
+                cur = field_type_for_path(lookup(root), path.substr(0, nx), root);
+                at = nx;
+            }
+        }
+        TypeRef leaf_t = path == root ? lookup(root) : field_type_for_path(lookup(root), path, root);
+        const bool copy_place = leaf_t && !is_move_type(leaf_t);
+        if (is_move && !copy_place)
             if (TypeRef cur = lookup(root)) {
                 auto has_drop = [&](TypeRef x) {
                     return x && TypeRef(x).kind() == LogosType::Kind::Struct &&
@@ -19723,7 +19744,25 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 // has by then recorded the PRECISE path (`s.a`), so marking does
                 // not push a whole-root capture and RFC-2229 disjointness
                 // (`|| s.a = 1` beside a read of `s.b`) survives.
-                if (v.is_mut() && inner) {
+                // A `&mut` THROUGH A RAW POINTER (`(*ps).push(c)`) mutates the
+                // pointee, not the capture: rustc truncates the place before a
+                // raw-pointer deref and captures the pointer by shared borrow.
+                auto through_raw_deref = [&](lir_view::ExprRef x) {
+                    for (int d = 0; x && d < 64; ++d) {
+                        const auto xk = x.kind();
+                        if (xk == EC::Deref) {
+                            auto op = lir_view::EDerefView{x}.operand();
+                            TypeRef ot = op ? op.type(cur_prog_->type_pool.impl()) : TypeRef(nullptr);
+                            if (ot && TypeRef(ot).kind() == LogosType::Kind::Ptr) return true;
+                            x = op;
+                        } else if (xk == EC::FieldRead) x = lir_view::EFieldReadView{x}.receiver();
+                        else if (xk == EC::TupleIndex) x = lir_view::ETupleIndexView{x}.receiver();
+                        else if (xk == EC::IndexRead) x = lir_view::EIndexReadView{x}.receiver();
+                        else return false;
+                    }
+                    return false;
+                };
+                if (v.is_mut() && inner && !through_raw_deref(inner)) {
                     if (auto fp = try_path(inner)) mark_mut_capture(fp->first);
                 }
                 break;
@@ -19803,6 +19842,14 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.slice()); scan_captures_v(v.index()); break;
             }
             case EC::SliceLen:     scan_captures_v(lir_view::ESliceLenView{e}.slice()); break;
+            case EC::PtrArith: {
+                auto v = lir_view::EPtrArithView{e};
+                scan_captures_v(v.ptr()); scan_captures_v(v.offset()); break;
+            }
+            case EC::PtrDiff: {
+                auto v = lir_view::EPtrDiffView{e};
+                scan_captures_v(v.lhs()); scan_captures_v(v.rhs()); break;
+            }
             case EC::SlicePtr:     scan_captures_v(lir_view::ESlicePtrView{e}.slice()); break;
             case EC::ClosureBox: {
                 // A nested closure literal transitively captures its free vars
@@ -19913,7 +19960,11 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.index()); scan_captures_v(v.value()); break;
             }
             case SC::FieldIndexWrite: {
+                // `a.p[i] = v` writes THROUGH the pointer field: `a` is read
+                // (captured), not mutated.
                 auto v = lir_view::SFieldIndexWriteView{s};
+                std::string r(v.receiver());
+                add_capture_path(r, r);
                 scan_captures_v(v.index()); scan_captures_v(v.value()); break;
             }
             case SC::ExprStmt:   scan_captures_v(lir_view::SExprStmtView{s}.expr()); break;
@@ -19921,8 +19972,21 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 auto v = lir_view::SDerefWriteView{s};
                 scan_captures_v(v.ptr()); scan_captures_v(v.value()); break;
             }
-            case SC::DerefFieldWrite: scan_captures_v(lir_view::SDerefFieldWriteView{s}.value()); break;
-            case SC::TupleWrite:      scan_captures_v(lir_view::STupleWriteView{s}.value()); break;
+            case SC::DerefFieldWrite: {
+                // `(*p).f = v`: the pointer `p` is read (captured), not mutated.
+                auto v = lir_view::SDerefFieldWriteView{s};
+                std::string r(v.receiver());
+                add_capture_path(r, r);
+                scan_captures_v(v.value());
+                break;
+            }
+            case SC::TupleWrite: {
+                // `t.0 = v` mutates `t`.
+                auto v = lir_view::STupleWriteView{s};
+                mark_mut_capture(v.receiver());
+                scan_captures_v(v.value());
+                break;
+            }
             default: break;
         }
     };
@@ -20007,164 +20071,20 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         ec->capture_widened[i] = widened_roots.count(ec->captures[i]) ? 1 : 0;
     }
 
+    // A `move` closure OWNS its captures, as in Rust: each ByValue capture —
+    // the root, or the RFC-2229 narrow path (the analysis cut it at a root with
+    // a user Drop, which a `move` closure captures whole) — is moved into the
+    // env at the literal, whether or not the closure escapes; a Copy one is
+    // copied. The env's glue drops what it owns: when the closure is dropped,
+    // or after an FnOnce call (mlir-gen's capture_own_inline / capture_drops).
+    bool owns_droppable_capture = false;
     if (is_move) {
         for (size_t i = 0; i < ec->captures.size(); ++i) {
-            // RFC-2229 phase-2: a narrow capture (capture_field_types[i] non-
-            // null) marks the PATH moved (not the root) — leaving sibling
-            // fields usable — but ONLY when the closure ESCAPES. Non-escaping
-            // closures stay whole-root borrow-by-pointer; sema marks nothing
-            // moved for narrow non-escaping, so the original root drops its
-            // field at scope-exit (no leak). Codegen matches this gating in
-            // mlir_gen_dyn (capture_own_inline narrow gated on heap_env_pre).
-            bool is_narrow = i < ec->capture_field_types.size() &&
-                              ec->capture_field_types[i];
-            bool narrow_owned = ec->escapes && is_narrow;
-            // Non-escaping narrow: env borrows a pointer to outer root (codegen
-            // gate); the outer root keeps ownership + drops the field at scope-
-            // exit. Skip mark_moved entirely — phase-1's borrow-check exclusivity
-            // on the field path is enough for soundness, and `let yy = p.y`
-            // stays usable (whole `p` is not moved).
-            if (is_narrow && !ec->escapes) {
-                // RFC 2229 drop-order rule: a `move` closure capturing a
-                // path whose ROOT type has a USER Drop impl captures the
-                // WHOLE variable — Rust does this precisely so the value
-                // drops with the closure, not at the root's own scope slot.
-                // ONLY a user `impl Drop` triggers it (drop_fn_for) — mere
-                // drop glue from droppable FIELDS keeps disjoint capture
-                // (rfc2229_move_disjoint_field: sibling p.y stays usable).
-                // Fall through as a whole-var move capture (env repr stays
-                // the borrowed pointer; ordering comes from the drop group).
-                if (!(ec->is_move &&
-                      !drop_fn_for(TypeRef(ec->capture_types[i])).empty()))
-                    continue;
-            }
-            TypeRef move_check_t = narrow_owned
-                ? TypeRef(ec->capture_field_types[i])
-                : TypeRef(ec->capture_types[i]);
-            const std::string& move_target =
-                narrow_owned ? ec->capture_paths[i] : ec->captures[i];
-            if (is_move_type(move_check_t)) {
-                mark_moved(move_target);
-                // Phase-2 narrow capture: env owns just the field's value (the
-                // closure drop-glue drops it); the root stays in the original
-                // scope. moved_vars_ tracks the path, so the root's scope-exit
-                // drop skips the moved field — no double-free. Skip the
-                // whole-root closure_owned_drop_ machinery below.
-                if (narrow_owned) continue;
-                if (!needs_drop(ec->capture_types[i])) continue;
-                // OWNERSHIP TRANSFER (must match mlir-gen `capture_own_inline`):
-                // an ESCAPING (heap-env) `move` closure capturing a droppable
-                // struct/array/tuple/enum (NOT a borrow / `&dyn`) MOVES it INTO
-                // the env by value and its env drop-glue (__closure_drop__)
-                // drops it — so the ORIGINAL scope must NOT drop it. Leave it
-                // OUT of closure_owned_drop_ (kept in moved_vars_ → not dropped).
-                TypeRef ct{ec->capture_types[i]};
-                bool owned_by_closure = false;
-                if (ec->escapes) {
-                    auto k = ct.kind();
-                    owned_by_closure =
-                        (k == LogosType::Kind::Struct ||
-                         k == LogosType::Kind::ZonedStruct ||
-                         k == LogosType::Kind::Array ||
-                         k == LogosType::Kind::Tuple ||
-                         k == LogosType::Kind::Enum ||
-                         // An OWNING `Box<dyn Tr>` is owned storage too (row
-                         // closure_owned_dyn_capture): moved into the env and
-                         // dropped by its glue, as mlir-gen's capture_own_inline.
-                         (k == LogosType::Kind::TraitObject && ct.owning_trait_object()) ||
-                         // A closure owning its heap env, and a type parameter
-                         // (the instance decides the representation; each is
-                         // owned by an escaping env — mlir-gen's
-                         // capture_own_inline / capture_drops per instance).
-                         (k == LogosType::Kind::Closure && ct.closure_owns_env()) ||
-                         k == LogosType::Kind::TypeVar);
-                }
-                if (owned_by_closure) continue;
-                // NON-escaping (stack-env) move closure: the env only borrows the
-                // source's storage (mlir-gen keeps a pointer-repr borrow), so the
-                // SOURCE scope still drops it. Keep it moved (use-after-move
-                // enforced) but record it so collect_drops un-skips the dtor.
-                //
-                // §7.1, CORRECTED: if the closure body itself moves this
-                // capture out, the body IS the canonical drop site — but only
-                // WHEN THE BODY RUNS, and a closure that is never called never
-                // runs it. The historical `continue` here stood the source
-                // scope down unconditionally and delegated to a site that does
-                // not exist for a non-escaping closure: measured 0 destructor
-                // calls for 1 value at all fourteen payload kinds of the
-                // lattice's `a_move_nocall_consume_*` row, and `nm` finds no
-                // `__closure_drop__` symbol in the object at all (need_glue is
-                // false for a stack env). So the source KEEPS the obligation
-                // and hands it over at the point the callable is consumed —
-                // Rust's own handover point, since a body that moves a capture
-                // out makes the closure `FnOnce` and `call_once` takes self by
-                // value. `deferred_moves` is that hand-over list; the cascade
-                // in mark_moved applies it.
-                // ⚠ AN INNER CLOSURE'S BINDING IS ALREADY A DROP SITE, AND IT
-                // IS INSIDE THE BODY. `move || { let g = move || x.v; g() }`
-                // "moves" x only by handing it to a NESTED literal, whose own
-                // `let` already claimed x's destructor (`capture_owner_[x] =
-                // "g"`, a binding in the body's frame). Deferring it to the
-                // OUTER binding overwrites that owner and the cascade then
-                // releases a drop nobody re-takes — measured as g_nested_closure
-                // 1 -> 0 while every other cell moved the right way. An owner
-                // already recorded is the historical skip's one correct case.
-                if (body_moved_outer.count(ec->captures[i]) &&
-                    capture_owner_.count(ec->captures[i]))
-                    continue;
-                if (body_moved_outer.count(ec->captures[i])) {
-                    // CANDIDATE, not a decision: the obligation can only be
-                    // handed over to a site that can also RELEASE it, and that
-                    // site is the closure's BINDING. `lower_let` claims this
-                    // list when the literal is its direct RHS and only then
-                    // enters the capture in `closure_owned_drop_`. Anything
-                    // else — `Box::new(move || …)`, a closure passed straight
-                    // as an argument, a nested literal — keeps the historical
-                    // skip exactly, because there is no binding to consume and
-                    // dropping at the source would DOUBLE-FREE what the body
-                    // destroys (measured: lattice g_box_dyn_fnonce went 1 -> 2
-                    // and g_nested_closure 1 -> 0 when this was unconditional).
-                    deferred_moves.push_back(ec->captures[i]);
-                    unskipped_captures.push_back(ec->captures[i]);
-                    continue;
-                }
-                closure_owned_drop_.insert(ec->captures[i]);
-                unskipped_captures.push_back(ec->captures[i]);
-            }
-        }
-    }
-
-    // Rust capture-drop order: captures whose dtor the SOURCE scope runs
-    // (closure_owned_drop_ un-skip) must drop WITH the closure — at the
-    // closure binding's slot, in capture order — not at their own
-    // var_order slots. Publish this closure's list; lower_let claims it
-    // when the closure is the let's direct RHS.
-    // RFC-2229 NARROW, NON-ESCAPING: the walk above `continue`s before the
-    // move check (the env borrows a pointer to the outer root and the root
-    // keeps ownership of the field), so a body that moves `x.d` out leaves the
-    // path in `moved_vars_` and the root's own drop then SKIPS the field —
-    // 0 destructor calls for 1 value at six payload kinds
-    // (`b_narrow_consume_nocall_*`). Same handover, spelled as a path: the
-    // root keeps the field's drop (make_drop_stmt's `closure_owned_drop_`
-    // un-skip) until the callable is consumed.
-    if (is_move && !ec->escapes) {
-        // Enumerated by the PROPERTY — "the body moved a PATH rooted at a
-        // capture" — and not by the RFC-2229 narrow spelling. The first form of
-        // this walk asked `capture_field_types[i]`, which is minted for a
-        // STRUCT root only, so `move || { let t: D = x.0; }` over a tuple root
-        // was captured whole-var and its element still vanished: make_drop_stmt
-        // read `x.0` out of moved_vars_ and put "0" in `moved_fields`, so the
-        // root's drop skipped the element that nothing else destroys. Two cells
-        // (b_narrow_consume_nocall_tuple / _tuple2) separated the two
-        // spellings; the property covers both.
-        for (const auto& mv : body_moved_outer) {
-            auto dot = mv.find('.');
-            if (dot == std::string::npos) continue;
-            std::string root = mv.substr(0, dot);
-            bool is_cap = false;
-            for (const auto& c : ec->captures) if (c == root) { is_cap = true; break; }
-            if (!is_cap) continue;
-            deferred_moves.push_back(mv);   // claimed by lower_let, as above
+            const bool is_narrow = i < ec->capture_field_types.size() && ec->capture_field_types[i];
+            TypeRef t = is_narrow ? TypeRef(ec->capture_field_types[i]) : TypeRef(ec->capture_types[i]);
+            if (!t || !is_move_type(t)) continue;
+            mark_moved(is_narrow ? ec->capture_paths[i] : ec->captures[i]);
+            if (needs_drop(t)) owns_droppable_capture = true;
         }
     }
     pending_closure_deferred_moves_ = std::move(deferred_moves);
@@ -20209,6 +20129,13 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                                 : TypeRef::FnFamily::Fn,
         closure_literal_identity(cur_package_, closure_id),
         literal_captures);
+    // A closure owning a droppable capture is itself dropped (its env glue
+    // drops the captures) and moved — Rust's closure owning a non-Copy capture.
+    if (owns_droppable_capture && !TypeRef(ctype).closure_owns_env()) {
+        auto cb = TypeRef(ctype).to_builder();
+        cb.const_val = int64_t(uint64_t(cb.const_val.value_or(0)) | TypeRef::OWNED_ENV_BIT);
+        ctype = pool_->alloc(std::move(cb));
+    }
     // The per-literal capture list the `dyn` coercion's lifetime check reads,
     // by mode as the type's (a shared `&T` capture is kept as itself: a reborrow).
     {
