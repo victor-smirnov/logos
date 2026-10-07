@@ -804,6 +804,10 @@ struct LProgram {
     // slot of the trait's vtable order calls (L-IR names; "" = no impl item
     // answers). mono fills it from the impl C-OBL selects; mlir lays it out.
     std::unordered_map<std::string, std::vector<std::string>> vtables;
+    // ADR 0030 S9b row 3 (mono → mlir, in-process): every emitted struct's
+    // destructor — the `Drop` lang item's `drop` mono selects by identity —
+    // keyed `pkg \x1f emitted-name`; "" = no `Drop` impl.
+    std::unordered_map<std::string, std::string> drop_symbols;
 
     // ADR 0007 slice 1c: pools for WritVal / EClosure. Append-only,
     // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME

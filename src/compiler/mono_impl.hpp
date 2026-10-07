@@ -1087,6 +1087,7 @@ private:
     void complete_impl_subst_(lir_view::FunctionView m, SubstMap& s);
     bool bound_holds_(lir_view::FnTraitBoundView b, TypeRef concrete, const SubstMap& s);
     std::string drop_symbol_(TypeRef ty, const std::string& cname);
+    void fill_drop_symbols_();
 
     // Recursive trait-satisfaction at mono-time: does `concrete_name`
     // implement `trait_name` directly via concrete_impls_, or transitively

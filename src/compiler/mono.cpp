@@ -56,6 +56,27 @@ void Mono::drain_deferred_methods_() {
     deferred_method_enqueues_ = std::move(still);
 }
 
+// ADR 0030 S9b row 3: each emitted struct's destructor, selected by identity
+// (drop_symbol_: the `Drop` lang item's impl C-OBL picks, its `drop` item
+// instantiated), for mlir's drop glue — instead of a prefix scan over
+// spelled method names there. A selection may instantiate: drained after.
+void Mono::fill_drop_symbols_() {
+    const size_t n = out_.structs.size();
+    for (size_t i = 0; i < n; ++i) {
+        auto sd = out_.structs[i];
+        if (!sd) continue;
+        const std::string name(sd.name()), pkg(sd.pkg());
+        TypeRef ty;
+        if (auto it = concrete_struct_types_.find(pkg.empty() ? name : pkg + "." + name); it != concrete_struct_types_.end())
+            ty = it->second;
+        else if (sd.type_params_empty() && name.find("$G") == std::string::npos)
+            ty = build_generic_struct_typeref(name, {}, pkg);
+        if (!ty) continue;
+        out_.drop_symbols[pkg + "\x1f" + name] = drop_symbol_(ty, name);
+    }
+    drain_all_();
+}
+
 // Drain every worklist to a fixpoint: functions, methods, struct and enum
 // instances (each may demand more of the others).
 void Mono::drain_all_() {
@@ -1166,6 +1187,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     }
 
     fill_vtables_();
+    fill_drop_symbols_();
 
     out_.diags          = std::move(in_.diags);
     out_.binary_symbols = std::move(in_.binary_symbols);

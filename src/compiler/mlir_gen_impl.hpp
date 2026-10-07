@@ -626,6 +626,11 @@ private:
     // The ONE reader the drop sites use. Empty ⇒ this type has no `Drop` impl,
     // whatever it may spell a method.
     std::string resolve_drop_symbol(std::string_view name, std::string_view pkg) const {
+        // ADR 0030 S9b row 3: a struct mono emitted has its destructor selected
+        // by identity (LProgram::drop_symbols) — the answer, "" included. The
+        // name scan below remains for a type with no entry (an enum).
+        if (prog_)
+            if (const std::string* tab = drop_table_lookup_(name, pkg)) return *tab;
         if (!drop_impl_targets_built_) build_drop_impl_targets_();
         // ⚠ this set is keyed BARE: it says only that SOME package's struct of
         // this name has a Drop impl. PROBES.md 2026-09-10e §authneg.
@@ -634,8 +639,18 @@ private:
         // the plain fallback = this package owns the struct and it has NO drop.
         bool owns = false;
         auto sym = resolve_method_symbol(name, "drop", pkg, &owns);
-        if (owns && sym == std::string(strip_struct_pkg(name)) + "__drop") return {};
+        if (owns && sym == std::string(strip_struct_pkg(name)) + "__drop") sym.clear();
         return sym;
+    }
+    // mono's table entry for a struct: its emitted name, else (a non-generic
+    // struct asked by its folded spelling) the declared one.
+    const std::string* drop_table_lookup_(std::string_view name, std::string_view pkg) const {
+        std::string_view bare = strip_struct_pkg(name);
+        auto key = [&](std::string_view n) { return std::string(pkg) + "\x1f" + std::string(n); };
+        if (auto it = prog_->drop_symbols.find(key(bare)); it != prog_->drop_symbols.end()) return &it->second;
+        std::string unf = SemaResult::strip_fold_codes(std::string(bare));
+        if (auto it = prog_->drop_symbols.find(key(unf)); it != prog_->drop_symbols.end()) return &it->second;
+        return nullptr;
     }
     mutable std::unordered_set<std::string> drop_impl_targets_;
     mutable bool drop_impl_targets_built_ = false;
