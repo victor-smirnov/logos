@@ -94,6 +94,9 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
     if (c == la::LABELED_BLOCK.code) return true;
     if (c == la::FOR.code || c == la::FOR_EACH.code) return true;
     if (c == la::TRY_EXPR.code) return true;
+    if (c == la::LIST_COMP.code || c == la::MAP_COMP.code || c == la::WRIT_LIST_COMP.code ||
+        c == la::WRIT_MAP_COMP.code)
+        return true;
     // `'a: for …`: the label moves onto the loop inside the desugared `for`.
     if (c == la::LABELED_LOOP.code && n.has_key(la::BODY)) {
         TinyMapView b = map_of(n.get(la::BODY.code));
@@ -302,6 +305,9 @@ AnyVal Lowering::desugar(AnyVal v, Ctx ctx) {
     }
     if (c == la::FOR.code || c == la::FOR_EACH.code) return for_loop(n, AnyVal{});
     if (c == la::TRY_EXPR.code) return try_expr(n);
+    if (c == la::LIST_COMP.code || c == la::MAP_COMP.code || c == la::WRIT_LIST_COMP.code ||
+        c == la::WRIT_MAP_COMP.code)
+        return comprehension(n);
     if (c == la::LABELED_LOOP.code) {            // 'a: for … — relabel the inner loop
         TinyMapView m = map_of(n.get(la::BODY.code));
         writ::ArrayView arms(m.get(la::ITEMS.code), nullptr);
@@ -446,6 +452,75 @@ AnyVal Lowering::try_expr(TinyMapView n) {
                 {{la::VALUE.code, static_call(lang_item_path(n, "try"), "branch", n.get(la::VALUE.code))},
                  {la::ITEMS.code, array({arm("Continue", v, la::EXPR.code, node(la::VAR_REF.code, n, o, {{la::NAME.code, str(v)}})),
                                          arm("Break", r, la::BODY.code, ret)})}});
+}
+
+// A comprehension (ADR 0030 S10 row 3; a Logos addition, DIVERGENCES
+// expr.comprehension.list-and-map) is a block that builds the collection with
+// a `for` over the iterable (row 1's desugaring) and evaluates to it:
+//   [v for x in it if g]   { let mut c = vec_new(); for x in it { if g { c.push(v); } } c }
+//   {k: v for x in it}     the same over hashmap_new() / c.insert(k, v)
+//   @[v for x in it]       writ_list_comp_new(128) / writ_list_comp_push(&c, v)
+//   @{k: v for x in it}    writ_map_comp_new(4096, 64) / writ_map_comp_put(&c, k, v)
+// The builders are the names the spec says must be in scope (`use
+// logos.mem.collections.vec;` …); a Writ value's coercion to WAny is sema's,
+// at the builder call this pass marks.
+AnyVal Lowering::comprehension(TinyMapView n) {
+    const Origin o = Origin::Comprehension;
+    const int32_t c = code_of(n);
+    const bool writ = c == la::WRIT_LIST_COMP.code || c == la::WRIT_MAP_COMP.code;
+    const bool map = c == la::MAP_COMP.code || c == la::WRIT_MAP_COMP.code;
+    const std::string coll = std::format("__comp{}", fresh_++);
+    auto var = [&]() { return node(la::VAR_REF.code, n, o, {{la::NAME.code, str(coll)}}); };
+    auto lit = [&](int v) { return node(la::LIT_INT.code, n, o, {{la::VALUE.code, str(std::to_string(v))}}); };
+    auto call = [&](std::string_view fn, std::vector<AnyVal> a) {
+        return node(la::CALL.code, n, o, {{la::CALLEE.code, str(fn)}, {la::ARGS.code, array(a)}});
+    };
+    // `vec_new::<_>()` / `hashmap_new::<_, _>()`: the element types are holes the
+    // pushes / inserts solve (vec!'s own expansion of `vec![]`).
+    auto hole = [&]() { return node(la::TYPE_REF.code, n, o, {{la::NAME.code, str("_")}}); };
+    auto generic_call = [&](std::string_view fn, std::vector<AnyVal> tps) {
+        return node(la::GENERIC_CALL.code, n, o, {{la::CALLEE.code, str(fn)}, {la::TYPE_PARAMS.code, list_map(tps)},
+                                                  {la::ARGS.code, list_map({})}});
+    };
+    AnyVal init = writ ? (map ? call("writ_map_comp_new", {lit(4096), lit(64)}) : call("writ_list_comp_new", {lit(128)}))
+                       : map ? generic_call("hashmap_new", {hole(), hole()}) : generic_call("vec_new", {hole()});
+    std::vector<AnyVal> vals;
+    if (map) vals.push_back(n.get(la::KEY.code));
+    vals.push_back(n.get(la::VALUE.code));
+    AnyVal add;
+    if (writ) {
+        std::vector<AnyVal> a{node(la::UNARY.code, n, o, {{la::OP.code, str("&")}, {la::VALUE.code, var()}})};
+        a.insert(a.end(), vals.begin(), vals.end());
+        add = call(map ? "writ_map_comp_put" : "writ_list_comp_push", a);
+    } else if (!map) {
+        add = node(la::METHOD_CALL.code, n, o, {{la::RECEIVER.code, var()}, {la::NAME.code, str("push")},
+                                                {la::ARGS.code, array(vals)}});
+    }
+    AnyVal step;
+    if (map && !writ) {
+        // The stdlib's HashMap::insert is an `unsafe fn` (the old lowering
+        // skipped the check): only the call is in the `unsafe` block — the key
+        // and the value, the user's expressions, are evaluated before it.
+        const std::string k = std::format("__compk{}", fresh_), v = std::format("__compv{}", fresh_++);
+        auto ref = [&](const std::string& nm) { return node(la::VAR_REF.code, n, o, {{la::NAME.code, str(nm)}}); };
+        add = node(la::METHOD_CALL.code, n, o, {{la::RECEIVER.code, var()}, {la::NAME.code, str("insert")},
+                                                {la::ARGS.code, array({ref(k), ref(v)})}});
+        step = node(la::BLOCK_STMT.code, n, o, {{la::BODY.code, block({
+            node(la::LET.code, n, o, {{la::NAME.code, str(k)}, {la::VALUE.code, vals[0]}}),
+            node(la::LET.code, n, o, {{la::NAME.code, str(v)}, {la::VALUE.code, vals[1]}}),
+            node(la::UNSAFE_BLOCK.code, n, o, {{la::BODY.code, block({node(la::EXPR_STMT.code, n, o, {{la::VALUE.code, add}})}, n, o)}})}, n, o)}});
+    } else {
+        step = node(la::EXPR_STMT.code, n, o, {{la::VALUE.code, add}});
+    }
+    AnyVal body = n.has_key(la::GUARD)
+        ? block({node(la::IF.code, n, o, {{la::COND.code, n.get(la::GUARD.code)}, {la::THEN.code, block({step}, n, o)}})}, n, o)
+        : block({step}, n, o);
+    AnyVal each = node(la::FOR_EACH.code, n, o, {{la::NAME.code, n.get(la::NAME.code)}, {la::ITER.code, n.get(la::ITER.code)},
+                                                {la::BODY.code, body}});
+    return block({node(la::LET.code, n, o, {{la::NAME.code, str(coll)}, {la::VALUE.code, init},
+                                            {la::IS_MUT.code, writ ? AnyVal{} : AnyVal::from_value(true)}}),
+                  for_loop(map_of(each), AnyVal{}),
+                  node(la::TAIL_EXPR.code, n, o, {{la::VALUE.code, var()}})}, n, o);
 }
 
 // The path of a lang item (`pkg::Name`). A missing one is a malformed stdlib:

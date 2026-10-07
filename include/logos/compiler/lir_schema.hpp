@@ -113,7 +113,7 @@ enum class Code : int32_t {
     ExprStmt        = 13,
     // 14 retired: the statement match (ADR 0030 S3.4c — an expression statement of a match)
     // 15 retired: C++-style `delete` stmt (removed; no Rust equivalent)
-    ForEach         = 16,
+    // 16 retired: ForEach (ADR 0030 S10 — `for` and comprehensions are HIR loops)
     DerefWrite      = 17,
     Drop            = 18,
     DerefFieldWrite = 19,
@@ -378,7 +378,7 @@ namespace stmt_keys {
 // Names / labels
 inline constexpr Key NAME              {"NAME",             1};   // Varchar (let/assign var, etc.)
 inline constexpr Key LABEL             {"LABEL",            2};   // Varchar (loop label)
-inline constexpr Key VAR               {"VAR",              3};   // Varchar (SFor/SForEach loop var)
+inline constexpr Key VAR               {"VAR",              3};   // Varchar (loop var)
 inline constexpr Key RECEIVER          {"RECEIVER",         4};   // Varchar
 inline constexpr Key FIELD             {"FIELD",            5};   // Varchar
 inline constexpr Key MID_FIELD         {"MID_FIELD",        6};   // Varchar
@@ -425,7 +425,7 @@ inline constexpr Key ARR_SIZE          {"ARR_SIZE",        34};   // i64
 inline constexpr Key EXTRA_MIDS        {"EXTRA_MIDS",      35};   // Array<Varchar> — middle segments (between MID_FIELD and FIELD) in N-deep ChainFieldWrite
 inline constexpr Key MOVED_FIELDS      {"MOVED_FIELDS",    36};   // Array<Varchar> — SDrop: field names of `var_name` that were moved out and must not be auto-dropped
 inline constexpr Key DROP_OLD          {"DROP_OLD",        39};   // u8 — SAssign: drop the LHS's old value before storing (B8 drop-before-replace)
-inline constexpr Key VAR_SLOT          {"VAR_SLOT",        40};   // Int — SLet/SForEach binding's dense var slot (see expr_keys::VAR_SLOT). Absent ⇒ no slot.
+inline constexpr Key VAR_SLOT          {"VAR_SLOT",        40};   // Int — SLet binding's dense var slot (see expr_keys::VAR_SLOT). Absent ⇒ no slot.
 // SBlock: this block is SEMA-SYNTHESIZED and TRANSPARENT — its bindings must
 // leak into the enclosing scope (destructure spill, statement temp-hoist,
 // temporary lifetime extension). It is a fact about the PRODUCER, so the

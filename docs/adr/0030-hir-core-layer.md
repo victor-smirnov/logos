@@ -960,6 +960,27 @@ the stdlib archives +3% (instances of `Option<Infallible>` /
 instantiations. No fast path keyed on the resolved lang-item impl: the Q3
 decision (no `for` fast path) applies to `?` alike.
 
+Row (3), 2026-10-06 — CLOSED. A comprehension is the HIR's block that builds
+the collection with a `for` (row 1) and evaluates to it: `[v for x in it if
+g]` is `{ let mut c = vec_new::<_>(); for x in it { if g { c.push(v); } } c }`,
+`{k: v for …}` the same over `hashmap_new::<_, _>()` / `insert` (the key and
+value are bound before an `unsafe` block holding only the call: the stdlib's
+`HashMap::insert` is an `unsafe fn`, and the old lowering skipped the check),
+`@[…]` / `@{…}` over `writ_list_comp_new` / `writ_list_comp_push` and
+`writ_map_comp_new` / `writ_map_comp_put`, whose element sema coerces to WAny
+in the container at the builder call the pass marks (DIVERGENCES
+coerce.writ-anyval.scalar-helpers; a non-`str` Writ key and a non-bool guard
+keep their Logos messages). A comprehension now iterates whatever `for`
+iterates and binds `x` to the item — a slice yields `&T` (spec rule
+`expr.list-comp.iter-array-or-slice-only` replaced by
+`expr.comprehension.iterable-into-iterator`). The capacity hints are
+constants: WMap grows (the "no auto-grow" comment was stale). Retired:
+lower_list_comp, lower_map_comp, lower_writ_list_comp, lower_writ_map_comp
+and the L-IR SForEach with every consumer (mlir gen_for_each, BIR, borrow,
+region, flow, mono; stmt code 16). src + include: +116 / −1016 (budget
++100 / −300; the deletions are SForEach). Fixture
+s10_comprehension_over_iterators.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

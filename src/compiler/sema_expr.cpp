@@ -2366,10 +2366,10 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::INDEX_READ:  return lower_index_read(expr);
     case la::ARR_LIT:      return lower_arr_lit(expr);
     case la::ARR_FILL_LIT: return lower_arr_fill_lit(expr);
-    case la::LIST_COMP:    return lower_list_comp(expr);
-    case la::MAP_COMP:     return lower_map_comp(expr);
-    case la::WRIT_LIST_COMP: return lower_writ_list_comp(expr);
-    case la::WRIT_MAP_COMP:  return lower_writ_map_comp(expr);
+    case la::LIST_COMP: case la::MAP_COMP:            // a block over a `for` by now (the HIR pass)
+    case la::WRIT_LIST_COMP: case la::WRIT_MAP_COMP:
+        hir_gate_(expr);
+        return error_expr();
     case la::WRIT_MAP:
     case la::WRIT_ARRAY:
     case la::WRIT_TYPED_ARRAY:
@@ -5339,6 +5339,31 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     at += cur_stmt_temp_hoist_->size() - before;
                 }
             }
+        }
+        // A Writ comprehension's element (the HIR's `writ_*_comp_push/put(&c, .., v)`)
+        // is coerced to WAny in the container `c` (DIVERGENCES
+        // coerce.writ-anyval.scalar-helpers).
+        // The builder call is the one whose first argument borrows the container.
+        TinyMapView a0 = args.size() >= 2 ? map_of(args.get(0)) : TinyMapView{};
+        if (hir_origin_(node) == hir::Origin::Comprehension && arg_exprs.size() >= 2 && arg_exprs[0] &&
+            code_of(a0) == la::UNARY) {
+            TinyMapView cv = a0.has_key(la::VALUE) ? map_of(a0.get(la::VALUE.code)) : TinyMapView{};
+            TypeRef rt = expr_type(arg_exprs[0]);
+            const bool is_map = arg_exprs.size() == 3;
+            // A Writ map's key is a `str` (the WMap<WString, _> root).
+            if (TypeRef kt = is_map ? expr_type(arg_exprs[1]) : TypeRef(nullptr);
+                kt && TypeRef(kt).kind() != LogosType::Kind::Error &&
+                !(TypeRef(kt).kind() == LogosType::Kind::Slice && TypeRef(kt).elem() &&
+                  TypeRef(TypeRef(kt).elem()).kind() == LogosType::Kind::U8)) {
+                error(std::format("writ map comprehension: key expression must be str (got {})", type_str(kt)));
+                return error_expr();
+            }
+            if (code_of(cv) == la::VAR_REF && rt && TypeRef(rt).pointee())
+                arg_exprs.back() = coerce_to_writ_anyval(std::move(arg_exprs.back()),
+                                                         std::string(str_of(cv.get(la::NAME.code))),
+                                                         TypeRef(rt).pointee(),
+                                                         is_map ? "writ map comprehension value"
+                                                                : "writ list comprehension element");
         }
     }
     uint64_t n_args = arg_exprs.size();
@@ -14577,515 +14602,6 @@ lir::LExprPtr SemaChecker::lower_arr_lit(TinyMapView node) {
     return builder().arr_lit(std::move(elems), ty);
 }
 
-// List comprehension:  [elem_expr for x in iter_expr (if guard)?]
-// Desugars to a block expression that creates a Vec<T>, iterates over
-// iter_expr, optionally filters by guard, and pushes elem_expr into the Vec.
-// Requires `use logos.mem.collections.vec;` in scope.
-// Iterator support: array / slice (via SForEach); generic iterator path
-// (types with .next() returning Option<T>) is deferred.
-lir::LExprPtr SemaChecker::lower_list_comp(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
-
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
-    TypeRef iter_type = expr_type(iter);
-
-    // Only array/slice iteration supported for now.
-    TypeRef elem_type = nullptr;
-    int64_t arr_size = 0;
-    bool is_slice = false;
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        arr_size  = (int64_t)TypeRef(iter_type).arr_size();
-    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        is_slice  = true;
-    } else {
-        error(std::format(
-            "list comprehension: only array/slice iteration supported (got {})",
-            type_str(iter_type)));
-        return error_expr();
-    }
-
-    // Require Vec<T> available (via `use std.vec`).
-    {
-        auto [vpkg, vsi] = find_struct_by_name("Vec");
-        if (!vsi) {
-            error("list comprehension requires `use logos.mem.collections.vec;`");
-            return error_expr();
-        }
-    }
-    auto* vec_new_fi = find_generic_func("vec_new");
-    if (!vec_new_fi) {
-        error("list comprehension: vec_new not found; add `use logos.mem.collections.vec;`");
-        return error_expr();
-    }
-
-    std::string vec_var = "__lc_v_" + std::to_string(tmp_var_count_++);
-
-    // Lower VALUE + optional GUARD with var_name in scope. The collection holds
-    // the VALUES (A6: `expr.list-comp.desugar-vec`, "T is the type of
-    // `value`"): `[P { k: x } for x in src]` is a Vec<P>. An untyped literal
-    // value keeps the iterator's element type, as before.
-    push_scope();
-    define(std::string(var_name), elem_type, false);
-    auto elem_expr = lower_expr(map_of(node.get(la::VALUE.code)));
-    lir::LExprPtr guard_expr = nullptr;
-    if (node.has_key(la::GUARD))
-        guard_expr = lower_expr(map_of(node.get(la::GUARD.code)));
-    pop_scope();
-    TypeRef val_type = elem_expr ? expr_type(elem_expr) : TypeRef(nullptr);
-    if (!val_type || TypeRef(val_type).kind() == LogosType::Kind::IntLit ||
-        TypeRef(val_type).kind() == LogosType::Kind::FloatLit ||
-        TypeRef(val_type).kind() == LogosType::Kind::Error)
-        val_type = elem_type;
-
-    TypeRef vec_t = make_synth_generic_struct("Vec", {val_type});
-
-    // SLet: let mut vec_var: Vec<T> = vec_new::<T>();
-    // Use symbol_name (may include __g__... suffix for method-level generics).
-    std::string vec_new_sym = vec_new_fi->symbol_name.empty() ? "vec_new"
-                                                              : vec_new_fi->symbol_name;
-    auto call_new = builder().call(vec_new_sym, {val_type}, {}, vec_t);
-    lir::SLet let_v;
-    let_v.name   = vec_var;
-    let_v.type   = vec_t;
-    let_v.is_mut = true;
-    let_v.value  = std::move(call_new);
-
-
-    // `vec_var.push(elem)`: a method call whose callee the probe records — the
-    // instance is mono's to name, not `Vec$G1$<T>__push` composed (ADR 0030 S8).
-    auto recv = builder().addr_of(vec_var, make_ref(true, vec_t), BorrowOrigin::Desugar);
-    std::vector<lir::LExprPtr> push_args;
-    push_args.push_back(std::move(elem_expr));
-    auto push_call = method_call_named_(std::move(recv), "push", std::move(push_args), -1, void_t());
-
-    lir::SExprStmt push_stmt;
-    push_stmt.expr = std::move(push_call);
-
-    std::vector<lir_view::StmtRef> loop_body;
-    if (guard_expr) {
-        lir::SIf sif;
-        sif.cond = std::move(guard_expr);
-        std::vector<lir_view::StmtRef> then_blk;
-        then_blk.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
-        sif.then_ = lir_mirror_block(*cur_prog_, then_blk);
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sif)));
-    } else {
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
-    }
-
-    lir::SForEach sfe;
-    sfe.var       = std::string(var_name);
-    sfe.iter      = std::move(iter);
-    sfe.elem_type = elem_type;
-    sfe.arr_size  = arr_size;
-    sfe.is_slice  = is_slice;
-    sfe.body      = lir_mirror_block(*cur_prog_, loop_body);
-
-    std::vector<lir_view::StmtRef> outer;
-    outer.push_back(make_stmt_emit(node_line_, std::move(let_v)));
-    outer.push_back(make_stmt_emit(node_line_, std::move(sfe)));
-
-    auto result = builder().var_ref(vec_var, vec_t);
-    return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), vec_t);
-}
-
-// Map comprehension:  {kexpr: vexpr for x in iter_expr (if guard)?}
-// Desugars to a block that creates a HashMap<K,V>, iterates over iter_expr,
-// optionally filters by guard, and inserts (kexpr, vexpr) pairs.
-// Requires `use logos.mem.collections.hashmap;` in scope.
-lir::LExprPtr SemaChecker::lower_map_comp(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
-
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
-    TypeRef iter_type = expr_type(iter);
-
-    TypeRef elem_type = nullptr;
-    int64_t arr_size = 0;
-    bool is_slice = false;
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        arr_size  = (int64_t)TypeRef(iter_type).arr_size();
-    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        is_slice  = true;
-    } else {
-        error(std::format(
-            "map comprehension: only array/slice iteration supported (got {})",
-            type_str(iter_type)));
-        return error_expr();
-    }
-
-    {
-        auto [hmpkg, hmsi] = find_struct_by_name("HashMap");
-        if (!hmsi) {
-            error("map comprehension requires `use logos.mem.collections.hashmap;`");
-            return error_expr();
-        }
-    }
-    auto* hm_new_fi = find_generic_func("hashmap_new");
-    if (!hm_new_fi) {
-        error("map comprehension: hashmap_new not found; add `use logos.mem.collections.hashmap;`");
-        return error_expr();
-    }
-
-    std::string hm_var = "__mc_m_" + std::to_string(tmp_var_count_++);
-
-    push_scope();
-    define(std::string(var_name), elem_type, false);
-    auto key_expr_body = lower_expr(map_of(node.get(la::KEY.code)));
-    auto val_expr_body = lower_expr(map_of(node.get(la::VALUE.code)));
-    lir::LExprPtr guard_body = nullptr;
-    if (node.has_key(la::GUARD))
-        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
-    pop_scope();
-
-    TypeRef k_type = expr_type(key_expr_body);
-    TypeRef v_type = expr_type(val_expr_body);
-    TypeRef hm_t = make_generic_struct("HashMap", {k_type, v_type});
-
-    std::string hm_new_sym = hm_new_fi->symbol_name.empty() ? "hashmap_new"
-                                                            : hm_new_fi->symbol_name;
-    auto call_new = builder().call(hm_new_sym, {k_type, v_type}, {}, hm_t);
-    lir::SLet let_m;
-    let_m.name   = hm_var;
-    let_m.type   = hm_t;
-    let_m.is_mut = true;
-    let_m.value  = std::move(call_new);
-
-    // `hm_var.insert(key, val)`: a method call whose callee the probe records.
-    auto recv = builder().addr_of(hm_var, make_ref(true, hm_t), BorrowOrigin::Desugar);
-    std::vector<lir::LExprPtr> ins_args;
-    ins_args.push_back(std::move(key_expr_body));
-    ins_args.push_back(std::move(val_expr_body));
-    // The comprehension's own insert: Logos's `HashMap::insert` is an `unsafe
-    // fn` (Rust's is safe), and the user wrote no call — the desugaring is
-    // the compiler's, so it carries its own unsafe context.
-    bool was_unsafe = inside_unsafe_;
-    inside_unsafe_ = true;
-    auto ins_call = method_call_named_(std::move(recv), "insert", std::move(ins_args), -1, void_t());
-    inside_unsafe_ = was_unsafe;
-
-    lir::SExprStmt ins_stmt;
-    ins_stmt.expr = std::move(ins_call);
-
-    std::vector<lir_view::StmtRef> loop_body;
-    if (guard_body) {
-        lir::SIf sif;
-        sif.cond = std::move(guard_body);
-        std::vector<lir_view::StmtRef> then_blk;
-        then_blk.push_back(make_stmt_emit(node_line_, std::move(ins_stmt)));
-        sif.then_ = lir_mirror_block(*cur_prog_, then_blk);
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sif)));
-    } else {
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(ins_stmt)));
-    }
-
-    lir::SForEach sfe;
-    sfe.var       = std::string(var_name);
-    sfe.iter      = std::move(iter);
-    sfe.elem_type = elem_type;
-    sfe.arr_size  = arr_size;
-    sfe.is_slice  = is_slice;
-    sfe.body      = lir_mirror_block(*cur_prog_, loop_body);
-
-    std::vector<lir_view::StmtRef> outer;
-    outer.push_back(make_stmt_emit(node_line_, std::move(let_m)));
-    outer.push_back(make_stmt_emit(node_line_, std::move(sfe)));
-
-    auto result = builder().var_ref(hm_var, hm_t);
-    return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), hm_t);
-}
-
-// Writ list comprehension:  @[expr for x in iter_expr (if guard)?]
-// Desugars to a block that builds a Writ whose root is an
-// ObjectArray of AnyVals, iterating over iter_expr and optionally
-// filtering by guard.  Element expression must evaluate to AnyVal
-// (user coerces scalars explicitly via AnyVal::embed_i24 etc.).
-// Requires `use logos.mem.writ.ctr;` in scope.
-lir::LExprPtr SemaChecker::lower_writ_list_comp(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
-
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
-    TypeRef iter_type = expr_type(iter);
-
-    // Short-circuit on upstream error to avoid cascading diagnostics.
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Error)
-        return error_expr();
-
-    TypeRef elem_type = nullptr;
-    int64_t arr_size = 0;
-    bool is_slice = false;
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        arr_size  = (int64_t)TypeRef(iter_type).arr_size();
-    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        is_slice  = true;
-    } else {
-        error(std::format(
-            "writ list comprehension: only array/slice iteration supported (got {})",
-            type_str(iter_type)));
-        return error_expr();
-    }
-
-    // writ builder: yields Rc<Writ> (see lang.writ.comp_builder).
-    auto new_cands  = find_func_candidates("writ_list_comp_new");
-    auto push_cands = find_func_candidates("writ_list_comp_push");
-    const SemaFuncInfo* new_fi  = nullptr;
-    const SemaFuncInfo* push_fi = nullptr;
-    for (auto* fi : new_cands)  if (fi->param_types.size() == 1) { new_fi  = fi; break; }
-    for (auto* fi : push_cands) if (fi->param_types.size() == 2) { push_fi = fi; break; }
-    if (!new_fi || !push_fi) {
-        error("writ list comprehension requires `use logos.lang.writ.comp_builder;`");
-        return error_expr();
-    }
-
-    // The container type is whatever the builder returns (Rc<Writ>).
-    TypeRef ctr_t = new_fi->ret_type;
-
-    std::string ctr_var = "__hlc_c_" + std::to_string(tmp_var_count_++);
-
-    push_scope();
-    define(ctr_var, ctr_t, true);
-    define(std::string(var_name), elem_type, false);
-    auto val_expr_body = lower_expr(map_of(node.get(la::VALUE.code)));
-    lir::LExprPtr guard_body = nullptr;
-    if (node.has_key(la::GUARD))
-        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
-    pop_scope();
-
-    // Coerce VALUE to AnyVal (no-op if already AnyVal).
-    val_expr_body = coerce_to_writ_anyval(
-        std::move(val_expr_body), ctr_var, ctr_t,
-        "writ list comprehension element");
-    if (!val_expr_body || TypeRef(expr_type(val_expr_body)).kind() == LogosType::Kind::Error)
-        return error_expr();
-
-    // Guard must be Bool; any other type (including Error) is rejected here to
-    // avoid cascading diagnostics and to prevent an MLIR verification crash
-    // from feeding a non-i1 value into cf.cond_br.
-    if (guard_body) {
-        auto gk = expr_type(guard_body) ? TypeRef(expr_type(guard_body)).kind()
-                                   : LogosType::Kind::Error;
-        if (gk == LogosType::Kind::Error)
-            return error_expr();
-        if (gk != LogosType::Kind::Bool) {
-            error(std::format(
-                "writ list comprehension: guard must be bool (got {})",
-                type_str(expr_type(guard_body))));
-            return error_expr();
-        }
-    }
-
-    // SLet: let mut __hlc_c = writ_list_comp_new(128);
-    std::string new_sym = new_fi->symbol_name.empty() ? "writ_list_comp_new"
-                                                      : new_fi->symbol_name;
-    std::vector<lir::LExprPtr> new_args;
-    int64_t cap_hint = arr_size > 0 ? (arr_size * 8 + 128) : 128;
-    new_args.push_back(builder().lit_int(cap_hint, prim(LogosType::Kind::I64)));
-    auto call_new = builder().call(new_sym, {}, std::move(new_args), ctr_t);
-    lir::SLet let_c;
-    let_c.name   = ctr_var;
-    let_c.type   = ctr_t;
-    let_c.is_mut = true;
-    let_c.value  = std::move(call_new);
-
-    // writ_list_comp_push(&mut __hlc_c, val);
-    std::string push_sym = push_fi->symbol_name.empty() ? "writ_list_comp_push"
-                                                        : push_fi->symbol_name;
-    // push takes `&Rc<Writ>` (shared) — was `&mut Writ`.
-    auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t), BorrowOrigin::Desugar);
-    std::vector<lir::LExprPtr> push_args;
-    push_args.push_back(std::move(recv));
-    push_args.push_back(std::move(val_expr_body));
-    auto push_call = builder().call(push_sym, {}, std::move(push_args), void_t());
-
-    lir::SExprStmt push_stmt;
-    push_stmt.expr = std::move(push_call);
-
-    std::vector<lir_view::StmtRef> loop_body;
-    if (guard_body) {
-        lir::SIf sif;
-        sif.cond = std::move(guard_body);
-        std::vector<lir_view::StmtRef> then_blk;
-        then_blk.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
-        sif.then_ = lir_mirror_block(*cur_prog_, then_blk);
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sif)));
-    } else {
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(push_stmt)));
-    }
-
-    lir::SForEach sfe;
-    sfe.var       = std::string(var_name);
-    sfe.iter      = std::move(iter);
-    sfe.elem_type = elem_type;
-    sfe.arr_size  = arr_size;
-    sfe.is_slice  = is_slice;
-    sfe.body      = lir_mirror_block(*cur_prog_, loop_body);
-
-    std::vector<lir_view::StmtRef> outer;
-    outer.push_back(make_stmt_emit(node_line_, std::move(let_c)));
-    outer.push_back(make_stmt_emit(node_line_, std::move(sfe)));
-
-    auto result = builder().var_ref(ctr_var, ctr_t);
-    return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), ctr_t);
-}
-
-// Writ map comprehension:  @{kexpr: vexpr for x in iter (if guard)?}
-// v1: string keys only (`str`); values must be AnyVal.
-// Requires `use logos.mem.writ.ctr;` in scope.
-lir::LExprPtr SemaChecker::lower_writ_map_comp(TinyMapView node) {
-    auto var_name = str_of(node.get(la::NAME.code));
-
-    lir::LExprPtr iter = node.has_key(la::ITER)
-        ? lower_expr(map_of(node.get(la::ITER.code))) : error_expr();
-    TypeRef iter_type = expr_type(iter);
-
-    // Short-circuit on upstream error to avoid cascading diagnostics.
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Error)
-        return error_expr();
-
-    TypeRef elem_type = nullptr;
-    int64_t arr_size = 0;
-    bool is_slice = false;
-    if (TypeRef(iter_type).kind() == LogosType::Kind::Array) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        arr_size  = (int64_t)TypeRef(iter_type).arr_size();
-    } else if (TypeRef(iter_type).kind() == LogosType::Kind::Slice) {
-        elem_type = TypeRef(iter_type).elem() ? TypeRef(iter_type).elem() : i32_t();
-        is_slice  = true;
-    } else {
-        error(std::format(
-            "writ map comprehension: only array/slice iteration supported (got {})",
-            type_str(iter_type)));
-        return error_expr();
-    }
-
-    // writ builder: yields Rc<Writ> (see lang.writ.comp_builder).
-    auto new_cands = find_func_candidates("writ_map_comp_new");
-    auto put_cands = find_func_candidates("writ_map_comp_put");
-    const SemaFuncInfo* new_fi = nullptr;
-    const SemaFuncInfo* put_fi = nullptr;
-    for (auto* fi : new_cands) if (fi->param_types.size() == 2) { new_fi = fi; break; }
-    for (auto* fi : put_cands) if (fi->param_types.size() == 3) { put_fi = fi; break; }
-    if (!new_fi || !put_fi) {
-        error("writ map comprehension requires `use logos.lang.writ.comp_builder;`");
-        return error_expr();
-    }
-
-    // The container type is whatever the builder returns (Rc<Writ>).
-    TypeRef ctr_t = new_fi->ret_type;
-
-    std::string ctr_var = "__hmc_c_" + std::to_string(tmp_var_count_++);
-
-    push_scope();
-    define(ctr_var, ctr_t, true);
-    define(std::string(var_name), elem_type, false);
-    auto key_expr = lower_expr(map_of(node.get(la::KEY.code)));
-    auto val_expr = lower_expr(map_of(node.get(la::VALUE.code)));
-    lir::LExprPtr guard_body = nullptr;
-    if (node.has_key(la::GUARD))
-        guard_body = lower_expr(map_of(node.get(la::GUARD.code)));
-    pop_scope();
-
-    // Require KEY to be str (&[u8] slice).  Short-circuit on Error to avoid
-    // cascading diagnostics when the key subexpression already failed.
-    TypeRef kt = expr_type(key_expr);
-    if (kt && TypeRef(kt).kind() == LogosType::Kind::Error)
-        return error_expr();
-    if (!(kt && TypeRef(kt).kind() == LogosType::Kind::Slice && TypeRef(kt).elem()
-              && TypeRef(kt).elem().kind() == LogosType::Kind::U8)) {
-        error(std::format(
-            "writ map comprehension: key expression must be str (got {})",
-            type_str(kt)));
-        return error_expr();
-    }
-
-    // Coerce VALUE to AnyVal (no-op if already AnyVal).
-    val_expr = coerce_to_writ_anyval(
-        std::move(val_expr), ctr_var, ctr_t,
-        "writ map comprehension value");
-    if (!val_expr || TypeRef(expr_type(val_expr)).kind() == LogosType::Kind::Error)
-        return error_expr();
-
-    // Guard must be Bool; reject anything else early to avoid MLIR crashes
-    // (cf.cond_br requires i1) and to silence cascades when the guard errored.
-    if (guard_body) {
-        auto gk = expr_type(guard_body) ? TypeRef(expr_type(guard_body)).kind()
-                                   : LogosType::Kind::Error;
-        if (gk == LogosType::Kind::Error)
-            return error_expr();
-        if (gk != LogosType::Kind::Bool) {
-            error(std::format(
-                "writ map comprehension: guard must be bool (got {})",
-                type_str(expr_type(guard_body))));
-            return error_expr();
-        }
-    }
-
-    std::string new_sym = new_fi->symbol_name.empty() ? "writ_map_comp_new"
-                                                      : new_fi->symbol_name;
-    // Byte-cap hint for zone, and slot-count hint for map buckets.
-    // For slices (arr_size==0 at compile time) we don't know iter length, so
-    // use a generous default to reduce the risk of silent drops.  This is a
-    // v1 limitation — objectmap_set has no auto-grow.
-    int64_t slot_hint = arr_size > 0 ? arr_size : 64;
-    int64_t cap_hint  = arr_size > 0 ? (arr_size * 48 + 256) : 4096;
-    std::vector<lir::LExprPtr> new_args;
-    new_args.push_back(builder().lit_int(cap_hint, prim(LogosType::Kind::I64)));
-    new_args.push_back(builder().lit_int(slot_hint, prim(LogosType::Kind::I64)));
-    auto call_new = builder().call(new_sym, {}, std::move(new_args), ctr_t);
-    lir::SLet let_c;
-    let_c.name   = ctr_var;
-    let_c.type   = ctr_t;
-    let_c.is_mut = true;
-    let_c.value  = std::move(call_new);
-
-    std::string put_sym = put_fi->symbol_name.empty() ? "writ_map_comp_put"
-                                                      : put_fi->symbol_name;
-    auto recv = builder().addr_of(ctr_var, make_ref(false, ctr_t), BorrowOrigin::Desugar);  // &Rc<Writ>
-    std::vector<lir::LExprPtr> put_args;
-    put_args.push_back(std::move(recv));
-    put_args.push_back(std::move(key_expr));
-    put_args.push_back(std::move(val_expr));
-    auto put_call = builder().call(put_sym, {}, std::move(put_args), void_t());
-
-    lir::SExprStmt put_stmt;
-    put_stmt.expr = std::move(put_call);
-
-    std::vector<lir_view::StmtRef> loop_body;
-    if (guard_body) {
-        lir::SIf sif;
-        sif.cond = std::move(guard_body);
-        std::vector<lir_view::StmtRef> then_blk;
-        then_blk.push_back(make_stmt_emit(node_line_, std::move(put_stmt)));
-        sif.then_ = lir_mirror_block(*cur_prog_, then_blk);
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(sif)));
-    } else {
-        loop_body.push_back(make_stmt_emit(node_line_, std::move(put_stmt)));
-    }
-
-    lir::SForEach sfe;
-    sfe.var       = std::string(var_name);
-    sfe.iter      = std::move(iter);
-    sfe.elem_type = elem_type;
-    sfe.arr_size  = arr_size;
-    sfe.is_slice  = is_slice;
-    sfe.body      = lir_mirror_block(*cur_prog_, loop_body);
-
-    std::vector<lir_view::StmtRef> outer;
-    outer.push_back(make_stmt_emit(node_line_, std::move(let_c)));
-    outer.push_back(make_stmt_emit(node_line_, std::move(sfe)));
-
-    auto result = builder().var_ref(ctr_var, ctr_t);
-    return builder().block_expr(lir_mirror_block(*cur_prog_, outer), std::move(result), ctr_t);
-}
-
 // Coerce an arbitrary value to AnyVal for use inside a Writ comprehension.
 // Returns the original expr if already AnyVal; otherwise wraps in a call to
 // one of the `writ_coerce_*` helpers in writ/ctr.logos. String coercion
@@ -19819,7 +19335,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                     break;
                 }
                 // A return nested in a loop body over a collection counts too.
-                case SC::ForEach: scan_block(lir_view::SForEachView{s}.body()); break;
                 default: break;
             }
         };
@@ -20416,15 +19931,6 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 scan_captures_v(v.index()); scan_captures_v(v.value()); break;
             }
             case SC::ExprStmt:   scan_captures_v(lir_view::SExprStmtView{s}.expr()); break;
-            case SC::ForEach: {
-                auto v = lir_view::SForEachView{s};
-                scan_captures_v(v.iter());
-                body_scopes.emplace_back();
-                if (!v.var().empty()) body_scopes.back().insert(std::string(v.var()));
-                scan_block_v(v.body());
-                body_scopes.pop_back();
-                break;
-            }
             case SC::DerefWrite: {
                 auto v = lir_view::SDerefWriteView{s};
                 scan_captures_v(v.ptr()); scan_captures_v(v.value()); break;

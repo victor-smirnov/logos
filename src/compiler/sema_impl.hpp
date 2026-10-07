@@ -3111,8 +3111,6 @@ private:
                 s.mirror_ptr_ = lir_mirror_emit_field_index_write(p, line, k.receiver, k.field, k.index, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SExprStmt>) {
                 s.mirror_ptr_ = lir_mirror_emit_expr_stmt(p, line, k.expr);
-            } else if constexpr (std::is_same_v<KT, lir::SForEach>) {
-                s.mirror_ptr_ = lir_mirror_emit_for_each(p, line, k.var, k.iter, k.elem_type, k.arr_size, k.is_slice, k.body, k.slot, k.var_mut, k.label);
             } else if constexpr (std::is_same_v<KT, lir::SDerefWrite>) {
                 s.mirror_ptr_ = lir_mirror_emit_deref_write(p, line, k.ptr, k.value);
             } else if constexpr (std::is_same_v<KT, lir::SDrop>) {
@@ -9630,10 +9628,6 @@ private:
     lir::LExprPtr lower_index_place(writ::TinyMapView node, bool is_mut);
     lir::LExprPtr lower_arr_lit(writ::TinyMapView node);
     lir::LExprPtr lower_arr_fill_lit(writ::TinyMapView node);
-    lir::LExprPtr lower_list_comp(writ::TinyMapView node);
-    lir::LExprPtr lower_map_comp(writ::TinyMapView node);
-    lir::LExprPtr lower_writ_list_comp(writ::TinyMapView node);
-    lir::LExprPtr lower_writ_map_comp(writ::TinyMapView node);
     lir::LExprPtr coerce_to_writ_anyval(lir::LExprPtr val,
                                           const std::string& ctr_var,
                                           TypeRef ctr_t,

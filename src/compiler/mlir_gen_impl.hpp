@@ -2017,7 +2017,6 @@ private:
     void gen_stmt_kind(lir_view::SIndexWriteView v);
     void gen_stmt_kind(lir_view::SFieldIndexWriteView v);
     void gen_stmt_kind(lir_view::SExprStmtView v);
-    void gen_stmt_kind(lir_view::SForEachView v);
     void gen_stmt_kind(lir_view::SBlockView v);
     void gen_stmt_kind(lir_view::SDropView v);
     // G158-4: recursively drop a value of type `ty` located at `value_ptr`
@@ -2100,7 +2099,6 @@ private:
     void gen_loop(lir_view::SLoopView v);
     void gen_break(lir_view::SBreakView v);
     void gen_continue();
-    void gen_for_each(lir_view::SForEachView v);
     void gen_field_write(lir_view::SFieldWriteView v);
     void gen_deref_field_write(lir_view::SDerefFieldWriteView v);
     void gen_chain_field_write(lir_view::SChainFieldWriteView v);

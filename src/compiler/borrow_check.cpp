@@ -12123,12 +12123,6 @@ private:
             case Code::Block:
                 if (auto b = SBlockView{sr}.body()) scan_uses_block(b);
                 break;
-            case Code::ForEach: {
-                SForEachView v{sr};
-                scan_uses_expr(v.iter(), ln);
-                if (auto b = v.body()) scan_uses_block(b);
-                break;
-            }
             case Code::LetElse: {
                 SLetElseView v{sr};
                 scan_uses_expr(v.scrut(), ln);
@@ -14765,45 +14759,6 @@ private:
             }
 
             // ── For-each loop ─────────────────────────────────────────────
-            case Code::ForEach: {
-                SForEachView v{sr};
-                // ── CEILING PROBE `foreachitermove` — `for n in v` where
-                // `v: &mut Vec<T>` MOVES `v` in Rust: `IntoIterator for &mut
-                // Vec<T>` takes `self` BY VALUE, and `&mut T` is not Copy. This
-                // arm visits the iterable NON-consuming, so two consecutive
-                // `for n in v { … }` loops over one `&mut` compile (E0382).
-                // ⚠ SMALL POPULATION (rule 4): coverage 2026-08-28 gives this
-                // switch arm 104 arrivals over the whole instrumented run, so a
-                // zero here is NOT a refutation of the mechanism.
-                // ── MEASURED 2026-08-29: CEILING 0 / COST 0, SITE PROVEN LIVE
-                // AND THE PREDICATE TRUE. issue-83924 fires the probe TWICE —
-                // once per `for n in v` — so the arm is reached and the
-                // iterable IS `&mut Vec<i64>`, and the program still compiles
-                // rc 0. `visit` consumes a move type only at a bare VarRef, so
-                // the iterable is not one: sema has wrapped it, the same
-                // implicit-reborrow wrap that defeats `mrgenerictv` and
-                // `mrletann`. Confirmed on a 9-line repro with two loops over
-                // one `&mut Vec`: 2 fires, rc 0 armed and unarmed. All three
-                // `&mut T is not Copy` rows are blocked by ONE upstream fact,
-                // not three; the next round belongs at the WRAP, not here.
-                bool p_fim = logos::probe::on("foreachitermove") &&
-                             v.iter() && v.iter().type(pool) &&
-                             v.iter().type(pool).kind() ==
-                                 LogosType::Kind::MutRef;
-                visit(v.iter(), /*consuming=*/p_fim, ln);
-                // LANDED 2026-08-31r (`foreachitertmp`) — see PROBES.md.
-                if (v.iter() && is_ref_kind(v.iter().type(pool)))
-                    take_ref_borrows(v.iter(), ln,
-                                     "__foreach_it_" +
-                                         std::to_string(++scrut_tmp_seq_),
-                                     /*record_only=*/true);
-                if (auto b = v.body())
-                    // SForEachView carries no label accessor; unlabeled
-                    // break/continue (the common case) still target it as the
-                    // innermost frame.
-                    visit_loop_body(b, {std::string(v.var())}, {}, {}, {}, v.var_mut());
-                break;
-            }
 
             // SBreak / SContinue: capture the current move-state for the target
             // loop's dataflow (break → after-loop, continue → back-edge), then

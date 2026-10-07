@@ -1,4 +1,4 @@
-// @rule expr.list-comp.iter-array-or-slice-only
+// @rule expr.comprehension.iterable-into-iterator
 package expr_diag_3_list_comp_iter;
 
 use logos.mem.collections.vec;

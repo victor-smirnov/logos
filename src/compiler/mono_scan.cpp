@@ -200,12 +200,6 @@ void Mono::scan_stmt(lir_view::StmtRef s) {
     case SCode::ExprStmt:
         scan_expr(lir_view::SExprStmtView{s}.expr());
         break;
-    case SCode::ForEach: {
-        lir_view::SForEachView v{s};
-        scan_expr(v.iter());
-        scan_block(v.body());
-        break;
-    }
     case SCode::LetElse: {
         lir_view::SLetElseView v{s};
         scan_expr(v.scrut());

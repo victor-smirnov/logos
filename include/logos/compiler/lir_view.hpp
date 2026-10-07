@@ -3148,24 +3148,6 @@ struct SBlockView {
     bool transparent() const noexcept { return detail::read_bool(self, sk::TRANSPARENT.code); }
 };
 
-struct SForEachView {
-    StmtRef self;
-    std::string_view var() const noexcept  { return detail::stmt_str(self, sk::VAR.code); }
-    ExprRef          iter() const noexcept { return detail::stmt_sub_expr(self, sk::ITER.code); }
-    BlockRef         body() const noexcept { return detail::stmt_sub_block(self, sk::BODY.code); }
-    bool             is_slice() const noexcept { return detail::read_bool(self, sk::IS_SLICE.code); }
-    bool             var_mut() const noexcept { return detail::read_bool(self, sk::IS_MUT.code); }  // `for mut x` (sparse)
-    std::string_view label() const noexcept { return detail::stmt_str(self, sk::LABEL.code); }       // `'l: for` (sparse)
-    int64_t          arr_size() const noexcept { return detail::read_i64(self, sk::ARR_SIZE.code); }
-    TypeRef          elem_type(const TypePoolImpl* pool) const noexcept {
-        return detail::stmt_type(self, sk::ELEM_TYPE.code, pool);
-    }
-    uint32_t var_slot() const noexcept {  // Phase-1
-        auto v = detail::read_i64_opt(self, sk::VAR_SLOT.code);
-        return v ? static_cast<uint32_t>(*v) : 0xFFFFFFFFu;
-    }
-};
-
 struct SLetElseView {
     StmtRef self;
     ExprRef  scrut() const noexcept       { return detail::stmt_sub_expr(self, sk::SCRUT.code); }

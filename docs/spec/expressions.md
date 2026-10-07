@@ -3382,13 +3382,11 @@ A list comprehension `[value for x in iter (if guard)?]` desugars to a block tha
 
 *Source:* `src/compiler/sema_expr.cpp#L10885-L10986`
 
-### `expr.list-comp.iter-array-or-slice-only` — Comprehension iterables restricted to array/slice
+### `expr.comprehension.iterable-into-iterator` — A comprehension iterates as `for` does
 
-The iterable of any comprehension form must have type `[T; N]` (array) or `[T]` (slice); any other iterator type is rejected. Element type defaults to i32 when the array/slice element type is absent.
+The iterable of any comprehension form is iterated by the `for` desugaring (ADR 0030 S10): it must implement `IntoIterator`, and `x` is bound to its `Item` (an array by value yields `T`, a slice `&T`, an iterator its own item). A non-iterable is E0277, as for `for`.
 
-*Divergence:* Narrower than Rust: only concrete array/slice, no IntoIterator/Iterator protocol.
-
-*Note:* i32 default for missing elem type is a fallback; normally elem type is always present.
+*Divergence:* Logos-specific surface syntax; the iteration itself is Rust's `for`.
 
 *Source:* `src/compiler/sema_expr.cpp#L10896-L10907`, `src/compiler/sema_expr.cpp#L11002-L11013`, `src/compiler/sema_expr.cpp#L11112-L11123`, `src/compiler/sema_expr.cpp#L11245-L11256`
 

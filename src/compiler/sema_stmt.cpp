@@ -6815,10 +6815,13 @@ lir_view::StmtRef SemaChecker::lower_if(TinyMapView node) {
         if (TypeRef(expr_type(cond)).kind() != LogosType::Kind::Bool &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Error &&
             TypeRef(expr_type(cond)).kind() != LogosType::Kind::Never)  // G160-10: `if (return x){}`
-            // The `if` a `while c` became (ORIGIN) speaks as the `while`.
-            error(std::format("{} condition must be bool, got {}",
-                              hir_origin_(node) == hir::Origin::While ? "while" : "if",
-                              type_str(expr_type(cond))));
+            // The `if` a `while c` / a comprehension's guard became (ORIGIN)
+            // speaks as what was written.
+            error(hir_origin_(node) == hir::Origin::Comprehension
+                      ? std::format("comprehension: guard must be bool (got {})", type_str(expr_type(cond)))
+                      : std::format("{} condition must be bool, got {}",
+                                    hir_origin_(node) == hir::Origin::While ? "while" : "if",
+                                    type_str(expr_type(cond))));
     } else {
         cond = error_expr();
     }

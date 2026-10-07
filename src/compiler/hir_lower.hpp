@@ -87,6 +87,7 @@ enum class Origin : int64_t {
     ExprAssign      = 14,  // an assignment in expression position (`|| x = 5`, `A => s += 1,`)
     For             = 15,  // `for p in e { B }` (ADR 0030 S10 row 1)
     Try             = 16,  // `e?` (ADR 0030 S10 row 2)
+    Comprehension   = 17,  // `[v for x in it]` / `{k: v for …}` / `@[…]` / `@{…}` (ADR 0030 S10 row 3)
 };
 
 struct Diag {
@@ -128,6 +129,7 @@ private:
     // match Iterator::next(&mut it) { Option::Some(p) => B, Option::None => break } } }`.
     writ::AnyVal for_loop(writ::TinyMapView n, writ::AnyVal label);
     writ::AnyVal try_expr(writ::TinyMapView n);
+    writ::AnyVal comprehension(writ::TinyMapView n);
     std::string lang_item_path(writ::TinyMapView at, std::string_view l);
 
     // Builders: every node takes `from`'s position and the given origin.

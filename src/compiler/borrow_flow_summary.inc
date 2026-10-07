@@ -1591,13 +1591,6 @@ private:
                 if (v.value()) call_effects(v.value());
                 break;
             }
-            case Code::ForEach: {
-                SForEachView v{sr};
-                add_taint(std::string(v.var()), taint_of(v.iter()));
-                call_effects(v.iter());
-                if (auto b = v.body()) walk_block(b);
-                break;
-            }
             case Code::Block:
                 if (auto b = SBlockView{sr}.body()) walk_block(b);
                 break;
