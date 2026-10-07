@@ -10917,22 +10917,6 @@ fn uda_finalize_frag(name: str, acc: ExprBlob, has_fin: bool, cast_ty: str) -> E
 // Build a JChain directly from an RQJoin PLAN node (the rel bodies skip the
 // RExpr lowering — they are restricted to scan/join+where+select, so the plan
 // node IS the chain description; row types were stamped by the walker).
-fn jchain_from_plan(j: RQJoin, ch: &mut JChain) {
-    ch.base_src = j.a_name;
-    ch.base_ty  = j.a_ty;
-    ch.base_var = j.x_var;
-    let steps: RQJoinStepArr = j.steps_arr();
-    let ns: i64 = steps.len();
-    let mut i: i64 = 0i64;
-    while i < ns {
-        let st: RQJoinStep = steps.step_at(i);
-        // traversal steps: src is the walker-stamped field-path expr
-        let son: i64 = if st.is_edge && !st.has_on { 0i64 } else { st.on.any().raw() };
-        jc_push(ch, st.src_name, st.row_ty, st.var_name, st.is_anti, son, st.is_edge,
-                st.is_edge && el_ret_class(st.row_ty) >= 0i32, 0i32, -1i64, 0i64);
-        i = i + 1i64;
-    }
-}
 
 // Is `name` one of the body's bound row vars?
 fn is_bound_var(name: str, vars: &Vec<str>, nvars: i64) -> bool {
@@ -11167,8 +11151,13 @@ fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: st
 }
 
 // One SIMPLE rel body: scan + optional where + dedup-push projection.
-fn rel_body_simple_frag(s: RQSimple, ri: i64,
+// The single-source rel body's facts, read off the core clause and its chain.
+struct RelScanView { src_name: str, row_ty: str, var_name: str, select: WAny, where_pred: WAny }
+
+fn rel_body_simple_frag(cl: &CClause, ch: &JChain, ri: i64,
                         prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
+    let s: RelScanView = RelScanView { src_name: ch.base_src, row_ty: ch.base_ty, var_name: ch.base_var,
+                                       select: cl.head, where_pred: rule_where(cl) };
     let mut ty: ElTypes = el_types_new();
     let view: OView = oview_module_ast();
     stamp_types_from_schema(&view, &mut ty, s.row_ty, s.var_name);
@@ -11179,7 +11168,7 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
     let mut vars: Vec<str> = str_vec(1i64);
     vars[0] = s.var_name;
 
-    let proj_opt: SExpr = simplify_sexpr(s.select_expr(), h).any().view::<SExpr>();
+    let proj_opt: SExpr = simplify_sexpr(s.select.view::<SExpr>(), h).any().view::<SExpr>();
     if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
     if !rel_select_ok(proj_opt, ri, prm, &view, &ty, &vars, 1i64) { return false; }
     // Aggregate MEMBER (recursive min/max): its bodies — including seed scans —
@@ -11196,8 +11185,8 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
     }
 
     let mut pred_body: String = String::new();
-    if s.has_where {
-        let pe: SExpr = s.where_expr();
+    if !s.where_pred.is_null() {
+        let pe: SExpr = s.where_pred.view::<SExpr>();
         if !reject_tuple(pe, "wql!: rel `where`") { return false; }
         if !check_calls(pe, &ty, "wql!: rel `where`") { return false; }
         let pe_opt: SExpr = simplify_sexpr(pe, h).any().view::<SExpr>();
@@ -11214,7 +11203,7 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
     } else {
         push_f = rel_push_frag(string_as_str(&prm.rel_rowty[ri]), parse_expr(string_as_str(&proj_body)));
     }
-    if s.has_where {
+    if !s.where_pred.is_null() {
         let pred_f: ExprBlob = parse_expr(string_as_str(&pred_body));
         push_f = quote_block! { if (#(pred_f)) #(push_f) };
     }
@@ -11261,32 +11250,15 @@ fn rel_body_simple_frag(s: RQSimple, ri: i64,
 // The recursive-aggregate body (`from rel x join edges e … group by … aggregate
 // …`) has the SAME base-scan + join-step-fan-out shape as a join body; only the
 // PUSH differs (lattice absorb vs set insert). Mirror jchain_from_plan.
-fn jchain_from_aggr(g: RQAggr, ch: &mut JChain) {
-    ch.base_src = g.a_name;
-    ch.base_ty  = g.a_ty;
-    ch.base_var = g.x_var;
-    if !g.has_steps() { return; }
-    let steps: RQJoinStepArr = g.steps_arr();
-    let ns: i64 = steps.len();
-    let mut i: i64 = 0i64;
-    while i < ns {
-        let st: RQJoinStep = steps.step_at(i);
-        let son: i64 = if st.is_edge && !st.has_on { 0i64 } else { st.on.any().raw() };
-        jc_push(ch, st.src_name, st.row_ty, st.var_name, st.is_anti, son, st.is_edge,
-                st.is_edge && el_ret_class(st.row_ty) >= 0i32, 0i32, -1i64, 0i64);
-        i = i + 1i64;
-    }
-}
 
 // One JOIN-CHAIN rel body: build phases + nested probes (the existing per-step
 // strategy cascade — rel-sourced sides included) + optional where + dedup push.
-fn rel_body_join_frag(j: RQJoin, ri: i64,
+fn rel_body_join_frag(cl: &CClause, ch: &JChain, ri: i64,
                       prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
-    let mut ch: JChain = jchain_new();
-    jchain_from_plan(j, &mut ch);
-    let se: SExpr = j.select_expr();
-    // A JOIN-shaped SEED of an aggregate member projects `(key, val)` — split it
-    // so the absorb folds the two lattice operands (not the whole tuple twice).
+    let se: SExpr = cl.head.view::<SExpr>();
+    let w: WAny = rule_where(cl);
+    let has_where: bool = !w.is_null();
+    let we: SExpr = if has_where { w.view::<SExpr>() } else { se };
     if prm.rel_is_agg[ri] {
         match se {
             SExpr::Tuple(tp) => {
@@ -11295,8 +11267,8 @@ fn rel_body_join_frag(j: RQJoin, ri: i64,
                     error("wql!: a recursive-aggregate rel body must project `(key, aggout)` — exactly two components (slice-1)");
                     return false;
                 }
-                return chain_body_frag(&ch, ri, prm, se, items.arg_at(0i64), items.arg_at(1i64),
-                                       j.has_where, j.where_expr(), out, h);
+                return chain_body_frag(ch, ri, prm, se, items.arg_at(0i64), items.arg_at(1i64),
+                                       has_where, we, out, h);
             }
             _ => {
                 error("wql!: a recursive-aggregate rel body must project a `(key, aggout)` tuple (slice-1)");
@@ -11304,33 +11276,30 @@ fn rel_body_join_frag(j: RQJoin, ri: i64,
             }
         }
     }
-    return chain_body_frag(&ch, ri, prm, se, se, se,
-                           j.has_where, j.where_expr(), out, h);
+    return chain_body_frag(ch, ri, prm, se, se, se, has_where, we, out, h);
 }
 
 // One RECURSIVE-AGGREGATE rel body: same chain nest as a join body, but the inner
 // push is the semilattice absorb over `(group-key, aggregate-arg)` into the
 // best-map (min/max fixpoint). The surface `select (key, aggout)` is structural
 // only — the emitted operands are the group KEY and the aggregate's ARG expr.
-fn rel_body_agg_frag(g: RQAggr, ri: i64,
+fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &JChain, ri: i64,
                      prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
-    if !g.has_steps() {
+    if ch.n == 0i64 {
         error("wql!: a recursive-aggregate rel body must JOIN the rel with an edge/relation slice (e.g. `from dist x join edges e on e.src == x.node …`) — a bare self-scan cannot propagate the fixpoint");
         return false;
     }
-    let aggs: RQAggArr = g.aggs_arr();
-    let a0: RQAgg = aggs.agg_at(0i64);
-    if !a0.has_arg {
+    let ags: &[CAgg] = g.aggs.as_slice();
+    let a0arg: WAny = match &ags[0i64].arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
+    if a0arg.is_null() {
         error("wql!: a recursive min/max aggregate needs an argument (e.g. `min(x.d + e.w)`) — `count()` is a group aggregate and cannot recurse");
         return false;
     }
-    let mut ch: JChain = jchain_new();
-    jchain_from_aggr(g, &mut ch);
-    let key_e: SExpr = g.key_expr();
-    let val_e: SExpr = a0.arg_expr();
-    let we: SExpr = if g.has_where { g.where_expr() } else { key_e };
-    return chain_body_frag(&ch, ri, prm, key_e, key_e, val_e,
-                           g.has_where, we, out, h);
+    let key_e: SExpr = g.key.view::<SExpr>();
+    let val_e: SExpr = a0arg.view::<SExpr>();
+    let w: WAny = rule_where(cl);
+    let we: SExpr = if w.is_null() { key_e } else { w.view::<SExpr>() };
+    return chain_body_frag(ch, ri, prm, key_e, key_e, val_e, !w.is_null(), we, out, h);
 }
 
 // The shared CHAIN-BODY emitter (join bodies + recursive-aggregate bodies). For a
@@ -11562,32 +11531,73 @@ fn push_dep_params(out: &mut String, prm: &MacroParams, mask: &RelSet) {
 // Emit one rel body (fat-wrapped per shape — the emitters read edge methods
 // and the SCC driver rewrites src_name fields, both of which want the
 // allocator-carrying view). Shared by the one-shot path and the SCC driver.
-fn rel_body_frag(body_any: WAny, ri: i64,
+// ADR 0031 R6.6 — A REL BODY FROM THE PLAN: rule `b` of rel `ri` of the planned
+// core. `ovr[k]` renames the source of chain slot k (0 = the base, k = the k-th
+// step) for this emission — the semi-naive delta variants — instead of the
+// parse node being rewritten and restored around the call (`set_occ_src`, gone).
+fn rel_rule_of(prm: &MacroParams, ri: i64, b: i64) -> &CRule {
+    let rels: &[CRel] = prm.plan_core.rels.as_slice();
+    let rules: &[CRule] = rels[ri].rules.as_slice();
+    return &rules[b];
+}
+
+fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
                  prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
-    let q: RQuery = body_any.view::<RQuery>();
-    match q {
-        RQuery::Simple(_) => {
-            return rel_body_simple_frag(rq_fat_simple(body_any, h), ri, prm, out, h);
+    let ru: &CRule = rel_rule_of(prm, ri, b);
+    match &ru.env.mode {
+        CMode::Find => {
+            error("wql!: rel body must be a scan or join query (from/join/where/select)");
+            return false;
         }
-        RQuery::Join(_) => {
-            return rel_body_join_frag(rq_fat_join(body_any, h), ri, prm, out, h);
-        }
-        RQuery::Aggr(_) => {
-            // Only reachable for a FINALIZED recursive-aggregate member (the
-            // walker's stratification check sets rel_is_agg); any other aggregate
-            // body was rejected there.
+        CMode::All => { }
+        CMode::First => { }
+    }
+    let mut ch: JChain = jchain_from_core(&ru.clause);
+    jchain_rel_rename(&mut ch, ovr);
+    match &ru.clause.group {
+        Option::Some(g) => {
             if prm.rel_is_agg[ri] {
-                return rel_body_agg_frag(rq_fat_aggr(body_any, h), ri, prm, out, h);
+                return rel_body_agg_frag(&ru.clause, g, &ch, ri, prm, out, h);
             }
             error("wql!: rel body must be a scan or join query (from/join/where/select)");
             return false;
         }
-        _ => {
-            // Unreachable — the walker rejects find bodies.
-            error("wql!: rel body must be a scan or join query (from/join/where/select)");
-            return false;
-        }
+        Option::None => { }
     }
+    if ch.n == 0i64 { return rel_body_simple_frag(&ru.clause, &ch, ri, prm, out, h); }
+    return rel_body_join_frag(&ru.clause, &ch, ri, prm, out, h);
+}
+
+// A rel body's chain: the per-step strategy is not the planner's for a rel body
+// (it records it for the entry only), so every step reads 0 / -1 / 0 as the
+// surface chain builders wrote; and each slot takes its override, if any.
+fn jchain_rel_rename(ch: &mut JChain, ovr: &Vec<str>) {
+    let mut k: i64 = 0i64;
+    while k < ch.n {
+        ch.jstrat[k] = 0i32; ch.jsel[k] = -1i64; ch.jground[k] = 0i64;
+        k = k + 1i64;
+    }
+    if ovr.len() > 0i64 && ovr.get(0i64).len() > 0i64 { ch.base_src = ovr.get(0i64); }
+    k = 0i64;
+    while k < ch.n {
+        if k + 1i64 < ovr.len() && ovr.get(k + 1i64).len() > 0i64 { ch.src[k] = ovr.get(k + 1i64); }
+        k = k + 1i64;
+    }
+}
+
+// The rule's one `where` (null = none).
+fn rule_where(cl: &CClause) -> WAny {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => { match &c.site { CSite::Where => { return c.e; } CSite::On => { } } }
+            CLit::Atom(_a) => { }
+            CLit::Trav(_t) => { }
+        }
+        i = i + 1i64;
+    }
+    return WAny::null();
 }
 
 // ── ONE-SHOT rel fn (singleton SCC, no self-edge — the slice-B path) ─────────
@@ -11630,7 +11640,7 @@ fn emit_rel_fn_oneshot(rel: RQRel, ri: i64, fn_name: str,
     let mut b: i64 = 0i64;
     while b < nbod {
         let mut f: ExprBlob = quote_block! { };
-        if !rel_body_frag(bodies.body_any(b), ri, prm, &mut f, h) { return false; }
+        if !rel_body_frag(ri, b, &Vec::<str>::new(), prm, &mut f, h) { return false; }
         runs.push(f);
         b = b + 1i64;
     }
@@ -11766,31 +11776,6 @@ fn body_scc_occs(body_any: WAny, prm: &MacroParams, scc: &RelScc, c: i64,
 // Point occurrence `w` of a body at `name` (the total `__rel_<r>_sl` or delta
 // `__dl_<r>_sl` slice) — the per-variant source rebinding. Fat views: a
 // src_name write boxes the bytes into the arena.
-fn set_occ_src(body_any: WAny, o: &OccList, w: i64, name: str, h: &Writ) {
-    if o.pos[w] < 0i64 {
-        let q: RQuery = body_any.view::<RQuery>();
-        match q {
-            RQuery::Simple(_) => { let s: RQSimple = rq_fat_simple(body_any, h); s.src_name = name; }
-            RQuery::Join(_)   => { let j: RQJoin = rq_fat_join(body_any, h); j.a_name = name; }
-            RQuery::Aggr(_)   => { let g: RQAggr = rq_fat_aggr(body_any, h); g.a_name = name; }
-            _ => { }
-        }
-        return;
-    }
-    let q2: RQuery = body_any.view::<RQuery>();
-    match q2 {
-        RQuery::Aggr(_) => {
-            let g2: RQAggr = rq_fat_aggr(body_any, h);
-            let st2: RQJoinStep = rq_fat_step(g2.steps_arr().step_any(o.pos[w]), h);
-            st2.src_name = name;
-        }
-        _ => {
-            let j2: RQJoin = rq_fat_join(body_any, h);
-            let st: RQJoinStep = rq_fat_step(j2.steps_arr().step_any(o.pos[w]), h);
-            st.src_name = name;
-        }
-    }
-}
 
 // ── The SEMI-NAÏVE fixpoint fn — one per RECURSIVE SCC (slice C) ─────────────
 // `fn __wql_<fn>_scc<c>(<params verbatim>[, dep slices], __tot_<m>: &mut
@@ -12116,7 +12101,7 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
             // a full naïve pass, see (2) in this fn's header.
             if incr || oc1.n == 0i64 {
                 let mut f: ExprBlob = quote_block! { };
-                if !rel_body_frag(bodies.body_any(b1), ri, prm, &mut f, h) { return false; }
+                if !rel_body_frag(ri, b1, &Vec::<str>::new(), prm, &mut f, h) { return false; }
                 runs.push(f);
             }
             b1 = b1 + 1i64;
@@ -12262,24 +12247,22 @@ fn emit_scc_fn(rels: RQRelArr, c: i64, fn_name: str,
             if oc.n > 0i64 {
                 let mut v: i64 = 0i64;
                 while v < oc.n {
+                    let mut ovr: Vec<str> = Vec::<str>::new();
                     let mut w: i64 = 0i64;
                     while w < oc.n {
                         let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[oc.rel[w]]) }
                                         else      { string_as_str(&prm.rel_srcs[oc.rel[w]]) };
-                        set_occ_src(body_any, &oc, w, nm_w, h);
+                        let slot: i64 = oc.pos[w] + 1i64;
+                        while ovr.len() <= slot { ovr.push(""); }
+                        ovr[slot] = nm_w;
                         w = w + 1i64;
                     }
                     let mut f6: ExprBlob = quote_block! { };
-                    if !rel_body_frag(body_any, ri6, prm, &mut f6, h) { return false; }
+                    if !rel_body_frag(ri6, b3, &ovr, prm, &mut f6, h) { return false; }
                     runs6.push(f6);
                     v = v + 1i64;
                 }
                 // Restore the canonical (total) source names.
-                let mut w2: i64 = 0i64;
-                while w2 < oc.n {
-                    set_occ_src(body_any, &oc, w2, string_as_str(&prm.rel_srcs[oc.rel[w2]]), h);
-                    w2 = w2 + 1i64;
-                }
             }
             b3 = b3 + 1i64;
         }
@@ -12831,7 +12814,7 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
         let mut b1: i64 = 0i64;
         while b1 < nb {
             let mut f: ExprBlob = quote_block! { };
-            if !rel_body_frag(bodies.body_any(b1), ri, prm, &mut f, h) { return false; }
+            if !rel_body_frag(ri, b1, &Vec::<str>::new(), prm, &mut f, h) { return false; }
             rr.push(f);
             b1 = b1 + 1i64;
         }
@@ -12982,22 +12965,20 @@ fn emit_scc_od_fns(rels: RQRelArr, c: i64, fn_name: str,
             if oc.n > 0i64 {
                 let mut v: i64 = 0i64;
                 while v < oc.n {
+                    let mut ovr: Vec<str> = Vec::<str>::new();
                     let mut w: i64 = 0i64;
                     while w < oc.n {
                         let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[oc.rel[w]]) }
                                         else      { string_as_str(&prm.rel_srcs[oc.rel[w]]) };
-                        set_occ_src(body_any, &oc, w, nm_w, h);
+                        let slot: i64 = oc.pos[w] + 1i64;
+                        while ovr.len() <= slot { ovr.push(""); }
+                        ovr[slot] = nm_w;
                         w = w + 1i64;
                     }
                     let mut f9: ExprBlob = quote_block! { };
-                    if !rel_body_frag(body_any, ri9, prm, &mut f9, h) { return false; }
+                    if !rel_body_frag(ri9, b9, &ovr, prm, &mut f9, h) { return false; }
                     runs9.push(f9);
                     v = v + 1i64;
-                }
-                let mut w2: i64 = 0i64;
-                while w2 < oc.n {
-                    set_occ_src(body_any, &oc, w2, string_as_str(&prm.rel_srcs[oc.rel[w2]]), h);
-                    w2 = w2 + 1i64;
                 }
             }
             b9 = b9 + 1i64;

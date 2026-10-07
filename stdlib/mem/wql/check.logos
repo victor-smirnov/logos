@@ -331,6 +331,10 @@ fn rel_rule_ok(rel: str, ru: &CRule) -> bool {
                 ma.push_i64(g.aggs.len());
                 return rel_err(rel, string_as_str(&ma));
             }
+            match &g.having {
+                Option::Some(_h) => { return rel_err(rel, "`having` is not supported in an aggregating rel body — the recursive min/max fold applies no group filter; filter the rel's rows in the entry query"); }
+                Option::None => { }
+            }
         }
         Option::None => { }
     }
