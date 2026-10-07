@@ -161,6 +161,9 @@ pub struct CRule {
 pub struct CProgram {
     pub rels: Vec<CRel>,
     pub entry: CRule,
+    /// Backing for the texts a resolution composes (a traversal's source
+    /// expression): every `str` a literal holds outlives the program.
+    pub strs: Vec<String>,
 }
 
 // ── lowering: the four surface shapes and the rel bodies, ONCE ─────────────
@@ -362,7 +365,7 @@ pub fn lower_program_reg(root: WAny, reg: Vec<str>) -> CProgram {
     }
     let mut env: CEnvelope = envelope_new();
     let entry: CClause = lower_query(&lx, prog.entry.any(), &mut env);
-    return CProgram { rels: rels, entry: CRule { clause: entry, env: env } };
+    return CProgram { rels: rels, entry: CRule { clause: entry, env: env }, strs: Vec::<String>::new() };
 }
 
 // ── queries over the core ──────────────────────────────────────────────────
@@ -698,7 +701,8 @@ fn core_dump_mode(mode: str) -> bool {
 pub fn core_empty() -> CProgram {
     return CProgram { rels: Vec::<CRel>::new(),
                       entry: CRule { clause: CClause { head: WAny::null(), body: Vec::<CLit>::new(), group: Option::None },
-                                     env: envelope_new() } };
+                                     env: envelope_new() },
+                      strs: Vec::<String>::new() };
 }
 
 /// The PLANNED core (ADR 0031 R5): the program the walker is about to emit —

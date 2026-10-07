@@ -1405,6 +1405,9 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     // generated fn (ADR 0024 S4). Built in ONE place, so the plan's record and
     // the emitted prelude cannot name it differently.
     let mut nat_szat_bufs: Vec<String> = Vec::<String>::new();
+    // ADR 0031 R4.0 — the program resolved from the declarations, once the
+    // registry is complete (SHADOW: checked against the planned core below).
+    let mut early: CProgram = core_empty();
 
     if prog.has_rels() {
         let rels: RQRelArr = prog.rels_arr();
@@ -1506,6 +1509,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
+        early = lower_program(root);
+        core_resolve(&mut early, &oview_module_ast(), prm);
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
         plan_decide_joins(prm, h);
         plan_insert_drains(prm, &mut pick_ap);
@@ -1558,6 +1563,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
+        early = lower_program(root);
+        core_resolve(&mut early, &oview_module_ast(), prm);
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
         plan_decide_joins(prm, h);
         plan_insert_drains(prm, &mut pick_ap);
@@ -1695,6 +1702,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     let mut rg: i64 = 0i64;
     while rg < prm.rel_n { regs.push(string_as_str(&prm.rel_srcs[rg])); rg = rg + 1i64; }
     prm.plan_core = core_build_planned(root, name, regs);
+    core_resolve_shadow(&early, &prm.plan_core, prm);
 
     // ── Emit the rel helper fns + build the entry prelude ───────────────────
     // Materialization order = the condensation TOPO order (dependencies first

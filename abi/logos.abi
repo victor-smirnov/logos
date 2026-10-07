@@ -17099,6 +17099,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__len__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__length__g__ref_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__push__g__refmut_Vec$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$G1$String__remove__g__refmut_Vec$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__as_mut__g__refmut_Vec$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__as_mut_slice__g__refmut_Vec$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$G1$TokenTree__as_ref__g__ref_Vec$G1$E
