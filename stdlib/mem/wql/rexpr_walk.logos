@@ -3595,49 +3595,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
 // drains the iterator and the buckets hold the ROWS themselves, in arrival
 // order — the same replay order, one structure instead of two.
 
-// ── JChain — the linearized join chain (base + steps) ────────────────────────
-// `edge[i]` — TRAVERSAL step (slice D): `src[i]` is the full field-path source
-// EXPRESSION (`d.emps`, walker-stamped) rather than a slice-param name; the
-// strategy cascade is BYPASSED (always nested-loop — the source depends on
-// outer row vars, so no build-once index exists) and `onw[i]` may be 0 (no
-// `on` — containment IS the join). `byval[i]` — the step binds a SCALAR
-// element (Vec<str> → `let s: str = (e.skills)[j]`) by VALUE (Copy lattice),
-// not by reference.
-// `jstrat`/`jkey`/`jsel`/`jground` — the PLAN'S DECISION, carried off the node
-// (`JS_NONE` = no planner reached it; see analyze_chain).
-struct JChain {
-    base_src: str,
-    base_ty:  str,
-    base_var: str,
-    n:    i64,
-    src:  Vec<str>,
-    ty:   Vec<str>,
-    var:  Vec<str>,
-    anti: Vec<bool>,
-    onw:  Vec<i64>,     // raw arena words of the per-step on-pred edges (0 = none)
-    edge:  Vec<bool>,
-    byval: Vec<bool>,
-    jstrat: Vec<i32>,
-    jsel:   Vec<i64>,
-    jground: Vec<i64>,
-}
-
-fn jchain_new() -> JChain {
-    return JChain { base_src: "", base_ty: "", base_var: "", n: 0i64,
-                    src: Vec::<str>::new(), ty: Vec::<str>::new(), var: Vec::<str>::new(),
-                    anti: Vec::<bool>::new(), onw: Vec::<i64>::new(), edge: Vec::<bool>::new(),
-                    byval: Vec::<bool>::new(), jstrat: Vec::<i32>::new(), jsel: Vec::<i64>::new(),
-                    jground: Vec::<i64>::new() };
-}
-
-// Append one step (the decision fields as the plan left them on the node).
-fn jc_push(ch: &mut JChain, src: str, ty: str, var: str, anti: bool, onw: i64, edge: bool,
-           byval: bool, jstrat: i32, jsel: i64, jground: i64) {
-    ch.src.push(src); ch.ty.push(ty); ch.var.push(var); ch.anti.push(anti); ch.onw.push(onw);
-    ch.edge.push(edge); ch.byval.push(byval); ch.jstrat.push(jstrat); ch.jsel.push(jsel);
-    ch.jground.push(jground);
-    ch.n = ch.n + 1i64;
-}
+// The linearized join chain is the plan's `dplan::DNest` (ADR 0031 R6.7).
 
 // ── WAS THERE AN ORDER AXIS AT ALL? (ADR 0024 S4p) ───────────────────────────
 /// THE CENSUS STATE OF A SHAPE THAT NEVER CALLS `decide_join_orders`. `AX_REFUSED`
@@ -3658,29 +3616,29 @@ fn chain_axis(n: i64) -> i32 {
 }
 
 /// The same question asked of an un-linearized input. `emit_aggregate` and
-/// `emit_join_chain` already hold a `JChain` and pass `ch.n` to `chain_axis`
+/// `emit_join_chain` already hold a `DNest` and pass `ch.n` to `chain_axis`
 /// directly; the thin emitters do not, so they walk the spine once here.
 fn input_axis(e: RExpr) -> i32 {
-    let mut ch: JChain = jchain_new();
+    let mut ch: DNest = dnest_new();
     collect_chain(e, &mut ch);
     return chain_axis(ch.n);
 }
 
 // Walk the left spine of the binary join tree: the recursion bottoms out at
 // the base scan, then each unwind appends one step (source order preserved).
-fn collect_chain(e: RExpr, ch: &mut JChain) {
+fn collect_chain(e: RExpr, ch: &mut DNest) {
     match e {
         RExpr::Join(jn) => {
             collect_chain(jn.left_expr(), ch);
             let rs: RScan = scan_of(jn.right_expr());
-            jc_push(ch, rs.src_name, rs.row_ty, rs.var_name, false, jn.on.any().raw(), false, false,
+            dn_push(ch, rs.src_name, rs.row_ty, rs.var_name, false, jn.on.any().raw(), false, false,
                     jn.jstrat, jn.jsel as i64, jn.jground);
             return;
         }
         RExpr::Anti(an) => {
             collect_chain(an.left_expr(), ch);
             let rs: RScan = scan_of(an.right_expr());
-            jc_push(ch, rs.src_name, rs.row_ty, rs.var_name, true, an.on.any().raw(), false, false,
+            dn_push(ch, rs.src_name, rs.row_ty, rs.var_name, true, an.on.any().raw(), false, false,
                     an.jstrat, an.jsel as i64, an.jground);
             return;
         }
@@ -3689,7 +3647,7 @@ fn collect_chain(e: RExpr, ch: &mut JChain) {
             // append one edge step (src = the field-path expression text).
             collect_chain(ed.input_expr(), ch);
             let eon: i64 = if ed.has_on { ed.on.any().raw() } else { 0i64 };
-            jc_push(ch, ed.src, ed.row_ty, ed.var_name, ed.is_anti, eon, true,
+            dn_push(ch, ed.src, ed.row_ty, ed.var_name, ed.is_anti, eon, true,
                     el_ret_class(ed.row_ty) >= 0i32, 0i32, -1i64, 0i64);
             return;
         }
@@ -3778,7 +3736,7 @@ fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, ktn: str,
 // promises this cannot happen (it only marks a step read-once when its
 // strategy reads once); the check is here because the cost of the promise
 // being broken is silence rather than a crash.
-fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
+fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
                  st_build: &mut Vec<String>, st_probe: &mut Vec<String>,
                  st_resid: &mut Vec<String>, st_pred: &mut Vec<String>,
                  st_strat: &mut Vec<i32>, st_ktn: &mut Vec<str>,
@@ -4392,7 +4350,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
 }
 
 // ── The chain, REORDERED — one candidate order as a chain ────────────────────
-// The nest below is built from a JChain and from nothing else, so a second join
+// The nest below is built from a DNest and from nothing else, so a second join
 // ORDER is a second chain rather than a second emitter. What actually differs
 // between one order and another is FOUR things, and only the first is a swap of
 // names:
@@ -4423,7 +4381,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
 // derivation ASSERTS that (a panic in `derive_orders` when the placement
 // disagrees), so a shape this reconstruction cannot express stops the compile
 // instead of emitting a wrong nest.
-fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
+fn chain_reorder(ch: &DNest, jo: &JoinOrder, cix: i64) -> DNest {
     let m: i64 = ch.n + 1i64;
     let mut fl: [i64; 4] = [0i64; 4];
     let mut nfl: i64 = 0i64;
@@ -4443,7 +4401,7 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
         s = s + 1i64;
     }
     let b: i64 = cix * JC_MAX_FL();
-    let mut o: JChain = jchain_new();
+    let mut o: DNest = dnest_new();
     let bs: i64 = fl[jo.cslot[b]];
     o.base_src = jch_src(ch, bs);
     o.base_ty  = jch_ty(ch, bs);
@@ -4453,7 +4411,7 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
     while j < nfl {
         if j > 0i64 {
             let sl: i64 = fl[jo.cslot[b + j]];
-            jc_push(&mut o, jch_src(ch, sl), jch_ty(ch, sl), jch_var(ch, sl), false, jo.conw[b + j],
+            dn_push(&mut o, jch_src(ch, sl), jch_ty(ch, sl), jch_var(ch, sl), false, jo.conw[b + j],
                     false, false, jo.cstrat[b + j], jo.csel[b + j], jo.cground[b + j]);
             k = k + 1i64;
         }
@@ -4461,7 +4419,7 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
         while pi < npin {
             if pbc[pi] == j + 1i64 {
                 let q: i64 = pin[pi] - 1i64;
-                jc_push(&mut o, ch.src[q], ch.ty[q], ch.var[q], ch.anti[q], ch.onw[q], ch.edge[q],
+                dn_push(&mut o, ch.src[q], ch.ty[q], ch.var[q], ch.anti[q], ch.onw[q], ch.edge[q],
                         ch.byval[q], ch.jstrat[q], ch.jsel[q], ch.jground[q]);
                 k = k + 1i64;
             }
@@ -4476,15 +4434,15 @@ fn chain_reorder(ch: &JChain, jo: &JoinOrder, cix: i64) -> JChain {
 // SLOT 0 is the base and slot i+1 the i-th step. One index space over the whole
 // nest is what lets a permutation be a permutation of numbers; the three accessors
 // are the only place the base's separate fields and the step arrays meet.
-fn jch_src(ch: &JChain, s: i64) -> str {
+fn jch_src(ch: &DNest, s: i64) -> str {
     if s == 0i64 { return ch.base_src; }
     return ch.src[s - 1i64];
 }
-fn jch_ty(ch: &JChain, s: i64) -> str {
+fn jch_ty(ch: &DNest, s: i64) -> str {
     if s == 0i64 { return ch.base_ty; }
     return ch.ty[s - 1i64];
 }
-fn jch_var(ch: &JChain, s: i64) -> str {
+fn jch_var(ch: &DNest, s: i64) -> str {
     if s == 0i64 { return ch.base_var; }
     return ch.var[s - 1i64];
 }
@@ -4527,7 +4485,7 @@ fn ndv_col_ref(e: SExpr) -> (str, str) {
 }
 
 // The fact index for (var.col) of the chain, -1 when its source declares none.
-fn ndv_fact(nf: &mut NdvFacts, ch: &JChain, prm: &MacroParams, var: str, col: str) -> i64 {
+fn ndv_fact(nf: &mut NdvFacts, ch: &DNest, prm: &MacroParams, var: str, col: str) -> i64 {
     if var.len() == 0i64 { return -1i64; }
     let mut src: str = "";
     if str_eq(ch.base_var, var) { src = ch.base_src; }
@@ -4552,7 +4510,7 @@ fn ndv_fact(nf: &mut NdvFacts, ch: &JChain, prm: &MacroParams, var: str, col: st
     return nf.n - 1i64;
 }
 
-fn ndv_facts_of(ch: &JChain, jo: &JoinOrder, prm: &MacroParams, h: &Writ) -> NdvFacts {
+fn ndv_facts_of(ch: &DNest, jo: &JoinOrder, prm: &MacroParams, h: &Writ) -> NdvFacts {
     let mut nf: NdvFacts = NdvFacts { n: 0i64, ri: [0i64; 8], col: [""; 8],
                                       dl: [-1i64; 16], dr: [-1i64; 16] };
     let mut c: i64 = 0i64;
@@ -4656,12 +4614,12 @@ fn push_jctable(out: &mut String, jo: &JoinOrder, nf: &NdvFacts, prm: &MacroPara
 /// A function because `ncand` of them are needed and a nest spelled twice would be
 /// two chances to diverge in exactly the place where divergence is silent — a
 /// mis-collected index tuple is a wrong row, not a crash.
-fn cand_branch(ch: &JChain, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroParams,
+fn cand_branch(ch: &DNest, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroParams,
                h: &Writ, has_sort: bool, first: bool, distinct: bool, has_where: bool,
                where_body: str, key_body: str, proj_f: ExprBlob, result_ty: str,
                lim_f: ExprBlob, has_lim_use: bool, qvars: &Vec<str>, nq: i64,
                out: &mut ExprBlob) -> bool {
-    let cch: JChain = chain_reorder(ch, jo, cix);
+    let cch: DNest = chain_reorder(ch, jo, cix);
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut nst: ExprBlob = quote_block! { };
     if !chain_nest_frag(&cch, ty, prm, h, has_sort, first, distinct, has_where,
@@ -4695,7 +4653,7 @@ fn qslot_of(qvars: &Vec<str>, nq: i64, v: str) -> i64 {
 // It is a function because a second join order is a second nest, and two nests
 // spelled twice would be two chances to diverge in exactly the place where
 // divergence is silent (a mis-collected tuple is a wrong row, not a crash).
-fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
+fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
                    has_sort: bool, first: bool, distinct: bool,
                    has_where: bool, where_body: str, key_body: str,
                    proj_f: ExprBlob, result_ty: str,
@@ -4873,6 +4831,7 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     return true;
 }
 
+
 // ── emit_join_chain — the RECURSIVE-over-the-join-tree emitter ───────────────
 // `body` is the RJoin/RAnti root of a left-deep chain. Emits nested per-source
 // loops binding the row vars LEFT-TO-RIGHT (per-step strategy from the Part-2
@@ -4890,47 +4849,6 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
 // `prepare`, or once in the prelude's scope when the numbers are only free there —
 // selects the cheapest by `logos.std.wql.join_cost`. When the derivation admits one
 // order, only the query's own is emitted and the refusal carries its ground.
-// The JOIN CHAIN of a core clause (ADR 0031 R6.4): the base atom, then each
-// step in order — a positive step's `on` is the condition right after it, a
-// negated step's lives inside it; a traversal reads its stamped collection
-// expression. The same JChain `collect_chain` built off the relational tree.
-fn jchain_from_core(cl: &CClause) -> JChain {
-    let mut ch: JChain = jchain_new();
-    let bs: &[CLit] = cl.body.as_slice();
-    let n: i64 = cl.body.len();
-    let mut i: i64 = 0i64;
-    while i < n {
-        // the `on` a positive step carries: the On condition right after it
-        let mut next_on: i64 = 0i64;
-        if i + 1i64 < n {
-            match &bs[i + 1i64] {
-                CLit::Cond(c) => { match &c.site { CSite::On => { next_on = c.e.raw(); } CSite::Where => { } } }
-                CLit::Atom(_a) => { }
-                CLit::Trav(_t) => { }
-            }
-        }
-        match &bs[i] {
-            CLit::Atom(a) => {
-                if i == 0i64 {
-                    ch.base_src = a.name; ch.base_ty = a.row_ty; ch.base_var = a.var;
-                } else {
-                    let onw: i64 = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
-                    jc_push(&mut ch, a.name, a.row_ty, a.var, a.neg, onw, false, false,
-                            a.strat, a.jsel as i64, a.ground);
-                }
-            }
-            CLit::Trav(t) => {
-                let eon: i64 = if t.neg { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
-                jc_push(&mut ch, t.name, t.row_ty, t.var, t.neg, eon, true,
-                        el_ret_class(t.row_ty) >= 0i32, 0i32, -1i64, 0i64);
-            }
-            CLit::Cond(_c) => { }
-        }
-        i = i + 1i64;
-    }
-    return ch;
-}
-
 /// ADR 0031 R6.4 — A JOIN-CHAIN ENTRY FROM THE PLAN: the folded entry
 /// (`dplan::plan_entry_chain`) and the chain read off the planned core's rule.
 pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: str, params_text: str, prm: &MacroParams,
@@ -4940,7 +4858,7 @@ pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: str, params_text: st
     match &ds.form {
         DForm::Empty => {
             let scan_e: RExpr = make_scan(h, ds.src, ds.row_ty, ds.var).any().view::<RExpr>();
-            let steps: i64 = jchain_from_core(&prm.plan_core.entry.clause).n;
+            let steps: i64 = plan_nest(&prm.plan_core.entry.clause).n;
             return emit_empty(scan_e, sel, chain_axis(steps), fn_name, params_text, prm, result_ty,
                               has_result_ty, sel_mode == SELM_FIRST(), h);
         }
@@ -4960,14 +4878,14 @@ pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: str, params_text: st
             mods.limit_param = ds.limit_param;
             if !check_limit_param(&mods, prm) { return false; }
             let pred: WRef<SExpr> = if ds.pred.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.pred) };
-            let ch: JChain = jchain_from_core(&prm.plan_core.entry.clause);
+            let ch: DNest = plan_nest(&prm.plan_core.entry.clause);
             return emit_join_chain(ch, jp, pred, !ds.pred.is_null(), sel, mods, fn_name, params_text, prm,
                                    result_ty, has_result_ty, sel_mode == SELM_FIRST(), prelude, h);
         }
     }
 }
 
-fn emit_join_chain(ch: JChain, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
+fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                    mods: QMods,
                    fn_name: str, params_text: str, prm: &MacroParams,
                    result_ty0: str, has_result_ty: bool, first: bool,
@@ -5503,7 +5421,7 @@ pub fn emit_entry_group(ds: &DSimple, fn_name: str, params_text: str, prm: &Macr
             mods.limit_param = ds.limit_param;
             if !check_limit_param(&mods, prm) { return false; }
             let cl: &CClause = &prm.plan_core.entry.clause;
-            let ch: JChain = jchain_from_core(cl);
+            let ch: DNest = plan_nest(cl);
             let mut key: WRef<SExpr> = null_sref();
             let mut ra: RAggArr = h.make::<RAggArr>();
             match &cl.group {
@@ -5537,7 +5455,7 @@ pub fn emit_entry_group(ds: &DSimple, fn_name: str, params_text: str, prm: &Macr
     }
 }
 
-fn emit_aggregate(ch0: JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
+fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
                   where_ref: WRef<SExpr>, has_where: bool,
                   having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                   mods: QMods,
@@ -5545,7 +5463,7 @@ fn emit_aggregate(ch0: JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
                   result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
     // The input as a linearized chain: base + `ch.n` steps. `ch.n == 0` IS the
     // bare scan — the degenerate chain, not a special case.
-    let ch: JChain = ch0;
+    let ch: DNest = ch0;
     let acount: i64 = aggs.len();
 
     // Types: every bound source's row schema + scalar params + key/outputs.
@@ -6305,7 +6223,7 @@ fn emit_aggregate(ch0: JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
 // EXISTS. `incr_eligible` refuses a join chain with the ground "a delta would
 // have to name which source it belongs to" — the tag IS the retirement of that
 // refusal, so it belongs in the signature the moment the refusal is written
-// down and not after. It is the chain POSITION (`JChain`'s base is 0, step i is
+// down and not after. It is the chain POSITION (`DNest`'s base is 0, step i is
 // i+1), which is a number this file already has, so nothing new is derived.
 //
 // ⚠⚠ P3 MADE THE TAG LIVE AND STRICT, AND THE OLD BEHAVIOUR WAS A TRAP. It used
@@ -6394,7 +6312,7 @@ fn emit_aggregate(ch0: JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
 // scans cost per row. Since 2026-10-04 the insert-only `<q>_epoch` (plain and
 // rel-backed) runs the same way, so every call that changes a handle either
 // commits whole or leaves it as it was.
-fn emit_incremental(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
+fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     uda: &Vec<bool>, agg_flt: &Vec<bool>, agg_cast: &Vec<bool>,
                     act: &Vec<str>, acc: &Vec<str>, key_ty: str, key_body: str,
                     result_ty: str, tres: i32, proj_body: str, having_body: str,
@@ -9297,7 +9215,7 @@ fn push_vec_new(out: &mut String, t: str) {
 // "why did my query not get a handle" is then answerable only by reading this
 // function — which is the class of unobservable derived decision this compiler
 // has already paid for once at the join-order axis.
-fn incr_eligible(ch: &JChain, ty: &ElTypes, aggs: &RAggArr, acount: i64,
+fn incr_eligible(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                  uda: &Vec<bool>, act: &Vec<str>, key_ty: str,
                  result_ty: str, tres: i32, has_having: bool, proj_e: SExpr,
                  having_ref: WRef<SExpr>, has_where: bool, mods: QMods,
@@ -10752,7 +10670,7 @@ fn uda_finalize_frag(name: str, acc: ExprBlob, has_fin: bool, cast_ty: str) -> E
 // across bodies (or across the delta variants of one body).
 // ══════════════════════════════════════════════════════════════════════════
 
-// Build a JChain directly from an RQJoin PLAN node (the rel bodies skip the
+// Build a DNest directly from an RQJoin PLAN node (the rel bodies skip the
 // RExpr lowering — they are restricted to scan/join+where+select, so the plan
 // node IS the chain description; row types were stamped by the walker).
 
@@ -10992,7 +10910,7 @@ fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: st
 // The single-source rel body's facts, read off the core clause and its chain.
 struct RelScanView { src_name: str, row_ty: str, var_name: str, select: WAny, where_pred: WAny }
 
-fn rel_body_simple_frag(cl: &CClause, ch: &JChain, ri: i64,
+fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64,
                         prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     let s: RelScanView = RelScanView { src_name: ch.base_src, row_ty: ch.base_ty, var_name: ch.base_var,
                                        select: cl.head, where_pred: rule_where(cl) };
@@ -11081,14 +10999,14 @@ fn rel_body_simple_frag(cl: &CClause, ch: &JChain, ri: i64,
     return true;
 }
 
-// ── jchain_from_aggr — a JChain over an aggregate body's base + join steps ──
+// ── jchain_from_aggr — a DNest over an aggregate body's base + join steps ──
 // The recursive-aggregate body (`from rel x join edges e … group by … aggregate
 // …`) has the SAME base-scan + join-step-fan-out shape as a join body; only the
 // PUSH differs (lattice absorb vs set insert). Mirror jchain_from_plan.
 
 // One JOIN-CHAIN rel body: build phases + nested probes (the existing per-step
 // strategy cascade — rel-sourced sides included) + optional where + dedup push.
-fn rel_body_join_frag(cl: &CClause, ch: &JChain, ri: i64,
+fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64,
                       prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     let se: SExpr = cl.head.view::<SExpr>();
     let w: WAny = rule_where(cl);
@@ -11118,7 +11036,7 @@ fn rel_body_join_frag(cl: &CClause, ch: &JChain, ri: i64,
 // push is the semilattice absorb over `(group-key, aggregate-arg)` into the
 // best-map (min/max fixpoint). The surface `select (key, aggout)` is structural
 // only — the emitted operands are the group KEY and the aggregate's ARG expr.
-fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &JChain, ri: i64,
+fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64,
                      prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     if ch.n == 0i64 {
         error("wql!: a recursive-aggregate rel body must JOIN the rel with an edge/relation slice (e.g. `from dist x join edges e on e.src == x.node …`) — a bare self-scan cannot propagate the fixpoint");
@@ -11141,7 +11059,7 @@ fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &JChain, ri: i64,
 // non-aggregate member `proj_e` is the select projection (dedup-push); for an
 // aggregate member (`prm.rel_is_agg[ri]`) `key_e`/`val_e` are the group key + the
 // aggregate argument (semilattice absorb). `where_e` is valid only if `has_where`.
-fn chain_body_frag(ch: &JChain, ri: i64, prm: &MacroParams,
+fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
                    proj_e: SExpr, key_e: SExpr, val_e: SExpr,
                    has_where: bool, where_e: SExpr, out: &mut ExprBlob, h: &Writ) -> bool {
     let is_agg: bool = prm.rel_is_agg[ri];
@@ -11378,7 +11296,7 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
         CMode::All => { }
         CMode::First => { }
     }
-    let mut ch: JChain = jchain_from_core(&ru.clause);
+    let mut ch: DNest = plan_nest(&ru.clause);
     jchain_rel_rename(&mut ch, ovr);
     match &ru.clause.group {
         Option::Some(g) => {
@@ -11395,7 +11313,7 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
 }
 
 // A rel body's chain for one emission: each slot takes its override, if any.
-fn jchain_rel_rename(ch: &mut JChain, ovr: &Vec<str>) {
+fn jchain_rel_rename(ch: &mut DNest, ovr: &Vec<str>) {
     // The strategies are the rule's (decided once by the planner): a delta
     // variant renames a source, it does not re-decide how it is read.
     if ovr.len() > 0i64 && ovr.get(0i64).len() > 0i64 { ch.base_src = ovr.get(0i64); }

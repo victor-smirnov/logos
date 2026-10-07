@@ -21,6 +21,7 @@ use logos.std.wql.optimize;        // simplify_sexpr, sexpr_const, is_identity_s
 use logos.lang.writ.container;     // Writ
 use logos.mem.collections.vec;
 use logos.lang.option;
+use logos.std.wql.el;              // el_ret_class — a by-value (scalar) element
 
 extern fn getenv(name: *const u8) -> *const u8;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
@@ -406,4 +407,91 @@ fn dplan_dump_scan(d: &DScan) {
     if d.sort_elided { s.push_str(" sort-elided"); }
     s.push_str("\n");
     unsafe { write(2i32, s.as_ptr(), s.len()); }
+}
+
+// ── ADR 0031 R6.7 — DNest: THE JOIN NEST (base + steps), a plan node ─────────
+// Built by the planner from a core clause (`plan_nest`) and consumed by every
+// nest emitter; it was the emitter's private `JChain`.
+// `edge[i]` — TRAVERSAL step (slice D): `src[i]` is the full field-path source
+// EXPRESSION (`d.emps`, walker-stamped) rather than a slice-param name; the
+// strategy cascade is BYPASSED (always nested-loop — the source depends on
+// outer row vars, so no build-once index exists) and `onw[i]` may be 0 (no
+// `on` — containment IS the join). `byval[i]` — the step binds a SCALAR
+// element (Vec<str> → `let s: str = (e.skills)[j]`) by VALUE (Copy lattice),
+// not by reference.
+// `jstrat`/`jkey`/`jsel`/`jground` — the PLAN'S DECISION, carried off the node
+// (`JS_NONE` = no planner reached it; see analyze_chain).
+pub struct DNest {
+    pub base_src: str,
+    pub base_ty:  str,
+    pub base_var: str,
+    pub n:    i64,
+    pub src:  Vec<str>,
+    pub ty:   Vec<str>,
+    pub var:  Vec<str>,
+    pub anti: Vec<bool>,
+    pub onw:  Vec<i64>,     // raw arena words of the per-step on-pred edges (0 = none)
+    pub edge:  Vec<bool>,
+    pub byval: Vec<bool>,
+    pub jstrat: Vec<i32>,
+    pub jsel:   Vec<i64>,
+    pub jground: Vec<i64>,
+}
+
+pub fn dnest_new() -> DNest {
+    return DNest { base_src: "", base_ty: "", base_var: "", n: 0i64,
+                    src: Vec::<str>::new(), ty: Vec::<str>::new(), var: Vec::<str>::new(),
+                    anti: Vec::<bool>::new(), onw: Vec::<i64>::new(), edge: Vec::<bool>::new(),
+                    byval: Vec::<bool>::new(), jstrat: Vec::<i32>::new(), jsel: Vec::<i64>::new(),
+                    jground: Vec::<i64>::new() };
+}
+
+// Append one step (the decision fields as the plan left them on the node).
+pub fn dn_push(ch: &mut DNest, src: str, ty: str, var: str, anti: bool, onw: i64, edge: bool,
+           byval: bool, jstrat: i32, jsel: i64, jground: i64) {
+    ch.src.push(src); ch.ty.push(ty); ch.var.push(var); ch.anti.push(anti); ch.onw.push(onw);
+    ch.edge.push(edge); ch.byval.push(byval); ch.jstrat.push(jstrat); ch.jsel.push(jsel);
+    ch.jground.push(jground);
+    ch.n = ch.n + 1i64;
+}
+
+// The JOIN CHAIN of a core clause (ADR 0031 R6.4): the base atom, then each
+// step in order — a positive step's `on` is the condition right after it, a
+// negated step's lives inside it; a traversal reads its stamped collection
+// expression.
+pub fn plan_nest(cl: &CClause) -> DNest {
+    let mut ch: DNest = dnest_new();
+    let bs: &[CLit] = cl.body.as_slice();
+    let n: i64 = cl.body.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        // the `on` a positive step carries: the On condition right after it
+        let mut next_on: i64 = 0i64;
+        if i + 1i64 < n {
+            match &bs[i + 1i64] {
+                CLit::Cond(c) => { match &c.site { CSite::On => { next_on = c.e.raw(); } CSite::Where => { } } }
+                CLit::Atom(_a) => { }
+                CLit::Trav(_t) => { }
+            }
+        }
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if i == 0i64 {
+                    ch.base_src = a.name; ch.base_ty = a.row_ty; ch.base_var = a.var;
+                } else {
+                    let onw: i64 = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                    dn_push(&mut ch, a.name, a.row_ty, a.var, a.neg, onw, false, false,
+                            a.strat, a.jsel as i64, a.ground);
+                }
+            }
+            CLit::Trav(t) => {
+                let eon: i64 = if t.neg { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                dn_push(&mut ch, t.name, t.row_ty, t.var, t.neg, eon, true,
+                        el_ret_class(t.row_ty) >= 0i32, 0i32, -1i64, 0i64);
+            }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return ch;
 }
