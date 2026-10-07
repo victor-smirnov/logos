@@ -5,7 +5,7 @@
 ;   2. Trait method specialization `main.Box$G1$i64__weight` is defined.
 ;   3. main calls into that specialization.
 
-; CHECK: %"main.Box$G1$i64" = type { i64 }
-; CHECK: define {{.*}}i64 @"main.Box$G1$i64__weight__f__Box$G1$i64"
+; CHECK: %"main.Box{{(\$M[0-9a-f]{16})?}}$G1$i64" = type { i64 }
+; CHECK: define {{.*}}i64 @"main.Box{{(\$M[0-9a-f]{16})?}}$G1$i64__weight__f__Box{{(\$M[0-9a-f]{16})?}}$G1$i64"
 ; CHECK-LABEL: define {{.*}}i32 @main()
-; CHECK: call i64 @"main.Box$G1$i64__weight__f__Box$G1$i64"
+; CHECK: call i64 @"main.Box{{(\$M[0-9a-f]{16})?}}$G1$i64__weight__f__Box{{(\$M[0-9a-f]{16})?}}$G1$i64"

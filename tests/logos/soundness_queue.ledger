@@ -57,8 +57,6 @@ generic_index_output_refused 2 tests/soundness/open/generic_index_output_refused
 
 generic_param_leaks_into_nested_item_admitted 2 tests/soundness/open/generic_param_leaks_into_nested_item_admitted admits
 
-generic_trait_multi_impl_dispatch_refused 2 tests/soundness/open/generic_trait_multi_impl_dispatch_refused refuses
-
 let_else_nondiverging_else_admitted 2 tests/soundness/open/let_else_nondiverging_else_admitted admits
 
 match_guard_temp_drop_timing_wrong 2 tests/soundness/open/match_guard_temp_drop_timing_wrong run 0
@@ -278,8 +276,6 @@ default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/defa
 
 ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_after_region_erased_binding_refused refuses
 
-method_on_ref_array_impl_refused 3 tests/soundness/open/method_on_ref_array_impl_refused refuses
-
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
 # ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
@@ -440,5 +436,5 @@ method_on_ref_array_impl_refused 3 tests/soundness/open/method_on_ref_array_impl
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 130
-# SYNC-HASH 33b9bd29f93322e84fd3d41c881c5726
+# TOTAL 128
+# SYNC-HASH 0de2ee4075c4419ddc62f329f94480b2

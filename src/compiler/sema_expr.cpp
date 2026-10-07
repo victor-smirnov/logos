@@ -6678,6 +6678,59 @@ std::vector<std::string> SemaChecker::impl_lookup_keys_(TypeRef t) {
     return keys;
 }
 
+// Does a candidate's declared self (`pat`, its impl's parameters as type
+// variables) match the receiver step `act` structurally? A type variable
+// matches anything; every other position must agree (ADR 0030 S9b row 2: the
+// index answers an owner's impls at every argument — `impl W<i64>` and
+// `impl<T> W<T>`, `impl Tr for str` and `impl<T> Tr for [T]` — so the self
+// type, not the lookup key, decides which apply).
+static bool self_pattern_match_(TypeRef pat, TypeRef act, int depth = 0) {
+    using K = LogosType::Kind;
+    if (!pat || !act || depth > 16) return false;
+    const auto pk = TypeRef(pat).kind(), ak = TypeRef(act).kind();
+    // A projection over the impl's parameters (`impl<D: Device> Tr for Foo<D,
+    // D::Resources>`) is known only once they are bound: a pattern variable.
+    if (pk == K::TypeVar || pk == K::ConstVar || pk == K::AssocType) return true;
+    auto nominal = [](K k) { return k == K::Struct || k == K::ZonedStruct || k == K::DstRef; };
+    auto slice = [](K k) { return k == K::Slice || k == K::UnsizedSlice; };
+    if (nominal(pk) && nominal(ak)) {
+        if (TypeRef(pat).struct_name() != TypeRef(act).struct_name()) return false;
+        const auto pp = TypeRef(pat).pkg_name(), ap = TypeRef(act).pkg_name();
+        if (!pp.empty() && !ap.empty() && pp != ap) return false;
+    } else if (slice(pk) && slice(ak)) {
+        return self_pattern_match_(TypeRef(pat).elem(), TypeRef(act).elem(), depth + 1);
+    } else if (pk != ak) {
+        return false;
+    }
+    switch (pk) {
+    case K::Ref: case K::MutRef: case K::Ptr:
+        return self_pattern_match_(TypeRef(pat).pointee(), TypeRef(act).pointee(), depth + 1);
+    case K::Array:
+        if (TypeRef(pat).arr_size() != TypeRef(act).arr_size() && TypeRef(pat).arr_size() != 0 &&
+            TypeRef(act).arr_size() != 0) return false;
+        return self_pattern_match_(TypeRef(pat).elem(), TypeRef(act).elem(), depth + 1);
+    case K::Tuple: {
+        auto pe = TypeRef(pat).tuple_elems(), ae = TypeRef(act).tuple_elems();
+        if (pe.size() != ae.size()) return false;
+        for (size_t i = 0; i < pe.size(); ++i)
+            if (!self_pattern_match_(pe[i], ae[i], depth + 1)) return false;
+        return true;
+    }
+    case K::Enum:
+        if (TypeRef(pat).enum_name() != TypeRef(act).enum_name()) return false;
+        [[fallthrough]];
+    case K::Struct: case K::ZonedStruct: case K::DstRef: {
+        auto pa = TypeRef(pat).type_args(), aa = TypeRef(act).type_args();
+        if (pa.size() != aa.size()) return pa.empty() || aa.empty();
+        for (size_t i = 0; i < pa.size(); ++i)
+            if (pa[i] && aa[i] && !self_pattern_match_(pa[i], aa[i], depth + 1)) return false;
+        return true;
+    }
+    default:
+        return type_str_regions_erased(pat) == type_str_regions_erased(act);
+    }
+}
+
 // Does a candidate's declared self accept `actual` at its head (a template's
 // self names its own parameters: `&W<T>` takes `&W<i64>`)?
 static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
@@ -6836,10 +6889,25 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
             if (fi && !fi->param_types.empty() && fi->param_types[0] && (bself || seen.insert(fi).second))
                 cands.push_back({fi, mk, bself, tv});
     };
+    // ADR 0030 S9b row 2: a step's candidates are the methods declared on its
+    // type — by value, `&` and `&mut` — asked of the type's identity; a raw
+    // pointer step names its pointee's, a `&DstStruct` step the struct's.
+    // Visibility as the spelled lookup had it (filter_visible_: the method's
+    // package must be visible — `i32`'s stdlib `Hash::hash` is not a candidate
+    // where only a user trait's `hash` is in scope).
+    auto add_owned = [&](const std::vector<const SemaFuncInfo*>& fs0) {
+        for (auto* fi : filter_visible_(fs0))
+            if (fi && !fi->param_types.empty() && fi->param_types[0] && seen.insert(fi).second)
+                cands.push_back({fi, fi->base_name, nullptr, {}});
+    };
     for (TypeRef st : steps) {
-        for (auto& k : impl_lookup_keys_(st)) add_key(k, nullptr, {});
-        for (bool m : {false, true})
-            for (auto& k : impl_lookup_keys_(make_ref(m, st))) add_key(k, nullptr, {});
+        for (TypeRef t : {st, make_ref(false, st), make_ref(true, st)}) add_owned(methods_of_(t, name));
+        if (TypeRef(st).kind() == K::Ptr && TypeRef(st).pointee()) add_owned(methods_of_(TypeRef(st).pointee(), name));
+        if (TypeRef(st).kind() == K::DstRef) {
+            OwnerId o = owner_id_of_(st);
+            o.ref = 0;
+            add_owned(methods_of_id_(o, name));
+        }
         const auto ck = TypeRef(st).kind();
         if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum || is_integer(st) ||
             ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
@@ -6852,32 +6920,6 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
                     add_key(b.mangled_name.substr(0, b.mangled_name.size() - sfx.size()), st, b.target_typevar);
             }
         }
-    }
-    // ADR 0030 S9b row 1 CENSUS (LOGOS_CENSUS): does the method index by
-    // owner identity answer what the spelled keys answered? Read by row 2.
-    if (logos::probe::census_armed()) {
-        std::unordered_set<const SemaFuncInfo*> spelled, idx;
-        for (auto& c : cands) if (!c.blanket_self) spelled.insert(c.fi);
-        for (TypeRef st : steps) {
-            for (TypeRef t : {st, make_ref(false, st), make_ref(true, st)})
-                for (auto* fi : methods_of_(t, name)) idx.insert(fi);
-            // `self: *mut Self` — a raw pointer receiver names its pointee's methods.
-            if (TypeRef(st).kind() == K::Ptr && TypeRef(st).pointee())
-                for (auto* fi : methods_of_(TypeRef(st).pointee(), name)) idx.insert(fi);
-            // `&DstStruct` is one fat type: its autoderef target is the struct.
-            if (TypeRef(st).kind() == K::DstRef) {
-                OwnerId o = owner_id_of_(st);
-                o.ref = 0;
-                for (auto* fi : methods_of_id_(o, name)) idx.insert(fi);
-            }
-        }
-        for (auto* fi : spelled)
-            logos::probe::census(idx.count(fi) ? "s9b.idx.agree"
-                                 : !fi->is_method ? "s9b.idx.miss.not_method"
-                                 : !fi->owner_id ? "s9b.idx.miss.no_owner"
-                                 : "s9b.idx.miss.other_owner");
-        for (auto* fi : idx)
-            if (!spelled.count(fi)) logos::probe::census("s9b.idx.extra");
     }
     for (size_t d = 0; d < steps.size(); ++d) {
         const TypeRef cur = steps[d];
@@ -6899,6 +6941,9 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
                     f0 = subst_type_sema(f0, bs);
                 }
                 if (!probe_self_head_match_(f0, want)) continue;
+                // The index answers an owner's impls at every argument: the
+                // declared self decides (`impl W<i64>` is not `W<u8>`'s).
+                if (!c.blanket_self && !self_pattern_match_(f0, want)) continue;
                 // Inherent before trait; at one rank the type's own package's
                 // method before an extension elsewhere (a user `Vec` is not the
                 // stdlib's; `WAny::as_array` lives in another stdlib package).
@@ -6911,6 +6956,12 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
                     pick.tied.push_back(c.fi);
                 }
             }
+            // E0034: the best candidates are methods of TWO traits and none is
+            // inherent — the call is ambiguous (the caller names the traits).
+            if (pick.fi && !pick.fi->trait_name.empty())
+                for (auto* t : pick.tied)
+                    if (t != pick.fi && !t->trait_name.empty() && t->trait_name != pick.fi->trait_name)
+                        return ProbePick{};
             if (pick.fi) return pick;
         }
         // A type parameter or a projection: its methods are its bounds' (the

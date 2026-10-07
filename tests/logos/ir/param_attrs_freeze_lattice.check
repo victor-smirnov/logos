@@ -176,4 +176,4 @@
 ; then this file's axis_residue); it is instantiated at `T = i32` now, so its
 ; parameter is a known `&i32` with the attributes every `&i32` gets. The
 ; default arm is NO-AXIS in freeze_arms.ledger (unreached).
-; CHECK-DAG: define {{.*}}@{{[^(]*}}Id__call{{[^(]*}}i32(ptr %0, ptr noalias noundef readonly align 4 dereferenceable(4) %1)
+; CHECK-DAG: define {{.*}}@{{[^(]*}}Id{{(\$M[0-9a-f]{16})?}}__call{{[^(]*}}i32{{"?}}(ptr %0, ptr noalias noundef readonly align 4 dereferenceable(4) %1)

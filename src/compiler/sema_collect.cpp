@@ -6700,6 +6700,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.owner_struct = std::string(struct_ctx);   // CARRIED, not re-derived
     info.is_method    = !struct_ctx.empty();
     // S9b row 1: the owner by identity — the impl's (or struct body's) Self.
+    info.reg_seq = ++reg_seq_next_;
     if (info.is_method) {
         info.method_name = std::string(raw_name);
         if (auto sit = current_type_params_.find("Self"); sit != current_type_params_.end())

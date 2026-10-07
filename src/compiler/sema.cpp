@@ -2209,6 +2209,15 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
             if (fi->package == call_pkg_qualifier_) q.push_back(fi);
         return q;
     }
+    return filter_visible_(std::move(all));
+}
+
+// The candidates visible from the current package: its own, an imported
+// package's (unless imported `from` another module), or a package-less one.
+// When nothing is visible the whole set stands (synthetic / unprimed phases),
+// except when a `from`-restriction emptied it deliberately.
+std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
+        std::vector<const SemaFuncInfo*> all) const {
     std::vector<const SemaChecker::SemaFuncInfo*> out;
     out.reserve(all.size());
     // §3: a `use pkg from <module>;` import is DELIBERATE exclusion — track it so

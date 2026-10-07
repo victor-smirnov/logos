@@ -5988,6 +5988,7 @@ private:
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             OwnerId owner_id;   // S9b row 1: a method's owner; empty for a free fn
                             std::string method_name;   // its declared name (base_name may be trait-qualified)
+                            uint64_t    reg_seq = 0;   // registration order: methods_of_ answers in it
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             std::string decl_key;   // ADR 0030 S9 row 1: see decl_symbols_
                             // CP-cm-16 follow-up: full impl-target pattern (with
@@ -6893,7 +6894,8 @@ private:
     }
     struct MethodRef { std::string key; bool generic = false; };
     std::map<std::pair<OwnerId, std::string>, std::vector<MethodRef>> method_index_;
-    bool method_index_valid_ = false;   // false after the registries were replaced (restore)
+    bool method_index_valid_ = false;
+    uint64_t reg_seq_next_ = 0;   // SemaFuncInfo::reg_seq   // false after the registries were replaced (restore)
     void index_method_(const SemaFuncInfo& fi, const std::string& key, bool generic) {
         if (!fi.owner_id || fi.method_name.empty()) return;
         auto& v = method_index_[{fi.owner_id, fi.method_name}];
@@ -6931,6 +6933,9 @@ private:
         take(o);
         // `impl<T> Tr for &T` / `&mut T` owns every reference.
         if (o.ref && o.shape != "_") take(OwnerId{{}, o.ref, "_"});
+        // Declaration order, not the registries' hash order (an overload set's
+        // diagnostics cite its first member).
+        std::stable_sort(out.begin(), out.end(), [](auto* a, auto* b) { return a->reg_seq < b->reg_seq; });
         return out;
     }
     // A non-generic method of `self_t` itself: `arity` parameters, no type
@@ -9461,6 +9466,7 @@ private:
                                                         bool is_vararg = false) const;
     const SemaFuncInfo* find_method_by_signature_(TypeRef owner, std::string_view method,
                                                   const std::vector<TypeRef>& param_types, bool is_vararg);
+    std::vector<const SemaFuncInfo*> filter_visible_(std::vector<const SemaFuncInfo*> all) const;
     static const SemaFuncInfo* pick_by_signature_(const std::vector<const SemaFuncInfo*>& cands,
                                                   const std::vector<TypeRef>& param_types, bool is_vararg);
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
