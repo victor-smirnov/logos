@@ -215,6 +215,11 @@ pub struct MacroParams {
     /// `batch_len_text`, which is the §2 rule made structural: a layout is a
     /// ROW IN THOSE TWO FUNCTIONS, never a branch in a consumer.
     pub rel_rowmaj: Vec<bool>,
+    /// ADR 0031 R5.1 — the plan retired the entry's whole `where` (an exact
+    /// access op answers it); the entry's lowering builds no filter.
+    pub plan_where_retired: bool,
+    /// ADR 0031 R5.1 — the entry aggregate's group frame is PURE (`dplan::plan_group_pure`).
+    pub plan_group_pure: bool,
     /// The producer's RETURN TYPE, as text. The emitted binding is annotated
     /// with it rather than inferring: a generated producer's signature is not
     /// always resolvable in the round its consumer is compiled, and an inferred
@@ -401,6 +406,8 @@ pub fn macro_params_new() -> MacroParams {
         rel_node:    Vec::<i32>::new(),
         rel_batch:   Vec::<bool>::new(),
         rel_rowmaj:  Vec::<bool>::new(),
+        plan_where_retired: false,
+        plan_group_pure: false,
         rel_itty:    Vec::<str>::new(),
         rel_ordered: Vec::<bool>::new(),
         rel_bidir:   Vec::<bool>::new(),

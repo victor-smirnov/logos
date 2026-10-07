@@ -2556,7 +2556,7 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> Vec<bool> {
             // which is false of 141 of the corpus's 146 static aggregates.
             let ai: i64 = prm.rel_find_name(gq.a_name);
             if ai >= 0i64 {
-                if aggr_group_frame_pure(gq) {
+                if prm.plan_group_pure {
                     // ── S5-D5: THE OTHER HALF OF S4 IS BUILT, SO THE CLAIM IS
                     // NOW TRUE OF THE ARTIFACT. The sentence that stood here —
                     // "…but the emitted base loop still walks this source BY
@@ -2626,21 +2626,6 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> Vec<bool> {
 // property is how this compiler has already come to disagree with itself once
 // (`compute_acc_tys`' `typed` flag), and the cost here would be a justification
 // sentence that is false about the artifact it justifies.
-fn aggr_group_frame_pure(gq: RQAggr) -> bool {
-    let aggs: RQAggArr = gq.aggs_arr();
-    let n: i64 = aggs.len();
-    let mut onames: Vec<str> = str_vec(n);
-    let mut j: i64 = 0i64;
-    while j < n { onames[j] = aggs.agg_at(j).name; j = j + 1i64; }
-    if !sexpr_over_group_names(gq.select.any().view::<SExpr>(), &onames, n) { return false; }
-    if gq.has_having && !sexpr_over_group_names(gq.having_pred.any().view::<SExpr>(), &onames, n) {
-        return false;
-    }
-    if gq.has_order && !sexpr_over_group_names(gq.order_key.any().view::<SExpr>(), &onames, n) {
-        return false;
-    }
-    return true;
-}
 
 /// APPLY the plan: bind each rel to the access that was chosen, bind a streamed
 /// rel to its iterator name, retire the residual filter if the plan retired it,
@@ -2697,10 +2682,11 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
         }
         ri = ri + 1i64;
     }
-    if ap.drop_where && !prm.src_root.is_null() {
-        let fs: RQSimple = rq_fat_simple(prm.src_root.view::<RQProgram>().entry_any(), h);
-        fs.has_where = false;
-    }
+    // An exact access op answered the entry's whole `where`: a PLAN fact the
+    // entry's lowering reads (ADR 0031 R5.1) — the parsed query is no longer
+    // rewritten to say it.
+    prm.plan_where_retired = ap.drop_where;
+    let _ = h;
     // ⚠ `access_plan_explain` WAS CALLED HERE AND IS NOW CALLED BY THE CALLER
     // (ADR 0025 R-G). It has to be, and the reason is an ORDERING fact rather
     // than a taste: this fn runs BEFORE the body pass, so before `RelDeps`

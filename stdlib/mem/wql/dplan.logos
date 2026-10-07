@@ -13,6 +13,12 @@ package logos.std.wql.dplan;
 use logos.lang.str;
 use logos.mem.string;
 use logos.std.wql.params;          // MacroParams: the source registry the decision reads
+use logos.std.wql.core;            // the core: the clauses a decision reads
+use logos.std.wql.ir;              // SExpr
+use logos.lang.writ.anyval;        // WAny::view
+use logos.std.wql.codegen;         // sexpr_over_group_names
+use logos.mem.collections.vec;
+use logos.lang.option;
 
 extern fn getenv(name: *const u8) -> *const u8;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
@@ -79,6 +85,34 @@ pub fn plan_entry_scan(prm: &MacroParams, src: str, has_sort: bool) -> DScan {
     let d: DScan = DScan { src: src, rel: rel, arm: arm, sort_elided: elided, slice: slice };
     dplan_dump_scan(&d);
     return d;
+}
+
+/// THE GROUP-FRAME CLASS (ADR 0025 S4): TRUE iff every clause above the group —
+/// `select`, `having`, `order by` — reads only `key` and the aggregate outputs,
+/// so no group carries a representative base row. Decided ONCE, here: the
+/// planner (single pass) and the emitter (`__g_row` or not) both read it — they
+/// used to ask it separately, of two different trees.
+pub fn plan_group_pure(ru: &CRule) -> bool {
+    match &ru.clause.group {
+        Option::None => { return false; }
+        Option::Some(g) => {
+            let mut onames: Vec<str> = Vec::<str>::new();
+            let ags: &[CAgg] = g.aggs.as_slice();
+            let mut j: i64 = 0i64;
+            while j < g.aggs.len() { onames.push(ags[j].name); j = j + 1i64; }
+            let n: i64 = onames.len();
+            if !sexpr_over_group_names(ru.clause.head.view::<SExpr>(), &onames, n) { return false; }
+            match &g.having {
+                Option::Some(h) => { if !sexpr_over_group_names((*h).view::<SExpr>(), &onames, n) { return false; } }
+                Option::None => { }
+            }
+            match &ru.env.order {
+                Option::Some(o) => { if !sexpr_over_group_names((*o).view::<SExpr>(), &onames, n) { return false; } }
+                Option::None => { }
+            }
+            return true;
+        }
+    }
 }
 
 /// The arm runs the sort phases.

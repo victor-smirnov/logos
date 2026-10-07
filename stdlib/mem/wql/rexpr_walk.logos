@@ -118,7 +118,7 @@ pub fn lower_simplify_emit(plan: RQuery, fn_name: str,
                            params_text: str, prm: &MacroParams,
                            result_ty: str, has_result_ty: bool,
                            sel_mode: i32, prelude: str, h: &Writ) -> bool {
-    let root: WRef<RExpr> = lower_rquery_to_rexpr(plan, h);
+    let root: WRef<RExpr> = lower_rquery_to_rexpr(plan, h, prm.plan_where_retired);
     let sig: RSimplified = simplify_rexpr_ref(root, root.any().view::<RExpr>(), h);
     let rx: RExpr = sig.root.any().view::<RExpr>();
     return emit_rexpr_opt(rx, sig.empty, sig.identity,
@@ -5629,20 +5629,6 @@ fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WR
 // base row) and the drain that forces; TRUE ⇒ it does not exist, and with it
 // goes the finalize pass's re-bind. The batch fold can then run down a batch
 // with no global row ordinal to record.
-fn agg_group_frame_pure(aggs: &RAggArr, acount: i64, proj_e: SExpr,
-                        having_ref: WRef<SExpr>, has_having: bool, mods: QMods) -> bool {
-    let mut onames: Vec<str> = str_vec(acount);
-    let mut j: i64 = 0i64;
-    while j < acount { onames[j] = aggs.agg_at(j).out; j = j + 1i64; }
-    if !sexpr_over_group_names(proj_e, &onames, acount) { return false; }
-    if has_having && !sexpr_over_group_names(having_ref.any().view::<SExpr>(), &onames, acount) {
-        return false;
-    }
-    if mods.has_sort && !sexpr_over_group_names(mods.sort_key.any().view::<SExpr>(), &onames, acount) {
-        return false;
-    }
-    return true;
-}
 
 // ── emit_aggregate — group-by + aggregate (mirror walk_aggregate) ─────────────
 // ONE emitter for BOTH aggregate inputs. A bare scan is the DEGENERATE join
@@ -5914,8 +5900,8 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
         okey_body = key_norm_body(string_as_str(&okb), okey_tn, okey_ty);
     }
 
-    let pure_group: bool = agg_group_frame_pure(&aggs, acount, proj_opt, having_ref,
-                                                has_having, mods);
+    // The class is the PLAN's (`dplan::plan_group_pure`, ADR 0031 R5.1).
+    let pure_group: bool = prm.plan_group_pure;
     if pure_group {
         aggclass_trace(fn_name, AC_PURE());
     } else {
