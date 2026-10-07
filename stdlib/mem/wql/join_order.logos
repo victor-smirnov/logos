@@ -181,6 +181,9 @@ use logos.std.wql.optimize;       // refs_mask — which vars a predicate reads
 use logos.std.wql.join_sel;       // decide_join_step / js_reads_once / js_name / StepSel
 use logos.std.wql.join_cost;      // THE cost model: roles, bounds, weights
 use logos.std.wql.why;            // THE JUSTIFICATION: the record, its vocabulary, its ONE renderer
+use logos.std.wql.core;           // the clause the order is decided for (ADR 0031 R5.2)
+use logos.std.compiler.metaprog;  // OView — the module's declarations, for typing
+use logos.std.wql.typing;         // type_clause — the planner's and the emitter's one typing
 
 // ── The chain, as this module sees it ────────────────────────────────────────
 // SLOT 0 is the base and slot i+1 the i-th step, so one index space covers the
@@ -954,6 +957,100 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: 
     }
     jo_report(&jo, c, base_var, s0_var);
     return jo;
+}
+
+// ── ADR 0031 R5.2 — THE ENTRY'S JOIN ORDER IS THE PLANNER'S ─────────────────
+//
+// `emit_join_chain` used to decide the order itself, at emission. The decision
+// reads nothing the emitter has and the planner does not — the planned core's
+// clause, its typing, the sort key's type, the registry's size facts — so it is
+// made here, from the core, and the emitter receives the verdict.
+
+/// The decided order of one join chain, with what the emitter needs to realize
+/// it: the size expressions and reporter bindings (`decide_join_orders`' out
+/// parameters), and the sort key's named and emitted type the licence was
+/// checked against (owned: the emitter prints the key in exactly these).
+pub struct JoinPlan {
+    pub decided: bool,
+    pub jo:      JoinOrder,
+    pub szs:     [String; 4],
+    pub ats:     [i64; 4],
+    pub key_tn:  String,
+    pub key_kv:  String,
+}
+
+/// The chain as the derivation sees it, read off a core clause: one slot per
+/// source literal (an atom or a traversal), a positive step's `on` the On
+/// condition right after it, an anti step's its own.
+pub fn jch_from_core(cl: &CClause) -> JCh {
+    let bs: &[CLit] = cl.body.as_slice();
+    let n: i64 = cl.body.len();
+    let mut ns: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        match &bs[i] { CLit::Atom(_a) => { ns = ns + 1i64; } CLit::Trav(_t) => { ns = ns + 1i64; } CLit::Cond(_c) => { } }
+        i = i + 1i64;
+    }
+    let mut c: JCh = jch_new(ns - 1i64);
+    let mut s: i64 = 0i64;
+    i = 0i64;
+    while i < n {
+        let mut next_on: i64 = 0i64;
+        if i + 1i64 < n {
+            match &bs[i + 1i64] {
+                CLit::Cond(cc) => { match &cc.site { CSite::On => { next_on = cc.e.raw(); } CSite::Where => { } } }
+                CLit::Atom(_a) => { }
+                CLit::Trav(_t) => { }
+            }
+        }
+        match &bs[i] {
+            CLit::Atom(a) => {
+                c.src[s] = a.name; c.var[s] = a.var;
+                if s > 0i64 {
+                    c.onw[s] = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                    c.anti[s] = a.neg;
+                    c.strat[s] = a.strat; c.sel[s] = a.jsel as i64; c.sground[s] = a.ground;
+                }
+                s = s + 1i64;
+            }
+            CLit::Trav(t) => {
+                c.src[s] = t.name; c.var[s] = t.var;
+                c.onw[s] = if t.neg { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                c.anti[s] = t.neg;
+                c.edge[s] = true;
+                s = s + 1i64;
+            }
+            CLit::Cond(_cc) => { }
+        }
+        i = i + 1i64;
+    }
+    return c;
+}
+
+/// Decide the order of the entry's join chain `cl` (a `Scan`-form chain; any
+/// other form is not emitted as a nest and gets no decision). `sort_key` — the
+/// folded `order by` key (null = none).
+pub fn plan_join_order(cl: &CClause, scan: bool, sort_key: WAny, prm: &MacroParams, h: &Writ) -> JoinPlan {
+    let mut jp: JoinPlan = JoinPlan { decided: false, jo: jo_ground(WG_UNSET(), AX_NONE()),
+                                      szs: [String::new(), String::new(), String::new(), String::new()],
+                                      ats: [-1i64; 4], key_tn: String::from_str("i64"), key_kv: String::from_str("i64") };
+    if !scan { return jp; }
+    let view: OView = oview_module_ast();
+    let ty: ElTypes = type_clause(&view, prm, cl, false);
+    let has_sort: bool = !sort_key.is_null();
+    if has_sort {
+        let key_opt: SExpr = simplify_sexpr(sort_key.view::<SExpr>(), h).any().view::<SExpr>();
+        jp.key_tn = String::from_str(infer_ty_name(key_opt, &ty));
+        jp.key_kv = String::from_str(infer_emit_ty(key_opt, &ty));
+    }
+    let jc: JCh = jch_from_core(cl);
+    let mut szs: [String; 4] = [String::new(), String::new(), String::new(), String::new()];
+    let mut ats: [i64; 4] = [-1i64; 4];
+    let jo: JoinOrder = decide_join_orders(&jc, has_sort, string_as_str(&jp.key_tn), string_as_str(&jp.key_kv), &ty, prm, h,
+                                           &mut szs, &mut ats);
+    jp.jo = jo; jp.szs = szs; jp.ats = ats;
+    jp.decided = true;
+    return jp;
 }
 
 /// The size facts, then the derivation, then the verdict — in that order, because

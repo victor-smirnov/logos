@@ -89,6 +89,7 @@ use logos.std.wql.srcloc;         // the query as a source — located diagnosti
 use logos.std.wql.access_plan;    // AccessPlan — the plan as an object (ADR 0024 S4)
 use logos.std.wql.why;            // jg_render — the join strategy ground, rendered at the edge
 use logos.std.wql.join_sel;       // the JOIN-STEP decision — decided here, read by the emitter
+use logos.std.wql.join_order;     // the entry's JOIN ORDER — decided here, read by the emitter (ADR 0031 R5.2)
 use logos.std.wql.optimize;       // refs_mask — does a clause read a row var
 
 // ── The walker entry: entry RQuery plan → RExpr algebra → emitted native fn ──
@@ -121,7 +122,13 @@ pub fn walk_query(plan: RQuery, name: str, params_text: str, prm: &MacroParams,
                 mode = SELM_FIRST();
             }
             match plan_entry_chain(&prm.plan_core, h) {
-                Option::Some(ds) => { return emit_entry_join(&ds, name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h); }
+                Option::Some(ds) => {
+                    // ADR 0031 R5.2 — the order of the nest is decided here, by the
+                    // planner, and handed to the emitter.
+                    let scan: bool = match &ds.form { DForm::Scan => true, DForm::Empty => false, DForm::Identity => false };
+                    let jp: JoinPlan = plan_join_order(&prm.plan_core.entry.clause, scan, ds.sort_key, prm, h);
+                    return emit_entry_join(&ds, jp, name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h);
+                }
                 Option::None => { logos.lang.panic::panic("ICE: a `Join` entry is not a join chain of the planned core (ADR 0031 R6.4)"); return false; }
             }
         }

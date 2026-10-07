@@ -4493,29 +4493,6 @@ fn jch_var(ch: &JChain, s: i64) -> str {
     return ch.var[s - 1i64];
 }
 
-/// The chain as the join-order derivation sees it: one index space, the two pin
-/// flags, and the strategy the planner recorded. Copied rather than shared, so
-/// `join_order` cannot come to depend on an emitter detail.
-fn jch_of(ch: &JChain) -> JCh {
-    let mut c: JCh = jch_new(ch.n);
-    let m: i64 = ch.n + 1i64;
-    let mut s: i64 = 0i64;
-    while s < m {
-        c.src[s] = jch_src(ch, s);
-        c.var[s] = jch_var(ch, s);
-        if s > 0i64 {
-            c.onw[s]   = ch.onw[s - 1i64];
-            c.anti[s]  = ch.anti[s - 1i64];
-            c.edge[s]  = ch.edge[s - 1i64];
-            c.strat[s] = ch.jstrat[s - 1i64];
-            c.sel[s]   = ch.jsel[s - 1i64];
-            c.sground[s] = ch.jground[s - 1i64];
-        }
-        s = s + 1i64;
-    }
-    return c;
-}
-
 /// The `JCTable` a plan carries, as a struct-literal text. All sixteen cells are
 /// written even though `jc_order_cost` never reads past `ncand * JC_MAX_FL`: an
 /// array literal has a fixed length and a partially-written one would be a shape
@@ -4960,7 +4937,7 @@ fn jchain_from_core(cl: &CClause) -> JChain {
 
 /// ADR 0031 R6.4 — A JOIN-CHAIN ENTRY FROM THE PLAN: the folded entry
 /// (`dplan::plan_entry_chain`) and the chain read off the planned core's rule.
-pub fn emit_entry_join(ds: &DSimple, fn_name: str, params_text: str, prm: &MacroParams,
+pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: str, params_text: str, prm: &MacroParams,
                        result_ty: str, has_result_ty: bool, sel_mode: i32,
                        prelude: str, h: &Writ) -> bool {
     let sel: WRef<SExpr> = WRef::<SExpr>::from_any(ds.sel);
@@ -4988,13 +4965,13 @@ pub fn emit_entry_join(ds: &DSimple, fn_name: str, params_text: str, prm: &Macro
             if !check_limit_param(&mods, prm) { return false; }
             let pred: WRef<SExpr> = if ds.pred.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.pred) };
             let ch: JChain = jchain_from_core(&prm.plan_core.entry.clause);
-            return emit_join_chain(ch, pred, !ds.pred.is_null(), sel, mods, fn_name, params_text, prm,
+            return emit_join_chain(ch, jp, pred, !ds.pred.is_null(), sel, mods, fn_name, params_text, prm,
                                    result_ty, has_result_ty, sel_mode == SELM_FIRST(), prelude, h);
         }
     }
 }
 
-fn emit_join_chain(ch: JChain, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
+fn emit_join_chain(ch: JChain, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                    mods: QMods,
                    fn_name: str, params_text: str, prm: &MacroParams,
                    result_ty0: str, has_result_ty: bool, first: bool,
@@ -5063,8 +5040,10 @@ fn emit_join_chain(ch: JChain, where_ref: WRef<SExpr>, has_where: bool, sel: WRe
     let mut key_tn: str = "i64";
     if mods.has_sort {
         let key_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
-        key_tn = infer_ty_name(key_opt, &ty);
-        key_ty = infer_emit_ty(key_opt, &ty);
+        // The key's types are the PLAN's (`join_order::plan_join_order`), the ones
+        // the order licence was checked against — not derived a second time here.
+        key_tn = string_as_str(&jp.key_tn);
+        key_ty = string_as_str(&jp.key_kv);
         if !key_norm_ok(key_tn, key_ty, "wql!: `order by`") { return false; }
         let mut kb1: String = String::new();
         emit_sexpr(&mut kb1, key_opt, &ty, ch.base_var);
@@ -5165,17 +5144,12 @@ fn emit_join_chain(ch: JChain, where_ref: WRef<SExpr>, has_where: bool, sel: WRe
     // (ADR 0024 S5 records a stdlib build failing on "use of moved variable
     // `__out`" from exactly one), so the multi-nest form is the only one that
     // introduces a block, and there it is the branch itself.
-    let mut szs: [String; 4] = [String::new(), String::new(), String::new(), String::new()];
-    let mut ats: [i64; 4] = [-1i64; 4];
-    let jc: JCh = jch_of(&ch);
-    // ⚠ NO GROUND BUFFER TRAVELS WITH THIS CALL ANY MORE (ADR 0024 S4o). It used to
-    // take one, declared here rather than inside the decision, because the verdict's
-    // ground was composed text and the plan's string literal is written far below —
-    // a `str` view that had to outlive two frames, which is exactly the shape one
-    // round shipped a use-after-free in. The decision returns a `Why`; the text is
-    // composed once, at the emission site, from the record.
-    let jo: JoinOrder = decide_join_orders(&jc, has_sort, key_tn, key_ty, &ty, prm, h,
-                                           &mut szs, &mut ats);
+    // ⚠ THE DECISION IS THE PLANNER'S (ADR 0031 R5.2): `plan_join_order` made it
+    // from the planned core, before emission; this body realizes it.
+    if !jp.decided { logos.lang.panic::panic("ICE: a join-chain entry reached emission without a decided order (join_order::plan_join_order)"); }
+    let jo: JoinOrder = jp.jo;
+    let szs: [String; 4] = jp.szs;
+    let ats: [i64; 4] = jp.ats;
 
     // The measurement `prepare` needs: the declared reporters the size expressions
     // call, and ONLY those — a plan does not measure what it will not compare. The
