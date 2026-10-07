@@ -119,7 +119,10 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
                 if j.has_limit { wql_error(prm, "`select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
                 mode = SELM_FIRST();
             }
-            return lower_simplify_emit(plan, j.fn_name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h);
+            match plan_entry_chain(&prm.plan_core, h) {
+                Option::Some(ds) => { return emit_entry_join(&ds, j.fn_name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h); }
+                Option::None => { logos.lang.panic::panic("ICE: a `Join` entry is not a join chain of the planned core (ADR 0031 R6.4)"); return false; }
+            }
         }
         RQuery::Aggr(g) => {
             if g.sel_first { wql_error(prm, "`select first` is not supported on aggregate queries"); return false; }

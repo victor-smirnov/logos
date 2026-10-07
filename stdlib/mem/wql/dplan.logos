@@ -147,47 +147,18 @@ pub struct DSimple {
     pub limit_param: str,
 }
 
-/// The planned core's entry as a single-source query, or None when it is not
-/// one (a join, a traversal, a group). The folding is the relational
-/// simplifier's, rule for rule: a constant `where` disappears (true) or empties
-/// the answer (false); a constant sort key drops the sort; `limit 0` empties
-/// it; identity needs a bare scan with no distinct or limit and a select that
-/// is the row variable. `where_retired`: an exact access op answers the
-/// `where` (`plan_where_retired`).
-pub fn plan_entry_simple(p: &CProgram, where_retired: bool, h: &Writ) -> Option<DSimple> {
-    let ru: &CRule = &p.entry;
-    match &ru.clause.group { Option::Some(_g) => { return Option::None; } Option::None => { } }
-    let bs: &[CLit] = ru.clause.body.as_slice();
-    if ru.clause.body.len() < 1i64 { return Option::None; }
-    let mut src: str = "";
-    let mut row_ty: str = "";
-    let mut var: str = "";
-    match &bs[0i64] {
-        CLit::Atom(a) => {
-            if a.neg || a.conds.len() > 0i64 { return Option::None; }
-            src = a.name; row_ty = a.row_ty; var = a.var;
-        }
-        CLit::Trav(_t) => { return Option::None; }
-        CLit::Cond(_c) => { return Option::None; }
-    }
-    let mut cond: WAny = WAny::null();
-    let mut i: i64 = 1i64;
-    while i < ru.clause.body.len() {
-        match &bs[i] {
-            CLit::Cond(c) => {
-                match &c.site { CSite::Where => { } CSite::On => { return Option::None; } }
-                if !cond.is_null() { return Option::None; }
-                cond = c.e;
-            }
-            CLit::Atom(_a) => { return Option::None; }
-            CLit::Trav(_t) => { return Option::None; }
-        }
-        i = i + 1i64;
-    }
+// The entry's clauses folded as the relational simplifier folded them — the
+// ONE copy, for every entry shape it serves: a constant `where` disappears
+// (true) or empties the answer (false); a constant sort key drops the sort;
+// `limit 0` empties it; identity needs a single bare source, no distinct or
+// limit, and a select that is the row variable (or `find`). `cond` is the
+// rule's one `where` (null = none).
+fn dp_fold_entry(ru: &CRule, src: str, row_ty: str, var: str, cond: WAny, single: bool,
+                 h: &Writ) -> DSimple {
     let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
     let mut empty: bool = false;
     let mut pred: WAny = WAny::null();
-    if !cond.is_null() && !(where_retired && !find) {
+    if !cond.is_null() {
         let ph: WRef<SExpr> = simplify_sexpr(cond.view::<SExpr>(), h);
         let pc: ConstVal = sexpr_const(ph.any().view::<SExpr>());
         if pc.is_bool() {
@@ -220,14 +191,85 @@ pub fn plan_entry_simple(p: &CProgram, where_retired: bool, h: &Writ) -> Option<
     let mut form: DForm = DForm::Scan;
     if empty {
         form = DForm::Empty;
-    } else if !has_limit && !ru.env.distinct && sort_key.is_null() && pred.is_null()
+    } else if single && !has_limit && !ru.env.distinct && sort_key.is_null() && pred.is_null()
               && (find || is_identity_sel(WRef::<SExpr>::from_any(ru.clause.head), var)) {
         form = DForm::Identity;
     }
-    return Option::Some(DSimple { form: form, src: src, row_ty: row_ty, var: var, pred: pred,
-                                  sel: ru.clause.head, sort_key: sort_key, sort_desc: ru.env.desc,
-                                  distinct: ru.env.distinct, has_limit: has_limit, limit_n: limit_n,
-                                  limit_is_param: limit_is_param, limit_param: limit_param });
+    return DSimple { form: form, src: src, row_ty: row_ty, var: var, pred: pred,
+                     sel: ru.clause.head, sort_key: sort_key, sort_desc: ru.env.desc,
+                     distinct: ru.env.distinct, has_limit: has_limit, limit_n: limit_n,
+                     limit_is_param: limit_is_param, limit_param: limit_param };
+}
+
+// The rule's base atom (positive, unconditioned), or None.
+fn dp_base(ru: &CRule) -> Option<CAtomRef> {
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    if ru.clause.body.len() < 1i64 { return Option::None; }
+    match &bs[0i64] {
+        CLit::Atom(a) => {
+            if a.neg || a.conds.len() > 0i64 { return Option::None; }
+            return Option::Some(CAtomRef { name: a.name, row_ty: a.row_ty, var: a.var });
+        }
+        CLit::Trav(_t) => { return Option::None; }
+        CLit::Cond(_c) => { return Option::None; }
+    }
+}
+
+struct CAtomRef { name: str, row_ty: str, var: str }
+
+/// The planned core's entry as a single-source query, or None when it is not
+/// one (a join, a traversal, a group). `where_retired`: an exact access op
+/// answers the `where` (`plan_where_retired`; never for `find`).
+pub fn plan_entry_simple(p: &CProgram, where_retired: bool, h: &Writ) -> Option<DSimple> {
+    let ru: &CRule = &p.entry;
+    match &ru.clause.group { Option::Some(_g) => { return Option::None; } Option::None => { } }
+    let base: CAtomRef = match dp_base(ru) { Option::Some(b) => { b } Option::None => { return Option::None; } };
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut cond: WAny = WAny::null();
+    let mut i: i64 = 1i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => {
+                match &c.site { CSite::Where => { } CSite::On => { return Option::None; } }
+                if !cond.is_null() { return Option::None; }
+                cond = c.e;
+            }
+            CLit::Atom(_a) => { return Option::None; }
+            CLit::Trav(_t) => { return Option::None; }
+        }
+        i = i + 1i64;
+    }
+    let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
+    if where_retired && !find { cond = WAny::null(); }
+    return Option::Some(dp_fold_entry(ru, base.name, base.row_ty, base.var, cond, true, h));
+}
+
+/// The planned core's entry as a JOIN CHAIN (a base atom and at least one
+/// step: a join, an anti join or a traversal), its `where` folded; None when
+/// it is not one. The chain itself is read off the rule by the emitter.
+pub fn plan_entry_chain(p: &CProgram, h: &Writ) -> Option<DSimple> {
+    let ru: &CRule = &p.entry;
+    match &ru.clause.group { Option::Some(_g) => { return Option::None; } Option::None => { } }
+    let base: CAtomRef = match dp_base(ru) { Option::Some(b) => { b } Option::None => { return Option::None; } };
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut steps: i64 = 0i64;
+    let mut cond: WAny = WAny::null();
+    let mut i: i64 = 1i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => {
+                match &c.site {
+                    CSite::Where => { if !cond.is_null() { return Option::None; } cond = c.e; }
+                    CSite::On => { }
+                }
+            }
+            CLit::Atom(_a) => { steps = steps + 1i64; }
+            CLit::Trav(_t) => { steps = steps + 1i64; }
+        }
+        i = i + 1i64;
+    }
+    if steps == 0i64 { return Option::None; }
+    return Option::Some(dp_fold_entry(ru, base.name, base.row_ty, base.var, cond, false, h));
 }
 
 /// The arm runs the sort phases.

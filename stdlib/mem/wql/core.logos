@@ -52,11 +52,19 @@ pub struct CAtom {
     pub row_ty: str,
     pub neg: bool,
     pub conds: Vec<WAny>,
+    /// A join step's strategy as the planner recorded it on the step (a
+    /// PROJECTION, until the planner writes it to the plan itself): `jstrat`,
+    /// `jsel`, `jground`. 0 / -1 / 0 for a base atom.
+    pub strat: i32,
+    pub jsel: i32,
+    pub ground: i64,
 }
 
 /// A traversal: binds `var` to each element reached from the row bound to
 /// `base` along `path` (`join n.kids k`). Negated = an anti traversal.
 pub struct CTrav {
+    /// The walker's stamped source expression for the collection.
+    pub name: str,
     pub base: str,
     pub path: Vec<str>,
     pub var: str,
@@ -208,7 +216,7 @@ fn base_atom(lx: &CLower, src: str, var: str, row_ty: str) -> CLit {
     // `__u` — the names `desugar_program_facts` gives the same rewrite.
     let v: str = if src.len() == 0i64 && var.len() == 0i64 { "__u" } else { var };
     return CLit::Atom(CAtom { src: src_of(lx, src), reg: reg_of(lx, src), name: src, var: v, row_ty: row_ty,
-                              neg: false, conds: Vec::<WAny>::new() });
+                              neg: false, conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
 }
 
 // A join chain's steps, in order: each step an atom (or a traversal), and a
@@ -229,11 +237,12 @@ fn lower_steps(lx: &CLower, steps: WAny, body: &mut Vec<CLit>) {
             let pa: RQPathSegArr = st.path_arr();
             let mut k: i64 = 0i64;
             while k < pa.len() { path.push(pa.seg_at(k).name); k = k + 1i64; }
-            body.push(CLit::Trav(CTrav { base: st.base_var, path: path, var: st.var_name,
+            body.push(CLit::Trav(CTrav { name: st.src_name, base: st.base_var, path: path, var: st.var_name,
                                          row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
         } else {
             body.push(CLit::Atom(CAtom { src: src_of(lx, st.src_name), reg: reg_of(lx, st.src_name), name: st.src_name, var: st.var_name,
-                                         row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
+                                         row_ty: st.row_ty, neg: st.is_anti, conds: conds,
+                                         strat: st.jstrat, jsel: st.jsel, ground: st.jground }));
         }
         if !st.is_anti && has_on { body.push(CLit::Cond(CCond { e: on, site: CSite::On })); }
         i = i + 1i64;

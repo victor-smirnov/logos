@@ -1,0 +1,40 @@
+// A query whose answer is CONSTANTLY EMPTY (a `where` / `having` that folds to
+// false) emits no scan at all — and still a prepared plan, whose `axis()` says
+// whether an input-order axis was REFUSED (the input is a join chain whose order
+// could have been chosen) or did not exist (one source).
+//
+// ADR 0031 R6.4 routed join entries through the plan and, for this constant
+// form, handed `emit_empty` the BASE scan instead of the join tree — so the
+// axis read AX_NONE where the tree read AX_REFUSED. No corpus query had a join
+// with a constant-false `where`, so a byte-identical corpus snapshot could not
+// see it; this fixture executes that branch. An aggregate's constant-empty form
+// keeps AX_NONE: the relational path never looked through the group for steps,
+// and that is pinned here as the behaviour, not endorsed.
+package wql_empty_axis_e2e;
+
+use logos.std.wql.wql;
+use logos.std.wql.why;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct L { pub k: i64, pub v: i64 }
+struct R { pub k: i64, pub w: i64 }
+
+pub deem scan_false(ls: &[L]) { from ls l where false select l.v }
+pub deem join_false(ls: &[L], rs: &[R]) { from ls l join rs r on r.k == l.k where false select l.v }
+pub deem agg_false(ls: &[L]) { from ls l group by l.k aggregate n = count() having false select (key, n) }
+
+fn main() -> i32 {
+    let ls: Vec<L> = vec![L { k: 1, v: 10 }, L { k: 2, v: 20 }];
+    let rs: Vec<R> = vec![R { k: 1, w: 5 }];
+    let a: Vec<i64> = match scan_false(&ls) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if a.len() != 0i64 { return 2i32; }
+    let b: Vec<i64> = match join_false(&ls, &rs) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if b.len() != 0i64 { return 4i32; }
+    let c: Vec<(i64, i64)> = match agg_false(&ls) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if c.len() != 0i64 { return 6i32; }
+    if scan_false_prepare(&ls).axis() != AX_NONE() { return 7i32; }
+    if join_false_prepare(&ls, &rs).axis() != AX_REFUSED() { return 8i32; }
+    if agg_false_prepare(&ls).axis() != AX_NONE() { return 9i32; }
+    return 0i32;
+}

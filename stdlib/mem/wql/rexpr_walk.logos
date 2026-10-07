@@ -45,6 +45,7 @@ use logos.std.wql.join_order; // JoinOrder / decide_join_orders / JCh — WHICH 
 use logos.std.wql.join_cost;  // JCTable / jc_* — THE cost function, one copy
 use logos.std.wql.prepared;   // Prepared / prep_* — THE PLAN AS A RUNTIME VALUE
 use logos.std.wql.dplan;      // DScan / plan_entry_scan — the plan as data (ADR 0031 R5)
+use logos.std.wql.core;       // the planned core the emitters read (ADR 0031 R6)
 use logos.std.wql.why;        // Why / why_render — THE JUSTIFICATION AS A RECORD, and its ONE renderer
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
@@ -2190,7 +2191,11 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
 // caller's call site is unchanged) but the body is a single empty-Vec return.
 // `first` (SELM_FIRST) narrows the return to `Option<E>` + a constant
 // `Option::None` — the single-row mode's empty collapse.
-fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
+/// `axis`: the prepared plan's input-order axis — AX_REFUSED for a join chain
+/// (its order could have been chosen), AX_NONE for one source. Passed by the
+/// caller, which knows the input's shape (ADR 0031 R6.4: it is not re-derived
+/// from `scan_e`, which may be the base scan alone).
+fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
               fn_name: str, params_text: str, prm: &MacroParams,
               result_ty0: str, has_result_ty: bool, first: bool, h: &Writ) -> bool {
     let sc: RScan = scan_of(scan_e);
@@ -2255,7 +2260,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>,
     // result, so no §12 stream surface: "" is the emitter saying so.
     let selem: str = if first { "" } else { result_elem };
     emit_query_fn(fn_name, params_text, prm.tparams, rty.as_str(), selem, bt, prm,
-                  prep_ground(WG_FALSE_FILTER(), input_axis(scan_e)));
+                  prep_ground(WG_FALSE_FILTER(), axis));
     return true;
 }
 
@@ -2358,7 +2363,7 @@ pub fn emit_entry_simple(ds: &DSimple, fn_name: str, params_text: str, prm: &Mac
     match &ds.form {
         DForm::Empty => {
             if sel_mode == SELM_FIND() { return emit_none_find(scan_e, fn_name, params_text, prm, h); }
-            return emit_empty(scan_e, sel, fn_name, params_text, prm, result_ty,
+            return emit_empty(scan_e, sel, chain_axis(0i64), fn_name, params_text, prm, result_ty,
                               has_result_ty, sel_mode == SELM_FIRST(), h);
         }
         DForm::Identity => {
@@ -2405,7 +2410,7 @@ pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
                     if sel_mode == SELM_FIND() {
                         return emit_none_find(scan_e, fn_name, params_text, prm, h);
                     }
-                    return emit_empty(scan_e, p.sel, fn_name, params_text, prm, result_ty,
+                    return emit_empty(scan_e, p.sel, input_axis(scan_e), fn_name, params_text, prm, result_ty,
                                       has_result_ty, sel_mode == SELM_FIRST(), h);
                 }
                 if sel_mode != SELM_ALL() {
@@ -2447,15 +2452,9 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
             }
             let first: bool = sel_mode == SELM_FIRST();
             match body {
-                RExpr::Join(jn) => { return emit_join_chain(jn.as_ref().view::<RExpr>(),
-                                                      null_sref(), false, sel, mods,
-                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
-                RExpr::Anti(an) => { return emit_join_chain(an.as_ref().view::<RExpr>(),
-                                                      null_sref(), false, sel, mods,
-                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
-                RExpr::Edge(ed) => { return emit_join_chain(ed.as_ref().view::<RExpr>(),
-                                                      null_sref(), false, sel, mods,
-                                                      fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
+                RExpr::Join(_jn) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
+                RExpr::Anti(_an) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
+                RExpr::Edge(_ed) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
                 RExpr::Aggr(ag) => {
                     if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
                     let pl: Peeled = peel_filter(ag.input_expr());
@@ -2468,15 +2467,9 @@ pub fn emit_rexpr(root: RExpr, fn_name: str,
                     // an aggregate (the HAVING filter over the group rows), or over a
                     // scan (simple with `where`).
                     match f.input_expr() {
-                        RExpr::Join(jn) => { return emit_join_chain(jn.as_ref().view::<RExpr>(),
-                                                              f.pred, true, sel, mods,
-                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
-                        RExpr::Anti(an) => { return emit_join_chain(an.as_ref().view::<RExpr>(),
-                                                              f.pred, true, sel, mods,
-                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
-                        RExpr::Edge(ed) => { return emit_join_chain(ed.as_ref().view::<RExpr>(),
-                                                              f.pred, true, sel, mods,
-                                                              fn_name, params_text, prm, result_ty, has_result_ty, first, prelude, h); }
+                        RExpr::Join(_jn) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
+                        RExpr::Anti(_an) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
+                        RExpr::Edge(_ed) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
                         RExpr::Aggr(ag) => {
                             if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
                             let pl: Peeled = peel_filter(ag.input_expr());
@@ -5181,14 +5174,88 @@ fn chain_nest_frag(ch: &JChain, ty: &ElTypes, prm: &MacroParams, h: &Writ,
 // `prepare`, or once in the prelude's scope when the numbers are only free there —
 // selects the cheapest by `logos.std.wql.join_cost`. When the derivation admits one
 // order, only the query's own is emitted and the refusal carries its ground.
-fn emit_join_chain(body: RExpr, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
+// The JOIN CHAIN of a core clause (ADR 0031 R6.4): the base atom, then each
+// step in order — a positive step's `on` is the condition right after it, a
+// negated step's lives inside it; a traversal reads its stamped collection
+// expression. The same JChain `collect_chain` built off the relational tree.
+fn jchain_from_core(cl: &CClause) -> JChain {
+    let mut ch: JChain = jchain_new();
+    let bs: &[CLit] = cl.body.as_slice();
+    let n: i64 = cl.body.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        // the `on` a positive step carries: the On condition right after it
+        let mut next_on: i64 = 0i64;
+        if i + 1i64 < n {
+            match &bs[i + 1i64] {
+                CLit::Cond(c) => { match &c.site { CSite::On => { next_on = c.e.raw(); } CSite::Where => { } } }
+                CLit::Atom(_a) => { }
+                CLit::Trav(_t) => { }
+            }
+        }
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if i == 0i64 {
+                    ch.base_src = a.name; ch.base_ty = a.row_ty; ch.base_var = a.var;
+                } else {
+                    let onw: i64 = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                    jc_push(&mut ch, a.name, a.row_ty, a.var, a.neg, onw, false, false,
+                            a.strat, a.jsel as i64, a.ground);
+                }
+            }
+            CLit::Trav(t) => {
+                let eon: i64 = if t.neg { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                jc_push(&mut ch, t.name, t.row_ty, t.var, t.neg, eon, true,
+                        el_ret_class(t.row_ty) >= 0i32, 0i32, -1i64, 0i64);
+            }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return ch;
+}
+
+/// ADR 0031 R6.4 — A JOIN-CHAIN ENTRY FROM THE PLAN: the folded entry
+/// (`dplan::plan_entry_chain`) and the chain read off the planned core's rule.
+pub fn emit_entry_join(ds: &DSimple, fn_name: str, params_text: str, prm: &MacroParams,
+                       result_ty: str, has_result_ty: bool, sel_mode: i32,
+                       prelude: str, h: &Writ) -> bool {
+    let sel: WRef<SExpr> = WRef::<SExpr>::from_any(ds.sel);
+    match &ds.form {
+        DForm::Empty => {
+            let scan_e: RExpr = make_scan(h, ds.src, ds.row_ty, ds.var).any().view::<RExpr>();
+            let steps: i64 = jchain_from_core(&prm.plan_core.entry.clause).n;
+            return emit_empty(scan_e, sel, chain_axis(steps), fn_name, params_text, prm, result_ty,
+                              has_result_ty, sel_mode == SELM_FIRST(), h);
+        }
+        DForm::Identity => {
+            logos.lang.panic::panic("ICE: a join chain folded to IDENTITY — identity needs a single source (dplan::dp_fold_entry)");
+            return false;
+        }
+        DForm::Scan => {
+            let mut mods: QMods = qmods_none();
+            mods.has_sort = !ds.sort_key.is_null();
+            if mods.has_sort { mods.sort_key = WRef::<SExpr>::from_any(ds.sort_key); }
+            mods.sort_desc = ds.sort_desc;
+            mods.distinct = ds.distinct;
+            mods.has_limit = ds.has_limit;
+            mods.limit_n = ds.limit_n;
+            mods.limit_is_param = ds.limit_is_param;
+            mods.limit_param = ds.limit_param;
+            if !check_limit_param(&mods, prm) { return false; }
+            let pred: WRef<SExpr> = if ds.pred.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.pred) };
+            let ch: JChain = jchain_from_core(&prm.plan_core.entry.clause);
+            return emit_join_chain(ch, pred, !ds.pred.is_null(), sel, mods, fn_name, params_text, prm,
+                                   result_ty, has_result_ty, sel_mode == SELM_FIRST(), prelude, h);
+        }
+    }
+}
+
+fn emit_join_chain(ch: JChain, where_ref: WRef<SExpr>, has_where: bool, sel: WRef<SExpr>,
                    mods: QMods,
                    fn_name: str, params_text: str, prm: &MacroParams,
                    result_ty0: str, has_result_ty: bool, first: bool,
                    prelude: str, h: &Writ) -> bool {
-    // 1. Linearize the left-deep tree into base + steps.
-    let mut ch: JChain = jchain_new();
-    collect_chain(body, &mut ch);
 
     // 2. Type dict: EVERY bound source's row schema + the scalar params.
     // Rel-sourced scans (slice B) stamp their COLUMN types + the positional

@@ -173,25 +173,6 @@ pub fn fold_join_steps(input0: WRef<RExpr>, steps: RQJoinStepArr, h: &Writ) -> W
 }
 
 // Lower an RQJoin → RLimit?( RDistinct?( RProj( RSort?( RFilter?( join-chain ) ), select ) ) ).
-fn lower_join(j: RQJoin, h: &Writ) -> WRef<RExpr> {
-    let base: WRef<RExpr> = make_scan(h, j.a_name, j.a_ty, j.x_var);
-    let jn: WRef<RExpr> = fold_join_steps(base, j.steps_arr(), h);
-    let mut input: WRef<RExpr> = jn;
-    if j.has_where {
-        input = make_filter(h, input, j.where_pred);
-    }
-    if j.has_order {
-        input = make_sort(h, input, j.order_key, j.order_desc);
-    }
-    let mut root: WRef<RExpr> = make_proj(h, input, j.select);
-    if j.distinct {
-        root = make_distinct(h, root);
-    }
-    if j.has_limit {
-        root = make_limit(h, root, j.limit_n, j.limit_is_param, j.limit_param);
-    }
-    return root;
-}
 
 // Lower an RQAggr →
 //   RLimit?( RDistinct?( RProj( RSort?( RFilter_having?( RAggr( RFilter?( RScan ), key, aggSpecs ) ) ), select ) ) ).
@@ -2071,12 +2052,12 @@ pub fn desugar_program_gpaths(root: WAny, h: &Writ, err: &mut String) -> bool {
     return true;
 }
 
-/// The `Join` and `Aggr` shapes only: a single-source entry (`Simple`, `find`)
-/// is emitted from the plan (`dplan::plan_entry_simple`, ADR 0031 R6.2).
+/// The `Aggr` shape only: single-source and join-chain entries are emitted
+/// from the plan (`dplan::plan_entry_simple` / `plan_entry_chain`, ADR 0031 R6.2/R6.4).
 pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
     match plan {
         RQuery::Simple(_s) => { logos.lang.panic::panic("ICE: a `Simple` entry reached the relational lowering — it is emitted from the plan (ADR 0031 R6.2)"); return null_rref(); }
-        RQuery::Join(j)   => { return lower_join(j, h); }
+        RQuery::Join(_j)  => { logos.lang.panic::panic("ICE: a `Join` entry reached the relational lowering — it is emitted from the plan (ADR 0031 R6.4)"); return null_rref(); }
         RQuery::Aggr(g)   => { return lower_aggr(g, h); }
         RQuery::Find(_f) => { logos.lang.panic::panic("ICE: a `find` entry reached the relational lowering — it is emitted from the plan (ADR 0031 R6.2)"); return null_rref(); }
     }
