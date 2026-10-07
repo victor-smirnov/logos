@@ -253,15 +253,19 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
         }
     }
     // LIVE RELS: a rel no reader reaches from the entry is not evaluated
-    // (`lower::live_rel_mask`) — computed AFTER the demand rewrite, so an
+    // (`crewrite::core_live_rels`) — computed AFTER the demand rewrite, so an
     // original every reader of which now reads an adorned copy is dead too.
     // `LOGOS_DEEM_NO_PRUNE` (at compile time) evaluates every rel, to measure it.
     let mut fal: RelSet = relset_new(0i64);
-    let mut live: RelSet = live_rel_mask(root, &mut fal);
+    // ADR 0031 R3 — the program the walker plans: lowered once the surface
+    // rewrites that are still surface passes have run; from here on it is
+    // analysed and rewritten on the core.
+    let mut pc: CProgram = lower_program(root);
+    let mut live: RelSet = core_live_rels(&pc, &mut fal);
     let mut np: String = String::new();
     np.push_str("LOGOS_DEEM_NO_PRUNE");
     np.push_u8(0u8);
-    let nrel0: i64 = prog_rel_count(root);
+    let nrel0: i64 = pc.rels.len();
     let all: bool = unsafe { getenv(np.as_ptr()) } != 0 as *const u8;
     prm.rel_dead = relset_new(nrel0);
     let mut pd: i64 = 0i64;
@@ -271,7 +275,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     }
     let mut pi: i64 = 0i64;
     while pi < nrel0 {
-        let rn: str = prog_rel_name(root, pi);
+        let rn: str = pc.rels.as_slice()[pi].name;
         let dead: bool = prm.rel_dead.has(pi);
         let kept: bool = fal.has(pi);
         if dead {
@@ -292,9 +296,6 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // registers as one more native source.
     let mut nat: String = String::new();
     nat.push_str(natspec);
-    // ADR 0031 R3 — the program the walker plans: lowered after the surface
-    // rewrites that are still surface passes, then rewritten on the core.
-    let mut pc: CProgram = lower_program(root);
     if core_desugar_facts(&mut pc) { nat.push_str(UNIT_NATSPEC()); }
     let natspec2: str = unsafe { str_from_raw(nat.as_ptr(), nat.len()) };
     prm.plan_group_pure = plan_group_pure(&core.entry);

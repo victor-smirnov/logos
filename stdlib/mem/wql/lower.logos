@@ -26,6 +26,7 @@ use logos.std.wql.unit;       // wql_unit_rows — the `__unit` materializer a f
                               // deem user loads the package (UNIT_NATSPEC names it)
 use logos.std.wql.params;     // MacroParams::is_scalar — which bare names may seed a demand
 use logos.std.wql.why;        // MS_* — the demand rewrite's decision vocabulary
+use logos.std.wql.crewrite;   // sexpr_fallible — the shared predicate (ADR 0031 R3)
 use logos.std.wql.writ_graph; // WG_ROOT_PARENT — the graph-path anchor compares
                               // against the coordinate the producers emit
 use logos.lang.writ.wstring;  // h.wstring — string-literal synthesis
@@ -661,53 +662,13 @@ fn ms_step_reads(sa: WAny, nm: str) -> i64 {
     return n;
 }
 
-// Does `e` contain an operation that can return an `ElError`: integer
-// arithmetic is checked (`el_add(..)?`, `el_div(..)?`, `el_neg(..)?`), and the
-// types are not known before the walk, so every arithmetic node counts. A
-// comprehension carries a plan of its own and counts too.
-fn ms_fallible(w: WRef<SExpr>) -> bool {
-    if w.any().is_null() { return false; }
-    let e: SExpr = w.any().view::<SExpr>();
-    match e {
-        SExpr::Bin(b) => {
-            let op: i32 = b.op;
-            if op == OP_ADD() || op == OP_SUB() || op == OP_MUL() || op == OP_DIV() || op == OP_MOD() {
-                return true;
-            }
-            return ms_fallible(b.lhs) || ms_fallible(b.rhs);
-        }
-        SExpr::Un(u) => {
-            if u.op == OP_NEG() { return true; }
-            return ms_fallible(u.arg);
-        }
-        SExpr::Field(f) => { return ms_fallible(f.base); }
-        SExpr::Call(c) => { return ms_fallible_arr(c.args); }
-        SExpr::Tuple(t) => { return ms_fallible_arr(t.items); }
-        SExpr::Cond(c) => { return ms_fallible(c.c) || ms_fallible(c.t) || ms_fallible(c.e); }
-        SExpr::Cast(c) => { return ms_fallible(c.arg); }
-        SExpr::Comp(_c) => { return true; }
-        _ => { return false; }
-    }
-}
-
-fn ms_fallible_arr(a: WRef<SExprArr>) -> bool {
-    if a.any().is_null() { return false; }
-    let arr: SExprArr = a.any().view::<SExprArr>();
-    let mut k: i64 = 0i64;
-    while k < arr.len() {
-        if ms_fallible(WRef::<SExpr>::from_any(arr.arg_any(k))) { return true; }
-        k = k + 1i64;
-    }
-    return false;
-}
-
 fn ms_steps_fallible(sa: WAny) -> bool {
     if sa.is_null() { return false; }
     let steps: RQJoinStepArr = sa.view::<RQJoinStepArr>();
     let mut i: i64 = 0i64;
     while i < steps.len() {
         let st: RQJoinStep = steps.step_at(i);
-        if st.has_on && ms_fallible(st.on) { return true; }
+        if st.has_on && sexpr_fallible(st.on) { return true; }
         i = i + 1i64;
     }
     return false;
@@ -717,9 +678,9 @@ fn ms_steps_fallible(sa: WAny) -> bool {
 fn ms_body_fallible(qany: WAny) -> bool {
     let q: RQuery = qany.view::<RQuery>();
     match q {
-        RQuery::Simple(s) => { return ms_fallible(s.select) || (s.has_where && ms_fallible(s.where_pred)); }
+        RQuery::Simple(s) => { return sexpr_fallible(s.select) || (s.has_where && sexpr_fallible(s.where_pred)); }
         RQuery::Join(j) => {
-            return ms_fallible(j.select) || (j.has_where && ms_fallible(j.where_pred))
+            return sexpr_fallible(j.select) || (j.has_where && sexpr_fallible(j.where_pred))
                 || ms_steps_fallible(j.steps.any());
         }
         _ => { return true; }
@@ -731,10 +692,10 @@ fn ms_body_fallible(qany: WAny) -> bool {
 fn ms_entry_fallible(qany: WAny) -> bool {
     let q: RQuery = qany.view::<RQuery>();
     match q {
-        RQuery::Simple(s) => { return s.has_where && ms_fallible(s.where_pred); }
-        RQuery::Join(j) => { return (j.has_where && ms_fallible(j.where_pred)) || ms_steps_fallible(j.steps.any()); }
+        RQuery::Simple(s) => { return s.has_where && sexpr_fallible(s.where_pred); }
+        RQuery::Join(j) => { return (j.has_where && sexpr_fallible(j.where_pred)) || ms_steps_fallible(j.steps.any()); }
         RQuery::Aggr(g) => {
-            let mut f: bool = g.has_where && ms_fallible(g.where_pred);
+            let mut f: bool = g.has_where && sexpr_fallible(g.where_pred);
             if g.has_steps() && ms_steps_fallible(g.steps.any()) { f = true; }
             return f;
         }
@@ -1711,77 +1672,6 @@ pub fn magic_program(root: WAny, h: &Writ, prm: &MacroParams, out: &mut MsDecisi
     return out.n;
 }
 
-// ── LIVE RELS (Soufflé's RemoveRedundantRelations) ──────────────────────────
-// A rel is LIVE when the entry reads it or a live rel's body does — positive,
-// anti and aggregate reads alike (Soufflé's precedence graph, walked back from
-// the outputs). A dead rel computes nothing the answer reads, yet every deem
-// over a mapping received ALL of the mapping's rels and materialized them in
-// `_run` (Canon: `canon_proj_direct` reads two of eight). It stays in the
-// program — its bodies are still checked, as dead code is — and the prelude
-// does not evaluate it. A rel with a FALLIBLE body (`ms_body_fallible`:
-// checked arithmetic, a comprehension, an aggregate or find body) is a seed:
-// the naive program would evaluate it and could return its `Err`, so leaving
-// it out could turn an `Err` into an `Ok` (MS_FALLIBLE's argument).
-// Returns a mask by rel position; `fal` receives the fallible seeds that no
-// reader reaches.
-pub fn live_rel_mask(root: WAny, fal: &mut RelSet) -> RelSet {
-    let prog: RQProgram = root.view::<RQProgram>();
-    if !prog.has_rels() { *fal = relset_new(0i64); return relset_new(0i64); }
-    let rels: RQRelArr = prog.rels_arr();
-    let n: i64 = rels.len();
-    *fal = relset_new(n);
-    let mut live: RelSet = relset_new(n);
-    let mut i: i64 = 0i64;
-    while i < n {
-        if ms_reads(prog.entry_any(), rels.rel_at(i).name) > 0i64 { live.add(i); }
-        i = i + 1i64;
-    }
-    let mut pass: i64 = 0i64;
-    while pass < 2i64 {
-        let mut changed: bool = true;
-        while changed {
-            changed = false;
-            let mut r: i64 = 0i64;
-            while r < n {
-                if live.has(r) {
-                    let bj: RQBodyArr = rels.rel_at(r).bodies_arr();
-                    let mut b: i64 = 0i64;
-                    while b < bj.len() {
-                        let mut t: i64 = 0i64;
-                        while t < n {
-                            if !live.has(t) && ms_reads(bj.body_any(b), rels.rel_at(t).name) > 0i64 {
-                                live.add(t);
-                                changed = true;
-                            }
-                            t = t + 1i64;
-                        }
-                        b = b + 1i64;
-                    }
-                }
-                r = r + 1i64;
-            }
-        }
-        if pass == 0i64 {
-            // the fallible seeds, then their own readers' closure
-            let mut f: i64 = 0i64;
-            while f < n {
-                if !live.has(f) {
-                    let bj2: RQBodyArr = rels.rel_at(f).bodies_arr();
-                    let mut b2: i64 = 0i64;
-                    while b2 < bj2.len() {
-                        if ms_body_fallible(bj2.body_any(b2)) { fal.add(f); }
-                        b2 = b2 + 1i64;
-                    }
-                }
-                f = f + 1i64;
-            }
-            live.union_with(fal);
-        }
-        pass = pass + 1i64;
-    }
-    return live;
-}
-
 // Is the body `qany` of rel `head` RECURSIVE: does it read a rel that reads
 // `head` (or `head` itself), through any chain of rel reads?
 pub fn body_reads_its_head(root: WAny, qany: WAny, head: str) -> bool {
@@ -1825,16 +1715,6 @@ pub fn body_reads_its_head(root: WAny, qany: WAny, head: str) -> bool {
         h = h + 1i64;
     }
     return false;
-}
-
-// The program's rel count and the name at a position, for the caller's trace.
-pub fn prog_rel_count(root: WAny) -> i64 {
-    let prog: RQProgram = root.view::<RQProgram>();
-    if !prog.has_rels() { return 0i64; }
-    return prog.rels_arr().len();
-}
-pub fn prog_rel_name(root: WAny, i: i64) -> str {
-    return root.view::<RQProgram>().rels_arr().rel_at(i).name;
 }
 
 /// Desugar every graph path in the program (rel bodies + the entry query).

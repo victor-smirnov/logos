@@ -15,6 +15,9 @@ use logos.mem.string;
 use logos.mem.collections.vec;
 use logos.std.wql.core;
 use logos.std.wql.codegen;         // string_as_str
+use logos.std.wql.ir;              // SExpr
+use logos.std.wql.el;              // OP_*
+use logos.std.wql.params;          // RelSet
 
 // ── FACTS (R3.1) ───────────────────────────────────────────────────────────
 
@@ -58,6 +61,143 @@ fn facts_clause(cl: &mut CClause) -> bool {
         i = i + 1i64;
     }
     return any;
+}
+
+// ── LIVE RELS (R3.2) ───────────────────────────────────────────────────────
+
+// Does `e` contain an operation that can return an `ElError`: integer
+// arithmetic is checked (`el_add(..)?`, `el_div(..)?`, `el_neg(..)?`), and the
+// types are not known before the walk, so every arithmetic node counts. A
+// comprehension carries a plan of its own and counts too.
+pub fn sexpr_fallible(w: WRef<SExpr>) -> bool {
+    if w.any().is_null() { return false; }
+    let e: SExpr = w.any().view::<SExpr>();
+    match e {
+        SExpr::Bin(b) => {
+            let op: i32 = b.op;
+            if op == OP_ADD() || op == OP_SUB() || op == OP_MUL() || op == OP_DIV() || op == OP_MOD() {
+                return true;
+            }
+            return sexpr_fallible(b.lhs) || sexpr_fallible(b.rhs);
+        }
+        SExpr::Un(u) => {
+            if u.op == OP_NEG() { return true; }
+            return sexpr_fallible(u.arg);
+        }
+        SExpr::Field(f) => { return sexpr_fallible(f.base); }
+        SExpr::Call(c) => { return sexpr_arr_fallible(c.args); }
+        SExpr::Tuple(t) => { return sexpr_arr_fallible(t.items); }
+        SExpr::Cond(c) => { return sexpr_fallible(c.c) || sexpr_fallible(c.t) || sexpr_fallible(c.e); }
+        SExpr::Cast(c) => { return sexpr_fallible(c.arg); }
+        SExpr::Comp(_c) => { return true; }
+        _ => { return false; }
+    }
+}
+
+fn sexpr_arr_fallible(a: WRef<SExprArr>) -> bool {
+    if a.any().is_null() { return false; }
+    let arr: SExprArr = a.any().view::<SExprArr>();
+    let mut k: i64 = 0i64;
+    while k < arr.len() {
+        if sexpr_fallible(WRef::<SExpr>::from_any(arr.arg_any(k))) { return true; }
+        k = k + 1i64;
+    }
+    return false;
+}
+
+/// Whether a rule can return an `Err` the naive program returns: a group or a
+/// `find` always counts; otherwise its head, its `where` or any `on`.
+fn rule_fallible(ru: &CRule) -> bool {
+    match &ru.clause.group { Option::Some(_g) => { return true; } Option::None => { } }
+    match &ru.env.mode { CMode::Find => { return true; } CMode::All => { } CMode::First => { } }
+    if sexpr_fallible(WRef::<SExpr>::from_any(ru.clause.head)) { return true; }
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => { if sexpr_fallible(WRef::<SExpr>::from_any(c.e)) { return true; } }
+            CLit::Atom(a) => { if a.conds.len() > 0i64 && sexpr_fallible(WRef::<SExpr>::from_any(a.conds.get(0i64))) { return true; } }
+            CLit::Trav(t) => { if t.conds.len() > 0i64 && sexpr_fallible(WRef::<SExpr>::from_any(t.conds.get(0i64))) { return true; } }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+fn clause_reads_rel(cl: &CClause, r: i64) -> bool {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { match &a.src { CSrc::Rel(x) => { if *x == r { return true; } } CSrc::Param(_n) => { } CSrc::Unit => { } } }
+            CLit::Trav(_t) => { }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return false;
+}
+
+/// The rels the answer can depend on: those the entry reads, and every rel a
+/// live rel's rule reads (positively, negated or under an aggregate), to a
+/// fixpoint. A rel no reader reaches is dead — unless one of its rules can
+/// return an `Err` (`fal`, then live too, and what IT reads), because leaving
+/// it out could turn the naive program's `Err` into an `Ok`. Soufflé's
+/// RemoveRedundantRelations, made total.
+pub fn core_live_rels(p: &CProgram, fal: &mut RelSet) -> RelSet {
+    let n: i64 = p.rels.len();
+    if n == 0i64 { *fal = relset_new(0i64); return relset_new(0i64); }
+    *fal = relset_new(n);
+    let mut live: RelSet = relset_new(n);
+    let rels: &[CRel] = p.rels.as_slice();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if clause_reads_rel(&p.entry.clause, i) { live.add(i); }
+        i = i + 1i64;
+    }
+    let mut pass: i64 = 0i64;
+    while pass < 2i64 {
+        let mut changed: bool = true;
+        while changed {
+            changed = false;
+            let mut r: i64 = 0i64;
+            while r < n {
+                if live.has(r) {
+                    let rules: &[CRule] = rels[r].rules.as_slice();
+                    let mut b: i64 = 0i64;
+                    while b < rels[r].rules.len() {
+                        let mut t: i64 = 0i64;
+                        while t < n {
+                            if !live.has(t) && clause_reads_rel(&rules[b].clause, t) {
+                                live.add(t);
+                                changed = true;
+                            }
+                            t = t + 1i64;
+                        }
+                        b = b + 1i64;
+                    }
+                }
+                r = r + 1i64;
+            }
+        }
+        if pass == 0i64 {
+            let mut f: i64 = 0i64;
+            while f < n {
+                if !live.has(f) {
+                    let rules2: &[CRule] = rels[f].rules.as_slice();
+                    let mut b2: i64 = 0i64;
+                    while b2 < rels[f].rules.len() {
+                        if rule_fallible(&rules2[b2]) { fal.add(f); }
+                        b2 = b2 + 1i64;
+                    }
+                }
+                f = f + 1i64;
+            }
+            live.union_with(fal);
+        }
+        pass = pass + 1i64;
+    }
+    return live;
 }
 
 // ── SHADOW: structural equality of two cores ───────────────────────────────
