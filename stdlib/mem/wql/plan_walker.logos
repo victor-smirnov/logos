@@ -353,34 +353,42 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
 // reflection (check_edge_step), which yields the ELEMENT type. Scalar-element vars (Vec<str> → str) append to `cv` — the
 // callers reject field access rooted at them across every clause. Which NAMES a
 // clause may read is `check::core_scope_ok`'s (ADR 0031 R2).
-fn check_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroParams,
+fn check_steps(cl: &CClause, base_var: str, base_ty: str, prm: &MacroParams,
                cur_rel: i64, deps: &mut RelDeps,
                relvars: &mut Vec<str>, nrelv: &mut i64,
-               cv: &mut ClauseVars, h: &Writ) -> bool {
-    let n: i64 = steps.len();
-    let mut vars: Vec<str> = str_vec(n + 1i64);
+               cv: &mut ClauseVars) -> bool {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut vars: Vec<str> = Vec::<str>::new();
     let mut vtys: Vec<String> = Vec::<String>::new();
-    let mut vanti: Vec<bool> = vec![false; n + 1i64];
-    vars[0] = base_var;
+    let mut vanti: Vec<bool> = Vec::<bool>::new();
+    vars.push(base_var);
     vtys.push(String::from_str(base_ty));
+    vanti.push(false);
     let mut nv: i64 = 1i64;
-    let mut i: i64 = 0i64;
-    while i < n {
-        let st: RQJoinStep = steps.step_at(i);
+    let mut i: i64 = 1i64;
+    while i < cl.body.len() {
         let mut vty: String = String::new();
-        if st.is_edge {
-            if !check_edge_step(st, &vars, &vtys, &vanti, nv, relvars, *nrelv, cv, &mut vty) { return false; }
-        } else {
-            let sr: SrcRes = resolve_source(prm, st.src_name, cur_rel, deps);
-            if !sr.ok { return false; }
-            if sr.is_rel {
-                if st.is_anti && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
-                relvars.push(st.var_name); *nrelv = *nrelv + 1i64;
+        let mut v: str = "";
+        let mut neg: bool = false;
+        let mut is_src: bool = false;
+        match &bs[i] {
+            CLit::Trav(t) => {
+                if !check_edge_step(t.base, &t.path, t.var, &vars, &vtys, &vanti, nv, relvars, *nrelv, cv, &mut vty) { return false; }
+                v = t.var; neg = t.neg; is_src = true;
             }
-            vty.push_str(sr.row_ty);
+            CLit::Atom(a) => {
+                let sr: SrcRes = resolve_source(prm, a.name, cur_rel, deps);
+                if !sr.ok { return false; }
+                if sr.is_rel {
+                    if a.neg && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
+                    relvars.push(a.var); *nrelv = *nrelv + 1i64;
+                }
+                vty.push_str(sr.row_ty);
+                v = a.var; neg = a.neg; is_src = true;
+            }
+            CLit::Cond(_c) => { }
         }
-        let v: str = st.var_name;
-        vars[nv] = v; vtys.push(vty); vanti[nv] = st.is_anti; nv = nv + 1i64;
+        if is_src { vars.push(v); vtys.push(vty); vanti.push(neg); nv = nv + 1i64; }
         i = i + 1i64;
     }
     return true;
@@ -393,11 +401,10 @@ fn check_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroPar
 // fields; the FINAL segment must be a collection (Vec<E> / &[E] / [E; N] —
 // single references `&T`/`Box<T>` are the named error below). On success
 // `elem_out` holds the element type.
-fn check_edge_step(st: RQJoinStep,
+fn check_edge_step(bv: str, path: &Vec<str>, var: str,
                    vars: &Vec<str>, vtys: &Vec<String>, vanti: &Vec<bool>, nv: i64,
                    relvars: &Vec<str>, nrelv: i64,
                    cv: &mut ClauseVars, elem_out: &mut String) -> bool {
-    let bv: str = st.base_var;
     // 1. The base var: bound earlier, non-anti, not rel-rowed, not scalar.
     let mut bi: i64 = -1i64;
     let mut k0: i64 = 0i64;
@@ -453,13 +460,12 @@ fn check_edge_step(st: RQJoinStep,
     }
     // 2. Resolve the path against the base row type (module-AST reflection).
     let view: OView = oview_module_ast();
-    let segs: RQPathSegArr = st.path_arr();
-    let np: i64 = segs.len();
+    let np: i64 = path.len();
     if np < 1i64 { error("wql!: empty traversal path"); return false; }   // unreachable via grammar
     let mut cur_ty: str = string_as_str(&vtys[bi]);
     let mut k: i64 = 0i64;
     while k < np {
-        let seg: str = segs.seg_at(k).name;
+        let seg: str = path.get(k);
         // The traversal path walks TYPE SPELLINGS: `cur_ty` starts as a source's
         // declared element type and is then the declared type of each intermediate
         // field, either of which may be an alias. Resolved here, where it is read.
@@ -542,7 +548,7 @@ fn check_edge_step(st: RQJoinStep,
     // `.as_slice()`) is `typing::core_resolve`'s, on the core (ADR 0031 R4.0).
     // 4. Scalar-element var (Vec<str> → str) → the no-fields diagnostic set.
     if el_ret_class(string_as_str(elem_out)) >= 0i32 {
-        cv_push(cv, st.var_name);
+        cv_push(cv, var);
     }
     return true;
 }
@@ -618,14 +624,17 @@ fn no_scalar_field(e: SExpr, cv: &ClauseVars) -> bool {
 }
 
 // The step fan-out's on-predicates through the scalar-field guard.
-fn steps_clause_ok(steps: RQJoinStepArr, cv: &ClauseVars) -> bool {
+fn steps_clause_ok(cl: &CClause, cv: &ClauseVars) -> bool {
     if cv.n == 0i64 { return true; }
-    let ns: i64 = steps.len();
+    let bs: &[CLit] = cl.body.as_slice();
     let mut i: i64 = 0i64;
-    while i < ns {
-        let st: RQJoinStep = steps.step_at(i);
-        if st.has_on {
-            if !no_scalar_field(st.on_expr(), cv) { return false; }
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if a.neg && a.conds.len() > 0i64 { if !no_scalar_field(a.conds.get(0i64).view::<SExpr>(), cv) { return false; } } }
+            CLit::Trav(t) => { if t.neg && t.conds.len() > 0i64 { if !no_scalar_field(t.conds.get(0i64).view::<SExpr>(), cv) { return false; } } }
+            CLit::Cond(c) => {
+                match &c.site { CSite::On => { if !no_scalar_field(c.e.view::<SExpr>(), cv) { return false; } } CSite::Where => { } }
+            }
         }
         i = i + 1i64;
     }
@@ -675,59 +684,16 @@ fn sel_whole_row_ok(sel: SExpr, relvars: &Vec<str>, n: i64) -> bool {
 }
 
 // ── One rel body: shape + modifier gate + source resolution/rewrite ─────────
-fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
-                  prm: &MacroParams, deps: &mut RelDeps, h: &Writ) -> bool {
-    if body_any.is_null() {
-        error("wql!: empty rel body");
-        return false;
-    }
-    let q: RQuery = body_any.view::<RQuery>();
+fn check_rel_body(ru: &CRule, rel_name: str, cur_rel: i64,
+                  prm: &MacroParams, deps: &mut RelDeps) -> bool {
+    let cl: &CClause = &ru.clause;
+    let bs: &[CLit] = cl.body.as_slice();
     let mut relvars: Vec<str> = Vec::<str>::new();
     let mut nrelv: i64 = 0i64;
-    match q {
-        RQuery::Simple(s) => {
-            let sr: SrcRes = resolve_source(prm, s.src_name, cur_rel, deps);
-            if !sr.ok { return false; }
-            // Classify bare select idents (typo vs bound column / scalar param /
-            // fresh() marker) — Track A.
-            let mut bv: Vec<str> = str_vec(1i64);
-            bv[0] = s.var_name;
-            if !ward_sel_idents_ok(s.select_expr(), &bv, 1i64, prm, rel_name) { return false; }
-            return true;
-        }
-        RQuery::Join(j) => {
-            let sr: SrcRes = resolve_source(prm, j.a_name, cur_rel, deps);
-            if !sr.ok { return false; }
-            let mut cv: ClauseVars = clause_vars_new();
-            if !check_steps(j.steps_arr(), j.x_var, sr.row_ty, prm, cur_rel, deps,
-                            &mut relvars, &mut nrelv, &mut cv, h) { return false; }
-            // Scalar-element vars (traversal over Vec<str> etc.): no field
-            // access rooted at them in any clause of this body.
-            if cv.n > 0i64 {
-                if !no_scalar_field(j.select_expr(), &cv) { return false; }
-                if j.has_where {
-                    if !no_scalar_field(j.where_expr(), &cv) { return false; }
-                }
-                if !steps_clause_ok(j.steps_arr(), &cv) { return false; }
-            }
-            // Classify bare select idents (Track A). Bound vars = base + every
-            // non-anti step var (anti-step vars are scoped to their own `on`).
-            let mut bv: Vec<str> = Vec::<str>::new();
-            bv.push(j.x_var);
-            let mut nbv: i64 = 1i64;
-            let jsteps: RQJoinStepArr = j.steps_arr();
-            let mut sk: i64 = 0i64;
-            while sk < jsteps.len() {
-                let stp: RQJoinStep = jsteps.step_at(sk);
-                if !stp.is_anti {
-                    bv.push(stp.var_name); nbv = nbv + 1i64;
-                }
-                sk = sk + 1i64;
-            }
-            if !ward_sel_idents_ok(j.select_expr(), &bv, nbv, prm, rel_name) { return false; }
-            return true;
-        }
-        RQuery::Aggr(g) => {
+    let base_name: str = core_base_name(cl);
+    let base_var: str = core_base_var(cl);
+    match &cl.group {
+        Option::Some(g) => {
             // An aggregate rel body. In slice-1 the ADMISSIBLE case is a
             // RECURSIVE min/max (idempotent semilattice) closing a self-cycle —
             // the fixpoint's per-key lattice. The classification (min/max vs
@@ -736,38 +702,88 @@ fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
             // admit/reject decision is POST-SCC (check_stratified): an in-cycle
             // semilattice is accepted, an in-cycle group is the non-stratifiable
             // error, a non-recursive aggregate is deferred.
-            let sra: SrcRes = resolve_source(prm, g.a_name, cur_rel, deps);
+            let sra: SrcRes = resolve_source(prm, base_name, cur_rel, deps);
             if !sra.ok { return false; }
             if sra.is_rel { deps.add_agg(cur_rel, sra.idx); }
-            if g.has_steps() {
-                let gsteps: RQJoinStepArr = g.steps_arr();
-                let gn: i64 = gsteps.len();
-                let mut gi: i64 = 0i64;
-                while gi < gn {
-                    let gst: RQJoinStep = gsteps.step_at(gi);
-                    // Traversal steps have no SOURCE to resolve (field path of a
-                    // bound var) — they cannot form rel dependency edges.
-                    if !gst.is_edge {
-                        let srs: SrcRes = resolve_source(prm, gst.src_name, cur_rel, deps);
+            // Traversal steps have no SOURCE to resolve (field path of a bound
+            // var) — they cannot form rel dependency edges.
+            let mut gi: i64 = 1i64;
+            while gi < cl.body.len() {
+                match &bs[gi] {
+                    CLit::Atom(a) => {
+                        let srs: SrcRes = resolve_source(prm, a.name, cur_rel, deps);
                         if !srs.ok { return false; }
                         if srs.is_rel { deps.add_agg(cur_rel, srs.idx); }
                     }
-                    gi = gi + 1i64;
+                    CLit::Trav(_t) => { }
+                    CLit::Cond(_c) => { }
                 }
+                gi = gi + 1i64;
             }
             // Slice-1: exactly one aggregate; classify it (min/max/sum/…).
-            deps.set_head_agg_dir(cur_rel, agg_of_name(g.aggs_arr().agg_at(0i64).fn_name));
+            deps.set_head_agg_dir(cur_rel, agg_of_name(g.aggs.get(0i64).func));
             if deps.agg_head < 0i64 { deps.agg_head = cur_rel; }
             return true;
         }
-        RQuery::Find(_) => {
+        Option::None => { }
+    }
+    match &ru.env.mode {
+        CMode::Find => {
             // `check::core_rules_ok` refuses a `find` rel body on the core,
             // before the walker runs: reaching here is the lowering's defect.
             let _ = rel_name;
             logos.lang.panic::panic("ICE: a `find` rel body reached the walker — check::core_rules_ok refuses it on the core (ADR 0031 R2)");
             return false;
         }
+        CMode::All => { }
+        CMode::First => { }
     }
+    let sr: SrcRes = resolve_source(prm, base_name, cur_rel, deps);
+    if !sr.ok { return false; }
+    let head: SExpr = cl.head.view::<SExpr>();
+    if core_source_count(cl) > 1i64 {
+        let mut cv: ClauseVars = clause_vars_new();
+        if !check_steps(cl, base_var, sr.row_ty, prm, cur_rel, deps,
+                        &mut relvars, &mut nrelv, &mut cv) { return false; }
+        // Scalar-element vars (traversal over Vec<str> etc.): no field
+        // access rooted at them in any clause of this body.
+        if cv.n > 0i64 {
+            if !no_scalar_field(head, &cv) { return false; }
+            let we: WAny = core_where(cl);
+            if !we.is_null() {
+                if !no_scalar_field(we.view::<SExpr>(), &cv) { return false; }
+            }
+            if !steps_clause_ok(cl, &cv) { return false; }
+        }
+    }
+    // Classify bare select idents (Track A). Bound vars = base + every
+    // non-anti step var (anti-step vars are scoped to their own `on`).
+    let bv: Vec<str> = core_bound_vars(cl);
+    if !ward_sel_idents_ok(head, &bv, bv.len(), prm, rel_name) { return false; }
+    return true;
+}
+
+/// The base atom's source as written ("" when the clause has none).
+fn core_base_name(cl: &CClause) -> str {
+    if cl.body.len() < 1i64 { return ""; }
+    let bs: &[CLit] = cl.body.as_slice();
+    match &bs[0i64] { CLit::Atom(a) => { return a.name; } CLit::Trav(t) => { return t.name; } CLit::Cond(_c) => { return ""; } }
+}
+
+/// The row variables a clause binds outside a negation, in order.
+fn core_bound_vars(cl: &CClause) -> Vec<str> {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut v: Vec<str> = Vec::<str>::new();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if !a.neg { v.push(a.var); } }
+            CLit::Trav(t) => { if !t.neg { v.push(t.var); } }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return v;
 }
 
 // Is `t` a supported rel column type? THE ANSWER IS NOT HERE any more: it is
@@ -1352,15 +1368,16 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     let mut nat_szat_bufs: Vec<String> = Vec::<String>::new();
     // ADR 0031 R4.0 — the program resolved from the declarations, once the
     // registry is complete (SHADOW: checked against the planned core below).
-    let mut early: CProgram = core_empty();
+    if prog.entry_any().is_null() { error("wql!: missing entry query"); return false; }
+    let mut early: CProgram = lower_program(root);
 
-    if prog.has_rels() {
-        let rels: RQRelArr = prog.rels_arr();
-        let nr: i64 = rels.len();
+    if early.rels.len() > 0i64 {
+        let nr: i64 = early.rels.len();
         // ── Pass 1: register every rel (names, columns, row types) ──────────
         let mut i: i64 = 0i64;
         while i < nr {
-            let rel: RQRel = rels.rel_at(i);
+            let rels_c: &[CRel] = early.rels.as_slice();
+            let rel: &CRel = &rels_c[i];
             let rname: str = rel.name;
             if prm.index_of(rname) >= 0i64 {
                 let mut m: String = String::new();
@@ -1378,8 +1395,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 error(string_as_str(&m1));
                 return false;
             }
-            let cols: RQRelColArr = rel.cols_arr();
-            let nc: i64 = cols.len();
+            let cols: &[CCol] = rel.cols.as_slice();
+            let nc: i64 = rel.cols.len();
             if nc < 1i64 { error("wql!: a rel needs at least one column"); return false; }
             // A rel's row is a tuple held in a set, so its type needs `Hash` and
             // `Clone`, which tuples implement up to twelve elements (Rust's
@@ -1398,11 +1415,11 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             // Validate columns (type whitelist + per-rel name uniqueness).
             let mut k: i64 = 0i64;
             while k < nc {
-                let c: RQRelCol = cols.col_at(k);
-                if !rel_col_ty_ok(rname, c.name, c.ty_name) { return false; }
+                let c: &CCol = &cols[k];
+                if !rel_col_ty_ok(rname, c.name, c.ty) { return false; }
                 let mut k2: i64 = 0i64;
                 while k2 < k {
-                    if str_eq(cols.col_at(k2).name, c.name) {
+                    if str_eq(cols[k2].name, c.name) {
                         let mut m2: String = String::new();
                         m2.push_str("wql!: rel '");
                         m2.push_str(rname);
@@ -1426,13 +1443,13 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             dsrc_bufs[i].push_str(rname);
             dsrc_bufs[i].push_str("_sl");
             if nc == 1i64 {
-                row_bufs[i].push_str(cols.col_at(0i64).ty_name);
+                row_bufs[i].push_str(cols[0i64].ty);
             } else {
                 row_bufs[i].push_str("(");
                 let mut k3: i64 = 0i64;
                 while k3 < nc {
                     if k3 > 0i64 { row_bufs[i].push_str(", "); }
-                    row_bufs[i].push_str(cols.col_at(k3).ty_name);
+                    row_bufs[i].push_str(cols[k3].ty);
                     k3 = k3 + 1i64;
                 }
                 row_bufs[i].push_str(")");
@@ -1443,8 +1460,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             if idx < 0i64 { error("wql!: too many rel blocks (max 8)"); return false; }
             let mut k4: i64 = 0i64;
             while k4 < nc {
-                let c4: RQRelCol = cols.col_at(k4);
-                prm.rel_add_col(c4.name, c4.ty_name);
+                let c4: &CCol = &cols[k4];
+                prm.rel_add_col(c4.name, c4.ty);
                 k4 = k4 + 1i64;
             }
             i = i + 1i64;
@@ -1454,7 +1471,6 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
-        early = lower_program(root);
         core_resolve(&mut early, &oview_module_ast(), prm);
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &early, &mut pick_argb);
         plan_decide_joins(prm, &mut early, h);
@@ -1462,20 +1478,19 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
-        core_bind_sources(&mut early, prm);
         // ── Pass 2: validate + resolve + rewrite every body ─────────────────
         // (The registry is complete, so self/forward/mutual references RESOLVE
         // — recursion is legal, realized by the SCC fixpoint. Dep edges + the
         // anti/aggregate sub-edges recorded for the condensation below.)
         let mut i2: i64 = 0i64;
         while i2 < nr {
-            let rel2: RQRel = rels.rel_at(i2);
-            let bodies: RQBodyArr = rel2.bodies_arr();
-            let nb: i64 = bodies.len();
+            let rels2: &[CRel] = early.rels.as_slice();
+            let rules: &[CRule] = rels2[i2].rules.as_slice();
+            let nb: i64 = rels2[i2].rules.len();
             if nb < 1i64 { error("wql!: a rel needs at least one body"); return false; }
             let mut b: i64 = 0i64;
             while b < nb {
-                if !check_rel_body(bodies.body_any(b), rel2.name, i2, prm, &mut deps, h) {
+                if !check_rel_body(&rules[b], rels2[i2].name, i2, prm, &mut deps) {
                     return false;
                 }
                 b = b + 1i64;
@@ -1509,7 +1524,6 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
-        early = lower_program(root);
         core_resolve(&mut early, &oview_module_ast(), prm);
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &early, &mut pick_argb);
         plan_decide_joins(prm, &mut early, h);
@@ -1517,7 +1531,6 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
-        core_bind_sources(&mut early, prm);
         // ADR 0025 R-G — the explain call moved out of `plan_apply_access`, and
         // on THIS branch it lands in the same position it always occupied: no
         // parse-side rels means no rel block, so no rel helper and no recursive
@@ -1533,94 +1546,77 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     }
 
     // ── The ENTRY query: resolve + check its sources ────────────────────────
-    let entry_any: WAny = prog.entry_any();
-    if entry_any.is_null() { error("wql!: missing entry query"); return false; }
-    let eplan: RQuery = entry_any.view::<RQuery>();
+    // ADR 0031 R3.0 — the entry's sources and clauses, checked on the core.
     let mut relvars: Vec<str> = Vec::<str>::new();
     let mut nrelv: i64 = 0i64;
-    match eplan {
-        RQuery::Simple(s) => {
-            let sr: SrcRes = resolve_source(prm, s.src_name, -1i64, &mut deps);
-            if !sr.ok { return false; }
+    {
+        let ru: &CRule = &early.entry;
+        let cl: &CClause = &ru.clause;
+        let head: WAny = cl.head;
+        let base_name: str = core_base_name(cl);
+        let base_var: str = core_base_var(cl);
+        let find: bool = match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
+        let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
+        let sr: SrcRes = resolve_source(prm, base_name, -1i64, &mut deps);
+        if !sr.ok { return false; }
+        if find {
             if sr.is_rel {
-                relvars.push(s.var_name);
-                nrelv = 1i64;
-            }
-            if !sel_whole_row_ok(s.select_expr(), &relvars, nrelv) { return false; }
-        }
-        RQuery::Join(j) => {
-            let sr2: SrcRes = resolve_source(prm, j.a_name, -1i64, &mut deps);
-            if !sr2.ok { return false; }
-            if sr2.is_rel {
-                relvars.push(j.x_var);
-                nrelv = 1i64;
-            }
-            let mut cv: ClauseVars = clause_vars_new();
-            if !check_steps(j.steps_arr(), j.x_var, sr2.row_ty, prm, -1i64, &mut deps,
-                            &mut relvars, &mut nrelv, &mut cv, h) { return false; }
-            if !sel_whole_row_ok(j.select_expr(), &relvars, nrelv) { return false; }
-            // Scalar-element traversal vars: no field access rooted at them.
-            if cv.n > 0i64 {
-                if !no_scalar_field(j.select_expr(), &cv) { return false; }
-                if j.has_where {
-                    if !no_scalar_field(j.where_expr(), &cv) { return false; }
-                }
-                if j.has_order {
-                    if !no_scalar_field(j.order_expr(), &cv) { return false; }
-                }
-                if !steps_clause_ok(j.steps_arr(), &cv) { return false; }
-            }
-        }
-        RQuery::Aggr(g) => {
-            let sr3: SrcRes = resolve_source(prm, g.a_name, -1i64, &mut deps);
-            if !sr3.ok { return false; }
-            if sr3.is_rel {
-                relvars.push(g.x_var);
-                nrelv = 1i64;
-            }
-            // Optional join steps — the aggregate over a JOINED stream.
-            if g.has_steps() {
-                let mut cv2: ClauseVars = clause_vars_new();
-                if !check_steps(g.steps_arr(), g.x_var, sr3.row_ty, prm, -1i64, &mut deps,
-                                &mut relvars, &mut nrelv, &mut cv2, h) { return false; }
-                if cv2.n > 0i64 {
-                    if !no_scalar_field(g.select_expr(), &cv2) { return false; }
-                    if !no_scalar_field(g.key_expr(), &cv2) { return false; }
-                    if g.has_where {
-                        if !no_scalar_field(g.where_expr(), &cv2) { return false; }
-                    }
-                    if g.has_having {
-                        if !no_scalar_field(g.having_expr(), &cv2) { return false; }
-                    }
-                    if g.has_order {
-                        if !no_scalar_field(g.order_expr(), &cv2) { return false; }
-                    }
-                    let gaggs: RQAggArr = g.aggs_arr();
-                    let mut ga: i64 = 0i64;
-                    while ga < gaggs.len() {
-                        let a: RQAgg = gaggs.agg_at(ga);
-                        if a.has_arg {
-                            if !no_scalar_field(a.arg_expr(), &cv2) { return false; }
-                        }
-                        ga = ga + 1i64;
-                    }
-                    if !steps_clause_ok(g.steps_arr(), &cv2) { return false; }
-                }
-            }
-        }
-        RQuery::Find(f) => {
-            let sr4: SrcRes = resolve_source(prm, f.src_name, -1i64, &mut deps);
-            if !sr4.ok { return false; }
-            if sr4.is_rel {
                 // `find` returns Option<&Row> — a borrow of a fn-LOCAL rel row
                 // would dangle at return. Gated with a diagnostic (the
                 // by-value alternative is `select first (…columns…)`).
                 let mut m: String = String::new();
                 m.push_str("wql!: `find` over rel '");
-                m.push_str(f.src_name);
+                m.push_str(base_name);
                 m.push_str("' is not supported — rels are locals of the generated fn, so borrowing a row out is unsound; use `select first (…columns…)` instead");
                 error(string_as_str(&m));
                 return false;
+            }
+        } else {
+            if sr.is_rel {
+                relvars.push(base_var);
+                nrelv = 1i64;
+            }
+            let has_steps: bool = core_source_count(cl) > 1i64;
+            let mut cv: ClauseVars = clause_vars_new();
+            if has_steps {
+                if !check_steps(cl, base_var, sr.row_ty, prm, -1i64, &mut deps,
+                                &mut relvars, &mut nrelv, &mut cv) { return false; }
+            }
+            if !grouped {
+                if !sel_whole_row_ok(head.view::<SExpr>(), &relvars, nrelv) { return false; }
+            }
+            // Scalar-element traversal vars: no field access rooted at them.
+            if cv.n > 0i64 {
+                if !no_scalar_field(head.view::<SExpr>(), &cv) { return false; }
+                match &cl.group {
+                    Option::Some(g) => { if !no_scalar_field(g.key.view::<SExpr>(), &cv) { return false; } }
+                    Option::None => { }
+                }
+                let we: WAny = core_where(cl);
+                if !we.is_null() {
+                    if !no_scalar_field(we.view::<SExpr>(), &cv) { return false; }
+                }
+                match &cl.group {
+                    Option::Some(g2) => {
+                        match &g2.having { Option::Some(hv) => { if !no_scalar_field(hv.view::<SExpr>(), &cv) { return false; } } Option::None => { } }
+                    }
+                    Option::None => { }
+                }
+                match &ru.env.order { Option::Some(k) => { if !no_scalar_field(k.view::<SExpr>(), &cv) { return false; } } Option::None => { } }
+                match &cl.group {
+                    Option::Some(g3) => {
+                        let mut ga: i64 = 0i64;
+                        while ga < g3.aggs.len() {
+                            match &g3.aggs.as_slice()[ga].arg {
+                                Option::Some(ae) => { if !no_scalar_field(ae.view::<SExpr>(), &cv) { return false; } }
+                                Option::None => { }
+                            }
+                            ga = ga + 1i64;
+                        }
+                    }
+                    Option::None => { }
+                }
+                if !steps_clause_ok(cl, &cv) { return false; }
             }
         }
     }
@@ -1631,6 +1627,9 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     // (R4.0), the join decisions recorded on them, the plan's source spellings
     // bound. The walker's stamping of the parse tree above is no longer read
     // through it.
+    // The plan's spellings, bound once the access plan is applied and every
+    // check has read the sources as written.
+    core_bind_sources(&mut early, prm);
     plan_decide_rest(prm, &mut early, h, false);
     let jp: JoinPlan = plan_entry_order(&early, prm, h);
     plan_decide_rest(prm, &mut early, h, true);
