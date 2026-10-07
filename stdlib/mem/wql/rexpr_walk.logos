@@ -3807,20 +3807,16 @@ fn analyze_chain(ch: &JChain, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParam
             }
         } else {
             let onr: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(ch.onw[i] as *const u8) });
-            let mut strat: i32 = ch.jstrat[i];
-            let mut sel: i64   = ch.jsel[i];
+            let strat: i32 = ch.jstrat[i];
+            let sel: i64   = ch.jsel[i];
             // The key's EMITTED type — the index map's key type and the type both
             // key expressions must reach. Re-derived from the SAME term index the
             // plan recorded, so the pre-decided path and the decide-here path
             // cannot disagree: `step_key_ty_of` is a function of that term.
             let mut ktn: str = "i64";
             if strat == JS_NONE() {
-                let ss: StepSel = decide_join_step(onr, ch.var[i], t, h);
-                strat = ss.strat; sel = ss.sel; ktn = ss.key_tn;
-                // Traced HERE because this is where it was decided. A step the
-                // planner decided was already traced there, and echoing it
-                // would put the same decision in the log twice.
-                trace_step(ch.var[i], &ss);
+                // Every step is the planner's (ADR 0031 R5.3, `plan_decide_rest`).
+                logos.lang.panic::panic("ICE: a join step reached emission undecided (plan_walker::plan_decide_rest)");
             } else if sel >= 0i64 {
                 let stt: StepTerms = step_terms(onr, h);
                 if sel < stt.tl.n {
@@ -11396,13 +11392,10 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
 // (it records it for the entry only), so every step reads 0 / -1 / 0 as the
 // surface chain builders wrote; and each slot takes its override, if any.
 fn jchain_rel_rename(ch: &mut JChain, ovr: &Vec<str>) {
-    let mut k: i64 = 0i64;
-    while k < ch.n {
-        ch.jstrat[k] = 0i32; ch.jsel[k] = -1i64; ch.jground[k] = 0i64;
-        k = k + 1i64;
-    }
+    // The strategies are the rule's (decided once by the planner): a delta
+    // variant renames a source, it does not re-decide how it is read.
     if ovr.len() > 0i64 && ovr.get(0i64).len() > 0i64 { ch.base_src = ovr.get(0i64); }
-    k = 0i64;
+    let mut k: i64 = 0i64;
     while k < ch.n {
         if k + 1i64 < ovr.len() && ovr.get(k + 1i64).len() > 0i64 { ch.src[k] = ovr.get(k + 1i64); }
         k = k + 1i64;

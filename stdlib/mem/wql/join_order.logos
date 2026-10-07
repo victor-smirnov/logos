@@ -1030,10 +1030,15 @@ pub fn jch_from_core(cl: &CClause) -> JCh {
 /// Decide the order of the entry's join chain `cl` (a `Scan`-form chain; any
 /// other form is not emitted as a nest and gets no decision). `sort_key` — the
 /// folded `order by` key (null = none).
+/// No decision (an entry that is not a join-chain nest).
+pub fn join_plan_none() -> JoinPlan {
+    return JoinPlan { decided: false, jo: jo_ground(WG_UNSET(), AX_NONE()),
+                      szs: [String::new(), String::new(), String::new(), String::new()],
+                      ats: [-1i64; 4], key_tn: String::from_str("i64"), key_kv: String::from_str("i64") };
+}
+
 pub fn plan_join_order(cl: &CClause, scan: bool, sort_key: WAny, prm: &MacroParams, h: &Writ) -> JoinPlan {
-    let mut jp: JoinPlan = JoinPlan { decided: false, jo: jo_ground(WG_UNSET(), AX_NONE()),
-                                      szs: [String::new(), String::new(), String::new(), String::new()],
-                                      ats: [-1i64; 4], key_tn: String::from_str("i64"), key_kv: String::from_str("i64") };
+    let mut jp: JoinPlan = join_plan_none();
     if !scan { return jp; }
     let view: OView = oview_module_ast();
     let ty: ElTypes = type_clause(&view, prm, cl, false);

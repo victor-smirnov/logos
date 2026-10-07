@@ -96,7 +96,7 @@ use logos.std.wql.optimize;       // refs_mask — does a clause read a row var
 // `prelude` — statements spliced after the generated fn's opening brace (the
 // rel materialization lines; "" for a rel-less program).
 pub fn walk_query(plan: RQuery, name: str, params_text: str, prm: &MacroParams,
-                  prelude: str, h: &Writ) -> bool {
+                  jp: JoinPlan, prelude: str, h: &Writ) -> bool {
     // `select first` is a SINGLE-ROW mode: it subsumes/contradicts the multi-row
     // tail modifiers, so `distinct`/`limit` alongside it are compile-time errors
     // (and the aggregate shape rejects it outright — group-by emission is
@@ -122,13 +122,8 @@ pub fn walk_query(plan: RQuery, name: str, params_text: str, prm: &MacroParams,
                 mode = SELM_FIRST();
             }
             match plan_entry_chain(&prm.plan_core, h) {
-                Option::Some(ds) => {
-                    // ADR 0031 R5.2 — the order of the nest is decided here, by the
-                    // planner, and handed to the emitter.
-                    let scan: bool = match &ds.form { DForm::Scan => true, DForm::Empty => false, DForm::Identity => false };
-                    let jp: JoinPlan = plan_join_order(&prm.plan_core.entry.clause, scan, ds.sort_key, prm, h);
-                    return emit_entry_join(&ds, jp, name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h);
-                }
+                // The order of the nest is the planner's (`jp`, ADR 0031 R5.2).
+                Option::Some(ds) => { return emit_entry_join(&ds, jp, name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h); }
                 Option::None => { logos.lang.panic::panic("ICE: a `Join` entry is not a join chain of the planned core (ADR 0031 R6.4)"); return false; }
             }
         }
@@ -1620,6 +1615,9 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     // (R4.0), the join decisions recorded on them, the plan's source spellings
     // bound. The walker's stamping of the parse tree above is no longer read
     // through it.
+    plan_decide_rest(prm, &mut early, h, false);
+    let jp: JoinPlan = plan_entry_order(prog.entry_any().view::<RQuery>(), &early, prm, h);
+    plan_decide_rest(prm, &mut early, h, true);
     core_planned_done(&early, name);
     prm.plan_core = early;
 
@@ -1659,7 +1657,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             p = p + 1i64;
         }
     }
-    return walk_query(entry_any.view::<RQuery>(), name, params_text, prm,
+    return walk_query(entry_any.view::<RQuery>(), name, params_text, prm, jp,
                       string_as_str(&prelude), h);
 }
 
@@ -2038,8 +2036,8 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 /// key differently. Later steps are left `JS_NONE`; `plan_insert_drains` reads
 /// that as "not proven read-once" and drains the step's source on
 /// `MG_UNDECIDED`.
-fn plan_decide_chain(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ) {
-    let t: ElTypes = type_clause(view, prm, cl, true);
+fn plan_decide_chain(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ, full: bool) {
+    let t: ElTypes = type_clause(view, prm, cl, !full);
     let n: i64 = cl.body.len();
     let mut i: i64 = 1i64;
     while i < n {
@@ -2054,6 +2052,7 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ
         }
         match &mut cl.body[i] {
             CLit::Atom(a) => {
+              if a.strat == JS_NONE() {
                 let on: WAny = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64) } else { WAny::null() } } else { next_on };
                 let ss: StepSel = decide_join_step(WRef::<SExpr>::from_any(on), a.var, &t, h);
                 a.strat = ss.strat;
@@ -2065,8 +2064,9 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ
                 // `HashMap<u64, …>`. A justification that names a type the code does not
                 // use is not a justification of that code.
                 trace_step(a.var, &ss);
+              }
             }
-            CLit::Trav(_t) => { return; }   // and every step after it stays undecided
+            CLit::Trav(_t) => { if !full { return; } }   // pass 1: every step after it stays undecided
             CLit::Cond(_c) => { }
         }
         i = i + 1i64;
@@ -2081,7 +2081,50 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ
 /// emitter decides them by the same rule at emission — stated in `analyze_chain`.
 fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
     let view: OView = oview_module_ast();
-    plan_decide_chain(prm, &view, &mut pc.entry.clause, h);
+    plan_decide_chain(prm, &view, &mut pc.entry.clause, h, false);
+}
+
+/// ADR 0031 R5.3 — EVERY STEP'S STRATEGY IS THE PLANNER'S. What pass 1 left
+/// undecided — the entry's steps after a traversal, and every rel body's steps
+/// — is decided here, once per rule, with the clause's full typing, after every
+/// check has passed and before anything is emitted. The emitter used to decide
+/// these itself, once per emitted VARIANT (a semi-naïve delta variant decided
+/// its steps again), and no longer decides any. `plan_prove_once` has already
+/// read pass 1's answers: these do not widen a drain.
+//
+// The ENTRY's remaining steps are decided AFTER its join order
+// (`plan_entry_order`): the order derivation's C2 refuses a reorder over a step
+// pass 1 could not decide, and that is a claim about pass 1, so it reads pass 1.
+fn plan_decide_rest(prm: &MacroParams, pc: &mut CProgram, h: &Writ, entry: bool) {
+    let view: OView = oview_module_ast();
+    if entry { plan_decide_chain(prm, &view, &mut pc.entry.clause, h, true); return; }
+    let mut r: i64 = 0i64;
+    while r < pc.rels.len() {
+        let mut b: i64 = 0i64;
+        while b < pc.rels[r].rules.len() {
+            plan_decide_chain(prm, &view, &mut pc.rels[r].rules[b].clause, h, true);
+            b = b + 1i64;
+        }
+        r = r + 1i64;
+    }
+}
+
+/// ADR 0031 R5.2 — the order of a join-chain entry's nest, decided by the
+/// planner (`join_order::plan_join_order`) and handed to the emitter.
+fn plan_entry_order(entry: RQuery, pc: &CProgram, prm: &MacroParams, h: &Writ) -> JoinPlan {
+    match entry {
+        RQuery::Join(_j) => {
+            match plan_entry_chain(pc, h) {
+                Option::Some(ds) => {
+                    let scan: bool = match &ds.form { DForm::Scan => true, DForm::Empty => false, DForm::Identity => false };
+                    return plan_join_order(&pc.entry.clause, scan, ds.sort_key, prm, h);
+                }
+                Option::None => { }
+            }
+        }
+        _ => { }
+    }
+    return join_plan_none();
 }
 
 /// The strategy the planner decided for step `k` of a clause (the `k+1`-th
