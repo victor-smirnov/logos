@@ -704,7 +704,11 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 # 2026-09-27: find 12 -> 13, roster e4726856 -> 8f6847db. resolve_self_enum_in_pattern's
 # `current_type_params_.find("Self")` for `Self::V` patterns in an `impl Enum` body — the
 # same keyword lookup as the two above; `Self` cannot collide across packages.
-#ARGSCAN find 13 8f6847db
+# 2026-10-07, ADR 0030 S9b row 1: find 13 -> 14, roster 8f6847db -> de4c478a. collect_fn's
+# `current_type_params_.find("Self")` reads the owner of a method being registered (the
+# method index's OwnerId) — the same keyword lookup as the three above; `Self` cannot
+# collide across packages.
+#ARGSCAN find 14 de4c478a
 # 2026-09-27, ADR 0030 L0 slice 2b: 3 -> 1, roster d49e815d -> 054b4f3e. The two synthesized
 # `Option<…>` sites (get_annotation, the writ access) ask the lang item (lang_enum_, below); the
 # one left is the bare `None` of an expression — NAME RESOLUTION, which a user homonym may shadow.

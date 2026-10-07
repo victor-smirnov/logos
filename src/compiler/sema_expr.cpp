@@ -6854,6 +6854,32 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
             }
         }
     }
+    // ADR 0030 S9b row 1 CENSUS (LOGOS_CENSUS): does the method index by
+    // owner identity answer what the spelled keys answered? Read by row 2.
+    if (logos::probe::census_armed()) {
+        std::unordered_set<const SemaFuncInfo*> spelled, idx;
+        for (auto& c : cands) if (!c.blanket_self) spelled.insert(c.fi);
+        for (TypeRef st : steps) {
+            for (TypeRef t : {st, make_ref(false, st), make_ref(true, st)})
+                for (auto* fi : methods_of_(t, name)) idx.insert(fi);
+            // `self: *mut Self` — a raw pointer receiver names its pointee's methods.
+            if (TypeRef(st).kind() == K::Ptr && TypeRef(st).pointee())
+                for (auto* fi : methods_of_(TypeRef(st).pointee(), name)) idx.insert(fi);
+            // `&DstStruct` is one fat type: its autoderef target is the struct.
+            if (TypeRef(st).kind() == K::DstRef) {
+                OwnerId o = owner_id_of_(st);
+                o.ref = 0;
+                for (auto* fi : methods_of_id_(o, name)) idx.insert(fi);
+            }
+        }
+        for (auto* fi : spelled)
+            logos::probe::census(idx.count(fi) ? "s9b.idx.agree"
+                                 : !fi->is_method ? "s9b.idx.miss.not_method"
+                                 : !fi->owner_id ? "s9b.idx.miss.no_owner"
+                                 : "s9b.idx.miss.other_owner");
+        for (auto* fi : idx)
+            if (!spelled.count(fi)) logos::probe::census("s9b.idx.extra");
+    }
     for (size_t d = 0; d < steps.size(); ++d) {
         const TypeRef cur = steps[d];
         const auto ck = TypeRef(cur).kind();

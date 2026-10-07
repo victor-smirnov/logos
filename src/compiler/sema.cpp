@@ -586,6 +586,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->explicit_type_codes  = std::move(explicit_type_codes_);
     s->enums                = std::move(enums_);
     s->funcs                = std::move(funcs_);
+    method_index_valid_     = false;
     s->func_overloads       = std::move(func_overloads_);
     s->generic_funcs        = std::move(generic_funcs_);
     s->generic_overloads    = std::move(generic_overloads_);
@@ -765,6 +766,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     explicit_type_codes_  = std::move(s->explicit_type_codes);
     enums_                = std::move(s->enums);
     funcs_                = std::move(s->funcs);
+    method_index_valid_   = false;   // S9b row 1: the index is a cache over funcs_
     func_overloads_       = std::move(s->func_overloads);
     generic_funcs_        = std::move(s->generic_funcs);
     generic_overloads_    = std::move(s->generic_overloads);

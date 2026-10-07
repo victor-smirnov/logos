@@ -5974,7 +5974,20 @@ private:
                             bool is_schema_enum = false;
                             std::vector<std::pair<std::string, TypeRef>> schema_variants; // variant name → concrete schema view type
                           };
+    // ADR 0030 S9b row 1: a method's OWNER by identity — a nominal type's DefId
+    // (struct / enum / datatype; a generic one by its template), `&` / `&mut`
+    // of one, or, for an owner with no nominal (slice, dyn, primitive, tuple),
+    // its shape's spelling, which carries no package.
+    struct OwnerId {
+        DefId       nominal;
+        uint8_t     ref = 0;      // 0 by value, 1 `&`, 2 `&mut`
+        std::string shape;
+        explicit operator bool() const noexcept { return bool(nominal) || !shape.empty(); }
+        auto operator<=>(const OwnerId&) const = default;
+    };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
+                            OwnerId owner_id;   // S9b row 1: a method's owner; empty for a free fn
+                            std::string method_name;   // its declared name (base_name may be trait-qualified)
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             std::string decl_key;   // ADR 0030 S9 row 1: see decl_symbols_
                             // CP-cm-16 follow-up: full impl-target pattern (with
@@ -6834,6 +6847,91 @@ private:
     SemaImplInfo* find_impl(std::string_view trait_key, std::string_view target) {
         auto it = impls_.find(impl_key(trait_key, target));
         return it == impls_.end() ? nullptr : &it->second;
+    }
+    // ADR 0030 S9b row 1: the owner identity of a type, and the METHOD INDEX —
+    // (owner, method name) -> the registry keys (funcs_ / generic_funcs_) of the
+    // methods declared on that owner. A cache over the registries, so it
+    // follows their snapshots and package erasure: appended on registration,
+    // rebuilt in full when the registries were replaced.
+    OwnerId owner_id_of_(TypeRef t) const {
+        using K = LogosType::Kind;
+        OwnerId o;
+        if (!t) return o;
+        TypeRef b = t;
+        // A reference to a custom DST is one fat type carrying the struct.
+        if (b.kind() == K::DstRef) {
+            o.ref = b.mut_ptr() ? 2 : 1;
+            o.nominal = type_id(b.pkg_name(), b.struct_name());
+            if (!o.nominal) o.shape = type_str_regions_erased(b);
+            return o;
+        }
+        if (b.kind() == K::Ref || b.kind() == K::MutRef) {
+            o.ref = b.kind() == K::Ref ? 1 : 2;
+            b = b.pointee();
+            if (!b) return {};
+        }
+        const auto k = b.kind();
+        if (k == K::Struct || k == K::ZonedStruct) o.nominal = type_id(b.pkg_name(), b.struct_name());
+        else if (k == K::Enum)                     o.nominal = type_id(b.pkg_name(), b.enum_name());
+        if (!o.nominal) o.shape = shape_head_(b);
+        return o;
+    }
+    // A non-nominal owner by its type CONSTRUCTOR, not its arguments: `impl<T>
+    // Tr for [T]` and a `[i64]` receiver meet at `[]`; `impl<T> Tr for &T`
+    // owns `&_`. The arguments are the candidates' business (unification).
+    static std::string shape_head_(TypeRef b) {
+        using K = LogosType::Kind;
+        switch (b.kind()) {
+        case K::TypeVar:                         return "_";
+        case K::Slice: case K::UnsizedSlice:     return "[]";
+        case K::Array:                           return "[;]";
+        case K::Tuple:                           return "(" + std::to_string(b.tuple_elems().size()) + ")";
+        case K::TraitObject: case K::UnsizedDyn: return "dyn " + std::string(b.trait_name());
+        case K::Ptr:                             return b.mut_ptr() ? "*mut" : "*const";
+        default:                                 return type_str_regions_erased(b);
+        }
+    }
+    struct MethodRef { std::string key; bool generic = false; };
+    std::map<std::pair<OwnerId, std::string>, std::vector<MethodRef>> method_index_;
+    bool method_index_valid_ = false;   // false after the registries were replaced (restore)
+    void index_method_(const SemaFuncInfo& fi, const std::string& key, bool generic) {
+        if (!fi.owner_id || fi.method_name.empty()) return;
+        auto& v = method_index_[{fi.owner_id, fi.method_name}];
+        for (auto& r : v) if (r.key == key && r.generic == generic) return;
+        v.push_back({key, generic});
+    }
+    void ensure_method_index_() {
+        if (method_index_valid_) return;
+        method_index_.clear();
+        for (auto& [k, fi] : funcs_) index_method_(fi, k, false);
+        for (auto& [k, fi] : generic_funcs_) index_method_(fi, k, true);
+        method_index_valid_ = true;
+    }
+    // A registration: appended while the index is live (a stale key — an
+    // erased fn — resolves to nothing in methods_of_).
+    void note_registered_(const SemaFuncInfo& fi, const std::string& key, bool generic) {
+        if (method_index_valid_) index_method_(fi, key, generic);
+    }
+    // The methods named `m` declared on `owner` (its inherent and trait impls).
+    std::vector<const SemaFuncInfo*> methods_of_(TypeRef owner, std::string_view m) {
+        return methods_of_id_(owner_id_of_(owner), m);
+    }
+    std::vector<const SemaFuncInfo*> methods_of_id_(const OwnerId& o, std::string_view m) {
+        std::vector<const SemaFuncInfo*> out;
+        if (!o) return out;
+        ensure_method_index_();
+        auto take = [&](const OwnerId& q) {
+            auto it = method_index_.find({q, std::string(m)});
+            if (it == method_index_.end()) return;
+            for (auto& r : it->second) {
+                if (r.generic) { if (auto g = generic_funcs_.find(r.key); g != generic_funcs_.end()) out.push_back(&g->second); }
+                else if (auto f = funcs_.find(r.key); f != funcs_.end()) out.push_back(&f->second);
+            }
+        };
+        take(o);
+        // `impl<T> Tr for &T` / `&mut T` owns every reference.
+        if (o.ref && o.shape != "_") take(OwnerId{{}, o.ref, "_"});
+        return out;
     }
     // An impl asked by a SPELLED target only (the deem pipeline matches sources
     // by their type's text): the exact key, else the impls of this trait whose

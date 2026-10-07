@@ -6699,6 +6699,12 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.decl_key = decl_key_(node, struct_ctx, info.trait_type_args);
     info.owner_struct = std::string(struct_ctx);   // CARRIED, not re-derived
     info.is_method    = !struct_ctx.empty();
+    // S9b row 1: the owner by identity — the impl's (or struct body's) Self.
+    if (info.is_method) {
+        info.method_name = std::string(raw_name);
+        if (auto sit = current_type_params_.find("Self"); sit != current_type_params_.end())
+            info.owner_id = owner_id_of_(sit->second);
+    }
     info.source_file = file_;
     info.package = cur_package_;
     info.module_id = cur_module_id_;
@@ -6820,6 +6826,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         }
         overloads.push_back(base_name);
         decl_symbols_[info.decl_key] = base_name;
+        note_registered_(info, base_name, false);
         funcs_[base_name] = std::move(info);
         return;
     }
@@ -7015,6 +7022,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         }
         gen_overloads.push_back(info.symbol_name);
         decl_symbols_[info.decl_key] = info.symbol_name;
+        note_registered_(info, info.symbol_name, true);
         generic_funcs_[info.symbol_name] = std::move(info);
         return;
     }
@@ -7045,6 +7053,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
 
     overloads.push_back(info.symbol_name);
     decl_symbols_[info.decl_key] = info.symbol_name;
+    note_registered_(info, info.symbol_name, false);
     funcs_[info.symbol_name] = std::move(info);
 }
 
