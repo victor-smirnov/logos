@@ -6703,8 +6703,10 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.reg_seq = ++reg_seq_next_;
     if (info.is_method) {
         info.method_name = std::string(raw_name);
-        if (auto sit = current_type_params_.find("Self"); sit != current_type_params_.end())
+        if (auto sit = current_type_params_.find("Self"); sit != current_type_params_.end()) {
             info.owner_id = owner_id_of_(sit->second);
+            info.owner_self = sit->second;
+        }
     }
     info.source_file = file_;
     info.package = cur_package_;

@@ -6816,7 +6816,15 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_vi
         if (fb != tbare) return false;
         return fi->trait_package.empty() || ti->package.empty() || fi->trait_package == ti->package;
     };
-    std::vector<std::string> keys = impl_lookup_keys_(self);
+    // ADR 0030 S9b row 2: Self's own impls by identity — the item of this
+    // trait whose impl's Self matches (`impl Tr for W<i64>` is not `W<u8>`'s).
+    for (auto* fi : filter_visible_(methods_of_(self, name)))
+        if (same_trait(fi) && (!fi->owner_self || self_pattern_match_(fi->owner_self, self))) {
+            if (key_out) *key_out = fi->base_name;
+            return fi;
+        }
+    // A blanket impl (`impl<T: B> Tr for T`) names no owner: its own keys.
+    std::vector<std::string> keys;
     const auto ck = TypeRef(self).kind();
     if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum || is_integer(self) ||
         ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
@@ -10184,17 +10192,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             et = TypeRef(et).pointee();
         if (et && (TypeRef(et).kind() == LogosType::Kind::Struct ||
                    TypeRef(et).kind() == LogosType::Kind::ZonedStruct)) {
-            const std::string m(method_name);
-            auto wants_mut = [&](const std::string& key) {
-                for (auto* fi : find_func_candidates(key))
-                    if (fi && !fi->param_types.empty() &&
-                        TypeRef(fi->param_types[0]).kind() == LogosType::Kind::MutRef)
-                        return true;
-                return false;
-            };
-            const std::string sb(TypeRef(et).struct_name());
-            if (wants_mut(concrete_struct_name(et) + "__" + m) ||
-                (!sb.empty() && wants_mut(sb + "__" + m))) {
+            // S9b row 2: a method of this type (by identity, its impl's Self
+            // matching) that takes `&mut self`.
+            bool wants_mut = false;
+            for (auto* fi : methods_of_(et, method_name))
+                if (fi && !fi->param_types.empty() && fi->param_types[0] &&
+                    TypeRef(fi->param_types[0]).kind() == LogosType::Kind::MutRef &&
+                    (!fi->owner_self || self_pattern_match_(fi->owner_self, et))) { wants_mut = true; break; }
+            if (wants_mut) {
                 if (temp_rooted) {
                     if (cur_stmt_temp_hoist_ && cur_stmt_temp_hoist_->size() > mark_hoist)
                         cur_stmt_temp_hoist_->resize(mark_hoist);
@@ -10984,47 +10989,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     SemaSubst hint_subst;
     auto preload_formals = [&]() -> std::vector<TypeRef> {
         std::vector<TypeRef> out;
-        std::string lookup_name;
-        if (!sname.empty()) {
-            lookup_name = mbase + "__" + std::string(method_name);
-        } else if (expr_type(recv)) {
-            // Enum receiver: try base + method.
-            TypeRef rte(expr_type(recv));
-            if (rte.kind() == LogosType::Kind::Enum && !rte.enum_name().empty())
-                lookup_name = std::string(rte.enum_name()) + "__" + std::string(method_name);
-            // A PRIMITIVE receiver (`0i64.m(|x| ..)`): its impl methods register
-            // under the primitive's name. With no lookup the closure argument got
-            // no hint, and without the hint its `Fn*` bound could not tie the
-            // closure's return to its parameter (CL_RET_TIED).
-            else if (auto pk = rte.kind(); pk >= LogosType::Kind::I32 && pk <= LogosType::Kind::U128)
-                lookup_name = type_str(rte) + "__" + std::string(method_name);
-        }
-        if (lookup_name.empty()) return out;
-        auto cands = find_func_candidates(lookup_name);
-        // For generic-receiver concrete forms (`SliceIter$G1$i32`), also
-        // try the base name (`SliceIter`) — trait-default-cloned methods
-        // register under the base.
-        if (cands.empty()) {
-            // SEPARATOR CLASS: `lookup_name` was COMPOSED 15 lines above from
-            // two parts that are still in scope. Re-composing it from those
-            // parts is exact; re-PARSING it (`rfind("__")` to find where the
-            // method starts) is a guess that lands inside any method name
-            // containing `__`.
-            if (auto dollar = sname.find('$'); !sname.empty() &&
-                                               dollar != std::string::npos) {
-                std::string base = sname.substr(0, dollar) + "__" +
-                                   std::string(method_name);
-                cands = find_func_candidates(base);
-            }
-        }
-        // Also try the generic-fn registry directly (covers trait default
-        // methods that live as generic templates).
-        if (cands.empty()) {
-            if (auto* gen = find_generic_func(lookup_name))
-                cands.push_back(gen);
-        }
-        if (cands.empty()) return out;
-        const SemaFuncInfo* fi = cands.front();
+        // ADR 0030 S9b row 2: the candidate is the one the method probe picks
+        // for the receiver (its methods by identity), not a composed key.
+        const SemaFuncInfo* fi = expr_type(recv) ? probe_method_(expr_type(recv), method_name).fi : nullptr;
         if (!fi) return out;
         // Substitute receiver's type-args into the formal param types
         // so the hint is concrete (e.g. SliceIter<i32>'s `Item=i32`).

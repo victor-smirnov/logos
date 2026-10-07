@@ -5989,6 +5989,7 @@ private:
                             OwnerId owner_id;   // S9b row 1: a method's owner; empty for a free fn
                             std::string method_name;   // its declared name (base_name may be trait-qualified)
                             uint64_t    reg_seq = 0;   // registration order: methods_of_ answers in it
+                            TypeRef     owner_self = nullptr;   // the impl's (struct body's) Self, its parameters as type variables
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             std::string decl_key;   // ADR 0030 S9 row 1: see decl_symbols_
                             // CP-cm-16 follow-up: full impl-target pattern (with
