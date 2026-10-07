@@ -9738,14 +9738,12 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_raw_ptr(
         // pervasively (AnyVal/RelPtr/Rc/Arc check their *contents*, not the
         // pointer). Only synthesize the builtin pointer-null check when the
         // pointee has no such method (e.g. `*mut Segment`, `*mut i64`).
+        // Asked of the pointee's identity (ADR 0030 S9b row 2): the spelled key
+        // missed a folded registration and silently took the address test.
         if (TypeRef pointee = TypeRef(expr_type(recv)).pointee(); pointee) {
             auto pk = TypeRef(pointee).kind();
-            std::string base;
-            if (pk == LogosType::Kind::Struct || pk == LogosType::Kind::ZonedStruct)
-                base = TypeRef(pointee).struct_name().to_string();
-            else if (pk == LogosType::Kind::Enum)
-                base = TypeRef(pointee).enum_name().to_string();
-            if (!base.empty() && !find_func_candidates(base + "__is_null").empty())
+            if ((pk == LogosType::Kind::Struct || pk == LogosType::Kind::ZonedStruct ||
+                 pk == LogosType::Kind::Enum) && !methods_of_(pointee, "is_null").empty())
                 return std::nullopt;   // user-defined is_null wins
         }
         // Rust `<*const T>::is_null` / `<*mut T>::is_null`: SAFE (no
@@ -12304,12 +12302,12 @@ std::string SemaChecker::writfield_type_name(TypeRef t) {
             // generic-method dispatch target; struct_name_from_type would mangle
             // to "WRef$G1$..." which isn't a registered fn prefix). Mono retargets
             // `WRef__from_wany`/`__to_wany` to the concrete instance at the call.
-            std::string sn(TypeRef(t).struct_name());
-            if (sn.empty()) return {};
-            if (!find_func_candidates(sn + "__from_wany").empty() ||
-                !find_func_candidates(sn + "__to_wany").empty())
-                return sn;
-            return {};
+            // ADR 0030 S9b row 2: asked of the type's identity; the name returned
+            // is the registry base its methods are filed under — a non-generic
+            // struct's carries the package fold.
+            if (TypeRef(t).struct_name().empty()) return {};
+            if (methods_of_(t, "from_wany").empty() && methods_of_(t, "to_wany").empty()) return {};
+            return TypeRef(t).type_args().empty() ? concrete_struct_name(t) : std::string(TypeRef(t).struct_name());
         }
         default:       return {};
     }
@@ -16055,21 +16053,14 @@ lir::LExprPtr SemaChecker::default_value_for(TypeRef t) {
         }
         return builder().arr_lit(std::move(elems), t);
     }
-    // Scalar / struct: emit a call to its resolved `__default` symbol.
-    std::string base;
-    if (tt.kind() == LogosType::Kind::Struct ||
-        tt.kind() == LogosType::Kind::ZonedStruct)
-        base = tt.type_args().empty()
-            ? std::string(tt.struct_name())
-            : concrete_struct_name(t);
-    else
-        base = type_str(t);  // primitive keyword (i64, bool, …)
+    // Scalar / struct: the `default` declared on this type (ADR 0030 S9b row 2:
+    // asked by the owner's identity, a concrete one returning exactly `t`).
     const SemaFuncInfo* fi = nullptr;
-    for (auto* c : find_func_candidates(base + "__default"))
-        if (c && c->param_types.empty()) { fi = c; break; }
+    for (auto* c : methods_of_(t, "default"))
+        if (c && c->param_types.empty() && c->type_params.empty() && c->ret_type &&
+            types_equal(c->ret_type, t) && !c->symbol_name.empty()) { fi = c; break; }
     if (!fi) return nullptr;
-    std::string sym = fi->symbol_name.empty() ? base + "__default" : fi->symbol_name;
-    return builder().call(sym, {}, {}, t);
+    return builder().call(fi->symbol_name, {}, {}, t);
 }
 
 // Supertrait UPCAST coercion: when `arg` is already a `&dyn Sub`/`dyn Sub` and
@@ -18373,6 +18364,11 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     for (auto& s : it->supertraits) probe(s.trait_name);
                 };
                 probe(cname_str);
+            }
+            // `[T; N]: Default` (Rust): `Default::default()` at an array type.
+            if (tm && expected_ && TypeRef(expected_).kind() == LogosType::Kind::Array &&
+                mname_str == "default" && trait_key_is_lang_item(canonical_trait_name(cname_str), "default")) {
+                if (auto def = default_value_for(expected_)) return def;
             }
             if (tm) {
                 // G158-9: resolve Self from the let-annotation expected type

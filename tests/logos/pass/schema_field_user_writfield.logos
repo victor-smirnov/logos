@@ -1,0 +1,23 @@
+// A schema field of a NON-generic user type implementing WritField (`c: Cnt`): the field-read sugar asks the
+// type's `from_wany`. Asked by the type's identity (ADR 0030 S9b row 2); the bare spelled key missed the
+// folded registration and the field was refused as "not a WritField".
+package schema_field_user_writfield;
+use logos.lang.writ.container;
+use logos.lang.writ.anyval;
+use logos.lang.writ.wmap;
+use logos.lang.writ.allocator;
+struct Cnt { n: i64 }
+impl WritField for Cnt {
+    fn from_wany(v: WAny) -> Cnt { return Cnt { n: v.as_i64() }; }
+    fn to_wany(self: Cnt, z: *mut Allocator) -> WAny { return WAny::from(self.n as i56); }
+}
+schema P : code(0x0044000000000201) { c: Cnt = 0, }
+fn main() -> i32 {
+    let h: Writ = writ_new(512i64);
+    let m: &mut WMap<Wu6, WAny> = h.tinymap(4i64);
+    m.set_schema_type_code(0x0044000000000201u64);
+    m.set(0u8, WAny::from(41i56));
+    let v: P = (&*m).view::<P>();
+    if v.c.n != 41 { return 1; }
+    return 0;
+}
