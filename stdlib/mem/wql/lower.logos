@@ -608,50 +608,7 @@ fn gp_desugar_query(qany: WAny, prog_root: WAny, h: &Writ, err: &mut String) -> 
     }
 }
 
-// ── FACTS: a FROM-less `select` reads the one-row `__unit` ──────────────────
-// Point one fact query at `__unit __u`. True iff it was a fact.
-fn fact_desugar_query(qany: WAny, h: &Writ) -> bool {
-    let q: RQuery = qany.view::<RQuery>();
-    match q {
-        RQuery::Simple(s0) => {
-            if s0.src_name.len() > 0i64 { return false; }
-            let s: RQSimple = rq_fat_simple(qany, h);
-            s.src_name = "__unit";
-            s.var_name = "__u";
-            return true;
-        }
-        _ => { return false; }
-    }
-}
-
-/// Desugar every FACT body (`select S` with no source) in the program, rel
-/// bodies and entry alike, to a scan of `__unit`. Returns true iff any was
-/// found: the handler then registers `__unit` as a native source
-/// (`logos.std.wql.unit::wql_unit_rows`, one row), so nothing downstream
-/// needs an arm for a sourceless query.
-pub fn desugar_program_facts(root: WAny, h: &Writ) -> bool {
-    let prog: RQProgram = root.view::<RQProgram>();
-    let mut any: bool = false;
-    if prog.has_rels() {
-        let rels: RQRelArr = prog.rels_arr();
-        let nr: i64 = rels.len();
-        let mut i: i64 = 0i64;
-        while i < nr {
-            let bodies: RQBodyArr = rels.rel_at(i).bodies_arr();
-            let nb: i64 = bodies.len();
-            let mut b: i64 = 0i64;
-            while b < nb {
-                if fact_desugar_query(bodies.body_any(b), h) { any = true; }
-                b = b + 1i64;
-            }
-            i = i + 1i64;
-        }
-    }
-    if fact_desugar_query(prog.entry_any(), h) { any = true; }
-    return any;
-}
-
-/// The natspec entry that registers `__unit` (see `desugar_program_facts`).
+/// The natspec entry that registers `__unit` (see `crewrite::core_desugar_facts`).
 pub fn UNIT_NATSPEC() -> str { return "__unit=wql_unit_rows@logos.std.wql.unit:(u i64);"; }
 
 // ── DEMAND FOR A USER REL: magic sets (ADR 0016 M6, #349) ───────────────────

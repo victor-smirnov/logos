@@ -343,8 +343,8 @@
                          limit_n: $13,
                          has_result_ty: $14, result_ty: $14 }
                   // A FACT: `select S [: RTy]` with no source is ONE row, as SQL's
-                  // FROM-less SELECT is. src_name stays "" and the handler's
-                  // `desugar_program_facts` (lower.logos) points it at the
+                  // FROM-less SELECT is. src_name stays "" and the core
+                  // rewrite `crewrite::core_desugar_facts` points it at the
                   // one-row `__unit` relation.
                   //   $1=KW_SELECT $2=sel_body $3=result_opt?
                   / KW_SELECT sel_body

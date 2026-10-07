@@ -212,7 +212,7 @@ fn opt(present: bool, e: WAny) -> Option<WAny> {
 
 fn base_atom(lx: &CLower, src: str, var: str, row_ty: str) -> CLit {
     // A FROM-less `select` names no row; its one row is `__unit`'s, bound to
-    // `__u` — the names `desugar_program_facts` gives the same rewrite.
+    // `__u` — `crewrite::core_desugar_facts` then reads it as `__unit`.
     let v: str = if src.len() == 0i64 && var.len() == 0i64 { "__u" } else { var };
     return CLit::Atom(CAtom { src: src_of(lx, src), reg: -1i64, name: src, var: v, row_ty: row_ty,
                               neg: false, conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });

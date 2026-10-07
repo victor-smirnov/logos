@@ -1339,7 +1339,7 @@ fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<str>, nv: i64,
 // String buffers backing the rel registry (emitted source names + row-type
 // texts) and the prelude live in THIS frame — everything downstream is called
 // from here, so the borrowed `str` views stay valid for the whole walk.
-pub fn walk_program_params(root: WAny, name: str, params_text: str,
+pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str,
                            natspec: str, prm: &mut MacroParams, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
     let prog: RQProgram = root.view::<RQProgram>();
@@ -1369,7 +1369,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     // ADR 0031 R4.0 — the program resolved from the declarations, once the
     // registry is complete (SHADOW: checked against the planned core below).
     if prog.entry_any().is_null() { error("wql!: missing entry query"); return false; }
-    let mut early: CProgram = lower_program(root);
+    // The program as the core rewrites left it (ADR 0031 R3).
+    let mut early: CProgram = pc;
 
     if early.rels.len() > 0i64 {
         let nr: i64 = early.rels.len();

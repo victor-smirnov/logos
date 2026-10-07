@@ -1,0 +1,252 @@
+// logos.std.wql.crewrite — the rewrites of the Deem core (ADR 0031 R3).
+//
+// Each rewrite here is Core → Core: it reads and writes `CProgram`, never the
+// parse tree. A rewrite moved here from the surface (`lower.logos`) is first
+// run in SHADOW beside the surface pass it replaces: the core it produces is
+// compared, field by field, with the lowering of the rewritten surface
+// (`core_same`), and a difference is an ICE naming the first one. Only then is
+// the surface pass deleted.
+package logos.std.wql.crewrite;
+
+use logos.lang.writ.anyval;
+use logos.lang.str;
+use logos.lang.option;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.core;
+use logos.std.wql.codegen;         // string_as_str
+
+// ── FACTS (R3.1) ───────────────────────────────────────────────────────────
+
+/// A FROM-less `select` reads the one-row relation `__unit`, bound to `__u`:
+/// every `Unit` atom becomes a read of the source parameter `__unit`, in rel
+/// rules and the entry alike. True iff any was found — the handler then
+/// registers `__unit` as a native source (`logos.std.wql.unit::wql_unit_rows`,
+/// one row), so nothing downstream needs an arm for a sourceless query.
+pub fn core_desugar_facts(p: &mut CProgram) -> bool {
+    let mut any: bool = false;
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let mut b: i64 = 0i64;
+        while b < p.rels[r].rules.len() {
+            if facts_clause(&mut p.rels[r].rules[b].clause) { any = true; }
+            b = b + 1i64;
+        }
+        r = r + 1i64;
+    }
+    if facts_clause(&mut p.entry.clause) { any = true; }
+    return any;
+}
+
+fn facts_clause(cl: &mut CClause) -> bool {
+    let mut any: bool = false;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &mut cl.body[i] {
+            CLit::Atom(a) => {
+                let unit: bool = match &a.src { CSrc::Unit => true, CSrc::Rel(_r) => false, CSrc::Param(_n) => false };
+                if unit {
+                    a.src = CSrc::Param("__unit");
+                    a.name = "__unit";
+                    a.var = "__u";
+                    any = true;
+                }
+            }
+            CLit::Trav(_t) => { }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return any;
+}
+
+// ── SHADOW: structural equality of two cores ───────────────────────────────
+
+fn diff(out: &mut String, at: str, what: str, x: str, y: str) {
+    if out.len() > 0i64 { return; }
+    out.push_str(at); out.push_str(": "); out.push_str(what);
+    out.push_str(" `"); out.push_str(x); out.push_str("` vs `"); out.push_str(y); out.push_str("`");
+}
+
+fn diff_i(out: &mut String, at: str, what: str, x: i64, y: i64) {
+    if out.len() > 0i64 || x == y { return; }
+    out.push_str(at); out.push_str(": "); out.push_str(what);
+    out.push_str(" "); out.push_i64(x); out.push_str(" vs "); out.push_i64(y);
+}
+
+fn diff_s(out: &mut String, at: str, what: str, x: str, y: str) {
+    if !str_eq(x, y) { diff(out, at, what, x, y); }
+}
+
+fn raw_opt(o: &Option<WAny>) -> i64 {
+    match o { Option::Some(w) => { return w.raw(); } Option::None => { return 0i64; } }
+}
+
+fn src_key(s: &CSrc) -> i64 {
+    match s { CSrc::Rel(r) => { return *r; } CSrc::Param(_n) => { return -2i64; } CSrc::Unit => { return -3i64; } }
+}
+
+fn src_name(s: &CSrc) -> str {
+    match s { CSrc::Param(n) => { return *n; } CSrc::Rel(_r) => { return ""; } CSrc::Unit => { return ""; } }
+}
+
+fn conds_same(out: &mut String, at: str, x: &Vec<WAny>, y: &Vec<WAny>) {
+    diff_i(out, at, "condition count", x.len(), y.len());
+    if out.len() > 0i64 { return; }
+    let mut i: i64 = 0i64;
+    while i < x.len() { diff_i(out, at, "condition", x.get(i).raw(), y.get(i).raw()); i = i + 1i64; }
+}
+
+fn clause_same(out: &mut String, at: str, x: &CClause, y: &CClause) {
+    diff_i(out, at, "head", x.head.raw(), y.head.raw());
+    diff_i(out, at, "literal count", x.body.len(), y.body.len());
+    if out.len() > 0i64 { return; }
+    let xs: &[CLit] = x.body.as_slice();
+    let ys: &[CLit] = y.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < x.body.len() && out.len() == 0i64 {
+        match &xs[i] {
+            CLit::Atom(a) => {
+                match &ys[i] {
+                    CLit::Atom(b) => {
+                        diff_i(out, at, "atom source kind", src_key(&a.src), src_key(&b.src));
+                        diff_s(out, at, "atom source param", src_name(&a.src), src_name(&b.src));
+                        diff_i(out, at, "atom registry index", a.reg, b.reg);
+                        diff_s(out, at, "atom name", a.name, b.name);
+                        diff_s(out, at, "atom var", a.var, b.var);
+                        diff_s(out, at, "atom row type", a.row_ty, b.row_ty);
+                        diff_i(out, at, "atom negation", if a.neg { 1i64 } else { 0i64 }, if b.neg { 1i64 } else { 0i64 });
+                        diff_i(out, at, "atom strategy", a.strat as i64, b.strat as i64);
+                        diff_i(out, at, "atom key term", a.jsel as i64, b.jsel as i64);
+                        diff_i(out, at, "atom ground", a.ground, b.ground);
+                        conds_same(out, at, &a.conds, &b.conds);
+                    }
+                    _ => { diff(out, at, "literal kind", "atom", "other"); }
+                }
+            }
+            CLit::Trav(t) => {
+                match &ys[i] {
+                    CLit::Trav(u) => {
+                        diff_s(out, at, "traversal source", t.name, u.name);
+                        diff_s(out, at, "traversal base", t.base, u.base);
+                        diff_s(out, at, "traversal var", t.var, u.var);
+                        diff_s(out, at, "traversal row type", t.row_ty, u.row_ty);
+                        diff_i(out, at, "traversal negation", if t.neg { 1i64 } else { 0i64 }, if u.neg { 1i64 } else { 0i64 });
+                        diff_i(out, at, "traversal path length", t.path.len(), u.path.len());
+                        if out.len() == 0i64 {
+                            let mut k: i64 = 0i64;
+                            while k < t.path.len() { diff_s(out, at, "traversal path", t.path.get(k), u.path.get(k)); k = k + 1i64; }
+                        }
+                        conds_same(out, at, &t.conds, &u.conds);
+                    }
+                    _ => { diff(out, at, "literal kind", "traversal", "other"); }
+                }
+            }
+            CLit::Cond(c) => {
+                match &ys[i] {
+                    CLit::Cond(d) => {
+                        diff_i(out, at, "condition", c.e.raw(), d.e.raw());
+                        let cs: i64 = match &c.site { CSite::Where => 0i64, CSite::On => 1i64 };
+                        let ds: i64 = match &d.site { CSite::Where => 0i64, CSite::On => 1i64 };
+                        diff_i(out, at, "condition site", cs, ds);
+                    }
+                    _ => { diff(out, at, "literal kind", "condition", "other"); }
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+    match &x.group {
+        Option::Some(g) => {
+            match &y.group {
+                Option::Some(h) => {
+                    diff_i(out, at, "group key", g.key.raw(), h.key.raw());
+                    diff_i(out, at, "having", raw_opt(&g.having), raw_opt(&h.having));
+                    diff_i(out, at, "aggregate count", g.aggs.len(), h.aggs.len());
+                    if out.len() == 0i64 {
+                        let ga: &[CAgg] = g.aggs.as_slice();
+                        let ha: &[CAgg] = h.aggs.as_slice();
+                        let mut k: i64 = 0i64;
+                        while k < g.aggs.len() {
+                            diff_s(out, at, "aggregate name", ga[k].name, ha[k].name);
+                            diff_s(out, at, "aggregate function", ga[k].func, ha[k].func);
+                            diff_i(out, at, "aggregate argument", raw_opt(&ga[k].arg), raw_opt(&ha[k].arg));
+                            k = k + 1i64;
+                        }
+                    }
+                }
+                Option::None => { diff(out, at, "group", "present", "absent"); }
+            }
+        }
+        Option::None => {
+            match &y.group { Option::Some(_h) => { diff(out, at, "group", "absent", "present"); } Option::None => { } }
+        }
+    }
+}
+
+fn mode_key(m: &CMode) -> i64 {
+    match m { CMode::All => { return 0i64; } CMode::First => { return 1i64; } CMode::Find => { return 2i64; } }
+}
+
+fn limit_key(l: &CLimit) -> i64 {
+    match l { CLimit::None => { return -1i64; } CLimit::N(n) => { return *n; } CLimit::Param(_p) => { return -2i64; } }
+}
+
+fn rule_same(out: &mut String, at: str, x: &CRule, y: &CRule) {
+    diff_i(out, at, "mode", mode_key(&x.env.mode), mode_key(&y.env.mode));
+    diff_i(out, at, "distinct", if x.env.distinct { 1i64 } else { 0i64 }, if y.env.distinct { 1i64 } else { 0i64 });
+    diff_i(out, at, "order", raw_opt(&x.env.order), raw_opt(&y.env.order));
+    diff_i(out, at, "desc", if x.env.desc { 1i64 } else { 0i64 }, if y.env.desc { 1i64 } else { 0i64 });
+    diff_i(out, at, "limit", limit_key(&x.env.limit), limit_key(&y.env.limit));
+    diff_s(out, at, "result type", x.env.result_ty, y.env.result_ty);
+    clause_same(out, at, &x.clause, &y.clause);
+}
+
+/// The first field on which two cores differ ("" when none does).
+pub fn core_same(x: &CProgram, y: &CProgram) -> String {
+    let mut out: String = String::new();
+    diff_i(&mut out, "program", "rel count", x.rels.len(), y.rels.len());
+    if out.len() > 0i64 { return out; }
+    let xr: &[CRel] = x.rels.as_slice();
+    let yr: &[CRel] = y.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < x.rels.len() && out.len() == 0i64 {
+        let at: str = xr[r].name;
+        diff_s(&mut out, at, "rel name", xr[r].name, yr[r].name);
+        diff_i(&mut out, at, "column count", xr[r].cols.len(), yr[r].cols.len());
+        if out.len() == 0i64 {
+            let xc: &[CCol] = xr[r].cols.as_slice();
+            let yc: &[CCol] = yr[r].cols.as_slice();
+            let mut c: i64 = 0i64;
+            while c < xr[r].cols.len() {
+                diff_s(&mut out, at, "column name", xc[c].name, yc[c].name);
+                diff_s(&mut out, at, "column type", xc[c].ty, yc[c].ty);
+                c = c + 1i64;
+            }
+        }
+        diff_i(&mut out, at, "rule count", xr[r].rules.len(), yr[r].rules.len());
+        if out.len() == 0i64 {
+            let xs: &[CRule] = xr[r].rules.as_slice();
+            let ys: &[CRule] = yr[r].rules.as_slice();
+            let mut b: i64 = 0i64;
+            while b < xr[r].rules.len() { rule_same(&mut out, at, &xs[b], &ys[b]); b = b + 1i64; }
+        }
+        r = r + 1i64;
+    }
+    if out.len() == 0i64 { rule_same(&mut out, "entry", &x.entry, &y.entry); }
+    return out;
+}
+
+/// SHADOW check: `ours` (the core rewrite) must equal `theirs` (the lowering of
+/// the surface rewrite). A difference is an ICE naming the rewrite and the first
+/// differing field.
+pub fn crewrite_shadow(what: str, ours: &CProgram, theirs: &CProgram) {
+    let d: String = core_same(ours, theirs);
+    if d.len() == 0i64 { return; }
+    let mut m: String = String::new();
+    m.push_str("ICE: deem core rewrite `");
+    m.push_str(what);
+    m.push_str("` disagrees with the surface pass it replaces: ");
+    m.push_str(string_as_str(&d));
+    logos.lang.panic::panic(string_as_str(&m));
+}

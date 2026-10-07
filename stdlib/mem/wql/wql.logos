@@ -70,6 +70,7 @@ use logos.std.wql.lower;                 // desugar_program_gpaths — graph-pat
 use logos.std.wql.codegen;               // plan_trace — the demand decision on the [plan] channel
 use logos.std.wql.dl_export;             // dl_export — the Soufflé oracle's program text
 use logos.std.wql.core;                  // the Deem core (ADR 0031): lowered once, verified
+use logos.std.wql.crewrite;              // the core rewrites (ADR 0031 R3)
 use logos.std.wql.check;                 // the checks over the core (ADR 0031 R2)
 use logos.std.wql.dplan;                 // the plan as data (ADR 0031 R5)
 use logos.std.wql.why;                   // ms_render / ms_name — the demand decision's words
@@ -291,9 +292,12 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // registers as one more native source.
     let mut nat: String = String::new();
     nat.push_str(natspec);
-    if desugar_program_facts(root, &h) { nat.push_str(UNIT_NATSPEC()); }
+    // ADR 0031 R3 — the program the walker plans: lowered after the surface
+    // rewrites that are still surface passes, then rewritten on the core.
+    let mut pc: CProgram = lower_program(root);
+    if core_desugar_facts(&mut pc) { nat.push_str(UNIT_NATSPEC()); }
     let natspec2: str = unsafe { str_from_raw(nat.as_ptr(), nat.len()) };
     prm.plan_group_pure = plan_group_pure(&core.entry);
-    let _ok: bool = walk_program_params(root, name, params, natspec2, &mut prm, &h);
+    let _ok: bool = walk_program_params(root, pc, name, params, natspec2, &mut prm, &h);
     return out;
 }
