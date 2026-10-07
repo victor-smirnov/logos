@@ -77,7 +77,7 @@ use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, rq_fat_* (alloca
 use logos.std.wql.params;         // MacroParams — the parsed deem!(…) param list + rel registry
 use logos.std.wql.core;           // the planned core (ADR 0031 R5)
 use logos.std.wql.dplan;          // plan_entry_simple (ADR 0031 R6.2)
-use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
+use logos.std.wql.rexpr_walk;     // emit_entry_* / emit_rel_fns
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
 use logos.std.wql.el;             // el_ret_class — scalar-element classification (slice D)
 use logos.std.wql.reflect;        // find_decl_by_name / has_field / field_traversal_elem (slice D)
@@ -126,7 +126,10 @@ pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
         }
         RQuery::Aggr(g) => {
             if g.sel_first { wql_error(prm, "`select first` is not supported on aggregate queries"); return false; }
-            return lower_simplify_emit(plan, g.fn_name, params_text, prm, g.result_ty, g.has_result_ty, SELM_ALL(), prelude, h);
+            match plan_entry_group(&prm.plan_core, h) {
+                Option::Some(ds) => { return emit_entry_group(&ds, g.fn_name, params_text, prm, g.result_ty, g.has_result_ty, prelude, h); }
+                Option::None => { logos.lang.panic::panic("ICE: an `Aggr` entry is not a group of the planned core (ADR 0031 R6.5)"); return false; }
+            }
         }
         RQuery::Find(f) => {
             // `find P` — no result-type / tail modifiers exist on this shape

@@ -137,6 +137,8 @@ pub struct DSimple {
     pub row_ty: str,
     pub var: str,
     pub pred: WAny,
+    /// A group's `having`, folded (null = none left).
+    pub having: WAny,
     pub sel: WAny,
     pub sort_key: WAny,
     pub sort_desc: bool,
@@ -158,7 +160,30 @@ fn dp_fold_entry(ru: &CRule, src: str, row_ty: str, var: str, cond: WAny, single
     let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
     let mut empty: bool = false;
     let mut pred: WAny = WAny::null();
-    if !cond.is_null() {
+    let mut having: WAny = WAny::null();
+    let grouped: bool = match &ru.clause.group { Option::Some(_g) => { true } Option::None => { false } };
+    if grouped {
+        // Under a group the `where` is NOT folded — the simplifier never looked
+        // inside the group node — and the `having` above it is.
+        pred = cond;
+        match &ru.clause.group {
+            Option::Some(g) => {
+                match &g.having {
+                    Option::Some(hv) => {
+                        let hh: WRef<SExpr> = simplify_sexpr((*hv).view::<SExpr>(), h);
+                        let hc: ConstVal = sexpr_const(hh.any().view::<SExpr>());
+                        if hc.is_bool() {
+                            if !hc.b { empty = true; }
+                        } else {
+                            having = hh.any();
+                        }
+                    }
+                    Option::None => { }
+                }
+            }
+            Option::None => { }
+        }
+    } else if !cond.is_null() {
         let ph: WRef<SExpr> = simplify_sexpr(cond.view::<SExpr>(), h);
         let pc: ConstVal = sexpr_const(ph.any().view::<SExpr>());
         if pc.is_bool() {
@@ -195,7 +220,7 @@ fn dp_fold_entry(ru: &CRule, src: str, row_ty: str, var: str, cond: WAny, single
               && (find || is_identity_sel(WRef::<SExpr>::from_any(ru.clause.head), var)) {
         form = DForm::Identity;
     }
-    return DSimple { form: form, src: src, row_ty: row_ty, var: var, pred: pred,
+    return DSimple { form: form, src: src, row_ty: row_ty, var: var, pred: pred, having: having,
                      sel: ru.clause.head, sort_key: sort_key, sort_desc: ru.env.desc,
                      distinct: ru.env.distinct, has_limit: has_limit, limit_n: limit_n,
                      limit_is_param: limit_is_param, limit_param: limit_param };
@@ -242,6 +267,31 @@ pub fn plan_entry_simple(p: &CProgram, where_retired: bool, h: &Writ) -> Option<
     let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
     if where_retired && !find { cond = WAny::null(); }
     return Option::Some(dp_fold_entry(ru, base.name, base.row_ty, base.var, cond, true, h));
+}
+
+/// The planned core's entry as a GROUP (an aggregate over a base atom and any
+/// steps), its `having` folded; None when it is not one.
+pub fn plan_entry_group(p: &CProgram, h: &Writ) -> Option<DSimple> {
+    let ru: &CRule = &p.entry;
+    match &ru.clause.group { Option::Some(_g) => { } Option::None => { return Option::None; } }
+    let base: CAtomRef = match dp_base(ru) { Option::Some(b) => { b } Option::None => { return Option::None; } };
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut cond: WAny = WAny::null();
+    let mut i: i64 = 1i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => {
+                match &c.site {
+                    CSite::Where => { if !cond.is_null() { return Option::None; } cond = c.e; }
+                    CSite::On => { }
+                }
+            }
+            CLit::Atom(_a) => { }
+            CLit::Trav(_t) => { }
+        }
+        i = i + 1i64;
+    }
+    return Option::Some(dp_fold_entry(ru, base.name, base.row_ty, base.var, cond, false, h));
 }
 
 /// The planned core's entry as a JOIN CHAIN (a base atom and at least one

@@ -48,7 +48,7 @@ use logos.std.wql.dplan;      // DScan / plan_entry_scan — the plan as data (A
 use logos.std.wql.core;       // the planned core the emitters read (ADR 0031 R6)
 use logos.std.wql.why;        // Why / why_render — THE JUSTIFICATION AS A RECORD, and its ONE renderer
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
-use logos.std.wql.lower;      // lower_rquery_to_rexpr + make_*/null_* (the metaprog-free PLAN→ALGEBRA lowering)
+use logos.std.wql.lower;      // make_*/null_* (the relational node builders)
 use logos.std.wql.reflect;    // stamp_types_from_schema
 use logos.mem.string;
 use logos.lang.str;
@@ -115,16 +115,6 @@ pub fn SELM_FIND()  -> i32 { return 2i32; }
 // ("" when absent). The wql! REL path (slice B) uses it to materialize the
 // derived relations (`let __rel_X: Vec<Row> = __wql_<fn>_rel_X(…); let
 // __rel_X_sl: &[Row] = __rel_X.as_slice();`) before the entry query's loops.
-pub fn lower_simplify_emit(plan: RQuery, fn_name: str,
-                           params_text: str, prm: &MacroParams,
-                           result_ty: str, has_result_ty: bool,
-                           sel_mode: i32, prelude: str, h: &Writ) -> bool {
-    let root: WRef<RExpr> = lower_rquery_to_rexpr(plan, h);
-    let sig: RSimplified = simplify_rexpr_ref(root, root.any().view::<RExpr>(), h);
-    let rx: RExpr = sig.root.any().view::<RExpr>();
-    return emit_rexpr_opt(rx, sig.empty, sig.identity,
-                          fn_name, params_text, prm, result_ty, has_result_ty, sel_mode, prelude, h);
-}
 
 // ══════════════════════════════════════════════════════════════════════════
 // PART 2 — emit_rexpr : the ONE walker (RExpr → native source)
@@ -1766,18 +1756,7 @@ fn comp_head_ty(e: SExpr, t: &ElTypes) -> str {
 // right emitter — the walker's `match` over the algebra.
 
 // Peel an optional RFilter: returns (inner, pred_ref, has_pred).
-struct Peeled { inner: RExpr, pred: WRef<SExpr>, has_pred: bool }
 
-fn peel_filter(e: RExpr) -> Peeled {
-    match e {
-        RExpr::Filter(f) => {
-            return Peeled { inner: f.input_expr(), pred: f.pred, has_pred: true };
-        }
-        _ => {
-            return Peeled { inner: e, pred: null_sref(), has_pred: false };
-        }
-    }
-}
 
 // ── QMods — the peeled ORDER/DISTINCT/LIMIT modifier envelope ────────────────
 // Collected off the RSort / RDistinct / RLimit wrappers around the projection
@@ -1811,47 +1790,11 @@ fn qmods_none() -> QMods {
 // `peel_distinct(r1, &mut mods)` was a second mutable borrow of something the
 // first result still held. Taking `mods` by value leaves ONE region-carrying
 // input, which elision resolves correctly and for the right reason.
-struct PeeledMods { e: RExpr, mods: QMods }
 
-fn peel_limit(e: RExpr, mods: QMods) -> PeeledMods {
-    let mut m: QMods = mods;
-    match e {
-        RExpr::Limit(l) => {
-            m.has_limit      = true;
-            m.limit_n        = l.n;
-            m.limit_is_param = l.is_param;
-            m.limit_param    = l.param;
-            return PeeledMods { e: l.input_expr(), mods: m };
-        }
-        _ => { return PeeledMods { e: e, mods: m }; }
-    }
-}
 
 // Peel a root RDistinct wrapper into `mods` (identity otherwise).
-fn peel_distinct(e: RExpr, mods: QMods) -> PeeledMods {
-    let mut m: QMods = mods;
-    match e {
-        RExpr::Distinct(d) => {
-            m.distinct = true;
-            return PeeledMods { e: d.input_expr(), mods: m };
-        }
-        _ => { return PeeledMods { e: e, mods: m }; }
-    }
-}
 
 // Peel an RSort under the projection into `mods` (identity otherwise).
-fn peel_sort(e: RExpr, mods: QMods) -> PeeledMods {
-    let mut m: QMods = mods;
-    match e {
-        RExpr::Sort(s) => {
-            m.has_sort  = true;
-            m.sort_key  = s.key;
-            m.sort_desc = s.desc;
-            return PeeledMods { e: s.input_expr(), mods: m };
-        }
-        _ => { return PeeledMods { e: e, mods: m }; }
-    }
-}
 
 // ══════════════════════════════════════════════════════════════════════════
 // FRAGMENT helpers — the emitters' vocabulary now that a BODY is a quote too.
@@ -2392,106 +2335,7 @@ pub fn emit_entry_simple(ds: &DSimple, fn_name: str, params_text: str, prm: &Mac
     }
 }
 
-pub fn emit_rexpr_opt(root: RExpr, empty: bool, identity: bool,
-                      fn_name: str, params_text: str, prm: &MacroParams,
-                      result_ty: str, has_result_ty: bool, sel_mode: i32,
-                      prelude: str, h: &Writ) -> bool {
-    // Phase-3 thin collapses (the root is always an RProj; peel it to reach the
-    // scan for the signature). The single-row modes get their own thin forms:
-    // empty → constant None; identity → head-row borrow. The THIN emitters do
-    // NOT take the rel prelude: an empty collapse never reads a rel, and the
-    // identity / head-row / find borrows are gated OFF rel sources upstream
-    // (the program walker diagnoses whole-row selects + `find` over a rel).
-    if empty || identity {
-        match root {
-            RExpr::Proj(p) => {
-                let scan_e: RExpr = p.input_expr();
-                if empty {
-                    if sel_mode == SELM_FIND() {
-                        return emit_none_find(scan_e, fn_name, params_text, prm, h);
-                    }
-                    return emit_empty(scan_e, p.sel, input_axis(scan_e), fn_name, params_text, prm, result_ty,
-                                      has_result_ty, sel_mode == SELM_FIRST(), h);
-                }
-                if sel_mode != SELM_ALL() {
-                    return emit_head_row(scan_e, fn_name, params_text, prm, h);
-                }
-                return emit_identity(scan_e, fn_name, params_text, prm, h);
-            }
-            _ => { }
-        }
-    }
-    return emit_rexpr(root, fn_name, params_text, prm, result_ty, has_result_ty, sel_mode, prelude, h);
-}
 
-pub fn emit_rexpr(root: RExpr, fn_name: str,
-                  params_text: str, prm: &MacroParams,
-                  result_ty: str, has_result_ty: bool, sel_mode: i32,
-                  prelude: str, h: &Writ) -> bool {
-    // Peel the post-projection wrappers (RLimit over RDistinct — the lowering
-    // order) and the RSort under the projection into the QMods envelope.
-    let mut mods: QMods = qmods_none();
-    let p1: PeeledMods = peel_limit(root, mods);
-    let p2: PeeledMods = peel_distinct(p1.e, p1.mods);
-    mods = p2.mods;
-    let r2: RExpr = p2.e;
-    // `limit <ident>` must reference a declared SCALAR param (build error else).
-    if !check_limit_param(&mods, prm) { return false; }
-    match r2 {
-        RExpr::Proj(p) => {
-            let body0: RExpr = p.input_expr();
-            let ps: PeeledMods = peel_sort(body0, mods);
-            mods = ps.mods;
-            let body: RExpr = ps.e;
-            let sel: WRef<SExpr> = p.sel;
-            // FIND mode — the body is a (possibly filtered) scan; the selector is
-            // the identity, so the emitter returns the row BORROW directly.
-            if sel_mode == SELM_FIND() {
-                logos.lang.panic::panic("ICE: a `find` entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.2)");
-                return false;
-            }
-            let first: bool = sel_mode == SELM_FIRST();
-            match body {
-                RExpr::Join(_jn) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
-                RExpr::Anti(_an) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
-                RExpr::Edge(_ed) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
-                RExpr::Aggr(ag) => {
-                    if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
-                    let pl: Peeled = peel_filter(ag.input_expr());
-                    return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred,
-                                          null_sref(), false, sel, mods,
-                                          fn_name, params_text, prm, result_ty, has_result_ty, prelude, h);
-                }
-                RExpr::Filter(f) => {
-                    // RFilter over a join/anti (the `where` sits above the join), over
-                    // an aggregate (the HAVING filter over the group rows), or over a
-                    // scan (simple with `where`).
-                    match f.input_expr() {
-                        RExpr::Join(_jn) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
-                        RExpr::Anti(_an) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
-                        RExpr::Edge(_ed) => { logos.lang.panic::panic("ICE: a join-chain entry reached the relational emitter — it is emitted from the plan (ADR 0031 R6.4)"); return false; }
-                        RExpr::Aggr(ag) => {
-                            if first { error("wql!: `select first` is not supported on aggregate queries"); return false; }
-                            let pl: Peeled = peel_filter(ag.input_expr());
-                            return emit_aggregate(pl.inner, ag.key, ag.aggs_arr(), pl.pred, pl.has_pred,
-                                                  f.pred, true, sel, mods,
-                                                  fn_name, params_text, prm, result_ty, has_result_ty, prelude, h);
-                        }
-                        _ => {
-                            logos.lang.panic::panic("ICE: a filtered single-source body reached the relational emitter — single-source entries are emitted from the plan (ADR 0031 R6.2)");
-                            return false;
-                        }
-                    }
-                }
-                _ => {
-                    logos.lang.panic::panic("ICE: a single-source body reached the relational emitter — single-source entries are emitted from the plan (ADR 0031 R6.2)");
-                    return false;
-                }
-            }
-        }
-        _ => { error("wql!: unexpected relational algebra root (expected a projection)"); return false; }
-    }
-}
 
 // The RScan bound under a (possibly wrapped) input. TOTAL over the algebra
 // (every compound node recurses into its input / left child) — an unexpected
@@ -5775,7 +5619,72 @@ fn emit_join_chain(ch: JChain, where_ref: WRef<SExpr>, has_where: bool, sel: WRe
 // Same rows in the same order (group columns are in first-occurrence order and
 // the identity permutation preserves it) — more emitted lines, one fewer pass
 // over the source (the scan shape rescanned every row once PER GROUP).
-fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
+/// ADR 0031 R6.5 — A GROUP ENTRY FROM THE PLAN: the folded entry
+/// (`dplan::plan_entry_group`), the chain and the aggregate specs read off the
+/// planned core's rule.
+pub fn emit_entry_group(ds: &DSimple, fn_name: str, params_text: str, prm: &MacroParams,
+                        result_ty: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
+    let sel: WRef<SExpr> = WRef::<SExpr>::from_any(ds.sel);
+    match &ds.form {
+        DForm::Empty => {
+            // AX_NONE: the relational path never looked through the group for
+            // steps (`input_axis` stops at the group node) — kept, and pinned
+            // by `wql_empty_axis_e2e`.
+            let scan_e: RExpr = make_scan(h, ds.src, ds.row_ty, ds.var).any().view::<RExpr>();
+            return emit_empty(scan_e, sel, chain_axis(0i64), fn_name, params_text, prm, result_ty,
+                              has_result_ty, false, h);
+        }
+        DForm::Identity => {
+            logos.lang.panic::panic("ICE: a group folded to IDENTITY — identity needs a single ungrouped source (dplan::dp_fold_entry)");
+            return false;
+        }
+        DForm::Scan => {
+            let mut mods: QMods = qmods_none();
+            mods.has_sort = !ds.sort_key.is_null();
+            if mods.has_sort { mods.sort_key = WRef::<SExpr>::from_any(ds.sort_key); }
+            mods.sort_desc = ds.sort_desc;
+            mods.distinct = ds.distinct;
+            mods.has_limit = ds.has_limit;
+            mods.limit_n = ds.limit_n;
+            mods.limit_is_param = ds.limit_is_param;
+            mods.limit_param = ds.limit_param;
+            if !check_limit_param(&mods, prm) { return false; }
+            let cl: &CClause = &prm.plan_core.entry.clause;
+            let ch: JChain = jchain_from_core(cl);
+            let mut key: WRef<SExpr> = null_sref();
+            let mut ra: RAggArr = h.make::<RAggArr>();
+            match &cl.group {
+                Option::Some(g) => {
+                    key = WRef::<SExpr>::from_any(g.key);
+                    ra.set_len(g.aggs.len());
+                    let ags: &[CAgg] = g.aggs.as_slice();
+                    let mut i: i64 = 0i64;
+                    while i < g.aggs.len() {
+                        let mut rg: RAgg = h.make::<RAgg>();
+                        rg.out = ags[i].name;
+                        rg.fn_name = ags[i].func;
+                        match &ags[i].arg {
+                            Option::Some(x) => { rg.has_arg = true; rg.arg = WRef::<SExpr>::from_any(*x); }
+                            Option::None => { rg.has_arg = false; }
+                        }
+                        ra.set_agg(i, rg.as_ref());
+                        i = i + 1i64;
+                    }
+                }
+                Option::None => {
+                    logos.lang.panic::panic("ICE: a group entry with no group in the planned core (ADR 0031 R6.5)");
+                    return false;
+                }
+            }
+            let pred: WRef<SExpr> = if ds.pred.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.pred) };
+            let hav: WRef<SExpr> = if ds.having.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.having) };
+            return emit_aggregate(ch, key, ra, pred, !ds.pred.is_null(), hav, !ds.having.is_null(),
+                                  sel, mods, fn_name, params_text, prm, result_ty, has_result_ty, prelude, h);
+        }
+    }
+}
+
+fn emit_aggregate(ch0: JChain, key_ref: WRef<SExpr>, aggs: RAggArr,
                   where_ref: WRef<SExpr>, has_where: bool,
                   having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                   mods: QMods,
@@ -5783,8 +5692,7 @@ fn emit_aggregate(scan_e: RExpr, key_ref: WRef<SExpr>, aggs: RAggArr,
                   result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
     // The input as a linearized chain: base + `ch.n` steps. `ch.n == 0` IS the
     // bare scan — the degenerate chain, not a special case.
-    let mut ch: JChain = jchain_new();
-    collect_chain(scan_e, &mut ch);
+    let ch: JChain = ch0;
     let acount: i64 = aggs.len();
 
     // Types: every bound source's row schema + scalar params + key/outputs.

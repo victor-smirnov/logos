@@ -435,15 +435,7 @@ pub fn simplify_sexpr(e: SExpr, h: &Writ) -> WRef<SExpr> {
 //                  source slice directly (`&[Row]`), skipping the copy loop.
 // `empty` and `identity` are mutually exclusive; when both are false the emitter
 // walks `root` unchanged.
-pub struct RSimplified {
-    pub root:     WRef<RExpr>,
-    pub empty:    bool,
-    pub identity: bool,
-}
 
-fn rsimp(root: WRef<RExpr>) -> RSimplified {
-    return RSimplified { root: root, empty: false, identity: false };
-}
 
 // True iff `sel` is a BARE identity reference to the loop variable `var_name` —
 // i.e. `select v` where `v` is the scan's row variable. In the self-describing
@@ -468,64 +460,20 @@ pub fn is_identity_sel(sel: WRef<SExpr>, var_name: str) -> bool {
 // The RScan var-name reachable under a (possibly filtered) relational input, or
 // "" if the input is not a bare scan / filtered-scan. Used to test identity
 // projection against the loop variable.
-fn input_scan_var(e: RExpr) -> str {
-    match e {
-        RExpr::Scan(sc) => { return sc.var_name; }
-        _ => { return ""; }
-    }
-}
 
 // Rebuild an `RFilter(input, pred)` node in `h`.
-fn rebuild_filter(h: &Writ, input: WRef<RExpr>, pred: WRef<SExpr>) -> WRef<RExpr> {
-    let n: RFilter = h.make::<RFilter>();
-    n.input = input;
-    n.pred  = pred;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
 
 // Rebuild an `RProj(input, sel)` node in `h`.
-fn rebuild_proj(h: &Writ, input: WRef<RExpr>, sel: WRef<SExpr>) -> WRef<RExpr> {
-    let n: RProj = h.make::<RProj>();
-    n.input = input;
-    n.sel   = sel;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
 
 // Rebuild an `RSort(input, key, desc)` node in `h`.
-fn rebuild_sort(h: &Writ, input: WRef<RExpr>, key: WRef<SExpr>, desc: bool) -> WRef<RExpr> {
-    let n: RSort = h.make::<RSort>();
-    n.input = input;
-    n.key   = key;
-    n.desc  = desc;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
 
 // Rebuild an `RLimit(input, n, is_param, param)` node in `h`.
-fn rebuild_limit(h: &Writ, input: WRef<RExpr>, n0: i64, is_param: bool, param: str) -> WRef<RExpr> {
-    let n: RLimit = h.make::<RLimit>();
-    n.input    = input;
-    n.n        = n0;
-    n.is_param = is_param;
-    n.param    = param;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
 
 // Rebuild an `RDistinct(input)` node in `h`.
-fn rebuild_distinct(h: &Writ, input: WRef<RExpr>) -> WRef<RExpr> {
-    let n: RDistinct = h.make::<RDistinct>();
-    n.input = input;
-    return WRef::<RExpr>::from_any(n.as_ref());
-}
 
 // Peel RDistinct wrappers down to the projection root — the EMPTY signal's root
 // must be a bare `RProj` (the thin emitter reads the scan signature + `sel` off
 // it), so an empty-collapse under a wrapper hands back the unwrapped proj edge.
-fn peel_to_proj(r: WRef<RExpr>) -> WRef<RExpr> {
-    match r.any().view::<RExpr>() {
-        RExpr::Distinct(d) => { return peel_to_proj(d.input); }
-        _ => { return r; }
-    }
-}
 
 // Simplify a RELATIONAL sub-tree that is NOT the projection root — a scan /
 // filter / (nested) sub-plan. Returns the rewritten edge + empty signal. Filter
@@ -536,53 +484,6 @@ fn peel_to_proj(r: WRef<RExpr>) -> WRef<RExpr> {
 // Takes the input's edge HANDLE (`in_ref`) so the pass-through case returns it
 // verbatim (no `as_ref` re-derivation off a local view, which the borrow checker
 // rejects). `e` is that handle's view.
-fn simplify_rbody(in_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
-    match e {
-        RExpr::Filter(f) => {
-            // Fold the predicate first (scalar pass), then apply filter folding.
-            // This covers BOTH the `where` filter (over scan/join) and the
-            // `having` filter (over an RAggr output): a const-true `having` is
-            // dropped, a const-false one proves the plan empty.
-            let ir: WRef<RExpr> = f.input;
-            let inner: RSimplified = simplify_rbody(ir, ir.any().view::<RExpr>(), h);
-            if inner.empty { return inner; }   // filter over an empty plan stays empty
-            let ph: WRef<SExpr> = simplify_sexpr(f.pred_expr(), h);
-            let pc: ConstVal = sexpr_const(ph.any().view::<SExpr>());
-            if pc.is_bool() {
-                if pc.b {
-                    // (a) const-true predicate → drop the filter entirely.
-                    return inner;
-                }
-                // (a) const-false predicate → the plan yields no rows.
-                return RSimplified { root: inner.root, empty: true, identity: false };
-            }
-            // Non-const predicate: keep the filter over the simplified input+pred.
-            return rsimp(rebuild_filter(h, inner.root, ph));
-        }
-        RExpr::Sort(s) => {
-            // (d) SORT FOLDING — sort over an EMPTY input is empty; a sort by a
-            // CONSTANT key orders nothing (every row compares equal; the pass is
-            // stable) → drop the sort. Otherwise rebuild over the simplified
-            // input with the const-folded key.
-            let ir: WRef<RExpr> = s.input;
-            let inner: RSimplified = simplify_rbody(ir, ir.any().view::<RExpr>(), h);
-            if inner.empty { return inner; }
-            let kh: WRef<SExpr> = simplify_sexpr(s.key_expr(), h);
-            let mut key_const: bool = false;
-            match kh.any().view::<SExpr>() {
-                SExpr::Lit(_) => { key_const = true; }   // int/bool/float/str literal
-                _ => { }
-            }
-            if key_const { return inner; }
-            return rsimp(rebuild_sort(h, inner.root, kh, s.desc));
-        }
-        _ => {
-            // A scan / join / anti / aggr body: pass through the ORIGINAL edge
-            // (its own scalar clauses fold at emit time; relational shape kept).
-            return rsimp(in_ref);
-        }
-    }
-}
 
 // ── simplify_rexpr — the RExpr→RExpr pass entry ───────────────────────────────
 // The lowered plan is rooted at `RLimit?( RDistinct?( RProj(body, sel) ) )`.
@@ -596,74 +497,15 @@ fn simplify_rbody(in_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
 // folding, propagating the empty signal), then apply the projection peepholes
 // (rules b, c). Takes the root edge HANDLE `root_ref` so the pass-through case
 // returns it without re-deriving a ref.
-pub fn simplify_rexpr_ref(root_ref: WRef<RExpr>, e: RExpr, h: &Writ) -> RSimplified {
-    match e {
-        RExpr::Limit(l) => {
-            let iref: WRef<RExpr> = l.input;
-            let sub: RSimplified = simplify_rexpr_ref(iref, iref.any().view::<RExpr>(), h);
-            if sub.empty { return sub; }   // limit over an empty plan stays empty
-            if !l.is_param && l.n == 0i64 {
-                // limit 0 → the plan yields no rows (root peeled to the proj).
-                return RSimplified { root: peel_to_proj(sub.root), empty: true, identity: false };
-            }
-            return RSimplified { root: rebuild_limit(h, sub.root, l.n, l.is_param, l.param),
-                                 empty: false, identity: false };
-        }
-        RExpr::Distinct(d) => {
-            let iref: WRef<RExpr> = d.input;
-            let sub: RSimplified = simplify_rexpr_ref(iref, iref.any().view::<RExpr>(), h);
-            if sub.empty { return sub; }   // distinct over an empty plan stays empty
-            return RSimplified { root: rebuild_distinct(h, sub.root),
-                                 empty: false, identity: false };
-        }
-        RExpr::Proj(p) => {
-            let sel: WRef<SExpr> = p.sel;
-            let bref: WRef<RExpr> = p.input;
-            let body: RExpr = bref.any().view::<RExpr>();
-
-            // (c) PROJECTION COMPOSITION — RProj over RProj: keep the OUTER
-            // selection, drop the inner projection layer (its rows are re-projected
-            // anyway). Recurse on the inner projection's own body.
-            match body {
-                RExpr::Proj(inner_p) => {
-                    let cref: WRef<RExpr> = inner_p.input;
-                    let sub: RSimplified = simplify_rbody(cref, cref.any().view::<RExpr>(), h);
-                    if sub.empty { return empty_proj(h, sub.root, sel); }
-                    return simplify_proj_root(h, sub.root, sel);
-                }
-                _ => {
-                    let sub: RSimplified = simplify_rbody(bref, body, h);
-                    if sub.empty { return empty_proj(h, sub.root, sel); }
-                    return simplify_proj_root(h, sub.root, sel);
-                }
-            }
-        }
-        // A non-projection root is not produced by the lowering; pass through.
-        _ => { return rsimp(root_ref); }
-    }
-}
 
 // Assemble the projection root over an already-simplified body, applying the
 // identity-projection peephole (rule b): a bare identity `select v` over an
 // UNFILTERED scan whose loop var is `v` needs no per-row copy — the emitter can
 // return the source slice. Otherwise rebuild `RProj(body, sel)`.
-fn simplify_proj_root(h: &Writ, body: WRef<RExpr>, sel: WRef<SExpr>) -> RSimplified {
-    let be: RExpr = body.any().view::<RExpr>();
-    let vname: str = input_scan_var(be);
-    let is_scan_only: bool = vname.len() > 0i64;   // "" ⇒ body is filtered / join / aggr
-    if is_scan_only && is_identity_sel(sel, vname) {
-        // (b) identity projection over a bare scan → passthrough marker.
-        return RSimplified { root: rebuild_proj(h, body, sel), empty: false, identity: true };
-    }
-    return rsimp(rebuild_proj(h, body, sel));
-}
 
 // Wrap an EMPTY body (a const-false filter proved it yields no rows) back into a
 // `RProj(body, sel)` so the emitter sees a full projection root — it reads the
 // scan (signature) + `sel` (result type) off it, then emits an empty-Vec return.
-fn empty_proj(h: &Writ, body: WRef<RExpr>, sel: WRef<SExpr>) -> RSimplified {
-    return RSimplified { root: rebuild_proj(h, body, sel), empty: true, identity: false };
-}
 
 // ════════════════════════════════════════════════════════════════════════════
 // SHARED IR-LEVEL JOIN-STEP ANALYSIS (the pure half of the join-strategy

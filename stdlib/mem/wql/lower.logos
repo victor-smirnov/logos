@@ -123,54 +123,6 @@ pub fn make_ident_sel(h: &Writ, name: str) -> WRef<SExpr> {
 // graph step REdge{input, src, base_var, path, var_name, row_ty, on, has_on,
 // is_anti} — containment joins have no right scan (the source is a field path
 // of an outer-bound row var, walker-validated + stamped).
-pub fn fold_join_steps(input0: WRef<RExpr>, steps: RQJoinStepArr, h: &Writ) -> WRef<RExpr> {
-    let mut cur: WRef<RExpr> = input0;
-    let ns: i64 = steps.len();
-    let mut i: i64 = 0i64;
-    while i < ns {
-        let st: RQJoinStep = steps.step_at(i);
-        if st.is_edge {
-            let n: REdge = h.make::<REdge>();
-            n.input    = cur;
-            n.src      = st.src_name;   // walker-stamped full expression text
-            n.base_var = st.base_var;
-            // Join the grammar's segment fan-out into the dotted path text
-            // (self-describing IR — queue-2 re-resolves base_var + path).
-            let mut pb: String = String::new();
-            let segs: RQPathSegArr = st.path_arr();
-            let np: i64 = segs.len();
-            let mut k: i64 = 0i64;
-            while k < np {
-                if k > 0i64 { pb.push_str("."); }
-                pb.push_str(segs.seg_at(k).name);
-                k = k + 1i64;
-            }
-            n.path     = lw_str(&pb);
-            n.var_name = st.var_name;
-            n.row_ty   = st.row_ty;
-            n.has_on   = st.has_on;
-            n.on       = st.on;
-            n.is_anti  = st.is_anti;
-            cur = WRef::<RExpr>::from_any(n.as_ref());
-        } else if st.is_anti {
-            let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
-            let n: RAnti = h.make::<RAnti>();
-            n.left = cur; n.right = right; n.on = st.on;
-            // The plan's decision rides along (ADR 0024 S4) — lowering is a
-            // change of representation, not of plan.
-            n.jstrat = st.jstrat; n.jsel = st.jsel; n.jground = st.jground;
-            cur = WRef::<RExpr>::from_any(n.as_ref());
-        } else {
-            let right: WRef<RExpr> = make_scan(h, st.src_name, st.row_ty, st.var_name);
-            let n: RJoin = h.make::<RJoin>();
-            n.left = cur; n.right = right; n.on = st.on;
-            n.jstrat = st.jstrat; n.jsel = st.jsel; n.jground = st.jground;
-            cur = WRef::<RExpr>::from_any(n.as_ref());
-        }
-        i = i + 1i64;
-    }
-    return cur;
-}
 
 // Lower an RQJoin → RLimit?( RDistinct?( RProj( RSort?( RFilter?( join-chain ) ), select ) ) ).
 
@@ -179,53 +131,6 @@ pub fn fold_join_steps(input0: WRef<RExpr>, steps: RQJoinStepArr, h: &Writ) -> W
 // Each surface `RQAgg` spec is copied to a relational `RAgg` (out/fn_name/arg).
 // `having` gets NO node of its own — it is an ordinary RFilter over the RAggr
 // output (the predicate ranges over the group key + aggregate output names).
-fn lower_aggr(g: RQAggr, h: &Writ) -> WRef<RExpr> {
-    let scan: WRef<RExpr> = make_scan(h, g.a_name, g.a_ty, g.x_var);
-    let mut input: WRef<RExpr> = scan;
-    // Optional join steps: the aggregate ranges over the JOINED stream (the
-    // same left-deep fold as the join shape; where filters ABOVE the chain).
-    if g.has_steps() {
-        input = fold_join_steps(input, g.steps_arr(), h);
-    }
-    if g.has_where {
-        input = make_filter(h, input, g.where_pred);
-    }
-    // Copy the surface aggregate-column list → relational RAgg specs.
-    let src_aggs: RQAggArr = g.aggs_arr();
-    let acount: i64 = src_aggs.len();
-    let mut ra: RAggArr = h.make::<RAggArr>();
-    ra.set_len(acount);
-    let mut i: i64 = 0i64;
-    while i < acount {
-        let sa: RQAgg = src_aggs.agg_at(i);
-        let mut rg: RAgg = h.make::<RAgg>();
-        rg.out     = sa.name;
-        rg.fn_name = sa.fn_name;
-        rg.has_arg = sa.has_arg;
-        rg.arg     = sa.arg;
-        ra.set_agg(i, rg.as_ref());
-        i = i + 1i64;
-    }
-    let n: RAggr = h.make::<RAggr>();
-    n.input = input;
-    n.key   = g.key;
-    n.aggs  = WRef::<RAggArr>::from_any(ra.as_ref());
-    let mut top: WRef<RExpr> = WRef::<RExpr>::from_any(n.as_ref());
-    if g.has_having {
-        top = make_filter(h, top, g.having_pred);
-    }
-    if g.has_order {
-        top = make_sort(h, top, g.order_key, g.order_desc);
-    }
-    let mut root: WRef<RExpr> = make_proj(h, top, g.select);
-    if g.distinct {
-        root = make_distinct(h, root);
-    }
-    if g.has_limit {
-        root = make_limit(h, root, g.limit_n, g.limit_is_param, g.limit_param);
-    }
-    return root;
-}
 
 // Lower an RQFind → RProj( RFilter( RScan ), identity ) — the RFilter(RScan)
 // shape with an IDENTITY projection; the single-row discipline is the SELM_FIND
@@ -2054,14 +1959,6 @@ pub fn desugar_program_gpaths(root: WAny, h: &Writ, err: &mut String) -> bool {
 
 /// The `Aggr` shape only: single-source and join-chain entries are emitted
 /// from the plan (`dplan::plan_entry_simple` / `plan_entry_chain`, ADR 0031 R6.2/R6.4).
-pub fn lower_rquery_to_rexpr(plan: RQuery, h: &Writ) -> WRef<RExpr> {
-    match plan {
-        RQuery::Simple(_s) => { logos.lang.panic::panic("ICE: a `Simple` entry reached the relational lowering — it is emitted from the plan (ADR 0031 R6.2)"); return null_rref(); }
-        RQuery::Join(_j)  => { logos.lang.panic::panic("ICE: a `Join` entry reached the relational lowering — it is emitted from the plan (ADR 0031 R6.4)"); return null_rref(); }
-        RQuery::Aggr(g)   => { return lower_aggr(g, h); }
-        RQuery::Find(_f) => { logos.lang.panic::panic("ICE: a `find` entry reached the relational lowering — it is emitted from the plan (ADR 0031 R6.2)"); return null_rref(); }
-    }
-}
 
 // ── Mapping fusion (ADR 0016 M2b-2): source-param rename ──────────────────────
 // A mapping's rel bodies reference the mapping's OWN source param (`from w …`).
