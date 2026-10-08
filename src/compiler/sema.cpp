@@ -2173,12 +2173,22 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
     // the empty→all robustness fallback below doesn't silently re-admit a
     // candidate the user explicitly scoped to a different module.
     bool from_excluded_any = false;
+    // Q1 row 2: the imports a function is visible through are the same as a
+    // type's — direct imports AND their `pub use` re-exports (Rust re-exports
+    // every namespace).
+    const auto& imports = effective_import_pkgs();
     for (auto* fi : all) {
+        // (A type's methods are visible through the type in Rust; exempting them
+        // here waits for static calls to name their owner by identity — Q1 row
+        // 4 — since `Buffer__new` is a spelled key two homonym structs share.)
+        // Re-exports widen a FREE function's visibility; a method's stays the
+        // direct imports' until trait scope is resolved by identity (row 4):
+        // the prelude re-exports logos.lang.hash, whose `Hash::hash` Rust's
+        // prelude does not bring into scope.
+        const auto& in = fi->is_method ? cur_imports_.wildcard_packages : imports;
         bool visible = fi->package.empty() ||
                        fi->package == cur_package_ ||
-                       std::find(cur_imports_.wildcard_packages.begin(),
-                                 cur_imports_.wildcard_packages.end(),
-                                 fi->package) != cur_imports_.wildcard_packages.end();
+                       std::find(in.begin(), in.end(), fi->package) != in.end();
         if (!visible) continue;
         if (auto it = cur_imports_.pkg_from_module_id.find(fi->package);
             it != cur_imports_.pkg_from_module_id.end() &&
@@ -2193,7 +2203,10 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
     }
     // Empty-fallback for synthetic/unprimed phases — but NOT when the emptiness
     // is an intentional `from`-restriction (else the negative case never errors).
-    if (out.empty() && !from_excluded_any) return all;
+    if (out.empty() && !from_excluded_any) {
+        if (!all.empty()) logos::probe::census("q1.visible.fallback");   // Q1 row 4 retires it
+        return all;
+    }
     return out;
 }
 
@@ -3426,6 +3439,24 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
             if (auto t = check_alias(ukey)) return t;
         for (auto& pkg : cur_imports_.wildcard_packages)
             if (auto t = check_alias(sema_key(pkg, ukey))) return t;
+    }
+    // Q1 row 2: Rust resolves a name PER SCOPE — the package's own items, then
+    // imports, then the root — every nominal kind at once. Searching all tiers
+    // for a struct before any enum let an imported struct beat an enum this
+    // package declares. Rank first, privacy-free; the winner is then looked up
+    // by its own (privacy-checking) finder below. Equal tiers keep the kind
+    // order struct, datatype, enum.
+    {
+        auto rank = [&](const std::string& pkg) { return pkg == cur_package_ ? 0 : pkg.empty() ? 2 : 1; };
+        auto [sp, s0] = lookup_qualified_<false>(structs_, name);
+        auto [dp, d0] = lookup_qualified_<false>(datatypes_, name);
+        auto [ep, e0] = lookup_qualified_<false>(enums_, name);
+        const int rs = s0 ? rank(sp) : 9, rd = d0 ? rank(dp) : 9, re = e0 ? rank(ep) : 9;
+        const int best = std::min({rs, rd, re});
+        if (best < 9 && rs != best) {
+            if (rd == best) { auto [dpkg, dsi] = find_datatype_by_name(name); if (dsi) return make_datatype_type(name, dpkg); }
+            else if (re == best) { auto [epkg, esi] = find_enum_by_name(name); if (esi) return make_enum_type(name, epkg); }
+        }
     }
     {
         auto [spkg, ssi] = find_struct_by_name(name);

@@ -1,0 +1,12 @@
+// A package's own `enum String` shadows the imported `logos.mem.string::String` in a type position — Rust
+// resolves per scope (the module's items before glob imports), every kind at once. Logos searched every tier for
+// a STRUCT before any enum, so `let x: String` named the imported struct ("expected String, got String").
+// ADR 0030 Q1 row 2. rustc twin (a `mod m { pub struct String }` glob-imported beside a local enum): exit 0.
+package local_enum_shadows_imported_struct;
+use logos.mem.string;
+enum String { A, B }
+fn pick(s: String) -> i32 { match s { String::A => { return 1; } String::B => { return 2; } } }
+fn main() -> i32 {
+    let x: String = String::B;
+    return pick(x) - 2;
+}
