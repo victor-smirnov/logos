@@ -1646,7 +1646,10 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
         // core rewrites injected (native rels materialize via their stdlib
         // helper in the prelude — nothing to emit).
         if prm.plan_core.rels.len() > 0i64 {
-            if !emit_rel_fns(name, params_text, prm, &scc, h) { return false; }
+            // ADR 0031 R7 — each SCC's fixpoint, planned before anything is
+            // emitted (the drivers spell the plan).
+            let scc_plans: Vec<DScc> = plan_sccs(prm, &scc, h);
+            if !emit_rel_fns(name, params_text, prm, &scc, &scc_plans, h) { return false; }
         }
         let mut p: i64 = 0i64;
         while p < scc.nscc {
@@ -2069,55 +2072,6 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 // type through `typing` (`type_clause` here, `type_chain` there): per source,
 // schema then rel columns, then the scalar params, then the module's UDF returns.
 
-/// Decide every classic step of ONE clause and record the decision on its atoms.
-///
-/// The type dict is `typing::type_clause` over the core's atoms, resolved from
-/// the declarations (ADR 0031 R4.0) — the function the emitter types with.
-///
-/// Traversal steps are nested loops by construction. They also STOP the walk,
-/// and the dict stops at the first one: the decisions below were made, and
-/// measured, without the traversal's element type in the dict, and a flat
-/// column name a later traversal's struct also declares would type an earlier
-/// key differently. Later steps are left `JS_NONE`; `plan_insert_drains` reads
-/// that as "not proven read-once" and drains the step's source on
-/// `MG_UNDECIDED`.
-fn plan_decide_chain(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ, full: bool) {
-    let t: ElTypes = type_clause(view, prm, cl, !full);
-    let n: i64 = cl.body.len();
-    let mut i: i64 = 1i64;
-    while i < n {
-        // the `on` a positive step carries: the On condition right after it
-        let mut next_on: WAny = WAny::null();
-        if i + 1i64 < n {
-            match &cl.body[i + 1i64] {
-                CLit::Cond(c) => { match &c.site { CSite::On => { next_on = c.e; } CSite::Where => { } } }
-                CLit::Atom(_a) => { }
-                CLit::Trav(_t) => { }
-            }
-        }
-        match &mut cl.body[i] {
-            CLit::Atom(a) => {
-              if a.strat == JS_NONE() {
-                let on: WAny = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64) } else { WAny::null() } } else { next_on };
-                let ss: StepSel = decide_join_step(WRef::<SExpr>::from_any(on), a.var, &t, h);
-                a.strat = ss.strat;
-                a.jsel  = ss.sel as i32;
-                a.ground = jg_pack(&ss.g);
-                // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read
-                // `el_class_repr(ss.key_ty)` — the class's representative — so a `u64`
-                // key was announced as `hash join on i64` while the emitted map is
-                // `HashMap<u64, …>`. A justification that names a type the code does not
-                // use is not a justification of that code.
-                trace_step(a.var, &ss);
-              }
-            }
-            CLit::Trav(_t) => { if !full { return; } }   // pass 1: every step after it stays undecided
-            CLit::Cond(_c) => { }
-        }
-        i = i + 1i64;
-    }
-}
-
 /// Decide the join steps of the ENTRY query (a clause with more than one source).
 ///
 /// Rel BODIES are not visited: a program with rel blocks materializes every
@@ -2126,7 +2080,7 @@ fn plan_decide_chain(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ
 /// emitter decides them by the same rule at emission — stated in `analyze_chain`.
 fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
     let view: OView = oview_module_ast();
-    plan_decide_chain(prm, &view, &mut pc.entry.clause, h, false);
+    plan_decide_clause(prm, &view, &mut pc.entry.clause, h, false);
 }
 
 /// ADR 0031 R5.3 — EVERY STEP'S STRATEGY IS THE PLANNER'S. What pass 1 left
@@ -2142,12 +2096,12 @@ fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
 // pass 1 could not decide, and that is a claim about pass 1, so it reads pass 1.
 fn plan_decide_rest(prm: &MacroParams, pc: &mut CProgram, h: &Writ, entry: bool) {
     let view: OView = oview_module_ast();
-    if entry { plan_decide_chain(prm, &view, &mut pc.entry.clause, h, true); return; }
+    if entry { plan_decide_clause(prm, &view, &mut pc.entry.clause, h, true); return; }
     let mut r: i64 = 0i64;
     while r < pc.rels.len() {
         let mut b: i64 = 0i64;
         while b < pc.rels[r].rules.len() {
-            plan_decide_chain(prm, &view, &mut pc.rels[r].rules[b].clause, h, true);
+            plan_decide_clause(prm, &view, &mut pc.rels[r].rules[b].clause, h, true);
             b = b + 1i64;
         }
         r = r + 1i64;

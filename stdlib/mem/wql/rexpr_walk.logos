@@ -11232,20 +11232,26 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
         CMode::All => { }
         CMode::First => { }
     }
-    let mut ch: DNest = plan_nest(&ru.clause);
+    return rel_clause_frag(ri, &ru.clause, ovr, prm, out, h, hx);
+}
+
+// One rel body from a clause — the rule's, or a fixpoint variant's own (R7.3).
+fn rel_clause_frag(ri: i64, cl: &CClause, ovr: &Vec<str>,
+                   prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
+    let mut ch: DNest = plan_nest(cl);
     jchain_rel_rename(&mut ch, ovr);
-    match &ru.clause.group {
+    match &cl.group {
         Option::Some(g) => {
             if prm.rel_is_agg[ri] {
-                return rel_body_agg_frag(&ru.clause, g, &ch, ri, prm, out, h, hx);
+                return rel_body_agg_frag(cl, g, &ch, ri, prm, out, h, hx);
             }
             error("wql!: rel body must be a scan or join query (from/join/where/select)");
             return false;
         }
         Option::None => { }
     }
-    if ch.n == 0i64 { return rel_body_simple_frag(&ru.clause, &ch, ri, prm, out, h); }
-    return rel_body_join_frag(&ru.clause, &ch, ri, prm, out, h, hx);
+    if ch.n == 0i64 { return rel_body_simple_frag(cl, &ch, ri, prm, out, h); }
+    return rel_body_join_frag(cl, &ch, ri, prm, out, h, hx);
 }
 
 // A rel body's chain for one emission: each slot takes its override, if any.
@@ -11401,7 +11407,11 @@ fn variant_blocks(pl: &DScc, prm: &MacroParams, h: &Writ, out: &mut Vec<ExprBlob
             while q < run.inv.len() { inv.push(run.inv.get(q)); q = q + 1i64; }
             nrun = nrun + 1i64;
             let mut hx: Hoist = Hoist { on: hoist, base: 100i64 * nrun, inv: inv, builds: vec_new::<ExprBlob>() };
-            if !rel_body_frag(pm.rel, run.rule, &run.ovr, prm, &mut f, h, &mut hx) { return false; }
+            let ok: bool = match &run.clause {
+                Option::Some(rc) => rel_clause_frag(pm.rel, rc, &run.ovr, prm, &mut f, h, &mut hx),
+                Option::None => rel_body_frag(pm.rel, run.rule, &run.ovr, prm, &mut f, h, &mut hx),
+            };
+            if !ok { return false; }
             while hx.builds.len() > 0i64 { hoisted.push(hx.builds.remove(0i64)); }
             runs.push(f);
             v = v + 1i64;
@@ -11532,7 +11542,7 @@ fn variant_blocks(pl: &DScc, prm: &MacroParams, h: &Writ, out: &mut Vec<ExprBlob
 // disciplinary — counting derivations through a cycle diverges.
 fn emit_scc_fn(c: i64, fn_name: str,
                params_text: str, prm: &MacroParams, scc: &RelScc,
-               incr: bool, h: &Writ) -> bool {
+               incr: bool, pl: &DScc, h: &Writ) -> bool {
     // Members (declaration order) + the union out-of-SCC dep mask.
     let mut mem: Vec<i64> = Vec::<i64>::new();
     let mut nm: i64 = 0i64;
@@ -11725,7 +11735,6 @@ fn emit_scc_fn(c: i64, fn_name: str,
     // a seed is a body with NO in-SCC source. CROSS-EPOCH: EVERY body runs, at
     // its canonical (total) source names — round 0 is a full naïve pass, see
     // (2) in this fn's header.
-    let pl: DScc = plan_scc(prm, scc, c);
     let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m2: i64 = 0i64;
     while m2 < pl.members.len() {
@@ -11868,7 +11877,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
     // VARIANTS: every recursive body × its in-SCC occurrences.
     let mut variants: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut hoisted: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    if !variant_blocks(&pl, prm, h, &mut variants, true, &mut hoisted) { return false; }
+    if !variant_blocks(pl, prm, h, &mut variants, !env_on("LOGOS_DEEM_NO_HOIST"), &mut hoisted) { return false; }
     // ── Materialize each AGGREGATE member's total = argmin/argmax per key ──
     // The fixpoint left the best value per key in the map; walk the distinct-key
     // roster and emit one `(key, best)` row into the caller's total Vec (the
@@ -12321,7 +12330,7 @@ fn member_block_frag(runs: Vec<ExprBlob>, prm: &MacroParams, ri: i64) -> ExprBlo
 // stands untouched.
 fn emit_scc_od_fns(c: i64, fn_name: str,
                    params_text: str, prm: &MacroParams, scc: &RelScc,
-                   h: &Writ) -> bool {
+                   pl: &DScc, h: &Writ) -> bool {
     let mut mem: Vec<i64> = Vec::<i64>::new();
     let mut nm: i64 = 0i64;
     let mut mask: RelSet = relset_new(prm.rel_n);
@@ -12406,7 +12415,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
         m2 = m2 + 1i64;
     }
     // RUNS: every body of every member, once, at its canonical source names.
-    let pl0: DScc = plan_scc(prm, scc, c);
+    let pl0: &DScc = pl;
     let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m3: i64 = 0i64;
     while m3 < pl0.members.len() {
@@ -12552,10 +12561,9 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     }
     // VARIANTS: every RECURSIVE body × its in-SCC occurrences. A body with no
     // in-SCC occurrence is a base body and does NOT run here — see the header.
-    let pl: DScc = plan_scc(prm, scc, c);
     let mut pvars: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut phoisted: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    if !variant_blocks(&pl, prm, h, &mut pvars, false, &mut phoisted) { return false; }
+    if !variant_blocks(pl, prm, h, &mut pvars, false, &mut phoisted) { return false; }
     // PROMOTE: delta ← next-delta, OD ∪= delta (the shadow set already holds it).
     let mut pprom: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut ma: i64 = 0i64;
@@ -12847,7 +12855,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
 // and checked stratification. `fn_name` is the entry resource name — it
 // prefixes the helper names so multiple wql! resources per module coexist.
 pub fn emit_rel_fns(fn_name: str, params_text: str,
-                    prm: &MacroParams, scc: &RelScc, h: &Writ) -> bool {
+                    prm: &MacroParams, scc: &RelScc, plans: &Vec<DScc>, h: &Writ) -> bool {
     // ── the items are QUOTES (ADR 0024 S5) ────────────────────────────────
     // ⚠ THE ONE MULTI-ITEM EMITTER. The chunk held every rel fn at once; a
     // `quote_item!` cannot, because there is no `parse_as` rule for an ITEM
@@ -12861,7 +12869,7 @@ pub fn emit_rel_fns(fn_name: str, params_text: str,
     while p < scc.nscc {
         let c: i64 = scc.order[p];
         if scc.rec[c] {
-            if !emit_scc_fn(c, fn_name, params_text, prm, scc, false, h) { return false; }
+            if !emit_scc_fn(c, fn_name, params_text, prm, scc, false, &plans.as_slice()[c], h) { return false; }
             // P3b — the CROSS-EPOCH sibling, emitted from the SHAPE and not from
             // a request. ⚠ It is emitted whenever the shape admits it, even if
             // the entry query then declines the handle for an unrelated reason
@@ -12901,7 +12909,7 @@ pub fn emit_rel_fns(fn_name: str, params_text: str,
                 // admitted member.
                 plan_trace("rel incr driver", "EMITTED", vis_strip(fn_name),
                            "one cross-epoch semi-naive driver per admitted recursive SCC — its member totals are POSITIONAL out-params, so the SCC id is the whole argument and the member scan decides only WHETHER, never WHICH");
-                if !emit_scc_fn(c, fn_name, params_text, prm, scc, true, h) { return false; }
+                if !emit_scc_fn(c, fn_name, params_text, prm, scc, true, &plans.as_slice()[c], h) { return false; }
                 // DRed PHASE 1 — the over-delete siblings. Emitted from the
                 // SHAPE beside `_i`, on the same admission and once per SCC for
                 // the same reason (the member scan decides WHETHER, never
@@ -12911,7 +12919,7 @@ pub fn emit_rel_fns(fn_name: str, params_text: str,
                 // `emit_scc_od_fns` for what is in fence and what is not.
                 plan_trace("rel od driver", "EMITTED", vis_strip(fn_name),
                            "DRed phases 1 and 2 — `_od` (seed: base+recursive bodies at the deleted rows over the previous total), `_odp` (propagate: recursive bodies only, over the survivors, read==write==od) and `_cpt` (compact: in-place retain+pop to T∖OD, handing back the removed rows in `__rm_<m>`, refusing before it writes if OD⊄T). PHASE 3 IS `_i` RE-ENTERED OVER THE SURVIVOR EDB WITH THE COMPACTED TOTAL — no fourth sibling is emitted for it. THE SURFACE THAT FOLLOWS IS `<q>_retract`, emitted under `emit_incremental`'s `dred` and forwarding to `__wql_<q>_scc<c>_dred`, NOT from here.");
-                if !emit_scc_od_fns(c, fn_name, params_text, prm, scc, h) { return false; }
+                if !emit_scc_od_fns(c, fn_name, params_text, prm, scc, &plans.as_slice()[c], h) { return false; }
             }
         } else {
             let mut i: i64 = 0i64;
