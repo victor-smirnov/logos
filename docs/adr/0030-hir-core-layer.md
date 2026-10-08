@@ -1075,6 +1075,17 @@ DefId is Q1 (path resolution into the HIR), not this row. Still on row 2: the
 completeness checks; `trait_method_registry_` remains as collect_fn's
 collision-naming state only.
 
+**Row 3 and the cleanup, 2026-10-07.** mono records each emitted struct's
+destructor, selected by identity (`LProgram::drop_symbols`), and mlir's drop
+glue and SDrop sites read it (row 3a/3b); measured in shadow first — 1,029,589
+agreements, and the two kinds of difference were the scan answering a
+non-existent symbol for a homonym and the table naming an inherent `drop` (a
+mono naming defect for G156-5's trait-qualified methods, fixed). Enums and
+`dst_len` keep the name scan. The fold being the only rule, the ambiguous-name
+set, `ambiguous_type_arg_fingerprint`, the dependency-decls plumbing that fed
+them and the `LOGOS_NO_FOLD` switch are deleted (no symbol changes: abi/logos.abi
+is byte-identical).
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

@@ -981,19 +981,6 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     sema_opts.ast_unit_key   = ast_unit_key; // UnitGraph §1.2 — stamped onto every lowered fn
     sema_opts.module_name_to_id = module_name_to_id;  // §3/§B-coex: resolve `use … from`
     sema_opts.module_prelude = module_prelude;
-    // G156-1: load ALL nominal decls (struct+enum) exported by the dependency
-    // archives' v3 trailer — including packages whose ASTs are loaded lazily (or
-    // not at all) in this build — so a higher tier's ambiguity universe sees a
-    // lower archive's plain-struct decls (memstore.DirEntry) and folds its own
-    // clashing instance (fs.DirEntry). The lower archive's emitted symbols are
-    // untouched → metaprog-JIT unperturbed.
-    {
-        StdlibExports dep_exports = load_archive_exports(dep_archives);
-        auto& dnd = sema_opts.dep_nominal_decls;
-        dnd.reserve(dep_exports.all_struct_decls.size() + dep_exports.all_enum_decls.size());
-        for (auto& pn : dep_exports.all_struct_decls) dnd.push_back(pn);
-        for (auto& pn : dep_exports.all_enum_decls)   dnd.push_back(pn);
-    }
     std::optional<PhaseTimer> _pt;
     _pt.emplace("sema+lower");
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);

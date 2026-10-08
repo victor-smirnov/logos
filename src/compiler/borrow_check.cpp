@@ -16815,10 +16815,6 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only, bool
     // silently. Measured: 800+ such misses in one Memoria fixture.
     TypeModuleScope _type_module_scope(&prog.pkg_module_ids);
     LangItemsScope _lang_items_scope(&prog.lang_items);
-    std::unordered_set<std::string> ambiguous_type_names;
-    prog.ambiguous_type_names.for_each(
-        [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });
-    set_ambiguous_type_names(&ambiguous_type_names);
     const TypeSets ts = build_type_sets(prog);
     // Escape-analysis callee index — built ONCE here, shared (const) by every
     // per-function BorrowChecker below (was a per-instance map rebuilt N times).

@@ -259,10 +259,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // local set for the thread_local; install for the whole run(). Reading the
     // carried set (not recomputing from in_.structs) guarantees byte-identical
     // tagging with sema and mlir even as mono prunes dead defs.
-    std::unordered_set<std::string> ambiguous_type_names;
-    in_.ambiguous_type_names.for_each(
-        [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });
-    set_ambiguous_type_names(&ambiguous_type_names);
 
     // Stage 3g.1: in_.mirror_table is already comprehensive — sema's end-of-
     // run pass emitted every stmt/block/pattern, and LirBuilder mirrored each
@@ -329,7 +325,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // iters (which feed out_ back in as the next in_) keep qualifying symbols.
     out_.pkg_module_ids      = in_.pkg_module_ids;
     out_.lang_items          = in_.lang_items;
-    out_.ambiguous_type_names = in_.ambiguous_type_names;  // G156-1: carry to mlir
     out_.wstatic_registry_   = std::move(in_.wstatic_registry_);
     out_.wstatic_sources     = std::move(in_.wstatic_sources);
     // ADR 0021 Phase 4a: sema-filled factory demands (deferred bound /

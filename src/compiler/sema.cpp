@@ -1574,13 +1574,7 @@ bool type_is_lang_item(TypeRef t, std::string_view lang) {
 // ≥2 distinct packages). Null disables the type-arg tag (legacy mangle). Each
 // phase (sema/mono/mlir) builds its OWN set from the same transitive universe
 // and installs it here; TypeModuleScope save/restores the pointer.
-thread_local const std::unordered_set<std::string>* g_ambiguous_type_names = nullptr;
-void set_ambiguous_type_names(const std::unordered_set<std::string>* s) {
-    g_ambiguous_type_names = s;
-}
-const std::unordered_set<std::string>* get_ambiguous_type_names() {
-    return g_ambiguous_type_names;
-}
+
 
 // The owning module_id for a package, from whichever pkg→module map backing is
 // active (sema's C++ map or mono/mlir's ObjectMapRef). Empty ⇒ no map / package
@@ -1629,10 +1623,6 @@ static std::string_view pkg_owning_module_id(std::string_view pkg) {
 // ADR 0030 S9 row 8 step H (transition switch, deleted when it is the only
 // rule): LOGOS_FOLD_ALL folds the declaring package into every nominal type's
 // spelling, independent of which names the program finds ambiguous.
-static bool fold_all_types() {
-    static const bool on = std::getenv("LOGOS_NO_FOLD") == nullptr;   // S9b: ON (transition)
-    return on;
-}
 static std::string pkg_fold_code(std::string_view pkg) {
     std::string_view mid = pkg_owning_module_id(pkg);
     uint64_t h = 1469598103934665603ull;           // FNV-1a 64 offset basis
@@ -1649,29 +1639,10 @@ static std::string pkg_fold_code(std::string_view pkg) {
     return std::string(buf);
 }
 
-std::string type_module_suffix(std::string_view name, std::string_view pkg) {
-    if (pkg.empty()) return {};
-    if (fold_all_types()) return pkg_fold_code(pkg);
-    if (g_ambiguous_type_names && !name.empty() &&
-        g_ambiguous_type_names->count(std::string(name))) {
-        std::string_view mid = pkg_owning_module_id(pkg);
-        if (!mid.empty()) {
-            uint64_t h = 1469598103934665603ull;           // FNV-1a 64 offset basis
-            auto mix = [&h](std::string_view s) {
-                for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }  // FNV prime
-            };
-            mix(mid);
-            mix(std::string_view("\x1f", 1));
-            mix(pkg);
-            char buf[24];
-            std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
-            return std::string(buf);
-        }
-        // ambiguous but no owning module_id (plain compile) → legacy below.
-    }
-    if (pkg.size() >= 6 && pkg.substr(0, 6) == "logos.") return {};  // stdlib: unique by name
-    std::string_view mid = pkg_owning_module_id(pkg);
-    return mid.empty() ? std::string{} : "$M" + std::string(mid);
+std::string type_module_suffix(std::string_view /*name*/, std::string_view pkg) {
+    // ADR 0030 S9b: the declaring package folds into every nominal type's
+    // spelling (Rust's crate disambiguator) — the rule, for every name.
+    return pkg.empty() ? std::string{} : pkg_fold_code(pkg);
 }
 
 // #58 — THE TYPE-ARGUMENT HALF of the ambiguous-name fold, and ONLY that half.
@@ -1703,20 +1674,6 @@ std::string type_module_suffix(std::string_view name, std::string_view pkg) {
 // type, and every type in a package that HAS a module_id, is byte-identical to
 // before, so the archived symbol set and the abi are untouched
 // (`scripts/abi-check.sh`: ADDED 0, ABI-PRESERVING).
-std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_view pkg) {
-    if (pkg.empty() || name.empty() || fold_all_types()) return {};
-    if (!g_ambiguous_type_names || !g_ambiguous_type_names->count(std::string(name)))
-        return {};
-    if (!type_module_suffix(name, pkg).empty()) return {};  // already folded
-    uint64_t h = 1469598103934665603ull;                    // FNV-1a 64 offset basis
-    auto mix = [&h](std::string_view s) {
-        for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }  // FNV prime
-    };
-    mix(pkg);
-    char buf[24];
-    std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
-    return std::string(buf);
-}
 
 // `impl … for [E; N]` keys: `$array$<E>$<N>`. E is spelled with every type
 // parameter as `_` (a bare parameter is `T`, `Head<T>` is `Head<_>`,
@@ -1819,14 +1776,6 @@ std::vector<std::string> array_impl_lookup_keys(TypeRef concrete) {
 // are ignored: the tag is queried by BARE nominal names only, and keeping the
 // set to bare names makes it byte-identical whether the source is sema's
 // template tables (bare) or mono/mlir's prog.structs (templates + instances).
-void ambiguous_set_accumulate(std::unordered_map<std::string, std::string>& first_pkg,
-                              std::unordered_set<std::string>& out,
-                              std::string_view name, std::string_view pkg) {
-    if (name.empty() || pkg.empty()) return;
-    if (name.find('$') != std::string_view::npos) return;
-    auto [it, inserted] = first_pkg.emplace(std::string(name), std::string(pkg));
-    if (!inserted && it->second != pkg) out.insert(std::string(name));
-}
 
 
 std::string concrete_struct_name(TypeRef t) {
@@ -1875,9 +1824,7 @@ static std::string mangle_type_for_name(TypeRef t) {
         // is reached ONLY from a mangle (concrete_struct_name's `$G…` args, the
         // fn-symbol signature mangle), never as a nominal identity, so folding
         // here cannot desynchronise collect from lower.
-        return concrete_struct_name(t) +
-               ambiguous_type_arg_fingerprint(TypeRef(t).struct_name(),
-                                              TypeRef(t).pkg_name());
+        return concrete_struct_name(t);
     case LogosType::Kind::Enum: {
         // Coexistence + G156-1: fold module_id (and package, for ambiguous names)
         // into the enum's mangled identity so two same-named enums stay distinct.
@@ -3166,28 +3113,6 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     check_symbol_key_separators();
     check_trait_def_identity();
 
-    {
-        // #438: the name is a FIELD of the identity now, not a substring of a key.
-        ambiguous_type_names_.clear();  // fresh per run (checker may be reused)
-        std::unordered_map<std::string, std::string> first_pkg;
-        for (auto& [d, si] : structs_)
-            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, defs_[d].name, si.package);
-        for (auto& [d, ei] : enums_)
-            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, defs_[d].name, ei.package);
-        // G156-1 (trailer v3): fold in dependency-archive nominal decls that are
-        // NOT in structs_/enums_ because their package's AST was loaded lazily
-        // (or not at all). Without these, a higher tier can't see a lower
-        // archive's plain-struct decl of the same name → the cross-module clash
-        // (fs.DirEntry vs memstore.DirEntry) goes undetected. (pkg, name) pairs.
-        if (dep_nominal_decls_)
-            for (auto& [pkg, name] : *dep_nominal_decls_)
-                ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, name, pkg);
-        set_ambiguous_type_names(&ambiguous_type_names_);
-        // Carry the set forward so mono/mlir apply the tag at the SAME names
-        // (they see a mono-pruned prog.structs → would recompute a subset).
-        for (auto& n : ambiguous_type_names_)
-            lir_mirror_map_put_null(prog, prog.ambiguous_type_names, n);
-    }
 
     if (!result_.ok()) {
         prog.diags = std::move(result_);
@@ -12194,7 +12119,6 @@ lir::LProgram sema_lower(const std::vector<logos::writ::Writ>& asts,
     // self-gating — a library build's own not-yet-compiled fns are absent, so
     // their bodies are lowered locally and mono's scan_fn sees their generics.
     checker.set_binary_symbols(&opts.binary_symbols);
-    checker.set_dep_nominal_decls(&opts.dep_nominal_decls);  // G156-1 ambiguity universe
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is
     // the discriminator.
