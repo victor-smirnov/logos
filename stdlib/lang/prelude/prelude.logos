@@ -42,3 +42,5 @@ pub use logos.lang.result;
 
 // Explicit-drop free fn (the Drop *trait* lives in logos.lang.ops above)
 pub use logos.lang.drop;
+pub use logos.lang.option.Option.{Some, None};
+pub use logos.lang.result.Result.{Ok, Err};

@@ -112,7 +112,51 @@ bool Lowering::is_surface(TinyMapView n) noexcept {
 AnyVal Lowering::lower_body(AnyVal node, bool stmt, bool fragment) {
     fragment_ = fragment;
     loops_.clear(); barriers_.clear(); labeled_body_ = false; valued_loops_.clear();
+    bound_.clear();
+    collect_binders(node);
     return lower(node, stmt ? Ctx::Stmt : Ctx::Expr);
+}
+
+void Lowering::collect_binders(AnyVal v) {
+    if (is_array(v)) {
+        writ::ArrayView a(v, nullptr);
+        for (uint64_t i = 0; i < a.size(); ++i) collect_binders(a.get(i));
+        return;
+    }
+    TinyMapView n = map_of(v);
+    if (n.is_null()) return;
+    const int32_t c = code_of(n);
+    if (opaque(c)) return;
+    std::string_view name;
+    if (c == la::PAT_WILD.code || c == la::PAT_AT.code) {
+        name = text_of(n, la::NAME.code);
+        if (!name.empty() && val_res_) {
+            const std::string r = val_res_(name);
+            if (r.starts_with("const:") || r.starts_with("ctor:") || r.starts_with("variant:")) name = {};
+        }
+    } else if (c == la::PAT_FIELD.code) {
+        if (!n.has_key(la::VALUE)) name = text_of(n, la::NAME.code);
+    } else if (c == la::LET.code || c == la::PARAM.code || c == la::NESTED_FN.code) {
+        name = text_of(n, la::NAME.code);
+    }
+    if (!name.empty()) bound_.emplace(name);
+    const uint64_t bits = n.bitmap();
+    for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)
+        if ((bits & (1ull << k)) && k != la::CODE.code) collect_binders(n.get(k));
+}
+
+AnyVal Lowering::with_res(AnyVal cur, std::string_view res) {
+    TinyMapView cn = map_of(cur);
+    auto* m = doc_.make_tiny_map(cn.size() + 1).get();
+    auto& ar = doc_.arena();
+    const uint64_t cb = cn.bitmap();
+    for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)
+        if (cb & (1ull << k)) m->put(k, cn.get(k), ar).get();
+    m->put(la::RES.code, str(res), ar).get();
+    m->set_schema_type_code(cn.schema_type_code());
+    AnyVal out = cur;
+    out.set_ref(m);
+    return out;
 }
 
 AnyVal Lowering::lower(AnyVal v, Ctx ctx) {
@@ -219,16 +263,17 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
     if (c == la::TYPE_REF.code && type_res_ && n.has_key(la::NAME) && !n.has_key(la::QUAL_PARTS) &&
         !n.has_key(la::RES)) {
         std::string path = type_res_(text_of(n, la::NAME.code));
-        if (!path.empty()) {
-            TinyMapView cn = map_of(cur);
-            auto* m = doc_.make_tiny_map(cn.size() + 1).get();
-            auto& ar = doc_.arena();
-            const uint64_t cb = cn.bitmap();
-            for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)
-                if (cb & (1ull << k)) m->put(k, cn.get(k), ar).get();
-            m->put(la::RES.code, str(path), ar).get();
-            m->set_schema_type_code(cn.schema_type_code());
-            cur.set_ref(m);
+        if (!path.empty()) cur = with_res(cur, path);
+    }
+    // Q1 row 3, values: a bare value name no binding of the body (or around
+    // it) can shadow — a variable reference, a plain call's callee.
+    if (val_res_ && !n.has_key(la::RES) &&
+        (c == la::VAR_REF.code ||
+         (c == la::CALL.code && !n.has_key(la::RECEIVER) && !n.has_key(la::QUAL_PARTS)))) {
+        std::string_view name = text_of(n, c == la::VAR_REF.code ? la::NAME.code : la::CALLEE.code);
+        if (!name.empty() && !bound_.count(std::string(name)) && !(local_ && local_(name))) {
+            std::string r = val_res_(name);
+            if (!r.empty()) cur = with_res(cur, r);
         }
     }
     // A block ending in a `loop` statement whose breaks carry a value: the
@@ -827,6 +872,7 @@ TinyMapView Lowering::parse_args(TinyMapView call, ArgsEntry entry, bool& ok) {
     arg_texts_.push_back(std::move(text));
     arg_docs_.push_back(std::move(doc));
     ok = true;
+    collect_binders(rv);
     return map_of(lower(rv, Ctx::Expr));   // the arguments are code in the caller's body
 }
 

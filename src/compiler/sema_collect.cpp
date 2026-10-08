@@ -115,6 +115,10 @@ SemaChecker::ImportScope SemaChecker::build_import_scope_(TinyMapView root, bool
                 dotted += std::string(str_of(part.get(la::NAME.code)));
             }
         }
+        const bool is_pub = use_node.has_key(la::IS_PUB) &&
+                            !use_node.get(la::IS_PUB.code).is_null() &&
+                            use_node.get(la::IS_PUB.code).is_value() &&
+                            use_node.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
         // GR-gp-02: `use pkg.{a, b, c};` parses as USE_VARIANTS with
         // a lowercase TYPE_NAME — desugar to wildcard imports
         // `<dotted>.<TYPE_NAME>.<item>`. Capitalised TYPE_NAME is the
@@ -133,6 +137,13 @@ SemaChecker::ImportScope SemaChecker::build_import_scope_(TinyMapView root, bool
                             if (!v.has_key(la::NAME)) continue;
                             auto bare = std::string(str_of(v.get(la::NAME.code)));
                             std::string full = prefix + "." + bare;
+                            if (is_pub && !cur_package_.empty()) {
+                                auto& vec = pkg_reexports_[cur_package_];
+                                if (std::find(vec.begin(), vec.end(), full) == vec.end()) {
+                                    vec.push_back(full);
+                                    ++reexports_gen_;
+                                }
+                            }
                             if (std::find(scope.wildcard_packages.begin(),
                                           scope.wildcard_packages.end(), full)
                                 != scope.wildcard_packages.end())
@@ -166,6 +177,8 @@ SemaChecker::ImportScope SemaChecker::build_import_scope_(TinyMapView root, bool
                                 str_of(use_node.get(la::TYPE_NAME.code)));
                         }
                         scope.variant_aliases[bare] = enum_qual;
+                        if (is_pub && !cur_package_.empty() && !enum_qual.empty())
+                            pub_variant_aliases_[cur_package_][bare] = dotted + "::" + enum_qual;
                     }
                 }
             }
@@ -227,10 +240,6 @@ SemaChecker::ImportScope SemaChecker::build_import_scope_(TinyMapView root, bool
             }
         }
         // `pub use pkg;` — register as re-export from current package
-        bool is_pub = use_node.has_key(la::IS_PUB) &&
-                      !use_node.get(la::IS_PUB.code).is_null() &&
-                      use_node.get(la::IS_PUB.code).is_value() &&
-                      use_node.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
         if (is_pub && !cur_package_.empty()) {
             ++reexports_gen_;
             auto& vec = pkg_reexports_[cur_package_];
@@ -6724,8 +6733,9 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     // S9b row 1: the owner by identity — the impl's (or struct body's) Self.
     info.reg_seq = ++reg_seq_next_;
     // Q1 row 1: a free fn's identity is its overload set — package + name
-    // (Logos overloads by signature; the members stay funcs_ symbols).
-    if (struct_ctx.empty() && !raw_name.empty())
+    // (Logos overloads by signature; the members stay funcs_ symbols). A
+    // `#[fn_macro]` fn is a macro: the macro namespace, as in Rust.
+    if (struct_ctx.empty() && !raw_name.empty() && !pending_fn_macro_)
         info.def = intern_item_(DefKind::Fn, raw_name, get_line(node));
     if (info.is_method) {
         info.method_name = std::string(raw_name);

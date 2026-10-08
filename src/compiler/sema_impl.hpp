@@ -6432,6 +6432,9 @@ private:
     // Re-export graph: pkg_reexports_["a.b"] = ["x.y", "z"] means `pub use x.y; pub use z;`
     // is declared in package a.b. Used by find_* helpers for transitive import resolution.
     logos::compiler::StrMap<std::vector<std::string>> pkg_reexports_;
+    // `pub use pkg.Enum.{V, …};` — a package's re-exported variants: the bare
+    // variant name → the enum's path (`pkg::Enum`).
+    logos::compiler::StrMap<StrMap<std::string>> pub_variant_aliases_;
 
     // #438: nominal types by identity. A struct, a Writ datatype and an enum
     // share Rust's TYPE namespace, so one (package, name) is one DefId whichever
@@ -9118,6 +9121,8 @@ private:
             return li ? (li->package.empty() ? li->name : li->package + "::" + li->name) : std::string();
         });
         hir_.set_type_resolver([this](std::string_view n) { return resolve_type_path_(n); });
+        hir_.set_value_resolver([this](std::string_view n) { return resolve_value_path_(n); });
+        hir_.set_local_probe([this](std::string_view n) { return is_local_binding_(n); });
         writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false, fragment);
         hir_report_();
         return map_of(core);
@@ -9145,6 +9150,63 @@ private:
         const int best = std::min({rs, rd, re});
         if (best == 9) return {};
         return path(rs == best ? sp : rd == best ? dp : ep, name);
+    }
+    // Q1 row 3, values: the item a bare value name denotes here, Rust's
+    // per-scope order — the package's own items, then the imported packages
+    // (and `use E.{V}` variants), then the root package and the prelude
+    // variants — as `<kind>:<path>`; "" for nothing, a type or const
+    // parameter, or a name two imports supply alike.
+    std::string resolve_value_path_(std::string_view name) {
+        if (name.empty() || current_type_params_.count(std::string(name))) return {};
+        auto item = [&](const std::string& pkg) -> std::string {
+            const std::string path = pkg + "::" + std::string(name);
+            if (DefId d = defs_.find(DefNs::Value, pkg, name)) {
+                switch (defs_[d].kind) {
+                case DefKind::Fn:     return "fn:" + path;
+                case DefKind::Const:  return "const:" + path;
+                case DefKind::Static: return "static:" + path;
+                default: break;
+                }
+            }
+            auto sit = structs_.find(type_id(pkg, name));
+            if (sit != structs_.end() && (sit->second.fields.empty() || sit->second.is_tuple_struct))
+                return "ctor:" + path;
+            return {};
+        };
+        if (auto r = item(cur_package_); !r.empty()) return r;
+        std::string hit;
+        auto take = [&](std::string r) {
+            if (r.empty() || r == hit) return true;
+            if (!hit.empty()) return false;
+            hit = std::move(r);
+            return true;
+        };
+        if (auto vit = cur_imports_.variant_aliases.find(std::string(name)); vit != cur_imports_.variant_aliases.end()) {
+            auto [epkg, esi] = find_enum_by_name(vit->second);
+            if (esi) take("variant:" + epkg + "::" + vit->second + "::" + std::string(name));
+        }
+        // `use pkg from <module>`: the package's functions from that module only.
+        auto from_module_ok = [&](const std::string& pkg, const std::string& r) {
+            auto mit = cur_imports_.pkg_from_module_id.find(pkg);
+            if (mit == cur_imports_.pkg_from_module_id.end() || !r.starts_with("fn:")) return true;
+            auto oit = func_overloads_.find(std::string(name));
+            if (oit == func_overloads_.end()) return false;
+            for (const auto& sym : oit->second)
+                if (auto fit = funcs_.find(sym); fit != funcs_.end() &&
+                    fit->second.package == pkg && fit->second.module_id == mit->second)
+                    return true;
+            return false;
+        };
+        for (const auto& pkg : effective_import_pkgs()) {
+            if (pkg == cur_package_) continue;
+            if (auto r = item(pkg); from_module_ok(pkg, r) && !take(std::move(r))) return {};
+            if (auto pit = pub_variant_aliases_.find(pkg); pit != pub_variant_aliases_.end())
+                if (auto vit = pit->second.find(std::string(name)); vit != pit->second.end() &&
+                                                                     !take("variant:" + vit->second + "::" + std::string(name)))
+                    return {};
+        }
+        if (!hit.empty()) return hit;
+        return item("");
     }
     // The pass's diagnostics, each at its own line.
     void hir_report_() {
@@ -11595,6 +11657,7 @@ public:
     std::set<DefId>                         copy_types;
     std::map<DefId, std::vector<size_t>>    conditional_copy;
     StrMap<std::vector<std::string>>       pkg_reexports;
+    StrMap<StrMap<std::string>>            pub_variant_aliases;
     // ADR 0016 registries: cross-round persistence — the round-2 sema skips
     // re-collecting cached (stdlib) holders, so anything collect-derived that
     // is not snapshotted would silently VANISH between metaprog rounds (the

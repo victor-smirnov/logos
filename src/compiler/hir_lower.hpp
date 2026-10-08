@@ -60,6 +60,7 @@
 #include <deque>
 #include <functional>
 #include <memory>
+#include <unordered_set>
 #include <initializer_list>
 #include <string>
 #include <utility>
@@ -122,6 +123,12 @@ public:
     // scope, as a path (`pkg::Name`; `::Name` for the root), or "" for one
     // that is not an item (a primitive, a type parameter, `Self`, unknown).
     void set_type_resolver(std::function<std::string(std::string_view)> f) { type_res_ = std::move(f); }
+    // Q1 row 3, values: the item a bare value name denotes in the body's scope,
+    // as `<kind>:<path>` (kind: fn, const, static, ctor, variant), or "".
+    void set_value_resolver(std::function<std::string(std::string_view)> f) { val_res_ = std::move(f); }
+    // A name bound OUTSIDE the body being lowered (a parameter; the caller's
+    // locals around a fragment).
+    void set_local_probe(std::function<bool(std::string_view)> f) { local_ = std::move(f); }
 
 private:
     enum class Ctx { Stmt, Expr };
@@ -155,6 +162,13 @@ private:
     writ::AnyVal bind_pattern(writ::AnyVal b, writ::TinyMapView at,
                               std::vector<std::pair<writ::AnyVal, std::string>>& assigns);
     writ::AnyVal str(std::string_view s);
+    // Every name a pattern, `let`, parameter or nested fn of `v` binds (an
+    // identifier pattern naming a const, a struct or a variant is a path, as
+    // in Rust). A value path whose name is bound anywhere in the body carries
+    // no RES: the binding may shadow the item.
+    void collect_binders(writ::AnyVal v);
+    writ::AnyVal with_res(writ::AnyVal cur, std::string_view res);
+    std::unordered_set<std::string> bound_;
     writ::AnyVal list_map(const std::vector<writ::AnyVal>& items);   // `{ITEMS: [...]}`
     uint64_t fresh_ = 0;
 
@@ -187,6 +201,8 @@ private:
     std::string                              file_;
     std::function<std::string(std::string_view)> lang_path_;
     std::function<std::string(std::string_view)> type_res_;
+    std::function<std::string(std::string_view)> val_res_;
+    std::function<bool(std::string_view)>        local_;
 
     writ::Writ        doc_;
     std::vector<Diag> diags_;
