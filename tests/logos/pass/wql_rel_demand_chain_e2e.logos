@@ -1,0 +1,106 @@
+// wql_rel_demand_chain_e2e — demand PROPAGATES through the rel graph (ADR 0016
+// M6, #349, E9e): the multi-rel case of the magic-sets rewrite.
+//
+// `edge` is DERIVED (links whose target is allowed) and `tc` closes over it.
+// The entry binds `tc.a`, so `tc` is demanded on `a`; `tc` reads `edge` twice,
+// and both occurrences bind `edge.a`:
+//   base body  `from edge e select (e.a, e.b)`          → __m_edge(c) :- __m_tc(c)
+//   recursive  `from tc t join edge e on e.a == t.b …`  → __m_edge(t.b) :- tc(t), __m_tc(t.a)
+// so `edge` was demanded on `a` too (E9e). Since 2026-10-05 (the magic-sets
+// transformation) only a RECURSIVE rel is adorned: `edge` is evaluated whole
+// before any magic join could filter it, so a copy saves no evaluation —
+// `edge` is read whole (`nonrec`) and the demand bounds `tc`'s fixpoint.
+// `note` counts `edge`'s derivations (a `static mut` bumped by a UDF in its
+// select), `step` counts `tc`'s recursive rounds' rows. The oracle is a NAIVE
+// TWIN that reads `tc` unbound.
+//   (1) results ≡ the twin's rows for that start;
+//   (2) `edge` derived exactly as many rows as in the twin (read whole);
+//   (3) `tc`'s recursive body evaluated strictly fewer rows.
+// A second program reads `edge` once more from the entry, unbound, and the
+// answer is unchanged.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+static mut DERIVED: i64 = 0i64;
+pub fn note(x: i64) -> i64 { unsafe { DERIVED = DERIVED + 1i64; } return x; }
+fn derived() -> i64 { return unsafe { DERIVED }; }
+fn reset() { unsafe { DERIVED = 0i64; STEPS = 0i64; } }
+static mut STEPS: i64 = 0i64;
+pub fn step(x: i64) -> i64 { unsafe { STEPS = STEPS + 1i64; } return x; }
+fn steps() -> i64 { return unsafe { STEPS }; }
+
+struct Link { pub a: i64, pub b: i64 }
+struct Allow { pub n: i64 }
+
+pub deem reach2(ls: &[Link], ok: &[Allow], start: i64) {
+    rel edge(a: i64, b: i64) {
+        from ls l join ok o on o.n == l.b select (l.a, note(l.b));
+    }
+    rel tc(a: i64, b: i64) {
+        from edge e select (e.a, e.b);
+        from tc t join edge e on e.a == t.b where step(e.b) >= 0 select (t.a, e.b);
+    }
+    from tc t where t.a == start select t.b order by t.b
+}
+// the naive twin: nothing bound
+pub deem reach2_all(ls: &[Link], ok: &[Allow]) {
+    rel edge(a: i64, b: i64) {
+        from ls l join ok o on o.n == l.b select (l.a, note(l.b));
+    }
+    rel tc(a: i64, b: i64) {
+        from edge e select (e.a, e.b);
+        from tc t join edge e on e.a == t.b where step(e.b) >= 0 select (t.a, e.b);
+    }
+    from tc t select (t.a, t.b)
+}
+// `edge` read unbound by the entry too: it cannot be restricted
+pub deem reach2_shared(ls: &[Link], ok: &[Allow], start: i64) {
+    rel edge(a: i64, b: i64) {
+        from ls l join ok o on o.n == l.b select (l.a, note(l.b));
+    }
+    rel tc(a: i64, b: i64) {
+        from edge e select (e.a, e.b);
+        from tc t join edge e on e.a == t.b where step(e.b) >= 0 select (t.a, e.b);
+    }
+    from tc t join edge e on e.a == t.b where t.a == start select e.b order by e.b
+}
+
+fn main() -> i32 {
+    // 1→2→3→4 and 10→11→12→13, plus 3→99 whose target is not allowed
+    let ls: [Link; 7] = [
+        Link { a: 1i64, b: 2i64 }, Link { a: 2i64, b: 3i64 }, Link { a: 3i64, b: 4i64 },
+        Link { a: 3i64, b: 99i64 },
+        Link { a: 10i64, b: 11i64 }, Link { a: 11i64, b: 12i64 }, Link { a: 12i64, b: 13i64 },
+    ];
+    let ok: [Allow; 7] = [
+        Allow { n: 2i64 }, Allow { n: 3i64 }, Allow { n: 4i64 },
+        Allow { n: 11i64 }, Allow { n: 12i64 }, Allow { n: 13i64 }, Allow { n: 1i64 },
+    ];
+    reset();
+    let all: Vec<(i64, i64)> = reach2_all(&ls[..], &ok[..]).unwrap();
+    let d_all: i64 = derived();
+    let s_all: i64 = steps();
+    if all.len() != 12i64 { return 1i32; }           // 3+2+1 and 3+2+1
+    reset();
+    let r: Vec<i64> = reach2(&ls[..], &ok[..], 10i64).unwrap();
+    let d_r: i64 = derived();
+    let s_r: i64 = steps();
+    if r.len() != 3i64 || r.get(0i64) != 11i64 || r.get(2i64) != 13i64 { return 2i32; }
+    let mut want: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < all.len() { if all.get(i).0 == 10i64 { want = want + 1i64; } i = i + 1i64; }
+    if want != r.len() { return 3i32; }
+    // (2) edge is read whole (not recursive): the same derivations
+    if d_r != d_all { return 4i32; }
+    // (3) tc's fixpoint is bounded by the demand
+    if s_r >= s_all { return 6i32; }
+    // the shared program: same answer as the join it spells (from 1: e.b over
+    // tc(1, x) ⋈ edge(x, _) = edges leaving 2, 3, 4 = {3, 4})
+    let s: Vec<i64> = reach2_shared(&ls[..], &ok[..], 1i64).unwrap();
+    if s.len() != 2i64 || s.get(0i64) != 3i64 || s.get(1i64) != 4i64 { return 5i32; }
+    return 0i32;
+}

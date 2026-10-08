@@ -98,44 +98,18 @@ struct Rule {
 // `schema` item) but the C++ backend cannot — see emit_schema_action.
 struct SchemaField {
     std::string name;
-    std::string ftype;          // "ref T" | "fan set_x MAX" | "argfan" | "str" | "bool" | "WAny" | scalar
+    std::string ftype;          // "ref T" | "list set_x" | "str" | "bool" | "WAny" | scalar
     int32_t     key = 0;
     bool        has_key = false;
 
-    // A fan field is not a TOM slot: it spreads an ARRAY_CAPTURE across the
-    // node's slot fields (+ a count), so it carries no key of its own.
-    bool is_fan() const {
-        return ftype == "argfan" || ftype.rfind("fan ", 0) == 0;
-    }
     bool is_ref() const { return ftype.rfind("ref ", 0) == 0; }
+    // "list <setter>": the ARRAY_CAPTURE itself, held whole in ONE keyed field
+    // (a Writ array of edges), with the node's `count` beside it — no slot cap.
+    bool is_list() const { return ftype.rfind("list ", 0) == 0; }
 
     // "ref TARGET" → TARGET
     std::string ref_target() const {
         return is_ref() ? ftype.substr(4) : std::string{};
-    }
-    // "fan <setter> <maxfn> <cap>" → cap. The C++ backend writes TOM slots
-    // directly (it has no `set_arg`/`set_len` methods), so it needs the slot
-    // COUNT spelled out; both backends stop reading <maxfn> at the space, so
-    // the trailing <cap> is inert on the Logos side. -1 = not spelled.
-    int fan_cap() const {
-        if (!is_fan()) return -1;
-        // fields: "fan" <setter> <maxfn> <cap>
-        size_t i = 0, tok = 0;
-        while (i < ftype.size()) {
-            while (i < ftype.size() && ftype[i] == ' ') ++i;
-            size_t b = i;
-            while (i < ftype.size() && ftype[i] != ' ') ++i;
-            if (b == i) break;
-            if (++tok == 4) {
-                int v = 0;
-                for (size_t k = b; k < i; ++k) {
-                    if (ftype[k] < '0' || ftype[k] > '9') return -1;
-                    v = v * 10 + (ftype[k] - '0');
-                }
-                return v;
-            }
-        }
-        return -1;
     }
 };
 struct SchemaDecl {
@@ -735,19 +709,7 @@ public:
                 if (!ftype_is_known(f))
                     errs += std::format("  {}.{}: unknown field type \"{}\"\n",
                                         s.name, f.name, f.ftype);
-                if (f.is_fan()) {
-                    if (f.fan_cap() <= 0)
-                        errs += std::format("  {}.{}: fan needs a trailing slot "
-                                            "count: \"fan <setter> <maxfn> <cap>\"\n",
-                                            s.name, f.name);
-                    if (!f.has_key)
-                        errs += std::format("  {}.{}: fan needs `= <first slot key>`\n",
-                                            s.name, f.name);
-                    const SchemaField* len = s.find("count");
-                    if (!len || !len->has_key)
-                        errs += std::format("  {}.{}: fan node must declare "
-                                            "`count: \"i32\" = <key>`\n", s.name, f.name);
-                } else if (!f.has_key) {
+                if (!f.has_key) {
                     errs += std::format("  {}.{}: missing `= KEY`\n", s.name, f.name);
                 }
             }
@@ -940,6 +902,7 @@ private:
         w.line();
         w.fmt("#pragma once");
         w.line();
+        w.line("#include <string>");
         w.line("#include <string_view>");
         w.line("#include <unordered_map>");
         w.line("#include <vector>");
@@ -1082,10 +1045,14 @@ private:
             // BYTE OFFSET of a token within source_ — what a schema's `soff`
             // field is stamped with. A line alone cannot underline a column,
             // and a query lives inside one line of its enclosing item.
+            // An EMBEDDED parse reads a sub-range of the outer text; its
+            // offsets are the outer text's, so the embedding parser hands it
+            // the sub-range's own offset here.
+            w.line("uint32_t src_base_ = 0;");
             w.line("uint32_t tok_offset_(std::string_view t) const {");
             w.line("    if (t.data() < source_.data() ||");
-            w.line("        t.data() > source_.data() + source_.size()) return 0;");
-            w.line("    return static_cast<uint32_t>(t.data() - source_.data());");
+            w.line("        t.data() > source_.data() + source_.size()) return src_base_;");
+            w.line("    return src_base_ + static_cast<uint32_t>(t.data() - source_.data());");
             w.line("}");
             w.line();
         }
@@ -2999,6 +2966,7 @@ private:
         w.fmt("size_t eend_ = embed_find_close(source_, est_);");
         w.fmt("std::string_view esub_ = source_.substr(est_, eend_ - est_);");
         w.fmt("{} sub_(esub_, doc_);", cls);
+        w.line("sub_.src_base_ = src_base_ + static_cast<uint32_t>(est_);");
         w.fmt("{} = sub_.parse_{}();", cap, item.name);
         // Re-anchor the outer lexer past the consumed sub-range. The token
         // cache is keyed by byte offset, so a plain pos_ move is enough.
@@ -3048,34 +3016,22 @@ private:
         bool tok_flt = is_cap && capture_is_token_named(seq, idx, "FLOAT");
         bool tok_str = is_cap && capture_is_token_named(seq, idx, "STRING");
 
-        // ── fan: spread an ARRAY_CAPTURE across the node's slot keys ──
-        if (sf.is_fan()) {
-            int cap_n = sf.fan_cap();
-            if (cap_n <= 0)
-                schema_error(std::format(
-                    "{}.{}: fan field needs a slot count — spell it "
-                    "`\"fan <setter> <maxfn> <cap>\"`", sd.name, sf.name));
+        // ── list: the ARRAY_CAPTURE whole, in one keyed field + the count ──
+        if (sf.is_list()) {
             if (!sf.has_key)
                 schema_error(std::format(
-                    "{}.{}: fan field needs `= <first slot key>`", sd.name, sf.name));
+                    "{}.{}: list field needs `= <key>`", sd.name, sf.name));
             const SchemaField* len = sd.find("count");
             if (!len || !len->has_key)
                 schema_error(std::format(
-                    "{}.{}: a fan node must declare its length field "
+                    "{}.{}: a list node must declare its length field "
                     "`count: \"i32\" = <key>`", sd.name, sf.name));
             if (e.kind != int32_t(ast::ARRAY_CAPTURE) || rcap_var_.empty())
                 schema_error(std::format(
-                    "{}.{}: a fan field must be written from `$...`", sd.name, sf.name));
-            // Items past the cap are dropped — same as the Logos backend.
-            w.fmt("{{ uint64_t n_ = {0}.size(); if (n_ > {1}u) n_ = {1}u;", rcap_var_, cap_n);
-            w.indent();
-            w.fmt("for (uint64_t i_ = 0; i_ < n_; ++i_) "
-                  "node->put(uint8_t({} + i_), {}.get(i_), {}).get();",
-                  sf.key, rcap_var_, arena);
+                    "{}.{}: a list field must be written from `$...`", sd.name, sf.name));
+            put(std::format("uint8_t({})", sf.key), std::format("{}.to_anyval()", rcap_var_));
             put(std::format("uint8_t({})", len->key),
-                std::format("AnyVal::from_value(int32_t(n_))"));
-            w.dedent();
-            w.line("}");
+                std::format("AnyVal::from_value(int32_t({}.size()))", rcap_var_));
             return;
         }
 
@@ -3236,7 +3192,7 @@ private:
     // through to scalar_cast's int64_t default, so a typo'd type in the %schema
     // block silently produced a wrong-width write.
     static bool ftype_is_known(const SchemaField& f) {
-        if (f.is_fan() || f.is_ref()) return true;
+        if (f.is_ref() || f.is_list()) return true;
         for (const char* k : {"WAny", "str", "bool",
                               "i8", "i16", "i32", "i56", "i64", "isize",
                               "u8", "u16", "u32", "u64", "usize"})
@@ -3278,7 +3234,7 @@ private:
                 schema_error(std::format("schema node '{}' has no field '{}' "
                                          "(declare it in the %schema block)",
                                          sd->name, f.name));
-            if (!sf->is_fan() && !sf->has_key)
+            if (!sf->has_key)
                 schema_error(std::format("{}.{}: missing `= KEY`", sd->name, sf->name));
         }
 
@@ -3719,6 +3675,7 @@ std::map<std::string, LogosItem> read_logos_schemas(const std::vector<fs::path>&
 // is written the same on both sides.
 std::string logos_type_of(const SchemaField& f) {
     if (f.is_ref()) return "WRef<" + f.ref_target() + ">";
+    if (f.is_list()) return "WAny";
     return f.ftype;
 }
 
@@ -3750,19 +3707,6 @@ bool check_schema_mirror(const std::vector<ResolvedModule>& modules,
                                    sd.name, sd.cap, li.fields.size());
 
             for (const auto& f : sd.fields) {
-                if (f.is_fan()) {
-                    // A fan owns no field of its own: it writes `count` (the
-                    // node's length) and the slots [key, key+cap).
-                    int cap = f.fan_cap();
-                    int found = 0;
-                    for (const auto& lf : li.fields)
-                        if (lf.has_key && lf.key >= f.key && lf.key < f.key + cap) ++found;
-                    if (found != cap)
-                        err += std::format("  {}.{}: fan declares {} slots from key {}, "
-                                           "the schema item has {}\n",
-                                           sd.name, f.name, cap, f.key, found);
-                    continue;
-                }
                 auto lf = std::find_if(li.fields.begin(), li.fields.end(),
                                        [&](const LogosField& x) { return x.name == f.name; });
                 if (lf == li.fields.end()) {

@@ -1,1 +1,1 @@
-is not a bound row column, scalar param, or fresh() marker
+wql!: `zz` in the `select` clause is not a row variable of the query, a parameter, or a const or static of any module

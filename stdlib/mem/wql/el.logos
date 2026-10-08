@@ -942,54 +942,6 @@ pub fn el_int_widens(name: str, want: str) -> bool {
     return s.bits <= d.bits;
 }
 
-// ── MAY THIS TYPE BE A COLUMN OF A SET-VALUED RELATION? ───────────────────
-// A `rel` is a SET: rows are deduplicated, so a column type needs an identity;
-// and the row is stored as a NATIVE tuple of the DECLARED types while the EL
-// computes in `repr`, so a column whose type is not its own repr would have the
-// emitted body mixing the two. Both tiers ask this — the static `wql!` handler
-// (`plan_walker::rel_col_ty_ok`) and the dynamic `Query::compile` — and each
-// used to carry its own copy of the answer as the spelling list i64/str/bool.
-// ONE predicate, and the code it returns NAMES THE FAILED ANTECEDENT so the
-// caller reports a remedy rather than a verdict.
-pub fn EL_COL_OK()       -> i32 { return 0i32; }
-pub fn EL_COL_UNKNOWN()  -> i32 { return 1i32; }   // outside the lattice
-pub fn EL_COL_NO_EQ()    -> i32 { return 2i32; }   // equality is not reflexive
-pub fn EL_COL_NO_INJ()   -> i32 { return 3i32; }   // two values arrive equal
-pub fn EL_COL_NOT_REPR() -> i32 { return 4i32; }   // the EL computes in another type
-
-pub fn el_set_col_admit(name: str) -> i32 {
-    let t: ElTy = el_ty(name);
-    if t.cls < 0i32                { return EL_COL_UNKNOWN(); }
-    if t.ident == EL_ID_NO_EQ()    { return EL_COL_NO_EQ(); }
-    if t.ident == EL_ID_NO_INJ()   { return EL_COL_NO_INJ(); }
-    if t.ident != EL_ID_OK()       { return EL_COL_UNKNOWN(); }
-    if !t.canon                    { return EL_COL_NOT_REPR(); }
-    return EL_COL_OK();
-}
-
-/// The GROUND for a refused set column — the failed antecedent in its own
-/// vocabulary, with the remedy. Empty for an admitted type.
-///
-/// ⚠ ONE ANTECEDENT PER GROUND. An earlier draft of this text named both ways an
-/// identity can fail and left the reader to work out which one applied — which is
-/// prose composed at report time wearing a record's clothes.
-pub fn el_set_col_why(name: str) -> str {
-    let a: i32 = el_set_col_admit(name);
-    if a == EL_COL_UNKNOWN() {
-        return "this type is outside the EL scalar lattice (`el_ty`), so nothing is known about the comparison, the hash or the storage the backend would emit for it — and a type is not assumed to have an identity until it is admitted there. The remedy is a column of an admitted scalar type — `i64`, `str` or `bool`";
-    }
-    if a == EL_COL_NO_EQ() {
-        return "a rel is a SET — rows are deduplicated by `==` and a hash — and this type's equality is not even REFLEXIVE: an f64/f32 NaN compares false against every value including itself, so a row containing one is equal to nothing, not even to a copy of itself. The remedy is a column whose equality is meaningful — `i64`, `str` or `bool`";
-    }
-    if a == EL_COL_NO_INJ() {
-        return "a rel is a SET — rows are deduplicated by `==` and a hash — and the EL's normalization of this type is NOT INJECTIVE: a value wider than 64 bits arrives with its high bits dropped, so two different rows collapse into one. The remedy is a column that fits the i64 the EL computes in";
-    }
-    if a == EL_COL_NOT_REPR() {
-        return "the rel row STORES this type and the EL COMPUTES in another one, so the emitted body would mix the two: the normalization is not the identity here. The remedy is to declare the column as the type the EL computes in — `i64` for the integer family, `str` for `String`";
-    }
-    return "";
-}
-
 // ── DOES THE EMITTED COMPARISON REALIZE THE ORDER THE QUERY NAMED? ────────
 // THE answer, in one place, keyed on the TYPE NAME, to a question two consumers
 // ask and one of them used to ask of the four-value CLASS TAG — which cannot
@@ -1062,11 +1014,8 @@ pub fn el_set_col_why(name: str) -> str {
 //     an i64-normalized wide integer — a UDF call — is refused at its use site;
 //   • `el_order_why` is reached on all four non-OK rows: PARTIAL and UNNAMED
 //     from the licence, WRAP and TRUNC from the call site;
-//   • the recursive aggregate's value column is NOT a caller. It looks like one
-//     and it used to be one; every body-declared rel column has already passed
-//     `plan_walker::rel_col_ty_ok`, whose admitted set is i64/str/bool — now as a
-//     DERIVATION from `el_set_col_admit` rather than a spelling list — so the
-//     question was already answered upstream. See the note there.
+//   • the recursive aggregate's value column is NOT a caller: it must be `i64`
+//     (`rexpr_walk`'s recursive-aggregate check), whose order is faithful.
 pub fn EL_ORD_OK()      -> i32 { return 0i32; }
 pub fn EL_ORD_PARTIAL() -> i32 { return 1i32; }
 pub fn EL_ORD_WRAP()    -> i32 { return 2i32; }
@@ -1789,7 +1738,7 @@ pub struct ElTypes {
     // field step resolves against `rb_*` (a row var for `a.n`, a struct type for
     // `a.b.c`) and reaches this table only when neither key is bound, where the
     // answer is the `i64` baseline either way.
-    pub names:  [str; 256],
+    pub names:  Vec<str>,
     // The LOGOS TYPE of each binding — THE column (ADR 0024 S3/S6). It used to
     // sit BESIDE a four-value classification, and a binding recorded through the
     // class-only setter left this empty: `ty_name_of` then invented the class's
@@ -1800,36 +1749,29 @@ pub struct ElTypes {
                               // itself handed out (`set_ty_named(v, infer_ty_name(e, self))`),
                               // so a view here would make the table borrow itself.
     pub n:      i64,
-    pub udf_names: [str; 32],
-    pub udf_rets:  [str; 32],
-    pub udf_arity: [i64; 32],
+    pub udf_names: Vec<str>,
+    pub udf_rets:  Vec<str>,
+    pub udf_arity: Vec<i64>,
     pub udf_n:     i64,
-    pub rb_var: [str; 256],
-    pub rb_col: [str; 256],
+    pub rb_var: Vec<str>,
+    pub rb_col: Vec<str>,
     // How the column is REACHED off its row var — k ≥ 0 (`var.k`, a native
     // rel's tuple component), `COL_WHOLE` (`(*var)`, the scalar row of a
     // 1-column rel), `COL_FIELD` (`var.col`, a struct field).
-    pub rb_idx: [i64; 256],
+    pub rb_idx: Vec<i64>,
     // The column's DECLARED type, per binding (ADR 0024 S3/S6).
-    pub rb_tn:  [str; 256],
+    pub rb_tn:  Vec<str>,
     // WHAT `rb_var` NAMES — `CB_VAR` a query ROW VAR, `CB_TYPE` a declared
     // STRUCT. The second kind is what resolves a NESTED path: `a.b.c` has no row
     // var (`root_ident_name` reports "" for it), so the type of `a.b` — which the
     // row-var binding holds, and which IS a struct name — is the key its `c` is
     // looked up under. Two kinds on one table rather than two tables: the entries
     // are the same shape, and a `kind` column cannot drift from a parallel array.
-    pub rb_kind: [i64; 256],
+    pub rb_kind: Vec<i64>,
     pub rb_n:   i64,
-    // ── capacity overflow: RECORDED, never silent ──
-    // A dropped binding used to be a silent fall-back to the `i64` baseline —
-    // a wrong type with no diagnostic, which is how this plane's worst bugs
-    // begin. The drop is recorded WHERE IT IS DECIDED (the setter); the
-    // stampers, which hold the metaprog `error` channel `el` deliberately does
-    // not import, turn it into a message naming the first key lost.
-    pub ovf_n:        i64,
-    pub ovf_var:      str,   // "" when the dropped key had no row var
-    pub ovf_key:      str,
-    pub ovf_reported: bool,
+    // The query the names belong to, for a located diagnostic (ADR 0031 R4.3);
+    // `qsrc_none()` until the type checker sets it.
+    pub src:    QSrc,
     // The NAMED types (`EL_TY_NAMED`): the plain structs/enums the module
     // declares. OWNED for the same reason `tns` is.
     pub named: Vec<String>,
@@ -1844,39 +1786,24 @@ pub fn COL_FIELD() -> i64 { return -2i64; }   // `var.col` — a struct field
 pub fn CB_VAR()  -> i64 { return 0i64; }      // a query row var
 pub fn CB_TYPE() -> i64 { return 1i64; }      // a declared struct type
 
-/// The binding-table / dictionary capacity, stated once.
-///
-/// GROUND: a query's sources are parameters (`MacroParams` caps them at 64) or
-/// rels (capped at 8, with a 64-entry flat column window); a source contributes
-/// one binding per COLUMN. 256 admits eight sources of thirty-two columns —
-/// four times the rel-column window this plane already states — and past it the
-/// compiler NAMES what it dropped instead of typing it `i64`.
-pub fn EL_TY_CAP() -> i64 { return 256i64; }
-
 pub fn el_types_new() -> ElTypes {
     return ElTypes {
-        // Grown by `set_ty_named` in step with `n` (a `[String; 256]` repeat
-        // would need `String: Copy`, as in Rust).
+        // Every table grows by its setter; none has a capacity.
         tns:    vec_new::<String>(),
-        names:  [""; 256],
+        names:  vec_new::<str>(),
         n:      0i64,
-        udf_names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        udf_rets:  ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        udf_arity: [0i64; 32],
+        udf_names: vec_new::<str>(),
+        udf_rets:  vec_new::<str>(),
+        udf_arity: vec_new::<i64>(),
         udf_n:     0i64,
-        rb_var: [""; 256],
-        rb_col: [""; 256],
-        rb_idx: [0i64; 256],
-        rb_tn:  [""; 256],
-        rb_kind: [0i64; 256],
+        rb_var: vec_new::<str>(),
+        rb_col: vec_new::<str>(),
+        rb_idx: vec_new::<i64>(),
+        rb_tn:  vec_new::<str>(),
+        rb_kind: vec_new::<i64>(),
         rb_n:   0i64,
-        ovf_n:        0i64,
-        ovf_var:      "",
-        ovf_key:      "",
-        ovf_reported: false,
         named:  vec_new::<String>(),
+        src:    qsrc_none(),
     };
 }
 
@@ -1926,35 +1853,9 @@ impl ElTypes {
             if str_eq(self.names[i], name) { self.tns[i] = String::from_str(ty_name); return; }
             i = i + 1i64;
         }
-        if self.n >= EL_TY_CAP() { self.note_overflow("", name); return; }
-        self.names[self.n] = name;
+        self.names.push(name);
         self.tns.push(String::from_str(ty_name));
         self.n = self.n + 1i64;
-    }
-
-    /// Record that a binding could NOT be stored — the fact kept where it is
-    /// decided, so the stampers can report it instead of the emitter silently
-    /// typing the name `i64`. The FIRST key lost is the one named; the count
-    /// says how many followed.
-    fn note_overflow(self: &mut ElTypes, var: str, key: str) {
-        if self.ovf_n == 0i64 { self.ovf_var = var; self.ovf_key = key; }
-        self.ovf_n = self.ovf_n + 1i64;
-    }
-
-    /// The first dropped key (row var, column — the var is "" for a flat name),
-    /// and how many were dropped in total.
-    pub fn overflow_var(self: &ElTypes) -> str { return self.ovf_var; }
-    pub fn overflow_key(self: &ElTypes) -> str { return self.ovf_key; }
-    pub fn overflow_count(self: &ElTypes) -> i64 { return self.ovf_n; }
-
-    /// True the FIRST time an overflow is claimed for reporting — the stampers
-    /// run many times per query and the drop must produce ONE message, not one
-    /// per stamping site.
-    pub fn claim_overflow(self: &mut ElTypes) -> bool {
-        if self.ovf_n == 0i64 { return false; }
-        if self.ovf_reported { return false; }
-        self.ovf_reported = true;
-        return true;
     }
 
     // The LOGOS TYPE NAME for `name` — what the emitter must print: a type, a
@@ -1983,10 +1884,9 @@ impl ElTypes {
     // walked in declaration order and names are unique per module anyway).
     pub fn udf_add(self: &mut ElTypes, name: str, ret_name: str, arity: i64) {
         if self.udf_find(name) >= 0i64 { return; }
-        if self.udf_n >= 32i64 { return; }
-        self.udf_names[self.udf_n] = name;
-        self.udf_rets[self.udf_n]  = ret_name;
-        self.udf_arity[self.udf_n] = arity;
+        self.udf_names.push(name);
+        self.udf_rets.push(ret_name);
+        self.udf_arity.push(arity);
         self.udf_n = self.udf_n + 1i64;
     }
 
@@ -2035,12 +1935,11 @@ impl ElTypes {
             self.rb_tn[e]  = ty_name;
             return;
         }
-        if self.rb_n >= EL_TY_CAP() { self.note_overflow(owner, col); return; }
-        self.rb_var[self.rb_n]  = owner;
-        self.rb_col[self.rb_n]  = col;
-        self.rb_idx[self.rb_n]  = idx;
-        self.rb_tn[self.rb_n]   = ty_name;
-        self.rb_kind[self.rb_n] = kind;
+        self.rb_var.push(owner);
+        self.rb_col.push(col);
+        self.rb_idx.push(idx);
+        self.rb_tn.push(ty_name);
+        self.rb_kind.push(kind);
         self.rb_n = self.rb_n + 1i64;
     }
 
@@ -2094,9 +1993,7 @@ impl ElTypes {
     /// ⚠ THE COUNT IS THE STAMPED COUNT, NOT THE DECLARED ONE, and a caller that
     /// treats them as the same is asking a question this table cannot answer. A
     /// field whose name or type name came back empty is never bound (see
-    /// `stamp_schema_by_type`), and a table that overflowed dropped bindings —
-    /// which `report_ty_overflow` turns into a build failure, so the overflow
-    /// case cannot reach a caller silently. Anything that must reason about ALL
+    /// `stamp_schema_by_type`). Anything that must reason about ALL
     /// of a struct's fields must ALSO require `type_stamped`, which says the
     /// reflection walk reached this type at all.
     pub fn type_field_at(self: &ElTypes, ty_of: str, i: i64) -> i64 {
@@ -2156,4 +2053,146 @@ impl ElTypes {
         }
         return false;
     }
+}
+
+// ── Aggregate fn ids ────────────────────────────────────
+pub fn AGG_COUNT() -> i32 { return 1i32; }
+pub fn AGG_SUM()   -> i32 { return 2i32; }
+pub fn AGG_MIN()   -> i32 { return 3i32; }
+pub fn AGG_MAX()   -> i32 { return 4i32; }
+pub fn AGG_AVG()   -> i32 { return 5i32; }
+
+// The algebraic-structure class of an aggregate — the load-bearing column that
+// decides in-fixpoint admissibility (recursive-aggregation design §1):
+//   • SEMILATTICE (min/max) — idempotent meet/join; the absorb gate IS the
+//     lattice order, so a recursive head stays monotone ⇒ fixpoint-SAFE.
+//   • GROUP (sum/count/avg) — abelian group; the very inverse that makes it
+//     O(1)-incremental breaks fixpoint monotonicity (counting paths in a cycle
+//     diverges) ⇒ recursion is a NAMED compile error; stratified-only.
+// Defaults to GROUP/unknown for any unclassified id — reject-in-recursion, never
+// default-allow (design §7 critique #1).
+pub fn AGG_CLASS_SEMILATTICE() -> i32 { return 1i32; }
+pub fn AGG_CLASS_GROUP()       -> i32 { return 2i32; }
+pub fn agg_algebra(fnid: i32) -> i32 {
+    if fnid == AGG_MIN() || fnid == AGG_MAX() { return AGG_CLASS_SEMILATTICE(); }
+    return AGG_CLASS_GROUP();
+}
+
+pub fn agg_of_name(name: str) -> i32 {
+    if str_eq(name, "count") { return AGG_COUNT(); }
+    if str_eq(name, "sum")   { return AGG_SUM(); }
+    if str_eq(name, "min")   { return AGG_MIN(); }
+    if str_eq(name, "max")   { return AGG_MAX(); }
+    if str_eq(name, "avg")   { return AGG_AVG(); }
+    return 0i32;
+}
+
+// ── THE QUERY AS A SOURCE (ADR 0024 S0, ADR 0031 R4.3) ──────────────────────
+// Plain data, so a diagnostic below the surface layer — a type check over the
+// core — can say WHERE: the parsed text, the file, the item head's line, and
+// each spliced mapping segment's exclusive end and origin. `srcloc` builds it
+// from the parsed program.
+pub struct QSrc {
+    pub on:         bool,       // false: no query text (trama!/catalog)
+    pub text:       String,
+    pub file:       String,
+    pub line:       i64,        // line of the item's head; body line 1 IS this line
+    pub seg_end:    Vec<i64>,
+    pub seg_origin: Vec<String>,
+}
+
+pub fn qsrc_none() -> QSrc {
+    return QSrc { on: false, text: String::new(), file: String::new(), line: 0i64,
+                  seg_end: Vec::<i64>::new(), seg_origin: Vec::<String>::new() };
+}
+
+/// Where an offset in the parsed text came from.
+///
+/// `in_mapping` distinguishes the two cases a diagnostic must never confuse:
+/// text the user wrote (line/col in `file`) and text a mapping supplied (named
+/// by `origin`, positioned within that mapping's own body).
+pub struct QueryLoc {
+    pub in_mapping: bool,
+    pub origin:     String, // mapping name; "" when the text is the user's
+    pub file:       String,
+    pub line:       i64,    // 1-based, absolute in `file` (user text only)
+    pub col:        i64,    // 1-based
+}
+
+/// Resolve a byte offset in the parsed text to a place.
+///
+/// The line arithmetic follows the convention the parse-error path already
+/// uses: body line 1 IS the item's head line, so an offset on the body's first
+/// line reports the head's line. Columns are counted from the last newline at
+/// or before the offset; on the body's first line the column is relative to the
+/// body's own start, which is the honest answer while the item's head column is
+/// not recorded.
+pub fn qsrc_resolve(q: &QSrc, soff: i64) -> QueryLoc {
+    let text: str = q.text.as_str();
+    let mut off: i64 = soff;
+    if off < 0i64 { off = 0i64; }
+    if off > text.len() { off = text.len(); }
+
+    // Spliced mapping text sorts BEFORE the written query. Segment ends are
+    // exclusive and in splice order, so the first end above `off` owns it.
+    let mut base: i64 = 0i64;
+    let n: i64 = q.seg_end.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if off < q.seg_end.get(i) {
+            // Inside a mapping's body — position it within THAT body, and
+            // say so. Reporting a file line here would point at the query,
+            // which is not where the text lives.
+            let lo: i64 = if i == 0i64 { 0i64 } else { q.seg_end.get(i - 1i64) };
+            let (ml, mc): (i64, i64) = line_col_in(text, lo, off);
+            return QueryLoc { in_mapping: true, origin: String::from_str(q.seg_origin[i].as_str()),
+                              file: String::from_str(q.file.as_str()), line: ml, col: mc };
+        }
+        i = i + 1i64;
+    }
+    if n > 0i64 { base = q.seg_end.get(n - 1i64); }
+
+    let (l, c): (i64, i64) = line_col_in(text, base, off);
+    return QueryLoc { in_mapping: false, origin: String::new(), file: String::from_str(q.file.as_str()),
+                      line: q.line + (l - 1i64), col: c };
+}
+
+/// 1-based (line, col) of `off` counted from `lo` — the segment's own start.
+fn line_col_in(text: str, lo: i64, off: i64) -> (i64, i64) {
+    let b: &[u8] = text.as_bytes();
+    let mut line: i64 = 1i64;
+    let mut last_nl: i64 = lo - 1i64;
+    let mut i: i64 = lo;
+    while i < off {
+        if b[i] == 10u8 { line = line + 1i64; last_nl = i; }
+        i = i + 1i64;
+    }
+    return (line, off - last_nl);
+}
+
+/// `<file>:<line>:<col>: ` — or, for spliced text, a prefix naming the mapping.
+/// The mapping form deliberately does NOT print a file line: the offending text
+/// is not in the file at that line, and a plausible-looking wrong location is
+/// worse than an honest indirect one.
+pub fn qloc_prefix(loc: &QueryLoc) -> String {
+    let mut s: String = String::new();
+    if loc.in_mapping {
+        s.push_str("in mapping `");
+        s.push_str(loc.origin.as_str());
+        s.push_str("` (");
+        s.push_str(loc.file.as_str());
+        s.push_str(") line ");
+        s.push_i64(loc.line);
+        s.push_str(":");
+        s.push_i64(loc.col);
+        s.push_str(": ");
+        return s;
+    }
+    s.push_str(loc.file.as_str());
+    s.push_str(":");
+    s.push_i64(loc.line);
+    s.push_str(":");
+    s.push_i64(loc.col);
+    s.push_str(": ");
+    return s;
 }

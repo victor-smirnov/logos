@@ -1,0 +1,71 @@
+// ADR 0020 §10 step 3 — THE PARITY GATE (#362): a bound-key seek through the
+// generated projection against the container's own point lookup.
+//
+// `at_key` is a `deem` whose `where e.key == k` lands on the family's declared
+// `op entry.key eq` producer (a leaf-batch walk); `c.find(k)` is the direct
+// descent. Run as a pass fixture this checks that the two ANSWER alike on every
+// probe, hits and misses. `logos_09_ctr_point_parity` runs the same binary under
+// callgrind and checks the COST: the query path descends ONCE per probe, as
+// `find` does, and its instruction count stays within the gate's ceiling of the
+// direct call's.
+package wql_ctr_point_parity;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+
+pub container Led {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure count;
+    measure max(key);
+}
+
+pub deem at_key(m: &<typeof(Led) as CtrFamily>::Handle, k: u64) {
+    from m e where e.key == k select e.val
+}
+
+const N: u64 = 20000u64;
+// Probes per path: keys 0, 1, 2, … < 2N, so every other one is a MISS (the
+// container holds the even keys only).
+const P: u64 = 4000u64;
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut c = create_ctr::<typeof(Led)>(&snap, 1u64);
+    let mut i: u64 = 0u64;
+    while i < N { c.insert(i * 2u64, i * 10u64); i = i + 1u64; }
+
+    let mut hits_d: u64 = 0u64;
+    let mut sum_d: u64 = 0u64;
+    let mut p: u64 = 0u64;
+    while p < P {
+        let k: u64 = (p * 7919u64) % (2u64 * N);
+        let o = c.find(k);
+        if o.is_some() { hits_d = hits_d + 1u64; sum_d = sum_d + o.unwrap(); }
+        p = p + 1u64;
+    }
+    let mut hits_q: u64 = 0u64;
+    let mut sum_q: u64 = 0u64;
+    p = 0u64;
+    while p < P {
+        let k: u64 = (p * 7919u64) % (2u64 * N);
+        let v: Vec<u64> = match at_key(&c, k)
+        { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+        if v.len() > 1i64 { return 2i32; }
+        if v.len() == 1i64 { hits_q = hits_q + 1u64; sum_q = sum_q + v.get(0i64); }
+        p = p + 1u64;
+    }
+    // Half the probe keys are odd (7919 is odd, so p*7919 alternates parity).
+    if hits_d != P / 2u64 { return 3i32; }
+    if hits_q != hits_d { return 4i32; }
+    if sum_q != sum_d { return 5i32; }
+    return 0i32;
+}

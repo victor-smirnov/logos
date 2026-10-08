@@ -173,26 +173,20 @@ fn lit_of_text(s: str) -> String {
 // to emit a loop var's element binding type (`let v: <ty>`); an undeclared var
 // defaults to the i64 baseline. Replaces the retired TrParser.var_ty_of table.
 struct TVarTys {
-    names: [str; 64],
-    tys:   [str; 64],
+    names: Vec<str>,
+    tys:   Vec<str>,
     n:     i64,
 }
 fn tvartys_new() -> TVarTys {
     return TVarTys {
-        names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        tys:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        names: Vec::<str>::new(),
+        tys:   Vec::<str>::new(),
         n: 0i64,
     };
 }
 impl TVarTys {
     fn declare(self: &mut TVarTys, name: str, ty: str) {
-        if self.n < 64i64 { self.names[self.n] = name; self.tys[self.n] = ty; self.n = self.n + 1i64; }
+        self.names.push(name); self.tys.push(ty); self.n = self.n + 1i64;
     }
     fn ty_name(self: &TVarTys, name: str) -> str {
         let mut i: i64 = 0i64;
@@ -210,20 +204,14 @@ impl TVarTys {
 // (`for line in item.lines` → element of `Item.lines`). A tiny (name,type-name)
 // association list over borrowed `str` slices (names live in the IR / surface).
 struct StructEnv {
-    names: [str; 64],
-    tys:   [str; 64],
+    names: Vec<str>,
+    tys:   Vec<str>,
     n:     i64,
 }
 fn struct_env_new() -> StructEnv {
     return StructEnv {
-        names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        tys:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        names: Vec::<str>::new(),
+        tys:   Vec::<str>::new(),
         n: 0i64,
     };
 }
@@ -233,7 +221,7 @@ impl StructEnv {
         // in practice); overwrite an existing binding by name.
         let mut i: i64 = 0i64;
         while i < self.n { if str_eq(self.names[i], name) { self.tys[i] = ty; return; } i = i + 1i64; }
-        if self.n < 64i64 { self.names[self.n] = name; self.tys[self.n] = ty; self.n = self.n + 1i64; }
+        self.names.push(name); self.tys.push(ty); self.n = self.n + 1i64;
     }
     fn type_of(self: &StructEnv, name: str) -> str {
         let mut i: i64 = 0i64;
@@ -698,7 +686,6 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // `{% if myfn(x) %}` route through the SHARED emit_call path (zero
     // trama-specific lowering; builtins shadow same-named user fns).
     stamp_udfs_from_module(&view, &mut ty);
-    report_ty_overflow(&mut ty);
 
     // ── RECURSIVE loop-var reflection (ADR 0012 Phase 2) ─────────────────────
     // FOLLOW loop variables: `{% for v in o.field %}` where `o.field` is a
@@ -707,7 +694,6 @@ pub fn trama(name: str, params: str, s: str) -> ItemList {
     // NESTED loops — so a schema struct param needs NO annotation.
     let mut vtys: TVarTys = tvartys_new();
     reflect_loops(&view, head_word, &mut ty, &mut vtys, &env0);
-    report_ty_overflow(&mut ty);
 
     // The empty-Var-name fallback `ctx` for the codegen: the FIRST param name.
     let ctx0: str = prm.names[0i64];

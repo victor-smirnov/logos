@@ -1,0 +1,84 @@
+// wql_join_ndv_order_e2e — a declared distinct-value count moves the join order
+// (#347 second half, #726): the cost model's step output is System R's
+// |L ⋈ R| ≈ |L|·|R| / max(V(L.k), V(R.k)) where the joined columns declare
+// `distinct <rel>.<col> = <fn>;`, and the EQ_DIV default (one tenth of the
+// cross product) where they do not.
+//
+// Three sources of 30 rows each, chained a ⋈ b on k, b ⋈ c on j:
+//   a.k and b.k are ALL 0 (V = 1): a ⋈ b is the full 900-row cross product;
+//   b.j and c.j are unique (V = 30): b ⋈ c is 30 rows.
+// Every candidate order costs 330 + R₁ (base scan 2n, two builds 4n each, one
+// probe per row reaching each step: n then R₁), so only the first join's
+// output decides:
+//   undeclared (`Plain`): R₁ = 900 / 10 = 90 for every order → a tie, and a
+//     tie keeps the query's own order: order_ix 0;
+//   declared (`Dist`):   a-b first → R₁ = 900 / max(1, 1) = 900; b-c first
+//     → R₁ = 900 / max(30, 30) = 30 → a b-c-first order wins: order_ix ≠ 0,
+//     and its cost is 330 + 30 = 360 (EQ_DIV would price it 420).
+// Both answer the same 900 rows.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub struct Src { pub n: i64, pub kind: i64 }   // kind 0: k = 0, j = i;  kind 1: k = j = i
+pub struct Plain { pub s: Src }
+pub struct Dist { pub s: Src }
+pub trait KJ { rel row(k: i64, j: i64); }
+
+fn rows_of(s: &Src) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < s.n {
+        if s.kind == 0i64 { out.push((0i64, i)); } else { out.push((i, i)); }
+        i = i + 1i64;
+    }
+    return out;
+}
+pub fn plain_rows(p: &Plain) -> Vec<(i64, i64)> { return rows_of(&p.s); }
+pub fn plain_len(p: &Plain) -> u64 { return p.s.n as u64; }
+pub fn dist_rows(d: &Dist) -> Vec<(i64, i64)> { return rows_of(&d.s); }
+pub fn dist_len(d: &Dist) -> u64 { return d.s.n as u64; }
+pub fn dist_ndv_k(d: &Dist) -> u64 { return if d.s.kind == 0i64 { 1u64 } else { d.s.n as u64 }; }
+pub fn dist_ndv_j(d: &Dist) -> u64 { return d.s.n as u64; }
+
+impl KJ for Plain {
+    rel row = plain_rows;
+    size row = plain_len;
+}
+impl KJ for Dist {
+    rel row = dist_rows;
+    size row = dist_len;
+    distinct row.k = dist_ndv_k;
+    distinct row.j = dist_ndv_j;
+}
+
+pub deem plain3(a: &Plain, b: &Plain, c: &Plain) {
+    from a x join b y on y.k == x.k join c z on z.j == y.j
+    select (x.j, z.k) order by z.k
+}
+pub deem dist3(a: &Dist, b: &Dist, c: &Dist) {
+    from a x join b y on y.k == x.k join c z on z.j == y.j
+    select (x.j, z.k) order by z.k
+}
+
+fn main() -> i32 {
+    let pa: Plain = Plain { s: Src { n: 30i64, kind: 0i64 } };
+    let pb: Plain = Plain { s: Src { n: 30i64, kind: 0i64 } };
+    let pc: Plain = Plain { s: Src { n: 30i64, kind: 1i64 } };
+    let da: Dist = Dist { s: Src { n: 30i64, kind: 0i64 } };
+    let db: Dist = Dist { s: Src { n: 30i64, kind: 0i64 } };
+    let dc: Dist = Dist { s: Src { n: 30i64, kind: 1i64 } };
+
+    let pp: Plain3Plan = plain3_prepare(&pa, &pb, &pc);
+    let dp: Dist3Plan = dist3_prepare(&da, &db, &dc);
+    if pp.order_ix != 0i64 { return 1i32; }
+    if dp.order_ix == 0i64 { return 2i32; }
+    if dp.cost_of(dp.order_ix) != 360i64 { return 3i32; }
+
+    let pr: Vec<(i64, i64)> = match plain3(&pa, &pb, &pc) { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    let dr: Vec<(i64, i64)> = match dist3(&da, &db, &dc) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if pr.len() != 900i64 || dr.len() != 900i64 { return 6i32; }
+    return 0i32;
+}

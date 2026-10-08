@@ -1,0 +1,840 @@
+// logos.std.wql.dplan — the Deem PLAN as data (ADR 0031 R5).
+//
+// A decision the planner makes is a value of this module's types, made by a
+// pure function of the facts it reads and RECORDED with its ground; an emitter
+// reads the value and never re-derives it. R5 moves the decisions here one at a
+// time, each move checked by a byte-identical snapshot of the emitted code and
+// the plan traces of the whole corpus (ADR 0031 §4.1).
+//
+// R5.0 — the entry's SCAN: which of the seven scan shapes a single-source
+// query runs, and whether its `order by` is elided by the source's own order.
+package logos.std.wql.dplan;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.wql.params;          // MacroParams: the source registry the decision reads
+use logos.std.wql.core;            // the core: the clauses a decision reads
+use logos.std.wql.ir;              // SExpr
+use logos.lang.writ.anyval;        // WAny::view
+use logos.std.wql.codegen;         // sexpr_over_group_names
+use logos.std.wql.optimize;        // simplify_sexpr, sexpr_const, is_identity_sel
+use logos.lang.writ.container;     // Writ
+use logos.mem.collections.vec;
+use logos.lang.option;
+use logos.std.wql.el;              // el_ret_class — a by-value (scalar) element
+use logos.std.wql.typing;          // type_clause — the clause typing every decision reads
+use logos.std.wql.join_sel;        // decide_join_step, trace_step, JS_NONE — the join-step decision
+use logos.std.wql.why;             // jg_pack — a decision's ground
+use logos.std.compiler.metaprog;   // OView, oview_module_ast
+
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+/// The shape a single-source scan runs. Exhaustive: an emitter `match`es it.
+pub enum DScanArm {
+    /// `order by` over a slice parameter: collect index + key over the
+    /// `SliceStream` wrap, sort the permutation, project through it.
+    SortSlice,
+    /// `order by` over anything else: the same three phases over an indexed walk.
+    SortIndexed,
+    /// An unmaterialised batch producer read BACKWARD (`order by … desc` over
+    /// its own order): `land_end`, `prev_batch`, a decrementing inner loop.
+    BatchRev,
+    /// An unmaterialised batch producer read forward: §1's one batch shape.
+    BatchFwd,
+    /// An unmaterialised row producer: `next()` until `None`.
+    RowPull,
+    /// A slice parameter with no registry identity: the `SliceStream` wrap.
+    SliceWrap,
+    /// Everything else (a materialised rel, a drained source): an indexed walk.
+    Indexed,
+}
+
+pub struct DScan {
+    /// The source as the query names it.
+    pub src: str,
+    /// Its registry index, or -1 (a slice parameter has none).
+    pub rel: i64,
+    pub arm: DScanArm,
+    /// The source's rows already arrive in the `order by`'s order
+    /// (`AccessPlan.ord_noop`), so the query's sort is dropped.
+    pub sort_elided: bool,
+    /// The source is a slice parameter read through a `SliceStream` wrap.
+    pub slice: bool,
+}
+
+/// A slice parameter with no registry identity — read through a `SliceStream`
+/// wrap (ADR 0025 R-A). THE one copy of this predicate.
+pub fn dp_slice_stream_src(prm: &MacroParams, src: str) -> bool {
+    if prm.rel_find_src(src) >= 0i64 { return false; }
+    return prm.is_source(src);
+}
+
+/// The entry scan's shape, from the facts the access plan left on the
+/// registry. `has_sort`: the query writes an `order by`.
+pub fn plan_entry_scan(prm: &MacroParams, src: str, has_sort: bool) -> DScan {
+    let elided: bool = has_sort && prm.rel_src_ord_noop(src);
+    let sorts: bool = has_sort && !elided;
+    let slice: bool = dp_slice_stream_src(prm, src);
+    let rel: i64 = prm.rel_find_src(src);
+    let mut arm: DScanArm = DScanArm::Indexed;
+    if sorts {
+        arm = if slice { DScanArm::SortSlice } else { DScanArm::SortIndexed };
+    } else if prm.rel_src_unmaterialized(src) {
+        if rel >= 0i64 && prm.rel_batch[rel] {
+            arm = if prm.rel_src_ord_rev(src) { DScanArm::BatchRev } else { DScanArm::BatchFwd };
+        } else {
+            arm = DScanArm::RowPull;
+        }
+    } else if slice {
+        arm = DScanArm::SliceWrap;
+    }
+    let d: DScan = DScan { src: src, rel: rel, arm: arm, sort_elided: elided, slice: slice };
+    dplan_dump_scan(&d);
+    return d;
+}
+
+/// THE GROUP-FRAME CLASS (ADR 0025 S4): TRUE iff every clause above the group —
+/// `select`, `having`, `order by` — reads only `key` and the aggregate outputs,
+/// so no group carries a representative base row. Decided ONCE, here: the
+/// planner (single pass) and the emitter (`__g_row` or not) both read it — they
+/// used to ask it separately, of two different trees.
+pub fn plan_group_pure(ru: &CRule) -> bool {
+    match &ru.clause.group {
+        Option::None => { return false; }
+        Option::Some(g) => {
+            let mut onames: Vec<str> = Vec::<str>::new();
+            let ags: &[CAgg] = g.aggs.as_slice();
+            let mut j: i64 = 0i64;
+            while j < g.aggs.len() { onames.push(ags[j].name); j = j + 1i64; }
+            let n: i64 = onames.len();
+            if !sexpr_over_group_names(ru.clause.head.view::<SExpr>(), &onames, n) { return false; }
+            match &g.having {
+                Option::Some(h) => { if !sexpr_over_group_names((*h).view::<SExpr>(), &onames, n) { return false; } }
+                Option::None => { }
+            }
+            match &ru.env.order {
+                Option::Some(o) => { if !sexpr_over_group_names((*o).view::<SExpr>(), &onames, n) { return false; } }
+                Option::None => { }
+            }
+            return true;
+        }
+    }
+}
+
+/// What a single-source entry (the `Simple` and `find` shapes) is, once its
+/// constant clauses are folded: no rows at all, the source itself (or its first
+/// row), or a scan.
+pub enum DForm {
+    /// `where` folds to false, or `limit 0`: an empty answer, no scan.
+    Empty,
+    /// Nothing filters, sorts, dedups or limits, and the row IS the select
+    /// (or `find` with nothing left to test): the source / its first row.
+    Identity,
+    Scan,
+}
+
+/// The single-source entry, its clauses folded (ADR 0031 R6.2): what the scan
+/// emitter is handed. `pred` / `sort_key` null = none left.
+pub struct DSimple {
+    pub form: DForm,
+    pub src: str,
+    pub row_ty: str,
+    pub var: str,
+    pub pred: WAny,
+    /// A group's `having`, folded (null = none left).
+    pub having: WAny,
+    pub sel: WAny,
+    pub sort_key: WAny,
+    pub sort_desc: bool,
+    pub distinct: bool,
+    pub has_limit: bool,
+    pub limit_n: i64,
+    pub limit_is_param: bool,
+    pub limit_param: str,
+}
+
+// The entry's clauses folded as the relational simplifier folded them — the
+// ONE copy, for every entry shape it serves: a constant `where` disappears
+// (true) or empties the answer (false); a constant sort key drops the sort;
+// `limit 0` empties it; identity needs a single bare source, no distinct or
+// limit, and a select that is the row variable (or `find`). `cond` is the
+// rule's one `where` (null = none).
+fn dp_fold_entry(ru: &CRule, src: str, row_ty: str, var: str, cond: WAny, single: bool,
+                 h: &Writ) -> DSimple {
+    let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
+    let mut empty: bool = false;
+    let mut pred: WAny = WAny::null();
+    let mut having: WAny = WAny::null();
+    let grouped: bool = match &ru.clause.group { Option::Some(_g) => { true } Option::None => { false } };
+    if grouped {
+        // Under a group the `where` is NOT folded — the simplifier never looked
+        // inside the group node — and the `having` above it is.
+        pred = cond;
+        match &ru.clause.group {
+            Option::Some(g) => {
+                match &g.having {
+                    Option::Some(hv) => {
+                        let hh: WRef<SExpr> = simplify_sexpr((*hv).view::<SExpr>(), h);
+                        let hc: ConstVal = sexpr_const(hh.any().view::<SExpr>());
+                        if hc.is_bool() {
+                            if !hc.b { empty = true; }
+                        } else {
+                            having = hh.any();
+                        }
+                    }
+                    Option::None => { }
+                }
+            }
+            Option::None => { }
+        }
+    } else if !cond.is_null() {
+        let ph: WRef<SExpr> = simplify_sexpr(cond.view::<SExpr>(), h);
+        let pc: ConstVal = sexpr_const(ph.any().view::<SExpr>());
+        if pc.is_bool() {
+            if !pc.b { empty = true; }
+        } else {
+            pred = ph.any();
+        }
+    }
+    let mut sort_key: WAny = WAny::null();
+    match &ru.env.order {
+        Option::Some(o) => {
+            if !empty {
+                let kh: WRef<SExpr> = simplify_sexpr((*o).view::<SExpr>(), h);
+                let mut lit: bool = false;
+                match kh.any().view::<SExpr>() { SExpr::Lit(_l) => { lit = true; } _ => { } }
+                if !lit { sort_key = kh.any(); }
+            }
+        }
+        Option::None => { }
+    }
+    let mut has_limit: bool = false;
+    let mut limit_n: i64 = 0i64;
+    let mut limit_is_param: bool = false;
+    let mut limit_param: str = "";
+    match &ru.env.limit {
+        CLimit::None => { }
+        CLimit::N(n) => { has_limit = true; limit_n = *n; if *n == 0i64 { empty = true; } }
+        CLimit::Param(q) => { has_limit = true; limit_is_param = true; limit_param = *q; }
+    }
+    let mut form: DForm = DForm::Scan;
+    if empty {
+        form = DForm::Empty;
+    } else if single && !has_limit && !ru.env.distinct && sort_key.is_null() && pred.is_null()
+              && (find || is_identity_sel(WRef::<SExpr>::from_any(ru.clause.head), var)) {
+        form = DForm::Identity;
+    }
+    return DSimple { form: form, src: src, row_ty: row_ty, var: var, pred: pred, having: having,
+                     sel: ru.clause.head, sort_key: sort_key, sort_desc: ru.env.desc,
+                     distinct: ru.env.distinct, has_limit: has_limit, limit_n: limit_n,
+                     limit_is_param: limit_is_param, limit_param: limit_param };
+}
+
+// The rule's base atom (positive, unconditioned), or None.
+fn dp_base(ru: &CRule) -> Option<CAtomRef> {
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    if ru.clause.body.len() < 1i64 { return Option::None; }
+    match &bs[0i64] {
+        CLit::Atom(a) => {
+            if a.neg || a.conds.len() > 0i64 { return Option::None; }
+            return Option::Some(CAtomRef { name: a.name, row_ty: a.row_ty, var: a.var });
+        }
+        CLit::Trav(_t) => { return Option::None; }
+        CLit::Cond(_c) => { return Option::None; }
+    }
+}
+
+struct CAtomRef { name: str, row_ty: str, var: str }
+
+/// The planned core's entry as a single-source query, or None when it is not
+/// one (a join, a traversal, a group). `where_retired`: an exact access op
+/// answers the `where` (`plan_where_retired`; never for `find`).
+pub fn plan_entry_simple(p: &CProgram, where_retired: bool, h: &Writ) -> Option<DSimple> {
+    let ru: &CRule = &p.entry;
+    match &ru.clause.group { Option::Some(_g) => { return Option::None; } Option::None => { } }
+    let base: CAtomRef = match dp_base(ru) { Option::Some(b) => { b } Option::None => { return Option::None; } };
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut cond: WAny = WAny::null();
+    let mut i: i64 = 1i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => {
+                match &c.site { CSite::Where => { } CSite::On => { return Option::None; } }
+                if !cond.is_null() { return Option::None; }
+                cond = c.e;
+            }
+            CLit::Atom(_a) => { return Option::None; }
+            CLit::Trav(_t) => { return Option::None; }
+        }
+        i = i + 1i64;
+    }
+    let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
+    if where_retired && !find { cond = WAny::null(); }
+    return Option::Some(dp_fold_entry(ru, base.name, base.row_ty, base.var, cond, true, h));
+}
+
+/// The planned core's entry as a GROUP (an aggregate over a base atom and any
+/// steps), its `having` folded; None when it is not one.
+pub fn plan_entry_group(p: &CProgram, h: &Writ) -> Option<DSimple> {
+    let ru: &CRule = &p.entry;
+    match &ru.clause.group { Option::Some(_g) => { } Option::None => { return Option::None; } }
+    let base: CAtomRef = match dp_base(ru) { Option::Some(b) => { b } Option::None => { return Option::None; } };
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut cond: WAny = WAny::null();
+    let mut i: i64 = 1i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => {
+                match &c.site {
+                    CSite::Where => { if !cond.is_null() { return Option::None; } cond = c.e; }
+                    CSite::On => { }
+                }
+            }
+            CLit::Atom(_a) => { }
+            CLit::Trav(_t) => { }
+        }
+        i = i + 1i64;
+    }
+    return Option::Some(dp_fold_entry(ru, base.name, base.row_ty, base.var, cond, false, h));
+}
+
+/// The planned core's entry as a JOIN CHAIN (a base atom and at least one
+/// step: a join, an anti join or a traversal), its `where` folded; None when
+/// it is not one. The chain itself is read off the rule by the emitter.
+pub fn plan_entry_chain(p: &CProgram, h: &Writ) -> Option<DSimple> {
+    let ru: &CRule = &p.entry;
+    match &ru.clause.group { Option::Some(_g) => { return Option::None; } Option::None => { } }
+    let base: CAtomRef = match dp_base(ru) { Option::Some(b) => { b } Option::None => { return Option::None; } };
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut steps: i64 = 0i64;
+    let mut cond: WAny = WAny::null();
+    let mut i: i64 = 1i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => {
+                match &c.site {
+                    CSite::Where => { if !cond.is_null() { return Option::None; } cond = c.e; }
+                    CSite::On => { }
+                }
+            }
+            CLit::Atom(_a) => { steps = steps + 1i64; }
+            CLit::Trav(_t) => { steps = steps + 1i64; }
+        }
+        i = i + 1i64;
+    }
+    if steps == 0i64 { return Option::None; }
+    return Option::Some(dp_fold_entry(ru, base.name, base.row_ty, base.var, cond, false, h));
+}
+
+/// The arm runs the sort phases.
+pub fn dscan_sorts(d: &DScan) -> bool {
+    match &d.arm {
+        DScanArm::SortSlice => { return true; }
+        DScanArm::SortIndexed => { return true; }
+        DScanArm::BatchRev => { return false; }
+        DScanArm::BatchFwd => { return false; }
+        DScanArm::RowPull => { return false; }
+        DScanArm::SliceWrap => { return false; }
+        DScanArm::Indexed => { return false; }
+    }
+}
+
+/// The arm pulls an unmaterialised producer (batch or row).
+pub fn dscan_pulls(d: &DScan) -> bool {
+    match &d.arm {
+        DScanArm::BatchRev => { return true; }
+        DScanArm::BatchFwd => { return true; }
+        DScanArm::RowPull => { return true; }
+        DScanArm::SortSlice => { return false; }
+        DScanArm::SortIndexed => { return false; }
+        DScanArm::SliceWrap => { return false; }
+        DScanArm::Indexed => { return false; }
+    }
+}
+
+/// The arm pulls whole batches (forward or backward).
+pub fn dscan_batches(d: &DScan) -> bool {
+    match &d.arm {
+        DScanArm::BatchRev => { return true; }
+        DScanArm::BatchFwd => { return true; }
+        DScanArm::RowPull => { return false; }
+        DScanArm::SortSlice => { return false; }
+        DScanArm::SortIndexed => { return false; }
+        DScanArm::SliceWrap => { return false; }
+        DScanArm::Indexed => { return false; }
+    }
+}
+
+/// The arm reads its producer backward.
+pub fn dscan_backward(d: &DScan) -> bool {
+    match &d.arm {
+        DScanArm::BatchRev => { return true; }
+        DScanArm::BatchFwd => { return false; }
+        DScanArm::RowPull => { return false; }
+        DScanArm::SortSlice => { return false; }
+        DScanArm::SortIndexed => { return false; }
+        DScanArm::SliceWrap => { return false; }
+        DScanArm::Indexed => { return false; }
+    }
+}
+
+pub fn dscan_arm_name(d: &DScan) -> str {
+    match &d.arm {
+        DScanArm::SortSlice => { return "sort-slice"; }
+        DScanArm::SortIndexed => { return "sort-indexed"; }
+        DScanArm::BatchRev => { return "batch-rev"; }
+        DScanArm::BatchFwd => { return "batch"; }
+        DScanArm::RowPull => { return "row-pull"; }
+        DScanArm::SliceWrap => { return "slice-wrap"; }
+        DScanArm::Indexed => { return "indexed"; }
+    }
+}
+
+/// `LOGOS_DEEM_DUMP=dplan`: each plan value as it is decided, on stderr.
+pub fn dplan_dump_on() -> bool {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_DEEM_DUMP");
+    c.push_u8(0u8);
+    unsafe {
+        let v: *const u8 = getenv(c.as_ptr());
+        if v == 0 as *const u8 { return false; }
+        return str_eq(str_from_cstr(v), "dplan");
+    }
+}
+
+fn dplan_dump_scan(d: &DScan) {
+    if !dplan_dump_on() { return; }
+    let mut s: String = String::new();
+    s.push_str("[dplan] scan "); s.push_str(d.src);
+    s.push_str(" arm="); s.push_str(dscan_arm_name(d));
+    if d.sort_elided { s.push_str(" sort-elided"); }
+    s.push_str("\n");
+    unsafe { write(2i32, s.as_ptr(), s.len()); }
+}
+
+// ── ADR 0031 R6.7 — DNest: THE JOIN NEST (base + steps), a plan node ─────────
+// Built by the planner from a core clause (`plan_nest`) and consumed by every
+// nest emitter; it was the emitter's private `JChain`.
+// `edge[i]` — TRAVERSAL step (slice D): `src[i]` is the full field-path source
+// EXPRESSION (`d.emps`, walker-stamped) rather than a slice-param name; the
+// strategy cascade is BYPASSED (always nested-loop — the source depends on
+// outer row vars, so no build-once index exists) and `onw[i]` may be 0 (no
+// `on` — containment IS the join). `byval[i]` — the step binds a SCALAR
+// element (Vec<str> → `let s: str = (e.skills)[j]`) by VALUE (Copy lattice),
+// not by reference.
+// `jstrat`/`jkey`/`jsel`/`jground` — the PLAN'S DECISION, carried off the node
+// (`JS_NONE` = no planner reached it; see analyze_chain).
+pub struct DNest {
+    pub base_src: str,
+    pub base_ty:  str,
+    pub base_var: str,
+    pub n:    i64,
+    pub src:  Vec<str>,
+    pub ty:   Vec<str>,
+    pub var:  Vec<str>,
+    pub anti: Vec<bool>,
+    pub onw:  Vec<i64>,     // raw arena words of the per-step on-pred edges (0 = none)
+    pub edge:  Vec<bool>,
+    pub byval: Vec<bool>,
+    pub jstrat: Vec<i32>,
+    pub jsel:   Vec<i64>,
+    pub jground: Vec<i64>,
+}
+
+pub fn dnest_new() -> DNest {
+    return DNest { base_src: "", base_ty: "", base_var: "", n: 0i64,
+                    src: Vec::<str>::new(), ty: Vec::<str>::new(), var: Vec::<str>::new(),
+                    anti: Vec::<bool>::new(), onw: Vec::<i64>::new(), edge: Vec::<bool>::new(),
+                    byval: Vec::<bool>::new(), jstrat: Vec::<i32>::new(), jsel: Vec::<i64>::new(),
+                    jground: Vec::<i64>::new() };
+}
+
+// Append one step (the decision fields as the plan left them on the node).
+pub fn dn_push(ch: &mut DNest, src: str, ty: str, var: str, anti: bool, onw: i64, edge: bool,
+           byval: bool, jstrat: i32, jsel: i64, jground: i64) {
+    ch.src.push(src); ch.ty.push(ty); ch.var.push(var); ch.anti.push(anti); ch.onw.push(onw);
+    ch.edge.push(edge); ch.byval.push(byval); ch.jstrat.push(jstrat); ch.jsel.push(jsel);
+    ch.jground.push(jground);
+    ch.n = ch.n + 1i64;
+}
+
+// The JOIN CHAIN of a core clause (ADR 0031 R6.4): the base atom, then each
+// step in order — a positive step's `on` is the condition right after it, a
+// negated step's lives inside it; a traversal reads its stamped collection
+// expression.
+pub fn plan_nest(cl: &CClause) -> DNest {
+    let mut ch: DNest = dnest_new();
+    let bs: &[CLit] = cl.body.as_slice();
+    let n: i64 = cl.body.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        // the `on` a positive step carries: the On condition right after it
+        let mut next_on: i64 = 0i64;
+        if i + 1i64 < n {
+            match &bs[i + 1i64] {
+                CLit::Cond(c) => { match &c.site { CSite::On => { next_on = c.e.raw(); } CSite::Where => { } } }
+                CLit::Atom(_a) => { }
+                CLit::Trav(_t) => { }
+            }
+        }
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if i == 0i64 {
+                    ch.base_src = a.name; ch.base_ty = a.row_ty; ch.base_var = a.var;
+                } else {
+                    let onw: i64 = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                    dn_push(&mut ch, a.name, a.row_ty, a.var, a.neg, onw, false, false,
+                            a.strat, a.jsel as i64, a.ground);
+                }
+            }
+            CLit::Trav(t) => {
+                let eon: i64 = if t.neg { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                dn_push(&mut ch, t.name, t.row_ty, t.var, t.neg, eon, true,
+                        el_ret_class(t.row_ty) >= 0i32, 0i32, -1i64, 0i64);
+            }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return ch;
+}
+
+// ── ADR 0031 R7.1 — THE FIXPOINT OF ONE SCC, AS A PLAN ─────────────────────
+//
+// A recursive SCC is evaluated by a semi-naïve driver (from scratch, `_scc<c>`,
+// or across epochs, `_scc<c>_i`) and retracted by DRed (`_od` seeds from every
+// body, `_odp` propagates through the recursive ones). What each driver runs is
+// a property of the program and the condensation, not of the emitter: per
+// member, its rules; which of them read no member (the seeds); and, for every
+// rule that does, one VARIANT per in-SCC occurrence, which reads that
+// occurrence's DELTA and every other occurrence's TOTAL. The translator below
+// decides it; the drivers' emitters spell it.
+
+/// One rule run: the rule, and the source each chain slot reads instead of its
+/// own (slot 0 the base; "" = its own) — the semi-naïve delta rename.
+pub struct DRun {
+    pub rule: i64,
+    pub ovr: Vec<str>,
+    /// Per chain slot: the slot's source does not change while the SCC's loop
+    /// runs — a parameter, or a rel outside the SCC (ADR 0031 R7.2: its index
+    /// may be built once, before the loop). A traversal's source depends on its
+    /// base row, so it never is.
+    pub inv: Vec<bool>,
+    /// The variant's own clause when it is not the rule's: the DELTA-FIRST
+    /// reordering (R7.3), with its own join decisions. None = the rule as written.
+    pub clause: Option<CClause>,
+}
+
+pub struct DSccMember {
+    pub rel: i64,
+    /// Every rule, at its canonical (total) sources.
+    pub all: Vec<i64>,
+    /// The rules that read no member of the SCC.
+    pub seeds: Vec<i64>,
+    /// Each recursive rule × each of its in-SCC occurrences.
+    pub variants: Vec<DRun>,
+}
+
+pub struct DScc { pub scc: i64, pub members: Vec<DSccMember> }
+
+/// Rule `ru`'s occurrences of SCC `c`'s rels, in chain order: (slot − 1, rel)
+/// — slot 0 is the base, a traversal holds a slot and is never an occurrence.
+fn scc_occurrences(ru: &CRule, scc: &RelScc, c: i64, pos: &mut Vec<i64>, rel: &mut Vec<i64>) {
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut slot: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if a.reg >= 0i64 && scc.comp[a.reg] == c { pos.push(slot - 1i64); rel.push(a.reg); }
+                slot = slot + 1i64;
+            }
+            CLit::Trav(_t) => { slot = slot + 1i64; }
+            CLit::Cond(_x) => { }
+        }
+        i = i + 1i64;
+    }
+}
+
+// Per chain slot of a rule: does the slot's source stay fixed while SCC `c`'s
+// loop runs?
+fn slot_invariance(ru: &CRule, scc: &RelScc, c: i64) -> Vec<bool> {
+    return clause_slot_invariance(&ru.clause, scc, c);
+}
+
+fn clause_slot_invariance(cl: &CClause, scc: &RelScc, c: i64) -> Vec<bool> {
+    let mut v: Vec<bool> = Vec::<bool>::new();
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { v.push(a.reg < 0i64 || scc.comp[a.reg] != c); }
+            CLit::Trav(_t) => { v.push(false); }
+            CLit::Cond(_x) => { }
+        }
+        i = i + 1i64;
+    }
+    return v;
+}
+
+/// The plan of SCC `c` over the planned core. Members in declaration order
+/// (registry order); a member's rules in declaration order.
+pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
+    let mut out: DScc = DScc { scc: c, members: Vec::<DSccMember>::new() };
+    let rels: &[CRel] = prm.plan_core.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < prm.rel_n {
+        if scc.comp[r] == c && r < prm.plan_core.rels.len() {
+            let mut m: DSccMember = DSccMember { rel: r, all: Vec::<i64>::new(), seeds: Vec::<i64>::new(),
+                                                 variants: Vec::<DRun>::new() };
+            let rules: &[CRule] = rels[r].rules.as_slice();
+            let mut b: i64 = 0i64;
+            while b < rels[r].rules.len() {
+                m.all.push(b);
+                let mut pos: Vec<i64> = Vec::<i64>::new();
+                let mut orel: Vec<i64> = Vec::<i64>::new();
+                scc_occurrences(&rules[b], scc, c, &mut pos, &mut orel);
+                if pos.len() == 0i64 { m.seeds.push(b); }
+                let mut v: i64 = 0i64;
+                while v < pos.len() {
+                    let mut ovr: Vec<str> = Vec::<str>::new();
+                    let mut w: i64 = 0i64;
+                    while w < pos.len() {
+                        let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[orel[w]]) }
+                                        else      { string_as_str(&prm.rel_srcs[orel[w]]) };
+                        let sl: i64 = pos[w] + 1i64;
+                        while ovr.len() <= sl { ovr.push(""); }
+                        ovr[sl] = nm_w;
+                        w = w + 1i64;
+                    }
+                    // R7.3 — DELTA FIRST: a variant whose delta occurrence is a STEP
+                    // reads the whole of every source before it each round; driving
+                    // from the delta reads the delta and probes the rest (whose
+                    // loop-invariant indexes R7.2 builds once). A rel body is a SET,
+                    // so the order moves no answer. Aggregate (min/max) members keep
+                    // their written order.
+                    let mut reordered: Option<CClause> = Option::None;
+                    if pos[v] >= 0i64 && !prm.rel_is_agg[r] && !env_on("LOGOS_DEEM_NO_DELTA_FIRST") {
+                        reordered = delta_first(prm, &rules[b].clause, pos[v] + 1i64, h);
+                    }
+                    if reordered.is_some() {
+                        let rc: CClause = reordered.unwrap();
+                        let mut ovr2: Vec<str> = Vec::<str>::new();
+                        let rinv: Vec<bool> = clause_slot_invariance(&rc, scc, c);
+                        let rbs: &[CLit] = rc.body.as_slice();
+                        let mut sl2: i64 = 0i64;
+                        let mut q: i64 = 0i64;
+                        while q < rc.body.len() {
+                            match &rbs[q] {
+                                CLit::Atom(a) => {
+                                    let mut nm2: str = "";
+                                    if a.reg >= 0i64 && scc.comp[a.reg] == c {
+                                        nm2 = if sl2 == 0i64 { string_as_str(&prm.rel_dsrcs[a.reg]) } else { string_as_str(&prm.rel_srcs[a.reg]) };
+                                    }
+                                    ovr2.push(nm2);
+                                    sl2 = sl2 + 1i64;
+                                }
+                                CLit::Trav(_t) => { ovr2.push(""); sl2 = sl2 + 1i64; }
+                                CLit::Cond(_x) => { }
+                            }
+                            q = q + 1i64;
+                        }
+                        m.variants.push(DRun { rule: b, ovr: ovr2, inv: rinv, clause: Option::Some(rc) });
+                    } else {
+                        m.variants.push(DRun { rule: b, ovr: ovr, inv: slot_invariance(&rules[b], scc, c), clause: Option::None });
+                    }
+                    v = v + 1i64;
+                }
+                b = b + 1i64;
+            }
+            out.members.push(m);
+        }
+        r = r + 1i64;
+    }
+    return out;
+}
+
+// ── THE JOIN-STEP DECISION ON A CLAUSE (moved from the walker, ADR 0031 R7.3:
+// the planner decides it for the program's rules and for the fixpoint's
+// reordered variants alike) ────────────────────────────────────────────────
+
+/// Decide every classic step of ONE clause and record the decision on its atoms.
+///
+/// The type dict is `typing::type_clause` over the core's atoms, resolved from
+/// the declarations (ADR 0031 R4.0) — the function the emitter types with.
+///
+/// Traversal steps are nested loops by construction. They also STOP the walk,
+/// and the dict stops at the first one: the decisions below were made, and
+/// measured, without the traversal's element type in the dict, and a flat
+/// column name a later traversal's struct also declares would type an earlier
+/// key differently. Later steps are left `JS_NONE`; `plan_insert_drains` reads
+/// that as "not proven read-once" and drains the step's source on
+/// `MG_UNDECIDED`.
+pub fn plan_decide_clause(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ, full: bool) {
+    let t: ElTypes = type_clause(view, prm, cl, !full);
+    let n: i64 = cl.body.len();
+    let mut i: i64 = 1i64;
+    while i < n {
+        // the `on` a positive step carries: the On condition right after it
+        let mut next_on: WAny = WAny::null();
+        if i + 1i64 < n {
+            match &cl.body[i + 1i64] {
+                CLit::Cond(c) => { match &c.site { CSite::On => { next_on = c.e; } CSite::Where => { } } }
+                CLit::Atom(_a) => { }
+                CLit::Trav(_t) => { }
+            }
+        }
+        match &mut cl.body[i] {
+            CLit::Atom(a) => {
+              if a.strat == JS_NONE() {
+                let on: WAny = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64) } else { WAny::null() } } else { next_on };
+                let ss: StepSel = decide_join_step(WRef::<SExpr>::from_any(on), a.var, &t, h);
+                a.strat = ss.strat;
+                a.jsel  = ss.sel as i32;
+                a.ground = jg_pack(&ss.g);
+                // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read
+                // `el_class_repr(ss.key_ty)` — the class's representative — so a `u64`
+                // key was announced as `hash join on i64` while the emitted map is
+                // `HashMap<u64, …>`. A justification that names a type the code does not
+                // use is not a justification of that code.
+                trace_step(a.var, &ss);
+              }
+            }
+            CLit::Trav(_t) => { if !full { return; } }   // pass 1: every step after it stays undecided
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+}
+
+// ── R7.3 — DELTA FIRST ──────────────────────────────────────────────────────
+
+fn lit_copy(l: &CLit) -> CLit {
+    match l {
+        CLit::Atom(a) => {
+            let mut cs: Vec<WAny> = Vec::<WAny>::new();
+            let mut k: i64 = 0i64;
+            while k < a.conds.len() { cs.push(a.conds.get(k)); k = k + 1i64; }
+            let src: CSrc = match &a.src { CSrc::Rel(x) => CSrc::Rel(*x), CSrc::Param(n) => CSrc::Param(*n), CSrc::Unit => CSrc::Unit };
+            return CLit::Atom(CAtom { src: src, reg: a.reg, name: a.name, var: a.var, row_ty: a.row_ty, neg: a.neg,
+                                      conds: cs, strat: 0i32, jsel: -1i32, ground: 0i64 });
+        }
+        CLit::Trav(t) => {
+            let mut cs2: Vec<WAny> = Vec::<WAny>::new();
+            let mut k2: i64 = 0i64;
+            while k2 < t.conds.len() { cs2.push(t.conds.get(k2)); k2 = k2 + 1i64; }
+            let mut path: Vec<str> = Vec::<str>::new();
+            let mut k3: i64 = 0i64;
+            while k3 < t.path.len() { path.push(t.path.get(k3)); k3 = k3 + 1i64; }
+            return CLit::Trav(CTrav { name: t.name, base: t.base, path: path, var: t.var, row_ty: t.row_ty, neg: t.neg, conds: cs2 });
+        }
+        CLit::Cond(c) => {
+            let site: CSite = match &c.site { CSite::Where => CSite::Where, CSite::On => CSite::On };
+            return CLit::Cond(CCond { e: c.e, site: site });
+        }
+    }
+}
+
+fn and_w(h: &Writ, acc: WAny, e: WAny) -> WAny {
+    if acc.is_null() { return e; }
+    let n: SBin = h.make::<SBin>();
+    n.op = OP_AND();
+    n.lhs = WRef::<SExpr>::from_any(acc);
+    n.rhs = WRef::<SExpr>::from_any(e);
+    return n.as_ref();
+}
+
+/// The clause with its source literal at chain slot `dslot` moved first and
+/// every other source literal in its written order. Each step `on` attaches to
+/// the last source (in the new order) whose row it reads — several landing on
+/// one step are ANDed — and one that reads only the new base joins the WHERE.
+/// Nothing bound before a literal is bound after it (only the moved atom went
+/// earlier), so every traversal base and negation scope is still satisfied.
+/// The steps' join strategies are decided anew, as the planner decides a rule's.
+pub fn delta_first(prm: &MacroParams, cl: &CClause, dslot: i64, h: &Writ) -> Option<CClause> {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut srcs: Vec<i64> = Vec::<i64>::new();      // body indices of the source literals
+    let mut ons: Vec<WAny> = Vec::<WAny>::new();
+    let mut wh: WAny = WAny::null();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(_a) => { srcs.push(i); }
+            CLit::Trav(_t) => { srcs.push(i); }
+            CLit::Cond(c) => { match &c.site { CSite::On => { ons.push(c.e); } CSite::Where => { wh = c.e; } } }
+        }
+        i = i + 1i64;
+    }
+    let mut order: Vec<i64> = Vec::<i64>::new();
+    order.push(srcs[dslot]);
+    let mut k: i64 = 0i64;
+    while k < srcs.len() { if k != dslot { order.push(srcs[k]); } k = k + 1i64; }
+    // the var each new position binds ("" for a negation: it binds nothing)
+    let mut vars: Vec<str> = Vec::<str>::new();
+    let mut p: i64 = 0i64;
+    while p < order.len() {
+        match &bs[order[p]] {
+            CLit::Atom(a) => { vars.push(if a.neg { "" } else { a.var }); }
+            CLit::Trav(t) => { vars.push(if t.neg { "" } else { t.var }); }
+            CLit::Cond(_c) => { vars.push(""); }
+        }
+        p = p + 1i64;
+    }
+    let mut at: Vec<WAny> = Vec::<WAny>::new();
+    let mut z: i64 = 0i64;
+    while z < order.len() { at.push(WAny::null()); z = z + 1i64; }
+    let mut base_conds: WAny = WAny::null();
+    let mut q: i64 = 0i64;
+    while q < ons.len() {
+        let e: SExpr = ons.get(q).view::<SExpr>();
+        let mut last: i64 = 0i64;
+        let mut v: i64 = 0i64;
+        while v < vars.len() {
+            if vars.get(v).len() > 0i64 && (refs_mask(e, vars.get(v)) & 1i32) != 0i32 { last = v; }
+            v = v + 1i64;
+        }
+        if last == 0i64 { base_conds = and_w(h, base_conds, ons.get(q)); }
+        else { at[last] = and_w(h, at[last], ons.get(q)); }
+        q = q + 1i64;
+    }
+    let mut body: Vec<CLit> = Vec::<CLit>::new();
+    let mut n: i64 = 0i64;
+    while n < order.len() {
+        body.push(lit_copy(&bs[order[n]]));
+        // ADMISSIBILITY: every positive JOIN step must keep a condition linking
+        // it to the rows before it. A step left with none would join on `true`
+        // — a nested loop over its whole source per delta row, worse than the
+        // written order's single scan (the link ran through a traversal or a
+        // later source). Such a variant keeps its written order.
+        if at[n].is_null() && n > 0i64 {
+            match &bs[order[n]] { CLit::Atom(a) => { if !a.neg { return Option::None; } } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
+        }
+        if !at[n].is_null() { body.push(CLit::Cond(CCond { e: at[n], site: CSite::On })); }
+        n = n + 1i64;
+    }
+    let mut w2: WAny = wh;
+    if !base_conds.is_null() { w2 = and_w(h, w2, base_conds); }
+    if !w2.is_null() { body.push(CLit::Cond(CCond { e: w2, site: CSite::Where })); }
+    let mut out: CClause = CClause { head: cl.head, body: body, group: Option::None, gpath: Option::None };
+    let view: OView = oview_module_ast();
+    plan_decide_clause(prm, &view, &mut out, h, true);
+    return Option::Some(out);
+}
+
+/// The fixpoint plan of every SCC, indexed by SCC id (a non-recursive SCC's is
+/// planned too; its drivers never run).
+pub fn plan_sccs(prm: &MacroParams, scc: &RelScc, h: &Writ) -> Vec<DScc> {
+    let mut v: Vec<DScc> = Vec::<DScc>::new();
+    let mut c: i64 = 0i64;
+    while c < scc.nscc { v.push(plan_scc(prm, scc, c, h)); c = c + 1i64; }
+    return v;
+}
+
+/// A measurement switch: set (to anything) in the compiler's environment.
+pub fn env_on(name: str) -> bool {
+    let mut n: String = String::new();
+    n.push_str(name);
+    n.push_u8(0u8);
+    return unsafe { getenv(n.as_ptr()) } != 0 as *const u8;
+}

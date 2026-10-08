@@ -1,0 +1,11 @@
+// ADR 0031 R4.1 — a select component is checked against the column's TYPE, not
+// its class: an i64 does not reach a u64 column (Rust: mismatched types).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Row { pub k: u32, pub n: i64 }
+pub deem q(rs: &[Row]) {
+    rel r2(k: u64, n: i64) { from rs r select (r.n, r.n); }
+    from r2 x select x.n
+}
+fn main() -> i32 { return 0i32; }

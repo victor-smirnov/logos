@@ -1,6 +1,6 @@
 # Deem
 
-> Scope: Deem — Logos's native query facility over Writ data. Two surfaces share one Writ-schema IR (SExpr scalar tier + RExpr relational/graph tier): the STATIC `deem` LANGUAGE ITEM (`pub? deem q(params) { query }` — metacall → native fn, sqlx-style prepared statement; the historical `deem!` macro is RETIRED, its spelling errors with the replacement written out) and the DYNAMIC `Query::compile(text,&cat)?.run(&env)?` runtime API (package `logos.std.deem`). This spec is ALSO the canonical home of EL (rule domain `el.*`), the CEL-class expression sublanguage embedded by both Deem clauses and Trama (`docs/spec/trama.md` links these `el.*` ids). Deem ships/versions with the language but is a metaprogramming/stdlib surface, so it has its own spec. Source layers: `stdlib/mem/wql/grammars/{wql,el}.peg` (PEG surfaces, schema-emission mode), `stdlib/mem/wql/*.logos` (engine — ABI-excluded internals), `stdlib/mem/deem/deem.logos` (the ABI-stable dynamic API), ADR 0012 (`docs/adr/0012-writ-query-language.md`) + ADR 0012-queue2 (`docs/adr/0012-queue2-interpreter.md`). Each rule's `id` is its permanent linkable address; the domain is `deem` for the query surface and `el` for the shared expression language.
+> Scope: Deem — Logos's native query facility over Writ data. Two surfaces share one Writ-schema IR (SExpr scalar tier + RExpr relational/graph tier): the STATIC `deem` LANGUAGE ITEM (`pub? deem q(params) { query }` — metacall → native fn, sqlx-style prepared statement; the historical `deem!` macro is RETIRED, its spelling errors with the replacement written out), which since P5 is the ONLY query surface, and the runtime TEMPLATE engine (`Tpl`, specced in `docs/spec/trama.md`). The DYNAMIC `Query::compile(text,&cat)?.run(&env)?` query API was deleted at P5 with the interpreter (`deem.exec.dynamic-api`). This spec is ALSO the canonical home of EL (rule domain `el.*`), the CEL-class expression sublanguage embedded by both Deem clauses and Trama (`docs/spec/trama.md` links these `el.*` ids). Deem ships/versions with the language but is a metaprogramming/stdlib surface, so it has its own spec. Source layers: `stdlib/mem/wql/grammars/{wql,el}.peg` (PEG surfaces, schema-emission mode), `stdlib/mem/wql/*.logos` (engine — ABI-excluded internals), `stdlib/mem/deem/deem.logos` (package `logos.mem.deem`, ABI-carried: `SchemaCatalog`, `QEnv`, `RtVal`, `QError` — the runtime binding types the template engine `stdlib/mem/deem/tpl.logos` reads; no query API), ADR 0012 (`docs/adr/0012-writ-query-language.md`) + ADR 0012-queue2 (`docs/adr/0012-queue2-interpreter.md`; the design of the deleted interpreter, whose template half survives). Each rule's `id` is its permanent linkable address; the domain is `deem` for the query surface and `el` for the shared expression language.
 
 ## Surfaces and execution model
 
@@ -18,7 +18,7 @@ The parens carry a genuine Logos fn parameter list, re-emitted VERBATIM into the
 
 *Divergence:* EXTENSION over SQL/LINQ — query inputs are ordinary strongly-typed Logos function parameters, not bind markers.
 
-*Evidence:* `stdlib/mem/wql/wql.logos#L15-L32`; parser `stdlib/mem/wql/params.logos` (`parse_macro_params`, `MacroParams`)
+*Evidence:* `stdlib/mem/wql/wql.logos` (`deem`); parser `stdlib/mem/wql/params.logos` (`parse_macro_params`, `MacroParams`)
 
 ### `deem.surface.source-param` — slice params are sources
 
@@ -26,7 +26,7 @@ A slice param (`emps: &[Emp]`) is a query SOURCE named by a `from`/`join` clause
 
 *Divergence:* EXTENSION — sources are typed Rust-style slices, giving static row-field resolution (P3 schema-typing-as-selector).
 
-*Evidence:* `stdlib/mem/wql/wql.logos#L24-L30`; reflection `stdlib/mem/wql/reflect.logos`
+*Evidence:* `stdlib/mem/wql/wql.logos` (`deem`); source resolution `stdlib/mem/wql/plan_walker.logos` (`resolve_source`); reflection `stdlib/mem/wql/reflect.logos`
 
 ### `deem.surface.scalar-param` — scalar params referenced bare in EL
 
@@ -34,7 +34,7 @@ A scalar param (`i64`/`f64`/`str`/`bool`) is referenced BARE (no sigil) inside E
 
 *Divergence:* differs from CEL/SQL bind variables — a scalar param is a plain in-scope name, not a `$`-prefixed or `?` positional bind.
 
-*Evidence:* `stdlib/mem/wql/wql.logos#L28-L30`; `stdlib/mem/wql/el.logos#L136-L143` (`el_ty_of_name`)
+*Evidence:* `stdlib/mem/wql/wql.logos` (`deem`); seeding `stdlib/mem/wql/rexpr_walk.logos` (`apply_scalar_params`); `stdlib/mem/wql/el.logos` (`ElTypes::set_ty_named`, `ElTypes::class_of_name`, `el_ty_of_name`)
 
 ### `deem.surface.pipeline` — clause pipeline order
 
@@ -42,7 +42,7 @@ Evaluation order is `from → [join…] → where → group/aggregate → having
 
 *Divergence:* matches SQL logical clause ordering (WHERE before GROUP BY before HAVING before ORDER BY before the projection's DISTINCT/LIMIT).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L41-L50`; lowering `stdlib/mem/wql/lower.logos#L107-L124` (RQSimple pipeline where→order→project→distinct→limit)
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`simple_query`, `join_query`, `aggr_query`); lowering `stdlib/mem/wql/lower.logos` (`lower_simple`: RQSimple pipeline where→order→project→distinct→limit; `lower_join`, `lower_aggr`)
 
 ### `deem.surface.program-envelope` — rel blocks + one entry query
 
@@ -50,7 +50,7 @@ The macro body is an `RQProgram` envelope: zero or more `rel NAME(cols){ bodies 
 
 *Divergence:* the rel/entry split mirrors Datalog's rules + goal; a bare entry query is the degenerate zero-rule program.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L96-L100,L234-L237`; `stdlib/mem/wql/wql.logos#L91-L95`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`program`, `rel_list`, `rel_block`); `stdlib/mem/wql/wql.logos` (`deem`), `stdlib/mem/wql/plan_walker.logos` (`walk_program_params`)
 
 ## Query shapes
 
@@ -60,7 +60,7 @@ Every query opens with `from <src> <var>`: `src` names a source (slice param or 
 
 *Divergence:* the range-variable binding is Datalog/comprehension style (`from src var`) rather than SQL's post-hoc `FROM t` with column-scoped names.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L282-L293`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`simple_query`, `join_query`, `aggr_query`, `find_query`)
 
 ### `deem.query.simple` — RQSimple scan/filter/project
 
@@ -68,7 +68,7 @@ Every query opens with `from <src> <var>`: `src` names a source (slice param or 
 
 *Divergence:* the SQL `SELECT … FROM … WHERE …` single-table query, with the clause keywords reordered to source-first.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L288-L300`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`simple_query`)
 
 ### `deem.query.join` — RQJoin N-way join chain
 
@@ -76,7 +76,7 @@ Every query opens with `from <src> <var>`: `src` names a source (slice param or 
 
 *Divergence:* SQL `INNER JOIN … ON` / `WHERE NOT EXISTS` (anti), generalized to an N-way left-deep chain; `LEFT/RIGHT/FULL OUTER` joins are NOT provided (RESTRICTION).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L313-L334`; lowering to left-deep `RJoin`/`RAnti`/`REdge` `stdlib/mem/wql/lower.logos#L134-L198` (`fold_join_steps` + `lower_join`)
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`join_query`, `join_steps`, `join_step`); lowering to left-deep `RJoin`/`RAnti`/`REdge` `stdlib/mem/wql/lower.logos` (`fold_join_steps` + `lower_join`)
 
 ### `deem.query.aggregate` — RQAggr group-by + aggregate
 
@@ -84,7 +84,7 @@ Every query opens with `from <src> <var>`: `src` names a source (slice param or 
 
 *Divergence:* SQL `GROUP BY … HAVING …`, restricted to a SINGLE group key expression `K` (RESTRICTION; no multi-column `GROUP BY a,b` — use a tuple key expression).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L336-L368`; lowering `stdlib/mem/wql/lower.logos#L205-L251` (`lower_aggr`: where→RAggr→having-as-RFilter→order→project→distinct→limit)
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`aggr_query`, `agg_list`, `having_clause`); lowering `stdlib/mem/wql/lower.logos` (`lower_aggr`: where→RAggr→having-as-RFilter→order→project→distinct→limit)
 
 ### `deem.query.find` — RQFind single-row borrow
 
@@ -92,7 +92,7 @@ Every query opens with `from <src> <var>`: `src` names a source (slice param or 
 
 *Divergence:* EXTENSION — like Rust `Iterator::find` returning a borrow, not a SQL construct; `P` may reference scalar params bare.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L302-L311`; lowering `stdlib/mem/wql/lower.logos#L258-L262` (`lower_find`: RProj(identity) over RFilter over RScan); emission `stdlib/mem/wql/rexpr_walk.logos#L916-L975`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`find_query`, `find_body`); lowering `stdlib/mem/wql/lower.logos` (`lower_find`: RProj(identity) over RFilter over RScan); emission `stdlib/mem/wql/rexpr_walk.logos` (`emit_find`)
 
 ### `deem.query.shape-dispatch` — ordered-choice shape selection
 
@@ -100,7 +100,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* no analogue; a grammar/parsing detail.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L276-L279`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`query`)
 
 ## Clauses and modifiers
 
@@ -110,7 +110,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* SQL/LINQ `WHERE` / `.filter(…)`.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L409-L410`; `RFilter` `stdlib/mem/wql/ir.logos#L252`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`where_clause`, `where_body`); `stdlib/mem/wql/ir.logos` (`RFilter`)
 
 ### `deem.clause.group-by` — `group by K`
 
@@ -118,7 +118,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* SQL `GROUP BY`, single-key only (see `deem.query.aggregate`).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L344,L352`; `RAggr` `stdlib/mem/wql/ir.logos#L256`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`aggr_query`, `key_body`); `stdlib/mem/wql/ir.logos` (`RAggr`)
 
 ### `deem.clause.aggregate` — `aggregate name=fn(arg?),…`
 
@@ -126,7 +126,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* SQL aggregate list with explicit output aliasing (`name=fn(arg)` vs `fn(arg) AS name`).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L435-L443`; `RQAgg`/`RAgg` `stdlib/mem/wql/grammars/wql.peg#L165`, `stdlib/mem/wql/ir.logos#L175-L180`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`agg_list`, `agg_item`); `RQAgg`/`RAgg` `stdlib/mem/wql/grammars/wql.peg` (`%schema` entry `RQAgg`), `stdlib/mem/wql/ir.logos` (`RAgg`)
 
 ### `deem.clause.having` — `having H`
 
@@ -134,7 +134,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* SQL `HAVING`; exists only on the aggregate shape.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L412-L414`; lowering note `stdlib/mem/wql/ir.logos#L258-L262`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`having_clause`, `having_body`); lowering note `stdlib/mem/wql/ir.logos` (the ORDER/LIMIT/DISTINCT tier comment above `RSort`), `stdlib/mem/wql/lower.logos` (`lower_aggr`)
 
 ### `deem.clause.select` — `select S`
 
@@ -142,7 +142,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* SQL `SELECT`; a single projection expression (scalar or tuple), NOT a comma-separated column list — multiple columns are a `select (a,b,…)` tuple (see `deem.project.tuple`).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L428-L429`; `RProj` `stdlib/mem/wql/ir.logos#L253`; emission `stdlib/mem/wql/rexpr_walk.logos#L688-L908`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`sel_body`); `stdlib/mem/wql/ir.logos` (`RProj`); emission `stdlib/mem/wql/rexpr_walk.logos` (`emit_rexpr`, `emit_simple`)
 
 ### `deem.select.distinct` — `select distinct S`
 
@@ -150,7 +150,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* SQL `SELECT DISTINCT`.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L122`; `RDistinct` `stdlib/mem/wql/ir.logos#L265`; dedup `stdlib/mem/wql/rexpr_walk.logos#L325-L347`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`KW_DISTINCT?` in `simple_query`/`join_query`/`aggr_query`); `stdlib/mem/wql/ir.logos` (`RDistinct`); dedup `stdlib/mem/wql/rexpr_walk.logos` (`push_guarded_frag`)
 
 ### `deem.select.first` — `select first S`
 
@@ -158,7 +158,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* EXTENSION — like `SELECT … LIMIT 1` returning an `Option` rather than a one-row set.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L46-L50`; emission `stdlib/mem/wql/rexpr_walk.logos#L64-L76,L879-L891`; exclusion diagnostics `stdlib/mem/wql/plan_walker.logos#L88-L89,L97-L98`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`KW_FIRST?` in `simple_query`/`join_query`/`aggr_query`); emission `stdlib/mem/wql/rexpr_walk.logos` (`SELM_FIRST`, `emit_simple`, `emit_join_chain`); exclusion diagnostics `stdlib/mem/wql/plan_walker.logos` (`walk_query`)
 
 ### `deem.select.order-by` — `order by O [desc]`
 
@@ -166,7 +166,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* SQL `ORDER BY`, restricted to a SINGLE sort key (RESTRICTION; no `ORDER BY a, b` — compose a tuple key or reorder).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L416-L419`; `RSort` `stdlib/mem/wql/ir.logos#L263`; emission `stdlib/mem/wql/rexpr_walk.logos#L292-L303,L349-L406`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`order_clause`, `order_body`); `stdlib/mem/wql/ir.logos` (`RSort`); emission `stdlib/mem/wql/rexpr_walk.logos` (`peel_sort`, `sort_perm_frag`)
 
 ### `deem.select.limit` — `limit N | param`
 
@@ -174,7 +174,7 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 *Divergence:* SQL `LIMIT` (no `OFFSET`, RESTRICTION); the param form is the prepared-statement bind.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L44-L45,L286`; `RLimit` `stdlib/mem/wql/ir.logos#L264`; emission `stdlib/mem/wql/rexpr_walk.logos#L267-L320`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`KW_LIMIT? IDENT? INTEGER?` in `simple_query`/`join_query`/`aggr_query`); `stdlib/mem/wql/ir.logos` (`RLimit`); emission `stdlib/mem/wql/rexpr_walk.logos` (`peel_limit`, `limit_expr`, `check_limit_param`)
 
 ### `deem.select.result-ty` — `: RTy` result-type annotation
 
@@ -182,7 +182,7 @@ A trailing `: <ResultTy>` names the result element type explicitly (a type-name 
 
 *Divergence:* EXTENSION — an explicit static result-type ascription, no SQL analogue.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L421-L422`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`result_clause`)
 
 ## Projections
 
@@ -192,7 +192,7 @@ A trailing `: <ResultTy>` names the result element type explicitly (a type-name 
 
 *Divergence:* SQL single-column projection.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L723-L729`; `infer_ty` `stdlib/mem/wql/codegen.logos#L78-L142`
+*Evidence:* `stdlib/mem/wql/rexpr_walk.logos` (`emit_simple`); `stdlib/mem/wql/codegen.logos` (`infer_ty`, `infer_emit_ty`)
 
 ### `deem.project.tuple` — tuple projection `(a,b,…)`
 
@@ -200,7 +200,7 @@ A trailing `: <ResultTy>` names the result element type explicitly (a type-name 
 
 *Divergence:* EXTENSION — multi-column projection is a first-class Logos tuple (matches Rust iterator `.map(|r| (a,b))`), unlike SQL's flat column list.
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L259-L263`; `STuple` `stdlib/mem/wql/ir.logos#L141`; type emission `push_tuple_ty` `stdlib/mem/wql/codegen.logos#L188-L206`; non-select rejection `reject_tuple` `stdlib/mem/wql/codegen.logos#L165-L182`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`primary` STuple alternative, `tuple_body`); `stdlib/mem/wql/ir.logos` (`STuple`); type emission `stdlib/mem/wql/codegen.logos` (`push_tuple_ty`); non-select rejection `stdlib/mem/wql/codegen.logos` (`reject_tuple`)
 
 ### `deem.project.find-borrow` — `find` returns `Option<&Row>`
 
@@ -208,7 +208,7 @@ A trailing `: <ResultTy>` names the result element type explicitly (a type-name 
 
 *Divergence:* EXTENSION — see `deem.query.find`.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L916-L975`
+*Evidence:* `stdlib/mem/wql/rexpr_walk.logos` (`emit_find`)
 
 ## Joins
 
@@ -218,7 +218,7 @@ A join step introduces a new source `src` bound to `var` with a required `on` pr
 
 *Divergence:* SQL `[NOT EXISTS] JOIN … ON`, restricted to the equi/theta forms below (no outer joins).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L385-L395`; `RJoin`/`RAnti` `stdlib/mem/wql/ir.logos#L254-L255`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`join_step`, `join_steps`); `stdlib/mem/wql/ir.logos` (`RJoin`, `RAnti`)
 
 ### `deem.join.cascade-hash` — join-strategy cascade by key-type capability
 
@@ -226,15 +226,15 @@ The `on` predicate is split into an equi-key term (`<bound-side> == <new-side>`)
 
 *Divergence:* EXTENSION over SQL (which leaves strategy to a cost planner) — Deem picks the strategy statically from the key TYPE's trait capability, the "strong-typing-as-selector" principle; f64's lack of Hash/Ord is a documented RESTRICTION forcing the loop tier.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L1035-L1046` (`join_key_caps`), `L1174-L1250` (`analyze_step`, tier selection `L1240-L1247`); equi/residual split (shared static+dynamic) `stdlib/mem/wql/optimize.logos#L637-L725`
+*Evidence:* `stdlib/mem/wql/join_sel.logos` (`join_key_caps`, `join_key_caps_named`, `key_caps_of`; `decide_join_step`, tier selection `step_cascade`); equi/residual split `stdlib/mem/wql/join_sel.logos` (`step_terms`, `step_equi_key`), `stdlib/mem/wql/optimize.logos` (`split_and_terms`, `refs_mask`)
 
 ### `deem.join.equi-residual-split` — equi-key vs residual predicate split
 
 The conjunctive `on` predicate is decomposed into AND-terms; the first usable `<bound> == <new>` cross-var equality becomes the join KEY (driving the hash/tree probe), and the remaining terms form a residual filter applied after the probe.
 
-*Divergence:* standard relational equi-join / theta-join separation; the split logic is shared verbatim by the static emitter and the dynamic interpreter.
+*Divergence:* standard relational equi-join / theta-join separation; the split logic is one analysis (`join_sel`) shared by the static planner and emitter; the dynamic interpreter that also used it was deleted at P5.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L1170-L1239`; shared analysis `stdlib/mem/wql/optimize.logos#L637-L725` (`split_and_terms`/`name_refs`/`refs_mask`)
+*Evidence:* `stdlib/mem/wql/join_sel.logos` (`step_terms`, `step_equi_key`, `equi_term_sides`), `stdlib/mem/wql/rexpr_walk.logos` (`emit_step_texts`); shared analysis `stdlib/mem/wql/optimize.logos` (`split_and_terms`/`name_refs`/`refs_mask`)
 
 ### `deem.join.anti` — anti-join emission
 
@@ -242,7 +242,7 @@ The conjunctive `on` predicate is decomposed into AND-terms; the first usable `<
 
 *Divergence:* SQL `WHERE NOT EXISTS` / anti-semi-join; the tiering mirrors the inner-join cascade.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L1124-L1135,L1483-L1720`
+*Evidence:* `stdlib/mem/wql/rexpr_walk.logos` (`build_phase_frag`, `step_wrap`)
 
 ## Edge traversal (graph steps)
 
@@ -252,7 +252,7 @@ A traversal step ranges a new `var` over a COLLECTION FIELD PATH of an already-b
 
 *Divergence:* EXTENSION — the graph "edge follow" step (ADR 0012 graph data model: `SField` ⊂ `REdge` ⊂ `RFix` is the same edge primitive at three iteration depths); no SQL analogue (closest is `UNNEST`/lateral join).
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L370-L406`; `REdge` `stdlib/mem/wql/ir.logos#L239-L251`; emission `stdlib/mem/wql/rexpr_walk.logos#L1137-L1162,L1252-L1287`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`join_step`, `path_segs`, `path_seg`, `on_clause`); `stdlib/mem/wql/ir.logos` (`REdge`); emission `stdlib/mem/wql/rexpr_walk.logos` (`collect_chain`, `analyze_chain`, `step_wrap`)
 
 ### `deem.edge.always-nested-loop` — traversal is always nested-loop
 
@@ -260,7 +260,7 @@ An `REdge` source depends on outer row vars (no build-once index exists), so tra
 
 *Divergence:* no analogue; an execution-strategy consequence of the correlated source.
 
-*Evidence:* `stdlib/mem/wql/ir.logos#L249-L250`; `stdlib/mem/wql/rexpr_walk.logos#L1252-L1287`
+*Evidence:* `stdlib/mem/wql/ir.logos` (`REdge`); `stdlib/mem/wql/join_sel.logos` (`traversal_step_sel`); `stdlib/mem/wql/rexpr_walk.logos` (`analyze_chain`)
 
 ### `deem.edge.anti-traversal` — anti-traversal
 
@@ -268,7 +268,7 @@ An `REdge` source depends on outer row vars (no build-once index exists), so tra
 
 *Divergence:* EXTENSION — anti-semantics over a correlated collection.
 
-*Evidence:* `stdlib/mem/wql/ir.logos#L246-L248`; grammar `stdlib/mem/wql/grammars/wql.peg#L377-L391`
+*Evidence:* `stdlib/mem/wql/ir.logos` (`REdge`, field `is_anti`); grammar `stdlib/mem/wql/grammars/wql.peg` (`join_step`)
 
 ### `deem.edge.path-classification` — traversal form ordered before classic
 
@@ -276,7 +276,7 @@ The traversal step alt is ordered FIRST and demands ≥1 `.field` segment after 
 
 *Divergence:* no analogue; a grammar disambiguation.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L370-L402`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`join_step`, `path_segs`)
 
 ## Aggregates
 
@@ -286,15 +286,15 @@ The five builtin aggregates are `count` (nullary), `sum`, `min`, `max`, `avg` (e
 
 *Divergence:* the SQL aggregate set minus statistical extras; `count(*)` is spelled `count()`.
 
-*Evidence:* `stdlib/mem/wql/el.logos#L188-L196`; emission ids `AGG_COUNT..AGG_AVG` `stdlib/mem/wql/rexpr_walk.logos#L49-L53`
+*Evidence:* `stdlib/mem/wql/el.logos` (`is_builtin_agg`, `agg_takes_arg`); emission ids `AGG_COUNT..AGG_AVG` `stdlib/mem/wql/rexpr_walk.logos` (`AGG_COUNT`, `AGG_SUM`, `AGG_MIN`, `AGG_MAX`, `AGG_AVG`, `agg_of_name`); unknown-name diagnostic `stdlib/mem/wql/rexpr_walk.logos` (`resolve_aggs`)
 
 ### `deem.agg.result-ty-table` — the generic aggregate result-type rule table
 
 One shared `agg_result_ty(fn, arg_ty) -> ty` table maps `count:()→INT`, `sum/min/max:T→T` (numeric T), `avg:T→Quot(T)` where `Quot(INT)=Quot(FLT)=FLT` (the exact mean is f64 division); an out-of-domain argument (non-numeric to sum/min/max/avg) or unknown name returns -1 (diagnosed).
 
-*Divergence:* EXTENSION — a single typed rule table shared by BOTH backend tiers (static emitter migrating to consult it; dynamic interpreter consults it now), unlike SQL's per-function return-type rules; `avg` always widens to f64 even over integers.
+*Divergence:* EXTENSION — a single typed rule table, consulted by the static emitter (`compute_agg_reprs`; the dynamic interpreter that also consulted it was deleted at P5), unlike SQL's per-function return-type rules; `avg` always widens to f64 even over integers.
 
-*Evidence:* `stdlib/mem/wql/el.logos#L167-L209` (`agg_result_ty`, `el_quot_ty`); float-repr emission `stdlib/mem/wql/rexpr_walk.logos#L2515-L2547,L2740-L2751`; ADR 0012-queue2 §6
+*Evidence:* `stdlib/mem/wql/el.logos` (`agg_result_ty`, `el_quot_ty`); float-repr emission `stdlib/mem/wql/rexpr_walk.logos` (`compute_agg_reprs`, `stamp_agg_out_types`); ADR 0012-queue2 §6
 
 ### `deem.agg.avg-float` — avg accumulates and divides as f64
 
@@ -302,7 +302,7 @@ One shared `agg_result_ty(fn, arg_ty) -> ty` table maps `count:()→INT`, `sum/m
 
 *Divergence:* differs from SQL engines where `AVG` of an integer column may stay integer or decimal; Deem fixes `avg → f64`.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L2349-L2353,L2398-L2403`; `stdlib/mem/wql/el.logos#L182-L185`
+*Evidence:* `stdlib/mem/wql/rexpr_walk.logos` (`agg_fold_frag`, `group_binds_frag`); `stdlib/mem/wql/el.logos` (`el_quot_ty`)
 
 ## Graph sources and the edge vocabulary
 
@@ -314,7 +314,7 @@ A NON-CONTAINER node's `child` id is not its value word (equal ints share a Pod 
 
 The VIRTUAL ROOT EDGE's coordinates (`parent == 0`, `key == ""`, `idx == -1`, ordinal `0`) are ONE named constant set — `WG_ROOT_PARENT`/`WG_ROOT_KEY`/`WG_ROOT_IDX`/`WG_ROOT_ORD` in `logos.std.wql.writ_graph` — consumed by all three producers (the static Writ walker, the runtime tree scan, and the `#[derive_graph_source]` materializer, which emits them into the user's module through the `use` its quote already carries) and by the ONE reader, the graph-path anchor in the lowering. `0` is available as "no parent node" because no real node id is `0`: a Writ container id is a live handle and a derived struct id is its address.
 
-*Evidence:* `stdlib/mem/wql/writ_graph.logos` (wg_emit, `WG_ROOT_*`), `stdlib/mem/deem/exec.logos` (ts_scan/ts_walk/es_scan), `tests/logos/pass/wql_native_graph_e2e.logos` (f64 bits, executed), `tests/logos/pass/wql_graph_null_root_row.logos` (root id, both engines, hand-derived), `tests/logos/pass/derive_graph_source_root_row.logos` (the derive's root row, all eight columns + the three producers and the reader on one coordinate), `tests/logos/pass/wql_graph_root_id_cross_document.logos` (the collision, as a tripwire — it asserts the DEFECT and goes red when the ruling lands)
+*Evidence:* `stdlib/mem/wql/writ_graph.logos` (wg_emit, `WG_ROOT_*`), `stdlib/mem/deem/graphsrc.logos` (the runtime tree scan: `ts_scan`/`ts_walk`, entry points `dyn_graph_edges`/`dyn_graph_edge_rows`; the edge-rows scan `es_scan` died with `stdlib/mem/deem/exec.logos`), `tests/logos/pass/wql_native_graph_e2e.logos` (f64 bits, executed), `tests/logos/pass/wql_graph_null_root_row.logos` (root id, both engines, hand-derived), `tests/logos/pass/derive_graph_source_root_row.logos` (the derive's root row, all eight columns + the three producers and the reader on one coordinate), `tests/logos/pass/wql_graph_root_id_cross_document.logos` (the collision, as a tripwire — it asserts the DEFECT and goes red when the ruling lands)
 <!-- spec-gone: stdlib/mem/deem/exec.logos — deleted at P5: the dynamic EXECUTOR (rt_cmp, exec_root, RelCtx, OutTab) -->
 
 ### `deem.graph.writ-param` — `g: &Writ` is a graph source
@@ -341,11 +341,11 @@ Native Logos objects are deliberately UNTAGGED (types are known statically or vi
 
 ### `deem.source.trait` — `trait { rel … }` declares a source vocabulary
 
-A trait may declare `rel` members (`rel edge(parent: i64, …);` — columns i64/str/bool, the Hash+Eq rule); an impl binds each rel to a MATERIALIZER (`rel edge = writ_graph_edges;`, `fn(&T) -> Vec<RowTuple>`). A deem param typed by an implementing type carries the trait's relations: a single-rel vocabulary is addressable as the param itself (`from g …`), a multi-rel one is param-prefixed (`from e_trace t …`). The walker is source-type-blind — which params carry relations, their columns, and the materializer all arrive as compiler-computed data (the natspec).
+A trait may declare `rel` members (`rel edge(parent: i64, …);` — a column type must implement `Hash`, checked by sema once every impl is collected; a column typed by a trait type parameter is checked at the impl); an impl binds each rel to a MATERIALIZER (`rel edge = writ_graph_edges;`, `fn(&T) -> Vec<RowTuple>`). A deem param typed by an implementing type carries the trait's relations: a single-rel vocabulary is addressable as the param itself (`from g …`), a multi-rel one is param-prefixed (`from e_trace t …`). The walker is source-type-blind — which params carry relations, their columns, and the materializer all arrive as compiler-computed data (the natspec).
 
 The mechanism is OPEN: any user type may implement a source trait. Since P5 the only source declared in the stdlib is `Writ` (`impl GraphSource for Writ`, `rel edge = writ_graph_edges;`) — the `IncrRec`/`EngineState` instance was withdrawn with the interpreter, see `deem.source.engine-state` below.
 
-*Evidence:* `stdlib/mem/wql/writ_graph.logos` (the `Writ` instance); `tests/logos/pass/wql_source_trait_e2e.logos` exercises the OPEN mechanism with user types (`MyGraph`, `Timetable`) and never names `Writ`; the built-in instance is exercised by `tests/logos/pass/wql_writ_graph_e2e.logos` and `tests/logos/pass/wql_gpath_e2e.logos`.
+*Evidence:* `src/compiler/sema_collect.cpp` (`SemaChecker::check_rel_column_types`), `src/compiler/sema_impl.hpp` (`rel_col_type_hashable`), `tests/logos/fail/deem_rel_col_hashable_fail.logos`, `tests/logos/fail/wql_source_trait_f64_col_fail.logos`; `stdlib/mem/wql/writ_graph.logos` (the `Writ` instance); `tests/logos/pass/wql_source_trait_e2e.logos` exercises the OPEN mechanism with user types (`MyGraph`, `Timetable`) and never names `Writ`; the built-in instance is exercised by `tests/logos/pass/wql_writ_graph_e2e.logos` and `tests/logos/pass/wql_gpath_e2e.logos`.
 
 ### `deem.source.engine-state` — WITHDRAWN at P5
 
@@ -391,33 +391,41 @@ A `rel` block declares a named derived relation with SET semantics: `cols` are d
 
 *Divergence:* Datalog rules (multiple bodies = a disjunction of rules with the same head); the set/union semantics are the Datalog default.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg#L239-L267`; validation `stdlib/mem/wql/plan_walker.logos#L11-L51`
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`program`, `rel_list`, `rel_block`, `rel_cols`, `rel_bodies`); validation `stdlib/mem/wql/plan_walker.logos` (`walk_program_params`, `check_rel_body`, `rel_body_mods_ok`)
 
 ### `deem.datalog.fact` — a FROM-less `select` is one row
 
-`select S [: RTy]` with no `from` is a FACT: exactly one row, whatever the sources hold. It is legal as a rel body (an inline table, or a seed such as `select start;` for a scalar parameter) and as the entry query. The handler rewrites it to `from __unit __u select S`, where `__unit(u: i64)` is a native source of one row (`logos.std.wql.unit::wql_unit_rows`), registered only when a program has a fact; it counts toward the 8-rel limit.
+`select S [: RTy]` with no `from` is a FACT: exactly one row, whatever the sources hold. It is legal as a rel body (an inline table, or a seed such as `select start;` for a scalar parameter) and as the entry query. The handler rewrites it to `from __unit __u select S`, where `__unit(u: i64)` is a native source of one row (`logos.std.wql.unit::wql_unit_rows`), registered only when a program has a fact.
 
 *Divergence:* SQL's FROM-less `SELECT`; Soufflé writes the same thing as a fact clause `r(1, 2).`
 
 *Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`simple_query`'s third alternative); `stdlib/mem/wql/lower.logos` (`desugar_program_facts`); `tests/logos/pass/wql_rel_fact_e2e.logos`
 
-### `deem.datalog.demand` — a rel read with a bound column is evaluated on demand
+### `deem.datalog.demand` — a rel read with bound columns is evaluated on demand
 
-When the entry query's base source is a rel `R` and its WHERE has a conjunct `x.c == K` (K a literal or one of the deem's scalar parameters), `R` is rewritten by magic sets (Soufflé's MST, adornment = column `c`): a rel `__m_R(c)` holds `K` as a fact, every body of `R` that does not read `R` joins `__m_R` on its column `c`, and every body that reads `R` once either passes `c` through from that occurrence (`select (r.c, …)`) or, in the two-atom shape `R t ⋈ u on t.c == u.f` with head column `c` = `u.g`, also joins `__m_R` and adds the recursive magic rule `__m_R(u.f) :- __m_R(u.g), u` (the right-linear closure; a left-linear closure bound on its second column, i.e. ancestors). Either way the restriction carries into the fixpoint. The answer is unchanged; the rows derived are those reachable from the demand. The rewrite is declined, and `[plan] demand -> fully materialized` names the rule, when `R` has another reader, a body negates or aggregates, a body reads `R` twice, a recursive body moves `c` in a wider shape (more atoms, or a WHERE), a body of `R` or the entry's WHERE/ON contains checked arithmetic (it could fail on a row outside the demand, so restricting rows could turn an `Err` into an `Ok`; Soufflé excludes order-dependent functors for the same reason), a base body computes `c` instead of copying a column, or a rel or join-step slot is missing.
+The program is rewritten by the magic-sets transformation (Soufflé's MST). A clause — the entry query, or a body of a rel — is read left to right in a SIPS order: next, the positive atom with the most bound columns (ties in the written order). A column of an atom is bound when a conjunct of the clause (its WHERE, or the ON of a positive step) equates it to a literal, a scalar parameter, a column of an atom already visited, or a bound column of the clause's head; a head column binds a body column only when its select item is that plain column. Every user-rel atom `S` with bound columns γ reads an ADORNED COPY `S__b<γ>` instead of `S`, and contributes one magic rule to `__m_S__b<γ>` (one column per bound column): the atoms visited before it, the clause's conjuncts over them, and — in a rel body — the head's own magic rel; in the entry, a seed with no atom to its left is a fact. Each body of an adorned copy is the original body, its atoms adorned the same way, joined with its magic rel on the bound columns. A reader that binds no column of `S` reads `S` itself, so a rel read both bound and free is evaluated once whole and once on demand; an original that no reader reaches any more is dead (`deem.datalog.live`). The answer is unchanged; the rows derived are those reachable from the demand.
 
-A demand-driven rel's SCC reads `__m_<rel>`, so the internal DRed helpers of that SCC are not emitted; no public surface depends on them for these shapes (measured over every corpus program the rewrite touches). `LOGOS_DEEM_NO_DEMAND` (at compile time) turns the rewrite off; the value `moving` keeps it but declines the shapes that need a recursive magic rule.
+Only a RECURSIVE rel is adorned: a non-recursive rel's body is evaluated whole before its magic join could filter it, so a copy saves no evaluation and only duplicates code (`nonrec`; measured on Canon, adorning every bound rel doubled the generated code and took a compile from 8.6 s to 69 s). A rel that some evaluated clause reads whole (the entry, a rel read whole, or an adorned body, binding none of its columns) is evaluated whole anyway and is not adorned either (`shared`; decided over the transformation's own graph, narrowed to a fixpoint). A rel is also read whole when a body aggregates or finds (`neg_agg`), or evaluates checked arithmetic (`fallible`: restricting rows could turn an `Err` into an `Ok`); an anti join's atom is always read whole, and a magic rule never contains one (that only widens the demand). When the entry's WHERE / ON is fallible nothing is rewritten. A traversal step (`join n.kids k`) is visited right after the atom it hangs off — its rows are a function of that row — and a magic rule that reaches past it copies it. `[plan] demand -> demand-driven | fully materialized` names each decision.
+
+A demand-driven rel's SCC reads its magic rel, so the internal DRed helpers of that SCC are not emitted; no public surface depends on them for these shapes (measured over every corpus program the rewrite touches). `LOGOS_DEEM_NO_DEMAND` (at compile time, any value) turns the rewrite off.
 
 *Divergence:* Soufflé applies MST on request (`--magic-transform`); here it applies whenever the conditions hold, the plan trace records the decision, and an environment switch turns it off.
 
+### `deem.datalog.live` — a rel no reader reaches is not evaluated
+
+After the demand rewrite, a rel is LIVE when the entry reads it or a live rel's body does — positively, under `anti join`, or in an aggregate. A rel that is not live is not evaluated by the generated fn; its bodies are still checked, and its helper is still emitted (an error in it is still an error). A rel with a body that evaluates checked arithmetic, a comprehension or an aggregate is evaluated even when no reader reaches it: the naive program would return its `Err`. `[plan] live rels -> not evaluated` names each rel left out, and its plan records the absence ground `dead: no reader reaches the entry`. `LOGOS_DEEM_NO_PRUNE` (at compile time) evaluates every rel.
+
+*Divergence:* Soufflé's RemoveRedundantRelations deletes such a relation; here it is kept, checked and not run, so a dead rel's error is not hidden.
+
 *Evidence:* `stdlib/mem/wql/lower.logos` (`magic_program`); `stdlib/mem/wql/why.logos` (`MS_*`); `tests/logos/pass/wql_rel_demand_e2e.logos`
 
-### `deem.datalog.rel-columns` — rel columns are i64/str/bool (Hash+Eq)
+### `deem.datalog.rel-columns` — rel-block columns are i64/str/bool, at most 12
 
-Rel columns must be `i64`/`str`/`bool` — rels are sets deduped by structural equality, so columns need Hash+Eq; `f64`/`f32` get their own named diagnostic (Eq loss is the reason).
+A column of a `rel` block (in a deem body, or spliced from a mapping) must be `i64`/`str`/`bool` — rels are sets deduped by structural equality, so a column type needs a reflexive, injective identity and must be the type the EL computes in: `el_set_col_admit` admits exactly those three, `f64`/`f32` get their own named diagnostic (Eq loss is the reason), and a non-canonical integer such as `u64` is refused naming the remedy. (A source-trait `rel` member is checked by sema against `Hash` instead — `deem.source.trait`.) A rel holds at most 12 columns: its row is a tuple, and a tuple implements `Hash` and `Clone` up to 12 elements, as in Rust; a 13th column is a named error at the declaration. Every other list of a program — rels, bodies, join steps, aggregates, tuple items, call arguments, path segments — holds any number of items.
 
 *Divergence:* RESTRICTION — narrower than SQL/Datalog value domains; f64 is excluded because set membership needs Eq.
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos#L721-L741`; grammar note `stdlib/mem/wql/grammars/wql.peg#L253-L255`
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`walk_program_params` — the 12-column check, `rel_col_ty_ok`); `stdlib/mem/wql/el.logos` (`el_set_col_admit`, `el_set_col_why`); grammar `stdlib/mem/wql/grammars/wql.peg` (`rel_col`, `rel_cols`); `tests/logos/fail/wql_rel_cols13_fail.logos`, `tests/logos/fail/wql_rel_float_col_fail.logos`, `tests/logos/fail/wql_rel_col_wide_int_fail.logos`
 
 ### `deem.datalog.rel-body-gates` — rel body modifier gates
 
@@ -425,7 +433,7 @@ A rel body is from/join/where/select ONLY; aggregate and `find` bodies are named
 
 *Divergence:* RESTRICTION — rel bodies are pure relation producers (Datalog rule bodies), not full queries.
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos#L184,L234-L275,L636-L721`
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`check_rel_body`, `rel_body_mods_ok`); select width `stdlib/mem/wql/rexpr_walk.logos` (`rel_select_ok`)
 
 ### `deem.datalog.rel-scan` — the entry query scans rels like sources
 
@@ -433,7 +441,7 @@ The entry query (and other rel bodies) may scan a rel by name exactly like a sli
 
 *Divergence:* Datalog rule bodies referencing other (or the same) relations.
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos#L23-L27,L764-L866` (two-pass registration then body resolution); `RelDeps` `stdlib/mem/wql/params.logos#L186-L244`
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`walk_program_params`, `resolve_source`) (two-pass registration then body resolution); `RelDeps` `stdlib/mem/wql/params.logos` (`RelDeps`)
 
 ### `deem.datalog.rel-borrow-gate` — rels cannot be borrowed out
 
@@ -441,7 +449,7 @@ The entry query (and other rel bodies) may scan a rel by name exactly like a sli
 
 *Divergence:* EXTENSION — a Logos ownership constraint (borrows may not escape the query fn), no SQL/Datalog analogue.
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos#L45-L47,L597-L616,L964-L968`
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`sel_whole_row_ok`; the `RQuery::Find` arms of `walk_program_params` and `check_rel_body`)
 
 ### `deem.datalog.rel-tuple-binding` — rel row vars bind positional tuple columns
 
@@ -449,7 +457,7 @@ A rel-sourced row var binds to a native TUPLE row, so a field step `s.a` emits t
 
 *Divergence:* no analogue; an emission detail of set-typed tuple rows.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L116-L140`; `ElTypes` rel-binding table `stdlib/mem/wql/el.logos#L337-L381`
+*Evidence:* `stdlib/mem/wql/rexpr_walk.logos` (`stamp_rel_source`, `stamp_rel_columns`); `ElTypes` rel-binding table `stdlib/mem/wql/el.logos` (`rel_bind_named`, `rel_col_of`)
 
 ### `deem.datalog.scc-condensation` — SCC condensation of the rel dependency graph
 
@@ -457,7 +465,7 @@ The rel dependency graph is condensed into strongly-connected components with a 
 
 *Divergence:* the standard Datalog stratification/SCC evaluation strategy.
 
-*Evidence:* `stdlib/mem/wql/params.logos#L287-L373` (`compute_rel_scc` — Warshall closure + component id + Kahn topo, `rec[c]` = size>1 or self-loop); `stdlib/mem/wql/plan_walker.logos#L28-L32`
+*Evidence:* `stdlib/mem/wql/params.logos` (`compute_rel_scc` — Warshall closure + component id + Kahn topo, `rec[c]` = size>1 or self-loop; `RelScc`); `stdlib/mem/wql/plan_walker.logos` (`walk_program_params`, `emit_prelude_oneshot`, `emit_prelude_scc`)
 
 ### `deem.datalog.semi-naive` — semi-naïve fixpoint over an SCC
 
@@ -465,7 +473,7 @@ A recursive SCC evaluates by semi-naïve iteration: per member a total set, a ne
 
 *Divergence:* textbook Datalog semi-naïve evaluation (delta relations); the delta variant is a loop variable, not IR rewriting.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L3229-L3258,L3778-L4006` (`emit_scc_fn`); ADR 0012-queue2 §7
+*Evidence:* `stdlib/mem/wql/rexpr_walk.logos` (`emit_rel_fns`, `emit_scc_fn`); ADR 0012-queue2 §7
 
 ### `deem.datalog.termination` — no iteration cap (generative recursion may diverge)
 
@@ -473,7 +481,7 @@ Termination is the standard Datalog contract: recursion over a finite universe r
 
 *Divergence:* matches Datalog's non-generative termination guarantee; generative recursion is the user's responsibility.
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos#L37-L44`; `stdlib/mem/wql/wql.logos#L40-L45`
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (module header, TERMINATION); `stdlib/mem/wql/wql.logos` (module header); the fixpoint's only exit `stdlib/mem/wql/rexpr_walk.logos` (`emit_scc_fn`)
 
 ### `deem.datalog.stratified-negation` — stratified negation/aggregation
 
@@ -481,17 +489,17 @@ An `anti join R` or an aggregate body reading `R` where `R` is in the SAME SCC a
 
 *Divergence:* standard Datalog stratified negation (a cycle through negation or aggregation is rejected).
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos#L33-L36,L144-L175` (`check_stratified`); negated/aggregated sub-lists `stdlib/mem/wql/params.logos#L221-L237`
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`check_stratified`); negated/aggregated sub-lists `stdlib/mem/wql/params.logos` (`RelDeps` `afrom`/`ato`, `gfrom`/`gto`, `add_anti`, `add_agg`)
 
 ## UDF / UDA
 
 ### `deem.udf.reflection` — user functions reflected from the trigger module
 
-The deem/trama handlers reflect every top-level `fn` of the trigger module into the UDF registry (name, return EL-lattice tag via `el_ret_class`, declared return type name, arity); codegen resolves a call name against the builtin registry first, then the UDF table (builtins shadow a same-named UDF); capacity is 32 top-level fns.
+The deem/trama handlers reflect every top-level `fn` of the trigger module into the UDF registry (name, return EL-lattice tag via `el_ret_class`, declared return type name, arity); codegen resolves a call name against the builtin registry first, then the UDF table (builtins shadow a same-named UDF); the registry has no capacity.
 
 *Divergence:* EXTENSION over CEL/SQL — UDFs are ordinary module-local Logos functions, resolved by reflection, not a separate registration API (static surface).
 
-*Evidence:* `stdlib/mem/wql/el.logos#L211-L335` (`ElTypes` UDF section, `udf_add`/`udf_find`); reflection `stdlib/mem/wql/reflect.logos#L273-L291` (`stamp_udfs_from_module`), `L249-L265` (arity + return-type reflection)
+*Evidence:* `stdlib/mem/wql/el.logos` (`ElTypes` UDF section, `udf_add`/`udf_find`); reflection `stdlib/mem/wql/reflect.logos` (`stamp_udfs_from_module`), `fn_param_count`/`fn_ret_type_name` (arity + return-type reflection)
 
 ### `deem.udf.call-check` — arity and return-type checking
 
@@ -499,7 +507,7 @@ The deem/trama handlers reflect every top-level `fn` of the trigger module into 
 
 *Divergence:* EXTENSION — static UDF type-checking against the EL lattice, the agentic selector (P3).
 
-*Evidence:* `stdlib/mem/wql/codegen.logos#L504-L585` (`check_calls`); `el_ret_class` `stdlib/mem/wql/el.logos#L155-L165`
+*Evidence:* `stdlib/mem/wql/codegen.logos` (`check_calls`); `el_ret_class` `stdlib/mem/wql/el.logos` (`el_ret_class`, `el_class_lookup`)
 
 ### `deem.uda.triple` — user aggregates are init/step/fin triples
 
@@ -507,7 +515,7 @@ A user-defined aggregate is an init/step/fin triple whose finalizer return class
 
 *Divergence:* EXTENSION — the classic init/step/final UDA protocol; the finalizer return type drives the projected column type.
 
-*Evidence:* `stdlib/mem/wql/rexpr_walk.logos#L2740-L2751` (`compute_agg_col_tys`, UDA reflected R class); ADR 0012-queue2 §6
+*Evidence:* `stdlib/mem/wql/rexpr_walk.logos` (`compute_agg_col_tys`, UDA reflected R class `resolve_aggs`); ADR 0012-queue2 §6
 
 ## Optimizer
 
@@ -515,9 +523,9 @@ A user-defined aggregate is an init/step/fin triple whose finalizer return class
 
 `simplify_sexpr` folds constant SBin/SUn/SCond: integer arithmetic (+ - * / %, division/modulo by zero left unfolded) and comparisons, float arithmetic (+ - * /, `%` NOT folded, non-finite results unfolded) and comparisons, boolean == != and && || (with short-circuit on a single const operand), and algebraic identities (`x+0`,`0+x`,`x-0`,`x*1`,`1*x`→x; `x*0`,`0*x`→0); a const-bool ternary collapses to the taken (itself-simplified) branch.
 
-*Divergence:* standard constant folding; shared by both backend tiers (queue-2 runs it at query-compile time).
+*Divergence:* standard constant folding; run by the static emitter and, over template expressions, by `Tpl::compile` (the query interpreter that also ran it was deleted at P5).
 
-*Evidence:* `stdlib/mem/wql/optimize.logos#L113-L170,L183-L271,L277-L366`
+*Evidence:* `stdlib/mem/wql/optimize.logos` (`fold_arith_ii`, `fold_cmp_ii`, `fold_cmp_bb`, `fold_arith_ff`, `fold_cmp_ff`, `simplify_bin`, `simplify_un`, `simplify_sexpr`)
 
 ### `deem.opt.where-fold` — `where true`/`where false` folds
 
@@ -525,7 +533,7 @@ A const-true filter predicate drops the filter entirely; a const-false predicate
 
 *Divergence:* relational simplification with no direct SQL analogue at the language level (an optimizer guarantee).
 
-*Evidence:* `stdlib/mem/wql/optimize.logos#L509-L528`
+*Evidence:* `stdlib/mem/wql/optimize.logos` (`simplify_rbody` `RExpr::Filter` arm, `empty_proj`)
 
 ### `deem.opt.identity-projection` — identity-projection accessor collapse
 
@@ -533,7 +541,7 @@ An unfiltered identity projection over a bare scan (the select is just the loop 
 
 *Divergence:* EXTENSION — a zero-copy borrow optimization for `from s v select v`, no SQL analogue.
 
-*Evidence:* `stdlib/mem/wql/optimize.logos#L420-L434,L618-L627`
+*Evidence:* `stdlib/mem/wql/optimize.logos` (`is_identity_sel`, `input_scan_var`, `simplify_proj_root`)
 
 ### `deem.opt.limit-fold` — limit-0 / limit-over-empty fold to empty
 
@@ -541,7 +549,7 @@ An unfiltered identity projection over a bare scan (the select is just the loop 
 
 *Divergence:* optimizer guarantee.
 
-*Evidence:* `stdlib/mem/wql/optimize.logos#L569-L578`
+*Evidence:* `stdlib/mem/wql/optimize.logos` (`simplify_rexpr_ref` `RExpr::Limit` arm)
 
 ### `deem.opt.sort-const-drop` — order-by over a constant key dropped
 
@@ -549,7 +557,7 @@ Sorting by a key that const-folds to a literal orders nothing (every row compare
 
 *Divergence:* optimizer guarantee.
 
-*Evidence:* `stdlib/mem/wql/optimize.logos#L530-L545`
+*Evidence:* `stdlib/mem/wql/optimize.logos` (`simplify_rbody` `RExpr::Sort` arm)
 
 ### `deem.opt.proj-collapse` — nested projection and distinct-over-empty collapse
 
@@ -557,124 +565,107 @@ Sorting by a key that const-folds to a literal orders nothing (every row compare
 
 *Divergence:* standard relational peephole simplification.
 
-*Evidence:* `stdlib/mem/wql/optimize.logos#L406-L410,L491-L496,L583-L607,L632-L634`
+*Evidence:* `stdlib/mem/wql/optimize.logos` (`simplify_rexpr_ref` `RExpr::Proj`/`RExpr::Distinct`/`RExpr::Limit` arms, `RSimplified`, `empty_proj`, `peel_to_proj`)
 
-### `deem.opt.shared-tiers` — the optimizer is shared by both backends
+### `deem.opt.shared-tiers` — the optimizer is shared by the static emitter and the template engine
 
-`simplify_sexpr`/`simplify_rexpr_ref` are pure IR→IR functions run by the STATIC emitter and re-run by the DYNAMIC interpreter at query-compile time; the join-step analysis (equi/residual split) is likewise shared, differing only in the type source (`ElTypes` vs the runtime checker) and the sink (source text vs eval).
+`simplify_sexpr`/`simplify_rexpr_ref` are pure IR→IR functions. The STATIC emitter runs both (and `trama_render` runs `simplify_sexpr` for static templates); the runtime TEMPLATE engine re-runs `simplify_sexpr` over every embedded expression at `Tpl::compile` (`simplify_all`). The join-step analysis (equi/residual split, `join_sel`) has static consumers only. The DYNAMIC query interpreter, which re-ran the relational half at query-compile time, was deleted at P5.
 
 *Divergence:* EXTENSION — one optimizer, two consumers (the schemas-as-IR payoff).
 
-*Evidence:* `stdlib/mem/wql/optimize.logos#L1,L637-L643`; ADR 0012-queue2 §1
+*Evidence:* `stdlib/mem/wql/optimize.logos` (`simplify_sexpr`, `simplify_rexpr_ref`, `split_and_terms`, `refs_mask`); `stdlib/mem/wql/join_sel.logos` (`step_terms`, `step_equi_key`); runtime consumer `stdlib/mem/deem/tpl.logos` (`Tpl::compile`, `simplify_all`); ADR 0012-queue2 §1
 
 ## Static vs dynamic surfaces
 
+Since P5 (`e1dd0ac5e`, "DELETE THE DEEM INTERPRETER") the static item is the ONLY query surface. What survives of the runtime side is the TEMPLATE engine (`Tpl`, specced in `docs/spec/trama.md` as `trama.dynamic.*`) and the binding types it reads — `SchemaCatalog`, `QEnv`, `RtVal`, `QError` in package `logos.mem.deem` (`stdlib/mem/deem/deem.logos`, `stdlib/mem/deem/tpl.logos`). The `deem.exec.*` ids below that described the runtime query API are kept as permanent addresses and marked withdrawn; the rest are restated against the code that carries them today.
+
 ### `deem.exec.static` — the static `deem` item (metacall → native, compile diagnostics)
 
-The static surface parses, type-checks, optimizes and lowers at COMPILE time via metacall, emitting native Logos code linked into the program; all errors are compile DIAGNOSTICS; there are no runtime-string queries in this surface (queue 1).
+The static surface parses, type-checks, optimizes and lowers at COMPILE time via metacall, emitting native Logos code linked into the program; all errors are compile DIAGNOSTICS. It is the only query surface: no runtime-string query exists in the language (`deem.exec.dynamic-api`).
 
 *Divergence:* the compile-time-checked prepared-statement model (sqlx-style); the strong typing is the agentic selector at build time (P3).
 
-*Evidence:* `stdlib/mem/wql/wql.logos#L74-L97`; ADR 0012 "Static-first sequencing"
+*Evidence:* `src/compiler/sema_expr.cpp` (`SemaChecker::lower_deem_def`); `stdlib/mem/wql/wql.logos` (`deem`, the `#[token_macro]` handler); ADR 0012 "Static-first sequencing"
 
-### `deem.exec.dynamic-api` — `Query::compile`/`run` (runtime, errors as values)
+### `deem.exec.dynamic-api` — WITHDRAWN at P5
 
-Query TEXT arriving at RUNTIME is parsed, type-checked, optimized and executed by a tree-walk over the SAME Writ-schema IR via `Query::compile(text,&cat)? .run(&env)?`; errors are VALUES (`Result` + positioned message), the compile-once/run-many contract holds, and `run` is re-entrant over different envs.
+Withdrawn with the interpreter. `Query::compile(text,&cat)?.run(&env)?` — query TEXT parsed, checked, optimized and tree-walked at run time, errors as values, results as `QRows` — was deleted at P5 (census §6 L10); no `Query` or `QRows` exists in the tree. Runtime TEXT is still accepted for templates only (`Tpl::compile`, `trama.dynamic.compile-render`).
+<!-- spec-gone: stdlib/mem/deem/query.logos — deleted at P5: Query / QRows, the runtime query-compilation entry point -->
 
-*Divergence:* EXTENSION — the runtime interpreter (queue 2); errors are the model's feedback signal, not compiler diagnostics.
+### `deem.exec.reuse` — WITHDRAWN at P5
 
-*Evidence:* `stdlib/mem/deem/deem.logos#L3838-L3850` (`Query::compile` — parse→typecheck→rel-register/validate/SCC/stratify→lower→simplify), `L4158-L4258` (`Query::run` — strict check→cascade→rel materialize→tree-walk→QRows); ADR 0012-queue2 §3
-
-### `deem.exec.reuse` — parsers/optimizer/lowering reused verbatim
-
-The dynamic surface reuses the peg-generated parsers, the IR optimizer, the plan-lowering, and the semantics (join cascade, semi-naïve, stratification, aggregate rules) verbatim — the same algorithms re-hosted from emitters to an evaluator (the payoff of schemas-as-IR).
-
-*Divergence:* no analogue; an architecture consequence.
-
-*Evidence:* ADR 0012-queue2 §1; `stdlib/mem/deem/deem.logos#L1928-L1937` ("REUSED" design note — `parse_program`, `lower_rquery_to_rexpr`, `simplify_rexpr_ref`, `compute_rel_scc` all reused verbatim)
+Withdrawn with the interpreter. It stated that the dynamic query surface re-hosted the parsers, optimizer, plan lowering and semantics verbatim; that surface is gone. The narrower fact that survives — the template engine runs the shared scalar optimizer over its embedded expressions — is stated in `deem.opt.shared-tiers`.
 
 ### `deem.exec.catalog` — `schema_catalog!` and `SchemaCatalog`
 
-`resource cat = schema_catalog!{ S1, S2, … };` is a queue-1 metacall macro that reflects the named ADR-0011 `schema` decls out of the trigger module and emits a fn returning a `SchemaCatalog` view over a STATIC Writ blob in .rodata (schema code → {field → (key code, EL type, edge target)}); the dynamic checker resolves `e.field` against this catalog.
+`resource cat = schema_catalog!{ S1, S2, … };` is a queue-1 metacall macro that reflects the named ADR-0011 `schema` decls out of the trigger module and emits a fn returning a `SchemaCatalog` view over a STATIC Writ blob in .rodata (schema code → {field → (key code, EL type, edge target)}); the template engine's checker and evaluator resolve `e.field` against this catalog.
 
-*Divergence:* EXTENSION — queue-1 serving queue-2 over the designated `annotation → metaprog hook → rodata Writ blob → runtime view` channel; no global registry, no link-time magic.
+*Divergence:* EXTENSION — queue-1 serving the runtime over the designated `annotation → metaprog hook → rodata Writ blob → runtime view` channel; no global registry, no link-time magic.
 
-*Evidence:* macro `stdlib/mem/wql/catalog_macro.logos#L1-L30,L247-L277`; runtime view `stdlib/mem/deem/deem.logos#L163-L177` (`SchemaCatalog`), `L315-L366` (`from_static`/`merge_static` — two-pass rodata index), `L370-L405` (probes); ADR 0012-queue2 §5
+*Evidence:* macro `stdlib/mem/wql/catalog_macro.logos` (`schema_catalog`, `emit_schema_entry`); runtime view `stdlib/mem/deem/deem.logos` (`SchemaCatalog`, `SchemaCatalog::from_static`/`merge_static`, probes `schema_code`/`field_key`/`field_ty`); readers `stdlib/mem/deem/tpl.logos` (`check_root`, `field_read`); ADR 0012-queue2 §5
 
-### `deem.exec.env` — the runtime env: sources, params, UDF/UDA registry
+### `deem.exec.env` — the runtime env: bindings and the UDF registry
 
-`run` takes an `env` binding source names → Writ array handles, scalar params, and registered UDFs/UDAs; `register_fn(name, ptr)` uses an `RtVal`-based signature `fn(&[RtVal]) -> RtVal`, a UDA is an init/step/fin triple; `register_fn`/`register_agg` return `bool` (false = bad type name / capacity, no silent no-op); names resolve builtin-table-first then registry (same precedence as the static surface).
+`Tpl::render(&env)` takes a `QEnv` binding names to schema'd Writ objects (`bind_node`), Writ arrays of schema'd rows (`bind_source`), and scalars (`bind_i64`/`bind_f64`/`bind_bool`/`bind_str`); at most 24 bindings, a bind past capacity is silently ignored, a rebind overwrites. `register_fn(name, f, args, ret)` registers a UDF of type `fn(&[RtVal]) -> RtVal` with a declared signature (EL type names, at most 4 args) and returns `bool` — `false` on a bad type name, too many args or a full registry, never a silent no-op; calls resolve builtin-first, then the registry (the static surface's precedence). `register_agg` (init/step/fin) registers under the same contract, but since P5 nothing reads the UDA registry: templates have no aggregates, and the query tier that did was deleted.
 
-*Divergence:* EXTENSION — the runtime binding/registry surface (`QEnv`), analogous to a prepared-statement parameter set plus a UDF registry; `register_fn` caps at 4 args and takes a typed signature `(args: &[str], ret: str)`.
+*Divergence:* EXTENSION — the runtime binding/registry surface (`QEnv`), analogous to a prepared-statement parameter set plus a UDF registry.
 
-*Evidence:* `stdlib/mem/deem/deem.logos#L457-L499` (`QEnv`), `L522-L564` (`bind_node`/`bind_source`/`bind_i64`/…), `L600-L626` (`register_fn` → bool), `L642-L660` (`register_agg` → bool, init/step/fin); ADR 0012-queue2 §6
+*Evidence:* `stdlib/mem/deem/deem.logos` (`QEnv`, `QEnv::bind_node`/`bind_source`/`bind_i64`/…, `register_fn`, `register_agg`, `QENV_CAP`, `QENV_FN_ARGS`); readers `stdlib/mem/deem/tpl.logos` (`env_val`, `check_root`, the `SExpr::Call` arm of `eval_sexpr`); `tests/logos/pass/query_reg_errors_e2e.logos` (the `bool` contract); ADR 0012-queue2 §6
 
-### `deem.exec.bind-kinds` — the four source binding kinds
+### `deem.exec.bind-kinds` — source binding kinds
 
-`bind_source` (a Writ array of schema'd rows) · `bind_source_erased` (lenient rows, CEL Null semantics) · `bind_source_tree` (a Writ VALUE scanned virtually, one row per edge, the graph vocabulary) · `bind_edge_rows` (PRE-MATERIALIZED rows in the same edge vocabulary — the runtime twin of a `#[derive_graph_source]` materializer). Tree and edge sources type identically (`vi: i64`, `vs: str`, total) and are REJECTED by the incremental path with a named error (no delta capture — materialize facts via FactStore).
+Two SOURCE bindings remain. `bind_source` (a Writ array of schema'd rows, `QB_SRC`) is read by the template engine. `bind_edge_rows` (PRE-MATERIALIZED rows in the eight-column edge vocabulary, `QB_EDGE`) is still exported and still writes its kind code, but nothing reads `QB_EDGE`: its reader was the executor's scan, deleted at P5, so the binding is accepted and inert. `bind_source_erased` / `bind_node_erased` / `bind_source_tree` were removed (census §5 C3, ABI 0.38.0 → 0.39.0). The dynamic graph walk survives without a binding: `dyn_graph_edges` / `dyn_graph_edge_rows` take a raw `WAny` root (`deem.graph.vocabulary`).
 
-*Evidence:* `stdlib/mem/deem/deem.logos` (QB_* + binders), `stdlib/mem/deem/check.logos`, `tests/logos/pass/wql_native_graph_e2e.logos` (runtime twin)
+*Evidence:* `stdlib/mem/deem/deem.logos` (`QB_SRC`, `QB_EDGE`, `QEnv::bind_source`, `QEnv::bind_edge_rows`); `stdlib/mem/deem/tpl.logos` (`env_val`, `check_root`, `src_elem_ty` — no `QB_EDGE` arm); `stdlib/mem/deem/graphsrc.logos` (`dyn_graph_edges`, `dyn_graph_edge_rows`)
 <!-- spec-gone: stdlib/mem/deem/check.logos — deleted at P5: the dynamic query CHECKER; its template half had already been ported to stdlib/mem/deem/tpl.logos -->
 
-### `deem.exec.incremental` — the DBSP incremental path (ADR 0013)
+### `deem.exec.incremental` — WITHDRAWN at P5
 
-`Query::incremental` maintains results under fact deltas (±-weighted Z-set batches): full relational algebra, recursion, and aggregation with change capture and provenance, oracle-gated against from-scratch recomputation. Facts live in a `FactStore` (the delta boundary: `insert`/`retract` events); virtual sources — tree scans and pre-materialized edge rows — are REJECTED with a named error (re-scan semantics have no delta capture; materialize facts to cross). The engine's own execution history is queryable back through `deem.source.engine-state`.
-
-*Evidence:* `stdlib/mem/deem/incr.logos`, `stdlib/mem/deem/incr_rec.logos`, ADR 0013. ⚠ Every `query_incr_*` fixture this line used to cite died at P5 with the engine it drove — census §6 L10
+Withdrawn with the interpreter. `Query::incremental` — DBSP maintenance of query results under ±-weighted fact deltas over a `FactStore` (ADR 0013), with recursion (`IncrRec`, DRed) and the engine's own history as a source — was deleted at P5 together with `FactStore`, `IncrJoin`, `IncrRec` and `FactHistory` (census §6 L1–L6, L10). Nothing in the tree maintains a deem result incrementally; ADR 0013 stands as a design. Every `query_incr_*` fixture this rule cited died with it.
 <!-- spec-gone: stdlib/mem/deem/incr.logos — deleted at P5: the DBSP incremental engine (IncrJoin, FactStore, AggState) -->
 <!-- spec-gone: stdlib/mem/deem/incr_rec.logos — deleted at P5: the recursive incremental engine (IncrRec, dred) -->
 
-### `deem.exec.rtval` — RtVal runtime scalar and QRows
+### `deem.exec.rtval` — the RtVal runtime scalar
 
-The runtime scalar is `RtVal { I(i64) | F(f64) | B(bool) | S(str) | Node(WAny) | Null }` (the EL lattice maps INT/FLT/BOOL/STR onto it, `Node` carries row/object handles, `Null` exists only in lenient mode); results are `QRows` with typed getters, `is_null(r,c)`, and a per-column type report (`"dyn"` for lenient columns).
+The runtime scalar is `RtVal { I(i64) | F(f64) | B(bool) | S(str) | Node(WAny) | Null | Error }`: the EL lattice maps INT/FLT/BOOL/STR onto it, `Node` carries object/row handles, `Null` is a miss (an unset `WAny`-typed field or a null edge read at run time; it propagates CEL-style through EL operators, `deem.exec.lenient-null`), `Error` is a math error (overflow, division or remainder by zero) that aborts the render as a `QError`. It is the value type of the template evaluator and of the UDF registry signature. Equality is `rt_eq` over `rt_kind` codes. `QRows` and the query-side ordering/hashing (`rt_cmp`, `rt_key_hash`) were deleted at P5 with the executor.
 
-*Divergence:* EXTENSION — the dynamic value model; the runtime cascade is tag dispatch on `RtVal` (strong-typing-as-selector, runtime edition); `rt_eq`/`rt_cmp`/`rt_key_hash` (FNV-1a over tag+payload, hashable tier I/S/B only) implement equality/ordering/hashing.
+*Divergence:* EXTENSION — the dynamic value model; tag dispatch on `RtVal` is strong-typing-as-selector, runtime edition.
 
-*Evidence:* `stdlib/mem/deem/deem.logos#L728-L786` (`RtVal` enum + accessors), `L801-L810` (`rt_eq`), `L2932-L2946` (`rt_cmp`), `L2954-L2968` (`rt_key_hash`); `QRows` result/typed getters; ADR 0012-queue2 §2
+*Evidence:* `stdlib/mem/deem/deem.logos` (`RtVal`, `rt_kind`, `rt_i`/`rt_f`/`rt_b`/`rt_s`, `rt_eq`, `wany_to_rt`); `stdlib/mem/deem/tpl.logos` (`eval_sexpr`, `eval_sx` — the Error → `QError` boundary); ADR 0012-queue2 §2
 
 ### `deem.exec.qerror` — errors are QError values
 
-Compile/run failures are `QError` VALUES carrying a positioned message (not compiler diagnostics), returned via `Result` so a running program (typically a model-driven loop) consumes the message as a feedback signal.
+`Tpl::compile` / `Tpl::render` failures are `QError` VALUES carrying a positioned message (not compiler diagnostics), returned via `Result` so a running program (typically a model-driven loop) consumes the message as a feedback signal.
 
 *Divergence:* EXTENSION — errors-as-values, the dynamic dual of the static surface's compile diagnostics.
 
-*Evidence:* `stdlib/mem/deem/deem.logos#L92-L120` (`QError` struct + `message()` + `qerr`/`qfail` builders); ADR 0012-queue2 §3
+*Evidence:* `stdlib/mem/deem/deem.logos` (`QError`, `QError::message`, `qerr`/`qfail`); `stdlib/mem/deem/tpl.logos` (`Tpl::compile`, `Tpl::render`, `chk_err`); ADR 0012-queue2 §3
 
-### `deem.exec.strict` — strict-on-schema typing (dynamic default)
+### `deem.exec.strict` — strict-on-schema typing at render
 
-By default every dynamic source is declared with a schema code and `e.field` resolves against the catalog exactly as the static queue resolves against the module AST; unknown field/fn/type mismatch is a `Query::compile` error.
+Every template root name must resolve to a `QEnv` binding and every `e.field` to a catalog entry, exactly as the static queue resolves against the module AST; an unknown name, unknown field or type mismatch is a `QError`. The full strict check needs the env, so it runs at the top of every `Tpl::render`; `Tpl::compile` runs only the env-independent checks.
 
 *Divergence:* mirrors the static surface's strict schema typing (D4 strict-on-schema).
 
-*Evidence:* ADR 0012-queue2 §4; `stdlib/mem/deem/deem.logos#L4158-L4196` (strict type-check phase in `run`), catalog probes `L370-L405` (`schema_code`/`field_key`/`field_ty`)
+*Evidence:* `stdlib/mem/deem/tpl.logos` (`Tpl::render` → `check_stmts` with `strict = true`, `check_root`, `check_expr`); catalog probes `stdlib/mem/deem/deem.logos` (`schema_code`/`field_key`/`field_ty`); ADR 0012-queue2 §4
 
-### `deem.exec.lenient-null` — lenient/erased sources with CEL Null semantics
+### `deem.exec.lenient-null` — WITHDRAWN at P5
 
-`env.bind_source_erased(name, arr)` / `bind_node_erased(name, node)` type a binding `dyn` (runtime-typed); field access on an erased value yields `RtVal::Null` when missing and `Null` propagates CEL-style — `Null` is falsy for `&&`/`||`/`!`, `Null==Null`→true / `Null==x`→false, any `Null` operand makes an ordering comparison false and arithmetic `Null`, a `Null` ternary condition takes the else branch, builtins on a non-string (incl. `Null`) arg → `Null`, a `Null` `where`/`{% if %}` predicate drops the row / skips the branch, non-array lenient values iterate as empty, `Null` render is the empty string, `order by` sorts `Null` keys as 0, `group by` groups `Null` keys together; a `dyn` side never qualifies as a hash key (such joins take the LOOP tier), aggregate args and rel columns of `dyn` type are REJECTED at check time.
-
-*Divergence:* EXTENSION over the strict surface — CEL/JMESPath-style lenient `null` propagation, restricted to explicitly-erased bindings (D4 "lenient → queue-2"); a `WAny`-typed field on a strict schema also resolves leniently.
-
-⚠ *Binding-time scope, MEASURED 2026-08-09.* This clause is INTERPRETER-ONLY and has no static-tier form: a `deem` ITEM's rel columns are stamped concretely (`SemaChecker::native_source_spec`) and must implement `Hash`/`Eq`, so there is no `dyn` column and nothing for the table above to attach to. A `deem` item whose source parameter carries an erased Writ slot (`&WAny`, `&[WAny]`, …) is REFUSED at the item, naming that ground — see `tests/logos/fail/deem_erased_source_fail.logos` / `deem_erased_node_fail`, and the C3 ruling in `docs/deem-interpreter-deletion-census.md` §5, which withdraws this clause with the interpreter.
-
-*Evidence:* ADR 0012-queue2 §4/§4a (the Null propagation table); `stdlib/mem/deem/deem.logos#L572-L590` (`bind_node_erased`/`bind_source_erased`), `L1666-L1671` (comparison/equality Null rules), `L1690-L1725` (arithmetic/negation → Null), `L1738-L1763` (builtins on non-string → Null), erased field read `L1589-L1600`
+Withdrawn with the interpreter (census §5 C3). Erased bindings — `bind_source_erased` / `bind_node_erased`, which typed a binding `dyn` and gave its rows CEL-style `Null` propagation — were removed, and no query surface has a `dyn` column: a `deem` item's rel columns are stamped concretely (`SemaChecker::native_source_spec`) and must implement `Hash`, and an item whose source parameter carries an erased Writ slot (`&WAny`, `&[WAny]`) is REFUSED, naming the ground (`SemaChecker::enrich_deem_params`, `names_erased_writ_slot_` in `src/compiler/sema_expr.cpp`; doors `tests/logos/fail/deem_erased_source_fail.logos`, `tests/logos/fail/deem_erased_node_fail.logos`). The one lenient route left is in the template engine: a `WAny`-typed field on a strict schema (`FK_ANY`, checked `CT_DYN`) reads as `RtVal::Null` when absent and `Null` propagates through EL operators there (`stdlib/mem/deem/tpl.logos`: `field_read`, `eval_sexpr`); that is a template rule, `trama.dynamic.*`.
 
 ### `deem.exec.lenient-bool-one` — a bool is worth ONE wherever a lenient value is read as a number
 
-A runtime `bool` reached through a lenient (`dyn`) path is worth `1`/`0` in EVERY numeric spelling: `rt_i` reads it as `1i64`/`0i64`, `rt_f` as `1.0f64`/`0.0f64`, and the two therefore agree. This governs lenient arithmetic (`e.meta + 1.0` over a `WAny` field holding `true` is `2.0`) and the public `QRows::get_f64` accessor (a bool cell reads as `1.0`/`0.0`). It is one rule with one value, not a per-site convention — `check_expr` waives the numeric-operand refusal for `ct_is_open(t)` (`CT_UNKNOWN`/`CT_DYN`), so a `WAny` cell holding a bool is `CT_DYN` at check time and `RtVal::B` at run time and reaches both of these sites.
+A runtime `bool` reached through a lenient path is worth `1`/`0` in EVERY numeric spelling: `rt_i` reads it as `1i64`/`0i64`, `rt_f` as `1.0f64`/`0.0f64`, and the two therefore agree. Since P5 the only lenient path is a `WAny` (`FK_ANY`) field read by the template engine: `check_expr` waives the numeric-operand refusal for `ct_is_open(t)` (`CT_UNKNOWN`/`CT_DYN`), so a `WAny` cell holding a bool is `CT_DYN` at check time and `RtVal::B` at run time and reaches both arms — `{{ e.meta + 1.0 }}` over `meta = true` is `2.0`. It is one rule with one value, not a per-site convention. (The `QRows::get_f64` accessor it also governed was deleted at P5.)
 
-**This rule does NOT reach an aggregate accumulator, and an earlier wording claiming it did was false in two independent ways.** First, a lenient value cannot be an aggregate argument at all: `dyn` aggregate args are rejected at check time (`deem.exec.lenient` above, `check.logos`), so `avg` over a `WAny` column was a run-time error, not a fold. ⚠ Its pin, `query_dyn_bool_arith_pinned`, DIED AT P5 with the dynamic tier it drove (census row 14, class C); the LENIENT-ARITHMETIC half is re-pinned at `tests/logos/pass/wql_domain_bool_one_tpl.logos` (2026-08-09), while the `avg`-over-a-lenient-column half stays without a witness because the thing it witnessed is a REJECTION and is stated in the sentence before this one. Second, `sum`/`min`/`max` do not admit a bool in ANY tier: `agg_result_ty` (`el.logos`) returns the argument type only for `EL_TY_INT`/`EL_TY_FLT` and `-1` otherwise, and both tiers ask that one table. What DOES admit a bool is `avg` over a column the schema TYPES as bool — a STRICT-tier rule from the earlier ruling, `el_quot_ty`'s bool exemption, pinned by `tests/logos/pass/wql_agg_avg_bool_value_rule.logos` (renamed at P5 — the old name counted engines the cut falsified). Two rules, two tiers; the wording above conflated them.
+**This rule does NOT reach an aggregate accumulator.** No lenient value can be an aggregate argument: templates have no aggregates, and the query tier that rejected `dyn` aggregate args at check time was deleted at P5 (its pin `query_dyn_bool_arith_pinned` died with it, census row 14). Separately, `sum`/`min`/`max` admit no bool in the static tier: `agg_result_ty` (`el.logos`) returns the argument type only for `EL_TY_INT`/`EL_TY_FLT` and `-1` otherwise. What DOES admit a bool is `avg` over a column the schema TYPES as bool — a STRICT-tier rule, `el_quot_ty`'s bool exemption, pinned by `tests/logos/pass/wql_agg_avg_bool_value_rule.logos`. Two rules, two tiers.
 
-*Divergence:* EXTENSION — CEL has no bool→number coercion at all; Deem's lenient tier admits it and fixes the value at one, matching the earlier ruling that `avg` admits `bool` with `true` worth `1.0`. The STRICT tier is unaffected: there a bool operand is typed and refused where the EL's rule table refuses it.
+*Divergence:* EXTENSION — CEL has no bool→number coercion at all; the lenient path admits it and fixes the value at one, matching the ruling that `avg` admits `bool` with `true` worth `1.0`. The STRICT tier is unaffected: there a bool operand is typed and refused where the EL's rule table refuses it.
 
-*Evidence:* `stdlib/mem/deem/deem.logos` (`rt_i` / `rt_f` `B` arms — `rt_i`'s dates to c00b2888 2026-07-02, `rt_f`'s to ce973c17); the shared rule table `agg_result_ty` admitting BOOL; ⚠ its end-to-end pin `query_dyn_bool_arith_pinned` died at P5 (census row 14) and **is replaced 2026-08-09 by `tests/logos/pass/wql_domain_bool_one_tpl.logos`**, which drives BOTH `B` arms through `Tpl::render` over a `WAny` (FK_ANY) column — an int literal on the other side takes `rt_i` and a float literal takes `rt_f`, because `rt_kind(RtVal::B)` is 3 and not 2. The earlier sentence here, "no fixture drives their `B` arms", is struck. ⚠ The same file pins the WAIVER as its ground: the identical `+ 1` over a statically-typed `bool` column is refused with `'+' needs numeric operands`, and — MEASURED — that refusal lands at RENDER, not at `Tpl::compile`, which checks with an empty env where an unbound root is `CT_UNKNOWN` and `ct_is_open` admits it
+*Evidence:* `stdlib/mem/deem/deem.logos` (`rt_i` / `rt_f` `B` arms — `rt_i`'s dates to c00b2888 2026-07-02, `rt_f`'s to ce973c17; `rt_kind`, `ct_is_open`); `stdlib/mem/deem/tpl.logos` (`check_expr`, `field_read`); `stdlib/mem/wql/el.logos` (`agg_result_ty`, `el_quot_ty`); `tests/logos/pass/wql_domain_bool_one_tpl.logos` drives BOTH `B` arms through `Tpl::render` over a `WAny` (FK_ANY) column — an int literal on the other side takes `rt_i` and a float literal takes `rt_f`, because `rt_kind(RtVal::B)` is 3 and not 2 — and pins the WAIVER as its ground: the identical `+ 1` over a statically-typed `bool` column is refused with `'+' needs numeric operands`, at RENDER, not at `Tpl::compile` (which checks with an empty env, where an unbound root is `CT_UNKNOWN` and `ct_is_open` admits it)
 
-### `deem.exec.dyn-cascade` — per-run join cascade from checked types
+### `deem.exec.dyn-cascade` — WITHDRAWN at P5
 
-The dynamic join cascade is decided at `Query::compile` from the checked key types (hash for I/S/B, loop tier for F), not per-row — the SAME cascade rules as the static surface, re-hosted to the interpreter.
-
-*Divergence:* matches `deem.join.cascade-hash`, evaluated at query-compile time over runtime-checked types.
-
-*Evidence:* ADR 0012-queue2 §7; `stdlib/mem/deem/deem.logos#L2431-L2494` (`analyze_join_step` — hash tier for I/S/B `L2465-L2466`, loop tier for F / `CT_DYN` `L2470-L2489`), hash build/probe `L3278-L3329`, loop tier `L3332-L3354`
+Withdrawn with the interpreter. It stated that the dynamic join cascade was decided at `Query::compile` from checked key types; no runtime join exists any more. The cascade rule itself holds for the static item and is stated in `deem.join.cascade-hash`.
 
 ## Expression Language (EL)
 
@@ -687,7 +678,7 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Divergence:* the CEL operator precedence and associativity exactly (`?:` lowest, postfix field access highest).
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L15-L28,L176-L228`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`expr`, `ternary`, `or`, `and`, `equality`, `compare`, `add`, `mul`, `cast`, `unary`, `postfix`, `primary`)
 
 ### `el.op.ternary` — conditional `c ? t : e`
 
@@ -695,7 +686,7 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Divergence:* CEL conditional `?:`; the branches must be type-compatible (strict, no CEL dynamic-widening).
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L180-L183`; emission `stdlib/mem/wql/codegen.logos#L330-L338`; fold `stdlib/mem/wql/optimize.logos#L299-L306`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`ternary`); emission `stdlib/mem/wql/codegen.logos` (`emit_sexpr_as`, `check_cond_branches`); fold `stdlib/mem/wql/optimize.logos` (`simplify_sexpr`)
 
 ### `el.op.logical` — `||` and `&&`
 
@@ -703,7 +694,7 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Divergence:* CEL logical or/and.
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L185-L189`; ids `stdlib/mem/wql/el.logos#L22-L23`; emission `stdlib/mem/wql/codegen.logos#L726-L728`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`or`, `and`); ids `stdlib/mem/wql/el.logos` (`OP_OR`, `OP_AND`); emission `stdlib/mem/wql/codegen.logos` (`emit_binop`)
 
 ### `el.op.equality` — `==` and `!=`
 
@@ -711,7 +702,7 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Divergence:* CEL equality; f64 equality is permitted in EL expressions generally (but see `el.restrict.f64-key` for keyed positions).
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L191-L195`; ids `stdlib/mem/wql/el.logos#L24-L25`; emission `stdlib/mem/wql/codegen.logos#L729-L730`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`equality`); ids `stdlib/mem/wql/el.logos` (`OP_EQ`, `OP_NE`); emission `stdlib/mem/wql/codegen.logos` (`emit_binop`)
 
 ### `el.op.compare` — `< <= > >=`
 
@@ -719,7 +710,7 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Divergence:* CEL relational comparisons.
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L197-L204`; ids `stdlib/mem/wql/el.logos#L26-L29`; emission `stdlib/mem/wql/codegen.logos#L731-L734`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`compare`); ids `stdlib/mem/wql/el.logos` (`OP_LT`, `OP_LE`, `OP_GT`, `OP_GE`); emission `stdlib/mem/wql/codegen.logos` (`emit_binop`)
 
 ### `el.op.arith` — `+ - * / %`
 
@@ -727,7 +718,7 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Divergence:* CEL arithmetic; `%` is integer/float modulo (float `%` is a valid operator but does not const-fold).
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L206-L217`; ids `stdlib/mem/wql/el.logos#L30-L34`; emission `stdlib/mem/wql/codegen.logos#L735-L739`; fold `stdlib/mem/wql/optimize.logos#L113-L170`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`add`, `mul`); ids `stdlib/mem/wql/el.logos` (`OP_ADD`, `OP_SUB`, `OP_MUL`, `OP_DIV`, `OP_MOD`); emission `stdlib/mem/wql/codegen.logos` (`emit_sexpr_as`, `el_int_op_fn`, `emit_binop`); fold `stdlib/mem/wql/optimize.logos` (`simplify_bin`, `fold_arith_ii`, `fold_arith_ff`)
 
 ### `el.op.unary` — `!` and unary `-`
 
@@ -735,7 +726,7 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Divergence:* CEL logical-not and numeric negation.
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L219-L222`; ids `stdlib/mem/wql/el.logos#L36-L37`; emission `stdlib/mem/wql/codegen.logos#L321-L327`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`unary`); ids `stdlib/mem/wql/el.logos` (`OP_NOT`, `OP_NEG`); emission `stdlib/mem/wql/codegen.logos` (`emit_sexpr_as`); fold `stdlib/mem/wql/optimize.logos` (`simplify_un`)
 
 ### `el.op.field` — postfix `.field` access
 
@@ -743,7 +734,7 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Divergence:* CEL field selection; EXPLICITLY no implicit projection (P2 rejects JMESPath-style implicit map projection) and no safe-navigation `?.` (D4 strict — optionality only via `Option`-typed fields).
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L224-L228,L246-L250`; `SField` `stdlib/mem/wql/ir.logos#L135`; emission `stdlib/mem/wql/codegen.logos#L264-L297`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`postfix`, `primary`); `SField` `stdlib/mem/wql/ir.logos` (`SField`); emission `stdlib/mem/wql/codegen.logos` (`emit_sexpr_as`, `root_ident_name`)
 
 ### `el.primary.literals` — int / float / bool / string literals
 
@@ -751,23 +742,23 @@ Primary literals are integer (`SLit` int, token→i64 decode), float (`FLOAT = [
 
 *Divergence:* CEL literals; the numeric split (int vs float by a literal `.`) is Rust/Logos-conformant.
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L163-L168,L241-L245`; `SLit` `stdlib/mem/wql/ir.logos#L132`; literal-type inference `stdlib/mem/wql/codegen.logos#L80-L85`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`FLOAT`, `INTEGER`, `STRING`, `TRUE`, `FALSE`, `primary`); `SLit` `stdlib/mem/wql/ir.logos` (`SLit`); literal-type inference `stdlib/mem/wql/codegen.logos` (`infer_ty_name`)
 
 ### `el.primary.param` — bound parameter `$name`
 
-`$name` builds an `SParam` (a bound prepared-statement argument by NAME) in the EL grammar; on Deem SURFACE the `$` sigil is RETIRED — scalar params are referenced bare — but the `SParam`/`$` production remains in EL for the interpreter's prepared-argument path.
+`$name` builds an `SParam` (a bound prepared-statement argument by NAME) in the EL grammar; on Deem SURFACE the `$` sigil is RETIRED — scalar params are referenced bare — but the `SParam`/`$` production remains in EL. The interpreter's prepared-argument path it was kept for was deleted at P5; `SParam` is still read by the static emitter (emitted as the bare name) and by the template engine (`tpl.logos`: `eval_root`, `check_root`).
 
 *Divergence:* CEL has no `$` param; this is a Deem/EL prepared-argument extension, retired on the deem surface (`deem.surface.scalar-param`).
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L246`; `SParam` `stdlib/mem/wql/ir.logos#L133`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`primary`, `DOLLAR`); `SParam` `stdlib/mem/wql/ir.logos` (`SParam`); readers `stdlib/mem/wql/codegen.logos` (`emit_sexpr_as`), `stdlib/mem/deem/tpl.logos` (`eval_sexpr`, `check_expr` `SExpr::Param` arms)
 
 ### `el.primary.call` — function/filter call
 
-`ident(args)` builds an `SCall` carrying the call NAME + a materialized `SExprArr` argument list (up to 8 args, fan-out slots a0..a7); the name resolves against the builtin registry first, then the reflected UDF table.
+`ident(args)` builds an `SCall` carrying the call NAME + a materialized `SExprArr` argument list (any number of arguments, one list field); the name resolves against the builtin registry first, then the reflected UDF table.
 
 *Divergence:* CEL function/method calls; D6 canon is Logos-style calls (`upper(x)` / `x.upper()`), the jinja pipe `|` is Trama-only sugar.
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L247,L252-L257`; `SCall`/`SExprArr` `stdlib/mem/wql/ir.logos#L138,L58-L120`; emission `stdlib/mem/wql/codegen.logos#L329,L365-L400`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`primary`, `arglist`); `SCall`/`SExprArr` `stdlib/mem/wql/ir.logos` (`SCall`, `SExprArr`); emission `stdlib/mem/wql/codegen.logos` (`emit_call`, `emit_udf_call`)
 
 ### `el.primary.paren-tuple` — grouping vs tuple `(a,b,…)`
 
@@ -775,7 +766,7 @@ Primary literals are integer (`SLit` int, token→i64 decode), float (`FLOAT = [
 
 *Divergence:* EXTENSION — CEL has no tuple; the tuple projection is a Logos tuple (see `deem.project.tuple`), legal only in a `select` position.
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L238-L239,L259-L263`; `STuple` `stdlib/mem/wql/ir.logos#L141`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`primary`, `tuple_body`); `STuple` `stdlib/mem/wql/ir.logos` (`STuple`)
 
 ### `el.comprehension` — `[expr for v in src if guard]`
 
@@ -783,7 +774,7 @@ Primary literals are integer (`SLit` int, token→i64 decode), float (`FLOAT = [
 
 *Divergence:* EXTENSION — Logos/Python comprehension syntax over CEL semantics (ADR 0012: "comprehension = the Datalog bridge", one comprehension = one rule) rather than CEL's `e.map(x,f)` macros.
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg#L265-L283`; `SComp` `stdlib/mem/wql/ir.logos#L140`; emission `stdlib/mem/wql/codegen.logos#L633-L688`
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`comprehension`, `comp_plan`, `comp_source`); `SComp` `stdlib/mem/wql/ir.logos` (`SComp`); emission `stdlib/mem/wql/codegen.logos` (`emit_comp`)
 
 ### `el.builtins` — len / upper / lower / contains / starts_with
 
@@ -791,7 +782,7 @@ The builtin functions are `len(x)`→INT (`(x).len()`), `upper(x)`/`lower(x)`→
 
 *Divergence:* a small CEL-canon + common-Trama-filter subset; string builtins are byte-oriented ASCII (MVP), not Unicode-aware.
 
-*Evidence:* `stdlib/mem/wql/el.logos#L39-L108` (registry + `wql_upper`/`wql_lower`); emission `stdlib/mem/wql/codegen.logos#L365-L400`
+*Evidence:* `stdlib/mem/wql/el.logos` (registry `builtin_of_name`/`builtin_arity`/`builtin_ret_ty` + `wql_upper`/`wql_lower`); emission `stdlib/mem/wql/codegen.logos` (`emit_call`)
 
 ### `el.type.lattice` — the EL_TY value-type lattice {INT,BOOL,STR,FLT}
 
@@ -799,7 +790,7 @@ Static codegen carries a coarse 4-valued type tag — `EL_TY_INT`(0)/`EL_TY_STR`
 
 *Divergence:* a coarsening of the CEL type system to the four scalar families Deem emits; the whole integer family collapses to INT.
 
-*Evidence:* `stdlib/mem/wql/el.logos#L119-L143`; inference `stdlib/mem/wql/codegen.logos#L78-L142`
+*Evidence:* `stdlib/mem/wql/el.logos` (`EL_TY_INT`, `EL_TY_STR`, `EL_TY_BOOL`, `EL_TY_FLT`, `el_ty_of_name`); inference `stdlib/mem/wql/codegen.logos` (`infer_ty`, `infer_ty_name`)
 
 ### `el.type.int-float-promote` — INT→FLT promotion with explicit cast
 
@@ -807,7 +798,7 @@ In binary arithmetic where one operand is FLT and the other INT, the result type
 
 *Divergence:* EXTENSION over CEL's implicit numeric coercion — Deem emits the cast explicitly to satisfy Logos's Rust-style no-implicit-coercion rule.
 
-*Evidence:* `stdlib/mem/wql/codegen.logos#L103-L116,L303-L319`; `stdlib/mem/wql/el.logos#L124-L130`
+*Evidence:* `stdlib/mem/wql/codegen.logos` (`infer_ty_name`, `float_node_ty`, `emit_sexpr_as`); `stdlib/mem/wql/el.logos` (`EL_TY_FLT`)
 
 ### `el.type.string-concat` — `+` on strings is concatenation
 
@@ -815,7 +806,7 @@ In binary arithmetic where one operand is FLT and the other INT, the result type
 
 *Divergence:* EXTENSION — CEL supports string `+`; Deem emits it as Logos string concatenation / push-flattening.
 
-*Evidence:* `stdlib/mem/wql/codegen.logos#L111-L112,L775-L788`
+*Evidence:* `stdlib/mem/wql/codegen.logos` (`infer_ty_name`, `emit_push_str`)
 
 ### `el.type.returns-string` — owned String vs str-view
 
@@ -823,7 +814,7 @@ A call returning an owned `String` (the `upper`/`lower` builtins, or a UDF whose
 
 *Divergence:* no analogue; a Logos ownership/borrow emission detail.
 
-*Evidence:* `stdlib/mem/wql/codegen.logos#L813-L822,L188-L206,L798-L801`
+*Evidence:* `stdlib/mem/wql/codegen.logos` (`returns_string`, `emit_push_str_one`, `push_tuple_ty`)
 
 ### `el.emit.chunk` — self-contained emission chunk
 
@@ -839,11 +830,11 @@ items quotes; a quote states its imports as imports, so there is no prologue fn.
 
 ### `el.restrict.f64-key` — f64 is not a hash/set key
 
-f64 lacks Hash+Eq, so it cannot be a rel column, a `group by`/join hash key, or feed set-deduplication — such positions either take the LOOP join tier (dynamic) or are a named compile error (rel columns); f64 is fine as a scalar in arithmetic/projection/order-by.
+f64 lacks Hash+Eq, so it cannot be a rel column, a `group by`/join hash key, or feed set-deduplication — such positions either take the LOOP join tier (an equi-join key, `deem.join.cascade-hash`) or are a named compile error (a rel column, a `group by` key); f64 is fine as a scalar in arithmetic/projection/order-by.
 
 *Divergence:* RESTRICTION — narrower than CEL/SQL where floats may appear anywhere; Deem excludes f64 from keyed/set positions because equality/hashing is unsound.
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos#L721-L741`; `stdlib/mem/wql/el.logos#L182-L185`; ADR 0012-queue2 §4a (join keys / rel columns)
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`rel_col_ty_ok`); `stdlib/mem/wql/el.logos` (`el_set_col_admit` → `EL_COL_NO_EQ`); `stdlib/mem/wql/rexpr_walk.logos` (`emit_aggregate`, the `group by` f64 refusal); `stdlib/mem/wql/join_sel.logos` (`step_cascade`); `tests/logos/fail/wql_rel_float_col_fail.logos`, `tests/logos/fail/wql_group_f64_key_fail.logos`; ADR 0012-queue2 §4a (join keys / rel columns)
 
 ### `el.restrict.column-decl` — what may be a COLUMN is decided at the source's declaration
 
@@ -857,10 +848,10 @@ A field of a struct/schema BOUND AT A SOURCE is admitted as a column only on pos
 
 ### `el.restrict.strict-optionality` — no `has()` / no `?.`
 
-EL has no CEL `has()` macro and no safe-navigation `?.` — under the static/strict surface everything is mandatory by schema and optionality is expressed only via `Option`-typed schema fields (D4 strict); lenient `null` exists only for explicitly-erased dynamic bindings (`deem.exec.lenient-null`).
+EL has no CEL `has()` macro and no safe-navigation `?.` — under the static/strict surface everything is mandatory by schema and optionality is expressed only via `Option`-typed schema fields (D4 strict); the explicitly-erased dynamic bindings that gave a query lenient `null` were withdrawn at P5 (`deem.exec.lenient-null`); lenient `null` survives only in the runtime template engine, over a `WAny`-typed schema field.
 
 ⚠ **The `Option`-typed schema field half of that sentence is a D4 RULING WITH NO WORKING ARTIFACT BEHIND IT, and is now REFUSED rather than silently wrong.** Measured: an `Option<i64>` column compiled, ran, and answered ONE GROUP PER VARIANT under `group by` while an `i64` control column in the same program answered correctly — see `el.restrict.column-decl`. Making an `Option` column WORK (read as its payload, with a stated null ordering/grouping rule) is an open capability decision, not a defect fix; until it is taken, optionality on a strict source is expressed by a sentinel scalar column or by splitting the payload out.
 
-*Divergence:* RESTRICTION vs CEL (which has `has()` and dynamic missing-key `null`); Deem/EL makes the strict case total and pushes leniency into an opt-in dynamic mode.
+*Divergence:* RESTRICTION vs CEL (which has `has()` and dynamic missing-key `null`); Deem/EL makes the strict case total; the opt-in lenient query mode went with the interpreter at P5.
 
 *Evidence:* ADR 0012 D4 (§"Resolved open decisions"); ADR 0012-queue2 §4/§4a

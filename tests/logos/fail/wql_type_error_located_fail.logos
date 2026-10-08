@@ -1,0 +1,12 @@
+// ADR 0031 R4.3 — a type error in a query is reported at its place IN THE QUERY
+// (line:col of the offending expression), never at a line of generated code.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Row { pub a: i32, pub b: i64 }
+pub deem q(rs: &[Row]) {
+    from rs r
+    where r.b > 0
+    select r.a + r.b
+}
+fn main() -> i32 { return 0i32; }

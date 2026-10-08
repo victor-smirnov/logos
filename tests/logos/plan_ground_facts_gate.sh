@@ -10,35 +10,26 @@
 # a source's facts, or to a rule's body moves one of these lines; a change to the
 # WORDING moves none.
 #
-# CONTROL: the same three compiles with the facts channel OFF must print no
-# `[facts]` line at all, so a gate that matched stale output is distinguishable.
+# Each case reads the fixture's `[facts]` line from the compile its own corpus
+# test already ran, under `LOGOS_TRACE_PLAN=facts` (`run_test.sh` ->
+# `facts_emit.sh` -> `<facts>/<fixture>/plan.err`). The gate declares
+# FIXTURES_REQUIRED on those tests and FOLDS the files; `facts_require` refuses a
+# missing or stale one. It compiles nothing of its own: it used to compile every
+# fixture twice itself — serially (260-300 s against a 300 s budget), then in
+# background jobs, a second scheduler inside a test `lt` already schedules
+# (`logos_00_one_scheduler_lint`).
+#
+# CONTROL: ONE compile with the facts channel OFF (`LOGOS_TRACE_PLAN=1`) must
+# print no `[facts]` line at all, so a gate that matched stale output is
+# distinguishable. One serial compile, of the smallest fixture here.
 set -u
-LOGOSC="$1"; SRC="$2"
+LOGOSC="$1"; SRC="$2"; FACTS="$3"
+. "$(dirname "$0")/facts_fold.sh"
 TMPD=$(mktemp -d); trap 'rm -rf "$TMPD"' EXIT
 fail=0
-# Each fixture is compiled ONCE per channel and every case reads the cached
-# output — a fixture with several pinned decisions costs two compiles, not two
-# per case (the gate timed out under the full run at two per case).
-compiled() {   # fixture -> ensures $TMPD/<f>.facts and $TMPD/<f>.plain exist
-    local f="$1"
-    [ -f "$TMPD/$f.facts" ] && return 0
-    if ! LOGOS_TRACE_PLAN=facts "$LOGOSC" "$SRC/$f.logos" -o "$TMPD/$f.o" 2>"$TMPD/$f.facts" >/dev/null; then
-        echo "FAIL: $f did not compile"; head -3 "$TMPD/$f.facts"; fail=1; return 1
-    fi
-    LOGOS_TRACE_PLAN=1 "$LOGOSC" "$SRC/$f.logos" -o "$TMPD/$f.o" 2>"$TMPD/$f.plain" >/dev/null
-    if grep -q '^\[facts\]' "$TMPD/$f.plain"; then
-        echo "FAIL: $f — a [facts] line was printed with the facts channel off"; fail=1
-    fi
-}
-check() {   # fixture, expected facts line
-    local f="$1" want="$2"
-    compiled "$f" || return
-    if ! grep -qxF -- "$want" "$TMPD/$f.facts"; then
-        echo "FAIL: $f — expected the facts line"
-        echo "    $want"
-        echo "  got:"; grep '^\[facts\]' "$TMPD/$f.facts" | sed 's/^/    /'
-        fail=1
-    fi
+CF=(); CW=()
+check() {   # fixture, expected facts line — recorded, verified below
+    CF+=("$1"); CW+=("$2")
 }
 # A user struct with Hash + Eq + Copy: the hash rule fires.
 check wql_named_key_e2e \
@@ -82,5 +73,40 @@ check wql_incr_eligibility_matrix '[facts] ok_join retraction rule=exact'
 # ── the DRed driver and the aggregate's group-frame class (E3) ──
 check wql_incr_rel_dred_driver '[facts] tc dred rule=emit'
 check wql_aggregate_e2e '[facts] dept_stats aggclass rule=PURE'
+# ── compile every fixture once per channel, in parallel ──
+declare -A seen=()
+FIXS=()
+for f in "${CF[@]}"; do
+    [ -n "${seen[$f]:-}" ] && continue
+    seen[$f]=1
+    FIXS+=("$SRC/$f.logos")
+done
+facts_require "$FACTS" "$LOGOSC" "plan ground facts" "${FIXS[@]}"
+for f in "${!seen[@]}"; do
+    if [ "$(cat "$FACTS/$f/rc")" != 0 ]; then
+        echo "FAIL: $f did not compile"
+        grep -v -e '^\[plan\] ' -e '^\[facts\] ' "$FACTS/$f/plan.err" | head -3
+        fail=1
+    fi
+done
+# The channel-off control (see the header).
+CTL=deem_source_size
+LOGOS_TRACE_PLAN=1 "$LOGOSC" "$SRC/$CTL.logos" -o "$TMPD/ctl.o" 2>"$TMPD/ctl.err" >/dev/null
+if ! grep -q '^\[plan\] ' "$TMPD/ctl.err"; then
+    echo "FAIL: control $CTL printed no [plan] line under LOGOS_TRACE_PLAN=1 — it measured nothing"; fail=1
+elif grep -q '^\[facts\]' "$TMPD/ctl.err"; then
+    echo "FAIL: $CTL — a [facts] line was printed with the facts channel off"; fail=1
+fi
+i=0
+while [ "$i" -lt "${#CF[@]}" ]; do
+    f="${CF[$i]}"; want="${CW[$i]}"
+    if ! grep -qxF -- "$want" "$FACTS/$f/plan.err"; then
+        echo "FAIL: $f — expected the facts line"
+        echo "    $want"
+        echo "  got:"; grep '^\[facts\]' "$FACTS/$f/plan.err" | sed 's/^/    /'
+        fail=1
+    fi
+    i=$((i + 1))
+done
 [ "$fail" = 0 ] && echo "plan ground facts: 18 cases (3 join, 3 access, 3 mode, 4 incremental, 3 retraction, 1 dred, 1 aggclass), rule + held + negative explanation pinned"
 exit $fail  # lint:exit-ok — `fail` is set only to the literals 0 and 1

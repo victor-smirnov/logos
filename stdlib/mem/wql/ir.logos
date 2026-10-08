@@ -25,6 +25,7 @@ use logos.lang.writ.container;
 use logos.lang.writ.allocator;   // Allocator (WritField::to_wany param)
 use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
+use logos.lang.writ.array;   // WArray — a schema's list field
 
 // ── Integer-literal overflow POISON sentinel ──────────────────────────────
 // The three EL/surface/template tokenizers (`wstr_decode_i64`) accumulate an
@@ -64,44 +65,63 @@ impl<S> WritField for WRef<S> {
     fn to_wany(self: Self, z: *mut Allocator) -> WAny { return self.h; }
 }
 
-// `SExprArr` — the materialized arg / projection list (ADR 0012 §1). A schema
-// over a TOM carrying a `count` and up to `SEXPRARR_MAX` argument edges at fixed
-// keys (`a0`..`a7`) — full multi-arg support (Phase 3), dogfooding ADR 0011: the
-// list IS a Writ object, no separate array handle. `make::<SExprArr>()` sizes the
-// backing TOM to the field count (9 = count + 8 slots), so up to 8 args round-trip
-// structurally. `arg_at(i)` / `len()` are the backend's read API; `set_arg`/
-// `set_len` the parser's write API.
-pub schema SExprArr : code(0x0010_0000_0000_000A) {
-    count: i32 = 0,
-    a0: WRef<SExpr> = 1,
-    a1: WRef<SExpr> = 2,
-    a2: WRef<SExpr> = 3,
-    a3: WRef<SExpr> = 4,
-    a4: WRef<SExpr> = 5,
-    a5: WRef<SExpr> = 6,
-    a6: WRef<SExpr> = 7,
-    a7: WRef<SExpr> = 8,
+// `n` empty names. A plain loop rather than `vec![""; n]`: instantiated for
+// `str` inside this module's own build, `vec_from_elem` is refused by the
+// borrow checker (`borrowed data escapes outside of function: 'elem'`), while
+// the same call in a user program compiles (#731).
+pub fn str_vec(n: i64) -> Vec<str> {
+    let mut v: Vec<str> = Vec::<str>::new();
+    let mut i: i64 = 0i64;
+    while i < n { v.push(""); i = i + 1i64; }
+    return v;
 }
 
-// Max args a single `SExprArr` materializes (the declared slot count).
-pub fn SEXPRARR_MAX() -> i64 { return 8i64; }
+// `SExprArr` — the materialized arg / projection list (ADR 0012 §1): a `count`
+// and the argument edges as one list field (below). `arg_at(i)` / `len()` are
+// the backend's read API; `set_arg`/`set_len` the parser's write API.
+// ── LIST FIELDS ───────────────────────────────────────────────────────────────
+// A schema's dynamic fan-out: the items are one Writ array held in a `WAny`
+// field. `list_set` writes item `i` through the view's arena allocator `z`
+// (WSchemaH.z): it creates the array on the first write, replaces an item below
+// the length and appends at it; a gap is a defect, so it panics.
+pub fn list_get(items: WAny, i: i64) -> WAny {
+    // Unchecked on purpose: a list field is written only by `list_set` and the
+    // generated parsers, and this read is on every step / argument / rel
+    // access of the compile (`as_array` re-checks the tag each time).
+    return unsafe { array_get_unchecked(items.resolve() as *const WArray<WAny>, i) };
+}
+
+pub fn list_set(items: WAny, z: *mut u8, i: i64, v: WAny) -> WAny {
+    if z == 0 as *mut u8 { logos.lang.panic::panic("a list field written through a view that carries no arena"); }
+    let mut a: *mut WArray<WAny> = 0 as *mut WArray<WAny>;
+    if items.is_null() || !items.is_array() {
+        a = unsafe { warray_new_in(z, 4i64) };
+    } else {
+        a = items.resolve() as *mut WArray<WAny>;
+    }
+    let n: i64 = unsafe { warray_len(a as *const WArray<WAny>) };
+    if i < n { unsafe { warray_set(a, i, v); } }
+    else if i == n { unsafe { warray_push_in(a, z, v); } }
+    else { logos.lang.panic::panic("a list field written past its end (a gap)"); }
+    return unsafe { WAny::ref_to(a as *const u8) };
+}
+
+// A LIST node (2026-10-05): the items are one Writ array in `args`, written
+// through the parser's `"list set_arg"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
+pub schema SExprArr : code(0x0010_0000_0000_000A) {
+    count: i32 = 0,
+    args: WAny = 1,
+}
 
 impl SExprArr {
     // The arg count (the prepared list arity).
     pub fn len(self: SExprArr) -> i64 { return self.count as i64; }
 
     // The i-th argument as an SExpr view (0-based). Out-of-range i is a caller
-    // error; reads the fixed slot key i+1. The slots are a flat fan-out (no
-    // chaining) so this is O(1).
+    // error.
     pub fn arg_at(self: SExprArr, i: i64) -> SExpr {
-        if i == 0i64 { return self.a0.any().view::<SExpr>(); }
-        if i == 1i64 { return self.a1.any().view::<SExpr>(); }
-        if i == 2i64 { return self.a2.any().view::<SExpr>(); }
-        if i == 3i64 { return self.a3.any().view::<SExpr>(); }
-        if i == 4i64 { return self.a4.any().view::<SExpr>(); }
-        if i == 5i64 { return self.a5.any().view::<SExpr>(); }
-        if i == 6i64 { return self.a6.any().view::<SExpr>(); }
-        return self.a7.any().view::<SExpr>();
+        return list_get(self.args, i).view::<SExpr>();
     }
 
     // The i-th argument's RAW edge handle (0-based) — for callers that need the
@@ -109,27 +129,13 @@ impl SExprArr {
     // than a bound view. Rebuilt through `raw()` (the step_any provenance-
     // laundering idiom) so no reference to the temporary WRef escapes.
     pub fn arg_any(self: SExprArr, i: i64) -> WAny {
-        if i == 0i64 { return unsafe { WAny::ref_to(self.a0.any().raw() as *const u8) }; }
-        if i == 1i64 { return unsafe { WAny::ref_to(self.a1.any().raw() as *const u8) }; }
-        if i == 2i64 { return unsafe { WAny::ref_to(self.a2.any().raw() as *const u8) }; }
-        if i == 3i64 { return unsafe { WAny::ref_to(self.a3.any().raw() as *const u8) }; }
-        if i == 4i64 { return unsafe { WAny::ref_to(self.a4.any().raw() as *const u8) }; }
-        if i == 5i64 { return unsafe { WAny::ref_to(self.a5.any().raw() as *const u8) }; }
-        if i == 6i64 { return unsafe { WAny::ref_to(self.a6.any().raw() as *const u8) }; }
-        return unsafe { WAny::ref_to(self.a7.any().raw() as *const u8) };
+        return unsafe { WAny::ref_to(list_get(self.args, i).raw() as *const u8) };
     }
 
     // Store the i-th argument edge (0-based). The parser fills slots 0..count-1.
     pub fn set_arg(self: &mut SExprArr, i: i64, h: WAny) {
-        let r: WRef<SExpr> = WRef::<SExpr>::from_any(h);
-        if i == 0i64 { self.a0 = r; return; }
-        if i == 1i64 { self.a1 = r; return; }
-        if i == 2i64 { self.a2 = r; return; }
-        if i == 3i64 { self.a3 = r; return; }
-        if i == 4i64 { self.a4 = r; return; }
-        if i == 5i64 { self.a5 = r; return; }
-        if i == 6i64 { self.a6 = r; return; }
-        self.a7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const SExprArr as *const WSchemaH)).z };
+        self.args = list_set(self.args, z, i, h);
     }
 
     pub fn set_len(self: &mut SExprArr, n: i64) { self.count = n as i32; }
@@ -248,46 +254,23 @@ impl RAgg {
     pub fn as_ref(self: RAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized aggregate-spec list — a fan-out of up to `RAGG_MAX` RAgg edges
-// at fixed slots (the SExprArr pattern). `count` = the arity.
+// The materialized aggregate-spec list (the SExprArr pattern). `count` = the
+// arity. A LIST node (2026-10-05): the items are one Writ array in `aggs`.
 pub schema RAggArr : code(0x0011_0000_0000_0011) {
-    count: i32       = 0,
-    g0: WRef<RAgg> = 1,
-    g1: WRef<RAgg> = 2,
-    g2: WRef<RAgg> = 3,
-    g3: WRef<RAgg> = 4,
-    g4: WRef<RAgg> = 5,
-    g5: WRef<RAgg> = 6,
-    g6: WRef<RAgg> = 7,
-    g7: WRef<RAgg> = 8,
+    count: i32 = 0,
+    aggs: WAny = 1,
 }
-
-pub fn RAGG_MAX() -> i64 { return 8i64; }
 
 impl RAggArr {
     pub fn len(self: &RAggArr) -> i64 { return self.count as i64; }
 
     pub fn agg_at(self: RAggArr, i: i64) -> RAgg {
-        if i == 0i64 { return self.g0.any().view::<RAgg>(); }
-        if i == 1i64 { return self.g1.any().view::<RAgg>(); }
-        if i == 2i64 { return self.g2.any().view::<RAgg>(); }
-        if i == 3i64 { return self.g3.any().view::<RAgg>(); }
-        if i == 4i64 { return self.g4.any().view::<RAgg>(); }
-        if i == 5i64 { return self.g5.any().view::<RAgg>(); }
-        if i == 6i64 { return self.g6.any().view::<RAgg>(); }
-        return self.g7.any().view::<RAgg>();
+        return list_get(self.aggs, i).view::<RAgg>();
     }
 
     pub fn set_agg(self: &mut RAggArr, i: i64, h: WAny) {
-        let r: WRef<RAgg> = WRef::<RAgg>::from_any(h);
-        if i == 0i64 { self.g0 = r; return; }
-        if i == 1i64 { self.g1 = r; return; }
-        if i == 2i64 { self.g2 = r; return; }
-        if i == 3i64 { self.g3 = r; return; }
-        if i == 4i64 { self.g4 = r; return; }
-        if i == 5i64 { self.g5 = r; return; }
-        if i == 6i64 { self.g6 = r; return; }
-        self.g7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RAggArr as *const WSchemaH)).z };
+        self.aggs = list_set(self.aggs, z, i, h);
     }
 
     pub fn set_len(self: &mut RAggArr, n: i64) { self.count = n as i32; }
@@ -299,62 +282,19 @@ impl RAggArr {
 // name) so the executable algebra is self-sufficient to emit the scan loop — the
 // query-PLAN's `from src:[Ty] var` recovered onto the leaf, self-describing IR.
 pub schema RScan   : code(0x0011_0000_0000_0000) { node_code: i56 = 0, src_name: str = 1, row_ty: str = 2, var_name: str = 3 } // scan a source: name + row-type + loop var
-// REdge — the GRAPH STEP (slice D, collection-field traversal): range a new row
-// var over a COLLECTION FIELD PATH of an already-bound row var. Self-describing:
-//   `base_var`/`path` — the semantic step (`d` + "emps.skills" — queue-2's
-//   interpreter re-resolves these against its own row bindings);
-//   `src` — the full source EXPRESSION text (`d.emps.skills`, walker-stamped) —
-//   the static emitter's scan spelling (`while i < (src).len()`);
-//   `var_name`/`row_ty` — the new binding + its ELEMENT type;
-//   `on`/`has_on` — the OPTIONAL residual filter (containment IS the join);
-//   `is_anti` — anti-traversal: keep the bound row iff NO element satisfies
-//   `on` (no `on` ⇒ iff the collection is empty).
-// Traversal is ALWAYS nested-loop (its source depends on outer row vars, so no
-// build-once index exists) — the join-strategy cascade bypasses REdge steps.
-pub schema REdge   : code(0x0011_0000_0000_0001) { input: WRef<RExpr> = 0, src: str = 1, base_var: str = 2, path: str = 3, var_name: str = 4, row_ty: str = 5, on: WRef<SExpr> = 6, has_on: bool = 7, is_anti: bool = 8 }
 pub schema RFilter : code(0x0011_0000_0000_0002) { input: WRef<RExpr> = 0, pred: WRef<SExpr> = 1 }    // σ
-pub schema RProj   : code(0x0011_0000_0000_0003) { input: WRef<RExpr> = 0, sel: WRef<SExpr> = 1 }     // π — the projection expr
-// RJoin / RAnti carry the PLAN's decision for the step, not just its shape
-// (ADR 0024 S4): `jstrat` — hash / tree / loop, `JS_NONE` when no planner has
-// looked at this node; `jkey` — the equi-key's value class; `jsel` — WHICH term
-// of the const-folded `on` conjunction supplies the key (-1 = none), so the
-// emitter composes build/probe/residual without re-running the selection rule;
-// `jground` — the ground (rule + facts, why.logos `jg_pack`), travelling with
-// the decision; its sentence is rendered at the edge. Lowering copies these off
-// the surface step; the relational peephole passes the join subtree through
-// unchanged, so they survive to the emitter.
-pub schema RJoin   : code(0x0011_0000_0000_0004) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jsel: i32 = 5, jground: i64 = 6 }
-pub schema RAnti   : code(0x0011_0000_0000_0005) { left: WRef<RExpr> = 0, right: WRef<RExpr> = 1, on: WRef<SExpr> = 2, jstrat: i32 = 3, jsel: i32 = 5, jground: i64 = 6 }
-pub schema RAggr   : code(0x0011_0000_0000_0006) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, aggs: WRef<RAggArr> = 2 } // γ — single group key + agg specs
-pub schema RFix    : code(0x0011_0000_0000_0007) { base: WRef<RExpr> = 0, rec: WRef<RExpr> = 1 }      // fixpoint — DECLARED, NOT impl in queue 1
-// ── ORDER/LIMIT/DISTINCT tier (`select [distinct] S [order by O [desc]] [limit …]`) ──
-// RSort sits UNDER the projection (its key ranges over the input rows — the scan
-// vars, or the group key + aggregate outputs); RDistinct / RLimit sit ABOVE the
-// projection (they act on the PROJECTED values). `having` has NO node of its own:
-// it lowers to an RFilter over the RAggr output (one filter mechanism).
-pub schema RSort     : code(0x0011_0000_0000_0008) { input: WRef<RExpr> = 0, key: WRef<SExpr> = 1, desc: bool = 2 } // τ — ONE sort key, asc/desc
-pub schema RLimit    : code(0x0011_0000_0000_0009) { input: WRef<RExpr> = 0, n: i64 = 1, is_param: bool = 2, param: str = 3 } // first-n (literal or scalar-param name)
-pub schema RDistinct : code(0x0011_0000_0000_000A) { input: WRef<RExpr> = 0 }                          // δ — dedup projected values
-
+// ADR 0031 R6.7c — what is left of the relational algebra is a COMPREHENSION's
+// source and filter (`[h for x in xs if p]`, built by the EL parser). Joins,
+// anti joins, traversals, aggregates, projections and the envelope nodes were
+// the deleted relational entry path's; the plan is `dplan` over the core.
 pub schema enum RExpr : category(0x0011_0000_0000_0000) {
-    Scan(RScan), Edge(REdge), Filter(RFilter), Proj(RProj),
-    Join(RJoin), Anti(RAnti), Aggr(RAggr), Fix(RFix),
-    Sort(RSort), Limit(RLimit), Distinct(RDistinct),
+    Scan(RScan), Filter(RFilter),
 }
 
 // Relational-node edge handles (same provenance-laundering rationale as the
 // scalar `as_ref` above): the WAny ref targets the node's TOM in the arena.
 impl RScan   { pub fn as_ref(self: RScan)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl REdge   { pub fn as_ref(self: REdge)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 impl RFilter { pub fn as_ref(self: RFilter) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RProj   { pub fn as_ref(self: RProj)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RJoin   { pub fn as_ref(self: RJoin)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RAnti   { pub fn as_ref(self: RAnti)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RAggr   { pub fn as_ref(self: RAggr)   -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RFix    { pub fn as_ref(self: RFix)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RSort     { pub fn as_ref(self: RSort)     -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RLimit    { pub fn as_ref(self: RLimit)    -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
-impl RDistinct { pub fn as_ref(self: RDistinct) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; } }
 
 // ── Typed edge RESOLVERS (the IR-walking convenience API) ─────────────────
 // Read a `WRef<S>` field → resolve the handle → bind the target view. These are
@@ -396,32 +336,3 @@ impl RFilter {
     pub fn input_expr(self: RFilter) -> RExpr { return self.input.any().view::<RExpr>(); }
     pub fn pred_expr(self: RFilter) -> SExpr { return self.pred.any().view::<SExpr>(); }
 }
-impl REdge {
-    pub fn input_expr(self: REdge) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn on_expr(self: REdge) -> SExpr { return self.on.any().view::<SExpr>(); }
-}
-impl RProj {
-    pub fn input_expr(self: RProj) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn sel_expr(self: RProj) -> SExpr { return self.sel.any().view::<SExpr>(); }
-}
-impl RJoin {
-    pub fn left_expr(self: RJoin) -> RExpr { return self.left.any().view::<RExpr>(); }
-    pub fn right_expr(self: RJoin) -> RExpr { return self.right.any().view::<RExpr>(); }
-    pub fn on_expr(self: RJoin) -> SExpr { return self.on.any().view::<SExpr>(); }
-}
-impl RAnti {
-    pub fn left_expr(self: RAnti) -> RExpr { return self.left.any().view::<RExpr>(); }
-    pub fn right_expr(self: RAnti) -> RExpr { return self.right.any().view::<RExpr>(); }
-    pub fn on_expr(self: RAnti) -> SExpr { return self.on.any().view::<SExpr>(); }
-}
-impl RAggr {
-    pub fn input_expr(self: RAggr) -> RExpr   { return self.input.any().view::<RExpr>(); }
-    pub fn key_expr(self: RAggr) -> SExpr   { return self.key.any().view::<SExpr>(); }
-    pub fn aggs_arr(self: RAggr) -> RAggArr { return self.aggs.any().view::<RAggArr>(); }
-}
-impl RSort {
-    pub fn input_expr(self: RSort) -> RExpr { return self.input.any().view::<RExpr>(); }
-    pub fn key_expr(self: RSort) -> SExpr { return self.key.any().view::<SExpr>(); }
-}
-impl RLimit    { pub fn input_expr(self: RLimit) -> RExpr { return self.input.any().view::<RExpr>(); } }
-impl RDistinct { pub fn input_expr(self: RDistinct) -> RExpr { return self.input.any().view::<RExpr>(); } }

@@ -162,7 +162,9 @@ if ! grep -q 'a base SCAN weighs 2 per row, an index BUILD 4 per row, a PROBE 1 
     echo "FAIL: the trace does not state the cost model's weights"
     fail=1
 fi
-if ! grep -q 'no fact reports selectivity' "$TMPD/err"; then
+# The default is still an assumption where no distinct count is declared (#347/#726),
+# and the trace must keep naming it as one.
+if ! grep -q 'where they declare none (the selectivity assumption)' "$TMPD/err"; then
     echo "FAIL: the cost model does not name its selectivity assumption"
     fail=1
 fi

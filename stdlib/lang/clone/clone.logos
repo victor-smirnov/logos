@@ -29,6 +29,8 @@ impl Clone for u8    { fn clone(&self) -> u8    { return *self; } }
 impl Clone for u16   { fn clone(&self) -> u16   { return *self; } }
 impl Clone for u32   { fn clone(&self) -> u32   { return *self; } }
 impl Clone for u64   { fn clone(&self) -> u64   { return *self; } }
+impl Clone for i128  { fn clone(&self) -> i128  { return *self; } }
+impl Clone for u128  { fn clone(&self) -> u128  { return *self; } }
 impl Clone for usize { fn clone(&self) -> usize { return *self; } }
 impl Clone for isize { fn clone(&self) -> isize { return *self; } }
 impl Clone for f32   { fn clone(&self) -> f32   { return *self; } }
@@ -44,6 +46,8 @@ impl Copy for u8    {}
 impl Copy for u16   {}
 impl Copy for u32   {}
 impl Copy for u64   {}
+impl Copy for i128  {}
+impl Copy for u128  {}
 impl Copy for usize {}
 impl Copy for isize {}
 impl Copy for f32   {}
@@ -57,7 +61,7 @@ impl Copy for str   {}
 // `impl<T: ?Sized> Clone for &T`).
 impl<T: ?Sized> Clone for &T { fn clone(&self) -> &T { return *self; } }
 
-// Tuples of Copy / Clone elements are Copy / Clone (Rust's per-arity impls).
+// Tuples of Copy / Clone elements are Copy / Clone (Rust's per-arity impls, up to 12).
 impl<A: Copy, B: Copy> Copy for (A, B) {}
 impl<A: Copy, B: Copy, C: Copy> Copy for (A, B, C) {}
 impl<A: Copy, B: Copy, C: Copy, D: Copy> Copy for (A, B, C, D) {}
@@ -65,6 +69,10 @@ impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy> Copy for (A, B, C, D, E) {}
 impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy> Copy for (A, B, C, D, E, F) {}
 impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy, G: Copy> Copy for (A, B, C, D, E, F, G) {}
 impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy, G: Copy, H: Copy> Copy for (A, B, C, D, E, F, G, H) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy, G: Copy, H: Copy, I: Copy> Copy for (A, B, C, D, E, F, G, H, I) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy, G: Copy, H: Copy, I: Copy, J: Copy> Copy for (A, B, C, D, E, F, G, H, I, J) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy, G: Copy, H: Copy, I: Copy, J: Copy, K: Copy> Copy for (A, B, C, D, E, F, G, H, I, J, K) {}
+impl<A: Copy, B: Copy, C: Copy, D: Copy, E: Copy, F: Copy, G: Copy, H: Copy, I: Copy, J: Copy, K: Copy, L: Copy> Copy for (A, B, C, D, E, F, G, H, I, J, K, L) {}
 impl<A: Clone, B: Clone> Clone for (A, B) { fn clone(&self) -> (A, B) { return (self.0.clone(), self.1.clone()); } }
 impl<A: Clone, B: Clone, C: Clone> Clone for (A, B, C) { fn clone(&self) -> (A, B, C) { return (self.0.clone(), self.1.clone(), self.2.clone()); } }
 impl<A: Clone, B: Clone, C: Clone, D: Clone> Clone for (A, B, C, D) { fn clone(&self) -> (A, B, C, D) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone()); } }
@@ -72,3 +80,7 @@ impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone> Clone for (A, B, C, D, E)
 impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone> Clone for (A, B, C, D, E, F) { fn clone(&self) -> (A, B, C, D, E, F) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone()); } }
 impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone, G: Clone> Clone for (A, B, C, D, E, F, G) { fn clone(&self) -> (A, B, C, D, E, F, G) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone()); } }
 impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone, G: Clone, H: Clone> Clone for (A, B, C, D, E, F, G, H) { fn clone(&self) -> (A, B, C, D, E, F, G, H) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone(), self.7.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone, G: Clone, H: Clone, I: Clone> Clone for (A, B, C, D, E, F, G, H, I) { fn clone(&self) -> (A, B, C, D, E, F, G, H, I) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone(), self.7.clone(), self.8.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone, G: Clone, H: Clone, I: Clone, J: Clone> Clone for (A, B, C, D, E, F, G, H, I, J) { fn clone(&self) -> (A, B, C, D, E, F, G, H, I, J) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone(), self.7.clone(), self.8.clone(), self.9.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone, G: Clone, H: Clone, I: Clone, J: Clone, K: Clone> Clone for (A, B, C, D, E, F, G, H, I, J, K) { fn clone(&self) -> (A, B, C, D, E, F, G, H, I, J, K) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone(), self.7.clone(), self.8.clone(), self.9.clone(), self.10.clone()); } }
+impl<A: Clone, B: Clone, C: Clone, D: Clone, E: Clone, F: Clone, G: Clone, H: Clone, I: Clone, J: Clone, K: Clone, L: Clone> Clone for (A, B, C, D, E, F, G, H, I, J, K, L) { fn clone(&self) -> (A, B, C, D, E, F, G, H, I, J, K, L) { return (self.0.clone(), self.1.clone(), self.2.clone(), self.3.clone(), self.4.clone(), self.5.clone(), self.6.clone(), self.7.clone(), self.8.clone(), self.9.clone(), self.10.clone(), self.11.clone()); } }

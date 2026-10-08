@@ -1,0 +1,20 @@
+// The names a query may read beyond its row vars and parameters, after #729
+// made an unknown name an error: a const of this module (`LIMIT`) and a const
+// of an IMPORTED binary module (`logos.lang.writ.row::WROW_MAX_SPAN`) — the
+// shape Canon's `where o.verb != OP_SEEK` has. Both are answered by the
+// compiler's value-name table (`metaprog::value_name_known`), not by the
+// handler's one-module AST view.
+//
+// exit 0 = the filter reads both.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.writ.row;
+const LIMIT: i64 = 2i64;
+struct R { pub a: i64 }
+pub deem q(rs: &[R]) { from rs r where r.a < WROW_MAX_SPAN && r.a > LIMIT select r.a }
+fn main() -> i32 {
+    let rs: [R; 3] = [R { a: 1i64 }, R { a: 3i64 }, R { a: 70000i64 }];
+    let v = q(&rs[..]).unwrap();
+    return (v.len() - 1i64) as i32;
+}

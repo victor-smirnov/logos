@@ -32,7 +32,10 @@
 #                    `// emitted by:` provenance header instead — 4 of that
 #                    corpus's 36 doors live in `logos.gen.*` units. Concatenating
 #                    here would pick one of those rules for all three.
-#   plan.err         the compile's WHOLE stderr, which under `LOGOS_TRACE_PLAN=1`
+#   plan.err         the compile's WHOLE stderr, which under `LOGOS_TRACE_PLAN=facts`
+#                    (the `[plan]` sentences of `=1` plus each decision's
+#                    machine-readable `[facts]` line — `logos_09_plan_ground_facts`
+#                    folds those, so it compiles nothing of its own)
 #                    carries the plan trace (`[plan] …` lines, one per planner
 #                    decision — `wql/codegen.logos::plan_trace`). `plan_ground`
 #                    reads all of it; `direct_door` counts one sentence in it.
@@ -78,7 +81,7 @@ else
     : > "$FACTS/args"
 fi
 
-LOGOS_TRACE_PLAN=1 "$LOGOSC" "$SRC" -o "$OBJ" "${EXTRA[@]}" \
+LOGOS_TRACE_PLAN=facts "$LOGOSC" "$SRC" -o "$OBJ" "${EXTRA[@]}" \
     --gen-dir "$FACTS/gen" 2> "$FACTS/plan.err"
 rc=$?
 echo "$rc" > "$FACTS/rc"

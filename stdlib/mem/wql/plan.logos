@@ -37,6 +37,7 @@ use logos.lang.writ.container;
 use logos.lang.writ.allocator;
 use logos.lang.writ.anyval;
 use logos.lang.writ.wmap;
+use logos.lang.writ.array;
 use logos.std.wql.ir;      // SExpr, WRef<S>, the embedded-EL edges
 
 // ── Aggregate column — one `name = fn(arg)` item of a `group by` query ────────
@@ -57,46 +58,27 @@ impl RQAgg {
     pub fn as_ref(self: RQAgg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized aggregate-column list — a fan-out of up to `RQAGG_MAX` RQAgg
-// edges at fixed slots (the SExprArr pattern from ir.logos). `count` = the arity.
+// The materialized aggregate-column list — the RQAgg
+// edges as a list (the SExprArr pattern from ir.logos). `count` = the arity.
+// A LIST node (2026-10-05): the items are one Writ array in `aggs`, written
+// through the parser's `"list set_agg"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
 pub schema RQAggArr : code(0x0012_0000_0000_0011) {
-    count: i32         = 0,
-    c0: WRef<RQAgg> = 1,
-    c1: WRef<RQAgg> = 2,
-    c2: WRef<RQAgg> = 3,
-    c3: WRef<RQAgg> = 4,
-    c4: WRef<RQAgg> = 5,
-    c5: WRef<RQAgg> = 6,
-    c6: WRef<RQAgg> = 7,
-    c7: WRef<RQAgg> = 8,
+    count: i32 = 0,
+    aggs: WAny = 1,
 }
 
-pub fn RQAGG_MAX() -> i64 { return 8i64; }
 
 impl RQAggArr {
     pub fn len(self: &RQAggArr) -> i64 { return self.count as i64; }
 
     pub fn agg_at(self: RQAggArr, i: i64) -> RQAgg {
-        if i == 0i64 { return self.c0.any().view::<RQAgg>(); }
-        if i == 1i64 { return self.c1.any().view::<RQAgg>(); }
-        if i == 2i64 { return self.c2.any().view::<RQAgg>(); }
-        if i == 3i64 { return self.c3.any().view::<RQAgg>(); }
-        if i == 4i64 { return self.c4.any().view::<RQAgg>(); }
-        if i == 5i64 { return self.c5.any().view::<RQAgg>(); }
-        if i == 6i64 { return self.c6.any().view::<RQAgg>(); }
-        return self.c7.any().view::<RQAgg>();
+        return list_get(self.aggs, i).view::<RQAgg>();
     }
 
     pub fn set_agg(self: &mut RQAggArr, i: i64, h: WAny) {
-        let r: WRef<RQAgg> = WRef::<RQAgg>::from_any(h);
-        if i == 0i64 { self.c0 = r; return; }
-        if i == 1i64 { self.c1 = r; return; }
-        if i == 2i64 { self.c2 = r; return; }
-        if i == 3i64 { self.c3 = r; return; }
-        if i == 4i64 { self.c4 = r; return; }
-        if i == 5i64 { self.c5 = r; return; }
-        if i == 6i64 { self.c6 = r; return; }
-        self.c7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RQAggArr as *const WSchemaH)).z };
+        self.aggs = list_set(self.aggs, z, i, h);
     }
 
     pub fn set_len(self: &mut RQAggArr, n: i64) { self.count = n as i32; }
@@ -174,20 +156,10 @@ pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
     has_on:   bool         = 6,
     base_var: str          = 7,
     path:     WRef<RQPathSegArr> = 8,
-    // THE PLAN'S DECISION for this step (ADR 0024 S4) — how the step's source
-    // will be read. `jstrat` is `JS_NONE` until a planner decides; `jsel` names
-    // the term of the const-folded `on` conjunction that supplies the equi-key
-    // (-1 = none). Recorded here rather than derived in the emitter because
-    // materialize-vs-stream depends on it and is settled BEFORE any code
-    // exists: hash and tree read the source once, loop rescans it.
-    jstrat:   i32          = 9,
-    // key 10 was `jkey`, the equi-key's CLASS — retired in E4.3: the key's
-    // type is re-derived from the recorded term (`jsel`), and its class is a view.
-    jsel:     i32          = 11,
-    // The GROUND of the decision (why.logos `jg_pack`): the rule that fired and
-    // the facts it fired on, one word. It held the rendered SENTENCE until
-    // 2026-10-02; text is produced at the edge now (`jg_render_packed`).
-    jground:  i64          = 12,
+    // Keys 9–12 held THE PLAN'S DECISION for the step (strategy, key term,
+    // ground). The planner records it on the planned core's atom now
+    // (`core::CAtom.strat/jsel/ground`, ADR 0031 R4.0); the parse tree does not
+    // carry it.
 }
 
 impl RQJoinStep {
@@ -205,46 +177,27 @@ impl RQPathSeg {
     pub fn as_ref(self: RQPathSeg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized segment list — fan-out of up to RQPSEG_MAX RQPathSeg edges
+// The materialized segment list — the RQPathSeg edges
 // (the RQJoinStepArr pattern). `count` = the path depth (≥ 1).
+// A LIST node (2026-10-05): the items are one Writ array in `segs`, written
+// through the parser's `"list set_seg"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
 pub schema RQPathSegArr : code(0x0012_0000_0000_001B) {
-    count: i32           = 0,
-    p0: WRef<RQPathSeg> = 1,
-    p1: WRef<RQPathSeg> = 2,
-    p2: WRef<RQPathSeg> = 3,
-    p3: WRef<RQPathSeg> = 4,
-    p4: WRef<RQPathSeg> = 5,
-    p5: WRef<RQPathSeg> = 6,
-    p6: WRef<RQPathSeg> = 7,
-    p7: WRef<RQPathSeg> = 8,
+    count: i32 = 0,
+    segs: WAny = 1,
 }
 
-pub fn RQPSEG_MAX() -> i64 { return 8i64; }
 
 impl RQPathSegArr {
     pub fn len(self: &RQPathSegArr) -> i64 { return self.count as i64; }
 
     pub fn seg_at(self: RQPathSegArr, i: i64) -> RQPathSeg {
-        if i == 0i64 { return self.p0.any().view::<RQPathSeg>(); }
-        if i == 1i64 { return self.p1.any().view::<RQPathSeg>(); }
-        if i == 2i64 { return self.p2.any().view::<RQPathSeg>(); }
-        if i == 3i64 { return self.p3.any().view::<RQPathSeg>(); }
-        if i == 4i64 { return self.p4.any().view::<RQPathSeg>(); }
-        if i == 5i64 { return self.p5.any().view::<RQPathSeg>(); }
-        if i == 6i64 { return self.p6.any().view::<RQPathSeg>(); }
-        return self.p7.any().view::<RQPathSeg>();
+        return list_get(self.segs, i).view::<RQPathSeg>();
     }
 
     pub fn set_seg(self: &mut RQPathSegArr, i: i64, h: WAny) {
-        let r: WRef<RQPathSeg> = WRef::<RQPathSeg>::from_any(h);
-        if i == 0i64 { self.p0 = r; return; }
-        if i == 1i64 { self.p1 = r; return; }
-        if i == 2i64 { self.p2 = r; return; }
-        if i == 3i64 { self.p3 = r; return; }
-        if i == 4i64 { self.p4 = r; return; }
-        if i == 5i64 { self.p5 = r; return; }
-        if i == 6i64 { self.p6 = r; return; }
-        self.p7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RQPathSegArr as *const WSchemaH)).z };
+        self.segs = list_set(self.segs, z, i, h);
     }
 
     pub fn set_len(self: &mut RQPathSegArr, n: i64) { self.count = n as i32; }
@@ -279,65 +232,41 @@ impl RQGStep {
 }
 
 // The materialized graph-step list (the RQPathSegArr pattern).
+// A LIST node (2026-10-05): the items are one Writ array in `steps`, written
+// through the parser's `"list set_gstep"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
 pub schema RQGStepArr : code(0x0012_0000_0000_001D) {
-    count: i32          = 0,
-    g0: WRef<RQGStep> = 1,
-    g1: WRef<RQGStep> = 2,
-    g2: WRef<RQGStep> = 3,
-    g3: WRef<RQGStep> = 4,
-    g4: WRef<RQGStep> = 5,
-    g5: WRef<RQGStep> = 6,
-    g6: WRef<RQGStep> = 7,
-    g7: WRef<RQGStep> = 8,
+    count: i32 = 0,
+    steps: WAny = 1,
 }
 
-pub fn RQGSTEP_MAX() -> i64 { return 8i64; }
 
 impl RQGStepArr {
     pub fn len(self: &RQGStepArr) -> i64 { return self.count as i64; }
 
     pub fn gstep_at(self: RQGStepArr, i: i64) -> RQGStep {
-        if i == 0i64 { return self.g0.any().view::<RQGStep>(); }
-        if i == 1i64 { return self.g1.any().view::<RQGStep>(); }
-        if i == 2i64 { return self.g2.any().view::<RQGStep>(); }
-        if i == 3i64 { return self.g3.any().view::<RQGStep>(); }
-        if i == 4i64 { return self.g4.any().view::<RQGStep>(); }
-        if i == 5i64 { return self.g5.any().view::<RQGStep>(); }
-        if i == 6i64 { return self.g6.any().view::<RQGStep>(); }
-        return self.g7.any().view::<RQGStep>();
+        return list_get(self.steps, i).view::<RQGStep>();
     }
 
     pub fn set_gstep(self: &mut RQGStepArr, i: i64, h: WAny) {
-        let r: WRef<RQGStep> = WRef::<RQGStep>::from_any(h);
-        if i == 0i64 { self.g0 = r; return; }
-        if i == 1i64 { self.g1 = r; return; }
-        if i == 2i64 { self.g2 = r; return; }
-        if i == 3i64 { self.g3 = r; return; }
-        if i == 4i64 { self.g4 = r; return; }
-        if i == 5i64 { self.g5 = r; return; }
-        if i == 6i64 { self.g6 = r; return; }
-        self.g7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RQGStepArr as *const WSchemaH)).z };
+        self.steps = list_set(self.steps, z, i, h);
     }
 
     pub fn set_len(self: &mut RQGStepArr, n: i64) { self.count = n as i32; }
     pub fn as_ref(self: RQGStepArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized join-step list — a fan-out of up to `RQJSTEP_MAX` RQJoinStep
-// edges at fixed slots (the RQAggArr pattern). `count` = the chain length.
+// The materialized join-step list — the RQJoinStep
+// edges as a list (the RQAggArr pattern). `count` = the chain length.
+// A LIST node (2026-10-05): the items are one Writ array in `steps`, written
+// through the parser's `"list set_step"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
 pub schema RQJoinStepArr : code(0x0012_0000_0000_0013) {
-    count: i32              = 0,
-    s0: WRef<RQJoinStep> = 1,
-    s1: WRef<RQJoinStep> = 2,
-    s2: WRef<RQJoinStep> = 3,
-    s3: WRef<RQJoinStep> = 4,
-    s4: WRef<RQJoinStep> = 5,
-    s5: WRef<RQJoinStep> = 6,
-    s6: WRef<RQJoinStep> = 7,
-    s7: WRef<RQJoinStep> = 8,
+    count: i32 = 0,
+    steps: WAny = 1,
 }
 
-pub fn RQJSTEP_MAX() -> i64 { return 8i64; }
 
 impl RQJoinStepArr {
     pub fn len(self: &RQJoinStepArr) -> i64 { return self.count as i64; }
@@ -347,30 +276,16 @@ impl RQJoinStepArr {
     // trip launders the field-temp provenance (the WAny targets the step's TOM
     // in the arena, which outlives the view — the as_ref idiom).
     pub fn step_any(self: RQJoinStepArr, i: i64) -> WAny {
-        if i == 0i64 { return unsafe { WAny::ref_to(self.s0.any().raw() as *const u8) }; }
-        if i == 1i64 { return unsafe { WAny::ref_to(self.s1.any().raw() as *const u8) }; }
-        if i == 2i64 { return unsafe { WAny::ref_to(self.s2.any().raw() as *const u8) }; }
-        if i == 3i64 { return unsafe { WAny::ref_to(self.s3.any().raw() as *const u8) }; }
-        if i == 4i64 { return unsafe { WAny::ref_to(self.s4.any().raw() as *const u8) }; }
-        if i == 5i64 { return unsafe { WAny::ref_to(self.s5.any().raw() as *const u8) }; }
-        if i == 6i64 { return unsafe { WAny::ref_to(self.s6.any().raw() as *const u8) }; }
-        return unsafe { WAny::ref_to(self.s7.any().raw() as *const u8) };
+        return unsafe { WAny::ref_to(list_get(self.steps, i).raw() as *const u8) };
     }
 
     pub fn step_at(self: RQJoinStepArr, i: i64) -> RQJoinStep {
-        return self.step_any(i).view::<RQJoinStep>();
+        return list_get(self.steps, i).view::<RQJoinStep>();
     }
 
     pub fn set_step(self: &mut RQJoinStepArr, i: i64, h: WAny) {
-        let r: WRef<RQJoinStep> = WRef::<RQJoinStep>::from_any(h);
-        if i == 0i64 { self.s0 = r; return; }
-        if i == 1i64 { self.s1 = r; return; }
-        if i == 2i64 { self.s2 = r; return; }
-        if i == 3i64 { self.s3 = r; return; }
-        if i == 4i64 { self.s4 = r; return; }
-        if i == 5i64 { self.s5 = r; return; }
-        if i == 6i64 { self.s6 = r; return; }
-        self.s7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RQJoinStepArr as *const WSchemaH)).z };
+        self.steps = list_set(self.steps, z, i, h);
     }
 
     pub fn set_len(self: &mut RQJoinStepArr, n: i64) { self.count = n as i32; }
@@ -492,66 +407,42 @@ impl RQRelCol {
     pub fn as_ref(self: RQRelCol) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized column list — fan-out of up to RQRELCOL_MAX RQRelCol edges.
+// The materialized column list — the RQRelCol edges.
+// A LIST node (2026-10-05): the items are one Writ array in `cols`, written
+// through the parser's `"list set_col"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
 pub schema RQRelColArr : code(0x0012_0000_0000_0015) {
-    count: i32           = 0,
-    c0: WRef<RQRelCol> = 1,
-    c1: WRef<RQRelCol> = 2,
-    c2: WRef<RQRelCol> = 3,
-    c3: WRef<RQRelCol> = 4,
-    c4: WRef<RQRelCol> = 5,
-    c5: WRef<RQRelCol> = 6,
-    c6: WRef<RQRelCol> = 7,
-    c7: WRef<RQRelCol> = 8,
+    count: i32 = 0,
+    cols: WAny = 1,
 }
 
-pub fn RQRELCOL_MAX() -> i64 { return 8i64; }
 
 impl RQRelColArr {
     pub fn len(self: &RQRelColArr) -> i64 { return self.count as i64; }
 
     pub fn col_at(self: RQRelColArr, i: i64) -> RQRelCol {
-        if i == 0i64 { return self.c0.any().view::<RQRelCol>(); }
-        if i == 1i64 { return self.c1.any().view::<RQRelCol>(); }
-        if i == 2i64 { return self.c2.any().view::<RQRelCol>(); }
-        if i == 3i64 { return self.c3.any().view::<RQRelCol>(); }
-        if i == 4i64 { return self.c4.any().view::<RQRelCol>(); }
-        if i == 5i64 { return self.c5.any().view::<RQRelCol>(); }
-        if i == 6i64 { return self.c6.any().view::<RQRelCol>(); }
-        return self.c7.any().view::<RQRelCol>();
+        return list_get(self.cols, i).view::<RQRelCol>();
     }
 
     pub fn set_col(self: &mut RQRelColArr, i: i64, h: WAny) {
-        let r: WRef<RQRelCol> = WRef::<RQRelCol>::from_any(h);
-        if i == 0i64 { self.c0 = r; return; }
-        if i == 1i64 { self.c1 = r; return; }
-        if i == 2i64 { self.c2 = r; return; }
-        if i == 3i64 { self.c3 = r; return; }
-        if i == 4i64 { self.c4 = r; return; }
-        if i == 5i64 { self.c5 = r; return; }
-        if i == 6i64 { self.c6 = r; return; }
-        self.c7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RQRelColArr as *const WSchemaH)).z };
+        self.cols = list_set(self.cols, z, i, h);
     }
 
     pub fn set_len(self: &mut RQRelColArr, n: i64) { self.count = n as i32; }
     pub fn as_ref(self: RQRelColArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized body list — fan-out of up to RQBODY_MAX RQuery edges (each
+// The materialized body list — the RQuery edges (each
 // body is a full query shape node; the walker matches the variant).
+// A LIST node (2026-10-05): the items are one Writ array in `bodies`, written
+// through the parser's `"list set_body"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
 pub schema RQBodyArr : code(0x0012_0000_0000_0018) {
-    count: i32        = 0,
-    b0: WRef<RQuery> = 1,
-    b1: WRef<RQuery> = 2,
-    b2: WRef<RQuery> = 3,
-    b3: WRef<RQuery> = 4,
-    b4: WRef<RQuery> = 5,
-    b5: WRef<RQuery> = 6,
-    b6: WRef<RQuery> = 7,
-    b7: WRef<RQuery> = 8,
+    count: i32 = 0,
+    bodies: WAny = 1,
 }
 
-pub fn RQBODY_MAX() -> i64 { return 8i64; }
 
 impl RQBodyArr {
     pub fn len(self: &RQBodyArr) -> i64 { return self.count as i64; }
@@ -559,26 +450,12 @@ impl RQBodyArr {
     // The i-th body's raw edge handle (raw()/ref_to provenance laundering —
     // the step_any idiom; feeds the walker's fat-view rewrap for stamping).
     pub fn body_any(self: RQBodyArr, i: i64) -> WAny {
-        if i == 0i64 { return unsafe { WAny::ref_to(self.b0.any().raw() as *const u8) }; }
-        if i == 1i64 { return unsafe { WAny::ref_to(self.b1.any().raw() as *const u8) }; }
-        if i == 2i64 { return unsafe { WAny::ref_to(self.b2.any().raw() as *const u8) }; }
-        if i == 3i64 { return unsafe { WAny::ref_to(self.b3.any().raw() as *const u8) }; }
-        if i == 4i64 { return unsafe { WAny::ref_to(self.b4.any().raw() as *const u8) }; }
-        if i == 5i64 { return unsafe { WAny::ref_to(self.b5.any().raw() as *const u8) }; }
-        if i == 6i64 { return unsafe { WAny::ref_to(self.b6.any().raw() as *const u8) }; }
-        return unsafe { WAny::ref_to(self.b7.any().raw() as *const u8) };
+        return unsafe { WAny::ref_to(list_get(self.bodies, i).raw() as *const u8) };
     }
 
     pub fn set_body(self: &mut RQBodyArr, i: i64, h: WAny) {
-        let r: WRef<RQuery> = WRef::<RQuery>::from_any(h);
-        if i == 0i64 { self.b0 = r; return; }
-        if i == 1i64 { self.b1 = r; return; }
-        if i == 2i64 { self.b2 = r; return; }
-        if i == 3i64 { self.b3 = r; return; }
-        if i == 4i64 { self.b4 = r; return; }
-        if i == 5i64 { self.b5 = r; return; }
-        if i == 6i64 { self.b6 = r; return; }
-        self.b7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RQBodyArr as *const WSchemaH)).z };
+        self.bodies = list_set(self.bodies, z, i, h);
     }
 
     pub fn set_len(self: &mut RQBodyArr, n: i64) { self.count = n as i32; }
@@ -598,21 +475,18 @@ impl RQRel {
     pub fn as_ref(self: RQRel) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
-// The materialized rel list — fan-out of up to RQREL_MAX RQRel edges,
+// The materialized rel list — a list of RQRel edges,
 // DECLARATION ORDER (the scoping + materialization order).
+// A LIST node (2026-10-05): the items are one Writ array in `rels`, written
+// through the parser's `"list set_rel"` field or the setter below, and read
+// through the accessors — there is no slot to run out of.
 pub schema RQRelArr : code(0x0012_0000_0000_0017) {
-    count: i32      = 0,
-    r0: WRef<RQRel> = 1,
-    r1: WRef<RQRel> = 2,
-    r2: WRef<RQRel> = 3,
-    r3: WRef<RQRel> = 4,
-    r4: WRef<RQRel> = 5,
-    r5: WRef<RQRel> = 6,
-    r6: WRef<RQRel> = 7,
-    r7: WRef<RQRel> = 8,
+    count: i32 = 0,
+    rels: WAny = 1,
 }
 
-pub fn RQREL_MAX() -> i64 { return 8i64; }
+// No cap (2026-10-05): the parser's rel list, the rel registry and the rel
+// sets are all dynamic.
 
 impl RQRelArr {
     pub fn len(self: &RQRelArr) -> i64 { return self.count as i64; }
@@ -621,39 +495,18 @@ impl RQRelArr {
     // the borrow-carrying handle ties it to the receiver and trips the
     // dangling-reference rule; the caller re-wraps via WAny::ref_to.
     pub fn rel_raw(self: &RQRelArr, i: i64) -> i64 {
-        if i == 0i64 { return self.r0.any().raw() as i64; }
-        if i == 1i64 { return self.r1.any().raw() as i64; }
-        if i == 2i64 { return self.r2.any().raw() as i64; }
-        if i == 3i64 { return self.r3.any().raw() as i64; }
-        if i == 4i64 { return self.r4.any().raw() as i64; }
-        if i == 5i64 { return self.r5.any().raw() as i64; }
-        if i == 6i64 { return self.r6.any().raw() as i64; }
-        return self.r7.any().raw() as i64;
+        return list_get(self.rels, i).raw() as i64;
     }
 
 
 
     pub fn rel_at(self: RQRelArr, i: i64) -> RQRel {
-        if i == 0i64 { return self.r0.any().view::<RQRel>(); }
-        if i == 1i64 { return self.r1.any().view::<RQRel>(); }
-        if i == 2i64 { return self.r2.any().view::<RQRel>(); }
-        if i == 3i64 { return self.r3.any().view::<RQRel>(); }
-        if i == 4i64 { return self.r4.any().view::<RQRel>(); }
-        if i == 5i64 { return self.r5.any().view::<RQRel>(); }
-        if i == 6i64 { return self.r6.any().view::<RQRel>(); }
-        return self.r7.any().view::<RQRel>();
+        return list_get(self.rels, i).view::<RQRel>();
     }
 
     pub fn set_rel(self: &mut RQRelArr, i: i64, h: WAny) {
-        let r: WRef<RQRel> = WRef::<RQRel>::from_any(h);
-        if i == 0i64 { self.r0 = r; return; }
-        if i == 1i64 { self.r1 = r; return; }
-        if i == 2i64 { self.r2 = r; return; }
-        if i == 3i64 { self.r3 = r; return; }
-        if i == 4i64 { self.r4 = r; return; }
-        if i == 5i64 { self.r5 = r; return; }
-        if i == 6i64 { self.r6 = r; return; }
-        self.r7 = r;
+        let z: *mut u8 = unsafe { (*(self as *const RQRelArr as *const WSchemaH)).z };
+        self.rels = list_set(self.rels, z, i, h);
     }
 
     pub fn set_len(self: &mut RQRelArr, n: i64) { self.count = n as i32; }
@@ -705,7 +558,6 @@ pub schema RQSrcSegArr : code(0x0012_0000_0000_001F) {
     a7: WRef<RQSrcSeg> = 8,
 }
 
-pub fn RQSEG_MAX() -> i64 { return 8i64; }
 
 impl RQSrcSeg {
     pub fn as_ref(self: RQSrcSeg) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }

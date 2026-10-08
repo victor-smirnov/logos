@@ -1,0 +1,1 @@
+rel 'r2' column 'k': `NoHash` does not implement `Eq` and `Hash`

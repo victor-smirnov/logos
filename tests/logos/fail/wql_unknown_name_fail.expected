@@ -1,0 +1,1 @@
+`zz` in the `on` clause is not a row variable of the query, a parameter, or a const or static of any module

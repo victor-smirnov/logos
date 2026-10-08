@@ -868,8 +868,8 @@ native-source part), and the package is not computed at all, because
 `logos_emit_item_blob_subst` stamps it from the metacall SITE while
 `logos_emit_source` had to be handed it in text.
 
-The survivors are three, each for a reason that is a property of the file rather
-than unconverted residue:
+The survivors were three, each for a reason that is a property of the file rather
+than unconverted residue (one has since been converted):
 
   * `trama_render.logos` — the AST→source RENDERER. Text is its OUTPUT: a Trama
     template's statement shape is the template's own nesting (a `while` per
@@ -878,15 +878,15 @@ than unconverted residue:
     `parse_block` reifies the body once, at the body slot.
   * `emitter.logos` — the Emitter's own implementation. `push_text` is the method
     being defined; the rest are doc references to it.
-  * `deem_bind.logos` — BLOCKED, twice measured, recorded at the site (`99abf493`).
-    (1) The quote channel inherits the metacall SITE's package and this handler's
-    site is a `package logos.gen;` driver chunk, while the overload must land in
-    `cs.pkg`; `QuoteItemBlob` carries no package field. (2) `deem_def`'s NAME is a
-    plain `IDENT` with no `HASH IDENT` alternative and its body is a
-    `RAW_GROUP_BRACE`, so `deem #dn(…) { #(qb) }` is a syntax error and a
-    malformed query respectively — and this handler's two inputs are exactly those
-    two positions. Closing it wants a package on the quote channel and a raw-group
-    reifier beside `parse_block`/`parse_params`.
+  * `deem_bind.logos` — CONVERTED (branch `deem`, 2026-10-06, #344/#345/#346).
+    It was blocked twice, both measured (`99abf493`), and both blocks were
+    closed on the channel side. (1) A quote inherits the metacall SITE's package,
+    while this handler's site is a `package logos.gen;` driver chunk and the
+    overload must land in `cs.pkg`. `logos_emit_item_blob_subst_pkg` now takes
+    the package. (2) `deem_def` gained the quoted form `deem #dn(#(ps))
+    #(qb)`: the name is an antiquote and the body a splice of
+    `parse_raw` (rule 6, the brace group's text unparsed — the query compiler
+    parses it). Fixture `quote_deem_pkg`. `grep -c push_text deem_bind.logos` = 0.
 
 **S6 — DECLARED OPERATION SETS — LANDED.** Capability stopped being derived from
 node structure (`can_seek ← ordered_map ∧ measure(max,col)` is Memoria-specific)

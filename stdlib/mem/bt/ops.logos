@@ -130,8 +130,7 @@ pub fn bt_cur_seek_key<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, 
     while lvl > 0u32 {
         let br: B = B::adopt(node);
         let c: u32 = br.find_child(key);
-        let mut j: u32 = 0u32;
-        while j < c { rank = rank + br.count_at(j, 0u32); j = j + 1u32; }
+        rank = rank + br.count_prefix(c, 0u32);
         node = br.child_addr(c);
         lvl = lvl - 1u32;
     }
@@ -162,8 +161,7 @@ pub fn bt_descend_rank<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, 
     while lvl > 0u32 {
         let br: B = B::adopt(node);
         let c: u32 = br.find_child(key);
-        let mut j: u32 = 0u32;
-        while j < c { rank = rank + br.count_at(j, 0u32); j = j + 1u32; }
+        rank = rank + br.count_prefix(c, 0u32);
         node = br.child_addr(c);
         lvl = lvl - 1u32;
     }

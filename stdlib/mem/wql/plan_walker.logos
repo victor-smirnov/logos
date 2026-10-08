@@ -73,63 +73,94 @@ use logos.std.compiler.metaprog;  // error, OView, oview_module_ast
 use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.std.wql.ir;             // RExpr, WRef
-use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*, rq_fat_* (allocator-carrying views)
+use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*
 use logos.std.wql.params;         // MacroParams — the parsed deem!(…) param list + rel registry
-use logos.std.wql.rexpr_walk;     // lower_simplify_emit / emit_rel_fns
+use logos.std.wql.core;           // the planned core (ADR 0031 R5)
+use logos.std.wql.dplan;          // plan_entry_simple (ADR 0031 R6.2)
+use logos.std.wql.rexpr_walk;     // emit_entry_* / emit_rel_fns
+use logos.std.wql.typing;         // stamp_rel_columns / apply_scalar_params (ADR 0031)
 use logos.std.wql.codegen;        // string_as_str, root_ident_name
 use logos.std.wql.el;             // el_ret_class — scalar-element classification (slice D)
 use logos.std.wql.reflect;        // find_decl_by_name / has_field / field_traversal_elem (slice D)
 use logos.std.wql.ward;           // WardProg / check_warded — Track A: warded Datalog± verdict
 use logos.mem.string;
 use logos.lang.str;
+use logos.std.wql.typecheck;       // core_typecheck (ADR 0031 R4.2)
 use logos.std.wql.srcloc;         // the query as a source — located diagnostics (ADR 0024 S0)
 use logos.std.wql.access_plan;    // AccessPlan — the plan as an object (ADR 0024 S4)
 use logos.std.wql.why;            // jg_render — the join strategy ground, rendered at the edge
 use logos.std.wql.join_sel;       // the JOIN-STEP decision — decided here, read by the emitter
+use logos.std.wql.join_order;     // the entry's JOIN ORDER — decided here, read by the emitter (ADR 0031 R5.2)
+use logos.std.wql.optimize;       // refs_mask — does a clause read a row var
 
-// ── The walker entry: entry RQuery plan → RExpr algebra → emitted native fn ──
+// ── The walker entry: the planned core's entry rule → the emitted native fn ──
 // `prelude` — statements spliced after the generated fn's opening brace (the
 // rel materialization lines; "" for a rel-less program).
-pub fn walk_query(plan: RQuery, params_text: str, prm: &MacroParams,
-                  prelude: str, h: &Writ) -> bool {
-    // `select first` is a SINGLE-ROW mode: it subsumes/contradicts the multi-row
-    // tail modifiers, so `distinct`/`limit` alongside it are compile-time errors
-    // (and the aggregate shape rejects it outright — group-by emission is
-    // multi-row by construction; kept out of scope, see wql.peg).
-    match plan {
-        RQuery::Simple(s) => {
-            let mut mode: i32 = SELM_ALL();
-            if s.sel_first {
-                if s.distinct  { wql_error(prm, "`select first` cannot be combined with `distinct` — first returns a single value"); return false; }
-                if s.has_limit { wql_error(prm, "`select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
-                mode = SELM_FIRST();
+//
+// ADR 0031 R6.1 — THE SHAPE AND THE ENVELOPE ARE THE CORE'S. The four surface
+// shapes are read off the rule: a group is an aggregate, `Find` mode is `find`,
+// more than one source literal is a join chain, and one is a single scan.
+pub fn walk_query(name: str, params_text: str, prm: &MacroParams,
+                  jp: JoinPlan, prelude: str, h: &Writ) -> bool {
+    let ru: &CRule = &prm.plan_core.entry;
+    let env: &CEnvelope = &ru.env;
+    let has_rty: bool = env.result_ty.len() > 0i64;
+    let first: bool = match &env.mode { CMode::First => true, CMode::All => false, CMode::Find => false };
+    let has_limit: bool = match &env.limit { CLimit::None => false, CLimit::N(_n) => true, CLimit::Param(_p) => true };
+    match &ru.clause.group {
+        Option::Some(_g) => {
+            if first { wql_error(prm, "`select first` is not supported on aggregate queries"); return false; }
+            match plan_entry_group(&prm.plan_core, h) {
+                Option::Some(ds) => { return emit_entry_group(&ds, name, params_text, prm, env.result_ty, has_rty, prelude, h); }
+                Option::None => { logos.lang.panic::panic("ICE: an aggregate entry is not a group of the planned core (ADR 0031 R6.5)"); return false; }
             }
-            return lower_simplify_emit(plan, s.fn_name, params_text, prm, s.result_ty, s.has_result_ty, mode, prelude, h);
         }
-        RQuery::Join(j) => {
-            let mut mode: i32 = SELM_ALL();
-            if j.sel_first {
-                if j.distinct  { wql_error(prm, "`select first` cannot be combined with `distinct` — first returns a single value"); return false; }
-                if j.has_limit { wql_error(prm, "`select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
-                mode = SELM_FIRST();
-            }
-            return lower_simplify_emit(plan, j.fn_name, params_text, prm, j.result_ty, j.has_result_ty, mode, prelude, h);
-        }
-        RQuery::Aggr(g) => {
-            if g.sel_first { wql_error(prm, "`select first` is not supported on aggregate queries"); return false; }
-            return lower_simplify_emit(plan, g.fn_name, params_text, prm, g.result_ty, g.has_result_ty, SELM_ALL(), prelude, h);
-        }
-        RQuery::Find(f) => {
+        Option::None => { }
+    }
+    match &env.mode {
+        CMode::Find => {
             // `find P` — no result-type / tail modifiers exist on this shape
             // (the grammar admits only the predicate).
-            return lower_simplify_emit(plan, f.fn_name, params_text, prm, "", false, SELM_FIND(), prelude, h);
+            match plan_entry_simple(&prm.plan_core, prm.plan_where_retired, h) {
+                Option::Some(ds) => { return emit_entry_simple(&ds, name, params_text, prm, "", false, SELM_FIND(), prelude, h); }
+                Option::None => { logos.lang.panic::panic("ICE: a `find` entry is not a single-source rule of the planned core (ADR 0031 R6.2)"); return false; }
+            }
         }
+        CMode::All => { }
+        CMode::First => { }
+    }
+    // `select first` is a SINGLE-ROW mode: it subsumes/contradicts the multi-row
+    // tail modifiers, so `distinct`/`limit` alongside it are compile-time errors.
+    let mut mode: i32 = SELM_ALL();
+    if first {
+        if env.distinct { wql_error(prm, "`select first` cannot be combined with `distinct` — first returns a single value"); return false; }
+        if has_limit    { wql_error(prm, "`select first` cannot be combined with `limit` — first already returns at most one row"); return false; }
+        mode = SELM_FIRST();
+    }
+    if core_source_count(&ru.clause) > 1i64 {
+        // The order of the nest is the planner's (`jp`, ADR 0031 R5.2).
+        match plan_entry_chain(&prm.plan_core, h) {
+            Option::Some(ds) => { return emit_entry_join(&ds, jp, name, params_text, prm, env.result_ty, has_rty, mode, prelude, h); }
+            Option::None => { logos.lang.panic::panic("ICE: a join entry is not a join chain of the planned core (ADR 0031 R6.4)"); return false; }
+        }
+    }
+    match plan_entry_simple(&prm.plan_core, prm.plan_where_retired, h) {
+        Option::Some(ds) => { return emit_entry_simple(&ds, name, params_text, prm, env.result_ty, has_rty, mode, prelude, h); }
+        Option::None => { logos.lang.panic::panic("ICE: a single-source entry is not a single-source rule of the planned core (ADR 0031 R6.2)"); return false; }
     }
 }
 
-// Fat (allocator-carrying) view wrappers — shared with the emitter, see
-// plan.logos (`rq_fat_*`): str-field writes box into the arena and need z.
-// The variant is chosen off a cheap read-only match first.
+/// How many source literals (atoms and traversals) a clause has.
+fn core_source_count(cl: &CClause) -> i64 {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] { CLit::Atom(_a) => { n = n + 1i64; } CLit::Trav(_t) => { n = n + 1i64; } CLit::Cond(_c) => { } }
+        i = i + 1i64;
+    }
+    return n;
+}
 
 // ── RelDeps + compute_rel_scc — MOVED to logos.std.wql.params (queue-2 I3) ──
 // The pure graph half (dependency edge list + Warshall/Kahn condensation) is
@@ -166,7 +197,7 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
         let f: i64 = deps.gfrom[k];
         let t: i64 = deps.gto[k];
         if scc.comp[f] == scc.comp[t] {
-            let dir: i32 = deps.head_agg_dir[f];
+            let dir: i32 = deps.head_agg_dir_of(f);
             if agg_algebra(dir) == AGG_CLASS_SEMILATTICE() {
                 // ADMISSIBLE recursive aggregation — the absorb gate IS the
                 // lattice order (monotone fixpoint). Slice-1 restricts the SCC to
@@ -232,7 +263,7 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
     // form implemented; anything else is aggregated in the entry query.
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
-        if deps.head_agg_dir[r] != 0i32 && !prm.rel_is_agg[r] {
+        if deps.head_agg_dir_of(r) != 0i32 && !prm.rel_is_agg[r] {
             let mut m3: String = String::new();
             m3.push_str("wql!: rel '");
             m3.push_str(prm.rel_names[r]);
@@ -281,8 +312,8 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
     if ri >= 0i64 {
         // #352: a mapping's non-`pub` rel is its internal — reachable from the
         // same mapping's rels, never from the consumer's query or rels.
-        if ri < 8i64 && prm.fused_hidden[ri] &&
-           !(cur_rel >= 0i64 && cur_rel < 8i64 && str_eq(prm.fused_mapping[cur_rel], prm.fused_mapping[ri])) {
+        if ri < prm.fused_hidden.len() && prm.fused_hidden[ri] &&
+           !(cur_rel >= 0i64 && cur_rel < prm.fused_mapping.len() && str_eq(prm.fused_mapping[cur_rel], prm.fused_mapping[ri])) {
             let mut m2: String = String::new();
             m2.push_str("wql!: rel `");
             m2.push_str(src);
@@ -297,19 +328,6 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
         }
         return SrcRes { ok: true, is_rel: true, idx: ri, row_ty: string_as_str(&prm.rel_rowty[ri]) };
     }
-    // A rel reference the walker has ALREADY resolved names its rel by the
-    // emitted source name (`__rel_<r>_sl`) — the rewrite below is destructive.
-    // Accepting that name as an alias makes the walk IDEMPOTENT, so one parsed
-    // plan can be walked once per mapping rel instead of re-parsed each time.
-    // Registration is deterministic from the rel names, so the alias is stable
-    // across walks.
-    let si: i64 = prm.rel_find_src(src);
-    if si >= 0i64 {
-        if cur_rel >= 0i64 {
-            deps.add(cur_rel, si);
-        }
-        return SrcRes { ok: true, is_rel: true, idx: si, row_ty: string_as_str(&prm.rel_rowty[si]) };
-    }
     let mut msg: String = String::new();
     msg.push_str("wql!: unknown source `");
     msg.push_str(src);
@@ -318,128 +336,76 @@ fn resolve_source(prm: &MacroParams, src: str, cur_rel: i64, deps: &mut RelDeps)
     return src_fail();
 }
 
-// Resolve + REWRITE one scan source on a fat plan-node view: slice params keep
-// their name (row_ty stamped from the element type); rels rewrite src_name →
-// the emitted `__rel_<r>_sl` and row_ty → the tuple row type. On a rel hit the
-// bound VAR is appended to `relvars` (the whole-row/find gating set).
-// Returns the SrcRes (ok=false ⇒ error already surfaced).
-
 // ── Rel-body modifier gate ────────────────────────────────────────────────────
 // Bodies are RELATION PRODUCERS: from/join/where/select only. Every select-tail
 // modifier is an entry-query concern; `distinct` is additionally IMPLICIT
 // (set semantics dedup on insert).
-fn rel_body_mods_ok(rel_name: str, first: bool, distinct: bool,
-                    has_order: bool, has_limit: bool, has_resty: bool) -> bool {
-    if first {
-        let mut m: String = String::new();
-        m.push_str("wql!: rel '"); m.push_str(rel_name);
-        m.push_str("': `select first` is not allowed in a rel body — bodies produce relations (single-row modes are entry-query concerns)");
-        error(string_as_str(&m));
-        return false;
-    }
-    if distinct {
-        let mut m1: String = String::new();
-        m1.push_str("wql!: rel '"); m1.push_str(rel_name);
-        m1.push_str("': `distinct` is not allowed in a rel body — rels are SETS, deduplication is implicit");
-        error(string_as_str(&m1));
-        return false;
-    }
-    if has_order {
-        let mut m2: String = String::new();
-        m2.push_str("wql!: rel '"); m2.push_str(rel_name);
-        m2.push_str("': `order by` is not allowed in a rel body — rels are unordered sets (order in the entry query)");
-        error(string_as_str(&m2));
-        return false;
-    }
-    if has_limit {
-        let mut m3: String = String::new();
-        m3.push_str("wql!: rel '"); m3.push_str(rel_name);
-        m3.push_str("': `limit` is not allowed in a rel body (an entry-query concern)");
-        error(string_as_str(&m3));
-        return false;
-    }
-    if has_resty {
-        let mut m4: String = String::new();
-        m4.push_str("wql!: rel '"); m4.push_str(rel_name);
-        m4.push_str("': a `: ResultTy` annotation is not allowed in a rel body — the row type is the declared column list");
-        error(string_as_str(&m4));
-        return false;
-    }
-    return true;
-}
 
-// Resolve + rewrite a join-step fan-out (body OR entry: `cur_rel` = -1 for the
-// entry) and check ROW-VAR UNIQUENESS across the whole chain. Rel-sourced step
+// Resolve and check a join-step fan-out (body OR entry: `cur_rel` = -1 for the
+// entry). Nothing is written to the parse tree: what a source resolves to is
+// the core's (`typing::core_resolve`, ADR 0031 R4.0); this pass diagnoses and
+// records the dependency edges. Rel-sourced step
 // vars append to `relvars`. A BODY's rel-sourced ANTI step records a negation
 // edge (afrom/ato) — the post-SCC stratification check errors when it lands
 // inside the head rel's own SCC.
 //
 // TRAVERSAL steps (`is_edge`, slice D) skip source resolution entirely: the
 // field path validates against the BASE var's row type via module-AST
-// reflection (stamp_edge_step), `src_name` is REWRITTEN to the full source
-// EXPRESSION text (`d.emps` — arena-boxed), and `row_ty` stamped to the
-// ELEMENT type. Scalar-element vars (Vec<str> → str) append to `svars` — the
-// callers reject field access rooted at them across every clause.
-fn stamp_steps(steps: RQJoinStepArr, base_var: str, base_ty: str, prm: &MacroParams,
+// reflection (check_edge_step), which yields the ELEMENT type. Scalar-element vars (Vec<str> → str) append to `cv` — the
+// callers reject field access rooted at them across every clause. Which NAMES a
+// clause may read is `check::core_scope_ok`'s (ADR 0031 R2).
+fn check_steps(cl: &CClause, base_var: str, base_ty: str, prm: &MacroParams,
                cur_rel: i64, deps: &mut RelDeps,
-               relvars: &mut [str; 9], nrelv: &mut i64,
-               svars: &mut [str; 9], nsv: &mut i64, h: &Writ) -> bool {
-    let n: i64 = steps.len();
-    let mut vars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-    let mut vtys: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-    let mut vanti: [bool; 9] = [false; 9];
-    vars[0] = base_var;
-    vtys[0] = base_ty;
+               relvars: &mut Vec<str>, nrelv: &mut i64,
+               cv: &mut ClauseVars) -> bool {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut vars: Vec<str> = Vec::<str>::new();
+    let mut vtys: Vec<String> = Vec::<String>::new();
+    let mut vanti: Vec<bool> = Vec::<bool>::new();
+    vars.push(base_var);
+    vtys.push(String::from_str(base_ty));
+    vanti.push(false);
     let mut nv: i64 = 1i64;
-    let mut i: i64 = 0i64;
-    while i < n {
-        let st: RQJoinStep = rq_fat_step(steps.step_any(i), h);
-        if st.is_edge {
-            if !stamp_edge_step(st, &vars, &vtys, &vanti, nv,
-                                relvars, *nrelv, svars, nsv) { return false; }
-        } else {
-            let sr: SrcRes = resolve_source(prm, st.src_name, cur_rel, deps);
-            if !sr.ok { return false; }
-            if sr.is_rel {
-                st.src_name = string_as_str(&prm.rel_srcs[sr.idx]);
-                if st.is_anti && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
-                if *nrelv < 9i64 { relvars[*nrelv] = st.var_name; *nrelv = *nrelv + 1i64; }
+    let mut i: i64 = 1i64;
+    while i < cl.body.len() {
+        let mut vty: String = String::new();
+        let mut v: str = "";
+        let mut neg: bool = false;
+        let mut is_src: bool = false;
+        match &bs[i] {
+            CLit::Trav(t) => {
+                if !check_edge_step(t.base, &t.path, t.var, &vars, &vtys, &vanti, nv, relvars, *nrelv, cv, &mut vty) { return false; }
+                v = t.var; neg = t.neg; is_src = true;
             }
-            st.row_ty = sr.row_ty;
-        }
-        // Uniqueness against every var bound so far.
-        let v: str = st.var_name;
-        let mut k: i64 = 0i64;
-        while k < nv {
-            if str_eq(vars[k], v) {
-                let mut m: String = String::new();
-                m.push_str("wql!: duplicate row variable `");
-                m.push_str(v);
-                m.push_str("` in the join chain — every `from`/`join` row var must be unique");
-                error(string_as_str(&m));
-                return false;
+            CLit::Atom(a) => {
+                let sr: SrcRes = resolve_source(prm, a.name, cur_rel, deps);
+                if !sr.ok { return false; }
+                if sr.is_rel {
+                    if a.neg && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
+                    relvars.push(a.var); *nrelv = *nrelv + 1i64;
+                }
+                vty.push_str(sr.row_ty);
+                v = a.var; neg = a.neg; is_src = true;
             }
-            k = k + 1i64;
+            CLit::Cond(_c) => { }
         }
-        if nv < 9i64 { vars[nv] = v; vtys[nv] = st.row_ty; vanti[nv] = st.is_anti; nv = nv + 1i64; }
+        if is_src { vars.push(v); vtys.push(vty); vanti.push(neg); nv = nv + 1i64; }
         i = i + 1i64;
     }
     return true;
 }
 
-// ── Traversal-step validation + stamping (slice D) ───────────────────────────
+// ── Traversal-step validation (slice D) ───────────────────────────
 // `[anti] join <base>.<f>[.<g>…] <var> [on P]` — containment IS the join. The
 // base var must be a NON-ANTI struct-rowed var bound EARLIER in the chain (the
 // from-var included); intermediate path segments must be SINGULAR plain struct
 // fields; the FINAL segment must be a collection (Vec<E> / &[E] / [E; N] —
-// single references `&T`/`Box<T>` are the named error below). On success the
-// step's `src_name` becomes the full source expression text and `row_ty` the
-// element type — the emitters then scan `(src_name)` uniformly.
-fn stamp_edge_step(st: RQJoinStep,
-                   vars: &[str; 9], vtys: &[str; 9], vanti: &[bool; 9], nv: i64,
-                   relvars: &[str; 9], nrelv: i64,
-                   svars: &mut [str; 9], nsv: &mut i64) -> bool {
-    let bv: str = st.base_var;
+// single references `&T`/`Box<T>` are the named error below). On success
+// `elem_out` holds the element type.
+fn check_edge_step(bv: str, path: &Vec<str>, var: str,
+                   vars: &Vec<str>, vtys: &Vec<String>, vanti: &Vec<bool>, nv: i64,
+                   relvars: &Vec<str>, nrelv: i64,
+                   cv: &mut ClauseVars, elem_out: &mut String) -> bool {
     // 1. The base var: bound earlier, non-anti, not rel-rowed, not scalar.
     let mut bi: i64 = -1i64;
     let mut k0: i64 = 0i64;
@@ -481,28 +447,26 @@ fn stamp_edge_step(st: RQJoinStep,
         }
         r0 = r0 + 1i64;
     }
-    if el_ret_class(vtys[bi]) >= 0i32 {
+    if el_ret_class(string_as_str(&vtys[bi])) >= 0i32 {
         let mut m3: String = String::new();
         m3.push_str("wql!: traversal `join ");
         m3.push_str(bv);
         m3.push_str(".…`: `");
         m3.push_str(bv);
         m3.push_str("` binds a scalar element (");
-        m3.push_str(vtys[bi]);
+        m3.push_str(string_as_str(&vtys[bi]));
         m3.push_str(") — scalars have no fields");
         error(string_as_str(&m3));
         return false;
     }
     // 2. Resolve the path against the base row type (module-AST reflection).
     let view: OView = oview_module_ast();
-    let segs: RQPathSegArr = st.path_arr();
-    let np: i64 = segs.len();
+    let np: i64 = path.len();
     if np < 1i64 { error("wql!: empty traversal path"); return false; }   // unreachable via grammar
-    let mut cur_ty: str = vtys[bi];
-    let mut fin_kind: i32 = 0i32;
+    let mut cur_ty: str = string_as_str(&vtys[bi]);
     let mut k: i64 = 0i64;
     while k < np {
-        let seg: str = segs.seg_at(k).name;
+        let seg: str = path.get(k);
         // The traversal path walks TYPE SPELLINGS: `cur_ty` starts as a source's
         // declared element type and is then the declared type of each intermediate
         // field, either of which may be an alias. Resolved here, where it is read.
@@ -555,9 +519,7 @@ fn stamp_edge_step(st: RQJoinStep,
             }
             cur_ty = tn;
         } else {
-            // FINAL segment: must be a collection field. The KIND drives the
-            // emitted source spelling (Vec → hoist a `.as_slice()` view).
-            fin_kind = field_traversal_kind(&view, decl, seg);
+            // FINAL segment: must be a collection field.
             if elem.len() == 0i64 {
                 let tn2: str = field_type_name(&view, decl, seg);
                 let mut m8: String = String::new();
@@ -579,41 +541,33 @@ fn stamp_edge_step(st: RQJoinStep,
                 error(string_as_str(&m8));
                 return false;
             }
-            st.row_ty = elem;
+            elem_out.push_str(elem);
         }
         k = k + 1i64;
     }
-    // 3. Rewrite src_name → the full source expression text (arena-boxed by
-    // the fat-view str write; the local String may die). A Vec-typed final
-    // segment takes a `.as_slice()` view — the emitters then index a SLICE
-    // (the native fat-element path); slice/array fields index in place.
-    // (Plain `vec[i]` on fat elements works too — the fat-element deref
-    // class is fixed, see tests/logos/pass/fat_elem_{borrow_deref,
-    // index_field}.logos — the `.as_slice()` spelling is kept as the more
-    // explicit form, not as a workaround.)
-    let mut buf: String = String::new();
-    buf.push_str(bv);
-    let mut k2: i64 = 0i64;
-    while k2 < np {
-        buf.push_str(".");
-        buf.push_str(segs.seg_at(k2).name);
-        k2 = k2 + 1i64;
-    }
-    if fin_kind == 1i32 { buf.push_str(".as_slice()"); }
-    st.src_name = string_as_str(&buf);
+    // 3. The source expression the emitters scan (`d.emps`, a Vec field through
+    // `.as_slice()`) is `typing::core_resolve`'s, on the core (ADR 0031 R4.0).
     // 4. Scalar-element var (Vec<str> → str) → the no-fields diagnostic set.
-    if el_ret_class(st.row_ty) >= 0i32 {
-        if *nsv < 9i64 { svars[*nsv] = st.var_name; *nsv = *nsv + 1i64; }
+    if el_ret_class(string_as_str(elem_out)) >= 0i32 {
+        cv_push(cv, var);
     }
     return true;
 }
 
-// ── Scalar-element field-access guard (slice D) ──────────────────────────────
-// A traversal var over a SCALAR collection (Vec<str> → `s: str`) has no fields
-// — `s.foo` anywhere in a clause is a named error (referenced BARE it is the
-// element value). Recursive over the SExpr family; no-op when no scalar vars.
-fn no_scalar_field(e: SExpr, sv: &[str; 9], n: i64) -> bool {
-    if n == 0i64 { return true; }
+struct ClauseVars { pub name: Vec<str>, pub n: i64 }
+
+fn clause_vars_new() -> ClauseVars {
+    return ClauseVars { name: Vec::<str>::new(), n: 0i64 };
+}
+
+fn cv_push(cv: &mut ClauseVars, v: str) {
+    cv.name.push(v); cv.n = cv.n + 1i64;
+}
+
+// `s.foo` on a scalar-element var anywhere in a clause is a named error
+// (referenced BARE it is the element value). Recursive over the SExpr family.
+fn no_scalar_field(e: SExpr, cv: &ClauseVars) -> bool {
+    if cv.n == 0i64 { return true; }
     match e {
         SExpr::Field(f) => {
             let bref: WRef<SExpr> = f.base;
@@ -621,8 +575,8 @@ fn no_scalar_field(e: SExpr, sv: &[str; 9], n: i64) -> bool {
             let rn: str = root_ident_name(f.base_expr());
             if rn.len() > 0i64 {
                 let mut i: i64 = 0i64;
-                while i < n {
-                    if str_eq(sv[i], rn) {
+                while i < cv.n {
+                    if str_eq(cv.name[i], rn) {
                         let mut m: String = String::new();
                         m.push_str("wql!: `");
                         m.push_str(rn);
@@ -637,31 +591,31 @@ fn no_scalar_field(e: SExpr, sv: &[str; 9], n: i64) -> bool {
                     i = i + 1i64;
                 }
             }
-            return no_scalar_field(f.base_expr(), sv, n);
+            return no_scalar_field(f.base_expr(), cv);
         }
-        SExpr::Bin(b)  => { return no_scalar_field(b.lhs_expr(), sv, n) && no_scalar_field(b.rhs_expr(), sv, n); }
-        SExpr::Un(u)   => { return no_scalar_field(u.arg_expr(), sv, n); }
-        SExpr::Cast(c) => { return no_scalar_field(c.arg_expr(), sv, n); }
+        SExpr::Bin(b)  => { return no_scalar_field(b.lhs_expr(), cv) && no_scalar_field(b.rhs_expr(), cv); }
+        SExpr::Un(u)   => { return no_scalar_field(u.arg_expr(), cv); }
+        SExpr::Cast(c) => { return no_scalar_field(c.arg_expr(), cv); }
         SExpr::Cond(c) => {
-            return no_scalar_field(c.cond_expr(), sv, n)
-                && no_scalar_field(c.then_expr(), sv, n)
-                && no_scalar_field(c.else_expr(), sv, n);
+            return no_scalar_field(c.cond_expr(), cv)
+                && no_scalar_field(c.then_expr(), cv)
+                && no_scalar_field(c.else_expr(), cv);
         }
         SExpr::Call(c) => {
             let args: SExprArr = c.args_arr();
             let mut i2: i64 = 0i64;
             while i2 < args.len() {
-                if !no_scalar_field(args.arg_at(i2), sv, n) { return false; }
+                if !no_scalar_field(args.arg_at(i2), cv) { return false; }
                 i2 = i2 + 1i64;
             }
             return true;
         }
-        SExpr::Comp(cp) => { return no_scalar_field(cp.head_expr(), sv, n); }
+        SExpr::Comp(cp) => { return no_scalar_field(cp.head_expr(), cv); }
         SExpr::Tuple(tp) => {
             let items: SExprArr = tp.items_arr();
             let mut i3: i64 = 0i64;
             while i3 < items.len() {
-                if !no_scalar_field(items.arg_at(i3), sv, n) { return false; }
+                if !no_scalar_field(items.arg_at(i3), cv) { return false; }
                 i3 = i3 + 1i64;
             }
             return true;
@@ -671,14 +625,17 @@ fn no_scalar_field(e: SExpr, sv: &[str; 9], n: i64) -> bool {
 }
 
 // The step fan-out's on-predicates through the scalar-field guard.
-fn steps_scalar_ok(steps: RQJoinStepArr, sv: &[str; 9], n: i64) -> bool {
-    if n == 0i64 { return true; }
-    let ns: i64 = steps.len();
+fn steps_clause_ok(cl: &CClause, cv: &ClauseVars) -> bool {
+    if cv.n == 0i64 { return true; }
+    let bs: &[CLit] = cl.body.as_slice();
     let mut i: i64 = 0i64;
-    while i < ns {
-        let st: RQJoinStep = steps.step_at(i);
-        if st.has_on {
-            if !no_scalar_field(st.on_expr(), sv, n) { return false; }
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if a.neg && a.conds.len() > 0i64 { if !no_scalar_field(a.conds.get(0i64).view::<SExpr>(), cv) { return false; } } }
+            CLit::Trav(t) => { if t.neg && t.conds.len() > 0i64 { if !no_scalar_field(t.conds.get(0i64).view::<SExpr>(), cv) { return false; } } }
+            CLit::Cond(c) => {
+                match &c.site { CSite::On => { if !no_scalar_field(c.e.view::<SExpr>(), cv) { return false; } } CSite::Where => { } }
+            }
         }
         i = i + 1i64;
     }
@@ -692,7 +649,7 @@ fn steps_scalar_ok(steps: RQJoinStepArr, sv: &[str; 9], n: i64) -> bool {
 // projection defeats the EL scalar lattice). Diagnosed here, which also gates
 // the identity/head-row thin collapses OFF rel sources (they only trigger on
 // bare-var selects).
-fn sel_whole_row_ok(sel: SExpr, relvars: &[str; 9], n: i64) -> bool {
+fn sel_whole_row_ok(sel: SExpr, relvars: &Vec<str>, n: i64) -> bool {
     if n == 0i64 { return true; }
     let rn: str = root_ident_name(sel);
     if rn.len() > 0i64 {
@@ -728,166 +685,130 @@ fn sel_whole_row_ok(sel: SExpr, relvars: &[str; 9], n: i64) -> bool {
 }
 
 // ── One rel body: shape + modifier gate + source resolution/rewrite ─────────
-fn check_rel_body(body_any: WAny, rel_name: str, cur_rel: i64,
-                  prm: &MacroParams, deps: &mut RelDeps, h: &Writ) -> bool {
-    if body_any.is_null() {
-        error("wql!: empty rel body");
-        return false;
-    }
-    let q: RQuery = body_any.view::<RQuery>();
-    let mut relvars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+fn check_rel_body(ru: &CRule, rel_name: str, cur_rel: i64,
+                  prm: &MacroParams, deps: &mut RelDeps) -> bool {
+    let cl: &CClause = &ru.clause;
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut relvars: Vec<str> = Vec::<str>::new();
     let mut nrelv: i64 = 0i64;
-    match q {
-        RQuery::Simple(_) => {
-            let s: RQSimple = rq_fat_simple(body_any, h);
-            if !rel_body_mods_ok(rel_name, s.sel_first, s.distinct,
-                                 s.has_order, s.has_limit, s.has_result_ty) { return false; }
-            let sr: SrcRes = resolve_source(prm, s.src_name, cur_rel, deps);
-            if !sr.ok { return false; }
-            if sr.is_rel { s.src_name = string_as_str(&prm.rel_srcs[sr.idx]); }
-            s.row_ty = sr.row_ty;
-            // Classify bare select idents (typo vs bound column / scalar param /
-            // fresh() marker) — Track A.
-            let mut bv: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-            bv[0] = s.var_name;
-            if !ward_sel_idents_ok(s.select_expr(), &bv, 1i64, prm, rel_name) { return false; }
-            return true;
-        }
-        RQuery::Join(_) => {
-            let j: RQJoin = rq_fat_join(body_any, h);
-            if !rel_body_mods_ok(rel_name, j.sel_first, j.distinct,
-                                 j.has_order, j.has_limit, j.has_result_ty) { return false; }
-            let sr: SrcRes = resolve_source(prm, j.a_name, cur_rel, deps);
-            if !sr.ok { return false; }
-            if sr.is_rel { j.a_name = string_as_str(&prm.rel_srcs[sr.idx]); }
-            j.a_ty = sr.row_ty;
-            let mut svars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-            let mut nsv: i64 = 0i64;
-            if !stamp_steps(j.steps_arr(), j.x_var, sr.row_ty, prm, cur_rel, deps,
-                            &mut relvars, &mut nrelv, &mut svars, &mut nsv, h) { return false; }
-            // Scalar-element vars (traversal over Vec<str> etc.): no field
-            // access rooted at them in any clause of this body.
-            if nsv > 0i64 {
-                if !no_scalar_field(j.select_expr(), &svars, nsv) { return false; }
-                if j.has_where {
-                    if !no_scalar_field(j.where_expr(), &svars, nsv) { return false; }
-                }
-                if !steps_scalar_ok(j.steps_arr(), &svars, nsv) { return false; }
-            }
-            // Classify bare select idents (Track A). Bound vars = base + every
-            // non-anti step var (anti-step vars are scoped to their own `on`).
-            let mut bv: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-            bv[0] = j.x_var;
-            let mut nbv: i64 = 1i64;
-            let jsteps: RQJoinStepArr = j.steps_arr();
-            let mut sk: i64 = 0i64;
-            while sk < jsteps.len() {
-                let stp: RQJoinStep = jsteps.step_at(sk);
-                if !stp.is_anti {
-                    if nbv < 9i64 { bv[nbv] = stp.var_name; nbv = nbv + 1i64; }
-                }
-                sk = sk + 1i64;
-            }
-            if !ward_sel_idents_ok(j.select_expr(), &bv, nbv, prm, rel_name) { return false; }
-            return true;
-        }
-        RQuery::Aggr(_) => {
+    let base_name: str = core_base_name(cl);
+    let base_var: str = core_base_var(cl);
+    match &cl.group {
+        Option::Some(g) => {
             // An aggregate rel body. In slice-1 the ADMISSIBLE case is a
             // RECURSIVE min/max (idempotent semilattice) closing a self-cycle —
             // the fixpoint's per-key lattice. The classification (min/max vs
             // group) is recorded here (head_agg_dir) and the SOURCES are
-            // resolved + REWRITTEN to the rel-slice spelling (recursion needs it;
-            // the semi-naïve driver swaps in the per-round delta). The final
+            // resolved, recording the aggregate's dependency edges. The final
             // admit/reject decision is POST-SCC (check_stratified): an in-cycle
             // semilattice is accepted, an in-cycle group is the non-stratifiable
             // error, a non-recursive aggregate is deferred.
-            let g: RQAggr = rq_fat_aggr(body_any, h);
-            let sra: SrcRes = resolve_source(prm, g.a_name, cur_rel, deps);
+            let sra: SrcRes = resolve_source(prm, base_name, cur_rel, deps);
             if !sra.ok { return false; }
-            if sra.is_rel { g.a_name = string_as_str(&prm.rel_srcs[sra.idx]); deps.add_agg(cur_rel, sra.idx); }
-            g.a_ty = sra.row_ty;
-            if g.has_steps() {
-                let gsteps: RQJoinStepArr = g.steps_arr();
-                let gn: i64 = gsteps.len();
-                let mut gi: i64 = 0i64;
-                while gi < gn {
-                    let gst: RQJoinStep = rq_fat_step(gsteps.step_any(gi), h);
-                    // Traversal steps have no SOURCE to resolve (field path of a
-                    // bound var) — they cannot form rel dependency edges.
-                    if !gst.is_edge {
-                        let srs: SrcRes = resolve_source(prm, gst.src_name, cur_rel, deps);
+            if sra.is_rel { deps.add_agg(cur_rel, sra.idx); }
+            // Traversal steps have no SOURCE to resolve (field path of a bound
+            // var) — they cannot form rel dependency edges.
+            let mut gi: i64 = 1i64;
+            while gi < cl.body.len() {
+                match &bs[gi] {
+                    CLit::Atom(a) => {
+                        let srs: SrcRes = resolve_source(prm, a.name, cur_rel, deps);
                         if !srs.ok { return false; }
-                        if srs.is_rel { gst.src_name = string_as_str(&prm.rel_srcs[srs.idx]); deps.add_agg(cur_rel, srs.idx); }
-                        gst.row_ty = srs.row_ty;
+                        if srs.is_rel { deps.add_agg(cur_rel, srs.idx); }
                     }
-                    gi = gi + 1i64;
+                    CLit::Trav(_t) => { }
+                    CLit::Cond(_c) => { }
                 }
+                gi = gi + 1i64;
             }
             // Slice-1: exactly one aggregate; classify it (min/max/sum/…).
-            let gaggs: RQAggArr = g.aggs_arr();
-            if gaggs.len() != 1i64 {
-                let mut ma: String = String::new();
-                ma.push_str("wql!: rel '");
-                ma.push_str(rel_name);
-                ma.push_str("': a recursive aggregate rel supports exactly ONE aggregate (slice-1); found ");
-                ma.push_i64(gaggs.len());
-                error(string_as_str(&ma));
-                return false;
-            }
-            deps.set_head_agg_dir(cur_rel, agg_of_name(gaggs.agg_at(0i64).fn_name));
+            deps.set_head_agg_dir(cur_rel, agg_of_name(g.aggs.get(0i64).func));
             if deps.agg_head < 0i64 { deps.agg_head = cur_rel; }
             return true;
         }
-        RQuery::Find(_) => {
-            let mut m1: String = String::new();
-            m1.push_str("wql!: rel '");
-            m1.push_str(rel_name);
-            m1.push_str("': `find` is not allowed in a rel body — bodies produce relations (from/join/where/select only)");
-            error(string_as_str(&m1));
+        Option::None => { }
+    }
+    match &ru.env.mode {
+        CMode::Find => {
+            // `check::core_rules_ok` refuses a `find` rel body on the core,
+            // before the walker runs: reaching here is the lowering's defect.
+            let _ = rel_name;
+            logos.lang.panic::panic("ICE: a `find` rel body reached the walker — check::core_rules_ok refuses it on the core (ADR 0031 R2)");
             return false;
         }
+        CMode::All => { }
+        CMode::First => { }
     }
+    let sr: SrcRes = resolve_source(prm, base_name, cur_rel, deps);
+    if !sr.ok { return false; }
+    let head: SExpr = cl.head.view::<SExpr>();
+    if core_source_count(cl) > 1i64 {
+        let mut cv: ClauseVars = clause_vars_new();
+        if !check_steps(cl, base_var, sr.row_ty, prm, cur_rel, deps,
+                        &mut relvars, &mut nrelv, &mut cv) { return false; }
+        // Scalar-element vars (traversal over Vec<str> etc.): no field
+        // access rooted at them in any clause of this body.
+        if cv.n > 0i64 {
+            if !no_scalar_field(head, &cv) { return false; }
+            let we: WAny = core_where(cl);
+            if !we.is_null() {
+                if !no_scalar_field(we.view::<SExpr>(), &cv) { return false; }
+            }
+            if !steps_clause_ok(cl, &cv) { return false; }
+        }
+    }
+    // Classify bare select idents (Track A). Bound vars = base + every
+    // non-anti step var (anti-step vars are scoped to their own `on`).
+    let bv: Vec<str> = core_bound_vars(cl);
+    if !ward_sel_idents_ok(head, &bv, bv.len(), prm, rel_name) { return false; }
+    return true;
 }
 
-// Is `t` a supported rel column type? THE ANSWER IS NOT HERE any more: it is
-// `el::el_set_col_admit`, because `Query::compile` (the dynamic tier) asks the
-// same question and used to carry its own copy of the spelling list `i64 / str /
-// bool`. Two lists for one fact is two things that can drift. What is left here
-// is the wql!-flavoured MESSAGE around the shared verdict and its ground.
-//
-// The admitted set is unchanged and is now a derivation: a rel is a SET, so a
-// column type needs an IDENTITY (`ElTy.ident` — f64 has none, and neither does a
-// 128-bit integer, whose normalization drops bits); and the row is stored as a
-// native tuple of the DECLARED types while the EL computes in `ElTy.repr`, so the
-// type must be its own repr (`ElTy.canon` — which is what excludes `u64`, `u32`
-// and `String` alike, each for the same stated reason instead of by absence from
-// a list).
-fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
-    let a: i32 = el_set_col_admit(t);
-    if a == EL_COL_OK() { return true; }
-    // The float wording belongs to the float FAILURE, and `EL_COL_NO_EQ` IS that
-    // failure — the other way an identity can fail (a 128-bit normalization that
-    // drops bits) is its own code and gets the general message. No class test is
-    // needed to pick between them: the verdict already distinguishes them.
-    if a == EL_COL_NO_EQ() {
-        let mut m: String = String::new();
-        m.push_str("wql!: rel column '");
-        m.push_str(col_name);
-        m.push_str("': f64 columns are not allowed (set semantics require Eq) — ");
-        m.push_str(el_set_col_why(t));
-        error(string_as_str(&m));
-        return false;
+/// The base atom's source as written ("" when the clause has none).
+fn core_base_name(cl: &CClause) -> str {
+    if cl.body.len() < 1i64 { return ""; }
+    let bs: &[CLit] = cl.body.as_slice();
+    match &bs[0i64] { CLit::Atom(a) => { return a.name; } CLit::Trav(t) => { return t.name; } CLit::Cond(_c) => { return ""; } }
+}
+
+/// The row variables a clause binds outside a negation, in order.
+fn core_bound_vars(cl: &CClause) -> Vec<str> {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut v: Vec<str> = Vec::<str>::new();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if !a.neg { v.push(a.var); } }
+            CLit::Trav(t) => { if !t.neg { v.push(t.var); } }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
     }
-    let mut m1: String = String::new();
-    m1.push_str("wql!: rel '");
-    m1.push_str(rel_name);
-    m1.push_str("' column '");
-    m1.push_str(col_name);
-    m1.push_str("': unsupported column type `");
-    m1.push_str(t);
-    m1.push_str("` — ");
-    m1.push_str(el_set_col_why(t));
-    error(string_as_str(&m1));
+    return v;
+}
+
+// MAY `t` BE A REL COLUMN? (ADR 0031 R4.1.) A rel is a set of rows — a
+// `HashSet` of the row tuple — so, as in Rust, every column type must be `Eq`
+// and `Hash`; nothing else is asked. The column is stored and read as the type
+// it is declared with. `f64` has no `Eq` (a NaN is unequal to itself), and a
+// struct gains both by `#[derive_eq]` / `#[derive_hash]`.
+fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
+    let view: OView = oview_module_ast();
+    let rt: str = resolve_alias_name(&view, t);
+    let eq: bool = named_has_eq_strict(rt);
+    let hs: bool = has_trait_named("logos.lang.hash::Hash", rt);
+    if eq && hs { return true; }
+    let mut m: String = String::new();
+    m.push_str("wql!: rel '");
+    m.push_str(rel_name);
+    m.push_str("' column '");
+    m.push_str(col_name);
+    m.push_str("': `");
+    m.push_str(t);
+    m.push_str("` does not implement `");
+    m.push_str(if !eq && !hs { "Eq` and `Hash" } else if !eq { "Eq" } else { "Hash" });
+    m.push_str("` — a rel is a set of rows, deduplicated by `==` and a hash, so every column type must be `Eq + Hash` (as a `HashSet` key in Rust)");
+    error(string_as_str(&m));
     return false;
 }
 
@@ -921,43 +842,44 @@ fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
 struct ColRef { pub ok: bool, pub rv: str, pub col: str }
 
 // The per-program existential extractor state: a per-RULE union-find over
-// (row-var, column) pairs (var identity = the union-find ROOT slot index, an id
-// < WX_CAP hence disjoint from existential ids ≥ WX_EXBASE); per-rule
+// (row-var, column) pairs (var identity = the union-find ROOT slot index, kept
+// disjoint from existential ids ≥ WX_EXBASE); per-rule
 // existential-name table; a program-global EDB predicate registry; and the
 // per-rule provenance (flat rule index → declaring rel + body index) used to
 // point a non-warded diagnostic back at its source rule.
-fn WX_CAP() -> i64 { return 48i64; }
 fn WX_EXBASE() -> i64 { return 100000i64; }
 
 struct WardX {
-    pub vv:  [str; 48],   // union-find pair: row var
-    pub vc:  [str; 48],   //               : column
-    pub par: [i64; 48],   // union-find parent
+    pub vv:  Vec<str>,    // union-find pair: row var
+    pub vc:  Vec<str>,    //               : column
+    pub par: Vec<i64>,    // union-find parent
     pub nvar: i64,
-    pub exn:  [str; 12],  // per-rule existential names (fresh(z))
-    pub exi:  [i64; 12],  // → assigned existential var id
+    pub exn:  Vec<str>,   // per-rule existential names (fresh(z))
+    pub exi:  Vec<i64>,   // → assigned existential var id
     pub nexn: i64,
     pub exctr: i64,       // next existential id (reset per rule)
-    pub esrc: [str; 16],  // program-global EDB source name
-    pub epid: [i64; 16],  // → WardProg predicate id
+    pub esrc: Vec<str>,   // program-global EDB source name
+    pub epid: Vec<i64>,   // → WardProg predicate id
     pub nedb: i64,
-    pub prel: [i64; 16],  // rule r → declaring rel index
-    pub pbod: [i64; 16],  // rule r → body index within that rel
+    pub prel: Vec<i64>,   // rule r → declaring rel index
+    pub pbod: Vec<i64>,   // rule r → body index within that rel
 }
 
 fn wardx_new() -> WardX {
     return WardX {
-        vv: [""; 48], vc: [""; 48], par: [0i64; 48], nvar: 0i64,
-        exn: [""; 12], exi: [0i64; 12], nexn: 0i64, exctr: 100000i64,
-        esrc: [""; 16], epid: [0i64; 16], nedb: 0i64,
-        prel: [0i64; 16], pbod: [0i64; 16],
+        vv: Vec::<str>::new(), vc: Vec::<str>::new(), par: Vec::<i64>::new(), nvar: 0i64,
+        exn: Vec::<str>::new(), exi: Vec::<i64>::new(), nexn: 0i64, exctr: 100000i64,
+        esrc: Vec::<str>::new(), epid: Vec::<i64>::new(), nedb: 0i64,
+        prel: Vec::<i64>::new(), pbod: Vec::<i64>::new(),
     };
 }
 
 // Reset the per-rule state (union-find + existential names); the EDB registry and
 // provenance are program-global and persist.
 fn wardx_reset(x: &mut WardX) {
+    x.vv.clear(); x.vc.clear(); x.par.clear();
     x.nvar = 0i64;
+    x.exn.clear(); x.exi.clear();
     x.nexn = 0i64;
     x.exctr = WX_EXBASE();
 }
@@ -975,9 +897,8 @@ fn wx_slot(x: &mut WardX, rv: str, col: str) -> i64 {
         if str_eq(x.vv[i], rv) && str_eq(x.vc[i], col) { return i; }
         i = i + 1i64;
     }
-    if x.nvar >= WX_CAP() { return x.nvar - 1i64; }
     let s: i64 = x.nvar;
-    x.vv[s] = rv; x.vc[s] = col; x.par[s] = s;
+    x.vv.push(rv); x.vc.push(col); x.par.push(s);
     x.nvar = x.nvar + 1i64;
     return s;
 }
@@ -996,16 +917,15 @@ fn wx_union(x: &mut WardX, ra: str, ca: str, rb: str, cb: str) {
     if fa != fb { x.par[fa] = fb; }
 }
 
-// Get-or-add an EDB predicate for source `src`; -1 on capacity overflow.
+// Get-or-add an EDB predicate for source `src`.
 fn wx_edb_pid(x: &mut WardX, wp: &mut WardProg, src: str) -> i64 {
     let mut i: i64 = 0i64;
     while i < x.nedb {
         if str_eq(x.esrc[i], src) { return x.epid[i]; }
         i = i + 1i64;
     }
-    if wp.npred >= 16i64 { return -1i64; }
-    let pid: i64 = wp.add_pred(6i64);   // EDB positions are never affected → arity 6, unused slots CONST
-    if x.nedb < 16i64 { x.esrc[x.nedb] = src; x.epid[x.nedb] = pid; x.nedb = x.nedb + 1i64; }
+    let pid: i64 = wp.add_pred(0i64);   // EDB positions are never affected; the arity grows as atoms fill them
+    x.esrc.push(src); x.epid.push(pid); x.nedb = x.nedb + 1i64;
     return pid;
 }
 
@@ -1079,7 +999,7 @@ fn wx_fresh_id(x: &mut WardX, c: SCall) -> i64 {
             let mut i: i64 = 0i64;
             while i < x.nexn { if str_eq(x.exn[i], nm) { return x.exi[i]; } i = i + 1i64; }
             let id: i64 = x.exctr; x.exctr = x.exctr + 1i64;
-            if x.nexn < 12i64 { x.exn[x.nexn] = nm; x.exi[x.nexn] = id; x.nexn = x.nexn + 1i64; }
+            x.exn.push(nm); x.exi.push(id); x.nexn = x.nexn + 1i64;
             return id;
         }
     }
@@ -1107,9 +1027,6 @@ fn wx_collect_on(x: &mut WardX, e: SExpr) {
 }
 
 // ── Extraction diagnostics ────────────────────────────────────────────────────
-fn ward_cap_err() {
-    error("wql!: existential (warded) analysis capacity exceeded — the wardedness analyzer supports up to 16 predicates / 16 rules / 6 columns / 6 body atoms per rule");
-}
 fn ward_frag_err(rn: str) {
     let mut m: String = String::new();
     m.push_str("wql!: rel '");
@@ -1152,7 +1069,7 @@ fn ward_emit_head(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
             let it: SExprArr = tp.items_arr();
             let n: i64 = it.len();
             let mut i: i64 = 0i64;
-            while i < n && i < arity && i < 6i64 {
+            while i < n && i < arity {
                 let st: i32 = ward_head_item(x, wp, prm, rel_i, r, i, it.arg_at(i));
                 if st != 0i32 { return st; }
                 i = i + 1i64;
@@ -1169,16 +1086,15 @@ fn ward_emit_head(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
 // One body atom over source (rv, src). A REL source uses DECLARED column ordinals
 // (canonical — the affected-position fixpoint keys on them, must line up with the
 // existential heads defined for that rel elsewhere — critique C3); an EDB source
-// uses first-seen ordinals (EDB positions are never affected). Returns 0 / 1 (cap).
+// uses first-seen ordinals (EDB positions are never affected). Returns 0.
 fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
                   r: i64, rv: str, ridx: i64, src: str) -> i32 {
-    if wp.nbody[r] >= 6i64 { ward_cap_err(); return 1i32; }
     if ridx >= 0i64 {
         let k: i64 = wp.add_body(r, ridx);
         let coff: i64 = prm.rel_coff[ridx];
         let ccnt: i64 = prm.rel_ccnt[ridx];
         let mut i: i64 = 0i64;
-        while i < ccnt && i < 6i64 {
+        while i < ccnt {
             let cn: str = prm.relc_name[coff + i];
             wp.set_body(r, k, i, wx_class(x, rv, cn));
             i = i + 1i64;
@@ -1186,7 +1102,6 @@ fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
         return 0i32;
     }
     let pid: i64 = wx_edb_pid(x, wp, src);
-    if pid < 0i64 { ward_cap_err(); return 1i32; }
     let k: i64 = wp.add_body(r, pid);
     // Fill positions for every (rv, col) already interned (from `on` + head) —
     // first-seen order. An EDB occurrence is an UNaffected witness for its var.
@@ -1194,7 +1109,6 @@ fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
     let mut si: i64 = 0i64;
     while si < x.nvar {
         if str_eq(x.vv[si], rv) {
-            if o >= 6i64 { ward_cap_err(); return 1i32; }
             wp.set_body(r, k, o, wx_find(x, si));
             o = o + 1i64;
         }
@@ -1203,82 +1117,68 @@ fn ward_emit_atom(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
     return 0i32;
 }
 
-// A SIMPLE rel body → one rule (single body atom, no `on`).
-fn ward_rule_simple(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
-                    rel_i: i64, s: RQSimple) -> i32 {
-    let r: i64 = wp.begin_rule(rel_i);
-    let hst: i32 = ward_emit_head(x, wp, prm, rel_i, r, s.select_expr());
-    if hst != 0i32 { return hst; }
-    let ridx0: i64 = prm.rel_find_src(s.src_name);
-    return ward_emit_atom(x, wp, prm, r, s.var_name, ridx0, s.src_name);
-}
-
-// A JOIN rel body → one rule (base + step atoms; `on` equalities are the shared
-// Datalog variables). Anti / traversal steps are outside the positive-TGD
-// fragment → reject (returns 2).
-fn ward_rule_join(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
-                  rel_i: i64, j: RQJoin) -> i32 {
-    let r: i64 = wp.begin_rule(rel_i);
-    let steps: RQJoinStepArr = j.steps_arr();
-    let ns: i64 = steps.len();
+// One rel rule → one WardProg rule: the shared Datalog variables are the
+// unions of every equi-`on` (collected BEFORE any var id is read), then the
+// head, then the atoms in order. Anti atoms, traversals, aggregates and `find`
+// are outside the positive-TGD fragment → reject (returns 2). The atoms are the
+// core's, resolved from the declarations (ADR 0031 R4.0): a rel atom carries
+// its registry index.
+fn ward_rule(x: &mut WardX, wp: &mut WardProg, prm: &MacroParams,
+             rel_i: i64, ru: &CRule) -> i32 {
+    let cl: &CClause = &ru.clause;
+    let out_of_fragment: bool = match &cl.group { Option::Some(_g) => true, Option::None => false }
+                                || match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
+    if out_of_fragment { ward_frag_err(prm.rel_names[rel_i]); return 2i32; }
+    let bs: &[CLit] = cl.body.as_slice();
+    let n: i64 = cl.body.len();
     // 1) fragment guard + collect ALL `on` unions BEFORE any var id is read.
-    let mut si: i64 = 0i64;
-    while si < ns {
-        let st: RQJoinStep = steps.step_at(si);
-        if st.is_anti || st.is_edge { ward_frag_err(prm.rel_names[rel_i]); return 2i32; }
-        if st.has_on { wx_collect_on(x, st.on_expr()); }
-        si = si + 1i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        match &bs[i] {
+            CLit::Atom(a) => { if a.neg { ward_frag_err(prm.rel_names[rel_i]); return 2i32; } }
+            CLit::Trav(_t) => { ward_frag_err(prm.rel_names[rel_i]); return 2i32; }
+            CLit::Cond(c) => {
+                match &c.site { CSite::On => { wx_collect_on(x, c.e.view::<SExpr>()); } CSite::Where => { } }
+            }
+        }
+        i = i + 1i64;
     }
+    let r: i64 = wp.begin_rule(rel_i);
     // 2) head (needs final union roots).
-    let hst: i32 = ward_emit_head(x, wp, prm, rel_i, r, j.select_expr());
+    let hst: i32 = ward_emit_head(x, wp, prm, rel_i, r, cl.head.view::<SExpr>());
     if hst != 0i32 { return hst; }
-    // 3) base atom, then step atoms.
-    let ridx0: i64 = prm.rel_find_src(j.a_name);
-    let bst0: i32 = ward_emit_atom(x, wp, prm, r, j.x_var, ridx0, j.a_name);
-    if bst0 != 0i32 { return bst0; }
-    let mut sj: i64 = 0i64;
-    while sj < ns {
-        let st2: RQJoinStep = steps.step_at(sj);
-        let ridxk: i64 = prm.rel_find_src(st2.src_name);
-        let bstk: i32 = ward_emit_atom(x, wp, prm, r, st2.var_name, ridxk, st2.src_name);
-        if bstk != 0i32 { return bstk; }
-        sj = sj + 1i64;
+    // 3) the atoms, base first.
+    let mut k: i64 = 0i64;
+    while k < n {
+        match &bs[k] {
+            CLit::Atom(a) => {
+                let st: i32 = ward_emit_atom(x, wp, prm, r, a.var, a.reg, a.name);
+                if st != 0i32 { return st; }
+            }
+            CLit::Trav(_t) => { }
+            CLit::Cond(_c) => { }
+        }
+        k = k + 1i64;
     }
     return 0i32;
 }
 
-// Extract the whole rel program into `wp`. Predicate id == rel declaration index
-// (so "rel k as a head" and "rel k as a body atom" share affected positions).
-// Returns 0 (built), 1 (capacity), 2 (out-of-fragment) — errors already emitted.
-fn ward_build(rels: RQRelArr, nr: i64, prm: &MacroParams,
-              x: &mut WardX, wp: &mut WardProg, h: &Writ) -> i32 {
+fn ward_build(pc: &CProgram, nr: i64, prm: &MacroParams,
+              x: &mut WardX, wp: &mut WardProg) -> i32 {
     let mut ri: i64 = 0i64;
     while ri < nr {
-        let cc: i64 = prm.rel_ccnt[ri];
-        if cc > 6i64 { ward_cap_err(); return 1i32; }
-        wp.add_pred(cc);
+        wp.add_pred(prm.rel_ccnt[ri]);
         ri = ri + 1i64;
     }
+    let rels: &[CRel] = pc.rels.as_slice();
     let mut rel_i: i64 = 0i64;
     while rel_i < nr {
-        let rel: RQRel = rels.rel_at(rel_i);
-        let bodies: RQBodyArr = rel.bodies_arr();
-        let nb: i64 = bodies.len();
+        let rules: &[CRule] = rels[rel_i].rules.as_slice();
         let mut bi: i64 = 0i64;
-        while bi < nb {
-            if wp.nrule >= 16i64 { ward_cap_err(); return 1i32; }
-            let r: i64 = wp.nrule;
-            x.prel[r] = rel_i; x.pbod[r] = bi;
+        while bi < rels[rel_i].rules.len() {
+            x.prel.push(rel_i); x.pbod.push(bi);
             wardx_reset(x);
-            let body_any: WAny = bodies.body_any(bi);
-            let q: RQuery = body_any.view::<RQuery>();
-            let mut st: i32 = 0i32;
-            match q {
-                RQuery::Simple(s) => { st = ward_rule_simple(x, wp, prm, rel_i, s); }
-                RQuery::Join(jj)  => { st = ward_rule_join(x, wp, prm, rel_i, jj); }
-                RQuery::Aggr(_)   => { ward_frag_err(prm.rel_names[rel_i]); st = 2i32; }
-                RQuery::Find(_)   => { ward_frag_err(prm.rel_names[rel_i]); st = 2i32; }
-            }
+            let st: i32 = ward_rule(x, wp, prm, rel_i, &rules[bi]);
             if st != 0i32 { return st; }
             bi = bi + 1i64;
         }
@@ -1290,23 +1190,15 @@ fn ward_build(rels: RQRelArr, nr: i64, prm: &MacroParams,
 // ── Marker scan ───────────────────────────────────────────────────────────────
 struct FreshScan { pub has: bool, pub rel: i64 }
 
-fn program_fresh_scan(rels: RQRelArr, nr: i64) -> FreshScan {
+fn program_fresh_scan(pc: &CProgram, nr: i64) -> FreshScan {
+    let rels: &[CRel] = pc.rels.as_slice();
     let mut ri: i64 = 0i64;
     while ri < nr {
-        let rel: RQRel = rels.rel_at(ri);
-        let bodies: RQBodyArr = rel.bodies_arr();
-        let nb: i64 = bodies.len();
+        let rules: &[CRule] = rels[ri].rules.as_slice();
         let mut bi: i64 = 0i64;
-        while bi < nb {
-            let q: RQuery = bodies.body_any(bi).view::<RQuery>();
-            let mut hf: bool = false;
-            match q {
-                RQuery::Simple(s) => { hf = sx_has_fresh(s.select_expr()); }
-                RQuery::Join(jj)  => { hf = sx_has_fresh(jj.select_expr()); }
-                RQuery::Aggr(g)   => { hf = sx_has_fresh(g.select_expr()); }
-                RQuery::Find(_)   => { hf = false; }
-            }
-            if hf { return FreshScan { has: true, rel: ri }; }
+        while bi < rels[ri].rules.len() {
+            let hd: WAny = rules[bi].clause.head;
+            if !hd.is_null() && sx_has_fresh(hd.view::<SExpr>()) { return FreshScan { has: true, rel: ri }; }
             bi = bi + 1i64;
         }
         ri = ri + 1i64;
@@ -1319,13 +1211,13 @@ fn program_fresh_scan(rels: RQRelArr, nr: i64) -> FreshScan {
 // diagnostic was raised" (both the warded-accept and non-warded cases stop —
 // only the message differs; an accepted existential rule is NOT lowered because
 // the chase is blocked on the identity foundation).
-fn ward_verdict(rels: RQRelArr, nr: i64, prm: &MacroParams, h: &Writ) -> bool {
-    let fs: FreshScan = program_fresh_scan(rels, nr);
+fn ward_verdict(pc: &CProgram, nr: i64, prm: &MacroParams) -> bool {
+    let fs: FreshScan = program_fresh_scan(pc, nr);
     if !fs.has { return true; }   // vanilla Datalog → trivially warded, unchanged path.
     let mut wx: WardX = wardx_new();
     let mut wp: WardProg = ward_prog_new();
-    let bst: i32 = ward_build(rels, nr, prm, &mut wx, &mut wp, h);
-    if bst != 0i32 { return false; }   // capacity / out-of-fragment (already emitted).
+    let bst: i32 = ward_build(pc, nr, prm, &mut wx, &mut wp);
+    if bst != 0i32 { return false; }   // out-of-fragment (already emitted).
     let res: WardResult = check_warded(&wp);
     if res.ok {
         let mut m: String = String::new();
@@ -1351,13 +1243,13 @@ fn ward_verdict(rels: RQRelArr, nr: i64, prm: &MacroParams, h: &Writ) -> bool {
 // existential) silently fell through to codegen and produced an opaque downstream
 // Logos error. A `fresh(...)` marker is NOT a bare ident (it is a Call) → never
 // misclassified; the ward path owns markers.
-fn ward_var_in(vars: &[str; 9], nv: i64, nm: str) -> bool {
+fn ward_var_in(vars: &Vec<str>, nv: i64, nm: str) -> bool {
     let mut i: i64 = 0i64;
     while i < nv { if str_eq(vars[i], nm) { return true; } i = i + 1i64; }
     return false;
 }
 
-fn ward_sel_idents_ok(sel: SExpr, vars: &[str; 9], nv: i64,
+fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<str>, nv: i64,
                       prm: &MacroParams, rel_name: str) -> bool {
     match sel {
         SExpr::Field(f) => {
@@ -1431,49 +1323,44 @@ fn ward_sel_idents_ok(sel: SExpr, vars: &[str; 9], nv: i64,
 // String buffers backing the rel registry (emitted source names + row-type
 // texts) and the prelude live in THIS frame — everything downstream is called
 // from here, so the borrowed `str` views stay valid for the whole walk.
-pub fn walk_program_params(root: WAny, name: str, params_text: str,
+pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str,
                            natspec: str, prm: &mut MacroParams, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
-    let prog: RQProgram = root.view::<RQProgram>();
     // The query is a source, and every check downstream may need to say where
     // it is (ADR 0024 S0). Carried in the walker's context because that is what
     // a diagnostic has in hand, wherever it fires.
     prm.src_root = root;
     let mut deps: RelDeps = rel_deps_new();
     let mut scc: RelScc = rel_scc_new();
-    let mut src_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
-    let mut dsrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                      String::new(), String::new(), String::new(), String::new()];
-    let mut row_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                     String::new(), String::new(), String::new(), String::new()];
+    let mut src_bufs: Vec<String> = Vec::<String>::new();
+    let mut dsrc_bufs: Vec<String> = Vec::<String>::new();
+    let mut row_bufs: Vec<String> = Vec::<String>::new();
     // Frame-held name backing for NATIVE rels (ADR 0016 M1a) — same lifetime
     // discipline as src_bufs/dsrc_bufs above.
-    let mut nat_src_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                         String::new(), String::new(), String::new(), String::new()];
+    let mut nat_src_bufs: Vec<String> = Vec::<String>::new();
     // Frame-held backing for a chosen narrowing's constant (ADR 0024 S6.3) —
     // same lifetime discipline as the buffers above.
     let mut pick_argb: String = String::new();
-    let mut nat_dsrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new()];
-    let mut nat_name_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new()];
+    let mut nat_dsrc_bufs: Vec<String> = Vec::<String>::new();
+    let mut nat_name_bufs: Vec<String> = Vec::<String>::new();
     // The STREAM binding names (`__rel_<r>`), same discipline again.
-    let mut nat_ssrc_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new()];
+    let mut nat_ssrc_bufs: Vec<String> = Vec::<String>::new();
     // The SIZE binding names (`__sz_<r>`) — where a measured size lands in the
     // generated fn (ADR 0024 S4). Built in ONE place, so the plan's record and
     // the emitted prelude cannot name it differently.
-    let mut nat_szat_bufs: [String; 8] = [String::new(), String::new(), String::new(), String::new(),
-                                          String::new(), String::new(), String::new(), String::new()];
+    let mut nat_szat_bufs: Vec<String> = Vec::<String>::new();
+    // ADR 0031 R4.0 — the program resolved from the declarations, once the
+    // registry is complete (SHADOW: checked against the planned core below).
+    // The program as the core rewrites left it (ADR 0031 R3).
+    let mut early: CProgram = pc;
 
-    if prog.has_rels() {
-        let rels: RQRelArr = prog.rels_arr();
-        let nr: i64 = rels.len();
+    if early.rels.len() > 0i64 {
+        let nr: i64 = early.rels.len();
         // ── Pass 1: register every rel (names, columns, row types) ──────────
         let mut i: i64 = 0i64;
         while i < nr {
-            let rel: RQRel = rels.rel_at(i);
+            let rels_c: &[CRel] = early.rels.as_slice();
+            let rel: &CRel = &rels_c[i];
             let rname: str = rel.name;
             if prm.index_of(rname) >= 0i64 {
                 let mut m: String = String::new();
@@ -1491,17 +1378,31 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
                 error(string_as_str(&m1));
                 return false;
             }
-            let cols: RQRelColArr = rel.cols_arr();
-            let nc: i64 = cols.len();
+            let cols: &[CCol] = rel.cols.as_slice();
+            let nc: i64 = rel.cols.len();
             if nc < 1i64 { error("wql!: a rel needs at least one column"); return false; }
+            // A rel's row is a tuple held in a set, so its type needs `Hash` and
+            // `Clone`, which tuples implement up to twelve elements (Rust's
+            // range: `logos.lang.hash`, `logos.lang.clone`). Wider, the generated
+            // code would fail on a missing impl inside the macro's output.
+            if nc > 12i64 {
+                let mut mw: String = String::new();
+                mw.push_str("wql!: rel '");
+                mw.push_str(rname);
+                mw.push_str("' declares ");
+                mw.push_i64(nc);
+                mw.push_str(" columns; a rel's row is a tuple and a tuple implements `Hash` and `Clone` only up to 12 elements (as in Rust)");
+                error(string_as_str(&mw));
+                return false;
+            }
             // Validate columns (type whitelist + per-rel name uniqueness).
             let mut k: i64 = 0i64;
             while k < nc {
-                let c: RQRelCol = cols.col_at(k);
-                if !rel_col_ty_ok(rname, c.name, c.ty_name) { return false; }
+                let c: &CCol = &cols[k];
+                if !rel_col_ty_ok(rname, c.name, c.ty) { return false; }
                 let mut k2: i64 = 0i64;
                 while k2 < k {
-                    if str_eq(cols.col_at(k2).name, c.name) {
+                    if str_eq(cols[k2].name, c.name) {
                         let mut m2: String = String::new();
                         m2.push_str("wql!: rel '");
                         m2.push_str(rname);
@@ -1517,6 +1418,7 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             }
             // Emitted source + delta-source names + native row type text
             // (frame-held Strings back the registry's borrowed views).
+            while src_bufs.len() <= i { src_bufs.push(String::new()); dsrc_bufs.push(String::new()); row_bufs.push(String::new()); }
             src_bufs[i].push_str("__rel_");
             src_bufs[i].push_str(rname);
             src_bufs[i].push_str("_sl");
@@ -1524,13 +1426,13 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             dsrc_bufs[i].push_str(rname);
             dsrc_bufs[i].push_str("_sl");
             if nc == 1i64 {
-                row_bufs[i].push_str(cols.col_at(0i64).ty_name);
+                row_bufs[i].push_str(cols[0i64].ty);
             } else {
                 row_bufs[i].push_str("(");
                 let mut k3: i64 = 0i64;
                 while k3 < nc {
                     if k3 > 0i64 { row_bufs[i].push_str(", "); }
-                    row_bufs[i].push_str(cols.col_at(k3).ty_name);
+                    row_bufs[i].push_str(cols[k3].ty);
                     k3 = k3 + 1i64;
                 }
                 row_bufs[i].push_str(")");
@@ -1541,8 +1443,8 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             if idx < 0i64 { error("wql!: too many rel blocks (max 8)"); return false; }
             let mut k4: i64 = 0i64;
             while k4 < nc {
-                let c4: RQRelCol = cols.col_at(k4);
-                prm.rel_add_col(c4.name, c4.ty_name);
+                let c4: &CCol = &cols[k4];
+                prm.rel_add_col(c4.name, c4.ty);
                 k4 = k4 + 1i64;
             }
             i = i + 1i64;
@@ -1552,9 +1454,10 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // idx 0..nr-1 must stay parse-aligned — emit_rel_fns indexes rel_at
         // by registry idx), BEFORE the body pass (bodies may reference them).
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
-        let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
-        plan_decide_joins(prm, h);
-        plan_insert_drains(prm, &mut pick_ap);
+        core_resolve(&mut early, &oview_module_ast(), prm);
+        let mut pick_ap: AccessPlan = plan_decide_access(prm, &early, &mut pick_argb);
+        plan_decide_joins(prm, &mut early, h);
+        plan_insert_drains(prm, &early, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
@@ -1564,13 +1467,13 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // anti/aggregate sub-edges recorded for the condensation below.)
         let mut i2: i64 = 0i64;
         while i2 < nr {
-            let rel2: RQRel = rels.rel_at(i2);
-            let bodies: RQBodyArr = rel2.bodies_arr();
-            let nb: i64 = bodies.len();
+            let rels2: &[CRel] = early.rels.as_slice();
+            let rules: &[CRule] = rels2[i2].rules.as_slice();
+            let nb: i64 = rels2[i2].rules.len();
             if nb < 1i64 { error("wql!: a rel needs at least one body"); return false; }
             let mut b: i64 = 0i64;
             while b < nb {
-                if !check_rel_body(bodies.body_any(b), rel2.name, i2, prm, &mut deps, h) {
+                if !check_rel_body(&rules[b], rels2[i2].name, i2, prm, &mut deps) {
                     return false;
                 }
                 b = b + 1i64;
@@ -1598,15 +1501,16 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         // (Runs on the COMPLETE registry/deps/SCC, before any emission. Vanilla
         // Datalog — no `fresh(...)` marker — takes the fast path unchanged; an
         // existential program is classified and GRACEFULLY refuses lowering.)
-        if !ward_verdict(rels, nr, prm, h) { return false; }
+        if !ward_verdict(&early, nr, prm) { return false; }
     } else {
         // No parse-side rels — native params may still register (an entry
         // query scanning `g` directly); condense the body-less registry so
         // the prelude loop below materializes them.
         if !register_native_rels(prm, natspec, &mut nat_src_bufs, &mut nat_dsrc_bufs, &mut nat_name_bufs, &mut nat_ssrc_bufs, &mut nat_szat_bufs) { return false; }
-        let mut pick_ap: AccessPlan = plan_decide_access(prm, &mut pick_argb);
-        plan_decide_joins(prm, h);
-        plan_insert_drains(prm, &mut pick_ap);
+        core_resolve(&mut early, &oview_module_ast(), prm);
+        let mut pick_ap: AccessPlan = plan_decide_access(prm, &early, &mut pick_argb);
+        plan_decide_joins(prm, &mut early, h);
+        plan_insert_drains(prm, &early, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
         plan_apply_access(prm, &pick_ap, h);
@@ -1624,115 +1528,99 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
         }
     }
 
-    // ── The ENTRY query: stamp fn name + resolve/rewrite sources ────────────
-    let entry_any: WAny = prog.entry_any();
-    if entry_any.is_null() { error("wql!: missing entry query"); return false; }
-    let eplan: RQuery = entry_any.view::<RQuery>();
-    let mut relvars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
+    // ── The ENTRY query: resolve + check its sources ────────────────────────
+    // ADR 0031 R3.0 — the entry's sources and clauses, checked on the core.
+    let mut relvars: Vec<str> = Vec::<str>::new();
     let mut nrelv: i64 = 0i64;
-    match eplan {
-        RQuery::Simple(_) => {
-            let s: RQSimple = rq_fat_simple(entry_any, h);
-            s.fn_name = name;
-            let sr: SrcRes = resolve_source(prm, s.src_name, -1i64, &mut deps);
-            if !sr.ok { return false; }
+    {
+        let ru: &CRule = &early.entry;
+        let cl: &CClause = &ru.clause;
+        let head: WAny = cl.head;
+        let base_name: str = core_base_name(cl);
+        let base_var: str = core_base_var(cl);
+        let find: bool = match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
+        let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
+        let sr: SrcRes = resolve_source(prm, base_name, -1i64, &mut deps);
+        if !sr.ok { return false; }
+        if find {
             if sr.is_rel {
-                s.src_name = string_as_str(&prm.rel_srcs[sr.idx]);
-                relvars[0] = s.var_name;
-                nrelv = 1i64;
-            }
-            s.row_ty = sr.row_ty;
-            if !sel_whole_row_ok(s.select_expr(), &relvars, nrelv) { return false; }
-        }
-        RQuery::Join(_) => {
-            let j: RQJoin = rq_fat_join(entry_any, h);
-            j.fn_name = name;
-            let sr2: SrcRes = resolve_source(prm, j.a_name, -1i64, &mut deps);
-            if !sr2.ok { return false; }
-            if sr2.is_rel {
-                j.a_name = string_as_str(&prm.rel_srcs[sr2.idx]);
-                relvars[0] = j.x_var;
-                nrelv = 1i64;
-            }
-            j.a_ty = sr2.row_ty;
-            let mut svars: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-            let mut nsv: i64 = 0i64;
-            if !stamp_steps(j.steps_arr(), j.x_var, sr2.row_ty, prm, -1i64, &mut deps,
-                            &mut relvars, &mut nrelv, &mut svars, &mut nsv, h) { return false; }
-            if !sel_whole_row_ok(j.select_expr(), &relvars, nrelv) { return false; }
-            // Scalar-element traversal vars: no field access rooted at them.
-            if nsv > 0i64 {
-                if !no_scalar_field(j.select_expr(), &svars, nsv) { return false; }
-                if j.has_where {
-                    if !no_scalar_field(j.where_expr(), &svars, nsv) { return false; }
-                }
-                if j.has_order {
-                    if !no_scalar_field(j.order_expr(), &svars, nsv) { return false; }
-                }
-                if !steps_scalar_ok(j.steps_arr(), &svars, nsv) { return false; }
-            }
-        }
-        RQuery::Aggr(_) => {
-            let g: RQAggr = rq_fat_aggr(entry_any, h);
-            g.fn_name = name;
-            let sr3: SrcRes = resolve_source(prm, g.a_name, -1i64, &mut deps);
-            if !sr3.ok { return false; }
-            if sr3.is_rel {
-                g.a_name = string_as_str(&prm.rel_srcs[sr3.idx]);
-                relvars[0] = g.x_var;
-                nrelv = 1i64;
-            }
-            g.a_ty = sr3.row_ty;
-            // Optional join steps — the aggregate over a JOINED stream.
-            if g.has_steps() {
-                let mut svars2: [str; 9] = ["", "", "", "", "", "", "", "", ""];
-                let mut nsv2: i64 = 0i64;
-                if !stamp_steps(g.steps_arr(), g.x_var, sr3.row_ty, prm, -1i64, &mut deps,
-                                &mut relvars, &mut nrelv, &mut svars2, &mut nsv2, h) { return false; }
-                if nsv2 > 0i64 {
-                    if !no_scalar_field(g.select_expr(), &svars2, nsv2) { return false; }
-                    if !no_scalar_field(g.key_expr(), &svars2, nsv2) { return false; }
-                    if g.has_where {
-                        if !no_scalar_field(g.where_expr(), &svars2, nsv2) { return false; }
-                    }
-                    if g.has_having {
-                        if !no_scalar_field(g.having_expr(), &svars2, nsv2) { return false; }
-                    }
-                    if g.has_order {
-                        if !no_scalar_field(g.order_expr(), &svars2, nsv2) { return false; }
-                    }
-                    let gaggs: RQAggArr = g.aggs_arr();
-                    let mut ga: i64 = 0i64;
-                    while ga < gaggs.len() {
-                        let a: RQAgg = gaggs.agg_at(ga);
-                        if a.has_arg {
-                            if !no_scalar_field(a.arg_expr(), &svars2, nsv2) { return false; }
-                        }
-                        ga = ga + 1i64;
-                    }
-                    if !steps_scalar_ok(g.steps_arr(), &svars2, nsv2) { return false; }
-                }
-            }
-        }
-        RQuery::Find(_) => {
-            let f: RQFind = rq_fat_find(entry_any, h);
-            f.fn_name = name;
-            let sr4: SrcRes = resolve_source(prm, f.src_name, -1i64, &mut deps);
-            if !sr4.ok { return false; }
-            if sr4.is_rel {
                 // `find` returns Option<&Row> — a borrow of a fn-LOCAL rel row
                 // would dangle at return. Gated with a diagnostic (the
                 // by-value alternative is `select first (…columns…)`).
                 let mut m: String = String::new();
                 m.push_str("wql!: `find` over rel '");
-                m.push_str(f.src_name);
+                m.push_str(base_name);
                 m.push_str("' is not supported — rels are locals of the generated fn, so borrowing a row out is unsound; use `select first (…columns…)` instead");
                 error(string_as_str(&m));
                 return false;
             }
-            f.row_ty = sr4.row_ty;
+        } else {
+            if sr.is_rel {
+                relvars.push(base_var);
+                nrelv = 1i64;
+            }
+            let has_steps: bool = core_source_count(cl) > 1i64;
+            let mut cv: ClauseVars = clause_vars_new();
+            if has_steps {
+                if !check_steps(cl, base_var, sr.row_ty, prm, -1i64, &mut deps,
+                                &mut relvars, &mut nrelv, &mut cv) { return false; }
+            }
+            if !grouped {
+                if !sel_whole_row_ok(head.view::<SExpr>(), &relvars, nrelv) { return false; }
+            }
+            // Scalar-element traversal vars: no field access rooted at them.
+            if cv.n > 0i64 {
+                if !no_scalar_field(head.view::<SExpr>(), &cv) { return false; }
+                match &cl.group {
+                    Option::Some(g) => { if !no_scalar_field(g.key.view::<SExpr>(), &cv) { return false; } }
+                    Option::None => { }
+                }
+                let we: WAny = core_where(cl);
+                if !we.is_null() {
+                    if !no_scalar_field(we.view::<SExpr>(), &cv) { return false; }
+                }
+                match &cl.group {
+                    Option::Some(g2) => {
+                        match &g2.having { Option::Some(hv) => { if !no_scalar_field(hv.view::<SExpr>(), &cv) { return false; } } Option::None => { } }
+                    }
+                    Option::None => { }
+                }
+                match &ru.env.order { Option::Some(k) => { if !no_scalar_field(k.view::<SExpr>(), &cv) { return false; } } Option::None => { } }
+                match &cl.group {
+                    Option::Some(g3) => {
+                        let mut ga: i64 = 0i64;
+                        while ga < g3.aggs.len() {
+                            match &g3.aggs.as_slice()[ga].arg {
+                                Option::Some(ae) => { if !no_scalar_field(ae.view::<SExpr>(), &cv) { return false; } }
+                                Option::None => { }
+                            }
+                            ga = ga + 1i64;
+                        }
+                    }
+                    Option::None => { }
+                }
+                if !steps_clause_ok(cl, &cv) { return false; }
+            }
         }
     }
+
+    // ── ADR 0031 R5 — THE PLANNED CORE ──────────────────────────────────────
+    // The program as it will be emitted: lowered after every rewrite, its atoms
+    // resolved and typed from the declarations once the registry was complete
+    // (R4.0), the join decisions recorded on them, the plan's source spellings
+    // bound. The walker's stamping of the parse tree above is no longer read
+    // through it.
+    // The plan's spellings, bound once the access plan is applied and every
+    // check has read the sources as written.
+    // ADR 0031 R4.2 — every expression type-checked on the core, once, before
+    // the plan is finished and anything is emitted.
+    if !core_typecheck(&early, prm, h) { return false; }
+    core_bind_sources(&mut early, prm);
+    plan_decide_rest(prm, &mut early, h, false);
+    let jp: JoinPlan = plan_entry_order(&early, prm, h);
+    plan_decide_rest(prm, &mut early, h, true);
+    core_planned_done(&early, name);
+    prm.plan_core = early;
 
     // ── Emit the rel helper fns + build the entry prelude ───────────────────
     // Materialization order = the condensation TOPO order (dependencies first
@@ -1741,15 +1629,28 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
     // recursive SCCs call the semi-naïve SCC fn (member Vecs as out-params).
     let mut prelude: String = String::new();
     if prm.rel_n > 0i64 {
-        // helper fns exist only for PARSE-SIDE rels (native rels materialize
-        // via their stdlib helper in the prelude — nothing to emit).
-        if prog.has_rels() {
-            if !emit_rel_fns(prog.rels_arr(), name, params_text, prm, &scc, h) { return false; }
+        // helper fns exist only for the PROGRAM's rels — its own and those the
+        // core rewrites injected (native rels materialize via their stdlib
+        // helper in the prelude — nothing to emit).
+        if prm.plan_core.rels.len() > 0i64 {
+            // ADR 0031 R7 — each SCC's fixpoint, planned before anything is
+            // emitted (the drivers spell the plan).
+            let scc_plans: Vec<DScc> = plan_sccs(prm, &scc, h);
+            if !emit_rel_fns(name, params_text, prm, &scc, &scc_plans, h) { return false; }
         }
         let mut p: i64 = 0i64;
         while p < scc.nscc {
             let c: i64 = scc.order[p];
-            if scc.rec[c] {
+            // A dead rel (`prm.rel_dead`) is not evaluated; an SCC's members
+            // live or die together (each reads the others).
+            let mut alive: bool = false;
+            let mut r0: i64 = 0i64;
+            while r0 < prm.rel_n {
+                if scc.comp[r0] == c && !prm.rel_dead.has(r0) { alive = true; }
+                r0 = r0 + 1i64;
+            }
+            if !alive {
+            } else if scc.rec[c] {
                 emit_prelude_scc(&mut prelude, name, prm, &scc, c);
             } else {
                 let mut r: i64 = 0i64;
@@ -1761,14 +1662,14 @@ pub fn walk_program_params(root: WAny, name: str, params_text: str,
             p = p + 1i64;
         }
     }
-    return walk_query(entry_any.view::<RQuery>(), params_text, prm,
+    return walk_query(name, params_text, prm, jp,
                       string_as_str(&prelude), h);
 }
 
 // Push the wql! param names + the `__rel_<j>_sl` slices selected by `mask`
 // (ascending rel index) as a call ARGUMENT list (no parens) — mirrors the
 // helper-fn parameter lists emit_rel_fns builds from the same masks.
-fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
+fn push_call_args(out: &mut String, prm: &MacroParams, mask: &RelSet) {
     let mut first: bool = true;
     let mut a: i64 = 0i64;
     while a < prm.n {
@@ -1779,7 +1680,7 @@ fn push_call_args(out: &mut String, prm: &MacroParams, mask: i64) {
     }
     let mut j: i64 = 0i64;
     while j < prm.rel_n {
-        if (mask & (1i64 << j)) != 0i64 {
+        if mask.has(j) {
             if !first { out.push_str(", "); }
             out.push_str(string_as_str(&prm.rel_srcs[j]));
             first = false;
@@ -1916,32 +1817,63 @@ fn pw_cmp_name(op: i32, col_left: bool) -> str {
 // this call as `AccessPlan.arg` and then as `rel_marg2`, and a local String here
 // would leave a dangling view the moment the frame goes — the same discipline
 // nat_src_bufs follows.
-fn plan_decide_access(prm: &MacroParams, argb: &mut String) -> AccessPlan {
+fn plan_decide_access(prm: &MacroParams, pc: &CProgram, argb: &mut String) -> AccessPlan {
     let mut ap: AccessPlan = access_plan_new(prm.rel_n);
-    if prm.src_root.is_null() { return ap; }
-    let prog: RQProgram = prm.src_root.view::<RQProgram>();
-    match prog.entry_any().view::<RQuery>() {
-        RQuery::Simple(sq) => {
-            // A simple scan is the ONE shape whose `where` belongs entirely to
-            // its single source, so an exact operation may retire it.
-            plan_narrow_rel(prm, argb, &mut ap, sq.src_name, sq.has_where,
-                            sq.where_expr(), true);
-        }
-        RQuery::Join(jq) => {
-            // The BASE carries the query's `where`. Retiring it is NOT offered:
-            // the predicate is checked once per JOINED row, over variables from
-            // every side, and proving the base's narrowing subsumes it is a
-            // different claim from the one exactness makes.
-            plan_narrow_rel(prm, argb, &mut ap, jq.a_name, jq.has_where,
-                            jq.where_expr(), false);
-        }
-        RQuery::Aggr(gq) => {
-            plan_narrow_rel(prm, argb, &mut ap, gq.a_name, gq.has_where,
-                            gq.where_expr(), false);
-        }
-        _ => { }
-    }
+    // ADR 0031 R6.1 — read off the core's entry rule: its base atom and its
+    // `where`. `find` is not narrowed.
+    let ru: &CRule = &pc.entry;
+    match &ru.env.mode { CMode::Find => { return ap; } CMode::All => { } CMode::First => { } }
+    let cl: &CClause = &ru.clause;
+    if cl.body.len() < 1i64 { return ap; }
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut base_reg: i64 = -1i64;
+    match &bs[0i64] { CLit::Atom(a) => { base_reg = a.reg; } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
+    let we: WAny = core_where(cl);
+    let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
+    // A simple scan is the ONE shape whose `where` belongs entirely to its
+    // single source, so an exact operation may retire it. In a join the BASE
+    // carries the query's `where`, and retiring it is NOT offered: the
+    // predicate is checked once per JOINED row, over variables from every side,
+    // and proving the base's narrowing subsumes it is a different claim from
+    // the one exactness makes. An aggregate's base likewise.
+    let simple: bool = !grouped && core_source_count(cl) == 1i64;
+    plan_narrow_rel(prm, argb, &mut ap, base_reg, !we.is_null(), we, simple);
     return ap;
+}
+
+/// The registry index of each source literal of a clause, in order (-1 for a
+/// parameter or a traversal); slot 0 is the base.
+fn core_source_regs(cl: &CClause) -> Vec<i64> {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut v: Vec<i64> = Vec::<i64>::new();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] { CLit::Atom(a) => { v.push(a.reg); } CLit::Trav(_t) => { v.push(-1i64); } CLit::Cond(_c) => { } }
+        i = i + 1i64;
+    }
+    return v;
+}
+
+/// The base atom's row variable ("" when the clause has none).
+fn core_base_var(cl: &CClause) -> str {
+    if cl.body.len() < 1i64 { return ""; }
+    let bs: &[CLit] = cl.body.as_slice();
+    match &bs[0i64] { CLit::Atom(a) => { return a.var; } CLit::Trav(t) => { return t.var; } CLit::Cond(_c) => { return ""; } }
+}
+
+/// The clause's `where` (null = none).
+fn core_where(cl: &CClause) -> WAny {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => { match &c.site { CSite::Where => { return c.e; } CSite::On => { } } }
+            CLit::Atom(_a) => { }
+            CLit::Trav(_t) => { }
+        }
+        i = i + 1i64;
+    }
+    return WAny::null();
 }
 
 /// Narrow ONE rel against ONE filter, recording the choice and its ground.
@@ -1949,9 +1881,8 @@ fn plan_decide_access(prm: &MacroParams, argb: &mut String) -> AccessPlan {
 /// `may_drop` is the shape's contribution and the only one: whether an access
 /// that is EXACT for the demand is allowed to retire the query's own filter.
 fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
-                   src_name: str, has_where: bool, wexpr: SExpr,
+                   ri: i64, has_where: bool, wexpr: WAny,
                    may_drop: bool) {
-    let ri: i64 = prm.rel_find_name(src_name);
     if ri < 0i64 { return; }
     // THE GROUND (why.logos `AccessGround`): every test below records its answer
     // as a fact, and every exit names the rule that fired. No sentence is written
@@ -1965,7 +1896,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
         ap.scan(ri, &mut g, AR_SCAN_NO_OPS());
         return;
     }
-    match wexpr {
+    match wexpr.view::<SExpr>() {
         SExpr::Bin(b) => {
             let mut col: str = pw_field_col(b.lhs_expr());
             let mut col_left: bool = col.len() > 0i64;
@@ -2124,97 +2055,78 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 // two sides and rejects a mixed-type `==`, so a key that types differently on
 // the two sides would select a different strategy — and since the emitter now
 // READS this answer, a wrong one is not a slower plan but a hash index built
-// with the wrong key type, or worse, a rescan promised as a single read. The
-// stamping order below mirrors `emit_join_chain` exactly: per source, schema
-// then rel columns, then the scalar params, then the module's UDF returns.
+// with the wrong key type, or worse, a rescan promised as a single read. Both
+// type through `typing` (`type_clause` here, `type_chain` there): per source,
+// schema then rel columns, then the scalar params, then the module's UDF returns.
 
-/// Seed one source's contribution to the type dict, from the UNSTAMPED query
-/// node (`resolve_source` has not run yet, so the node still names the rel).
-fn plan_stamp_src(t: &mut ElTypes, view: &OView, prm: &MacroParams, src: str, var: str) {
-    let pi: i64 = prm.index_of(src);
-    if pi >= 0i64 && prm.is_slice[pi] {
-        stamp_types_from_schema(view, t, prm.tys[pi], var);
-        return;
-    }
-    let ri: i64 = prm.rel_find_name(src);
-    if ri >= 0i64 { let _b: bool = stamp_rel_columns(t, view, prm, ri, var); return; }
-    // An already-rewritten source name (the idempotent re-walk) or an unknown
-    // one: the later resolve reports it. Nothing to stamp, and a step whose
-    // sides do not type stays a nested loop, which is the safe answer.
-    let si: i64 = prm.rel_find_src(src);
-    if si >= 0i64 { let _b2: bool = stamp_rel_columns(t, view, prm, si, var); }
-}
-
-/// Decide every classic step of ONE chain and stamp the decision on the nodes.
-///
-/// Traversal (`is_edge`) steps are nested loops by construction. They also STOP
-/// the walk: a traversal binds a row var whose element type the planner cannot
-/// reflect before `stamp_edge_step` has run, so any later step's `on` may
-/// reference a name this type dict does not have. Deciding it anyway would risk
-/// a key typed here and typed differently there. Later steps are left
-/// `JS_NONE`; `plan_insert_drains` reads that as "not proven read-once" and
-/// drains the step's source on `MG_UNDECIDED`.
-fn plan_decide_chain(prm: &MacroParams, view: &OView,
-                     base_src: str, base_var: str,
-                     steps: RQJoinStepArr, h: &Writ) {
-    let mut t: ElTypes = el_types_new();
-    plan_stamp_src(&mut t, view, prm, base_src, base_var);
-    let ns: i64 = steps.len();
-    let mut i: i64 = 0i64;
-    while i < ns {
-        let st0: RQJoinStep = steps.step_at(i);
-        if st0.is_edge { i = ns; }
-        else {
-            plan_stamp_src(&mut t, view, prm, st0.src_name, st0.var_name);
-            i = i + 1i64;
-        }
-    }
-    apply_scalar_params(&mut t, view, prm);
-    stamp_udfs_from_module(view, &mut t);
-    let mut k: i64 = 0i64;
-    while k < ns {
-        let st: RQJoinStep = rq_fat_step(steps.step_any(k), h);
-        if st.is_edge {
-            let ts: StepSel = traversal_step_sel();
-            st.jstrat = ts.strat;
-            st.jsel = -1i32;      st.jground = jg_pack(&ts.g);
-            return;               // and every step after it stays undecided
-        }
-        let ss: StepSel = decide_join_step(st.on, st.var_name, &t, h);
-        st.jstrat = ss.strat;
-        st.jsel   = ss.sel as i32;
-        st.jground = jg_pack(&ss.g);
-        // ⚠ THE TYPE ON THE TRACE IS THE ONE THE INDEX IS KEYED IN. It read
-        // `el_class_repr(ss.key_ty)` — the class's representative — so a `u64`
-        // key was announced as `hash join on i64` while the emitted map is
-        // `HashMap<u64, …>`. A justification that names a type the code does not
-        // use is not a justification of that code.
-        trace_step(st.var_name, &ss);
-        k = k + 1i64;
-    }
-}
-
-/// Decide the join steps of the ENTRY query.
+/// Decide the join steps of the ENTRY query (a clause with more than one source).
 ///
 /// Rel BODIES are not visited: a program with rel blocks materializes every
 /// source anyway (a body may scan a native rel any number of times), so no
-/// decision of theirs could widen anything. Their nodes stay `JS_NONE` and the
+/// decision of theirs could widen anything. Their atoms stay `JS_NONE` and the
 /// emitter decides them by the same rule at emission — stated in `analyze_chain`.
-fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
-    if prm.src_root.is_null() { return; }
-    let prog: RQProgram = prm.src_root.view::<RQProgram>();
+fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
     let view: OView = oview_module_ast();
-    match prog.entry_any().view::<RQuery>() {
-        RQuery::Join(jq) => {
-            plan_decide_chain(prm, &view, jq.a_name, jq.x_var, jq.steps_arr(), h);
+    plan_decide_clause(prm, &view, &mut pc.entry.clause, h, false);
+}
+
+/// ADR 0031 R5.3 — EVERY STEP'S STRATEGY IS THE PLANNER'S. What pass 1 left
+/// undecided — the entry's steps after a traversal, and every rel body's steps
+/// — is decided here, once per rule, with the clause's full typing, after every
+/// check has passed and before anything is emitted. The emitter used to decide
+/// these itself, once per emitted VARIANT (a semi-naïve delta variant decided
+/// its steps again), and no longer decides any. `plan_prove_once` has already
+/// read pass 1's answers: these do not widen a drain.
+//
+// The ENTRY's remaining steps are decided AFTER its join order
+// (`plan_entry_order`): the order derivation's C2 refuses a reorder over a step
+// pass 1 could not decide, and that is a claim about pass 1, so it reads pass 1.
+fn plan_decide_rest(prm: &MacroParams, pc: &mut CProgram, h: &Writ, entry: bool) {
+    let view: OView = oview_module_ast();
+    if entry { plan_decide_clause(prm, &view, &mut pc.entry.clause, h, true); return; }
+    let mut r: i64 = 0i64;
+    while r < pc.rels.len() {
+        let mut b: i64 = 0i64;
+        while b < pc.rels[r].rules.len() {
+            plan_decide_clause(prm, &view, &mut pc.rels[r].rules[b].clause, h, true);
+            b = b + 1i64;
         }
-        RQuery::Aggr(gq) => {
-            if gq.has_steps() {
-                plan_decide_chain(prm, &view, gq.a_name, gq.x_var, gq.steps_arr(), h);
-            }
-        }
-        _ => { }
+        r = r + 1i64;
     }
+}
+
+/// ADR 0031 R5.2 — the order of a join-chain entry's nest, decided by the
+/// planner (`join_order::plan_join_order`) and handed to the emitter.
+fn plan_entry_order(pc: &CProgram, prm: &MacroParams, h: &Writ) -> JoinPlan {
+    let cl: &CClause = &pc.entry.clause;
+    let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
+    let find: bool = match &pc.entry.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
+    if grouped || find || core_source_count(cl) < 2i64 { return join_plan_none(); }
+    match plan_entry_chain(pc, h) {
+        Option::Some(ds) => {
+            let scan: bool = match &ds.form { DForm::Scan => true, DForm::Empty => false, DForm::Identity => false };
+            return plan_join_order(cl, scan, ds.sort_key, prm, h);
+        }
+        Option::None => { }
+    }
+    return join_plan_none();
+}
+
+/// The strategy the planner decided for step `k` of a clause (the `k+1`-th
+/// source literal); `JS_NONE` for a traversal or a step never decided.
+fn core_step_strat(cl: &CClause, k: i64) -> i32 {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut src: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if src == k + 1i64 { return a.strat; } src = src + 1i64; }
+            CLit::Trav(_t) => { if src == k + 1i64 { return JS_NONE(); } src = src + 1i64; }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return JS_NONE();
 }
 
 /// INSERT THE PRELUDE'S MATERIALIZATION NODES (ADR 0025 §4, S2j).
@@ -2295,8 +2207,8 @@ fn plan_decide_joins(prm: &MacroParams, h: &Writ) {
 /// conservative one — both return the same rows — and therefore that the grounds
 /// have to MOVE rather than be dropped. S2j moves them: the walk below is the S2h
 /// walk unchanged in every arm and every ground, and only its OUTPUT differs.
-pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
-    let pv: [bool; 8] = plan_prove_once(prm, ap);
+pub fn plan_insert_drains(prm: &MacroParams, pc: &CProgram, ap: &mut AccessPlan) {
+    let pv: Vec<bool> = plan_prove_once(prm, pc, ap);
     // THE FALLBACK, and it is the direction that keeps this pass safe. A rel the
     // walk never reached — a source the entry query does not NAME, which the
     // prelude materializes anyway — got no node above and no proof either; it is
@@ -2381,11 +2293,11 @@ pub fn plan_insert_drains(prm: &MacroParams, ap: &mut AccessPlan) {
 /// asserts the emitted query's ANSWER SEQUENCE at run time and not merely the
 /// trace: a trace can only repeat what the declaration said.
 fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
-                    sq: &RQSimple) -> bool {
-    if ri < 0i64 || ri >= 8i64 { return false; }
+                    key: WAny, desc: bool, var: str) -> bool {
+    if ri < 0i64 || ri >= prm.rel_n { return false; }
     if prm.rel_ordcol[ri].len() == 0i64 { return false; }   // (1)
     if !ap_offers(ap, prm, ri) { return false; }            // (2)
-    if sq.order_desc {                                      // (3)
+    if desc {                                               // (3)
         if !prm.rel_bidir[ri]   { return false; }
         if !prm.rel_randacc[ri] { return false; }
         if !prm.rel_batch[ri]   { return false; }
@@ -2394,13 +2306,13 @@ fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
     // in this pass (it needs the `Writ` the emitter holds) and is not needed:
     // a bare field simplifies to itself, and anything that does not arrive bare
     // is declined, which is the safe direction.
-    match sq.order_expr() {
+    match key.view::<SExpr>() {
         SExpr::Field(f) => {
             if !str_eq(f.name, prm.rel_ordcol[ri]) { return false; }
             if f.base.any().is_null() { return true; }
             match f.base_expr() {
                 SExpr::Field(b) => {
-                    return b.base.any().is_null() && str_eq(b.name, sq.var_name);
+                    return b.base.any().is_null() && str_eq(b.name, var);
                 }
                 _ => { return false; }
             }
@@ -2430,18 +2342,18 @@ fn ap_order_is_noop(prm: &MacroParams, ap: &AccessPlan, ri: i64,
 /// So this computes the value `plan_apply_access` is going to install, from the
 /// same two inputs, rather than reading the field before it is written.
 fn ap_effective_batch(prm: &MacroParams, ap: &AccessPlan, ri: i64) -> bool {
-    if ri < 0i64 || ri >= 8i64 { return false; }
+    if ri < 0i64 || ri >= prm.rel_n { return false; }
     if ap.op[ri] >= 0i64 { return prm.opc_batch[ap.op[ri]]; }
     return prm.rel_batch[ri];
 }
 
-fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
-    let mut pv: [bool; 8] = [false; 8];
-    if prm.src_root.is_null() { return pv; }
-    let prog: RQProgram = prm.src_root.view::<RQProgram>();
+fn plan_prove_once(prm: &MacroParams, pc: &CProgram, ap: &mut AccessPlan) -> Vec<bool> {
+    let mut pv: Vec<bool> = Vec::<bool>::new();
+    let mut zpv: i64 = 0i64;
+    while zpv < prm.rel_n { pv.push(false); zpv = zpv + 1i64; }
     // A parse-side rel body may scan a native rel any number of times, and the
     // body is not inspected here — so their presence blocks the whole question.
-    if prog.has_rels() {
+    if pc.rels.len() > 0i64 {
         let mut r0: i64 = 0i64;
         while r0 < ap.n {
             ap_drain(ap, prm, r0, MG_REL_BLOCK(),
@@ -2450,214 +2362,223 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
         }
         return pv;
     }
-    match prog.entry_any().view::<RQuery>() {
-        RQuery::Simple(sq) => {
-            let ri: i64 = prm.rel_find_name(sq.src_name);
-            if ri < 0i64 { return pv; }
-            if sq.has_order {
-                // ADR 0025 S3 — THE ELISION. `order by <c>` over a source whose
-                // rows ALREADY arrive sorted by `<c>` is a no-op: the sort would
-                // compute a permutation that is the identity, having first built
-                // the buffer the permutation indexes into. So no Sort node is
-                // inserted, the walk still reads the source once, and the
-                // ABSENCE is given a ground (`MG_ORDERED_SOURCE`) rather than
-                // being left to look like an oversight.
-                if ap_order_is_noop(prm, ap, ri, &sq) {
-                    ap.ord_noop[ri] = true;
-                    // ADR 0025 S3-desc — the DIRECTION is recorded here and
-                    // nowhere else. `order_desc` is a fact about the QUERY and
-                    // this is the last pass that holds it; the emitter sees
-                    // only `mods`, whose `has_sort` is about to be cleared.
-                    ap.ord_rev[ri]  = sq.order_desc;
-                    pv[ri] = true;
-                } else {
-                    ap_drain(ap, prm, ri, MG_ORDER_BY(),
-                        "materialized: `order by` revisits rows by position after collecting them");
-                }
-            } else {
-                // ⚠ THERE IS NO `has_gpath` ARM HERE, AND ITS ABSENCE IS A
-                // MEASUREMENT (ADR 0025 §4, S2h). One used to sit between these
-                // two, carrying the ground `MG_GPATH`. It could not execute:
-                // `desugar_program_gpaths` runs at `wql.logos:177`, BEFORE
-                // `walk_program_params`, and for a Simple query it REPLACES the
-                // entry node with an `RQJoin` whose `has_gpath` is the field's
-                // `false` default (`lower::gp_desugar_query`), while the Join and
-                // Aggr arms rewrite in place and assign `has_gpath = false`
-                // explicitly. So by the time this pass reads the flag, nothing
-                // can have set it. CONTROL: `error(…)` in both gpath arms, full
-                // stdlib rebuild, whole-corpus snapshot — 159 dumps / 6,776,657
-                // bytes, `diff -rq` EMPTY against the baseline, the same two
-                // pinned compile failures, across ~20 graph-path fixtures. The
-                // same edit in the `has_order` arm one line up took the corpus to
-                // 158 dumps / 3 failures / −111,952 bytes, which is what says the
-                // control was wired and the zero was measured rather than
-                // inherited from a stale build.
+    // ADR 0031 R6.1 — the shape, the sources and the envelope are the core
+    // entry's: `regs` holds each source literal's registry index in order
+    // (-1 for a parameter or a traversal), slot 0 the base.
+    let ru: &CRule = &pc.entry;
+    let cl: &CClause = &ru.clause;
+    let regs: Vec<i64> = core_source_regs(cl);
+    let has_order: bool = match &ru.env.order { Option::Some(_k) => true, Option::None => false };
+    let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
+    let find: bool = match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
+    if find || regs.len() < 1i64 { return pv; }
+    if !grouped && regs.len() == 1i64 {
+        let ri: i64 = regs.get(0i64);
+        if ri < 0i64 { return pv; }
+        if has_order {
+            // ADR 0025 S3 — THE ELISION. `order by <c>` over a source whose
+            // rows ALREADY arrive sorted by `<c>` is a no-op: the sort would
+            // compute a permutation that is the identity, having first built
+            // the buffer the permutation indexes into. So no Sort node is
+            // inserted, the walk still reads the source once, and the
+            // ABSENCE is given a ground (`MG_ORDERED_SOURCE`) rather than
+            // being left to look like an oversight.
+            let key: WAny = match &ru.env.order { Option::Some(k) => *k, Option::None => WAny::null() };
+            if ap_order_is_noop(prm, ap, ri, key, ru.env.desc, core_base_var(cl)) {
+                ap.ord_noop[ri] = true;
+                // ADR 0025 S3-desc — the DIRECTION is recorded here and
+                // nowhere else. `order_desc` is a fact about the QUERY and
+                // this is the last pass that holds it; the emitter sees
+                // only `mods`, whose `has_sort` is about to be cleared.
+                ap.ord_rev[ri]  = ru.env.desc;
                 pv[ri] = true;
-            }
-        }
-        RQuery::Join(jq) => {
-            let bi: i64 = prm.rel_find_name(jq.a_name);
-            let steps: RQJoinStepArr = jq.steps_arr();
-            let ns: i64 = steps.len();
-            // How many times does the chain NAME each rel?
-            let mut cnt: [i64; 8] = [0i64; 8];
-            if bi >= 0i64 { cnt[bi] = cnt[bi] + 1i64; }
-            let mut c: i64 = 0i64;
-            while c < ns {
-                let sc: i64 = prm.rel_find_name(steps.step_at(c).src_name);
-                if sc >= 0i64 { cnt[sc] = cnt[sc] + 1i64; }
-                c = c + 1i64;
-            }
-            let mut k: i64 = 0i64;
-            while k < ns {
-                let st: RQJoinStep = steps.step_at(k);
-                let si: i64 = prm.rel_find_name(st.src_name);
-                if si >= 0i64 {
-                    // ⚠ THE BUILD SIDE IS NO LONGER AUTHORED HERE (ADR 0025 §4,
-                    // S2d). It used to be — `ap.arrange(si, st.jstrat, …)`, one
-                    // entry per STEP, keyed by the rel registry — and two
-                    // measurements retired it: the emitter writes one build phase
-                    // per step PER CARRIED NEST and `decide_join_orders` does not
-                    // run until emission (141 nodes against 594 emitted indexes),
-                    // and a step whose source is a wql! PARAM has no registry
-                    // index at all, so `si >= 0` gated the node out entirely for
-                    // the whole slice-param class. The Arrange node is authored
-                    // by `rexpr_walk::arrange_node`, at the build phase, keyed by
-                    // the step's source VAR. What survives here is the drain
-                    // cascade, which is a different question.
-                    if cnt[si] > 1i64 {
-                        ap_drain(ap, prm, si, MG_SECOND_USE(),
-                            "materialized: the query names this source more than once in one join chain");
-                    } else if jq.has_order {
-                        ap_drain(ap, prm, si, MG_ORDER_BY(),
-                            "materialized: `order by` re-binds joined rows by index after collecting the matches");
-                    } else if st.jstrat == JS_NONE() {
-                        ap_drain(ap, prm, si, MG_UNDECIDED(),
-                            "materialized: no strategy was decided for this step — a traversal earlier in the chain binds a var the plan cannot type yet");
-                    } else if js_reads_once(st.jstrat) {
-                        pv[si] = true;
-                    } else {
-                        ap_drain(ap, prm, si, MG_RESCAN(),
-                            "materialized: this step is a nested loop, which rescans its source once per bound row");
-                    }
-                }
-                k = k + 1i64;
-            }
-            if bi < 0i64 { return pv; }
-            if cnt[bi] > 1i64 {
-                // The base is named again — a self-join reads it twice.
-                ap_drain(ap, prm, bi, MG_SECOND_USE(),
-                    "materialized: the query names this source on both sides of a join");
-                return pv;
-            }
-            if jq.has_order {
-                ap_drain(ap, prm, bi, MG_ORDER_BY(),
-                    "materialized: `order by` revisits base rows by position after collecting them");
             } else {
-                // No `has_gpath` arm, for the reason recorded in the Simple arm
-                // above — the flag is cleared by `desugar_program_gpaths` before
-                // this pass runs, and the both-directions control is cited there.
-                // ⚠ THIS ARM IS THE ONE THAT MATTERS FOR THE PROOF: a desugared
-                // graph path becomes a JOIN, so if the flag survived anywhere it
-                // would survive here, and the control says it does not.
-                pv[bi] = true;
+                ap_drain(ap, prm, ri, MG_ORDER_BY(),
+                    "materialized: `order by` revisits rows by position after collecting them");
             }
+        } else {
+            // ⚠ THERE IS NO `has_gpath` ARM HERE, AND ITS ABSENCE IS A
+            // MEASUREMENT (ADR 0025 §4, S2h). One used to sit between these
+            // two, carrying the ground `MG_GPATH`. It could not execute:
+            // `desugar_program_gpaths` runs at `wql.logos:177`, BEFORE
+            // `walk_program_params`, and for a Simple query it REPLACES the
+            // entry node with an `RQJoin` whose `has_gpath` is the field's
+            // `false` default (`lower::gp_desugar_query`), while the Join and
+            // Aggr arms rewrite in place and assign `has_gpath = false`
+            // explicitly. So by the time this pass reads the flag, nothing
+            // can have set it. CONTROL: `error(…)` in both gpath arms, full
+            // stdlib rebuild, whole-corpus snapshot — 159 dumps / 6,776,657
+            // bytes, `diff -rq` EMPTY against the baseline, the same two
+            // pinned compile failures, across ~20 graph-path fixtures. The
+            // same edit in the `has_order` arm one line up took the corpus to
+            // 158 dumps / 3 failures / −111,952 bytes, which is what says the
+            // control was wired and the zero was measured rather than
+            // inherited from a stale build.
+            pv[ri] = true;
         }
-        RQuery::Aggr(gq) => {
-            // ── THE AGGREGATE'S BASE IS A DRAIN ONLY FOR THE REPRESENTATIVE
-            // CLASS (ADR 0025 S4). The sentence that stood here — "the aggregate
-            // revisits rows after grouping them" — was true of an emitter shape
-            // and NOT of the operator: γ over an accumulator aggregate is a
-            // single-pass fold, and what made the base look re-read was the
-            // FINALIZE pass's `&(src)[__g_row.get(__r0)]`. That pass is deleted;
-            // the re-bind survives only where a clause above the group NAMES a
-            // source row, and that is exactly `aggr_group_frame_pure`'s answer.
-            //
-            // ⚠ THE GROUND DID NOT MOVE TO A WEAKER SENTENCE, IT MOVED TO A
-            // NARROWER ONE. `MG_REGROUP` is still emitted, still witnessed, and
-            // now says WHICH query re-reads its base and why — 5 of the corpus's
-            // 146 static aggregates. The other 141 stop claiming a drain they no
-            // longer perform, which is where the census numbers move.
-            //
-            // ⚠⚠ AND THE PURE CLASS IS STILL A DRAIN, WHICH IS A MEASUREMENT AND
-            // NOT A HEDGE. The obvious next line — `pv[ai] = true` for the pure
-            // class, claiming the single pass the fold now genuinely performs —
-            // WAS WRITTEN, BUILT AND RUN. It compiles the corpus one fixture
-            // worse: `deem_batch_scan_drain` fails with `'…LeafWalk' has no
-            // method 'len'` / `index read: receiver is not an array, slice, or
-            // ⚠⚠ AND THAT REMAINING HALF IS BUILT — S5-D5. The paragraph below
-            // is kept as the RECORD of what a one-sided change measures, not as
-            // a description of this tree: `emit_aggregate` now routes its base
-            // nest through `batch_scan_frag`, so the pure class over a BATCH
-            // producer takes `pv[ai] = true` in the arm further down and the
-            // failure quoted here is what would return if either half were
-            // reverted alone. Read it as a control, not as a limitation.
-            // pointer`, because marking the base single-pass binds it to an
-            // ITERATOR while `emit_aggregate`'s base loop is still
-            // `while __i0 < (src).len() { let v = &(src)[__i0]; … }` — an INDEXED
-            // slice walk. The plan may not claim a property of the emitted
-            // artifact that the emitted artifact does not have; the gate caught
-            // exactly that, and the remaining half of S4 is the batch pull that
-            // would make the claim true.
-            //
-            // SO THE SITE DOES NOT MOVE AND THE SENTENCE DOES. Both classes are
-            // drained; each now says which fact about the artifact drains it, and
-            // neither says "the aggregate revisits rows after grouping them",
-            // which is false of 141 of the corpus's 146 static aggregates.
-            let ai: i64 = prm.rel_find_name(gq.a_name);
-            if ai >= 0i64 {
-                if aggr_group_frame_pure(gq) {
-                    // ── S5-D5: THE OTHER HALF OF S4 IS BUILT, SO THE CLAIM IS
-                    // NOW TRUE OF THE ARTIFACT. The sentence that stood here —
-                    // "…but the emitted base loop still walks this source BY
-                    // INDEX rather than pulling batches" — described
-                    // `emit_aggregate`, and `emit_aggregate` now routes a batch
-                    // producer through `batch_scan_frag`, §1's one shape, on
-                    // exactly the gate below. The S4 note above records what a
-                    // ONE-SIDED change measured (`deem_batch_scan_drain`:
-                    // `'…LeafWalk' has no method 'len'`); this is the pair.
-                    //
-                    // ⚠ THE PREDICATE IS THE EMITTER'S, FACT FOR FACT.
-                    // `pure_group` is this arm's own `aggr_group_frame_pure`;
-                    // the batch flag is `ap_effective_batch` (the value
-                    // `plan_apply_access` will install, not the pre-pushdown
-                    // one the field still holds); and "unmaterialized" is what
-                    // `pv[ai] = true` MEANS, which is what the emitter reads
-                    // back through `rel_src_unmaterialized`. A pure aggregate
-                    // over a ROW-AT-A-TIME producer keeps its drain and says
-                    // so — the indexed walk is then the shape it gets, and
-                    // that is a fact about the producer, not about grouping.
-                    if ap_effective_batch(prm, ap, ai) {
-                        pv[ai] = true;
-                    } else {
-                        ap_drain(ap, prm, ai, MG_REGROUP(),
-                            "materialized: the group frame is the whole answer (single-pass fold, no representative row), but this producer hands out ROWS, not batches — the emitted base loop is the indexed walk");
-                    }
+        return pv;
+    }
+    if !grouped {
+        let bi: i64 = regs.get(0i64);
+        let ns: i64 = regs.len() - 1i64;
+        // How many times does the chain NAME each rel?
+        let mut cnt: Vec<i64> = Vec::<i64>::new();
+        let mut zc: i64 = 0i64;
+        while zc < prm.rel_n { cnt.push(0i64); zc = zc + 1i64; }
+        if bi >= 0i64 { cnt[bi] = cnt[bi] + 1i64; }
+        let mut c: i64 = 0i64;
+        while c < ns {
+            let sc: i64 = regs.get(c + 1i64);
+            if sc >= 0i64 { cnt[sc] = cnt[sc] + 1i64; }
+            c = c + 1i64;
+        }
+        let mut k: i64 = 0i64;
+        while k < ns {
+            let si: i64 = regs.get(k + 1i64);
+            if si >= 0i64 {
+                // ⚠ THE BUILD SIDE IS NO LONGER AUTHORED HERE (ADR 0025 §4,
+                // S2d). It used to be — `ap.arrange(si, st.jstrat, …)`, one
+                // entry per STEP, keyed by the rel registry — and two
+                // measurements retired it: the emitter writes one build phase
+                // per step PER CARRIED NEST and `decide_join_orders` does not
+                // run until emission (141 nodes against 594 emitted indexes),
+                // and a step whose source is a wql! PARAM has no registry
+                // index at all, so `si >= 0` gated the node out entirely for
+                // the whole slice-param class. The Arrange node is authored
+                // by `rexpr_walk::arrange_node`, at the build phase, keyed by
+                // the step's source VAR. What survives here is the drain
+                // cascade, which is a different question.
+                if cnt[si] > 1i64 {
+                    ap_drain(ap, prm, si, MG_SECOND_USE(),
+                        "materialized: the query names this source more than once in one join chain");
+                } else if has_order {
+                    ap_drain(ap, prm, si, MG_ORDER_BY(),
+                        "materialized: `order by` re-binds joined rows by index after collecting the matches");
+                } else if core_step_strat(&pc.entry.clause, k) == JS_NONE() {
+                    ap_drain(ap, prm, si, MG_UNDECIDED(),
+                        "materialized: no strategy was decided for this step — a traversal earlier in the chain binds a var the plan cannot type yet");
+                } else if js_reads_once(core_step_strat(&pc.entry.clause, k)) {
+                    pv[si] = true;
+                } else {
+                    ap_drain(ap, prm, si, MG_RESCAN(),
+                        "materialized: this step is a nested loop, which rescans its source once per bound row");
+                }
+            }
+            k = k + 1i64;
+        }
+        if bi < 0i64 { return pv; }
+        if cnt[bi] > 1i64 {
+            // The base is named again — a self-join reads it twice.
+            ap_drain(ap, prm, bi, MG_SECOND_USE(),
+                "materialized: the query names this source on both sides of a join");
+            return pv;
+        }
+        if has_order {
+            ap_drain(ap, prm, bi, MG_ORDER_BY(),
+                "materialized: `order by` revisits base rows by position after collecting them");
+        } else {
+            // No `has_gpath` arm, for the reason recorded in the Simple arm
+            // above — the flag is cleared by `desugar_program_gpaths` before
+            // this pass runs, and the both-directions control is cited there.
+            // ⚠ THIS ARM IS THE ONE THAT MATTERS FOR THE PROOF: a desugared
+            // graph path becomes a JOIN, so if the flag survived anywhere it
+            // would survive here, and the control says it does not.
+            pv[bi] = true;
+        }
+        return pv;
+    }
+    {
+        // ── THE AGGREGATE'S BASE IS A DRAIN ONLY FOR THE REPRESENTATIVE
+        // CLASS (ADR 0025 S4). The sentence that stood here — "the aggregate
+        // revisits rows after grouping them" — was true of an emitter shape
+        // and NOT of the operator: γ over an accumulator aggregate is a
+        // single-pass fold, and what made the base look re-read was the
+        // FINALIZE pass's `&(src)[__g_row.get(__r0)]`. That pass is deleted;
+        // the re-bind survives only where a clause above the group NAMES a
+        // source row, and that is exactly `aggr_group_frame_pure`'s answer.
+        //
+        // ⚠ THE GROUND DID NOT MOVE TO A WEAKER SENTENCE, IT MOVED TO A
+        // NARROWER ONE. `MG_REGROUP` is still emitted, still witnessed, and
+        // now says WHICH query re-reads its base and why — 5 of the corpus's
+        // 146 static aggregates. The other 141 stop claiming a drain they no
+        // longer perform, which is where the census numbers move.
+        //
+        // ⚠⚠ AND THE PURE CLASS IS STILL A DRAIN, WHICH IS A MEASUREMENT AND
+        // NOT A HEDGE. The obvious next line — `pv[ai] = true` for the pure
+        // class, claiming the single pass the fold now genuinely performs —
+        // WAS WRITTEN, BUILT AND RUN. It compiles the corpus one fixture
+        // worse: `deem_batch_scan_drain` fails with `'…LeafWalk' has no
+        // method 'len'` / `index read: receiver is not an array, slice, or
+        // ⚠⚠ AND THAT REMAINING HALF IS BUILT — S5-D5. The paragraph below
+        // is kept as the RECORD of what a one-sided change measures, not as
+        // a description of this tree: `emit_aggregate` now routes its base
+        // nest through `batch_scan_frag`, so the pure class over a BATCH
+        // producer takes `pv[ai] = true` in the arm further down and the
+        // failure quoted here is what would return if either half were
+        // reverted alone. Read it as a control, not as a limitation.
+        // pointer`, because marking the base single-pass binds it to an
+        // ITERATOR while `emit_aggregate`'s base loop is still
+        // `while __i0 < (src).len() { let v = &(src)[__i0]; … }` — an INDEXED
+        // slice walk. The plan may not claim a property of the emitted
+        // artifact that the emitted artifact does not have; the gate caught
+        // exactly that, and the remaining half of S4 is the batch pull that
+        // would make the claim true.
+        //
+        // SO THE SITE DOES NOT MOVE AND THE SENTENCE DOES. Both classes are
+        // drained; each now says which fact about the artifact drains it, and
+        // neither says "the aggregate revisits rows after grouping them",
+        // which is false of 141 of the corpus's 146 static aggregates.
+        let ai: i64 = regs.get(0i64);
+        if ai >= 0i64 {
+            if prm.plan_group_pure {
+                // ── S5-D5: THE OTHER HALF OF S4 IS BUILT, SO THE CLAIM IS
+                // NOW TRUE OF THE ARTIFACT. The sentence that stood here —
+                // "…but the emitted base loop still walks this source BY
+                // INDEX rather than pulling batches" — described
+                // `emit_aggregate`, and `emit_aggregate` now routes a batch
+                // producer through `batch_scan_frag`, §1's one shape, on
+                // exactly the gate below. The S4 note above records what a
+                // ONE-SIDED change measured (`deem_batch_scan_drain`:
+                // `'…LeafWalk' has no method 'len'`); this is the pair.
+                //
+                // ⚠ THE PREDICATE IS THE EMITTER'S, FACT FOR FACT.
+                // `pure_group` is this arm's own `aggr_group_frame_pure`;
+                // the batch flag is `ap_effective_batch` (the value
+                // `plan_apply_access` will install, not the pre-pushdown
+                // one the field still holds); and "unmaterialized" is what
+                // `pv[ai] = true` MEANS, which is what the emitter reads
+                // back through `rel_src_unmaterialized`. A pure aggregate
+                // over a ROW-AT-A-TIME producer keeps its drain and says
+                // so — the indexed walk is then the shape it gets, and
+                // that is a fact about the producer, not about grouping.
+                if ap_effective_batch(prm, ap, ai) {
+                    pv[ai] = true;
                 } else {
                     ap_drain(ap, prm, ai, MG_REGROUP(),
-                        "materialized: a clause above the group names a source row, so each group carries a representative base row the output phase re-binds by index");
+                        "materialized: the group frame is the whole answer (single-pass fold, no representative row), but this producer hands out ROWS, not batches — the emitted base loop is the indexed walk");
                 }
-            }
-            // An aggregate's join STEPS carry a decided strategy too, and they
-            // stay drained for a reason that is NOT the finalize pass (there is
-            // none): the nest re-enters a step's source once per base row, so a
-            // source that yields its rows once cannot serve it. Said out loud
-            // rather than left to the default.
-            if gq.has_steps() {
-                let gs: RQJoinStepArr = gq.steps_arr();
-                let ng: i64 = gs.len();
-                let mut gk: i64 = 0i64;
-                while gk < ng {
-                    let gi: i64 = prm.rel_find_name(gs.step_at(gk).src_name);
-                    if gi >= 0i64 {
-                        ap_drain(ap, prm, gi, MG_REGROUP(),
-                            "materialized: the aggregate's nest re-enters this source once per base row");
-                    }
-                    gk = gk + 1i64;
-                }
+            } else {
+                ap_drain(ap, prm, ai, MG_REGROUP(),
+                    "materialized: a clause above the group names a source row, so each group carries a representative base row the output phase re-binds by index");
             }
         }
-        _ => { }
+        // An aggregate's join STEPS carry a decided strategy too, and they
+        // stay drained for a reason that is NOT the finalize pass (there is
+        // none): the nest re-enters a step's source once per base row, so a
+        // source that yields its rows once cannot serve it. Said out loud
+        // rather than left to the default.
+        {
+            let ng: i64 = regs.len() - 1i64;
+            let mut gk: i64 = 0i64;
+            while gk < ng {
+                let gi: i64 = regs.get(gk + 1i64);
+                if gi >= 0i64 {
+                    ap_drain(ap, prm, gi, MG_REGROUP(),
+                        "materialized: the aggregate's nest re-enters this source once per base row");
+                }
+                gk = gk + 1i64;
+            }
+        }
     }
     return pv;
 }
@@ -2676,21 +2597,6 @@ fn plan_prove_once(prm: &MacroParams, ap: &mut AccessPlan) -> [bool; 8] {
 // property is how this compiler has already come to disagree with itself once
 // (`compute_acc_tys`' `typed` flag), and the cost here would be a justification
 // sentence that is false about the artifact it justifies.
-fn aggr_group_frame_pure(gq: RQAggr) -> bool {
-    let aggs: RQAggArr = gq.aggs_arr();
-    let n: i64 = aggs.len();
-    let mut onames: [str; 8] = ["", "", "", "", "", "", "", ""];
-    let mut j: i64 = 0i64;
-    while j < n { onames[j] = aggs.agg_at(j).name; j = j + 1i64; }
-    if !sexpr_over_group_names(gq.select.any().view::<SExpr>(), &onames, n) { return false; }
-    if gq.has_having && !sexpr_over_group_names(gq.having_pred.any().view::<SExpr>(), &onames, n) {
-        return false;
-    }
-    if gq.has_order && !sexpr_over_group_names(gq.order_key.any().view::<SExpr>(), &onames, n) {
-        return false;
-    }
-    return true;
-}
 
 /// APPLY the plan: bind each rel to the access that was chosen, bind a streamed
 /// rel to its iterator name, retire the residual filter if the plan retired it,
@@ -2747,10 +2653,11 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
         }
         ri = ri + 1i64;
     }
-    if ap.drop_where && !prm.src_root.is_null() {
-        let fs: RQSimple = rq_fat_simple(prm.src_root.view::<RQProgram>().entry_any(), h);
-        fs.has_where = false;
-    }
+    // An exact access op answered the entry's whole `where`: a PLAN fact the
+    // entry's lowering reads (ADR 0031 R5.1) — the parsed query is no longer
+    // rewritten to say it.
+    prm.plan_where_retired = ap.drop_where;
+    let _ = h;
     // ⚠ `access_plan_explain` WAS CALLED HERE AND IS NOW CALLED BY THE CALLER
     // (ADR 0025 R-G). It has to be, and the reason is an ORDERING fact rather
     // than a taste: this fn runs BEFORE the body pass, so before `RelDeps`
@@ -2818,6 +2725,12 @@ fn plan_apply_access(prm: &mut MacroParams, ap: &AccessPlan, h: &Writ) {
 fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelScc) {
     let mut ri: i64 = 0i64;
     while ri < ap.n {
+        // A rel the prelude does not evaluate has no landing (`MG_DEAD`).
+        if prm.rel_dead.has(ri) {
+            ap.mgnd[ri] = String::from_str(MG_DEAD());
+            ri = ri + 1i64;
+            continue;
+        }
         // Only the absence-of-a-node case is re-headed: a rel the drain pass
         // already decided owns a node with a ground obtained from a real offer.
         if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) && scc.rec[scc.comp[ri]] {
@@ -2856,16 +2769,17 @@ fn plan_mark_rel_landings(prm: &mut MacroParams, ap: &mut AccessPlan, scc: &RelS
 }
 
 fn register_native_rels(prm: &mut MacroParams, natspec: str,
-                        srcb: &mut [String; 8], dsrcb: &mut [String; 8],
-                        rowtyb: &mut [String; 8], ssrcb: &mut [String; 8],
-                        szatb: &mut [String; 8]) -> bool {
+                        srcb: &mut Vec<String>, dsrcb: &mut Vec<String>,
+                        rowtyb: &mut Vec<String>, ssrcb: &mut Vec<String>,
+                        szatb: &mut Vec<String>) -> bool {
     let n: i64 = natspec.len();
     let mut i: i64 = 0i64;
     let mut k: i64 = 0i64;
     while i < n {
-        if k >= 8i64 || prm.rel_n >= 8i64 {
-            error("wql!: too many rels (max 8, native source params included)");
-            return false;
+        // The frame buffers grow with the native's registry position.
+        while srcb.len() <= k {
+            srcb.push(String::new()); dsrcb.push(String::new()); rowtyb.push(String::new());
+            ssrcb.push(String::new()); szatb.push(String::new());
         }
         // <regname>=
         let s0: i64 = i;
@@ -2947,8 +2861,8 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         i = i + 1i64;
         // columns into rowty text, remembering (name, ty) pairs for rel_add_col.
         rowtyb[k].push_str("(");
-        let mut cnames: [str; 8] = ["", "", "", "", "", "", "", ""];
-        let mut ctys:   [str; 8] = ["", "", "", "", "", "", "", ""];
+        let mut cnames: Vec<str> = Vec::<str>::new();
+        let mut ctys:   Vec<str> = Vec::<str>::new();
         let mut nc: i64 = 0i64;
         loop {
             let c0: i64 = i;
@@ -2961,7 +2875,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             let ct: str = pw_slice(natspec, t0, i);
             if nc > 0i64 { rowtyb[k].push_str(", "); }
             rowtyb[k].push_str(ct);
-            if nc < 8i64 { cnames[nc] = cn; ctys[nc] = ct; nc = nc + 1i64; }
+            cnames.push(cn); ctys.push(ct); nc = nc + 1i64;
             if i >= n || str_byte_at(natspec, i) == 41u8 { break; }
             i = i + 1i64;                                                    // ','
         }
@@ -2970,13 +2884,13 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         // Absent for a source that declares none, which is every hand-written
         // one until it says otherwise. Held in locals here and registered
         // after the rel itself is (rel_add_op keys off the LAST registered).
-        let mut op_col: [str; 8] = ["", "", "", "", "", "", "", ""];
-        let mut op_cmp: [str; 8] = ["", "", "", "", "", "", "", ""];
-        let mut op_fn:  [str; 8] = ["", "", "", "", "", "", "", ""];
-        let mut op_ex:  [bool; 8] = [false; 8];
-        let mut op_it:  [bool; 8] = [false; 8];
-        let mut op_bt:  [bool; 8] = [false; 8];
-        let mut op_ity: [str; 8] = [""; 8];
+        let mut op_col: Vec<str> = Vec::<str>::new();
+        let mut op_cmp: Vec<str> = Vec::<str>::new();
+        let mut op_fn:  Vec<str> = Vec::<str>::new();
+        let mut op_ex:  Vec<bool> = Vec::<bool>::new();
+        let mut op_it:  Vec<bool> = Vec::<bool>::new();
+        let mut op_bt:  Vec<bool> = Vec::<bool>::new();
+        let mut op_ity: Vec<str> = Vec::<str>::new();
         let mut nops: i64 = 0i64;
         if i < n && str_byte_at(natspec, i) == 123u8 {                        // '{'
             i = i + 1i64;
@@ -3007,12 +2921,12 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                           && str_byte_at(natspec, i) != 125u8 { i = i + 1i64; }
                     oity = pw_slice(natspec, t0, i);
                 }
-                if nops < 8i64 {
-                    op_col[nops] = ocol; op_cmp[nops] = ocmp; op_fn[nops] = ofn;
-                    op_ex[nops] = pw_flag(oex, 101u8);                        // 'e'
-                    op_it[nops] = pw_flag(oex, 105u8);                        // 'i'
-                    op_bt[nops] = pw_flag(oex, 98u8);                         // 'b'
-                    op_ity[nops] = oity;
+                {
+                    op_col.push(ocol); op_cmp.push(ocmp); op_fn.push(ofn);
+                    op_ex.push(pw_flag(oex, 101u8));                          // 'e'
+                    op_it.push(pw_flag(oex, 105u8));                          // 'i'
+                    op_bt.push(pw_flag(oex, 98u8));                           // 'b'
+                    op_ity.push(oity);
                     nops = nops + 1i64;
                 }
                 if i < n && str_byte_at(natspec, i) == 124u8 { i = i + 1i64; } // '|'
@@ -3063,9 +2977,9 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         }
         // `~<col>=<fn>[%<ret-ty>]` — the source's declared DISTINCT-VALUE counts
         // (#726), registered after the rel (rel_add_ndv keys off the last one).
-        let mut ndv_col: [str; 8] = [""; 8];
-        let mut ndv_fn:  [str; 8] = [""; 8];
-        let mut ndv_ty:  [str; 8] = [""; 8];
+        let mut ndv_col: Vec<str> = Vec::<str>::new();
+        let mut ndv_fn:  Vec<str> = Vec::<str>::new();
+        let mut ndv_ty:  Vec<str> = Vec::<str>::new();
         let mut nndv: i64 = 0i64;
         while i < n && str_byte_at(natspec, i) == 126u8 {                      // '~'
             i = i + 1i64;
@@ -3085,7 +2999,7 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
                       && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }
                 dty = pw_slice(natspec, t0, i);
             }
-            if nndv < 8i64 { ndv_col[nndv] = dcol; ndv_fn[nndv] = dfn; ndv_ty[nndv] = dty; nndv = nndv + 1i64; }
+            ndv_col.push(dcol); ndv_fn.push(dfn); ndv_ty.push(dty); nndv = nndv + 1i64;
         }
         i = i + 1i64;                                                        // ';'
         rowtyb[k].push_str(")");
@@ -3287,11 +3201,15 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                 batch_row_text(&mut rowx, prm, r, "__bb", "__bj");
                 let mut lenx: String = String::new();
                 batch_len_text(&mut lenx, prm, r, "__bb");
+                let mut hoistx: String = String::new();
+                batch_hoist_text(&mut hoistx, prm, r, "__bb");
                 prelude.push_str("    loop { let __db = __it_");
                 prelude.push_str(prm.rel_names[r]);
                 prelude.push_str(".next_batch(); if __db.is_some() { { let __bb = __db.unwrap(); let __bn: u64 = ");
                 prelude.push_str(string_as_str(&lenx));
-                prelude.push_str("; let mut __bj: u64 = 0u64; while __bj < __bn { ");
+                prelude.push_str("; ");
+                prelude.push_str(string_as_str(&hoistx));
+                prelude.push_str("let mut __bj: u64 = 0u64; while __bj < __bn { ");
                 push_land_name(prelude, prm.rel_node[r], prm.rel_names[r]);
                 prelude.push_str(".push(");
                 prelude.push_str(string_as_str(&rowx));
@@ -3361,7 +3279,7 @@ fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
     prelude.push_str("_rel_");
     prelude.push_str(prm.rel_names[r]);
     prelude.push_str("(");
-    push_call_args(prelude, prm, scc.dep_mask[r]);
+    push_call_args(prelude, prm, &scc.dep_mask[r]);
     // Result-returning rel fn (error-returning EL arithmetic): unwrap with `?`
     // — a math fault in a rel body propagates to the entry fn's Result.
     prelude.push_str(")?;\n");
@@ -3403,10 +3321,10 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
         r = r + 1i64;
     }
     // Union of the members' out-of-SCC dep masks — the SCC fn's dep params.
-    let mut mask: i64 = 0i64;
+    let mut mask: RelSet = relset_new(prm.rel_n);
     let mut r2: i64 = 0i64;
     while r2 < prm.rel_n {
-        if scc.comp[r2] == c { mask = mask | scc.dep_mask[r2]; }
+        if scc.comp[r2] == c { mask.union_with(&scc.dep_mask[r2]); }
         r2 = r2 + 1i64;
     }
     prelude.push_str("    __wql_");
@@ -3414,7 +3332,7 @@ fn emit_prelude_scc(prelude: &mut String, name: str, prm: &MacroParams,
     prelude.push_str("_scc");
     prelude.push_i64(c);
     prelude.push_str("(");
-    push_call_args(prelude, prm, mask);
+    push_call_args(prelude, prm, &mask);
     let mut r3: i64 = 0i64;
     while r3 < prm.rel_n {
         if scc.comp[r3] == c {

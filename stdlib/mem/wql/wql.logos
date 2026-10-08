@@ -66,9 +66,14 @@ use logos.lang.writ.anyval;
 use logos.std.wql.params;                // MacroParams / parse_macro_params — SHARED with trama!
 use logos.std.wql.wql_surface_parser;    // parse_program — the GENERATED surface parser
 use logos.std.wql.plan_walker;           // walk_program_params — the program walker-emitter
+use logos.std.wql.plan;                  // RQProgram — the parsed program (the entry's presence)
 use logos.std.wql.lower;                 // desugar_program_gpaths — graph-path sugar (M2a)
 use logos.std.wql.codegen;               // plan_trace — the demand decision on the [plan] channel
 use logos.std.wql.dl_export;             // dl_export — the Soufflé oracle's program text
+use logos.std.wql.core;                  // the Deem core (ADR 0031): lowered once, verified
+use logos.std.wql.crewrite;              // the core rewrites (ADR 0031 R3)
+use logos.std.wql.check;                 // the checks over the core (ADR 0031 R2)
+use logos.std.wql.dplan;                 // the plan as data (ADR 0031 R5)
 use logos.std.wql.why;                   // ms_render / ms_name — the demand decision's words
 use logos.mem.string;                    // String — the desugar error buffer
 use logos.lang.str;                      // str_from_raw — error-text view
@@ -157,11 +162,15 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     let root: WAny = unsafe { WAny::ref_to(ir) };
     // ── mapping fusion (ADR 0016 M2b-2): `deem!(g: Services)` ────────────
     // The compiler prepended the mapping's rels to this program and encoded
-    // `old=new@lo-hi;` per mapping param — rename each mapping's own source
-    // param to the consumer's inside JUST that mapping's rels. Must run
-    // BEFORE the gpath desugar, so `__reach_*` injection derives from the
-    // new name. After this the spliced rels are indistinguishable from
-    // hand-written ones: SCC, recursion and `**` all apply.
+    // `old=new@lo-hi;` per mapping param — each mapping's own source param
+    // becomes the consumer's inside JUST that mapping's rels
+    // (`crewrite::core_fuse`, applied to the core below, ADR 0031 R3.5).
+    // After it the spliced rels are indistinguishable from hand-written ones:
+    // SCC, recursion and `**` all apply.
+    let mut fu_old: Vec<str> = Vec::<str>::new();
+    let mut fu_new: Vec<str> = Vec::<str>::new();
+    let mut fu_lo: Vec<i64> = Vec::<i64>::new();
+    let mut fu_hi: Vec<i64> = Vec::<i64>::new();
     if enrich.len() > 0i64 {
         let en: i64 = enrich.len();
         let mut i: i64 = 0i64;
@@ -197,63 +206,109 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
                 while i < en && str_byte_at(enrich, i) != 59u8 { i = i + 1i64; }
                 let mname: str = unsafe { str_from_raw(((enrich.as_ptr() as i64) + n0) as *const u8, i - n0) };
                 let mut k: i64 = 0i64;
-                while k < hi - lo && lo + k < 8i64 {
-                    prm.fused_mapping[lo + k] = mname;
-                    prm.fused_hidden[lo + k] = k < mask.len() && str_byte_at(mask, k) == 48u8;   // '0'
+                while k < hi - lo {
+                    prm.set_fused(lo + k, mname, k < mask.len() && str_byte_at(mask, k) == 48u8);   // '0'
                     k = k + 1i64;
                 }
             }
             i = i + 1i64;
-            rename_rel_sources(root, lo, hi, old_name, new_name, &h);
+            fu_old.push(old_name); fu_new.push(new_name); fu_lo.push(lo); fu_hi.push(hi);
         }
     }
-    // ADR 0016 M2a: graph paths desugar to classic join chains (the SHARED
-    // plan→plan pass — one implementation for both binding times).
+    // ADR 0031 R0 — THE CORE: the program in one clause form, lowered ONCE
+    // (entry and rel bodies alike); graph paths are lowered into their join
+    // chains on it (ADR 0016 M2a, `crewrite::core_desugar_gpaths`, R3.4), and
+    // it is verified — a broken invariant is an ICE. `LOGOS_DEEM_DUMP=core`
+    // prints it.
+    let rq: RQProgram = root.view::<RQProgram>();
+    if rq.entry_any().is_null() { error("wql!: missing entry query"); return out; }
+    let mut core: CProgram = lower_program(root);
+    let mut fu: i64 = 0i64;
+    while fu < fu_old.len() { core_fuse(&mut core, fu_lo[fu], fu_hi[fu], fu_old[fu], fu_new[fu]); fu = fu + 1i64; }
     let mut gperr: String = String::new();
-    if !desugar_program_gpaths(root, &h, &mut gperr) {
+    if !core_desugar_gpaths(&mut core, &h, &mut gperr) {
         error(gp_err_str(&gperr));
         return out;
     }
+    core_finish(&core, name);
+    // ADR 0031 R2 — the user's names, checked on the core as written: before
+    // the demand rewrite or the fact desugar invent a rel or a clause.
+    if !core_rules_ok(&core) { return out; }
+    if !core_scope_ok(&core, &prm) { return out; }
     // DEMAND (#349): the rel the entry reads with a bound column is evaluated
-    // on demand (magic sets). Before the fact desugar: its seed is a fact.
-    // `LOGOS_DEEM_NO_DEMAND` turns it off: the rewrite never changes an answer
-    // (MS_FALLIBLE keeps it so), so the switch is for measuring it.
+    // on demand (magic sets, `crewrite::core_magic`). Before the fact
+    // desugar: a seed can be a fact. `LOGOS_DEEM_NO_DEMAND` (any value) turns
+    // it off: the rewrite never changes an answer (MS_FALLIBLE keeps it so),
+    // so the switch is for measuring it.
     // ORACLE: `LOGOS_DEEM_ORACLE=<dir>` writes the program as Soufflé text,
     // before any rewrite of ours (the oracle checks what the user wrote).
-    dl_export(root, name, &mut prm);
-    let mut msd: MsDecision = MsDecision { rel: "", col: "", rule: 0i32 };
+    dl_export(&core, name, natspec, &mut prm);
+    let mut msd: MsDecisions = ms_decisions_new();
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");
     nd.push_u8(0u8);
-    // `=moving` keeps the rewrite but declines the shapes that need a
-    // recursive magic rule (what the first cut did), to measure that rule alone.
-    let ndv: *const u8 = unsafe { getenv(nd.as_ptr()) };
-    let mut demand_off: bool = ndv != 0 as *const u8;
-    let mut allow_moving: bool = true;
-    if demand_off {
-        let mut vl: i64 = 0i64;
-        while unsafe { *(((ndv as i64) + vl) as *const u8) } != 0u8 { vl = vl + 1i64; }
-        if str_eq(unsafe { str_from_raw(ndv, vl) }, "moving") {
-            demand_off = false;
-            allow_moving = false;
+    let demand_off: bool = unsafe { getenv(nd.as_ptr()) } != 0 as *const u8;
+    // ADR 0031 R3 — the program the walker plans IS the core: from here on it
+    // is analysed and rewritten on the core, never lowered again. The group
+    // frame's class is read off the entry as written.
+    prm.plan_group_pure = plan_group_pure(&core.entry);
+    let mut pc: CProgram = core;
+    if !demand_off && core_magic(&mut pc, &h, &prm, &mut msd) > 0i64 {
+        let mut di: i64 = 0i64;
+        while di < msd.n {
+            plan_trace("demand", ms_verdict(msd.rule[di]), string_as_str(&msd.rel[di]), ms_render(msd.rule[di]));
+            if plan_trace_facts_on() {
+                let mut fl: String = String::new();
+                fl.push_str("[facts] "); fl.push_str(string_as_str(&msd.rel[di])); fl.push_str(" demand col=");
+                fl.push_str(string_as_str(&msd.col[di])); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule[di]));
+                fl.push_str("\n");
+                plan_trace_raw(unsafe { str_from_raw(fl.as_ptr(), fl.len()) });
+            }
+            di = di + 1i64;
         }
     }
-    if !demand_off && magic_program(root, &h, &prm, allow_moving, &mut msd) > 0i64 {
-        plan_trace("demand", ms_verdict(msd.rule), msd.rel, ms_render(msd.rule));
-        if plan_trace_facts_on() {
-            let mut fl: String = String::new();
-            fl.push_str("[facts] "); fl.push_str(msd.rel); fl.push_str(" demand col=");
-            fl.push_str(msd.col); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule));
-            fl.push_str("\n");
-            plan_trace_raw(unsafe { str_from_raw(fl.as_ptr(), fl.len()) });
+    // LIVE RELS: a rel no reader reaches from the entry is not evaluated
+    // (`crewrite::core_live_rels`) — computed AFTER the demand rewrite, so an
+    // original every reader of which now reads an adorned copy is dead too.
+    // `LOGOS_DEEM_NO_PRUNE` (at compile time) evaluates every rel, to measure it.
+    let mut fal: RelSet = relset_new(0i64);
+    let mut live: RelSet = core_live_rels(&pc, &mut fal);
+    let mut np: String = String::new();
+    np.push_str("LOGOS_DEEM_NO_PRUNE");
+    np.push_u8(0u8);
+    let nrel0: i64 = pc.rels.len();
+    let all: bool = unsafe { getenv(np.as_ptr()) } != 0 as *const u8;
+    prm.rel_dead = relset_new(nrel0);
+    let mut pd: i64 = 0i64;
+    while pd < nrel0 {
+        if all { live.add(pd); } else if !live.has(pd) { prm.rel_dead.add(pd); }
+        pd = pd + 1i64;
+    }
+    let mut pi: i64 = 0i64;
+    while pi < nrel0 {
+        let rn: str = pc.rels.as_slice()[pi].name;
+        let dead: bool = prm.rel_dead.has(pi);
+        let kept: bool = fal.has(pi);
+        if dead {
+            plan_trace("live rels", "not evaluated", rn, "no reader reaches the entry: neither the entry nor a rel it reads (positively, under `anti join`, or in an aggregate) reads this rel, so its rows cannot reach the answer — its bodies are checked, and `_run` does not compute it (Soufflé's RemoveRedundantRelations)");
+        } else if kept {
+            plan_trace("live rels", "evaluated though unread", rn, "no reader reaches the entry, but a body evaluates checked arithmetic, a comprehension or an aggregate, which can return an `Err` the naive program returns; leaving it out could turn that `Err` into an `Ok`");
         }
+        if (dead || kept) && plan_trace_facts_on() {
+            let mut fl0: String = String::new();
+            fl0.push_str("[facts] "); fl0.push_str(rn); fl0.push_str(" live rule=");
+            if dead { fl0.push_str("dead"); } else { fl0.push_str("fallible_kept"); }
+            fl0.push_str("\n");
+            plan_trace_raw(unsafe { str_from_raw(fl0.as_ptr(), fl0.len()) });
+        }
+        pi = pi + 1i64;
     }
     // FACTS: a FROM-less `select` reads the one-row `__unit` relation, which
     // registers as one more native source.
     let mut nat: String = String::new();
     nat.push_str(natspec);
-    if desugar_program_facts(root, &h) { nat.push_str(UNIT_NATSPEC()); }
+    if core_desugar_facts(&mut pc) { nat.push_str(UNIT_NATSPEC()); }
     let natspec2: str = unsafe { str_from_raw(nat.as_ptr(), nat.len()) };
-    let _ok: bool = walk_program_params(root, name, params, natspec2, &mut prm, &h);
+    let _ok: bool = walk_program_params(root, pc, name, params, natspec2, &mut prm, &h);
     return out;
 }

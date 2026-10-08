@@ -1,0 +1,17 @@
+// An anti-join row var binds only inside its own `on`: no row of it survives
+// the step, so a clause after the chain (here `select`) cannot read it. A named
+// error; it used to surface as `undefined variable 'b'` in the generated code.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub m: i64 }
+
+pub deem bad(xs: &[A], ys: &[B]) {
+    from xs a
+    anti join ys b on b.m == a.k
+    select (a.v, b.m) }
+
+fn main() -> i32 { return 0i32; }

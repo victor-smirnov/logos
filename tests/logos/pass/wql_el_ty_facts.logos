@@ -6,8 +6,8 @@
 // ONE class whose orders differ above 2^63; `u128` and `i64` are ONE class whose
 // identities differ. Each consumer that needed a real answer grew its own side
 // table keyed on the type's SPELLING — the reorder licence, the width check, the
-// static rel-column whitelist, the dynamic rel-column whitelist, the widening
-// cast. Five tables about one type, each free to drift from the others.
+// rel-column whitelist (now `Eq + Hash`, asked of the language — ADR 0031
+// R4.1), the widening cast. Five tables about one type, each free to drift from the others.
 //
 // This fixture is the ORACLE for the replacement: `el::el_ty(name)` resolves the
 // type once and every fact is a FIELD of it. It pins, per type:
@@ -20,9 +20,7 @@
 //   ident   whether that conversion preserves equality, and WHICH WAY it fails
 //           when it does not (NO_EQ: not even reflexive / NO_INJ: bits dropped);
 //   ord     how faithfully the emitted comparison realizes this type's order;
-//   cast    the normalization the emitter must wrap a value in (`el_norm_cast`);
-//   setcol  may this type be a column of a SET-valued relation, and if not,
-//           WHICH antecedent failed.
+//   cast    the normalization the emitter must wrap a value in (`el_norm_cast`).
 //
 // The rows are chosen to be exactly the distinctions the four-tag domain could
 // not make:
@@ -69,14 +67,6 @@ fn id_name(i: i32) -> str {
     return "UNNAMED";
 }
 
-fn col_name(a: i32) -> str {
-    if a == EL_COL_OK()      { return "OK"; }
-    if a == EL_COL_UNKNOWN() { return "UNKNOWN"; }
-    if a == EL_COL_NO_EQ()   { return "NO_EQ"; }
-    if a == EL_COL_NO_INJ()  { return "NO_INJ"; }
-    return "NOT_REPR";
-}
-
 fn dash(s: str) -> str { if s.len() == 0i64 { return "-"; } return s; }
 
 fn row(name: str) {
@@ -92,15 +82,6 @@ fn row(name: str) {
     b.push_str(" ident=");  b.push_str(id_name(t.ident));
     b.push_str(" ord=");    b.push_str(ord_name(t.ord));
     b.push_str(" cast=");   b.push_str(dash(el_norm_cast(name)));
-    b.push_str(" setcol="); b.push_str(col_name(el_set_col_admit(name)));
-    emit(&mut b);
-}
-
-fn why(name: str) {
-    let mut b: String = String::new();
-    b.push_str(name);
-    b.push_str(": ");
-    b.push_str(el_set_col_why(name));
     emit(&mut b);
 }
 
@@ -109,13 +90,6 @@ fn main() -> i32 {
     row("u56");    row("i128");   row("u128");   row("usize");
     row("isize");  row("f32");    row("f64");    row("bool");
     row("str");    row("String"); row("Prec");   row("RowId");
-
-    // The GROUND of each refusal, in the vocabulary of the antecedent that
-    // failed — this is what a caller prints instead of a verdict.
-    why("f64");
-    why("u128");
-    why("u64");
-    why("Prec");
 
     // The four-class VIEW still answers the coarse question, and answers it
     // ABOUT THE CLASS'S REPRESENTATIVE — which is why a caller holding only a

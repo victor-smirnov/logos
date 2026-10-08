@@ -293,6 +293,12 @@ pub fn MG_CONTAINER() -> str  { return "already a buffer"; }
 /// `MG_RESCAN`: neither of those says the buffer's SIZE is not known when it is
 /// created.
 pub fn MG_FIXPOINT() -> str   { return "recursion: the fixpoint grows a total"; }
+/// THE GROUND FOR A REL THAT IS NOT EVALUATED (2026-10-04). No reader reaches
+/// the entry from it (`lower::live_rel_mask`), so `_run` neither calls its
+/// helper nor grows its fixpoint: no landing exists, and the plan says why
+/// rather than declaring the `MG_REL_RESULT` / `MG_FIXPOINT` landing a live rel
+/// would have. An absence ground, like `MG_CONTAINER`.
+pub fn MG_DEAD() -> str       { return "dead: no reader reaches the entry"; }
 /// ADR 0025 R-G — THE GROUND FOR THE ONE-SHOT REL RESULT (`MAT_RELLAND`).
 ///
 /// The other 45 landings that carried `MG_CONTAINER`, and the case where the
@@ -411,17 +417,17 @@ pub fn AG_REP_ROW() -> str  { return "re-bound: the projection names a source ro
 // column" is the answer a person debugging a slow query actually needs, and it
 // is exactly the answer a decision recorded only on success cannot give.
 pub struct AccessPlan {
-    pub kind:  [i32; 8],
-    pub card:  [i32; 8],
-    pub op:    [i64; 8],   // index into the flat op table, or -1 = scan
-    pub fnm: [String; 8],   // the operation implementing it
-    pub arg: [String; 8],   // the narrowing constant, typed by the column
-    pub col: [String; 8],
-    pub cmp: [String; 8],   // the DEMAND this access answers
-    pub exact: [bool; 8],  // its rows are precisely the demand's matches
+    pub kind: Vec<i32>,
+    pub card: Vec<i32>,
+    pub op: Vec<i64>,   // index into the flat op table, or -1 = scan
+    pub fnm: Vec<String>,   // the operation implementing it
+    pub arg: Vec<String>,   // the narrowing constant, typed by the column
+    pub col: Vec<String>,
+    pub cmp: Vec<String>,   // the DEMAND this access answers
+    pub exact: Vec<bool>,  // its rows are precisely the demand's matches
     // The access path's GROUND per rel (why.logos `ag_pack`): the rule that fired
     // and the facts it fired on. It was the rendered sentence until 2026-10-02.
-    pub ground: [i64; 8],
+    pub ground: Vec<i64>,
     /// STREAM instead of materialize (ADR 0024 S4). The producer hands back an
     /// iterator AND the plan consumes it exactly once, so no `Vec` is built at
     /// all: a `find` over a million rows stops at the first match, and a scan
@@ -434,10 +440,10 @@ pub struct AccessPlan {
     /// sort must be drained first. An iterator is the general form and a `Vec`
     /// is an eagerly-drained one — never the reverse — which is why draining is
     /// always available as the fallback.
-    pub stream: [bool; 8],
+    pub stream: Vec<bool>,
     // The MODE ground per rel (why.logos `MA_*`/`MR_*`, packed as `ag_pack`):
     // stream or materialize, and on what. A sentence until 2026-10-02.
-    pub mground: [i64; 8],
+    pub mground: Vec<i64>,
     /// ADR 0025 S3 — THE ELISION, decided by the walk and recorded ONCE. The
     /// query has an `order by` over exactly the column this source declares its
     /// rows already arrive sorted by, so no Sort node was inserted and the walk
@@ -451,10 +457,10 @@ pub struct AccessPlan {
     /// `rel_node` is copied — one decision, carried, never re-derived. An
     /// emitter that re-ran the predicate would be a second representation, and
     /// the two would eventually disagree about whether a sort happened.
-    pub ord_noop: [bool; 8],
+    pub ord_noop: Vec<bool>,
     /// ADR 0025 S3-desc — the DIRECTION of the elided order, decided in the
     /// same place and by the same predicate. Only read when `ord_noop` is set.
-    pub ord_rev: [bool; 8],
+    pub ord_rev: Vec<bool>,
     /// ⚠ `once: [bool; 8]` AND `owhy: [str; 8]` WERE HERE AND ARE DELETED (ADR
     /// 0025 §4, the S2j INVERSION). They were the side channel: a per-rel proof
     /// of a single read, written by one pass, read by one other, and turned into
@@ -489,17 +495,17 @@ pub struct AccessPlan {
     ///
     /// Written by `access_plan_decide_mode` and cleared by `ap_land`; the
     /// grounds for nodes that DO exist live on the nodes, in `nd_gnd`.
-    pub mgnd: [String; 8],
+    pub mgnd: Vec<String>,
     /// THE NODE LIST — one entry per materialization this plan performs, in the
     /// order the emitted code performs them (prelude first, then the build
     /// phase). `nd_rel` is the rel index the node consumes; `nd_gnd` the ground
     /// token; `nd_why` the sentence. Capacity is 2 per rel: a rel can be
     /// buffered by the prelude and arranged by a join, and nothing else in this
     /// plane builds a third.
-    pub nd_kind: [i32; 16],
-    pub nd_rel:  [i64; 16],
-    pub nd_gnd: [String; 16],
-    pub nd_why: [String; 16],
+    pub nd_kind: Vec<i32>,
+    pub nd_rel: Vec<i64>,
+    pub nd_gnd: Vec<String>,
+    pub nd_why: Vec<String>,
     pub nd_n:    i64,
     /// THE SOURCE'S SIZE, as a fact the plan ASKED FOR (ADR 0024 S4).
     ///
@@ -520,10 +526,10 @@ pub struct AccessPlan {
     /// ⚠ ASKED ONCE. A size is a property of the relation, not of a row, so it
     /// is read in the prelude beside the source's own binding and never inside a
     /// walk. `size_at` naming ONE binding per rel is what holds that.
-    pub size_fn: [String; 8],
-    pub size_at: [String; 8],
+    pub size_fn: Vec<String>,
+    pub size_at: Vec<String>,
     // The SIZE ground per rel (`ZA_SIZE` / `ZR_*`).
-    pub zground: [i64; 8],
+    pub zground: Vec<i64>,
     pub n:     i64,
     /// The residual filter is redundant and will be dropped. A property of the
     /// QUERY, not of a rel: the filter belongs to the query node, and only an
@@ -532,32 +538,55 @@ pub struct AccessPlan {
 }
 
 pub fn access_plan_new(n: i64) -> AccessPlan {
-    return AccessPlan {
-        kind:  [ACC_SCAN(); 8],
-        card:  [CARD_ALL(); 8],
-        op:    [-1i64; 8],
-        fnm:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        arg:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        col:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        cmp:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        exact: [false; 8],
-        ground: [0i64; 8],
-        stream: [false; 8],
-        mground: [0i64; 8],
-        ord_noop: [false; 8],
-        ord_rev:  [false; 8],
-        mgnd:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        nd_kind: [0i32; 16],
-        nd_rel:  [-1i64; 16],
-        nd_gnd:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        nd_why:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
+    let mut ap: AccessPlan = AccessPlan {
+        kind: Vec::<i32>::new(),
+        card: Vec::<i32>::new(),
+        op: Vec::<i64>::new(),
+        fnm: Vec::<String>::new(),
+        arg: Vec::<String>::new(),
+        col: Vec::<String>::new(),
+        cmp: Vec::<String>::new(),
+        exact: Vec::<bool>::new(),
+        ground: Vec::<i64>::new(),
+        stream: Vec::<bool>::new(),
+        mground: Vec::<i64>::new(),
+        ord_noop: Vec::<bool>::new(),
+        ord_rev: Vec::<bool>::new(),
+        mgnd: Vec::<String>::new(),
+        nd_kind: Vec::<i32>::new(),
+        nd_rel: Vec::<i64>::new(),
+        nd_gnd: Vec::<String>::new(),
+        nd_why: Vec::<String>::new(),
+        size_fn: Vec::<String>::new(),
+        size_at: Vec::<String>::new(),
+        zground: Vec::<i64>::new(),
         nd_n:    0i64,
-        size_fn: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        size_at: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        zground: [0i64; 8],
         n: n,
         drop_where: false,
     };
+    // One entry per rel in every per-rel fact (nodes are appended as decided).
+    let mut i: i64 = 0i64;
+    while i < n {
+        ap.kind.push(ACC_SCAN());
+        ap.card.push(CARD_ALL());
+        ap.op.push(-1i64);
+        ap.fnm.push(String::new());
+        ap.arg.push(String::new());
+        ap.col.push(String::new());
+        ap.cmp.push(String::new());
+        ap.exact.push(false);
+        ap.ground.push(0i64);
+        ap.stream.push(false);
+        ap.mground.push(0i64);
+        ap.ord_noop.push(false);
+        ap.ord_rev.push(false);
+        ap.mgnd.push(String::new());
+        ap.size_fn.push(String::new());
+        ap.size_at.push(String::new());
+        ap.zground.push(0i64);
+        i = i + 1i64;
+    }
+    return ap;
 }
 
 impl AccessPlan {
@@ -590,11 +619,10 @@ impl AccessPlan {
     }
 
     fn push_node(self: &mut AccessPlan, kind: i32, ri: i64, gnd: str, why: str) {
-        if self.nd_n >= 16i64 { return; }
-        self.nd_kind[self.nd_n] = kind;
-        self.nd_rel[self.nd_n]  = ri;
-        self.nd_gnd[self.nd_n] = String::from_str(gnd);
-        self.nd_why[self.nd_n] = String::from_str(why);
+        self.nd_kind.push(kind);
+        self.nd_rel.push(ri);
+        self.nd_gnd.push(String::from_str(gnd));
+        self.nd_why.push(String::from_str(why));
         self.nd_n = self.nd_n + 1i64;
     }
 }
@@ -614,7 +642,7 @@ impl AccessPlan {
 /// two spellings of the offer that drifted apart would put a drain node on a
 /// container, which is the one combination `mgnd` cannot represent.
 pub fn ap_offers(ap: &AccessPlan, prm: &MacroParams, ri: i64) -> bool {
-    if ri < 0i64 || ri >= 8i64 { return false; }
+    if ri < 0i64 || ri >= ap.n { return false; }
     if ap.op[ri] >= 0i64 { return prm.opc_iter[ap.op[ri]]; }
     return prm.rel_iter[ri];
 }
@@ -645,7 +673,7 @@ pub fn ap_offers(ap: &AccessPlan, prm: &MacroParams, ri: i64) -> bool {
 /// so a re-drain REWRITES the rel's prelude node in place. The prelude builds
 /// one buffer per rel; the node list says one thing about it.
 pub fn ap_drain(ap: &mut AccessPlan, prm: &MacroParams, ri: i64, gnd: str, why: str) {
-    if ri < 0i64 || ri >= 8i64 { return; }
+    if ri < 0i64 || ri >= ap.n { return; }
     if !ap_offers(ap, prm, ri) { return; }
     let k: i32 = if str_eq(gnd, MG_ORDER_BY()) { MAT_SORT() } else { MAT_DRAIN() };
     let ix: i64 = ap.prelude_ix(ri);
@@ -680,7 +708,7 @@ pub fn ap_drain(ap: &mut AccessPlan, prm: &MacroParams, ri: i64, gnd: str, why: 
 /// refused them), so the guard is unreachable today and is written for the
 /// direction in which it would be wrong rather than for the one it is in.
 pub fn ap_land(ap: &mut AccessPlan, ri: i64, k: i32, gnd: str, why: str) {
-    if ri < 0i64 || ri >= 8i64 { return; }
+    if ri < 0i64 || ri >= ap.n { return; }
     if ap.prelude_ix(ri) >= 0i64 { return; }
     ap.push_node(k, ri, gnd, why);
     // The absence this rel used to record is now a presence. See `mgnd`.
@@ -778,7 +806,7 @@ impl AccessPlan {
     /// Record the chosen operation for rel `ri`.
     pub fn choose(self: &mut AccessPlan, ri: i64, oi: i64, fnm: str, arg: str,
                   col: str, cmp: str, op_cmp: str, exact: bool, g: &AccessGround) {
-        if ri < 0i64 || ri >= 8i64 { return; }
+        if ri < 0i64 || ri >= self.n { return; }
         self.op[ri]    = oi;
         self.fnm[ri] = String::from_str(fnm);
         self.arg[ri] = String::from_str(arg);
@@ -794,7 +822,7 @@ impl AccessPlan {
     /// gathered so far.
     pub fn scan(self: &mut AccessPlan, ri: i64, g: &mut AccessGround, rule: i32) {
         g.rule = rule;
-        if ri < 0i64 || ri >= 8i64 { return; }
+        if ri < 0i64 || ri >= self.n { return; }
         self.ground[ri] = ag_pack(g);
     }
 }
@@ -879,6 +907,9 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             if str_eq(string_as_str(&ap.mgnd[ri]), MG_CONTAINER()) {
                 gnd0 = MG_CONTAINER();
                 why0 = "no node: the producer hands back a container, which IS a buffer — nothing is built";
+            } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_DEAD()) {
+                gnd0 = MG_DEAD();
+                why0 = "no node: neither the entry nor a rel it reads reads this one, so `_run` does not evaluate it — nothing is built";
             } else if str_eq(string_as_str(&ap.mgnd[ri]), MG_ORDERED_SOURCE()) {
                 gnd0 = MG_ORDERED_SOURCE();
                 why0 = "no sort node: the query orders by the column this source declares its rows already arrive sorted by, so the permutation would be the identity — the walk streams in order";

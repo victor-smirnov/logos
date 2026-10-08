@@ -1404,6 +1404,12 @@ scan shape; every other cell is declared, not silently absent.
     slot)` per read — never a DESCENT, so §5's per-leaf claim is untouched, but
     not the hoist §2 asks for. It needs a per-column accessor named off the
     declared column (`col_<c>()`) that the family does not publish yet.
+    **DONE 2026-10-06 (#341):** both container arms publish typed column views
+    (`col_key()`/`col_val()`, `col_pos()`/`col_val()`; `key_at`/`val_at`/
+    `pos_at` delegate to them), the emitter binds one per declared column above
+    the row loop (`params::batch_hoist_text_at`) and reads `<view>.at(j)`.
+    Measured: a 2 × 2M-cell scan 2.4–2.8× faster than the per-cell form;
+    `logos_09_ctr_col_hoist` pins `pdt_col` calls = columns × leaf batches.
 * **S2 — adapters as plan nodes.** `Drain`/`Sort`/`Arrange` in AccessPlan with
   grounds; delete the side-channel booleans and the single-pass proof (the
   latter DONE at S2j — inverted, not dropped: `plan_insert_drains`);

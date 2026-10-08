@@ -1,0 +1,24 @@
+// ADR 0031 R4.1 — a u128 rel column (Eq + Hash) carries its full width through
+// a recursive rel: the tag of every reached node is the source's, all 128 bits.
+// (It used to be refused: the EL computed in i64 and dropped the high half.)
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Node { pub id: i64, pub tag: u128 }
+struct Edge { pub src: i64, pub dst: i64 }
+pub deem q(src: &[Node], edges: &[Edge]) {
+    rel reach(node: i64, tag: u128) {
+        from src s select (s.id, s.tag);
+        from reach x join edges e on e.src == x.node select (e.dst, x.tag);
+    }
+    from reach r select (r.node, r.tag) order by r.node
+}
+fn main() -> i32 {
+    let big: u128 = 340282366920938463463374607431768211455u128;
+    let src: [Node; 1] = [ Node { id: 1i64, tag: big } ];
+    let edges: [Edge; 2] = [ Edge { src: 1i64, dst: 2i64 }, Edge { src: 2i64, dst: 3i64 } ];
+    let out: Vec<(i64, u128)> = q(&src[..], &edges[..]).unwrap();
+    if out.len() != 3i64 { return 1i32; }
+    if out.get(2i64).0 != 3i64 || out.get(2i64).1 != big { return 2i32; }
+    return 0i32;
+}

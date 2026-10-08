@@ -23,6 +23,7 @@ use logos.lang.str;
 use logos.lang.writ.anyval;   // WAny — the parsed query root (ADR 0024 S0)
 use logos.mem.string;   // String — native_use_text builds the chunk's use-decl text
 use logos.mem.collections.vec;   // per-module use-decl dedup
+use logos.std.wql.core;          // the planned core the emitters read (ADR 0031 R5)
 
 fn mp_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
 fn mp_is_alpha(c: u8) -> bool {
@@ -57,6 +58,46 @@ pub fn vis_strip(fn_name: str) -> str {
     return fn_name;
 }
 
+// ── RelSet — a set of rel registry indices, of any size (2026-10-05) ─────────
+// The rel masks were `i64` with `1i64 << r`, which bounded a program at 63
+// rels. Words of 64 bits, grown on demand. `n` is the domain the set was
+// built over: a position at or past it is outside the set's knowledge (a rel
+// added later, e.g. a magic rel), and a reader asks `covers` before `has`.
+pub struct RelSet { pub w: Vec<i64>, pub n: i64 }
+
+pub fn relset_new(n: i64) -> RelSet { return RelSet { w: Vec::<i64>::new(), n: n }; }
+
+impl RelSet {
+    pub fn has(self: &RelSet, i: i64) -> bool {
+        if i < 0i64 { return false; }
+        let k: i64 = i / 64i64;
+        if k >= self.w.len() { return false; }
+        return (self.w[k] & (1i64 << (i % 64i64))) != 0i64;
+    }
+    pub fn covers(self: &RelSet, i: i64) -> bool { return i >= 0i64 && i < self.n; }
+    pub fn add(self: &mut RelSet, i: i64) {
+        if i < 0i64 { return; }
+        let k: i64 = i / 64i64;
+        while self.w.len() <= k { self.w.push(0i64); }
+        self.w[k] = self.w[k] | (1i64 << (i % 64i64));
+        if i >= self.n { self.n = i + 1i64; }
+    }
+    pub fn union_with(self: &mut RelSet, o: &RelSet) {
+        let mut k: i64 = 0i64;
+        while k < o.w.len() {
+            while self.w.len() <= k { self.w.push(0i64); }
+            self.w[k] = self.w[k] | o.w[k];
+            k = k + 1i64;
+        }
+        if o.n > self.n { self.n = o.n; }
+    }
+    pub fn is_empty(self: &RelSet) -> bool {
+        let mut k: i64 = 0i64;
+        while k < self.w.len() { if self.w[k] != 0i64 { return false; } k = k + 1i64; }
+        return true;
+    }
+}
+
 // ── The parsed parameter list ──────────────────────────────────────────────
 // The REL REGISTRY section (`rel_*` / `relc_*`) is filled by the wql! PROGRAM
 // walker (plan_walker) when the block declares `rel` blocks (slice B): the
@@ -71,26 +112,26 @@ pub fn vis_strip(fn_name: str) -> str {
 // text (`(i64, str)` / scalar `i64` for a 1-column rel), and the column
 // window [coff, coff+ccnt) into the flat relc_* arrays.
 pub struct MacroParams {
-    pub names:    [str; 64],
-    pub tys:      [str; 64],    // CORE type name (deref/slice-stripped)
-    pub is_slice: [bool; 64],   // `&[T]`-family — a query SOURCE param
+    pub names:    Vec<str>,
+    pub tys:      Vec<str>,     // CORE type name (deref/slice-stripped)
+    pub is_slice: Vec<bool>,    // `&[T]`-family — a query SOURCE param
     pub n:        i64,
     // ── rel registry (wql! rel blocks — slices B/C) ──
-    pub rel_names: [str; 8],    // declared rel name ("step")
-    pub rel_srcs: [String; 8],    // emitted source name ("__rel_step_sl")  // OWNED — the registry OUTLIVES the frame
+    pub rel_names: Vec<str>,    // declared rel name ("step")
+    pub rel_srcs: Vec<String>,    // emitted source name ("__rel_step_sl")  // OWNED — the registry OUTLIVES the frame
                                 // whose Strings backed this view, and has no region
                                 // parameter to say so.
-    pub rel_dsrcs: [String; 8], // emitted DELTA source name ("__dl_step_sl") — OWNED:
+    pub rel_dsrcs: Vec<String>, // emitted DELTA source name ("__dl_step_sl") — OWNED:
                                 // it used to be a view into a String held by the
                                 // walker's FRAME, which outlives nothing the registry
                                 // can name (the registry has no region parameter).
-    pub rel_rowty: [String; 8],    // native row type text ("(i64, i64)" / "i64")  // OWNED — the registry OUTLIVES the frame
+    pub rel_rowty: Vec<String>,    // native row type text ("(i64, i64)" / "i64")  // OWNED — the registry OUTLIVES the frame
                                 // whose Strings backed this view, and has no region
                                 // parameter to say so.
-    pub rel_coff:  [i64; 8],    // column window offset (flat relc_* arrays)
-    pub rel_ccnt:  [i64; 8],    // column count
-    pub relc_name: [str; 64],   // flat column names
-    pub relc_ty:   [str; 64],   // flat column type names ("i64"/"str"/"bool")
+    pub rel_coff: Vec<i64>,    // column window offset (flat relc_* arrays)
+    pub rel_ccnt: Vec<i64>,    // column count
+    pub relc_name: Vec<str>,   // flat column names
+    pub relc_ty:   Vec<str>,   // flat column type names ("i64"/"str"/"bool")
     pub rel_n:     i64,
     // ── recursive-aggregate rels (semilattice min/max — the fixpoint lattice) ──
     // Finalized by the stratification check when a rel's aggregate body closes a
@@ -98,8 +139,8 @@ pub struct MacroParams {
     // rel materializes via a best-per-key MAP absorb (not the set shadow), so the
     // emitter branches on `rel_is_agg`. `rel_agg_dir` is the AGG_* id (min/max) —
     // the lattice order (`<` for min, `>` for max) the absorb gate uses.
-    pub rel_is_agg:  [bool; 8],
-    pub rel_agg_dir: [i32; 8],
+    pub rel_is_agg: Vec<bool>,
+    pub rel_agg_dir: Vec<i32>,
     // ── THE REL'S SCC, FLATTENED ONTO THE REGISTRY (P3b) ──────────────────
     // `RelScc` is computed by the program walker and threaded to the WALKER's
     // emitters, but `emit_incremental` is reached from the ENTRY query's
@@ -122,21 +163,21 @@ pub struct MacroParams {
     /// nobody revisits — and re-deriving that ground beside the flag is exactly
     /// the "one cell, two opinions" shape this file has been bitten by. One
     /// loop writes the flag and the sentence that explains it; `""` ⇔ admitted.
-    pub rel_sccid:   [i64; 8],
-    pub rel_incr_ok: [bool; 8],
-    pub rel_incr_why: [str; 8],
+    pub rel_sccid: Vec<i64>,
+    pub rel_incr_ok: Vec<bool>,
+    pub rel_incr_why: Vec<str>,
     // ── NATIVE rels (ADR 0016 M1a): sources with an ENGINE-SUPPLIED
     // materialization instead of query bodies. Today: `<p>: &Writ` params —
     // the generic graph-edge relation (writ_graph_edges). A native rel has
     // no parse-side RQRel (skipped by body passes + fn emission); its
     // prelude line calls the native helper directly.
-    pub rel_native:  [bool; 8],
+    pub rel_native: Vec<bool>,
     /// ADR 0024 S4 — the rel's own producer returns an ITERATOR, and the rel is
     /// bound to the STREAM name rather than a slice. `rel_iter` is what the
     /// source offers; `rel_stream` is what the PLAN decided (a rel scanned more
     /// than once must still be drained, so the offer is not the decision).
-    pub rel_iter:    [bool; 8],
-    pub rel_stream:  [bool; 8],
+    pub rel_iter: Vec<bool>,
+    pub rel_stream: Vec<bool>,
     /// ADR 0025 §4 / S2b — THE PRELUDE'S MATERIALIZATION NODE for this rel, as
     /// the plan decided it: `MAT_DRAIN`/`MAT_SORT` when a buffer is built before
     /// the walk, `AD_NONE` when the rows stream, `AD_BUFFER` when the producer
@@ -154,7 +195,7 @@ pub struct MacroParams {
     /// Written by `plan_apply_access` from `AccessPlan::prelude_node`, so the
     /// text that is emitted and the node that is explained cannot disagree:
     /// they are one lookup.
-    pub rel_node:    [i32; 8],
+    pub rel_node: Vec<i32>,
     /// ADR 0025 §1 — the PULL UNIT of this rel's producer is a BATCH, not a
     /// row: the consumer pulls with `next_batch()` and runs the inner index
     /// loop over the batch. Set from the natspec's `b` flag, which the
@@ -163,7 +204,7 @@ pub struct MacroParams {
     /// says HOW rows arrive from this producer, `rel_stream` says whether the
     /// plan may consume it in place — a batch producer the plan cannot read
     /// once is DRAINED by batch, which is still a batch pull.
-    pub rel_batch:   [bool; 8],
+    pub rel_batch: Vec<bool>,
     /// ADR 0025 §2/S6 — the BATCH LAYOUT of this rel's producer: `true` =
     /// ROW-MAJOR (`RowsBatch<R>` = `&[R]`, rows indexed with `bb[j]`), `false`
     /// = COLUMNAR (`ColsBatch`, cells read with `<col>_at(j)`). Set from the
@@ -174,12 +215,20 @@ pub struct MacroParams {
     /// no batch whose layout could be asked. Read ONLY by `batch_row_text` and
     /// `batch_len_text`, which is the §2 rule made structural: a layout is a
     /// ROW IN THOSE TWO FUNCTIONS, never a branch in a consumer.
-    pub rel_rowmaj:  [bool; 8],
+    pub rel_rowmaj: Vec<bool>,
+    /// ADR 0031 R5.1 — the plan retired the entry's whole `where` (an exact
+    /// access op answers it); the entry's lowering builds no filter.
+    pub plan_where_retired: bool,
+    /// ADR 0031 R5.1 — the entry aggregate's group frame is PURE (`dplan::plan_group_pure`).
+    pub plan_group_pure: bool,
+    /// ADR 0031 R5 — the PLANNED core: the program the walker emits, lowered
+    /// after every rewrite, each atom resolved against this registry.
+    pub plan_core: CProgram,
     /// The producer's RETURN TYPE, as text. The emitted binding is annotated
     /// with it rather than inferring: a generated producer's signature is not
     /// always resolvable in the round its consumer is compiled, and an inferred
     /// `let` then carries an unresolved type var into the loop.
-    pub rel_itty:    [str; 8],
+    pub rel_itty: Vec<str>,
     // ── ADR 0025 S3 — THE ORDER FACTS ────────────────────────────────────
     // Three axes the compiler measured on the producer's RETURN TYPE (natspec
     // flags `o` / `r` / `n`) plus one the type could not carry (`^<col>`).
@@ -192,24 +241,24 @@ pub struct MacroParams {
     // and only `n` can put it there.
     /// The producer's return type implements `OrderedBy<K>` — the rows arrive
     /// sorted. Says nothing about BY WHICH COLUMN; that is `rel_ordcol`.
-    pub rel_ordered: [bool; 8],
+    pub rel_ordered: Vec<bool>,
     /// `Bidirectional<B>` — batches can be pulled backward (`prev_batch`).
-    pub rel_bidir:   [bool; 8],
+    pub rel_bidir: Vec<bool>,
     /// `RandomAccess<B>` — `seek_nth(n)`, one descent to an ordinal.
-    pub rel_randacc: [bool; 8],
+    pub rel_randacc: Vec<bool>,
     /// WHICH column the rows are sorted by, from the source's `order <rel> =
     /// <col>;` declaration. Empty = the source declared none, and an `order by`
     /// over this rel keeps its Sort node. Non-empty implies `rel_ordered` — the
     /// compiler refuses the declaration when the type disagrees — so a reader
     /// may test this field alone for "is there a usable order fact here".
-    pub rel_ordcol:  [str; 8],
+    pub rel_ordcol: Vec<str>,
     /// ADR 0025 S3 — THE PLAN'S ANSWER, not a fact about the source: this
     /// query's `order by` is already true of this rel's rows, so the emitter
     /// must not build the sort phase. Written by `plan_apply_access` from
     /// `AccessPlan.ord_noop`, exactly as `rel_node` is written from
     /// `prelude_node`, so the plan that EXPLAINS the absent Sort node and the
     /// emitter that omits it read one decision.
-    pub rel_ord_noop: [bool; 8],
+    pub rel_ord_noop: Vec<bool>,
     /// ADR 0025 S3-desc — WHICH DIRECTION the elided order runs in. Only
     /// meaningful when `rel_ord_noop` is set; `false` = ascending (pull forward
     /// with `next_batch`), `true` = descending (land at the end with ONE
@@ -221,11 +270,11 @@ pub struct MacroParams {
     /// there a sort phase?" (no) and only then "which way does the walk run?".
     /// Folded into one tri-state the `false` case would have had to be spelled
     /// at every reader that only cares whether the Buffer is built.
-    pub rel_ord_rev:  [bool; 8],
+    pub rel_ord_rev: Vec<bool>,
     /// The un-sliced binding name (`__rel_<r>`), used when the rel streams —
     /// carrying a name that ends in `_sl` for something that is not a slice
     /// would make generated code lie to whoever reads it.
-    pub rel_ssrc: [String; 8],  // OWNED — the registry OUTLIVES the frame
+    pub rel_ssrc: Vec<String>,  // OWNED — the registry OUTLIVES the frame
                                 // whose Strings backed this view, and has no region
                                 // parameter to say so.
     // ADR 0016 §6 (sources as relational interfaces): a native rel's
@@ -235,19 +284,19 @@ pub struct MacroParams {
     // for the duration of the walk. The prelude prints `<mat>(<marg>)`; the
     // chunk imports each distinct non-empty rel_mod. This replaces the old
     // rel_nkind flavor switch — the walker no longer knows ANY source type.
-    pub rel_mat: [String; 8],   // OWNED — fed from the AccessPlan, which is
+    pub rel_mat: Vec<String>,   // OWNED — fed from the AccessPlan, which is
                                 // itself a frame value; a view here would
                                 // outlive what it points at.
-    pub rel_marg:    [str; 8],
+    pub rel_marg: Vec<str>,
     /// A NARROWING argument the materializer takes beyond the source itself —
     /// the constant a pushdown reads from (`__ctr_bat_Hs…(c, 42u64)`).
     /// Empty for the plain full-scan binding. The capability belongs to the
     /// FAMILY, which publishes one narrowing producer per shape; a plan only
     /// chooses which and supplies the constant.
-    pub rel_marg2: [String; 8], // OWNED — fed from the AccessPlan, a frame
+    pub rel_marg2: Vec<String>, // OWNED — fed from the AccessPlan, a frame
                                 // value; a view here would make the registry
                                 // borrow the plan it outlives.
-    pub rel_mod:     [str; 8],
+    pub rel_mod: Vec<str>,
     // ── the item's TYPE-PARAM list, verbatim (`<V: Bound, …>`; "" = concrete) ──
     // A generic `deem q<V: …>(…)` re-emits it onto EVERY generated fn head; the
     // calls between those fns infer their args from the source param, so no
@@ -270,9 +319,9 @@ pub struct MacroParams {
     // container to count. A measured number REFINES that ordinal at run time and
     // replaces nothing: the ordinal is what a static comparison consumes, the
     // number is what a plan built against real data will.
-    pub rel_size_fn: [str; 8],
-    pub rel_size_ty: [str; 8],
-    pub rel_size_at: [String; 8],  // OWNED — the registry OUTLIVES the frame
+    pub rel_size_fn: Vec<str>,
+    pub rel_size_ty: Vec<str>,
+    pub rel_size_at: Vec<String>,  // OWNED — the registry OUTLIVES the frame
                                 // whose Strings backed this view, and has no region
                                 // parameter to say so.
     // ── the source's declared DISTINCT-VALUE counts (#726) ──────────────────
@@ -284,27 +333,30 @@ pub struct MacroParams {
     // consumer's own), and whether it is that mapping's internal (not `pub`)
     // — set only for a mapping consumed from another package. A hidden rel is
     // queryable by its own mapping's rels and by nothing the consumer wrote.
-    pub fused_mapping: [str; 8],
-    pub fused_hidden:  [bool; 8],
-    pub ndv_off:  [i64; 8],
-    pub ndv_cnt:  [i64; 8],
-    pub ndvc_col: [str; 16],
-    pub ndvc_fn:  [str; 16],
-    pub ndvc_ty:  [str; 16],
+    pub fused_mapping: Vec<str>,
+    pub fused_hidden: Vec<bool>,
+    // Parse rels the entry cannot reach (`lower::live_rel_mask`), by position =
+    // registry index: the prelude does not evaluate them.
+    pub rel_dead:      RelSet,
+    pub ndv_off: Vec<i64>,
+    pub ndv_cnt: Vec<i64>,
+    pub ndvc_col: Vec<str>,
+    pub ndvc_fn: Vec<str>,
+    pub ndvc_ty: Vec<str>,
     pub ndv_n:    i64,
-    pub op_off:   [i64; 8],
-    pub op_cnt:   [i64; 8],
-    pub opc_col:  [str; 32],
-    pub opc_cmp:  [str; 32],
-    pub opc_fn:   [str; 32],
-    pub opc_exact:[bool; 32],
-    pub opc_iter: [bool; 32],
+    pub op_off: Vec<i64>,
+    pub op_cnt: Vec<i64>,
+    pub opc_col: Vec<str>,
+    pub opc_cmp: Vec<str>,
+    pub opc_fn: Vec<str>,
+    pub opc_exact: Vec<bool>,
+    pub opc_iter: Vec<bool>,
     /// The `b` flag of an OPERATION's producer (ADR 0025 §1) — the narrowing
     /// landings of a batch family return batch streams too, and the chosen op
     /// replaces the rel's own producer, so the flag has to travel with it or
     /// a pushdown would silently fall back to the row pull.
-    pub opc_batch: [bool; 32],
-    pub opc_itty: [str; 32],
+    pub opc_batch: Vec<bool>,
+    pub opc_itty: Vec<str>,
     pub op_n:     i64,
     pub tparams:     str,
     // ── the query as a SOURCE (ADR 0024 S0) ──────────────────────────────
@@ -319,93 +371,88 @@ pub struct MacroParams {
     // beside the `.dl` text). Empty in every ordinary build, and then nothing
     // is emitted and `native_use_at` lists no oracle module.
     pub oracle_dump: String,
+    // The incremental tier's log (an oracle build of a deem with ONE slice
+    // param): the directory, the statements that write the param's rows to
+    // `__od` each prefixed by `__osg` ("+" / "-"), and those that write a
+    // snapshot `__ov`'s rows. Empty otherwise.
+    pub oracle_dir: String,
+    pub oracle_inc_rows: String,
+    pub oracle_inc_snap: String,
 }
 
 pub fn macro_params_new() -> MacroParams {
     let nul: WAny = WAny::null();
     return MacroParams {
-        names: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        tys:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        is_slice: [false; 64],
+        names: Vec::<str>::new(),
+        tys:   Vec::<str>::new(),
+        is_slice: Vec::<bool>::new(),
         n: 0i64,
-        rel_names: ["", "", "", "", "", "", "", ""],
-        rel_srcs:  [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
-                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        rel_dsrcs: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
-                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        rel_rowty: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
-                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        rel_coff:  [0i64; 8],
-        rel_ccnt:  [0i64; 8],
-        relc_name: ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
-        relc_ty:   ["", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
-                    "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        rel_names: Vec::<str>::new(),
+        rel_srcs:  Vec::<String>::new(),
+        rel_dsrcs: Vec::<String>::new(),
+        rel_rowty: Vec::<String>::new(),
+        rel_coff:  Vec::<i64>::new(),
+        rel_ccnt:  Vec::<i64>::new(),
+        relc_name: Vec::<str>::new(),
+        relc_ty:   Vec::<str>::new(),
         rel_n: 0i64,
-        rel_is_agg:  [false; 8],
-        rel_agg_dir: [0i32; 8],
-        rel_sccid:   [0i64; 8],
-        rel_incr_ok: [false; 8],
-        rel_incr_why: [""; 8],
-        rel_native:  [false; 8],
-        rel_iter:    [false; 8],
-        rel_stream:  [false; 8],
+        rel_is_agg:  Vec::<bool>::new(),
+        rel_agg_dir: Vec::<i32>::new(),
+        rel_sccid:   Vec::<i64>::new(),
+        rel_incr_ok: Vec::<bool>::new(),
+        rel_incr_why: Vec::<str>::new(),
+        rel_native:  Vec::<bool>::new(),
+        rel_iter:    Vec::<bool>::new(),
+        rel_stream:  Vec::<bool>::new(),
         // AD_NONE: a params record nobody planned over builds nothing. The
         // spelled literal (not `AD_NONE()`) keeps `params.logos` free of a
         // dependency on `access_plan.logos`, whose plan reads THIS.
-        rel_node:    [-1i32; 8],
-        rel_batch:   [false; 8],
-        rel_rowmaj:  [false; 8],
-        rel_itty:    [""; 8],
-        rel_ordered: [false; 8],
-        rel_bidir:   [false; 8],
-        rel_randacc: [false; 8],
-        rel_ordcol:  [""; 8],
-        rel_ord_noop: [false; 8],
-        rel_ord_rev:  [false; 8],
-        rel_ssrc:    [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
-                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        rel_mat:     [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
-                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        rel_marg:    [""; 8],
-        rel_marg2:   [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
-                       String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        rel_mod:     [""; 8],
-        rel_size_fn: [""; 8],
-        rel_size_ty: [""; 8],
-        rel_size_at: [String::from_str(""), String::from_str(""), String::from_str(""), String::from_str(""),
-                     String::from_str(""), String::from_str(""), String::from_str(""), String::from_str("")],
-        fused_mapping: [""; 8],
-        fused_hidden:  [false; 8],
-        ndv_off:  [0i64; 8],
-        ndv_cnt:  [0i64; 8],
-        ndvc_col: [""; 16],
-        ndvc_fn:  [""; 16],
-        ndvc_ty:  [""; 16],
+        rel_node:    Vec::<i32>::new(),
+        rel_batch:   Vec::<bool>::new(),
+        rel_rowmaj:  Vec::<bool>::new(),
+        plan_where_retired: false,
+        plan_group_pure: false,
+        plan_core: core_empty(),
+        rel_itty:    Vec::<str>::new(),
+        rel_ordered: Vec::<bool>::new(),
+        rel_bidir:   Vec::<bool>::new(),
+        rel_randacc: Vec::<bool>::new(),
+        rel_ordcol:  Vec::<str>::new(),
+        rel_ord_noop: Vec::<bool>::new(),
+        rel_ord_rev:  Vec::<bool>::new(),
+        rel_ssrc:    Vec::<String>::new(),
+        rel_mat:     Vec::<String>::new(),
+        rel_marg:    Vec::<str>::new(),
+        rel_marg2:   Vec::<String>::new(),
+        rel_mod:     Vec::<str>::new(),
+        rel_size_fn: Vec::<str>::new(),
+        rel_size_ty: Vec::<str>::new(),
+        rel_size_at: Vec::<String>::new(),
+        fused_mapping: Vec::<str>::new(),
+        fused_hidden:  Vec::<bool>::new(),
+        rel_dead:      relset_new(0i64),
+        ndv_off:  Vec::<i64>::new(),
+        ndv_cnt:  Vec::<i64>::new(),
+        ndvc_col: Vec::<str>::new(),
+        ndvc_fn:  Vec::<str>::new(),
+        ndvc_ty:  Vec::<str>::new(),
         ndv_n:    0i64,
-        op_off:   [0i64; 8],
-        op_cnt:   [0i64; 8],
-        opc_col:  [""; 32],
-        opc_cmp:  [""; 32],
-        opc_fn:   [""; 32],
-        opc_exact:[false; 32],
-        opc_iter: [false; 32],
-        opc_batch:[false; 32],
-        opc_itty: [""; 32],
+        op_off:   Vec::<i64>::new(),
+        op_cnt:   Vec::<i64>::new(),
+        opc_col:  Vec::<str>::new(),
+        opc_cmp:  Vec::<str>::new(),
+        opc_fn:   Vec::<str>::new(),
+        opc_exact:Vec::<bool>::new(),
+        opc_iter: Vec::<bool>::new(),
+        opc_batch:Vec::<bool>::new(),
+        opc_itty: Vec::<str>::new(),
         op_n:     0i64,
         tparams:     "",
         src_root:    nul,
         oracle_dump: String::new(),
+        oracle_dir: String::new(),
+        oracle_inc_rows: String::new(),
+        oracle_inc_snap: String::new(),
     };
 }
 
@@ -550,8 +597,44 @@ impl MacroParams {
 
     // Register a rel (declaration order). Returns the rel index (-1 = full).
     pub fn rel_add(self: &mut MacroParams, name: str, src: str, dsrc: str, rowty: str) -> i64 {
-        if self.rel_n >= 8i64 { return -1i64; }
         let i: i64 = self.rel_n;
+        // One entry per rel in every per-rel registry (`AD_NONE` for the node).
+        self.rel_names.push("");
+        self.rel_srcs.push(String::new());
+        self.rel_dsrcs.push(String::new());
+        self.rel_rowty.push(String::new());
+        self.rel_coff.push(0i64);
+        self.rel_ccnt.push(0i64);
+        self.rel_is_agg.push(false);
+        self.rel_agg_dir.push(0i32);
+        self.rel_sccid.push(0i64);
+        self.rel_incr_ok.push(false);
+        self.rel_incr_why.push("");
+        self.rel_native.push(false);
+        self.rel_iter.push(false);
+        self.rel_stream.push(false);
+        self.rel_node.push(-1i32);
+        self.rel_batch.push(false);
+        self.rel_rowmaj.push(false);
+        self.rel_itty.push("");
+        self.rel_ordered.push(false);
+        self.rel_bidir.push(false);
+        self.rel_randacc.push(false);
+        self.rel_ordcol.push("");
+        self.rel_ord_noop.push(false);
+        self.rel_ord_rev.push(false);
+        self.rel_ssrc.push(String::new());
+        self.rel_mat.push(String::new());
+        self.rel_marg.push("");
+        self.rel_marg2.push(String::new());
+        self.rel_mod.push("");
+        self.rel_size_fn.push("");
+        self.rel_size_ty.push("");
+        self.rel_size_at.push(String::new());
+        self.ndv_off.push(0i64);
+        self.ndv_cnt.push(0i64);
+        self.op_off.push(0i64);
+        self.op_cnt.push(0i64);
         self.rel_names[i] = name;
         self.rel_srcs[i]  = String::from_str(src);
         self.rel_dsrcs[i] = String::from_str(dsrc);
@@ -565,17 +648,24 @@ impl MacroParams {
         return i;
     }
 
+    // Mark registry position `i` as a rel of the fused mapping `m` (written
+    // before the walk registers the rels, so the lists grow to reach `i`).
+    pub fn set_fused(self: &mut MacroParams, i: i64, m: str, hidden: bool) {
+        while self.fused_mapping.len() <= i { self.fused_mapping.push(""); self.fused_hidden.push(false); }
+        self.fused_mapping[i] = m;
+        self.fused_hidden[i] = hidden;
+    }
+
     // Append one column to the LAST registered rel.
     /// Record one declared operation for the rel most recently registered.
     /// Record a distinct-value reporter for a column of the LAST registered rel (#726).
     pub fn rel_add_ndv(self: &mut MacroParams, col: str, fn_name: str, ty: str) {
-        if self.ndv_n >= 16i64 { return; }
         let r: i64 = self.rel_n - 1i64;
         if r < 0i64 { return; }
         if self.ndv_cnt[r] == 0i64 { self.ndv_off[r] = self.ndv_n; }
-        self.ndvc_col[self.ndv_n] = col;
-        self.ndvc_fn[self.ndv_n]  = fn_name;
-        self.ndvc_ty[self.ndv_n]  = ty;
+        self.ndvc_col.push(col);
+        self.ndvc_fn.push(fn_name);
+        self.ndvc_ty.push(ty);
         self.ndv_n = self.ndv_n + 1i64;
         self.ndv_cnt[r] = self.ndv_cnt[r] + 1i64;
     }
@@ -594,17 +684,16 @@ impl MacroParams {
 
     pub fn rel_add_op(self: &mut MacroParams, col: str, cmp: str, fn_name: str,
                       exact: bool, iter: bool, batch: bool, ity: str) {
-        if self.op_n >= 32i64 { return; }
         let r: i64 = self.rel_n - 1i64;
         if r < 0i64 { return; }
         if self.op_cnt[r] == 0i64 { self.op_off[r] = self.op_n; }
-        self.opc_col[self.op_n]   = col;
-        self.opc_cmp[self.op_n]   = cmp;
-        self.opc_fn[self.op_n]    = fn_name;
-        self.opc_exact[self.op_n] = exact;
-        self.opc_iter[self.op_n]  = iter;
-        self.opc_batch[self.op_n] = batch;
-        self.opc_itty[self.op_n]  = ity;
+        self.opc_col.push(col);
+        self.opc_cmp.push(cmp);
+        self.opc_fn.push(fn_name);
+        self.opc_exact.push(exact);
+        self.opc_iter.push(iter);
+        self.opc_batch.push(batch);
+        self.opc_itty.push(ity);
         self.op_n = self.op_n + 1i64;
         self.op_cnt[r] = self.op_cnt[r] + 1i64;
     }
@@ -641,7 +730,7 @@ impl MacroParams {
     /// the honest answer and the boolean's `false` was an accident of the
     /// default.
     ///
-    /// The `-2` is spelled, not called: same reason as the `[-1i32; 8]`
+    /// The `-2` is spelled, not called: same reason as the `-1i32`
     /// initializer above — `params.logos` must not depend on
     /// `access_plan.logos`, which reads THIS. `AD_BUFFER()` is that literal.
     pub fn rel_src_node(self: &MacroParams, src: str) -> i32 {
@@ -716,9 +805,10 @@ impl MacroParams {
         if self.rel_n == 0i64 { return; }
         let i: i64 = self.rel_n - 1i64;
         let k: i64 = self.rel_coff[i] + self.rel_ccnt[i];
-        if k >= 64i64 { return; }
-        self.relc_name[k] = col_name;
-        self.relc_ty[k]   = col_ty;
+        // Columns append at the flat top: `k` is the table's length.
+        if k != self.relc_name.len() { logos.lang.panic::panic("wql!: a rel column appended away from the flat table's top"); }
+        self.relc_name.push(col_name);
+        self.relc_ty.push(col_ty);
         self.rel_ccnt[i]  = self.rel_ccnt[i] + 1i64;
     }
 
@@ -788,10 +878,12 @@ pub fn size_binding_text(out: &mut String, prm: &MacroParams, r: i64) {
 /// arrive in (`rel entry(key: K, val: V)` ⇒ `key_at(i)` / `val_at(i)`), so the
 /// emitter stays declaration-driven and knows no source type — a third layout
 /// is a row in this function, not a branch in every consumer. The point-read
-/// form is v1: §2's resolve-once hoist (`col_<c>()` out of the row loop) needs
-/// a per-column accessor the family does not publish yet and is recorded as
-/// owed, NOT silently skipped — it costs a slot re-resolve per cell, never a
-/// descent, so §5's per-leaf claim is unaffected.
+/// cell is read through the column's HOISTED view, `<bvar>_c<k>.at(i)`, bound
+/// above the row loop by `batch_hoist_text_at` from the family's `col_<c>()` —
+/// §2's resolve-once (#341): one slot resolve per column per BATCH, not per
+/// cell. A caller that spells this row text must spell that hoist in the same
+/// batch scope; a missing hoist is an unknown name at compile time, not a
+/// silent per-cell re-resolve.
 ///
 /// A single-column rel's row is the BARE value, not a 1-tuple — the same rule
 /// `register_native_rels` applies when it builds `rel_rowty`.
@@ -844,14 +936,46 @@ pub fn batch_row_text_at(out: &mut String, prm: &MacroParams, r: i64,
     while c < nc {
         if c > 0i64 { out.push_str(", "); }
         out.push_str(bvar);
-        out.push_str(".");
-        out.push_str(prm.relc_name[off + c]);
-        out.push_str("_at(");
+        out.push_str("_c");
+        out.push_i64(c);
+        out.push_str(".at(");
         out.push_str(ivar);
         out.push_str(")");
         c = c + 1i64;
     }
     if nc != 1i64 { out.push_str(")"); }
+}
+
+/// ADR 0025 §2 (#341) — THE COLUMN HOIST of a columnar batch: one statement per
+/// declared column, `let <bvar>_c<k> = <bvar>.col_<c>();`, spelled where the
+/// batch is bound and BEFORE its row loop; `batch_row_text_at` reads the cells
+/// through these. Empty on the row-major arm, whose row is one index.
+pub fn batch_hoist_text_at(out: &mut String, prm: &MacroParams, r: i64,
+                           rowmaj: bool, bvar: str) {
+    if rowmaj { return; }
+    if r < 0i64 {
+        logos.lang.panic::panic("wql!: batch_hoist_text_at reached the COLUMNAR arm with a rel-less source (r = -1)");
+    }
+    let off: i64 = prm.rel_coff[r];
+    let nc: i64  = prm.rel_ccnt[r];
+    let mut c: i64 = 0i64;
+    while c < nc {
+        out.push_str("let ");
+        out.push_str(bvar);
+        out.push_str("_c");
+        out.push_i64(c);
+        out.push_str(" = ");
+        out.push_str(bvar);
+        out.push_str(".col_");
+        out.push_str(prm.relc_name[off + c]);
+        out.push_str("(); ");
+        c = c + 1i64;
+    }
+}
+
+/// The REL-KEYED entry point (see `batch_row_text`).
+pub fn batch_hoist_text(out: &mut String, prm: &MacroParams, r: i64, bvar: str) {
+    batch_hoist_text_at(out, prm, r, prm.rel_rowmaj[r], bvar);
 }
 
 /// The REL-KEYED entry point: the layout is the registry's (`rel_rowmaj[r]`).
@@ -898,11 +1022,11 @@ pub fn batch_len_text(out: &mut String, prm: &MacroParams, r: i64, bvar: str) {
 //                 the helper-fn extra-parameter set (in-SCC edges are the
 //                 fixpoint's own state, not parameters).
 pub struct RelScc {
-    pub comp:     [i64; 8],
-    pub rec:      [bool; 8],
-    pub order:    [i64; 8],
+    pub comp:     Vec<i64>,
+    pub rec:      Vec<bool>,
+    pub order:    Vec<i64>,
     pub nscc:     i64,
-    pub dep_mask: [i64; 8],
+    pub dep_mask: Vec<RelSet>,
 }
 
 /// P3b — FLATTEN the condensation onto the rel registry, and DERIVE, once, the
@@ -954,7 +1078,7 @@ pub struct RelScc {
 ///
 /// ⚠ NO CAPACITY CLAUSE, and the reason is a bound rather than an oversight:
 /// `rel_add` refuses past 8 (`rel_n >= 8` → -1), so `nmem <= rel_n <= 8` and
-/// `emit_scc_fn`'s `mem: [i64; 8]` and the handle's `[String; 8]` total-name
+/// `emit_scc_fn`'s `mem` list and the handle's total-name
 /// array cannot be overrun. If `rel_add`'s bound ever moves, both move with it.
 pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
     let mut r: i64 = 0i64;
@@ -966,7 +1090,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
         let mut any_agg:    bool = false;
         let mut any_native: bool = false;
         let mut any_stream: bool = false;
-        let mut mask_u:     i64  = 0i64;
+        let mut mask_u:     RelSet = relset_new(0i64);
         let mut k: i64 = 0i64;
         while k < prm.rel_n {
             if scc.comp[k] == c {
@@ -982,7 +1106,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
                 // question, so this does not follow the readings that moved to
                 // `rel_src_unmaterialized`.
                 if prm.rel_iter[k] || prm.rel_stream[k] { any_stream = true; }
-                mask_u = mask_u | scc.dep_mask[k];
+                mask_u.union_with(&scc.dep_mask[k]);
             }
             k = k + 1i64;
         }
@@ -1010,7 +1134,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
             why = "a member of the SCC is NATIVE (`&Writ`) — it has no parse-side bodies and no fixpoint at all; it is a pure function of one caller-owned container";
         } else if any_stream {
             why = "a member of the SCC STREAMS — it is bound to an iterator rather than to a slice, and a total the handle owns must be a materialized Vec";
-        } else if mask_u != 0i64 {
+        } else if !mask_u.is_empty() {
             why = "the recursive SCC DEPENDS ON A LOWER-STRATUM `rel` — that rel is itself derived, so maintaining this one across epochs means maintaining that one too and the handle would have to own both totals";
         }
         prm.rel_incr_why[r] = why;
@@ -1021,11 +1145,11 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
 
 pub fn rel_scc_new() -> RelScc {
     return RelScc {
-        comp:     [0i64; 8],
-        rec:      [false; 8],
-        order:    [0i64; 8],
+        comp:     Vec::<i64>::new(),
+        rec:      Vec::<bool>::new(),
+        order:    Vec::<i64>::new(),
         nscc:     0i64,
-        dep_mask: [0i64; 8],
+        dep_mask: Vec::<RelSet>::new(),
     };
 }
 
@@ -1039,19 +1163,19 @@ pub fn rel_scc_new() -> RelScc {
 // (no metaprog) and is now shared by the static walker AND the runtime
 // interpreter (logos.std.deem) — the same layering move as lower.logos.
 pub struct RelDeps {
-    pub efrom: [i64; 64],
-    pub eto:   [i64; 64],
+    pub efrom: Vec<i64>,
+    pub eto: Vec<i64>,
     pub n:     i64,
     // Anti-join rel edges: rel `afrom[k]`'s body `anti join`s rel `ato[k]`.
-    pub afrom: [i64; 16],
-    pub ato:   [i64; 16],
+    pub afrom: Vec<i64>,
+    pub ato: Vec<i64>,
     pub an:    i64,
     // Aggregate-body rel-source edges: rel `gfrom[k]` has an AGGREGATE body
     // scanning rel `gto[k]` (aggregate bodies are themselves rejected — this
     // list only selects WHICH diagnostic: in-SCC ⇒ the non-stratified cycle
     // error, else the plain "aggregate bodies are not allowed" one).
-    pub gfrom: [i64; 16],
-    pub gto:   [i64; 16],
+    pub gfrom: Vec<i64>,
+    pub gto: Vec<i64>,
     pub gn:    i64,
     // First rel with an aggregate body (-1 = none) — the deferred plain reject.
     pub agg_head: i64,
@@ -1060,35 +1184,32 @@ pub struct RelDeps {
     // callers leave it 0). The stratification check reads it to decide whether an
     // in-cycle aggregate is an admissible SEMILATTICE (min/max) recursive head or
     // a non-stratifiable GROUP (sum/count/avg) one.
-    pub head_agg_dir: [i32; 8],
+    pub head_agg_dir: Vec<i32>,
 }
 
 pub fn rel_deps_new() -> RelDeps {
-    return RelDeps { efrom: [0i64; 64], eto: [0i64; 64], n: 0i64,
-                     afrom: [0i64; 16], ato: [0i64; 16], an: 0i64,
-                     gfrom: [0i64; 16], gto: [0i64; 16], gn: 0i64,
-                     agg_head: -1i64, head_agg_dir: [0i32; 8] };
+    return RelDeps { efrom: Vec::<i64>::new(), eto: Vec::<i64>::new(), n: 0i64,
+                     afrom: Vec::<i64>::new(), ato: Vec::<i64>::new(), an: 0i64,
+                     gfrom: Vec::<i64>::new(), gto: Vec::<i64>::new(), gn: 0i64,
+                     agg_head: -1i64, head_agg_dir: Vec::<i32>::new() };
 }
 
 impl RelDeps {
     pub fn add(self: &mut RelDeps, f: i64, t: i64) {
-        if self.n >= 64i64 { return; }
-        self.efrom[self.n] = f;
-        self.eto[self.n]   = t;
+        self.efrom.push(f);
+        self.eto.push(t);
         self.n = self.n + 1i64;
     }
 
     pub fn add_anti(self: &mut RelDeps, f: i64, t: i64) {
-        if self.an >= 16i64 { return; }
-        self.afrom[self.an] = f;
-        self.ato[self.an]   = t;
+        self.afrom.push(f);
+        self.ato.push(t);
         self.an = self.an + 1i64;
     }
 
     pub fn add_agg(self: &mut RelDeps, f: i64, t: i64) {
-        if self.gn >= 16i64 { return; }
-        self.gfrom[self.gn] = f;
-        self.gto[self.gn]   = t;
+        self.gfrom.push(f);
+        self.gto.push(t);
         self.gn = self.gn + 1i64;
     }
 
@@ -1096,7 +1217,15 @@ impl RelDeps {
     // static walker calls this from the aggregate-body check; consumed by the
     // stratification check to classify the cycle. Idempotent per rel.
     pub fn set_head_agg_dir(self: &mut RelDeps, f: i64, dir: i32) {
-        if f >= 0i64 && f < 8i64 { self.head_agg_dir[f] = dir; }
+        if f < 0i64 { return; }
+        while self.head_agg_dir.len() <= f { self.head_agg_dir.push(0i32); }
+        self.head_agg_dir[f] = dir;
+    }
+
+    // The recursive-aggregate direction recorded for rel `f` (0 = none).
+    pub fn head_agg_dir_of(self: &RelDeps, f: i64) -> i32 {
+        if f < 0i64 || f >= self.head_agg_dir.len() { return 0i32; }
+        return self.head_agg_dir[f];
     }
 }
 
@@ -1113,21 +1242,29 @@ impl RelDeps {
 //                 set; in-SCC edges are the fixpoint's own state).
 pub fn compute_rel_scc(deps: &RelDeps, nr: i64) -> RelScc {
     let mut scc: RelScc = rel_scc_new();
-    // Transitive closure (flat 8×8; reach[i*8+j] ⇔ a path of length ≥ 1).
-    let mut reach: [bool; 64] = [false; 64];
+    // One entry per rel (`order`/`rec` are indexed by SCC, at most nr).
+    let mut z: i64 = 0i64;
+    while z < nr {
+        scc.comp.push(-1i64); scc.rec.push(false); scc.order.push(0i64); scc.dep_mask.push(relset_new(nr));
+        z = z + 1i64;
+    }
+    // Transitive closure (flat nr×nr; reach[i*nr+j] ⇔ a path of length ≥ 1).
+    let mut reach: Vec<bool> = Vec::<bool>::new();
+    let mut zr: i64 = 0i64;
+    while zr < nr * nr { reach.push(false); zr = zr + 1i64; }
     let mut e: i64 = 0i64;
     while e < deps.n {
-        reach[deps.efrom[e] * 8i64 + deps.eto[e]] = true;
+        reach[deps.efrom[e] * nr + deps.eto[e]] = true;
         e = e + 1i64;
     }
     let mut k: i64 = 0i64;
     while k < nr {
         let mut i: i64 = 0i64;
         while i < nr {
-            if reach[i * 8i64 + k] {
+            if reach[i * nr + k] {
                 let mut j: i64 = 0i64;
                 while j < nr {
-                    if reach[k * 8i64 + j] { reach[i * 8i64 + j] = true; }
+                    if reach[k * nr + j] { reach[i * nr + j] = true; }
                     j = j + 1i64;
                 }
             }
@@ -1148,13 +1285,13 @@ pub fn compute_rel_scc(deps: &RelDeps, nr: i64) -> RelScc {
             let mut sz: i64 = 1i64;
             let mut b: i64 = a + 1i64;
             while b < nr {
-                if scc.comp[b] < 0i64 && reach[a * 8i64 + b] && reach[b * 8i64 + a] {
+                if scc.comp[b] < 0i64 && reach[a * nr + b] && reach[b * nr + a] {
                     scc.comp[b] = c;
                     sz = sz + 1i64;
                 }
                 b = b + 1i64;
             }
-            if sz > 1i64 || reach[a * 8i64 + a] { scc.rec[c] = true; }
+            if sz > 1i64 || reach[a * nr + a] { scc.rec[c] = true; }
         }
         a = a + 1i64;
     }
@@ -1165,13 +1302,15 @@ pub fn compute_rel_scc(deps: &RelDeps, nr: i64) -> RelScc {
         let f: i64 = deps.efrom[e2];
         let t: i64 = deps.eto[e2];
         if scc.comp[f] != scc.comp[t] {
-            scc.dep_mask[f] = scc.dep_mask[f] | (1i64 << t);
+            scc.dep_mask[f].add(t);
         }
         e2 = e2 + 1i64;
     }
     // Kahn over the condensation (a DAG by construction — the inner scan
     // always finds a placeable SCC).
-    let mut placed: [bool; 8] = [false; 8];
+    let mut placed: Vec<bool> = Vec::<bool>::new();
+    let mut zp: i64 = 0i64;
+    while zp < nscc { placed.push(false); zp = zp + 1i64; }
     let mut pos: i64 = 0i64;
     while pos < nscc {
         let mut c2: i64 = 0i64;
@@ -1250,12 +1389,10 @@ pub fn parse_macro_params(p: str, out: &mut MacroParams) {
         let tstart: i64 = pos;
         while pos < len && mp_is_alnum(str_byte_at(p, pos)) { pos = pos + 1i64; }
         let ty: str = unsafe { mp_str_range(p, tstart, pos - tstart) };
-        if out.n < 64i64 {
-            out.names[out.n]    = nm;
-            out.tys[out.n]      = ty;
-            out.is_slice[out.n] = is_sl;
-            out.n = out.n + 1i64;
-        }
+        out.names.push(nm);
+        out.tys.push(ty);
+        out.is_slice.push(is_sl);
+        out.n = out.n + 1i64;
         // Advance past the rest of this param's type to the next top-level comma,
         // honoring bracket/paren/angle nesting so compound types don't mis-split.
         // (The slice `[` already consumed above counts as one open level.)

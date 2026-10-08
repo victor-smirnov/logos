@@ -2,10 +2,12 @@
 
 Status: ACCEPTED (direction reviewed by the user — four accents incorporated). Date: 2026-07-10.
 
+> **Status note.** P0 landed (`320c739c6`) at the `stdlib/std/deem/data/` / `logos.std.deem.data.*` target written below; `756ea4c1d` then moved the plane to the `lcm` tier, so it lives at `stdlib/lcm/deem/data/` under `logos.lcm.deem.data.*`. Neither `stdlib/std/deem/` nor `stdlib/std/data/persistent/` exists. ⚠ The demand drivers D1 (durable FactStore) and D3 (the `jn_*` replay journal) were deleted with the engine at P5 (`e1dd0ac5e`, "DELETE THE DEEM INTERPRETER": `incr.logos`, `incr_rec.logos`, `facthistory.logos`), as was the S4 fork/merge D2 served (census §6 L5, L3, L6); the storage plane itself survives the cut. §5's `incr.logos` / `incr_rec.logos` citations name deleted files.
+
 ## 0. Context and mandate
 
-Deem needs a storage engine. The `persistent` subsystem (`stdlib/std/data/persistent/`,
-3.1 kLoC) is a well-tested **in-memory** confluently-persistent B+tree map — CoW
+Deem needs a storage engine. The `persistent` subsystem (then `stdlib/std/data/persistent/`, now
+`stdlib/lcm/deem/data/`; 3.1 kLoC) is a well-tested **in-memory** confluently-persistent B+tree map — CoW
 path-copy, snapshot DAG with fork/release, container directory, runtime-typed
 inline keys/values (DView, incl. variable-width strings), snapshot-stable
 iterators, and a working deserialize/revive kernel (`node_arc_from_parts` +
@@ -20,8 +22,9 @@ plan; the semantic work (ADR 0015 continuation) comes after.
 
 ## 1. Decision
 
-`stdlib/std/data/persistent/*` → **`stdlib/std/deem/data/*`**, namespaces
-`logos.std.deem.data.*`. The standalone surface dies; the API reshapes for its
+`stdlib/std/data/persistent/*` → **`stdlib/lcm/deem/data/*`**, namespaces
+`logos.lcm.deem.data.*` (P0 landed it at `stdlib/std/deem/data/*` /
+`logos.std.deem.data.*`; `756ea4c1d` moved it to the `lcm` tier). The standalone surface dies; the API reshapes for its
 one customer — **but through ABSTRACTIONS, not nails** (user accent #1): Deem's
 engine code programs against interface traits (a fact-base/store-backend
 boundary in the spirit of `IStore`), and `deem.data` is their implementation.
@@ -79,11 +82,12 @@ for a single byte of file I/O.
 ## 2. What moves, what renames, what dies
 
 - Move: `bt/{node,shuttle,cow,descent,mutate,iter}.logos`, `store.logos`,
-  `handle.logos`, `descent.genos.md` → `stdlib/std/deem/data/`.
-- Namespaces: `logos.std.deem.data.*` → `logos.std.deem.data.*`
+  `handle.logos`, `descent.genos.md` → `stdlib/lcm/deem/data/`.
+- Namespaces: `logos.std.data.persistent.*` → `logos.lcm.deem.data.*`
   (`…deem.data.bt.*` for the tree layer). Import direction: deem.data imports
   nothing from deem's query layer (data is the bottom of the deem stack);
-  `incr.logos`/`incr_rec.logos` import data.
+  `incr.logos`/`incr_rec.logos` import data (both deleted at P5; nothing in
+  deem's query layer imports data today).
 - DView stays where it is (`logos.lang.writ.dview`) — it is a lang-tier value
   view, not storage.
 - Tests migrate with a `data_` prefix (`persistent_fork_chain` →
@@ -91,6 +95,8 @@ for a single byte of file I/O.
 - Known stale spot fixed in passing: `bt/descent.logos` claims the
   `subtree_size` SUM column is unmaintained — it IS maintained on
   insert/remove/split; the stale comment and the dead O(N) fallback go.
+  DONE: `bt_size_rec` (`stdlib/lcm/deem/data/bt/descent.logos`) sums the
+  column with no fallback, and its comment says so.
 
 ## 3. Slices
 

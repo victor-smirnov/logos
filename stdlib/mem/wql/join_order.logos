@@ -90,9 +90,11 @@
 //      that used to normalize such a value into i64 silently.
 //
 //   C2 A PLAN MUST HAVE DECIDED THE CHAIN. A step whose strategy is JS_NONE was
-//      never looked at by a planner (a rel body's own chain is emitted per
-//      fixpoint variant), so there is no decision to offer a second order for and
-//      no recorded strategy to reason from.
+//      never looked at by a planner — a step after a traversal, which
+//      `plan_decide_chain` stops at because the row var a traversal binds is typed
+//      only once it is stamped — so there is no decision to offer a second order
+//      for and no recorded strategy to reason from (witness:
+//      `wql_order_undecided_step_e2e`, 2026-10-04).
 //
 //   C3 A PINNED STEP KEEPS ITS DEPTH IN THE BOUND STREAM. An ANTI step's
 //      predicate is inseparable from its source — "rows of a with no matching b"
@@ -168,6 +170,7 @@ package logos.std.wql.join_order;
 
 use logos.lang.str;
 use logos.mem.string;
+use logos.mem.collections.vec;   // Vec — the chain's per-slot facts
 use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
 use logos.std.wql.ir;             // SExpr / WRef
@@ -178,6 +181,9 @@ use logos.std.wql.optimize;       // refs_mask — which vars a predicate reads
 use logos.std.wql.join_sel;       // decide_join_step / js_reads_once / js_name / StepSel
 use logos.std.wql.join_cost;      // THE cost model: roles, bounds, weights
 use logos.std.wql.why;            // THE JUSTIFICATION: the record, its vocabulary, its ONE renderer
+use logos.std.wql.core;           // the clause the order is decided for (ADR 0031 R5.2)
+use logos.std.compiler.metaprog;  // OView — the module's declarations, for typing
+use logos.std.wql.typing;         // type_clause — the planner's and the emitter's one typing
 
 // ── The chain, as this module sees it ────────────────────────────────────────
 // SLOT 0 is the base and slot i+1 the i-th step, so one index space covers the
@@ -188,26 +194,28 @@ use logos.std.wql.why;            // THE JUSTIFICATION: the record, its vocabula
 // this module cannot accidentally depend on an emitter detail.
 pub struct JCh {
     pub n:     i64,
-    pub src:   [str; 9],
-    pub var:   [str; 9],
-    pub onw:   [i64; 9],
-    pub anti:  [bool; 9],
-    pub edge:  [bool; 9],
-    pub strat: [i32; 9],
-    pub sel:   [i64; 9],
-    pub sground: [i64; 9],
+    pub src:   Vec<str>,
+    pub var:   Vec<str>,
+    pub onw:   Vec<i64>,
+    pub anti:  Vec<bool>,
+    pub edge:  Vec<bool>,
+    pub strat: Vec<i32>,
+    pub sel:   Vec<i64>,
+    pub sground: Vec<i64>,
 }
 
-pub fn jch_new() -> JCh {
-    return JCh { n: 0i64,
-                 src:  ["", "", "", "", "", "", "", "", ""],
-                 var:  ["", "", "", "", "", "", "", "", ""],
-                 onw:  [0i64; 9],
-                 anti: [false; 9],
-                 edge: [false; 9],
-                 strat: [0i32; 9],
-                 sel:   [-1i64; 9],
-                 sground: [0i64; 9] };
+/// A chain of `n` steps: `n + 1` slots, each at its default.
+pub fn jch_new(n: i64) -> JCh {
+    let m: i64 = n + 1i64;
+    return JCh { n: n,
+                 src:  str_vec(m),
+                 var:  str_vec(m),
+                 onw:  vec![0i64; m],
+                 anti: vec![false; m],
+                 edge: vec![false; m],
+                 strat: vec![0i32; m],
+                 sel:   vec![-1i64; m],
+                 sground: vec![0i64; m] };
 }
 
 // ── The decision ──────────────────────────────────────────────────────────
@@ -272,9 +280,9 @@ pub struct JoinOrder {
     pub cstrat:   [i32; 16],
     pub csel:     [i64; 16],
     pub cground:  [i64; 16],
-    // The pinned steps' depths, for the cost table (`JCTable.pin_after`, #347).
+    // The pinned steps, counted by depth, for the cost table (`JCTable.pins_at`, #347).
     pub npin:     i64,
-    pub pin_after: [i64; 8],
+    pub pins_at:  [i64; 8],
 }
 
 fn jo_why(w: Why) -> JoinOrder {
@@ -283,7 +291,7 @@ fn jo_why(w: Why) -> JoinOrder {
                        fl: [0i64; 4],
                        cslot: [0i64; 16], conw: [0i64; 16], crole: [0i64; 16],
                        cstrat: [0i32; 16], csel: [-1i64; 16],
-                       cground: [0i64; 16], npin: 0i64, pin_after: [0i64; 8] };
+                       cground: [0i64; 16], npin: 0i64, pins_at: [0i64; 8] };
 }
 
 /// The single-nest outcome whose whole justification is its GROUND CODE — every
@@ -296,7 +304,7 @@ fn jo_why(w: Why) -> JoinOrder {
 /// happen to be laid out rather than of what this function's caller just decided.
 /// Every call below is inside `decide_join_orders`, which runs only where the query
 /// HAS a join — so all but one of them pass `AX_REFUSED`, and the one that does not
-/// (`WG_NO_STEP`) is the one place the axis genuinely does not exist.
+/// (a chain with no step, an invariant since `WG_NO_STEP` was refuted) is the one place the axis genuinely does not exist.
 fn jo_ground(g: i32, ax: i32) -> JoinOrder {
     return jo_why(why_of(g, ax));
 }
@@ -393,7 +401,17 @@ fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
     // readings that moved to `rel_src_unmaterialized`. Reading the node here
     // would answer "a buffer exists" for a container source that reports its
     // size perfectly well.
-    if prm.rel_src_streams(src) { return SZ_STREAMS(); }
+    // ⚠ AN INVARIANT SINCE 2026-10-04, NOT A SIZE CLASS: the order axis reaches
+    // the size facts only under `order by`, and `order by` MATERIALIZES every
+    // source of a join (the sort revisits rows by position; the S3 elision that
+    // leaves an ordered source streamed is for a single-source query only). So
+    // no streamed source is classified here. CONTROL: a panic here, in
+    // `run_size_expr_of` and at the old `WG_NO_SIZE` refusal left all 309
+    // wql/deem tests green. `SZ_STREAMS` and `WG_NO_SIZE` left the vocabulary.
+    if prm.rel_src_streams(src) {
+        logos.lang.panic::panic("wql!: a streamed source reached the order axis's size facts");
+        return SZ_DERIVED();
+    }
     let ri: i64 = prm.rel_find_src(src);
     if ri >= 0i64 && string_as_str(&prm.rel_size_at[ri]).len() == 0i64 {
         if prm.rel_native[ri] { return SZ_DERIVED(); }
@@ -469,7 +487,11 @@ fn run_size_expr_of(prm: &MacroParams, src: str, out: &mut String) -> bool {
     // ⚠ SURVIVOR, same correction as `prep_size_reason` above: the question is
     // whether `(src).len()` is a legal O(1) expression over this name, which is
     // the PLAN'S DECISION about consumption, not the emitted scan's shape.
-    if prm.rel_src_streams(src) { return false; }
+    if prm.rel_src_streams(src) {
+        // an invariant: see `prep_size_reason`
+        logos.lang.panic::panic("wql!: a streamed source reached the order axis's run-time size");
+        return false;
+    }
     out.push_str("(");
     out.push_str(src);
     out.push_str(").len()");
@@ -550,7 +572,7 @@ fn next_perm(p: &mut [i64; 4], n: i64) -> bool {
 
 /// Render a candidate's row-var sequence, for the trace's census. The subject of a
 /// per-candidate line has to name the ORDER, and an order is its sources.
-fn push_seq(out: &mut String, c: &JCh, seq: &[i64; 9], np: i64) {
+fn push_seq(out: &mut String, c: &JCh, seq: &Vec<i64>, np: i64) {
     let mut i: i64 = 0i64;
     while i < np {
         if i > 0i64 { out.push_str(">"); }
@@ -576,15 +598,15 @@ fn push_seq(out: &mut String, c: &JCh, seq: &[i64; 9], np: i64) {
 /// 0. Reporting it as a refusal of the SEARCH would put a ground in the searched
 /// census with nothing enumerated under it, which is precisely the "count that means
 /// two things" this record replaces; `false` says the axis was refused before the
-/// derivation, and `WG_CROSS` is the antecedent.
+/// derivation (an invariant since `WG_CROSS` was refuted: no such step exists).
 fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                  jo: &mut JoinOrder) -> bool {
     let m: i64 = c.n + 1i64;
     // Floatable slots (base + classic steps) in QUERY order, and the pinned ones
     // with the number of floatable slots that preceded them (C3).
     let mut nfl: i64 = 0i64;
-    let mut pin: [i64; 9] = [0i64; 9];
-    let mut pbc: [i64; 9] = [0i64; 9];
+    let mut pin: Vec<i64> = vec![0i64; m];
+    let mut pbc: Vec<i64> = vec![0i64; m];
     let mut npin: i64 = 0i64;
     let mut s: i64 = 0i64;
     while s < m {
@@ -601,9 +623,9 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
     jo.nfl = nfl;
     // The pinned steps' depths, for the cost table: one per pinned step, the same
     // in every candidate (constraint 2 keeps each after `pbc` floatable slots).
-    jo.npin = if npin < 8i64 { npin } else { 8i64 };
+    jo.npin = npin;
     let mut pq: i64 = 0i64;
-    while pq < jo.npin { jo.pin_after[pq] = pbc[pq]; pq = pq + 1i64; }
+    while pq < npin { jo.pins_at[pbc[pq]] = jo.pins_at[pbc[pq]] + 1i64; pq = pq + 1i64; }
 
     // The floating predicates: one per floatable STEP. The query's base carries
     // none, so there are nfl-1 of them and nfl-1 non-base floatable positions —
@@ -641,8 +663,8 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
         // 1. The candidate's full slot sequence: floatable in permuted order, each
         //    pinned step re-inserted after exactly as many floatable slots as
         //    preceded it in the query (C3).
-        let mut seq: [i64; 9] = [0i64; 9];
-        let mut pos: [i64; 9] = [0i64; 9];
+        let mut seq: Vec<i64> = vec![0i64; m];
+        let mut pos: Vec<i64> = vec![0i64; m];
         let mut np: i64 = 0i64;
         let mut j: i64 = 0i64;
         while j < nfl {
@@ -658,7 +680,7 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
         let mut pp: i64 = 0i64;
         while pp < np { pos[seq[pp]] = pp; pp = pp + 1i64; }
         // The floatable position of each floatable slot in THIS candidate.
-        let mut flpos: [i64; 9] = [0i64; 9];
+        let mut flpos: Vec<i64> = vec![0i64; m];
         let mut fj: i64 = 0i64;
         while fj < nfl { flpos[jo.fl[perm[fj]]] = fj; fj = fj + 1i64; }
 
@@ -705,13 +727,25 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                 if lp <= 0i64 { rej = RJ_PREDBASE(); }
                 else {
                     let ls: i64 = seq[lp];
-                    if c.anti[ls] || c.edge[ls] { rej = RJ_PREDPIN(); }
-                    else {
-                        let fjx: i64 = flpos[ls];
-                        if fjx == 0i64 { rej = RJ_PREDBASE(); }
-                        else if slotpred[fjx] != 0i64 { rej = RJ_PREDDUP(); }
-                        else { slotpred[fjx] = fp[fi2]; }
+                    // ⚠ INVARIANTS, NOT GROUNDS (2026-10-04). A floating predicate
+                    // reads only vars bound at or before its step, never an anti
+                    // var (both refused by `plan_walker::stamp_steps`), and a
+                    // traversal before a classic step leaves it undecided
+                    // (`WG_UNDECIDED`), so its last-bound var is floatable:
+                    // `RJ_PREDPIN` left the vocabulary. And `seq[0]` is always the
+                    // first floatable slot, so `flpos == 0` is `lp == 0`, refused
+                    // above. CONTROL: a panic at both left all 306 wql/deem tests
+                    // green; the same panic at `lp <= 0` failed the witness
+                    // `wql_order_pred_base_e2e`.
+                    if c.anti[ls] || c.edge[ls] {
+                        logos.lang.panic::panic("wql!: a floating join predicate's last-bound var is a pinned step's");
                     }
+                    let fjx: i64 = flpos[ls];
+                    if fjx == 0i64 {
+                        logos.lang.panic::panic("wql!: a floating join predicate landed on the first floatable slot past position 0");
+                    }
+                    if slotpred[fjx] != 0i64 { rej = RJ_PREDDUP(); }
+                    else { slotpred[fjx] = fp[fi2]; }
                 }
                 fi2 = fi2 + 1i64;
             }
@@ -736,9 +770,15 @@ fn derive_orders(c: &JCh, t: &ElTypes, h: &Writ, szs: &mut [String; 4],
                     cwy[sj] = c.sground[sl2];
                     // ⚠ The derivation must REPRODUCE the query for the identity
                     // permutation, and the one place that could silently differ is
-                    // C5's placement. If it does, the chain has a shape this
-                    // module does not model and no order is offered.
-                    if slotpred[sj] != c.onw[sl2] { rej = RJ_SHAPE(); }
+                    // C5's placement. An INVARIANT since 2026-10-04 (`RJ_SHAPE`
+                    // left the vocabulary): under the identity each predicate reads
+                    // only vars bound at or before its own step, so C5 maps step k
+                    // to a slot <= k, injectively and never to 0 (PREDDUP /
+                    // PREDBASE refuse first) — the identity map. CONTROL: a panic
+                    // here left all 306 wql/deem tests green.
+                    if slotpred[sj] != c.onw[sl2] {
+                        logos.lang.panic::panic("wql!: the identity order's predicate placement differs from the query's chain");
+                    }
                 } else {
                     let pw: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(slotpred[sj] as *const u8) });
                     let ss: StepSel = decide_join_step(pw, c.var[sl2], t, h);
@@ -860,13 +900,12 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: 
     let base_var: str = c.var[0];
     let s0_var: str = c.var[1];
     if c.n < 1i64 {
-        // ⚠ THE ONE `AX_NONE` ON THIS PATH, and it is the honest one: no step means
-        // no second side, hence no order for a plan to choose. It read `AX_REFUSED`
-        // while the state was a band over the code (`WG_NO_STEP` is 10), which said
-        // "entered and refused" of a query that has nothing to enter. Defensive —
-        // `emit_join_chain` is the only caller and it has a chain — but a defence
-        // that lies is worse than none.
-        return jo_ground(WG_NO_STEP(), AX_NONE());
+        // ⚠ AN INVARIANT, NOT A GROUND (2026-10-04): `emit_join_chain`, the
+        // only caller, always has a step. CONTROL, measured: a panic here left all
+        // 307 wql/deem tests green, while the same panic in the `WG_NO_SORT` arm
+        // below failed a join fixture. So `WG_NO_STEP` left the vocabulary.
+        logos.lang.panic::panic("wql!: decide_join_orders called with a chain that has no step");
+        return jo_ground(WG_UNSET(), AX_NONE());
     }
     // ⚠ THE FIRST STEP'S PIN, ahead of the derivation and on purpose — see the
     // header. The general constraint C4 reaches the same conclusion on every shape
@@ -920,6 +959,105 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: 
     return jo;
 }
 
+// ── ADR 0031 R5.2 — THE ENTRY'S JOIN ORDER IS THE PLANNER'S ─────────────────
+//
+// `emit_join_chain` used to decide the order itself, at emission. The decision
+// reads nothing the emitter has and the planner does not — the planned core's
+// clause, its typing, the sort key's type, the registry's size facts — so it is
+// made here, from the core, and the emitter receives the verdict.
+
+/// The decided order of one join chain, with what the emitter needs to realize
+/// it: the size expressions and reporter bindings (`decide_join_orders`' out
+/// parameters), and the sort key's named and emitted type the licence was
+/// checked against (owned: the emitter prints the key in exactly these).
+pub struct JoinPlan {
+    pub decided: bool,
+    pub jo:      JoinOrder,
+    pub szs:     [String; 4],
+    pub ats:     [i64; 4],
+    pub key_tn:  String,
+    pub key_kv:  String,
+}
+
+/// The chain as the derivation sees it, read off a core clause: one slot per
+/// source literal (an atom or a traversal), a positive step's `on` the On
+/// condition right after it, an anti step's its own.
+pub fn jch_from_core(cl: &CClause) -> JCh {
+    let bs: &[CLit] = cl.body.as_slice();
+    let n: i64 = cl.body.len();
+    let mut ns: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        match &bs[i] { CLit::Atom(_a) => { ns = ns + 1i64; } CLit::Trav(_t) => { ns = ns + 1i64; } CLit::Cond(_c) => { } }
+        i = i + 1i64;
+    }
+    let mut c: JCh = jch_new(ns - 1i64);
+    let mut s: i64 = 0i64;
+    i = 0i64;
+    while i < n {
+        let mut next_on: i64 = 0i64;
+        if i + 1i64 < n {
+            match &bs[i + 1i64] {
+                CLit::Cond(cc) => { match &cc.site { CSite::On => { next_on = cc.e.raw(); } CSite::Where => { } } }
+                CLit::Atom(_a) => { }
+                CLit::Trav(_t) => { }
+            }
+        }
+        match &bs[i] {
+            CLit::Atom(a) => {
+                c.src[s] = a.name; c.var[s] = a.var;
+                if s > 0i64 {
+                    c.onw[s] = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                    c.anti[s] = a.neg;
+                    c.strat[s] = a.strat; c.sel[s] = a.jsel as i64; c.sground[s] = a.ground;
+                }
+                s = s + 1i64;
+            }
+            CLit::Trav(t) => {
+                c.src[s] = t.name; c.var[s] = t.var;
+                c.onw[s] = if t.neg { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                c.anti[s] = t.neg;
+                c.edge[s] = true;
+                s = s + 1i64;
+            }
+            CLit::Cond(_cc) => { }
+        }
+        i = i + 1i64;
+    }
+    return c;
+}
+
+/// Decide the order of the entry's join chain `cl` (a `Scan`-form chain; any
+/// other form is not emitted as a nest and gets no decision). `sort_key` — the
+/// folded `order by` key (null = none).
+/// No decision (an entry that is not a join-chain nest).
+pub fn join_plan_none() -> JoinPlan {
+    return JoinPlan { decided: false, jo: jo_ground(WG_UNSET(), AX_NONE()),
+                      szs: [String::new(), String::new(), String::new(), String::new()],
+                      ats: [-1i64; 4], key_tn: String::from_str("i64"), key_kv: String::from_str("i64") };
+}
+
+pub fn plan_join_order(cl: &CClause, scan: bool, sort_key: WAny, prm: &MacroParams, h: &Writ) -> JoinPlan {
+    let mut jp: JoinPlan = join_plan_none();
+    if !scan { return jp; }
+    let view: OView = oview_module_ast();
+    let ty: ElTypes = type_clause(&view, prm, cl, false);
+    let has_sort: bool = !sort_key.is_null();
+    if has_sort {
+        let key_opt: SExpr = simplify_sexpr(sort_key.view::<SExpr>(), h).any().view::<SExpr>();
+        jp.key_tn = String::from_str(infer_ty_name(key_opt, &ty));
+        jp.key_kv = String::from_str(infer_emit_ty(key_opt, &ty));
+    }
+    let jc: JCh = jch_from_core(cl);
+    let mut szs: [String; 4] = [String::new(), String::new(), String::new(), String::new()];
+    let mut ats: [i64; 4] = [-1i64; 4];
+    let jo: JoinOrder = decide_join_orders(&jc, has_sort, string_as_str(&jp.key_tn), string_as_str(&jp.key_kv), &ty, prm, h,
+                                           &mut szs, &mut ats);
+    jp.jo = jo; jp.szs = szs; jp.ats = ats;
+    jp.decided = true;
+    return jp;
+}
+
 /// The size facts, then the derivation, then the verdict — in that order, because
 /// the derivation's C7 compares SIZE EXPRESSIONS and cannot run before they exist.
 ///
@@ -934,17 +1072,23 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
     // How many floatable sources, and is that within the plan's fact table?
     let m: i64 = c.n + 1i64;
     let mut nfl: i64 = 0i64;
-    let mut fl: [i64; 9] = [0i64; 9];
+    let mut fl: Vec<i64> = vec![0i64; m];
     let mut s: i64 = 0i64;
     while s < m {
         if !(s > 0i64 && (c.anti[s] || c.edge[s])) {
-            if nfl < 9i64 { fl[nfl] = s; }
+            fl[nfl] = s;
             nfl = nfl + 1i64;
         }
         s = s + 1i64;
     }
+    // ⚠ AN INVARIANT, NOT A GROUND (2026-10-04): this fn is reached only after
+    // `decide_join_orders` found the FIRST step neither an anti join nor a
+    // traversal, so the base and that step both float and `nfl >= 2`. CONTROL,
+    // measured with the `WG_NO_STEP` one above; `WG_ONE_FLOAT` left the
+    // vocabulary with it.
     if nfl < 2i64 {
-        return jo_ground(WG_ONE_FLOAT(), AX_REFUSED());
+        logos.lang.panic::panic("wql!: decide_over_set reached with fewer than two floatable sources");
+        return jo_ground(WG_UNSET(), AX_REFUSED());
     }
     if nfl > JC_MAX_FL() {
         // ⚠ THE COUNT IS AN OPERAND OF THIS GROUND, so it is recorded rather than
@@ -984,29 +1128,10 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
             i2 = i2 + 1i64;
         }
         if !okr {
-            let mut i3: i64 = 0i64;
-            while i3 < nfl { ats[i3] = -1i64; i3 = i3 + 1i64; }
-            // ⚠ THE SIDES ARE OPERANDS OF THIS REFUSAL. `operand()` answers the
-            // first source that has no number at either point, so a reader is sent to
-            // the source that refused rather than to the query as a whole — and
-            // `sz_remedy_words` derives the repair from the same code.
-            let mut rs: JoinOrder = jo_ground(WG_NO_SIZE(), AX_REFUSED());
-            rs.w.nfl = nfl;
-            // ⚠ NO `why_sides_sz` HERE, AND THAT IS THE DIFFERENCE FROM THE DEFERRED
-            // PATH. The size EXPRESSIONS are only ever read for a DEFERRED ground
-            // (`why_push_sizes` is reached from `why.logos` under
-            // `w.ground == WG_DEFERRED()` and from the `jo.deferred` trace arm), and
-            // this ground is `WG_NO_SIZE`: the strings were blanked one statement
-            // later and could never be read. Storing them anyway made `rs.w.ssz[k]`
-            // a `str` INTO `szs[k]` that the very next loop `clear()`s — a borrow
-            // held across the mutation of its owner, which rustc rejects and which
-            // survived here only because the raw round trip in `string_as_str`
-            // severs the provenance the checker follows. `ssz` is already `""` from
-            // `why_new`, so the blanking loop had nothing to undo either.
-            why_sides(&mut rs.w, c, &fl, nfl, &rsn);
-            let mut i4: i64 = 0i64;
-            while i4 < nfl { szs[i4].clear(); i4 = i4 + 1i64; }
-            return rs;
+            // unreachable: `run_size_expr_of` answers every non-streamed source and
+            // panics on a streamed one (the `WG_NO_SIZE` refusal was refuted)
+            logos.lang.panic::panic("wql!: a join side with no size at either point");
+            return jo_ground(WG_UNSET(), AX_REFUSED());
         }
         deferred = true;
     }
@@ -1014,8 +1139,13 @@ fn decide_over_set(c: &JCh, t: &ElTypes, prm: &MacroParams, h: &Writ,
     let mut jo: JoinOrder = jo_ground(WG_UNSET(), AX_NONE());
     let ran: bool = derive_orders(c, t, h, szs, &mut jo);
     jo.w.nfl = jo.nfl;
+    // ⚠ AN INVARIANT, NOT A GROUND (2026-10-04): `derive_orders` refuses only a
+    // floatable step with no `on`, and none exists — the grammar requires `on` on
+    // a classic join, and the gpath and magic-set rewrites set one. CONTROL: a
+    // panic here left all 309 wql/deem tests green (the reached-arm control is
+    // `WG_NO_STEP`'s). So `WG_CROSS` left the vocabulary.
     if !ran {
-        jo_decline(&mut jo, WG_CROSS(), AX_REFUSED(), szs, ats);
+        logos.lang.panic::panic("wql!: a floatable join step without `on` reached the order derivation");
         return jo;
     }
     // ⚠ THE CENSUS IS ALREADY ON THE RECORD AND NOTHING BELOW COPIES IT. Every
@@ -1091,7 +1221,7 @@ fn jo_decline(jo: &mut JoinOrder, g: i32, ax: i32, szs: &mut [String; 4], ats: &
 /// noise a reader has to diff — the same reason `push_size_bindings_4` binds one fact
 /// per distinct expression TEXT. Doing it in the renderer instead would have been a
 /// second computation over the same array, which is a second place to drift.
-fn why_sides(w: &mut Why, c: &JCh, fl: &[i64; 9], nfl: i64, rsn: &[i32; 4]) {
+fn why_sides(w: &mut Why, c: &JCh, fl: &Vec<i64>, nfl: i64, rsn: &[i32; 4]) {
     w.nsd = nfl;
     let mut k: i64 = 0i64;
     while k < nfl {

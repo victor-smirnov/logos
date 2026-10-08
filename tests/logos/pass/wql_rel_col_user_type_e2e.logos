@@ -1,0 +1,34 @@
+// ADR 0031 R4.1 — a user struct is a rel column when it is Eq + Hash (derived),
+// joined by `==`, carried through recursion, projected as itself (Copy).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.hash;
+use logos.std.compiler.metaprog;
+#[derive_hash]
+#[derive_eq]
+#[derive_clone]
+struct Tag { pub a: i64 }
+impl Copy for Tag { }
+struct Edge { pub src: Tag, pub dst: Tag }
+pub deem reach_from(edges: &[Edge], s0: Tag) {
+    rel reach(n: Tag) {
+        select s0;
+        from reach r join edges e on e.src == r.n select e.dst;
+    }
+    from reach r select r.n
+}
+fn main() -> i32 {
+    let mut es: Vec<Edge> = Vec::<Edge>::new();
+    es.push(Edge { src: Tag { a: 1 }, dst: Tag { a: 2 } });
+    es.push(Edge { src: Tag { a: 2 }, dst: Tag { a: 3 } });
+    es.push(Edge { src: Tag { a: 3 }, dst: Tag { a: 1 } });
+    es.push(Edge { src: Tag { a: 7 }, dst: Tag { a: 8 } });
+    let out: Vec<Tag> = reach_from(es.as_slice(), Tag { a: 1 }).unwrap();
+    if out.len() != 3i64 { return 1i32; }
+    let mut s: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < out.len() { s = s + out.get(i).a; i = i + 1i64; }
+    if s != 6i64 { return 2i32; }
+    return 0i32;
+}

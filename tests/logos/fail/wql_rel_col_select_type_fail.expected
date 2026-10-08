@@ -1,0 +1,1 @@
+rel 'r2' column 'k': select component `r.n` has type `i64`, declared `u64`

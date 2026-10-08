@@ -189,6 +189,30 @@ pub fn has_trait_named(trait_q: str, type_name: str) -> bool {
                                             type_name.as_ptr(), type_name.len() as u64) } != 0i32;
 }
 
+extern fn logos_metaprog_value_known(name_ptr: *const u8, name_len: u64) -> i32;
+
+/// Is `name` declared as a const or static ANYWHERE in the programs lowered so
+/// far, in any package or module?
+///
+/// The question a query handler asks of a bare name its own scope does not
+/// bind: the handler's AST view is one module, and a `where` clause may read an
+/// IMPORTED const. False means the name exists nowhere — a misspelling, not an
+/// import the view cannot see. True does not mean it is in scope here.
+pub fn value_name_known(name: str) -> bool {
+    return unsafe { logos_metaprog_value_known(name.as_ptr(), name.len() as u64) } != 0i32;
+}
+
+extern fn logos_metaprog_value_type(name_ptr: *const u8, name_len: u64, out_len: *mut u64) -> *const u8;
+
+/// The declared type of a const or static `name` (`value_name_known`), in
+/// source spelling (`i64`, `str`), or "" when no module declares it. The bytes
+/// are host-owned and live for the rest of the compilation.
+pub fn value_type_name(name: str) -> str {
+    let mut len: u64 = 0u64;
+    let p: *const u8 = unsafe { logos_metaprog_value_type(name.as_ptr(), name.len() as u64, &mut len as *mut u64) };
+    return unsafe { str_from_raw(p, len as i64) };
+}
+
 /// Returns a fresh hygienic identifier `<prefix>__hyg_<N>`, unique across the whole compile.
 ///
 /// The bytes are host-owned and stay valid for the rest of the compilation.

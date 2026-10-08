@@ -906,9 +906,11 @@ A rel member's lead token is a bare IDENT (REL_KW slot) validated == "rel" durin
 
 The mapping header parameter list reuses the fn param grammar but only simple `name: Type` bindings are legal (ref/mut/pattern binders rejected at lowering); at least one parameter (the source shape) is required. Generated per-rel fns take the header params verbatim, in order. Param and column types are re-rendered SYNTACTICALLY (as written: `str`, `&Writ`) into the canonical text, not in resolved form.
 
-### `item.mapping.rel-columns` — rel columns: 1–8 typed columns restricted to i64/str/bool
+### `item.mapping.rel-columns` — rel columns: 1–12 `name: type` columns whose type implements `Hash`
 
-Each rel declares 1–8 `name: type` columns; column types are restricted to i64/str/bool (rel rows are set-deduplicated — column types must be joinable/Eq; f64 rejected). Duplicate rel names within one mapping are an error; at most 8 rels per mapping (current engine limit).
+At the item, sema admits a rel column type iff it implements `Hash` (rows are set-deduplicated and columns are join keys) — the same predicate as a source-trait rel member; `f64` is refused because the stdlib does not implement `Hash` for floats. Each rel declares 1–12 `name: type` columns (a rel row is a tuple, and tuple `Hash` stops at 12 — the same bound a deem-body rel has); duplicate rel names within one mapping are an error; the number of rels is not bounded. At consumption the spliced rels are ordinary rel blocks of the consuming program, so `deem.datalog.rel-columns` applies to them as well — its column rule (`i64`/`str`/`bool`) is narrower than `Hash`.
+
+Evidence: `src/compiler/sema_expr.cpp` (`SemaChecker::reconstruct_mapping_def`: the `rel_col_type_hashable` column check and the 12-column check), `src/compiler/sema_impl.hpp` (`rel_col_type_hashable`), `tests/logos/fail/wql_mapping_badcol_fail.logos`, `tests/logos/pass/wql_mapping_wide_e2e.logos`
 
 ### `item.mapping.rel-visibility` — per-rel `pub` marks the consumer-visible vocabulary
 
@@ -932,7 +934,7 @@ Evidence: `tools/peg_gen_cpp/grammars/logos.peg` (pub_deem_def/deem_def), `src/c
 
 ### `item.deem.contextual-keyword` — `deem` is contextual at item position
 
-The item's lead token is a bare IDENT validated == "deem" during lowering — a global `deem` keyword would break the `logos.std.deem` package path. Any other two-ident item head (`foo bar(…) { … }`) is an error suggesting the `deem` spelling.
+The item's lead token is a bare IDENT validated == "deem" during lowering — a global `deem` keyword would break the `logos.mem.deem` package path. Any other two-ident item head (`foo bar(…) { … }`) is an error suggesting the `deem` spelling.
 
 ### `item.deem.visibility` — item visibility is real; the resource form stays pub
 

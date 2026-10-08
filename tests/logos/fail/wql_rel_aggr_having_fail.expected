@@ -1,0 +1,1 @@
+wql!: rel 'dist': `having` is not supported in an aggregating rel body — the recursive min/max fold applies no group filter; filter the rel's rows in the entry query

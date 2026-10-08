@@ -113,10 +113,10 @@
 // space-separated `use:` entry). `arena: external` → the export takes the
 // handler's `&Writ`; `ref_wrap: "WRef"` is plan.logos's edge wrapper.
 //
-// Fan-out field type (generalizes el.peg's SExprArr `"argfan"`):
-//   "fan set_agg  RQAGG_MAX"   spreads a $... array of RQAgg edges into RQAggArr
-// The write is `while i<len && i<MAXFN() { node.METHOD(i, rcap.get(i)); i++ }` +
-// `node.set_len(i)` — the same shape as `argfan` (= "fan set_arg SEXPRARR_MAX").
+// List field type: `"list set_agg"` holds the $... array of RQAgg edges whole
+// in RQAggArr's one `aggs` field (a Writ array; C++ writes the array, Logos
+// calls the setter per item), with `count` beside it — no slot cap. Caps that
+// remain are the CONSUMERS' (`plan_caps_ok`).
 //
 // A `bool` field written from a `$N` capture emits the OPT-PRESENCE test
 // `capN != NULLP` (an OPT capture is NULLP when it did not match) — that is how
@@ -171,27 +171,28 @@
                pred: "ref SExpr" = 4 }
 
     RQAgg         : code(0x0012_0000_0000_0010) cap(4) { name: "str" = 0, fn_name: "str" = 1, arg: "ref SExpr" = 2, has_arg: "bool" = 3 }
-    RQAggArr      : code(0x0012_0000_0000_0011) cap(9) { count: "i32" = 0, aggs: "fan set_agg RQAGG_MAX 8" = 1 }
+    RQAggArr      : code(0x0012_0000_0000_0011) cap(2) { count: "i32" = 0, aggs: "list set_agg" = 1 }
 
-    // cap covers the PLAN-DECISION fields the planner stamps after parsing
-    // (jstrat/jsel/jground — ADR 0024 S4; `jwhy` became the packed `jground` and
-    // `jkey` was retired in E4.3, so the item has 12 fields and cap is 12 —
-    // `peg_schema_mirror_wql` holds the two equal). A TinyObjectMap's capacity is
-    // fixed at construction, so the parser must size for writes it never makes.
-    RQJoinStep    : code(0x0012_0000_0000_0012) cap(12) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
+    // cap covers the fields the walker stamps after parsing (`src_name`/`row_ty`
+    // rewrites are writes to declared keys). The plan's decision for a step
+    // (keys 9–12) moved to the planned core (ADR 0031 R4.0), so the item has 9
+    // fields and cap is 9 — `peg_schema_mirror_wql` holds the two equal. A
+    // TinyObjectMap's capacity is fixed at construction, so the parser must size
+    // for writes it never makes.
+    RQJoinStep    : code(0x0012_0000_0000_0012) cap(9) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
                     is_edge: "bool" = 5, has_on: "bool" = 6, base_var: "str" = 7,
                     path: "ref RQPathSegArr" = 8 }
-    RQJoinStepArr : code(0x0012_0000_0000_0013) cap(9) { count: "i32" = 0, steps: "fan set_step RQJSTEP_MAX 8" = 1 }
+    RQJoinStepArr : code(0x0012_0000_0000_0013) cap(2) { count: "i32" = 0, steps: "list set_step" = 1 }
 
     // ── graph-path steps (ADR 0016 M2a) ───────────────────────────────────
     RQGStep       : code(0x0012_0000_0000_001C) cap(10) { is_key: "bool" = 0, is_elem: "bool" = 1, is_at: "bool" = 2, is_any: "bool" = 3,
                  is_desc: "bool" = 4, is_kind: "bool" = 5, key: "str" = 6, idx: "i64" = 7,
                  binder: "str" = 8, has_binder: "bool" = 9 }
-    RQGStepArr    : code(0x0012_0000_0000_001D) cap(9) { count: "i32" = 0, steps: "fan set_gstep RQGSTEP_MAX 8" = 1 }
+    RQGStepArr    : code(0x0012_0000_0000_001D) cap(2) { count: "i32" = 0, steps: "list set_gstep" = 1 }
 
     // ── traversal-step field path (slice D — collection-field joins) ──────
     RQPathSeg     : code(0x0012_0000_0000_001A) cap(1) { name: "str" = 0 }
-    RQPathSegArr  : code(0x0012_0000_0000_001B) cap(9) { count: "i32" = 0, segs: "fan set_seg RQPSEG_MAX 8" = 1 }
+    RQPathSegArr  : code(0x0012_0000_0000_001B) cap(2) { count: "i32" = 0, segs: "list set_seg" = 1 }
 
     // ── rel blocks + the program envelope (slice B static Datalog) ────────
     // cap covers the SOURCE-ORIGIN fields the COMPILER stamps after parsing
@@ -200,9 +201,9 @@
     RQProgram     : code(0x0012_0000_0000_0019) cap(6) { rels: "ref RQRelArr" = 0, entry: "ref RQuery" = 1 }
     RQRel         : code(0x0012_0000_0000_0016) cap(3) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2 }
     RQRelCol      : code(0x0012_0000_0000_0014) cap(2) { name: "str" = 0, ty_name: "str" = 1 }
-    RQRelColArr   : code(0x0012_0000_0000_0015) cap(9) { count: "i32" = 0, cols: "fan set_col RQRELCOL_MAX 8" = 1 }
-    RQRelArr      : code(0x0012_0000_0000_0017) cap(9) { count: "i32" = 0, rels: "fan set_rel RQREL_MAX 8" = 1 }
-    RQBodyArr     : code(0x0012_0000_0000_0018) cap(9) { count: "i32" = 0, bodies: "fan set_body RQBODY_MAX 8" = 1 }
+    RQRelColArr   : code(0x0012_0000_0000_0015) cap(2) { count: "i32" = 0, cols: "list set_col" = 1 }
+    RQRelArr      : code(0x0012_0000_0000_0017) cap(2) { count: "i32" = 0, rels: "list set_rel" = 1 }
+    RQBodyArr     : code(0x0012_0000_0000_0018) cap(2) { count: "i32" = 0, bodies: "list set_body" = 1 }
 }
 
 // ── Tokens ─────────────────────────────────────────────────────────────────
@@ -342,8 +343,8 @@
                          limit_n: $13,
                          has_result_ty: $14, result_ty: $14 }
                   // A FACT: `select S [: RTy]` with no source is ONE row, as SQL's
-                  // FROM-less SELECT is. src_name stays "" and the handler's
-                  // `desugar_program_facts` (lower.logos) points it at the
+                  // FROM-less SELECT is. src_name stays "" and the core
+                  // rewrite `crewrite::core_desugar_facts` points it at the
                   // one-row `__unit` relation.
                   //   $1=KW_SELECT $2=sel_body $3=result_opt?
                   / KW_SELECT sel_body

@@ -1,0 +1,795 @@
+// logos.std.wql.core — the Deem CORE (ADR 0031): one normalised clause form
+// between the surface (`RQuery`, four shapes, from wql.peg) and everything that
+// plans, checks, rewrites or emits.
+//
+// The relational structure is LOGOS TYPES, not a Writ schema, so a `match` over
+// a core node is checked for exhaustiveness by the compiler: a new literal kind
+// reds every consumer at build time instead of falling into a default arm (the
+// gap behind Soufflé's silent miscompile, ADR 0031 §2). Scalar expressions stay
+// `SExpr` handles — that algebra is already one form for every shape.
+//
+// R0: the surface is LOWERED here once, for the entry and every rel body, and
+// `core_verify` checks the result; nothing consumes it yet. `LOGOS_DEEM_DUMP=core`
+// prints it.
+package logos.std.wql.core;
+
+use logos.lang.writ.anyval;
+use logos.lang.str;
+use logos.lang.option;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.std.wql.ir;      // SExpr and its nodes, WRef, list_get
+use logos.std.wql.plan;    // RQuery and the program schemas
+use logos.std.wql.el;      // OP_* codes
+
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+// ── the core ───────────────────────────────────────────────────────────────
+
+/// What a positive or negated atom reads.
+pub enum CSrc {
+    /// A rel of the program, by its index in `CProgram.rels`.
+    Rel(i64),
+    /// A source parameter (slice, native source, mapping-bound param).
+    Param(str),
+    /// The one-row relation a FROM-less `select` reads.
+    Unit,
+}
+
+/// A source atom: binds `var` to each row of `src`. A NEGATED atom binds
+/// nothing visible outside it; its `conds` are the anti join's `on`, scoped to
+/// the negation (`!exists var in src: conds`).
+pub struct CAtom {
+    pub src: CSrc,
+    /// The source's index in the walker's registry (`MacroParams.rel_srcs`) in
+    /// a PLANNED core (ADR 0031 R4.0, `typing::core_resolve`), -1 otherwise or
+    /// for a slice parameter.
+    pub reg: i64,
+    /// The source as the program spells it (a planned core: the plan's
+    /// emitted name for a rel, `typing::core_bind_sources`).
+    pub name: str,
+    pub var: str,
+    pub row_ty: str,
+    pub neg: bool,
+    pub conds: Vec<WAny>,
+    /// A join step's strategy as the planner decided it (`plan_decide_chain`,
+    /// on a planned core's entry): `JS_*`, the equi-key term, the packed ground.
+    /// 0 / -1 / 0 = undecided (a base atom, a rel body's step).
+    pub strat: i32,
+    pub jsel: i32,
+    pub ground: i64,
+}
+
+/// A traversal: binds `var` to each element reached from the row bound to
+/// `base` along `path` (`join n.kids k`). Negated = an anti traversal.
+pub struct CTrav {
+    /// The source expression the emitters scan for the collection (`d.emps`),
+    /// in a planned core (`typing::core_resolve`).
+    pub name: str,
+    pub base: str,
+    pub path: Vec<str>,
+    pub var: str,
+    pub row_ty: str,
+    pub neg: bool,
+    pub conds: Vec<WAny>,
+}
+
+/// Where a condition was written — what a diagnostic about it names, and the
+/// scope it reads (a step's `on` reads the vars bound at or before its step).
+pub enum CSite {
+    Where,
+    On,
+}
+
+/// A condition over the variables bound before it.
+pub struct CCond {
+    pub e: WAny,
+    pub site: CSite,
+}
+
+pub enum CLit {
+    Atom(CAtom),
+    Trav(CTrav),
+    Cond(CCond),
+}
+
+pub struct CAgg {
+    pub name: str,
+    pub func: str,
+    pub arg: Option<WAny>,
+}
+
+/// `group by key`, the aggregates over each group, and `having` over the
+/// group's row. At most one per clause; aggregates live only here.
+pub struct CGroup {
+    pub key: WAny,
+    pub aggs: Vec<CAgg>,
+    pub having: Option<WAny>,
+}
+
+pub struct CClause {
+    /// The projected row (`select …`). Null only in `Find` mode, whose answer
+    /// is the row bound by the first atom.
+    pub head: WAny,
+    pub body: Vec<CLit>,
+    pub group: Option<CGroup>,
+    /// A graph path (`from g .a ** .b v …`), not yet lowered into its join
+    /// chain; None otherwise. Only the lowering sets it,
+    /// `crewrite::core_desugar_gpaths` lowers and clears it, and `core_verify`
+    /// refuses a clause that still carries one (ADR 0031 R3.4).
+    pub gpath: Option<Vec<CPathStep>>,
+}
+
+/// One step of a graph path: `.key`, `[N]`, `[*]`, `*`, `**`, `{kind}`, each
+/// optionally binding its edge row.
+pub struct CPathStep {
+    pub is_key: bool,
+    pub is_elem: bool,
+    pub is_at: bool,
+    pub is_desc: bool,
+    pub is_kind: bool,
+    pub key: str,
+    pub idx: i64,
+    pub has_binder: bool,
+    pub binder: str,
+}
+
+fn lower_path(gp: WAny) -> Option<Vec<CPathStep>> {
+    let ga: RQGStepArr = gp.view::<RQGStepArr>();
+    let mut v: Vec<CPathStep> = Vec::<CPathStep>::new();
+    let mut i: i64 = 0i64;
+    while i < ga.len() {
+        let st: RQGStep = ga.gstep_at(i);
+        v.push(CPathStep { is_key: st.is_key, is_elem: st.is_elem, is_at: st.is_at, is_desc: st.is_desc,
+                           is_kind: st.is_kind, key: st.key, idx: st.idx, has_binder: st.has_binder, binder: st.binder });
+        i = i + 1i64;
+    }
+    return Option::Some(v);
+}
+
+pub struct CCol {
+    pub name: str,
+    pub ty: str,
+}
+
+pub struct CRel {
+    pub name: str,
+    pub cols: Vec<CCol>,
+    pub rules: Vec<CRule>,
+}
+
+pub enum CMode {
+    All,
+    /// `select first` — the first answer row, `Option`.
+    First,
+    /// `find` — the first source row satisfying the body.
+    Find,
+}
+
+pub enum CLimit {
+    None,
+    N(i64),
+    Param(str),
+}
+
+/// The OUTPUT ENVELOPE — what only the entry has: how its rows are delivered.
+pub struct CEnvelope {
+    pub mode: CMode,
+    pub distinct: bool,
+    pub order: Option<WAny>,
+    pub desc: bool,
+    pub limit: CLimit,
+    pub result_ty: str,
+}
+
+/// A clause and how its rows are delivered. The ENTRY is a rule like any rel
+/// body; only the checks differ — a rel body's envelope must be the default
+/// one (a rel is a set: no order, no limit, no first), which is a refusal for
+/// the checker to issue, so the core keeps what was written.
+pub struct CRule {
+    pub clause: CClause,
+    pub env: CEnvelope,
+}
+
+pub struct CProgram {
+    pub rels: Vec<CRel>,
+    pub entry: CRule,
+    /// Backing for the texts a resolution composes (a traversal's source
+    /// expression): every `str` a literal holds outlives the program.
+    pub strs: Vec<String>,
+}
+
+// ── lowering: the four surface shapes and the rel bodies, ONCE ─────────────
+
+// The program's rel names, in order — a program with no rel has no rel array
+// at all (`has_rels`), not an empty one.
+fn prog_rel_names(root: WAny) -> Vec<str> {
+    let mut out: Vec<str> = Vec::<str>::new();
+    let prog: RQProgram = root.view::<RQProgram>();
+    if !prog.has_rels() { return out; }
+    let ra: RQRelArr = prog.rels_arr();
+    let mut i: i64 = 0i64;
+    while i < ra.len() { out.push(ra.rel_at(i).name); i = i + 1i64; }
+    return out;
+}
+
+/// What a lowering resolves a source name against: the program's rel names.
+/// (The registry — native rels, emitted names, row types — is the
+/// declarations', read by `typing::core_resolve`.)
+pub struct CLower {
+    pub names: Vec<str>,
+}
+
+fn rel_index(rels: &Vec<str>, name: str) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < rels.len() {
+        if str_eq(rels.get(i), name) { return i; }
+        i = i + 1i64;
+    }
+    return -1i64;
+}
+
+fn src_of(lx: &CLower, name: str) -> CSrc {
+    if name.len() == 0i64 { return CSrc::Unit; }
+    let r: i64 = rel_index(&lx.names, name);
+    if r >= 0i64 { return CSrc::Rel(r); }
+    return CSrc::Param(name);
+}
+
+fn opt(present: bool, e: WAny) -> Option<WAny> {
+    if present && !e.is_null() { return Option::Some(e); }
+    return Option::None;
+}
+
+fn base_atom(lx: &CLower, src: str, var: str, row_ty: str) -> CLit {
+    // A FROM-less `select` names no row; its one row is `__unit`'s, bound to
+    // `__u` — `crewrite::core_desugar_facts` then reads it as `__unit`.
+    let v: str = if src.len() == 0i64 && var.len() == 0i64 { "__u" } else { var };
+    return CLit::Atom(CAtom { src: src_of(lx, src), reg: -1i64, name: src, var: v, row_ty: row_ty,
+                              neg: false, conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
+}
+
+// A join chain's steps, in order: each step an atom (or a traversal), and a
+// positive step's `on` a condition right after it; an anti step keeps its
+// `on` inside the negation.
+fn lower_steps(lx: &CLower, steps: WAny, body: &mut Vec<CLit>) {
+    if steps.is_null() { return; }
+    let sa: RQJoinStepArr = steps.view::<RQJoinStepArr>();
+    let mut i: i64 = 0i64;
+    while i < sa.len() {
+        let st: RQJoinStep = sa.step_at(i);
+        let mut conds: Vec<WAny> = Vec::<WAny>::new();
+        let on: WAny = st.on.any();
+        let has_on: bool = st.has_on && !on.is_null();
+        if st.is_anti && has_on { conds.push(on); }
+        if st.is_edge {
+            let mut path: Vec<str> = Vec::<str>::new();
+            let pa: RQPathSegArr = st.path_arr();
+            let mut k: i64 = 0i64;
+            while k < pa.len() { path.push(pa.seg_at(k).name); k = k + 1i64; }
+            body.push(CLit::Trav(CTrav { name: st.src_name, base: st.base_var, path: path, var: st.var_name,
+                                         row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
+        } else {
+            body.push(CLit::Atom(CAtom { src: src_of(lx, st.src_name), reg: -1i64, name: st.src_name, var: st.var_name,
+                                         row_ty: st.row_ty, neg: st.is_anti, conds: conds,
+                                         strat: 0i32, jsel: -1i32, ground: 0i64 }));
+        }
+        if !st.is_anti && has_on { body.push(CLit::Cond(CCond { e: on, site: CSite::On })); }
+        i = i + 1i64;
+    }
+}
+
+fn limit_of(has: bool, n: i64, is_param: bool, param: str) -> CLimit {
+    if !has { return CLimit::None; }
+    if is_param { return CLimit::Param(param); }
+    return CLimit::N(n);
+}
+
+/// One surface query → its clause and its envelope. A rel body's envelope is
+/// read too: the walker refuses the modifiers a rel body may not carry, and
+/// the core keeps what was written so that refusal has a single source.
+pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
+    let mut body: Vec<CLit> = Vec::<CLit>::new();
+    match q.view::<RQuery>() {
+        RQuery::Simple(s) => {
+            body.push(base_atom(lx, s.src_name, s.var_name, s.row_ty));
+            if s.has_where { body.push(CLit::Cond(CCond { e: s.where_pred.any(), site: CSite::Where })); }
+            env.mode = if s.sel_first { CMode::First } else { CMode::All };
+            env.distinct = s.distinct;
+            env.order = opt(s.has_order, s.order_key.any());
+            env.desc = s.order_desc;
+            env.limit = limit_of(s.has_limit, s.limit_n, s.limit_is_param, s.limit_param);
+            env.result_ty = if s.has_result_ty { s.result_ty } else { "" };
+            return CClause { head: s.select.any(), body: body, group: Option::None, gpath: if s.has_gpath { lower_path(s.gpath.any()) } else { Option::None } };
+        }
+        RQuery::Join(j) => {
+            body.push(base_atom(lx, j.a_name, j.x_var, j.a_ty));
+            lower_steps(lx, j.steps.any(), &mut body);
+            if j.has_where { body.push(CLit::Cond(CCond { e: j.where_pred.any(), site: CSite::Where })); }
+            env.mode = if j.sel_first { CMode::First } else { CMode::All };
+            env.distinct = j.distinct;
+            env.order = opt(j.has_order, j.order_key.any());
+            env.desc = j.order_desc;
+            env.limit = limit_of(j.has_limit, j.limit_n, j.limit_is_param, j.limit_param);
+            env.result_ty = if j.has_result_ty { j.result_ty } else { "" };
+            return CClause { head: j.select.any(), body: body, group: Option::None, gpath: if j.has_gpath { lower_path(j.gpath.any()) } else { Option::None } };
+        }
+        RQuery::Aggr(g) => {
+            body.push(base_atom(lx, g.a_name, g.x_var, g.a_ty));
+            lower_steps(lx, g.steps.any(), &mut body);
+            if g.has_where { body.push(CLit::Cond(CCond { e: g.where_pred.any(), site: CSite::Where })); }
+            let mut aggs: Vec<CAgg> = Vec::<CAgg>::new();
+            if !g.aggs.any().is_null() {
+                let aa: RQAggArr = g.aggs_arr();
+                let mut i: i64 = 0i64;
+                while i < aa.len() {
+                    let a: RQAgg = aa.agg_at(i);
+                    aggs.push(CAgg { name: a.name, func: a.fn_name, arg: opt(a.has_arg, a.arg.any()) });
+                    i = i + 1i64;
+                }
+            }
+            let grp: CGroup = CGroup { key: g.key.any(), aggs: aggs,
+                                       having: opt(g.has_having, g.having_pred.any()) };
+            env.mode = if g.sel_first { CMode::First } else { CMode::All };
+            env.distinct = g.distinct;
+            env.order = opt(g.has_order, g.order_key.any());
+            env.desc = g.order_desc;
+            env.limit = limit_of(g.has_limit, g.limit_n, g.limit_is_param, g.limit_param);
+            env.result_ty = if g.has_result_ty { g.result_ty } else { "" };
+            return CClause { head: g.select.any(), body: body, group: Option::Some(grp), gpath: if g.has_gpath { lower_path(g.gpath.any()) } else { Option::None } };
+        }
+        RQuery::Find(f) => {
+            body.push(base_atom(lx, f.src_name, f.var_name, f.row_ty));
+            body.push(CLit::Cond(CCond { e: f.pred.any(), site: CSite::Where }));
+            env.mode = CMode::Find;
+            return CClause { head: WAny::null(), body: body, group: Option::None, gpath: Option::None };
+        }
+    }
+}
+
+pub fn envelope_new() -> CEnvelope {
+    return CEnvelope { mode: CMode::All, distinct: false, order: Option::None, desc: false,
+                       limit: CLimit::None, result_ty: "" };
+}
+
+/// The whole program: every rel's bodies, then the entry.
+pub fn lower_program(root: WAny) -> CProgram {
+    let lx: CLower = CLower { names: prog_rel_names(root) };
+    let names: &Vec<str> = &lx.names;
+    let prog: RQProgram = root.view::<RQProgram>();
+    let mut rels: Vec<CRel> = Vec::<CRel>::new();
+    let mut r: i64 = 0i64;
+    while r < names.len() {
+        let rq: RQRel = prog.rels_arr().rel_at(r);
+        let mut cols: Vec<CCol> = Vec::<CCol>::new();
+        if !rq.cols.any().is_null() {
+            let ca: RQRelColArr = rq.cols_arr();
+            let mut c: i64 = 0i64;
+            while c < ca.len() {
+                let col: RQRelCol = ca.col_at(c);
+                cols.push(CCol { name: col.name, ty: col.ty_name });
+                c = c + 1i64;
+            }
+        }
+        let mut rules: Vec<CRule> = Vec::<CRule>::new();
+        if !rq.bodies.any().is_null() {
+            let ba: RQBodyArr = rq.bodies_arr();
+            let mut b: i64 = 0i64;
+            while b < ba.len() {
+                let mut env: CEnvelope = envelope_new();
+                let cl: CClause = lower_query(&lx, ba.body_any(b), &mut env);
+                rules.push(CRule { clause: cl, env: env });
+                b = b + 1i64;
+            }
+        }
+        rels.push(CRel { name: rq.name, cols: cols, rules: rules });
+        r = r + 1i64;
+    }
+    let mut env: CEnvelope = envelope_new();
+    let entry: CClause = lower_query(&lx, prog.entry.any(), &mut env);
+    return CProgram { rels: rels, entry: CRule { clause: entry, env: env }, strs: Vec::<String>::new() };
+}
+
+/// Link every atom's source to the rel of its name (the lowering's `src_of`):
+/// a rel of the program by index, else a parameter; a `Unit` atom stays.
+pub fn core_relink(p: &mut CProgram) {
+    let mut names: Vec<str> = Vec::<str>::new();
+    let mut i: i64 = 0i64;
+    while i < p.rels.len() { names.push(p.rels.as_slice()[i].name); i = i + 1i64; }
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let mut b: i64 = 0i64;
+        while b < p.rels[r].rules.len() { relink_clause(&mut p.rels[r].rules[b].clause, &names); b = b + 1i64; }
+        r = r + 1i64;
+    }
+    relink_clause(&mut p.entry.clause, &names);
+}
+
+fn relink_clause(cl: &mut CClause, names: &Vec<str>) {
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &mut cl.body[i] {
+            CLit::Atom(a) => {
+                let unit: bool = match &a.src { CSrc::Unit => true, CSrc::Rel(_r) => false, CSrc::Param(_n) => false };
+                if !unit {
+                    let mut x: i64 = -1i64;
+                    let mut k: i64 = 0i64;
+                    while k < names.len() { if x < 0i64 && str_eq(names[k], a.name) { x = k; } k = k + 1i64; }
+                    a.src = if x >= 0i64 { CSrc::Rel(x) } else { CSrc::Param(a.name) };
+                }
+            }
+            CLit::Trav(_t) => { }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+}
+
+// ── queries over the core ──────────────────────────────────────────────────
+
+// The rels a clause's atoms read, positively or negated, by index.
+fn clause_reads(cl: &CClause, out: &mut Vec<i64>) {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { match &a.src { CSrc::Rel(r) => { out.push(*r); } CSrc::Param(_n) => { } CSrc::Unit => { } } }
+            CLit::Trav(_t) => { }
+            CLit::Cond(_e) => { }
+        }
+        i = i + 1i64;
+    }
+}
+
+/// Whether rel `target` is reached from `ru` — read by one of its atoms, or by
+/// a rule of a rel those atoms read, transitively.
+pub fn core_rule_reaches(p: &CProgram, ru: &CRule, target: i64) -> bool {
+    let n: i64 = p.rels.len();
+    let mut seen: Vec<bool> = Vec::<bool>::new();
+    let mut k: i64 = 0i64;
+    while k < n { seen.push(false); k = k + 1i64; }
+    let mut work: Vec<i64> = Vec::<i64>::new();
+    clause_reads(&ru.clause, &mut work);
+    let rels: &[CRel] = p.rels.as_slice();
+    while work.len() > 0i64 {
+        let r: i64 = work.get(work.len() - 1i64);
+        work.pop();
+        if r == target { return true; }
+        if !seen[r] {
+            seen[r] = true;
+            let rs: &[CRule] = rels[r].rules.as_slice();
+            let mut b: i64 = 0i64;
+            while b < rels[r].rules.len() { clause_reads(&rs[b].clause, &mut work); b = b + 1i64; }
+        }
+    }
+    return false;
+}
+
+// ── verification: what the LOWERING guarantees, checked; a violation is an ICE ─
+//
+// R0 checks STRUCTURE only. A user's scope error (an unknown variable) is
+// still the walker's to diagnose, after this point, so it must not become an
+// ICE here; the binding invariants join this verifier when the scope checks
+// move onto the core (ADR 0031 R2).
+
+fn ice(what: str, rel: str) {
+    let mut m: String = String::new();
+    m.push_str("ICE: deem core_verify: ");
+    m.push_str(what);
+    m.push_str(" (in `");
+    m.push_str(rel);
+    m.push_str("`) — the lowering broke an invariant of the core (ADR 0031 §3.1)");
+    logos.lang.panic::panic(unsafe { str_from_raw(m.as_ptr(), m.len()) });
+}
+
+fn verify_rule(p: &CProgram, ru: &CRule, rel: str) {
+    let find: bool = match &ru.env.mode { CMode::Find => { true } CMode::All => { false } CMode::First => { false } };
+    verify_clause(p, &ru.clause, rel, find);
+    match &ru.env.limit {
+        CLimit::N(n) => { if *n < 0i64 { ice("a negative limit", rel); } }
+        CLimit::Param(n) => { if (*n).len() == 0i64 { ice("an unnamed limit parameter", rel); } }
+        CLimit::None => { }
+    }
+}
+
+fn verify_clause(p: &CProgram, cl: &CClause, rel: str, entry_find: bool) {
+    if cl.body.len() == 0i64 { ice("a clause with an empty body", rel); }
+    let bs: &[CLit] = cl.body.as_slice();
+    match &bs[0i64] {
+        CLit::Atom(a) => { if a.neg { ice("a clause whose first literal is negated", rel); } }
+        CLit::Trav(_t) => { ice("a clause whose first literal is a traversal (no base row)", rel); }
+        CLit::Cond(_c) => { ice("a clause whose first literal is a condition", rel); }
+    }
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if a.var.len() == 0i64 { ice("an atom binds no variable", rel); }
+                match &a.src {
+                    CSrc::Rel(r) => { if *r < 0i64 || *r >= p.rels.len() { ice("an atom reads a rel index out of range", rel); } }
+                    CSrc::Param(n) => { if n.len() == 0i64 { ice("an atom reads an unnamed parameter", rel); } }
+                    CSrc::Unit => { }
+                }
+                if !a.neg && a.conds.len() > 0i64 { ice("a positive atom carries scoped conditions", rel); }
+            }
+            CLit::Trav(t) => {
+                if t.var.len() == 0i64 || t.base.len() == 0i64 { ice("a traversal without a base or a variable", rel); }
+                if t.path.len() == 0i64 { ice("a traversal with an empty path", rel); }
+                if !t.neg && t.conds.len() > 0i64 { ice("a positive traversal carries scoped conditions", rel); }
+            }
+            CLit::Cond(c) => { if c.e.is_null() { ice("a null condition", rel); } }
+        }
+        i = i + 1i64;
+    }
+    if cl.head.is_null() && !entry_find { ice("a clause with no head outside `find` mode", rel); }
+    match &cl.group {
+        Option::Some(g) => {
+            let ag: &[CAgg] = g.aggs.as_slice();
+            let mut k: i64 = 0i64;
+            while k < g.aggs.len() {
+                let a: &CAgg = &ag[k];
+                if a.name.len() == 0i64 || a.func.len() == 0i64 { ice("an aggregate without a name or a function", rel); }
+                k = k + 1i64;
+            }
+        }
+        Option::None => { }
+    }
+}
+
+pub fn core_verify(p: &CProgram) {
+    let rs: &[CRel] = p.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let rel: &CRel = &rs[r];
+        if rel.rules.len() == 0i64 { ice("a rel with no clause", rel.name); }
+        let cs: &[CRule] = rel.rules.as_slice();
+        let mut c: i64 = 0i64;
+        while c < rel.rules.len() {
+            if cs[c].clause.gpath.is_some() { ice("a graph path left unlowered", rel.name); }
+            verify_rule(p, &cs[c], rel.name);
+            c = c + 1i64;
+        }
+        r = r + 1i64;
+    }
+    if p.entry.clause.gpath.is_some() { ice("a graph path left unlowered", "<entry>"); }
+    verify_rule(p, &p.entry, "<entry>");
+}
+
+// ── dump: `LOGOS_DEEM_DUMP=core` ────────────────────────────────────────────
+
+fn op_sym(op: i32) -> str {
+    if op == OP_OR()  { return "||"; }
+    if op == OP_AND() { return "&&"; }
+    if op == OP_EQ()  { return "=="; }
+    if op == OP_NE()  { return "!="; }
+    if op == OP_LT()  { return "<"; }
+    if op == OP_LE()  { return "<="; }
+    if op == OP_GT()  { return ">"; }
+    if op == OP_GE()  { return ">="; }
+    if op == OP_ADD() { return "+"; }
+    if op == OP_SUB() { return "-"; }
+    if op == OP_MUL() { return "*"; }
+    if op == OP_DIV() { return "/"; }
+    if op == OP_MOD() { return "%"; }
+    return "?op";
+}
+
+fn expr_args(a: SExprArr, out: &mut String) {
+    let mut i: i64 = 0i64;
+    while i < a.len() {
+        if i > 0i64 { out.push_str(", "); }
+        expr_text(a.arg_at(i), out);
+        i = i + 1i64;
+    }
+}
+
+/// An SExpr as Deem source text (for the dump; not a code emitter).
+pub fn expr_text(e: SExpr, out: &mut String) {
+    match e {
+        SExpr::Lit(l) => {
+            if l.txt.len() > 0i64 { out.push_str(l.txt); }
+            else if l.val.is_string() { out.push_str("\""); out.push_str(l.val.as_wstr()); out.push_str("\""); }
+            else if l.val.is_bool() { if l.val.as_bool() { out.push_str("true"); } else { out.push_str("false"); } }
+            else { out.push_i64(l.val.as_i64()); }
+        }
+        SExpr::Param(p) => { out.push_str("$"); out.push_str(p.name); }
+        SExpr::Var(v) => { out.push_str(v.name); }
+        SExpr::Field(f) => {
+            if !f.base.any().is_null() { expr_text(f.base_expr(), out); out.push_str("."); }
+            out.push_str(f.name);
+        }
+        SExpr::Bin(b) => {
+            out.push_str("(");
+            expr_text(b.lhs_expr(), out);
+            out.push_str(" "); out.push_str(op_sym(b.op)); out.push_str(" ");
+            expr_text(b.rhs_expr(), out);
+            out.push_str(")");
+        }
+        SExpr::Un(u) => {
+            if u.op == OP_NOT() { out.push_str("!"); } else { out.push_str("-"); }
+            expr_text(u.arg_expr(), out);
+        }
+        SExpr::Call(c) => { out.push_str(c.fn_name); out.push_str("("); expr_args(c.args_arr(), out); out.push_str(")"); }
+        SExpr::Cond(c) => {
+            out.push_str("(if "); expr_text(c.cond_expr(), out);
+            out.push_str(" then "); expr_text(c.then_expr(), out);
+            out.push_str(" else "); expr_text(c.else_expr(), out); out.push_str(")");
+        }
+        SExpr::Comp(cp) => { out.push_str("[comprehension over "); out.push_str(cp.var); out.push_str("]"); }
+        SExpr::Tuple(t) => { out.push_str("("); expr_args(t.items_arr(), out); out.push_str(")"); }
+        SExpr::Cast(c) => { out.push_str("("); expr_text(c.arg_expr(), out); out.push_str(" as "); out.push_str(c.ty); out.push_str(")"); }
+    }
+}
+
+fn any_text(e: WAny, out: &mut String) {
+    if e.is_null() { out.push_str("<none>"); return; }
+    expr_text(e.view::<SExpr>(), out);
+}
+
+fn conds_text(cs: &Vec<WAny>, out: &mut String) {
+    if cs.len() == 0i64 { return; }
+    out.push_str(" [");
+    let mut i: i64 = 0i64;
+    while i < cs.len() {
+        if i > 0i64 { out.push_str(", "); }
+        any_text(cs.get(i), out);
+        i = i + 1i64;
+    }
+    out.push_str("]");
+}
+
+fn src_text(p: &CProgram, s: &CSrc, out: &mut String) {
+    match s {
+        CSrc::Rel(r) => { out.push_str(p.rels.as_slice()[*r].name); }
+        CSrc::Param(n) => { out.push_str("param "); out.push_str(*n); }
+        CSrc::Unit => { out.push_str("__unit"); }
+    }
+}
+
+fn clause_text(p: &CProgram, cl: &CClause, out: &mut String) {
+    out.push_str("    ");
+    any_text(cl.head, out);
+    out.push_str(" :-");
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        out.push_str(if i == 0i64 { " " } else { ", " });
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if a.neg { out.push_str("!"); }
+                src_text(p, &a.src, out);
+                if a.reg >= 0i64 { out.push_str("#"); out.push_i64(a.reg); }
+                out.push_str("("); out.push_str(a.var); out.push_str(")");
+                conds_text(&a.conds, out);
+            }
+            CLit::Trav(t) => {
+                if t.neg { out.push_str("!"); }
+                out.push_str(t.base);
+                let mut k: i64 = 0i64;
+                while k < t.path.len() { out.push_str("."); out.push_str(t.path.get(k)); k = k + 1i64; }
+                out.push_str("("); out.push_str(t.var); out.push_str(")");
+                conds_text(&t.conds, out);
+            }
+            CLit::Cond(c) => { any_text(c.e, out); }
+        }
+        i = i + 1i64;
+    }
+    match &cl.group {
+        Option::Some(g) => {
+            out.push_str("\n      group "); any_text(g.key, out);
+            let ag: &[CAgg] = g.aggs.as_slice();
+            let mut k: i64 = 0i64;
+            while k < g.aggs.len() {
+                let a: &CAgg = &ag[k];
+                out.push_str(if k == 0i64 { " { " } else { ", " });
+                out.push_str(a.name); out.push_str(" = "); out.push_str(a.func); out.push_str("(");
+                match &a.arg { Option::Some(x) => { any_text(*x, out); } Option::None => { } }
+                out.push_str(")");
+                k = k + 1i64;
+            }
+            if g.aggs.len() > 0i64 { out.push_str(" }"); }
+            match &g.having { Option::Some(h) => { out.push_str(" having "); any_text(*h, out); } Option::None => { } }
+        }
+        Option::None => { }
+    }
+    out.push_str("\n");
+}
+
+// The envelope's non-default parts, each with a leading space.
+fn env_text(e: &CEnvelope, out: &mut String) {
+    match &e.mode { CMode::All => { } CMode::First => { out.push_str(" first"); } CMode::Find => { out.push_str(" find"); } }
+    if e.distinct { out.push_str(" distinct"); }
+    match &e.order {
+        Option::Some(o) => { out.push_str(" order "); any_text(*o, out); if e.desc { out.push_str(" desc"); } }
+        Option::None => { }
+    }
+    match &e.limit {
+        CLimit::N(n) => { out.push_str(" limit "); out.push_i64(*n); }
+        CLimit::Param(n) => { out.push_str(" limit $"); out.push_str(*n); }
+        CLimit::None => { }
+    }
+    if e.result_ty.len() > 0i64 { out.push_str(" : "); out.push_str(e.result_ty); }
+}
+
+pub fn core_text(p: &CProgram, name: str, out: &mut String) {
+    out.push_str("[core] deem "); out.push_str(name); out.push_str("\n");
+    let rs: &[CRel] = p.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let rel: &CRel = &rs[r];
+        out.push_str("  rel "); out.push_str(rel.name); out.push_str("(");
+        let mut c: i64 = 0i64;
+        while c < rel.cols.len() {
+            if c > 0i64 { out.push_str(", "); }
+            out.push_str(rel.cols.get(c).name); out.push_str(": "); out.push_str(rel.cols.get(c).ty);
+            c = c + 1i64;
+        }
+        out.push_str(")\n");
+        let cs: &[CRule] = rel.rules.as_slice();
+        let mut k: i64 = 0i64;
+        while k < rel.rules.len() {
+            let mut et: String = String::new();
+            env_text(&cs[k].env, &mut et);
+            if et.len() > 0i64 { out.push_str("   ["); out.push_str(unsafe { str_from_raw(et.as_ptr(), et.len()) }); out.push_str(" ]\n"); }
+            clause_text(p, &cs[k].clause, out);
+            k = k + 1i64;
+        }
+        r = r + 1i64;
+    }
+    out.push_str("  entry");
+    env_text(&p.entry.env, out);
+    out.push_str("\n");
+    clause_text(p, &p.entry.clause, out);
+}
+
+/// `LOGOS_DEEM_DUMP=core`: the core of every deem, on stderr.
+pub fn core_dump_on() -> bool { return core_dump_mode("core"); }
+
+fn core_dump_mode(mode: str) -> bool {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_DEEM_DUMP");
+    c.push_u8(0u8);
+    unsafe {
+        let v: *const u8 = getenv(c.as_ptr());
+        if v == 0 as *const u8 { return false; }
+        return str_eq(str_from_cstr(v), mode);
+    }
+}
+
+/// An empty program (the registry's placeholder before a plan exists).
+pub fn core_empty() -> CProgram {
+    return CProgram { rels: Vec::<CRel>::new(),
+                      entry: CRule { clause: CClause { head: WAny::null(), body: Vec::<CLit>::new(), group: Option::None, gpath: Option::None },
+                                     env: envelope_new() },
+                      strs: Vec::<String>::new() };
+}
+
+/// The PLANNED core (ADR 0031 R5) is complete: the program the walker is about
+/// to emit, resolved, decided and bound. Verified like the first core;
+/// `LOGOS_DEEM_DUMP=pcore` prints it.
+pub fn core_planned_done(p: &CProgram, name: str) {
+    core_verify(p);
+    if core_dump_mode("pcore") {
+        let mut s: String = String::new();
+        core_text(p, name, &mut s);
+        unsafe { write(2i32, s.as_ptr(), s.len()); }
+    }
+}
+
+/// Lower, verify, and dump when asked. The one entry point the handler calls.
+pub fn core_build(root: WAny, name: str) -> CProgram {
+    let p: CProgram = lower_program(root);
+    core_finish(&p, name);
+    return p;
+}
+
+/// Verify a lowered (and desugared) core, and dump it when asked.
+pub fn core_finish(p: &CProgram, name: str) {
+    core_verify(p);
+    if core_dump_on() {
+        let mut s: String = String::new();
+        core_text(p, name, &mut s);
+        unsafe { write(2i32, s.as_ptr(), s.len()); }
+    }
+}

@@ -1,0 +1,100 @@
+// DEMAND THROUGH A TRAVERSAL (2026-10-05). A recursive rel whose body walks a
+// nested collection (`join n.kids k`) used to be left as written by the
+// magic-sets transformation: its clause read every atom whole, so the rel
+// counted as read whole and was never evaluated on demand. A traversal step is
+// now visited right after its base row in the SIPS order (its rows are a
+// function of that row), and a magic rule that reaches past it copies it.
+//
+//   below  under(a, b): the descendants of each node; the entry binds `a`
+//   via    a magic rule that has to walk the traversal: `up(x, y)` reads
+//          `ns n join n.kids k` and binds `y` through `k`
+//
+// The tick sits in a WHERE of the recursive bodies, on a column of the
+// recursive atom: a WHERE term is evaluated as soon as its row vars are
+// bound, so a tick on `n` would count the scan of `ns`, not the derivations.
+// CONTROL:
+// `LOGOS_DEEM_NO_DEMAND=1` at compile time leaves each count equal to its
+// twin's, and this fixture exits at the first count check.
+//
+// exit 0 = every answer equal to its twin, every count strictly smaller.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Node { pub id: i64, pub kids: Vec<i64> }
+
+static mut TICKS: i64 = 0i64;
+pub fn tick(x: i64) -> i64 { unsafe { TICKS = TICKS + 1i64; } return x; }
+fn ticks() -> i64 { return unsafe { TICKS }; }
+fn reset() { unsafe { TICKS = 0i64; } }
+
+pub deem below(ns: &[Node], root: i64) {
+    rel under(a: i64, b: i64) {
+        from ns n join n.kids k select (n.id, k);
+        from under d join ns n on n.id == d.b join n.kids k where tick(k) >= 0 select (d.a, k);
+    }
+    from under d where d.a == root select d.b
+}
+pub deem below_all(ns: &[Node]) {
+    rel under(a: i64, b: i64) {
+        from ns n join n.kids k select (n.id, k);
+        from under d join ns n on n.id == d.b join n.kids k where tick(k) >= 0 select (d.a, k);
+    }
+    from under d select (d.a, d.b)
+}
+
+// ancestors: the bound column is reached THROUGH the traversal — `up(x, y)`
+// is read with `y` bound, and its recursive body binds `u.y` from `k`
+pub deem via(ns: &[Node], leaf: i64) {
+    rel up(x: i64, y: i64) {
+        from ns n join n.kids k select (n.id, k);
+        from ns n join n.kids k join up u on u.y == n.id where tick(u.x) >= 0 select (u.x, k);
+    }
+    from up u where u.y == leaf select u.x
+}
+pub deem via_all(ns: &[Node]) {
+    rel up(x: i64, y: i64) {
+        from ns n join n.kids k select (n.id, k);
+        from ns n join n.kids k join up u on u.y == n.id where tick(u.x) >= 0 select (u.x, k);
+    }
+    from up u select (u.x, u.y)
+}
+
+fn count_a(v: &Vec<(i64, i64)>, a: i64) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.len() { if v.get(i).0 == a { n = n + 1i64; } i = i + 1i64; }
+    return n;
+}
+fn count_b(v: &Vec<(i64, i64)>, b: i64) -> i64 {
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < v.len() { if v.get(i).1 == b { n = n + 1i64; } i = i + 1i64; }
+    return n;
+}
+
+fn main() -> i32 {
+    // two trees: 1 -> {2, 3}, 2 -> {4}, 4 -> {5};  10 -> {11}, 11 -> {12, 13}
+    let mut ns: Vec<Node> = Vec::<Node>::new();
+    let mut k1: Vec<i64> = Vec::<i64>::new(); k1.push(2i64); k1.push(3i64); ns.push(Node { id: 1i64, kids: k1 });
+    let mut k2: Vec<i64> = Vec::<i64>::new(); k2.push(4i64); ns.push(Node { id: 2i64, kids: k2 });
+    ns.push(Node { id: 3i64, kids: Vec::<i64>::new() });
+    let mut k4: Vec<i64> = Vec::<i64>::new(); k4.push(5i64); ns.push(Node { id: 4i64, kids: k4 });
+    ns.push(Node { id: 5i64, kids: Vec::<i64>::new() });
+    let mut k10: Vec<i64> = Vec::<i64>::new(); k10.push(11i64); ns.push(Node { id: 10i64, kids: k10 });
+    let mut k11: Vec<i64> = Vec::<i64>::new(); k11.push(12i64); k11.push(13i64); ns.push(Node { id: 11i64, kids: k11 });
+    ns.push(Node { id: 12i64, kids: Vec::<i64>::new() });
+    ns.push(Node { id: 13i64, kids: Vec::<i64>::new() });
+
+    reset(); let ba: Vec<(i64, i64)> = below_all(ns.as_slice()).unwrap(); let tb_all: i64 = ticks();
+    reset(); let b10: Vec<i64> = below(ns.as_slice(), 10i64).unwrap(); let tb: i64 = ticks();
+    if b10.len() != count_a(&ba, 10i64) || b10.len() != 3i64 { return 1i32; }
+    if tb >= tb_all { return 2i32; }
+
+    reset(); let va: Vec<(i64, i64)> = via_all(ns.as_slice()).unwrap(); let tv_all: i64 = ticks();
+    reset(); let v5: Vec<i64> = via(ns.as_slice(), 5i64).unwrap(); let tv: i64 = ticks();
+    if v5.len() != count_b(&va, 5i64) || v5.len() != 3i64 { return 3i32; }
+    if tv >= tv_all { return 4i32; }
+    return 0i32;
+}

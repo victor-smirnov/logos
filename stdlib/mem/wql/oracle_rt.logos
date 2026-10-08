@@ -9,10 +9,13 @@ package logos.std.wql.oracle_rt;
 
 use logos.lang.str;
 use logos.mem.string;
+use logos.lang.num.float;
 
 extern fn open(path: *const u8, flags: i32, mode: i32) -> i32;
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 extern fn close(fd: i32) -> i32;
+extern fn unlink(path: *const u8) -> i32;
+extern fn lseek(fd: i32, off: i64, whence: i32) -> i64;
 
 /// Create (truncate) `path` for writing; −1 on failure, which every writer
 /// below tolerates.
@@ -34,6 +37,49 @@ pub fn wql_oracle_i64(fd: i32, v: i64) {
     wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
 }
 
+pub fn wql_oracle_u64(fd: i32, v: u64) {
+    let mut b: String = String::new();
+    b.push_u64(v);
+    wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
+}
+
+/// A float as C99 hex (`-0x1.8p+1`), which Soufflé's reader parses EXACTLY —
+/// a decimal would round. NaN is `nan` and an infinity `inf`/`-inf`; the gate
+/// leaves a NaN input out where the program orders floats (`// nan-sensitive`).
+pub fn wql_oracle_f64(fd: i32, v: f64) {
+    let mut b: String = String::new();
+    wql_f64_hex(&mut b, v);
+    wql_oracle_bytes(fd, unsafe { str_from_raw(b.as_ptr(), b.len()) });
+}
+
+/// `v` as C99 hex into `b` (see `wql_oracle_f64`); also the exporter's
+/// spelling of a float literal, `to_float("<hex>")`.
+pub fn wql_f64_hex(b: &mut String, v: f64) {
+    let bits: u64 = f64_to_bits(v);
+    let neg: bool = (bits >> 63u64) != 0u64;
+    let ex: i64 = ((bits >> 52u64) & 2047u64) as i64;
+    let man: u64 = bits & 4503599627370495u64;            // 2^52 - 1
+    if ex == 2047i64 {
+        if man != 0u64 { b.push_str("nan"); }
+        else { if neg { b.push_str("-"); } b.push_str("inf"); }
+        return;
+    }
+    if neg { b.push_str("-"); }
+    if ex == 0i64 && man == 0u64 { b.push_str("0x0p+0"); return; }
+    // a subnormal is 0x0.<m>p-1022, a normal 0x1.<m>p<e-1023>
+    if ex == 0i64 { b.push_str("0x0."); } else { b.push_str("0x1."); }
+    let mut k: i64 = 12i64;
+    while k >= 0i64 {
+        let d: u64 = (man >> ((k * 4i64) as u64)) & 15u64;
+        if d < 10u64 { b.push_u8(48u8 + (d as u8)); } else { b.push_u8(87u8 + (d as u8)); }
+        k = k - 1i64;
+    }
+    b.push_str("p");
+    let e: i64 = if ex == 0i64 { -1022i64 } else { ex - 1023i64 };
+    if e >= 0i64 { b.push_str("+"); }
+    b.push_i64(e);
+}
+
 pub fn wql_oracle_bool(fd: i32, v: bool) {
     if v { wql_oracle_bytes(fd, "1"); } else { wql_oracle_bytes(fd, "0"); }
 }
@@ -47,4 +93,61 @@ pub fn wql_oracle_nl(fd: i32) { wql_oracle_bytes(fd, "\n"); }
 pub fn wql_oracle_close(fd: i32) {
     if fd < 0i32 { return; }
     unsafe { close(fd); }
+}
+
+/// Remove `path` if present: a call leaves exactly ONE outcome file, so an Ok
+/// answer removes a previous call's `deem.err` and an Err removes `deem.out`
+/// (otherwise the gate would pair this call's facts with another call's answer).
+pub fn wql_oracle_unlink(path: str) {
+    let mut p: String = String::new();
+    p.push_str(path);
+    p.push_u8(0u8);
+    unsafe { unlink(p.as_ptr()); }
+}
+
+// ── the incremental tier's log (an `_epoch`/`_retract`/`_snapshot` handle) ──
+// One log per HANDLE, named by the id its constructor drew (`wql_oracle_newid`):
+// `+ row` for an inserted row, `- row` for a retracted one (a weighted `_apply`
+// writes |w| copies), `?` for a delta on a source other than the first, `= k`
+// for a snapshot whose rows are in `h<id>.s<k>`. Only a call that returned Ok
+// is logged; an Err is taken to leave the handle as it was.
+
+/// Open `path` for APPENDING (created if absent).
+pub fn wql_oracle_append(path: str) -> i32 {
+    let mut p: String = String::new();
+    p.push_str(path);
+    p.push_u8(0u8);
+    return unsafe { open(p.as_ptr(), 1089i32, 420i32) };   // O_WRONLY|O_CREAT|O_APPEND, 0644
+}
+
+/// `<dir>/h<id><suffix>`
+pub fn wql_oracle_hpath(dir: str, id: i64, suffix: str) -> String {
+    let mut p: String = String::new();
+    p.push_str(dir);
+    p.push_str("/h");
+    p.push_i64(id);
+    p.push_str(suffix);
+    return p;
+}
+
+/// The log's current end — the snapshot number: unique and increasing per
+/// handle, with no state of our own (a `static mut` here is not reachable from
+/// the metaprogram JIT that loads this module).
+pub fn wql_oracle_tell(fd: i32) -> i64 {
+    if fd < 0i32 { return -1i64; }
+    return unsafe { lseek(fd, 0i64, 2i32) };   // SEEK_END
+}
+
+/// A fresh handle id: one byte appended to `<dir>/ids`, the offset before it.
+/// Unique per handle creation within a run, with no state of our own.
+pub fn wql_oracle_newid(dir: str) -> i64 {
+    let mut p: String = String::new();
+    p.push_str(dir);
+    p.push_str("/ids");
+    let fd: i32 = wql_oracle_append(unsafe { str_from_raw(p.as_ptr(), p.len()) });
+    if fd < 0i32 { return 0i64; }
+    let k: i64 = wql_oracle_tell(fd);
+    wql_oracle_bytes(fd, "x");
+    wql_oracle_close(fd);
+    return k;
 }

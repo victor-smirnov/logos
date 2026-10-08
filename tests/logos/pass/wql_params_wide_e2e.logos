@@ -1,0 +1,23 @@
+// A deem with more parameters than the parameter table's old 64 slots
+// (2026-10-05): the 65th and later were dropped silently, so a query reading
+// `p69` met an unknown name. The table grows now.
+//
+// exit 0 = the filter on the 70th parameter selects its row.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R { pub a: i64 }
+
+pub deem q(rs: &[R], p0: i64, p1: i64, p2: i64, p3: i64, p4: i64, p5: i64, p6: i64, p7: i64, p8: i64, p9: i64, p10: i64, p11: i64, p12: i64, p13: i64, p14: i64, p15: i64, p16: i64, p17: i64, p18: i64, p19: i64, p20: i64, p21: i64, p22: i64, p23: i64, p24: i64, p25: i64, p26: i64, p27: i64, p28: i64, p29: i64, p30: i64, p31: i64, p32: i64, p33: i64, p34: i64, p35: i64, p36: i64, p37: i64, p38: i64, p39: i64, p40: i64, p41: i64, p42: i64, p43: i64, p44: i64, p45: i64, p46: i64, p47: i64, p48: i64, p49: i64, p50: i64, p51: i64, p52: i64, p53: i64, p54: i64, p55: i64, p56: i64, p57: i64, p58: i64, p59: i64, p60: i64, p61: i64, p62: i64, p63: i64, p64: i64, p65: i64, p66: i64, p67: i64, p68: i64, p69: i64) {
+    from rs r where r.a == p69 select r.a
+}
+
+fn main() -> i32 {
+    let rs: [R; 3] = [R { a: 1i64 }, R { a: 69i64 }, R { a: 70i64 }];
+    let v: Vec<i64> = q(&rs[..], 0i64, 1i64, 2i64, 3i64, 4i64, 5i64, 6i64, 7i64, 8i64, 9i64, 10i64, 11i64, 12i64, 13i64, 14i64, 15i64, 16i64, 17i64, 18i64, 19i64, 20i64, 21i64, 22i64, 23i64, 24i64, 25i64, 26i64, 27i64, 28i64, 29i64, 30i64, 31i64, 32i64, 33i64, 34i64, 35i64, 36i64, 37i64, 38i64, 39i64, 40i64, 41i64, 42i64, 43i64, 44i64, 45i64, 46i64, 47i64, 48i64, 49i64, 50i64, 51i64, 52i64, 53i64, 54i64, 55i64, 56i64, 57i64, 58i64, 59i64, 60i64, 61i64, 62i64, 63i64, 64i64, 65i64, 66i64, 67i64, 68i64, 69i64).unwrap();
+    if v.len() != 1i64 { return 1i32; }
+    if v.get(0i64) != 69i64 { return 2i32; }
+    return 0i32;
+}

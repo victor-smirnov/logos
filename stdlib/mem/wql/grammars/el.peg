@@ -138,9 +138,9 @@
     // (Both backends stop reading <maxfn> at the space, so <cap> is inert there.)
     // Layout mirrors ir.logos:69 — `count: i32 = 0, a0..a7 = 1..8` — a convention
     // every array schema in ir.logos/plan.logos follows.
-    SExprArr : code(0x0010_0000_0000_000A) cap(9) {
+    SExprArr : code(0x0010_0000_0000_000A) cap(2) {
         count: "i32" = 0,
-        args:  "fan set_arg SEXPRARR_MAX 8" = 1
+        args:  "list set_arg" = 1
     }
 
     // Relational tier — RExpr (ir.logos). The comprehension lowers to a scan

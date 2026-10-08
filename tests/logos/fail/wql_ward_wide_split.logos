@@ -1,0 +1,37 @@
+// TRACK A — wardedness past the analyzer's old tables (2026-10-05): the
+// wql_ward_split program widened to 8 columns, its existentials in column 7
+// (the old tables held 6), and the rule that splits them over seven body atoms
+// (the old tables held 6). Still rejected with the named reason — the analysis,
+// not a capacity guard, decides.
+//   B(m,…,d)          ∃d in col 7
+//   D(n,…,d)          ∃d in col 7
+//   B(m,…,d1), D(n,…,d2), five EDB atoms -> H(d1,d2)
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct N { pub k: i64 }
+
+pub deem bad(sa: &[N], sc: &[N]) {
+    rel B(m: i64, c1: i64, c2: i64, c3: i64, c4: i64, c5: i64, c6: i64, d: i64) {
+        from sa x select (x.k, x.k, x.k, x.k, x.k, x.k, x.k, fresh());
+    }
+    rel D(n: i64, c1: i64, c2: i64, c3: i64, c4: i64, c5: i64, c6: i64, d: i64) {
+        from sc x select (x.k, x.k, x.k, x.k, x.k, x.k, x.k, fresh());
+    }
+    rel H(a: i64, b: i64) {
+        from B bb join D dd on bb.m == dd.n join sa e1 on e1.k == bb.m join sa e2 on e2.k == bb.m
+          join sa e3 on e3.k == bb.m join sa e4 on e4.k == bb.m join sa e5 on e5.k == bb.m
+        select (bb.d, dd.d);
+    }
+    from H h select (h.a)
+}
+
+fn main() -> i32 {
+    let sa: [N; 1] = [ N { k: 1i64 } ];
+    let sc: [N; 1] = [ N { k: 1i64 } ];
+    let out: Vec<i64> = bad(&sa[..], &sc[..]);
+    return out.len() as i32;
+}

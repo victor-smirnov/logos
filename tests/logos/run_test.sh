@@ -79,7 +79,7 @@ if [ -n "${LOGOS_FACTS_DIR:-}" ]; then
     if ! "$(dirname "$0")/facts_emit.sh" "$LOGOSC" "$TEST_LOGOS" \
             "$LOGOS_FACTS_DIR" "$OBJ" "${EXTRA[@]}"; then
         echo "FAIL: logosc failed:"
-        grep -v '^\[plan\] ' "$LOGOS_FACTS_DIR/plan.err" 2>/dev/null || true
+        grep -v -e '^\[plan\] ' -e '^\[facts\] ' "$LOGOS_FACTS_DIR/plan.err" 2>/dev/null || true
         exit 1
     fi
 elif ! "$LOGOSC" "$TEST_LOGOS" -o "$OBJ" "${EXTRA[@]}" 2>"$TMPD/sema.err"; then

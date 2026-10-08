@@ -154,6 +154,37 @@ unsafe fn array_get(a: *const WArray<WAny>, i: i64) -> WAny {
     return *(buf.add(i));
 }
 
+// ── A SCHEMA VIEW'S LIST FIELD ─────────────────────────────────────────────────
+// A view carries its arena's ALLOCATOR (`WSchemaH.z`), not the Writ, so the
+// array behind a list field is created and grown through that allocator. `z` is
+// the view's raw `*mut u8`, cast here (callers outside the writ package do not
+// name `Allocator`).
+/// An empty array of capacity `cap` in the arena whose allocator is `z`.
+pub unsafe fn warray_new_in(z: *mut u8, cap: i64) -> *mut WArray<WAny> {
+    let alloc: *mut Allocator = z as *mut Allocator;
+    let hdr: *mut WArray<WAny> =
+        alloc_tagged(alloc, sizeof::<WArray<WAny>>() as i64, W_ARRAY) as *mut WArray<WAny>;
+    let buf: *zoned mut WAny =
+        allocator_alloc(alloc, cap * (sizeof::<WAny>() as i64), align_of::<WAny>() as i64) as *zoned mut WAny;
+    hdr.len  = 0i64;
+    hdr.cap  = cap;
+    hdr.data = buf;
+    return hdr;
+}
+/// Appends `v`, growing through the arena allocator `z`.
+pub unsafe fn warray_push_in(a: *mut WArray<WAny>, z: *mut u8, v: WAny) {
+    array_push(a, z as *mut Allocator, v);
+}
+/// Replaces element `i` (< len) with `v`.
+pub unsafe fn warray_set(a: *mut WArray<WAny>, i: i64, v: WAny) {
+    let buf: *zoned mut WAny = array_buf_mut(a);
+    *(buf.add(i)) = v;
+}
+/// The element count.
+pub unsafe fn warray_len(a: *const WArray<WAny>) -> i64 { return array_len(a); }
+/// Element `i` (< len), no tag check — for a list field whose writer is known.
+pub unsafe fn array_get_unchecked(a: *const WArray<WAny>, i: i64) -> WAny { return array_get(a, i); }
+
 // ── Direct-reference surface (NO handle/view wrapper) ──────────────────────────
 //
 // Client code holds a DIRECT reference to an array — `&WArray<WAny>` / `&mut

@@ -1296,6 +1296,12 @@ impl<const N: u32, P: NodeProfile> BtBranch<u64, N> for BtflBranchRef<N, P> {
     fn count_at(self: &BtflBranchRef<N, P>, i: u32, s: u32) -> u64 {
         unsafe { return br_pdt(&node_view_at(self.mem)).get(BRC_CNT0 + s, i as u64); }
     }
+    fn count_prefix(self: &BtflBranchRef<N, P>, c: u32, s: u32) -> u64 {
+        let mut t: u64 = 0u64;
+        let mut j: u32 = 0u32;
+        while j < c { t = t + self.count_at(j, s); j = j + 1u32; }
+        return t;
+    }
     fn find_child(self: &BtflBranchRef<N, P>, key: u64) -> u32 {
         unsafe { return btfl_find_child(&node_view_at(self.mem), key); }
     }

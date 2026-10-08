@@ -160,13 +160,12 @@ impl Hash for u24 {
 impl Hash for i24 {
     fn hash<H: Hasher>(&self, state: &mut H) { state.write_i64(*self as i64); }
 }
-// Tuple Hash — per-arity generic impls (arities 2..8), Rust-parity: hash each
-// component in order (no length prefix — the arity is part of the type). The
-// per-arity form is the pattern tuple Eq used before its variadic rewrite; a
-// variadic `impl<A...: Hash> Hash for (A...)` needs a new mono intrinsic
-// (`__tuple_each_hash__`, complicated by the method-level `H: Hasher` type
-// param) — tracked for when >8-ary tuple keys matter. 8 covers the WQL rel
-// column fan-out (RQRELCOL_MAX) and the common compound-key range.
+// Tuple Hash — per-arity generic impls (arities 2..12, Rust's range), Rust-parity:
+// hash each component in order (no length prefix — the arity is part of the
+// type). The per-arity form is the pattern tuple Eq used before its variadic
+// rewrite; a variadic `impl<A...: Hash> Hash for (A...)` needs a new mono
+// intrinsic (`__tuple_each_hash__`, complicated by the method-level `H: Hasher`
+// type param).
 impl<A: Hash, B: Hash> Hash for (A, B) {
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state); self.1.hash(state);
@@ -204,6 +203,34 @@ impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash, G: Hash, I: Hash> Has
     fn hash<H: Hasher>(&self, state: &mut H) {
         self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
         self.4.hash(state); self.5.hash(state); self.6.hash(state); self.7.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash, G: Hash, I: Hash, J: Hash> Hash for (A, B, C, D, E, F, G, I, J) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+        self.4.hash(state); self.5.hash(state); self.6.hash(state); self.7.hash(state);
+        self.8.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash, G: Hash, I: Hash, J: Hash, K: Hash> Hash for (A, B, C, D, E, F, G, I, J, K) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+        self.4.hash(state); self.5.hash(state); self.6.hash(state); self.7.hash(state);
+        self.8.hash(state); self.9.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash, G: Hash, I: Hash, J: Hash, K: Hash, L: Hash> Hash for (A, B, C, D, E, F, G, I, J, K, L) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+        self.4.hash(state); self.5.hash(state); self.6.hash(state); self.7.hash(state);
+        self.8.hash(state); self.9.hash(state); self.10.hash(state);
+    }
+}
+impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash, G: Hash, I: Hash, J: Hash, K: Hash, L: Hash, M: Hash> Hash for (A, B, C, D, E, F, G, I, J, K, L, M) {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state); self.1.hash(state); self.2.hash(state); self.3.hash(state);
+        self.4.hash(state); self.5.hash(state); self.6.hash(state); self.7.hash(state);
+        self.8.hash(state); self.9.hash(state); self.10.hash(state); self.11.hash(state);
     }
 }
 

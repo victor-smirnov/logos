@@ -1,0 +1,45 @@
+// A `deem` item emitted as a QUOTE, into a package the emitter names
+// (2026-10-06, #345 / #346). Both of the query item's runtime parts are
+// fragments: the NAME an antiquote (`deem #dn`), the BODY a `parse_raw` splice
+// (query text, which the query compiler parses, not Logos). The item lands in
+// `quote_deem_pkg.side` — not the metacall site's package — through
+// `logos_emit_item_blob_subst_pkg`, and the call below reaches it by that path.
+// Before: the grammar had no `deem #name` / `#(body)` form, and a quote always
+// landed in the metacall site's package.
+package quote_deem_pkg;
+
+use logos.std.compiler.metaprog;
+use logos.mem.string;
+use logos.lang.slice;
+use logos.mem.collections.vec;
+use logos.std.wql.wql;            // loads the deem handler (an emitted `use` only resolves names)
+
+pub struct R { pub a: i64 }
+
+fn gen(name: str, query: str) -> ItemList {
+    let dn: Ident = Ident::new(name);
+    let ps: ExprBlob = parse_params("rs: &[R]");
+    let qb: ExprBlob = parse_raw(query);
+    let item: QuoteItemBlob = quote_item! {
+        use logos.std.wql.wql; use logos.mem.collections.vec; use logos.lang.result;
+        use quote_deem_pkg;
+        pub deem #dn(#(ps)) #(qb)
+    };
+    let mut pkg: String = String::new();
+    pkg.push_str("quote_deem_pkg.side");
+    pkg.push_u8(0u8);
+    unsafe { logos_emit_item_blob_subst_pkg(&item, pkg.as_ptr()); }
+    return item_list_new();
+}
+
+metacall gen("big", "from rs r where r.a > 1 select r.a");
+
+fn main() -> i32 {
+    let rs: [R; 3] = [R { a: 1i64 }, R { a: 2i64 }, R { a: 3i64 }];
+    // bound first: a range index inside a qualified call's arguments is #733
+    let s: &[R] = &rs[..];
+    let v: Vec<i64> = quote_deem_pkg.side::big(s).unwrap();
+    if v.len() != 2i64 { return 1i32; }
+    if v.get(1i64) != 3i64 { return 2i32; }
+    return 0i32;
+}

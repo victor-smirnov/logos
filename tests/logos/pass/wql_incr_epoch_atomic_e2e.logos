@@ -1,0 +1,56 @@
+// An insert-only `<q>_epoch` is ONE OUTCOME (2026-10-04): it either returns Ok
+// and the handle holds the whole delta, or returns Err and the handle is as it
+// was. The query below has no retraction surface (a float `avg` keeps it
+// insert-only), and its integer `sum` is checked, so a delta whose SECOND row
+// overflows the sum used to leave the first row folded: a new group created,
+// counted and summed, under an Err.
+//
+// exit 0 = after the refused epoch the snapshot is the pre-call one, and the
+//          handle still takes a legal epoch afterwards.
+package test;
+
+use logos.mem.collections.vec;
+use logos.mem.deem;
+use logos.std.wql.wql;
+use logos.std.wql.ir;
+use logos.std.wql.el;
+use logos.std.fmt;
+use logos.lang.result;
+
+struct R { pub g: i64, pub v: i64, pub x: f64 }
+
+pub deem tot(rs: &[R]) {
+    from rs r group by r.g aggregate n = count(), s = sum(r.v), a = avg(r.x) select (key, n, s)
+}
+
+fn main() -> i32 {
+    let mut h: TotIncr = tot_incremental();
+    let big: i64 = 9223372036854775800i64;
+    let e0: [R; 1] = [R { g: 1i64, v: big, x: 1.0 }];
+    match tot_epoch(&mut h, &e0) { Result::Ok(_n) => {} Result::Err(_e) => { return 1i32; } }
+    // row 1 opens group 2; row 2 overflows group 1's sum
+    let e1: [R; 2] = [R { g: 2i64, v: 5i64, x: 2.0 }, R { g: 1i64, v: 100i64, x: 3.0 }];
+    match tot_epoch(&mut h, &e1) {
+        Result::Ok(_n)  => { println!("the overflowing epoch returned Ok"); return 2i32; }
+        Result::Err(e) => {
+            match e {
+                ElError::Overflow => {}
+                _ => { println!("wrong error arm"); return 3i32; }
+            }
+        }
+    }
+    let v: Vec<(i64, i64, i64)> = match tot_snapshot(&h) { Result::Ok(v) => { v } Result::Err(_e) => { return 4i32; } };
+    // the pre-call state: one group, one row, the big sum; no group 2
+    if v.len() != 1i64 { println!("groups after the refused epoch: {}", v.len()); return 5i32; }
+    if v.get(0i64).0 != 1i64 || v.get(0i64).1 != 1i64 || v.get(0i64).2 != big {
+        println!("group 1 after the refused epoch: n={} s={}", v.get(0i64).1, v.get(0i64).2);
+        return 6i32;
+    }
+    // …and the handle is usable: the legal row alone lands
+    let e2: [R; 1] = [R { g: 2i64, v: 5i64, x: 2.0 }];
+    match tot_epoch(&mut h, &e2) { Result::Ok(_n) => {} Result::Err(_e) => { return 7i32; } }
+    let w: Vec<(i64, i64, i64)> = match tot_snapshot(&h) { Result::Ok(v) => { v } Result::Err(_e) => { return 8i32; } };
+    if w.len() != 2i64 || w.get(1i64).0 != 2i64 || w.get(1i64).2 != 5i64 { println!("after the legal epoch: {}", w.len()); return 9i32; }
+    println!("epoch atomic ok groups={}", w.len());
+    return 0i32;
+}

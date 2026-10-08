@@ -25,21 +25,38 @@ package logos.std.wql.srcloc;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;
 use logos.std.wql.plan;
+use logos.std.wql.el;          // QSrc, QueryLoc — the location arithmetic as plain data
 use logos.mem.string;
 use logos.std.compiler.metaprog;   // error — the metaprog diag channel
 use logos.std.wql.params;      // MacroParams — the walker context a check has in hand
 
-/// Where an offset in the parsed text came from.
-///
-/// `in_mapping` distinguishes the two cases a diagnostic must never confuse:
-/// text the user wrote (line/col in `file`) and text a mapping supplied (named
-/// by `origin`, positioned within that mapping's own body).
-pub struct QueryLoc {
-    pub in_mapping: bool,
-    pub origin:     str,    // mapping name; "" when the text is the user's
-    pub file:       str,
-    pub line:       i64,    // 1-based, absolute in `file` (user text only)
-    pub col:        i64,    // 1-based
+/// The query as plain data (`el::QSrc`), for the layers that may not name the
+/// surface: the text, the file, the head's line and the spliced segments.
+pub fn query_src(prog: &RQProgram) -> QSrc {
+    let mut q: QSrc = qsrc_none();
+    q.on = true;
+    q.text = String::from_str(prog.src_text);
+    q.file = String::from_str(prog.src_file);
+    q.line = prog.src_line;
+    let segs_any: WAny = prog.segs.any();
+    if !segs_any.is_null() {
+        let segs: RQSrcSegArr = segs_any.view::<RQSrcSegArr>();
+        let mut i: i64 = 0i64;
+        while i < segs.len() {
+            let sg: RQSrcSeg = segs.seg_at(i);
+            q.seg_end.push(sg.end);
+            q.seg_origin.push(String::from_str(sg.origin));
+            i = i + 1i64;
+        }
+    }
+    return q;
+}
+
+/// The walker's query as a source; `qsrc_none()` without one (trama!/catalog).
+pub fn query_src_of(prm: &MacroParams) -> QSrc {
+    if prm.src_root.is_null() { return qsrc_none(); }
+    let prog: RQProgram = prm.src_root.view::<RQProgram>();
+    return query_src(&prog);
 }
 
 /// Resolve a byte offset in the parsed text to a place.
@@ -51,79 +68,12 @@ pub struct QueryLoc {
 /// body's own start, which is the honest answer while the item's head column is
 /// not recorded.
 pub fn resolve(prog: &RQProgram, soff: i64) -> QueryLoc {
-    let text: str = prog.src_text;
-    let mut off: i64 = soff;
-    if off < 0i64 { off = 0i64; }
-    if off > text.len() { off = text.len(); }
-
-    // Spliced mapping text sorts BEFORE the written query. Segment ends are
-    // exclusive and in splice order, so the first end above `off` owns it.
-    let segs_any: WAny = prog.segs.any();
-    let mut base: i64 = 0i64;
-    if !segs_any.is_null() {
-        let segs: RQSrcSegArr = segs_any.view::<RQSrcSegArr>();
-        let n: i64 = segs.len();
-        let mut i: i64 = 0i64;
-        while i < n {
-            let sg: RQSrcSeg = segs.seg_at(i);
-            if off < sg.end {
-                // Inside a mapping's body — position it within THAT body, and
-                // say so. Reporting a file line here would point at the query,
-                // which is not where the text lives.
-                let lo: i64 = if i == 0i64 { 0i64 } else { segs.seg_at(i - 1i64).end };
-                let (ml, mc): (i64, i64) = line_col_in(text, lo, off);
-                return QueryLoc { in_mapping: true, origin: sg.origin,
-                                  file: prog.src_file, line: ml, col: mc };
-            }
-            i = i + 1i64;
-        }
-        if n > 0i64 { base = segs.seg_at(n - 1i64).end; }
-    }
-
-    let (l, c): (i64, i64) = line_col_in(text, base, off);
-    return QueryLoc { in_mapping: false, origin: "", file: prog.src_file,
-                      line: prog.src_line + (l - 1i64), col: c };
+    let q: QSrc = query_src(prog);
+    return qsrc_resolve(&q, soff);
 }
 
-/// 1-based (line, col) of `off` counted from `lo` — the segment's own start.
-fn line_col_in(text: str, lo: i64, off: i64) -> (i64, i64) {
-    let b: &[u8] = text.as_bytes();
-    let mut line: i64 = 1i64;
-    let mut last_nl: i64 = lo - 1i64;
-    let mut i: i64 = lo;
-    while i < off {
-        if b[i] == 10u8 { line = line + 1i64; last_nl = i; }
-        i = i + 1i64;
-    }
-    return (line, off - last_nl);
-}
+pub fn prefix(loc: &QueryLoc) -> String { return qloc_prefix(loc); }
 
-/// `<file>:<line>:<col>: ` — or, for spliced text, a prefix naming the mapping.
-/// The mapping form deliberately does NOT print a file line: the offending text
-/// is not in the file at that line, and a plausible-looking wrong location is
-/// worse than an honest indirect one.
-pub fn prefix(loc: &QueryLoc) -> String {
-    let mut s: String = String::new();
-    if loc.in_mapping {
-        s.push_str("in mapping `");
-        s.push_str(loc.origin);
-        s.push_str("` (");
-        s.push_str(loc.file);
-        s.push_str(") line ");
-        s.push_i64(loc.line);
-        s.push_str(":");
-        s.push_i64(loc.col);
-        s.push_str(": ");
-        return s;
-    }
-    s.push_str(loc.file);
-    s.push_str(":");
-    s.push_i64(loc.line);
-    s.push_str(":");
-    s.push_i64(loc.col);
-    s.push_str(": ");
-    return s;
-}
 
 /// Report `msg` against the query position `soff`. This is Deem's diagnostic
 /// channel: the message is located before it leaves, so the host never has to

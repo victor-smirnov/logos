@@ -1,0 +1,123 @@
+// MORE THAN EIGHT RELS (2026-10-04): the rel registry, the program's rel list,
+// the access plan and the SCC condensation held 8 rels; they hold 16. Canon
+// split itself into two mappings at the old cap.
+//
+// `wide` declares 12 rels, every one live: a base relation, a transitive
+// closure (a recursive SCC), a mutually recursive odd/even pair (a two-member
+// SCC), a recursive min aggregate, an anti join, and a chain of derived rels.
+// `wide_demand` declares the closure 10th and binds its column: the demand
+// rewrite's magic rel lands in the 13th slot.
+//
+// Over the path 1→2→3→4→5 (computed by hand):
+//   tc     = every (a, b) with a < b                       (10 rows)
+//   far    = tc with b - a >= 3 = (1,4) (1,5) (2,5)  → r10 = {1, 2}
+//   hops   = min hops from 1: (1,0) (2,1) (3,2) (4,3) (5,4)
+//   even   = (1,3) (1,5) (2,4) (3,5)
+//   sink   = {5}
+//   ans    = (1,0) (2,1) | (1,3) (1,5) (2,4) (3,5) | (5,0)  — 7 rows
+//
+// `long` chains 20 rels (the registry is dynamic since 2026-10-05).
+//
+// exit 0 = the three answers.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+pub deem wide(edges: &[Edge]) {
+    rel e(a: i64, b: i64) { from edges x select (x.src, x.dst); }
+    rel tc(a: i64, b: i64) {
+        from e x select (x.a, x.b);
+        from tc t join e x on t.b == x.a select (t.a, x.b);
+    }
+    rel odd(a: i64, b: i64) {
+        from e x select (x.a, x.b);
+        from even v join e x on v.b == x.a select (v.a, x.b);
+    }
+    rel even(a: i64, b: i64) { from odd o join e x on o.b == x.a select (o.a, x.b); }
+    rel node(n: i64) { from e x select x.a; from e x select x.b; }
+    rel sink(n: i64) { from node n anti join e x on x.a == n.n select n.n; }
+    rel hops(n: i64, d: i64) {
+        from e x where x.a == 1 select (x.a, 0);
+        from hops h join e x on x.a == h.n group by x.b aggregate d = min(h.d + 1) select (key, d);
+    }
+    rel far(a: i64, b: i64) { from tc t where t.b - t.a >= 3 select (t.a, t.b); }
+    rel r9(a: i64) { from far f select f.a; }
+    rel r10(a: i64) { from r9 x where x.a > 0 select x.a; }
+    rel r11(a: i64, b: i64) { from even v select (v.a, v.b); }
+    rel ans(k: i64, v: i64) {
+        from r10 x join hops h on h.n == x.a select (x.a, h.d);
+        from r11 y select (y.a, y.b);
+        from sink s select (s.n, 0);
+    }
+    from ans a select (a.k, a.v)
+}
+
+pub deem wide_demand(edges: &[Edge], start: i64) {
+    rel e(a: i64, b: i64) { from edges x select (x.src, x.dst); }
+    rel p2(a: i64) { from e x select x.a; }
+    rel p3(a: i64) { from p2 x select x.a; }
+    rel p4(a: i64) { from p3 x select x.a; }
+    rel p5(a: i64) { from p4 x select x.a; }
+    rel p6(a: i64) { from p5 x select x.a; }
+    rel p7(a: i64) { from p6 x select x.a; }
+    rel p8(a: i64) { from p7 x select x.a; }
+    rel p9(a: i64) { from p8 x select x.a; }
+    rel tc(a: i64, b: i64) {
+        from e x select (x.a, x.b);
+        from tc t join e x on t.b == x.a select (t.a, x.b);
+    }
+    from tc t where t.a == start select t.b
+}
+
+// `long` chains 20 rels (past the old fixed cap of 16), every one live.
+pub deem long(edges: &[Edge]) {
+    rel c1(a: i64) { from edges x select x.src; }
+    rel c2(a: i64) { from c1 x where x.a > 0 select x.a; }
+    rel c3(a: i64) { from c2 x where x.a > 0 select x.a; }
+    rel c4(a: i64) { from c3 x where x.a > 0 select x.a; }
+    rel c5(a: i64) { from c4 x where x.a > 0 select x.a; }
+    rel c6(a: i64) { from c5 x where x.a > 0 select x.a; }
+    rel c7(a: i64) { from c6 x where x.a > 0 select x.a; }
+    rel c8(a: i64) { from c7 x where x.a > 0 select x.a; }
+    rel c9(a: i64) { from c8 x where x.a > 0 select x.a; }
+    rel c10(a: i64) { from c9 x where x.a > 0 select x.a; }
+    rel c11(a: i64) { from c10 x where x.a > 0 select x.a; }
+    rel c12(a: i64) { from c11 x where x.a > 0 select x.a; }
+    rel c13(a: i64) { from c12 x where x.a > 0 select x.a; }
+    rel c14(a: i64) { from c13 x where x.a > 0 select x.a; }
+    rel c15(a: i64) { from c14 x where x.a > 0 select x.a; }
+    rel c16(a: i64) { from c15 x where x.a > 0 select x.a; }
+    rel c17(a: i64) { from c16 x where x.a > 0 select x.a; }
+    rel c18(a: i64) { from c17 x where x.a > 0 select x.a; }
+    rel c19(a: i64) { from c18 x where x.a > 0 select x.a; }
+    rel c20(a: i64) { from c19 x where x.a > 0 select x.a; }
+    from c20 x select x.a
+}
+
+fn has(r: &Vec<(i64, i64)>, k: i64, v: i64) -> bool {
+    let mut i: i64 = 0i64;
+    while i < r.len() { if r.get(i).0 == k && r.get(i).1 == v { return true; } i = i + 1i64; }
+    return false;
+}
+
+fn main() -> i32 {
+    let edges: [Edge; 4] = [Edge { src: 1i64, dst: 2i64 }, Edge { src: 2i64, dst: 3i64 },
+                            Edge { src: 3i64, dst: 4i64 }, Edge { src: 4i64, dst: 5i64 }];
+    let r: Vec<(i64, i64)> = wide(&edges[..]).unwrap();
+    if r.len() != 7i64 { return 1i32; }
+    if !has(&r, 1i64, 0i64) || !has(&r, 2i64, 1i64) { return 2i32; }
+    if !has(&r, 1i64, 3i64) || !has(&r, 1i64, 5i64) || !has(&r, 2i64, 4i64) || !has(&r, 3i64, 5i64) { return 3i32; }
+    if !has(&r, 5i64, 0i64) { return 4i32; }
+    let d: Vec<i64> = wide_demand(&edges[..], 2i64).unwrap();
+    if d.len() != 3i64 { return 5i32; }
+    let mut sum: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < d.len() { sum = sum + d.get(i); i = i + 1i64; }
+    if sum != 12i64 { return 6i32; }
+    let l: Vec<i64> = long(&edges[..]).unwrap();
+    if l.len() != 4i64 { return 7i32; }
+    return 0i32;
+}

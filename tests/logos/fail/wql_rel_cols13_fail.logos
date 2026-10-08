@@ -1,0 +1,20 @@
+// A rel of thirteen columns is a named error at its declaration (2026-10-05).
+// A rel's row is a tuple held in a set, and tuples implement `Hash` and `Clone`
+// up to twelve elements (Rust's range); wider, the generated code failed on a
+// missing `Hash` impl inside the macro's output.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct R { pub a: i64, pub b: i64 }
+pub deem q(rs: &[R]) {
+    rel w(c0: i64, c1: i64, c2: i64, c3: i64, c4: i64, c5: i64, c6: i64, c7: i64, c8: i64, c9: i64, c10: i64, c11: i64, c12: i64) {
+        from rs r select (r.a, r.b, r.a, r.b, r.a, r.b, r.a, r.b, r.a, r.b, r.a, r.b, r.a + r.b);
+    }
+    from w x select x.c12
+}
+fn main() -> i32 {
+    let rs: [R; 2] = [R { a: 1i64, b: 2i64 }, R { a: 3i64, b: 4i64 }];
+    let v = q(&rs[..]).unwrap();
+    if v.len() != 2i64 { return 1i32; }
+    return 0i32;
+}

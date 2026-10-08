@@ -298,6 +298,21 @@ MAT = {
         '`__gk` / `__gc` / `__ga_<a>` — the group-frame columns the INSERT path writes in place',
     'retraction snapshot latch':
         "`__lat` — the |OD|/|S|/|RD| triples; O(members), no rows, one per shadow handle",
+    # ── `<q>_apply`'s CALL-LEVEL SNAPSHOT (2026-10-03) ────────────────────
+    # The shadow handle that makes `<q>_apply` atomic (commit on `Ok` only),
+    # `__ap<i>` bindings; per-fixture attribution is plan_ground_census FACT P.
+    'apply snapshot group frame':
+        '`__gk` / `__gc` / `__ga_<a>` — O(|groups|) per `<q>_apply` call',
+    'apply snapshot multiplicity map':
+        '`__gm_<a>` — one HashMap per group, copied by `hashmap_clone`',
+    'apply snapshot stored side':
+        '`__s0`/`__s0w` (+ `__s1`/`__s1w` on a join) — the footprint Z-set or the stored relations',
+    'epoch snapshot group frame':
+        '`__gk` / `__gc` / `__ga_<a>` — O(|groups|) per insert-only `<q>_epoch` call',
+    'epoch snapshot relation':
+        '`__edb` / `__tot_<m>` — a rel-backed epoch, O(|EDB| + Σ|total|)',
+    'epoch snapshot latch':
+        '`__lat` — the DRed latch, O(members)',
     # ── ADR 0025 R-E — THE INCREMENTAL TIER'S PER-ROUND WORKING SET ───────
     # 294 bindings — after `__cp` the WHOLE of the criterion-1 worklist outside
     # `__rel_*`. Fire counts measured at G2 on the emitter-only tree, before any
@@ -337,6 +352,9 @@ NOMAT = {
     # on the NOMAT side. What it replaces is a REFUSAL: before it, a streamed
     # batch source on a build side did not compile at all.
     'build-side batch pull',
+    # `retract identity` (2026-10-03): what a bare-scan retraction is matched
+    # on. The store it decides is already counted as the handle's `__s0`.
+    'row', 'footprint',
 }
 def head_of(line):
     m = re.match(r'^\[plan\] (.+?) -> (.*?)(?:   \(|$)', line)
@@ -500,6 +518,12 @@ ACC = {
     '__cp':     (('retraction snapshot relation', 'retraction snapshot group frame',
                   'retraction snapshot latch'),
                  "retraction snapshot (`<q>_dred`'s shadow handle — three seam heads)"),
+    '__ap':     (('apply snapshot group frame', 'apply snapshot multiplicity map',
+                  'apply snapshot stored side'),
+                 "apply snapshot (`<q>_apply`'s shadow handle — three seam heads)"),
+    '__ep':     (('epoch snapshot group frame', 'epoch snapshot relation',
+                  'epoch snapshot latch'),
+                 "epoch snapshot (the insert-only `<q>_epoch`'s shadow handle — three seam heads)"),
     # ── ADR 0025 R-E — THE PER-ROUND WORKING SET, EIGHT KEYS, ONE HEAD EACH ─
     # ⚠ EVERY KEY MEASURED CLEAN, and the measurement is the class count itself:
     # each of the eight worklist classes stood at EXACTLY the fire count of its

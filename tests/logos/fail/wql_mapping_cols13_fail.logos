@@ -1,0 +1,17 @@
+// A mapping rel of 13 columns is refused at the item: a rel row is a tuple, and
+// tuple Hash stops at 12 — the same bound a deem-body rel has
+// (`wql_rel_cols13_fail`). Up to 12 is admitted (`wql_mapping_wide_e2e`). The
+// diagnostic names the mapping item as its context, not the fn sema lowered last.
+package test;
+
+use logos.lang.writ.container;
+use logos.std.wql.wql;
+use logos.std.wql.mapping_item;
+
+pub mapping Too(g: &Writ) {
+    pub rel w(c0: i64, c1: i64, c2: i64, c3: i64, c4: i64, c5: i64, c6: i64, c7: i64, c8: i64, c9: i64, c10: i64, c11: i64, c12: i64) {
+        from g .ports [*] q select (q.vi + 0, q.vi + 1, q.vi + 2, q.vi + 3, q.vi + 4, q.vi + 5, q.vi + 6, q.vi + 7, q.vi + 8, q.vi + 9, q.vi + 10, q.vi + 11, q.vi + 12);
+    }
+}
+
+fn main() -> i32 { return 0i32; }

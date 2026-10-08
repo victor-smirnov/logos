@@ -1,0 +1,22 @@
+// After `group by` in the entry, a join STEP's row var has no representative
+// row: the group's row is its first BASE row (`wql_group_rowvar_e2e`), and the
+// nest is what binds a step var. A named error; it used to surface as
+// `undefined variable 'b'` in the generated code, as did `group by b.m …
+// select (b.m, n)` (the grouped expression reads as `key`). A rel body's
+// aggregate is a Datalog rule and may read its key's vars.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub m: i64 }
+
+pub deem bad(xs: &[A], ys: &[B]) {
+    from xs a
+    join ys b on b.m == a.k
+    group by a.k
+    aggregate n = count()
+    select (key, b.m) }
+
+fn main() -> i32 { return 0i32; }

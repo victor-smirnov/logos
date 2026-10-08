@@ -128,16 +128,20 @@ pub fn WG_FALSE_FILTER() -> i32 { return 4i32; }
 pub fn WG_FALSE_PRED() -> i32   { return 5i32; }
 pub fn WG_AGG() -> i32          { return 6i32; }
 
-pub fn WG_NO_STEP() -> i32      { return 10i32; }
+// 10 (`WG_NO_STEP`) and 16 (`WG_ONE_FLOAT`) are DELETED (2026-10-04), refuted
+// rather than witnessed, and 19 (`WG_CROSS`) with them: `decide_join_orders`
+// is called only with a chain that
+// has a step, and `decide_over_set` only after the first step was found to be
+// neither an anti join nor a traversal, so two sources always float; and every
+// floatable step carries an `on` (the grammar requires one on a classic join,
+// and the gpath and magic-set rewrites set one), so C5's bijection never lacks a
+// predicate. All three sites are invariants now (`join_order.logos`).
 pub fn WG_EDGE_FIRST() -> i32   { return 11i32; }
 pub fn WG_ANTI_FIRST() -> i32   { return 12i32; }
 pub fn WG_NO_SORT() -> i32      { return 13i32; }
 pub fn WG_KEY_ORDER() -> i32    { return 14i32; }
 pub fn WG_UNDECIDED() -> i32    { return 15i32; }
-pub fn WG_ONE_FLOAT() -> i32    { return 16i32; }
 pub fn WG_MAX_FL() -> i32       { return 17i32; }
-pub fn WG_NO_SIZE() -> i32      { return 18i32; }
-pub fn WG_CROSS() -> i32        { return 19i32; }
 
 pub fn WG_MAX_CAND() -> i32     { return 20i32; }
 pub fn WG_REFUSED() -> i32      { return 21i32; }
@@ -152,12 +156,14 @@ pub fn WG_DEFERRED() -> i32     { return 23i32; }
 
 // ── WHY POINT (1) COULD OR COULD NOT MEASURE A SIDE ──────────────────────────
 // The per-side size classification, moved here from `join_order` with the rest of
-// the vocabulary: the codes are OPERANDS of `WG_DEFERRED` and `WG_NO_SIZE`, so they
+// the vocabulary: the codes are OPERANDS of `WG_DEFERRED`, so they
 // belong beside the record that carries them. `join_order::prep_size_reason` is
 // still the one rule that ASSIGNS them — it needs the rel registry — and this file
 // is the one place that says what each one MEANS and what repairs it.
 pub fn SZ_OK() -> i32      { return 0i32; }
-pub fn SZ_STREAMS() -> i32 { return 1i32; }
+// 1 (`SZ_STREAMS`) is DELETED (2026-10-04) with `WG_NO_SIZE` (18): under `order by`,
+// the only way into the size facts, every join source is materialized, so no
+// streamed side is ever classified (`join_order::prep_size_reason`).
 pub fn SZ_DERIVED() -> i32 { return 2i32; }
 pub fn SZ_LOCAL() -> i32   { return 3i32; }
 
@@ -170,8 +176,10 @@ pub fn RJ_PREDBASE() -> i32 { return 2i32; }
 pub fn RJ_PREDDUP() -> i32  { return 3i32; }
 pub fn RJ_RESCAN() -> i32   { return 4i32; }
 pub fn RJ_DEDUP() -> i32    { return 5i32; }
-pub fn RJ_SHAPE() -> i32    { return 6i32; }
-pub fn RJ_PREDPIN() -> i32  { return 7i32; }
+// 6 (`RJ_SHAPE`) and 7 (`RJ_PREDPIN`) are DELETED (2026-10-04): unreachable
+// once a step's `on` is scoped (`join_order::derive_orders` holds them as
+// panics). `RJ_N` stays 8: the census is spliced into generated code as eight
+// literals (`rj_at`), and the two slots are always 0.
 pub fn RJ_N() -> i64        { return 8i64; }
 
 // ── THE RECORD ───────────────────────────────────────────────────────────────
@@ -297,7 +305,7 @@ pub fn why_axis(w: &Why) -> i32 { return w.axis; }
 /// (which `enumerated`/`proved`/`considered`/`refused` already answer).
 pub fn why_operand(w: &Why) -> str {
     if w.ground == WG_KEY_ORDER() { return w.key; }
-    if w.ground == WG_DEFERRED() || w.ground == WG_NO_SIZE() {
+    if w.ground == WG_DEFERRED() {
         let mut i: i64 = 0i64;
         while i < w.nsd {
             if w.scode[i] != SZ_OK() { return w.ssrc[i]; }
@@ -344,9 +352,6 @@ pub fn wg_words(g: i32) -> str {
     if g == WG_AGG() {
         return "an aggregate's output order is its groups' FIRST-OCCURRENCE order, which no sort restores, so the plan holds the query's own nest and there is nothing for a measurement to choose between";
     }
-    if g == WG_NO_STEP() {
-        return "no join step — there is no second side to drive from";
-    }
     if g == WG_EDGE_FIRST() {
         return "a traversal step's source is a field path of an outer row, so it cannot be an outermost loop — there is nothing to bind its base to";
     }
@@ -357,19 +362,10 @@ pub fn wg_words(g: i32) -> str {
         return "the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order";
     }
     if g == WG_UNDECIDED() {
-        return "no plan decided this step's strategy (a rel body's own chain is emitted per fixpoint variant), so there is no decision to offer a second order for";
-    }
-    if g == WG_ONE_FLOAT() {
-        return "only one source is free to move — every other step is pinned (an anti join or a traversal), so there is no second order to compare";
+        return "no plan decided this step's strategy: it comes after a traversal, and the planner stops at the traversal because the row var it binds is typed only once the traversal is stamped (`plan_decide_chain`) — so there is no decision to offer a second order for";
     }
     if g == WG_MAX_FL() {
         return "more floatable sources than a plan holds facts for (four): the permutation search and the plan's size table are both bounded there, so this chain keeps the query's own order rather than searching a truncated space";
-    }
-    if g == WG_CROSS() {
-        return "a floatable step carries no `on` (a cross product), so the predicates and the positions are not in bijection and C5 has nothing to place — the derivation refuses the chain before enumerating anything, because C5 is a bijection requirement and a missing predicate breaks it whatever the order";
-    }
-    if g == WG_NO_SIZE() {
-        return "a side's size is free at NEITHER decision point: it streams, so it has no length before the query runs and none inside it either — counting would mean draining the iterator, which is the query's own work, and trading that for a plan fact is what this axis refuses";
     }
     if g == WG_MAX_CAND() {
         return "more admissible orders than an artifact carries nests (four): the reorder is declined whole rather than searched over a set chosen by enumeration order, so the query's own order is emitted";
@@ -391,9 +387,6 @@ pub fn wg_words(g: i32) -> str {
 /// asymmetry), the sentence SAYS so rather than being omitted: silence reads as an
 /// oversight, and a reader then goes looking for the surface that was not named.
 pub fn wg_remedy(g: i32) -> str {
-    if g == WG_NO_STEP() {
-        return "there is nothing to repair: a single source has no second side, and the order axis is a decision ABOUT a join";
-    }
     if g == WG_EDGE_FIRST() {
         return "a traversal cannot lead: the remedy is a query whose first step is a classic join, with the traversal deeper in the chain where its base is already bound";
     }
@@ -407,19 +400,10 @@ pub fn wg_remedy(g: i32) -> str {
         return "";
     }
     if g == WG_UNDECIDED() {
-        return "there is nothing to declare: the chain belongs to a rel body emitted per fixpoint variant, and a strategy the planner never decided is not a fact a source can supply";
-    }
-    if g == WG_ONE_FLOAT() {
-        return "unpin a step: every source but one is an anti join or a traversal, and a second FLOATABLE source is what a second order would permute";
+        return "join the source before the traversal, where its key is typed at planning time: a step after a traversal has no strategy to reason from, and a strategy the planner never decided is not a fact a source can supply";
     }
     if g == WG_MAX_FL() {
         return "fewer floatable sources in one chain — the bound is `join_cost::JC_MAX_FL()`, and it is the width of the plan's fact table, not a search budget that could be raised on its own";
-    }
-    if g == WG_NO_SIZE() {
-        return "this axis offers no repair for a streamed side: an iterator has no length at EITHER point and counting means draining it. A source that can be counted is a different source, not a declaration added to this one";
-    }
-    if g == WG_CROSS() {
-        return "give the step an `on`: a cross product has no join predicate to place, and an order is a choice about WHERE each predicate is evaluated";
     }
     if g == WG_MAX_CAND() {
         return "a shorter chain, or one more pinned step — the bound is `join_cost::JC_MAX_CAND()`, the nests one artifact carries for one join body, so carrying more orders is a decision about the ARTIFACT (one order per object file) and not about this query";
@@ -438,9 +422,6 @@ pub fn sz_no_prepare_words(r: i32) -> str {
     }
     if r == SZ_LOCAL() {
         return "is a `rel` BLOCK OF THIS QUERY: its rows are produced by the query's own fixpoint into a local of the generated fn, so before the prelude has run there is no number to read and obtaining one would mean running the query a plan may not run";
-    }
-    if r == SZ_STREAMS() {
-        return "STREAMS: an iterator has no length, and counting means draining it — the query's own work traded for a plan fact, which this axis refuses at both points";
     }
     // Default-DENY, stated: a code nobody has named yet does not get to borrow one of
     // the grounds above.
@@ -461,9 +442,6 @@ pub fn sz_remedy_words(r: i32) -> str {
     if r == SZ_LOCAL() {
         return "there is NOTHING TO DECLARE A SIZE ON: a `rel` block is part of this query, not a source it was given, and the registry carries no size field for one (`plan_walker::reg_native` is the only writer of `rel_size_fn` and it reads a natspec). The decision returns to point (1) only if the relation stops being the query's — materialized by the caller and passed in as a source that declares a `size`";
     }
-    if r == SZ_STREAMS() {
-        return "this axis offers no repair: an iterator has no length at EITHER point and counting means draining it. A source that can be counted is a different source, not a declaration added to this one";
-    }
     return "no repair is derivable, because the classification reached a code this module has not named — a defect in `join_order::prep_size_reason` and not a property of the query";
 }
 
@@ -475,9 +453,6 @@ pub fn sz_remedy_words(r: i32) -> str {
 pub fn sz_run_words(r: i32) -> str {
     if r == SZ_DERIVED() || r == SZ_LOCAL() {
         return "a relation the prelude materialized for the query's own reasons";
-    }
-    if r == SZ_STREAMS() {
-        return "a streamed source, which has no length here either — this side cannot be reached";
     }
     if r == SZ_OK() {
         return "an input the caller passed in, which `prepare` COULD have measured";
@@ -494,18 +469,10 @@ pub fn rj_words(r: i32, nfl: i64) -> str {
         return "C4: a pinned step (an anti join or a traversal) would stand before a row var its `on` or its field-path source reads — the dependency is not bound yet at that depth";
     }
     if r == RJ_PREDBASE() {
-        return "C5: a join predicate would land on the OUTERMOST loop, which carries none — nothing has bound its other side at that position";
+        return "C5: a join predicate would land on the OUTERMOST loop, which carries none — in this order it reads no row var bound after the base (only the base's row, or no row var at all), and nothing here turns it into a filter on the scan";
     }
     if r == RJ_PREDDUP() {
         return "C5: two join predicates land on the same position and a step carries one `on` — this order would need a conjunction, which nothing here builds";
-    }
-    // ⚠ A SEPARATE GROUND, not a variant of the one above, because the antecedent
-    // that failed is a different one: nothing collided here — the predicate's
-    // last-bound var simply belongs to a step whose `on` is not a floating
-    // predicate's to take. Naming the collision instead would send a reader looking
-    // for a second predicate that does not exist.
-    if r == RJ_PREDPIN() {
-        return "C5: a join predicate's last-bound var belongs to a PINNED step (an anti join or a traversal), whose `on` is its own — nothing here re-attaches a floating predicate to one, so the predicate has no evaluable position in this order";
     }
     if r == RJ_RESCAN() {
         if nfl == 2i64 {
@@ -518,9 +485,6 @@ pub fn rj_words(r: i32, nfl: i64) -> str {
             return "both sides are the same source, so the two sizes are equal by construction — no measurement at either decision point can prefer one order, and the transposed nest could never be the one chosen";
         }
         return "C7: this order's (size, role) sequence is the one an earlier candidate already has, so it costs the same for every possible data and no measurement could ever select it";
-    }
-    if r == RJ_SHAPE() {
-        return "a floatable step carries no `on` (a cross product), so the predicates and the positions are not in bijection and C5 has nothing to place";
     }
     return "admitted";
 }
@@ -782,7 +746,7 @@ fn push_census(w: &Why, out: &mut String) {
 /// how one remedy came to be printed for sources that cannot take it. Class order is
 /// CODE order, the same rule the refusal census follows.
 fn push_remedy(w: &Why, out: &mut String) {
-    if w.ground == WG_DEFERRED() || w.ground == WG_NO_SIZE() {
+    if w.ground == WG_DEFERRED() {
         let mut nw: i64 = 0i64;
         let mut code: i64 = 1i64;
         while code < 4i64 {
@@ -1005,7 +969,7 @@ pub fn jg_render(r: i32) -> str {
     return "UNSET JOIN GROUND — a decision recorded no rule (a defect, not a reason)";
 }
 
-/// THE GROUND AS ONE WORD — what the plan IR carries (`RQJoinStep.jground`,
+/// THE GROUND AS ONE WORD — what the plan carries (`core::CAtom.ground`,
 /// `RJoin`/`RAnti.jground`) and the chain arrays copy, in place of the sentence
 /// they used to carry: rule in bits 0-7, `asked` in 8-23, `held` in 24-39. One
 /// `i64` in the slot the `str` held, so no node's key layout or capacity moves.
@@ -1394,6 +1358,23 @@ pub fn rt_name(r: i32) -> str {
     return "unset";
 }
 
+// ══ WHAT A RETRACTION IS MATCHED ON — the bare scan's identity (2026-10-03) ══
+// `rexpr_walk::emit_incremental`, the `sens` store: a retracted row must be one
+// the handle holds, and "holds" is decided on one of two identities.
+pub fn RI_ROW() -> i32       { return 1i32; }   // every field of the row
+pub fn RI_FOOTPRINT() -> i32 { return 2i32; }   // the group key and the aggregate arguments
+
+pub fn ri_render(r: i32) -> str {
+    if r == RI_ROW()       { return "the WHOLE ROW, field by field — a `str` field is held as an owned `String`, a float field by `f64_canon_bits` (all zeros one value, all NaNs one value, the multiplicity map's identity), a field of a named type by its own `Eq` (copied, or cloned when it is not `Copy`) — so a retraction of a row the handle never held is refused even where it agrees on every value the fold reads, and a `count` sees the row and not only its group"; }
+    if r == RI_FOOTPRINT() { return "the fold's FOOTPRINT, the group key followed by every aggregate argument — a field of the row is not a scalar, `str`, `String`, float, or a named type with `Eq` and `Copy` or `Clone` (or the row has more than 12 fields), so the row has no identity this store can hold; two rows that agree on the footprint are one row to this handle, and a `count` sees only the group"; }
+    return "";
+}
+pub fn ri_name(r: i32) -> str {
+    if r == RI_ROW()       { return "row"; }
+    if r == RI_FOOTPRINT() { return "footprint"; }
+    return "unset";
+}
+
 // ══ THE DRed EPOCH DRIVER — emitted or not, and why (E3) ═════════════════════
 pub fn DR_EMIT() -> i32   { return 1i32; }   // the four-phase driver is emitted
 pub fn DR_FLOAT() -> i32  { return 2i32; }   // an aggregate accumulates in f64
@@ -1430,38 +1411,33 @@ pub fn ac_verdict(r: i32) -> str {
 // The entry reads rel R with a column bound to a constant or a scalar
 // parameter; the rewrite restricts R to that demand (Soufflé's MST, adornment
 // one bound column). Each rule names the ONE antecedent that decided it.
-pub fn MS_DEMAND() -> i32       { return 1i32; }   // rewritten
-pub fn MS_SHARED() -> i32       { return 2i32; }   // another reader needs all of R
-pub fn MS_NEG_AGG() -> i32      { return 3i32; }   // a body of R negates or aggregates
-pub fn MS_NONLINEAR() -> i32    { return 4i32; }   // a body reads R twice
-pub fn MS_MOVES_COL() -> i32    { return 5i32; }   // a recursive body does not pass the column through
-pub fn MS_SEL_SHAPE() -> i32    { return 6i32; }   // a base body's bound column is not a plain column
-pub fn MS_CAP() -> i32          { return 7i32; }   // no free rel or join-step slot
+pub fn MS_DEMAND() -> i32       { return 1i32; }   // adorned: the rel is evaluated on demand
+// 4 (nonlinear), 5 (moves_col), 6 (sel_shape) and 9 (moving_off) are DELETED
+// (2026-10-05): the shape-by-shape rewrite they refused in is replaced by the
+// magic-sets transformation (`crewrite::core_magic`), which adorns every bound
+// occurrence whatever the body's shape. 2 (shared) is kept and now computed
+// over that transformation's own graph.
+// 7 (cap — no free join-step slot for the magic join) is DELETED with the
+// chain's eight-step cap (2026-10-05).
+pub fn MS_SHARED() -> i32       { return 2i32; }   // an evaluated clause reads all of R anyway
+pub fn MS_NEG_AGG() -> i32      { return 3i32; }   // a body of R aggregates or finds
 pub fn MS_FALLIBLE() -> i32     { return 8i32; }   // checked arithmetic could fail outside the demand
-pub fn MS_MOVING_OFF() -> i32   { return 9i32; }   // LOGOS_DEEM_NO_DEMAND=moving
+pub fn MS_NONREC() -> i32       { return 10i32; }  // not recursive: a restriction saves no evaluation
 
 pub fn ms_render(r: i32) -> str {
-    if r == MS_DEMAND()    { return "the entry binds this column to one value, so only rows carrying it can reach the answer: the rel is evaluated ON DEMAND — `__m_<rel>` holds the bound value (a fact), every non-recursive body joins it on the column, and each recursive body either passes the column through unchanged or, when it moves it (`R t` joined to one atom `u` on `t.c == u.f`), joins `__m_<rel>` too and adds the recursive magic rule `__m_<rel>(u.f) :- __m_<rel>(u.g), u` — so the restriction carries into the fixpoint by induction (the magic-sets rewrite, Soufflé's MST, adornment of one bound column)"; }
-    if r == MS_SHARED()    { return "the rel is read somewhere else too (another rel, or the entry a second time) without that binding, and that reader needs every row — restricting the rel would change its answer"; }
-    if r == MS_NEG_AGG()   { return "a body of the rel negates (`anti join`) or aggregates; the magic rewrite is applied only to positive bodies here, since a demand that crosses a stratum boundary needs the stratification rechecked after the rewrite"; }
-    if r == MS_NONLINEAR() { return "a body reads the rel twice (non-linear recursion); each occurrence would need its own demand rule, which this rewrite does not derive yet"; }
-    if r == MS_MOVES_COL() { return "a recursive body moves the bound column in a shape wider than one other atom joined by one equality on that column (or with a WHERE), so the demand it passes to its occurrence is not one column this rewrite can project"; }
-    if r == MS_SEL_SHAPE() { return "a non-recursive body computes the bound column (or is a fact) instead of copying a plain column, and the restriction is written only as a join on a plain column"; }
-    if r == MS_CAP()       { return "no free rel slot for `__m_<rel>` or no free join-step slot in a body (8 each)"; }
+    if r == MS_DEMAND()    { return "a reader binds columns of this rel, so only rows carrying the bound values can reach that reader: the reader reads an ADORNED COPY evaluated on demand — its bodies restricted to the values in `__m_<copy>`, which holds one magic rule per bound occurrence (the reader's atoms to the left of it, in max-bound order, and the reader's own magic rel), so the restriction carries into a fixpoint by induction (the magic-sets transformation, Soufflé's MST); a reader that binds nothing still reads the whole rel"; }
+    if r == MS_SHARED()    { return "a clause that is evaluated reads the whole rel (it binds none of its columns: the entry, a rel read whole, or an adorned body), so the rel is evaluated whole anyway, and an adorned copy for its bound readers would only add work"; }
+    if r == MS_NEG_AGG()   { return "a body of the rel aggregates or finds: such a rel is read whole (Soufflé leaves aggregated relations un-adorned too); an anti join's atom is always read whole and a magic rule never contains one, which only widens a demand"; }
+    if r == MS_NONREC()    { return "the rel is not recursive: its body is evaluated whole before a magic join could filter it, so an adorned copy saves no evaluation (the reader's own filter already applies) and would only duplicate its code; demand bounds a FIXPOINT, so only a recursive rel is adorned" ; }
     if r == MS_FALLIBLE()  { return "a body of the rel, or the entry's WHERE / ON, evaluates checked arithmetic (`+ - * / %`, negation), which returns an `ElError` on overflow or division by zero: the naive program evaluates it on rows outside the demand, so restricting the rows could turn an `Err` into an `Ok`. Soufflé's MST excludes order-dependent functors (`/`, `%`) for the same reason; here every integer operator is checked, so all of them count"; }
-    if r == MS_MOVING_OFF() { return "a recursive body moves the bound column, and `LOGOS_DEEM_NO_DEMAND=moving` turns off the recursive magic rule that shape needs"; }
     return "";
 }
 pub fn ms_name(r: i32) -> str {
     if r == MS_DEMAND()    { return "demand"; }
     if r == MS_SHARED()    { return "shared"; }
     if r == MS_NEG_AGG()   { return "neg_agg"; }
-    if r == MS_NONLINEAR() { return "nonlinear"; }
-    if r == MS_MOVES_COL() { return "moves_col"; }
-    if r == MS_SEL_SHAPE() { return "sel_shape"; }
-    if r == MS_CAP()       { return "cap"; }
     if r == MS_FALLIBLE()  { return "fallible"; }
-    if r == MS_MOVING_OFF() { return "moving_off"; }
+    if r == MS_NONREC()    { return "nonrec"; }
     return "unset";
 }
 pub fn ms_verdict(r: i32) -> str {

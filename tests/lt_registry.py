@@ -186,6 +186,11 @@ SINGLETONS = {
         T('logos_00_one_scheduler_lint',
           ['{tsrc}/one_scheduler_lint.sh', '{src}'],
           'logos;lint;suite_lint;tier_commit', timeout=60),
+        # ADR 0031 R8 — THE DEEM LAYERS: no surface (`RQ*`) type outside the
+        # parse/lower layer; a planted canary proves the check can fire.
+        T('logos_00_deem_layer_lint',
+          ['{tsrc}/deem_layer_lint.sh', '{src}'],
+          'logos;lint;suite_lint;tier_commit', timeout=60),
         # A STDLIB DEFAULT METHOD BODY MAY NOT BE LOWERED INTO A USER IMPL
         T('logos_00_trait_homonym_no_injected_symbol',
           ['{tsrc}/trait_homonym_symbol_gate.sh', '{logosc}', '{libdir}'],
@@ -241,32 +246,33 @@ SINGLETONS = {
         # Import-set gate: a synth module's USES must be a SET. Three independent
         T('logos_09_no_dup_use_in_synth',
           ['{tsrc}/no_dup_use_gate.sh', '{logosc}', '{tsrc}/pass/wql_first_fold_e2e.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # Plan SIZE gate (ADR 0024 S4): a source's size is a fact the plan ASKS FOR, and
         T('logos_09_plan_size_asked',
           ['{tsrc}/plan_size_gate.sh', '{logosc}', '{tsrc}/pass/deem_source_size.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # DISTINCT-VALUE declaration (#726): `distinct <rel>.<col> = <fn>;` reaches MacroParams.
         T('logos_09_plan_distinct_declared',
           ['{tsrc}/plan_distinct_gate.sh', '{logosc}', '{tsrc}/pass/deem_source_distinct.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # CONTAINER ACCESS-PATH gate (ADR 0024 S6): WHICH rows the container was asked
         T('logos_09_ctr_access_path',
           ['{tsrc}/ctr_access_path_gate.sh', '{logosc}', '{tsrc}/pass/deem_source_size.logos', '{tsrc}/pass/deem_hashmap_source.logos', '{tsrc}/pass/container_item_e2e.logos', '{tsrc}/pass/deem_cross_domain_join.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=450, env=LIB),
         # PLAN DECISIONS' GROUNDS AS RULES OVER FACTS (why.logos): join strategy and
         # access path — the rule that fired and the negative explanation, asserted on
         # LOGOS_TRACE_PLAN=facts.
         T('logos_09_plan_ground_facts',
-          ['{tsrc}/plan_ground_facts_gate.sh', '{logosc}', '{tsrc}/pass'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB),
-        # SOUFFLÉ AS AN INDEPENDENT ORACLE (#349 follow-up): every pass fixture with
-        # a `rel` block, compiled with LOGOS_DEEM_ORACLE, its exported deems run on
-        # /usr/bin/souffle over the dumped facts and compared as sets. Skips (77)
-        # when Soufflé is not installed.
-        T('logos_09_souffle_oracle',
-          ['{tsrc}/souffle_oracle_gate.sh', '{logosc}', '{tsrc}/pass'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=1800, env=LIB, skip_rc=77),
+          ['{tsrc}/plan_ground_facts_gate.sh', '{logosc}', '{tsrc}/pass', '{tbin}/facts'],
+          'logos;pass;suite_semantic_core;tier_full', timeout=120, env=LIB, fixtures_required=['logos_facts_glob']),
+        # SOUFFLÉ AS AN INDEPENDENT ORACLE: every wql_/deem_ pass fixture, compiled
+        # with LOGOS_DEEM_ORACLE, its exported deems run on /usr/bin/souffle over the
+        # dumped facts and compared as sets. Four shards so lt schedules the work
+        # (fixture i → shard i mod 4). Skips (77) when Soufflé is not installed.
+        *[T('logos_09_souffle_oracle_%d' % k,
+            ['{tsrc}/souffle_oracle_gate.sh', '{logosc}', '{tsrc}/pass', str(k), '4'],
+            'logos;pass;suite_semantic_core;tier_full', timeout=2400, env=LIB, skip_rc=77)
+          for k in range(4)],
         # ADR 0025 S2 — MATERIALIZATION AS A NAMED PLAN NODE (§4).
         T('logos_09_plan_nodes',
           ['{tsrc}/plan_nodes_gate.sh', '{logosc}', '{tsrc}/pass/deem_join_step_reread.logos', '{tsrc}/pass/deem_batch_scan_drain.logos', '{tsrc}/pass/deem_hashmap_source.logos', '{tsrc}/pass/deem_cross_domain_join.logos'],
@@ -319,6 +325,27 @@ SINGLETONS = {
         T('logos_09_ctr_leaf_descent',
           ['{tsrc}/ctr_leaf_descent_gate.sh', '{logosc}', '{tsrc}/pass/ctr_leaf_descent_count.logos', '{libdir}', '{tsrc}/callgrind_calls.py', 'bt_seek_at', 'bt_cur_next'],
           'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
+        # ADR 0031 R0 — the Deem CORE of every surface shape, compared as text with a
+        # hand-written golden (LOGOS_DEEM_DUMP=core).
+        # ADR 0031 R7.2 — a fixpoint builds the index over a source its loop
+        # does not change ONCE, before the loop (structural, not timed).
+        T('logos_09_scc_index_hoist',
+          ['{tsrc}/scc_index_hoist_gate.sh', '{logosc}', '{tsrc}/pass/wql_rel_scc_hoist_e2e.logos'],
+          'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),
+        T('logos_09_core_dump',
+          ['{tsrc}/core_dump_gate.sh', '{logosc}', '{tsrc}/pass/wql_core_shapes.logos', '{tsrc}/wql_core_shapes.core'],
+          'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),
+        # ADR 0020 §10 step 3 (#362) — THE PARITY GATE: a bound-key seek through
+        # the generated projection descends once, as the direct `find` does, and
+        # costs at most the gate's ceiling of it in instructions (callgrind).
+        T('logos_09_ctr_point_parity',
+          ['{tsrc}/ctr_point_parity_gate.sh', '{logosc}', '{tsrc}/pass/wql_ctr_point_parity.logos', '{libdir}', '{tsrc}/callgrind_calls.py'],
+          'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
+        # ADR 0025 §2 (#341) — THE EMITTED SCAN RESOLVES EACH COLUMN ONCE PER BATCH:
+        # `pdt_col` calls under callgrind = columns × leaf batches, not × rows.
+        T('logos_09_ctr_col_hoist',
+          ['{tsrc}/ctr_col_hoist_gate.sh', '{logosc}', '{tsrc}/pass/wql_ctr_col_hoist.logos', '{libdir}', '{tsrc}/callgrind_calls.py'],
+          'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
         # #121-A — THE DROP-FLAG KEYSPACE, MEASURED BY AN INSTRUMENT THE PROGRAM DOES
         T('logos_09_cond_move_field_valgrind',
           ['{tsrc}/cond_move_field_valgrind_gate.sh', '{logosc}', '{tsrc}/pass/cond_move_field_overlap.logos', '{libdir}'],
@@ -346,39 +373,39 @@ SINGLETONS = {
         # JOIN-ORDER gate (ADR 0024 S4): the emitted fn carries BOTH join orders and one
         T('logos_09_join_order_either_side',
           ['{tsrc}/join_order_gate.sh', '{logosc}', '{tsrc}/pass/wql_join_order_dyn_e2e.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # PREPARED-PLAN gate (ADR 0024 S4i): the plan is a runtime VALUE — a type, a
         T('logos_09_prepared_plan_surface',
           ['{tsrc}/prepared_plan_gate.sh', '{logosc}', '{tsrc}/pass/wql_prepared_plan_e2e.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # DEFERRED-PLAN gate (ADR 0024 S4j): the plan's SECOND decision point — inside
         T('logos_09_deferred_plan_second_point',
           ['{tsrc}/deferred_plan_gate.sh', '{logosc}', '{tsrc}/pass/wql_deferred_plan_e2e.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # INCREMENTAL-ELIGIBILITY gate (P1): the set of queries that gain an incremental
         T('logos_09_incr_eligibility_population',
           ['{tsrc}/incr_eligibility_gate.sh', '{logosc}', '{tsrc}/pass/wql_incr_eligibility_matrix.logos'],
-          'logos;pass;suite_semantic_core;tier_commit', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),
         # INCREMENTAL RETRACTION gate — the same shape, one axis in. Eligibility asks
         T('logos_09_incr_retraction_population',
           ['{tsrc}/incr_retraction_gate.sh', '{logosc}', '{tsrc}/pass/wql_incr_retract_matrix.logos'],
-          'logos;pass;suite_semantic_core;tier_commit', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),
         # SCC DRIVER COUNT gate (P3c): one cross-epoch semi-naive driver per admitted
         T('logos_09_incr_scc_driver_count',
           ['{tsrc}/incr_scc_driver_gate.sh', '{logosc}', '{tsrc}/pass/wql_incr_rel_mutrec_epochs.logos', '{tsrc}/pass/wql_incr_rel_rec_epochs.logos'],
-          'logos;pass;suite_semantic_core;tier_commit', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),
         # MUTREC REFUSAL gate: the handle is EMITTED and the RETRACTION, specifically, is
         T('logos_09_incr_mutrec_refusal',
           ['{tsrc}/incr_mutrec_refusal_gate.sh', '{logosc}', '{tsrc}/pass/wql_incr_rel_mutrec_epochs.logos', '{tsrc}/pass/wql_incr_rel_rec_epochs.logos'],
-          'logos;pass;suite_semantic_core;tier_commit', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),
         # MULTI-ORDER JOIN gate (ADR 0024 S4k): the join-order axis is a decision over a
         T('logos_09_join_order_beyond_pair',
           ['{tsrc}/join_order_multi_gate.sh', '{logosc}', '{tsrc}/pass/wql_join_order_multi_e2e.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # KEY-ORDER LICENCE gate (ADR 0024 S4k, C1): carrying more than one nest is licensed
         T('logos_09_join_order_key_fidelity',
           ['{tsrc}/join_order_key_fidelity_gate.sh', '{logosc}', '{tsrc}/pass/wql_join_order_key_fidelity_e2e.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # WIDE-KEY INDEX TIER (ADR 0024 S6 — the value domain, the decision side).
         T('logos_09_wide_key_index_tier',
           ['{tsrc}/wide_key_index_tier_gate.sh', '{logosc}', '{tsrc}/pass/wql_join_wide_key_e2e.logos'],
@@ -386,7 +413,7 @@ SINGLETONS = {
         # SHADOWED-COLUMN gate (ADR 0024 S3/S6 + S4k C1): a column's type is a fact about a
         T('logos_09_wql_shadowed_column',
           ['{tsrc}/wql_shadowed_column_gate.sh', '{logosc}', '{tsrc}/pass/wql_shadowed_column_e2e.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # COLUMN-DECLARATION LAYER gate (the value-domain arc, D2). `run_test.sh`
         T('logos_09_wql_column_decl_layer',
           ['{tsrc}/wql_column_decl_layer_gate.sh', '{logosc}', '{tsrc}/fail'],
@@ -394,7 +421,7 @@ SINGLETONS = {
         # Renderer CONTENT gate: the gendir gate above only proves the dump reparses,
         T('logos_09_render_type_fidelity',
           ['{tsrc}/render_type_fidelity.sh', '{logosc}', '{tsrc}/pass/quote_item_dyn_typearg.logos'],
-          'logos;pass;suite_semantic_core;tier_full', timeout=60, env=LIB),
+          'logos;pass;suite_semantic_core;tier_full', timeout=180, env=LIB),
         # WHY-SIZE gate (ADR 0024 S4q): the rendered justification reaches the artifact only
         T('logos_09_why_size_reachability',
           ['{tsrc}/why_size_gate.sh', '{logosc}'],
@@ -430,9 +457,11 @@ SINGLETONS = {
           ['{src}/tests/lforge/dump_metacall.sh', '{build}/bin/lforge', '{logosc}', '{libdir}'],
           'logos;lforge;suite_lforge;tier_full', timeout=90),
         # B1.7: logosc --only-file <path> per-file emit.
+        # 180 s: the gate's own work is ~64 s of serial compiles (measured
+        # 2026-10-06 under load 45), and at 60 s it timed out in every run.
         T('logos_15_emit_file',
           ['{src}/tests/lforge/emit_file.sh', '{logosc}', '{libdir}'],
-          'logos;lforge;suite_lforge;tier_full', timeout=60),
+          'logos;lforge;suite_lforge;tier_full', timeout=180),
         # Archive integrity: a package must never vanish from a module archive
         T('logos_15_archive_integrity',
           ['{src}/tests/lforge/archive_integrity.sh', '{logosc}', '{libdir}'],
@@ -773,7 +802,10 @@ BC_LABEL_RES = [
 # A family-forging test (imports the metaclass factory) gets the heavy timeout,
 # pass or fail: a refusal twin forges the same family before it refuses. `file(READ)` + MATCHES in `logos_add_grouped_test`.
 HEAVY_SOURCE_RE = re.compile(rb"logos\.lcm\.canon\.(metaclass|container_item)")
-PASS_TIMEOUT, HEAVY_TIMEOUT, FAIL_TIMEOUT = 120, 180, 60
+# The box is SHARED (two agents' `lt` runs): passes measured under that load
+# reach ~3x their quiet time (memoria_showcase_deem 59 s quiet, 155 s loaded),
+# so a limit is ~3x the slowest PASS observed, not the quiet median.
+PASS_TIMEOUT, HEAVY_TIMEOUT, FAIL_TIMEOUT = 300, 450, 180
 
 # The facts side product (task #85): `tests/logos/pass` fixtures write facts and
 # are FIXTURES_SETUP for the census gates; `wql_`/`deem_` ones also set up the
@@ -1006,7 +1038,7 @@ def listed_gate_tests(ctx):
                 name=prefix + case,
                 command=[v["tsrc"] + "/" + script, v["logosc"],
                          v["tsrc"] + "/pass/" + case + ".logos"],
-                timeout=60, labels=["logos", "pass", "suite_semantic_core", "tier_full"],
+                timeout=180, labels=["logos", "pass", "suite_semantic_core", "tier_full"],
                 env=["LOGOS_LIB_DIR=" + v["libdir"]])
 
 

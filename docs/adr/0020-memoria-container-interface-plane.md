@@ -509,6 +509,21 @@ is itself EDB, queryable by Deem; the loop closes.
    generated projection compiles to the same code as a direct shuttle call —
    measured, not assumed. If parity fails, the whole plane pays query tax and
    the design iterates HERE before widening.
+   **MEASURED 2026-10-06 (#362), gate `logos_09_ctr_point_parity`.** Not the
+   same code: a point probe through the projection (`where e.key == k`, the
+   `op entry.key eq` leaf-batch landing) cost 2.6x the direct `find` (wall,
+   interleaved). Two of the causes were the walk's and are gone: the first
+   `advance()` re-descended from the root although the landing had the leaf,
+   and it binary-searched the leaf a second time for the key bound although the
+   landing's ordinal bound was exact. Now one descent per probe, as `find`,
+   and 1.60x in instructions (callgrind), then 1.32x once a branch's scans
+   (`find_child`, `total_size`, the rank prefix) resolved their column once
+   instead of per child — which also cut `find` itself by 42 % and a 100k
+   insert run by 44 % (the gate's ceiling is 1.45x). The rest
+   is named: the landing computes the row's ORDINAL (`bt_cur_seek_key` sums the
+   left siblings' counts per level; `find` does not), and a query returns a
+   `Vec`. A range or full scan pays the same one descent per leaf
+   (`logos_09_ctr_leaf_descent`: 3·leaves + 2).
 4. Map + Queue; write plane as Z-set batch apply (bulk path first) + the
    DML statement layer (§4.3). **Ingestion gate** (second load-bearing
    benchmark, peer of the parity gate): dense-data CTAS throughput, MB/s per

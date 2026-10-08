@@ -1,0 +1,33 @@
+// A join step's `on` with more than sixteen `&&` terms (2026-10-05). The step
+// analysis splits the predicate into its conjunction, takes one equality as the
+// key and emits the rest as the residual filter. The split was a fixed
+// sixteen-word list that DROPPED every term past the sixteenth: `last` lost its
+// `y.b == 999` and returned both rows, and `late_key` lost its only equality and
+// joined every pair. Both now answer as written.
+//
+// exit 0 = every count is the written predicate's.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R { pub a: i64, pub b: i64 }
+
+// the filtering term is the 18th
+pub deem last(rs: &[R]) {
+    from rs x join rs y on y.a == x.a && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.b == 999 select (x.a, y.b)
+}
+// the only key term is the 17th
+pub deem late_key(rs: &[R]) {
+    from rs x join rs y on y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a >= 0 && y.a == x.a select (x.a, y.b)
+}
+
+fn main() -> i32 {
+    let rs: [R; 3] = [R { a: 1i64, b: 2i64 }, R { a: 3i64, b: 4i64 }, R { a: 5i64, b: 999i64 }];
+    let l: Vec<(i64, i64)> = last(&rs[..]).unwrap();
+    if l.len() != 1i64 { return 1i32; }
+    if l.get(0i64).0 != 5i64 { return 2i32; }
+    let k: Vec<(i64, i64)> = late_key(&rs[..]).unwrap();
+    if k.len() != 3i64 { return 3i32; }
+    return 0i32;
+}

@@ -29,6 +29,7 @@ use logos.lang.cell;
 use logos.lang.ptr;                 // byte_add
 use logos.lang.num.parse;           // f64_from_str
 use logos.mem.string;               // String (escape-decoded scratch)
+use logos.mem.collections.vec;      // Vec — a typed container's elements before they are laid out
 
 // Maximum nesting depth for the recursive-descent reader. Untrusted/adversarial
 // input (deep-but-valid `[[[…]]]`) must not exhaust the native C stack: past this
@@ -199,8 +200,8 @@ unsafe fn parse_typed(h: &Writ, p: *mut P, depth: i64) -> WAny {
             if tc == 2107u64 { 3101u64 } else if tc == 2103u64 { 3102u64 }
             else if tc == 2108u64 { 3103u64 } else if tc == 2104u64 { 3104u64 } else { 0u64 };
         advance(p);                               // '{'
-        let mut keys: [i64; 64] = [0; 64];
-        let mut vals: [i64; 64] = [0; 64];
+        let mut keys: Vec<i64> = Vec::<i64>::new();
+        let mut vals: Vec<i64> = Vec::<i64>::new();
         let mut n: i64 = 0i64;
         skip_ws(p);
         if peek(p) != 125u8 {
@@ -217,7 +218,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P, depth: i64) -> WAny {
                 if peek(p) != 58u8 { return WAny::ref_to(0i64 as *const u8); }      // ':' required (rejects 1.5 keys)
                 advance(p);
                 let v: WAny = parse_value(h, p, depth + 1i64);
-                if n < 64i64 { keys[n] = kv; vals[n] = v.raw(); n = n + 1i64; }
+                keys.push(kv); vals.push(v.raw()); n = n + 1i64;
                 skip_ws(p);
                 if peek(p) == 44u8 { advance(p); } else { done = true; }
             }
@@ -253,8 +254,8 @@ unsafe fn parse_typed(h: &Writ, p: *mut P, depth: i64) -> WAny {
 
     // typed ARRAY: '[' signed numerals (float for F32/F64) ']'
     if peek(p) == 91u8 { advance(p); }            // '['
-    let mut elems: [i64; 64] = [0; 64];
-    let mut fels: [f64; 64] = [0.0; 64];
+    let mut elems: Vec<i64> = Vec::<i64>::new();
+    let mut fels: Vec<f64> = Vec::<f64>::new();
     let mut n2: i64 = 0i64;
     skip_ws(p);
     if peek(p) != 93u8 {
@@ -276,7 +277,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P, depth: i64) -> WAny {
                 while is_digit(peek(p)) { fv = fv + ((advance(p) - 48u8) as f64) * scale; scale = scale * 0.1; }
             }
             if neg { iv = 0i64 - iv; fv = 0.0 - fv; }
-            if n2 < 64i64 { elems[n2] = iv; fels[n2] = fv; n2 = n2 + 1i64; }
+            elems.push(iv); fels.push(fv); n2 = n2 + 1i64;
             skip_ws(p);
             if peek(p) == 44u8 { advance(p); } else { done = true; }
         }

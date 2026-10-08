@@ -1,0 +1,42 @@
+// A NESTED-LOOP join under `order by` (2026-10-04). A join with no equi-key is
+// a loop step; ADR 0025 R-F walks its slice source by batches, and that walk
+// dropped the step's SOURCE ORDINAL `__j<s>`, which `order by` collects per
+// matched row to re-read the row after the sort. MEASURED: each query below
+// failed to COMPILE with `undefined variable '__j1'` — no corpus query had a loop
+// join and an `order by` together. The rows and their order are asserted.
+//
+// exit 0 = ascending, descending, and the first two of the ascending order.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct A { pub k: i64, pub v: i64 }
+struct B { pub m: i64 }
+
+pub deem up(xs: &[A], ys: &[B]) {
+    from xs a join ys b on a.k < b.m select (a.v, b.m) order by a.k }
+pub deem down(xs: &[A], ys: &[B]) {
+    from xs a join ys b on a.k < b.m select (a.v, b.m) order by a.k desc }
+pub deem top2(xs: &[A], ys: &[B]) {
+    from xs a join ys b on a.k < b.m select (a.v, b.m) order by a.k limit 2 }
+
+fn row(r: &Vec<(i64, i64)>, i: i64, v: i64, m: i64) -> bool {
+    return r.get(i).0 == v && r.get(i).1 == m;
+}
+
+fn main() -> i32 {
+    let xs: [A; 3] = [A { k: 2i64, v: 20i64 }, A { k: 1i64, v: 10i64 }, A { k: 3i64, v: 30i64 }];
+    let ys: [B; 3] = [B { m: 2i64 }, B { m: 3i64 }, B { m: 0i64 }];
+    // matches: k2 < 3 → (20,3); k1 < 2 → (10,2); k1 < 3 → (10,3); k3 matches none
+    let u: Vec<(i64, i64)> = up(&xs[..], &ys[..]).unwrap();
+    if u.len() != 3i64 { return 1i32; }
+    if !row(&u, 0i64, 10i64, 2i64) || !row(&u, 1i64, 10i64, 3i64) || !row(&u, 2i64, 20i64, 3i64) { return 2i32; }
+    let d: Vec<(i64, i64)> = down(&xs[..], &ys[..]).unwrap();
+    if d.len() != 3i64 { return 3i32; }
+    if !row(&d, 0i64, 20i64, 3i64) { return 4i32; }
+    let t: Vec<(i64, i64)> = top2(&xs[..], &ys[..]).unwrap();
+    if t.len() != 2i64 { return 5i32; }
+    if !row(&t, 0i64, 10i64, 2i64) || !row(&t, 1i64, 10i64, 3i64) { return 6i32; }
+    return 0i32;
+}
