@@ -1086,6 +1086,45 @@ set, `ambiguous_type_arg_fingerprint`, the dependency-decls plumbing that fed
 them and the `LOGOS_NO_FOLD` switch are deleted (no symbol changes: abi/logos.abi
 is byte-identical).
 
+## Q1 (path resolution into the HIR) — rows
+
+Planned 2026-10-07 (Q1 confirmed by Victor the same day), from a survey of
+today's resolution. The HIR sees one lang-item callback; every other path is
+resolved by spelling inside sema, interleaved with type checking, through ten
+lookup helpers (`resolve_type` / `lookup_type_by_name`, `lookup_qualified_`'s
+three tiers, `find_func_candidates` + `filter_visible_`, `resolve_trait`,
+`resolve_const_key`, `alias_find`, `macro_in_scope_`, `lower_static_call` /
+`lower_enum_lit`'s heads). The value namespace has no identities: `DefKind::Fn`
+/ `Const` / `Static` / `Alias` are never interned.
+
+The target is rustc's: every path in a body or signature resolves ONCE, before
+type checking, to a resolution — a definition (`DefId` + kind), a local binding
+(a hygienic binding id), a primitive, `Self`, a type parameter, or a
+type-relative path (a resolved head plus segments whose meaning needs types).
+Sema reads the resolution; it does not look names up. What stays in type
+checking is what needs types: overload choice within one function's overload
+set, method calls (`methods_of_`), trait-UFCS / `<T as Tr>::m` impl selection,
+projections, the expected-type retarget of a generic container, inference of
+type arguments.
+
+| row | content | retires | budget |
+|---|---|---|---|
+| (1) value identities | collect interns `Fn` (one DefId per package + name: the OVERLOAD SET; its members stay `funcs_` symbols), `Const`, `Static`, `Alias`; the DefTable's value namespace is complete | the bare-name `module_statics_` / `const_pkg_of_` / `ambiguous_const_names_` keys, read via DefId | +200 / −80 |
+| (2) one scope model | one `ImportScope` per file, built once (collect and lower share it); Rust's per-SCOPE precedence (the package's own items > imports > prelude, all kinds at once, not per registry); `pub use` re-exports every namespace; `pkg.path::Item` honours its package; `use` variant aliases keep the enum's identity; a resolver API `resolve_path(ns, segments) -> Res` over it | the duplicated import builder, the per-kind tier order, the dropped qualified prefix | +250 / −200 |
+| (3) HIR resolves | the HIR pass gets the resolver and tracks local bindings (hygienic ids); every path node in a type, pattern, expression or item head carries `RES` (kind + DefId / binding id / prim / self / type-param / type-relative head) | — (consumers switch in row 4) | +450 / −50 |
+| (4) sema reads RES | `resolve_type`'s `TYPE_REF`, `lower_var_ref`, `lower_call`'s callee set, `lower_static_call` / `lower_enum_lit` heads, trait names in bounds / impl headers / `dyn`, macro callees, pattern paths read `RES`; the spelled helpers lose their body-time callers | `lookup_qualified_` at body time, `filter_visible_`'s empty→all fallback, `macro_in_scope_`'s global lookup, the `Some`/`None`/`Ok`/`Err` spellings (lang items) | +300 / −600 |
+| (5) metaprog rounds | a name a later round emits resolves to `Res::Pending` (today's `note_pending_`), re-resolved in that round; lazy alias RHS kept | — | +100 / −40 |
+
+Each divergence the survey found is a row-2/row-4 fixture with a rustc twin:
+qualified paths dropping the package; a struct in scope beating an enum of the
+current package; `pub use` not re-exporting functions / aliases; no shadowing
+order between the package's functions and imported ones; macros global by
+name; prelude variants by spelling; variant aliases losing the package.
+
+Order: (1), (2), (3), (4), (5). Acceptance per row: task s9 L0 green, `--plus
+10` sample, and a census of the retired helpers' body-time callers falling to
+zero at row 4.
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against
