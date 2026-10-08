@@ -12563,7 +12563,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     // in-SCC occurrence is a base body and does NOT run here — see the header.
     let mut pvars: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut phoisted: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    if !variant_blocks(pl, prm, h, &mut pvars, false, &mut phoisted) { return false; }
+    if !variant_blocks(pl, prm, h, &mut pvars, !env_on("LOGOS_DEEM_NO_HOIST"), &mut phoisted) { return false; }
     // PROMOTE: delta ← next-delta, OD ∪= delta (the shadow set already holds it).
     let mut pprom: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut ma: i64 = 0i64;
@@ -12594,8 +12594,10 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     // so a promote-first loop would append it a second time. The binds/variants
     // therefore sit in their own block, so the `__od_<m>.as_slice()` view dies
     // before the promote pushes into it.
+    // R7.2 — the indexes over sources the propagation does not change, once.
     let odp_body: ExprBlob = quote_block! {
         #( #pstate; )*
+        #( #phoisted; )*
         loop {
             if #(pexit) { break; }
             {
