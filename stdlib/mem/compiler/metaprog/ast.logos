@@ -118,6 +118,7 @@ pub struct Template {
 ///
 /// Compiler-intrinsic target: `template_of::<X>()` lowers to a call of this with
 /// the resolved item's arena offset (the hook-side `OView` supplies the base).
+#[lang = "template_of_at"]
 pub fn template_of_at(off: u32) -> Template {
     let view: OView = oview_module_ast();
     // Raw-pointer anchor (the AST arena outlives the hook) — a borrow-typed

@@ -9645,6 +9645,26 @@ private:
     static const SemaFuncInfo* pick_by_signature_(const std::vector<const SemaFuncInfo*>& cands,
                                                   const std::vector<TypeRef>& param_types, bool is_vararg);
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
+    // The overload set of the lang fn `l` (`#[lang = "l"]`), in its own
+    // package whatever the current scope imports — what a call the compiler
+    // synthesizes names (Rust's lang items), never a spelling looked up here.
+    std::vector<const SemaFuncInfo*> lang_fn_candidates_(std::string_view l) const {
+        std::vector<const SemaFuncInfo*> out;
+        const LangItem* li = lang_item(l);
+        if (!li || li->target != AttrTarget::Fn) return out;
+        auto add = [&](const auto& overloads, const auto& table) {
+            if (auto it = overloads.find(li->name); it != overloads.end())
+                for (const auto& sym : it->second)
+                    if (auto fit = table.find(sym); fit != table.end() && fit->second.package == li->package)
+                        out.push_back(&fit->second);
+        };
+        add(func_overloads_, funcs_);
+        add(generic_overloads_, generic_funcs_);
+        if (out.empty())
+            for (const auto& [sym, fi] : funcs_)
+                if (fi.package == li->package && fi.base_name == li->name) out.push_back(&fi);
+        return out;
+    }
     // The function collected for a declaration (SemaFuncInfo::decl_key); null when none.
     const SemaFuncInfo* func_by_decl_(const std::string& decl_key);
     logos::compiler::StrMap<std::pair<const SemaFuncInfo*, std::string>> func_by_decl_index_;   // decl -> (fn, registry key)
@@ -9757,8 +9777,8 @@ private:
     // signature off and mlir recognises the intrinsic by; the bare name only
     // when no declaration is in scope.
     std::string str_from_raw_symbol_() {
-        for (auto* c : find_func_candidates("str_from_raw"))
-            if (c && c->param_types.size() == 2 && c->package == "logos.lang.str" && !c->symbol_name.empty())
+        for (auto* c : lang_fn_candidates_("str_from_raw"))
+            if (c && c->param_types.size() == 2 && !c->symbol_name.empty())
                 return c->symbol_name;
         return "str_from_raw";
     }

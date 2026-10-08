@@ -20,6 +20,7 @@ pub fn alloc(size: i64) -> *mut u8 {
 }
 
 /// Frees memory previously returned by `alloc` or `realloc_buf`. Null is a no-op.
+#[lang = "dealloc"]
 pub fn dealloc(ptr: *mut u8) {
     unsafe { free(ptr); }
 }

@@ -109,6 +109,7 @@ pub unsafe fn writ_template_install(c: &Rc<Writ>, tmpl: *const u8, tmpl_size: i6
 }
 
 // Scalar-only path: no zone-alloc captures — one call does it all.
+#[lang = "writ_build_from_template"]
 pub unsafe fn writ_build_from_template(tmpl: *const u8, tmpl_size: i64,
                                           slots: *const u32, n_slots: i64,
                                           resolved: *const u64, n_values: i64) -> Rc<Writ> {

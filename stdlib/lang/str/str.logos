@@ -23,6 +23,7 @@ package logos.lang.str;
 /// Compiler intrinsic — sema intercepts all call sites by name; the body is never called.
 /// Analogous to Rust's `std::slice::from_raw_parts::<u8>`.
 /// Safety: `ptr` must be valid for `len` bytes and remain alive for the `str` lifetime.
+#[lang = "str_from_raw"]
 pub unsafe fn str_from_raw(ptr: *const u8, len: i64) -> str {
     // Compiler intrinsic: sema intercepts all call sites and emits the
     // fat-pointer {ptr, len} construction directly (mlir_gen_expr.cpp).
@@ -202,6 +203,7 @@ pub fn bytes_arr_eq<const N: i64>(a: [u8; N], b: [u8; N]) -> bool {
 // P4-pm-06 (str-typed const-pattern match arms) — sema synthesizes a
 // `__str_<n> == CONST` guard that lowers to a call here.
 /// Returns `true` iff `a` and `b` have the same length and byte content.
+#[lang = "str_eq"]
 pub fn str_eq(a: str, b: str) -> bool {
     let n: i64 = a.len();
     if n != b.len() { return false; }
@@ -220,6 +222,7 @@ pub fn str_eq(a: str, b: str) -> bool {
 // sema to lower the relational operators `<` / `<=` / `>` / `>=` on str
 // (which is `Slice<u8>`) to `str_cmp(a, b) <op> 0`.
 /// Compares `a` and `b` lexicographically by bytes; returns -1, 0, or 1.
+#[lang = "str_cmp"]
 pub fn str_cmp(a: str, b: str) -> i32 {
     let na: i64 = a.len();
     let nb: i64 = b.len();

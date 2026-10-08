@@ -5148,6 +5148,10 @@ bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
         "String", "Formatter", "ok", "fmt_display", "fmt_debug", "fmt_lower_hex",
         "fmt_upper_hex", "fmt_octal", "fmt_binary", "fmt_lower_exp", "fmt_upper_exp",
         "__fmt_print", "__fmt_println", "__fmt_eprint", "__fmt_eprintln", "__fmt_panic",
+        // the functions sema's own lowerings call (a string compare, a C string
+        // literal, a box move-out, a template literal)
+        "str_from_raw", "str_eq", "str_cmp", "cstr_from_lit", "box_take", "dealloc",
+        "template_of_at", "writ_build_from_template",
     };
     for (auto n : kNames) if (n == lang) return true;
     return false;
