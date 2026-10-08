@@ -170,4 +170,9 @@ The pipeline today (`wql.logos`): mapping fusion (renames on the parse tree) →
 - **R6.7b — 23bf4fa92.** One probe emitter: a nest's steps are analysed into one `NestSteps` record, wrapped by `nest_wrap` and built by `nest_builds`, for all three nest emitters (entry join, aggregate over a join, rel body), each calling them in its former order. Byte-identical.
 - **R6.7c — 3fb805854.** The dead relational algebra is deleted: nothing built `RJoin` / `RAnti` / `REdge` / `RAggr` / `RFix` / `RProj` / `RSort` / `RLimit` / `RDistinct` since R6.5; `RExpr` is `Scan | Filter`, a comprehension's source and filter. −283 lines, byte-identical.
 - **R6.8 (open, after R3).** One scan emitter and one envelope emitter in place of the per-shape arms (`emit_simple` / `emit_find` / `emit_join_chain` / `emit_aggregate`'s driving loops and output phases). Their driving loops differ by admitted landing (the aggregate's `pure_group` gate, the entry's streamed arm, the rel body's slice arm), so the unification is a design step, not a merge; it is acceptance-by-bytes work and does not move a layer boundary, so R3 — which does — goes first.
+- **R3.0 — e22bc231a.** The walker reads the core: registration, dependency edges and every body check (same diagnostics, same order); it reads the parse tree only for "is there an entry".
+- **R3.1 — 16877e3ea.** Facts on the core (`crewrite::core_desugar_facts`); the handler hands the walker the core. `core_same` / `crewrite_shadow` — the field-by-field core comparison every R3 move is shadowed with.
+- **R3.2 — aba5f1e67.** Live rels on the core (`core_live_rels`).
+- **R3.3 — bea7992a1.** Demand (MST by SIPS) on the core (`core_magic`), two-phase (immutable analysis, one write phase, `core_relink`); the surface MST (~800 lines) deleted. Shadow clean; a control (copies left unrestricted) ICEs on wql_rel_sips_e2e.
+- Each R3 step: shadow over build + L0 first, then the switch; gen + traces byte-identical.
 
