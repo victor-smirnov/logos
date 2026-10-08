@@ -28,7 +28,6 @@ pub use logos.lang.clone;
 pub use logos.lang.cmp;
 
 // Hashing
-pub use logos.lang.hash;
 
 // Iteration
 pub use logos.lang.iter;
@@ -44,3 +43,10 @@ pub use logos.lang.result;
 pub use logos.lang.drop;
 pub use logos.lang.option.Option.{Some, None};
 pub use logos.lang.result.Result.{Ok, Err};
+pub use logos.lang.slice;
+pub use logos.lang.str;
+pub use logos.lang.char;
+pub use logos.lang.ascii;
+pub use logos.lang.bool;
+pub use logos.lang.math;
+pub use logos.lang.num.float;

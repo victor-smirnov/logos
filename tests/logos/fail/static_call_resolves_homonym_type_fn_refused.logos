@@ -4,7 +4,7 @@
 // named `ref_to` found for enum `WAny`). Found when ADR 0030 S6.7 made `*slot = v` judge its value:
 // pass/wany_niche_enum mixed the two enums through a `*zoned mut WAny`. An unresolved associated item must
 // be refused, never taken from a same-named type of another package.
-package static_call_resolves_homonym_type_fn_admits;
+package static_call_resolves_homonym_type_fn_refused;
 enum WAny { A(i64), B }
 fn main() -> i32 {
     let w = unsafe { WAny::ref_to(0 as *const u8) };
