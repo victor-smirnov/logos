@@ -111,12 +111,38 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
         }
         Option::None => {
             let proj_opt: SExpr = simplify_sexpr(sx(cl.head), h).any().view::<SExpr>();
-            if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
+            if !rel_proj_calls_ok(proj_opt, ri, prm, view, &ty) { return false; }
             if !rel_select_ok(proj_opt, ri, prm, view, &ty, &vars, nv) { return false; }
         }
     }
     if !cond_ok(cond_where(cl), &ty, "wql!: rel `where`") { return false; }
     return ons_ok(cl, &ty, "wql!: rel `on`");
+}
+
+/// A rel row's calls and operators, each component in its column's type: a
+/// literal above `i64::MAX` is that column's value when it fits (R4.4).
+fn rel_proj_calls_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, ty: &ElTypes) -> bool {
+    let off: i64 = prm.rel_coff[ri];
+    let nc: i64 = prm.rel_ccnt[ri];
+    match proj {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            if items.len() == nc {
+                let mut k: i64 = 0i64;
+                while k < nc {
+                    let c: SExpr = items.arg_at(k);
+                    if !wide_lit_fits(c, resolve_alias_name(view, prm.relc_ty[off + k])) {
+                        if !check_calls(c, ty, "wql!: rel `select`") { return false; }
+                    }
+                    k = k + 1i64;
+                }
+                return true;
+            }
+        }
+        _ => { }
+    }
+    if nc == 1i64 && wide_lit_fits(proj, resolve_alias_name(view, prm.relc_ty[off])) { return true; }
+    return check_calls(proj, ty, "wql!: rel `select`");
 }
 
 // ── the entry ───────────────────────────────────────────────────────────────

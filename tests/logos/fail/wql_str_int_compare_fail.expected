@@ -1,0 +1,1 @@
+wql!: `where`: mismatched types in `(r.name == 5)` — `r.name` is `str` and `5` is `an integer literal`

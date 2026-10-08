@@ -1,0 +1,9 @@
+// ADR 0031 R4.4 — a string compared with an integer is refused by Deem, at its
+// place in the query, as Rust refuses it (it used to reach the host compiler
+// as an error inside the generated code).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Row { pub name: str, pub n: i64 }
+pub deem q(rs: &[Row]) { from rs r where r.name == 5 select r.n }
+fn main() -> i32 { return 0i32; }

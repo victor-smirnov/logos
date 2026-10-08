@@ -1,0 +1,8 @@
+// ADR 0031 R4.4 — a literal above i64::MAX beside a SIGNED column is out of its
+// range (Rust: literal out of range for `i64`).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Row { pub k: i64 }
+pub deem q(rs: &[Row]) { from rs r where r.k == 18446744073709551615 select r.k }
+fn main() -> i32 { return 0i32; }

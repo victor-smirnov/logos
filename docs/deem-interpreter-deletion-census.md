@@ -6851,8 +6851,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12048 -> 12054 (+6), NOIMPORTED 7489 -> 7495 (+6) — 2026-10-08 (ADR 0031 R4.1): +4 pass (wql_rel_col_u64_e2e, wql_rel_col_u128_e2e, wql_rel_col_user_type_e2e, wql_rel_col_literal_type_e2e), +3 fail (wql_rel_col_no_hash_fail, wql_rel_col_lit_range_fail, wql_rel_col_select_type_fail), -1 fail/wql_rel_col_noinj_fail (a u128 column is admitted now; its shape lives on as wql_rel_col_u128_e2e).
 #                ALL 12054 -> 12055 (+1), NOIMPORTED 7495 -> 7496 (+1) — 2026-10-08 (ADR 0031 R4.3): fixture fail/wql_type_error_located_fail (a type error reported at its line:col in the query).
 #                ALL 12055 -> 12056 (+1), NOIMPORTED 7496 -> 7497 (+1), TIERCOMMIT 195 -> 195 (+0) — (main, merged into `deem`) merge of origin/main: 2026-10-08: Q1 row 4c (generated code names what it did not import by path; extern fns are items of their package)
-REGISTRY-ALL         12056
-REGISTRY-NOIMPORTED  7497
+#                ALL 12056 -> 12059 (+3), NOIMPORTED 7497 -> 7500 (+3) — 2026-10-08 (ADR 0031 R4.4): pass/wql_wide_lit_e2e, fail/wql_str_int_compare_fail, fail/wql_wide_lit_signed_fail.
+REGISTRY-ALL         12059
+REGISTRY-NOIMPORTED  7500
 REGISTRY-TIERCOMMIT  195
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

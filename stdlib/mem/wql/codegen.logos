@@ -989,16 +989,24 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
         // Judged on the LATTICE class: a name reflection could not resolve
         // (`Wrap` for `Wrap<i64>`) has the lenient INT in `class_of_name` but is
         // not known to be a number, and must not be called a mismatch.
-        let lnc: i32 = el_ty(ln).cls;
-        let rnc: i32 = el_ty(rn).cls;
+        // A bare name the environment never recorded has NO known type (its
+        // spelled `i64` is the dictionary's baseline, not an answer).
+        let lnc: i32 = if bare_unknown(l, t) { -1i32 } else { el_ty(ln).cls };
+        let rnc: i32 = if bare_unknown(r, t) { -1i32 } else { el_ty(rn).cls };
         let lnum: bool = lnc == EL_TY_INT() || lnc == EL_TY_FLT();
         let rnum: bool = rnc == EL_TY_INT() || rnc == EL_TY_FLT();
         if ln.len() > 0i64 && rn.len() > 0i64 && lnum && rnum && !str_eq(ln, rn) { bad = true; }
-        if ln.len() == 0i64 && rnum && lit_class(l) >= 0i32 && lit_class(l) != rnc {
-            bad = true; lk = lit_class_name(lit_class(l));
+        // ADR 0031 R4.4 — the rule is not only numeric. Two values of KNOWN
+        // different classes (`r.name == r.n`: a str and an i64; a bool and an
+        // integer) and a literal of another class (`r.name == 5`, `r.ok == 1`)
+        // are refused as Rust refuses them; `str` and `String` are one class
+        // (a String compares through its view).
+        if ln.len() > 0i64 && rn.len() > 0i64 && lnc >= 0i32 && rnc >= 0i32 && lnc != rnc { bad = true; }
+        if ln.len() == 0i64 && rnc >= 0i32 && lit_kind(l) >= 0i32 && lit_kind(l) != rnc {
+            bad = true; lk = lit_class_name(lit_kind(l));
         }
-        if rn.len() == 0i64 && lnum && lit_class(r) >= 0i32 && lit_class(r) != lnc {
-            bad = true; rk = lit_class_name(lit_class(r));
+        if rn.len() == 0i64 && lnc >= 0i32 && lit_kind(r) >= 0i32 && lit_kind(r) != lnc {
+            bad = true; rk = lit_class_name(lit_kind(r));
         }
     }
     if !bad { return true; }
@@ -1019,8 +1027,11 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
     m.push_str("` must have one type, as in Rust");
     if lc == EL_TY_NAMED() || rc == EL_TY_NAMED() {
         m.push_str(" — a struct or enum compares only with a value of its own type");
-    } else {
+    } else if (lc == EL_TY_INT() || lc == EL_TY_FLT() || lit_class(l) >= 0i32)
+              && (rc == EL_TY_INT() || rc == EL_TY_FLT() || lit_class(r) >= 0i32) {
         m.push_str(", and the EL no longer widens one of them silently — convert one side with `as` (e.g. `x as f64`)");
+    } else {
+        m.push_str(" — values of different kinds (a string, a bool, a number) have no conversion between them");
     }
     ty_error(t, node, string_as_str(&m));
     return false;
@@ -1097,8 +1108,6 @@ fn check_named_operator(node: SExpr, nm: str, op: i32, t: &ElTypes, ctx: str) ->
     return false;
 }
 
-/// The numeric class of a literal operand (`N`, `N.M`, or either negated) —
-/// EL_TY_INT / EL_TY_FLT — or -1 when `e` is not a numeric literal.
 /// MAY A VALUE OF `e` BE STORED IN A SLOT OF TYPE `want`? (ADR 0031 R4.1 —
 /// a rel column, typed as declared.) Rust's rule plus the blessed widening:
 /// the types are one; an unsuffixed integer literal takes any integer type and
@@ -1120,6 +1129,7 @@ pub fn expr_reaches_ty(e: SExpr, t: &ElTypes, want: str) -> bool {
 /// Does an integer literal `e` (`N` / `-N`) fit integer type `want`? True for
 /// anything that is not one. The range half of a literal taking its slot's type.
 pub fn int_lit_fits(e: SExpr, want: str) -> bool {
+    if wide_lit_fits(e, want) { return true; }
     let mut v: i64 = 0i64;
     if !int_lit_value(e, &mut v) { return true; }
     let ty: ElTy = el_ty(want);
@@ -1140,6 +1150,8 @@ pub fn expr_ty(e: SExpr, t: &ElTypes) -> str {
     return infer_ty_name(e, t);
 }
 
+/// The numeric class of a literal operand (`N`, `N.M`, or either negated) —
+/// EL_TY_INT / EL_TY_FLT — or -1 when `e` is not a numeric literal.
 fn lit_class(e: SExpr) -> i32 {
     match e {
         SExpr::Lit(l) => {
@@ -1153,9 +1165,79 @@ fn lit_class(e: SExpr) -> i32 {
     }
 }
 
+/// The decimal digits of an integer literal as written: `SLit.txt` without
+/// `_` separators and without its suffix.
+fn lit_digits(l: SLit, out: &mut String) { el_lit_digits(l.txt, l.suffix(), out); }
+
+/// AN INTEGER LITERAL ABOVE `i64::MAX` — the lexer keeps no value for it (the
+/// poison) — WHOSE WRITTEN VALUE FITS `want`, an unsigned type of 64 bits or
+/// more (ADR 0031 R4.4): `r.k == 18446744073709551615` over a `u64`, as Rust
+/// takes it. The value is read off the literal's spelling.
+pub fn wide_lit_fits(e: SExpr, want: str) -> bool {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_string() || v.is_bool() || v.is_float() { return false; }
+            if v.as_i64() != el_lit_poison() { return false; }
+            let sx: str = l.suffix();
+            let ty: ElTy = el_ty(if sx.len() > 0i64 { sx } else { want });
+            if ty.cls != EL_TY_INT() || ty.signed || ty.bits < 64i64 { return false; }
+            let mut d: String = String::new();
+            lit_digits(l, &mut d);
+            let max: str = if ty.bits >= 128i64 { "340282366920938463463374607431768211455" } else { "18446744073709551615" };
+            // no leading zeros past the first digit: compare by length, then bytes
+            let mut k: i64 = 0i64;
+            while k + 1i64 < d.len() && str_byte_at(string_as_str(&d), k) == 48u8 { k = k + 1i64; }
+            let dn: i64 = d.len() - k;
+            if dn != max.len() { return dn < max.len(); }
+            let mut i: i64 = 0i64;
+            while i < dn {
+                let a: u8 = str_byte_at(string_as_str(&d), k + i);
+                let b: u8 = str_byte_at(max, i);
+                if a != b { return a < b; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => { return false; }
+    }
+}
+
+/// A name (a parameter, a variable, a field) the type environment has no
+/// record of — its `i64` is the dictionary's baseline, not a type.
+fn bare_unknown(e: SExpr, t: &ElTypes) -> bool {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { return !t.knows(f.name); }
+            // A field step: known through its owner's binding, or by its name.
+            return field_ty_name(f, t).len() == 0i64 && !t.knows(f.name);
+        }
+        SExpr::Param(p) => { return !t.knows(p.name); }
+        SExpr::Var(v) => { return !t.knows(v.name); }
+        _ => { return false; }
+    }
+}
+
 fn lit_class_name(c: i32) -> str {
     if c == EL_TY_FLT() { return "a float literal"; }
+    if c == EL_TY_STR() { return "a string literal"; }
+    if c == EL_TY_BOOL() { return "a bool literal"; }
     return "an integer literal";
+}
+
+/// The class of ANY literal operand — `lit_class`, plus a string literal
+/// (EL_TY_STR) and `true` / `false` (EL_TY_BOOL); -1 when `e` is not one.
+fn lit_kind(e: SExpr) -> i32 {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_string() { return EL_TY_STR(); }
+            if v.is_bool() { return EL_TY_BOOL(); }
+        }
+        _ => { }
+    }
+    return lit_class(e);
 }
 
 // ── WHAT A NAMED TYPE CAN DO — asked of its impls (#340) ───────────────────
@@ -1626,7 +1708,8 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                     push_float_lit(out, v.as_f64(), "f64");
                 }
             } else {
-                out.push_i64(v.as_i64());
+                // A literal above i64::MAX has no stored value; its spelling is it.
+                if v.as_i64() == el_lit_poison() { lit_digits(l, out); } else { out.push_i64(v.as_i64()); }
                 if want.len() > 0i64 && el_ret_class(want) == EL_TY_INT() {
                     out.push_str(want);
                 } else {
@@ -2057,9 +2140,13 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
             if !check_arith_operand(e, b.lhs_expr(), t, ctx) { return false; }
             if !check_arith_operand(e, b.rhs_expr(), t, ctx) { return false; }
             if !check_operand_types_agree(e, b.lhs_expr(), b.rhs_expr(), b.op, t, ctx) { return false; }
-            if !check_lit_fits(b.lhs_expr(), b.rhs_expr(), b.op, t, ctx) { return false; }
-            if !check_lit_fits(b.rhs_expr(), b.lhs_expr(), b.op, t, ctx) { return false; }
-            return check_calls(b.lhs_expr(), t, ctx) && check_calls(b.rhs_expr(), t, ctx);
+            // A literal above i64::MAX beside an unsigned 64/128-bit operand is
+            // that type's value (R4.4); it is checked here and not refused below.
+            let lw: bool = wide_lit_fits(b.lhs_expr(), operand_named_ty(b.rhs_expr(), t));
+            let rw: bool = wide_lit_fits(b.rhs_expr(), operand_named_ty(b.lhs_expr(), t));
+            if !lw && !check_lit_fits(b.lhs_expr(), b.rhs_expr(), b.op, t, ctx) { return false; }
+            if !rw && !check_lit_fits(b.rhs_expr(), b.lhs_expr(), b.op, t, ctx) { return false; }
+            return (lw || check_calls(b.lhs_expr(), t, ctx)) && (rw || check_calls(b.rhs_expr(), t, ctx));
         }
         SExpr::Un(u)   => {
             if !check_arith_operand(e, u.arg_expr(), t, ctx) { return false; }

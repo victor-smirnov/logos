@@ -1861,6 +1861,17 @@ impl ElTypes {
     // The LOGOS TYPE NAME for `name` — what the emitter must print: a type, a
     // literal suffix, a row-tuple component. `i64` for a name never recorded (the
     // lattice baseline, the same answer the class view has always given).
+    /// Is `name` recorded at all? `ty_name_of` answers the `i64` baseline for a
+    /// name it never saw (an imported const, say), which is not a type.
+    pub fn knows(self: &ElTypes, name: str) -> bool {
+        let mut i: i64 = 0i64;
+        while i < self.n {
+            if str_eq(self.names[i], name) { return true; }
+            i = i + 1i64;
+        }
+        return false;
+    }
+
     pub fn ty_name_of(self: &ElTypes, name: str) -> str {
         let mut i: i64 = 0i64;
         while i < self.n {
@@ -2195,4 +2206,17 @@ pub fn qloc_prefix(loc: &QueryLoc) -> String {
     s.push_i64(loc.col);
     s.push_str(": ");
     return s;
+}
+
+/// The decimal digits of an integer literal as written (`txt`, the token),
+/// without `_` separators and without its suffix `sfx` — the value of a literal
+/// above `i64::MAX`, which the lexer keeps no value for (ADR 0031 R4.4).
+pub fn el_lit_digits(txt: str, sfx: str, out: &mut String) {
+    let n: i64 = txt.len() - sfx.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        let c: u8 = str_byte_at(txt, i);
+        if c >= 48u8 && c <= 57u8 { out.push_u8(c); }
+        i = i + 1i64;
+    }
 }
