@@ -25,6 +25,7 @@ use logos.std.wql.codegen;
 use logos.std.wql.optimize;       // simplify_sexpr
 use logos.std.wql.reflect;        // resolve_alias_name
 use logos.std.wql.dplan;          // plan_nest
+use logos.std.wql.srcloc;         // query_src_of — where a diagnostic points (R4.3)
 
 /// Type-check every rule of `p`; false = diagnosed.
 pub fn core_typecheck(p: &CProgram, prm: &MacroParams, h: &Writ) -> bool {
@@ -66,7 +67,7 @@ fn ons_ok(cl: &CClause, ty: &ElTypes, ctx: str) -> bool {
     while i < ch.n {
         if ch.onw[i] != 0i64 {
             let on_e: SExpr = unsafe { WAny::ref_to(ch.onw[i] as *const u8) }.view::<SExpr>();
-            if !reject_tuple(on_e, ctx) { return false; }
+            if !reject_tuple_in(on_e, ty, ctx) { return false; }
             if !check_calls(on_e, ty, ctx) { return false; }
         }
         i = i + 1i64;
@@ -76,7 +77,7 @@ fn ons_ok(cl: &CClause, ty: &ElTypes, ctx: str) -> bool {
 
 fn cond_ok(e: WAny, ty: &ElTypes, ctx: str) -> bool {
     if e.is_null() { return true; }
-    if !reject_tuple(sx(e), ctx) { return false; }
+    if !reject_tuple_in(sx(e), ty, ctx) { return false; }
     return check_calls(sx(e), ty, ctx);
 }
 
@@ -85,7 +86,8 @@ fn cond_ok(e: WAny, ty: &ElTypes, ctx: str) -> bool {
 fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ) -> bool {
     let cl: &CClause = &ru.clause;
     let ch: DNest = plan_nest(cl);
-    let ty: ElTypes = type_clause(view, prm, cl, false);
+    let mut ty: ElTypes = type_clause(view, prm, cl, false);
+    ty.src = query_src_of(prm);
     // The whole-row gate's vars: the base and every step but a scalar-element
     // traversal, which binds a value (a legitimate select component).
     let mut vars: Vec<str> = Vec::<str>::new();
@@ -103,7 +105,7 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
             if a0.is_null() { return true; }          // refused by the emitter's shape check
             let key_opt: SExpr = simplify_sexpr(sx(g.key), h).any().view::<SExpr>();
             let val_opt: SExpr = simplify_sexpr(sx(a0), h).any().view::<SExpr>();
-            if !reject_tuple(key_opt, "wql!: rel aggregate `group by`") { return false; }
+            if !reject_tuple_in(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; }
             if !check_calls(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; }
             if !check_calls(val_opt, &ty, "wql!: rel aggregate argument") { return false; }
         }
@@ -122,6 +124,7 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
 fn check_entry(view: &OView, prm: &MacroParams, ru: &CRule, h: &Writ) -> bool {
     let cl: &CClause = &ru.clause;
     let mut ty: ElTypes = type_clause(view, prm, cl, false);
+    ty.src = query_src_of(prm);
     let find: bool = match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
     if find { return cond_ok(cond_where(cl), &ty, "wql!: `find`"); }
     if !cl.head.is_null() { stamp_comp_vars(sx(cl.head), &mut ty, prm); }
@@ -143,7 +146,7 @@ fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty
     let cl: &CClause = &ru.clause;
     let mut ty: ElTypes = ty0;
     let key_e: SExpr = sx(g.key);
-    if !reject_tuple(key_e, "wql!: `group by`") { return false; }
+    if !reject_tuple_in(key_e, &ty, "wql!: `group by`") { return false; }
     if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
     let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
     let mut key_tys: String = String::new();
@@ -182,10 +185,10 @@ fn group_key_ok(key_opt: SExpr, ty: &ElTypes, key_ty: str) -> bool {
         mni.push_str(key_ty);
         mni.push_str("`) — ");
         mni.push_str(el_cmp_ident_why(string_as_str(&key_tn3s), key_ty));
-        error(string_as_str(&mni));
+        ty_error(ty, key_opt, string_as_str(&mni));
         return false;
     }
-    if !key_norm_ok(string_as_str(&key_tn3s), key_ty, "wql!: `group by`") { return false; }
+    if !key_norm_ok_in(string_as_str(&key_tn3s), key_ty, sx_soff(key_opt), ty, "wql!: `group by`") { return false; }
     // A NAMED key (a declared struct/enum) groups by its own `==`: the frame is a
     // linear scan over `__g_key: Vec<K>`, so it needs equality and a key that can
     // be copied out of the row — asked of the impls, and the missing one named.
@@ -203,7 +206,7 @@ fn group_key_ok(key_opt: SExpr, ty: &ElTypes, key_ty: str) -> bool {
             mn.push_str("; derive or implement it on `");
             mn.push_str(kn);
             mn.push_str("`");
-            error(string_as_str(&mn));
+            ty_error(ty, key_opt, string_as_str(&mn));
             return false;
         }
     }
@@ -213,9 +216,9 @@ fn group_key_ok(key_opt: SExpr, ty: &ElTypes, key_ty: str) -> bool {
         // f64 case has a named mechanism worth stating and an unadmitted class does
         // not have one yet.
         if key_ety == EL_TY_FLT() {
-            error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
+            ty_error(ty, key_opt, "wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
         } else {
-            error("wql!: a `group by` key needs an identity (`==` and a hash) and this key's type is not admitted as having one (`el_eq_hash`) — group by an i64/str/bool key");
+            ty_error(ty, key_opt, "wql!: a `group by` key needs an identity (`==` and a hash) and this key's type is not admitted as having one (`el_eq_hash`) — group by an i64/str/bool key");
         }
         return false;
     }
@@ -234,7 +237,7 @@ fn aggs_ok(aggs: &Vec<CAgg>, t: &ElTypes, gt: &GroupTy, h: &Writ) -> bool {
         if fnid != AGG_COUNT() {
             let arg: WAny = match &a.arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
             if arg.is_null() { error("wql!: aggregate fn expects an argument (zero-argument user aggregates are not supported)"); return false; }
-            if !reject_tuple(sx(arg), "wql!: `aggregate`") { return false; }
+            if !reject_tuple_in(sx(arg), t, "wql!: `aggregate`") { return false; }
             if !check_calls(sx(arg), t, "wql!: `aggregate`") { return false; }
             let ae_opt: SExpr = simplify_sexpr(sx(arg), h).any().view::<SExpr>();
             if !gt.uda[ai] {
@@ -282,7 +285,7 @@ fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTy
                     m.push_i64(items.len());
                     m.push_str(" does not match the declared column count ");
                     m.push_i64(nc);
-                    error(string_as_str(&m));
+                    ty_error(t, proj, string_as_str(&m));
                     return false;
                 }
                 let mut k: i64 = 0i64;
@@ -300,7 +303,7 @@ fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTy
                 m2.push_str("' declares ");
                 m2.push_i64(nc);
                 m2.push_str(" columns — the body select must be a tuple of exactly that many components");
-                error(string_as_str(&m2));
+                ty_error(t, proj, string_as_str(&m2));
                 return false;
             }
         }
@@ -312,7 +315,7 @@ fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTy
         m3.push_str("wql!: rel '");
         m3.push_str(rel_name);
         m3.push_str("' declares 1 column — the body select must be a single expression (`(e)` is grouping, not a 1-tuple)");
-        error(string_as_str(&m3));
+        ty_error(t, proj, string_as_str(&m3));
         return false;
     }
     return rel_select_comp_ok(proj, rel_name, prm.relc_name[off],
@@ -334,7 +337,7 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
         m.push_str(".a, ");
         m.push_str(rn);
         m.push_str(".b)`)");
-        error(string_as_str(&m));
+        ty_error(t, comp, string_as_str(&m));
         return false;
     }
     if returns_string(comp, t) {
@@ -344,7 +347,7 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
         m1.push_str("' column '");
         m1.push_str(col_name);
         m1.push_str("': an owned-String-returning expression cannot feed a rel column (str columns store borrowed views)");
-        error(string_as_str(&m1));
+        ty_error(t, comp, string_as_str(&m1));
         return false;
     }
     // ⚠ THE DECLARED COLUMN TYPE IS A SPELLING, and the component's type was
@@ -362,7 +365,7 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
         m3.push_str("` is out of range for `");
         m3.push_str(col_ty);
         m3.push_str("`, the column's type (Rust refuses the same literal)");
-        error(string_as_str(&m3));
+        ty_error(t, comp, string_as_str(&m3));
         return false;
     }
     if !expr_reaches_ty(comp, t, want) {
@@ -378,7 +381,7 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
         m2.push_str("`, declared `");
         m2.push_str(col_ty);
         m2.push_str("`");
-        error(string_as_str(&m2));
+        ty_error(t, comp, string_as_str(&m2));
         return false;
     }
     return true;
@@ -451,7 +454,10 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
 // So this seam refuses only what it KNOWS is lossy — the ORDER question's
 // default-deny stays where it belongs, on the licence (`el_order_faithful`), which
 // denies an unresolvable name without denying the query.
-pub fn key_norm_ok(tn: str, kv: str, ctx: str) -> bool {
+pub fn key_norm_ok(tn: str, kv: str, ctx: str) -> bool { return key_norm_ok_in(tn, kv, -1i64, &el_types_new(), ctx); }
+
+/// `key_norm_ok`, reported at the key's place in the query (`at`, < 0 = unlocated).
+pub fn key_norm_ok_in(tn: str, kv: str, at: i64, env: &ElTypes, ctx: str) -> bool {
     let t: ElTy = el_ty(tn);
     if t.cls < 0i32           { return true; }   // lenient — the host is the oracle
     // ⚠ THE VECTOR MUST BE ABLE TO HOLD THE TYPE, and that is a SECOND antecedent,
@@ -469,7 +475,7 @@ pub fn key_norm_ok(tn: str, kv: str, ctx: str) -> bool {
         mk.push_str(": a key of type `");
         mk.push_str(kv);
         mk.push_str("` cannot be held by the key vector the backend emits: the sort and the bucket scan read keys back out of a `Vec` by value, and this type is not `Copy` — a borrowed `str` view of the row would not outlive the loop that binds it. The remedy is a `str` column (a borrowed view stored in the row itself), or a scalar key");
-        error(string_as_str(&mk));
+        ty_error_off(env, at, string_as_str(&mk));
         return false;
     }
     if str_eq(tn, kv)         { return true; }   // the vector IS the key's type
@@ -482,6 +488,7 @@ pub fn key_norm_ok(tn: str, kv: str, ctx: str) -> bool {
     m.push_str(kv);
     m.push_str("`) — ");
     m.push_str(el_cmp_why(tn, kv));
-    error(string_as_str(&m));
+    ty_error_off(env, at, string_as_str(&m));
     return false;
 }
+

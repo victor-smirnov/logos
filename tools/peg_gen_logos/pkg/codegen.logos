@@ -1318,9 +1318,9 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     // [0, src.len()]), not a HashMap — no hash / slot-probe / key-compare per peek.
     // endpos < 0 is the "not yet lexed" sentinel.
     if cg.uses_raw_text {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token }");
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub in_tag: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub base: i64 }");
     } else {
-        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token }");
+        w.line("pub struct Lexer { pub src: str, pub pos: i64, pub line: i64, pub la: Token, pub have_la: bool, pub memo: HashMap<i64, MemoCell>, pub tbuf: Vec<TokCell>, pub far: Token, pub base: i64 }");
     }
     w.blank();
     w.line("pub fn lexer_new(src: str) -> Lexer {");
@@ -1335,11 +1335,11 @@ fn emit_runtime(cg: &mut Codegen, w: &mut CodeWriter) {
     if cg.uses_raw_text {
         w.line("    return Lexer { far: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,");
         w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false, in_tag: false,");
-        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
+        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb, base: 0i64 };");
     } else {
         w.line("    return Lexer { far: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, src: src, pos: 0i64, line: 1i64,");
         w.line("        la: Token { kind: TK_EOF, start: 0i64, len: 0i64, line: 0i64 }, have_la: false,");
-        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb };");
+        w.line("        memo: hashmap_new::<i64, MemoCell>(), tbuf: tb, base: 0i64 };");
     }
     w.line("}");
     w.blank();
@@ -1629,7 +1629,7 @@ fn emit_embed_call(cg: &mut Codegen, w: &mut CodeWriter, iname: str, gram: str, 
     // ordinary duplicate-import diagnostic covers it.)
     ep.push_str("let eroot_"); ep.push_str(sfx); ep.push_str(": WAny = ");
     ep.push_str("parse_"); ep.push_str(iname);
-    ep.push_str("(esub_"); ep.push_str(sfx); ep.push_str(", doc);");
+    ep.push_str("_at(esub_"); ep.push_str(sfx); ep.push_str(", doc, lex.base + est_"); ep.push_str(sfx); ep.push_str(");");
     w.line(ep.as_str());
     let _unused_path: String = path;
     // Advance the lexer PAST the consumed sub-range: reset at `eend_` — the byte
@@ -2812,7 +2812,9 @@ fn emit_alt_fn(cg: &mut Codegen, w: &mut CodeWriter, rname: str, group: str, ai:
     // column, and a diagnostic about a query has to point INSIDE one line of it.
     // Stamped into any schema declaring `soff` (see emit_schema_action) — the
     // schema opts in, the generator does not guess.
-    w.line("let fstart: i64 = lex.peek().start;");
+    // An EMBEDDED parse reads a sub-range of the outer text (`lex.base` is its
+    // offset there), so the offset stamped is the outer text's.
+    w.line("let fstart: i64 = lex.peek().start + lex.base;");
 
     let seq_len: i64 = cg.alts.borrow(alt_idx).seq.len();
     let has_action: bool = cg.alts.borrow(alt_idx).has_action;
@@ -4237,7 +4239,13 @@ fn emit_public_entries(cg: &mut Codegen, w: &mut CodeWriter) {
             // owns the `&Writ`; the parser builds schema views into it and returns
             // the root node's erased ref handle (WAny) for the caller to view::<S>().
             w.l3("pub fn parse_", e.as_str(), "(src: str, doc: &Writ) -> WAny {");
+            w.l3("    return parse_", e.as_str(), "_at(src, doc, 0i64);");
+            w.line("}");
+            // The same, over a sub-range of an outer text that starts at byte
+            // `base` there — what an embedding grammar calls.
+            w.l3("pub fn parse_", e.as_str(), "_at(src: str, doc: &Writ, base: i64) -> WAny {");
             w.line("    let mut lex: Lexer = lexer_new(src);");
+            w.line("    lex.base = base;");
             w.l3("    let root: *const u8 = rule_", e.as_str(), "(&mut lex, doc);");
             // MALFORMED-input rejection: the export must consume the WHOLE input.
             // A PEG rule can partial-match (e.g. `expr` matches `a` in `a +`,

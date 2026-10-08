@@ -101,6 +101,36 @@ use logos.std.wql.writ_graph;     // writ_graph_edges — the NATIVE graph-sourc
 //                      typing" was an assumption this walk made and nothing
 //                      enforced, and a mixed ternary reached the host compiler.
 // Unknown / out-of-MVP nodes default to INT.
+/// Where `e` was written: its byte offset in the query text (ADR 0024 S0).
+pub fn sx_soff(e: SExpr) -> i64 {
+    match e {
+        SExpr::Lit(x) => { return x.soff; }
+        SExpr::Param(x) => { return x.soff; }
+        SExpr::Var(x) => { return x.soff; }
+        SExpr::Field(x) => { return x.soff; }
+        SExpr::Bin(x) => { return x.soff; }
+        SExpr::Un(x) => { return x.soff; }
+        SExpr::Call(x) => { return x.soff; }
+        SExpr::Cond(x) => { return x.soff; }
+        SExpr::Comp(x) => { return x.soff; }
+        SExpr::Tuple(x) => { return x.soff; }
+        SExpr::Cast(x) => { return x.soff; }
+    }
+}
+
+/// A type diagnostic about `e`, reported at `e`'s place in the query when the
+/// environment knows the query (ADR 0031 R4.3) — never at a generated line.
+pub fn ty_error(t: &ElTypes, e: SExpr, msg: str) { ty_error_off(t, sx_soff(e), msg); }
+
+/// The same, at a byte offset in the query text (< 0 = no place).
+pub fn ty_error_off(t: &ElTypes, soff: i64, msg: str) {
+    if !t.src.on || soff < 0i64 { error(msg); return; }
+    let loc: QueryLoc = qsrc_resolve(&t.src, soff);
+    let mut out: String = qloc_prefix(&loc);
+    out.push_str(msg);
+    error_located(string_as_str(&out));
+}
+
 pub fn infer_ty(e: SExpr, t: &ElTypes) -> i32 {
     // ⚠ A VIEW OF THE TYPE, NOT A SECOND INFERENCE (E4.1, 2026-10-02). This was
     // its own walk over the same cases `infer_ty_name` walks, and the two could
@@ -586,12 +616,15 @@ pub fn is_tuple_root(e: SExpr) -> bool {
 // Diagnose a tuple expression at a NON-select clause site (`where`, `on`,
 // `group by`, `having`, `order by`, aggregate args, `find`, trama contexts).
 // Returns false + surfaces the error when `e` is tuple-rooted.
-pub fn reject_tuple(e: SExpr, ctx: str) -> bool {
+pub fn reject_tuple(e: SExpr, ctx: str) -> bool { return reject_tuple_in(e, &el_types_new(), ctx); }
+
+/// `reject_tuple`, reported at the tuple's place in the query (ADR 0031 R4.3).
+pub fn reject_tuple_in(e: SExpr, t: &ElTypes, ctx: str) -> bool {
     if !is_tuple_root(e) { return true; }
     let mut m: String = String::new();
     m.push_str(ctx);
     m.push_str(": a tuple expression `(a, b, …)` is only supported as the `select` projection");
-    error(string_as_str(&m));
+    ty_error(t, e, string_as_str(&m));
     return false;
 }
 
@@ -790,7 +823,7 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
         m.push_str(n);
         m.push_str("` — the EL computes integer arithmetic in one of two towers, i64 (`el_add`/`el_sub`/…) or u64 (`el_addu`/`el_subu`/…), and this type fits NEITHER: it is wider than both, so reaching either drops bits — ");
         m.push_str(el_order_why(n));
-        error(string_as_str(&m));
+        ty_error(t, e, string_as_str(&m));
         return false;
     }
     // ── (2) THE NODE MIXES THE TWO TOWERS ─────────────────────────────────
@@ -817,7 +850,7 @@ pub fn check_arith_operand(parent: SExpr, e: SExpr, t: &ElTypes, ctx: str) -> bo
         m2.push_str("`, a value of type `");
         m2.push_str(n);
         m2.push_str("` — negation is not an operation on an unsigned type: the result has the operand's type, and every non-zero value has no image in it (Rust refuses `-x` on an unsigned value for the same reason). The remedy is to subtract from a bound (`hi - x`), or to declare the column signed");
-        error(string_as_str(&m2));
+        ty_error(t, parent, string_as_str(&m2));
         return false;
     }
     return true;
@@ -891,7 +924,7 @@ fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> b
     m.push_str(on);
     if sfx.len() > 0i64 {
         m.push_str("`, the type its own suffix names (Rust refuses the same literal). The remedy is a value inside the range, or another suffix");
-        error(string_as_str(&m));
+        ty_error(t, lit, string_as_str(&m));
         return false;
     }
     m.push_str("` — it takes that type from `");
@@ -901,7 +934,7 @@ fn check_lit_fits(lit: SExpr, other: SExpr, op: i32, t: &ElTypes, ctx: str) -> b
     m.push_str("`, and a value outside the type cannot be ");
     if el_computes_in_repr_op(op) { m.push_str("an operand of it"); } else { m.push_str("compared with it"); }
     m.push_str(" (Rust refuses the same literal). The remedy is a literal inside the range, or a wider column");
-    error(string_as_str(&m));
+    ty_error(t, lit, string_as_str(&m));
     return false;
 }
 
@@ -947,7 +980,7 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
         if ln.len() == 0i64 && is_lit_operand(l) { bad = true; lk = "a literal"; }
         if rn.len() == 0i64 && is_lit_operand(r) { bad = true; rk = "a literal"; }
         if ln.len() > 0i64 && rn.len() > 0i64 && !str_eq(ln, rn) { bad = true; }
-        if !bad { return check_named_operator(node, if lc == EL_TY_NAMED() { ln } else { rn }, op, ctx); }
+        if !bad { return check_named_operator(node, if lc == EL_TY_NAMED() { ln } else { rn }, op, t, ctx); }
     } else {
         // Two named NUMERIC types that differ — `i32 + i64`, `key + avg(x)` (an
         // integer and an `f64`), `f32 + f64` — and a literal of the other class
@@ -989,7 +1022,7 @@ fn check_operand_types_agree(node: SExpr, l: SExpr, r: SExpr, op: i32, t: &ElTyp
     } else {
         m.push_str(", and the EL no longer widens one of them silently — convert one side with `as` (e.g. `x as f64`)");
     }
-    error(string_as_str(&m));
+    ty_error(t, node, string_as_str(&m));
     return false;
 }
 
@@ -1022,7 +1055,7 @@ pub fn check_projection_copy(e: SExpr, t: &ElTypes, ctx: str) -> bool {
     m.push_str("`, which is copied out of its row and so must be `Copy` — derive or implement `Copy` (and `Clone`) on `");
     m.push_str(nm);
     m.push_str("`");
-    error(string_as_str(&m));
+    ty_error(t, e, string_as_str(&m));
     return false;
 }
 
@@ -1039,7 +1072,7 @@ fn is_lit_operand(e: SExpr) -> bool {
 /// or `Eq`, `<`…`>=` need `Ord`, and there is no arithmetic at all — each refused
 /// at the clause with the missing impl named, rather than as a host error on a
 /// generated line.
-fn check_named_operator(node: SExpr, nm: str, op: i32, ctx: str) -> bool {
+fn check_named_operator(node: SExpr, nm: str, op: i32, t: &ElTypes, ctx: str) -> bool {
     let mut need: str = "";
     if el_computes_in_repr_op(op) {
         need = "no arithmetic — the EL has none for a struct or enum";
@@ -1060,7 +1093,7 @@ fn check_named_operator(node: SExpr, nm: str, op: i32, ctx: str) -> bool {
     if el_computes_in_repr_op(op) { m.push_str("`, and there is "); } else { m.push_str("`, which needs "); }
     m.push_str(need);
     if !el_computes_in_repr_op(op) { m.push_str(" — derive or implement it"); }
-    error(string_as_str(&m));
+    ty_error(t, node, string_as_str(&m));
     return false;
 }
 
@@ -1184,7 +1217,7 @@ fn check_cast(c: SCast, t: &ElTypes, ctx: str) -> bool {
     m.push_str(c.ty);
     m.push_str("` — ");
     m.push_str(why);
-    error(string_as_str(&m));
+    ty_error(t, c.arg_expr(), string_as_str(&m));
     return false;
 }
 
@@ -1234,7 +1267,7 @@ pub fn check_cond_branches(c: SCond, t: &ElTypes, ctx: str) -> bool {
     m.push_str("` is `");
     m.push_str(en);
     m.push_str("`. A ternary is ONE value with ONE type, so the branches must agree; the remedy is to write both branches over columns of the same type, or to make the conversion explicit in the source rows. Refused here rather than in the generated source, where the message would name a synthesised line and neither column");
-    error(string_as_str(&m));
+    ty_error(t, te, string_as_str(&m));
     return false;
 }
 
@@ -1275,7 +1308,7 @@ fn report_mixed_tower(parent: SExpr, t: &ElTypes, ctx: str) {
         _ => { m.push_str("the operand's type and the node's disagree"); }
     }
     m.push_str(". The i64 tower loses every unsigned value at or above 2^63 and the u64 tower loses every negative one, so neither reading is the query's; choosing one silently is what this refusal exists to prevent. The remedy is an explicit cast in the source column's declared type, or a `where` that bounds the signed side and a query written entirely in one signedness");
-    error(string_as_str(&m));
+    ty_error(t, parent, string_as_str(&m));
 }
 
 /// THE EXPRESSION AS THE QUERY SPELLED IT, for a diagnostic to quote.
@@ -1453,7 +1486,7 @@ pub fn check_agg_arg_in_lattice(e: SExpr, t: &ElTypes, fname: str, ctx: str) -> 
     m.push_str("` — an aggregate argument must be a value the EL's type lattice admits (the integer family, `f64`/`f32`, `bool`, `str`/`String`), and `");
     m.push_str(n);
     m.push_str("` is outside it, so there is no accumulator for the value to reach. The remedy is a numeric column, or an argument expression that computes one");
-    error(string_as_str(&m));
+    ty_error(t, e, string_as_str(&m));
     return false;
 }
 
@@ -1520,7 +1553,7 @@ pub fn check_agg_operand(e: SExpr, t: &ElTypes, want: str, fname: str, ctx: str)
         m.push_str(want);
         m.push_str("` and this position writes it, so this refusal has no ground — `check_agg_operand` and `el_agg_arg_reaches` disagree about the same type, which is a defect in the compiler and not in the query. Please report it");
     }
-    error(string_as_str(&m));
+    ty_error(t, e, string_as_str(&m));
     return false;
 }
 
@@ -1968,7 +2001,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     m.push_str(": unknown function '");
                     m.push_str(name);
                     m.push_str("' — EL builtins are len/upper/lower/contains/starts_with; a user function must be a top-level fn declared in the module containing the query (imported fns are not visible to reflection)");
-                    error(string_as_str(&m));
+                    ty_error(t, e, string_as_str(&m));
                     return false;
                 }
                 if argc != t.udf_arity[ui] {
@@ -1980,7 +2013,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     m2.push_i64(t.udf_arity[ui]);
                     m2.push_str(" argument(s), got ");
                     m2.push_i64(argc);
-                    error(string_as_str(&m2));
+                    ty_error(t, e, string_as_str(&m2));
                     return false;
                 }
                 if t.udf_class(ui) < 0i32 {
@@ -1991,7 +2024,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     m3.push_str("' returns `");
                     m3.push_str(t.udf_rets[ui]);
                     m3.push_str("` — an EL-callable fn must return an integer, f64/f32, bool, str, or String value");
-                    error(string_as_str(&m3));
+                    ty_error(t, e, string_as_str(&m3));
                     return false;
                 }
                 // A u64/u128 return used to be REFUSED here: the emit site
@@ -2009,7 +2042,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     m4.push_i64(builtin_arity(bfn));
                     m4.push_str(" argument(s), got ");
                     m4.push_i64(argc);
-                    error(string_as_str(&m4));
+                    ty_error(t, e, string_as_str(&m4));
                     return false;
                 }
             }
@@ -2063,7 +2096,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     let mut m: String = String::new();
                     m.push_str(ctx);
                     m.push_str(": integer literal out of range — exceeds i64::MAX (9223372036854775807)");
-                    error(string_as_str(&m));
+                    ty_error(t, e, string_as_str(&m));
                     return false;
                 }
             }

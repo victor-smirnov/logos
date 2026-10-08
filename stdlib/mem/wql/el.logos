@@ -1769,6 +1769,9 @@ pub struct ElTypes {
     // are the same shape, and a `kind` column cannot drift from a parallel array.
     pub rb_kind: Vec<i64>,
     pub rb_n:   i64,
+    // The query the names belong to, for a located diagnostic (ADR 0031 R4.3);
+    // `qsrc_none()` until the type checker sets it.
+    pub src:    QSrc,
     // The NAMED types (`EL_TY_NAMED`): the plain structs/enums the module
     // declares. OWNED for the same reason `tns` is.
     pub named: Vec<String>,
@@ -1800,6 +1803,7 @@ pub fn el_types_new() -> ElTypes {
         rb_kind: vec_new::<i64>(),
         rb_n:   0i64,
         named:  vec_new::<String>(),
+        src:    qsrc_none(),
     };
 }
 
@@ -2081,4 +2085,114 @@ pub fn agg_of_name(name: str) -> i32 {
     if str_eq(name, "max")   { return AGG_MAX(); }
     if str_eq(name, "avg")   { return AGG_AVG(); }
     return 0i32;
+}
+
+// ── THE QUERY AS A SOURCE (ADR 0024 S0, ADR 0031 R4.3) ──────────────────────
+// Plain data, so a diagnostic below the surface layer — a type check over the
+// core — can say WHERE: the parsed text, the file, the item head's line, and
+// each spliced mapping segment's exclusive end and origin. `srcloc` builds it
+// from the parsed program.
+pub struct QSrc {
+    pub on:         bool,       // false: no query text (trama!/catalog)
+    pub text:       String,
+    pub file:       String,
+    pub line:       i64,        // line of the item's head; body line 1 IS this line
+    pub seg_end:    Vec<i64>,
+    pub seg_origin: Vec<String>,
+}
+
+pub fn qsrc_none() -> QSrc {
+    return QSrc { on: false, text: String::new(), file: String::new(), line: 0i64,
+                  seg_end: Vec::<i64>::new(), seg_origin: Vec::<String>::new() };
+}
+
+/// Where an offset in the parsed text came from.
+///
+/// `in_mapping` distinguishes the two cases a diagnostic must never confuse:
+/// text the user wrote (line/col in `file`) and text a mapping supplied (named
+/// by `origin`, positioned within that mapping's own body).
+pub struct QueryLoc {
+    pub in_mapping: bool,
+    pub origin:     String, // mapping name; "" when the text is the user's
+    pub file:       String,
+    pub line:       i64,    // 1-based, absolute in `file` (user text only)
+    pub col:        i64,    // 1-based
+}
+
+/// Resolve a byte offset in the parsed text to a place.
+///
+/// The line arithmetic follows the convention the parse-error path already
+/// uses: body line 1 IS the item's head line, so an offset on the body's first
+/// line reports the head's line. Columns are counted from the last newline at
+/// or before the offset; on the body's first line the column is relative to the
+/// body's own start, which is the honest answer while the item's head column is
+/// not recorded.
+pub fn qsrc_resolve(q: &QSrc, soff: i64) -> QueryLoc {
+    let text: str = q.text.as_str();
+    let mut off: i64 = soff;
+    if off < 0i64 { off = 0i64; }
+    if off > text.len() { off = text.len(); }
+
+    // Spliced mapping text sorts BEFORE the written query. Segment ends are
+    // exclusive and in splice order, so the first end above `off` owns it.
+    let mut base: i64 = 0i64;
+    let n: i64 = q.seg_end.len();
+    let mut i: i64 = 0i64;
+    while i < n {
+        if off < q.seg_end.get(i) {
+            // Inside a mapping's body — position it within THAT body, and
+            // say so. Reporting a file line here would point at the query,
+            // which is not where the text lives.
+            let lo: i64 = if i == 0i64 { 0i64 } else { q.seg_end.get(i - 1i64) };
+            let (ml, mc): (i64, i64) = line_col_in(text, lo, off);
+            return QueryLoc { in_mapping: true, origin: String::from_str(q.seg_origin[i].as_str()),
+                              file: String::from_str(q.file.as_str()), line: ml, col: mc };
+        }
+        i = i + 1i64;
+    }
+    if n > 0i64 { base = q.seg_end.get(n - 1i64); }
+
+    let (l, c): (i64, i64) = line_col_in(text, base, off);
+    return QueryLoc { in_mapping: false, origin: String::new(), file: String::from_str(q.file.as_str()),
+                      line: q.line + (l - 1i64), col: c };
+}
+
+/// 1-based (line, col) of `off` counted from `lo` — the segment's own start.
+fn line_col_in(text: str, lo: i64, off: i64) -> (i64, i64) {
+    let b: &[u8] = text.as_bytes();
+    let mut line: i64 = 1i64;
+    let mut last_nl: i64 = lo - 1i64;
+    let mut i: i64 = lo;
+    while i < off {
+        if b[i] == 10u8 { line = line + 1i64; last_nl = i; }
+        i = i + 1i64;
+    }
+    return (line, off - last_nl);
+}
+
+/// `<file>:<line>:<col>: ` — or, for spliced text, a prefix naming the mapping.
+/// The mapping form deliberately does NOT print a file line: the offending text
+/// is not in the file at that line, and a plausible-looking wrong location is
+/// worse than an honest indirect one.
+pub fn qloc_prefix(loc: &QueryLoc) -> String {
+    let mut s: String = String::new();
+    if loc.in_mapping {
+        s.push_str("in mapping `");
+        s.push_str(loc.origin.as_str());
+        s.push_str("` (");
+        s.push_str(loc.file.as_str());
+        s.push_str(") line ");
+        s.push_i64(loc.line);
+        s.push_str(":");
+        s.push_i64(loc.col);
+        s.push_str(": ");
+        return s;
+    }
+    s.push_str(loc.file.as_str());
+    s.push_str(":");
+    s.push_i64(loc.line);
+    s.push_str(":");
+    s.push_i64(loc.col);
+    s.push_str(": ");
+    return s;
 }

@@ -1045,10 +1045,14 @@ private:
             // BYTE OFFSET of a token within source_ — what a schema's `soff`
             // field is stamped with. A line alone cannot underline a column,
             // and a query lives inside one line of its enclosing item.
+            // An EMBEDDED parse reads a sub-range of the outer text; its
+            // offsets are the outer text's, so the embedding parser hands it
+            // the sub-range's own offset here.
+            w.line("uint32_t src_base_ = 0;");
             w.line("uint32_t tok_offset_(std::string_view t) const {");
             w.line("    if (t.data() < source_.data() ||");
-            w.line("        t.data() > source_.data() + source_.size()) return 0;");
-            w.line("    return static_cast<uint32_t>(t.data() - source_.data());");
+            w.line("        t.data() > source_.data() + source_.size()) return src_base_;");
+            w.line("    return src_base_ + static_cast<uint32_t>(t.data() - source_.data());");
             w.line("}");
             w.line();
         }
@@ -2962,6 +2966,7 @@ private:
         w.fmt("size_t eend_ = embed_find_close(source_, est_);");
         w.fmt("std::string_view esub_ = source_.substr(est_, eend_ - est_);");
         w.fmt("{} sub_(esub_, doc_);", cls);
+        w.line("sub_.src_base_ = src_base_ + static_cast<uint32_t>(est_);");
         w.fmt("{} = sub_.parse_{}();", cap, item.name);
         // Re-anchor the outer lexer past the consumed sub-range. The token
         // cache is keyed by byte offset, so a plain pos_ move is enough.

@@ -1,0 +1,1 @@
+_located_fail.logos:10:12: wql!: `select`: mismatched types in `(r.a + r.b)`
