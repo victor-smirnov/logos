@@ -572,30 +572,17 @@ static void emit_docs_facts(lir::LProgram& prog,
         size_t i = 0;
         while (i < s.size() && (s[i] == '&' || s[i] == '*' || s[i] == ' ')) i++;
         if (s.compare(i, 4, "mut ") == 0) i += 4;
+        else if (s.compare(i, 6, "const ") == 0) i += 6;
         s = s.substr(i);
         if (auto lt = s.find('<'); lt != std::string::npos) s = s.substr(0, lt);
         return s;
     };
-    // Fallback owner extraction from the mangled link name, for `self`-less
-    // associated fns (e.g. `Vec::new`). Methods mangle as
-    // "<pkg>.<Owner>__<mbase>__f__…" (no '$' before "__f__"); free fns as
-    // "<hash>.<pkg>$<name>__f__…" ('$' before "__f__"). Returns "" for a free fn.
-    // Generic-type methods carry a '$' in the head and are NOT caught here — those
-    // are recognised by their `self` param instead.
-    auto owner_from_mangle = [](std::string_view mangled, std::string_view mbase) -> std::string {
-        if (mbase.empty()) return {};
-        auto fpos = mangled.find("__f__");
-        std::string_view head = (fpos == std::string_view::npos) ? mangled
-                                                                 : mangled.substr(0, fpos);
-        if (head.find('$') != std::string_view::npos) return {};
-        std::string suffix = "__" + std::string(mbase);
-        if (head.size() <= suffix.size() ||
-            head.compare(head.size() - suffix.size(), suffix.size(), suffix) != 0)
-            return {};
-        std::string_view before = head.substr(0, head.size() - suffix.size());
-        auto dot = before.rfind('.');
-        return std::string(dot == std::string_view::npos ? before : before.substr(dot + 1));
-    };
+    // The owner of every impl member, by the impl's own record — a mangled
+    // name is no source for it (the package fold puts `$M<hash>` in every head).
+    std::unordered_map<std::string, std::string> owner_of_symbol;
+    for (auto& iv : prog.impls)
+        for (auto sym : iv.method_symbols())
+            owner_of_symbol.emplace(std::string(sym), bare_type(std::string(iv.target_type())));
     // Functions — free fns AND impl/inherent methods all live in prog.functions
     // pre-mono. name() is the mangled link symbol; the source name is method_base().
     // Method discriminant: a `self` first param (owner = its type — works for
@@ -623,10 +610,10 @@ static void emit_docs_facts(lir::LProgram& prog,
             seen = true; first_pname = p.name(); first_ptype = p.type(pool);
         });
         std::string owner;
-        if (first_pname == "self")
+        if (auto oit = owner_of_symbol.find(std::string(fn.name())); oit != owner_of_symbol.end())
+            owner = oit->second;
+        else if (first_pname == "self")
             owner = bare_type(type_str(first_ptype));
-        if (owner.empty())
-            owner = owner_from_mangle(fn.name(), fn.method_base());
         if (!owner.empty()) {
             std::string parent = (owner.find('.') != std::string::npos)
                                      ? owner : qual(fn.package(), owner);

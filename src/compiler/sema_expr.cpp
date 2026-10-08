@@ -13714,13 +13714,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // The base has the literal's type: `..Default::default()` resolves
         // its Self against it.
         TypeRef base_expect = nullptr;
-        if (!slit_is_zoned) {
-            LogosTypeBuilder bt_b;
-            bt_b.kind = LogosType::Kind::Struct;
-            bt_b.struct_name = std::string(sname);
-            if (auto rp = resolve_struct_pkg_(sname); !rp.empty()) bt_b.pkg_name = std::move(rp);
-            base_expect = pool_->alloc(std::move(bt_b));
-        }
+        if (!slit_is_zoned) base_expect = make_struct_type(sname);
         auto base_expr = lower_expr_expecting(base_node, base_expect, base_expect);
         // Sprint 3.4: enforce that `..base` carries the same struct type as
         // the constructor (closes B-li-03 — Foo+..bar silently spread foreign
