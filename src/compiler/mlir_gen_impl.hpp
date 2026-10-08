@@ -645,6 +645,7 @@ private:
     // mono's table entry for a struct: its emitted name, else (a non-generic
     // struct asked by its folded spelling) the declared one.
     const std::string* drop_table_lookup_(std::string_view name, std::string_view pkg) const {
+        if (!prog_ || prog_->drop_symbols.empty()) return nullptr;
         std::string_view bare = strip_struct_pkg(name);
         auto key = [&](std::string_view n) { return std::string(pkg) + "\x1f" + std::string(n); };
         if (auto it = prog_->drop_symbols.find(key(bare)); it != prog_->drop_symbols.end()) return &it->second;
