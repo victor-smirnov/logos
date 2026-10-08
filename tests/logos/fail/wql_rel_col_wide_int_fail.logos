@@ -12,7 +12,7 @@ use logos.mem.collections.vec;
 use logos.lang.str;
 
 struct Node { pub id: i64 }
-struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub w: u64 }
 
 pub deem bad(src: &[Node], edges: &[Edge]) {
     rel dist(node: i64, lo: u64) {
@@ -27,7 +27,7 @@ pub deem bad(src: &[Node], edges: &[Edge]) {
 
 fn main() -> i32 {
     let src: [Node; 1] = [ Node { id: 1i64 } ];
-    let edges: [Edge; 1] = [ Edge { src: 1i64, dst: 2i64, w: 1i64 } ];
+    let edges: [Edge; 1] = [ Edge { src: 1i64, dst: 2i64, w: 1u64 } ];
     let out: Vec<(i64, u64)> = bad(&src[..], &edges[..]);
     return out.len() as i32;
 }

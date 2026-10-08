@@ -85,6 +85,7 @@ use logos.std.wql.reflect;        // find_decl_by_name / has_field / field_trave
 use logos.std.wql.ward;           // WardProg / check_warded — Track A: warded Datalog± verdict
 use logos.mem.string;
 use logos.lang.str;
+use logos.std.wql.typecheck;       // core_typecheck (ADR 0031 R4.2)
 use logos.std.wql.srcloc;         // the query as a source — located diagnostics (ADR 0024 S0)
 use logos.std.wql.access_plan;    // AccessPlan — the plan as an object (ADR 0024 S4)
 use logos.std.wql.why;            // jg_render — the join strategy ground, rendered at the edge
@@ -1611,6 +1612,9 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
     // through it.
     // The plan's spellings, bound once the access plan is applied and every
     // check has read the sources as written.
+    // ADR 0031 R4.2 — every expression type-checked on the core, once, before
+    // the plan is finished and anything is emitted.
+    if !core_typecheck(&early, prm, h) { return false; }
     core_bind_sources(&mut early, prm);
     plan_decide_rest(prm, &mut early, h, false);
     let jp: JoinPlan = plan_entry_order(&early, prm, h);

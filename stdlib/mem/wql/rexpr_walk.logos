@@ -47,6 +47,7 @@ use logos.std.wql.prepared;   // Prepared / prep_* — THE PLAN AS A RUNTIME VAL
 use logos.std.wql.dplan;      // DScan / plan_entry_scan — the plan as data (ADR 0031 R5)
 use logos.std.wql.core;       // the planned core the emitters read (ADR 0031 R6)
 use logos.std.wql.typing;     // type_chain — one typing of a clause (ADR 0031)
+use logos.std.wql.typecheck;  // key_norm_ok — the checks on the core (ADR 0031 R4.2)
 use logos.std.wql.why;        // Why / why_render — THE JUSTIFICATION AS A RECORD, and its ONE renderer
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // make_*/null_* (the relational node builders)
@@ -1784,107 +1785,6 @@ fn ix_lex_gt_frag(k: i64, nidx: i64) -> ExprBlob {
     };
 }
 
-// The in-place insertion sort over the parallel (key, index) vecs `__ks` +
-// `__ix0`..`__ix{nidx-1}` (one index vec per BOUND source — 1 for a simple/
-// aggregate sort, 1 + non-anti steps for a join chain) — O(n²) MVP codegen;
-// `desc` flips the KEY comparison. str keys compare with the native `<`/`>`
-// (sema lowers str relationals to byte-lexicographic `str_cmp`).
-//
-// Equal keys are ordered by the row-index tuple in query source order
-// (`ix_lex_gt_frag`), so WHEN THE KEY'S COMPARISON IS TOTAL the result does not
-// depend on the order the tuples were collected in — see that function for why the
-// plan needs that and why it changes no existing permutation.
-//
-// ⚠ THAT CONDITION IS NOT SPELLED HERE, AND IT IS NOT ASSUMED EITHER. The tiebreak
-// sits behind an EQUAL compare, so for a key whose comparison is partial (f64: a
-// NaN is not `>`, not `<` and not `==`) it is never reached and the collection
-// order becomes visible in the answer. `el::el_order_faithful` is the one answer to
-// which TYPES qualify, and the LICENCE that depends on it — carrying more than one
-// nest — is refused at the decision (`join_order` C1) with its ground on the plan
-// trace. This fragment is deliberately NOT the enforcement point: a single-nest
-// sort over an f64 key is a capability, its comparison is the language's `>` on
-// f64, and this codegen does not get to redefine it.
-//
-// ⚠ AND THIS FRAGMENT IS WHY THE ANSWER IS KEYED ON THE TYPE NAME, NOT THE CLASS.
-// `key_ty` here is the type the EMITTER PRINTS for the key (`infer_emit_ty`), which
-// for a column read is the COLUMN'S OWN TYPE and for an arithmetic node or a UDF
-// call is the class's representative (those normalize at their own site). So the
-// comparison this loop emits is `<` on the key's own type wherever the key IS a
-// value of a named type — and a `u64` key is compared as u64, in u64's order.
-// Where a normalization did happen the value is refused at the site that performs
-// it (`codegen::check_calls`) rather than sorted by its reinterpretation: this loop
-// compares whatever reaches it, and it is not the place that decides what may.
-//
-// The per-index statements are RUNTIME-many, so they ride three Vec<ExprBlob>
-// cursors and splice flat — the shape that replaced `push_ixn` writing `__ix`
-// and a decimal into the middle of a half-written line.
-// ── THE KEY VECTOR HOLDS THE CLASS'S REPRESENTATIVE, SO THE KEY IS NORMALIZED ─
-// `__ks` / `__k` / `__g_key` are typed `el_class_repr(class)` — i64 / f64 / str /
-// bool — while the key EXPRESSION has whatever type the query gave it. Those are
-// the same type only when the key type is its own repr (`ElTy.canon`). They were
-// not checked to be, and the mismatch surfaced as a raw `Vec__push arg 1: expected
-// i64, got u64` inside the GENERATED chunk — a diagnostic pointing at a line
-// nobody wrote. MEASURED before this seam existed, on `order by s.v` over a `u64`
-// column.
-//
-// Three outcomes, decided by the type and nothing else:
-//   • canon                  → the body is already the key vector's type;
-//   • not canon but `fits`   → the normalization is VALUE-PRESERVING, so it is
-//                              EMITTED (`el_norm_cast`): u8..u32, i8..i32, u56,
-//                              isize and f32 keys work, and they compare in their
-//                              own order because a value that survives the
-//                              widening carries its order with it (`ElTy.ord`);
-//   • not canon and !fits    → the normalization REINTERPRETS (u64/usize) or
-//                              TRUNCATES (u128/i128). REFUSED, with the ground
-//                              `el_order_why` already states — never sorted by a
-//                              reinterpretation.
-// ⚠ AN OUT-OF-LATTICE KEY IS NOT REFUSED HERE, and the difference matters. The
-// lattice's LENIENT default (`el_ty_of_name`: an unknown name is the i64 baseline)
-// is what lets a key whose declared type this layer cannot resolve — a generic
-// alias to its own parameter, `type El<T> = T`, is the pinned case — still emit,
-// with the HOST compiler as the oracle for whether the push type-checks. Refusing
-// it here would turn a documented lenient default into a hard error and break a
-// query that compiles and runs correctly. MEASURED: three fixtures, including
-// wql_key_spelling_e2e claim 5, which asserts exactly that such a key keeps
-// working while being refused the reorder LICENCE.
-//
-// So this seam refuses only what it KNOWS is lossy — the ORDER question's
-// default-deny stays where it belongs, on the licence (`el_order_faithful`), which
-// denies an unresolvable name without denying the query.
-fn key_norm_ok(tn: str, kv: str, ctx: str) -> bool {
-    let t: ElTy = el_ty(tn);
-    if t.cls < 0i32           { return true; }   // lenient — the host is the oracle
-    // ⚠ THE VECTOR MUST BE ABLE TO HOLD THE TYPE, and that is a SECOND antecedent,
-    // not a consequence of the first. `String` passes every conversion test in the
-    // table — it is its own emitted type, its equality is exact, its order is the
-    // byte order — and a `Vec<String>` key vector still cannot be sorted or
-    // scanned: `Vec::get` refuses to move a non-`Copy` element out, and the `str`
-    // view that would avoid the move borrows the row var, which dies with the loop
-    // body while the vector outlives it. MEASURED, both halves, on
-    // `order by s.name` over a `String` column. Deriving the answer from the
-    // conversion alone is what let this through as an admit-then-miscompile.
-    if !el_vec_key_ok(kv) {
-        let mut mk: String = String::new();
-        mk.push_str(ctx);
-        mk.push_str(": a key of type `");
-        mk.push_str(kv);
-        mk.push_str("` cannot be held by the key vector the backend emits: the sort and the bucket scan read keys back out of a `Vec` by value, and this type is not `Copy` — a borrowed `str` view of the row would not outlive the loop that binds it. The remedy is a `str` column (a borrowed view stored in the row itself), or a scalar key");
-        error(string_as_str(&mk));
-        return false;
-    }
-    if str_eq(tn, kv)         { return true; }   // the vector IS the key's type
-    if str_eq(kv, t.repr) && t.fits { return true; }   // value-preserving
-    let mut m: String = String::new();
-    m.push_str(ctx);
-    m.push_str(": a key of type `");
-    m.push_str(tn);
-    m.push_str("` cannot be collected into the key vector the backend emits (`");
-    m.push_str(kv);
-    m.push_str("`) — ");
-    m.push_str(el_cmp_why(tn, kv));
-    error(string_as_str(&m));
-    return false;
-}
 
 /// The emitted key body, normalized into the key vector's element type `kv`.
 /// Call ONLY after `key_norm_ok` has admitted the pair.
@@ -2996,8 +2896,6 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
-    if !check_calls(proj_sexpr, &ty, "wql!: `select`") { return false; }
-    if !check_projection_copy(proj_sexpr, &ty, "wql!: `select`") { return false; }
 
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
     let mut body: String = String::new();
@@ -3034,8 +2932,6 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut pred_body: String = String::new();
     if has_where {
         let pred_sexpr: SExpr = pred.any().view::<SExpr>();
-        if !reject_tuple(pred_sexpr, "wql!: `where`") { return false; }
-        if !check_calls(pred_sexpr, &ty, "wql!: `where`") { return false; }
         let pred_opt: SExpr = simplify_sexpr(pred_sexpr, h).any().view::<SExpr>();
         emit_sexpr(&mut pred_body, pred_opt, &ty, var_name);
     }
@@ -3045,8 +2941,6 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut key_ty: str = "i64";
     if mods.has_sort {
         let key_e: SExpr = mods.sort_key.any().view::<SExpr>();
-        if !reject_tuple(key_e, "wql!: `order by`") { return false; }
-        if !check_calls(key_e, &ty, "wql!: `order by`") { return false; }
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
         let key_tn: str = infer_ty_name(key_opt, &ty);
         key_ty = infer_emit_ty(key_opt, &ty);
@@ -3443,8 +3337,6 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     let mut pred_body: String = String::new();
     if has_pred {
         let pred_sexpr: SExpr = pred.any().view::<SExpr>();
-        if !reject_tuple(pred_sexpr, "wql!: `find`") { return false; }
-        if !check_calls(pred_sexpr, &ty, "wql!: `find`") { return false; }
         let pred_opt: SExpr = simplify_sexpr(pred_sexpr, h).any().view::<SExpr>();
         emit_sexpr(&mut pred_body, pred_opt, &ty, var_name);
     }
@@ -4848,27 +4740,6 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
     let mut ty: ElTypes = type_chain(&view, prm, ch.base_src, ch.base_ty, ch.base_var, &ch.src, &ch.ty, &ch.var,
                                  &ch.byval, ch.n, WAny::null());
 
-    // Validate every clause's calls (select / where / order / per-step on).
-    if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
-    if !check_projection_copy(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
-    if has_where {
-        if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
-        if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
-    }
-    if mods.has_sort {
-        if !reject_tuple(mods.sort_key.any().view::<SExpr>(), "wql!: `order by`") { return false; }
-        if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
-    }
-    let mut ci0: i64 = 0i64;
-    while ci0 < ch.n {
-        if ch.onw[ci0] != 0i64 {
-            let on_e: SExpr = unsafe { WAny::ref_to(ch.onw[ci0] as *const u8) }.view::<SExpr>();
-            if !reject_tuple(on_e, "wql!: `on`") { return false; }
-            if !check_calls(on_e, &ty, "wql!: `on`") { return false; }
-        }
-        ci0 = ci0 + 1i64;
-    }
-
     // 3. Clause bodies (const-folded).
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
     let mut result_ty: str = result_ty0;
@@ -5451,8 +5322,6 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // properties (ranking vs identity) that a class can have one of.
     // `key_ty` types __k / __g_key / __gf_key / the group binds below.
     let key_e: SExpr = key_ref.any().view::<SExpr>();
-    if !reject_tuple(key_e, "wql!: `group by`") { return false; }
-    if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
     let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
     let key_ety: i32 = infer_ty(key_opt, &ty);
     // ⚠ ASKED OF THE TYPE FIRST, then of the class. `el_eq_hash` answers about the
@@ -5478,52 +5347,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut key_tys: String = String::new();
     key_tys.push_str(infer_emit_ty(key_opt, &ty));
     let key_ty: str = string_as_str(&key_tys);
-    let ki: i32 = el_cmp_ident(string_as_str(&key_tn3s), key_ty);
-    if el_ty(string_as_str(&key_tn3s)).cls >= 0i32 && ki != EL_ID_OK() {
-        let mut mni: String = String::new();
-        mni.push_str("wql!: a `group by` key of type `");
-        mni.push_str(string_as_str(&key_tn3s));
-        mni.push_str("` has no identity to group by (the emitted bucket key is `");
-        mni.push_str(key_ty);
-        mni.push_str("`) — ");
-        mni.push_str(el_cmp_ident_why(string_as_str(&key_tn3s), key_ty));
-        error(string_as_str(&mni));
-        return false;
-    }
-    if !key_norm_ok(string_as_str(&key_tn3s), key_ty, "wql!: `group by`") { return false; }
-    // A NAMED key (a declared struct/enum) groups by its own `==`: the frame is a
-    // linear scan over `__g_key: Vec<K>`, so it needs equality and a key that can
-    // be copied out of the row — asked of the impls, and the missing one named.
-    if key_ety == EL_TY_NAMED() {
-        let kn: str = string_as_str(&key_tn3s);
-        let mut miss: str = "";
-        if !named_has_eq_strict(kn) { miss = "`Eq` — the groups are found by the frame's `==`, which compares keys through `Eq` (`PartialEq` alone is not enough here)"; }
-        else if !named_is_copy(kn) { miss = "`Copy` — each group's key is copied out of its first row"; }
-        if miss.len() > 0i64 {
-            let mut mn: String = String::new();
-            mn.push_str("wql!: a `group by` key of type `");
-            mn.push_str(kn);
-            mn.push_str("` needs ");
-            mn.push_str(miss);
-            mn.push_str("; derive or implement it on `");
-            mn.push_str(kn);
-            mn.push_str("`");
-            error(string_as_str(&mn));
-            return false;
-        }
-    }
-    if key_ety != EL_TY_NAMED() && el_ty(string_as_str(&key_tn3s)).cls < 0i32 && !el_eq_hash(key_ety) {
-        // The out-of-lattice fallback: no NAME to ask, so the class is all there is.
-        // The DECISION is the shared table; only the WORDING branches, because the
-        // f64 case has a named mechanism worth stating and an unadmitted class does
-        // not have one yet.
-        if key_ety == EL_TY_FLT() {
-            error("wql!: a `group by` key cannot be f64 (floats have no Eq/Hash) — cast to an integral type or group by an i64/str/bool key");
-        } else {
-            error("wql!: a `group by` key needs an identity (`==` and a hash) and this key's type is not admitted as having one (`el_eq_hash`) — group by an i64/str/bool key");
-        }
-        return false;
-    }
+    // The key's identity is checked on the core (`typecheck::group_key_ok`).
     ty.set_ty_named("key", key_ty);
     // The aggregates' types are the clause's (`typing::type_aggs`, ADR 0031 R4.2).
     let mut gt: GroupTy = group_ty_new();
@@ -5539,22 +5363,6 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     let uda_ret: Vec<str> = gt.uda_ret;
     let acc: Vec<str> = gt.acc;
     let act: Vec<str> = gt.act;
-
-    // Validate clause calls (select / where / on preds; the key is validated above).
-    if !check_calls(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
-    if !check_projection_copy(sel.any().view::<SExpr>(), &ty, "wql!: `select`") { return false; }
-    if has_where {
-        if !reject_tuple(where_ref.any().view::<SExpr>(), "wql!: `where`") { return false; }
-        if !check_calls(where_ref.any().view::<SExpr>(), &ty, "wql!: `where`") { return false; }
-    }
-    let mut ci0: i64 = 0i64;
-    while ci0 < ch.n {
-        if ch.onw[ci0] != 0i64 {
-            if !reject_tuple(sexpr_of_word(ch.onw[ci0]), "wql!: `on`") { return false; }
-            if !check_calls(sexpr_of_word(ch.onw[ci0]), &ty, "wql!: `on`") { return false; }
-        }
-        ci0 = ci0 + 1i64;
-    }
 
     // Clause bodies (`key_opt` is already simplified above).
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
@@ -5582,16 +5390,12 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     let mut having_body: String = String::new();
     if has_having {
         let hav_e: SExpr = having_ref.any().view::<SExpr>();
-        if !reject_tuple(hav_e, "wql!: `having`") { return false; }
-        if !check_calls(hav_e, &ty, "wql!: `having`") { return false; }
         let hav_opt: SExpr = simplify_sexpr(hav_e, h).any().view::<SExpr>();
         emit_sexpr(&mut having_body, hav_opt, &ty, ch.base_var);
     }
     let mut okey_body: String = String::new();
     let mut okey_ty: str = "i64";
     if mods.has_sort {
-        if !reject_tuple(mods.sort_key.any().view::<SExpr>(), "wql!: `order by`") { return false; }
-        if !check_calls(mods.sort_key.any().view::<SExpr>(), &ty, "wql!: `order by`") { return false; }
         let okey_opt: SExpr = simplify_sexpr(mods.sort_key.any().view::<SExpr>(), h).any().view::<SExpr>();
         let okey_tn: str = infer_ty_name(okey_opt, &ty);
         okey_ty = infer_emit_ty(okey_opt, &ty);
@@ -10125,11 +9929,7 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
     while ai < acount {
         let a: RAgg = aggs.agg_at(ai);
         let fnid: i32 = agg_of_name(a.fn_name);
-        if fnid == 0i32 && !uda[ai] { error("wql!: aggregate fn must be count/sum/min/max/avg or a user aggregate (X_init/X_step[/X_fin])"); return false; }
         if fnid != AGG_COUNT() {
-            if !a.has_arg { error("wql!: aggregate fn expects an argument (zero-argument user aggregates are not supported)"); return false; }
-            if !reject_tuple(a.arg_expr(), "wql!: `aggregate`") { return false; }
-            if !check_calls(a.arg_expr(), t, "wql!: `aggregate`") { return false; }
             let ae_opt: SExpr = simplify_sexpr(a.arg_expr(), h).any().view::<SExpr>();
             // THE ARGUMENT MUST REACH THE ACCUMULATOR (`check_agg_operand`), and
             // the simplified form is what is asked because that is what is
@@ -10170,7 +9970,6 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
             // in both. See wql_agg_avg_struct_arg_fail (skip route) and
             // wql_agg_sum_struct_arg_fail (laundering route).
             if !uda[ai] {
-                if !check_agg_arg_in_lattice(ae_opt, t, a.fn_name, "wql!: `aggregate`") { return false; }
             }
             // ⚠⚠ AND IT IS EMITTED THROUGH THE SAME CAST THE CHECK ADMITTED IT
             // BY. `check_agg_operand` asks `el_int_widens(name, want)` — "does a
@@ -10201,7 +10000,6 @@ fn compute_agg_bodies(aggs: &RAggArr, acount: i64, t: &ElTypes, var0: str, h: &W
             // Wrapping it in `as i64` first would destroy exactly that.
             if !uda[ai] && !agg_cast[ai] {
                 let want: str = accw[ai];
-                if !check_agg_operand(ae_opt, t, want, a.fn_name, "wql!: `aggregate`") { return false; }
                 emit_norm_operand(&mut agg_body[ai], ae_opt, t, var0, want);
             } else {
                 emit_sexpr(&mut agg_body[ai], ae_opt, t, var0);
@@ -10268,140 +10066,8 @@ fn uda_finalize_frag(name: str, acc: ExprBlob, has_fin: bool, cast_ty: str) -> E
 // RExpr lowering — they are restricted to scan/join+where+select, so the plan
 // node IS the chain description; row types were stamped by the walker).
 
-// Is `name` one of the body's bound row vars?
-fn is_bound_var(name: str, vars: &Vec<str>, nvars: i64) -> bool {
-    let mut i: i64 = 0i64;
-    while i < nvars {
-        if str_eq(vars[i], name) { return true; }
-        i = i + 1i64;
-    }
-    return false;
-}
 
-// Validate a rel body's SELECT against the declared columns (rel `ri` in the
-// registry): width (tuple of exactly ncols / single expr for a 1-column rel),
-// per-component TYPE equality with the declared column type, no whole-row
-// (bare row-var) components, no owned-String components (a str column stores
-// a borrowed view; the call's String temporary would dangle). Errors are
-// NAMED per rel/column. Returns false with the error surfaced.
-fn rel_select_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, t: &ElTypes,
-                 vars: &Vec<str>, nvars: i64) -> bool {
-    let rel_name: str = prm.rel_names[ri];
-    let nc: i64  = prm.rel_ccnt[ri];
-    let off: i64 = prm.rel_coff[ri];
-    if nc >= 2i64 {
-        match proj {
-            SExpr::Tuple(tp) => {
-                let items: SExprArr = tp.items_arr();
-                if items.len() != nc {
-                    let mut m: String = String::new();
-                    m.push_str("wql!: rel '");
-                    m.push_str(rel_name);
-                    m.push_str("': select tuple width ");
-                    m.push_i64(items.len());
-                    m.push_str(" does not match the declared column count ");
-                    m.push_i64(nc);
-                    error(string_as_str(&m));
-                    return false;
-                }
-                let mut k: i64 = 0i64;
-                while k < nc {
-                    let comp: SExpr = items.arg_at(k);
-                    if !rel_select_comp_ok(comp, rel_name, prm.relc_name[off + k],
-                                           prm.relc_ty[off + k], view, t, vars, nvars) { return false; }
-                    k = k + 1i64;
-                }
-            }
-            _ => {
-                let mut m2: String = String::new();
-                m2.push_str("wql!: rel '");
-                m2.push_str(rel_name);
-                m2.push_str("' declares ");
-                m2.push_i64(nc);
-                m2.push_str(" columns — the body select must be a tuple of exactly that many components");
-                error(string_as_str(&m2));
-                return false;
-            }
-        }
-        return true;
-    }
-    // 1-column rel: a single (non-tuple) expression.
-    if is_tuple_root(proj) {
-        let mut m3: String = String::new();
-        m3.push_str("wql!: rel '");
-        m3.push_str(rel_name);
-        m3.push_str("' declares 1 column — the body select must be a single expression (`(e)` is grouping, not a 1-tuple)");
-        error(string_as_str(&m3));
-        return false;
-    }
-    return rel_select_comp_ok(proj, rel_name, prm.relc_name[off],
-                              prm.relc_ty[off], view, t, vars, nvars);
-}
 
-// One select component vs its declared column: whole-row / String / type.
-fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
-                      view: &OView, t: &ElTypes, vars: &Vec<str>, nvars: i64) -> bool {
-    let rn: str = root_ident_name(comp);
-    if rn.len() > 0i64 && is_bound_var(rn, vars, nvars) {
-        let mut m: String = String::new();
-        m.push_str("wql!: rel '");
-        m.push_str(rel_name);
-        m.push_str("': select projects the whole row var `");
-        m.push_str(rn);
-        m.push_str("` — project explicit columns/fields (e.g. `select (");
-        m.push_str(rn);
-        m.push_str(".a, ");
-        m.push_str(rn);
-        m.push_str(".b)`)");
-        error(string_as_str(&m));
-        return false;
-    }
-    if returns_string(comp, t) {
-        let mut m1: String = String::new();
-        m1.push_str("wql!: rel '");
-        m1.push_str(rel_name);
-        m1.push_str("' column '");
-        m1.push_str(col_name);
-        m1.push_str("': an owned-String-returning expression cannot feed a rel column (str columns store borrowed views)");
-        error(string_as_str(&m1));
-        return false;
-    }
-    // ⚠ THE DECLARED COLUMN TYPE IS A SPELLING, and the component's type was
-    // resolved through the module's aliases when it was stamped — so the column's
-    // is resolved too before the two are compared (`type Ratio = f64;`).
-    let want: str = resolve_alias_name(view, col_ty);
-    if !int_lit_fits(comp, want) {
-        let mut m3: String = String::new();
-        m3.push_str("wql!: rel '");
-        m3.push_str(rel_name);
-        m3.push_str("' column '");
-        m3.push_str(col_name);
-        m3.push_str("': literal `");
-        sexpr_display(&mut m3, comp);
-        m3.push_str("` is out of range for `");
-        m3.push_str(col_ty);
-        m3.push_str("`, the column's type (Rust refuses the same literal)");
-        error(string_as_str(&m3));
-        return false;
-    }
-    if !expr_reaches_ty(comp, t, want) {
-        let mut m2: String = String::new();
-        m2.push_str("wql!: rel '");
-        m2.push_str(rel_name);
-        m2.push_str("' column '");
-        m2.push_str(col_name);
-        m2.push_str("': select component `");
-        sexpr_display(&mut m2, comp);
-        m2.push_str("` has type `");
-        m2.push_str(expr_ty(comp, t));
-        m2.push_str("`, declared `");
-        m2.push_str(col_ty);
-        m2.push_str("`");
-        error(string_as_str(&m2));
-        return false;
-    }
-    return true;
-}
 
 // The set-dedup push (Datalog SET semantics): bind the projected row, probe
 // the SHADOW HashSet through `__rsp` — insert returns true only for a NEW
@@ -10581,8 +10247,6 @@ fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64,
     vars[0] = s.var_name;
 
     let proj_opt: SExpr = simplify_sexpr(s.select.view::<SExpr>(), h).any().view::<SExpr>();
-    if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
-    if !rel_select_ok(proj_opt, ri, prm, &view, &ty, &vars, 1i64) { return false; }
     // Aggregate MEMBER (recursive min/max): its bodies — including seed scans —
     // absorb `(key, val)` into the best-map, not the set shadow. Split the select
     // tuple into the two lattice operands.
@@ -10599,8 +10263,6 @@ fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64,
     let mut pred_body: String = String::new();
     if !s.where_pred.is_null() {
         let pe: SExpr = s.where_pred.view::<SExpr>();
-        if !reject_tuple(pe, "wql!: rel `where`") { return false; }
-        if !check_calls(pe, &ty, "wql!: rel `where`") { return false; }
         let pe_opt: SExpr = simplify_sexpr(pe, h).any().view::<SExpr>();
         emit_sexpr(&mut pred_body, pe_opt, &ty, s.var_name);
     }
@@ -10754,35 +10416,18 @@ fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
         }
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
         let val_opt: SExpr = simplify_sexpr(val_e, h).any().view::<SExpr>();
-        if !reject_tuple(key_opt, "wql!: rel aggregate `group by`") { return false; }
-        if !check_calls(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; }
-        if !check_calls(val_opt, &ty, "wql!: rel aggregate argument") { return false; }
         emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
         emit_sexpr(&mut val_body, val_opt, &ty, ch.base_var);
     } else {
         let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
-        if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
-        if !rel_select_ok(proj_opt, ri, prm, &view, &ty, &vars, nv) { return false; }
         rel_row_value(&mut proj_body, proj_opt, ri, prm, &view, &ty, ch.base_var);
     }
     let mut where_body: String = String::new();
     if has_where {
         let we: SExpr = where_e;
-        if !reject_tuple(we, "wql!: rel `where`") { return false; }
-        if !check_calls(we, &ty, "wql!: rel `where`") { return false; }
         let we_opt: SExpr = simplify_sexpr(we, h).any().view::<SExpr>();
         emit_sexpr(&mut where_body, we_opt, &ty, ch.base_var);
     }
-    let mut ci0: i64 = 0i64;
-    while ci0 < ch.n {
-        if ch.onw[ci0] != 0i64 {
-            let on_e: SExpr = sexpr_of_word(ch.onw[ci0]);
-            if !reject_tuple(on_e, "wql!: rel `on`") { return false; }
-            if !check_calls(on_e, &ty, "wql!: rel `on`") { return false; }
-        }
-        ci0 = ci0 + 1i64;
-    }
-
     // Per-step strategy analysis (the same cascade as the query join shape).
     let mut ns: NestSteps = nest_steps_new(ch.n);
     if !analyze_chain(ch, &ty, ch.base_var, h, prm, &mut ns) { return false; }
