@@ -2050,3 +2050,35 @@ impl ElTypes {
         return false;
     }
 }
+
+// ── Aggregate fn ids ────────────────────────────────────
+pub fn AGG_COUNT() -> i32 { return 1i32; }
+pub fn AGG_SUM()   -> i32 { return 2i32; }
+pub fn AGG_MIN()   -> i32 { return 3i32; }
+pub fn AGG_MAX()   -> i32 { return 4i32; }
+pub fn AGG_AVG()   -> i32 { return 5i32; }
+
+// The algebraic-structure class of an aggregate — the load-bearing column that
+// decides in-fixpoint admissibility (recursive-aggregation design §1):
+//   • SEMILATTICE (min/max) — idempotent meet/join; the absorb gate IS the
+//     lattice order, so a recursive head stays monotone ⇒ fixpoint-SAFE.
+//   • GROUP (sum/count/avg) — abelian group; the very inverse that makes it
+//     O(1)-incremental breaks fixpoint monotonicity (counting paths in a cycle
+//     diverges) ⇒ recursion is a NAMED compile error; stratified-only.
+// Defaults to GROUP/unknown for any unclassified id — reject-in-recursion, never
+// default-allow (design §7 critique #1).
+pub fn AGG_CLASS_SEMILATTICE() -> i32 { return 1i32; }
+pub fn AGG_CLASS_GROUP()       -> i32 { return 2i32; }
+pub fn agg_algebra(fnid: i32) -> i32 {
+    if fnid == AGG_MIN() || fnid == AGG_MAX() { return AGG_CLASS_SEMILATTICE(); }
+    return AGG_CLASS_GROUP();
+}
+
+pub fn agg_of_name(name: str) -> i32 {
+    if str_eq(name, "count") { return AGG_COUNT(); }
+    if str_eq(name, "sum")   { return AGG_SUM(); }
+    if str_eq(name, "min")   { return AGG_MIN(); }
+    if str_eq(name, "max")   { return AGG_MAX(); }
+    if str_eq(name, "avg")   { return AGG_AVG(); }
+    return 0i32;
+}

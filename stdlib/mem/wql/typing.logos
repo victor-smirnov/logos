@@ -8,6 +8,7 @@
 package logos.std.wql.typing;
 
 use logos.std.compiler.metaprog;  // OView
+use logos.lang.writ.container;  // Writ
 use logos.lang.writ.anyval;
 use logos.lang.str;
 use logos.mem.string;
@@ -17,6 +18,8 @@ use logos.std.wql.el;             // ElTypes
 use logos.std.wql.params;         // MacroParams
 use logos.std.wql.core;           // CProgram, CClause, CLit (ADR 0031 R4.0)
 use logos.std.wql.reflect;        // stamp_types_from_schema, resolve_alias_name, stamp_udfs_from_module
+use logos.std.wql.codegen;        // infer_ty, infer_emit_ty
+use logos.std.wql.optimize;       // simplify_sexpr
 
 // Shared: when `src_name` names a REL (slice B — the emitted `__rel_<r>_sl`
 // source, resolved against the MacroParams rel registry), stamp its COLUMN
@@ -312,6 +315,361 @@ fn bind_clause(cl: &mut CClause, prm: &MacroParams) {
             CLit::Trav(_t) => { }
             CLit::Cond(_c) => { }
         }
+        i = i + 1i64;
+    }
+}
+
+// ── ADR 0031 R4.2 — the types of a grouped clause's outputs ──────────────
+//
+// Moved from the group emitter: what each aggregate computes in, its user
+// aggregate's resolution, its accumulator and its finalized column type are
+// facts about the clause, read by the emitter and the checker alike.
+
+/// Per aggregate of a group, in declaration order.
+pub struct GroupTy {
+    pub flt:     Vec<bool>,   // the result is a float
+    pub cast:    Vec<bool>,   // an integer argument is cast into the float result
+    pub uda:     Vec<bool>,   // a user aggregate (`X_init` / `X_step` [/ `X_fin`])
+    pub uda_fin: Vec<bool>,
+    pub uda_acc: Vec<str>,
+    pub uda_ret: Vec<str>,
+    pub acc:     Vec<str>,    // the accumulator's type ("" for a user aggregate)
+    pub act:     Vec<str>,    // the finalized column's type
+}
+
+/// Type the aggregates of a group over `t`, and record each output name's
+/// type in `t` (read by `select` / `having` / `order by`). False when a user
+/// aggregate does not resolve (diagnosed).
+pub fn type_aggs(view: &OView, aggs: &Vec<CAgg>, t: &mut ElTypes, h: &Writ, out: &mut GroupTy) -> bool {
+    let n: i64 = aggs.len();
+    out.flt = vec![false; n];
+    out.cast = vec![false; n];
+    out.uda = vec![false; n];
+    out.uda_fin = vec![false; n];
+    out.uda_acc = str_vec_n(n);
+    out.uda_ret = str_vec_n(n);
+    out.acc = str_vec_n(n);
+    out.act = str_vec_n(n);
+    agg_reprs(aggs, t, &mut out.flt, &mut out.cast);
+    if !resolve_aggs(view, aggs, &mut out.uda, &mut out.uda_fin, &mut out.uda_acc, &mut out.uda_ret) { return false; }
+    acc_tys(aggs, t, h, &out.uda, &out.flt, &mut out.acc);
+    stamp_agg_out_types(aggs, &out.flt, &out.uda, &out.uda_ret, &out.acc, t);
+    agg_col_tys(&out.flt, &out.uda, &out.uda_ret, &out.acc, &mut out.act);
+    return true;
+}
+
+pub fn group_ty_new() -> GroupTy {
+    return GroupTy { flt: Vec::<bool>::new(), cast: Vec::<bool>::new(), uda: Vec::<bool>::new(),
+                     uda_fin: Vec::<bool>::new(), uda_acc: Vec::<str>::new(), uda_ret: Vec::<str>::new(),
+                     acc: Vec::<str>::new(), act: Vec::<str>::new() };
+}
+
+fn str_vec_n(n: i64) -> Vec<str> {
+    let mut v: Vec<str> = Vec::<str>::new();
+    let mut i: i64 = 0i64;
+    while i < n { v.push(""); i = i + 1i64; }
+    return v;
+}
+
+fn agg_has_arg(a: &CAgg) -> bool {
+    match &a.arg { Option::Some(_x) => { return true; } Option::None => { return false; } }
+}
+
+fn agg_arg(a: &CAgg) -> SExpr {
+    match &a.arg { Option::Some(x) => { return x.view::<SExpr>(); } Option::None => { } }
+    logos.lang.panic::panic("ICE: an aggregate with no argument has no argument type (ADR 0031 R4.2)");
+    return WAny::null().view::<SExpr>();
+}
+
+// ── Aggregate-spec computation ───────────────────────────────────────────────
+// Per-aggregate OUTPUT value-type + accumulator width:
+//   • count → INT (always an i64 row count);
+//   • avg   → FLT ALWAYS (exact mean, f64 accumulator + f64 division — no
+//             integer truncation), for EVERY argument class the rule table
+//             admits: int, float and — under Victor's ruling — bool;
+//   • sum/min/max → the ARGUMENT's type: an f64-typed arg gets an f64
+//             accumulator + f64 result column, an int arg stays i64.
+// `agg_flt[i]`  — this aggregate's accumulator/result is f64;
+// `agg_cast[i]` — the fold step must cast the arg to f64 ITSELF (only avg over
+//                 an ADMITTED non-float argument: int, or — under the ruling —
+//                 bool). Row-field types are already stamped (schema + scalar
+//                 params), so the arg infer here is well-typed.
+//
+// ⚠ IT HANDS THE TABLE THE ARGUMENT'S REAL CLASS. It used to compute
+// `let aty = if arg_is_flt { FLT } else { INT }` and ask `agg_result_ty` about
+// THAT — a question whose answer had already been decided. The shared rule table
+// was therefore structurally unable to refuse anything on the static side: BOOL
+// and STR arrived at it spelled INT, `avg` answered FLT for both, `agg_cast`
+// came out true, and `compute_agg_bodies` skips `check_agg_operand` exactly
+// there. MEASURED at the parent commit: `avg` over a `str` column compiled
+// rc=0 while mlir-gen printed "unsupported cast", and the object file was
+// written. The exemption at the call site was the symptom; the fabricated class
+// was the defect, and only the class fix generalizes — a future non-numeric EL
+// class is refused here without anyone remembering this arc.
+//
+// ⚠ AND `agg_cast` NOW KEYS ON "THE TABLE ADMITTED THE ARGUMENT", NOT ON "THE
+// ARGUMENT IS NOT A FLOAT". Those coincide for every numeric argument (an int
+// column of any width, `avg` included, still skips the check because
+// `((s.v) as f64)` is what the fold emitter writes) and differ for exactly the
+// arguments the table refuses — which is the whole of the hole.
+fn agg_reprs(aggs: &Vec<CAgg>, t: &ElTypes, agg_flt: &mut Vec<bool>, agg_cast: &mut Vec<bool>) {
+    let ags: &[CAgg] = aggs.as_slice();
+    let mut ki: i64 = 0i64;
+    while ki < aggs.len() {
+        let ka: &CAgg = &ags[ki];
+        let kfn: i32 = agg_of_name(ka.func);
+        let acls: i32 = if agg_has_arg(ka) { infer_ty(agg_arg(ka), t) } else { EL_TY_INT() };
+        let arg_is_flt: bool = acls == EL_TY_FLT();
+        let rty: i32 = agg_result_ty(ka.func, acls);
+        let admitted: bool = rty >= 0i32;
+        let is_f: bool = if admitted { rty == EL_TY_FLT() }
+                         else { agg_result_ty(ka.func, EL_TY_INT()) == EL_TY_FLT() };
+        agg_flt[ki]  = is_f;
+        agg_cast[ki] = admitted && is_f && !arg_is_flt && kfn != AGG_COUNT();
+        ki = ki + 1i64;
+    }
+}
+
+// Stamp each aggregate OUTPUT name's EL value-type into `ty` (the having /
+// order / select clauses reference the outputs by name). A UDA output carries
+// its reflected finalizer-result class (`aret`); a builtin stays on the
+// agg_flt-driven FLT/INT split.
+// ⚠ AN INTEGER OUTPUT IS RECORDED BY NAME, NOT BY CLASS, and the difference is
+// a whole class of miscompile. `set_ty` stores the class REPRESENTATIVE, i.e.
+// the literal name "i64" — so a `sum` accumulating in `u64` was announced to
+// `select`, `having` and `order by` as an i64, `infer_emit_ty` made the result
+// element type `Vec<i64>`, and the emitted push was `Vec<i64>::push(u64)`: the
+// exact defect class `infer_emit_ty`'s own header records. The group KEY has
+// carried its own type name since key vectors stopped being `Vec<i64>`
+// (`ty.set_ty_named("key", key_ty)`), and this is the same move for the
+// aggregate outputs. A UDA and a float still go by class: `aret` is a reflected
+// CLASS with no name to carry, and `f64` IS the float representative.
+fn stamp_agg_out_types(aggs: &Vec<CAgg>, agg_flt: &Vec<bool>,
+                       uda: &Vec<bool>, uda_ret: &Vec<str>, acc: &Vec<str>,
+                       ty: &mut ElTypes) {
+    let ags: &[CAgg] = aggs.as_slice();
+    let mut i: i64 = 0i64;
+    while i < aggs.len() {
+        if uda[i] {
+            ty.set_ty_named(ags[i].name, uda_ret[i]);
+        } else if agg_flt[i] {
+            ty.set_ty_named(ags[i].name, "f64");
+        } else {
+            ty.set_ty_named(ags[i].name, acc[i]);
+        }
+        i = i + 1i64;
+    }
+}
+
+// ── THE ACCUMULATOR'S TYPE, PER AGGREGATE, IN ONE PLACE ─────────────────────
+// Fills `acc[i]` with the Logos type the i-th aggregate's RUNNING TOTAL is
+// carried in. Read by `compute_agg_bodies` (the operand check + the normalizing
+// cast) and by the fold emitter (the `Vec<A>` declaration, the seed and the
+// arithmetic), so those three cannot come to different conclusions.
+//
+// The answer is `el::agg_acc_ty` of the ARGUMENT's own emitted type — "add under
+// the column's own overflow predicate": `f64` for a float accumulator, `i64` for
+// every integer width that widens losslessly, `u64` for the `EL_ORD_WRAP` class.
+//
+// ⚠ THERE USED TO BE A `typed` FLAG HERE AND ITS FALSE ARM ANSWERED THE CLASS
+// REPRESENTATIVE FOR THE BATCH EMITTER. That is deleted. Two emitters holding
+// two opinions about one cell is the disagreement the header below warns about
+// one level down, and the disagreement was load-bearing: the batch's `Vec<i64>`
+// declaration, its i64::MAX/MIN seeds and its unconditional `el_add` were the
+// three places that made `false` the only answer it could survive. All three
+// now take this array, so there is one answer and it is this one.
+//
+// ⚠ A UDA's CELL IS EMPTY AND IS NEVER READ. Its accumulator is the user's
+// declared `A`, threaded verbatim through `uda_acc`, and its argument is printed
+// into the user's `_step` rather than into an EL accumulator — so an answer here
+// would be a claim about a seam this array does not describe. Empty is the
+// honest value and `compute_agg_bodies` reaches the cell only under `!uda[ai]`.
+//
+// ⚠ `count` IS `i64` FROM THE FIRST BRANCH, NOT FROM A SPECIAL CASE. It has no
+// argument (`agg_takes_arg`), `compute_agg_reprs` gives it `agg_flt = false`,
+// and the `!has_arg` guard below keeps the argument inference from being asked
+// about an argument that is not there.
+//
+// ⚠ THE INFERENCE IS `infer_emit_ty`, THE SAME ONE `check_agg_operand` ASKS.
+// Asking `infer_ty_name` instead would be a second inference over the same node
+// and a `u64` column could arrive spelled two ways at the check and at the
+// accumulator; they read one answer.
+fn acc_tys(aggs: &Vec<CAgg>, t: &ElTypes, h: &Writ,
+           uda: &Vec<bool>, agg_flt: &Vec<bool>, acc: &mut Vec<str>) {
+    let ags: &[CAgg] = aggs.as_slice();
+    let mut i: i64 = 0i64;
+    while i < aggs.len() {
+        if uda[i] {
+            acc[i] = "";
+        } else if agg_flt[i] {
+            acc[i] = "f64";
+        } else if !agg_has_arg(&ags[i]) {
+            acc[i] = "i64";
+        } else {
+            let ae: SExpr = simplify_sexpr(agg_arg(&ags[i]), h).any().view::<SExpr>();
+            acc[i] = agg_acc_ty(infer_emit_ty(ae, t));
+        }
+        i = i + 1i64;
+    }
+}
+
+// ── UDA resolution (user-defined aggregates — the naming-convention triple) ──
+// `aggregate m = myagg(e.x)` with a NON-builtin fn name resolves against the
+// trigger module's top-level fns by NAMING CONVENTION:
+//   myagg_init() -> A                — accumulator creation (arity 0);
+//   myagg_step(acc: A, x: T) -> A    — per-row fold (arity 2);
+//   myagg_fin(acc: A) -> R           — OPTIONAL finalize (arity 1); absent ⇒ R = A.
+// A (the accumulator type) is threaded VERBATIM through the generated code
+// (any user type — struct accumulators included); only R must map into the EL
+// lattice (`el_ret_class`; narrower ints widen `as i64`, f32 `as f64`). An
+// R of `String` is REJECTED for now: aggregate outputs are materialized into
+// group COLUMNS + rebound as locals, and a borrowed `str` view of an owned
+// String column has no sound owner in that shape (deferred).
+// All of this is METACALL-TIME data only — the IR keeps just `RAgg.fn_name`
+// (queue-2: an interpreter re-resolves the same names against its registry).
+// Outputs (parallel to the spec list): `uda` (is-UDA), `uda_fin` (has _fin),
+// `uda_acc` (A, verbatim), `uda_ret` (R, verbatim — the output's type).
+// False (error surfaced) on a convention violation.
+fn resolve_aggs(view: &OView, aggs: &Vec<CAgg>,
+                uda: &mut Vec<bool>, uda_fin: &mut Vec<bool>,
+                uda_acc: &mut Vec<str>, uda_ret: &mut Vec<str>) -> bool {
+    let ags: &[CAgg] = aggs.as_slice();
+    let mut i: i64 = 0i64;
+    while i < aggs.len() {
+        let name: str = ags[i].func;
+        if agg_of_name(name) != 0i32 {
+            // Builtin aggregates SHADOW a same-named UDA triple.
+            i = i + 1i64;
+        } else {
+            let mut nm_init: String = String::new();
+            nm_init.push_str(name);
+            nm_init.push_str("_init");
+            let d_init: WAny = find_fn_decl(view, string_as_str(&nm_init));
+            let mut nm_step: String = String::new();
+            nm_step.push_str(name);
+            nm_step.push_str("_step");
+            let d_step: WAny = find_fn_decl(view, string_as_str(&nm_step));
+            if d_init.is_null() || d_step.is_null() {
+                let mut m: String = String::new();
+                m.push_str("wql!: unknown aggregate '");
+                m.push_str(name);
+                m.push_str("' — builtin aggregates are count/sum/min/max/avg; a user aggregate requires top-level fns `");
+                m.push_str(name);
+                m.push_str("_init() -> A` and `");
+                m.push_str(name);
+                m.push_str("_step(acc: A, x: T) -> A` (plus optional `");
+                m.push_str(name);
+                m.push_str("_fin(acc: A) -> R`) declared in the module containing the query");
+                if d_init.is_null() && !d_step.is_null() {
+                    m.push_str(" (missing: `");
+                    m.push_str(name);
+                    m.push_str("_init`)");
+                }
+                if d_step.is_null() && !d_init.is_null() {
+                    m.push_str(" (missing: `");
+                    m.push_str(name);
+                    m.push_str("_step`)");
+                }
+                error(string_as_str(&m));
+                return false;
+            }
+            if fn_param_count(view, d_init) != 0i64 {
+                let mut m1: String = String::new();
+                m1.push_str("wql!: user aggregate '");
+                m1.push_str(name);
+                m1.push_str("': `");
+                m1.push_str(name);
+                m1.push_str("_init` must take no parameters (`");
+                m1.push_str(name);
+                m1.push_str("_init() -> A`)");
+                error(string_as_str(&m1));
+                return false;
+            }
+            let acc_ty: str = fn_ret_type_name(view, d_init);
+            if acc_ty.len() == 0i64 {
+                let mut m2: String = String::new();
+                m2.push_str("wql!: user aggregate '");
+                m2.push_str(name);
+                m2.push_str("': `");
+                m2.push_str(name);
+                m2.push_str("_init` must declare a named accumulator return type (`-> A`)");
+                error(string_as_str(&m2));
+                return false;
+            }
+            if fn_param_count(view, d_step) != 2i64 {
+                let mut m3: String = String::new();
+                m3.push_str("wql!: user aggregate '");
+                m3.push_str(name);
+                m3.push_str("': `");
+                m3.push_str(name);
+                m3.push_str("_step` must take exactly (acc: A, x: T)");
+                error(string_as_str(&m3));
+                return false;
+            }
+            // Optional finalize: absent ⇒ R = A, no finalize call emitted.
+            let mut nm_fin: String = String::new();
+            nm_fin.push_str(name);
+            nm_fin.push_str("_fin");
+            let d_fin: WAny = find_fn_decl(view, string_as_str(&nm_fin));
+            let mut has_fin: bool = false;
+            let mut ret_ty: str = acc_ty;
+            if !d_fin.is_null() {
+                if fn_param_count(view, d_fin) != 1i64 {
+                    let mut m4: String = String::new();
+                    m4.push_str("wql!: user aggregate '");
+                    m4.push_str(name);
+                    m4.push_str("': `");
+                    m4.push_str(name);
+                    m4.push_str("_fin` must take exactly (acc: A)");
+                    error(string_as_str(&m4));
+                    return false;
+                }
+                has_fin = true;
+                ret_ty = fn_ret_type_name(view, d_fin);
+            }
+            let cls: i32 = el_ret_class(ret_ty);
+            if cls < 0i32 || str_eq(ret_ty, "String") {
+                let mut m5: String = String::new();
+                m5.push_str("wql!: user aggregate '");
+                m5.push_str(name);
+                m5.push_str("' result type `");
+                m5.push_str(ret_ty);
+                m5.push_str("` is outside the EL lattice — ");
+                m5.push_str(name);
+                if has_fin { m5.push_str("_fin"); } else { m5.push_str("_init (no _fin declared)"); }
+                m5.push_str(" must return an integer, f64/f32, bool, or str value");
+                error(string_as_str(&m5));
+                return false;
+            }
+            uda[i]     = true;
+            uda_fin[i] = has_fin;
+            uda_acc[i] = acc_ty;
+            uda_ret[i] = ret_ty;
+            i = i + 1i64;
+        }
+    }
+    return true;
+}
+
+// Per-aggregate finalized COLUMN type name (`act`): the Logos type of the
+// aggregate's OUTPUT value — drives the materialized group-column Vecs, the
+// finalize `let` bindings, and the group-row rebinds. Builtins keep the
+// agg_flt-driven f64/i64 split; a UDA takes its reflected R class's lattice
+// name (i64 / f64 / bool / str).
+// ⚠ AN INTEGER COLUMN IS THE ACCUMULATOR'S TYPE, NOT "i64". The column is READ
+// OUT OF the accumulator (`let #n_out: #act = #n_ga.get(__r0)`) and pushed into
+// a `Vec<#act>`, so any answer here other than the cell's own type is a host
+// type mismatch inside the generated blob. ⚠⚠ AND IT MUST BE THE TYPE AND NOT A
+// CAST: `2^63 as i64` is negative, so casting the read instead of retyping the
+// column would turn the answer `sum{2^62, 2^62} = 2^63` — the very value the
+// widening exists to produce — back into a wrong number.
+fn agg_col_tys(agg_flt: &Vec<bool>, uda: &Vec<bool>,
+                       uda_ret: &Vec<str>, acc: &Vec<str>, act: &mut Vec<str>) {
+    let mut i: i64 = 0i64;
+    while i < agg_flt.len() {
+        if uda[i] { act[i] = uda_ret[i]; }
+        else if agg_flt[i] { act[i] = "f64"; }
+        else { act[i] = acc[i]; }
         i = i + 1i64;
     }
 }
