@@ -174,5 +174,7 @@ The pipeline today (`wql.logos`): mapping fusion (renames on the parse tree) →
 - **R3.1 — 16877e3ea.** Facts on the core (`crewrite::core_desugar_facts`); the handler hands the walker the core. `core_same` / `crewrite_shadow` — the field-by-field core comparison every R3 move is shadowed with.
 - **R3.2 — aba5f1e67.** Live rels on the core (`core_live_rels`).
 - **R3.3 — bea7992a1.** Demand (MST by SIPS) on the core (`core_magic`), two-phase (immutable analysis, one write phase, `core_relink`); the surface MST (~800 lines) deleted. Shadow clean; a control (copies left unrestricted) ICEs on wql_rel_sips_e2e.
-- Each R3 step: shadow over build + L0 first, then the switch; gen + traces byte-identical.
+- **R3.4 — c9819f966.** Graph paths lowered on the core (`CClause.gpath` carried by the lowering, `core_desugar_gpaths` lowers it, `core_verify` refuses a leftover); the program is lowered ONCE (the R0 core is the planned program). Shadow clean; control (anchor constant changed) ICEs on wql_gpath_e2e. The switch build caught the walker emitting rel fns only when the PARSE TREE had rels.
+- **R3.5 — 6eeed36f2.** Mapping fusion on the core (`core_fuse`). **R3 closed**: every rewrite of the program is Core → Core; lower.logos 2042 → 101 lines.
+- Each R3 step: shadow over build + L0 first (R3.5 excepted: a single rename, its oracle the 10 mapping fixtures in the snapshot), then the switch; gen + traces byte-identical.
 
