@@ -6852,9 +6852,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12054 -> 12055 (+1), NOIMPORTED 7495 -> 7496 (+1) — 2026-10-08 (ADR 0031 R4.3): fixture fail/wql_type_error_located_fail (a type error reported at its line:col in the query).
 #                ALL 12055 -> 12056 (+1), NOIMPORTED 7496 -> 7497 (+1), TIERCOMMIT 195 -> 195 (+0) — (main, merged into `deem`) merge of origin/main: 2026-10-08: Q1 row 4c (generated code names what it did not import by path; extern fns are items of their package)
 #                ALL 12056 -> 12059 (+3), NOIMPORTED 7497 -> 7500 (+3) — 2026-10-08 (ADR 0031 R4.4): pass/wql_wide_lit_e2e, fail/wql_str_int_compare_fail, fail/wql_wide_lit_signed_fail.
+#                ALL 12059 -> 12059 (+0), NOIMPORTED 7500 -> 7500 (+0), TIERCOMMIT 195 -> 194 (-1) — (main, merged into `deem`) merge of origin/main: 2026-10-08: 8df5636dc #707's row leaves the ledger, its fail fixture's .expected; 0fd60ca41 Q1 row 4 traits
 REGISTRY-ALL         12059
 REGISTRY-NOIMPORTED  7500
-REGISTRY-TIERCOMMIT  195
+REGISTRY-TIERCOMMIT  194
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
