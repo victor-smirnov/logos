@@ -942,54 +942,6 @@ pub fn el_int_widens(name: str, want: str) -> bool {
     return s.bits <= d.bits;
 }
 
-// ── MAY THIS TYPE BE A COLUMN OF A SET-VALUED RELATION? ───────────────────
-// A `rel` is a SET: rows are deduplicated, so a column type needs an identity;
-// and the row is stored as a NATIVE tuple of the DECLARED types while the EL
-// computes in `repr`, so a column whose type is not its own repr would have the
-// emitted body mixing the two. Both tiers ask this — the static `wql!` handler
-// (`plan_walker::rel_col_ty_ok`) and the dynamic `Query::compile` — and each
-// used to carry its own copy of the answer as the spelling list i64/str/bool.
-// ONE predicate, and the code it returns NAMES THE FAILED ANTECEDENT so the
-// caller reports a remedy rather than a verdict.
-pub fn EL_COL_OK()       -> i32 { return 0i32; }
-pub fn EL_COL_UNKNOWN()  -> i32 { return 1i32; }   // outside the lattice
-pub fn EL_COL_NO_EQ()    -> i32 { return 2i32; }   // equality is not reflexive
-pub fn EL_COL_NO_INJ()   -> i32 { return 3i32; }   // two values arrive equal
-pub fn EL_COL_NOT_REPR() -> i32 { return 4i32; }   // the EL computes in another type
-
-pub fn el_set_col_admit(name: str) -> i32 {
-    let t: ElTy = el_ty(name);
-    if t.cls < 0i32                { return EL_COL_UNKNOWN(); }
-    if t.ident == EL_ID_NO_EQ()    { return EL_COL_NO_EQ(); }
-    if t.ident == EL_ID_NO_INJ()   { return EL_COL_NO_INJ(); }
-    if t.ident != EL_ID_OK()       { return EL_COL_UNKNOWN(); }
-    if !t.canon                    { return EL_COL_NOT_REPR(); }
-    return EL_COL_OK();
-}
-
-/// The GROUND for a refused set column — the failed antecedent in its own
-/// vocabulary, with the remedy. Empty for an admitted type.
-///
-/// ⚠ ONE ANTECEDENT PER GROUND. An earlier draft of this text named both ways an
-/// identity can fail and left the reader to work out which one applied — which is
-/// prose composed at report time wearing a record's clothes.
-pub fn el_set_col_why(name: str) -> str {
-    let a: i32 = el_set_col_admit(name);
-    if a == EL_COL_UNKNOWN() {
-        return "this type is outside the EL scalar lattice (`el_ty`), so nothing is known about the comparison, the hash or the storage the backend would emit for it — and a type is not assumed to have an identity until it is admitted there. The remedy is a column of an admitted scalar type — `i64`, `str` or `bool`";
-    }
-    if a == EL_COL_NO_EQ() {
-        return "a rel is a SET — rows are deduplicated by `==` and a hash — and this type's equality is not even REFLEXIVE: an f64/f32 NaN compares false against every value including itself, so a row containing one is equal to nothing, not even to a copy of itself. The remedy is a column whose equality is meaningful — `i64`, `str` or `bool`";
-    }
-    if a == EL_COL_NO_INJ() {
-        return "a rel is a SET — rows are deduplicated by `==` and a hash — and the EL's normalization of this type is NOT INJECTIVE: a value wider than 64 bits arrives with its high bits dropped, so two different rows collapse into one. The remedy is a column that fits the i64 the EL computes in";
-    }
-    if a == EL_COL_NOT_REPR() {
-        return "the rel row STORES this type and the EL COMPUTES in another one, so the emitted body would mix the two: the normalization is not the identity here. The remedy is to declare the column as the type the EL computes in — `i64` for the integer family, `str` for `String`";
-    }
-    return "";
-}
-
 // ── DOES THE EMITTED COMPARISON REALIZE THE ORDER THE QUERY NAMED? ────────
 // THE answer, in one place, keyed on the TYPE NAME, to a question two consumers
 // ask and one of them used to ask of the four-value CLASS TAG — which cannot
@@ -1062,11 +1014,8 @@ pub fn el_set_col_why(name: str) -> str {
 //     an i64-normalized wide integer — a UDF call — is refused at its use site;
 //   • `el_order_why` is reached on all four non-OK rows: PARTIAL and UNNAMED
 //     from the licence, WRAP and TRUNC from the call site;
-//   • the recursive aggregate's value column is NOT a caller. It looks like one
-//     and it used to be one; every body-declared rel column has already passed
-//     `plan_walker::rel_col_ty_ok`, whose admitted set is i64/str/bool — now as a
-//     DERIVATION from `el_set_col_admit` rather than a spelling list — so the
-//     question was already answered upstream. See the note there.
+//   • the recursive aggregate's value column is NOT a caller: it must be `i64`
+//     (`rexpr_walk`'s recursive-aggregate check), whose order is faithful.
 pub fn EL_ORD_OK()      -> i32 { return 0i32; }
 pub fn EL_ORD_PARTIAL() -> i32 { return 1i32; }
 pub fn EL_ORD_WRAP()    -> i32 { return 2i32; }

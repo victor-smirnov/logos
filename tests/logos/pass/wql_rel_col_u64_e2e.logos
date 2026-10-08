@@ -1,0 +1,41 @@
+// ADR 0031 R4.1 — u64 rel columns, typed as declared, through every operator
+// shape: a filter against a literal above 2^63, join, anti join, count / min /
+// max, order by. Values above 2^63 order as u64, not as their i64 image.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct E { pub a: u64, pub b: u64 }
+pub deem q(es: &[E]) {
+    rel big(x: u64, y: u64) { from es e where e.a > 9223372036854775807 select (e.a, e.b); }
+    from big g group by g.x aggregate n = count(), lo = min(g.y), hi = max(g.y) select (g.x, n, lo, hi) order by g.x
+}
+pub deem sinks(es: &[E]) {
+    rel src(x: u64) { from es e select e.a; }
+    rel dst(x: u64) { from es e select e.b; }
+    rel sink(x: u64) { from dst d anti join src s on s.x == d.x select d.x; }
+    from sink k select k.x order by k.x
+}
+pub deem bothq(es: &[E]) {
+    rel src(x: u64) { from es e select e.a; }
+    rel dst(x: u64) { from es e select e.b; }
+    rel both(x: u64) { from src s join dst d on d.x == s.x select s.x; }
+    from both k select k.x order by k.x
+}
+fn main() -> i32 {
+    let m: u64 = 18446744073709551615u64;
+    let h: u64 = 9223372036854775808u64;
+    let mut es: Vec<E> = Vec::<E>::new();
+    es.push(E { a: m, b: 1u64 });
+    es.push(E { a: m, b: h });
+    es.push(E { a: h, b: m });
+    es.push(E { a: 3u64, b: 4u64 });
+    let r: Vec<(u64, i64, u64, u64)> = q(es.as_slice()).unwrap();
+    if r.len() != 2i64 { return 1i32; }
+    if r.get(0i64).0 != h || r.get(0i64).1 != 1i64 || r.get(0i64).2 != m { return 2i32; }
+    if r.get(1i64).0 != m || r.get(1i64).1 != 2i64 || r.get(1i64).2 != 1u64 || r.get(1i64).3 != h { return 3i32; }
+    let s: Vec<u64> = sinks(es.as_slice()).unwrap();
+    if s.len() != 2i64 || s.get(0i64) != 1u64 || s.get(1i64) != 4u64 { return 4i32; }
+    let b: Vec<u64> = bothq(es.as_slice()).unwrap();
+    if b.len() != 2i64 || b.get(0i64) != h || b.get(1i64) != m { return 5i32; }
+    return 0i32;
+}

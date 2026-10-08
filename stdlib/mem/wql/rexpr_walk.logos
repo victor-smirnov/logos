@@ -10725,23 +10725,37 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
         error(string_as_str(&m1));
         return false;
     }
-    let got: i32  = infer_ty(comp, t);
-    // ⚠ THE DECLARED COLUMN TYPE IS A SPELLING, and `infer_ty` answers from an
-    // `ElTypes` whose names went through `resolve_alias_name` at stamping time — so
-    // comparing the two without resolving this one compares a resolved answer with
-    // an unresolved question. `type Ratio = f64;` on a column would take
-    // `el_ty_of_name`'s INT default and admit an i64 component.
-    let want: i32 = el_ty_of_name(resolve_alias_name(view, col_ty));
-    if got != want {
+    // ⚠ THE DECLARED COLUMN TYPE IS A SPELLING, and the component's type was
+    // resolved through the module's aliases when it was stamped — so the column's
+    // is resolved too before the two are compared (`type Ratio = f64;`).
+    let want: str = resolve_alias_name(view, col_ty);
+    if !int_lit_fits(comp, want) {
+        let mut m3: String = String::new();
+        m3.push_str("wql!: rel '");
+        m3.push_str(rel_name);
+        m3.push_str("' column '");
+        m3.push_str(col_name);
+        m3.push_str("': literal `");
+        sexpr_display(&mut m3, comp);
+        m3.push_str("` is out of range for `");
+        m3.push_str(col_ty);
+        m3.push_str("`, the column's type (Rust refuses the same literal)");
+        error(string_as_str(&m3));
+        return false;
+    }
+    if !expr_reaches_ty(comp, t, want) {
         let mut m2: String = String::new();
         m2.push_str("wql!: rel '");
         m2.push_str(rel_name);
         m2.push_str("' column '");
         m2.push_str(col_name);
-        m2.push_str("': select component has type ");
-        m2.push_str(el_class_repr(got));
-        m2.push_str(", declared ");
+        m2.push_str("': select component `");
+        sexpr_display(&mut m2, comp);
+        m2.push_str("` has type `");
+        m2.push_str(expr_ty(comp, t));
+        m2.push_str("`, declared `");
         m2.push_str(col_ty);
+        m2.push_str("`");
         error(string_as_str(&m2));
         return false;
     }
@@ -10788,6 +10802,57 @@ fn rel_select_comp_ok(comp: SExpr, rel_name: str, col_name: str, col_ty: str,
 // it a mode flag would put the sensor's presence at the mercy of the caller that
 // most wants it absent. Only `_i` REPORTS it (`__wc: &mut Vec<i64>`); the other
 // four sink it into a fn-local that dies on return. See `emit_scc_fn`.
+// A rel row's value, each component emitted in its COLUMN's type (ADR 0031
+// R4.1): an unsuffixed literal has no type of its own and takes the column's,
+// as Rust infers `(s.id, 0)` against a `(i64, u128)` slot. Everything else is
+// the projection value as written — `rel_select_ok` has checked it reaches
+// the column.
+fn rel_row_value(out: &mut String, proj: SExpr, ri: i64, prm: &MacroParams, view: &OView,
+                 t: &ElTypes, var: str) {
+    let off: i64 = prm.rel_coff[ri];
+    let nc: i64 = prm.rel_ccnt[ri];
+    match proj {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            if items.len() == nc {
+                out.push_str("(");
+                let mut i: i64 = 0i64;
+                while i < nc {
+                    if i > 0i64 { out.push_str(", "); }
+                    rel_comp_value(out, items.arg_at(i), resolve_alias_name(view, prm.relc_ty[off + i]), t, var);
+                    i = i + 1i64;
+                }
+                out.push_str(")");
+                return;
+            }
+        }
+        _ => { }
+    }
+    if nc == 1i64 { rel_comp_value(out, proj, resolve_alias_name(view, prm.relc_ty[off]), t, var); return; }
+    emit_proj_value(out, proj, t, var);
+}
+
+fn rel_comp_value(out: &mut String, e: SExpr, want: str, t: &ElTypes, var: str) {
+    match e {
+        SExpr::Lit(_) => { if lit_suffix(e).len() == 0i64 { emit_sexpr_as(out, e, t, var, want); return; } }
+        SExpr::Un(u) => {
+            if u.op == OP_NEG() && lit_suffix(e).len() == 0i64 {
+                match u.arg_expr() {
+                    SExpr::Lit(_) => {
+                        out.push_str("(-");
+                        emit_sexpr_as(out, u.arg_expr(), t, var, want);
+                        out.push_str(")");
+                        return;
+                    }
+                    _ => { }
+                }
+            }
+        }
+        _ => { }
+    }
+    emit_proj_value(out, e, t, var);
+}
+
 fn rel_push_frag(row_ty: str, proj: ExprBlob) -> ExprBlob {
     let rt: ExprBlob = parse_type(row_ty);
     return quote_block! {
@@ -10887,7 +10952,7 @@ fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64,
     if is_agg {
         if !split_agg_proj(proj_opt, ri, prm, &ty, s.var_name, &mut key_body, &mut val_body) { return false; }
     } else {
-        emit_proj_value(&mut proj_body, proj_opt, &ty, s.var_name);
+        rel_row_value(&mut proj_body, proj_opt, ri, prm, &view, &ty, s.var_name);
     }
 
     let mut pred_body: String = String::new();
@@ -11035,36 +11100,11 @@ fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
     let mut val_body: String = String::new();
     if is_agg {
         // Recursive-aggregate: the value column carries an ORDER (the lattice); a
-        // single-key group (slice-1).
-        //
-        // ⚠ THE ORDER REQUIREMENT IS NOT CHECKED HERE ANY MORE, AND THAT IS A
-        // DELETION, NOT AN OMISSION. This site used to ask `el_total_order_name`
-        // about the value column's type, described as "the same question the
-        // join-order licence asks". It is the same question — and this caller
-        // CANNOT ASK IT: a recursive aggregate lives in a BODY-DECLARED rel, and
-        // every body-declared rel column has already been through
-        // `plan_walker::rel_col_ty_ok`, whose admitted set is exactly i64 / str /
-        // bool — derived now (`el::el_set_col_admit`: a set column needs an
-        // identity and must be the type the EL computes in), not listed. So
-        // `vcty` is one of three names here, all of them faithfully
-        // ordered, and the guard could not fire on any input. A guard that cannot
-        // fire while its comment says it protects you is worse than no guard: it is
-        // a claim nobody can check. The live decision about this column's order is
-        // `rel_col_ty_ok` (which refuses f64 for the neighbouring Eq reason and
-        // everything else by whitelist, both with named diagnostics and both
-        // pinned by fixtures) plus the i64 requirement below.
-        //
-        // ⚠ IF THAT WHITELIST EVER WIDENS — a u64 or f64 rel column — THE ORDER
-        // QUESTION COMES BACK HERE, because a min/max fixpoint converges to the
-        // extremum of whatever order the emitted comparison realizes: over a
-        // PARTIAL comparison it has no least upper bound to converge to, and over a
-        // u64 reinterpreted as i64 it converges to the wrong end. The answer to ask
-        // then is `el::el_order_faithful` — the same one the join-order licence
-        // asks, still in one place.
-        //
-        // What remains is the requirement this seam does own: the value column must
-        // be i64. `str` is faithfully ordered and still out of slice-1, because the
-        // emitted lattice join is the i64 baseline.
+        // single-key group (slice-1). A min/max fixpoint converges to the extremum
+        // of the order the emitted comparison realizes, and the emitted lattice
+        // join is the i64 baseline — so the value column must be `i64`, whose
+        // order is faithful. Rel columns are admitted by `Eq + Hash` (ADR 0031
+        // R4.1), which says nothing about an order; this check is what does.
         let voff: i64 = prm.rel_coff[ri];
         let vcty: str = prm.relc_ty[voff + 1i64];
         if !str_eq(vcty, "i64") {
@@ -11082,7 +11122,7 @@ fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
         let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
         if !check_calls(proj_opt, &ty, "wql!: rel `select`") { return false; }
         if !rel_select_ok(proj_opt, ri, prm, &view, &ty, &vars, nv) { return false; }
-        emit_proj_value(&mut proj_body, proj_opt, &ty, ch.base_var);
+        rel_row_value(&mut proj_body, proj_opt, ri, prm, &view, &ty, ch.base_var);
     }
     let mut where_body: String = String::new();
     if has_where {

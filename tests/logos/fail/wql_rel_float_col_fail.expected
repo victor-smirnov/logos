@@ -1,1 +1,1 @@
-f64 columns are not allowed (set semantics require Eq) — a rel is a SET — rows are deduplicated by `==` and a hash — and this type's equality is not even REFLEXIVE
+`f64` does not implement `Eq` and `Hash` — a rel is a set of rows

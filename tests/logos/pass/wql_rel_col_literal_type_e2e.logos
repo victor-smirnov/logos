@@ -1,0 +1,19 @@
+// ADR 0031 R4.1 — an unsuffixed literal in a rel row takes its COLUMN's type, as
+// Rust infers `(s.id, 0)` against a `(i64, u128)` slot: `0` is a u128,
+// `-1` an i32, `255` a u8.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct S { pub id: i64 }
+pub deem q(ss: &[S]) {
+    rel r(a: i64, b: u128, c: i32, d: u8) { from ss s select (s.id, 0, -1, 255); }
+    from r x select (x.a, x.b, x.c, x.d)
+}
+fn main() -> i32 {
+    let ss: [S; 1] = [ S { id: 4i64 } ];
+    let o: Vec<(i64, u128, i32, u8)> = q(&ss[..]).unwrap();
+    if o.len() != 1i64 { return 1i32; }
+    let r: (i64, u128, i32, u8) = o.get(0i64);
+    if r.0 != 4i64 || r.1 != 0u128 || r.2 != -1i32 || r.3 != 255u8 { return 2i32; }
+    return 0i32;
+}

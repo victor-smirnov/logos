@@ -131,6 +131,18 @@ The pipeline today (`wql.logos`): mapping fusion (renames on the parse tree) →
 | R3.4 | graph paths lowered straight into the core (no surface desugar) | same |
 | R3.5 | mapping fusion on the core | same |
 
+### 4.3 R4 broken down (2026-10-08; Victor: «бери R4 как в Rust»)
+
+What R4.0 left: atoms are typed on Core, expressions are not. The expression checks (`codegen::check_calls` and its family) run inside the emitters, per emitted clause (22 call sites), and report without a position; a column type is admitted by membership in the EL lattice and the select-against-column check compares four-value CLASSES (an unknown name is "INT"). Measured on the R4 start: a `u64` rel column was refused ("the EL computes in another type"), a user type with `Eq + Hash` was refused ("outside the lattice"), and `where r.name == 5` reached the host compiler (`<metaprog-blob-subst>:1: operator '==': type mismatch (&[u8] vs i64)`). Rust is the reference for every rule below.
+
+| Step | What | Acceptance |
+|---|---|---|
+| R4.1 | a rel column is admitted by `Eq + Hash` (a `HashSet` key), asked of the language; the select component is checked against the column's TYPE (literal inference, the A18 widening, `String` through its view); an unsuffixed literal in a rel row is emitted in its column's type; the lattice predicate `el_set_col_admit` deleted | u64 / u128 / user-type fixtures with values that differ between u64 and its i64 image; refusals name the missing trait |
+| R4.2 | the expression checks run once on Core, before planning (`typing::core_typecheck`), and the emitters' call sites are deleted | same diagnostics corpus-wide; gen + traces byte-identical |
+| R4.3 | every type diagnostic located at its node (`SExpr.soff` through the query source), never at the host's generated line | fail fixtures carry `file:line:col` |
+| R4.4 | operand typing is unification over Logos types (one type per operator, literal inference, `bool` conditions), replacing the class-based agreement test; literals up to `u64::MAX` | `r.name == 5` refused by Deem; every operator × type pair the corpus has |
+| R4.5 | an unresolved name is a diagnostic, never the `i64` default of `ElTypes::ty_name_of` | census of the default's hits = 0 |
+
 ## 5. Relation to other ADRs
 
 - ADR 0024: S0 (positions) feeds Core spans; S2/S3 land ON Core (R4) instead of on the surface; S4's "plan as data" becomes DPlan; S5 ("emitters read the IR") is R6.
@@ -181,4 +193,5 @@ The pipeline today (`wql.logos`): mapping fusion (renames on the parse tree) →
 - **R7.1 — 59c33b345.** An SCC's fixpoint is a plan (`dplan::DScc`: per member its rules, the seeds, and one `DRun` per in-SCC occurrence of every recursive rule — the rule and its per-slot delta/total renames); the semi-naïve (`_scc`, `_scc_i`) and DRed (`_od`, `_odp`) drivers spell it. Byte-identical.
 - **R7.2 — 684bf27b2.** The index over a source a fixpoint's loop does not change (a parameter, a rel outside the SCC; `DRun.inv`) is built once, before the loop, not every round. Single-source reachability over N edges: 1350 ms → 1 ms at N = 4000, linear to 256k. Answers and traces unchanged; gate `logos_09_scc_index_hoist` (structural) + fixture.
 - **R7.3 — ec581d92a.** A fixpoint variant drives from its DELTA (`dplan::delta_first`): the delta atom first, the rest in written order, each `on` re-attached to the last source it reads; admissible only if every positive join step keeps a linking condition (else the written order stays — 3 variants in the corpus). The planner plans the SCCs before emission (`plan_sccs`) and decides the reordered variants' steps with the rule's own decision (`plan_decide_clause`, moved from the walker). `from edges e join reach r …`: 133 ms → 1 ms at 4000 edges, linear. Answers unchanged; census `hash join` decisions +69 (derived per fixture). `LOGOS_DEEM_NO_HOIST` / `LOGOS_DEEM_NO_DELTA_FIRST` switch R7.2 / R7.3 off for measuring.
-
+- **R7.2b — 55c427bbd.** DRed's propagation driver (`_odp`) builds its loop-invariant indexes once, before its loop, like the semi-naive drivers. Answers and traces unchanged (26 DRed units differ by the moved builds only).
+- **R4.1.** A rel column is admitted by `Eq + Hash`, asked of the language (`plan_walker::rel_col_ty_ok`); `el_set_col_admit` and its five verdict codes are deleted. The select component is checked against the column's type (`codegen::expr_reaches_ty`: one type, an unsuffixed literal of the column's kind, the A18 widening, `String` through its view), and an unsuffixed literal in a rel row is emitted in its column's type (`rel_row_value`) and must fit it. New: u64 / u128 / user-type / literal-typed columns (values above 2^63 answer as u64); `fail/wql_rel_col_noinj_fail` became `wql_rel_col_u128_e2e`. Every other fixture's gen and trace byte-identical; census pins re-derived from the four new fixtures.

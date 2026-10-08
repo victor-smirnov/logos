@@ -1066,6 +1066,47 @@ fn check_named_operator(node: SExpr, nm: str, op: i32, ctx: str) -> bool {
 
 /// The numeric class of a literal operand (`N`, `N.M`, or either negated) —
 /// EL_TY_INT / EL_TY_FLT — or -1 when `e` is not a numeric literal.
+/// MAY A VALUE OF `e` BE STORED IN A SLOT OF TYPE `want`? (ADR 0031 R4.1 —
+/// a rel column, typed as declared.) Rust's rule plus the blessed widening:
+/// the types are one; an unsuffixed integer literal takes any integer type and
+/// an unsuffixed float literal any float type (its range is `check_lit_fits`'s);
+/// an integer widens by value into a wider one (DIVERGENCES A18); a `String`
+/// is stored through its `str` view. `want` is resolved by the caller.
+pub fn expr_reaches_ty(e: SExpr, t: &ElTypes, want: str) -> bool {
+    let wc: i32 = el_ty(want).cls;
+    if is_lit_operand(e) && lit_suffix(e).len() == 0i64 {
+        let lc: i32 = lit_class(e);
+        if lc >= 0i32 { return lc == wc; }
+    }
+    let got: str = expr_ty(e, t);
+    if str_eq(got, want) { return true; }
+    if str_eq(got, "String") && str_eq(want, "str") { return true; }
+    return el_int_widens(got, want);
+}
+
+/// Does an integer literal `e` (`N` / `-N`) fit integer type `want`? True for
+/// anything that is not one. The range half of a literal taking its slot's type.
+pub fn int_lit_fits(e: SExpr, want: str) -> bool {
+    let mut v: i64 = 0i64;
+    if !int_lit_value(e, &mut v) { return true; }
+    let ty: ElTy = el_ty(want);
+    if ty.cls != EL_TY_INT() { return true; }
+    if !ty.signed && v < 0i64 { return false; }
+    if ty.bits >= 64i64 { return true; }
+    let one: i64 = 1i64;
+    if ty.signed { return v >= 0i64 - (one << (ty.bits - 1i64)) && v <= (one << (ty.bits - 1i64)) - 1i64; }
+    return v <= (one << ty.bits) - 1i64;
+}
+
+/// THE TYPE OF `e` as the query gave it — the declared name of a column or a
+/// parameter, an arithmetic node's operand type, a literal's suffix or kind
+/// representative. `infer_ty_name` with the arithmetic nodes typed as printed.
+pub fn expr_ty(e: SExpr, t: &ElTypes) -> str {
+    if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_INT() { return arith_node_ty(e, t); }
+    if el_computes_in_repr(e) && infer_ty(e, t) == EL_TY_FLT() { return float_node_ty(e, t); }
+    return infer_ty_name(e, t);
+}
+
 fn lit_class(e: SExpr) -> i32 {
     match e {
         SExpr::Lit(l) => {

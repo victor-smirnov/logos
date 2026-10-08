@@ -786,45 +786,28 @@ fn core_bound_vars(cl: &CClause) -> Vec<str> {
     return v;
 }
 
-// Is `t` a supported rel column type? THE ANSWER IS NOT HERE any more: it is
-// `el::el_set_col_admit`, because `Query::compile` (the dynamic tier) asks the
-// same question and used to carry its own copy of the spelling list `i64 / str /
-// bool`. Two lists for one fact is two things that can drift. What is left here
-// is the wql!-flavoured MESSAGE around the shared verdict and its ground.
-//
-// The admitted set is unchanged and is now a derivation: a rel is a SET, so a
-// column type needs an IDENTITY (`ElTy.ident` — f64 has none, and neither does a
-// 128-bit integer, whose normalization drops bits); and the row is stored as a
-// native tuple of the DECLARED types while the EL computes in `ElTy.repr`, so the
-// type must be its own repr (`ElTy.canon` — which is what excludes `u64`, `u32`
-// and `String` alike, each for the same stated reason instead of by absence from
-// a list).
+// MAY `t` BE A REL COLUMN? (ADR 0031 R4.1.) A rel is a set of rows — a
+// `HashSet` of the row tuple — so, as in Rust, every column type must be `Eq`
+// and `Hash`; nothing else is asked. The column is stored and read as the type
+// it is declared with. `f64` has no `Eq` (a NaN is unequal to itself), and a
+// struct gains both by `#[derive_eq]` / `#[derive_hash]`.
 fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
-    let a: i32 = el_set_col_admit(t);
-    if a == EL_COL_OK() { return true; }
-    // The float wording belongs to the float FAILURE, and `EL_COL_NO_EQ` IS that
-    // failure — the other way an identity can fail (a 128-bit normalization that
-    // drops bits) is its own code and gets the general message. No class test is
-    // needed to pick between them: the verdict already distinguishes them.
-    if a == EL_COL_NO_EQ() {
-        let mut m: String = String::new();
-        m.push_str("wql!: rel column '");
-        m.push_str(col_name);
-        m.push_str("': f64 columns are not allowed (set semantics require Eq) — ");
-        m.push_str(el_set_col_why(t));
-        error(string_as_str(&m));
-        return false;
-    }
-    let mut m1: String = String::new();
-    m1.push_str("wql!: rel '");
-    m1.push_str(rel_name);
-    m1.push_str("' column '");
-    m1.push_str(col_name);
-    m1.push_str("': unsupported column type `");
-    m1.push_str(t);
-    m1.push_str("` — ");
-    m1.push_str(el_set_col_why(t));
-    error(string_as_str(&m1));
+    let view: OView = oview_module_ast();
+    let rt: str = resolve_alias_name(&view, t);
+    let eq: bool = named_has_eq_strict(rt);
+    let hs: bool = has_trait_named("logos.lang.hash::Hash", rt);
+    if eq && hs { return true; }
+    let mut m: String = String::new();
+    m.push_str("wql!: rel '");
+    m.push_str(rel_name);
+    m.push_str("' column '");
+    m.push_str(col_name);
+    m.push_str("': `");
+    m.push_str(t);
+    m.push_str("` does not implement `");
+    m.push_str(if !eq && !hs { "Eq` and `Hash" } else if !eq { "Eq" } else { "Hash" });
+    m.push_str("` — a rel is a set of rows, deduplicated by `==` and a hash, so every column type must be `Eq + Hash` (as a `HashSet` key in Rust)");
+    error(string_as_str(&m));
     return false;
 }
 

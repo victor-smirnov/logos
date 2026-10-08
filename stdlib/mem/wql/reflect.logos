@@ -453,8 +453,7 @@ fn LA_TUPLE_TYPE() -> u64 { return 100 as u64; }
 fn LA_ENUM() -> u64 { return 80 as u64; }
 
 /// Verdicts of `column_decl_admit`. The code NAMES THE FAILED ANTECEDENT so the
-/// caller reports a ground and a remedy rather than a bare refusal — the shape
-/// `el::el_set_col_admit` established for rel columns.
+/// caller reports a ground and a remedy rather than a bare refusal.
 pub fn CD_OK()         -> i32 { return 0i32; }
 pub fn CD_TUPLE()      -> i32 { return 1i32; }   // a tuple has no scalar reading
 pub fn CD_OPAQUE_GEN() -> i32 { return 2i32; }   // `Option<T>` and its kin
@@ -557,9 +556,9 @@ fn column_type_text(view: &OView, ty: WAny) -> String {
 }
 
 /// The GROUND for a refused column — the failed antecedent in its own
-/// vocabulary, with a remedy. ONE antecedent per ground (`el_set_col_why`'s
-/// rule: prose that names two ways to fail and leaves the reader to pick is a
-/// report composed at report time).
+/// vocabulary, with a remedy. ONE antecedent per ground: prose that names two
+/// ways to fail and leaves the reader to pick is a report composed at report
+/// time.
 fn column_decl_why(v: i32) -> str {
     if v == CD_TUPLE() {
         return "a TUPLE has no scalar reading at all — the EL's key and projection vectors are `Vec<i64>`, and `el_ty_of_name` spells every type outside its lattice `i64`, so the eight bytes this column contributes to a comparison are the tuple's ADDRESS. MEASURED: `where` over such a column emitted `arith.cmpi` on an `!llvm.ptr` and was refused by the MLIR verifier, which names nothing you wrote. The remedy is one column per component";
