@@ -77,7 +77,7 @@ if ! build_one ZqExactSizeUniqueGate; then
     sed -n '1,20p' "$TMPD/ZqExactSizeUniqueGate.out"
     exit 2
 fi
-CTL_SYMS=$(nm "$TMPD/ZqExactSizeUniqueGate.o" 2>/dev/null)
+CTL_SYMS=$(nm "$TMPD/ZqExactSizeUniqueGate.o" 2>/dev/null | sed -E 's/\$M[0-9a-f]{16}//g')   # declared spellings (S9b fold stripped)
 if [ -z "$CTL_SYMS" ]; then
     echo "FAIL(2): nm read no symbols from the control object — the gate is blind."
     exit 2
@@ -111,7 +111,7 @@ if ! build_one ExactSizeIterator; then
     sed -n '1,20p' "$TMPD/ExactSizeIterator.out"
     exit 1
 fi
-SUBJ_SYMS=$(nm "$TMPD/ExactSizeIterator.o" 2>/dev/null)
+SUBJ_SYMS=$(nm "$TMPD/ExactSizeIterator.o" 2>/dev/null | sed -E 's/\$M[0-9a-f]{16}//g')   # declared spellings (S9b fold stripped)
 if [ -z "$SUBJ_SYMS" ]; then
     echo "FAIL(2): nm read no symbols from the subject object."
     exit 2

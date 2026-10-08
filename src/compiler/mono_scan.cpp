@@ -1170,6 +1170,17 @@ std::string Mono::method_instance_name(std::string_view concrete, std::string_vi
     // (`…a__f__b` + `__f__b__f__sig`), nm-verified.
     if (auto tail = mname::sig_of(tn, base, method)) {
         sig = std::string(*tail);
+    } else if (auto om = mname::split_by_method(tn, method)) {
+        // The owner is not `base` (G156-5's trait-qualified `G__Drop__drop`, a
+        // blanket host): name the instance as clone_struct_def does — the
+        // carried method part (`Drop__drop`) kept, so it is not the inherent
+        // `drop`'s name (S9b row 3: measured, the destructor table picked it).
+        std::string mid(om->method);
+        const std::string bpfx = std::string(base) + "__";
+        if (om->owner.size() > bpfx.size() && om->owner.compare(0, bpfx.size(), bpfx) == 0)
+            mid = std::string(om->owner.substr(bpfx.size())) + "__" + mid;   // the trait qualifier
+        std::string bare = std::string(concrete) + "__" + mid + std::string(om->tail);
+        return pkg.empty() ? bare : std::string(pkg) + "." + bare;
     } else {
         // Legacy anchored scan — reached when the template's name is not that
         // composition (blanket/spec re-hosting). It is a GUESS; keep it only as

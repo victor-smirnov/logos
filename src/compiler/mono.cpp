@@ -36,6 +36,47 @@ void Mono::ensure_blanket_tmpl_index() {
     }
 }
 
+// A method call reached before its receiver's struct instance existed was
+// deferred (enqueue_method_inst); enqueue every one whose struct is now
+// EMITTED (in out_.structs, not merely known — see struct_emitted()). Every
+// loop that instantiates structs drains it, or a method body cloned in that
+// loop's last round calls a method that is never instantiated.
+void Mono::drain_deferred_methods_() {
+    if (deferred_method_enqueues_.empty()) return;
+    stats_.defer_rescans += deferred_method_enqueues_.size();
+    std::vector<std::pair<std::string, std::string>> still;
+    for (auto& [cname, mname] : deferred_method_enqueues_) {
+        auto cit = concrete_struct_types_.find(cname);
+        if (cit != concrete_struct_types_.end() &&
+            struct_emitted(concrete_struct_name(cit->second), TypeRef(cit->second).pkg_name()))
+            enqueue_method_inst(cit->second, mname);
+        else
+            still.emplace_back(std::move(cname), std::move(mname));
+    }
+    deferred_method_enqueues_ = std::move(still);
+}
+
+// ADR 0030 S9b row 3: each emitted struct's destructor, selected by identity
+// (drop_symbol_: the `Drop` lang item's impl C-OBL picks, its `drop` item
+// instantiated), for mlir's drop glue — instead of a prefix scan over
+// spelled method names there. A selection may instantiate: drained after.
+void Mono::fill_drop_symbols_() {
+    const size_t n = out_.structs.size();
+    for (size_t i = 0; i < n; ++i) {
+        auto sd = out_.structs[i];
+        if (!sd) continue;
+        const std::string name(sd.name()), pkg(sd.pkg());
+        TypeRef ty;
+        if (auto it = concrete_struct_types_.find(pkg.empty() ? name : pkg + "." + name); it != concrete_struct_types_.end())
+            ty = it->second;
+        else if (sd.type_params_empty() && name.find("$G") == std::string::npos)
+            ty = build_generic_struct_typeref(name, {}, pkg);
+        if (!ty) continue;
+        out_.drop_symbols[pkg + "\x1f" + name] = drop_symbol_(ty, name);
+    }
+    drain_all_();
+}
+
 // Drain every worklist to a fixpoint: functions, methods, struct and enum
 // instances (each may demand more of the others).
 void Mono::drain_all_() {
@@ -58,6 +99,7 @@ void Mono::drain_all_() {
         }
         if (!needed_struct_insts_.empty()) instantiate_struct_templates();
         instantiate_enum_templates();
+        drain_deferred_methods_();
         depth_ = 0;
     }
 }
@@ -91,7 +133,12 @@ void Mono::fill_vtables_() {
         if (!td) continue;
         std::vector<std::string> slots;
         for (auto& [owner, mname] : td.vtable_method_order()) {
-            const bool own = owner == td.name() || owner == d.trait;
+            // The slot is the trait's own when its owner names the trait — by
+            // its identity (`pkg::Trait`) or the demand's spelling.
+            const bool own = owner == td.name() || owner == d.trait ||
+                             (!td.pkg().empty() && owner.size() == td.pkg().size() + 2 + td.name().size() &&
+                              owner.starts_with(td.pkg()) && owner.substr(td.pkg().size(), 2) == "::" &&
+                              owner.ends_with(td.name()));
             slots.push_back(trait_item_symbol_(own ? std::string_view(d.trait) : owner, d.self, mname, -1,
                                                nullptr, own ? &d.args : nullptr));
             if (TypeRef(d.self).kind() == LogosType::Kind::Struct && !TypeRef(d.self).type_args().empty())
@@ -212,10 +259,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // local set for the thread_local; install for the whole run(). Reading the
     // carried set (not recomputing from in_.structs) guarantees byte-identical
     // tagging with sema and mlir even as mono prunes dead defs.
-    std::unordered_set<std::string> ambiguous_type_names;
-    in_.ambiguous_type_names.for_each(
-        [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });
-    set_ambiguous_type_names(&ambiguous_type_names);
 
     // Stage 3g.1: in_.mirror_table is already comprehensive — sema's end-of-
     // run pass emitted every stmt/block/pattern, and LirBuilder mirrored each
@@ -282,7 +325,6 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // iters (which feed out_ back in as the next in_) keep qualifying symbols.
     out_.pkg_module_ids      = in_.pkg_module_ids;
     out_.lang_items          = in_.lang_items;
-    out_.ambiguous_type_names = in_.ambiguous_type_names;  // G156-1: carry to mlir
     out_.wstatic_registry_   = std::move(in_.wstatic_registry_);
     out_.wstatic_sources     = std::move(in_.wstatic_sources);
     // ADR 0021 Phase 4a: sema-filled factory demands (deferred bound /
@@ -978,22 +1020,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     // method_worklist_; the rest stay in deferred for later drain inside
     // the fixpoint loop below. One-shot to avoid the loop spinning on
     // entries whose concrete struct is never produced.
-    if (!deferred_method_enqueues_.empty()) {
-        stats_.defer_rescans += deferred_method_enqueues_.size();
-        std::vector<std::pair<std::string, std::string>> still;
-        for (auto& [cname, mname] : deferred_method_enqueues_) {
-            auto cit = concrete_struct_types_.find(cname);
-            // Gate on the struct actually being EMITTED (in out_.structs), not
-            // merely known in concrete_struct_types_ — see struct_emitted().
-            if (cit != concrete_struct_types_.end() &&
-                struct_emitted(concrete_struct_name(cit->second),
-                               TypeRef(cit->second).pkg_name()))
-                enqueue_method_inst(cit->second, mname);
-            else
-                still.emplace_back(std::move(cname), std::move(mname));
-        }
-        deferred_method_enqueues_ = std::move(still);
-    }
+    drain_deferred_methods_();
 
     // L1.1: lazy-method drain fixpoint. No-op in eager mode (default) since
     // method_worklist_ stays empty. When LOGOS_LAZY_METHODS=1, scan_fn enqueues
@@ -1027,21 +1054,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
         }
         if (!needed_struct_insts_.empty()) instantiate_struct_templates();
         instantiate_enum_templates();
-        // Resolve deferred method enqueues whose concrete struct now exists.
-        if (!deferred_method_enqueues_.empty()) {
-            stats_.defer_rescans += deferred_method_enqueues_.size();
-            std::vector<std::pair<std::string, std::string>> still;
-            for (auto& [cname, mname] : deferred_method_enqueues_) {
-                auto cit = concrete_struct_types_.find(cname);
-                if (cit != concrete_struct_types_.end() &&
-                    struct_emitted(concrete_struct_name(cit->second),
-                                   TypeRef(cit->second).pkg_name()))
-                    enqueue_method_inst(cit->second, mname);
-                else
-                    still.emplace_back(std::move(cname), std::move(mname));
-            }
-            deferred_method_enqueues_ = std::move(still);
-        }
+        drain_deferred_methods_();
         depth_ = 0;
     }
 
@@ -1169,6 +1182,7 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
     }
 
     fill_vtables_();
+    fill_drop_symbols_();
 
     out_.diags          = std::move(in_.diags);
     out_.binary_symbols = std::move(in_.binary_symbols);

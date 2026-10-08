@@ -214,6 +214,23 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
     if (c == la::BREAK.code || c == la::CONTINUE.code || c == la::BREAK_EXPR.code ||
         c == la::CONTINUE_EXPR.code)
         cur = resolve_exit(cur);
+    // Q1 row 3: a written type name resolves here, once (a qualified one, with
+    // its package path, waits for the qualified-path step).
+    if (c == la::TYPE_REF.code && type_res_ && n.has_key(la::NAME) && !n.has_key(la::QUAL_PARTS) &&
+        !n.has_key(la::RES)) {
+        std::string path = type_res_(text_of(n, la::NAME.code));
+        if (!path.empty()) {
+            TinyMapView cn = map_of(cur);
+            auto* m = doc_.make_tiny_map(cn.size() + 1).get();
+            auto& ar = doc_.arena();
+            const uint64_t cb = cn.bitmap();
+            for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)
+                if (cb & (1ull << k)) m->put(k, cn.get(k), ar).get();
+            m->put(la::RES.code, str(path), ar).get();
+            m->set_schema_type_code(cn.schema_type_code());
+            cur.set_ref(m);
+        }
+    }
     // A block ending in a `loop` statement whose breaks carry a value: the
     // loop is the block's tail expression.
     if (c == la::BLOCK.code && n.has_key(la::ITEMS)) {

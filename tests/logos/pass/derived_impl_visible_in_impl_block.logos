@@ -1,0 +1,14 @@
+// Closed squeue derived_impl_invisible_in_impl_block_refused (#672): a derive-generated impl's method is visible
+// inside the type's own impl block (`self.clone()` in `impl Pt`). Stopped reproducing with ADR 0030 S9b (the fold
+// as the rule, one owner encoder for registration and lookup); the mechanism was not isolated. rustc twin: exit 0.
+package derived_impl_visible_in_impl_block;
+use logos.std.compiler.metaprog;
+use logos.lang.clone;
+#[derive_clone]
+struct Pt { x: i64, y: i64 }
+impl Pt { fn dup(&self) -> Pt { self.clone() } }
+fn main() -> i32 {
+    let p = Pt { x: 1, y: 2 };
+    if p.dup().y != 2 { return 3; }
+    return 0;
+}

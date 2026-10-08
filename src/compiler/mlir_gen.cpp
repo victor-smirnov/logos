@@ -114,10 +114,6 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
     // prog.structs here would see mono's PRUNED universe → a smaller set → the
     // tag would be dropped at a name sema/mono tagged → definition≠use. Read the
     // carried ObjectMapRef into a local set for the thread_local.
-    std::unordered_set<std::string> ambiguous_type_names;
-    prog.ambiguous_type_names.for_each(
-        [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });
-    set_ambiguous_type_names(&ambiguous_type_names);
 
     // Pass 0: build struct lookup table so register_tagged_enum can compute
     // payload sizes from LogosType field trees (logos_abi_byte_size).
@@ -142,6 +138,8 @@ mlir::OwningOpRef<mlir::ModuleOp> MLIRGenImpl::generate(const LProgram& prog) {
         if (!msuffix.empty()) {
             std::string qname = sd_name + msuffix;
             if (!all_struct_defs_.count(qname)) all_struct_defs_[qname] = sd;
+            // and pkg-qualified, the spelling a struct_types_ key carries.
+            if (std::string pq = qualify_pkg(sd_pkg, qname); !all_struct_defs_.count(pq)) all_struct_defs_[pq] = sd;
         }
     }
 

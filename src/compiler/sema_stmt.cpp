@@ -173,20 +173,22 @@ bool SemaChecker::ast_has_call(TinyMapView root) {
     return found;
 }
 
-const SemaChecker::SemaFuncInfo* SemaChecker::find_op_assign_impl(const std::string& mangled, TypeRef ref_t,
+// ADR 0030 S9b row 2: `self_t`'s `<Op>Assign` method, asked of its identity.
+const SemaChecker::SemaFuncInfo* SemaChecker::find_op_assign_impl(std::string_view method, TypeRef ref_t,
                                                      TypeRef self_t, lir::LExprPtr& rhs) {
     using K = LogosType::Kind;
     TypeRef rhs_ty = rhs ? TypeRef(expr_type(rhs)) : self_t;
-    auto fit = find_func_by_base_and_signature(mangled, {ref_t, rhs_ty}, false);
+    const auto cands = methods_of_(self_t, method);
+    auto fit = pick_by_signature_(cands, {ref_t, rhs_ty}, false);
     if (!fit && !types_equal(rhs_ty, self_t))
-        fit = find_func_by_base_and_signature(mangled, {ref_t, self_t}, false);
+        fit = pick_by_signature_(cands, {ref_t, self_t}, false);
     if (fit || !rhs_ty) return fit;
     const K rk = TypeRef(rhs_ty).kind();
     if (rk != K::IntLit && rk != K::FloatLit) {
         // The ONE `<Op>Assign` impl of the type: its parameter is the rhs's
         // coercion target, judged at the call (`s += &t`: `&String` → `&str`).
         const SemaFuncInfo* one = nullptr;
-        for (auto* c : find_func_candidates(mangled)) {
+        for (auto* c : cands) {
             if (c->param_types.size() != 2 || !c->param_types[1]) continue;
             if (one) return nullptr;   // several: the rhs's own type had to pick
             one = c;
@@ -194,7 +196,7 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_op_assign_impl(const std::str
         return one;
     }
     const SemaFuncInfo* only = nullptr;
-    for (auto* c : find_func_candidates(mangled)) {
+    for (auto* c : cands) {
         if (c->param_types.size() != 2 || !c->param_types[1]) continue;
         const K pk = TypeRef(c->param_types[1]).kind();
         const bool ok = rk == K::IntLit ? (is_integer_kind(pk) && pk != K::Enum && pk != K::IntLit)
@@ -2463,12 +2465,11 @@ std::optional<lir::LExprPtr> SemaChecker::op_assign_call_(TypeRef pt, const std:
     std::string atrait, amethod;
     if (!op_assign_trait_method(std::string(base_op), atrait, amethod)) return std::nullopt;
     auto type_name = concrete_struct_name(pt);
-    auto base_name = std::string(TypeRef(pt).struct_name());
     const SemaFuncInfo* fit = nullptr;
     std::string mangled = type_name + "__" + amethod;
     auto mut_ref_t = make_ref(true, pt);
     if (implements_(atrait, pt))
-        fit = find_op_assign_impl(mangled, mut_ref_t, pt, rhs);
+        fit = find_op_assign_impl(amethod, mut_ref_t, pt, rhs);
     if (!fit) {
         error(std::format("binary assignment operation `{}=` cannot be applied to type `{}` (E0368)",
                           base_op, type_str(pt)));
@@ -2629,12 +2630,13 @@ lir_view::StmtRef SemaChecker::lower_place_compound_assign(
                 if (has_im) {
                     if (!lookup_is_mut(arr_name))
                         error(std::format("index compound assign to immutable struct '{}'", arr_name));
+                    // S9b row 2: the type's own concrete methods, by its identity.
                     const SemaFuncInfo* fit_im = nullptr;
-                    for (auto* c : find_func_candidates(type_name + "__index_mut"))
-                        if (c->param_types.size() == 2) { fit_im = c; break; }
+                    for (auto* c : methods_of_(arr_type, "index_mut"))
+                        if (concrete_self_method_(c, arr_type, 2)) { fit_im = c; break; }
                     const SemaFuncInfo* fit_rd = nullptr;
-                    for (auto* c : find_func_candidates(type_name + "__index"))
-                        if (c->param_types.size() == 2) { fit_rd = c; break; }
+                    for (auto* c : methods_of_(arr_type, "index"))
+                        if (concrete_self_method_(c, arr_type, 2)) { fit_rd = c; break; }
                     if (fit_im) {
                         TypeRef ref_o = fit_im->ret_type;            // &mut O
                         TypeRef out_t = TypeRef(ref_o).pointee()
@@ -7118,8 +7120,7 @@ TypeRef SemaChecker::resolve_place_type(writ::TinyMapView place) {
 TypeRef SemaChecker::index_output_type_(TypeRef st) {
     if (!st || TypeRef(st).kind() != LogosType::Kind::Struct) return nullptr;
     const SemaImplInfo* ii = nullptr;
-    if (auto it = impls_.find(impl_key("Index", concrete_struct_name(st))); it != impls_.end()) ii = &it->second;
-    else if (auto it2 = impls_.find(impl_key("Index", std::string(TypeRef(st).struct_name()))); it2 != impls_.end()) ii = &it2->second;
+    ii = find_lang_impl_("index", st);   // S9b row 2: by identity
     if (!ii || ii->trait_type_args.size() < 2) return nullptr;
     SemaSubst subst;
     if (ii->target_typeref) {
@@ -7166,8 +7167,8 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
                                      !drop_fn_for(out_ty).empty() ||
                                      has_droppable_fields(out_ty));
     const SemaFuncInfo* fit = nullptr;
-    for (auto* c : find_func_candidates(mangled))
-        if (c->param_types.size() == 2) { fit = c; break; }
+    for (auto* c : methods_of_(arr_type, "index_mut"))   // S9b row 2
+        if (concrete_self_method_(c, arr_type, 2)) { fit = c; break; }
     if (fit) {
         widen_int_expr(idx_e, fit->param_types[1], builder());
         auto recv_ref = builder().addr_of(arr_name, make_ref(true, arr_type), BorrowOrigin::OperatorAutoref);
@@ -7182,8 +7183,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_index_mut_assign(
         return builder().stmt_deref_write(std::move(call_e), std::move(val_e), node_line_, drop_old);
     }
     const SemaImplInfo* ii = nullptr;
-    if (auto it = impls_.find(impl_key("IndexMut", type_name)); it != impls_.end()) ii = &it->second;
-    else if (auto it2 = impls_.find(impl_key("IndexMut", base_name)); it2 != impls_.end()) ii = &it2->second;
+    ii = find_lang_impl_("index_mut", arr_type);   // S9b row 2: by identity
     if (ii && ii->trait_type_args.size() >= 2) {
         SemaSubst subst;
         if (ii->target_typeref) {

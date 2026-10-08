@@ -1,0 +1,18 @@
+// `[T; N]: Default` for a user struct element, through a type alias (`M::default()`) and through the
+// trait path at an array type (`Default::default()`). The element's `default` is asked of the struct's
+// identity (ADR 0030 S9b row 2): the spelled key missed it once the fold was the rule, and the trait
+// path had no array arm. rustc twin: exit 0.
+package array_default_of_struct;
+use logos.lang.default;
+struct S { x: i64 }
+impl Default for S { fn default() -> S { return S { x: 7 }; } }
+type M = [S; 2];
+fn main() -> i32 {
+    let a: M = M::default();
+    if a[0].x + a[1].x != 14 { return 1; }
+    let b: [S; 2] = Default::default();
+    if b[0].x + b[1].x != 14 { return 2; }
+    let c: [i64; 3] = Default::default();
+    if c[0] + c[1] + c[2] != 0 { return 3; }
+    return 0;
+}

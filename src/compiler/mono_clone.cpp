@@ -423,7 +423,10 @@ Mono::AbiLayout Mono::mono_abi_layout(TypeRef t) {
     case K::Struct: case K::ZonedStruct: {
         SubstMap m;
         auto sit = resolve_struct_layout(t, m);
-        auto key = lay::type_key(t.pkg_name(), concrete_struct_name(t));
+        // The EMITTED struct's name (the verifier's join key): declared for a
+        // non-generic struct, the encoder for an instance (ADR 0030 S9b).
+        auto key = lay::type_key(t.pkg_name(), t.type_args().empty() ? std::string(t.struct_name())
+                                                                     : concrete_struct_name(t));
         // A DECLINE, NOT A DEFAULT. mono resolves through the TEMPLATE registry,
         // so a miss here is a struct this run has no declaration for at all —
         // `{8,8}` is a guess that reads as an answer and enters no ledger.
@@ -5161,8 +5164,11 @@ DeclBuilder Mono::clone_struct_def(lir_view::StructView tmpl,
 
         // Compute the final renamed method name first so the binary-symbol
         // fast path below can consult it.
+        // Cloned with no substitution (a non-generic struct passed through):
+        // its methods keep the symbols sema gave them (S9b: the owner part
+        // carries the package fold, which the bare struct name does not).
         std::string final_name = std::string(m.name());
-        {
+        if (!s.empty() || !packs.empty()) {
             std::string mn = std::string(m.name());
             std::string mn_pkg;
             if (auto dot = mn.rfind('.'); dot != std::string::npos) {

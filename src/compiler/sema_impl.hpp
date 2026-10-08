@@ -216,7 +216,6 @@ public:
     // forward-declares it — same predicate as mlir_gen's is_binary_skip).
     void set_binary_symbols(const logos::compiler::StrSet* s) { binary_symbols_ = s; }
     // G156-1: dependency-archive nominal decls (pkg,name) for the ambiguity universe.
-    void set_dep_nominal_decls(const std::vector<std::pair<std::string, std::string>>* d) { dep_nominal_decls_ = d; }
     void set_metaprog_keep_fns(std::vector<std::string> names) {
         metaprog_keep_fns_ = std::move(names);
     }
@@ -3185,7 +3184,6 @@ private:
     // structs_/enums_ and threaded via set_ambiguous_type_names so the type-arg
     // manglers tag ONLY genuine cross-package collisions. Lives on the checker so
     // the installed pointer stays valid through lower_program's mangling.
-    std::unordered_set<std::string> ambiguous_type_names_;
     // §3: module canonical NAME → id (from SemaOptions; resolves `use pkg from
     // <name>`). nullptr/empty → `from` clauses can't resolve.
     const std::unordered_map<std::string, std::string>* module_name_to_id_ = nullptr;
@@ -3227,6 +3225,7 @@ private:
         std::unordered_map<std::string, std::string> variant_aliases;
     };
     ImportScope cur_imports_;
+    ImportScope build_import_scope_(writ::TinyMapView root, bool diagnose);
 
     // Qualified key: "pkg::name" or "name" if pkg empty
     //
@@ -4649,7 +4648,6 @@ private:
     // forward-declares it on the same predicate; the linker resolves it).
     const logos::compiler::StrSet* binary_symbols_ = nullptr;
     // G156-1: dep-archive nominal decls (pkg,name) from the v3 exports trailer.
-    const std::vector<std::pair<std::string, std::string>>* dep_nominal_decls_ = nullptr;
     // How many from_binary fn bodies were skeleton-skipped this run. Surfaced
     // under LOGOS_SEMA_PHASE_TIMING as an observability hook for the skip path.
     size_t skel_skip_count_         = 0;
@@ -5974,7 +5972,23 @@ private:
                             bool is_schema_enum = false;
                             std::vector<std::pair<std::string, TypeRef>> schema_variants; // variant name → concrete schema view type
                           };
+    // ADR 0030 S9b row 1: a method's OWNER by identity — a nominal type's DefId
+    // (struct / enum / datatype; a generic one by its template), `&` / `&mut`
+    // of one, or, for an owner with no nominal (slice, dyn, primitive, tuple),
+    // its shape's spelling, which carries no package.
+    struct OwnerId {
+        DefId       nominal;
+        uint8_t     ref = 0;      // 0 by value, 1 `&`, 2 `&mut`
+        std::string shape;
+        explicit operator bool() const noexcept { return bool(nominal) || !shape.empty(); }
+        auto operator<=>(const OwnerId&) const = default;
+    };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
+                            OwnerId owner_id;   // S9b row 1: a method's owner; empty for a free fn
+                            DefId   def;        // Q1 row 1: a free fn's OVERLOAD SET (package + name)
+                            std::string method_name;   // its declared name (base_name may be trait-qualified)
+                            uint64_t    reg_seq = 0;   // registration order: methods_of_ answers in it
+                            TypeRef     owner_self = nullptr;   // the impl's (struct body's) Self, its parameters as type variables
                             std::vector<TypeParam> type_params; bool is_vararg = false;
                             std::string decl_key;   // ADR 0030 S9 row 1: see decl_symbols_
                             // CP-cm-16 follow-up: full impl-target pattern (with
@@ -6260,6 +6274,39 @@ private:
     // Propagated to SemaFuncInfo::impl_target_pattern for impl methods so
     // finish_generic_call can pattern-unify against concrete receivers.
     TypeRef impl_target_typeref_ = nullptr;
+    // ADR 0030 S9b: the base an impl's METHODS register under (collect_impl and
+    // lower_impl_block alike): the target's spelling, except that a plain
+    // nominal struct (no type arguments) is spelled by concrete_struct_name —
+    // the encoder every lookup composes with.
+    std::string impl_method_base_(writ::TinyMapView tnode, const std::string& target, TypeRef target_resolved) {
+        if (target_resolved || tnode.is_null()) return target;
+        return method_owner_base_(target);
+    }
+    // The method-registry base of a WRITTEN nominal name (a static call's
+    // `Type::`, an impl target): a non-generic struct by concrete_struct_name,
+    // anything else as written. A quiet lookup — no diagnostic.
+    // `impl Tr for &S` / `&mut S` (collect_impl and lower_impl_block alike): a
+    // generic pointee keys by its base, a concrete one — a non-generic struct
+    // included — by concrete_struct_name.
+    std::string ref_impl_target_(const std::string& prefix, TypeRef pointee) {
+        for (auto a : TypeRef(pointee).type_args())
+            if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar)
+                return prefix + std::string(TypeRef(pointee).struct_name());
+        return prefix + concrete_struct_name(pointee);
+    }
+    // `in_pkg` pins the package (a macro expansion's lang item, ADR 0030 L0)
+    // instead of resolving the name from the current one.
+    std::string method_owner_base_(const std::string& name, std::string_view in_pkg = {}) {
+        if (name.empty() || name[0] == '$' || name.find('$') != std::string::npos) return name;
+        if (!in_pkg.empty()) {
+            auto it = structs_.find(type_id(in_pkg, name));
+            if (it == structs_.end() || !it->second.type_params.empty()) return name;
+            return concrete_struct_name(make_struct_type(name, std::string(in_pkg)));
+        }
+        auto [spkg, si] = lookup_qualified_<false>(structs_, name);   // no privacy check: a key, not a use
+        if (!si || !si->type_params.empty()) return name;
+        return concrete_struct_name(make_struct_type(name, spkg));
+    }
     // Set when the upcoming collect_fn/lower_fn carries `#[no_mangle]` on
     // its annotation list. Reset to false at the end of each collect_fn /
     // lower_fn invocation so the flag never leaks across items.
@@ -6477,6 +6524,7 @@ private:
         std::vector<TypeParam>   type_params;
         std::vector<std::string> lifetime_params;  // e.g. ["'z"] for type Foo<'z, T> = ...
         std::string     package;  // B-mv-02: owning package for cross-pkg coexistence
+        DefId           def;      // ADR 0030 Q1 row 1: the alias's identity
         // ADR 0021 Phase 4a: RHS AST, retained for GENERIC aliases only. When
         // the RHS instantiates a generic const (`type PMap<K,V> =
         // CtrClass<PMapCfg<K,V>>`), decl-time resolution erases the
@@ -6777,6 +6825,22 @@ private:
     // has an id naming its own (package, name), and every impl whose trait
     // resolved names the same trait by id as by its canonical key.
     void check_trait_def_identity();
+    // Q1 row 1, always-on: every free fn's DefId names its own (package, name).
+    void check_value_def_identity();
+    // Q1 row 1: intern a value item (fn / const / static) or an alias; a name
+    // already defined in that namespace of the package as ANOTHER kind is
+    // E0428, as in Rust (a fn's overloads are one kind, one entity).
+    DefId intern_item_(DefKind kind, std::string_view name, uint32_t line) {
+        DefId have = defs_.find(def_ns(kind), cur_package_, name);
+        if (have && defs_[have].kind != kind) {
+            const auto saved = node_line_;
+            node_line_ = line;
+            error(std::format("the name `{}` is defined multiple times (E0428)", name));
+            node_line_ = saved;
+            return have;
+        }
+        return defs_.intern(kind, cur_package_, name);
+    }
     // The identity to file an impl of `key` (a path, a written name resolved in
     // scope, or a compiler-spelled lang item) under.
     DefId impl_trait_id(std::string_view trait_key) const {
@@ -6789,8 +6853,11 @@ private:
         auto seg = trait_last_seg(trait_key);
         return defs_.intern(DefKind::Trait, {}, seg);
     }
+    // The target is filed by its owner base (ADR 0030 S9b, impl_method_base_):
+    // a bare non-generic struct name asked here is normalized the same way.
     ImplKey impl_key(std::string_view trait_key, std::string_view target) const {
-        return ImplKey{impl_trait_id(trait_key), std::string(target)};
+        return ImplKey{impl_trait_id(trait_key),
+                       const_cast<SemaChecker*>(this)->method_owner_base_(std::string(target))};
     }
     bool has_impl(std::string_view trait_key, std::string_view target) const {
         return impls_.count(impl_key(trait_key, target)) != 0;
@@ -6798,6 +6865,187 @@ private:
     SemaImplInfo* find_impl(std::string_view trait_key, std::string_view target) {
         auto it = impls_.find(impl_key(trait_key, target));
         return it == impls_.end() ? nullptr : &it->second;
+    }
+    // ADR 0030 S9b row 1: the owner identity of a type, and the METHOD INDEX —
+    // (owner, method name) -> the registry keys (funcs_ / generic_funcs_) of the
+    // methods declared on that owner. A cache over the registries, so it
+    // follows their snapshots and package erasure: appended on registration,
+    // rebuilt in full when the registries were replaced.
+    OwnerId owner_id_of_(TypeRef t) const {
+        using K = LogosType::Kind;
+        OwnerId o;
+        if (!t) return o;
+        TypeRef b = t;
+        // A reference to a custom DST is one fat type carrying the struct.
+        if (b.kind() == K::DstRef) {
+            o.ref = b.mut_ptr() ? 2 : 1;
+            o.nominal = type_id(b.pkg_name(), b.struct_name());
+            if (!o.nominal) o.shape = type_str_regions_erased(b);
+            return o;
+        }
+        if (b.kind() == K::Ref || b.kind() == K::MutRef) {
+            o.ref = b.kind() == K::Ref ? 1 : 2;
+            b = b.pointee();
+            if (!b) return {};
+        }
+        const auto k = b.kind();
+        if (k == K::Struct || k == K::ZonedStruct) o.nominal = type_id(b.pkg_name(), b.struct_name());
+        else if (k == K::Enum)                     o.nominal = type_id(b.pkg_name(), b.enum_name());
+        if (!o.nominal) o.shape = shape_head_(b);
+        return o;
+    }
+    // A non-nominal owner by its type CONSTRUCTOR, not its arguments: `impl<T>
+    // Tr for [T]` and a `[i64]` receiver meet at `[]`; `impl<T> Tr for &T`
+    // owns `&_`. The arguments are the candidates' business (unification).
+    static std::string shape_head_(TypeRef b) {
+        using K = LogosType::Kind;
+        switch (b.kind()) {
+        case K::TypeVar:                         return "_";
+        case K::Slice: case K::UnsizedSlice:     return "[]";
+        case K::Array:                           return "[;]";
+        case K::Tuple:                           return "(" + std::to_string(b.tuple_elems().size()) + ")";
+        case K::TraitObject: case K::UnsizedDyn: return "dyn " + std::string(b.trait_name());
+        case K::Ptr:                             return b.mut_ptr() ? "*mut" : "*const";
+        default:                                 return type_str_regions_erased(b);
+        }
+    }
+    struct MethodRef { std::string key; bool generic = false; };
+    std::map<std::pair<OwnerId, std::string>, std::vector<MethodRef>> method_index_;
+    bool method_index_valid_ = false;
+    uint64_t reg_seq_next_ = 0;   // SemaFuncInfo::reg_seq   // false after the registries were replaced (restore)
+    void index_method_(const SemaFuncInfo& fi, const std::string& key, bool generic) {
+        if (!fi.owner_id || fi.method_name.empty()) return;
+        auto& v = method_index_[{fi.owner_id, fi.method_name}];
+        for (auto& r : v) if (r.key == key && r.generic == generic) return;
+        v.push_back({key, generic});
+    }
+    void ensure_method_index_() {
+        if (method_index_valid_) return;
+        method_index_.clear();
+        for (auto& [k, fi] : funcs_) index_method_(fi, k, false);
+        for (auto& [k, fi] : generic_funcs_) index_method_(fi, k, true);
+        method_index_valid_ = true;
+    }
+    // A registration: appended while the index is live (a stale key — an
+    // erased fn — resolves to nothing in methods_of_).
+    void note_registered_(const SemaFuncInfo& fi, const std::string& key, bool generic) {
+        if (method_index_valid_) index_method_(fi, key, generic);
+    }
+    // The methods named `m` declared on `owner` (its inherent and trait impls).
+    std::vector<const SemaFuncInfo*> methods_of_(TypeRef owner, std::string_view m) {
+        return methods_of_id_(owner_id_of_(owner), m);
+    }
+    std::vector<const SemaFuncInfo*> methods_of_id_(const OwnerId& o, std::string_view m) {
+        std::vector<const SemaFuncInfo*> out;
+        if (!o) return out;
+        ensure_method_index_();
+        auto take = [&](const OwnerId& q) {
+            auto it = method_index_.find({q, std::string(m)});
+            if (it == method_index_.end()) return;
+            for (auto& r : it->second) {
+                if (r.generic) { if (auto g = generic_funcs_.find(r.key); g != generic_funcs_.end()) out.push_back(&g->second); }
+                else if (auto f = funcs_.find(r.key); f != funcs_.end()) out.push_back(&f->second);
+            }
+        };
+        take(o);
+        // `impl<T> Tr for &T` / `&mut T` owns every reference.
+        if (o.ref && o.shape != "_") take(OwnerId{{}, o.ref, "_"});
+        // Declaration order, not the registries' hash order (an overload set's
+        // diagnostics cite its first member).
+        std::stable_sort(out.begin(), out.end(), [](auto* a, auto* b) { return a->reg_seq < b->reg_seq; });
+        return out;
+    }
+    // Does a candidate's declared self (its impl's parameters as type variables)
+    // match `act` structurally? (sema_expr.cpp)
+    static bool self_pattern_match_(TypeRef pat, TypeRef act, int depth = 0);
+    // A non-generic method of `self_t` itself: `arity` parameters, no type
+    // parameters, and the receiver (by value or through `&` / `&mut`) exactly
+    // `self_t` — the index also answers the owner's other instances' impls.
+    static bool concrete_self_method_(const SemaFuncInfo* c, TypeRef self_t, size_t arity) {
+        if (!c || c->param_types.size() != arity || !c->type_params.empty() || arity == 0) return false;
+        TypeRef p0 = c->param_types[0];
+        if (p0 && is_ref_like(TypeRef(p0).kind()) && TypeRef(p0).pointee()) p0 = TypeRef(p0).pointee();
+        return p0 && types_equal(p0, self_t);
+    }
+    // ADR 0030 S9b row 2: impls by (trait identity, owner identity) — a cache
+    // over impls_, rebuilt when impls_gen_ moves. find_impl_ answers the impl
+    // of `trait_key` for `t`: an exact Self first, else one whose Self pattern
+    // matches (`impl<T> Tr for W<T>` at `W<i64>`).
+    std::map<std::pair<uint64_t, OwnerId>, std::vector<std::pair<ImplKey, size_t>>> impl_index_;
+    uint64_t impl_index_gen_ = ~0ull;
+    // Every impl of `trait_key` whose owner is `t`'s (all of impls_all_, which
+    // keeps the impls one spelled key holds several of — Pin<&T> / Pin<&mut
+    // T> / Pin<Box<T>>). Pointers are valid until the next registration.
+    std::vector<const SemaImplInfo*> impls_for_(std::string_view trait_key, TypeRef t) {
+        std::vector<const SemaImplInfo*> out;
+        if (!t || trait_key.empty()) return out;
+        if (impl_index_gen_ != impls_gen_) {
+            impl_index_.clear();
+            for (auto& [k, infos] : impls_all_)
+                for (size_t i = 0; i < infos.size(); ++i) {
+                    TypeRef st = infos[i].self_type ? infos[i].self_type : infos[i].target_typeref;
+                    if (OwnerId o = owner_id_of_(st)) impl_index_[{k.trait_def.v, o}].push_back({k, i});
+                }
+            impl_index_gen_ = impls_gen_;
+        }
+        const DefId tid = impl_trait_id(trait_key);
+        auto take = [&](const OwnerId& o) {
+            auto it = impl_index_.find({tid.v, o});
+            if (it == impl_index_.end()) return;
+            for (auto& [k, i] : it->second)
+                if (auto ait = impls_all_.find(k); ait != impls_all_.end() && i < ait->second.size())
+                    out.push_back(&ait->second[i]);
+        };
+        OwnerId o = owner_id_of_(t);
+        if (!o) return out;
+        take(o);
+        if (o.ref && o.shape != "_") take(OwnerId{{}, o.ref, "_"});
+        return out;
+    }
+    // The same, for a lang trait named by its lang key (`index`, `deref`) — its
+    // identity, never a bare spelling a homonym trait could answer.
+    std::string lang_trait_key_(std::string_view lang) const {
+        const LangItem* li = lang_item(lang);
+        if (!li) return {};
+        return li->package.empty() ? li->name : li->package + "::" + li->name;
+    }
+    std::vector<const SemaImplInfo*> impls_for_lang_(std::string_view lang, TypeRef t) {
+        return impls_for_(lang_trait_key_(lang), t);
+    }
+    const SemaImplInfo* find_lang_impl_(std::string_view lang, TypeRef t) {
+        return find_impl_(lang_trait_key_(lang), t);
+    }
+    const SemaImplInfo* find_impl_(std::string_view trait_key, TypeRef t) {
+        const SemaImplInfo* by_pattern = nullptr;
+        for (auto* info : impls_for_(trait_key, t)) {
+            if (info->is_negative) continue;
+            TypeRef st = info->self_type ? info->self_type : info->target_typeref;
+            if (!st) continue;
+            if (types_equal(st, t)) return info;
+            if (!by_pattern && self_pattern_match_(st, t)) by_pattern = info;
+        }
+        return by_pattern;
+    }
+    // An impl asked by a SPELLED target only (the deem pipeline matches sources
+    // by their type's text): the exact key, else the impls of this trait whose
+    // target is that spelling under its package fold — a type declared in a
+    // package the asking one does not import (`logos.gen`'s factory families)
+    // folds by its own package. More than one is an internal error.
+    SemaImplInfo* find_impl_by_spelling_(std::string_view trait_key, std::string_view target) {
+        ImplKey k = impl_key(trait_key, target);
+        if (auto it = impls_.find(k); it != impls_.end()) return &it->second;
+        SemaImplInfo* hit = nullptr;
+        for (auto& [ik, info] : impls_) {
+            if (ik.trait_def != k.trait_def || SemaResult::strip_fold_codes(ik.target) != target) continue;
+            if (hit) {
+                std::fprintf(stderr, "internal compiler error: impl %.*s for `%.*s`: more than one package's "
+                             "type answers the spelling\n", (int)trait_key.size(), trait_key.data(),
+                             (int)target.size(), target.data());
+                std::abort();
+            }
+            hit = &info;
+        }
+        return hit;
     }
     ImplMap<SemaImplInfo>                     impls_;
     // ADR 0030 S9 rows 3-4: the C-OBL impl table built from impls_all_ (the
@@ -7038,7 +7286,10 @@ private:
 
     // Build the full set of packages to search when resolving a name in context of cur_imports_.
     // Includes directly imported packages AND their transitive pub-use re-exports.
-    std::vector<std::string> effective_import_pkgs() const {
+    // Memoised on the import list and the re-export graph's generation — asked
+    // by every qualified type lookup (method_owner_base_ / impl_key among them).
+    const std::vector<std::string>& effective_import_pkgs() const {
+        if (eip_gen_ == reexports_gen_ && eip_key_ == cur_imports_.wildcard_packages) return eip_cache_;
         std::vector<std::string> result;
         StrSet visited;
         for (auto& pkg : cur_imports_.wildcard_packages) {
@@ -7047,8 +7298,14 @@ private:
                 collect_reexports(pkg, visited, result);
             }
         }
-        return result;
+        eip_cache_ = std::move(result);
+        eip_key_ = cur_imports_.wildcard_packages;
+        eip_gen_ = reexports_gen_;
+        return eip_cache_;
     }
+    mutable std::vector<std::string> eip_cache_, eip_key_;
+    mutable uint64_t eip_gen_ = ~0ull;
+    uint64_t reexports_gen_ = 0;   // bumped whenever pkg_reexports_ changes
 
     // Find struct by user-written name (searches cur_package_ then imports+reexports then unqualified)
     // Generic lookup: try cur_package_ → imported packages → bare key.
@@ -8860,9 +9117,34 @@ private:
             const LangItem* li = lang_item(l);
             return li ? (li->package.empty() ? li->name : li->package + "::" + li->name) : std::string();
         });
+        hir_.set_type_resolver([this](std::string_view n) { return resolve_type_path_(n); });
         writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false, fragment);
         hir_report_();
         return map_of(core);
+    }
+    static bool lookup_type_by_name_prim_(std::string_view n) {
+        static const std::unordered_set<std::string_view> prims{
+            "i8","i16","i24","i32","i56","i64","i128","u8","u16","u24","u32","u56","u64","u128",
+            "isize","usize","f32","f64","bool","char","str","void","!"};
+        return prims.count(n) != 0;
+    }
+    // Q1 row 3: the item a bare type name denotes here — an alias, or a
+    // struct / datatype / enum ranked PER SCOPE (lookup_type_by_name's rule) —
+    // as its path; "" for a primitive, a type parameter, `Self`, or nothing.
+    std::string resolve_type_path_(std::string_view name) {
+        if (name.empty() || name == "Self" || name == "_" || current_type_params_.count(std::string(name))) return {};
+        if (lookup_type_by_name_prim_(name)) return {};
+        auto path = [](const std::string& pkg, std::string_view n) { return pkg + "::" + std::string(n); };
+        if (auto ait = alias_find(std::string(name)); ait != type_aliases_.end() && ait->second.type_params.empty())
+            return path(ait->second.package, name);
+        auto rank = [&](const std::string& pkg) { return pkg == cur_package_ ? 0 : pkg.empty() ? 2 : 1; };
+        auto [sp, s0] = lookup_qualified_<false>(structs_, name);
+        auto [dp, d0] = lookup_qualified_<false>(datatypes_, name);
+        auto [ep, e0] = lookup_qualified_<false>(enums_, name);
+        const int rs = s0 ? rank(sp) : 9, rd = d0 ? rank(dp) : 9, re = e0 ? rank(ep) : 9;
+        const int best = std::min({rs, rd, re});
+        if (best == 9) return {};
+        return path(rs == best ? sp : rd == best ? dp : ep, name);
     }
     // The pass's diagnostics, each at its own line.
     void hir_report_() {
@@ -9295,6 +9577,11 @@ private:
     const SemaFuncInfo* find_func_by_base_and_signature(std::string_view base_name,
                                                         const std::vector<TypeRef>& param_types,
                                                         bool is_vararg = false) const;
+    const SemaFuncInfo* find_method_by_signature_(TypeRef owner, std::string_view method,
+                                                  const std::vector<TypeRef>& param_types, bool is_vararg);
+    std::vector<const SemaFuncInfo*> filter_visible_(std::vector<const SemaFuncInfo*> all) const;
+    static const SemaFuncInfo* pick_by_signature_(const std::vector<const SemaFuncInfo*>& cands,
+                                                  const std::vector<TypeRef>& param_types, bool is_vararg);
     std::vector<const SemaFuncInfo*> find_func_candidates(std::string_view base_name) const;
     // The function collected for a declaration (SemaFuncInfo::decl_key); null when none.
     const SemaFuncInfo* func_by_decl_(const std::string& decl_key);
@@ -9303,7 +9590,7 @@ private:
     // The `<Type>__<op>_assign(&mut Self, Rhs)` impl for a compound assignment:
     // by the RHS's type, then Self; an unsuffixed literal RHS takes the width of
     // the one impl whose Rhs is a matching primitive (`m += 3` over AddAssign<i64>).
-    const SemaFuncInfo* find_op_assign_impl(const std::string& mangled, TypeRef ref_t,
+    const SemaFuncInfo* find_op_assign_impl(std::string_view method, TypeRef ref_t,
                                             TypeRef self_t, lir::LExprPtr& rhs);
 
     // ── A BUILTIN NAME IS NOT AN IDENTITY ────────────────────────────────
@@ -10435,8 +10722,8 @@ private:
     TypeRef deref_target_type_(TypeRef t);
     // ADR 0030 S8 row 4 — THE method probe (rustc's): receiver steps by
     // value, `&`, `&mut`, then one deref (reference, Box / user Deref, array
-    // unsize); at a step inherent before trait. `impl_lookup_keys_` is every
-    // impl-registry target key a concrete type is found under.
+    // unsize); at a step inherent before trait. A step's candidates are the
+    // methods declared on its type (methods_of_, ADR 0030 S9b row 2).
     // `autoref`: 0 by value, 1 `&`, 2 `&mut` — never a raw pointer. `tied`: every candidate of the best
     // rank — overloads by argument type are select_overload's, not the probe's.
     // `via_arm`: no impl candidate — step `derefs` is answered by another arm:
@@ -10444,7 +10731,6 @@ private:
     // its self is `&mut`), or a type parameter / projection (its bounds).
     struct ProbePick { const SemaFuncInfo* fi = nullptr; int derefs = 0; int autoref = 0; std::string key;
                        std::vector<const SemaFuncInfo*> tied; bool via_arm = false; bool dyn_mut = false; };
-    std::vector<std::string> impl_lookup_keys_(TypeRef t);
     ProbePick probe_method_(TypeRef recv_t, std::string_view name);
     bool type_param_bounds_viable_(const SemaFuncInfo& fi, const SemaSubst& binds, int* bound_count);
     const SemaFuncInfo* resolve_trait_item_(std::string_view trait, TypeRef self, std::string_view name,

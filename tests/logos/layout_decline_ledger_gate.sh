@@ -51,6 +51,9 @@ declines_for() {
         LOGOS_VERIFY_LAYOUT=1 \
             "$LOGOSC" "$src" -o "$TMPD/out.o" >/dev/null 2>"$err" || true
     fi
+    # A key names the DECLARED type: an instance's package fold (`$M<hex16>`,
+    # ADR 0030 S9b) is stripped, so a ledger row does not pin a hash.
+    sed -i -E 's/\$M[0-9a-f]{16}//g' "$err"
     grep -c -F "[declined] ${key}: DECLINED" "$err" || true
 }
 

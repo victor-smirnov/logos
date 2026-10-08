@@ -1,0 +1,10 @@
+// Closed squeue method_on_ref_array_impl_refused (#736): a method of an impl over `&'a [T; N]` is a candidate of
+// the receiver `&a` (it was "receiver is not a struct"). The method probe asks the step type's identity (ADR 0030
+// S9b row 2) — `&[;]` owns the impl — instead of composing keys the array never had. rustc twin: exit 3.
+package method_on_ref_array_impl;
+trait Tr { fn g(self) -> i64; }
+impl<'a, T, const N: i64> Tr for &'a [T; N] { fn g(self) -> i64 { N } }
+fn main() -> i32 {
+    let a: [i64; 3] = [1, 2, 3];
+    return (&a).g() as i32;
+}

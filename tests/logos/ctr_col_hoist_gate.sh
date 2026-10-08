@@ -81,7 +81,7 @@ if ! python3 "$EXTRACTOR" "$TMPD/cg.out" > "$TMPD/edges" 2> "$TMPD/edges.err"; t
     cat "$TMPD/edges.err"; exit 2
 fi
 
-RESOLVES=$(awk -F'\t' '$3 ~ /ColsBatch__resolve_fse__f__/ { n += $1 } END { if (n > 0) print n }' "$TMPD/edges")
+RESOLVES=$(awk -F'\t' '$3 ~ /ColsBatch([$]M[0-9a-f]+)?__resolve_fse__f__/ { n += $1 } END { if (n > 0) print n }' "$TMPD/edges")
 if [ -z "$RESOLVES" ]; then
     echo "FAIL(2): no call edge into ColsBatch::resolve_fse in the profile — inlined away or"
     echo "         renamed, so this gate cannot decide. Edges seen (top 20):"

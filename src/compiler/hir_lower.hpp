@@ -118,6 +118,10 @@ public:
     // desugaring names IntoIterator / Iterator / Option by it, whatever the
     // user's scope holds. Empty when the lang item is not declared.
     void set_lang_paths(std::function<std::string(std::string_view)> f) { lang_path_ = std::move(f); }
+    // ADR 0030 Q1 row 3: the item a written TYPE name denotes in the body's
+    // scope, as a path (`pkg::Name`; `::Name` for the root), or "" for one
+    // that is not an item (a primitive, a type parameter, `Self`, unknown).
+    void set_type_resolver(std::function<std::string(std::string_view)> f) { type_res_ = std::move(f); }
 
 private:
     enum class Ctx { Stmt, Expr };
@@ -182,6 +186,7 @@ private:
     std::deque<writ::Writ>                   arg_docs_;
     std::string                              file_;
     std::function<std::string(std::string_view)> lang_path_;
+    std::function<std::string(std::string_view)> type_res_;
 
     writ::Writ        doc_;
     std::vector<Diag> diags_;

@@ -79,165 +79,171 @@ bool ast_anyval_equal(AnyVal a, AnyVal b,
 
 // Symbol-collection phase: populate SemaChecker symbol tables.
 
-void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
-    // Helper: build ImportScope (wildcard_packages) from a module's USES array.
-    auto build_import_scope = [&](TinyMapView root) -> ImportScope {
-        ImportScope scope;
-        if (!root.has_key(la::USES)) return scope;
-        auto uses_av = root.get(la::USES.code);
-        if (uses_av.is_null() || !uses_av.is_pointer()) return scope;
-        auto uses = arr_of(uses_av);
-        for (uint64_t i = 0; i < uses.size(); ++i) {
-            auto use_node = map_of(uses.get(i));
-            // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — register each
-            // listed variant under the bare-name alias map. The dotted-path
-            // portion still becomes a wildcard import so the enum type
-            // itself is in scope (call sites can use both `Type::V1` and
-            // bare `V1`). TYPE_NAME is the last segment (the enum); the
-            // pkg head + PATH_PARTS up to TYPE_NAME form the wildcard pkg.
-            int32_t use_code = la::USE.code;
-            if (use_node.has_key(la::CODE)) {
-                auto cv = use_node.get(la::CODE.code);
-                if (!cv.is_null() && !cv.is_pointer())
-                    use_code = cv.as_value<int32_t>();
+// A module's import scope from its USES array — ONE builder for collect and
+// lower (Q1 row 2). `diagnose`: collect reports the import's errors and
+// warnings and records `pub use` re-exports once; lower rebuilds silently.
+SemaChecker::ImportScope SemaChecker::build_import_scope_(TinyMapView root, bool diagnose) {
+    ImportScope scope;
+    if (!root.has_key(la::USES)) return scope;
+    auto uses_av = root.get(la::USES.code);
+    if (uses_av.is_null() || !uses_av.is_pointer()) return scope;
+    auto uses = arr_of(uses_av);
+    for (uint64_t i = 0; i < uses.size(); ++i) {
+        auto use_node = map_of(uses.get(i));
+        // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — register each
+        // listed variant under the bare-name alias map. The dotted-path
+        // portion still becomes a wildcard import so the enum type
+        // itself is in scope (call sites can use both `Type::V1` and
+        // bare `V1`). TYPE_NAME is the last segment (the enum); the
+        // pkg head + PATH_PARTS up to TYPE_NAME form the wildcard pkg.
+        int32_t use_code = la::USE.code;
+        if (use_node.has_key(la::CODE)) {
+            auto cv = use_node.get(la::CODE.code);
+            if (!cv.is_null() && !cv.is_pointer())
+                use_code = cv.as_value<int32_t>();
+        }
+        std::string dotted;
+        if (use_node.has_key(la::NAME)) {
+            dotted = std::string(str_of(use_node.get(la::NAME.code)));
+        }
+        if (use_node.has_key(la::mod::PATH_PARTS)) {
+            auto parts = arr_of(use_node.get(la::mod::PATH_PARTS.code));
+            for (uint64_t pi = 0; pi < parts.size(); ++pi) {
+                auto part = map_of(parts.get(pi));
+                if (!part.has_key(la::NAME)) continue;
+                if (!dotted.empty()) dotted += '.';
+                dotted += std::string(str_of(part.get(la::NAME.code)));
             }
-            std::string dotted;
-            if (use_node.has_key(la::NAME)) {
-                dotted = std::string(str_of(use_node.get(la::NAME.code)));
-            }
-            if (use_node.has_key(la::mod::PATH_PARTS)) {
-                auto parts = arr_of(use_node.get(la::mod::PATH_PARTS.code));
-                for (uint64_t pi = 0; pi < parts.size(); ++pi) {
-                    auto part = map_of(parts.get(pi));
-                    if (!part.has_key(la::NAME)) continue;
-                    if (!dotted.empty()) dotted += '.';
-                    dotted += std::string(str_of(part.get(la::NAME.code)));
-                }
-            }
-            // GR-gp-02: `use pkg.{a, b, c};` parses as USE_VARIANTS with
-            // a lowercase TYPE_NAME — desugar to wildcard imports
-            // `<dotted>.<TYPE_NAME>.<item>`. Capitalised TYPE_NAME is the
-            // enum-variant form handled below.
-            if (use_code == la::USE_VARIANTS.code && use_node.has_key(la::TYPE_NAME)) {
-                std::string tn(str_of(use_node.get(la::TYPE_NAME.code)));
-                if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
-                    std::string prefix = dotted.empty()
-                        ? tn : (dotted + "." + tn);
-                    if (use_node.has_key(la::VARIANTS)) {
-                        auto vlist_av = use_node.get(la::VARIANTS.code);
-                        if (!vlist_av.is_null() && vlist_av.is_pointer()) {
-                            auto vlist = arr_of(vlist_av);
-                            for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
-                                auto v = map_of(vlist.get(vi));
-                                if (!v.has_key(la::NAME)) continue;
-                                auto bare = std::string(str_of(v.get(la::NAME.code)));
-                                std::string full = prefix + "." + bare;
-                                if (std::find(scope.wildcard_packages.begin(),
-                                              scope.wildcard_packages.end(), full)
-                                    != scope.wildcard_packages.end())
-                                    continue;
-                                scope.wildcard_packages.push_back(std::move(full));
-                            }
-                        }
-                    }
-                    continue;
-                }
-            }
-            if (use_code == la::USE_VARIANTS.code) {
+        }
+        // GR-gp-02: `use pkg.{a, b, c};` parses as USE_VARIANTS with
+        // a lowercase TYPE_NAME — desugar to wildcard imports
+        // `<dotted>.<TYPE_NAME>.<item>`. Capitalised TYPE_NAME is the
+        // enum-variant form handled below.
+        if (use_code == la::USE_VARIANTS.code && use_node.has_key(la::TYPE_NAME)) {
+            std::string tn(str_of(use_node.get(la::TYPE_NAME.code)));
+            if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
+                std::string prefix = dotted.empty()
+                    ? tn : (dotted + "." + tn);
                 if (use_node.has_key(la::VARIANTS)) {
                     auto vlist_av = use_node.get(la::VARIANTS.code);
                     if (!vlist_av.is_null() && vlist_av.is_pointer()) {
                         auto vlist = arr_of(vlist_av);
-                        std::string type_q;  // pkg-qualifier captured but not
-                        // emitted in the alias today (Logos resolves bare
-                        // variant against any enum carrying that variant
-                        // via find_enum_by_name during lower).
                         for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
                             auto v = map_of(vlist.get(vi));
                             if (!v.has_key(la::NAME)) continue;
                             auto bare = std::string(str_of(v.get(la::NAME.code)));
-                            // Resolve TYPE_NAME for the alias value; the
-                            // dotted path captured above is the pkg part
-                            // (e.g. "std.lang.ord"), TYPE_NAME is "Ordering".
-                            std::string enum_qual;
-                            if (use_node.has_key(la::TYPE_NAME)) {
-                                enum_qual = std::string(
-                                    str_of(use_node.get(la::TYPE_NAME.code)));
-                            }
-                            scope.variant_aliases[bare] = enum_qual;
+                            std::string full = prefix + "." + bare;
+                            if (std::find(scope.wildcard_packages.begin(),
+                                          scope.wildcard_packages.end(), full)
+                                != scope.wildcard_packages.end())
+                                continue;
+                            scope.wildcard_packages.push_back(std::move(full));
                         }
                     }
                 }
-                // Make the underlying pkg visible too (so `Type::V` still
-                // resolves alongside bare `V`).
-                if (!dotted.empty())
-                    scope.wildcard_packages.push_back(std::move(dotted));
                 continue;
             }
-            if (dotted.empty()) continue;
-            // B-mv-10: warn on `use pkg;` repeated in the same module.
-            // Functional behaviour is unchanged (effective_import_pkgs already
-            // dedups), but copy-paste mistakes silently slipped through.
-            if (std::find(scope.wildcard_packages.begin(),
-                          scope.wildcard_packages.end(), dotted)
-                != scope.wildcard_packages.end()) {
-                warn(std::format("duplicate 'use {};' in module", dotted));
-            }
-            // B-mv-11: self-import — `use cur_package_;` is a no-op (own
-            // package symbols already resolve first).  Warn so users notice
-            // the redundancy.
-            if (!cur_package_.empty() && dotted == cur_package_) {
-                warn(std::format("'use {};': self-import has no effect "
-                                 "(own package is always in scope)", dotted));
-            }
-            scope.wildcard_packages.push_back(dotted);
-            // §3: `use pkg from <module>;` — restrict this package's candidates
-            // to the named module. The contextual `from` keyword is matched as a
-            // bare IDENT in the grammar (so `From::from` stays valid), so validate
-            // it here; resolve the module NAME (bare or quoted) to its mangle id.
-            if (use_node.has_key(la::mod::FROM_MODULE)) {
-                std::string kw;
-                if (use_node.has_key(la::mod::FROM_KW))
-                    kw = std::string(str_of(use_node.get(la::mod::FROM_KW.code)));
-                if (kw != "from") {
-                    error(std::format("expected 'from' before the module name in "
-                                      "`use {} ...;`, found '{}'", dotted, kw));
-                } else {
-                    std::string mname;
-                    auto fm = map_of(use_node.get(la::mod::FROM_MODULE.code));
-                    if (fm.has_key(la::NAME))
-                        mname = std::string(str_of(fm.get(la::NAME.code)));
-                    // The STRING token keeps its surrounding quotes — strip them.
-                    if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
-                        mname = mname.substr(1, mname.size() - 2);
-                    if (mname.empty()) {
-                        error(std::format("`use {} from`: missing module name", dotted));
-                    } else if (!module_name_to_id_ || module_name_to_id_->empty()) {
-                        // Map not primed (e.g. a metaprog discovery pass before the
-                        // loaded-module set is threaded). Skip the restriction
-                        // silently here; the final pass carries the real map.
-                    } else if (auto it = module_name_to_id_->find(mname);
-                               it == module_name_to_id_->end()) {
-                        error(std::format("`use {} from {}`: no loaded module is "
-                                          "named '{}'", dotted, mname, mname));
-                    } else {
-                        scope.pkg_from_module_id[dotted] = it->second;
+        }
+        if (use_code == la::USE_VARIANTS.code) {
+            if (use_node.has_key(la::VARIANTS)) {
+                auto vlist_av = use_node.get(la::VARIANTS.code);
+                if (!vlist_av.is_null() && vlist_av.is_pointer()) {
+                    auto vlist = arr_of(vlist_av);
+                    std::string type_q;  // pkg-qualifier captured but not
+                    // emitted in the alias today (Logos resolves bare
+                    // variant against any enum carrying that variant
+                    // via find_enum_by_name during lower).
+                    for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
+                        auto v = map_of(vlist.get(vi));
+                        if (!v.has_key(la::NAME)) continue;
+                        auto bare = std::string(str_of(v.get(la::NAME.code)));
+                        // Resolve TYPE_NAME for the alias value; the
+                        // dotted path captured above is the pkg part
+                        // (e.g. "std.lang.ord"), TYPE_NAME is "Ordering".
+                        std::string enum_qual;
+                        if (use_node.has_key(la::TYPE_NAME)) {
+                            enum_qual = std::string(
+                                str_of(use_node.get(la::TYPE_NAME.code)));
+                        }
+                        scope.variant_aliases[bare] = enum_qual;
                     }
                 }
             }
-            // `pub use pkg;` — register as re-export from current package
-            bool is_pub = use_node.has_key(la::IS_PUB) &&
-                          !use_node.get(la::IS_PUB.code).is_null() &&
-                          use_node.get(la::IS_PUB.code).is_value() &&
-                          use_node.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
-            if (is_pub && !cur_package_.empty()) {
-                auto& vec = pkg_reexports_[cur_package_];
-                if (std::find(vec.begin(), vec.end(), dotted) == vec.end())
-                    vec.push_back(dotted);
+            // Make the underlying pkg visible too (so `Type::V` still
+            // resolves alongside bare `V`).
+            if (!dotted.empty())
+                scope.wildcard_packages.push_back(std::move(dotted));
+            continue;
+        }
+        if (dotted.empty()) continue;
+        // B-mv-10: warn on `use pkg;` repeated in the same module.
+        // Functional behaviour is unchanged (effective_import_pkgs already
+        // dedups), but copy-paste mistakes silently slipped through.
+        if (std::find(scope.wildcard_packages.begin(),
+                      scope.wildcard_packages.end(), dotted)
+            != scope.wildcard_packages.end()) {
+            warn(std::format("duplicate 'use {};' in module", dotted));
+        }
+        // B-mv-11: self-import — `use cur_package_;` is a no-op (own
+        // package symbols already resolve first).  Warn so users notice
+        // the redundancy.
+        if (!cur_package_.empty() && dotted == cur_package_) {
+            warn(std::format("'use {};': self-import has no effect "
+                             "(own package is always in scope)", dotted));
+        }
+        scope.wildcard_packages.push_back(dotted);
+        // §3: `use pkg from <module>;` — restrict this package's candidates
+        // to the named module. The contextual `from` keyword is matched as a
+        // bare IDENT in the grammar (so `From::from` stays valid), so validate
+        // it here; resolve the module NAME (bare or quoted) to its mangle id.
+        if (use_node.has_key(la::mod::FROM_MODULE)) {
+            std::string kw;
+            if (use_node.has_key(la::mod::FROM_KW))
+                kw = std::string(str_of(use_node.get(la::mod::FROM_KW.code)));
+            if (kw != "from") {
+                error(std::format("expected 'from' before the module name in "
+                                  "`use {} ...;`, found '{}'", dotted, kw));
+            } else {
+                std::string mname;
+                auto fm = map_of(use_node.get(la::mod::FROM_MODULE.code));
+                if (fm.has_key(la::NAME))
+                    mname = std::string(str_of(fm.get(la::NAME.code)));
+                // The STRING token keeps its surrounding quotes — strip them.
+                if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
+                    mname = mname.substr(1, mname.size() - 2);
+                if (mname.empty()) {
+                    error(std::format("`use {} from`: missing module name", dotted));
+                } else if (!module_name_to_id_ || module_name_to_id_->empty()) {
+                    // Map not primed (e.g. a metaprog discovery pass before the
+                    // loaded-module set is threaded). Skip the restriction
+                    // silently here; the final pass carries the real map.
+                } else if (auto it = module_name_to_id_->find(mname);
+                           it == module_name_to_id_->end()) {
+                    error(std::format("`use {} from {}`: no loaded module is "
+                                      "named '{}'", dotted, mname, mname));
+                } else {
+                    scope.pkg_from_module_id[dotted] = it->second;
+                }
             }
         }
-        return scope;
-    };
+        // `pub use pkg;` — register as re-export from current package
+        bool is_pub = use_node.has_key(la::IS_PUB) &&
+                      !use_node.get(la::IS_PUB.code).is_null() &&
+                      use_node.get(la::IS_PUB.code).is_value() &&
+                      use_node.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+        if (is_pub && !cur_package_.empty()) {
+            ++reexports_gen_;
+            auto& vec = pkg_reexports_[cur_package_];
+            if (std::find(vec.begin(), vec.end(), dotted) == vec.end())
+                vec.push_back(dotted);
+        }
+    }
+    return scope;
+}
+
+void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
+    // Helper: build ImportScope (wildcard_packages) from a module's USES array.
+    auto build_import_scope = [&](TinyMapView root) -> ImportScope { return build_import_scope_(root, true); };
 
     // Three-layer split Phase 3.4: append the manifest-declared implicit
     // prelude to the wildcard scope unless this file opts out via
@@ -2340,6 +2346,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 // No VALUE ⇒ extern-block decl: links against the BARE name.
                 collect_const(item);
                 auto sm_name = std::string(str_of(item.get(la::NAME.code)));
+                (void)intern_item_(DefKind::Static, sm_name, get_line(item));   // Q1 row 1
                 // Coexistence: module-qualify the static's link symbol
                 // (`<module_id>.<pkg>$<name>`) like functions so two modules that
                 // each declare `pkg::NAME` don't collide at link. cur_module_id_
@@ -2645,6 +2652,7 @@ void SemaChecker::collect_type_alias(TinyMapView node) {
     // a same-name alias from another package registers under `pkg::Name` only.
     // lookup_type_by_name probes `cur_package_::name` first, so user code
     // resolves to its own alias. Real duplicate = same package + same name.
+    entry.def = intern_item_(DefKind::Alias, name, get_line(node));   // Q1 row 1
     auto bit = type_aliases_.find(name);
     const bool bare_taken_by_other =
         bit != type_aliases_.end() && !bit->second.package.empty() &&
@@ -2685,6 +2693,7 @@ void SemaChecker::collect_const(TinyMapView node) {
             error(std::format("duplicate const '{}'", name));
         }
         module_consts_[qk] = t;
+        if (code_of(node) != la::STATIC_DEF) (void)intern_item_(DefKind::Const, name, get_line(node));   // Q1 row 1 (a static: its own kind)
         const_index_add(cur_package_, name);   // bare-name uniqueness index
         // M5 step 5c: track user-origin keys for snapshot filtering.
         if (!cur_from_binary_) user_module_const_keys_.insert(qk);
@@ -3350,6 +3359,19 @@ void SemaChecker::inject_implicit_prelude_(TinyMapView root) {
     if (std::find(w.begin(), w.end(), pre) == w.end()) w.push_back(pre);
 }
 
+void SemaChecker::check_value_def_identity() {
+    for (auto* m : {&funcs_, &generic_funcs_})
+        for (auto& [k, fi] : *m) {
+            if (!fi.def) continue;
+            const auto& e = defs_[fi.def];
+            if (e.package != fi.package) {
+                std::fprintf(stderr, "logosc INTERNAL: fn '%s' carries the id of '%s::%s'\n",
+                             k.c_str(), e.package.c_str(), e.name.c_str());
+                std::abort();
+            }
+        }
+}
+
 void SemaChecker::check_trait_def_identity() {
     auto fail = [](const std::string& what) {
         std::fprintf(stderr, "logosc INTERNAL: #438 DefTable/registry disagreement: %s\n",
@@ -3585,14 +3607,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 impl_written_ref_slice = resolved;
             } else if (pointee && (TypeRef(pointee).kind() == LogosType::Kind::Struct ||
                             TypeRef(pointee).kind() == LogosType::Kind::ZonedStruct)) {
-                bool has_tvar = false;
-                for (auto a : TypeRef(pointee).type_args())
-                    if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { has_tvar = true; break; }
-                if (TypeRef(pointee).type_args().empty() || has_tvar) {
-                    target = prefix + std::string(TypeRef(pointee).struct_name());
-                } else {
-                    target = prefix + concrete_struct_name(pointee);
-                }
+                target = ref_impl_target_(prefix, pointee);
             } else if (pointee && TypeRef(pointee).kind() == LogosType::Kind::TypeVar) {
                 // Phase 1B-8: generic ref-blanket `impl<T> Trait for &T` /
                 // `impl<T> Trait for &mut T`. Use a fixed sentinel name so
@@ -3708,6 +3723,11 @@ void SemaChecker::collect_impl(TinyMapView node) {
             }
         }
     }
+    // ADR 0030 S9b: the base a METHOD registers under. A plain nominal struct
+    // target is spelled by the one encoder the lookups compose with
+    // (concrete_struct_name): the bare written name matched it only while the
+    // name was unambiguous (no `$M` fold), by luck.
+    const std::string method_base = impl_method_base_(node.has_key(la::TYPE) ? map_of(node.get(la::TYPE.code)) : TinyMapView{}, target, target_resolved);
     // Note: impl_tps are left in current_type_params_ until after collect_fn calls below.
     // CP-cm-16 follow-up: publish impl-target pattern so collect_fn can plant
     // it onto each method's SemaFuncInfo. Carries the full pattern with
@@ -4303,7 +4323,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 // `impl<DT: PodRef> T for DT`) register under separate keys.
                 std::string reg_target = is_blanket
                     ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
-                    : target;
+                    : method_base;
                 auto mangled = reg_target + "__" + mname;
                 collect_fn(m, reg_target, trait_name);
                 // The written `self:` type of an INHERENT impl method,
@@ -4541,7 +4561,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
     // same mapping here so the completeness check sees the real methods.
     std::string check_target = is_blanket
         ? ("$blanket$" + trait_name + "$" + blanket_bound_trait + "$" + target)
-        : target;
+        : method_base;
     // C-OBL sees this impl while its methods are checked against the trait.
     struct PendingImpl {
         SemaChecker& s;
@@ -5202,7 +5222,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     // entry pushed so try_blanket_method_dispatch surfaces it on
                     // any concrete receiver satisfying Bound. Without this, the
                     // trait's defaults are invisible on a blanket impl.
-                    std::string def_reg_target = is_blanket ? check_target : target;
+                    std::string def_reg_target = is_blanket ? check_target : method_base;
                     // An inherited default's Self takes the header's NAMED anonymous binders.
                     if (!is_blanket && self_type && impl_self_ty &&
                         TypeRef(self_type).kind() == TypeRef(impl_self_ty).kind() &&
@@ -5446,7 +5466,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
     impl_target_typeref_ = nullptr;
     // Register the impl mapping (only for trait impls)
     if (!trait_name.empty()) {
-        SemaImplInfo info{trait_name, target, impl_is_unsafe, impl_is_negative,
+        // ADR 0030 S9b: the impl is filed under the same owner base its methods
+        // register under (impl_method_base_): one encoder for lookups.
+        SemaImplInfo info{trait_name, method_base, impl_is_unsafe, impl_is_negative,
                           target_resolved, impl_tps,
                           trait_type_args, trait_lt_args, impl_lt_params,
                           impl_lt_outlives, impl_doc, {}};
@@ -5499,7 +5521,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // one thing now: a compiler probe spelling "Drop" and a bound carrying
         // `logos.lang.drop::Drop` both arrive at the same DefId through
         // `impl_trait_id`, and a homonym's impls live under a different one.
-        const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), target};
+        const ImplKey ikey{info.trait_def ? info.trait_def : impl_trait_id(trait_name), method_base};
         info.self_type = impl_self_ty;
         info.written_ref_slice = impl_written_ref_slice;
         if (impl_self_ty && (TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedSlice ||
@@ -6081,7 +6103,11 @@ void SemaChecker::collect_struct(TinyMapView node) {
             auto method = map_of(methods.get(m));
             if (try_append_doc(pending_doc_, method)) continue;
             int32_t mc = code_of(method);
-            if (mc == la::FN || mc == la::STATIC_FN) collect_fn(method, sname);
+            // ADR 0030 S9b: a non-generic struct's methods register under the
+            // encoder the lookups use (impl_method_base_'s rule).
+            if (mc == la::FN || mc == la::STATIC_FN)
+                collect_fn(method, structs_[skey].type_params.empty()
+                                       ? concrete_struct_name(make_struct_type(sname, cur_package_)) : sname);
         }
     }
     if (had_self) current_type_params_["Self"] = saved_self;
@@ -6695,6 +6721,19 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.decl_key = decl_key_(node, struct_ctx, info.trait_type_args);
     info.owner_struct = std::string(struct_ctx);   // CARRIED, not re-derived
     info.is_method    = !struct_ctx.empty();
+    // S9b row 1: the owner by identity — the impl's (or struct body's) Self.
+    info.reg_seq = ++reg_seq_next_;
+    // Q1 row 1: a free fn's identity is its overload set — package + name
+    // (Logos overloads by signature; the members stay funcs_ symbols).
+    if (struct_ctx.empty() && !raw_name.empty())
+        info.def = intern_item_(DefKind::Fn, raw_name, get_line(node));
+    if (info.is_method) {
+        info.method_name = std::string(raw_name);
+        if (auto sit = current_type_params_.find("Self"); sit != current_type_params_.end()) {
+            info.owner_id = owner_id_of_(sit->second);
+            info.owner_self = sit->second;
+        }
+    }
     info.source_file = file_;
     info.package = cur_package_;
     info.module_id = cur_module_id_;
@@ -6816,6 +6855,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         }
         overloads.push_back(base_name);
         decl_symbols_[info.decl_key] = base_name;
+        note_registered_(info, base_name, false);
         funcs_[base_name] = std::move(info);
         return;
     }
@@ -7011,6 +7051,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
         }
         gen_overloads.push_back(info.symbol_name);
         decl_symbols_[info.decl_key] = info.symbol_name;
+        note_registered_(info, info.symbol_name, true);
         generic_funcs_[info.symbol_name] = std::move(info);
         return;
     }
@@ -7041,6 +7082,7 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
 
     overloads.push_back(info.symbol_name);
     decl_symbols_[info.decl_key] = info.symbol_name;
+    note_registered_(info, info.symbol_name, false);
     funcs_[info.symbol_name] = std::move(info);
 }
 

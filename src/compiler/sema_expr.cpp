@@ -652,10 +652,9 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
     const char* tr     = want_mut ? "DerefMut" : "Deref";  // may degrade below
     auto pick = [&](const char* trname) -> const SemaImplInfo* {
         const SemaImplInfo* loose = nullptr;
-        for (const ImplKey& key : {impl_key(trname, cname), impl_key(trname, base)}) {
-            auto ait = impls_all_.find(key);
-            if (ait == impls_all_.end()) continue;
-            for (const auto& info : ait->second) {
+        {
+            for (const SemaImplInfo* infop : impls_for_lang_(std::string_view(trname) == "DerefMut" ? "deref_mut" : "deref", rt)) {   // S9b row 2
+                const auto& info = *infop;
                 if (info.is_negative) continue;
                 // The key is the target's SPELLING: an impl for another
                 // package's same-named type is not a candidate.
@@ -720,7 +719,7 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
     if (!target || TypeRef(target).kind() == LogosType::Kind::Error ||
         TypeRef(target).kind() == LogosType::Kind::TypeVar) {
         TypeRef self_ref = make_ref(false, rt);
-        auto* fit = find_func_by_base_and_signature(cname + "__deref", {self_ref}, false);
+        auto* fit = find_method_by_signature_(rt, "deref", {self_ref}, false);   // S9b row 2
         if (fit && fit->ret_type && TypeRef(fit->ret_type).pointee())
             target = TypeRef(fit->ret_type).pointee();
     }
@@ -3143,7 +3142,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         if ((op == "==" || op == "!=") && ld && rd) {
             const std::string key = "$dyn$" + std::string(TypeRef(ld).trait_name()) + "__eq";
             const SemaFuncInfo* f = nullptr;
-            for (auto* c : find_func_candidates(key))
+            for (auto* c : methods_of_(ld, "eq"))   // S9b row 2: the `dyn Tr` owner's, by identity
                 if (c && c->param_types.size() == 2) { f = c; break; }
             if (!f) {
                 error(std::format("binary operation `{}` cannot be applied to type `{}` (E0369)", op, type_str(lt)));
@@ -3173,7 +3172,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             const std::string m(oi->method);
             std::string rmangled = std::string(TypeRef(lt).kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") +
                                    concrete_struct_name(TypeRef(lt).pointee()) + "__" + m;
-            if (auto rf = find_func_by_base_and_signature(rmangled, {lt, rt}, false)) {
+            // S9b row 2: the reference type's own methods, by identity.
+            if (auto rf = find_method_by_signature_(lt, m, {lt, rt}, false)) {
                 std::vector<lir::LExprPtr> args;
                 args.push_back(std::move(lhs));
                 if (rt && !is_ref_t(rt)) mark_moved_expr(expr_ref_of(rhs));
@@ -3185,11 +3185,11 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             if (rel) {
                 std::string cm = std::string(TypeRef(lt).kind() == LogosType::Kind::MutRef ? "$mut_ref_" : "$ref_") +
                                  concrete_struct_name(TypeRef(lt).pointee()) + "__cmp";
-                auto cf = find_func_by_base_and_signature(cm, {make_ref(false, lt), make_ref(false, rt)}, false);
+                auto cf = find_method_by_signature_(lt, "cmp", {make_ref(false, lt), make_ref(false, rt)}, false);
                 if (cf && cf->ret_type && TypeRef(cf->ret_type).kind() == LogosType::Kind::Enum) {
-                    std::string is_m = std::string(TypeRef(cf->ret_type).enum_name()) + "__" +
-                                       (op == "<" ? "is_lt" : op == "<=" ? "is_le" : op == ">" ? "is_gt" : "is_ge");
-                    if (auto isf = find_func_by_base_and_signature(is_m, {cf->ret_type}, false)) {
+                    const char* is_op = op == "<" ? "is_lt" : op == "<=" ? "is_le" : op == ">" ? "is_gt" : "is_ge";
+                    std::string is_m = std::string(TypeRef(cf->ret_type).enum_name()) + "__" + is_op;
+                    if (auto isf = find_method_by_signature_(cf->ret_type, is_op, {cf->ret_type}, false)) {
                         std::vector<lir::LExprPtr> cargs;
                         cargs.push_back(autoref_operand(std::move(lhs), false, make_ref(false, lt), BorrowOrigin::OperatorAutoref));
                         cargs.push_back(autoref_operand(std::move(rhs), false, make_ref(false, rt), BorrowOrigin::OperatorAutoref));
@@ -3209,6 +3209,9 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             method_name = std::string(oi->method);
         }
         if (!trait_name.empty()) {
+            // ADR 0030 S9b row 2: the operator's methods are asked of the
+            // operand type's identity (`type_name` / `mangled` stay for the
+            // diagnostics and the symbol-less fallback spelling).
             auto type_name = concrete_struct_name(lt_sv);
             auto mangled = type_name + "__" + method_name;
             // A reference pair is passed as is, so only a by-reference formal pair may take it.
@@ -3224,7 +3227,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 (TypeRef(rt).kind() == LogosType::Kind::IntLit || TypeRef(rt).kind() == LogosType::Kind::FloatLit)) {
                 const bool fl = TypeRef(rt).kind() == LogosType::Kind::FloatLit;
                 TypeRef pick = nullptr; int n = 0;
-                for (auto* c : find_func_candidates(mangled)) {
+                for (auto* c : methods_of_(lt_sv, method_name)) {
                     if (!c || c->param_types.size() != 2 || !c->param_types[1]) continue;
                     auto k = TypeRef(c->param_types[1]).kind();
                     bool ok = fl ? (k == LogosType::Kind::F64 || k == LogosType::Kind::F32)
@@ -3238,16 +3241,16 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 }
             }
             auto fit = struct_ref_pair
-                ? find_func_by_base_and_signature(mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
-                : find_func_by_base_and_signature(mangled, {lt, rt}, false);
+                ? find_method_by_signature_(lt_sv, method_name, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
+                : find_method_by_signature_(lt_sv, method_name, {lt, rt}, false);
 
             // Rust-shape operator impls take their operands by reference
             // (`fn eq(&self, &other)`). The by-value signature above won't
             // match those, so retry with `&lt`/`&rt` (mirrors the tuple-Eq
             // lookup). push_operand below then auto-refs to match.
             if (!fit && !struct_ref_pair)
-                fit = find_func_by_base_and_signature(
-                    mangled, {make_ref(false, lt), make_ref(false, rt)}, false);
+                fit = find_method_by_signature_(
+                    lt_sv, method_name, {make_ref(false, lt), make_ref(false, rt)}, false);
             if (struct_ref_pair && !takes_refs(fit)) fit = nullptr;
             if (fit) {
                 // Auto-ref each operand when the matched impl method takes it
@@ -3284,12 +3287,12 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             // is_gt/is_ge). Mirrors Rust's default lt/le/gt/ge bodies.
             if (op == "<" || op == "<=" || op == ">" || op == ">=") {
                 std::string pc_mangled = type_name + "__partial_cmp";
-                auto pcfit = struct_ref_pair ? nullptr : find_func_by_base_and_signature(
-                    pc_mangled, {make_ref(false, lt), make_ref(false, rt)}, false);
+                auto pcfit = struct_ref_pair ? nullptr : find_method_by_signature_(
+                    lt_sv, "partial_cmp", {make_ref(false, lt), make_ref(false, rt)}, false);
                 if (!pcfit)
                     pcfit = struct_ref_pair
-                        ? find_func_by_base_and_signature(pc_mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
-                        : find_func_by_base_and_signature(pc_mangled, {lt, rt}, false);
+                        ? find_method_by_signature_(lt_sv, "partial_cmp", {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
+                        : find_method_by_signature_(lt_sv, "partial_cmp", {lt, rt}, false);
                 if (struct_ref_pair && !takes_refs(pcfit)) pcfit = nullptr;
                 // An `Ord` with `cmp` alone orders too — `a < b` is
                 // `a.cmp(&b).is_lt()` (Rust's PartialOrd for an Ord type
@@ -3297,10 +3300,10 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 if (!pcfit) {
                     std::string cmp_mangled = type_name + "__cmp";
                     pcfit = struct_ref_pair
-                        ? find_func_by_base_and_signature(cmp_mangled, {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
-                        : find_func_by_base_and_signature(cmp_mangled, {make_ref(false, lt), make_ref(false, rt)}, false);
+                        ? find_method_by_signature_(lt_sv, "cmp", {make_ref(false, lt_sv), make_ref(false, rt_sv)}, false)
+                        : find_method_by_signature_(lt_sv, "cmp", {make_ref(false, lt), make_ref(false, rt)}, false);
                     if (!pcfit && !struct_ref_pair)
-                        pcfit = find_func_by_base_and_signature(cmp_mangled, {lt, rt}, false);
+                        pcfit = find_method_by_signature_(lt_sv, "cmp", {lt, rt}, false);
                     if (struct_ref_pair && !takes_refs(pcfit)) pcfit = nullptr;
                     if (pcfit) pc_mangled = cmp_mangled;
                 }
@@ -3367,7 +3370,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                         op == ">"  ? "is_gt" : "is_ge";
                     std::string ord_name(TypeRef(ord_t).enum_name());
                     std::string is_mangled = ord_name + "__" + is_method;
-                    auto isfit = find_func_by_base_and_signature(is_mangled, {ord_t}, false);
+                    auto isfit = find_method_by_signature_(ord_t, is_method, {ord_t}, false);
                     // ── #430: THE SAME HOLE, THE LOUD HALF ───────────────────
                     //
                     // Everything the `Option` arm above does not claim arrives
@@ -3483,14 +3486,10 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             // refusal over a legal program.
             bool generic_cand_427_ = false;
             {
-                std::string bare_key_427 =
-                    std::string(TypeRef(lt_sv).struct_name()) + "__" + method_name;
-                std::string ty_pkg_427{TypeRef(lt_sv).pkg_name()};
-                for (auto* c : find_func_candidates(bare_key_427))
-                    if (c && c->param_types.size() == 2 &&
-                        (c->package.empty() || c->package == ty_pkg_427)) {
-                        generic_cand_427_ = true; break;
-                    }
+                // S9b row 2: the operand type's methods by identity — a generic
+                // impl's template included, a homonym's excluded.
+                for (auto* c : methods_of_(lt_sv, method_name))
+                    if (c && c->param_types.size() == 2) { generic_cand_427_ = true; break; }
             }
             const bool rel_427_ = (op == "<" || op == "<=" ||
                                    op == ">" || op == ">=");
@@ -3592,9 +3591,9 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         const SemaFuncInfo* isfit = nullptr;
         std::string is_mangled;
         if (ord_t) {
-            is_mangled = std::string(TypeRef(ord_t).enum_name()) + "__" +
-                         (op == "<" ? "is_lt" : op == "<=" ? "is_le" : op == ">" ? "is_gt" : "is_ge");
-            isfit = find_func_by_base_and_signature(is_mangled, {ord_t}, false);
+            const char* is_op = op == "<" ? "is_lt" : op == "<=" ? "is_le" : op == ">" ? "is_gt" : "is_ge";
+            is_mangled = std::string(TypeRef(ord_t).enum_name()) + "__" + is_op;
+            isfit = find_method_by_signature_(ord_t, is_op, {ord_t}, false);
         }
         if (isfit) {
             auto lref = tv_ord_ref_pair ? std::move(lhs) : take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
@@ -3666,7 +3665,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         // `impl<T> Eq for Option<T>` template forms — the dot-qualified
         // pkg key is matched by find_func_candidates' suffix logic).
         const SemaFuncInfo* chosen = nullptr;
-        for (auto* c : find_func_candidates(bare))
+        for (auto* c : methods_of_(lt, method_name))   // S9b row 2: by the enum's identity
             if (c && c->param_types.size() == 2) { chosen = c; break; }
         if (chosen) {
             (void)lty; (void)rty;
@@ -4612,7 +4611,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         if (!trait_name.empty()) {
             auto type_name = concrete_struct_name(vt);
             auto mangled = type_name + "__" + method_name;
-            auto fit = find_func_by_base_and_signature(mangled, {vt}, false);
+            auto fit = find_method_by_signature_(vt, method_name, {vt}, false);   // S9b row 2
             if (fit) {
                 std::vector<lir::LExprPtr> args;
                 // A by-value operand is consumed by the call. PROBES.md 2026-09-15f-consumeland.
@@ -6279,21 +6278,19 @@ bool SemaChecker::type_param_bounds_viable_(const SemaFuncInfo& fi, const SemaSu
 TypeRef SemaChecker::deref_target_type_(TypeRef t) {
     if (!t || (TypeRef(t).kind() != LogosType::Kind::Struct &&
                TypeRef(t).kind() != LogosType::Kind::ZonedStruct)) return nullptr;
-    auto it = impls_.find(impl_key("Deref", concrete_struct_name(t)));
-    if (it == impls_.end()) it = impls_.find(impl_key("Deref", std::string(TypeRef(t).struct_name())));
-    if (it == impls_.end()) return nullptr;
-    if (it->second.trait_type_args.empty()) {
+    const SemaImplInfo* dii = find_lang_impl_("deref", t);   // S9b row 2: by identity
+    if (!dii) return nullptr;
+    if (dii->trait_type_args.empty()) {
         // `type Target = B;` — read it off `deref`'s return `&B`.
-        for (const std::string& k : {concrete_struct_name(t), std::string(TypeRef(t).struct_name())})
-            for (auto* fi : find_func_candidates(k + "__deref"))
-                if (fi && fi->ret_type && is_ref_like(TypeRef(fi->ret_type).kind()) && fi->type_params.empty())
-                    return TypeRef(fi->ret_type).pointee();
+        for (auto* fi : methods_of_(t, "deref"))   // S9b row 2: by the type's identity
+            if (concrete_self_method_(fi, t, 1) && fi->ret_type && is_ref_like(TypeRef(fi->ret_type).kind()))
+                return TypeRef(fi->ret_type).pointee();
         return nullptr;
     }
-    TypeRef tgt = it->second.trait_type_args[0];
-    if (it->second.target_typeref) {
+    TypeRef tgt = dii->trait_type_args[0];
+    if (dii->target_typeref) {
         StrMap<TypeRef> b;
-        unify_types(it->second.target_typeref, t, b);
+        unify_types(dii->target_typeref, t, b);
         tgt = subst_type_sema(tgt, SemaSubst(b.begin(), b.end()));
     }
     return tgt;
@@ -6462,9 +6459,9 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
             // trait name and are correct only because that trait owns the bare
             // slot. This is one of the ~15 whose target comes from a resolved
             // TypeRef and could take a qualified probe ahead of the bare one.
-            auto iit = impls_.find(impl_key(b.trait_name, std::string(TypeRef(actual).struct_name())));
-            if (iit == impls_.end()) continue;
-            auto& imp = iit->second;
+            const SemaImplInfo* impp = find_impl_(b.trait_name, actual);   // S9b row 2: by identity
+            if (!impp) continue;
+            auto& imp = *impp;
             if (imp.trait_type_args.empty()) continue;
             StrMap<TypeRef> impl_bind;
             if (imp.target_typeref)
@@ -6616,62 +6613,58 @@ bool SemaChecker::raw_self_symbol_(std::string_view sym) {
 }
 
 // ── ADR 0030 S8 row 4: the method probe ─────────────────────────────────
-std::vector<std::string> SemaChecker::impl_lookup_keys_(TypeRef t) {
-    std::vector<std::string> keys;
-    if (!t) return keys;
+
+// Does a candidate's declared self (`pat`, its impl's parameters as type
+// variables) match the receiver step `act` structurally? A type variable
+// matches anything; every other position must agree (ADR 0030 S9b row 2: the
+// index answers an owner's impls at every argument — `impl W<i64>` and
+// `impl<T> W<T>`, `impl Tr for str` and `impl<T> Tr for [T]` — so the self
+// type, not the lookup key, decides which apply).
+bool SemaChecker::self_pattern_match_(TypeRef pat, TypeRef act, int depth) {
     using K = LogosType::Kind;
-    auto push = [&](std::string k) {
-        if (!k.empty() && std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(std::move(k));
-    };
-    switch (TypeRef(t).kind()) {
-    case K::Struct: case K::ZonedStruct: case K::DstRef:
-        push(concrete_struct_name(t));
-        push(std::string(TypeRef(t).struct_name()));
-        break;
-    case K::Enum:
-        push(std::string(TypeRef(t).enum_name()));
-        break;
-    case K::Slice: case K::UnsizedSlice:
-        if (TypeRef(t).elem() && TypeRef(TypeRef(t).elem()).kind() == K::U8) push("str");   // `str` ≡ `[u8]`
-        if (TypeRef(t).elem()) push("$slice$" + type_str_regions_erased(TypeRef(t).elem()));
-        push("$slice$T");
-        break;
-    case K::Ptr:
-        if (TypeRef(t).pointee()) for (auto& k : impl_lookup_keys_(TypeRef(t).pointee())) push(k);
-        break;
+    if (!pat || !act || depth > 16) return false;
+    const auto pk = TypeRef(pat).kind(), ak = TypeRef(act).kind();
+    // A projection over the impl's parameters (`impl<D: Device> Tr for Foo<D,
+    // D::Resources>`) is known only once they are bound: a pattern variable.
+    if (pk == K::TypeVar || pk == K::ConstVar || pk == K::AssocType) return true;
+    auto nominal = [](K k) { return k == K::Struct || k == K::ZonedStruct || k == K::DstRef; };
+    auto slice = [](K k) { return k == K::Slice || k == K::UnsizedSlice; };
+    if (nominal(pk) && nominal(ak)) {
+        if (TypeRef(pat).struct_name() != TypeRef(act).struct_name()) return false;
+        const auto pp = TypeRef(pat).pkg_name(), ap = TypeRef(act).pkg_name();
+        if (!pp.empty() && !ap.empty() && pp != ap) return false;
+    } else if (slice(pk) && slice(ak)) {
+        return self_pattern_match_(TypeRef(pat).elem(), TypeRef(act).elem(), depth + 1);
+    } else if (pk != ak) {
+        return false;
+    }
+    switch (pk) {
+    case K::Ref: case K::MutRef: case K::Ptr:
+        return self_pattern_match_(TypeRef(pat).pointee(), TypeRef(act).pointee(), depth + 1);
     case K::Array:
-        for (auto& k : array_impl_lookup_keys(t)) push(k);
-        break;
+        if (TypeRef(pat).arr_size() != TypeRef(act).arr_size() && TypeRef(pat).arr_size() != 0 &&
+            TypeRef(act).arr_size() != 0) return false;
+        return self_pattern_match_(TypeRef(pat).elem(), TypeRef(act).elem(), depth + 1);
     case K::Tuple: {
-        auto es = TypeRef(t).tuple_elems();
-        std::string k = "$tuple$" + std::to_string(es.size());
-        std::string full = k;
-        for (auto e : es) { full += "$"; full += e ? type_str(e) : std::string("?"); }
-        push(full);
-        push(k);
-        break;
+        auto pe = TypeRef(pat).tuple_elems(), ae = TypeRef(act).tuple_elems();
+        if (pe.size() != ae.size()) return false;
+        for (size_t i = 0; i < pe.size(); ++i)
+            if (!self_pattern_match_(pe[i], ae[i], depth + 1)) return false;
+        return true;
     }
-    case K::Ref: case K::MutRef: {
-        TypeRef pt = TypeRef(t).pointee();
-        if (!pt) break;
-        const std::string pfx = TypeRef(t).kind() == K::MutRef ? "$mut_ref_" : "$ref_";
-        for (auto& k : impl_lookup_keys_(pt)) push(pfx + k);
-        // `impl Tr for &i64` keys the reference type's spelling; `impl<T> Tr
-        // for &T` keys `$ref_$T`.
-        push(pfx + type_str_regions_erased(t));
-        push(pfx + "$T");
-        break;
+    case K::Enum:
+        if (TypeRef(pat).enum_name() != TypeRef(act).enum_name()) return false;
+        [[fallthrough]];
+    case K::Struct: case K::ZonedStruct: case K::DstRef: {
+        auto pa = TypeRef(pat).type_args(), aa = TypeRef(act).type_args();
+        if (pa.size() != aa.size()) return pa.empty() || aa.empty();
+        for (size_t i = 0; i < pa.size(); ++i)
+            if (pa[i] && aa[i] && !self_pattern_match_(pa[i], aa[i], depth + 1)) return false;
+        return true;
     }
-    case K::TraitObject: case K::UnsizedDyn:
-        push("$dyn$" + std::string(TypeRef(t).trait_name()));
-        break;
     default:
-        if (is_integer(t) || TypeRef(t).kind() == K::Bool || TypeRef(t).kind() == K::F64 ||
-            TypeRef(t).kind() == K::F32 || TypeRef(t).kind() == K::Char || TypeRef(t).kind() == K::Void)
-            push(type_str(t));
-        break;
+        return type_str_regions_erased(pat) == type_str_regions_erased(act);
     }
-    return keys;
 }
 
 // Does a candidate's declared self accept `actual` at its head (a template's
@@ -6759,7 +6752,15 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_vi
         if (fb != tbare) return false;
         return fi->trait_package.empty() || ti->package.empty() || fi->trait_package == ti->package;
     };
-    std::vector<std::string> keys = impl_lookup_keys_(self);
+    // ADR 0030 S9b row 2: Self's own impls by identity — the item of this
+    // trait whose impl's Self matches (`impl Tr for W<i64>` is not `W<u8>`'s).
+    for (auto* fi : filter_visible_(methods_of_(self, name)))
+        if (same_trait(fi) && (!fi->owner_self || self_pattern_match_(fi->owner_self, self))) {
+            if (key_out) *key_out = fi->base_name;
+            return fi;
+        }
+    // A blanket impl (`impl<T: B> Tr for T`) names no owner: its own keys.
+    std::vector<std::string> keys;
     const auto ck = TypeRef(self).kind();
     if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum || is_integer(self) ||
         ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
@@ -6832,10 +6833,25 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
             if (fi && !fi->param_types.empty() && fi->param_types[0] && (bself || seen.insert(fi).second))
                 cands.push_back({fi, mk, bself, tv});
     };
+    // ADR 0030 S9b row 2: a step's candidates are the methods declared on its
+    // type — by value, `&` and `&mut` — asked of the type's identity; a raw
+    // pointer step names its pointee's, a `&DstStruct` step the struct's.
+    // Visibility as the spelled lookup had it (filter_visible_: the method's
+    // package must be visible — `i32`'s stdlib `Hash::hash` is not a candidate
+    // where only a user trait's `hash` is in scope).
+    auto add_owned = [&](const std::vector<const SemaFuncInfo*>& fs0) {
+        for (auto* fi : filter_visible_(fs0))
+            if (fi && !fi->param_types.empty() && fi->param_types[0] && seen.insert(fi).second)
+                cands.push_back({fi, fi->base_name, nullptr, {}});
+    };
     for (TypeRef st : steps) {
-        for (auto& k : impl_lookup_keys_(st)) add_key(k, nullptr, {});
-        for (bool m : {false, true})
-            for (auto& k : impl_lookup_keys_(make_ref(m, st))) add_key(k, nullptr, {});
+        for (TypeRef t : {st, make_ref(false, st), make_ref(true, st)}) add_owned(methods_of_(t, name));
+        if (TypeRef(st).kind() == K::Ptr && TypeRef(st).pointee()) add_owned(methods_of_(TypeRef(st).pointee(), name));
+        if (TypeRef(st).kind() == K::DstRef) {
+            OwnerId o = owner_id_of_(st);
+            o.ref = 0;
+            add_owned(methods_of_id_(o, name));
+        }
         const auto ck = TypeRef(st).kind();
         if (ck == K::Struct || ck == K::ZonedStruct || ck == K::Enum || is_integer(st) ||
             ck == K::Bool || ck == K::F64 || ck == K::F32 || ck == K::Char) {
@@ -6869,6 +6885,9 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
                     f0 = subst_type_sema(f0, bs);
                 }
                 if (!probe_self_head_match_(f0, want)) continue;
+                // The index answers an owner's impls at every argument: the
+                // declared self decides (`impl W<i64>` is not `W<u8>`'s).
+                if (!c.blanket_self && !self_pattern_match_(f0, want)) continue;
                 // Inherent before trait; at one rank the type's own package's
                 // method before an extension elsewhere (a user `Vec` is not the
                 // stdlib's; `WAny::as_array` lives in another stdlib package).
@@ -6881,6 +6900,12 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
                     pick.tied.push_back(c.fi);
                 }
             }
+            // E0034: the best candidates are methods of TWO traits and none is
+            // inherent — the call is ambiguous (the caller names the traits).
+            if (pick.fi && !pick.fi->trait_name.empty())
+                for (auto* t : pick.tied)
+                    if (t != pick.fi && !t->trait_name.empty() && t->trait_name != pick.fi->trait_name)
+                        return ProbePick{};
             if (pick.fi) return pick;
         }
         // A type parameter or a projection: its methods are its bounds' (the
@@ -6926,7 +6951,7 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     for (size_t i = 0; targs_written && i < type_args.size() && i < fi.type_params.size(); ++i)
         if (type_args[i] && TypeRef(type_args[i]).kind() != LogosType::Kind::InferredType)
             written_tparams.insert(fi.type_params[i].name);
-    std::string callee_diag = callee;
+    std::string callee_diag = SemaResult::strip_fold_codes(callee);   // a package fold is not a name
     if (auto p = callee_diag.find("__g__"); p != std::string::npos)
         callee_diag.resize(p);
     else if (auto p = callee_diag.find("__f__"); p != std::string::npos)
@@ -9707,14 +9732,12 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_raw_ptr(
         // pervasively (AnyVal/RelPtr/Rc/Arc check their *contents*, not the
         // pointer). Only synthesize the builtin pointer-null check when the
         // pointee has no such method (e.g. `*mut Segment`, `*mut i64`).
+        // Asked of the pointee's identity (ADR 0030 S9b row 2): the spelled key
+        // missed a folded registration and silently took the address test.
         if (TypeRef pointee = TypeRef(expr_type(recv)).pointee(); pointee) {
             auto pk = TypeRef(pointee).kind();
-            std::string base;
-            if (pk == LogosType::Kind::Struct || pk == LogosType::Kind::ZonedStruct)
-                base = TypeRef(pointee).struct_name().to_string();
-            else if (pk == LogosType::Kind::Enum)
-                base = TypeRef(pointee).enum_name().to_string();
-            if (!base.empty() && !find_func_candidates(base + "__is_null").empty())
+            if ((pk == LogosType::Kind::Struct || pk == LogosType::Kind::ZonedStruct ||
+                 pk == LogosType::Kind::Enum) && !methods_of_(pointee, "is_null").empty())
                 return std::nullopt;   // user-defined is_null wins
         }
         // Rust `<*const T>::is_null` / `<*mut T>::is_null`: SAFE (no
@@ -9775,7 +9798,7 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
         mc.method      = std::string(method_name);
         mc.args        = std::move(arg_exprs);
         mc.vtable_index = -1;
-        mc.tag_system  = std::string(ts_name);
+        mc.tag_system  = method_owner_base_(std::string(ts_name));   // the dispatch entries' key
         mc.tag_trait   = std::string(tname);
         return builder().method_call_v(std::move(mc), ret_type);
     }
@@ -9837,11 +9860,12 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
         std::vector<TypeRef> mtypes;
         mtypes.push_back(expr_type(recv));
         for (auto& a : d_args) mtypes.push_back(expr_type(a));
-        const SemaFuncInfo* dfi = nullptr;
-        if (auto fit = find_func_by_base_and_signature(dyn_key, mtypes, false))
-            dfi = fit;
-        else if (auto git = find_generic_func(dyn_key))
-            dfi = git;
+        // S9b row 2: the `dyn Tr` owner's methods by identity — exact signature
+        // first, else a generic one.
+        const SemaFuncInfo* dfi = find_method_by_signature_(dyn_t, method_name, mtypes, false);
+        if (!dfi)
+            for (auto* c : methods_of_(dyn_t, method_name))
+                if (c && !c->type_params.empty()) { dfi = c; break; }
         if (dfi) {
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
@@ -10015,19 +10039,17 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
     TypeRef elem = TypeRef(arr_t).elem();
     if (!elem) return std::nullopt;
     bool found = false, wants_mut = false;
-    auto probe = [&](const std::string& key) {
-        std::vector<const SemaFuncInfo*> cands = find_func_candidates(key);
-        if (auto* g = find_generic_func(key)) cands.push_back(g);
-        for (auto* fi : cands) {
-            if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
-            found = true;
-            if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
-                TypeRef(fi->param_types[0]).mut_ptr())
-                wants_mut = true;
-        }
-    };
-    probe("$slice$" + type_str(elem) + "__" + std::string(method_name));
-    probe("$slice$T__" + std::string(method_name));
+    // S9b row 2: the slice `[elem]`'s methods by identity — an impl whose Self
+    // matches (`impl<T> .. for [T]`, `impl .. for [u8]`, not `str`'s for `[i64]`).
+    const TypeRef sl = make_unsized_slice_type(elem);
+    for (auto* fi : filter_visible_(methods_of_(sl, method_name))) {
+        if (!fi || fi->param_types.empty() || !fi->param_types[0]) continue;
+        if (fi->owner_self && !self_pattern_match_(fi->owner_self, sl)) continue;
+        found = true;
+        if (TypeRef(fi->param_types[0]).kind() == LogosType::Kind::Slice &&
+            TypeRef(fi->param_types[0]).mut_ptr())
+            wants_mut = true;
+    }
     if (!found) return std::nullopt;
     if (!recv_is_ref)
         recv = materialize_recv_ref(std::move(recv), wants_mut, make_ref(wants_mut, arr_t),
@@ -10105,17 +10127,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             et = TypeRef(et).pointee();
         if (et && (TypeRef(et).kind() == LogosType::Kind::Struct ||
                    TypeRef(et).kind() == LogosType::Kind::ZonedStruct)) {
-            const std::string m(method_name);
-            auto wants_mut = [&](const std::string& key) {
-                for (auto* fi : find_func_candidates(key))
-                    if (fi && !fi->param_types.empty() &&
-                        TypeRef(fi->param_types[0]).kind() == LogosType::Kind::MutRef)
-                        return true;
-                return false;
-            };
-            const std::string sb(TypeRef(et).struct_name());
-            if (wants_mut(concrete_struct_name(et) + "__" + m) ||
-                (!sb.empty() && wants_mut(sb + "__" + m))) {
+            // S9b row 2: a method of this type (by identity, its impl's Self
+            // matching) that takes `&mut self`.
+            bool wants_mut = false;
+            for (auto* fi : methods_of_(et, method_name))
+                if (fi && !fi->param_types.empty() && fi->param_types[0] &&
+                    TypeRef(fi->param_types[0]).kind() == LogosType::Kind::MutRef &&
+                    (!fi->owner_self || self_pattern_match_(fi->owner_self, et))) { wants_mut = true; break; }
+            if (wants_mut) {
                 if (temp_rooted) {
                     if (cur_stmt_temp_hoist_ && cur_stmt_temp_hoist_->size() > mark_hoist)
                         cur_stmt_temp_hoist_->resize(mark_hoist);
@@ -10880,6 +10899,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     }
 
     auto sname = struct_name_from_type(expr_type(recv));
+    // The method registry's owner base (ADR 0030 S9b): the encoder, a
+    // non-generic struct included. `sname` stays the declared spelling (the
+    // struct lookups and diagnostics below).
+    std::string mbase = sname;
+    if (TypeRef rt = expr_type(recv)) {
+        if (is_ref_like(rt.kind()) && rt.pointee()) rt = rt.pointee();
+        if ((rt.kind() == LogosType::Kind::Struct || rt.kind() == LogosType::Kind::ZonedStruct) &&
+            rt.type_args().empty() && !sname.empty())
+            mbase = concrete_struct_name(rt);
+    }
 
     // ARGS shape: legacy alt has flat array, turbofish alt wraps as
     // { ITEMS: [...] } (mirroring GENERIC_CALL / STATIC_CALL).
@@ -10895,47 +10924,9 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     SemaSubst hint_subst;
     auto preload_formals = [&]() -> std::vector<TypeRef> {
         std::vector<TypeRef> out;
-        std::string lookup_name;
-        if (!sname.empty()) {
-            lookup_name = sname + "__" + std::string(method_name);
-        } else if (expr_type(recv)) {
-            // Enum receiver: try base + method.
-            TypeRef rte(expr_type(recv));
-            if (rte.kind() == LogosType::Kind::Enum && !rte.enum_name().empty())
-                lookup_name = std::string(rte.enum_name()) + "__" + std::string(method_name);
-            // A PRIMITIVE receiver (`0i64.m(|x| ..)`): its impl methods register
-            // under the primitive's name. With no lookup the closure argument got
-            // no hint, and without the hint its `Fn*` bound could not tie the
-            // closure's return to its parameter (CL_RET_TIED).
-            else if (auto pk = rte.kind(); pk >= LogosType::Kind::I32 && pk <= LogosType::Kind::U128)
-                lookup_name = type_str(rte) + "__" + std::string(method_name);
-        }
-        if (lookup_name.empty()) return out;
-        auto cands = find_func_candidates(lookup_name);
-        // For generic-receiver concrete forms (`SliceIter$G1$i32`), also
-        // try the base name (`SliceIter`) — trait-default-cloned methods
-        // register under the base.
-        if (cands.empty()) {
-            // SEPARATOR CLASS: `lookup_name` was COMPOSED 15 lines above from
-            // two parts that are still in scope. Re-composing it from those
-            // parts is exact; re-PARSING it (`rfind("__")` to find where the
-            // method starts) is a guess that lands inside any method name
-            // containing `__`.
-            if (auto dollar = sname.find('$'); !sname.empty() &&
-                                               dollar != std::string::npos) {
-                std::string base = sname.substr(0, dollar) + "__" +
-                                   std::string(method_name);
-                cands = find_func_candidates(base);
-            }
-        }
-        // Also try the generic-fn registry directly (covers trait default
-        // methods that live as generic templates).
-        if (cands.empty()) {
-            if (auto* gen = find_generic_func(lookup_name))
-                cands.push_back(gen);
-        }
-        if (cands.empty()) return out;
-        const SemaFuncInfo* fi = cands.front();
+        // ADR 0030 S9b row 2: the candidate is the one the method probe picks
+        // for the receiver (its methods by identity), not a composed key.
+        const SemaFuncInfo* fi = expr_type(recv) ? probe_method_(expr_type(recv), method_name).fi : nullptr;
         if (!fi) return out;
         // Substitute receiver's type-args into the formal param types
         // so the hint is concrete (e.g. SliceIter<i32>'s `Item=i32`).
@@ -10974,18 +10965,18 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             else if (TypeRef(rst).kind() == LogosType::Kind::Enum)
                 recv_bare = std::string(TypeRef(rst).enum_name());
             if (!recv_bare.empty()) {
-                auto iit = impls_.find(impl_key(fi->trait_name, recv_bare));
+                const SemaImplInfo* rimp = find_impl_(fi->trait_name, rst);   // S9b row 2: by identity
                 auto* tit = resolve_trait(fi->trait_name);
-                if (iit != impls_.end() && tit) {
+                if (rimp && tit) {
                     auto& tps   = tit->type_params;
-                    auto& targs = iit->second.trait_type_args;
+                    auto& targs = rimp->trait_type_args;
                     // The impl's trait args are written over the IMPL's params
                     // (`impl<I, T> Iterator<T> for Copied<I, &T>`): read them
                     // through the receiver (target unified with `rst`).
                     SemaSubst impl_binds;
-                    if (iit->second.target_typeref) {
+                    if (rimp->target_typeref) {
                         logos::compiler::StrMap<TypeRef> b;
-                        unify_types(iit->second.target_typeref, rst, b);
+                        unify_types(rimp->target_typeref, rst, b);
                         impl_binds = SemaSubst(b.begin(), b.end());
                     }
                     for (size_t i = 0; i < tps.size() && i < targs.size(); ++i)
@@ -11414,7 +11405,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }
 
-    auto mangled = std::string(sname) + "__" + std::string(method_name);
+    auto mangled = mbase + "__" + std::string(method_name);
     // The name WAS found; remember WHY every candidate was rejected.
     // Spec: `expr.method.candidate-rejection-reason`.
     int mwhy_cands_ = 0;
@@ -11571,19 +11562,28 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // Trait-aware method mangling: if the method name collided across
         // multiple traits on this type, the plain base was removed from the
         // registry — surface a disambiguation hint instead of "no method".
-        if (auto rit = trait_method_registry_.find(
-                std::string(sname) + "__" + std::string(method_name));
-            rit != trait_method_registry_.end() && rit->second.size() > 1) {
+        // E0034 (the probe declined a tie between two traits' methods): name
+        // the traits, from the receiver type's methods by identity.
+        std::vector<std::string> tied_traits;
+        {
+            TypeRef rt = expr_type(recv);
+            while (rt && is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee()) rt = TypeRef(rt).pointee();
+            for (auto* fi : filter_visible_(methods_of_(rt, method_name)))
+                if (fi && !fi->trait_name.empty() &&
+                    std::find(tied_traits.begin(), tied_traits.end(), fi->trait_name) == tied_traits.end())
+                    tied_traits.push_back(fi->trait_name);
+        }
+        if (tied_traits.size() > 1) {
             std::string traits_list;
-            for (size_t i = 0; i < rit->second.size(); ++i) {
+            for (size_t i = 0; i < tied_traits.size(); ++i) {
                 if (i) traits_list += ", ";
-                traits_list += rit->second[i];
+                traits_list += tied_traits[i];
             }
             error(std::format(
                 "method '{}' on '{}' is provided by multiple traits ({}); "
                 "disambiguate by calling through the trait, e.g. a generic "
                 "fn bounded `T: {}` or an explicit trait-qualified call",
-                method_name, sname, traits_list, rit->second.front()));
+                method_name, sname, traits_list, tied_traits.front()));
             return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
         }
         // N7: not a method, but the receiver struct may carry a FIELD of this
@@ -12263,12 +12263,12 @@ std::string SemaChecker::writfield_type_name(TypeRef t) {
             // generic-method dispatch target; struct_name_from_type would mangle
             // to "WRef$G1$..." which isn't a registered fn prefix). Mono retargets
             // `WRef__from_wany`/`__to_wany` to the concrete instance at the call.
-            std::string sn(TypeRef(t).struct_name());
-            if (sn.empty()) return {};
-            if (!find_func_candidates(sn + "__from_wany").empty() ||
-                !find_func_candidates(sn + "__to_wany").empty())
-                return sn;
-            return {};
+            // ADR 0030 S9b row 2: asked of the type's identity; the name returned
+            // is the registry base its methods are filed under — a non-generic
+            // struct's carries the package fold.
+            if (TypeRef(t).struct_name().empty()) return {};
+            if (methods_of_(t, "from_wany").empty() && methods_of_(t, "to_wany").empty()) return {};
+            return TypeRef(t).type_args().empty() ? concrete_struct_name(t) : std::string(TypeRef(t).struct_name());
         }
         default:       return {};
     }
@@ -12524,8 +12524,7 @@ lir::LExprPtr SemaChecker::lower_field_read_impl(TinyMapView node) {
                         pml, {0, tail_l.align});
                     std::string cname = concrete_struct_name(sd_pointee);
                     TypeRef self_cptr = make_ptr(false, sd_pointee);
-                    auto* fit = find_func_by_base_and_signature(cname + "__dst_len", {self_cptr}, false);
-                    if (!fit) fit = find_func_by_base_and_signature(psn + "__dst_len", {self_cptr}, false);
+                    auto* fit = find_method_by_signature_(sd_pointee, "dst_len", {self_cptr}, false);   // S9b row 2
                     if (fit) {
                         auto recv_u8  = builder().cast(recv, make_ptr(false, u8_t()));
                         auto off_lit  = builder().lit_int(static_cast<int64_t>(off),
@@ -13963,9 +13962,8 @@ lir::LExprPtr SemaChecker::lower_index_place(TinyMapView node, bool is_mut) {
     std::string method = is_mut ? "__index_mut" : "__index";
     auto mangled = type_name + method;
     const SemaFuncInfo* fit = nullptr;
-    for (auto* c : find_func_candidates(mangled)) {
-        if (c->param_types.size() == 2) { fit = c; break; }
-    }
+    for (auto* c : methods_of_(arr_type, is_mut ? "index_mut" : "index"))   // S9b row 2
+        if (concrete_self_method_(c, arr_type, 2)) { fit = c; break; }
     if (!fit) return nullptr;
 
     lir::LExprPtr idx = node.has_key(la::VALUE)
@@ -14218,10 +14216,12 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             // Pick the unique 2-param candidate (recv + idx). Widen
             // integer-literal idx to the formal type so `m[3]`-style
             // literal indexes match.
+            // S9b row 2: the type's own concrete `index` / `index_mut`, by its
+            // identity — the one whose `self` is exactly this type (a generic
+            // impl's template takes the method-call route below).
             const SemaFuncInfo* fit = nullptr;
-            for (auto* c : find_func_candidates(mangled)) {
-                if (c->param_types.size() == 2) { fit = c; break; }
-            }
+            for (auto* c : methods_of_(arr_type, mut_ctx ? "index_mut" : "index"))
+                if (concrete_self_method_(c, arr_type, 2)) { fit = c; break; }
             if (fit) {
                 index_operand_(idx, fit->param_types[1]);
                 auto recv_ref = materialize_recv_ref(std::move(recv), mut_ctx, ref_t, BorrowOrigin::OperatorAutoref);
@@ -14244,17 +14244,15 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
             // Output = the impl's `Index<Idx, Output>` 2nd trait-arg, with the
             // struct's type-args substituted for the impl's type params.
             const SemaImplInfo* ii = nullptr;
-            if (auto it = impls_.find(impl_key(std::string(itr), type_name)); it != impls_.end()) ii = &it->second;
-            else if (auto it2 = impls_.find(impl_key(std::string(itr), base_name)); it2 != impls_.end()) ii = &it2->second;
+            ii = find_lang_impl_(mut_ctx ? "index_mut" : "index", arr_type);   // S9b row 2: by identity
             // Rust spelling `impl Index<Idx> for G<T> { type Output = T; … }`:
             // ONE trait argument, the Output is the associated type — read it
             // off the impl's own `index` / `index_mut` return type (`&Output`).
             TypeRef out_from_method = nullptr;
             if (ii && ii->trait_type_args.size() == 1) {
                 const SemaFuncInfo* mt = nullptr;
-                for (auto* c : find_func_candidates(base_name + (mut_ctx ? "__index_mut" : "__index")))
+                for (auto* c : methods_of_(arr_type, mut_ctx ? "index_mut" : "index"))   // S9b row 2
                     if (c->param_types.size() == 2) { mt = c; break; }
-                if (!mt) mt = find_generic_func(base_name + (mut_ctx ? "__index_mut" : "__index"));
                 if (mt && mt->ret_type && is_ref_like(TypeRef(mt->ret_type).kind()) &&
                     TypeRef(mt->ret_type).pointee())
                     out_from_method = TypeRef(mt->ret_type).pointee();
@@ -14890,7 +14888,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
         // var-ref over its signature, mirroring the bare-fn-name path in
         // lower_var_ref. The call site `f(&a)` then dispatches as a fn-ptr call.
         {
-            std::string msym = cname_str + "__" + mname_str;
+            std::string msym = method_owner_base_(cname_str) + "__" + mname_str;
             const SemaFuncInfo* mfi = nullptr;
             auto mcands = find_func_candidates(msym);
             if (mcands.size() == 1) mfi = mcands[0];
@@ -15077,7 +15075,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data(TinyMapView node) {
         // var-ref over its signature, mirroring the bare-fn-name path in
         // lower_var_ref. The call site `f(&a)` then dispatches as a fn-ptr call.
         {
-            std::string msym = cname_str + "__" + mname_str;
+            std::string msym = method_owner_base_(cname_str) + "__" + mname_str;
             const SemaFuncInfo* mfi = nullptr;
             auto mcands = find_func_candidates(msym);
             if (mcands.size() == 1) mfi = mcands[0];
@@ -16014,21 +16012,14 @@ lir::LExprPtr SemaChecker::default_value_for(TypeRef t) {
         }
         return builder().arr_lit(std::move(elems), t);
     }
-    // Scalar / struct: emit a call to its resolved `__default` symbol.
-    std::string base;
-    if (tt.kind() == LogosType::Kind::Struct ||
-        tt.kind() == LogosType::Kind::ZonedStruct)
-        base = tt.type_args().empty()
-            ? std::string(tt.struct_name())
-            : concrete_struct_name(t);
-    else
-        base = type_str(t);  // primitive keyword (i64, bool, …)
+    // Scalar / struct: the `default` declared on this type (ADR 0030 S9b row 2:
+    // asked by the owner's identity, a concrete one returning exactly `t`).
     const SemaFuncInfo* fi = nullptr;
-    for (auto* c : find_func_candidates(base + "__default"))
-        if (c && c->param_types.empty()) { fi = c; break; }
+    for (auto* c : methods_of_(t, "default"))
+        if (c && c->param_types.empty() && c->type_params.empty() && c->ret_type &&
+            types_equal(c->ret_type, t) && !c->symbol_name.empty()) { fi = c; break; }
     if (!fi) return nullptr;
-    std::string sym = fi->symbol_name.empty() ? base + "__default" : fi->symbol_name;
-    return builder().call(sym, {}, {}, t);
+    return builder().call(fi->symbol_name, {}, {}, t);
 }
 
 // Supertrait UPCAST coercion: when `arg` is already a `&dyn Sub`/`dyn Sub` and
@@ -17618,10 +17609,12 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         PkgQualGuard(std::string& r) : q(r), saved(r) {}
         ~PkgQualGuard() { q = saved; }
     } pkg_qual_guard_(call_pkg_qualifier_), pkg_qual_name_guard_(call_pkg_qualifier_name_);
+    std::string lang_pkg;   // the lang item's package, when the expansion pinned one
     if (hir_origin_(node) == hir::Origin::Macro)
         if (const LangItem* li = lang_item(class_name); li && li->target == AttrTarget::Struct) {
             call_pkg_qualifier_ = li->package;
             call_pkg_qualifier_name_ = class_name + "__" + std::string(method_name);
+            lang_pkg = li->package;
         }
 
     // T2-28 (Increment 2): a qualified `pkg.path.Type::member(args)` is parsed
@@ -17728,11 +17721,17 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             auto aliased = ait->second.type;
             if (aliased && (TypeRef(aliased).kind() == LogosType::Kind::Struct ||
                             TypeRef(aliased).kind() == LogosType::Kind::ZonedStruct)) {
-                resolved_class = TypeRef(aliased).type_args().empty()
-                    ? TypeRef(aliased).struct_name().to_string()
-                    : concrete_struct_name(aliased);
+                resolved_class = concrete_struct_name(aliased);
             }
         }
+    }
+    // ADR 0030 S9b: the registry's base — in the lang item's package when the
+    // expansion pinned one.
+    if (!lang_pkg.empty()) {
+        resolved_class = method_owner_base_(resolved_class, lang_pkg);
+        call_pkg_qualifier_name_ = resolved_class + "__" + std::string(method_name);
+    } else {
+        resolved_class = method_owner_base_(resolved_class);
     }
     std::string mangled = resolved_class + "__" + std::string(method_name);
 
@@ -18324,6 +18323,11 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     for (auto& s : it->supertraits) probe(s.trait_name);
                 };
                 probe(cname_str);
+            }
+            // `[T; N]: Default` (Rust): `Default::default()` at an array type.
+            if (tm && expected_ && TypeRef(expected_).kind() == LogosType::Kind::Array &&
+                mname_str == "default" && trait_key_is_lang_item(canonical_trait_name(cname_str), "default")) {
+                if (auto def = default_value_for(expected_)) return def;
             }
             if (tm) {
                 // G158-9: resolve Self from the let-annotation expected type
@@ -24564,8 +24568,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             std::string base = ptype_stripped;
             if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
             while (!base.empty() && base.back() == ' ') base.pop_back();
-            if (auto iit = impls_.find(impl_key(b.trait_name, base));
-                iit != impls_.end()) {
+            if (auto* impl = find_impl_by_spelling_(b.trait_name, base)) {
                 // A GENERIC source impl (`impl<K,V> MapSource<K,V> for
                 // HashMap<K,V>`) states its trait args as its own TYPE PARAMS,
                 // so taking them verbatim yields `K`/`V` and the query is typed
@@ -24599,7 +24602,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
                     if (!cur.empty()) site_args.push_back(cur);
                 }
                 size_t ai = 0;
-                for (auto ta : iit->second.trait_type_args) {
+                for (auto ta : impl->trait_type_args) {
                     TypeRef t(ta);
                     std::string as = type_str(ta);
                     // An arg that is still a TYPE VAR is the impl's own
@@ -26947,12 +26950,15 @@ bool SemaChecker::explicit_destructor_call(TypeRef recv_type) {
            TypeRef(rt).pointee())
         rt = TypeRef(rt).pointee();
     if (!rt) return false;
+    // The impl's owner base: a non-generic struct by the encoder (ADR 0030
+    // S9b), a generic one by its template base.
     std::string bare;
     if (TypeRef(rt).kind() == LogosType::Kind::Struct || TypeRef(rt).kind() == LogosType::Kind::ZonedStruct)
-        bare = std::string(TypeRef(rt).struct_name());
+        bare = TypeRef(rt).type_args().empty() ? concrete_struct_name(rt) : std::string(TypeRef(rt).struct_name());
     else if (TypeRef(rt).kind() == LogosType::Kind::Enum)
         bare = std::string(TypeRef(rt).enum_name());
-    if (auto d = bare.find('$'); d != std::string::npos) bare = bare.substr(0, d);
+    if (!TypeRef(rt).type_args().empty())
+        if (auto d = bare.find('$'); d != std::string::npos) bare = bare.substr(0, d);
     if (bare.empty()) return false;
     // `S__drop` is also drop_fn_for's key: only a `Drop`-trait candidate counts (PROBES.md §3).
     bool from_drop = false;

@@ -1,0 +1,15 @@
+// A struct's own `is_null(self: *const H)` wins over the builtin pointer test (it checks CONTENTS, as
+// AnyVal / RelPtr / Rc do). Asked of the pointee's identity (ADR 0030 S9b row 2): the spelled key missed a
+// folded registration and SILENTLY lowered the address test — a non-null pointer read as not-null (exit 1).
+package raw_ptr_user_is_null_wins;
+struct H { v: i64 }
+impl H { fn is_null(self: *const H) -> bool { return unsafe { (*self).v == 0 }; } }
+fn main() -> i32 {
+    let h = H { v: 0 };
+    let p: *const H = &h as *const H;
+    if !unsafe { p.is_null() } { return 1; }
+    let g = H { v: 5 };
+    let q: *const H = &g as *const H;
+    if unsafe { q.is_null() } { return 2; }
+    return 0;
+}

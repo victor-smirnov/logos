@@ -1,0 +1,7 @@
+module longsym-use
+id longsym_use_fixture
+version 0.1
+root tests/logos/longsym/use/
+depends logos-lang
+depends logos-std
+depends longsym-dep

@@ -586,6 +586,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->explicit_type_codes  = std::move(explicit_type_codes_);
     s->enums                = std::move(enums_);
     s->funcs                = std::move(funcs_);
+    method_index_valid_     = false;
     s->func_overloads       = std::move(func_overloads_);
     s->generic_funcs        = std::move(generic_funcs_);
     s->generic_overloads    = std::move(generic_overloads_);
@@ -616,6 +617,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->copy_types           = std::move(copy_types_);
     s->conditional_copy     = std::move(conditional_copy_);
     s->pkg_reexports        = std::move(pkg_reexports_);
+    ++reexports_gen_;
     s->collected_holders    = std::move(collected_holders_);
     s->trait_rels           = std::move(trait_rels_);
     s->source_impls         = std::move(source_impls_);
@@ -765,6 +767,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     explicit_type_codes_  = std::move(s->explicit_type_codes);
     enums_                = std::move(s->enums);
     funcs_                = std::move(s->funcs);
+    method_index_valid_   = false;   // S9b row 1: the index is a cache over funcs_
     func_overloads_       = std::move(s->func_overloads);
     generic_funcs_        = std::move(s->generic_funcs);
     generic_overloads_    = std::move(s->generic_overloads);
@@ -801,6 +804,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     copy_types_           = std::move(s->copy_types);
     conditional_copy_     = std::move(s->conditional_copy);
     pkg_reexports_        = std::move(s->pkg_reexports);
+    ++reexports_gen_;
     collected_holders_    = std::move(s->collected_holders);
     trait_rels_           = std::move(s->trait_rels);
     source_impls_         = std::move(s->source_impls);
@@ -1570,13 +1574,7 @@ bool type_is_lang_item(TypeRef t, std::string_view lang) {
 // ≥2 distinct packages). Null disables the type-arg tag (legacy mangle). Each
 // phase (sema/mono/mlir) builds its OWN set from the same transitive universe
 // and installs it here; TypeModuleScope save/restores the pointer.
-thread_local const std::unordered_set<std::string>* g_ambiguous_type_names = nullptr;
-void set_ambiguous_type_names(const std::unordered_set<std::string>* s) {
-    g_ambiguous_type_names = s;
-}
-const std::unordered_set<std::string>* get_ambiguous_type_names() {
-    return g_ambiguous_type_names;
-}
+
 
 // The owning module_id for a package, from whichever pkg→module map backing is
 // active (sema's C++ map or mono/mlir's ObjectMapRef). Empty ⇒ no map / package
@@ -1625,10 +1623,6 @@ static std::string_view pkg_owning_module_id(std::string_view pkg) {
 // ADR 0030 S9 row 8 step H (transition switch, deleted when it is the only
 // rule): LOGOS_FOLD_ALL folds the declaring package into every nominal type's
 // spelling, independent of which names the program finds ambiguous.
-static bool fold_all_types() {
-    static const bool on = std::getenv("LOGOS_FOLD_ALL") != nullptr;
-    return on;
-}
 static std::string pkg_fold_code(std::string_view pkg) {
     std::string_view mid = pkg_owning_module_id(pkg);
     uint64_t h = 1469598103934665603ull;           // FNV-1a 64 offset basis
@@ -1645,29 +1639,10 @@ static std::string pkg_fold_code(std::string_view pkg) {
     return std::string(buf);
 }
 
-std::string type_module_suffix(std::string_view name, std::string_view pkg) {
-    if (pkg.empty()) return {};
-    if (fold_all_types()) return pkg_fold_code(pkg);
-    if (g_ambiguous_type_names && !name.empty() &&
-        g_ambiguous_type_names->count(std::string(name))) {
-        std::string_view mid = pkg_owning_module_id(pkg);
-        if (!mid.empty()) {
-            uint64_t h = 1469598103934665603ull;           // FNV-1a 64 offset basis
-            auto mix = [&h](std::string_view s) {
-                for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }  // FNV prime
-            };
-            mix(mid);
-            mix(std::string_view("\x1f", 1));
-            mix(pkg);
-            char buf[24];
-            std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
-            return std::string(buf);
-        }
-        // ambiguous but no owning module_id (plain compile) → legacy below.
-    }
-    if (pkg.size() >= 6 && pkg.substr(0, 6) == "logos.") return {};  // stdlib: unique by name
-    std::string_view mid = pkg_owning_module_id(pkg);
-    return mid.empty() ? std::string{} : "$M" + std::string(mid);
+std::string type_module_suffix(std::string_view /*name*/, std::string_view pkg) {
+    // ADR 0030 S9b: the declaring package folds into every nominal type's
+    // spelling (Rust's crate disambiguator) — the rule, for every name.
+    return pkg.empty() ? std::string{} : pkg_fold_code(pkg);
 }
 
 // #58 — THE TYPE-ARGUMENT HALF of the ambiguous-name fold, and ONLY that half.
@@ -1699,20 +1674,6 @@ std::string type_module_suffix(std::string_view name, std::string_view pkg) {
 // type, and every type in a package that HAS a module_id, is byte-identical to
 // before, so the archived symbol set and the abi are untouched
 // (`scripts/abi-check.sh`: ADDED 0, ABI-PRESERVING).
-std::string ambiguous_type_arg_fingerprint(std::string_view name, std::string_view pkg) {
-    if (pkg.empty() || name.empty() || fold_all_types()) return {};
-    if (!g_ambiguous_type_names || !g_ambiguous_type_names->count(std::string(name)))
-        return {};
-    if (!type_module_suffix(name, pkg).empty()) return {};  // already folded
-    uint64_t h = 1469598103934665603ull;                    // FNV-1a 64 offset basis
-    auto mix = [&h](std::string_view s) {
-        for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; }  // FNV prime
-    };
-    mix(pkg);
-    char buf[24];
-    std::snprintf(buf, sizeof(buf), "$M%016llx", (unsigned long long)h);
-    return std::string(buf);
-}
 
 // `impl … for [E; N]` keys: `$array$<E>$<N>`. E is spelled with every type
 // parameter as `_` (a bare parameter is `T`, `Head<T>` is `Head<_>`,
@@ -1815,14 +1776,6 @@ std::vector<std::string> array_impl_lookup_keys(TypeRef concrete) {
 // are ignored: the tag is queried by BARE nominal names only, and keeping the
 // set to bare names makes it byte-identical whether the source is sema's
 // template tables (bare) or mono/mlir's prog.structs (templates + instances).
-void ambiguous_set_accumulate(std::unordered_map<std::string, std::string>& first_pkg,
-                              std::unordered_set<std::string>& out,
-                              std::string_view name, std::string_view pkg) {
-    if (name.empty() || pkg.empty()) return;
-    if (name.find('$') != std::string_view::npos) return;
-    auto [it, inserted] = first_pkg.emplace(std::string(name), std::string(pkg));
-    if (!inserted && it->second != pkg) out.insert(std::string(name));
-}
 
 
 std::string concrete_struct_name(TypeRef t) {
@@ -1871,9 +1824,7 @@ static std::string mangle_type_for_name(TypeRef t) {
         // is reached ONLY from a mangle (concrete_struct_name's `$G…` args, the
         // fn-symbol signature mangle), never as a nominal identity, so folding
         // here cannot desynchronise collect from lower.
-        return concrete_struct_name(t) +
-               ambiguous_type_arg_fingerprint(TypeRef(t).struct_name(),
-                                              TypeRef(t).pkg_name());
+        return concrete_struct_name(t);
     case LogosType::Kind::Enum: {
         // Coexistence + G156-1: fold module_id (and package, for ambiguous names)
         // into the enum's mangled identity so two same-named enums stay distinct.
@@ -2120,7 +2071,22 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_func_by_base_and_signature(
         std::string_view base_name,
         const std::vector<TypeRef>& param_types,
         bool is_vararg) const {
-    for (auto* fi : find_func_candidates(base_name)) {
+    return pick_by_signature_(find_func_candidates(base_name), param_types, is_vararg);
+}
+
+// ADR 0030 S9b row 2: the method of `owner` named `method` whose declared
+// parameters are exactly `param_types` — asked of the owner's identity.
+const SemaChecker::SemaFuncInfo* SemaChecker::find_method_by_signature_(
+        TypeRef owner, std::string_view method,
+        const std::vector<TypeRef>& param_types, bool is_vararg) {
+    return pick_by_signature_(methods_of_(owner, method), param_types, is_vararg);
+}
+
+const SemaChecker::SemaFuncInfo* SemaChecker::pick_by_signature_(
+        const std::vector<const SemaFuncInfo*>& cands,
+        const std::vector<TypeRef>& param_types,
+        bool is_vararg) {
+    for (auto* fi : cands) {
         if (fi->is_vararg != is_vararg) continue;
         if (fi->param_types.size() != param_types.size()) continue;
         bool same = true;
@@ -2192,18 +2158,37 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
             if (fi->package == call_pkg_qualifier_) q.push_back(fi);
         return q;
     }
+    return filter_visible_(std::move(all));
+}
+
+// The candidates visible from the current package: its own, an imported
+// package's (unless imported `from` another module), or a package-less one.
+// When nothing is visible the whole set stands (synthetic / unprimed phases),
+// except when a `from`-restriction emptied it deliberately.
+std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
+        std::vector<const SemaFuncInfo*> all) const {
     std::vector<const SemaChecker::SemaFuncInfo*> out;
     out.reserve(all.size());
     // §3: a `use pkg from <module>;` import is DELIBERATE exclusion — track it so
     // the empty→all robustness fallback below doesn't silently re-admit a
     // candidate the user explicitly scoped to a different module.
     bool from_excluded_any = false;
+    // Q1 row 2: the imports a function is visible through are the same as a
+    // type's — direct imports AND their `pub use` re-exports (Rust re-exports
+    // every namespace).
+    const auto& imports = effective_import_pkgs();
     for (auto* fi : all) {
+        // (A type's methods are visible through the type in Rust; exempting them
+        // here waits for static calls to name their owner by identity — Q1 row
+        // 4 — since `Buffer__new` is a spelled key two homonym structs share.)
+        // Re-exports widen a FREE function's visibility; a method's stays the
+        // direct imports' until trait scope is resolved by identity (row 4):
+        // the prelude re-exports logos.lang.hash, whose `Hash::hash` Rust's
+        // prelude does not bring into scope.
+        const auto& in = fi->is_method ? cur_imports_.wildcard_packages : imports;
         bool visible = fi->package.empty() ||
                        fi->package == cur_package_ ||
-                       std::find(cur_imports_.wildcard_packages.begin(),
-                                 cur_imports_.wildcard_packages.end(),
-                                 fi->package) != cur_imports_.wildcard_packages.end();
+                       std::find(in.begin(), in.end(), fi->package) != in.end();
         if (!visible) continue;
         if (auto it = cur_imports_.pkg_from_module_id.find(fi->package);
             it != cur_imports_.pkg_from_module_id.end() &&
@@ -2218,7 +2203,10 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     }
     // Empty-fallback for synthetic/unprimed phases — but NOT when the emptiness
     // is an intentional `from`-restriction (else the negative case never errors).
-    if (out.empty() && !from_excluded_any) return all;
+    if (out.empty() && !from_excluded_any) {
+        if (!all.empty()) logos::probe::census("q1.visible.fallback");   // Q1 row 4 retires it
+        return all;
+    }
     return out;
 }
 
@@ -3137,29 +3125,8 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // install_snapshot, whose const-index rebuild is another one).
     check_symbol_key_separators();
     check_trait_def_identity();
+    check_value_def_identity();
 
-    {
-        // #438: the name is a FIELD of the identity now, not a substring of a key.
-        ambiguous_type_names_.clear();  // fresh per run (checker may be reused)
-        std::unordered_map<std::string, std::string> first_pkg;
-        for (auto& [d, si] : structs_)
-            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, defs_[d].name, si.package);
-        for (auto& [d, ei] : enums_)
-            ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, defs_[d].name, ei.package);
-        // G156-1 (trailer v3): fold in dependency-archive nominal decls that are
-        // NOT in structs_/enums_ because their package's AST was loaded lazily
-        // (or not at all). Without these, a higher tier can't see a lower
-        // archive's plain-struct decl of the same name → the cross-module clash
-        // (fs.DirEntry vs memstore.DirEntry) goes undetected. (pkg, name) pairs.
-        if (dep_nominal_decls_)
-            for (auto& [pkg, name] : *dep_nominal_decls_)
-                ambiguous_set_accumulate(first_pkg, ambiguous_type_names_, name, pkg);
-        set_ambiguous_type_names(&ambiguous_type_names_);
-        // Carry the set forward so mono/mlir apply the tag at the SAME names
-        // (they see a mono-pruned prog.structs → would recompute a subset).
-        for (auto& n : ambiguous_type_names_)
-            lir_mirror_map_put_null(prog, prog.ambiguous_type_names, n);
-    }
 
     if (!result_.ok()) {
         prog.diags = std::move(result_);
@@ -3473,6 +3440,24 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
         for (auto& pkg : cur_imports_.wildcard_packages)
             if (auto t = check_alias(sema_key(pkg, ukey))) return t;
     }
+    // Q1 row 2: Rust resolves a name PER SCOPE — the package's own items, then
+    // imports, then the root — every nominal kind at once. Searching all tiers
+    // for a struct before any enum let an imported struct beat an enum this
+    // package declares. Rank first, privacy-free; the winner is then looked up
+    // by its own (privacy-checking) finder below. Equal tiers keep the kind
+    // order struct, datatype, enum.
+    {
+        auto rank = [&](const std::string& pkg) { return pkg == cur_package_ ? 0 : pkg.empty() ? 2 : 1; };
+        auto [sp, s0] = lookup_qualified_<false>(structs_, name);
+        auto [dp, d0] = lookup_qualified_<false>(datatypes_, name);
+        auto [ep, e0] = lookup_qualified_<false>(enums_, name);
+        const int rs = s0 ? rank(sp) : 9, rd = d0 ? rank(dp) : 9, re = e0 ? rank(ep) : 9;
+        const int best = std::min({rs, rd, re});
+        if (best < 9 && rs != best) {
+            if (rd == best) { auto [dpkg, dsi] = find_datatype_by_name(name); if (dsi) return make_datatype_type(name, dpkg); }
+            else if (re == best) { auto [epkg, esi] = find_enum_by_name(name); if (esi) return make_enum_type(name, epkg); }
+        }
+    }
     {
         auto [spkg, ssi] = find_struct_by_name(name);
         if (ssi) {
@@ -3688,7 +3673,10 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         return "__typevar_pending__drop";
     }
     std::string type_name;
-    if (TypeRef(t).kind() == LogosType::Kind::Struct) type_name = std::string(TypeRef(t).struct_name());
+    // A non-generic struct's methods are registered under concrete_struct_name
+    // (ADR 0030 S9b, impl_method_base_); a generic one's template under its name.
+    if (TypeRef(t).kind() == LogosType::Kind::Struct)
+        type_name = TypeRef(t).type_args().empty() ? concrete_struct_name(t) : std::string(TypeRef(t).struct_name());
     // Enums can carry a user `Drop` impl too (`impl Drop for E`). Keyed by the
     // enum name → `E__drop`. The SDrop codegen loads the heap pointer (enums
     // are heap-ptr-to-struct) before calling the drop fn.
@@ -3728,97 +3716,24 @@ std::string SemaChecker::drop_fn_for(TypeRef t) const {
         auto cp = TypeRef(cand_struct).pkg_name();
         return cp.empty() || t_pkg.empty() || cp == t_pkg;
     };
-    std::vector<TypeRef> sig{t};
-    if (auto* fi = find_func_by_base_and_signature(mangled, sig, false))
-        if (is_drop_impl_(fi))
-            return fi->symbol_name.empty() ? mangled : fi->symbol_name;
-    for (auto* cand : find_func_candidates(mangled)) {
-        if (!cand || cand->param_types.size() != 1) continue;
-        if (!is_drop_impl_(cand)) continue;
-        auto pt = cand->param_types[0];
-        if (pt && types_equal(pt, t))
-            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
-    }
-    // `fn drop(&mut self)` / `fn drop(&self)` — the canonical stdlib `Drop`
-    // shape. The param type is `&mut T` / `&T` (a ref to the struct), not the
-    // struct by value, so the by-value checks above miss it. The SDrop codegen
-    // already calls the drop fn with the value's address (same ABI as the
-    // by-value form, since structs pass by pointer), so matching the ref form
-    // here is sufficient — no codegen change needed.
-    for (auto* cand : find_func_candidates(mangled)) {
-        if (!cand || cand->param_types.size() != 1) continue;
-        if (!is_drop_impl_(cand)) continue;
-        auto pt = cand->param_types[0];
-        if (!pt) continue;
-        auto pk = TypeRef(pt).kind();
-        if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-            TypeRef(pt).pointee() && types_equal(TypeRef(pt).pointee(), t) &&
-            pkg_matches(TypeRef(pt).pointee()))
-            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
-    }
-    // Generic Drop impl: `impl<T> Drop for Foo<T>` registers Foo__drop with
-    // param Foo<TypeVar>. Strict types_equal can't match a concrete
-    // Foo<i64>. Fall back to a base-name match — any one-param candidate
-    // whose param is a struct of the same base name accepts the concrete
-    // after monomorphisation. mono_clone's SDrop case re-mangles the
-    // returned template name to <concrete_struct_name>__drop at clone time,
-    // matching the symbol clone_struct_def emits when instantiating the
-    // struct's methods.
-    for (auto* cand : find_func_candidates(mangled)) {
-        if (!cand || cand->param_types.size() != 1) continue;
-        if (!is_drop_impl_(cand)) continue;
-        auto pt = cand->param_types[0];
-        if (!pt) continue;
-        auto pk = TypeRef(pt).kind();
-        // Accept `&mut self` / `&self` by peeling one ref level.
-        if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-            TypeRef(pt).pointee()) {
+    // ADR 0030 S9b row 2: the `Drop` impl's `drop` declared on `t`, asked of
+    // its identity — a trait-qualified registration (G156-5's
+    // `<T>__Drop__drop`, beside an inherent `drop`) included, since the index
+    // keys the declared name. A self exactly `t` (by value or through `&` /
+    // `&mut`) first; else a generic impl whose self matches (`impl<T> Drop for
+    // Foo<T>` at `Foo<i64>` — mono re-mangles the template to the instance).
+    const SemaFuncInfo* by_pattern = nullptr;
+    for (auto* cand : const_cast<SemaChecker*>(this)->methods_of_(t, "drop")) {
+        if (!cand || cand->param_types.size() != 1 || !is_drop_impl_(cand)) continue;
+        TypeRef pt = cand->param_types[0];
+        if (pt && (TypeRef(pt).kind() == LogosType::Kind::Ref || TypeRef(pt).kind() == LogosType::Kind::MutRef) &&
+            TypeRef(pt).pointee())
             pt = TypeRef(pt).pointee();
-            pk = TypeRef(pt).kind();
-        }
-        if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct) continue;
-        if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
-            return cand->symbol_name.empty() ? mangled : cand->symbol_name;
+        if (!pt) continue;
+        if (types_equal(pt, t)) return cand->symbol_name.empty() ? mangled : cand->symbol_name;
+        if (!by_pattern && pkg_matches(pt) && self_pattern_match_(pt, t)) by_pattern = cand;
     }
-    // The plain base is not the only key: `collect_fn`'s G156-5 files a trait
-    // method under `<T>__<Trait>__<m>` when an inherent one holds the plain
-    // base. PROBES.md 2026-09-04d §3.
-    {
-        auto rit = trait_method_registry_.find(mangled);
-        const bool reg_has_drop =
-            rit != trait_method_registry_.end() &&
-            std::find(rit->second.begin(), rit->second.end(), "Drop") != rit->second.end();
-        if (reg_has_drop) {
-            logos::probe::census("dropfor.qualified.miss");
-            std::string qual = type_name + "__Drop__drop";
-            for (auto* cand : find_func_candidates(qual)) {
-                if (!cand || cand->param_types.size() != 1) continue;
-                if (!is_drop_impl_(cand)) continue;
-                auto pt = cand->param_types[0];
-                if (!pt) continue;
-                auto pk = TypeRef(pt).kind();
-                if ((pk == LogosType::Kind::Ref || pk == LogosType::Kind::MutRef) &&
-                    TypeRef(pt).pointee()) {
-                    pt = TypeRef(pt).pointee();
-                    pk = TypeRef(pt).kind();
-                }
-                // ENUMS TOO: `type_name` above is the ENUM name for an enum,
-                // so `E__Drop__drop` is minted for enums as it is for structs —
-                // but this arm accepted only Struct/ZonedStruct, so a qualified
-                // enum `Drop` resolved to NOTHING and the destructor was skipped.
-                // Unreachable until G156-5b. PROBES.md 2026-09-09drop.
-                if (pk == LogosType::Kind::Enum) {
-                    if (TypeRef(pt).enum_name() == TypeRef(t).enum_name())
-                        return cand->symbol_name.empty() ? qual : cand->symbol_name;
-                    continue;
-                }
-                if (pk != LogosType::Kind::Struct && pk != LogosType::Kind::ZonedStruct)
-                    continue;
-                if (TypeRef(pt).struct_name() == TypeRef(t).struct_name() && pkg_matches(pt))
-                    return cand->symbol_name.empty() ? qual : cand->symbol_name;
-            }
-        }
-    }
+    if (by_pattern) return by_pattern->symbol_name.empty() ? mangled : by_pattern->symbol_name;
     return {};
 }
 
@@ -4199,10 +4114,14 @@ void SemaChecker::compute_auto_copy_types() {
             // types get their own DefIds in a later step), so the root's
             // identity first and then the one struct of that name — the same
             // two probes this did as strings.
-            auto sit = structs_.find(type_id({}, target));
+            // A non-generic struct's target carries its package fold (ADR 0030
+            // S9b): the declaration is the impl's `target_pkg` + its name.
+            const std::string tname = SemaResult::strip_fold_codes(target);
+            auto sit = structs_.find(type_id(info.target_pkg, tname));
+            if (sit == structs_.end()) sit = structs_.find(type_id({}, tname));
             if (sit == structs_.end())
                 for (auto it = structs_.begin(); it != structs_.end(); ++it)
-                    if (defs_[it->first].name == target) { sit = it; break; }
+                    if (defs_[it->first].name == tname) { sit = it; break; }
             if (sit == structs_.end()) continue;   // primitives / unknown: no field check
             for (auto& f : sit->second.fields) {
                 std::string why;
@@ -4210,7 +4129,7 @@ void SemaChecker::compute_auto_copy_types() {
                     error(std::format(
                         "impl StableLayout for {}: field '{}' breaks the "
                         "layout-freeze contract — {}",
-                        target, std::string(f.name), why));
+                        tname, std::string(f.name), why));
                 }
             }
         }
@@ -5945,6 +5864,11 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         if (!seen.insert(cn).second) return {8, 8};
         struct Pop { logos::compiler::StrSet& s; const std::string& k;
                      ~Pop() { s.erase(k); } } pop{seen, cn};
+        // The ledger key is the EMITTED struct's name, which the verifier joins
+        // on: a non-generic struct is emitted under its declared name, an
+        // instance under the encoder (ADR 0030 S9b — the fold is in the
+        // instance's name, not in a plain struct's).
+        const std::string lk = tv.type_args().empty() ? std::string(tv.struct_name()) : cn;
         // PKG-QUALIFIED and pub-check-FREE: visibility is irrelevant to a
         // layout question, and the pub-checking bare-name lookup answered
         // "unknown" — i.e. the `{8,8}` default — for every foreign package's
@@ -5956,7 +5880,7 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         // answer and enters no ledger, so nothing downstream can tell it from a
         // computed layout. Recorded so the verifier's census can count it.
         if (!ssi) {
-            lay::record_declined("sema_abi_layout", lay::type_key(tv.pkg_name(), cn),
+            lay::record_declined("sema_abi_layout", lay::type_key(tv.pkg_name(), lk),
                                  "no struct repr registered for this type");
             return {8, 8};
         }
@@ -5973,7 +5897,7 @@ SemaChecker::AbiLayout SemaChecker::sema_abi_layout(TypeRef t,
         for (auto& f : ssi->fields) ml.push_back(fl(f.type));
         auto ans = lay::aggregate_layout(
             lay::agg_shape(ssi->repr_transparent, ssi->is_union, ssi->fields.size()), ml);
-        lay::record("sema_abi_layout", lay::type_key(tv.pkg_name(), cn), ans);
+        lay::record("sema_abi_layout", lay::type_key(tv.pkg_name(), lk), ans);
         return { ans.layout.size, ans.layout.align };
     }
     case K::Enum: {
@@ -9553,6 +9477,35 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (hir_origin_(node) == hir::Origin::Macro)
             if (const LangItem* li = lang_item(name); li && li->target == AttrTarget::Struct)
                 return make_struct_type(li->name, li->package);
+        // Q1 row 4: the HIR resolved the name once (RES = `pkg::Name`). A
+        // non-generic struct / datatype / enum is built from that identity —
+        // the import-tier privacy check lookup_qualified_ made, made here; an
+        // alias or a generic (its defaults) takes the full lookup below.
+        if (node.has_key(la::RES)) {
+            std::string res(str_of(node.get(la::RES.code)));
+            auto sep = res.rfind("::");
+            if (sep != std::string::npos) {
+                std::string pkg = res.substr(0, sep), nm = res.substr(sep + 2);
+                auto mod_of = [&](const std::string& pk) {
+                    auto mit = pkg_module_ids_.find(pk);
+                    return mit != pkg_module_ids_.end() ? mit->second : std::string{};
+                };
+                auto priv = [&](auto* info) {
+                    if (pkg != cur_package_ && !pkg.empty())
+                        check_pub_access(info->is_pub, info->package, nm, info->is_module_only, mod_of(pkg));
+                };
+                if (auto it = structs_.find(type_id(pkg, nm)); it != structs_.end() && it->second.type_params.empty()) {
+                    priv(&it->second);
+                    return make_struct_type(nm, pkg);
+                }
+                if (auto it = datatypes_.find(type_id(pkg, nm)); it != datatypes_.end() && it->second.type_params.empty()) {
+                    priv(&it->second);
+                    return make_datatype_type(nm, pkg);
+                }
+                if (auto it = enums_.find(type_id(pkg, nm)); it != enums_.end() && it->second.type_params.empty())
+                    return make_enum_type(nm, pkg);
+            }
+        }
         auto t = lookup_type_by_name(name);
         if (t) return t;
         // See #20 sister site below: in metaprog discovery loop, swallow
@@ -10221,107 +10174,7 @@ void SemaChecker::lower_program(const std::vector<writ::Writ>& asts, lir::LProgr
         }
         // Rebuild import scope (same logic as in collect()) so find_*_by_name
         // works during lowering for cross-package type lookups.
-        cur_imports_ = {};
-        if (root.has_key(USES)) {
-            auto uses_av = root.get(USES.code);
-            if (!uses_av.is_null() && uses_av.is_pointer()) {
-                auto uses = arr_of(uses_av);
-                for (uint64_t ui = 0; ui < uses.size(); ++ui) {
-                    auto use_node = map_of(uses.get(ui));
-                    int32_t use_code = USE.code;
-                    if (use_node.has_key(CODE)) {
-                        auto cv = use_node.get(CODE.code);
-                        if (!cv.is_null() && !cv.is_pointer())
-                            use_code = cv.as_value<int32_t>();
-                    }
-                    std::string dotted;
-                    if (use_node.has_key(NAME))
-                        dotted = std::string(str_of(use_node.get(NAME.code)));
-                    if (use_node.has_key(mod::PATH_PARTS)) {
-                        auto parts = arr_of(use_node.get(mod::PATH_PARTS.code));
-                        for (uint64_t pi = 0; pi < parts.size(); ++pi) {
-                            auto part = map_of(parts.get(pi));
-                            if (!part.has_key(NAME)) continue;
-                            if (!dotted.empty()) dotted += '.';
-                            dotted += std::string(str_of(part.get(NAME.code)));
-                        }
-                    }
-                    // GR-gp-02: `use pkg.{a, b, c};` is parsed as
-                    // USE_VARIANTS with a lowercase TYPE_NAME. When the
-                    // TYPE_NAME starts with a lowercase letter, desugar
-                    // to N wildcard imports `<dotted>.<TYPE_NAME>.<item>`;
-                    // uppercase TYPE_NAME is the real enum-variant form
-                    // handled below.
-                    if (use_code == USE_VARIANTS.code && use_node.has_key(TYPE_NAME)) {
-                        std::string tn(str_of(use_node.get(TYPE_NAME.code)));
-                        if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
-                            std::string prefix = dotted.empty()
-                                ? tn : (dotted + "." + tn);
-                            if (use_node.has_key(VARIANTS)) {
-                                auto vlist_av = use_node.get(VARIANTS.code);
-                                if (!vlist_av.is_null() && vlist_av.is_pointer()) {
-                                    auto vlist = arr_of(vlist_av);
-                                    for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
-                                        auto v = map_of(vlist.get(vi));
-                                        if (!v.has_key(NAME)) continue;
-                                        auto bare = std::string(str_of(v.get(NAME.code)));
-                                        cur_imports_.wildcard_packages.push_back(
-                                            prefix + "." + bare);
-                                    }
-                                }
-                            }
-                            continue;
-                        }
-                    }
-                    // CP-cm-02: record bare-variant aliases (mirrors the
-                    // collect-pass build_import_scope in sema_collect.cpp).
-                    if (use_code == USE_VARIANTS.code &&
-                        use_node.has_key(VARIANTS)) {
-                        auto vlist_av = use_node.get(VARIANTS.code);
-                        if (!vlist_av.is_null() && vlist_av.is_pointer()) {
-                            std::string enum_qual;
-                            if (use_node.has_key(TYPE_NAME))
-                                enum_qual = std::string(
-                                    str_of(use_node.get(TYPE_NAME.code)));
-                            auto vlist = arr_of(vlist_av);
-                            for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
-                                auto v = map_of(vlist.get(vi));
-                                if (!v.has_key(NAME)) continue;
-                                auto bare = std::string(
-                                    str_of(v.get(NAME.code)));
-                                cur_imports_.variant_aliases[bare] = enum_qual;
-                            }
-                        }
-                    }
-                    // §3: `use pkg from <module>;` — mirror sema_collect's
-                    // build_import_scope so the from-restriction is present during
-                    // LOWERING too (this loop rebuilds cur_imports_ independently;
-                    // without it find_func_candidates sees no restriction). Done
-                    // before the std::move(dotted) below.
-                    if (!dotted.empty() && use_node.has_key(mod::FROM_MODULE)) {
-                        std::string kw;
-                        if (use_node.has_key(mod::FROM_KW))
-                            kw = std::string(str_of(use_node.get(mod::FROM_KW.code)));
-                        if (kw == "from") {
-                            std::string mname;
-                            auto fm = map_of(use_node.get(mod::FROM_MODULE.code));
-                            if (fm.has_key(NAME))
-                                mname = std::string(str_of(fm.get(NAME.code)));
-                            if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
-                                mname = mname.substr(1, mname.size() - 2);
-                            if (!mname.empty() && module_name_to_id_ &&
-                                !module_name_to_id_->empty()) {
-                                if (auto it = module_name_to_id_->find(mname);
-                                    it != module_name_to_id_->end())
-                                    cur_imports_.pkg_from_module_id[dotted] = it->second;
-                            }
-                        }
-                    }
-                    if (!dotted.empty())
-                        cur_imports_.wildcard_packages.push_back(std::move(dotted));
-                }
-            }
-        }
+        cur_imports_ = build_import_scope_(root, /*diagnose=*/false);   // Q1 row 2: collect's builder
         inject_implicit_prelude_(root);
         lower_module_items(root, prog);
         if (capture_this_ast) {
@@ -12227,7 +12080,6 @@ lir::LProgram sema_lower(const std::vector<logos::writ::Writ>& asts,
     // self-gating — a library build's own not-yet-compiled fns are absent, so
     // their bodies are lowered locally and mono's scan_fn sees their generics.
     checker.set_binary_symbols(&opts.binary_symbols);
-    checker.set_dep_nominal_decls(&opts.dep_nominal_decls);  // G156-1 ambiguity universe
     // Phase 2-4: ingest cfg flags. `feature=name` adds `name` to the
     // feature set; bare `flag` is reserved (future use). Equal sign is
     // the discriminator.

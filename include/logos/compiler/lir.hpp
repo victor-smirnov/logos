@@ -782,15 +782,6 @@ struct LProgram {
     // (LangItemsScope) and asks type_is_lang_item.
     lir_view::ObjectMapRef lang_items;
 
-    // G156-1: bare nominal type names declared in ≥2 DISTINCT packages across
-    // sema's FULL transitive type universe (own + every binary-dependency
-    // module's exported struct/enum decls). Computed ONCE in sema (from the
-    // unpruned struct/enum tables) and carried here so mono and mlir_gen apply
-    // the type-arg package tag at exactly the same names — mono prunes dead
-    // struct/enum defs, so recomputing from prog.structs at mlir time would see
-    // a SMALLER universe and drop the tag, diverging definition from use. Keys
-    // are the ambiguous bare names; values null. (Stage E: heap-free ObjectMap.)
-    lir_view::ObjectMapRef ambiguous_type_names;
 
     // LOCAL TYPE INFERENCE (sema → mono, in-process): per function NAME, the
     // solutions of the inference variables (`?iN`) its body minted where a
@@ -804,6 +795,10 @@ struct LProgram {
     // slot of the trait's vtable order calls (L-IR names; "" = no impl item
     // answers). mono fills it from the impl C-OBL selects; mlir lays it out.
     std::unordered_map<std::string, std::vector<std::string>> vtables;
+    // ADR 0030 S9b row 3 (mono → mlir, in-process): every emitted struct's
+    // destructor — the `Drop` lang item's `drop` mono selects by identity —
+    // keyed `pkg \x1f emitted-name`; "" = no `Drop` impl.
+    std::unordered_map<std::string, std::string> drop_symbols;
 
     // ADR 0007 slice 1c: pools for WritVal / EClosure. Append-only,
     // lifetime = LProgram. shared_ptr so multiple LPrograms can share the SAME
@@ -1308,13 +1303,6 @@ struct SemaOptions {
     // archive's `@prelude`). Files compiled in this run use implicit_prelude.
     std::unordered_map<std::string, std::string> module_prelude;
 
-    // G156-1 (trailer v3): nominal type decls (pkg, name) exported by dependency
-    // archives — loaded from their .writ0 all-struct/enum-decls trailer even for
-    // packages whose ASTs are NOT lazily loaded into this build. Folded into the
-    // transitive ambiguous-type-name universe so a higher tier detects a
-    // cross-module same-name clash (e.g. std's fs.DirEntry vs mem's
-    // memstore.DirEntry) that would otherwise be invisible. Owned by the caller.
-    std::vector<std::pair<std::string, std::string>> dep_nominal_decls;
 
     // UnitGraph §1.2: per-AST compile-unit key, parallel to asts/filenames.
     // Non-empty entries are DECLARED by the emitter that produced that AST (a

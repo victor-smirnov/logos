@@ -16,6 +16,7 @@
 #include <utility>
 #include "emit_module.hpp"
 #include "compile_pipeline.hpp"
+#include "line_reader.hpp"
 #include "metaprog_dispatch.hpp"
 #include "module_loader.hpp"
 
@@ -825,11 +826,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     for (const auto& a : dep_archives) {
         FILE* pipe = ::popen(("nm --defined-only -j " + a + " 2>/dev/null").c_str(), "r");
         if (!pipe) continue;
-        char line[512];
-        while (std::fgets(line, sizeof(line), pipe)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
-                sv.remove_suffix(1);
+        for_each_line(pipe, [&](std::string_view sv) {
+            while (!sv.empty() && sv.back() == ' ') sv.remove_suffix(1);
             // ⚠ A METACALL THUNK IS NOT AN ABI SYMBOL, AND ITS NAME IS NOT
             // UNIQUE ACROSS MODULES. `__metacall_thunk_<site_id>` is compile-
             // time-only scaffolding; the site id is hash(ast_idx, expr_offset),
@@ -851,7 +849,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             if (!sv.empty() && sv.front() != '/'
                 && sv.find("__metacall_thunk_") == std::string_view::npos)
                 dep_symbols.emplace(sv);
-        }
+            return true;
+        });
         ::pclose(pipe);
     }
 
@@ -981,19 +980,6 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     sema_opts.ast_unit_key   = ast_unit_key; // UnitGraph §1.2 — stamped onto every lowered fn
     sema_opts.module_name_to_id = module_name_to_id;  // §3/§B-coex: resolve `use … from`
     sema_opts.module_prelude = module_prelude;
-    // G156-1: load ALL nominal decls (struct+enum) exported by the dependency
-    // archives' v3 trailer — including packages whose ASTs are loaded lazily (or
-    // not at all) in this build — so a higher tier's ambiguity universe sees a
-    // lower archive's plain-struct decls (memstore.DirEntry) and folds its own
-    // clashing instance (fs.DirEntry). The lower archive's emitted symbols are
-    // untouched → metaprog-JIT unperturbed.
-    {
-        StdlibExports dep_exports = load_archive_exports(dep_archives);
-        auto& dnd = sema_opts.dep_nominal_decls;
-        dnd.reserve(dep_exports.all_struct_decls.size() + dep_exports.all_enum_decls.size());
-        for (auto& pn : dep_exports.all_struct_decls) dnd.push_back(pn);
-        for (auto& pn : dep_exports.all_enum_decls)   dnd.push_back(pn);
-    }
     std::optional<PhaseTimer> _pt;
     _pt.emplace("sema+lower");
     auto prog = sema_lower(asts, filenames, from_binary, sema_opts, {}, module_ids);

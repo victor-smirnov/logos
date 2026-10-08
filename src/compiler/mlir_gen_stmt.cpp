@@ -1448,7 +1448,14 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             std::string_view dfn = drop_fn;
             if (auto dot = dfn.rfind('.'); dot != std::string_view::npos)
                 dfn = dfn.substr(dot + 1);
-            if (auto p = dfn.find("__drop"); p != std::string_view::npos) {
+            // S9b row 3: mono's identity-selected destructor, when it has one
+            // for this struct ("" = none) — the name protocol below otherwise.
+            const std::string* tab = nullptr;
+            if (auto p = dfn.find("__drop"); p != std::string_view::npos)
+                tab = drop_table_lookup_(dfn.substr(0, p), TypeRef(vt).pkg_name());
+            if (tab) {
+                drop_fn = *tab;
+            } else if (auto p = dfn.find("__drop"); p != std::string_view::npos) {
                 bool owns = false;
                 auto rs = resolve_method_symbol(dfn.substr(0, p), "drop",
                                                 TypeRef(vt).pkg_name(), &owns);
@@ -1499,10 +1506,14 @@ void MLIRGenImpl::gen_stmt_kind(lir_view::SDropView v) {
             if (auto p = dfn.find("__drop"); p != std::string_view::npos) {
                 // TAKE THE AUTHORITATIVE NEGATIVE, as the pass above does.
                 bool owns2 = false;
-                auto resolved = resolve_method_symbol(dfn.substr(0, p), "drop",
-                                                      dpkg, &owns2);
-                if (owns2 && resolved == std::string(dfn.substr(0, p)) + "__drop")
-                    resolved.clear();
+                std::string resolved;
+                if (const std::string* tab = drop_table_lookup_(dfn.substr(0, p), dpkg)) {
+                    resolved = *tab;   // S9b row 3: by identity
+                } else {
+                    resolved = resolve_method_symbol(dfn.substr(0, p), "drop", dpkg, &owns2);
+                    if (owns2 && resolved == std::string(dfn.substr(0, p)) + "__drop")
+                        resolved.clear();
+                }
                 if (!resolved.empty())
                     fn = find_func_op(mod, resolved);
             }

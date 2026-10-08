@@ -533,6 +533,10 @@ SINGLETONS = {
         T('logos_09_emit_shards',
           ['{tsrc}/emit_shards_gate.sh', '{logosc}', '{libdir}', '{src}', '{tbin}/emit_shards_gate'],
           'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
+        # NO STRONG SYMBOL IN TWO ARCHIVES (#738: long link names escaped the binary-skip set)
+        T('logos_09_archive_dup_symbol',
+          ['{tsrc}/archive_dup_symbol_gate.sh', '{logosc}', '{libdir}', '{src}', '{tbin}/archive_dup_symbol_gate', '{tbin}'],
+          'logos;pass;suite_semantic_core;tier_commit', timeout=300, env=LIB),
     ],
 }
 
@@ -790,13 +794,13 @@ BC_LABEL_RES = [
     re.compile(r"/tests/logos/(pass|fail)/(bc_|zone_mut|place_write|branch_merge|reborrow|nll)"),
 ]
 
-# A family-forging pass test (imports the metaclass factory) gets the heavy
-# timeout. `file(READ)` + MATCHES in `logos_add_grouped_test`.
+# A family-forging test (imports the metaclass factory) gets the heavy timeout,
+# pass or fail: a refusal twin forges the same family before it refuses. `file(READ)` + MATCHES in `logos_add_grouped_test`.
 HEAVY_SOURCE_RE = re.compile(rb"logos\.lcm\.canon\.(metaclass|container_item)")
 # The box is SHARED (two agents' `lt` runs): passes measured under that load
 # reach ~3x their quiet time (memoria_showcase_deem 59 s quiet, 155 s loaded),
 # so a limit is ~3x the slowest PASS observed, not the quiet median.
-PASS_TIMEOUT, PASS_HEAVY_TIMEOUT, FAIL_TIMEOUT = 300, 450, 180
+PASS_TIMEOUT, HEAVY_TIMEOUT, FAIL_TIMEOUT = 300, 450, 180
 
 # The facts side product (task #85): `tests/logos/pass` fixtures write facts and
 # are FIXTURES_SETUP for the census gates; `wql_`/`deem_` ones also set up the
@@ -845,11 +849,11 @@ def grouped_test(ctx, mode, base, exp_file, logos_file, suite):
     if mode == "pass":
         extra = pass_extra_args(ctx, base)
         timeout = PASS_TIMEOUT
-        if HEAVY_SOURCE_RE.search(ctx.read_bytes(logos_file)):
-            timeout = PASS_HEAVY_TIMEOUT
     else:
         extra = fail_extra_args(ctx, base)
         timeout = FAIL_TIMEOUT
+    if HEAVY_SOURCE_RE.search(ctx.read_bytes(logos_file)):
+        timeout = HEAVY_TIMEOUT
     # `corpus` is what exempts these from the tier rule.
     labels = ["logos", "corpus", mode, "suite_" + suite]
     if "/tests/imported/" in logos_file:

@@ -163,6 +163,15 @@ static bool lir_is_copy_lang_item(std::string_view id) noexcept {
     return id == "logos.lang.clone::Copy" || id == "Copy";
 }
 
+// The declared (template) name a struct/enum symbol spells: its package fold
+// (`$M<code>`, ADR 0030 S9b) removed and its instance suffix (`$G…`) cut —
+// the name fn-body TypeRefs carry.
+static std::string declared_base_of(std::string_view n) {
+    std::string s = SemaResult::strip_fold_codes(std::string(n));
+    if (auto g = s.find("$G"); g != std::string::npos) s.resize(g);
+    return s;
+}
+
 static TypeSets build_type_sets(const lir::LProgram& prog) {
     TypeSets ts;
     // `prog.consts` holds BOTH kinds (sema pushes CONST_DEF and STATIC_DEF into
@@ -239,6 +248,9 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
                 std::string_view bk = base;
                 if (auto g = bk.find('$'); g != std::string_view::npos) bk = bk.substr(0, g);
                 if (!drop_impl_targets.count(std::string(bk))) return;
+                // A type's methods carry its fold (`R$M<code>`, `Box$M<code>$G1$i64`,
+                // ADR 0030 S9b); fn-body TypeRefs spell the declared name.
+                ts.drop_types.insert(std::string(bk));
             }
             ts.drop_types.insert(std::string(base));
             // Mono-spec names (`Box$G1$i64__drop`) ALSO register the template
@@ -246,8 +258,8 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             // without the strip NO generic droppable struct (Box/Vec/String-
             // generics) was move-classified — `let c = b;` of a Box while
             // `&*b` was live passed silently (adversarial #2 f13).
-            if (auto g = base.find("$G"); g != std::string_view::npos)
-                ts.drop_types.insert(std::string(base.substr(0, g)));
+            if (base.find("$G") != std::string_view::npos)
+                ts.drop_types.insert(declared_base_of(base));
         }
     };
     auto scan_fns = [&](const std::vector<LFunctionPtr>& fns) {
@@ -286,11 +298,11 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         if (auto dot = n.rfind('.'); dot != std::string_view::npos)
             ts.borrow_carrying.insert(std::string(n.substr(dot + 1)));
         if (!strip_generic) return;
-        if (auto g = n.find("$G"); g != std::string_view::npos) {
-            std::string_view base = n.substr(0, g);
-            ts.borrow_carrying.insert(std::string(base));
-            if (auto d2 = base.rfind('.'); d2 != std::string_view::npos)
-                ts.borrow_carrying.insert(std::string(base.substr(d2 + 1)));
+        if (n.find("$G") != std::string_view::npos) {
+            std::string base = declared_base_of(n);
+            ts.borrow_carrying.insert(base);
+            if (auto d2 = base.rfind('.'); d2 != std::string::npos)
+                ts.borrow_carrying.insert(base.substr(d2 + 1));
         }
     };
     auto reg_bc = [&](lir_view::StructView sd) {
@@ -354,8 +366,8 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         ts.residency_exempt.insert(std::string(n));
         // Specs are named `Held$G1$…`; the use-site type walk sees the BASE
         // struct name (`Held`) with type-args — register that form too.
-        if (auto g = n.find("$G"); g != std::string_view::npos)
-            ts.residency_exempt.insert(std::string(n.substr(0, g)));
+        if (n.find("$G") != std::string_view::npos)
+            ts.residency_exempt.insert(declared_base_of(n));
     };
     // An EXPLICIT `#[borrow_carrying]` annotation is the author declaring the
     // type enforces a borrow — it WINS over the auto residency-holder heuristic.
@@ -16803,10 +16815,6 @@ lir::LProgram borrow_check(lir::LProgram prog, bool generic_templates_only, bool
     // silently. Measured: 800+ such misses in one Memoria fixture.
     TypeModuleScope _type_module_scope(&prog.pkg_module_ids);
     LangItemsScope _lang_items_scope(&prog.lang_items);
-    std::unordered_set<std::string> ambiguous_type_names;
-    prog.ambiguous_type_names.for_each(
-        [&](std::string_view k, writ::AnyVal) { ambiguous_type_names.insert(std::string(k)); });
-    set_ambiguous_type_names(&ambiguous_type_names);
     const TypeSets ts = build_type_sets(prog);
     // Escape-analysis callee index — built ONCE here, shared (const) by every
     // per-function BorrowChecker below (was a per-instance map rebuilt N times).

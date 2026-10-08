@@ -1,0 +1,29 @@
+// A `for` inside a generic impl's method (`impl<E> From<Vec<E>> for H<E>`) calls `VecIntoIter<E>::next`; at an
+// instance of H that call was deferred until `VecIntoIter<W<i64>>` existed, and the loop that instantiated it
+// (mono's drain_all_, the vtable fixpoint) never drained the deferred calls: the method was never cloned
+// (ICE "callee ... not resolved"; binaryheap_reverse since S10 row 1). rustc twin: exit 0.
+package for_in_struct_method_instance_demand;
+use logos.mem.collections.vec;
+use logos.lang.convert;
+struct W<T> { v: T }
+struct H<T> { n: i64, d: Vec<T> }
+impl<T> H<T> {
+    fn new() -> H<T> { return H { n: 0, d: Vec::new() }; }
+    fn push(self: &mut H<T>, x: T) { self.n += 1; self.d.push(x); }
+}
+impl<E> From<Vec<E>> for H<E> {
+    fn from(v: Vec<E>) -> H<E> {
+        let mut h: H<E> = H::new();
+        for x in v { h.push(x); }
+        return h;
+    }
+}
+struct U<T> { u: T }
+fn main() -> i32 {
+    let mut h: H<W<i64>> = H::new();
+    h.push(W { v: 3i64 });
+    if h.n != 1 || h.d[0].v != 3 { return 1; }
+    let g: H<U<i64>> = H::from(vec![U { u: 1i64 }, U { u: 2i64 }]);
+    if g.n != 2 || g.d[1].u != 2 { return 2; }
+    return 0;
+}

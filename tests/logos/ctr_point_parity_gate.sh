@@ -70,11 +70,13 @@ if ! valgrind --tool=callgrind --callgrind-out-file="$TMPD/cg.out" "$TMPD/t" > /
     echo "FAIL(2): callgrind run failed:"; tail -20 "$TMPD/cg.err"; exit 2
 fi
 python3 "$EXTRACTOR" "$TMPD/cg.out" > "$TMPD/edges"
+# A method's link name carries its owner's identity suffix (`LeafWalk$M<hash>__advance`,
+# ADR 0030 S9b), so the owner patterns admit an optional `$M<hash>`.
 edge() { awk -F'\t' -v ca="$1" -v ce="$2" '$2 ~ ca && $3 ~ ce { n += $1 } END { print n + 0 }' "$TMPD/edges"; }
 
 LANDINGS=$(edge '__ctr_bat_' '__seek_key__f__')
-ADV_CALLS=$(edge 'LeafWalk__advance' '.')
-REDESCENTS=$(edge 'LeafWalk__advance' '__seek__f__')
+ADV_CALLS=$(edge 'LeafWalk([$]M[0-9a-f]+)?__advance' '.')
+REDESCENTS=$(edge 'LeafWalk([$]M[0-9a-f]+)?__advance' '__seek__f__')
 DIRECT=$(edge '__find__f__' 'bt_descend_find')
 
 callgrind_annotate --inclusive=yes "$TMPD/cg.out" > "$TMPD/ann" 2>/dev/null

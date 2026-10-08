@@ -17,7 +17,8 @@
 # FORMAT: one entry per line —
 #   <test-base-name> <expected-decline-count> <decline-key>
 # `#` comments and blank lines ignored. The key is matched literally against the
-# `[declined] <key>: DECLINED` rows the compiler prints.
+# `[declined] <key>: DECLINED` rows the compiler prints, package folds
+# (`$M<hex16>`) stripped.
 #
 # ── ENTRIES ──────────────────────────────────────────────────────────────────
 #
@@ -29,4 +30,6 @@
 # would mean inventing a number. `{8,8}` happens to be right for this struct
 # (`HRel` is a single `i64`), which is exactly why nothing had ever noticed and
 # exactly why the entry is not "harmless".
-zone_zvec_two_zones 2 zvec.HRel$G1$T
+# 2 -> 1 (2026-10-07): the count was the verifier visiting one type under two
+# alias keys (bare and pkg-qualified); it now visits each type once.
+zone_zvec_two_zones 1 zvec.HRel$G1$T

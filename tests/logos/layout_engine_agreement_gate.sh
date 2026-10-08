@@ -262,18 +262,24 @@ HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 #                 12 DstRef-projection widths, 272 diagnostic codes
 #   oracle-run-json: {"probes":272,"failures":0,"first":0}
 #   [layout-gate] all 18 cells at or above their measured floors, 91 enum types
-MIN_BASELINE_TYPES=3676
+# ⚠ RE-DERIVED 2026-10-07 (ADR 0030 S9b): the verifier walked struct_types_ by KEY,
+# and a type sits there under every alias spelling (bare, pkg-qualified, and with
+# the fold on, both folded) — one LLVM type was counted up to 4 times (measured:
+# 10280 entries, 2570 distinct LLVM types, on the empty program). It now walks
+# each type once. Empty program 2570/5290/2570, stdlib 4244/9441/4238: the same
+# populations, counted once.
+MIN_BASELINE_TYPES=2570
 # ⚠ RE-MEASURED 2026-09-26, the audit std merge: empty-program reference 4668 struct types, 9604 fields.
 # ATTRIBUTED BY CONTROL, per branch in its own worktree + build: audit/std-strings 3900/10418,
 # audit/std-coll 3678/9812, audit/std-iter 4400/9048 — the iterator branch alone crosses the floor.
 # It turns the `enumerate` / `zip` items into TUPLES (EnumPair gone) and instantiates the new
 # Iterator default methods over tuple items: more types, fewer STRUCT fields (a tuple's
 # elements are not struct fields). Types rose 3676 -> 4668 over the same span.
-MIN_BASELINE_FIELDS=9604
+MIN_BASELINE_FIELDS=5290
 # `defs` is the A-vs-C arm's own population — the types on which `layout_of` was
 # actually asked. It was parsed and never asserted, so the gate was green with
 # it at 0: the whole A arm could go silent behind B's number.
-MIN_BASELINE_DEFS=3676
+MIN_BASELINE_DEFS=2570
 # ⚠ AND THE ARM THOSE THREE WERE MEASURED ON IMPORTS NOTHING (see §1). The
 # STDLIB baseline — every `package` declared under `stdlib/`, DERIVED from the
 # tree at run time — is the population that actually has types in it. MEASURED
@@ -308,9 +314,10 @@ MIN_BASELINE_DEFS=3676
 # could have seen it. The floors below are the values this gate ACTUALLY SAW on
 # the post-cut tree, not a fraction of them; a floor set to a fraction is the
 # hole documented for MIN_LATTICE_DELTA below.
-MIN_STDLIB_TYPES=6060
-MIN_STDLIB_FIELDS=16948
-MIN_STDLIB_DEFS=6048
+# (re-derived 2026-10-07, see MIN_BASELINE_TYPES)
+MIN_STDLIB_TYPES=4244
+MIN_STDLIB_FIELDS=9441
+MIN_STDLIB_DEFS=4238
 # The DERIVATION's own floor: how many `package` declarations the stdlib tree
 # yields. MEASURED 2026-08-01: 188. An empty or truncated list gives back the
 # empty program, whose clean report reads identically.
@@ -319,7 +326,8 @@ MIN_STDLIB_PKGS=188
 # cross-check below, not the floor: it shrinks when a shape is deleted, so using
 # it as the floor is exactly the "half the measured value" hole — two of the six
 # composition shapes could be removed and this stayed green at 560 >= 202.
-MIN_LATTICE_DELTA=660
+# (re-derived 2026-10-07, see MIN_BASELINE_TYPES: 660 was the doubled count)
+MIN_LATTICE_DELTA=342
 MIN_GENERATED_TYPES=252
 # PER-ENGINE, on the lattice. There is deliberately NO total: a total lets one
 # engine hide behind another's number.
