@@ -1,0 +1,1 @@
+extern fn `malloc` declared with a different signature than in `logos.lang.mem` (clashing extern declarations)

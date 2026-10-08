@@ -23,7 +23,7 @@ use logos.std.wql.wql_surface_parser;   // parse_program(src, &doc) -> WAny  (ar
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 extern fn logos_argc() -> i32;
 extern fn logos_argv() -> *const *const u8;
-extern fn open(path: *const u8, flags: i32) -> i32;
+extern fn open(path: *const u8, flags: i32, mode: i32) -> i32;
 extern fn read(fd: i32, buf: *mut u8, n: i64) -> i64;
 extern fn close(fd: i32) -> i32;
 extern fn malloc(n: i64) -> *mut u8;
@@ -40,7 +40,7 @@ unsafe fn read_file(path: str) -> str {
     let mut pbuf: String = String::new();
     pbuf.push_str(path);
     pbuf.push_u8(0u8);
-    let fd: i32 = open(pbuf.as_ptr(), 0i32);
+    let fd: i32 = open(pbuf.as_ptr(), 0i32, 0i32);
     if fd < 0i32 { return ""; }
     let cap: i64 = 1048576i64;
     let buf: *mut u8 = malloc(cap);

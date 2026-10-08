@@ -6854,19 +6854,53 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     // names.  Keep the raw callee name stable so repeated declarations across
     // stdlib modules (e.g. `malloc` / `free`) still link to the same libc
     // symbol instead of being mangled into `malloc__f__i64`.
+    // Each package's declaration is an item of that package (Rust: an extern
+    // block item belongs to its module), filed under `pkg::name`; the C
+    // symbol, shared, is the link name. One symbol declared with two
+    // signatures is refused: a call can carry only the one the backend
+    // declares (rustc lints it as clashing_extern_declarations).
     if (info.is_extern) {
+        const std::string key = sema_key(cur_package_, base_name);
         auto& overloads = func_overloads_[base_name];
         for (auto& sym : overloads) {
             auto fit = funcs_.find(sym);
-            if (fit != funcs_.end() && fit->second.signature_key == info.signature_key) {
-                decl_symbols_[info.decl_key] = sym;   // one extern, declared again
+            if (fit == funcs_.end() || !fit->second.is_extern || fit->second.symbol_name != info.symbol_name) continue;
+            // The ABI decides: a C symbol has one lowered signature; types that
+            // lower alike (an integer's signedness, `!` and `()`) are one.
+            auto abi = [](TypeRef t) -> std::string {
+                using K = LogosType::Kind;
+                if (!t) return "void";
+                const K k = TypeRef(t).kind();
+                if (k == K::Void || k == K::Never) return "void";
+                if (auto [w, sg] = int_rank(k); w) return "i" + std::to_string(w);
+                if (k == K::Ptr || k == K::Ref || k == K::MutRef || k == K::FnPtr) return "ptr";
+                return type_str(t);
+            };
+            auto same_abi = [&](const SemaFuncInfo& a, const SemaFuncInfo& b) {
+                if (a.is_vararg != b.is_vararg || a.param_types.size() != b.param_types.size() ||
+                    abi(a.ret_type) != abi(b.ret_type)) return false;
+                for (size_t i = 0; i < a.param_types.size(); ++i)
+                    if (abi(a.param_types[i]) != abi(b.param_types[i])) return false;
+                return true;
+            };
+            if (!same_abi(fit->second, info)) {
+                const auto saved = node_line_;
+                node_line_ = get_line(node);
+                error(std::format("extern fn `{}` declared with a different signature than in `{}` "
+                                  "(clashing extern declarations)",
+                                  base_name, fit->second.package.empty() ? "<root>" : fit->second.package));
+                node_line_ = saved;
+                return;
+            }
+            if (sym == key) {
+                decl_symbols_[info.decl_key] = sym;   // declared again in the same package
                 return;
             }
         }
-        overloads.push_back(base_name);
-        decl_symbols_[info.decl_key] = base_name;
-        note_registered_(info, base_name, false);
-        funcs_[base_name] = std::move(info);
+        overloads.push_back(key);
+        decl_symbols_[info.decl_key] = key;
+        note_registered_(info, key, false);
+        funcs_[key] = std::move(info);
         return;
     }
 

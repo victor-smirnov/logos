@@ -23,7 +23,7 @@
 
 package logos.lang.hint;
 
-extern fn abort();
+extern fn abort() -> !;
 
 /// Returns `x` unchanged, as an optimization barrier the compiler cannot fold across calls.
 pub fn black_box<T>(x: T) -> T {

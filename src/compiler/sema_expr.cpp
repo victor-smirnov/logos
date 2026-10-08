@@ -94,6 +94,22 @@ static std::string thunk_callee_use(std::string_view callee_pkg,
     return std::string("use ") + std::string(callee_pkg) + ";\n";
 }
 
+// The thunk compiles the SITE's text as a unit of its own: that text resolves in
+// the site's scope (Rust: a name resolves where it is written), so the thunk
+// imports what the site's file imports — the ones `fixed` does not already.
+static std::string thunk_site_uses(const std::vector<std::string>& site_imports,
+                                   std::string_view site_pkg, std::string_view fixed) {
+    std::string out;
+    for (const auto& p : site_imports) {
+        if (p.empty() || p == site_pkg) continue;
+        std::string line = "use " + p + ";\n";
+        if (std::string_view(fixed).find(line) == std::string_view::npos &&
+            out.find(line) == std::string::npos)
+            out += line;
+    }
+    return out;
+}
+
 static void push_metacall_site(lir::LProgram& prog, const MetacallSiteStage& s) {
     namespace mck = lir_schema::metacall_keys;
     DeclBuilder b(prog, lir_schema::decl::Code::MetacallSite, /*cap=*/10);
@@ -14119,11 +14135,11 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
                 hi = builder().lit_int(INT64_MAX, i64t);  // open end → clamp to len
             }
             const std::string getter = mut_ctx ? "slice_get_range_mut" : "slice_get_range";
-            auto cands = find_func_candidates(getter);
+            // Named by path: the compiler's choice, not a name in the user's scope.
+            auto cands = pkg_fn_candidates_("logos.lang.slice", getter);
             const SemaFuncInfo* sgr = cands.empty() ? nullptr : cands[0];
             if (!sgr) {
-                error("range index: stdlib `" + getter + "` not in scope "
-                      "(missing `use logos.lang.slice`)");
+                error("range index: `logos.lang.slice::" + getter + "` is not available");
                 return error_expr();
             }
             TypeRef ret_t = make_slice_type(elem, mut_ctx);
@@ -22874,18 +22890,21 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     // host shim logos_metacall_freeze2 (deep-copy the root into
                     // a malloc'd [u64 size][bytes] compact blob, ptr past the
                     // prefix — same wire shape as WritStatic).
-                    site.thunk_source = std::format(
-                        "package {};\n"
+                    static constexpr std::string_view kFixed =
                         "use logos.lang.writ.container;\n"
                         "use logos.lang.writ.anyval;\n"
-                        "use logos.lang.rc;\n"
+                        "use logos.lang.rc;\n";
+                    site.thunk_source = std::format(
+                        "package {};\n"
+                        "{}{}"
                         "extern fn logos_metacall_freeze2(w: u64) -> *const u8;\n"
                         "unsafe fn {}() -> *const u8 {{\n"
                         "    let __h: Rc<Writ> = {};\n"
                         "    let __hh: &Writ = __h.deref();\n"
                         "    return logos_metacall_freeze2(__hh.root().raw() as u64);\n"
                         "}}\n",
-                        pkg, site.thunk_name, call_text);
+                        pkg, kFixed, thunk_site_uses(cur_imports_.wildcard_packages, pkg, kFixed),
+                        site.thunk_name, call_text);
                 }
             } else {
                 // WritStatic ret needs the WritStatic struct in scope.
@@ -22908,9 +22927,10 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
                     : std::format("{{ return {}; }}", call_text);
                 site.thunk_source = std::format(
                     "package {};\n"
-                    "{}"
+                    "{}{}"
                     "fn {}() -> {} {}\n",
-                    pkg, extra_uses, site.thunk_name, ret_text, body);
+                    pkg, extra_uses, thunk_site_uses(cur_imports_.wildcard_packages, pkg, extra_uses),
+                    site.thunk_name, ret_text, body);
             }
         }
         push_metacall_site(*cur_prog_, site);
@@ -23727,14 +23747,14 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         std::string thunk_src = std::format(
             "package {};\n"
+            "{}"
             "use logos.std.compiler.metaprog;\n"
-            "use std.lang.text;\n"
             "fn {}() -> ExprBlob {{\n"
             "    let p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-            "    let s: str = unsafe {{ str_from_raw(p, {}i64) }};\n"
+            "    let s: str = unsafe {{ logos.lang.str::str_from_raw(p, {}i64) }};\n"
             "    return {}(s);\n"
             "}}\n",
-            pkg, thunk_name, site_id,
+            pkg, thunk_callee_use(macro_info->package, pkg), thunk_name, site_id,
             static_cast<int64_t>(raw_text.size()),
             macro_info->base_name);
 
@@ -23851,6 +23871,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
     std::string pkg = cur_package_.empty() ? "__metacall_thunks" : cur_package_;
     // The callee's own package — see thunk_callee_use.
     std::string cu = thunk_callee_use(macro_info->package, pkg);
+    cu += thunk_site_uses(cur_imports_.wildcard_packages, pkg, cu + "use logos.std.compiler.metaprog;\nuse logos.mem.collections.vec;\nuse logos.mem.writ.view;\nuse std.lang.text;\n");
     std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
     std::string thunk_src;
     if (sig_single) {
@@ -24046,6 +24067,7 @@ void SemaChecker::emit_token_macro_item_site(
                                                : cur_package_;
         // The callee's own package — see thunk_callee_use.
         std::string cu = thunk_callee_use(macro_info->package, pkg);
+    cu += thunk_site_uses(cur_imports_.wildcard_packages, pkg, cu + "use logos.std.compiler.metaprog;\nuse logos.mem.collections.vec;\nuse logos.mem.writ.view;\nuse std.lang.text;\n");
         std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
         // The callee invocation, producing an ItemList or QuoteItemBlob.
         std::string call_text;
@@ -24056,15 +24078,15 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
+                "    let __n: str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
                 "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
-                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pr: str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
                 "    let __pm: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
-                "    let __mk: str = unsafe {{ str_from_raw(__pm, {3}i64) }};\n"
+                "    let __mk: str = unsafe {{ logos.lang.str::str_from_raw(__pm, {3}i64) }};\n"
                 "    let __ps: *const u8 = unsafe {{ logos_macro_arg({0}u64, 3u64) }};\n"
-                "    let __ns: str = unsafe {{ str_from_raw(__ps, {4}i64) }};\n"
+                "    let __ns: str = unsafe {{ logos.lang.str::str_from_raw(__ps, {4}i64) }};\n"
                 "    let __pt: *const u8 = unsafe {{ logos_macro_arg({0}u64, 4u64) }};\n"
-                "    let __rt: str = unsafe {{ str_from_raw(__pt, {5}i64) }};\n"
+                "    let __rt: str = unsafe {{ logos.lang.str::str_from_raw(__pt, {5}i64) }};\n"
                 "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
                 "    {6}(__n, __pr, __mk, __ns, __rt, __ir)\n"
                 "}}",
@@ -24085,15 +24107,15 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
+                "    let __n: str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
                 "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
-                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pr: str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
                 "    let __pm: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
-                "    let __mk: str = unsafe {{ str_from_raw(__pm, {3}i64) }};\n"
+                "    let __mk: str = unsafe {{ logos.lang.str::str_from_raw(__pm, {3}i64) }};\n"
                 "    let __ps: *const u8 = unsafe {{ logos_macro_arg({0}u64, 3u64) }};\n"
-                "    let __ns: str = unsafe {{ str_from_raw(__ps, {4}i64) }};\n"
+                "    let __ns: str = unsafe {{ logos.lang.str::str_from_raw(__ps, {4}i64) }};\n"
                 "    let __pg: *const u8 = unsafe {{ logos_macro_arg({0}u64, 4u64) }};\n"
-                "    let __gp: str = unsafe {{ str_from_raw(__pg, {5}i64) }};\n"
+                "    let __gp: str = unsafe {{ logos.lang.str::str_from_raw(__pg, {5}i64) }};\n"
                 "    let __ir: *const u8 = unsafe {{ logos_rule_ir({0}u64) }};\n"
                 "    {6}(__n, __pr, __mk, __ns, __gp, __ir)\n"
                 "}}",
@@ -24107,11 +24129,11 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({0}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ str_from_raw(__pn, {1}i64) }};\n"
+                "    let __n: str = unsafe {{ logos.lang.str::str_from_raw(__pn, {1}i64) }};\n"
                 "    let __pp: *const u8 = unsafe {{ logos_macro_arg({0}u64, 1u64) }};\n"
-                "    let __pr: str = unsafe {{ str_from_raw(__pp, {2}i64) }};\n"
+                "    let __pr: str = unsafe {{ logos.lang.str::str_from_raw(__pp, {2}i64) }};\n"
                 "    let __pb: *const u8 = unsafe {{ logos_macro_arg({0}u64, 2u64) }};\n"
-                "    let __b: str = unsafe {{ str_from_raw(__pb, {3}i64) }};\n"
+                "    let __b: str = unsafe {{ logos.lang.str::str_from_raw(__pb, {3}i64) }};\n"
                 "    {4}(__n, __pr, __b)\n"
                 "}}",
                 site_id, static_cast<int64_t>(resource_name.size()),
@@ -24122,9 +24144,9 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __pn: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-                "    let __n: str = unsafe {{ str_from_raw(__pn, {}i64) }};\n"
+                "    let __n: str = unsafe {{ logos.lang.str::str_from_raw(__pn, {}i64) }};\n"
                 "    let __pb: *const u8 = unsafe {{ logos_macro_arg({}u64, 1u64) }};\n"
-                "    let __b: str = unsafe {{ str_from_raw(__pb, {}i64) }};\n"
+                "    let __b: str = unsafe {{ logos.lang.str::str_from_raw(__pb, {}i64) }};\n"
                 "    {}(__n, __b)\n"
                 "}}",
                 site_id, static_cast<int64_t>(resource_name.size()),
@@ -24134,7 +24156,7 @@ void SemaChecker::emit_token_macro_item_site(
             call_text = std::format(
                 "{{\n"
                 "    let __p: *const u8 = unsafe {{ logos_macro_arg({}u64, 0u64) }};\n"
-                "    let __s: str = unsafe {{ str_from_raw(__p, {}i64) }};\n"
+                "    let __s: str = unsafe {{ logos.lang.str::str_from_raw(__p, {}i64) }};\n"
                 "    {}(__s)\n"
                 "}}",
                 site_id, static_cast<int64_t>(raw_text.size()),
@@ -26552,6 +26574,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     // The callee's own package — see thunk_callee_use. THIS is the site every
     // cross-module `emit!{}` goes through.
     std::string cu = thunk_callee_use(macro_info->package, pkg);
+    cu += thunk_site_uses(cur_imports_.wildcard_packages, pkg, cu + "use logos.std.compiler.metaprog;\nuse logos.mem.collections.vec;\nuse logos.mem.writ.view;\nuse std.lang.text;\n");
     std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
     std::string call_text;
     if (sig_zero) {
@@ -26895,9 +26918,11 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
     // it into the host shim. logos_emit_item_blob_subst is bound on the
     // metacall JIT (see main.cpp), so the thunk resolves it as an
     // ordinary extern fn during JIT compilation.
+    const std::string su = thunk_site_uses(cur_imports_.wildcard_packages, pkg, "use logos.std.compiler.metaprog;\nuse logos.mem.collections.vec;\nuse logos.mem.writ.view;\nuse std.lang.text;\n");
     if (rt_is_item_list) {
         site.thunk_source = std::format(
             "package {};\n"
+            "{}"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.collections.vec;\n"
             "use logos.mem.writ.view;\n"
@@ -26922,10 +26947,11 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
             "    }}\n"
             "    return;\n"
             "}}\n",
-            pkg, site.thunk_name, call_text);
+            pkg, su, site.thunk_name, call_text);
     } else {
         site.thunk_source = std::format(
             "package {};\n"
+            "{}"
             "use logos.std.compiler.metaprog;\n"
             "use logos.mem.writ.view;\n"
             "extern fn logos_emit_item_blob_subst(blob: *const QuoteItemBlob) -> i32;\n"
@@ -26941,7 +26967,7 @@ void SemaChecker::lower_metacall_item(writ::TinyMapView node,
             "    unsafe {{ logos_qib_free_cursors(__b.cursors_blob); }}\n"
             "    return;\n"
             "}}\n",
-            pkg, site.thunk_name, call_text);
+            pkg, su, site.thunk_name, call_text);
     }
     push_metacall_site(prog, site);
 }

@@ -1620,18 +1620,14 @@ fn emit_embed_call(cg: &mut Codegen, w: &mut CodeWriter, iname: str, gram: str, 
     esl.push_str(" - est_"); esl.push_str(sfx); esl.push_str(") };");
     w.line(esl.as_str());
     let mut ep: String = String::new();
-    // UNQUALIFIED call: the generated file `use`s the imported grammar's
-    // module, and plain imported-fn resolution is the one path proven against
-    // BINARY modules — the module-qualified `pkg::parse_x` form resolves only
-    // when both grammars compile in the same batch, so `--emit-module` builds
-    // whose closure meets this parser from an archive failed. (Collision rule:
-    // two %imports exporting the same rule name would be ambiguous here — the
-    // ordinary duplicate-import diagnostic covers it.)
+    // Called by its qualified path (the file imports nothing from the other
+    // grammar: its `Lexer`/`Token` would collide), as generated code names
+    // what it did not import.
     ep.push_str("let eroot_"); ep.push_str(sfx); ep.push_str(": WAny = ");
+    if path.len() > 0i64 { ep.push_str(path.as_str()); ep.push_str("::"); }
     ep.push_str("parse_"); ep.push_str(iname);
     ep.push_str("_at(esub_"); ep.push_str(sfx); ep.push_str(", doc, lex.base + est_"); ep.push_str(sfx); ep.push_str(");");
     w.line(ep.as_str());
-    let _unused_path: String = path;
     // Advance the lexer PAST the consumed sub-range: reset at `eend_` — the byte
     // where the trimmed expr ends, i.e. AT any `-` whitespace-control marker (or at
     // the plain `}}`/`%}` when none). Resetting at `ecl_` (the `}}`/`%}` proper)

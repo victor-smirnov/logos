@@ -2227,6 +2227,10 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
     for (auto* fi : out) if (ranked(fi)) best = std::min(best, rank(fi));
     if (best < 3)
         std::erase_if(out, [&](const SemaFuncInfo* fi) { return ranked(fi) && rank(fi) != best; });
+    // Extern declarations of one C symbol (registration refused a clashing
+    // signature) are one function wherever they were declared.
+    std::set<std::string_view> ext_seen;
+    std::erase_if(out, [&](const SemaFuncInfo* fi) { return fi->is_extern && !ext_seen.insert(fi->symbol_name).second; });
     return out;
 }
 
@@ -2252,7 +2256,9 @@ bool SemaChecker::is_divergent_call_node(writ::TinyMapView node) {
     // The callee's return type decides: `-> !` diverges, anything else does
     // not — a user `fn panic(m: i64) -> i64` called as a statement is a value,
     // and counting it as divergent let a body fall off its end (SIGSEGV).
-    auto cands = find_func_candidates(std::string(callee));
+    // Resolved as the call resolves: a qualified callee in its package.
+    const std::string qual = cc == la::CALL.code ? extract_pkg_qualifier(node) : std::string();
+    auto cands = qual.empty() ? find_func_candidates(std::string(callee)) : pkg_fn_candidates_(qual, callee);
     for (auto* fi : cands)
         if (fi && fi->ret_type &&
             TypeRef(fi->ret_type).kind() == LogosType::Kind::Never)

@@ -9659,20 +9659,24 @@ private:
     // package whatever the current scope imports — what a call the compiler
     // synthesizes names (Rust's lang items), never a spelling looked up here.
     std::vector<const SemaFuncInfo*> lang_fn_candidates_(std::string_view l) const {
-        std::vector<const SemaFuncInfo*> out;
         const LangItem* li = lang_item(l);
-        if (!li || li->target != AttrTarget::Fn) return out;
+        if (!li || li->target != AttrTarget::Fn) return {};
+        return pkg_fn_candidates_(li->package, li->name);
+    }
+    // The overload set `pkg::name` — a path, not a name looked up in scope.
+    std::vector<const SemaFuncInfo*> pkg_fn_candidates_(std::string_view pkg, std::string_view name) const {
+        std::vector<const SemaFuncInfo*> out;
         auto add = [&](const auto& overloads, const auto& table) {
-            if (auto it = overloads.find(li->name); it != overloads.end())
+            if (auto it = overloads.find(std::string(name)); it != overloads.end())
                 for (const auto& sym : it->second)
-                    if (auto fit = table.find(sym); fit != table.end() && fit->second.package == li->package)
+                    if (auto fit = table.find(sym); fit != table.end() && fit->second.package == pkg)
                         out.push_back(&fit->second);
         };
         add(func_overloads_, funcs_);
         add(generic_overloads_, generic_funcs_);
         if (out.empty())
             for (const auto& [sym, fi] : funcs_)
-                if (fi.package == li->package && fi.base_name == li->name) out.push_back(&fi);
+                if (fi.package == pkg && fi.base_name == name) out.push_back(&fi);
         return out;
     }
     // The function collected for a declaration (SemaFuncInfo::decl_key); null when none.

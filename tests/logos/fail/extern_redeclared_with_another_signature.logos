@@ -1,0 +1,9 @@
+package test;
+
+extern fn malloc(size: i32) -> *mut u8;
+
+unsafe fn main() -> i32 {
+    let p: *mut u8 = malloc(8i32);
+    if p.is_null() { return 1; }
+    return 0;
+}
