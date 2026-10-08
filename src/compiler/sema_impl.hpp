@@ -5984,6 +5984,7 @@ private:
     };
     struct SemaFuncInfo   { std::vector<TypeRef> param_types; TypeRef ret_type;
                             OwnerId owner_id;   // S9b row 1: a method's owner; empty for a free fn
+                            DefId   def;        // Q1 row 1: a free fn's OVERLOAD SET (package + name)
                             std::string method_name;   // its declared name (base_name may be trait-qualified)
                             uint64_t    reg_seq = 0;   // registration order: methods_of_ answers in it
                             TypeRef     owner_self = nullptr;   // the impl's (struct body's) Self, its parameters as type variables
@@ -6522,6 +6523,7 @@ private:
         std::vector<TypeParam>   type_params;
         std::vector<std::string> lifetime_params;  // e.g. ["'z"] for type Foo<'z, T> = ...
         std::string     package;  // B-mv-02: owning package for cross-pkg coexistence
+        DefId           def;      // ADR 0030 Q1 row 1: the alias's identity
         // ADR 0021 Phase 4a: RHS AST, retained for GENERIC aliases only. When
         // the RHS instantiates a generic const (`type PMap<K,V> =
         // CtrClass<PMapCfg<K,V>>`), decl-time resolution erases the
@@ -6822,6 +6824,22 @@ private:
     // has an id naming its own (package, name), and every impl whose trait
     // resolved names the same trait by id as by its canonical key.
     void check_trait_def_identity();
+    // Q1 row 1, always-on: every free fn's DefId names its own (package, name).
+    void check_value_def_identity();
+    // Q1 row 1: intern a value item (fn / const / static) or an alias; a name
+    // already defined in that namespace of the package as ANOTHER kind is
+    // E0428, as in Rust (a fn's overloads are one kind, one entity).
+    DefId intern_item_(DefKind kind, std::string_view name, uint32_t line) {
+        DefId have = defs_.find(def_ns(kind), cur_package_, name);
+        if (have && defs_[have].kind != kind) {
+            const auto saved = node_line_;
+            node_line_ = line;
+            error(std::format("the name `{}` is defined multiple times (E0428)", name));
+            node_line_ = saved;
+            return have;
+        }
+        return defs_.intern(kind, cur_package_, name);
+    }
     // The identity to file an impl of `key` (a path, a written name resolved in
     // scope, or a compiler-spelled lang item) under.
     DefId impl_trait_id(std::string_view trait_key) const {

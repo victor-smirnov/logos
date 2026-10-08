@@ -1,0 +1,7 @@
+// A fn and a const of one name in one package are one value-namespace name defined twice: E0428, as rustc
+// (`fn foo` + `const foo` -> "the name `foo` is defined multiple times"). ADR 0030 Q1 row 1: value items have
+// identities (DefKind::Fn / Const / Static), so the clash is seen at collection.
+package value_name_defined_twice;
+fn foo() -> i32 { return 1; }
+const foo: i32 = 2;
+fn main() -> i32 { return foo(); }

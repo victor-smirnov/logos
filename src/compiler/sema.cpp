@@ -3112,6 +3112,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     // install_snapshot, whose const-index rebuild is another one).
     check_symbol_key_separators();
     check_trait_def_identity();
+    check_value_def_identity();
 
 
     if (!result_.ok()) {

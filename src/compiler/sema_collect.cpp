@@ -2341,6 +2341,7 @@ void SemaChecker::collect_module(TinyMapView mod, int phase) {
                 // No VALUE ⇒ extern-block decl: links against the BARE name.
                 collect_const(item);
                 auto sm_name = std::string(str_of(item.get(la::NAME.code)));
+                (void)intern_item_(DefKind::Static, sm_name, get_line(item));   // Q1 row 1
                 // Coexistence: module-qualify the static's link symbol
                 // (`<module_id>.<pkg>$<name>`) like functions so two modules that
                 // each declare `pkg::NAME` don't collide at link. cur_module_id_
@@ -2646,6 +2647,7 @@ void SemaChecker::collect_type_alias(TinyMapView node) {
     // a same-name alias from another package registers under `pkg::Name` only.
     // lookup_type_by_name probes `cur_package_::name` first, so user code
     // resolves to its own alias. Real duplicate = same package + same name.
+    entry.def = intern_item_(DefKind::Alias, name, get_line(node));   // Q1 row 1
     auto bit = type_aliases_.find(name);
     const bool bare_taken_by_other =
         bit != type_aliases_.end() && !bit->second.package.empty() &&
@@ -2686,6 +2688,7 @@ void SemaChecker::collect_const(TinyMapView node) {
             error(std::format("duplicate const '{}'", name));
         }
         module_consts_[qk] = t;
+        if (code_of(node) != la::STATIC_DEF) (void)intern_item_(DefKind::Const, name, get_line(node));   // Q1 row 1 (a static: its own kind)
         const_index_add(cur_package_, name);   // bare-name uniqueness index
         // M5 step 5c: track user-origin keys for snapshot filtering.
         if (!cur_from_binary_) user_module_const_keys_.insert(qk);
@@ -3349,6 +3352,19 @@ void SemaChecker::inject_implicit_prelude_(TinyMapView root) {
     }
     auto& w = cur_imports_.wildcard_packages;
     if (std::find(w.begin(), w.end(), pre) == w.end()) w.push_back(pre);
+}
+
+void SemaChecker::check_value_def_identity() {
+    for (auto* m : {&funcs_, &generic_funcs_})
+        for (auto& [k, fi] : *m) {
+            if (!fi.def) continue;
+            const auto& e = defs_[fi.def];
+            if (e.package != fi.package) {
+                std::fprintf(stderr, "logosc INTERNAL: fn '%s' carries the id of '%s::%s'\n",
+                             k.c_str(), e.package.c_str(), e.name.c_str());
+                std::abort();
+            }
+        }
 }
 
 void SemaChecker::check_trait_def_identity() {
@@ -6702,6 +6718,10 @@ void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
     info.is_method    = !struct_ctx.empty();
     // S9b row 1: the owner by identity — the impl's (or struct body's) Self.
     info.reg_seq = ++reg_seq_next_;
+    // Q1 row 1: a free fn's identity is its overload set — package + name
+    // (Logos overloads by signature; the members stay funcs_ symbols).
+    if (struct_ctx.empty() && !raw_name.empty())
+        info.def = intern_item_(DefKind::Fn, raw_name, get_line(node));
     if (info.is_method) {
         info.method_name = std::string(raw_name);
         if (auto sit = current_type_params_.find("Self"); sit != current_type_params_.end()) {
