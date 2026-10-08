@@ -114,6 +114,11 @@ pub struct CClause {
     pub head: WAny,
     pub body: Vec<CLit>,
     pub group: Option<CGroup>,
+    /// A graph path (`from g .a ** .b v …`) as parsed — the `RQGStepArr` — not
+    /// yet lowered into its join chain; null otherwise. Only the lowering sets
+    /// it, `crewrite::core_desugar_gpaths` lowers and clears it, and
+    /// `core_verify` refuses a clause that still carries one (ADR 0031 R3.4).
+    pub gpath: WAny,
 }
 
 pub struct CCol {
@@ -269,7 +274,7 @@ pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
             env.desc = s.order_desc;
             env.limit = limit_of(s.has_limit, s.limit_n, s.limit_is_param, s.limit_param);
             env.result_ty = if s.has_result_ty { s.result_ty } else { "" };
-            return CClause { head: s.select.any(), body: body, group: Option::None };
+            return CClause { head: s.select.any(), body: body, group: Option::None, gpath: if s.has_gpath { s.gpath.any() } else { WAny::null() } };
         }
         RQuery::Join(j) => {
             body.push(base_atom(lx, j.a_name, j.x_var, j.a_ty));
@@ -281,7 +286,7 @@ pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
             env.desc = j.order_desc;
             env.limit = limit_of(j.has_limit, j.limit_n, j.limit_is_param, j.limit_param);
             env.result_ty = if j.has_result_ty { j.result_ty } else { "" };
-            return CClause { head: j.select.any(), body: body, group: Option::None };
+            return CClause { head: j.select.any(), body: body, group: Option::None, gpath: if j.has_gpath { j.gpath.any() } else { WAny::null() } };
         }
         RQuery::Aggr(g) => {
             body.push(base_atom(lx, g.a_name, g.x_var, g.a_ty));
@@ -305,13 +310,13 @@ pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
             env.desc = g.order_desc;
             env.limit = limit_of(g.has_limit, g.limit_n, g.limit_is_param, g.limit_param);
             env.result_ty = if g.has_result_ty { g.result_ty } else { "" };
-            return CClause { head: g.select.any(), body: body, group: Option::Some(grp) };
+            return CClause { head: g.select.any(), body: body, group: Option::Some(grp), gpath: if g.has_gpath { g.gpath.any() } else { WAny::null() } };
         }
         RQuery::Find(f) => {
             body.push(base_atom(lx, f.src_name, f.var_name, f.row_ty));
             body.push(CLit::Cond(CCond { e: f.pred.any(), site: CSite::Where }));
             env.mode = CMode::Find;
-            return CClause { head: WAny::null(), body: body, group: Option::None };
+            return CClause { head: WAny::null(), body: body, group: Option::None, gpath: WAny::null() };
         }
     }
 }
@@ -357,6 +362,41 @@ pub fn lower_program(root: WAny) -> CProgram {
     let mut env: CEnvelope = envelope_new();
     let entry: CClause = lower_query(&lx, prog.entry.any(), &mut env);
     return CProgram { rels: rels, entry: CRule { clause: entry, env: env }, strs: Vec::<String>::new() };
+}
+
+/// Link every atom's source to the rel of its name (the lowering's `src_of`):
+/// a rel of the program by index, else a parameter; a `Unit` atom stays.
+pub fn core_relink(p: &mut CProgram) {
+    let mut names: Vec<str> = Vec::<str>::new();
+    let mut i: i64 = 0i64;
+    while i < p.rels.len() { names.push(p.rels.as_slice()[i].name); i = i + 1i64; }
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let mut b: i64 = 0i64;
+        while b < p.rels[r].rules.len() { relink_clause(&mut p.rels[r].rules[b].clause, &names); b = b + 1i64; }
+        r = r + 1i64;
+    }
+    relink_clause(&mut p.entry.clause, &names);
+}
+
+fn relink_clause(cl: &mut CClause, names: &Vec<str>) {
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &mut cl.body[i] {
+            CLit::Atom(a) => {
+                let unit: bool = match &a.src { CSrc::Unit => true, CSrc::Rel(_r) => false, CSrc::Param(_n) => false };
+                if !unit {
+                    let mut x: i64 = -1i64;
+                    let mut k: i64 = 0i64;
+                    while k < names.len() { if x < 0i64 && str_eq(names[k], a.name) { x = k; } k = k + 1i64; }
+                    a.src = if x >= 0i64 { CSrc::Rel(x) } else { CSrc::Param(a.name) };
+                }
+            }
+            CLit::Trav(_t) => { }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
 }
 
 // ── queries over the core ──────────────────────────────────────────────────
@@ -479,11 +519,13 @@ pub fn core_verify(p: &CProgram) {
         let cs: &[CRule] = rel.rules.as_slice();
         let mut c: i64 = 0i64;
         while c < rel.rules.len() {
+            if !cs[c].clause.gpath.is_null() { ice("a graph path left unlowered", rel.name); }
             verify_rule(p, &cs[c], rel.name);
             c = c + 1i64;
         }
         r = r + 1i64;
     }
+    if !p.entry.clause.gpath.is_null() { ice("a graph path left unlowered", "<entry>"); }
     verify_rule(p, &p.entry, "<entry>");
 }
 
@@ -691,7 +733,7 @@ fn core_dump_mode(mode: str) -> bool {
 /// An empty program (the registry's placeholder before a plan exists).
 pub fn core_empty() -> CProgram {
     return CProgram { rels: Vec::<CRel>::new(),
-                      entry: CRule { clause: CClause { head: WAny::null(), body: Vec::<CLit>::new(), group: Option::None },
+                      entry: CRule { clause: CClause { head: WAny::null(), body: Vec::<CLit>::new(), group: Option::None, gpath: WAny::null() },
                                      env: envelope_new() },
                       strs: Vec::<String>::new() };
 }
@@ -711,11 +753,16 @@ pub fn core_planned_done(p: &CProgram, name: str) {
 /// Lower, verify, and dump when asked. The one entry point the handler calls.
 pub fn core_build(root: WAny, name: str) -> CProgram {
     let p: CProgram = lower_program(root);
-    core_verify(&p);
+    core_finish(&p, name);
+    return p;
+}
+
+/// Verify a lowered (and desugared) core, and dump it when asked.
+pub fn core_finish(p: &CProgram, name: str) {
+    core_verify(p);
     if core_dump_on() {
         let mut s: String = String::new();
-        core_text(&p, name, &mut s);
+        core_text(p, name, &mut s);
         unsafe { write(2i32, s.as_ptr(), s.len()); }
     }
-    return p;
 }

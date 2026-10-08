@@ -21,6 +21,9 @@ use logos.std.wql.params;          // RelSet, MacroParams
 use logos.lang.writ.container;     // Writ
 use logos.std.wql.optimize;        // refs_mask, make_bool_lit
 use logos.std.wql.why;             // MS_* — the demand rewrite's decision vocabulary
+use logos.std.wql.plan;            // RQGStepArr — a graph path as parsed
+use logos.std.wql.writ_graph;      // WG_ROOT_PARENT — the graph-path anchor
+use logos.lang.writ.wstring;       // h.wstring — string-literal synthesis
 
 // ── FACTS (R3.1) ───────────────────────────────────────────────────────────
 
@@ -756,7 +759,7 @@ fn cm_magic_body(cl: &CClause, names: &Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtA
     if upto == 0i64 {
         if need_m && hmrel.len() > 0i64 { body.push(fresh_atom(CSrc::Param(hmrel), hmrel, "__mm")); }
         else { body.push(fresh_atom(CSrc::Unit, "", "__u")); }
-        return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None }, env: envelope_new() };
+        return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None, gpath: WAny::null() }, env: envelope_new() };
     }
     let mut cpos: Vec<i64> = Vec::<i64>::new();
     let mut c3: i64 = 0i64;
@@ -811,7 +814,7 @@ fn cm_magic_body(cl: &CClause, names: &Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtA
     let mut c5: i64 = 0i64;
     while c5 < conj.len() { if cpos[c5] == 0i64 || cpos[c5] == -1i64 { wacc = gp_and(h, wacc, mt_sref(conj[c5])); } c5 = c5 + 1i64; }
     if !wacc.any().is_null() { body.push(CLit::Cond(CCond { e: wacc.any(), site: CSite::Where })); }
-    return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None }, env: envelope_new() };
+    return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None, gpath: WAny::null() }, env: envelope_new() };
 }
 
 fn cm_get(ctx: &mut CmCtx, rname: str, ri: i64, cols: &Vec<i64>) -> i64 {
@@ -981,7 +984,7 @@ fn clause_copy(cl: &CClause) -> CClause {
         }
         i = i + 1i64;
     }
-    return CClause { head: cl.head, body: body, group: Option::None };
+    return CClause { head: cl.head, body: body, group: Option::None, gpath: WAny::null() };
 }
 
 // Write `names` (one per atom, `lit` its literal) onto a clause's atoms.
@@ -1019,41 +1022,6 @@ fn cm_restrict(cl: &mut CClause, cols: &Vec<i64>, ncols: i64, mrel: str, h: &Wri
     }
     cl.body.insert(at, on_cond(on));
     cl.body.insert(at, fresh_atom(CSrc::Param(mrel), mrel, "__mm"));
-}
-
-/// Link every atom's source to the rel of its name (the lowering's `src_of`):
-/// a rel of the program by index, else a parameter; a `Unit` atom stays.
-pub fn core_relink(p: &mut CProgram) {
-    let mut names: Vec<str> = Vec::<str>::new();
-    let mut i: i64 = 0i64;
-    while i < p.rels.len() { names.push(p.rels.as_slice()[i].name); i = i + 1i64; }
-    let mut r: i64 = 0i64;
-    while r < p.rels.len() {
-        let mut b: i64 = 0i64;
-        while b < p.rels[r].rules.len() { relink_clause(&mut p.rels[r].rules[b].clause, &names); b = b + 1i64; }
-        r = r + 1i64;
-    }
-    relink_clause(&mut p.entry.clause, &names);
-}
-
-fn relink_clause(cl: &mut CClause, names: &Vec<str>) {
-    let mut i: i64 = 0i64;
-    while i < cl.body.len() {
-        match &mut cl.body[i] {
-            CLit::Atom(a) => {
-                let unit: bool = match &a.src { CSrc::Unit => true, CSrc::Rel(_r) => false, CSrc::Param(_n) => false };
-                if !unit {
-                    let mut x: i64 = -1i64;
-                    let mut k: i64 = 0i64;
-                    while k < names.len() { if x < 0i64 && str_eq(names[k], a.name) { x = k; } k = k + 1i64; }
-                    a.src = if x >= 0i64 { CSrc::Rel(x) } else { CSrc::Param(a.name) };
-                }
-            }
-            CLit::Trav(_t) => { }
-            CLit::Cond(_c) => { }
-        }
-        i = i + 1i64;
-    }
 }
 
 /// The magic-sets transformation of the program, on the core. Returns the
@@ -1157,6 +1125,300 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
     while ctx.arel.len() > 0i64 { pc.strs.push(ctx.arel.remove(0i64)); }
     while ctx.mrel.len() > 0i64 { pc.strs.push(ctx.mrel.remove(0i64)); }
     return out.n;
+}
+
+// ── GRAPH PATHS on the core (R3.4) ─────────────────────────────────────────
+//
+// ADR 0016 M2a: `from g <step>* v …` over a graph source is the CLASSIC join
+// chain over the generic edge relation —
+//   base    scan g __ga            anchored at the VIRTUAL ROOT EDGE
+//                                  (__ga.parent == WG_ROOT_PARENT)
+//   step i  join g v_i on v_i.parent == prev.child
+// — with the step residuals ANDed into the WHERE (`.key` → v.key == "key",
+// `[*]` → v.idx >= 0, `[N]` → v.idx == N, `{k}` → prev.kind == "k"). A step's
+// binder names its edge row (unnamed steps get __g<i>); the last step must
+// carry one. `**` is a hop through the demand-driven reach relation, injected
+// as ordinary rels on first use:
+//   rel __mreach_<src>(c: i64) { <prefix of each ** site> select <its last var>.child; }
+//   rel __reach_<src>(a: i64, b: i64) {
+//       from __mreach_<src> __rm select (__rm.c, __rm.c);
+//       from __reach_<src> __rr join <src> __re on __re.parent == __rr.b select (__rr.a, __re.child);
+//   }
+// — Soufflé's MST for `reach^bf`: one magic rule per site, its sideways
+// information the path prefix to its left.
+
+fn gp_var(i: i64) -> str {
+    if i == 0i64 { return "__g0"; }
+    if i == 1i64 { return "__g1"; }
+    if i == 2i64 { return "__g2"; }
+    if i == 3i64 { return "__g3"; }
+    if i == 4i64 { return "__g4"; }
+    if i == 5i64 { return "__g5"; }
+    if i == 6i64 { return "__g6"; }
+    return "__g7";
+}
+
+fn gp_rvar(i: i64) -> str {
+    if i == 0i64 { return "__r0"; }
+    if i == 1i64 { return "__r1"; }
+    if i == 2i64 { return "__r2"; }
+    if i == 3i64 { return "__r3"; }
+    if i == 4i64 { return "__r4"; }
+    if i == 5i64 { return "__r5"; }
+    if i == 6i64 { return "__r6"; }
+    return "__r7";
+}
+
+fn gp_tuple2(h: &Writ, e1: WRef<SExpr>, e2: WRef<SExpr>) -> WRef<SExpr> {
+    let mut arr: SExprArr = h.make::<SExprArr>();
+    arr.set_arg(0i64, e1.any());
+    arr.set_arg(1i64, e2.any());
+    arr.count = 2i32;
+    let t: STuple = h.make::<STuple>();
+    t.items = WRef::<SExprArr>::from_any(arr.as_ref());
+    return WRef::<SExpr>::from_any(t.as_ref());
+}
+
+fn gp_str_lit(h: &Writ, v: str) -> WRef<SExpr> {
+    let n: SLit = h.make::<SLit>();
+    n.val = WAny::from(h.wstring(v));
+    return WRef::<SExpr>::from_any(n.as_ref());
+}
+
+struct GpC { ok: bool, extra: WRef<SExpr>, last: String, err: String }
+
+fn gpc_fail(msg: str) -> GpC {
+    return GpC { ok: false, extra: WRef::<SExpr>::from_any(WAny::null()), last: String::new(), err: String::from_str(msg) };
+}
+
+// The rels a desugar injects, and the backing of their names.
+// `chain` — the steps the current build emits.
+struct GpInj { rels: Vec<CRel>, strs: Vec<String>, chain: Vec<CLit> }
+
+fn gp_inj_find(inj: &GpInj, nm: str) -> i64 {
+    let rs: &[CRel] = inj.rels.as_slice();
+    let mut i: i64 = 0i64;
+    while i < inj.rels.len() { if str_eq(rs[i].name, nm) { return i; } i = i + 1i64; }
+    return -1i64;
+}
+
+fn i64_col(nm: str) -> CCol { return CCol { name: nm, ty: "i64" }; }
+
+fn gp_rule(head: WRef<SExpr>, body: Vec<CLit>) -> CRule {
+    return CRule { clause: CClause { head: head.any(), body: body, group: Option::None, gpath: WAny::null() }, env: envelope_new() };
+}
+
+// One step of a chain: the atom and its `on`.
+fn gp_step(out: &mut Vec<CLit>, src: str, var: str, on: WRef<SExpr>) {
+    out.push(fresh_atom(CSrc::Param(src), src, var));
+    out.push(on_cond(on));
+}
+
+// Add one seed rule to `__mreach_<src>`, injecting the rel on first use.
+fn gp_magic_seed(inj: &mut GpInj, src: str, body: CRule) {
+    let mut nm: String = String::new();
+    nm.push_str("__mreach_");
+    nm.push_str(src);
+    let at: i64 = gp_inj_find(inj, sv(&nm));
+    if at >= 0i64 { inj.rels[at].rules.push(body); return; }
+    let mut cols: Vec<CCol> = Vec::<CCol>::new();
+    cols.push(i64_col("c"));
+    let mut rules: Vec<CRule> = Vec::<CRule>::new();
+    rules.push(body);
+    inj.rels.push(CRel { name: sv(&nm), cols: cols, rules: rules });
+    inj.strs.push(nm);
+}
+
+// The seed rule of one `**` site: the path prefix, projecting the node the
+// `**` stands on.
+fn gp_seed_body(src: str, h: &Writ, steps: Vec<CLit>, extra: WRef<SExpr>, prev: str) -> CRule {
+    let mut body: Vec<CLit> = Vec::<CLit>::new();
+    body.push(fresh_atom(CSrc::Param(src), src, "__ga"));
+    let mut st: Vec<CLit> = steps;
+    while st.len() > 0i64 { body.push(st.remove(0i64)); }
+    body.push(CLit::Cond(CCond { e: extra.any(), site: CSite::Where }));
+    return gp_rule(gp_field(h, prev, "child"), body);
+}
+
+// The reach rel for `src`, injected on first use. Returns its name.
+fn gp_reach_rel<'b>(inj: &mut GpInj, src: str, h: &Writ) -> &'b str {
+    let mut nm: String = String::new();
+    nm.push_str("__reach_");
+    nm.push_str(src);
+    let at: i64 = gp_inj_find(inj, sv(&nm));
+    if at >= 0i64 { return dv(inj.rels.as_slice()[at].name); }
+    let mut mn: String = String::new();
+    mn.push_str("__mreach_");
+    mn.push_str(src);
+    let rname: str = sv(&nm);
+    let mname: str = sv(&mn);
+    let mut cols: Vec<CCol> = Vec::<CCol>::new();
+    cols.push(i64_col("a"));
+    cols.push(i64_col("b"));
+    let mut rules: Vec<CRule> = Vec::<CRule>::new();
+    let mut b1: Vec<CLit> = Vec::<CLit>::new();
+    b1.push(fresh_atom(CSrc::Param(mname), mname, "__rm"));
+    rules.push(gp_rule(gp_tuple2(h, gp_field(h, "__rm", "c"), gp_field(h, "__rm", "c")), b1));
+    let mut b3: Vec<CLit> = Vec::<CLit>::new();
+    b3.push(fresh_atom(CSrc::Param(rname), rname, "__rr"));
+    gp_step(&mut b3, src, "__re", gp_bin(h, OP_EQ(), gp_field(h, "__re", "parent"), gp_field(h, "__rr", "b")));
+    rules.push(gp_rule(gp_tuple2(h, gp_field(h, "__rr", "a"), gp_field(h, "__re", "child")), b3));
+    inj.rels.push(CRel { name: rname, cols: cols, rules: rules });
+    inj.strs.push(nm);
+    inj.strs.push(mn);
+    return rname;
+}
+
+// The chain of one graph path into `out` and its residual predicate. `stop`
+// >= 0 builds only the PREFIX [0, stop) — a `**` site's seed body; the
+// prefix's own `**` hops join reach without seeding it again.
+fn gp_build(src: str, gp: RQGStepArr, h: &Writ, inj: &mut GpInj, stop: i64) -> GpC {
+    let n: i64 = if stop >= 0i64 { stop } else { gp.len() };
+    if gp.len() < 1i64 { return gpc_fail("wql!: a graph path needs at least one step"); }
+    let mut extra: WRef<SExpr> = gp_bin(h, OP_EQ(), gp_field(h, "__ga", "parent"), make_int_lit(h, WG_ROOT_PARENT));
+    let mut prev: str = "__ga";
+    let mut hop: str = "";
+    let mut last_user: bool = false;
+    let mut si: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n {
+        let st: RQGStep = gp.gstep_at(i);
+        if st.is_kind {
+            if st.has_binder {
+                return gpc_fail("wql!: a {kind} filter cannot carry a binder — name the step it filters instead (`from g * s {map} select …`)");
+            }
+            if hop.len() > 0i64 {
+                return gpc_fail("wql!: a {kind} filter cannot follow `**` directly — filter the stepped edge (`** * v {kind}` or `** .key v {kind}`)");
+            }
+            extra = gp_and(h, extra, gp_bin(h, OP_EQ(), gp_field(h, prev, "kind"), gp_str_lit(h, st.key)));
+            i = i + 1i64;
+            continue;
+        }
+        if st.is_desc {
+            if hop.len() > 0i64 { return gpc_fail("wql!: consecutive `**` — one descent suffices"); }
+            if stop < 0i64 {
+                let mut saved: Vec<CLit> = Vec::<CLit>::new();
+                while inj.chain.len() > 0i64 { saved.push(inj.chain.remove(0i64)); }
+                let pr: GpC = gp_build(src, gp, h, inj, i);
+                let mut pa: Vec<CLit> = Vec::<CLit>::new();
+                while inj.chain.len() > 0i64 { pa.push(inj.chain.remove(0i64)); }
+                while saved.len() > 0i64 { inj.chain.push(saved.remove(0i64)); }
+                if !pr.ok { return pr; }
+                gp_magic_seed(inj, src, gp_seed_body(src, h, pa, pr.extra, sv(&pr.last)));
+            }
+            let rn: str = gp_reach_rel(inj, src, h);
+            let rv: str = gp_rvar(i);
+            gp_step(&mut inj.chain, rn, rv, gp_bin(h, OP_EQ(), gp_field(h, rv, "a"), gp_field(h, prev, "child")));
+            si = si + 1i64;
+            if st.has_binder {
+                let v0: str = st.binder;
+                gp_step(&mut inj.chain, src, v0, gp_bin(h, OP_EQ(), gp_field(h, v0, "parent"), gp_field(h, rv, "b")));
+                si = si + 1i64;
+                prev = v0;
+                last_user = true;
+            } else {
+                hop = rv;
+            }
+            i = i + 1i64;
+            continue;
+        }
+        let v: str = if st.has_binder { st.binder } else { gp_var(i) };
+        if hop.len() > 0i64 {
+            gp_step(&mut inj.chain, src, v, gp_bin(h, OP_EQ(), gp_field(h, v, "parent"), gp_field(h, hop, "b")));
+            hop = "";
+        } else {
+            gp_step(&mut inj.chain, src, v, gp_bin(h, OP_EQ(), gp_field(h, v, "parent"), gp_field(h, prev, "child")));
+        }
+        si = si + 1i64;
+        if st.is_key {
+            extra = gp_and(h, extra, gp_bin(h, OP_EQ(), gp_field(h, v, "key"), gp_str_lit(h, st.key)));
+        } else if st.is_at {
+            extra = gp_and(h, extra, gp_bin(h, OP_EQ(), gp_field(h, v, "idx"), make_int_lit(h, st.idx)));
+        } else if st.is_elem {
+            extra = gp_and(h, extra, gp_bin(h, OP_GE(), gp_field(h, v, "idx"), make_int_lit(h, 0i64)));
+        }
+        prev = v;
+        last_user = st.has_binder;
+        i = i + 1i64;
+    }
+    if stop >= 0i64 { return GpC { ok: true, extra: extra, last: String::from_str(prev), err: String::new() }; }
+    if hop.len() > 0i64 { return gpc_fail("wql!: `**` must be followed by a step (or carry the binder itself: `** v`)"); }
+    if si < 1i64 { return gpc_fail("wql!: a graph path needs at least one movement step ({kind} alone only filters)"); }
+    if !last_user { return gpc_fail("wql!: the last graph-path step must bind the row variable — `from g .a .b v select …`"); }
+    return GpC { ok: true, extra: extra, last: String::from_str(prev), err: String::new() };
+}
+
+// Lower one clause's graph path: the base reads the source as `__ga`, the
+// path's chain comes first, the clause's own steps after it, and the WHERE is
+// the path's residual ANDed with the clause's own.
+fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> bool {
+    if cl.gpath.is_null() { return true; }
+    let gp: RQGStepArr = cl.gpath.view::<RQGStepArr>();
+    let src: str = dv(core_base_name_of(cl));
+    let res: GpC = gp_build(src, gp, h, inj, -1i64);
+    let mut chain: Vec<CLit> = Vec::<CLit>::new();
+    while inj.chain.len() > 0i64 { chain.push(inj.chain.remove(0i64)); }
+    if !res.ok { err.push_str(sv(&res.err)); return false; }
+    let mut old: Vec<CLit> = Vec::<CLit>::new();
+    while cl.body.len() > 0i64 { old.push(cl.body.remove(0i64)); }
+    let mut uwhere: WAny = WAny::null();
+    let mut k: i64 = 0i64;
+    let mut base_done: bool = false;
+    while old.len() > 0i64 {
+        let l: CLit = old.remove(0i64);
+        match l {
+            CLit::Atom(a) => {
+                if !base_done {
+                    cl.body.push(CLit::Atom(CAtom { src: a.src, reg: a.reg, name: a.name, var: "__ga", row_ty: a.row_ty, neg: a.neg,
+                                                    conds: a.conds, strat: a.strat, jsel: a.jsel, ground: a.ground }));
+                    base_done = true;
+                    while chain.len() > 0i64 { cl.body.push(chain.remove(0i64)); }
+                } else {
+                    cl.body.push(CLit::Atom(a));
+                }
+            }
+            CLit::Trav(t) => { cl.body.push(CLit::Trav(t)); }
+            CLit::Cond(c) => {
+                match c.site {
+                    CSite::Where => { uwhere = c.e; }
+                    CSite::On => { cl.body.push(CLit::Cond(CCond { e: c.e, site: CSite::On })); }
+                }
+            }
+        }
+        k = k + 1i64;
+    }
+    let mut w: WRef<SExpr> = res.extra;
+    if !uwhere.is_null() { w = gp_and(h, w, WRef::<SExpr>::from_any(uwhere)); }
+    cl.body.push(CLit::Cond(CCond { e: w.any(), site: CSite::Where }));
+    cl.gpath = WAny::null();
+    return true;
+}
+
+fn core_base_name_of(cl: &CClause) -> str {
+    if cl.body.len() < 1i64 { return ""; }
+    match &cl.body.as_slice()[0i64] { CLit::Atom(a) => { return a.name; } CLit::Trav(t) => { return t.name; } CLit::Cond(_c) => { return ""; } }
+}
+
+/// Lower every graph path of the program (rel rules in order, then the entry)
+/// into its join chain, injecting the reach rels `**` needs. False with `err`
+/// filled on a malformed path.
+pub fn core_desugar_gpaths(p: &mut CProgram, h: &Writ, err: &mut String) -> bool {
+    let mut inj: GpInj = GpInj { rels: Vec::<CRel>::new(), strs: Vec::<String>::new(), chain: Vec::<CLit>::new() };
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        let mut b: i64 = 0i64;
+        while b < p.rels[r].rules.len() {
+            if !gp_clause(&mut p.rels[r].rules[b].clause, h, &mut inj, err) { return false; }
+            b = b + 1i64;
+        }
+        r = r + 1i64;
+    }
+    if !gp_clause(&mut p.entry.clause, h, &mut inj, err) { return false; }
+    if inj.rels.len() == 0i64 { return true; }
+    while inj.rels.len() > 0i64 { p.rels.push(inj.rels.remove(0i64)); }
+    core_relink(p);
+    while inj.strs.len() > 0i64 { p.strs.push(inj.strs.remove(0i64)); }
+    return true;
 }
 
 // ── SHADOW: structural equality of two cores ───────────────────────────────

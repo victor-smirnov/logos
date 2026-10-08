@@ -1644,9 +1644,10 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
     // recursive SCCs call the semi-naïve SCC fn (member Vecs as out-params).
     let mut prelude: String = String::new();
     if prm.rel_n > 0i64 {
-        // helper fns exist only for PARSE-SIDE rels (native rels materialize
-        // via their stdlib helper in the prelude — nothing to emit).
-        if prog.has_rels() {
+        // helper fns exist only for the PROGRAM's rels — its own and those the
+        // core rewrites injected (native rels materialize via their stdlib
+        // helper in the prelude — nothing to emit).
+        if prm.plan_core.rels.len() > 0i64 {
             if !emit_rel_fns(name, params_text, prm, &scc, h) { return false; }
         }
         let mut p: i64 = 0i64;

@@ -210,17 +210,18 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
             rename_rel_sources(root, lo, hi, old_name, new_name, &h);
         }
     }
-    // ADR 0016 M2a: graph paths desugar to classic join chains (the SHARED
-    // plan→plan pass — one implementation for both binding times).
+    // ADR 0031 R0 — THE CORE: the program in one clause form, lowered ONCE
+    // (entry and rel bodies alike); graph paths are lowered into their join
+    // chains on it (ADR 0016 M2a, `crewrite::core_desugar_gpaths`, R3.4), and
+    // it is verified — a broken invariant is an ICE. `LOGOS_DEEM_DUMP=core`
+    // prints it.
+    let mut core: CProgram = lower_program(root);
     let mut gperr: String = String::new();
-    if !desugar_program_gpaths(root, &h, &mut gperr) {
+    if !core_desugar_gpaths(&mut core, &h, &mut gperr) {
         error(gp_err_str(&gperr));
         return out;
     }
-    // ADR 0031 R0 — THE CORE: the program in one clause form, lowered ONCE
-    // (entry and rel bodies alike) and verified; a broken invariant is an ICE.
-    // Nothing reads it yet; `LOGOS_DEEM_DUMP=core` prints it.
-    let core: CProgram = core_build(root, name);
+    core_finish(&core, name);
     // ADR 0031 R2 — the user's names, checked on the core as written: before
     // the demand rewrite or the fact desugar invent a rel or a clause.
     if !core_rules_ok(&core) { return out; }
@@ -238,10 +239,11 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     nd.push_str("LOGOS_DEEM_NO_DEMAND");
     nd.push_u8(0u8);
     let demand_off: bool = unsafe { getenv(nd.as_ptr()) } != 0 as *const u8;
-    // ADR 0031 R3 — the program the walker plans: lowered once the surface
-    // rewrites that are still surface passes have run; from here on it is
-    // analysed and rewritten on the core.
-    let mut pc: CProgram = lower_program(root);
+    // ADR 0031 R3 — the program the walker plans IS the core: from here on it
+    // is analysed and rewritten on the core, never lowered again. The group
+    // frame's class is read off the entry as written.
+    prm.plan_group_pure = plan_group_pure(&core.entry);
+    let mut pc: CProgram = core;
     if !demand_off && core_magic(&mut pc, &h, &prm, &mut msd) > 0i64 {
         let mut di: i64 = 0i64;
         while di < msd.n {
@@ -298,7 +300,6 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     nat.push_str(natspec);
     if core_desugar_facts(&mut pc) { nat.push_str(UNIT_NATSPEC()); }
     let natspec2: str = unsafe { str_from_raw(nat.as_ptr(), nat.len()) };
-    prm.plan_group_pure = plan_group_pure(&core.entry);
     let _ok: bool = walk_program_params(root, pc, name, params, natspec2, &mut prm, &h);
     return out;
 }
