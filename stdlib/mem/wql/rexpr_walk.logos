@@ -3721,13 +3721,30 @@ struct NestSteps {
     hasres: Vec<bool>,
     equi:   Vec<bool>,
     stream: Vec<bool>,
+    /// The naming slot of each step's build and probe (`__hm<s>`, `__mp<s>`, …):
+    /// `k + 1` for step k, unless the step's index is HOISTED out of a fixpoint
+    /// loop, when it takes a slot unique in its fn (R7.2).
+    slot:   Vec<i64>,
 }
 
+/// ADR 0031 R7.2 — HOISTING a fixpoint body's loop-invariant indexes. `inv[k]`
+/// (chain slot k, 0 the base): the slot's source does not change while the
+/// driver's loop runs (a parameter, or a rel outside the SCC). When `on`, the
+/// build phase of every indexed step over such a source is emitted into
+/// `builds` — which the driver places ONCE, before its loop — under slot
+/// `base + k`, instead of inside the body, where it ran every round.
+struct Hoist { on: bool, base: i64, inv: Vec<bool>, builds: Vec<ExprBlob> }
+
+fn hoist_off() -> Hoist { return Hoist { on: false, base: 0i64, inv: Vec::<bool>::new(), builds: vec_new::<ExprBlob>() }; }
+
 fn nest_steps_new(n: i64) -> NestSteps {
+    let mut sl: Vec<i64> = Vec::<i64>::new();
+    let mut k: i64 = 0i64;
+    while k < n { sl.push(k + 1i64); k = k + 1i64; }
     return NestSteps { build: vec![String::new(); n], probe: vec![String::new(); n],
                        resid: vec![String::new(); n], pred: vec![String::new(); n],
                        strat: vec![0i32; n], ktn: str_vec(n), hasres: vec![false; n],
-                       equi: vec![false; n], stream: vec![false; n] };
+                       equi: vec![false; n], stream: vec![false; n], slot: sl };
 }
 
 /// Wrap `inner` in the nest's steps, innermost (last-bound) step first.
@@ -3736,7 +3753,7 @@ fn nest_wrap(prm: &MacroParams, ch: &DNest, ns: &NestSteps, inner0: ExprBlob,
     let mut inner: ExprBlob = inner0;
     let mut ki: i64 = ch.n - 1i64;
     while ki >= 0i64 {
-        inner = step_wrap(prm, inner, ki + 1i64, ns.strat[ki], ch.anti[ki],
+        inner = step_wrap(prm, inner, ns.slot[ki], ns.strat[ki], ch.anti[ki],
                           ns.hasres[ki], ns.ktn[ki], ch.src[ki], ch.ty[ki],
                           ch.var[ki], ch.byval[ki], string_as_str(&ns.probe[ki]),
                           string_as_str(&ns.resid[ki]), string_as_str(&ns.pred[ki]),
@@ -3751,7 +3768,7 @@ fn nest_builds(prm: &MacroParams, ch: &DNest, ns: &NestSteps, bps: &mut Vec<Expr
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
         arrange_node(prm, ch.src[bpi], ch.var[bpi], ns.strat[bpi]);
-        bps.push(build_phase_frag(prm, bpi + 1i64, ns.strat[bpi], ch.anti[bpi], ns.hasres[bpi],
+        bps.push(build_phase_frag(prm, ns.slot[bpi], ns.strat[bpi], ch.anti[bpi], ns.hasres[bpi],
                                   ns.ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
                                   string_as_str(&ns.build[bpi]), ns.stream[bpi]));
         bpi = bpi + 1i64;
@@ -10940,7 +10957,7 @@ fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64,
 // One JOIN-CHAIN rel body: build phases + nested probes (the existing per-step
 // strategy cascade — rel-sourced sides included) + optional where + dedup push.
 fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64,
-                      prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
+                      prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let se: SExpr = cl.head.view::<SExpr>();
     let w: WAny = rule_where(cl);
     let has_where: bool = !w.is_null();
@@ -10954,7 +10971,7 @@ fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64,
                     return false;
                 }
                 return chain_body_frag(ch, ri, prm, se, items.arg_at(0i64), items.arg_at(1i64),
-                                       has_where, we, out, h);
+                                       has_where, we, out, h, hx);
             }
             _ => {
                 error("wql!: a recursive-aggregate rel body must project a `(key, aggout)` tuple (slice-1)");
@@ -10962,7 +10979,7 @@ fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64,
             }
         }
     }
-    return chain_body_frag(ch, ri, prm, se, se, se, has_where, we, out, h);
+    return chain_body_frag(ch, ri, prm, se, se, se, has_where, we, out, h, hx);
 }
 
 // One RECURSIVE-AGGREGATE rel body: same chain nest as a join body, but the inner
@@ -10970,7 +10987,7 @@ fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64,
 // best-map (min/max fixpoint). The surface `select (key, aggout)` is structural
 // only — the emitted operands are the group KEY and the aggregate's ARG expr.
 fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64,
-                     prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
+                     prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     if ch.n == 0i64 {
         error("wql!: a recursive-aggregate rel body must JOIN the rel with an edge/relation slice (e.g. `from dist x join edges e on e.src == x.node …`) — a bare self-scan cannot propagate the fixpoint");
         return false;
@@ -10985,7 +11002,7 @@ fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64,
     let val_e: SExpr = a0arg.view::<SExpr>();
     let w: WAny = rule_where(cl);
     let we: SExpr = if w.is_null() { key_e } else { w.view::<SExpr>() };
-    return chain_body_frag(ch, ri, prm, key_e, key_e, val_e, !w.is_null(), we, out, h);
+    return chain_body_frag(ch, ri, prm, key_e, key_e, val_e, !w.is_null(), we, out, h, hx);
 }
 
 // The shared CHAIN-BODY emitter (join bodies + recursive-aggregate bodies). For a
@@ -10994,7 +11011,7 @@ fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64,
 // aggregate argument (semilattice absorb). `where_e` is valid only if `has_where`.
 fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
                    proj_e: SExpr, key_e: SExpr, val_e: SExpr,
-                   has_where: bool, where_e: SExpr, out: &mut ExprBlob, h: &Writ) -> bool {
+                   has_where: bool, where_e: SExpr, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let is_agg: bool = prm.rel_is_agg[ri];
     let view: OView = oview_module_ast();
     let mut ty: ElTypes = type_chain(&view, prm, ch.base_src, ch.base_ty, ch.base_var, &ch.src, &ch.ty, &ch.var,
@@ -11110,9 +11127,24 @@ fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
         push_f = quote_block! { if (#(where_f)) #(push_f) };
     }
     let no_lim: ExprBlob = parse_expr("0i64");
+    // R7.2 — a step whose index is hoisted out of the driver's loop is named
+    // by its own slot (`hx.base + k`), so its build phase can sit at fn level.
+    let mut hk: i64 = 0i64;
+    while hx.on && hk < ch.n {
+        if hk + 1i64 < hx.inv.len() && hx.inv.get(hk + 1i64) { ns.slot[hk] = hx.base + hk + 1i64; }
+        hk = hk + 1i64;
+    }
     push_f = nest_wrap(prm, ch, &ns, push_f, no_lim, false);
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    nest_builds(prm, ch, &ns, &mut bps);
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        arrange_node(prm, ch.src[bpi], ch.var[bpi], ns.strat[bpi]);
+        let bp: ExprBlob = build_phase_frag(prm, ns.slot[bpi], ns.strat[bpi], ch.anti[bpi], ns.hasres[bpi],
+                                            ns.ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                                            string_as_str(&ns.build[bpi]), ns.stream[bpi]);
+        if ns.slot[bpi] != bpi + 1i64 { hx.builds.push(bp); } else { bps.push(bp); }
+        bpi = bpi + 1i64;
+    }
     let base_src_f: ExprBlob = parse_expr(ch.base_src);
     let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
     let base_vnm:   Ident    = Ident::new(ch.base_var);
@@ -11190,7 +11222,7 @@ fn rel_nrules(prm: &MacroParams, ri: i64) -> i64 {
 }
 
 fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
-                 prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
+                 prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let ru: &CRule = rel_rule_of(prm, ri, b);
     match &ru.env.mode {
         CMode::Find => {
@@ -11205,7 +11237,7 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
     match &ru.clause.group {
         Option::Some(g) => {
             if prm.rel_is_agg[ri] {
-                return rel_body_agg_frag(&ru.clause, g, &ch, ri, prm, out, h);
+                return rel_body_agg_frag(&ru.clause, g, &ch, ri, prm, out, h, hx);
             }
             error("wql!: rel body must be a scan or join query (from/join/where/select)");
             return false;
@@ -11213,7 +11245,7 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
         Option::None => { }
     }
     if ch.n == 0i64 { return rel_body_simple_frag(&ru.clause, &ch, ri, prm, out, h); }
-    return rel_body_join_frag(&ru.clause, &ch, ri, prm, out, h);
+    return rel_body_join_frag(&ru.clause, &ch, ri, prm, out, h, hx);
 }
 
 // A rel body's chain for one emission: each slot takes its override, if any.
@@ -11282,7 +11314,7 @@ fn emit_rel_fn_oneshot(ri: i64, fn_name: str,
     let mut b: i64 = 0i64;
     while b < nbod {
         let mut f: ExprBlob = quote_block! { };
-        if !rel_body_frag(ri, b, &Vec::<str>::new(), prm, &mut f, h) { return false; }
+        if !rel_body_frag(ri, b, &Vec::<str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
         runs.push(f);
         b = b + 1i64;
     }
@@ -11353,7 +11385,9 @@ fn emit_rel_fn_oneshot(ri: i64, fn_name: str,
 // member that has any: each recursive rule once per in-SCC occurrence, that
 // occurrence reading the delta. False when a body fragment failed (its
 // diagnostic is raised).
-fn variant_blocks(pl: &DScc, prm: &MacroParams, h: &Writ, out: &mut Vec<ExprBlob>) -> bool {
+fn variant_blocks(pl: &DScc, prm: &MacroParams, h: &Writ, out: &mut Vec<ExprBlob>,
+                  hoist: bool, hoisted: &mut Vec<ExprBlob>) -> bool {
+    let mut nrun: i64 = 0i64;
     let mut m: i64 = 0i64;
     while m < pl.members.len() {
         let pm: &DSccMember = &pl.members.as_slice()[m];
@@ -11362,7 +11396,13 @@ fn variant_blocks(pl: &DScc, prm: &MacroParams, h: &Writ, out: &mut Vec<ExprBlob
         while v < pm.variants.len() {
             let run: &DRun = &pm.variants.as_slice()[v];
             let mut f: ExprBlob = quote_block! { };
-            if !rel_body_frag(pm.rel, run.rule, &run.ovr, prm, &mut f, h) { return false; }
+            let mut inv: Vec<bool> = Vec::<bool>::new();
+            let mut q: i64 = 0i64;
+            while q < run.inv.len() { inv.push(run.inv.get(q)); q = q + 1i64; }
+            nrun = nrun + 1i64;
+            let mut hx: Hoist = Hoist { on: hoist, base: 100i64 * nrun, inv: inv, builds: vec_new::<ExprBlob>() };
+            if !rel_body_frag(pm.rel, run.rule, &run.ovr, prm, &mut f, h, &mut hx) { return false; }
+            while hx.builds.len() > 0i64 { hoisted.push(hx.builds.remove(0i64)); }
             runs.push(f);
             v = v + 1i64;
         }
@@ -11695,7 +11735,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
         let mut b1: i64 = 0i64;
         while b1 < sel.len() {
             let mut f: ExprBlob = quote_block! { };
-            if !rel_body_frag(pm.rel, sel.get(b1), &Vec::<str>::new(), prm, &mut f, h) { return false; }
+            if !rel_body_frag(pm.rel, sel.get(b1), &Vec::<str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
             runs.push(f);
             b1 = b1 + 1i64;
         }
@@ -11827,7 +11867,8 @@ fn emit_scc_fn(c: i64, fn_name: str,
     }
     // VARIANTS: every recursive body × its in-SCC occurrences.
     let mut variants: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    if !variant_blocks(&pl, prm, h, &mut variants) { return false; }
+    let mut hoisted: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    if !variant_blocks(&pl, prm, h, &mut variants, true, &mut hoisted) { return false; }
     // ── Materialize each AGGREGATE member's total = argmin/argmax per key ──
     // The fixpoint left the best value per key in the map; walk the distinct-key
     // roster and emit one `(key, best)` row into the caller's total Vec (the
@@ -11873,9 +11914,11 @@ fn emit_scc_fn(c: i64, fn_name: str,
             mw = mw + 1i64;
         }
     }
+    // R7.2 — the indexes over sources the loop does not change, built ONCE.
     let body_f: ExprBlob = quote_block! {
         #( #state; )*
         #( #seeds; )*
+        #( #hoisted; )*
         loop {
             #( #promote; )*
             if #(exitc) { break; }
@@ -12372,7 +12415,7 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
         let mut b1: i64 = 0i64;
         while b1 < pm.all.len() {
             let mut f: ExprBlob = quote_block! { };
-            if !rel_body_frag(pm.rel, pm.all.get(b1), &Vec::<str>::new(), prm, &mut f, h) { return false; }
+            if !rel_body_frag(pm.rel, pm.all.get(b1), &Vec::<str>::new(), prm, &mut f, h, &mut hoist_off()) { return false; }
             rr.push(f);
             b1 = b1 + 1i64;
         }
@@ -12511,7 +12554,8 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     // in-SCC occurrence is a base body and does NOT run here — see the header.
     let pl: DScc = plan_scc(prm, scc, c);
     let mut pvars: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    if !variant_blocks(&pl, prm, h, &mut pvars) { return false; }
+    let mut phoisted: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    if !variant_blocks(&pl, prm, h, &mut pvars, false, &mut phoisted) { return false; }
     // PROMOTE: delta ← next-delta, OD ∪= delta (the shadow set already holds it).
     let mut pprom: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut ma: i64 = 0i64;

@@ -1,0 +1,36 @@
+// ADR 0031 R7.2 — A FIXPOINT'S LOOP-INVARIANT INDEX IS BUILT ONCE.
+//
+// Single-source reachability over a chain of N edges: N semi-naive rounds,
+// each joining the delta (one node) with `edges` by a hash index on `e.src`.
+// `edges` is a parameter — it does not change while the loop runs — so its
+// index is built once, before the loop; it used to be rebuilt every round,
+// O(N) per round, O(N²) in all (4000 edges: 1.35 s; now 1 ms). The answer is
+// the same either way; `scc_index_hoist_gate.sh` pins the structure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+
+pub deem reach_from(edges: &[Edge], s0: i64) {
+    rel reach(n: i64) {
+        select s0;
+        from reach r join edges e on e.src == r.n select e.dst;
+    }
+    from reach r select r.n
+}
+
+fn main() -> i32 {
+    let n: i64 = 50000i64;
+    let mut es: Vec<Edge> = Vec::<Edge>::new();
+    let mut i: i64 = 0i64;
+    while i < n { es.push(Edge { src: i, dst: i + 1i64 }); i = i + 1i64; }
+    let out: Vec<i64> = reach_from(es.as_slice(), 0i64).unwrap();
+    if out.len() != n + 1i64 { return 1i32; }
+    // from n-2: exactly n-2, n-1, n
+    let tail: Vec<i64> = reach_from(es.as_slice(), n - 2i64).unwrap();
+    if tail.len() != 3i64 { return 2i32; }
+    return 0i32;
+}

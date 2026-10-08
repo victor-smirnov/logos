@@ -16666,6 +16666,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$ExprBlob$Mfce1
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$ExprBlob$Mfce1ca49d1fe71b8__len__g__ref_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$ExprBlob$Mfce1ca49d1fe71b8__length__g__ref_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$ExprBlob$Mfce1ca49d1fe71b8__push__g__refmut_Vec$M4edea24aa4768b45$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$ExprBlob$Mfce1ca49d1fe71b8__remove__g__refmut_Vec$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Header$M33e80fd2af710b76__as_mut__g__refmut_Vec$M4edea24aa4768b45$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Header$M33e80fd2af710b76__as_mut_slice__g__refmut_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$Header$M33e80fd2af710b76__as_ref__g__ref_Vec$M4edea24aa4768b45$G1$E

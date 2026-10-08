@@ -327,6 +327,11 @@ SINGLETONS = {
           'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
         # ADR 0031 R0 — the Deem CORE of every surface shape, compared as text with a
         # hand-written golden (LOGOS_DEEM_DUMP=core).
+        # ADR 0031 R7.2 — a fixpoint builds the index over a source its loop
+        # does not change ONCE, before the loop (structural, not timed).
+        T('logos_09_scc_index_hoist',
+          ['{tsrc}/scc_index_hoist_gate.sh', '{logosc}', '{tsrc}/pass/wql_rel_scc_hoist_e2e.logos'],
+          'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),
         T('logos_09_core_dump',
           ['{tsrc}/core_dump_gate.sh', '{logosc}', '{tsrc}/pass/wql_core_shapes.logos', '{tsrc}/wql_core_shapes.core'],
           'logos;pass;suite_semantic_core;tier_commit', timeout=180, env=LIB),

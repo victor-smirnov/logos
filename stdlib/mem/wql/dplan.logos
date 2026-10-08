@@ -509,7 +509,15 @@ pub fn plan_nest(cl: &CClause) -> DNest {
 
 /// One rule run: the rule, and the source each chain slot reads instead of its
 /// own (slot 0 the base; "" = its own) — the semi-naïve delta rename.
-pub struct DRun { pub rule: i64, pub ovr: Vec<str> }
+pub struct DRun {
+    pub rule: i64,
+    pub ovr: Vec<str>,
+    /// Per chain slot: the slot's source does not change while the SCC's loop
+    /// runs — a parameter, or a rel outside the SCC (ADR 0031 R7.2: its index
+    /// may be built once, before the loop). A traversal's source depends on its
+    /// base row, so it never is.
+    pub inv: Vec<bool>,
+}
 
 pub struct DSccMember {
     pub rel: i64,
@@ -542,6 +550,23 @@ fn scc_occurrences(ru: &CRule, scc: &RelScc, c: i64, pos: &mut Vec<i64>, rel: &m
     }
 }
 
+// Per chain slot of a rule: does the slot's source stay fixed while SCC `c`'s
+// loop runs?
+fn slot_invariance(ru: &CRule, scc: &RelScc, c: i64) -> Vec<bool> {
+    let mut v: Vec<bool> = Vec::<bool>::new();
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { v.push(a.reg < 0i64 || scc.comp[a.reg] != c); }
+            CLit::Trav(_t) => { v.push(false); }
+            CLit::Cond(_x) => { }
+        }
+        i = i + 1i64;
+    }
+    return v;
+}
+
 /// The plan of SCC `c` over the planned core. Members in declaration order
 /// (registry order); a member's rules in declaration order.
 pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64) -> DScc {
@@ -572,7 +597,7 @@ pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64) -> DScc {
                         ovr[sl] = nm_w;
                         w = w + 1i64;
                     }
-                    m.variants.push(DRun { rule: b, ovr: ovr });
+                    m.variants.push(DRun { rule: b, ovr: ovr, inv: slot_invariance(&rules[b], scc, c) });
                     v = v + 1i64;
                 }
                 b = b + 1i64;
