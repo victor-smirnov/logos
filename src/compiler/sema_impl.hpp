@@ -3225,6 +3225,7 @@ private:
         std::unordered_map<std::string, std::string> variant_aliases;
     };
     ImportScope cur_imports_;
+    ImportScope build_import_scope_(writ::TinyMapView root, bool diagnose);
 
     // Qualified key: "pkg::name" or "name" if pkg empty
     //

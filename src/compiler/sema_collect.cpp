@@ -79,166 +79,171 @@ bool ast_anyval_equal(AnyVal a, AnyVal b,
 
 // Symbol-collection phase: populate SemaChecker symbol tables.
 
-void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
-    // Helper: build ImportScope (wildcard_packages) from a module's USES array.
-    auto build_import_scope = [&](TinyMapView root) -> ImportScope {
-        ImportScope scope;
-        if (!root.has_key(la::USES)) return scope;
-        auto uses_av = root.get(la::USES.code);
-        if (uses_av.is_null() || !uses_av.is_pointer()) return scope;
-        auto uses = arr_of(uses_av);
-        for (uint64_t i = 0; i < uses.size(); ++i) {
-            auto use_node = map_of(uses.get(i));
-            // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — register each
-            // listed variant under the bare-name alias map. The dotted-path
-            // portion still becomes a wildcard import so the enum type
-            // itself is in scope (call sites can use both `Type::V1` and
-            // bare `V1`). TYPE_NAME is the last segment (the enum); the
-            // pkg head + PATH_PARTS up to TYPE_NAME form the wildcard pkg.
-            int32_t use_code = la::USE.code;
-            if (use_node.has_key(la::CODE)) {
-                auto cv = use_node.get(la::CODE.code);
-                if (!cv.is_null() && !cv.is_pointer())
-                    use_code = cv.as_value<int32_t>();
+// A module's import scope from its USES array — ONE builder for collect and
+// lower (Q1 row 2). `diagnose`: collect reports the import's errors and
+// warnings and records `pub use` re-exports once; lower rebuilds silently.
+SemaChecker::ImportScope SemaChecker::build_import_scope_(TinyMapView root, bool diagnose) {
+    ImportScope scope;
+    if (!root.has_key(la::USES)) return scope;
+    auto uses_av = root.get(la::USES.code);
+    if (uses_av.is_null() || !uses_av.is_pointer()) return scope;
+    auto uses = arr_of(uses_av);
+    for (uint64_t i = 0; i < uses.size(); ++i) {
+        auto use_node = map_of(uses.get(i));
+        // CP-cm-02: `use pkg.Path.Type.{V1, V2, …};` — register each
+        // listed variant under the bare-name alias map. The dotted-path
+        // portion still becomes a wildcard import so the enum type
+        // itself is in scope (call sites can use both `Type::V1` and
+        // bare `V1`). TYPE_NAME is the last segment (the enum); the
+        // pkg head + PATH_PARTS up to TYPE_NAME form the wildcard pkg.
+        int32_t use_code = la::USE.code;
+        if (use_node.has_key(la::CODE)) {
+            auto cv = use_node.get(la::CODE.code);
+            if (!cv.is_null() && !cv.is_pointer())
+                use_code = cv.as_value<int32_t>();
+        }
+        std::string dotted;
+        if (use_node.has_key(la::NAME)) {
+            dotted = std::string(str_of(use_node.get(la::NAME.code)));
+        }
+        if (use_node.has_key(la::mod::PATH_PARTS)) {
+            auto parts = arr_of(use_node.get(la::mod::PATH_PARTS.code));
+            for (uint64_t pi = 0; pi < parts.size(); ++pi) {
+                auto part = map_of(parts.get(pi));
+                if (!part.has_key(la::NAME)) continue;
+                if (!dotted.empty()) dotted += '.';
+                dotted += std::string(str_of(part.get(la::NAME.code)));
             }
-            std::string dotted;
-            if (use_node.has_key(la::NAME)) {
-                dotted = std::string(str_of(use_node.get(la::NAME.code)));
-            }
-            if (use_node.has_key(la::mod::PATH_PARTS)) {
-                auto parts = arr_of(use_node.get(la::mod::PATH_PARTS.code));
-                for (uint64_t pi = 0; pi < parts.size(); ++pi) {
-                    auto part = map_of(parts.get(pi));
-                    if (!part.has_key(la::NAME)) continue;
-                    if (!dotted.empty()) dotted += '.';
-                    dotted += std::string(str_of(part.get(la::NAME.code)));
-                }
-            }
-            // GR-gp-02: `use pkg.{a, b, c};` parses as USE_VARIANTS with
-            // a lowercase TYPE_NAME — desugar to wildcard imports
-            // `<dotted>.<TYPE_NAME>.<item>`. Capitalised TYPE_NAME is the
-            // enum-variant form handled below.
-            if (use_code == la::USE_VARIANTS.code && use_node.has_key(la::TYPE_NAME)) {
-                std::string tn(str_of(use_node.get(la::TYPE_NAME.code)));
-                if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
-                    std::string prefix = dotted.empty()
-                        ? tn : (dotted + "." + tn);
-                    if (use_node.has_key(la::VARIANTS)) {
-                        auto vlist_av = use_node.get(la::VARIANTS.code);
-                        if (!vlist_av.is_null() && vlist_av.is_pointer()) {
-                            auto vlist = arr_of(vlist_av);
-                            for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
-                                auto v = map_of(vlist.get(vi));
-                                if (!v.has_key(la::NAME)) continue;
-                                auto bare = std::string(str_of(v.get(la::NAME.code)));
-                                std::string full = prefix + "." + bare;
-                                if (std::find(scope.wildcard_packages.begin(),
-                                              scope.wildcard_packages.end(), full)
-                                    != scope.wildcard_packages.end())
-                                    continue;
-                                scope.wildcard_packages.push_back(std::move(full));
-                            }
-                        }
-                    }
-                    continue;
-                }
-            }
-            if (use_code == la::USE_VARIANTS.code) {
+        }
+        // GR-gp-02: `use pkg.{a, b, c};` parses as USE_VARIANTS with
+        // a lowercase TYPE_NAME — desugar to wildcard imports
+        // `<dotted>.<TYPE_NAME>.<item>`. Capitalised TYPE_NAME is the
+        // enum-variant form handled below.
+        if (use_code == la::USE_VARIANTS.code && use_node.has_key(la::TYPE_NAME)) {
+            std::string tn(str_of(use_node.get(la::TYPE_NAME.code)));
+            if (!tn.empty() && tn[0] >= 'a' && tn[0] <= 'z') {
+                std::string prefix = dotted.empty()
+                    ? tn : (dotted + "." + tn);
                 if (use_node.has_key(la::VARIANTS)) {
                     auto vlist_av = use_node.get(la::VARIANTS.code);
                     if (!vlist_av.is_null() && vlist_av.is_pointer()) {
                         auto vlist = arr_of(vlist_av);
-                        std::string type_q;  // pkg-qualifier captured but not
-                        // emitted in the alias today (Logos resolves bare
-                        // variant against any enum carrying that variant
-                        // via find_enum_by_name during lower).
                         for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
                             auto v = map_of(vlist.get(vi));
                             if (!v.has_key(la::NAME)) continue;
                             auto bare = std::string(str_of(v.get(la::NAME.code)));
-                            // Resolve TYPE_NAME for the alias value; the
-                            // dotted path captured above is the pkg part
-                            // (e.g. "std.lang.ord"), TYPE_NAME is "Ordering".
-                            std::string enum_qual;
-                            if (use_node.has_key(la::TYPE_NAME)) {
-                                enum_qual = std::string(
-                                    str_of(use_node.get(la::TYPE_NAME.code)));
-                            }
-                            scope.variant_aliases[bare] = enum_qual;
+                            std::string full = prefix + "." + bare;
+                            if (std::find(scope.wildcard_packages.begin(),
+                                          scope.wildcard_packages.end(), full)
+                                != scope.wildcard_packages.end())
+                                continue;
+                            scope.wildcard_packages.push_back(std::move(full));
                         }
                     }
                 }
-                // Make the underlying pkg visible too (so `Type::V` still
-                // resolves alongside bare `V`).
-                if (!dotted.empty())
-                    scope.wildcard_packages.push_back(std::move(dotted));
                 continue;
             }
-            if (dotted.empty()) continue;
-            // B-mv-10: warn on `use pkg;` repeated in the same module.
-            // Functional behaviour is unchanged (effective_import_pkgs already
-            // dedups), but copy-paste mistakes silently slipped through.
-            if (std::find(scope.wildcard_packages.begin(),
-                          scope.wildcard_packages.end(), dotted)
-                != scope.wildcard_packages.end()) {
-                warn(std::format("duplicate 'use {};' in module", dotted));
-            }
-            // B-mv-11: self-import — `use cur_package_;` is a no-op (own
-            // package symbols already resolve first).  Warn so users notice
-            // the redundancy.
-            if (!cur_package_.empty() && dotted == cur_package_) {
-                warn(std::format("'use {};': self-import has no effect "
-                                 "(own package is always in scope)", dotted));
-            }
-            scope.wildcard_packages.push_back(dotted);
-            // §3: `use pkg from <module>;` — restrict this package's candidates
-            // to the named module. The contextual `from` keyword is matched as a
-            // bare IDENT in the grammar (so `From::from` stays valid), so validate
-            // it here; resolve the module NAME (bare or quoted) to its mangle id.
-            if (use_node.has_key(la::mod::FROM_MODULE)) {
-                std::string kw;
-                if (use_node.has_key(la::mod::FROM_KW))
-                    kw = std::string(str_of(use_node.get(la::mod::FROM_KW.code)));
-                if (kw != "from") {
-                    error(std::format("expected 'from' before the module name in "
-                                      "`use {} ...;`, found '{}'", dotted, kw));
-                } else {
-                    std::string mname;
-                    auto fm = map_of(use_node.get(la::mod::FROM_MODULE.code));
-                    if (fm.has_key(la::NAME))
-                        mname = std::string(str_of(fm.get(la::NAME.code)));
-                    // The STRING token keeps its surrounding quotes — strip them.
-                    if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
-                        mname = mname.substr(1, mname.size() - 2);
-                    if (mname.empty()) {
-                        error(std::format("`use {} from`: missing module name", dotted));
-                    } else if (!module_name_to_id_ || module_name_to_id_->empty()) {
-                        // Map not primed (e.g. a metaprog discovery pass before the
-                        // loaded-module set is threaded). Skip the restriction
-                        // silently here; the final pass carries the real map.
-                    } else if (auto it = module_name_to_id_->find(mname);
-                               it == module_name_to_id_->end()) {
-                        error(std::format("`use {} from {}`: no loaded module is "
-                                          "named '{}'", dotted, mname, mname));
-                    } else {
-                        scope.pkg_from_module_id[dotted] = it->second;
+        }
+        if (use_code == la::USE_VARIANTS.code) {
+            if (use_node.has_key(la::VARIANTS)) {
+                auto vlist_av = use_node.get(la::VARIANTS.code);
+                if (!vlist_av.is_null() && vlist_av.is_pointer()) {
+                    auto vlist = arr_of(vlist_av);
+                    std::string type_q;  // pkg-qualifier captured but not
+                    // emitted in the alias today (Logos resolves bare
+                    // variant against any enum carrying that variant
+                    // via find_enum_by_name during lower).
+                    for (uint64_t vi = 0; vi < vlist.size(); ++vi) {
+                        auto v = map_of(vlist.get(vi));
+                        if (!v.has_key(la::NAME)) continue;
+                        auto bare = std::string(str_of(v.get(la::NAME.code)));
+                        // Resolve TYPE_NAME for the alias value; the
+                        // dotted path captured above is the pkg part
+                        // (e.g. "std.lang.ord"), TYPE_NAME is "Ordering".
+                        std::string enum_qual;
+                        if (use_node.has_key(la::TYPE_NAME)) {
+                            enum_qual = std::string(
+                                str_of(use_node.get(la::TYPE_NAME.code)));
+                        }
+                        scope.variant_aliases[bare] = enum_qual;
                     }
                 }
             }
-            // `pub use pkg;` — register as re-export from current package
-            bool is_pub = use_node.has_key(la::IS_PUB) &&
-                          !use_node.get(la::IS_PUB.code).is_null() &&
-                          use_node.get(la::IS_PUB.code).is_value() &&
-                          use_node.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
-            if (is_pub && !cur_package_.empty()) {
-                ++reexports_gen_;
-                auto& vec = pkg_reexports_[cur_package_];
-                if (std::find(vec.begin(), vec.end(), dotted) == vec.end())
-                    vec.push_back(dotted);
+            // Make the underlying pkg visible too (so `Type::V` still
+            // resolves alongside bare `V`).
+            if (!dotted.empty())
+                scope.wildcard_packages.push_back(std::move(dotted));
+            continue;
+        }
+        if (dotted.empty()) continue;
+        // B-mv-10: warn on `use pkg;` repeated in the same module.
+        // Functional behaviour is unchanged (effective_import_pkgs already
+        // dedups), but copy-paste mistakes silently slipped through.
+        if (std::find(scope.wildcard_packages.begin(),
+                      scope.wildcard_packages.end(), dotted)
+            != scope.wildcard_packages.end()) {
+            warn(std::format("duplicate 'use {};' in module", dotted));
+        }
+        // B-mv-11: self-import — `use cur_package_;` is a no-op (own
+        // package symbols already resolve first).  Warn so users notice
+        // the redundancy.
+        if (!cur_package_.empty() && dotted == cur_package_) {
+            warn(std::format("'use {};': self-import has no effect "
+                             "(own package is always in scope)", dotted));
+        }
+        scope.wildcard_packages.push_back(dotted);
+        // §3: `use pkg from <module>;` — restrict this package's candidates
+        // to the named module. The contextual `from` keyword is matched as a
+        // bare IDENT in the grammar (so `From::from` stays valid), so validate
+        // it here; resolve the module NAME (bare or quoted) to its mangle id.
+        if (use_node.has_key(la::mod::FROM_MODULE)) {
+            std::string kw;
+            if (use_node.has_key(la::mod::FROM_KW))
+                kw = std::string(str_of(use_node.get(la::mod::FROM_KW.code)));
+            if (kw != "from") {
+                error(std::format("expected 'from' before the module name in "
+                                  "`use {} ...;`, found '{}'", dotted, kw));
+            } else {
+                std::string mname;
+                auto fm = map_of(use_node.get(la::mod::FROM_MODULE.code));
+                if (fm.has_key(la::NAME))
+                    mname = std::string(str_of(fm.get(la::NAME.code)));
+                // The STRING token keeps its surrounding quotes — strip them.
+                if (mname.size() >= 2 && mname.front() == '"' && mname.back() == '"')
+                    mname = mname.substr(1, mname.size() - 2);
+                if (mname.empty()) {
+                    error(std::format("`use {} from`: missing module name", dotted));
+                } else if (!module_name_to_id_ || module_name_to_id_->empty()) {
+                    // Map not primed (e.g. a metaprog discovery pass before the
+                    // loaded-module set is threaded). Skip the restriction
+                    // silently here; the final pass carries the real map.
+                } else if (auto it = module_name_to_id_->find(mname);
+                           it == module_name_to_id_->end()) {
+                    error(std::format("`use {} from {}`: no loaded module is "
+                                      "named '{}'", dotted, mname, mname));
+                } else {
+                    scope.pkg_from_module_id[dotted] = it->second;
+                }
             }
         }
-        return scope;
-    };
+        // `pub use pkg;` — register as re-export from current package
+        bool is_pub = use_node.has_key(la::IS_PUB) &&
+                      !use_node.get(la::IS_PUB.code).is_null() &&
+                      use_node.get(la::IS_PUB.code).is_value() &&
+                      use_node.get(la::IS_PUB.code).as_value<uint8_t>() != 0;
+        if (is_pub && !cur_package_.empty()) {
+            ++reexports_gen_;
+            auto& vec = pkg_reexports_[cur_package_];
+            if (std::find(vec.begin(), vec.end(), dotted) == vec.end())
+                vec.push_back(dotted);
+        }
+    }
+    return scope;
+}
+
+void SemaChecker::collect(const std::vector<writ::Writ>& asts) {
+    // Helper: build ImportScope (wildcard_packages) from a module's USES array.
+    auto build_import_scope = [&](TinyMapView root) -> ImportScope { return build_import_scope_(root, true); };
 
     // Three-layer split Phase 3.4: append the manifest-declared implicit
     // prelude to the wildcard scope unless this file opts out via
