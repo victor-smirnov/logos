@@ -9510,7 +9510,17 @@ private:
     // callee): the call's arguments are lowered while the qualifier stands, and
     // `buf.as_str()` inside `__fmt_println(…)` is not the callee's package's.
     std::string call_pkg_qualifier_name_;
+    // Q1 row 4: a static call `Type::m(..)` names the methods of the TYPE its
+    // path resolves to — not of every homonym type whose methods share the
+    // spelled key `Type__m` (two `Buffer`s in the stdlib).
+    DefId       call_owner_def_;
+    std::string call_owner_key_;
+    bool call_owner_ok_(const SemaFuncInfo& fi, std::string_view name) const {
+        return !call_owner_def_ || name != call_owner_key_ || !fi.is_method || !fi.owner_id.nominal ||
+               fi.owner_id.nominal == call_owner_def_;
+    }
     bool pkg_qualifier_ok(const SemaFuncInfo& fi, std::string_view name) const {
+        if (!call_owner_ok_(fi, name)) return false;
         if (call_pkg_qualifier_.empty()) return true;
         if (!call_pkg_qualifier_name_.empty() && name != call_pkg_qualifier_name_) return true;
         return fi.package == call_pkg_qualifier_;

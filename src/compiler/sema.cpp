@@ -2153,6 +2153,7 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     // T2-28: an explicit package qualifier (`pkg::fn(...)`) overrides the
     // import-based visibility filter — only the named package's fn matches,
     // and there is NO empty-fallback (a miss is a genuine "no such fn in pkg").
+    std::erase_if(all, [&](const SemaFuncInfo* fi) { return !call_owner_ok_(*fi, base_name); });
     if (!call_pkg_qualifier_.empty() &&
         (call_pkg_qualifier_name_.empty() || base_name == call_pkg_qualifier_name_)) {
         std::vector<const SemaChecker::SemaFuncInfo*> q;
@@ -2188,7 +2189,13 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
         // the prelude re-exports logos.lang.hash, whose `Hash::hash` Rust's
         // prelude does not bring into scope.
         const auto& in = fi->is_method ? cur_imports_.wildcard_packages : imports;
-        bool visible = fi->package.empty() ||
+        // An inherent method declared in its type's own package is visible
+        // through the type, imported or not (Rust: inherent impls live with
+        // the type). One on a shape (`impl [T]`) or a foreign type stays scoped
+        // by the import, as an extension.
+        const bool inherent = fi->is_method && fi->trait_name.empty() && fi->owner_id.nominal &&
+                              defs_[fi->owner_id.nominal].package == fi->package;
+        bool visible = inherent || fi->package.empty() ||
                        fi->package == cur_package_ ||
                        std::find(in.begin(), in.end(), fi->package) != in.end();
         if (!visible) continue;

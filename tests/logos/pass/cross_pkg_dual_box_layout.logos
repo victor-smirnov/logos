@@ -22,6 +22,6 @@ unsafe fn main() -> i32 {
     let user_b: Box<i64> = Box::<i64> { v: 13i64 };
     let mut std_b = box_new::<i64>(29i64);
     let user_w: i64 = user_b.weight();
-    let std_w: i64 = *Box::as_ptr(&std_b);
+    let std_w: i64 = *std_b;
     return (user_w + std_w) as i32;
 }

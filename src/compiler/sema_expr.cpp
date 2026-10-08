@@ -17728,6 +17728,19 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         resolved_class = method_owner_base_(resolved_class);
     }
     std::string mangled = resolved_class + "__" + std::string(method_name);
+    // The type the class path names (Rust's per-scope rule): its methods only.
+    struct OwnerGuard { SemaChecker* s; DefId d; std::string k;
+                        ~OwnerGuard() { s->call_owner_def_ = d; s->call_owner_key_ = std::move(k); } }
+        _og{this, call_owner_def_, call_owner_key_};
+    if (lang_pkg.empty())
+        if (std::string p = resolve_type_path_(class_name); !p.empty()) {
+            const auto sep = p.rfind("::");
+            const DefId d = type_id(p.substr(0, sep), p.substr(sep + 2));
+            if (structs_.count(d) || enums_.count(d) || datatypes_.count(d)) {
+                call_owner_def_ = d;
+                call_owner_key_ = mangled;
+            }
+        }
 
     // The expected RESULT type flows into the arguments of a generic call:
     // `let b: Box<Vec<i64>> = Box::new(Vec::new())` — unify the template's
