@@ -2184,11 +2184,22 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
         // (A type's methods are visible through the type in Rust; exempting them
         // here waits for static calls to name their owner by identity — Q1 row
         // 4 — since `Buffer__new` is a spelled key two homonym structs share.)
-        // Re-exports widen a FREE function's visibility; a method's stays the
-        // direct imports' until trait scope is resolved by identity (row 4):
-        // the prelude re-exports logos.lang.hash, whose `Hash::hash` Rust's
-        // prelude does not bring into scope.
-        const auto& in = fi->is_method ? cur_imports_.wildcard_packages : imports;
+        // A trait's method is in scope when the TRAIT is (Rust): its package is
+        // this one, imported, or re-exported into an import (the prelude).
+        if (fi->is_method && !fi->trait_name.empty()) {
+            const auto& tp = fi->trait_package;
+            if (!(tp.empty() || tp == cur_package_ ||
+                  std::find(imports.begin(), imports.end(), tp) != imports.end()))
+                continue;
+            if (auto it = cur_imports_.pkg_from_module_id.find(fi->package);
+                it != cur_imports_.pkg_from_module_id.end() && fi->module_id != it->second) {
+                from_excluded_any = true;
+                continue;
+            }
+            out.push_back(fi);
+            continue;
+        }
+        const auto& in = imports;
         // An inherent method declared in its type's own package is visible
         // through the type, imported or not (Rust: inherent impls live with
         // the type). One on a shape (`impl [T]`) or a foreign type stays scoped
