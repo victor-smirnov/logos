@@ -1421,6 +1421,42 @@ pub fn core_desugar_gpaths(p: &mut CProgram, h: &Writ, err: &mut String) -> bool
     return true;
 }
 
+// ── MAPPING FUSION on the core (R3.5) ──────────────────────────────────────
+//
+// ADR 0016 M2b-2: a mapping's rel bodies read the mapping's OWN source param
+// (`from w …`); spliced into a consumer program (`deem!(g: Services)`) that
+// source becomes the CONSUMER's param. The compiler prepends the mapping's
+// rels and hands the handler `old=new@lo-hi;` per mapping param: every atom
+// reading `old` in rels [lo, hi) reads `new` — ONLY there (a consumer rel or
+// another mapping's rel may use the old name for its own source). Traversals
+// read a bound var's field path and have no source to rename. Before the
+// graph-path lowering, so the `__reach_*` rels it injects derive from the new
+// name.
+
+/// Rename source `old` → `new_name` in the rules of rels [lo, hi), then relink.
+pub fn core_fuse(p: &mut CProgram, lo: i64, hi: i64, old: str, new_name: str) {
+    if str_eq(old, new_name) { return; }
+    let mut r: i64 = lo;
+    while r < hi && r < p.rels.len() {
+        let mut b: i64 = 0i64;
+        while b < p.rels[r].rules.len() {
+            let cl: &mut CClause = &mut p.rels[r].rules[b].clause;
+            let mut i: i64 = 0i64;
+            while i < cl.body.len() {
+                match &mut cl.body[i] {
+                    CLit::Atom(a) => { if str_eq(a.name, old) { a.name = new_name; } }
+                    CLit::Trav(_t) => { }
+                    CLit::Cond(_c) => { }
+                }
+                i = i + 1i64;
+            }
+            b = b + 1i64;
+        }
+        r = r + 1i64;
+    }
+    core_relink(p);
+}
+
 // ── SHADOW: structural equality of two cores ───────────────────────────────
 
 fn diff(out: &mut String, at: str, what: str, x: str, y: str) {

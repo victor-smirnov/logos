@@ -161,11 +161,15 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     let root: WAny = unsafe { WAny::ref_to(ir) };
     // ── mapping fusion (ADR 0016 M2b-2): `deem!(g: Services)` ────────────
     // The compiler prepended the mapping's rels to this program and encoded
-    // `old=new@lo-hi;` per mapping param — rename each mapping's own source
-    // param to the consumer's inside JUST that mapping's rels. Must run
-    // BEFORE the gpath desugar, so `__reach_*` injection derives from the
-    // new name. After this the spliced rels are indistinguishable from
-    // hand-written ones: SCC, recursion and `**` all apply.
+    // `old=new@lo-hi;` per mapping param — each mapping's own source param
+    // becomes the consumer's inside JUST that mapping's rels
+    // (`crewrite::core_fuse`, applied to the core below, ADR 0031 R3.5).
+    // After it the spliced rels are indistinguishable from hand-written ones:
+    // SCC, recursion and `**` all apply.
+    let mut fu_old: Vec<str> = Vec::<str>::new();
+    let mut fu_new: Vec<str> = Vec::<str>::new();
+    let mut fu_lo: Vec<i64> = Vec::<i64>::new();
+    let mut fu_hi: Vec<i64> = Vec::<i64>::new();
     if enrich.len() > 0i64 {
         let en: i64 = enrich.len();
         let mut i: i64 = 0i64;
@@ -207,7 +211,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
                 }
             }
             i = i + 1i64;
-            rename_rel_sources(root, lo, hi, old_name, new_name, &h);
+            fu_old.push(old_name); fu_new.push(new_name); fu_lo.push(lo); fu_hi.push(hi);
         }
     }
     // ADR 0031 R0 — THE CORE: the program in one clause form, lowered ONCE
@@ -216,6 +220,8 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // it is verified — a broken invariant is an ICE. `LOGOS_DEEM_DUMP=core`
     // prints it.
     let mut core: CProgram = lower_program(root);
+    let mut fu: i64 = 0i64;
+    while fu < fu_old.len() { core_fuse(&mut core, fu_lo[fu], fu_hi[fu], fu_old[fu], fu_new[fu]); fu = fu + 1i64; }
     let mut gperr: String = String::new();
     if !core_desugar_gpaths(&mut core, &h, &mut gperr) {
         error(gp_err_str(&gperr));
