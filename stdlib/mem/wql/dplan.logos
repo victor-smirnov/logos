@@ -495,3 +495,91 @@ pub fn plan_nest(cl: &CClause) -> DNest {
     }
     return ch;
 }
+
+// ── ADR 0031 R7.1 — THE FIXPOINT OF ONE SCC, AS A PLAN ─────────────────────
+//
+// A recursive SCC is evaluated by a semi-naïve driver (from scratch, `_scc<c>`,
+// or across epochs, `_scc<c>_i`) and retracted by DRed (`_od` seeds from every
+// body, `_odp` propagates through the recursive ones). What each driver runs is
+// a property of the program and the condensation, not of the emitter: per
+// member, its rules; which of them read no member (the seeds); and, for every
+// rule that does, one VARIANT per in-SCC occurrence, which reads that
+// occurrence's DELTA and every other occurrence's TOTAL. The translator below
+// decides it; the drivers' emitters spell it.
+
+/// One rule run: the rule, and the source each chain slot reads instead of its
+/// own (slot 0 the base; "" = its own) — the semi-naïve delta rename.
+pub struct DRun { pub rule: i64, pub ovr: Vec<str> }
+
+pub struct DSccMember {
+    pub rel: i64,
+    /// Every rule, at its canonical (total) sources.
+    pub all: Vec<i64>,
+    /// The rules that read no member of the SCC.
+    pub seeds: Vec<i64>,
+    /// Each recursive rule × each of its in-SCC occurrences.
+    pub variants: Vec<DRun>,
+}
+
+pub struct DScc { pub scc: i64, pub members: Vec<DSccMember> }
+
+/// Rule `ru`'s occurrences of SCC `c`'s rels, in chain order: (slot − 1, rel)
+/// — slot 0 is the base, a traversal holds a slot and is never an occurrence.
+fn scc_occurrences(ru: &CRule, scc: &RelScc, c: i64, pos: &mut Vec<i64>, rel: &mut Vec<i64>) {
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut slot: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if a.reg >= 0i64 && scc.comp[a.reg] == c { pos.push(slot - 1i64); rel.push(a.reg); }
+                slot = slot + 1i64;
+            }
+            CLit::Trav(_t) => { slot = slot + 1i64; }
+            CLit::Cond(_x) => { }
+        }
+        i = i + 1i64;
+    }
+}
+
+/// The plan of SCC `c` over the planned core. Members in declaration order
+/// (registry order); a member's rules in declaration order.
+pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64) -> DScc {
+    let mut out: DScc = DScc { scc: c, members: Vec::<DSccMember>::new() };
+    let rels: &[CRel] = prm.plan_core.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < prm.rel_n {
+        if scc.comp[r] == c && r < prm.plan_core.rels.len() {
+            let mut m: DSccMember = DSccMember { rel: r, all: Vec::<i64>::new(), seeds: Vec::<i64>::new(),
+                                                 variants: Vec::<DRun>::new() };
+            let rules: &[CRule] = rels[r].rules.as_slice();
+            let mut b: i64 = 0i64;
+            while b < rels[r].rules.len() {
+                m.all.push(b);
+                let mut pos: Vec<i64> = Vec::<i64>::new();
+                let mut orel: Vec<i64> = Vec::<i64>::new();
+                scc_occurrences(&rules[b], scc, c, &mut pos, &mut orel);
+                if pos.len() == 0i64 { m.seeds.push(b); }
+                let mut v: i64 = 0i64;
+                while v < pos.len() {
+                    let mut ovr: Vec<str> = Vec::<str>::new();
+                    let mut w: i64 = 0i64;
+                    while w < pos.len() {
+                        let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[orel[w]]) }
+                                        else      { string_as_str(&prm.rel_srcs[orel[w]]) };
+                        let sl: i64 = pos[w] + 1i64;
+                        while ovr.len() <= sl { ovr.push(""); }
+                        ovr[sl] = nm_w;
+                        w = w + 1i64;
+                    }
+                    m.variants.push(DRun { rule: b, ovr: ovr });
+                    v = v + 1i64;
+                }
+                b = b + 1i64;
+            }
+            out.members.push(m);
+        }
+        r = r + 1i64;
+    }
+    return out;
+}

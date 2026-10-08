@@ -9193,7 +9193,7 @@ fn incr_eligible(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // the semi-naive loop with the EDB delta instead of the whole relation, and
     // it needs: the per-member total `__tot_<m>` and shadow set `__rs_<m>`
     // promoted from fn locals onto the handle; the accumulated EDB kept as
-    // handle state in Z-set normal form; a round-0 variant in `body_scc_occs`
+    // handle state in Z-set normal form; a round-0 variant in `dplan::plan_scc`
     // binding the EDB occurrence to the delta and the in-SCC occurrence to the
     // existing total; and a SECOND prelude threaded through `walk_query` →
     // `emit_incremental`, which today receives the prelude only as opaque text
@@ -11349,52 +11349,28 @@ fn emit_rel_fn_oneshot(ri: i64, fn_name: str,
     return true;
 }
 
-// ── In-SCC source OCCURRENCES of one body (semi-naïve variant expansion) ─────
-// `pos` = -1 for the base scan, else the join-step index; `rel` = the source's
-// rel registry index. A body with ZERO occurrences is a SEED (runs once,
-// before the loop); k occurrences ⇒ k delta variants per round — variant v
-// reads occurrence v from the rel's DELTA slice and every other in-SCC
-// occurrence from the TOTAL slice (the standard semi-naïve rewriting).
-struct OccList { pos: Vec<i64>, rel: Vec<i64>, n: i64 }
-
-fn occ_new() -> OccList { return OccList { pos: Vec::<i64>::new(), rel: Vec::<i64>::new(), n: 0i64 }; }
-
-fn occ_push(o: &mut OccList, pos: i64, rel: i64) {
-    o.pos.push(pos);
-    o.rel.push(rel);
-    o.n = o.n + 1i64;
-}
-
-// Scan a (walker-rewritten) body for sources landing in SCC `c`.
-// The rule's occurrences of SCC `c`'s rels: position -1 = the base, k = step k
-// (the chain slots the delta overrides name), read off the planned core.
-fn body_scc_occs(ri: i64, b: i64, prm: &MacroParams, scc: &RelScc, c: i64) -> OccList {
-    let mut o: OccList = occ_new();
-    let ru: &CRule = rel_rule_of(prm, ri, b);
-    let bs: &[CLit] = ru.clause.body.as_slice();
-    let mut slot: i64 = 0i64;
-    let mut i: i64 = 0i64;
-    while i < ru.clause.body.len() {
-        let mut name: str = "";
-        let mut is_lit: bool = false;
-        match &bs[i] {
-            CLit::Atom(a) => { name = a.name; is_lit = true; }
-            CLit::Trav(t) => { name = t.name; is_lit = true; }
-            CLit::Cond(_c) => { }
+// The VARIANT runs of an SCC's plan (`DScc`) into `out`, one member block per
+// member that has any: each recursive rule once per in-SCC occurrence, that
+// occurrence reading the delta. False when a body fragment failed (its
+// diagnostic is raised).
+fn variant_blocks(pl: &DScc, prm: &MacroParams, h: &Writ, out: &mut Vec<ExprBlob>) -> bool {
+    let mut m: i64 = 0i64;
+    while m < pl.members.len() {
+        let pm: &DSccMember = &pl.members.as_slice()[m];
+        let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
+        let mut v: i64 = 0i64;
+        while v < pm.variants.len() {
+            let run: &DRun = &pm.variants.as_slice()[v];
+            let mut f: ExprBlob = quote_block! { };
+            if !rel_body_frag(pm.rel, run.rule, &run.ovr, prm, &mut f, h) { return false; }
+            runs.push(f);
+            v = v + 1i64;
         }
-        if is_lit {
-            let r: i64 = prm.rel_find_src(name);
-            if r >= 0i64 && scc.comp[r] == c { occ_push(&mut o, slot - 1i64, r); }
-            slot = slot + 1i64;
-        }
-        i = i + 1i64;
+        if runs.len() > 0i64 { out.push(member_block_frag(runs, prm, pm.rel)); }
+        m = m + 1i64;
     }
-    return o;
+    return true;
 }
-
-// Point occurrence `w` of a body at `name` (the total `__rel_<r>_sl` or delta
-// `__dl_<r>_sl` slice) — the per-variant source rebinding. Fat views: a
-// src_name write boxes the bytes into the arena.
 
 // ── The SEMI-NAÏVE fixpoint fn — one per RECURSIVE SCC (slice C) ─────────────
 // `fn __wql_<fn>_scc<c>(<params verbatim>[, dep slices], __tot_<m>: &mut
@@ -11444,7 +11420,7 @@ fn body_scc_occs(ri: i64, b: i64, prm: &MacroParams, scc: &RelScc, c: i64) -> Oc
 //
 //  (2) ROUND 0 IS A FULL NAÏVE PASS, NOT A DELTA PASS, AND THAT IS A NAMED
 //      CHOICE WITH A COST. The loop's variant expansion makes only IN-SCC
-//      occurrences read a delta, because `body_scc_occs` records only sources
+//      occurrences read a delta, because `dplan::plan_scc` records only sources
 //      whose `comp` is this SCC. A new derivation can come from an OLD IDB row
 //      joined with a NEW EDB row — `path(x,z) :- path(x,y), edge(y,z)` with an
 //      old `path` and a new `edge` — and that combination has NO in-SCC delta
@@ -11705,26 +11681,25 @@ fn emit_scc_fn(c: i64, fn_name: str,
     }
 
     // ── Seeds: bodies with no in-SCC source, once, into __nd ──
+    // The runs are the PLAN's (ADR 0031 R7.1, `dplan::plan_scc`). FROM SCRATCH:
+    // a seed is a body with NO in-SCC source. CROSS-EPOCH: EVERY body runs, at
+    // its canonical (total) source names — round 0 is a full naïve pass, see
+    // (2) in this fn's header.
+    let pl: DScc = plan_scc(prm, scc, c);
     let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m2: i64 = 0i64;
-    while m2 < nm {
-        let ri: i64 = mem[m2];
-        let nb: i64 = rel_nrules(prm, ri);
+    while m2 < pl.members.len() {
+        let pm: &DSccMember = &pl.members.as_slice()[m2];
+        let sel: &Vec<i64> = if incr { &pm.all } else { &pm.seeds };
         let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut b1: i64 = 0i64;
-        while b1 < nb {
-            let oc1: OccList = body_scc_occs(ri, b1, prm, scc, c);
-            // FROM SCRATCH: a seed is a body with NO in-SCC source. CROSS-EPOCH:
-            // EVERY body runs, at its canonical (total) source names — round 0 is
-            // a full naïve pass, see (2) in this fn's header.
-            if incr || oc1.n == 0i64 {
-                let mut f: ExprBlob = quote_block! { };
-                if !rel_body_frag(ri, b1, &Vec::<str>::new(), prm, &mut f, h) { return false; }
-                runs.push(f);
-            }
+        while b1 < sel.len() {
+            let mut f: ExprBlob = quote_block! { };
+            if !rel_body_frag(pm.rel, sel.get(b1), &Vec::<str>::new(), prm, &mut f, h) { return false; }
+            runs.push(f);
             b1 = b1 + 1i64;
         }
-        if runs.len() > 0i64 { seeds.push(member_block_frag(runs, prm, ri)); }
+        if runs.len() > 0i64 { seeds.push(member_block_frag(runs, prm, pm.rel)); }
         m2 = m2 + 1i64;
     }
     // ⚠ ROUND 0 IS ONE BLOCK, AND THE BRACES ARE THE POINT. Its bodies read the
@@ -11852,39 +11827,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
     }
     // VARIANTS: every recursive body × its in-SCC occurrences.
     let mut variants: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut m6: i64 = 0i64;
-    while m6 < nm {
-        let ri6: i64 = mem[m6];
-        let nb6: i64 = rel_nrules(prm, ri6);
-        let mut runs6: Vec<ExprBlob> = vec_new::<ExprBlob>();
-        let mut b3: i64 = 0i64;
-        while b3 < nb6 {
-            let oc: OccList = body_scc_occs(ri6, b3, prm, scc, c);
-            if oc.n > 0i64 {
-                let mut v: i64 = 0i64;
-                while v < oc.n {
-                    let mut ovr: Vec<str> = Vec::<str>::new();
-                    let mut w: i64 = 0i64;
-                    while w < oc.n {
-                        let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[oc.rel[w]]) }
-                                        else      { string_as_str(&prm.rel_srcs[oc.rel[w]]) };
-                        let slot: i64 = oc.pos[w] + 1i64;
-                        while ovr.len() <= slot { ovr.push(""); }
-                        ovr[slot] = nm_w;
-                        w = w + 1i64;
-                    }
-                    let mut f6: ExprBlob = quote_block! { };
-                    if !rel_body_frag(ri6, b3, &ovr, prm, &mut f6, h) { return false; }
-                    runs6.push(f6);
-                    v = v + 1i64;
-                }
-                // Restore the canonical (total) source names.
-            }
-            b3 = b3 + 1i64;
-        }
-        if runs6.len() > 0i64 { variants.push(member_block_frag(runs6, prm, ri6)); }
-        m6 = m6 + 1i64;
-    }
+    if !variant_blocks(&pl, prm, h, &mut variants) { return false; }
     // ── Materialize each AGGREGATE member's total = argmin/argmax per key ──
     // The fixpoint left the best value per key in the map; walk the distinct-key
     // roster and emit one `(key, best)` row into the caller's total Vec (the
@@ -12420,20 +12363,20 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
         m2 = m2 + 1i64;
     }
     // RUNS: every body of every member, once, at its canonical source names.
+    let pl0: DScc = plan_scc(prm, scc, c);
     let mut runs: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut m3: i64 = 0i64;
-    while m3 < nm {
-        let ri: i64 = mem[m3];
-        let nb: i64 = rel_nrules(prm, ri);
+    while m3 < pl0.members.len() {
+        let pm: &DSccMember = &pl0.members.as_slice()[m3];
         let mut rr: Vec<ExprBlob> = vec_new::<ExprBlob>();
         let mut b1: i64 = 0i64;
-        while b1 < nb {
+        while b1 < pm.all.len() {
             let mut f: ExprBlob = quote_block! { };
-            if !rel_body_frag(ri, b1, &Vec::<str>::new(), prm, &mut f, h) { return false; }
+            if !rel_body_frag(pm.rel, pm.all.get(b1), &Vec::<str>::new(), prm, &mut f, h) { return false; }
             rr.push(f);
             b1 = b1 + 1i64;
         }
-        if rr.len() > 0i64 { runs.push(member_block_frag(rr, prm, ri)); }
+        if rr.len() > 0i64 { runs.push(member_block_frag(rr, prm, pm.rel)); }
         m3 = m3 + 1i64;
     }
     // PROMOTE (once): append the seed rows into the caller's OD store.
@@ -12566,39 +12509,9 @@ fn emit_scc_od_fns(c: i64, fn_name: str,
     }
     // VARIANTS: every RECURSIVE body × its in-SCC occurrences. A body with no
     // in-SCC occurrence is a base body and does NOT run here — see the header.
+    let pl: DScc = plan_scc(prm, scc, c);
     let mut pvars: Vec<ExprBlob> = vec_new::<ExprBlob>();
-    let mut m9: i64 = 0i64;
-    while m9 < nm {
-        let ri9: i64 = mem[m9];
-        let nb9: i64 = rel_nrules(prm, ri9);
-        let mut runs9: Vec<ExprBlob> = vec_new::<ExprBlob>();
-        let mut b9: i64 = 0i64;
-        while b9 < nb9 {
-            let oc: OccList = body_scc_occs(ri9, b9, prm, scc, c);
-            if oc.n > 0i64 {
-                let mut v: i64 = 0i64;
-                while v < oc.n {
-                    let mut ovr: Vec<str> = Vec::<str>::new();
-                    let mut w: i64 = 0i64;
-                    while w < oc.n {
-                        let nm_w: str = if w == v { string_as_str(&prm.rel_dsrcs[oc.rel[w]]) }
-                                        else      { string_as_str(&prm.rel_srcs[oc.rel[w]]) };
-                        let slot: i64 = oc.pos[w] + 1i64;
-                        while ovr.len() <= slot { ovr.push(""); }
-                        ovr[slot] = nm_w;
-                        w = w + 1i64;
-                    }
-                    let mut f9: ExprBlob = quote_block! { };
-                    if !rel_body_frag(ri9, b9, &ovr, prm, &mut f9, h) { return false; }
-                    runs9.push(f9);
-                    v = v + 1i64;
-                }
-            }
-            b9 = b9 + 1i64;
-        }
-        if runs9.len() > 0i64 { pvars.push(member_block_frag(runs9, prm, ri9)); }
-        m9 = m9 + 1i64;
-    }
+    if !variant_blocks(&pl, prm, h, &mut pvars) { return false; }
     // PROMOTE: delta ← next-delta, OD ∪= delta (the shadow set already holds it).
     let mut pprom: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut ma: i64 = 0i64;
