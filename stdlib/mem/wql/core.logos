@@ -114,11 +114,38 @@ pub struct CClause {
     pub head: WAny,
     pub body: Vec<CLit>,
     pub group: Option<CGroup>,
-    /// A graph path (`from g .a ** .b v …`) as parsed — the `RQGStepArr` — not
-    /// yet lowered into its join chain; null otherwise. Only the lowering sets
-    /// it, `crewrite::core_desugar_gpaths` lowers and clears it, and
-    /// `core_verify` refuses a clause that still carries one (ADR 0031 R3.4).
-    pub gpath: WAny,
+    /// A graph path (`from g .a ** .b v …`), not yet lowered into its join
+    /// chain; None otherwise. Only the lowering sets it,
+    /// `crewrite::core_desugar_gpaths` lowers and clears it, and `core_verify`
+    /// refuses a clause that still carries one (ADR 0031 R3.4).
+    pub gpath: Option<Vec<CPathStep>>,
+}
+
+/// One step of a graph path: `.key`, `[N]`, `[*]`, `*`, `**`, `{kind}`, each
+/// optionally binding its edge row.
+pub struct CPathStep {
+    pub is_key: bool,
+    pub is_elem: bool,
+    pub is_at: bool,
+    pub is_desc: bool,
+    pub is_kind: bool,
+    pub key: str,
+    pub idx: i64,
+    pub has_binder: bool,
+    pub binder: str,
+}
+
+fn lower_path(gp: WAny) -> Option<Vec<CPathStep>> {
+    let ga: RQGStepArr = gp.view::<RQGStepArr>();
+    let mut v: Vec<CPathStep> = Vec::<CPathStep>::new();
+    let mut i: i64 = 0i64;
+    while i < ga.len() {
+        let st: RQGStep = ga.gstep_at(i);
+        v.push(CPathStep { is_key: st.is_key, is_elem: st.is_elem, is_at: st.is_at, is_desc: st.is_desc,
+                           is_kind: st.is_kind, key: st.key, idx: st.idx, has_binder: st.has_binder, binder: st.binder });
+        i = i + 1i64;
+    }
+    return Option::Some(v);
 }
 
 pub struct CCol {
@@ -274,7 +301,7 @@ pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
             env.desc = s.order_desc;
             env.limit = limit_of(s.has_limit, s.limit_n, s.limit_is_param, s.limit_param);
             env.result_ty = if s.has_result_ty { s.result_ty } else { "" };
-            return CClause { head: s.select.any(), body: body, group: Option::None, gpath: if s.has_gpath { s.gpath.any() } else { WAny::null() } };
+            return CClause { head: s.select.any(), body: body, group: Option::None, gpath: if s.has_gpath { lower_path(s.gpath.any()) } else { Option::None } };
         }
         RQuery::Join(j) => {
             body.push(base_atom(lx, j.a_name, j.x_var, j.a_ty));
@@ -286,7 +313,7 @@ pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
             env.desc = j.order_desc;
             env.limit = limit_of(j.has_limit, j.limit_n, j.limit_is_param, j.limit_param);
             env.result_ty = if j.has_result_ty { j.result_ty } else { "" };
-            return CClause { head: j.select.any(), body: body, group: Option::None, gpath: if j.has_gpath { j.gpath.any() } else { WAny::null() } };
+            return CClause { head: j.select.any(), body: body, group: Option::None, gpath: if j.has_gpath { lower_path(j.gpath.any()) } else { Option::None } };
         }
         RQuery::Aggr(g) => {
             body.push(base_atom(lx, g.a_name, g.x_var, g.a_ty));
@@ -310,13 +337,13 @@ pub fn lower_query(lx: &CLower, q: WAny, env: &mut CEnvelope) -> CClause {
             env.desc = g.order_desc;
             env.limit = limit_of(g.has_limit, g.limit_n, g.limit_is_param, g.limit_param);
             env.result_ty = if g.has_result_ty { g.result_ty } else { "" };
-            return CClause { head: g.select.any(), body: body, group: Option::Some(grp), gpath: if g.has_gpath { g.gpath.any() } else { WAny::null() } };
+            return CClause { head: g.select.any(), body: body, group: Option::Some(grp), gpath: if g.has_gpath { lower_path(g.gpath.any()) } else { Option::None } };
         }
         RQuery::Find(f) => {
             body.push(base_atom(lx, f.src_name, f.var_name, f.row_ty));
             body.push(CLit::Cond(CCond { e: f.pred.any(), site: CSite::Where }));
             env.mode = CMode::Find;
-            return CClause { head: WAny::null(), body: body, group: Option::None, gpath: WAny::null() };
+            return CClause { head: WAny::null(), body: body, group: Option::None, gpath: Option::None };
         }
     }
 }
@@ -519,13 +546,13 @@ pub fn core_verify(p: &CProgram) {
         let cs: &[CRule] = rel.rules.as_slice();
         let mut c: i64 = 0i64;
         while c < rel.rules.len() {
-            if !cs[c].clause.gpath.is_null() { ice("a graph path left unlowered", rel.name); }
+            if cs[c].clause.gpath.is_some() { ice("a graph path left unlowered", rel.name); }
             verify_rule(p, &cs[c], rel.name);
             c = c + 1i64;
         }
         r = r + 1i64;
     }
-    if !p.entry.clause.gpath.is_null() { ice("a graph path left unlowered", "<entry>"); }
+    if p.entry.clause.gpath.is_some() { ice("a graph path left unlowered", "<entry>"); }
     verify_rule(p, &p.entry, "<entry>");
 }
 
@@ -733,7 +760,7 @@ fn core_dump_mode(mode: str) -> bool {
 /// An empty program (the registry's placeholder before a plan exists).
 pub fn core_empty() -> CProgram {
     return CProgram { rels: Vec::<CRel>::new(),
-                      entry: CRule { clause: CClause { head: WAny::null(), body: Vec::<CLit>::new(), group: Option::None, gpath: WAny::null() },
+                      entry: CRule { clause: CClause { head: WAny::null(), body: Vec::<CLit>::new(), group: Option::None, gpath: Option::None },
                                      env: envelope_new() },
                       strs: Vec::<String>::new() };
 }

@@ -21,7 +21,6 @@ use logos.std.wql.params;          // RelSet, MacroParams
 use logos.lang.writ.container;     // Writ
 use logos.std.wql.optimize;        // refs_mask, make_bool_lit
 use logos.std.wql.why;             // MS_* — the demand rewrite's decision vocabulary
-use logos.std.wql.plan;            // RQGStepArr — a graph path as parsed
 use logos.std.wql.writ_graph;      // WG_ROOT_PARENT — the graph-path anchor
 use logos.lang.writ.wstring;       // h.wstring — string-literal synthesis
 
@@ -411,7 +410,7 @@ pub fn mt_col_name(i: i64) -> String {
 }
 
 // A select over `items`: the item itself when there is one, else a tuple.
-pub fn mt_select(h: &Writ, items: &Vec<i64>) -> WRef<SExpr> {
+pub fn mt_select(h: &Writ, items: Vec<i64>) -> WRef<SExpr> {
     if items.len() == 1i64 { return mt_sref(items[0]); }
     let mut arr: SExprArr = h.make::<SExprArr>();
     let mut i: i64 = 0i64;
@@ -754,12 +753,12 @@ fn cm_magic_body(cl: &CClause, names: &Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtA
         }
         b = b + 1i64;
     }
-    let sel: WRef<SExpr> = mt_select(h, &items);
+    let sel: WRef<SExpr> = mt_select(h, items);
     let mut body: Vec<CLit> = Vec::<CLit>::new();
     if upto == 0i64 {
         if need_m && hmrel.len() > 0i64 { body.push(fresh_atom(CSrc::Param(hmrel), hmrel, "__mm")); }
         else { body.push(fresh_atom(CSrc::Unit, "", "__u")); }
-        return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None, gpath: WAny::null() }, env: envelope_new() };
+        return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None, gpath: Option::None }, env: envelope_new() };
     }
     let mut cpos: Vec<i64> = Vec::<i64>::new();
     let mut c3: i64 = 0i64;
@@ -814,7 +813,7 @@ fn cm_magic_body(cl: &CClause, names: &Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtA
     let mut c5: i64 = 0i64;
     while c5 < conj.len() { if cpos[c5] == 0i64 || cpos[c5] == -1i64 { wacc = gp_and(h, wacc, mt_sref(conj[c5])); } c5 = c5 + 1i64; }
     if !wacc.any().is_null() { body.push(CLit::Cond(CCond { e: wacc.any(), site: CSite::Where })); }
-    return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None, gpath: WAny::null() }, env: envelope_new() };
+    return CRule { clause: CClause { head: sel.any(), body: body, group: Option::None, gpath: Option::None }, env: envelope_new() };
 }
 
 fn cm_get(ctx: &mut CmCtx, rname: str, ri: i64, cols: &Vec<i64>) -> i64 {
@@ -984,7 +983,7 @@ fn clause_copy(cl: &CClause) -> CClause {
         }
         i = i + 1i64;
     }
-    return CClause { head: cl.head, body: body, group: Option::None, gpath: WAny::null() };
+    return CClause { head: cl.head, body: body, group: Option::None, gpath: Option::None };
 }
 
 // Write `names` (one per atom, `lit` its literal) onto a clause's atoms.
@@ -1205,7 +1204,7 @@ fn gp_inj_find(inj: &GpInj, nm: str) -> i64 {
 fn i64_col(nm: str) -> CCol { return CCol { name: nm, ty: "i64" }; }
 
 fn gp_rule(head: WRef<SExpr>, body: Vec<CLit>) -> CRule {
-    return CRule { clause: CClause { head: head.any(), body: body, group: Option::None, gpath: WAny::null() }, env: envelope_new() };
+    return CRule { clause: CClause { head: head.any(), body: body, group: Option::None, gpath: Option::None }, env: envelope_new() };
 }
 
 // One step of a chain: the atom and its `on`.
@@ -1272,7 +1271,7 @@ fn gp_reach_rel<'b>(inj: &mut GpInj, src: str, h: &Writ) -> &'b str {
 // The chain of one graph path into `out` and its residual predicate. `stop`
 // >= 0 builds only the PREFIX [0, stop) — a `**` site's seed body; the
 // prefix's own `**` hops join reach without seeding it again.
-fn gp_build(src: str, gp: RQGStepArr, h: &Writ, inj: &mut GpInj, stop: i64) -> GpC {
+fn gp_build(src: str, gp: &Vec<CPathStep>, h: &Writ, inj: &mut GpInj, stop: i64) -> GpC {
     let n: i64 = if stop >= 0i64 { stop } else { gp.len() };
     if gp.len() < 1i64 { return gpc_fail("wql!: a graph path needs at least one step"); }
     let mut extra: WRef<SExpr> = gp_bin(h, OP_EQ(), gp_field(h, "__ga", "parent"), make_int_lit(h, WG_ROOT_PARENT));
@@ -1282,7 +1281,7 @@ fn gp_build(src: str, gp: RQGStepArr, h: &Writ, inj: &mut GpInj, stop: i64) -> G
     let mut si: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < n {
-        let st: RQGStep = gp.gstep_at(i);
+        let st: &CPathStep = &gp.as_slice()[i];
         if st.is_kind {
             if st.has_binder {
                 return gpc_fail("wql!: a {kind} filter cannot carry a binder — name the step it filters instead (`from g * s {map} select …`)");
@@ -1352,8 +1351,21 @@ fn gp_build(src: str, gp: RQGStepArr, h: &Writ, inj: &mut GpInj, stop: i64) -> G
 // path's chain comes first, the clause's own steps after it, and the WHERE is
 // the path's residual ANDed with the clause's own.
 fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> bool {
-    if cl.gpath.is_null() { return true; }
-    let gp: RQGStepArr = cl.gpath.view::<RQGStepArr>();
+    let mut steps: Vec<CPathStep> = Vec::<CPathStep>::new();
+    match &cl.gpath {
+        Option::None => { return true; }
+        Option::Some(v) => {
+            let vs: &[CPathStep] = v.as_slice();
+            let mut q: i64 = 0i64;
+            while q < v.len() {
+                steps.push(CPathStep { is_key: vs[q].is_key, is_elem: vs[q].is_elem, is_at: vs[q].is_at, is_desc: vs[q].is_desc,
+                                       is_kind: vs[q].is_kind, key: dv(vs[q].key), idx: vs[q].idx,
+                                       has_binder: vs[q].has_binder, binder: dv(vs[q].binder) });
+                q = q + 1i64;
+            }
+        }
+    }
+    let gp: &Vec<CPathStep> = &steps;
     let src: str = dv(core_base_name_of(cl));
     let res: GpC = gp_build(src, gp, h, inj, -1i64);
     let mut chain: Vec<CLit> = Vec::<CLit>::new();
@@ -1390,7 +1402,7 @@ fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> b
     let mut w: WRef<SExpr> = res.extra;
     if !uwhere.is_null() { w = gp_and(h, w, WRef::<SExpr>::from_any(uwhere)); }
     cl.body.push(CLit::Cond(CCond { e: w.any(), site: CSite::Where }));
-    cl.gpath = WAny::null();
+    cl.gpath = Option::None;
     return true;
 }
 

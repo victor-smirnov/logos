@@ -66,6 +66,7 @@ use logos.lang.writ.anyval;
 use logos.std.wql.params;                // MacroParams / parse_macro_params — SHARED with trama!
 use logos.std.wql.wql_surface_parser;    // parse_program — the GENERATED surface parser
 use logos.std.wql.plan_walker;           // walk_program_params — the program walker-emitter
+use logos.std.wql.plan;                  // RQProgram — the parsed program (the entry's presence)
 use logos.std.wql.lower;                 // desugar_program_gpaths — graph-path sugar (M2a)
 use logos.std.wql.codegen;               // plan_trace — the demand decision on the [plan] channel
 use logos.std.wql.dl_export;             // dl_export — the Soufflé oracle's program text
@@ -219,6 +220,8 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // chains on it (ADR 0016 M2a, `crewrite::core_desugar_gpaths`, R3.4), and
     // it is verified — a broken invariant is an ICE. `LOGOS_DEEM_DUMP=core`
     // prints it.
+    let rq: RQProgram = root.view::<RQProgram>();
+    if rq.entry_any().is_null() { error("wql!: missing entry query"); return out; }
     let mut core: CProgram = lower_program(root);
     let mut fu: i64 = 0i64;
     while fu < fu_old.len() { core_fuse(&mut core, fu_lo[fu], fu_hi[fu], fu_old[fu], fu_new[fu]); fu = fu + 1i64; }

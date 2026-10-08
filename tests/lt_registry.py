@@ -186,6 +186,11 @@ SINGLETONS = {
         T('logos_00_one_scheduler_lint',
           ['{tsrc}/one_scheduler_lint.sh', '{src}'],
           'logos;lint;suite_lint;tier_commit', timeout=60),
+        # ADR 0031 R8 — THE DEEM LAYERS: no surface (`RQ*`) type outside the
+        # parse/lower layer; a planted canary proves the check can fire.
+        T('logos_00_deem_layer_lint',
+          ['{tsrc}/deem_layer_lint.sh', '{src}'],
+          'logos;lint;suite_lint;tier_commit', timeout=60),
         # A STDLIB DEFAULT METHOD BODY MAY NOT BE LOWERED INTO A USER IMPL
         T('logos_00_trait_homonym_no_injected_symbol',
           ['{tsrc}/trait_homonym_symbol_gate.sh', '{logosc}', '{libdir}'],

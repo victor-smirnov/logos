@@ -1342,7 +1342,6 @@ fn ward_sel_idents_ok(sel: SExpr, vars: &Vec<str>, nv: i64,
 pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str,
                            natspec: str, prm: &mut MacroParams, h: &Writ) -> bool {
     if root.is_null() { error("wql!: empty query plan"); return false; }
-    let prog: RQProgram = root.view::<RQProgram>();
     // The query is a source, and every check downstream may need to say where
     // it is (ADR 0024 S0). Carried in the walker's context because that is what
     // a diagnostic has in hand, wherever it fires.
@@ -1368,7 +1367,6 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
     let mut nat_szat_bufs: Vec<String> = Vec::<String>::new();
     // ADR 0031 R4.0 — the program resolved from the declarations, once the
     // registry is complete (SHADOW: checked against the planned core below).
-    if prog.entry_any().is_null() { error("wql!: missing entry query"); return false; }
     // The program as the core rewrites left it (ADR 0031 R3).
     let mut early: CProgram = pc;
 
