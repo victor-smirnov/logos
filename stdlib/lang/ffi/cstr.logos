@@ -19,6 +19,7 @@ pub struct CStr {
 
 // What a `c"..."` literal lowers to: its NUL-terminated static bytes as a `&CStr`.
 /// Compiler hook for C string literals; `pub` only so every literal site resolves it.
+#[lang = "cstr_from_lit"]
 pub fn __cstr_from_lit(s: &'static str) -> &'static CStr {
     unsafe { return CStr::from_ptr(s.as_ptr()); }
 }

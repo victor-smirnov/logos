@@ -1,0 +1,9 @@
+package test;
+
+use logos.std.os;
+
+fn main() -> i32 {
+    let a = arch();
+    if a.len() > 0 { return 8; }
+    return 1;
+}

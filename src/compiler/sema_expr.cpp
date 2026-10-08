@@ -984,7 +984,7 @@ lir::LExprPtr SemaChecker::lower_cstr_lit(std::string_view sv) {
         error(std::format("null characters in C string literals are not supported: {}", sv));
         return error_expr();
     }
-    auto cands = find_func_candidates("__cstr_from_lit");
+    auto cands = lang_fn_candidates_("cstr_from_lit");
     if (cands.empty()) {
         error("C string literal: logos.lang.ffi (CStr) is not available");
         return error_expr();
@@ -3708,7 +3708,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         TypeRef(lt).elem() && TypeRef(rt).elem() &&
         TypeRef(lt).elem().kind() == LogosType::Kind::U8 &&
         TypeRef(rt).elem().kind() == LogosType::Kind::U8) {
-        auto cands = find_func_candidates("str_eq");
+        auto cands = lang_fn_candidates_("str_eq");
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
             if (c->param_types.size() == 2) { fi = c; break; }
@@ -3737,7 +3737,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         TypeRef(lt).elem() && TypeRef(rt).elem() &&
         TypeRef(lt).elem().kind() == LogosType::Kind::U8 &&
         TypeRef(rt).elem().kind() == LogosType::Kind::U8) {
-        auto cands = find_func_candidates("str_cmp");
+        auto cands = lang_fn_candidates_("str_cmp");
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
             if (c->param_types.size() == 2) { fi = c; break; }
@@ -4767,7 +4767,7 @@ lir::LExprPtr SemaChecker::try_lower_box_deref_move(TinyMapView deref_node) {
     // mono infers T from the arg `b: Box<elem>` and instantiates the right
     // monomorph. (A concrete type-arg here mis-mangles and never instantiates.)
     const SemaFuncInfo* fit = nullptr;
-    for (auto* c : find_func_candidates("box_take"))
+    for (auto* c : lang_fn_candidates_("box_take"))
         if (c->param_types.size() == 1 && c->type_params.size() == 1) { fit = c; break; }
     if (!fit) return nullptr;
     // Emit via finish_generic_call (the same path a real `box_take::<elem>(b)`
@@ -5195,8 +5195,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // second time). Row boxed_escaping_fnonce_capture_double_free.
         if (consumes_callee && callee_is_box_closure && !callee_is_ref_fn) {
             const SemaFuncInfo* dfi = nullptr;
-            for (auto* c : find_func_candidates("dealloc"))
-                if (c && c->package == "logos.lang.mem") { dfi = c; break; }
+            for (auto* c : lang_fn_candidates_("dealloc"))
+                if (c) { dfi = c; break; }
             TypeRef box_t = lookup(callee);
             if (dfi && box_t) {
                 mark_moved(std::string(callee));
@@ -7638,7 +7638,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_template_of(TinyMapView node) {
     // to the hook's OView base at RUNTIME. Lower to the stdlib shim
     // template_of_at(off) (= Template { raw: oview_module_ast().node_at(off) }).
     const SemaFuncInfo* fi = nullptr;
-    for (auto* c : find_func_candidates("template_of_at"))
+    for (auto* c : lang_fn_candidates_("template_of_at"))
         if (c->param_types.size() == 1) { fi = c; break; }
     if (!fi) {
         error("template_of::<X>() requires `use logos.std.compiler.metaprog;`");
@@ -13714,13 +13714,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         // The base has the literal's type: `..Default::default()` resolves
         // its Self against it.
         TypeRef base_expect = nullptr;
-        if (!slit_is_zoned) {
-            LogosTypeBuilder bt_b;
-            bt_b.kind = LogosType::Kind::Struct;
-            bt_b.struct_name = std::string(sname);
-            if (auto rp = resolve_struct_pkg_(sname); !rp.empty()) bt_b.pkg_name = std::move(rp);
-            base_expect = pool_->alloc(std::move(bt_b));
-        }
+        if (!slit_is_zoned) base_expect = make_struct_type(sname);
         auto base_expr = lower_expr_expecting(base_node, base_expect, base_expect);
         // Sprint 3.4: enforce that `..base` carries the same struct type as
         // the constructor (closes B-li-03 — Foo+..bar silently spread foreign
@@ -17734,6 +17728,19 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         resolved_class = method_owner_base_(resolved_class);
     }
     std::string mangled = resolved_class + "__" + std::string(method_name);
+    // The type the class path names (Rust's per-scope rule): its methods only.
+    struct OwnerGuard { SemaChecker* s; DefId d; std::string k;
+                        ~OwnerGuard() { s->call_owner_def_ = d; s->call_owner_key_ = std::move(k); } }
+        _og{this, call_owner_def_, call_owner_key_};
+    if (lang_pkg.empty())
+        if (std::string p = resolve_type_path_(class_name); !p.empty()) {
+            const auto sep = p.rfind("::");
+            const DefId d = type_id(p.substr(0, sep), p.substr(sep + 2));
+            if (structs_.count(d) || enums_.count(d) || datatypes_.count(d)) {
+                call_owner_def_ = d;
+                call_owner_key_ = mangled;
+            }
+        }
 
     // The expected RESULT type flows into the arguments of a generic call:
     // `let b: Box<Vec<i64>> = Box::new(Vec::new())` — unify the template's
@@ -20673,7 +20680,7 @@ lir::LExprPtr SemaChecker::lower_writ_lit(TinyMapView node) {
     // template-patch path — probe the builder fn for the concrete Rc type).
     TypeRef result_type = nullptr;
     if (lit.has_captures) {
-        for (auto* c : find_func_candidates("writ_build_from_template"))
+        for (auto* c : lang_fn_candidates_("writ_build_from_template"))
             if (c->ret_type) { result_type = c->ret_type; break; }
         if (!result_type) {
             error("@-literal with $-captures requires `use logos.lang.writ.tmpl;`");

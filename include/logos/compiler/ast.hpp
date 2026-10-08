@@ -47,7 +47,7 @@ inline constexpr Key TYPE_PARAMS{"TYPE_PARAMS", 27};
 inline constexpr Key ORIGIN{"ORIGIN", 28};  // ADR 0030: the construct a node the HIR pass (src/compiler/hir_lower.*) SYNTHESIZED came from (hir::Origin; absent = written by the user). A global key, like SRC_LINE / SRC_SPAN: no parser action sets it (it was PARENT, which nothing read or wrote).
 inline constexpr Key IS_AUTO{"IS_AUTO", 29};
 inline constexpr Key IS_VARARG{"IS_VARARG", 30};
-inline constexpr Key RES{"RES", 30};  // ADR 0030 Q1 row 3: a path node's resolution (a DefId, u64), set by the HIR pass. Reuses IS_VARARG's slot — only EXTERN_FN nodes carry that, and no path node is one.
+inline constexpr Key RES{"RES", 30};  // ADR 0030 Q1 row 3: a path node's resolution, set by the HIR pass — `pkg::Name` for a type name, `<kind>:pkg::Name` for a value name (kind: fn, const, static, ctor, variant). Reuses IS_VARARG's slot — only EXTERN_FN nodes carry that, and no path node is one.
 inline constexpr Key ITER{"ITER", 31};
 inline constexpr Key IS_VARIADIC{"IS_VARIADIC", 32};
 inline constexpr Key IS_PUB{"IS_PUB", 33};

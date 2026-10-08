@@ -617,6 +617,7 @@ std::unique_ptr<SemaCheckerSnapshot> SemaChecker::take_snapshot() {
     s->copy_types           = std::move(copy_types_);
     s->conditional_copy     = std::move(conditional_copy_);
     s->pkg_reexports        = std::move(pkg_reexports_);
+    s->pub_variant_aliases  = std::move(pub_variant_aliases_);
     ++reexports_gen_;
     s->collected_holders    = std::move(collected_holders_);
     s->trait_rels           = std::move(trait_rels_);
@@ -804,6 +805,7 @@ void SemaChecker::install_snapshot(std::unique_ptr<SemaCheckerSnapshot> s) {
     copy_types_           = std::move(s->copy_types);
     conditional_copy_     = std::move(s->conditional_copy);
     pkg_reexports_        = std::move(s->pkg_reexports);
+    pub_variant_aliases_  = std::move(s->pub_variant_aliases);
     ++reexports_gen_;
     collected_holders_    = std::move(s->collected_holders);
     trait_rels_           = std::move(s->trait_rels);
@@ -2151,6 +2153,7 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::find_func_candidates(
     // T2-28: an explicit package qualifier (`pkg::fn(...)`) overrides the
     // import-based visibility filter — only the named package's fn matches,
     // and there is NO empty-fallback (a miss is a genuine "no such fn in pkg").
+    std::erase_if(all, [&](const SemaFuncInfo* fi) { return !call_owner_ok_(*fi, base_name); });
     if (!call_pkg_qualifier_.empty() &&
         (call_pkg_qualifier_name_.empty() || base_name == call_pkg_qualifier_name_)) {
         std::vector<const SemaChecker::SemaFuncInfo*> q;
@@ -2186,7 +2189,13 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
         // the prelude re-exports logos.lang.hash, whose `Hash::hash` Rust's
         // prelude does not bring into scope.
         const auto& in = fi->is_method ? cur_imports_.wildcard_packages : imports;
-        bool visible = fi->package.empty() ||
+        // An inherent method declared in its type's own package is visible
+        // through the type, imported or not (Rust: inherent impls live with
+        // the type). One on a shape (`impl [T]`) or a foreign type stays scoped
+        // by the import, as an extension.
+        const bool inherent = fi->is_method && fi->trait_name.empty() && fi->owner_id.nominal &&
+                              defs_[fi->owner_id.nominal].package == fi->package;
+        bool visible = inherent || fi->package.empty() ||
                        fi->package == cur_package_ ||
                        std::find(in.begin(), in.end(), fi->package) != in.end();
         if (!visible) continue;
@@ -2207,6 +2216,17 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
         if (!all.empty()) logos::probe::census("q1.visible.fallback");   // Q1 row 4 retires it
         return all;
     }
+    // Rust's per-scope precedence for a free function: the package's own
+    // shadow the imported ones, which shadow the package-less ones (extern
+    // declarations, the root) — one scope's set, never a merge of two. A
+    // `#[fn_macro]` fn is in the macro namespace: it neither shadows nor is
+    // shadowed.
+    auto rank = [&](const SemaFuncInfo* fi) { return fi->package == cur_package_ ? 0 : fi->package.empty() ? 2 : 1; };
+    auto ranked = [](const SemaFuncInfo* fi) { return !fi->is_method && !fi->is_fn_macro; };
+    int best = 3;
+    for (auto* fi : out) if (ranked(fi)) best = std::min(best, rank(fi));
+    if (best < 3)
+        std::erase_if(out, [&](const SemaFuncInfo* fi) { return ranked(fi) && rank(fi) != best; });
     return out;
 }
 
@@ -5135,6 +5155,10 @@ bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
         "String", "Formatter", "ok", "fmt_display", "fmt_debug", "fmt_lower_hex",
         "fmt_upper_hex", "fmt_octal", "fmt_binary", "fmt_lower_exp", "fmt_upper_exp",
         "__fmt_print", "__fmt_println", "__fmt_eprint", "__fmt_eprintln", "__fmt_panic",
+        // the functions sema's own lowerings call (a string compare, a C string
+        // literal, a box move-out, a template literal)
+        "str_from_raw", "str_eq", "str_cmp", "cstr_from_lit", "box_take", "dealloc",
+        "template_of_at", "writ_build_from_template",
     };
     for (auto n : kNames) if (n == lang) return true;
     return false;

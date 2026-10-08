@@ -1,0 +1,12 @@
+package test;
+
+use logos.std.io;
+use logos.mem.string;
+
+fn println_string() -> i32 { return 7; }
+
+fn main() -> i32 {
+    let s = String::from("x");
+    println_string(&s);
+    return 0;
+}

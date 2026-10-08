@@ -1,0 +1,13 @@
+package test;
+
+use logos.mem.stream;
+
+struct Buffer { n: i32 }
+
+impl Buffer {
+    fn new() -> Buffer { return Buffer { n: 7 }; }
+}
+
+fn main() -> i32 {
+    return Buffer::new().n;
+}

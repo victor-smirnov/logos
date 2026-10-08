@@ -49,6 +49,7 @@
     ORIGIN      = 28    // ADR 0030: the construct a node the HIR pass (src/compiler/hir_lower.*) SYNTHESIZED came from (hir::Origin; absent = written by the user). A global key, like SRC_LINE / SRC_SPAN: no parser action sets it (it was PARENT, which nothing read or wrote).
     IS_AUTO     = 29
     IS_VARARG   = 30
+    RES         = 30    // ADR 0030 Q1 row 3: a path node's resolution, set by the HIR pass — `pkg::Name` for a type name, `<kind>:pkg::Name` for a value name (kind: fn, const, static, ctor, variant). Reuses IS_VARARG's slot — only EXTERN_FN nodes carry that, and no path node is one.
     ITER        = 31
     IS_VARIADIC = 32
     IS_PUB      = 33
@@ -567,7 +568,11 @@
     // CP-cm-02: `use pkg.Path.Type.{V1, V2, ...};` — enum variant bare-name
     // shorthand. The last `path_dot_ident` before `{...}` is the enum type
     // name; the brace-list holds the variants to bring into bare scope.
-    use_variants_decl :group mod: <- KW_USE IDENT path_dot_ident* DOT IDENT DOT LBRACE variant_name (COMMA variant_name)* COMMA? RBRACE SEMI
+    // `pub use …` re-exports the variants (Rust: `pub use` re-exports every
+    // namespace; the prelude brings Option's and Result's variants this way).
+    use_variants_decl :group mod: <- KW_PUB KW_USE IDENT path_dot_ident* DOT IDENT DOT LBRACE variant_name (COMMA variant_name)* COMMA? RBRACE SEMI
+                      => { CODE: USE_VARIANTS, IS_PUB: 1, NAME: $3, PATH_PARTS: $4, TYPE_NAME: $6, VARIANTS: $... }
+                                   / KW_USE IDENT path_dot_ident* DOT IDENT DOT LBRACE variant_name (COMMA variant_name)* COMMA? RBRACE SEMI
                       => { CODE: USE_VARIANTS, NAME: $2, PATH_PARTS: $3, TYPE_NAME: $5, VARIANTS: $... }
 
 

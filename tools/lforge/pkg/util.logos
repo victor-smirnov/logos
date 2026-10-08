@@ -37,7 +37,7 @@ pub fn println_str(fd: i32, s: str) {
 }
 
 pub fn println_string(fd: i32, s: &String) {
-    if fd == 2 { eprintln_string(s); } else { println_string(s); }
+    if fd == 2 { eprintln_string(s); } else { logos.std.io::println_string(s); }
 }
 
 // Append `<base>/<rest>` semantics into an existing String.

@@ -45,6 +45,7 @@ pub fn box_into_raw<T>(b: Box<T>) -> *mut T {
 /// Consumes the `Box`, moves its contents out (no drop of the contents — ownership
 /// transfers to the caller), and frees the heap block.
 /// The compiler desugars `let x = *b` over a move-typed `Box` to this call.
+#[lang = "box_take"]
 pub fn box_take<T>(b: Box<T>) -> T {
     let p: *mut T = box_into_raw::<T>(b);
     unsafe {
