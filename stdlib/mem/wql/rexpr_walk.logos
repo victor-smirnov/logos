@@ -48,6 +48,7 @@ use logos.std.wql.dplan;      // DScan / plan_entry_scan — the plan as data (A
 use logos.std.wql.core;       // the planned core the emitters read (ADR 0031 R6)
 use logos.std.wql.typing;     // type_chain — one typing of a clause (ADR 0031)
 use logos.std.wql.typecheck;  // key_norm_ok — the checks on the core (ADR 0031 R4.2)
+use logos.std.wql.access_plan; // AD_NONE
 use logos.std.wql.why;        // Why / why_render — THE JUSTIFICATION AS A RECORD, and its ONE renderer
 use logos.mem.collections.vec;  // Vec<Ident> — a quote's runtime-sized import list
 use logos.std.wql.lower;      // make_*/null_* (the relational node builders)

@@ -14,6 +14,7 @@
 package logos.std.wql.core;
 
 use logos.lang.writ.anyval;
+use logos.lang.writ.wstring;   // WAny::as_wstr (core_text's string literal)
 use logos.lang.str;
 use logos.lang.option;
 use logos.mem.string;

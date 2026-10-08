@@ -2385,11 +2385,6 @@ pub fn emit_binop(op: i32) -> str {
     return " % ";
 }
 
-// Borrow a `String`'s bytes as a `str` view (valid while the String is alive
-// and unmodified). Shared spelling for the emit handlers.
-pub fn string_as_str(s: &String) -> str {
-    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
-}
 
 // Escape a `str` into the body of a Logos string literal (between the quotes):
 // `"` `\` and the control bytes, so the emitted `"…"` parses back. For a

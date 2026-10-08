@@ -2220,3 +2220,9 @@ pub fn el_lit_digits(txt: str, sfx: str, out: &mut String) {
         i = i + 1i64;
     }
 }
+
+// Borrow a `String`'s bytes as a `str` view (valid while the String is alive
+// and unmodified). Shared spelling for the emit handlers.
+pub fn string_as_str(s: &String) -> str {
+    return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
