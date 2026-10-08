@@ -244,8 +244,6 @@ len_returns_i64_not_usize 3 tests/soundness/open/len_returns_i64_not_usize refus
 
 str_in_composite_annotation_resolves_to_u8_slice 3 tests/soundness/open/str_in_composite_annotation_resolves_to_u8_slice refuses
 
-static_call_resolves_homonym_type_fn_admits 2 tests/soundness/open/static_call_resolves_homonym_type_fn_admits admits
-
 array_call_result_index_crash 3 tests/soundness/open/array_call_result_index_crash refuses
 
 mem_swap_is_unsafe_raw_pointer_refused 3 tests/soundness/open/mem_swap_is_unsafe_raw_pointer_refused refuses
@@ -436,5 +434,5 @@ ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_a
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 128
-# SYNC-HASH 0de2ee4075c4419ddc62f329f94480b2
+# TOTAL 127
+# SYNC-HASH 595575405afc0ec88c5d3b7d7b013c8f
