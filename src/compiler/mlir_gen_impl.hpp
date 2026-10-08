@@ -16,6 +16,7 @@
 #include <logos/compiler/sema.hpp>
 #include <logos/compiler/probe.hpp>
 #include "layout_law.hpp"
+#include "line_reader.hpp"
 #include "mangled_name.hpp"
 
 #include <cstdlib>
@@ -1526,9 +1527,7 @@ private:
             return false;
         }
         bool hit = false;
-        char line[1024];
-        while (!hit && std::fgets(line, sizeof line, f)) {
-            std::string_view sv(line);
+        for_each_line(f, [&](std::string_view sv) {
             if (auto h = sv.find('#'); h != std::string_view::npos) sv = sv.substr(0, h);
             // third whitespace-separated column
             size_t col = 0, i = 0;
@@ -1539,7 +1538,7 @@ private:
                 while (i < sv.size() && !std::isspace(static_cast<unsigned char>(sv[i]))) ++i;
                 if (i > b && ++col == 3) { path = sv.substr(b, i - b); break; }
             }
-            if (path.empty()) continue;
+            if (path.empty()) return true;
             // The ledger stores a repo-relative path with no extension; the
             // compiler is handed whatever the caller typed. Suffix-match on
             // "<path>.logos" so both an absolute and a relative invocation
@@ -1551,7 +1550,8 @@ private:
                 (main_source_.size() == want.size() ||
                  main_source_[main_source_.size() - want.size() - 1] == '/'))
                 hit = true;
-        }
+            return !hit;
+        });
         std::fclose(f);
         return hit;
     }

@@ -6,6 +6,7 @@
 
 #include "logos/compiler/version.hpp"
 #include "emit_module.hpp"
+#include "line_reader.hpp"
 #include "metaprog_dispatch.hpp"
 #include "mlir_gen.hpp"
 #include "compile_pipeline.hpp"
@@ -4836,12 +4837,10 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
         auto read_pub = [&](const std::string& glob) {
             FILE* pipe = ::popen(("cat " + glob + " 2>/dev/null").c_str(), "r");
             if (!pipe) return;
-            char line[2048];
-            while (std::fgets(line, sizeof(line), pipe)) {
-                std::string_view sv(line);
-                while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
+            logos::compiler::for_each_line(pipe, [&](std::string_view sv) {
                 if (!sv.empty()) pub_syms.insert(std::string(sv));
-            }
+                return true;
+            });
             ::pclose(pipe);
         };
         for (const auto& d : lib_dirs) read_pub(d + "/*.abi-pub");
@@ -4855,11 +4854,8 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
     auto add_syms = [&](const std::string& cmd) {
         FILE* pipe = ::popen(cmd.c_str(), "r");
         if (!pipe) return;
-        char line[1024];
-        while (std::fgets(line, sizeof(line), pipe)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r'||sv.back()==' '||sv.back()=='\t'))
-                sv.remove_suffix(1);
+        logos::compiler::for_each_line(pipe, [&](std::string_view sv) {
+            while (!sv.empty() && (sv.back()==' '||sv.back()=='\t')) sv.remove_suffix(1);
             // Skip archive/path lines and assembler-local labels (.L.str, .Ltmp):
             // the ABI surface is the EXTERNAL defined symbols a consumer links.
             // Also skip `_binary_*` ld embedding markers (start/end/size for the
@@ -4867,13 +4863,14 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
             // are build-location-dependent — not a portable ABI record.
             if (sv.empty() || sv.front() == '/' || sv.front() == '.'
                 || sv.rfind("_binary_", 0) == 0)
-                continue;
+                return true;
             // Public-scope filter: keep only symbols on the pub allowlist. When
             // no allowlist was found, keep everything (fail-open).
             if (have_pub_allowlist && !pub_syms.count(std::string(sv)))
-                continue;
+                return true;
             records.insert("sym\t" + std::string(sv));
-        }
+            return true;
+        });
         ::pclose(pipe);
     };
     // --extern-only: external (global) defined symbols = the link-time ABI.
@@ -4892,12 +4889,10 @@ static int emit_abi_spec(const std::vector<std::string>& lib_dirs,
     auto add_layout_dir = [&](const std::string& d) {
         FILE* pipe = ::popen(("cat " + d + "/*.abi-layout 2>/dev/null").c_str(), "r");
         if (!pipe) return;
-        char line[4096];
-        while (std::fgets(line, sizeof(line), pipe)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
+        logos::compiler::for_each_line(pipe, [&](std::string_view sv) {
             if (!sv.empty()) records.insert(std::string(sv));
-        }
+            return true;
+        });
         ::pclose(pipe);
     };
     for (const auto& d : lib_dirs) add_layout_dir(d);
@@ -4949,12 +4944,10 @@ static int abi_closure(const std::vector<std::string>& lib_dirs,
     auto slurp = [](const std::string& cmd, const std::function<void(std::string_view)>& on_line) {
         FILE* pipe = ::popen(cmd.c_str(), "r");
         if (!pipe) return;
-        char line[8192];
-        while (std::fgets(line, sizeof(line), pipe)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
+        logos::compiler::for_each_line(pipe, [&](std::string_view sv) {
             if (!sv.empty()) on_line(sv);
-        }
+            return true;
+        });
         ::pclose(pipe);
     };
     // Record KEYS come from the same `.abi-layout` sidecars --emit-abi merges,
@@ -5028,21 +5021,21 @@ static int abi_closure(const std::vector<std::string>& lib_dirs,
                          exempt_path.c_str());
             return 2;
         }
-        char line[2048];
-        while (std::fgets(line, sizeof(line), f)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
-            if (sv.empty() || sv.front() == '#') continue;
+        bool malformed = false;
+        logos::compiler::for_each_line(f, [&](std::string_view sv) {
+            if (sv.empty() || sv.front() == '#') return true;
             size_t t = sv.find('\t');
             if (t == std::string_view::npos) {
                 std::fprintf(stderr, "logosc: --abi-closure: malformed exemption line: %.*s\n",
                              (int)sv.size(), sv.data());
-                std::fclose(f);
-                return 2;
+                malformed = true;
+                return false;
             }
             exempt.emplace(std::string(sv.substr(0, t)), std::string(sv.substr(t + 1)));
-        }
+            return true;
+        });
         std::fclose(f);
+        if (malformed) return 2;
     }
 
     std::map<std::string, std::set<std::string>> violations;   // target -> referrers
@@ -5147,20 +5140,18 @@ static int abi_diff(const std::string& old_path, const std::string& new_path) {
                    std::map<std::pair<std::string,std::string>, std::string>& out) -> bool {
         FILE* f = std::fopen(p.c_str(), "r");
         if (!f) { std::fprintf(stderr, "logosc: --abi-diff: cannot open '%s'\n", p.c_str()); return false; }
-        char line[2048];
-        while (std::fgets(line, sizeof(line), f)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back()=='\n'||sv.back()=='\r')) sv.remove_suffix(1);
-            if (sv.empty() || sv.front() == '#') continue;
+        logos::compiler::for_each_line(f, [&](std::string_view sv) {
+            if (sv.empty() || sv.front() == '#') return true;
             auto t1 = sv.find('\t');
-            if (t1 == std::string_view::npos) continue;
+            if (t1 == std::string_view::npos) return true;
             std::string cat(sv.substr(0, t1));
             std::string_view rest = sv.substr(t1 + 1);
             auto t2 = rest.find('\t');
             std::string key(t2 == std::string_view::npos ? rest : rest.substr(0, t2));
             std::string det(t2 == std::string_view::npos ? std::string_view{} : rest.substr(t2 + 1));
             out[{cat, key}] = strip_transparent(det);
-        }
+            return true;
+        });
         std::fclose(f);
         return true;
     };
@@ -5733,14 +5724,12 @@ int main(int argc, char** argv) {
     for (const auto& dir : search_paths) {
         std::string cmd = "ls " + dir + "/*.a 2>/dev/null";
         if (FILE* lp = ::popen(cmd.c_str(), "r")) {
-            char path[1024];
-            while (std::fgets(path, sizeof(path), lp)) {
-                std::string_view sv(path);
-                while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
-                    sv.remove_suffix(1);
+            logos::compiler::for_each_line(lp, [&](std::string_view sv) {
+                while (!sv.empty() && sv.back() == ' ') sv.remove_suffix(1);
                 if (!sv.empty() && !is_jit_unsafe_archive(sv))
                     archive_paths.emplace_back(sv);
-            }
+                return true;
+            });
             ::pclose(lp);
         }
     }
@@ -5775,11 +5764,8 @@ int main(int argc, char** argv) {
     auto collect_syms = [&](const std::string& cmd) {
         FILE* pipe = ::popen(cmd.c_str(), "r");
         if (!pipe) return;
-        char line[512];
-        while (std::fgets(line, sizeof(line), pipe)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
-                sv.remove_suffix(1);
+        logos::compiler::for_each_line(pipe, [&](std::string_view sv) {
+            while (!sv.empty() && sv.back() == ' ') sv.remove_suffix(1);
             // ⚠ A METACALL THUNK IS NOT AN ABI SYMBOL — see the same guard in
             // emit_module.cpp for the measurement. `__metacall_thunk_<site_id>`
             // is compile-time scaffolding whose id is hash(ast_idx, expr_offset)
@@ -5804,7 +5790,8 @@ int main(int argc, char** argv) {
                 // desynced the two gates (gap #2) and, once `$M`-guarded,
                 // matched nothing — disabling skeleton-skip entirely.
             }
-        }
+            return true;
+        });
         ::pclose(pipe);
     };
     // `-p` (no-sort): we only build a set, so nm's default symbol sort is pure

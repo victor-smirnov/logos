@@ -1,0 +1,6 @@
+module longsym-dep
+id longsym_dep_fixture
+version 0.1
+root tests/logos/longsym/dep/
+depends logos-lang
+depends logos-std

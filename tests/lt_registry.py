@@ -509,6 +509,10 @@ SINGLETONS = {
         T('logos_09_emit_shards',
           ['{tsrc}/emit_shards_gate.sh', '{logosc}', '{libdir}', '{src}', '{tbin}/emit_shards_gate'],
           'logos;pass;suite_semantic_core;tier_full', timeout=600, env=LIB),
+        # NO STRONG SYMBOL IN TWO ARCHIVES (#738: long link names escaped the binary-skip set)
+        T('logos_09_archive_dup_symbol',
+          ['{tsrc}/archive_dup_symbol_gate.sh', '{logosc}', '{libdir}', '{src}', '{tbin}/archive_dup_symbol_gate', '{tbin}'],
+          'logos;pass;suite_semantic_core;tier_commit', timeout=300, env=LIB),
     ],
 }
 

@@ -1,0 +1,9 @@
+package longsym.consumer;
+
+use longsym.dep;
+
+pub fn use_it() -> i64 {
+    let mut names: Vec<str> = Vec::new();
+    names.push("a");
+    return run(1i64, &names);
+}

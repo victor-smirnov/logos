@@ -16,6 +16,7 @@
 #include <utility>
 #include "emit_module.hpp"
 #include "compile_pipeline.hpp"
+#include "line_reader.hpp"
 #include "metaprog_dispatch.hpp"
 #include "module_loader.hpp"
 
@@ -825,11 +826,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
     for (const auto& a : dep_archives) {
         FILE* pipe = ::popen(("nm --defined-only -j " + a + " 2>/dev/null").c_str(), "r");
         if (!pipe) continue;
-        char line[512];
-        while (std::fgets(line, sizeof(line), pipe)) {
-            std::string_view sv(line);
-            while (!sv.empty() && (sv.back() == '\n' || sv.back() == '\r' || sv.back() == ' '))
-                sv.remove_suffix(1);
+        for_each_line(pipe, [&](std::string_view sv) {
+            while (!sv.empty() && sv.back() == ' ') sv.remove_suffix(1);
             // ⚠ A METACALL THUNK IS NOT AN ABI SYMBOL, AND ITS NAME IS NOT
             // UNIQUE ACROSS MODULES. `__metacall_thunk_<site_id>` is compile-
             // time-only scaffolding; the site id is hash(ast_idx, expr_offset),
@@ -851,7 +849,8 @@ static bool compile_to_object(std::vector<writ::Writ>& asts,
             if (!sv.empty() && sv.front() != '/'
                 && sv.find("__metacall_thunk_") == std::string_view::npos)
                 dep_symbols.emplace(sv);
-        }
+            return true;
+        });
         ::pclose(pipe);
     }
 
