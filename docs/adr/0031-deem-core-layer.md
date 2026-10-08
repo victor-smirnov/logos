@@ -177,4 +177,5 @@ The pipeline today (`wql.logos`): mapping fusion (renames on the parse tree) →
 - **R3.4 — c9819f966.** Graph paths lowered on the core (`CClause.gpath` carried by the lowering, `core_desugar_gpaths` lowers it, `core_verify` refuses a leftover); the program is lowered ONCE (the R0 core is the planned program). Shadow clean; control (anchor constant changed) ICEs on wql_gpath_e2e. The switch build caught the walker emitting rel fns only when the PARSE TREE had rels.
 - **R3.5 — 6eeed36f2.** Mapping fusion on the core (`core_fuse`). **R3 closed**: every rewrite of the program is Core → Core; lower.logos 2042 → 101 lines.
 - Each R3 step: shadow over build + L0 first (R3.5 excepted: a single rename, its oracle the 10 mapping fixtures in the snapshot), then the switch; gen + traces byte-identical.
+- **R8 — b8c752f73.** `logos_00_deem_layer_lint`: no `RQ*` (surface) type in the code of any Deem module but the schemas, the generated parser, the lowering, the handler and the position resolver; a planted canary proves it fires. Graph paths ride the core as `Vec<CPathStep>`; the walker no longer views the parse tree.
 
