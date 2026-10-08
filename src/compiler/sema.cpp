@@ -9477,6 +9477,35 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         if (hir_origin_(node) == hir::Origin::Macro)
             if (const LangItem* li = lang_item(name); li && li->target == AttrTarget::Struct)
                 return make_struct_type(li->name, li->package);
+        // Q1 row 4: the HIR resolved the name once (RES = `pkg::Name`). A
+        // non-generic struct / datatype / enum is built from that identity —
+        // the import-tier privacy check lookup_qualified_ made, made here; an
+        // alias or a generic (its defaults) takes the full lookup below.
+        if (node.has_key(la::RES)) {
+            std::string res(str_of(node.get(la::RES.code)));
+            auto sep = res.rfind("::");
+            if (sep != std::string::npos) {
+                std::string pkg = res.substr(0, sep), nm = res.substr(sep + 2);
+                auto mod_of = [&](const std::string& pk) {
+                    auto mit = pkg_module_ids_.find(pk);
+                    return mit != pkg_module_ids_.end() ? mit->second : std::string{};
+                };
+                auto priv = [&](auto* info) {
+                    if (pkg != cur_package_ && !pkg.empty())
+                        check_pub_access(info->is_pub, info->package, nm, info->is_module_only, mod_of(pkg));
+                };
+                if (auto it = structs_.find(type_id(pkg, nm)); it != structs_.end() && it->second.type_params.empty()) {
+                    priv(&it->second);
+                    return make_struct_type(nm, pkg);
+                }
+                if (auto it = datatypes_.find(type_id(pkg, nm)); it != datatypes_.end() && it->second.type_params.empty()) {
+                    priv(&it->second);
+                    return make_datatype_type(nm, pkg);
+                }
+                if (auto it = enums_.find(type_id(pkg, nm)); it != enums_.end() && it->second.type_params.empty())
+                    return make_enum_type(nm, pkg);
+            }
+        }
         auto t = lookup_type_by_name(name);
         if (t) return t;
         // See #20 sister site below: in metaprog discovery loop, swallow

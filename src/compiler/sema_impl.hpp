@@ -9117,9 +9117,34 @@ private:
             const LangItem* li = lang_item(l);
             return li ? (li->package.empty() ? li->name : li->package + "::" + li->name) : std::string();
         });
+        hir_.set_type_resolver([this](std::string_view n) { return resolve_type_path_(n); });
         writ::AnyVal core = hir_.lower_body(body, /*stmt=*/false, fragment);
         hir_report_();
         return map_of(core);
+    }
+    static bool lookup_type_by_name_prim_(std::string_view n) {
+        static const std::unordered_set<std::string_view> prims{
+            "i8","i16","i24","i32","i56","i64","i128","u8","u16","u24","u32","u56","u64","u128",
+            "isize","usize","f32","f64","bool","char","str","void","!"};
+        return prims.count(n) != 0;
+    }
+    // Q1 row 3: the item a bare type name denotes here — an alias, or a
+    // struct / datatype / enum ranked PER SCOPE (lookup_type_by_name's rule) —
+    // as its path; "" for a primitive, a type parameter, `Self`, or nothing.
+    std::string resolve_type_path_(std::string_view name) {
+        if (name.empty() || name == "Self" || name == "_" || current_type_params_.count(std::string(name))) return {};
+        if (lookup_type_by_name_prim_(name)) return {};
+        auto path = [](const std::string& pkg, std::string_view n) { return pkg + "::" + std::string(n); };
+        if (auto ait = alias_find(std::string(name)); ait != type_aliases_.end() && ait->second.type_params.empty())
+            return path(ait->second.package, name);
+        auto rank = [&](const std::string& pkg) { return pkg == cur_package_ ? 0 : pkg.empty() ? 2 : 1; };
+        auto [sp, s0] = lookup_qualified_<false>(structs_, name);
+        auto [dp, d0] = lookup_qualified_<false>(datatypes_, name);
+        auto [ep, e0] = lookup_qualified_<false>(enums_, name);
+        const int rs = s0 ? rank(sp) : 9, rd = d0 ? rank(dp) : 9, re = e0 ? rank(ep) : 9;
+        const int best = std::min({rs, rd, re});
+        if (best == 9) return {};
+        return path(rs == best ? sp : rd == best ? dp : ep, name);
     }
     // The pass's diagnostics, each at its own line.
     void hir_report_() {
