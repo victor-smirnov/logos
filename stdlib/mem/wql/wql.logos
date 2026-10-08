@@ -226,26 +226,30 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     if !core_rules_ok(&core) { return out; }
     if !core_scope_ok(&core, &prm) { return out; }
     // DEMAND (#349): the rel the entry reads with a bound column is evaluated
-    // on demand (magic sets, `lower::magic_program`). Before the fact
+    // on demand (magic sets, `crewrite::core_magic`). Before the fact
     // desugar: a seed can be a fact. `LOGOS_DEEM_NO_DEMAND` (any value) turns
     // it off: the rewrite never changes an answer (MS_FALLIBLE keeps it so),
     // so the switch is for measuring it.
     // ORACLE: `LOGOS_DEEM_ORACLE=<dir>` writes the program as Soufflé text,
     // before any rewrite of ours (the oracle checks what the user wrote).
     dl_export(&core, name, natspec, &mut prm);
-    let mut msd: MsDecisions = MsDecisions { n: 0i64, rel: Vec::<str>::new(), col: Vec::<str>::new(), rule: Vec::<i32>::new() };
+    let mut msd: MsDecisions = ms_decisions_new();
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");
     nd.push_u8(0u8);
     let demand_off: bool = unsafe { getenv(nd.as_ptr()) } != 0 as *const u8;
-    if !demand_off && magic_program(root, &h, &prm, &mut msd) > 0i64 {
+    // ADR 0031 R3 — the program the walker plans: lowered once the surface
+    // rewrites that are still surface passes have run; from here on it is
+    // analysed and rewritten on the core.
+    let mut pc: CProgram = lower_program(root);
+    if !demand_off && core_magic(&mut pc, &h, &prm, &mut msd) > 0i64 {
         let mut di: i64 = 0i64;
         while di < msd.n {
-            plan_trace("demand", ms_verdict(msd.rule[di]), msd.rel[di], ms_render(msd.rule[di]));
+            plan_trace("demand", ms_verdict(msd.rule[di]), string_as_str(&msd.rel[di]), ms_render(msd.rule[di]));
             if plan_trace_facts_on() {
                 let mut fl: String = String::new();
-                fl.push_str("[facts] "); fl.push_str(msd.rel[di]); fl.push_str(" demand col=");
-                fl.push_str(msd.col[di]); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule[di]));
+                fl.push_str("[facts] "); fl.push_str(string_as_str(&msd.rel[di])); fl.push_str(" demand col=");
+                fl.push_str(string_as_str(&msd.col[di])); fl.push_str(" rule="); fl.push_str(ms_name(msd.rule[di]));
                 fl.push_str("\n");
                 plan_trace_raw(unsafe { str_from_raw(fl.as_ptr(), fl.len()) });
             }
@@ -257,10 +261,6 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // original every reader of which now reads an adorned copy is dead too.
     // `LOGOS_DEEM_NO_PRUNE` (at compile time) evaluates every rel, to measure it.
     let mut fal: RelSet = relset_new(0i64);
-    // ADR 0031 R3 — the program the walker plans: lowered once the surface
-    // rewrites that are still surface passes have run; from here on it is
-    // analysed and rewritten on the core.
-    let mut pc: CProgram = lower_program(root);
     let mut live: RelSet = core_live_rels(&pc, &mut fal);
     let mut np: String = String::new();
     np.push_str("LOGOS_DEEM_NO_PRUNE");

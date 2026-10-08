@@ -1414,7 +1414,7 @@ pub fn ac_verdict(r: i32) -> str {
 pub fn MS_DEMAND() -> i32       { return 1i32; }   // adorned: the rel is evaluated on demand
 // 4 (nonlinear), 5 (moves_col), 6 (sel_shape) and 9 (moving_off) are DELETED
 // (2026-10-05): the shape-by-shape rewrite they refused in is replaced by the
-// magic-sets transformation (`lower::magic_program`), which adorns every bound
+// magic-sets transformation (`crewrite::core_magic`), which adorns every bound
 // occurrence whatever the body's shape. 2 (shared) is kept and now computed
 // over that transformation's own graph.
 // 7 (cap — no free join-step slot for the magic join) is DELETED with the
