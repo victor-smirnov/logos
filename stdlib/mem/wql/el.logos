@@ -1910,6 +1910,7 @@ impl ElTypes {
             if str_eq(self.names[i], name) { return string_as_str(&self.tns[i]); }
             i = i + 1i64;
         }
+        el_trace_ty_default(name);
         return "i64";
     }
 
@@ -2257,4 +2258,27 @@ pub fn el_lit_digits(txt: str, sfx: str, out: &mut String) {
 // and unmodified). Shared spelling for the emit handlers.
 pub fn string_as_str(s: &String) -> str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
+}
+
+// ── THE `i64` BASELINE IS A FALLBACK, AND IT IS WATCHED (ADR 0031 R4.5) ────
+// A name no source, parameter, const or group output typed reads as `i64`
+// through `ElTypes::ty_name_of`. On a well-formed program it is never reached
+// (measured: 0 over the whole pass corpus once R4.5a–c typed every free name);
+// it still is after a user error the handler has already reported (a refused
+// tuple column leaves its name untyped). So it is not an ICE: it is a trace
+// line under `LOGOS_TRACE_PLAN`, and `logos_09_ty_default` holds the pass
+// corpus's count of them at zero.
+extern fn getenv(name: *const u8) -> *const u8;
+extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
+
+fn el_trace_ty_default(name: str) {
+    let mut c: String = String::new();
+    c.push_str("LOGOS_TRACE_PLAN");
+    c.push_u8(0u8);
+    if unsafe { getenv(c.as_ptr()) } == 0 as *const u8 { return; }
+    let mut ln: String = String::new();
+    ln.push_str("[plan] ty-default ");
+    ln.push_str(name);
+    ln.push_str(" — a name no source, parameter, const or group output typed read as the `i64` baseline\n");
+    unsafe { write(2i32, ln.as_ptr(), ln.len()); }
 }

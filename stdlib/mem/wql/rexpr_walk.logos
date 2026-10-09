@@ -46,7 +46,7 @@ use logos.std.wql.join_cost;  // JCTable / jc_* — THE cost function, one copy
 use logos.std.wql.prepared;   // Prepared / prep_* — THE PLAN AS A RUNTIME VALUE
 use logos.std.wql.dplan;      // DScan / plan_entry_scan — the plan as data (ADR 0031 R5)
 use logos.std.wql.core;       // the planned core the emitters read (ADR 0031 R6)
-use logos.std.wql.typing;     // type_chain — one typing of a clause (ADR 0031)
+use logos.std.wql.typing;     // type_aggs, type_group_outputs — the clause's typing (ADR 0031)
 use logos.std.wql.typecheck;  // key_norm_ok — the checks on the core (ADR 0031 R4.2)
 use logos.std.wql.access_plan; // AD_NONE
 use logos.std.wql.why;        // Why / why_render — THE JUSTIFICATION AS A RECORD, and its ONE renderer
@@ -1925,6 +1925,12 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
 
     let view: OView = oview_module_ast();
     let mut ty: ElTypes = entry_env(prm);
+    // A grouped query's select reads `key` and the aggregate outputs, whatever
+    // its input proved to be (R4.5: their types, not the dictionary baseline).
+    match &prm.plan_core.entry.clause.group {
+        Option::Some(g) => { if !type_group_outputs(&view, g, &mut ty, h) { return false; } }
+        Option::None => { }
+    }
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
