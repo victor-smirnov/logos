@@ -1,10 +1,8 @@
 // logos.std.wql.typing — ONE typing of a clause's variables (ADR 0031).
 //
-// Every emitter used to assemble its `ElTypes` by hand — the base's schema and
-// registry columns, each step's, a by-value element's own type, the scalar
-// parameters, the comprehension variables, the module's UDFs — seven copies of
-// one sequence. `type_chain` is that sequence, once; the helpers it calls moved
-// here from the emitter so the planner can type a clause too.
+// Every emitter used to assemble its `ElTypes` by hand — seven copies of one
+// sequence. `type_clause` is that sequence over the core, the checker types
+// each rule once (`typecheck::rule_type_env`), and every emitter starts from it.
 package logos.std.wql.typing;
 
 use logos.std.compiler.metaprog;  // OView
@@ -21,13 +19,9 @@ use logos.std.wql.reflect;        // stamp_types_from_schema, resolve_alias_name
 use logos.std.wql.codegen;        // infer_ty, infer_emit_ty
 use logos.std.wql.optimize;       // simplify_sexpr
 
-// Shared: when `src_name` names a REL (slice B — the emitted `__rel_<r>_sl`
-// source, resolved against the MacroParams rel registry), stamp its COLUMN
-// value-types into the flat dict AND bind (var, col) → tuple-component-index
-// entries so `emit_sexpr`/`infer_ty` emit the positional `var.k` access with
-// the right type. A non-rel source is a no-op (returns false). This is the
-// rel counterpart of `stamp_types_from_schema` — called right beside it at
-// every scan-source stamping site.
+// A rel source's COLUMN types into the flat dict, and the (var, col) →
+// tuple-component bindings `emit_sexpr`/`infer_ty` read for the positional
+// `var.k` access — the rel counterpart of `stamp_types_from_schema`.
 //
 // ⚠ `view` IS HERE FOR THE SAME REASON IT IS IN `stamp_types_from_schema`: a
 // declared type NAME is a SPELLING until it is resolved through the module's
@@ -35,17 +29,6 @@ use logos.std.wql.optimize;       // simplify_sexpr
 // module view. Every name recorded on an `ElTypes` goes through
 // `reflect::resolve_alias_name` at the point it is read, so a rel column declared
 // `Score` is an i64 to the licence, the width check and the lattice alike.
-pub fn stamp_rel_source(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
-                        src_name: str, var_name: str) -> bool {
-    let ri: i64 = prm.rel_find_src(src_name);
-    if ri < 0i64 { return false; }
-    return stamp_rel_columns(ty, view, prm, ri, var_name);
-}
-
-/// The same stamping, by rel INDEX. The planner reaches a rel before its
-/// source name has been written onto the query node, so it has the index and
-/// not the name; splitting the lookup off the stamping is what lets one copy of
-/// the column binding serve both.
 pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
                          ri: i64, var_name: str) -> bool {
     if ri < 0i64 { return false; }
@@ -78,7 +61,7 @@ pub fn stamp_rel_columns(ty: &mut ElTypes, view: &OView, prm: &MacroParams,
 // Slice params are SOURCES (their row schemas are reflected separately); a
 // scalar param referenced BARE in EL (`e.salary > min_sal`, `limit n`) types
 // through this seeding — resolved through the module's aliases first, for the
-// reason stated on `stamp_rel_source`.
+// reason stated on `stamp_rel_columns`.
 pub fn apply_scalar_params(ty: &mut ElTypes, view: &OView, prm: &MacroParams) {
     let mut i: i64 = 0i64;
     while i < prm.n {
@@ -116,22 +99,6 @@ pub fn stamp_comp_vars(e: SExpr, ty: &mut ElTypes, prm: &MacroParams) {
     }
 }
 
-/// The variables of a chain — the base, then each step (a by-value element
-/// typed as its own type) — the scalar parameters, the comprehension variables
-/// of `comp_sel` (null = none), and the module's UDFs.
-pub fn type_chain(view: &OView, prm: &MacroParams, base_src: str, base_ty: str, base_var: str,
-                  srcs: &Vec<str>, tys: &Vec<str>, vars: &Vec<str>, byval: &Vec<bool>, n: i64,
-                  comp_sel: WAny) -> ElTypes {
-    let mut ty: ElTypes = el_types_new();
-    type_source(&mut ty, view, prm, prm.rel_find_src(base_src), base_ty, base_var, false);
-    let mut si: i64 = 0i64;
-    while si < n {
-        type_source(&mut ty, view, prm, prm.rel_find_src(srcs.get(si)), tys.get(si), vars.get(si), byval.get(si));
-        si = si + 1i64;
-    }
-    type_finish(&mut ty, view, prm, comp_sel);
-    return ty;
-}
 
 /// One bound variable: its row type's schema, a rel's columns (`reg` >= 0),
 /// and a by-value element's own type.
@@ -426,6 +393,18 @@ pub fn type_aggs(view: &OView, aggs: &Vec<CAgg>, t: &mut ElTypes, h: &Writ, out:
     stamp_agg_out_types(aggs, &out.flt, &out.uda, &out.uda_ret, &out.acc, t);
     agg_col_tys(&out.flt, &out.uda, &out.uda_ret, &out.acc, &mut out.act);
     return true;
+}
+
+/// The names a `group by` binds for what follows it — `key` (the key's own
+/// type) and each aggregate's output — recorded in `t`. False when a user
+/// aggregate does not resolve (diagnosed).
+pub fn type_group_outputs(view: &OView, g: &CGroup, t: &mut ElTypes, h: &Writ) -> bool {
+    let key_opt: SExpr = simplify_sexpr(g.key.view::<SExpr>(), h).any().view::<SExpr>();
+    let mut kt: String = String::new();
+    kt.push_str(infer_emit_ty(key_opt, t));
+    t.set_ty_named("key", kt.as_str());
+    let mut gt: GroupTy = group_ty_new();
+    return type_aggs(view, &g.aggs, t, h, &mut gt);
 }
 
 pub fn group_ty_new() -> GroupTy {

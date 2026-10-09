@@ -225,6 +225,11 @@ pub struct MacroParams {
     /// ADR 0031 R5 — the PLANNED core: the program the walker emits, lowered
     /// after every rewrite, each atom resolved against this registry.
     pub plan_core: CProgram,
+    /// ADR 0031 R4.5b — each rule's type environment as the checker computed
+    /// it (`typecheck::core_typecheck`): rel `r`'s rule `b` at
+    /// `plan_ty_off[r] + b`, the entry last. Every emitter starts from it.
+    pub plan_tys: Vec<ElTypes>,
+    pub plan_ty_off: Vec<i64>,
     /// The producer's RETURN TYPE, as text. The emitted binding is annotated
     /// with it rather than inferring: a generated producer's signature is not
     /// always resolvable in the round its consumer is compiled, and an inferred
@@ -414,6 +419,8 @@ pub fn macro_params_new() -> MacroParams {
         plan_where_retired: false,
         plan_group_pure: false,
         plan_core: core_empty(),
+        plan_tys:    Vec::<ElTypes>::new(),
+        plan_ty_off: Vec::<i64>::new(),
         rel_itty:    Vec::<str>::new(),
         rel_ordered: Vec::<bool>::new(),
         rel_bidir:   Vec::<bool>::new(),

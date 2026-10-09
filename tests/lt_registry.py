@@ -289,6 +289,10 @@ SINGLETONS = {
         T('logos_09_direct_door_census',
           ['{tsrc}/direct_door_census_gate.sh', '{logosc}', '{tsrc}/pass', '{tbin}/facts'],
           'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB, fixtures_required=['logos_facts_all']),
+        # ADR 0031 R4.5 — NO WELL-FORMED QUERY READS A NAME AS THE `i64` BASELINE.
+        T('logos_09_ty_default',
+          ['{tsrc}/ty_default_gate.sh', '{logosc}', '{tsrc}', '{tbin}/facts'],
+          'logos;pass;suite_semantic_core;tier_full', timeout=300, env=LIB, fixtures_required=['logos_facts_all']),
         # ADR 0025 S3a — THE IMPORT PAIR THE `Buffer` LANDING NEEDS.
         T('logos_09_drain_import_pair',
           ['{tsrc}/drain_import_pair_gate.sh', '{logosc}', '{tsrc}/pass', '{src}/stdlib/mem/wql/wql.logos', '{src}/stdlib/mem/wql/rexpr_walk.logos'],
