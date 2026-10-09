@@ -44,6 +44,7 @@
 # `d` = unnamed). A gate that grepped for a verdict without an owner would pass on
 # five queries deciding the same way.
 set -euo pipefail
+. "$(dirname "$0")/deem_fn_sig.sh"   # deem_fn_re / deem_fn_count / deem_fn_body
 
 LOGOSC="$1"
 TEST_LOGOS="$2"
@@ -175,7 +176,7 @@ done
 if [ "$n_art" -ne 5 ]; then
     echo "FAIL: the artifact assertions ran on $n_art emitted queries (want 5: qf, qn, qi, qs, qu)."
     echo "      A guard that admits nothing skips every check inside it."
-    grep -hE '^pub fn q._run(<[^>]*>)?\(' "${DUMPS[@]}" || true
+    grep -hE "$(deem_fn_re q._run)" "${DUMPS[@]}" || true
     fail=1
 fi
 

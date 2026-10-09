@@ -84,6 +84,7 @@
 #
 # EXIT: 0 clean · 1 a claim failed · 2 the gate could not look (never clean).
 set -uo pipefail
+. "$(dirname "$0")/deem_fn_sig.sh"   # deem_fn_re / deem_fn_count / deem_fn_body
 
 LOGOSC=${1:?usage: order_elision_pair_gate.sh <logosc> <pass dir>}
 PASSD=${2:?usage: order_elision_pair_gate.sh <logosc> <pass dir>}
@@ -126,11 +127,7 @@ slice_fn() {   # slice_fn <fn-name> <outfile>
     # (the lint, or a person) cannot tell which one a line means. A `done` flag
     # says the same thing and leaves exactly one meaning of the word in this
     # file — the one that ends the gate.
-    awk -v want="pub fn $1" '
-        !done && index($0, want) == 1 { inside = 1 }
-        inside && !done { print }
-        inside && $0 == "}" { inside = 0; done = 1 }
-    ' "$TMPD/art.txt" > "$2"
+    deem_fn_body "$TMPD/art.txt" "$1" > "$2"
     [ -s "$2" ]
 }
 for f in by_key_run by_val_run head_three_run; do

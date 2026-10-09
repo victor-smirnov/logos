@@ -2002,6 +2002,17 @@ impl ElTypes {
     /// what a STRUCT source's row var offers. The flat dict cannot key this: two
     /// joined structs declaring the same field name overwrite each other there,
     /// and the surviving type was applied to BOTH.
+    /// Is `name` a ROW variable — one whose fields are bound (a source's row,
+    /// held by reference in the emitted loop) — rather than a value?
+    pub fn is_row_var(self: &ElTypes, name: str) -> bool {
+        let mut i: i64 = 0i64;
+        while i < self.rb_n {
+            if self.rb_kind[i] == CB_VAR() && str_eq(self.rb_var[i], name) { return true; }
+            i = i + 1i64;
+        }
+        return false;
+    }
+
     pub fn field_bind_named(self: &mut ElTypes, var: str, col: str, ty_name: str) {
         self.bind_col(CB_VAR(), var, col, COL_FIELD(), ty_name);
     }

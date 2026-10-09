@@ -178,6 +178,7 @@
 # EXIT: 0 clean · 1 a claim failed (the message names it) · 2 the gate could not
 # look (missing input, compile failure) — never reported as clean.
 set -euo pipefail
+. "$(dirname "$0")/deem_fn_sig.sh"   # deem_fn_re / deem_fn_count / deem_fn_body
 
 LOGOSC="${1:?logosc path}"
 FIXTURE="${2:?fixture .logos}"
@@ -216,15 +217,14 @@ cat "${DUMPS[@]}" > "$TMPD/all.txt"
 # Extract the function: from its definition line to the first column-0 `}`.
 # The emitter writes one definition per name, and the assertion below checks
 # that — two definitions would make "the emitted scan" ambiguous.
-DEFS=$(grep -cE "^pub fn ${FN}(<[^>]*>)?\\(" "$TMPD/all.txt" || true)
+DEFS=$(deem_fn_count "$TMPD/all.txt" "$FN")
 if [ "$DEFS" != 1 ]; then
     echo "FAIL(1): expected exactly one definition of ${FN}, found ${DEFS}."
     echo "         dumps: ${DUMPS[*]}"
     exit 1
 fi
 # (the definition may carry generic params: `pub fn slice_scan_run<'a>(`)
-awk -v fn="^pub fn ${FN}(<[^>]*>)?\\\\(" '$0 ~ fn {f=1} f {print} f && /^}$/ {exit}' \
-    "$TMPD/all.txt" > "$TMPD/actual"
+deem_fn_body "$TMPD/all.txt" "$FN" > "$TMPD/actual" || true
 
 # ── the golden is an assertion, not a placeholder ───────────────────────────
 GLINES=$(wc -l < "$GOLDEN")

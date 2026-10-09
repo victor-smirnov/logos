@@ -28,6 +28,7 @@
 # each query in the fixture owns a unique one: `a`/`c` for the i64-vs-u64 pair,
 # `f` for the refused f64 key, `p` for the i64 control.
 set -euo pipefail
+. "$(dirname "$0")/deem_fn_sig.sh"   # deem_fn_re / deem_fn_count / deem_fn_body
 
 LOGOSC="$1"
 TEST_LOGOS="$2"
@@ -53,19 +54,19 @@ fi
 # `q_ai` projects A.n (i64); `q_bu` projects B.n (u64). Both sources declare
 # `n`, and the collision used to give both queries the type of whichever source
 # the emitter stamped last.
-if ! grep -qE '^pub fn q_ai_run(<[^>]*>)?\(.*\) -> Result<Vec<i64>, ElError> \{' "${DUMPS[@]}"; then
+if ! grep -qE "$(deem_fn_re q_ai_run).*\\) -> Result<Vec<i64>, ElError> \\{" "${DUMPS[@]}"; then
     echo "FAIL: q_ai_run does not return Vec<i64> — A.n's i64 did not survive B.n's stamping"
     grep -hE '^pub fn q_ai_run' "${DUMPS[@]}" || echo "  (no q_ai_run emitted at all)"
     fail=1
 fi
-if ! grep -qE '^pub fn q_bu_run(<[^>]*>)?\(.*\) -> Result<Vec<u64>, ElError> \{' "${DUMPS[@]}"; then
+if ! grep -qE "$(deem_fn_re q_bu_run).*\\) -> Result<Vec<u64>, ElError> \\{" "${DUMPS[@]}"; then
     echo "FAIL: q_bu_run does not return Vec<u64> — B.n's u64 did not survive A.n's stamping"
     grep -hE '^pub fn q_bu_run' "${DUMPS[@]}" || echo "  (no q_bu_run emitted at all)"
     fail=1
 fi
 # The NESTED path: `x.b.c` has no row var, so it is keyed on its base's declared
 # TYPE. `Other.c` is an i64 on the joined source and used to re-type it.
-if ! grep -qE '^pub fn q_n_run(<[^>]*>)?\(.*\) -> Result<Vec<u64>, ElError> \{' "${DUMPS[@]}"; then
+if ! grep -qE "$(deem_fn_re q_n_run).*\\) -> Result<Vec<u64>, ElError> \\{" "${DUMPS[@]}"; then
     echo "FAIL: q_n_run does not return Vec<u64> — Inner.c's u64 lost to Other.c's i64 on a nested path"
     grep -hE '^pub fn q_n_run' "${DUMPS[@]}" || echo "  (no q_n_run emitted at all)"
     fail=1

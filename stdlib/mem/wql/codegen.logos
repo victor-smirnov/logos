@@ -781,6 +781,29 @@ pub fn emit_sexpr(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
 /// temporary — `returns_string` is that case and copying it again would be a
 /// second allocation for nothing.
 pub fn emit_proj_value(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+    // A ROW selected whole where the plan did not fold the query to the
+    // identity / head-row forms (which return the source's rows by reference):
+    // the loop holds `&Row`, the result holds the row (#737) — copied when it is
+    // `Copy`, cloned when it is `Clone`, as `.copied()` / `.cloned()` would need
+    // in Rust; neither is refused here, at the select, where the copy is made.
+    let rv: str = root_ident_name(e);
+    if rv.len() > 0i64 && t.is_row_var(rv) {
+        let rt: str = infer_ty_name(e, t);
+        if named_is_copy(rt) { out.push_str("(*"); out.push_str(rv); out.push_str(")"); return; }
+        if !named_is_clone(rt) {
+            let mut m: String = String::new();
+            m.push_str("wql!: `select`: the row `");
+            m.push_str(rv);
+            m.push_str("` of type `");
+            m.push_str(rt);
+            m.push_str("` is selected whole, so each matching row is copied out of the source — `");
+            m.push_str(rt);
+            m.push_str("` must be `Copy` or `Clone` (derive one), or select its fields");
+            ty_error(t, e, string_as_str(&m));
+        }
+        out.push_str("(*"); out.push_str(rv); out.push_str(").clone()");
+        return;
+    }
     if el_owned_copy_needed(e, t) {
         out.push_str("(");
         emit_sexpr(out, e, t, var);
@@ -1261,6 +1284,7 @@ pub fn named_has_ord(name: str) -> bool { return has_trait_named(TRAIT_ORD(), na
 /// A NAMED value is copied out of a borrowed row — into an index, a group key
 /// vector, an output buffer — only when it is `Copy`.
 pub fn named_is_copy(name: str) -> bool { return has_trait_named(TRAIT_COPY(), name); }
+pub fn named_is_clone(name: str) -> bool { return has_trait_named("logos.lang.clone::Clone", name); }
 
 /// True iff `op` is one of the arithmetic operators (the binary half of
 /// `el_computes_in_repr`, for a caller that holds only the op id).

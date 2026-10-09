@@ -35,6 +35,7 @@
 #     that was never entered is not an axis that proved orders and carried none
 #     (ADR 0024 S4n), and `proved()` is the constant that separates them.
 set -euo pipefail
+. "$(dirname "$0")/deem_fn_sig.sh"   # deem_fn_re / deem_fn_count / deem_fn_body
 
 LOGOSC="$1"
 TEST_LOGOS="$2"
@@ -66,7 +67,7 @@ want=3
 for kind in 'pub struct [A-Za-z]+Plan \{' \
             '^impl [A-Za-z]+Plan \{' \
             '^pub fn [a-z_]+_prepare\(' \
-            '^pub fn [a-z_]+_run(<[^>]*>)?\(__pl: &[A-Za-z]+Plan, '; do
+            "$(deem_fn_re '[a-z_]+_run')__pl: &[A-Za-z]+Plan, "; do
     n=$(count "$kind")
     if [ "$n" -ne "$want" ]; then
         echo "FAIL: $n items matching /$kind/ (want $want, one per query)"
