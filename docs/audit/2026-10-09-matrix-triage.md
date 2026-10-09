@@ -1,6 +1,6 @@
 # Interaction-matrix triage after S10 (2026-10-09)
 
-The 78 clusters the 2026-09-26 audit () attributed to an ADR 0030 step and that still differed from rustc 1.98.1 after S10 (220 members), each re-run, minimized and re-attributed by mechanism on  at fb1f6b81a. One extra finding recorded with them.
+The 78 clusters the 2026-09-26 audit (`2026-09-26-feature-interactions.md`) attributed to an ADR 0030 step and that still differed from rustc 1.98.1 after S10 (220 members), each re-run, minimized and re-attributed by mechanism on `logosc` at fb1f6b81a. One extra finding is recorded with them. Minimized programs and rustc expectations: the triage JSON in the session scratchpad; each fix lands its own fixture.
 
 | cluster | predicted | owner (measured) | sev | live | mechanism |
 |---|---|---|---|---|---|
