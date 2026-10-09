@@ -687,6 +687,24 @@ pub fn stamp_udfs_from_module(view: &OView, t: &mut ElTypes) {
     }
 }
 
+/// A struct this module does not declare — an IMPORTED row type — typed by
+/// asking the compiler for its fields (ADR 0031 R4.5): the module view the
+/// handler holds is one module, and every field of such a struct used to read
+/// as the dictionary's `i64` baseline.
+fn stamp_imported_fields(t: &mut ElTypes, struct_name: str, row_var: str) {
+    let n: i64 = struct_field_count(struct_name);
+    let mut i: i64 = 0i64;
+    while i < n {
+        let f: str = struct_field_name(struct_name, i);
+        let ft: str = logos.std.compiler.metaprog::field_type_name(struct_name, f);
+        if f.len() > 0i64 && ft.len() > 0i64 {
+            if row_var.len() > 0i64 { t.field_bind_named(row_var, f, ft); }
+            t.set_ty_named(f, ft);
+        }
+        i = i + 1i64;
+    }
+}
+
 // Populate the name→value-type dictionary `t` with the value-type the named
 // struct declares for EACH of its fields (Option B: the IR carries names, so we
 // type every field of the bound schema — the codegen queries only the names it
@@ -706,7 +724,7 @@ pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str,
     // 0: the loop body then never runs and every field silently keeps the i64
     // baseline. That is the miscompile recorded on `find_struct_decl`.
     let decl: WAny = find_struct_decl(view, struct_name);
-    if decl.is_null() { return; }
+    if decl.is_null() { stamp_imported_fields(t, struct_name, row_var); return; }
     let nf: u64 = view.ast_struct_field_count(decl);
     let mut i: u64 = 0 as u64;
     while i < nf {

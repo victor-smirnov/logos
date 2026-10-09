@@ -1,0 +1,9 @@
+// ADR 0031 R4.5 — a const's declared type takes part in the operand rule: an
+// `i64` const compared with a `str` column is refused at its place.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+pub const LIMITN: i64 = 3i64;
+struct Row { pub k: str, pub n: i64 }
+pub deem q(rs: &[Row]) { from rs r where r.k == LIMITN select r.n }
+fn main() -> i32 { return 0i32; }

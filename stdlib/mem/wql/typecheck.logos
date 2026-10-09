@@ -81,6 +81,54 @@ fn cond_ok(e: WAny, ty: &ElTypes, ctx: str) -> bool {
     return check_calls(sx(e), ty, ctx);
 }
 
+/// Every bare name the rule's expressions read gets its type (R4.5): the
+/// head, the conditions, the group, the order key.
+fn stamp_rule_names(ru: &CRule, ty: &mut ElTypes) {
+    let cl: &CClause = &ru.clause;
+    let mut vars: Vec<str> = Vec::<str>::new();
+    let mut tys: Vec<str> = Vec::<str>::new();
+    clause_vars(cl, &mut vars, &mut tys);
+    if !cl.head.is_null() { stamp_free_names(sx(cl.head), ty, &vars, &tys); }
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => { stamp_free_names(sx(c.e), ty, &vars, &tys); }
+            CLit::Atom(a) => { let mut k: i64 = 0i64; while k < a.conds.len() { stamp_free_names(sx(a.conds.get(k)), ty, &vars, &tys); k = k + 1i64; } }
+            CLit::Trav(t) => { let mut k: i64 = 0i64; while k < t.conds.len() { stamp_free_names(sx(t.conds.get(k)), ty, &vars, &tys); k = k + 1i64; } }
+        }
+        i = i + 1i64;
+    }
+    match &cl.group {
+        Option::Some(g) => {
+            stamp_free_names(sx(g.key), ty, &vars, &tys);
+            let ags: &[CAgg] = g.aggs.as_slice();
+            let mut a: i64 = 0i64;
+            while a < g.aggs.len() {
+                match &ags[a].arg { Option::Some(x) => { stamp_free_names(sx(*x), ty, &vars, &tys); } Option::None => { } }
+                a = a + 1i64;
+            }
+        }
+        Option::None => { }
+    }
+    match &ru.env.order { Option::Some(k) => { stamp_free_names(sx(*k), ty, &vars, &tys); } Option::None => { } }
+}
+
+/// `select r` over a row variable `r`: the row is returned whole — the source
+/// slice, or a reference to its row — never copied out of it, so it asks for
+/// no `Copy`.
+fn head_is_row_var(cl: &CClause) -> bool {
+    if cl.head.is_null() { return false; }
+    let n: str = root_ident_name(sx(cl.head));
+    if n.len() == 0i64 { return false; }
+    let mut vars: Vec<str> = Vec::<str>::new();
+    let mut tys: Vec<str> = Vec::<str>::new();
+    clause_vars(cl, &mut vars, &mut tys);
+    let mut k: i64 = 0i64;
+    while k < vars.len() { if str_eq(vars.get(k), n) { return true; } k = k + 1i64; }
+    return false;
+}
+
 // ── a rel's rule ────────────────────────────────────────────────────────────
 
 fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ) -> bool {
@@ -88,6 +136,7 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
     let ch: DNest = plan_nest(cl);
     let mut ty: ElTypes = type_clause(view, prm, cl, false);
     ty.src = query_src_of(prm);
+    stamp_rule_names(ru, &mut ty);
     // The whole-row gate's vars: the base and every step but a scalar-element
     // traversal, which binds a value (a legitimate select component).
     let mut vars: Vec<str> = Vec::<str>::new();
@@ -151,6 +200,7 @@ fn check_entry(view: &OView, prm: &MacroParams, ru: &CRule, h: &Writ) -> bool {
     let cl: &CClause = &ru.clause;
     let mut ty: ElTypes = type_clause(view, prm, cl, false);
     ty.src = query_src_of(prm);
+    stamp_rule_names(ru, &mut ty);
     let find: bool = match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
     if find { return cond_ok(cond_where(cl), &ty, "wql!: `find`"); }
     if !cl.head.is_null() { stamp_comp_vars(sx(cl.head), &mut ty, prm); }
@@ -159,7 +209,7 @@ fn check_entry(view: &OView, prm: &MacroParams, ru: &CRule, h: &Writ) -> bool {
         Option::None => { }
     }
     if !check_calls(sx(cl.head), &ty, "wql!: `select`") { return false; }
-    if !check_projection_copy(sx(cl.head), &ty, "wql!: `select`") { return false; }
+    if !head_is_row_var(cl) && !check_projection_copy(sx(cl.head), &ty, "wql!: `select`") { return false; }
     if !cond_ok(cond_where(cl), &ty, "wql!: `where`") { return false; }
     match &ru.env.order {
         Option::Some(k) => { if !cond_ok(*k, &ty, "wql!: `order by`") { return false; } }
@@ -182,7 +232,7 @@ fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty
     let mut gt: GroupTy = group_ty_new();
     if !type_aggs(view, &g.aggs, &mut ty, h, &mut gt) { return false; }
     if !check_calls(sx(cl.head), &ty, "wql!: `select`") { return false; }
-    if !check_projection_copy(sx(cl.head), &ty, "wql!: `select`") { return false; }
+    if !head_is_row_var(cl) && !check_projection_copy(sx(cl.head), &ty, "wql!: `select`") { return false; }
     if !cond_ok(cond_where(cl), &ty, "wql!: `where`") { return false; }
     if !ons_ok(cl, &ty, "wql!: `on`") { return false; }
     match &g.having {

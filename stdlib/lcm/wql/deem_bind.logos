@@ -145,8 +145,11 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
     // closed on the channel side (#345, #346):
     //   1. a quote lands in the METACALL SITE's package, and this metacall is
     //      rendered into a `package logos.gen;` chunk while the item belongs in
-    //      `cs.pkg`, the package the CLASS was declared in — the call site sees
-    //      the overload only there. `logos_emit_item_blob_subst_pkg` names it.
+    //      `decl_pkg`, the package the `deem` was DECLARED in — where a
+    //      macro-emitted item lives, as in Rust (ADR 0031; it used to be the
+    //      CLASS's package, which for a generated family IS logos.gen, so the
+    //      caller saw the item only through the compiler's empty→all fallback).
+    //      `logos_emit_item_blob_subst_pkg` names it.
     //   2. the item is a `deem` whose NAME and BODY are runtime strings: the
     //      name is an antiquote (`deem #dn`) and the body a `parse_raw` splice
     //      (the query text is the query compiler's to parse, not Logos).
@@ -169,7 +172,8 @@ pub fn __deem_bind(name: str, params: str, query: str, family: str,
         }
     };
     let mut pkgz: String = String::new();
-    pkgz.push_str(cs.pkg);
+    // The root package has no name; the class's package stands in for it.
+    pkgz.push_str(if decl_pkg.len() > 0i64 { decl_pkg } else { cs.pkg });
     pkgz.push_u8(0u8);
     unsafe { logos_emit_item_blob_subst_pkg(&item, pkgz.as_ptr()); }
     return out;
