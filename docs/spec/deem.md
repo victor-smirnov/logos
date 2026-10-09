@@ -82,7 +82,7 @@ Every query opens with `from <src> <var>`: `src` names a source (slice param or 
 
 `from a x ([anti] join b y on ON)* [where P] group by K aggregate name=fn(arg?),… [having H] select …` — join steps are OPTIONAL here (aggregate over the joined or single-source stream); `having` is a predicate over the group key + aggregate output names.
 
-*Divergence:* SQL `GROUP BY … HAVING …`, restricted to a SINGLE group key expression `K` (RESTRICTION; no multi-column `GROUP BY a,b` — use a tuple key expression).
+*Divergence:* SQL `GROUP BY … HAVING …`; a multi-column key is spelled as one tuple, `group by (a, b)` (`deem.clause.group-by`).
 
 *Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`aggr_query`, `agg_list`, `having_clause`); lowering `stdlib/mem/wql/lower.logos` (`lower_aggr`: where→RAggr→having-as-RFilter→order→project→distinct→limit)
 
@@ -114,11 +114,11 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 ### `deem.clause.group-by` — `group by K`
 
-`group by <K>` partitions rows by the EL key expression `K`; groups feed the `aggregate` specs; lowers to an `RAggr` (γ) carrying one key + the aggregate-spec array.
+`group by <K>` partitions rows by the EL key expression `K`; groups feed the `aggregate` specs. A TUPLE key `group by (a, b, …)` groups by every component, as a `HashMap<(K1, K2, …), …>` key in Rust: `key` is the tuple, and its type is the tuple of the components' types; each component must itself be a key (an identity: `Eq`, not `f64`), and the refusal names the component. The grouped columns can be read off the group's row (`select (s.a, s.b, n)`) as well as through `key`. The incremental handle maintains tuple-keyed groups under insertion and retraction. (A recursive `min`/`max` rel's key is still one column.)
 
-*Divergence:* SQL `GROUP BY`, single-key only (see `deem.query.aggregate`).
+*Divergence:* SQL `GROUP BY` with an expression list, spelled as one tuple.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`aggr_query`, `key_body`); `stdlib/mem/wql/ir.logos` (`RAggr`)
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`aggr_query`, `key_body`); `stdlib/mem/wql/typing.logos` (`group_key_ty`); `stdlib/mem/wql/typecheck.logos` (`group_key_ok`); `tests/logos/pass/wql_group_tuple_key_e2e.logos`, `tests/logos/fail/wql_group_tuple_key_f64_fail.logos`
 
 ### `deem.clause.aggregate` — `aggregate name=fn(arg?),…`
 

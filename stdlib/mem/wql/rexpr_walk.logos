@@ -5255,8 +5255,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // the floats whose equality is not reflexive in any type.
     // OWNED for the same reason `key_tn3s` is: the inferred name is a view into
     // `ty`'s table and `set_ty("key", …)` below writes that table.
-    let mut key_tys: String = String::new();
-    key_tys.push_str(infer_emit_ty(key_opt, &ty));
+    let key_tys: String = group_key_ty(key_opt, &ty);
     let key_ty: str = string_as_str(&key_tys);
     // The key's identity is checked on the core (`typecheck::group_key_ok`).
     ty.set_ty_named("key", key_ty);

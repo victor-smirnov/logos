@@ -1,0 +1,8 @@
+// A tuple `group by` key is an identity iff each component is one: an f64
+// component (no Eq) is refused, at that component.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct M { pub site: i64, pub temp: f64 }
+pub deem q(ms: &[M]) { from ms m group by (m.site, m.temp) aggregate n = count() select (key, n) }
+fn main() -> i32 { return 0i32; }

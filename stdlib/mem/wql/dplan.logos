@@ -880,8 +880,7 @@ pub fn plan_incremental(ds: &DSimple, prm: &MacroParams, qn: str, h: &Writ) -> D
         }
     }
     let key_opt: SExpr = simplify_sexpr(g.key.view::<SExpr>(), h).any().view::<SExpr>();
-    let mut key_tys: String = String::new();
-    key_tys.push_str(infer_emit_ty(key_opt, &ty));
+    let key_tys: String = group_key_ty(key_opt, &ty);
     ty.set_ty_named("key", key_tys.as_str());
     let mut gt: GroupTy = group_ty_new();
     if !type_aggs(&view, &g.aggs, &mut ty, h, &mut gt) { return dincr_none(); }

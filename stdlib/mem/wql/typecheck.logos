@@ -298,11 +298,10 @@ fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty
     let cl: &CClause = &ru.clause;
     let mut ty: ElTypes = ty0;
     let key_e: SExpr = sx(g.key);
-    if !reject_tuple_in(key_e, &ty, "wql!: `group by`") { return false; }
+    // A tuple key groups by every component (R: `HashMap<(K1, K2), …>`).
     if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
     let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
-    let mut key_tys: String = String::new();
-    key_tys.push_str(infer_emit_ty(key_opt, &ty));
+    let key_tys: String = group_key_ty(key_opt, &ty);
     if !group_key_ok(key_opt, &ty, string_as_str(&key_tys)) { return false; }
     ty.set_ty_named("key", string_as_str(&key_tys));
     let mut gt: GroupTy = group_ty_new();
@@ -326,6 +325,20 @@ fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty
 /// A group key needs an identity: its type's own `==` and hash, kept through
 /// the emitted bucket key; a named key needs `Eq` and `Copy`.
 fn group_key_ok(key_opt: SExpr, ty: &ElTypes, key_ty: str) -> bool {
+    match key_opt {
+        SExpr::Tuple(tp) => {
+            // A tuple key is an identity iff each component is one.
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                let c: SExpr = items.arg_at(i);
+                if !group_key_ok(c, ty, infer_emit_ty(c, ty)) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => { }
+    }
     let key_ety: i32 = infer_ty(key_opt, ty);
     let mut key_tn3s: String = String::new();
     key_tn3s.push_str(infer_ty_name(key_opt, ty));
