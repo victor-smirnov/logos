@@ -1,0 +1,29 @@
+// #737 / ADR 0031 R4 — a row selected WHOLE over a filter (or with an order,
+// a limit, `first`) is copied out of the source: by value when the row is
+// `Copy`, cloned when it is `Clone` — as `.copied()` / `.cloned()` in Rust.
+// (Unfiltered, `select p` stays the identity form and returns the slice.)
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.std.compiler.metaprog;
+struct Pt { pub x: i64, pub y: i64 }
+impl Copy for Pt { }
+impl Clone for Pt { fn clone(self: &Pt) -> Pt { return Pt { x: self.x, y: self.y }; } }
+#[derive_clone]
+struct Person { pub name: String, pub age: i64 }
+pub deem far(ps: &[Pt]) { from ps p where p.x > 1 select p order by p.x }
+pub deem first_far(ps: &[Pt]) { from ps p where p.y > 0 select first p order by p.y desc }
+pub deem adults(ps: &[Person]) { from ps p where p.age >= 18 select p }
+fn main() -> i32 {
+    let pts: [Pt; 3] = [ Pt { x: 3i64, y: 1i64 }, Pt { x: 1i64, y: 9i64 }, Pt { x: 2i64, y: 5i64 } ];
+    let f: Vec<Pt> = far(&pts[..]).unwrap();
+    if f.len() != 2i64 || f.get(0i64).x != 2i64 || f.get(1i64).x != 3i64 { return 1i32; }
+    let g: Option<Pt> = first_far(&pts[..]).unwrap();
+    match g { Option::Some(p) => { if p.y != 9i64 { return 2i32; } } Option::None => { return 3i32; } }
+    let mut ps: Vec<Person> = Vec::<Person>::new();
+    ps.push(Person { name: String::from_str("ann"), age: 30i64 });
+    ps.push(Person { name: String::from_str("bob"), age: 12i64 });
+    let a: Vec<Person> = adults(ps.as_slice()).unwrap();
+    if a.len() != 1i64 || !(a.borrow(0i64).name.as_str() == "ann") { return 4i32; }
+    return 0i32;
+}

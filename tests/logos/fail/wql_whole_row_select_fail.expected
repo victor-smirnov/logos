@@ -1,0 +1,1 @@
+the row `p` of type `Person` is selected whole, so each matching row is copied out of the source — `Person` must be `Copy` or `Clone`
