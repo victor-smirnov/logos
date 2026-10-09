@@ -6391,7 +6391,9 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
         } else {
             fp_owned = false;
         }
-        rid_trace(bare0, if rowid { RI_ROW() } else { RI_FOOTPRINT() });
+        // The identity is the PLAN's (`DIncr.rowid`, traced there); the text is
+        // spelled here by the same function, and the two must agree.
+        if rowid != di.rowid { logos.lang.panic::panic("ICE: the retract identity the emitter spells is not the plan's (ADR 0031 R7.4c)"); }
     }
     if sens && !rowid {
         fpty.push_str("(");
@@ -8782,79 +8784,6 @@ fn push_vec_new(out: &mut String, t: str) {
 
 
 
-/// The bare-scan retraction sensor's WHOLE-ROW identity: `(T0, T1, …)` into
-/// `ty_out` and `(v.f0, v.f1, …)` into `ex_out`, one component per stamped field
-/// of `row_ty`, in declaration order. A `str` field is OWNED (`to_string`, a
-/// `String` component) because the handle outlives the caller's bytes; a
-/// `String` field is copied the same way; a float is held by `f64_canon_bits`,
-/// the identity the multiplicity map and the footprint already key floats on.
-/// `false` (nothing written that matters) when a field is none of scalar,
-/// `str`, `String`, float — a named type is not walked, for `incr_row_ty_ok`'s
-/// transitivity reason — or the row was never stamped. `owned` is set when a
-/// component is a `String`, so the store's copies must clone.
-fn incr_rowid_text(t: &ElTypes, row_ty: str, v: str, ty_out: &mut String,
-                   ex_out: &mut String, owned: &mut bool) -> bool {
-    if row_ty.len() == 0i64 { return false; }
-    if !t.type_stamped(row_ty) { return false; }
-    ty_out.push_str("(");
-    ex_out.push_str("(");
-    let mut i: i64 = 0i64;
-    while true {
-        let e: i64 = t.type_field_at(row_ty, i);
-        if e < 0i64 { break; }
-        let ftn: str = t.binding_ty_name_at(e);
-        let col: str = t.binding_col_at(e);
-        if ftn.len() == 0i64 || col.len() == 0i64 { return false; }
-        if i > 0i64 { ty_out.push_str(", "); ex_out.push_str(", "); }
-        if str_eq(ftn, "String") {
-            ty_out.push_str("String");
-            ex_out.push_str("("); ex_out.push_str(v); ex_out.push_str(".");
-            ex_out.push_str(col); ex_out.push_str(").as_str().to_string()");
-            *owned = true;
-        } else {
-            let cls: i32 = el_class_lookup(ftn);
-            if cls == EL_TY_STR() {
-                ty_out.push_str("String");
-                ex_out.push_str("("); ex_out.push_str(v); ex_out.push_str(".");
-                ex_out.push_str(col); ex_out.push_str(").to_string()");
-                *owned = true;
-            } else if cls == EL_TY_FLT() {
-                ty_out.push_str("u64");
-                ex_out.push_str("f64_canon_bits(("); ex_out.push_str(v); ex_out.push_str(".");
-                ex_out.push_str(col); ex_out.push_str(") as f64)");
-            } else if cls == EL_TY_INT() || cls == EL_TY_BOOL() {
-                ty_out.push_str(ftn);
-                ex_out.push_str(v); ex_out.push_str("."); ex_out.push_str(col);
-            } else if cls < 0i32 && t.is_named(ftn)
-                      && has_trait_named("logos.lang.cmp::Eq", ftn) {
-                // A NAMED field joins the identity under Rust's bounds for a
-                // set element: `Eq` (an identity must be reflexive), and
-                // `Copy` (held by value) or `Clone` (copied, so the store owns
-                // it and its own copies clone). The impls are asked of the
-                // registry (`has_trait_named`, #340/#723), as join_sel asks
-                // them of a key; without them the row keeps the footprint.
-                ty_out.push_str(ftn);
-                if has_trait_named("logos.lang.clone::Copy", ftn) {
-                    ex_out.push_str(v); ex_out.push_str("."); ex_out.push_str(col);
-                } else if has_trait_named("logos.lang.clone::Clone", ftn) {
-                    ex_out.push_str("("); ex_out.push_str(v); ex_out.push_str(".");
-                    ex_out.push_str(col); ex_out.push_str(").clone()");
-                    *owned = true;
-                } else {
-                    return false;
-                }
-            } else {
-                return false;
-            }
-        }
-        i = i + 1i64;
-    }
-    // tuple `Clone`/`Copy` exist up to arity 12 (logos.lang.clone, as Rust's)
-    if i == 0i64 || i > 12i64 { return false; }
-    ty_out.push_str(")");
-    ex_out.push_str(")");
-    return true;
-}
 
 /// `<stored>.f == <delta>.f && …` over every stamped field of `row_ty` — the ROW
 /// IDENTITY the Z-set's normal form searches on, spelled from the SAME field
@@ -8915,21 +8844,8 @@ fn aggclass_trace(fn_name: str, r: i32) {
     plan_trace_raw(string_as_str(&fl));
 }
 
-fn incr_no_retract(qn: str, why: str) -> bool {
-    plan_trace("retraction", "declined", qn, why);
-    return false;
-}
 
 
-/// What a bare-scan retraction is matched on, named by its rule (why.logos `RI_*`).
-fn rid_trace(qn: str, r: i32) {
-    plan_trace("retract identity", ri_name(r), qn, ri_render(r));
-    if !plan_trace_facts_on() { return; }
-    let mut fl: String = String::new();
-    fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" retract_identity rule=");
-    fl.push_str(ri_name(r)); fl.push_str("\n");
-    plan_trace_raw(string_as_str(&fl));
-}
 
 
 
