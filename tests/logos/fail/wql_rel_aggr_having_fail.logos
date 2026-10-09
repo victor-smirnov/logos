@@ -1,4 +1,4 @@
-// An aggregating rel body's `having` is refused. The recursive min/max fold
+// A RECURSIVE aggregate rel body's `having` is refused. The min/max fold
 // (`rel_body_agg_frag`) reads the group key, the one aggregate's argument and
 // the `where` — never the `having` — so before ADR 0031 R6 a `having` here
 // compiled and was silently not applied (the same class as the `order by` of

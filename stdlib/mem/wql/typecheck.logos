@@ -195,7 +195,28 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
     let nv: i64 = vars.len();
     match &cl.group {
         Option::Some(g) => {
+            if prm.rel_is_group[ri] { return check_group_rel(view, prm, ri, ru, g, ty, h, &ch, &vars, nv); }
             if !prm.rel_is_agg[ri] { return true; }   // refused by the emitter's shape check
+            // A recursive min/max is ONE per-key lattice, and its fold applies
+            // no group filter.
+            if g.aggs.len() != 1i64 {
+                let mut ma: String = String::new();
+                ma.push_str("wql!: rel '"); ma.push_str(prm.rel_names[ri]);
+                ma.push_str("': a recursive aggregate rel supports exactly ONE aggregate (slice-1); found ");
+                ma.push_i64(g.aggs.len());
+                error(string_as_str(&ma));
+                return false;
+            }
+            match &g.having {
+                Option::Some(_h) => {
+                    let mut mh: String = String::new();
+                    mh.push_str("wql!: rel '"); mh.push_str(prm.rel_names[ri]);
+                    mh.push_str("': `having` is not supported in a recursive aggregate rel body — the min/max fold applies no group filter; filter the rel's rows in the entry query, or group in a separate rel");
+                    error(string_as_str(&mh));
+                    return false;
+                }
+                Option::None => { }
+            }
             let a0: WAny = match &g.aggs.as_slice()[0i64].arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
             if a0.is_null() { return true; }          // refused by the emitter's shape check
             if !lattice_value_ok(view, prm, ri) { return false; }
@@ -230,6 +251,99 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
     }
     if !cond_ok(cond_where(cl), &ty, "wql!: rel `where`") { return false; }
     return ons_ok(cl, &ty, "wql!: rel `on`");
+}
+
+/// A STRATIFIED grouping body (`rel_is_group`): the group's key and outputs
+/// as the entry's (`check_group_entry`), then one rel row per group. After the
+/// group a clause reads `key`, the aggregate outputs and the base row var
+/// (the group's representative row, as in an aggregate query); a join step's
+/// var is out of scope.
+fn check_group_rel(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, g: &CGroup, ty0: ElTypes,
+                   h: &Writ, ch: &DNest, vars: &Vec<str>, nv: i64) -> bool {
+    let cl: &CClause = &ru.clause;
+    let mut ty: ElTypes = ty0;
+    let key_e: SExpr = sx(g.key);
+    if !check_calls(key_e, &ty, "wql!: rel `group by`") { return false; }
+    let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
+    let key_tys: String = group_key_ty(key_opt, &ty);
+    if !group_key_ok(key_opt, &ty, string_as_str(&key_tys)) { return false; }
+    ty.set_ty_named("key", string_as_str(&key_tys));
+    let mut gt: GroupTy = group_ty_new();
+    if !type_aggs(view, &g.aggs, &mut ty, h, &mut gt) { return false; }
+    if !cond_ok(cond_where(cl), &ty, "wql!: rel `where`") { return false; }
+    if !ons_ok(cl, &ty, "wql!: rel `on`") { return false; }
+    let mut steps: Vec<str> = Vec::<str>::new();
+    let mut k: i64 = 0i64;
+    while k < ch.n { steps.push(ch.var[k]); k = k + 1i64; }
+    let proj_opt: SExpr = simplify_sexpr(sx(cl.head), h).any().view::<SExpr>();
+    if !group_scope_ok(sx(cl.head), &steps, prm, ri, ch.base_var, &ty, "`select`") { return false; }
+    match &g.having {
+        Option::Some(hv) => {
+            if !group_scope_ok(sx(*hv), &steps, prm, ri, ch.base_var, &ty, "`having`") { return false; }
+            if !cond_ok(*hv, &ty, "wql!: rel `having`") { return false; }
+        }
+        Option::None => { }
+    }
+    if !rel_proj_calls_ok(proj_opt, ri, prm, view, &ty) { return false; }
+    if !rel_select_ok(proj_opt, ri, prm, view, &ty, vars, nv) { return false; }
+    return aggs_ok(&g.aggs, &ty, &gt, h);
+}
+
+fn group_scope_ok(e: SExpr, steps: &Vec<str>, prm: &MacroParams, ri: i64, base_var: str,
+                  ty: &ElTypes, what: str) -> bool {
+    let vi: i64 = first_var_read(e, steps);
+    if vi < 0i64 { return true; }
+    let mut m: String = String::new();
+    m.push_str("wql!: rel '");
+    m.push_str(prm.rel_names[ri]);
+    m.push_str("': a grouping body's ");
+    m.push_str(what);
+    m.push_str(" reads the join step's row `");
+    m.push_str(steps.get(vi));
+    m.push_str("`, which is not in scope after `group by` — it reads `key`, the aggregate outputs and the base row `");
+    m.push_str(base_var);
+    m.push_str("` (its group's representative row)");
+    ty_error(ty, e, string_as_str(&m));
+    return false;
+}
+
+fn var_index(vars: &Vec<str>, n: str) -> i64 {
+    let mut k: i64 = 0i64;
+    while k < vars.len() { if str_eq(vars.get(k), n) { return k; } k = k + 1i64; }
+    return -1i64;
+}
+
+/// The index of the first of `vars` that `e` reads (-1 = none).
+fn first_var_read(e: SExpr, vars: &Vec<str>) -> i64 {
+    match e {
+        SExpr::Lit(_) => { return -1i64; }
+        SExpr::Bin(b)  => { let l: i64 = first_var_read(b.lhs_expr(), vars); if l >= 0i64 { return l; } return first_var_read(b.rhs_expr(), vars); }
+        SExpr::Un(u)   => { return first_var_read(u.arg_expr(), vars); }
+        SExpr::Cast(c) => { return first_var_read(c.arg_expr(), vars); }
+        SExpr::Cond(c) => {
+            let a: i64 = first_var_read(c.cond_expr(), vars); if a >= 0i64 { return a; }
+            let t: i64 = first_var_read(c.then_expr(), vars); if t >= 0i64 { return t; }
+            return first_var_read(c.else_expr(), vars);
+        }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < args.len() { let r: i64 = first_var_read(args.arg_at(i), vars); if r >= 0i64 { return r; } i = i + 1i64; }
+            return -1i64;
+        }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() { let r: i64 = first_var_read(items.arg_at(i), vars); if r >= 0i64 { return r; } i = i + 1i64; }
+            return -1i64;
+        }
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if !br.any().is_null() { return first_var_read(br.any().view::<SExpr>(), vars); }
+            return var_index(vars, f.name);
+        }
+        _ => { return var_index(vars, root_ident_name(e)); }
+    }
 }
 
 /// A rel row's calls and operators, each component in its column's type: a

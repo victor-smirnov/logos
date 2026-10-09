@@ -142,6 +142,10 @@ pub struct MacroParams {
     // the lattice order (`<` for min, `>` for max) the absorb gate uses.
     pub rel_is_agg: Vec<bool>,
     pub rel_agg_dir: Vec<i32>,
+    // A NON-recursive rel whose bodies group (stratified aggregation: it reads
+    // an earlier stratum only). Each body folds its groups and pushes one row
+    // per group into the rel's set, like any other body.
+    pub rel_is_group: Vec<bool>,
     // ── THE REL'S SCC, FLATTENED ONTO THE REGISTRY (P3b) ──────────────────
     // `RelScc` is computed by the program walker and threaded to the WALKER's
     // emitters, but `emit_incremental` is reached from the ENTRY query's
@@ -403,6 +407,7 @@ pub fn macro_params_new() -> MacroParams {
         relc_ty:   Vec::<str>::new(),
         rel_n: 0i64,
         rel_is_agg:  Vec::<bool>::new(),
+        rel_is_group: Vec::<bool>::new(),
         rel_agg_dir: Vec::<i32>::new(),
         rel_sccid:   Vec::<i64>::new(),
         rel_incr_ok: Vec::<bool>::new(),
@@ -614,6 +619,7 @@ impl MacroParams {
         self.rel_coff.push(0i64);
         self.rel_ccnt.push(0i64);
         self.rel_is_agg.push(false);
+        self.rel_is_group.push(false);
         self.rel_agg_dir.push(0i32);
         self.rel_sccid.push(0i64);
         self.rel_incr_ok.push(false);

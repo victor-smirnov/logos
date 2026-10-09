@@ -431,7 +431,7 @@ A recursive `min`/`max` aggregate rel is a lattice: every column but the last is
 
 ### `deem.datalog.rel-body-gates` — rel body modifier gates
 
-A rel body is from/join/where/select ONLY; aggregate and `find` bodies are named errors, and `first`/`distinct`/`order by`/`limit`/`: RTy` are rejected in a body (they are entry-query concerns; distinct is implicit under set semantics); the select width must equal the declared column count.
+A rel body is from/join/where/select, optionally grouped (`deem.datalog.stratified-aggregation`); a `find` body is a named error, and `first`/`distinct`/`order by`/`limit`/`: RTy` are rejected in a body (they are entry-query concerns; distinct is implicit under set semantics); the select width must equal the declared column count.
 
 *Divergence:* RESTRICTION — rel bodies are pure relation producers (Datalog rule bodies), not full queries.
 
@@ -492,6 +492,14 @@ An `anti join R` or an aggregate body reading `R` where `R` is in the SAME SCC a
 *Divergence:* standard Datalog stratified negation (a cycle through negation or aggregation is rejected).
 
 *Evidence:* `stdlib/mem/wql/plan_walker.logos` (`check_stratified`); negated/aggregated sub-lists `stdlib/mem/wql/params.logos` (`RelDeps` `afrom`/`ato`, `gfrom`/`gto`, `add_anti`, `add_agg`)
+
+### `deem.datalog.stratified-aggregation` — a rel body may group an earlier stratum
+
+A rel body with `group by K aggregate a = f(e), … [having P] select (…)` that is not a recursive `min`/`max` lattice (`deem.datalog.rel-columns`) is a STRATIFIED aggregate: it reads only rels of earlier strata and slice params (a source in its own recursive component is `deem.datalog.stratified-negation`'s error), folds its groups once — any number of aggregates, `count`/`sum`/`min`/`max`/`avg` and user aggregates, typed as in an aggregate query — and pushes one row per group that passes `having` into the rel's set. After `group by` the `select` and `having` read `key` (a tuple key's components as `key.N`), the aggregate outputs and the base row var, which is the group's representative row as in an aggregate query; a join step's row var is out of scope (a named error). The rel may have other bodies, plain or grouped, whose rows join the same set. A grouping rel inside a recursive component (closed through another body) is refused.
+
+*Divergence:* Datalog's stratified aggregation (Soufflé's `x = sum y : { … }` over lower strata); the representative row after `group by` is the aggregate query's, where SQL would refuse a non-grouped column.
+
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`check_stratified` — `rel_is_group`); `stdlib/mem/wql/typecheck.logos` (`check_group_rel`, `group_scope_ok`); `stdlib/mem/wql/rexpr_walk.logos` (`rel_body_group_frag`); `tests/logos/pass/wql_rel_group_e2e.logos`, `tests/logos/fail/wql_rel_group_step_var_fail.logos`, `tests/logos/fail/wql_rel_group_in_cycle_fail.logos`
 
 ## UDF / UDA
 

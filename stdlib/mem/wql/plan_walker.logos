@@ -256,20 +256,27 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
         }
         k2 = k2 + 1i64;
     }
-    // ── Non-recursive aggregate bodies: deferred (out of slice-1) ──
+    // ── Non-recursive aggregate bodies: STRATIFIED AGGREGATION ──
     // A rel with an aggregate body that did NOT finalize as a recursive
-    // semilattice head is a non-recursive aggregate rel (aggregate over a slice
-    // param / earlier stratum). Recursive min/max is the only aggregate-body
-    // form implemented; anything else is aggregated in the entry query.
+    // semilattice head groups an earlier stratum only (the aggregate edges into
+    // its own SCC were refused above): each body folds its groups and pushes one
+    // row per group, as in Datalog / Soufflé.
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
         if deps.head_agg_dir_of(r) != 0i32 && !prm.rel_is_agg[r] {
-            let mut m3: String = String::new();
-            m3.push_str("wql!: rel '");
-            m3.push_str(prm.rel_names[r]);
-            m3.push_str("': aggregate rel bodies are only supported as RECURSIVE min/max (an idempotent semilattice closing a self-cycle); a non-recursive aggregate rel is not yet supported — aggregate in the entry query or over an earlier stratum");
-            error(string_as_str(&m3));
-            return false;
+            // Recursive through a PLAIN edge (another body closes the cycle):
+            // the group's rows would have to join the fixpoint — not supported.
+            if scc.rec[scc.comp[r]] {
+                let mut m3: String = String::new();
+                m3.push_str("wql!: rel '");
+                m3.push_str(prm.rel_names[r]);
+                m3.push_str("': a grouping rel body inside the recursive component ");
+                push_scc_members(&mut m3, prm, scc, scc.comp[r]);
+                m3.push_str(" — only a recursive min/max closing its own self-cycle may aggregate in a fixpoint; group in a separate rel over the recursive one");
+                error(string_as_str(&m3));
+                return false;
+            }
+            prm.rel_is_group[r] = true;
         }
         r = r + 1i64;
     }

@@ -1,0 +1,56 @@
+// A STRATIFIED aggregate rel: a rel body that groups an earlier stratum (a
+// slice param, or a rel below it) pushes one row per group, as a Datalog
+// aggregate rule does. Its rows are read like any other rel's — by another
+// rel, by the entry, through a join. `having` filters groups; the body may
+// join before grouping; a tuple key groups by every component; the base row
+// var after `group by` is the group's representative row.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Sale { pub region: str, pub year: i64, pub amt: i64 }
+struct Region { pub region: str, pub zone: str }
+pub deem per_region(ss: &[Sale]) {
+    rel pr(r: str, t: i64, n: i64, hi: i64) {
+        from ss s group by s.region aggregate t = sum(s.amt), n = count(), hi = max(s.amt)
+            having t > 2 select (key, t, n, hi);
+    }
+    from pr p select (p.r, p.t, p.n, p.hi) order by p.r
+}
+pub deem top(ss: &[Sale], regions: &[Region]) {
+    rel pr(r: str, t: i64) { from ss s group by s.region aggregate t = sum(s.amt) select (key, t); }
+    rel pz(z: str, t: i64) {
+        from ss s join regions g on g.region == s.region group by g.zone aggregate t = sum(s.amt) select (key, t);
+    }
+    rel tp(r: str, t: i64) {
+        from pr p where p.t > 6 select (p.r, p.t);
+        from pz z where z.t < 5 select (z.z, z.t);
+    }
+    from tp x select (x.r, x.t) order by x.r
+}
+pub deem per_year(ss: &[Sale], extra: &[Sale]) {
+    rel ry(r: str, y: i64, t: i64) {
+        from ss s group by (s.region, s.year) aggregate t = sum(s.amt) select (s.region, key.1, t);
+        from extra e select (e.region, e.year, e.amt);
+    }
+    from ry x select (x.r, x.y, x.t) order by x.t
+}
+fn main() -> i32 {
+    let ss: [Sale; 6] = [ Sale { region: "eu", year: 2024i64, amt: 5i64 }, Sale { region: "eu", year: 2025i64, amt: 7i64 },
+                          Sale { region: "us", year: 2024i64, amt: 1i64 }, Sale { region: "us", year: 2024i64, amt: 4i64 },
+                          Sale { region: "eu", year: 2024i64, amt: 3i64 }, Sale { region: "ap", year: 2025i64, amt: 2i64 } ];
+    let regions: [Region; 3] = [ Region { region: "eu", zone: "west" }, Region { region: "us", zone: "west" },
+                                 Region { region: "ap", zone: "east" } ];
+    let extra: [Sale; 2] = [ Sale { region: "us", year: 2023i64, amt: 9i64 }, Sale { region: "eu", year: 2024i64, amt: 8i64 } ];
+    let a: Vec<(str, i64, i64, i64)> = per_region(&ss[..]).unwrap();
+    let mut i: i64 = 0i64;
+    while i < a.len() { println!("pr {} {} {} {}", a.get(i).0, a.get(i).1, a.get(i).2, a.get(i).3); i = i + 1i64; }
+    let b: Vec<(str, i64)> = top(&ss[..], &regions[..]).unwrap();
+    i = 0i64;
+    while i < b.len() { println!("tp {} {}", b.get(i).0, b.get(i).1); i = i + 1i64; }
+    let c: Vec<(str, i64, i64)> = per_year(&ss[..], &extra[..]).unwrap();
+    i = 0i64;
+    while i < c.len() { println!("ry {} {} {}", c.get(i).0, c.get(i).1, c.get(i).2); i = i + 1i64; }
+    return 0i32;
+}
