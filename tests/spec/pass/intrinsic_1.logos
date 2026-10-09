@@ -196,12 +196,12 @@ unsafe fn main() -> i64 {
         let mut dog: Dog = Dog { tag: 7i64 };
         let vt: *const u8 = vtable_of::<Speak, Dog>();
         if vt == (0 as *const u8) { return 28i64; }
-        let d = dyn_from_parts::<Speak>((&mut dog) as *mut u8, vt);
+        let d = dyn_from_parts::<Speak>((&mut dog) as *mut Dog as *mut u8, vt);
         if (*d).says() != 1i32 { return 29i64; }
 
         let mut cat: Cat = Cat { tag: 9i64, breed: 3i32 };
         let vtc: *const u8 = vtable_of::<Speak, Cat>();
-        let dc = dyn_from_parts::<Speak>((&mut cat) as *mut u8, vtc);
+        let dc = dyn_from_parts::<Speak>((&mut cat) as *mut Cat as *mut u8, vtc);
         if (*dc).says() != 2i32 { return 30i64; }
     }
 

@@ -26,7 +26,7 @@ fn main() -> i32 {
     wiov[2] = &b[0] as *const u8 as i64;
     wiov[3] = 2 as i64;
 
-    let n: i64 = p.write_vectored(&wiov[0] as *const IoSlice, 2);
+    let n: i64 = p.write_vectored(&wiov[0] as *const i64 as *const IoSlice, 2);
     if n != 5 as i64 { p.close(); return 2; }
 
     // Read back into two destination buffers via readv.
@@ -39,7 +39,7 @@ fn main() -> i32 {
     riov[2] = &y[0] as *const u8 as i64;
     riov[3] = 3 as i64;
 
-    let nr: i64 = p.read_vectored(&riov[0] as *mut IoSlice, 2);
+    let nr: i64 = p.read_vectored(&mut riov[0] as *mut i64 as *mut IoSlice, 2);
     if nr != 5 as i64 { p.close(); return 3; }
 
     // Expect x=[h,e] y=[l,l,o]

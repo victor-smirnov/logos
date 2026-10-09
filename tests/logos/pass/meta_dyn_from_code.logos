@@ -30,9 +30,9 @@ unsafe fn revive(data: *mut u8, code: u64) -> i32 {
 unsafe fn main() -> i32 {
     let mut dog = Dog { tag: 7 };
     let mut cat = Cat { tag: 9, breed: 3 };
-    if revive((&mut dog) as *mut u8, schema_code::<Dog>()) != 1 { return 1; }
-    if revive((&mut cat) as *mut u8, schema_code::<Cat>()) != 2 { return 2; }
+    if revive((&mut dog) as *mut Dog as *mut u8, schema_code::<Dog>()) != 1 { return 1; }
+    if revive((&mut cat) as *mut Cat as *mut u8, schema_code::<Cat>()) != 2 { return 2; }
     // Unknown code → graceful miss (no stored vtable to dereference).
-    if revive((&mut dog) as *mut u8, 0xDEADBEEF as u64) != (-1 as i32) { return 3; }
+    if revive((&mut dog) as *mut Dog as *mut u8, 0xDEADBEEF as u64) != (-1 as i32) { return 3; }
     return 0;
 }

@@ -16,7 +16,7 @@ unsafe fn main() -> i32 {
     nd.next = target;                                         // lower: store self-relative offset
     let back: *mut i64 = nd.next;                             // materialize: absolute ptr
     if *back != 777i64 { return 1; }                          // round-trips through deref
-    let slot: *const i64 = (&nd.next) as *const i64;
+    let slot: *const i64 = (&nd.next) as *const *mut i64 as *const i64;
     if *slot != (target as i64) - (slot as i64) { return 2; } // genuinely self-relative in storage
     nd.next = 0i64 as *mut i64;                               // null sentinel
     if (nd.next as i64) != 0i64 { return 3; }                 // null round-trips (offset 0)

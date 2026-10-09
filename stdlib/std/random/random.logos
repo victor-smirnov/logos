@@ -27,7 +27,7 @@ pub fn os_u64() -> u64 {
         let mut bytes: [u8; 8] = [0 as u8, 0 as u8, 0 as u8, 0 as u8,
                                    0 as u8, 0 as u8, 0 as u8, 0 as u8];
         getrandom(&mut bytes[0], 8 as i64, 0 as u32);
-        let p: *const u64 = &bytes[0] as *const u64;
+        let p: *const u64 = &bytes[0] as *const u8 as *const u64;
         return p[0 as i64];
     }
 }

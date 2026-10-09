@@ -1,0 +1,16 @@
+// The legal raw-pointer forms stay admitted: `(*p).bump()` / `&*p` / `&mut *p` through `*mut` in `unsafe`, `(*q).get()` over `*const dyn`, `&x as *const`, `&mut y as *mut` / `*const`.
+package ok1;
+trait C { fn get(&self) -> i64; }
+struct A { t: i64 }
+impl A { fn bump(&mut self) { self.t += 1; } }
+impl C for A { fn get(&self) -> i64 { self.t } }
+fn main() -> i32 {
+    let mut a = A { t: 3 };
+    let p: *mut A = &mut a;
+    unsafe { (*p).bump(); let r: &A = &*p; let m: &mut A = &mut *p; m.bump(); let _ = r; }
+    let q: *const dyn C = &a;
+    let g = unsafe { (*q).get() };
+    let x = 5i64; let c = &x as *const i64; let mut y = 6i64; let d = &mut y as *mut i64; let e = &mut y as *const i64;
+    let s = unsafe { *c + *d + *e };
+    return (g * 100 + s) as i32 % 256;
+}

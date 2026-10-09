@@ -23,7 +23,7 @@ fn main() -> i32 {
 
         // Spawn 4 workers, each incrementing counter 1000 times.
         let fp: *const u8 = worker as *const u8;
-        let arg: *mut u8 = &mut counter as *mut u8;
+        let arg: *mut u8 = &mut counter as *mut AtomicI64 as *mut u8;
 
         let mut h1: JoinHandle = thread_spawn(fp, arg);
         let mut h2: JoinHandle = thread_spawn(fp, arg);

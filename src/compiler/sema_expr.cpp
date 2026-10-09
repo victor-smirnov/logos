@@ -551,6 +551,20 @@ lir::LExprPtr SemaChecker::lower_mut_place(TinyMapView n) {
     return e;
 }
 
+// `*p` over a raw pointer (thin, or a `*const/*mut dyn Tr` / `[T]` fat one):
+// only inside `unsafe` (E0133); in a mutable-use position (`&mut *p`, an
+// autoref'd `&mut self` receiver) only through `*mut` (E0596).
+void SemaChecker::raw_deref_needs_unsafe_(TypeRef t, bool mut_use) {
+    if (!t) return;
+    const auto k = TypeRef(t).kind();
+    const bool raw = k == LogosType::Kind::Ptr ||
+                     ((k == LogosType::Kind::TraitObject || k == LogosType::Kind::Slice) && TypeRef(t).raw_fat());
+    if (!raw) return;
+    if (!inside_unsafe_) error("dereference of raw pointer requires unsafe context");
+    else if (mut_use && !TypeRef(t).mut_ptr())
+        error(std::format("cannot borrow data behind a `*const` pointer as mutable (E0596): `{}`", type_str(t)));
+}
+
 void SemaChecker::refuse_deref_only(TypeRef t) {
     error(std::format("cannot mutate through '*{}': '{}' implements `Deref` "
                       "but not `DerefMut` (E0594/E0596)",
@@ -1425,7 +1439,16 @@ bool SemaChecker::cast_permitted_(TypeRef from, TypeRef to) {
     if (tk == K::Char && (fk == K::U8 || fk == K::IntLit)) return true;     // u8-char
     if (fk == K::Ptr && (tk == K::Ptr || is_int(tk))) return true;          // ptr-ptr, ptr-addr
     if (is_int(fk) && tk == K::Ptr) return true;                            // addr-ptr
-    if (is_ref(fk) && tk == K::Ptr) return true;                            // &T -> *T (array-ptr)
+    // &T -> *const T, &mut T -> *const/*mut T (array-ptr); `&T as *mut T` is E0606.
+    // The pointee is the reference's own, or an array's element (array-ptr);
+    // another pointee goes through a raw pointer first (`&x as *const T as *const U`).
+    if (is_ref(fk) && tk == K::Ptr) {
+        if (fk != K::MutRef && TypeRef(to).mut_ptr()) return false;
+        TypeRef fp = TypeRef(from).pointee(), tp = TypeRef(to).pointee();
+        if (!fp || !tp || open(fp) || open(tp) || !type_is_concrete(fp) || !type_is_concrete(tp)) return true;
+        if (types_equal(fp, tp)) return true;
+        return TypeRef(fp).kind() == K::Array && TypeRef(fp).elem() && types_equal(TypeRef(fp).elem(), tp);
+    }
     // A borrowed trait object / slice is a fat reference: to its raw pointer.
     if ((fk == K::TraitObject || fk == K::Slice) && tk == K::Ptr) return true;
     // `&mut dyn Tr as *mut dyn Tr`: both are trait-object kinds in Logos.
@@ -2100,6 +2123,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // steps the inner `*bb` through `deref_mut` too.
             auto operand = lower_mut_place(map_of(child.get(la::VALUE.code)));
             auto op_t = expr_type(operand);
+            raw_deref_needs_unsafe_(op_t, true);
             const bool operand_unsized =
                 code_of(unwrap_paren_node(map_of(child.get(la::VALUE.code)))) == la::DEREF &&
                 deref_yielded_unsized_;
@@ -4477,6 +4501,7 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
             pending_ext_init_ = std::move(saved_pei);
             auto reborrow = [&]() -> lir::LExprPtr {
                 auto op_t = expr_type(operand);
+                raw_deref_needs_unsafe_(op_t, false);
                 const bool operand_unsized =
                     code_of(unwrap_paren_node(map_of(child.get(la::VALUE.code)))) == la::DEREF &&
                     deref_yielded_unsized_;
@@ -4788,6 +4813,7 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
             return error_expr();
         }
         if (vk == LogosType::Kind::Slice || vk == LogosType::Kind::TraitObject) {
+            raw_deref_needs_unsafe_(vt, mut_ctx);
             deref_yielded_unsized_ = true;
             return operand;
         }
@@ -4797,9 +4823,7 @@ lir::LExprPtr SemaChecker::lower_deref(TinyMapView node) {
         error(std::format("type `{}` cannot be dereferenced", type_str(vt)));
         return error_expr();
     }
-    // Raw pointer deref requires unsafe context
-    if (TypeRef(vt).kind() == LogosType::Kind::Ptr && !inside_unsafe_)
-        error("dereference of raw pointer requires unsafe context");
+    raw_deref_needs_unsafe_(vt, mut_ctx);
     auto res = TypeRef(vt).pointee() ? TypeRef(vt).pointee() : error_t();
     return builder().deref(std::move(operand), res);
 }
