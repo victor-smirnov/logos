@@ -27,6 +27,7 @@ use logos.lang.str;
 use logos.mem.string;
 use logos.std.wql.params;    // MacroParams — rel names, the declared op table
 use logos.std.wql.codegen;   // plan_trace / string_as_str — the ONE decision channel (S4a)
+use logos.std.wql.el;          // string_as_str
 use logos.std.wql.why;       // AccessGround — the access path's ground as rules over facts (E2)
 
 // ── Access kinds ──────────────────────────────────────────────────────────

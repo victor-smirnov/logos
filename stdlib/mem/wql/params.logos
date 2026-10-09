@@ -24,6 +24,7 @@ use logos.lang.writ.anyval;   // WAny — the parsed query root (ADR 0024 S0)
 use logos.mem.string;   // String — native_use_text builds the chunk's use-decl text
 use logos.mem.collections.vec;   // per-module use-decl dedup
 use logos.std.wql.core;          // the planned core the emitters read (ADR 0031 R5)
+use logos.std.wql.el;          // string_as_str
 
 fn mp_is_space(c: u8) -> bool { return c == 32u8 || c == 9u8 || c == 10u8 || c == 13u8; }
 fn mp_is_alpha(c: u8) -> bool {

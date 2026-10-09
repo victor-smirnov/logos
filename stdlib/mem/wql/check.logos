@@ -15,6 +15,7 @@ use logos.std.wql.ir;             // SExpr and its nodes
 use logos.std.wql.params;         // MacroParams (is_scalar)
 use logos.std.wql.optimize;       // name_refs
 use logos.std.wql.codegen;        // string_as_str
+use logos.std.wql.el;          // string_as_str
 use logos.std.wql.core;           // the core
 
 // ── The chain's row vars, in the scope of each clause ────────────────────────

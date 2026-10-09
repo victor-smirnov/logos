@@ -1,0 +1,26 @@
+// ADR 0031 R4.4 — an integer literal above i64::MAX is the value of the
+// unsigned type beside it, as in Rust: compared with a u64 column, and stored
+// in a u64 rel column. (The lexer keeps no value for it; its spelling is it.)
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct R { pub k: u64, pub n: i64 }
+pub deem tops(rs: &[R]) { from rs r where r.k == 18446744073709551615 select r.n }
+pub deem high(rs: &[R]) { from rs r where r.k >= 9223372036854775808 select r.n order by r.n }
+pub deem seeded(rs: &[R]) {
+    rel m(k: u64) { from rs r select r.k; from rs r select 18446744073709551615; }
+    from m x select x.k order by x.k
+}
+fn main() -> i32 {
+    let mut rs: Vec<R> = Vec::<R>::new();
+    rs.push(R { k: 18446744073709551615u64, n: 1i64 });
+    rs.push(R { k: 9223372036854775808u64, n: 2i64 });
+    rs.push(R { k: 5u64, n: 3i64 });
+    let t: Vec<i64> = tops(rs.as_slice()).unwrap();
+    if t.len() != 1i64 || t.get(0i64) != 1i64 { return 1i32; }
+    let h: Vec<i64> = high(rs.as_slice()).unwrap();
+    if h.len() != 2i64 || h.get(0i64) != 1i64 || h.get(1i64) != 2i64 { return 2i32; }
+    let m: Vec<u64> = seeded(rs.as_slice()).unwrap();
+    if m.len() != 3i64 || m.get(2i64) != 18446744073709551615u64 { return 3i32; }
+    return 0i32;
+}

@@ -69,6 +69,7 @@ use logos.std.wql.plan_walker;           // walk_program_params — the program 
 use logos.std.wql.plan;                  // RQProgram — the parsed program (the entry's presence)
 use logos.std.wql.lower;                 // desugar_program_gpaths — graph-path sugar (M2a)
 use logos.std.wql.codegen;               // plan_trace — the demand decision on the [plan] channel
+use logos.std.wql.el;          // string_as_str
 use logos.std.wql.dl_export;             // dl_export — the Soufflé oracle's program text
 use logos.std.wql.core;                  // the Deem core (ADR 0031): lowered once, verified
 use logos.std.wql.crewrite;              // the core rewrites (ADR 0031 R3)

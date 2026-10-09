@@ -417,7 +417,8 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 out.push_str("\")");
                 return true;
             }
-            out.push_i64(v.as_i64());
+            // above i64::MAX the lexer keeps no value: the spelling is it
+            if v.as_i64() == el_lit_poison() { el_lit_digits(l.txt, l.suffix(), out); } else { out.push_i64(v.as_i64()); }
             return true;
         }
         SExpr::Param(p) => {
