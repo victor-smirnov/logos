@@ -1,0 +1,12 @@
+// A library fn named as a value (`i64::max`, `i32::max` into fold): its symbol carries the archive's module (`logos_lang..`), as a call's callee does; the value was dropped.
+package p;
+use logos.std.fmt;
+use logos.lang.cmp;
+fn ap(f: fn(i64, i64) -> i64) -> i64 { f(3, 9) }
+fn main() {
+    let v = vec![4i32, 11, -2, 7];
+    let m = v.iter().copied().fold(i32::MIN, i32::max);
+    let n = v.iter().copied().fold(i32::MAX, i32::min);
+    let g = i64::min;
+    println!("{} {} {} {}", ap(i64::max), g(3, 9), m, n);
+}
