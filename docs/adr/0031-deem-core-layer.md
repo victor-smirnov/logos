@@ -143,6 +143,16 @@ What R4.0 left: atoms are typed on Core, expressions are not. The expression che
 | R4.4 | operand typing is unification over Logos types (one type per operator, literal inference, `bool` conditions), replacing the class-based agreement test; literals up to `u64::MAX` | `r.name == 5` refused by Deem; every operator × type pair the corpus has |
 | R4.5 | every name typed (consts by declaration, imported row types by the compiler, whole-row vars); the emitters read the checker's environment; the `i64` baseline is a traced fallback held at zero by a gate | census of the baseline's hits = 0 (`logos_09_ty_default`) |
 
+### 4.4 R7.4 broken down (2026-10-09)
+
+The incremental entry's admission (`incr_eligible`: 24 decline grounds) and its retraction surface (`retract_ok`) are decided INSIDE the group emitter, from values only the emitter computed: the select's element type (`tuple_result` / `comp_head_ty` → `result_ty`, `tres`), the key's emitted type, the aggregates' accumulators and finalized columns. R4 moved the last two onto Core (`typing::type_aggs`, R4.2a); the rest follows, so that "does this query get a handle, and why not" is a plan fact with its ground, not an emission side effect.
+
+| Step | What | Acceptance |
+|---|---|---|
+| R7.4a | the entry's result type on Core (`typing::entry_result_ty`: scalar, tuple, comprehension, owned `String`, an annotated `result_ty`), read by every entry emitter (from `tuple_result`, `comp_head_ty`) | gen + traces byte-identical |
+| R7.4b | `dplan::plan_incremental`: admission + retraction surface decided by the planner from the planned core, the `GroupTy`, the key type and the result type, recorded with its ground (`DIncr { admit, retract, rel_m, why }`), traced once; `emit_incremental` reads it | gen + traces byte-identical; `incr_eligibility_gate`, every `wql_incr_*` fixture |
+| R7.4c | the handle's state (accumulators, rel-backed totals) described by the plan, the emitter spelling it | same |
+
 ## 5. Relation to other ADRs
 
 - ADR 0024: S0 (positions) feeds Core spans; S2/S3 land ON Core (R4) instead of on the surface; S4's "plan as data" becomes DPlan; S5 ("emitters read the IR") is R6.
