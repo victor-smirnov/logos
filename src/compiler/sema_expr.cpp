@@ -3237,6 +3237,18 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             }
         }
     }
+    // A generic ADT instance, an enum, a reference to a struct under an
+    // arithmetic operator (`impl Mul<i64> for &P`): the operator's lang trait.
+    if (const OpLangItem* oi = binary_op_item(op)) {
+        const auto k = TypeRef(lt).kind();
+        const bool generic_adt = (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) &&
+                                 !TypeRef(lt).type_args().empty();
+        const bool ref_struct = oi->has_output() && is_ref_t(lt) && TypeRef(lt).pointee() &&
+                                (TypeRef(lt).pointee().kind() == LogosType::Kind::Struct ||
+                                 TypeRef(lt).pointee().kind() == LogosType::Kind::Enum);
+        if (generic_adt || k == LogosType::Kind::Enum || ref_struct)
+            if (auto c = lower_op_by_trait_(*oi, lhs, &rhs)) return c;
+    }
     if (TypeRef(lt_sv).kind() == LogosType::Kind::Struct) {
         // Map operator to trait name and method
         std::string trait_name, method_name;
@@ -4637,6 +4649,18 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
     if (TypeRef(vt).kind() == LogosType::Kind::Error)
         return builder().unary(std::string(op), std::move(operand), error_t());
 
+    // A generic ADT instance, an enum, a reference to one: the operator's lang
+    // trait. Over a type parameter bounded by it, the result is its `Output`
+    // (op_output_type_), the call mono's at the instance.
+    if (const OpLangItem* oi = unary_op_item(op)) {
+        TypeRef base = vt && is_ref_like(TypeRef(vt).kind()) && TypeRef(vt).pointee() ? TypeRef(vt).pointee() : TypeRef(vt);
+        const auto k = TypeRef(base).kind();
+        if (((k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct) &&
+             (!TypeRef(base).type_args().empty() || base != vt)) || k == LogosType::Kind::Enum)
+            if (auto c = lower_op_by_trait_(*oi, operand, nullptr)) return c;
+        if (TypeRef out = op_output_type_(vt, oi->trait))
+            return builder().unary(std::string(op), std::move(operand), out);
+    }
     // Unary operator overloading for struct types
     if (TypeRef(vt).kind() == LogosType::Kind::Struct) {
         std::string trait_name, method_name;
@@ -6768,6 +6792,61 @@ static bool probe_self_head_match_(TypeRef formal, TypeRef actual) {
 // blanket impl whose bounds self meets). The candidate's trait is matched by
 // identity (name + declaring package), never inferred from a composed key.
 // `key_out` receives the registry key the candidate was found under.
+// ADR 0030 S8 row 3: an operator over a non-primitive operand IS its lang
+// trait's method (Rust: `a + b` is `Add::add(a, b)`, `a == b` is
+// `PartialEq::eq(&a, &b)`, `-a` is `Neg::neg(a)`), the impl found by the
+// trait's identity — a generic impl (`impl<T> Add for M<T>`) and an enum's
+// included. `!=` is the negated `eq`. Null when no impl answers; the operands
+// are then untouched.
+lir::LExprPtr SemaChecker::lower_op_by_trait_(const OpLangItem& oi, lir::LExprPtr& lhs, lir::LExprPtr* rhs) {
+    using K = LogosType::Kind;
+    TypeRef lt = expr_type(lhs);
+    TypeRef rt = rhs ? expr_type(*rhs) : TypeRef{};
+    if (!lt) return nullptr;
+    const bool ne = oi.op == "!=";
+    const std::string_view method = ne ? std::string_view("eq") : oi.method;
+    auto lit = [&](TypeRef t) {
+        return t && (TypeRef(t).kind() == K::IntLit || TypeRef(t).kind() == K::FloatLit || is_lit_var_(t));
+    };
+    // Logos keeps `Eq` beside `PartialEq`, each declaring `eq`: `==` takes either.
+    std::vector<std::string_view> langs{oi.lang};
+    if (oi.lang == "partial_eq") langs.push_back("eq");
+    for (auto lang : langs) {
+        const std::string tkey = lang_trait_key_(lang);
+        if (tkey.empty()) continue;
+        std::string skey;
+        const SemaFuncInfo* fi = nullptr;
+        if (rhs && rt && !lit(rt)) fi = resolve_trait_item_(tkey, lt, method, &skey, {rt});
+        if (!fi) fi = resolve_trait_item_(tkey, lt, method, &skey);
+        if (!fi || fi->param_types.size() != (rhs ? 2u : 1u)) continue;
+        std::vector<lir::LExprPtr> args;
+        auto push = [&](lir::LExprPtr e, size_t i) {
+            TypeRef vt = expr_type(e);
+            TypeRef formal = fi->param_types[i];
+            if (formal && is_ref_like(TypeRef(formal).kind()) && vt && !is_ref_like(TypeRef(vt).kind())) {
+                const bool m = TypeRef(formal).kind() == K::MutRef;
+                args.push_back(autoref_operand(std::move(e), m, make_ref(m, vt), BorrowOrigin::OperatorAutoref));
+                return;
+            }
+            // An unsuffixed literal takes the impl's Rhs (`&p * 3` over `Mul<i64>`).
+            if (formal && lit(vt) && is_integer_kind(TypeRef(formal).kind()))
+                widen_int_expr(e, formal, builder());
+            else if (vt)
+                mark_moved_expr(expr_ref_of(e));   // a by-value operand is consumed by the call
+            args.push_back(std::move(e));
+        };
+        push(std::move(lhs), 0);
+        if (rhs) push(std::move(*rhs), 1);
+        const std::string sym = fi->symbol_name.empty() ? skey : fi->symbol_name;
+        lir::LExprPtr call = fi->type_params.empty()
+            ? builder().call(sym, {}, std::move(args), fi->ret_type)
+            : finish_generic_call(sym, *fi, {}, std::move(args));
+        if (ne) call = builder().unary(std::string("!"), std::move(call), bool_t());
+        return call;
+    }
+    return nullptr;
+}
+
 const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_view trait, TypeRef self,
                                                      std::string_view name, std::string* key_out,
                                                      const std::vector<TypeRef>& trait_args) {

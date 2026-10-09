@@ -5162,6 +5162,7 @@ bool SemaChecker::known_lang_item(std::string_view lang) noexcept {
         "fn", "fn_mut", "fn_once", "sized", "send", "sync", "unpin", "fst",
         "stable_layout", "self_describing", "iterator", "into_iterator", "default", "error",
         "eq", "partial_eq", "partial_ord", "ord", "try", "from_residual",
+        "add", "sub", "mul", "div", "rem", "neg", "not", "bitand", "bitor", "bitxor", "shl", "shr",
         // types
         "owned_box", "pin", "rc", "arc", "unsafe_cell", "phantom_pinned", "atomic_ordering",
         "Option", "Result", "control_flow",

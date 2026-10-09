@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <logos/compiler/op_lang_items.hpp>
 #include "obligation.hpp"
 
 namespace logos::compiler {
@@ -10926,6 +10927,9 @@ private:
     const SemaFuncInfo* resolve_trait_item_(std::string_view trait, TypeRef self, std::string_view name,
                                             std::string* key_out = nullptr,
                                             const std::vector<TypeRef>& trait_args = {});
+    // An operator over a non-primitive operand as its lang trait's method
+    // (sema_expr.cpp); null when no impl answers. `rhs` null for a unary one.
+    lir::LExprPtr lower_op_by_trait_(const logos::compiler::OpLangItem& oi, lir::LExprPtr& lhs, lir::LExprPtr* rhs);
     void reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal);
     lir::LExprPtr method_call_resolved_(lir::EMethodCall mc, TypeRef ret);
     lir::LExprPtr method_call_named_(lir::LExprPtr recv, std::string method,
