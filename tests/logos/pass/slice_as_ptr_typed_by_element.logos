@@ -1,0 +1,5 @@
+// `<[T]>::as_ptr` is `*const T` (was `*const u8` whatever T: `p.add(1)` stepped one byte); `as_mut_ptr`; an array receiver unsizes.
+package s4;
+fn f(s: &[i64]) -> i64 { let p = s.as_ptr(); unsafe { *p.add(1) } }
+fn g(s: &mut [i64]) { let p = s.as_mut_ptr(); unsafe { *p.add(2) = 20; } }
+fn main() -> i32 { let mut d = [5i64, 7, 0]; g(&mut d); let a = [1i32, 2, 3]; let q = a.as_ptr(); let t = unsafe { *q.add(2) }; return (f(&d) + d[2]) as i32 + t; }

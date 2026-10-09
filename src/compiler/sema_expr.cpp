@@ -9774,8 +9774,10 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
     if (method_name == "len") {
         return builder().slice_len(std::move(recv), prim(LogosType::Kind::I64));
     }
-    if (method_name == "as_ptr") {
-        return builder().slice_ptr(std::move(recv), make_ptr(false, u8_t()));
+    // `<[T]>::as_ptr` is `*const T` (`as_mut_ptr` over `&mut [T]`: `*mut T`).
+    if (method_name == "as_ptr" || (method_name == "as_mut_ptr" && TypeRef(expr_type(recv)).mut_ptr())) {
+        TypeRef elem = TypeRef(expr_type(recv)).elem();
+        return builder().slice_ptr(std::move(recv), make_ptr(method_name == "as_mut_ptr", elem ? elem : u8_t()));
     }
     // §6 Wave 9 (h19) — `&str.as_bytes()` returns the bytes of the
     // string slice. Because Logos models `&str` as `Slice<u8>` (= the
@@ -10177,7 +10179,9 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_array(
     // unsize step of method resolution does.
     TypeRef elem = TypeRef(arr_t).elem();
     if (!elem) return std::nullopt;
-    bool found = false, wants_mut = false;
+    // The slice built-ins (try_method_on_slice) through the same unsize step.
+    bool found = method_name == "len" || method_name == "as_ptr" || method_name == "as_mut_ptr";
+    bool wants_mut = method_name == "as_mut_ptr";
     // S9b row 2: the slice `[elem]`'s methods by identity — an impl whose Self
     // matches (`impl<T> .. for [T]`, `impl .. for [u8]`, not `str`'s for `[i64]`).
     const TypeRef sl = make_unsized_slice_type(elem);
@@ -10908,6 +10912,16 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 }
             }
 
+            // A `&mut self` method through a shared reference (`t: &T`): the
+            // referent is not a mutable place (rustc E0596).
+            if (!chosen_method->param_types.empty() && chosen_method->param_types[0] &&
+                TypeRef(chosen_method->param_types[0]).kind() == LogosType::Kind::MutRef &&
+                expr_type(recv) && TypeRef(expr_type(recv)).kind() == LogosType::Kind::Ref) {
+                error(std::format("cannot borrow data in a `&` reference as mutable (E0596): `{}` takes "
+                                  "`&mut self`, the receiver is `{}`",
+                                  std::string(method_name), type_str(expr_type(recv))));
+                return error_expr();
+            }
             // Use EMethodCall — mono will resolve to concrete impl.
             lir::EMethodCall mc;
             mc.receiver = std::move(recv);
@@ -18036,6 +18050,16 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         by_value_self = TypeRef(tm.param_types[0]).kind() == LogosType::Kind::TypeVar;
                     break;
                 }
+        // `Tr::m(t)` with `m(&mut self)` and `t: &T` (T a type parameter, whose
+        // call is the bound's and checked by no impl signature here): rustc E0308.
+        if (titem && titem->has_self_receiver && !titem->param_types.empty() && titem->param_types[0] &&
+            TypeRef(titem->param_types[0]).kind() == LogosType::Kind::MutRef && arg0_t &&
+            TypeRef(arg0_t).kind() == LogosType::Kind::Ref && TypeRef(arg0_t).pointee() &&
+            TypeRef(TypeRef(arg0_t).pointee()).kind() == LogosType::Kind::TypeVar) {
+            error(std::format("mismatched types (E0308): `{}::{}` takes `&mut Self`, the argument is `{}`",
+                              std::string(class_name), std::string(method_name), type_str(arg0_t)));
+            return error_expr();
+        }
         // The expectation names Self when it is a type, not a hole (a generic
         // fn's `Result<*mut W<K>, E>` is one).
         const bool expected_names_self = call_expected &&

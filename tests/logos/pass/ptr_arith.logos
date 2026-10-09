@@ -1,13 +1,13 @@
 package ptr_arith;
 // Raw-pointer arithmetic: byte_add/sub, add/sub, byte_offset_from, offset_from.
-// Uses slice.as_ptr() (*const u8) + explicit casts, since &arr[i] currently
+// Uses slice.as_ptr() (*const i32, cast to *const u8 for the byte forms) + explicit casts, since &arr[i] currently
 // spills the element to a fresh alloca.
 
 fn main() -> i32 {
     let arr: [i32; 4] = [10, 20, 30, 40];
     let s: &[i32] = &arr;
     unsafe {
-        let base_u8: *const u8 = s.as_ptr();
+        let base_u8: *const u8 = s.as_ptr() as *const u8;
         let p0: *const i32 = base_u8 as *const i32;
 
         let p2: *const i32 = p0.add(2);
