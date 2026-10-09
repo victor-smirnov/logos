@@ -9215,6 +9215,20 @@ SemaChecker::MatchCore SemaChecker::lower_match_core(TinyMapView node, MatchForm
                 else earlier_any = true;
             }
 
+            // Rust 2024 (if-let rescope): an `if let`'s temporary scrutinee is
+            // dropped BEFORE its else block runs, not at the end of the match.
+            // The else arm (the HIR's `_`, last) drops it first and owns it on
+            // its path; the drop flag the other arms' merge needs is the
+            // existing per-arm move discipline's.
+            if (mc.temp_scrut_hoisted && eff_arms.size() == 2 && i == 1 &&
+                (hir_origin_(node) == hir::Origin::IfLet || hir_origin_(node) == hir::Origin::LetChain) &&
+                arm.has_key(la::LHS) && code_of(map_of(arm.get(la::LHS.code))) == la::PAT_WILD &&
+                !moved_vars_.count(mc.temp_scrut_var)) {
+                if (auto d = make_drop_stmt(mc.temp_scrut_var, VarInfo{scrut_type, false})) {
+                    body_prologue.insert(body_prologue.begin(), *d);
+                    mark_moved(mc.temp_scrut_var);
+                }
+            }
             MatchCoreArm out;
             out.line = static_cast<uint32_t>(get_line(arm));
             // 0: falls through; 1: never reaches the enclosing frame's drops
