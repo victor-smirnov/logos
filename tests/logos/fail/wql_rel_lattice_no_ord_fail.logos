@@ -1,0 +1,22 @@
+// A recursive min/max aggregate's value column must be Ord: a user type that is
+// Eq + Hash (a legal rel column) but not Ord is refused, naming the trait.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.hash;
+use logos.std.compiler.metaprog;
+#[derive_eq]
+#[derive_hash]
+#[derive_clone]
+struct Lvl { pub v: i64 }
+impl Copy for Lvl { }
+struct Node { pub id: i64, pub lvl: Lvl }
+struct Edge { pub src: i64, pub dst: i64 }
+pub deem top(src: &[Node], edges: &[Edge]) {
+    rel m(node: i64, l: Lvl) {
+        from src s select (s.id, s.lvl);
+        from m x join edges e on e.src == x.node group by e.dst aggregate l = max(x.l) select (e.dst, l);
+    }
+    from m r select r.node
+}
+fn main() -> i32 { return 0i32; }

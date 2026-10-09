@@ -1,0 +1,1 @@
+a recursive min/max aggregate's value column `Lvl` must be totally ordered and compared in its own type (`Ord`, as `Iterator::min` needs in Rust): an integer, `bool`, `str`, or an `Ord + Copy` type — `Lvl` is not `Ord`

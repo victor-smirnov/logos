@@ -243,18 +243,27 @@ fn rel_proj_calls_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, ty: 
 
 /// A recursive min/max is a LATTICE JOIN: the fixpoint converges to the
 /// extremum of the order the emitted comparison realizes, and the absorb gate
-/// compares values in the value column's own type. So that type must be
-/// totally ordered — `Ord`, as `Iterator::min` needs in Rust: an integer of any
-/// width or `bool` (an `f64`'s order is partial: no least upper bound).
+/// compares values with `<` in the value column's own type. So that type must
+/// be totally ordered — `Ord`, as `Iterator::min` needs in Rust: an integer of
+/// any width, `bool`, `str` (byte-lexicographic), or a user type that is `Ord`
+/// and `Copy` (each improving value is copied into the best map). An `f64`'s
+/// order is partial: no least upper bound.
 fn lattice_value_ok(view: &OView, prm: &MacroParams, ri: i64) -> bool {
     let voff: i64 = prm.rel_coff[ri];
     let vcty: str = resolve_alias_name(view, prm.relc_ty[voff + 1i64]);
     let vct: ElTy = el_ty(vcty);
-    if vct.cls == EL_TY_INT() || vct.cls == EL_TY_BOOL() { return true; }
+    if vct.cls == EL_TY_INT() || vct.cls == EL_TY_BOOL() || str_eq(vcty, "str") { return true; }
+    let mut miss: str = "";
+    if vct.cls < 0i32 {
+        if !named_has_ord(vcty) { miss = "`Ord`"; }
+        else if !named_is_copy(vcty) { miss = "`Copy` (each improving value is copied into the best map)"; }
+        else { return true; }
+    }
     let mut mv: String = String::new();
     mv.push_str("wql!: a recursive min/max aggregate's value column `");
     mv.push_str(vcty);
-    mv.push_str("` must be totally ordered and compared in its own type (`Ord`, as `Iterator::min` needs in Rust): an integer of any width or `bool`");
+    mv.push_str("` must be totally ordered and compared in its own type (`Ord`, as `Iterator::min` needs in Rust): an integer, `bool`, `str`, or an `Ord + Copy` type");
+    if miss.len() > 0i64 { mv.push_str(" — `"); mv.push_str(vcty); mv.push_str("` is not "); mv.push_str(miss); }
     if vct.cls == EL_TY_FLT() { mv.push_str(" — an f64 has only a partial order, so the fixpoint has no least upper bound to converge to"); }
     error(string_as_str(&mv));
     return false;

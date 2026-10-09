@@ -1,0 +1,45 @@
+// A recursive min aggregate over any Ord value column (as Iterator::min needs
+// in Rust): a `str` (byte-lexicographic) and a user type deriving Ord + Copy.
+// The absorb gate compares with `<` in the column's own type.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.hash;
+use logos.std.compiler.metaprog;
+#[derive_ord]
+#[derive_eq]
+#[derive_hash]
+#[derive_clone]
+struct Lvl { pub hi: i64, pub lo: i64 }
+impl Copy for Lvl { }
+struct Node { pub id: i64, pub tag: str, pub lvl: Lvl }
+struct Edge { pub src: i64, pub dst: i64 }
+// The least tag that reaches each node.
+pub deem least_tag(src: &[Node], edges: &[Edge]) {
+    rel b(node: i64, t: str) {
+        from src s select (s.id, s.tag);
+        from b x join edges e on e.src == x.node group by e.dst aggregate t = min(x.t) select (e.dst, t);
+    }
+    from b r select (r.node, r.t) order by r.node
+}
+// The greatest level that reaches each node (lexicographic on (hi, lo)).
+pub deem top_lvl(src: &[Node], edges: &[Edge]) {
+    rel m(node: i64, l: Lvl) {
+        from src s select (s.id, s.lvl);
+        from m x join edges e on e.src == x.node group by e.dst aggregate l = max(x.l) select (e.dst, l);
+    }
+    from m r select (r.node, r.l) order by r.node
+}
+fn main() -> i32 {
+    let src: [Node; 2] = [ Node { id: 1i64, tag: "pear", lvl: Lvl { hi: 1i64, lo: 9i64 } },
+                           Node { id: 2i64, tag: "apple", lvl: Lvl { hi: 2i64, lo: 0i64 } } ];
+    let edges: [Edge; 3] = [ Edge { src: 1i64, dst: 3i64 }, Edge { src: 2i64, dst: 3i64 },
+                             Edge { src: 3i64, dst: 4i64 } ];
+    let t: Vec<(i64, str)> = least_tag(&src[..], &edges[..]).unwrap();
+    if t.len() != 4i64 { return 1i32; }
+    if !(t.get(2i64).1 == "apple") || !(t.get(3i64).1 == "apple") { return 2i32; }
+    let l: Vec<(i64, Lvl)> = top_lvl(&src[..], &edges[..]).unwrap();
+    if l.len() != 4i64 { return 3i32; }
+    if l.get(2i64).1.hi != 2i64 || l.get(3i64).1.hi != 2i64 || l.get(3i64).1.lo != 0i64 { return 4i32; }
+    return 0i32;
+}
