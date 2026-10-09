@@ -1576,58 +1576,9 @@ fn clause_infallible(t: str) -> bool {
     return true;
 }
 
-fn is_comp_root(e: SExpr) -> bool {
-    match e {
-        SExpr::Comp(_) => { return true; }
-        _ => { return false; }
-    }
-}
-
-// ── Tuple-projection envelope (shared by every projecting emitter) ───────────
-// When `proj` is tuple-rooted (`select (a, b, …)` — multi-column rows), validate
-// the modifier combination and fill `tt` with the NATIVE tuple TYPE text
-// `(T1, T2, …)` (per-component EL inference + owned-String promotion). Returns:
-//   1  — tuple projection (tt filled; the result element type IS the tuple type);
-//   0  — not a tuple projection (tt untouched);
-//  -1  — error surfaced (`: RTy` annotation clash, or distinct over an f64
-//         component — tuple `==` routes through variadic__eq which requires Eq,
-//         and f64 is PartialEq only).
-fn tuple_result(proj: SExpr, t: &ElTypes, has_result_ty: bool, distinct: bool,
-                tt: &mut String) -> i32 {
-    if !is_tuple_root(proj) { return 0i32; }
-    match proj {
-        SExpr::Tuple(tp) => {
-            if tp.items_arr().len() < 2i64 {
-                // Unreachable via the grammar (tuple_body demands ≥ 2 components;
-                // `(e)` parses as grouping) — kept as a defensive diagnostic.
-                error("wql!: a tuple projection needs at least two components — `(e)` is grouping, not a 1-tuple");
-                return -1i32;
-            }
-            if has_result_ty {
-                error("wql!: a `: ResultTy` annotation cannot be combined with a tuple projection — the element type is the tuple type itself");
-                return -1i32;
-            }
-            if distinct && tuple_has_flt(tp, t) {
-                error("wql!: `distinct` over a tuple projection with an f64 component is not supported — tuple equality requires Eq and f64 is not Eq");
-                return -1i32;
-            }
-            push_tuple_ty(tt, tp, t);
-        }
-        _ => { }
-    }
-    return 1i32;
-}
 
 
-/// The element TYPE of a comprehension projection — its head's own type, as the
-/// emitter prints it (E4.4: it was the head's class representative, so a `u8`
-/// head made a `Vec<i64>`).
-fn comp_head_ty(e: SExpr, t: &ElTypes) -> str {
-    match e {
-        SExpr::Comp(cp) => { return infer_emit_ty(cp.head_expr(), t); }
-        _ => { return "i64"; }
-    }
-}
+
 
 // ── RExpr shape decomposition helpers ────────────────────────────────────────
 // The top of a lowered plan is `RLimit?( RDistinct?( RProj( RSort?( body ), sel ) ) )`;
@@ -1935,28 +1886,12 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
     let proj_opt: SExpr = simplify_sexpr(proj_sexpr, h).any().view::<SExpr>();
-    let mut result_ty: str = result_ty0;
-    if !has_result_ty {
-        result_ty = infer_emit_ty(proj_opt, &ty);
-        // A String-returning call projects an OWNED element (Vec<String>).
-        if returns_string(proj_opt, &ty) { result_ty = "String"; }
-    }
-    // Tuple projection: the element type is the native tuple type text.
-    let mut tuple_tt: String = String::new();
-    let tres: i32 = tuple_result(proj_opt, &ty, has_result_ty, false, &mut tuple_tt);
-    if tres < 0i32 { return false; }
-    if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
-    let is_comp: bool = is_comp_root(proj_opt);
-    if !has_result_ty && is_comp {
-        result_ty = comp_head_ty(proj_opt, &ty);
-    }
-    let mut elem_ty: String = String::new();
-    if is_comp {
-        elem_ty.push_str("Vec<"); elem_ty.push_str(result_ty); elem_ty.push_str(">");
-    } else {
-        elem_ty.push_str(result_ty);
-    }
-    let result_elem: str = string_as_str(&elem_ty);
+    // The select's element type is the clause's (`typing::entry_result_ty`).
+    let et: EntryTy = entry_result_ty(proj_opt, &ty, result_ty0, has_result_ty);
+    let result_ty: str = string_as_str(&et.ty);
+    let tres: i32 = if et.tuple { 1i32 } else { 0i32 };
+    let is_comp: bool = et.comp;
+    let result_elem: str = string_as_str(&et.elem);
 
     // ── the item is a QUOTE (ADR 0024 S5), BODY INCLUDED ──────────────────
     // Both collapses are a return type plus a one-line constant body, and the
@@ -2906,33 +2841,12 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     let mut body: String = String::new();
     emit_proj_value(&mut body, proj_opt, &ty, var_name);
 
-    let mut result_ty: str = result_ty0;
-    if !has_result_ty {
-        result_ty = infer_emit_ty(proj_opt, &ty);
-        // A String-returning call (upper/lower or a String UDF) projects an
-        // OWNED element: Vec<String> / Option<String> — a borrowed `str` view
-        // of the call's temporary would dangle.
-        if returns_string(proj_opt, &ty) { result_ty = "String"; }
-    }
-    // Tuple projection (`select (a, b, …)`): multi-column rows — the element
-    // type is the native tuple type text (Vec<(T1,T2)> / Option<(T1,T2)>).
-    let mut tuple_tt: String = String::new();
-    let tres: i32 = tuple_result(proj_opt, &ty, has_result_ty, mods.distinct, &mut tuple_tt);
-    if tres < 0i32 { return false; }
-    if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
-    let is_comp: bool = is_comp_root(proj_opt);
-    if !has_result_ty && is_comp {
-        result_ty = comp_head_ty(proj_opt, &ty);
-    }
-    let mut elem_ty: String = String::new();
-    if is_comp {
-        elem_ty.push_str("Vec<");
-        elem_ty.push_str(result_ty);
-        elem_ty.push_str(">");
-    } else {
-        elem_ty.push_str(result_ty);
-    }
-    let result_elem: str = string_as_str(&elem_ty);
+    // The select's element type is the clause's (`typing::entry_result_ty`).
+    let et: EntryTy = entry_result_ty(proj_opt, &ty, result_ty0, has_result_ty);
+    let result_ty: str = string_as_str(&et.ty);
+    let tres: i32 = if et.tuple { 1i32 } else { 0i32 };
+    let is_comp: bool = et.comp;
+    let result_elem: str = string_as_str(&et.elem);
 
     let mut pred_body: String = String::new();
     if has_where {
@@ -4745,18 +4659,10 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
 
     // 3. Clause bodies (const-folded).
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
-    let mut result_ty: str = result_ty0;
-    if !has_result_ty {
-        result_ty = infer_emit_ty(proj_opt, &ty);
-        // Owned-String projection (String-returning call at the select root).
-        if returns_string(proj_opt, &ty) { result_ty = "String"; }
-    }
-    // Tuple projection (components may range across ALL bound join vars): the
-    // result element type is the native tuple type text.
-    let mut tuple_tt: String = String::new();
-    let tres: i32 = tuple_result(proj_opt, &ty, has_result_ty, mods.distinct, &mut tuple_tt);
-    if tres < 0i32 { return false; }
-    if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
+    // The select's element type is the clause's (`typing::entry_result_ty`).
+    let et: EntryTy = entry_result_ty(proj_opt, &ty, result_ty0, has_result_ty);
+    let result_ty: str = string_as_str(&et.elem);
+    let tres: i32 = if et.tuple { 1i32 } else { 0i32 };
     let mut proj_body: String = String::new();
     emit_proj_value(&mut proj_body, proj_opt, &ty, ch.base_var);
     let mut where_body: String = String::new();
@@ -5368,17 +5274,10 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     // Clause bodies (`key_opt` is already simplified above).
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
-    let mut result_ty: str = result_ty0;
-    if !has_result_ty {
-        result_ty = infer_emit_ty(proj_opt, &ty);
-        // Owned-String projection (String-returning call at the select root).
-        if returns_string(proj_opt, &ty) { result_ty = "String"; }
-    }
-    // Tuple projection over the group row (join-aggregate shape).
-    let mut tuple_tt: String = String::new();
-    let tres: i32 = tuple_result(proj_opt, &ty, has_result_ty, mods.distinct, &mut tuple_tt);
-    if tres < 0i32 { return false; }
-    if tres > 0i32 { result_ty = string_as_str(&tuple_tt); }
+    // The select's element type is the clause's (`typing::entry_result_ty`).
+    let et: EntryTy = entry_result_ty(proj_opt, &ty, result_ty0, has_result_ty);
+    let result_ty: str = string_as_str(&et.elem);
+    let tres: i32 = if et.tuple { 1i32 } else { 0i32 };
     let mut kb3: String = String::new();
     emit_sexpr(&mut kb3, key_opt, &ty, ch.base_var);
     let key_body: String = key_norm_body(string_as_str(&kb3), string_as_str(&key_tn3s), key_ty);

@@ -149,6 +149,32 @@ fn rule_type_env(view: &OView, prm: &MacroParams, ru: &CRule, entry: bool) -> El
     return ty;
 }
 
+/// A tuple projection's shape (R7.4a, moved from the entry emitters): at least
+/// two components, no `: ResultTy` annotation (the element type IS the tuple),
+/// and no `distinct` over an `f64` component (a tuple's `==` needs `Eq`).
+fn tuple_shape_ok(ru: &CRule, ty: &ElTypes, h: &Writ) -> bool {
+    if ru.clause.head.is_null() { return true; }
+    let proj: SExpr = simplify_sexpr(sx(ru.clause.head), h).any().view::<SExpr>();
+    match proj {
+        SExpr::Tuple(tp) => {
+            if tp.items_arr().len() < 2i64 {
+                ty_error(ty, proj, "wql!: a tuple projection needs at least two components — `(e)` is grouping, not a 1-tuple");
+                return false;
+            }
+            if ru.env.result_ty.len() > 0i64 {
+                ty_error(ty, proj, "wql!: a `: ResultTy` annotation cannot be combined with a tuple projection — the element type is the tuple type itself");
+                return false;
+            }
+            if ru.env.distinct && tuple_has_flt(tp, ty) {
+                ty_error(ty, proj, "wql!: `distinct` over a tuple projection with an f64 component is not supported — tuple equality requires Eq and f64 is not Eq");
+                return false;
+            }
+        }
+        _ => { }
+    }
+    return true;
+}
+
 // ── a rel's rule ────────────────────────────────────────────────────────────
 
 fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ) -> bool {
@@ -230,6 +256,7 @@ fn check_entry(view: &OView, prm: &MacroParams, ru: &CRule, h: &Writ) -> bool {
     }
     if !check_calls(sx(cl.head), &ty, "wql!: `select`") { return false; }
     if !head_is_row_var(cl) && !check_projection_copy(sx(cl.head), &ty, "wql!: `select`") { return false; }
+    if !tuple_shape_ok(ru, &ty, h) { return false; }
     if !cond_ok(cond_where(cl), &ty, "wql!: `where`") { return false; }
     match &ru.env.order {
         Option::Some(k) => { if !cond_ok(*k, &ty, "wql!: `order by`") { return false; } }
@@ -253,6 +280,7 @@ fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty
     if !type_aggs(view, &g.aggs, &mut ty, h, &mut gt) { return false; }
     if !check_calls(sx(cl.head), &ty, "wql!: `select`") { return false; }
     if !head_is_row_var(cl) && !check_projection_copy(sx(cl.head), &ty, "wql!: `select`") { return false; }
+    if !tuple_shape_ok(ru, &ty, h) { return false; }
     if !cond_ok(cond_where(cl), &ty, "wql!: `where`") { return false; }
     if !ons_ok(cl, &ty, "wql!: `on`") { return false; }
     match &g.having {

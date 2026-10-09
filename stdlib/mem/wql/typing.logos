@@ -722,3 +722,45 @@ fn agg_col_tys(agg_flt: &Vec<bool>, uda: &Vec<bool>,
         i = i + 1i64;
     }
 }
+
+// ── ADR 0031 R7.4a — the entry's result element type, once ────────────────
+// Four entry emitters (scan, empty, join, group) each derived it with their own
+// copy of one rule; the join and group copies had no comprehension arm, so a
+// `select [..]` there was typed as the `i64` baseline. The tuple-shape refusals
+// the copies made on the way are the checker's (`typecheck::tuple_shape_ok`).
+
+/// What an entry's `select` produces: the element type `ty`, the collection
+/// element `elem` (`Vec<ty>` for a comprehension), and whether it is a tuple.
+pub struct EntryTy {
+    pub ty:    String,
+    pub elem:  String,
+    pub tuple: bool,
+    pub comp:  bool,
+}
+
+/// `proj` simplified, `t` the environment it is read in (after a group, with
+/// `key` and the aggregate outputs), `annot` the `: ResultTy` annotation.
+pub fn entry_result_ty(proj: SExpr, t: &ElTypes, annot: str, has_annot: bool) -> EntryTy {
+    let mut ty: String = String::new();
+    let mut tuple: bool = false;
+    let mut comp: bool = false;
+    match proj {
+        SExpr::Comp(cp) => {
+            comp = true;
+            if has_annot { ty.push_str(annot); } else { ty.push_str(infer_emit_ty(cp.head_expr(), t)); }
+        }
+        SExpr::Tuple(tp) => {
+            tuple = true;
+            push_tuple_ty(&mut ty, tp, t);
+        }
+        _ => {
+            if has_annot { ty.push_str(annot); }
+            else if returns_string(proj, t) { ty.push_str("String"); }
+            else { ty.push_str(infer_emit_ty(proj, t)); }
+        }
+    }
+    let mut elem: String = String::new();
+    if comp { elem.push_str("Vec<"); elem.push_str(ty.as_str()); elem.push_str(">"); }
+    else { elem.push_str(ty.as_str()); }
+    return EntryTy { ty: ty, elem: elem, tuple: tuple, comp: comp };
+}
