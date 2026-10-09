@@ -9510,6 +9510,17 @@ private:
     // callee): the call's arguments are lowered while the qualifier stands, and
     // `buf.as_str()` inside `__fmt_println(…)` is not the callee's package's.
     std::string call_pkg_qualifier_name_;
+    // Q1 row 4e: the package of the free function the HIR resolved a bare
+    // value name to (RES `fn:pkg::name`), "" when it resolved to none or to
+    // the root package.
+    std::string res_fn_package_(writ::TinyMapView node) {
+        if (!node.has_key(logos::compiler::ast::RES)) return {};
+        std::string_view r = str_of(node.get(logos::compiler::ast::RES.code));
+        if (!r.starts_with("fn:")) return {};
+        r.remove_prefix(3);
+        const auto sep = r.rfind("::");
+        return sep == std::string_view::npos ? std::string() : std::string(r.substr(0, sep));
+    }
     // Q1 row 4: a static call `Type::m(..)` names the methods of the TYPE its
     // path resolves to — not of every homonym type whose methods share the
     // spelled key `Type__m` (two `Buffer`s in the stdlib).
