@@ -3325,7 +3325,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
             auto pk2 = TypeRef(recv_t.pointee()).kind();
             if (pk2 == K::Ref || pk2 == K::MutRef || pk2 == K::Ptr || is_primitive_scalar_kind(pk2) ||
                 pk2 == K::Tuple || pk2 == K::Array || pk2 == K::Slice || pk2 == K::UnsizedSlice ||
-                pk2 == K::Enum || pk2 == K::FnPtr || pk2 == K::Void)
+                pk2 == K::Enum || pk2 == K::FnPtr || pk2 == K::Void || pk2 == K::Closure)
                 primitive_recv = true;
         }
         // A `str` receiver is `[u8]` — NOT a struct, so `gen_recv_struct`
@@ -3407,7 +3407,13 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EMethodCallView v, TypeRef ret_
         recv_t && ref_repr_of(TypeRef(recv_t)) == RefReprKind::FatZoneMut;
     auto [ptr, tname] = recv_is_fat_zone ? gen_recv_struct_inner(recv_ref)
                                          : gen_recv_struct(recv_ref);
-    if (!ptr || tname.empty()) return nullptr;
+    // A receiver no arm above takes and no struct names: the call would vanish
+    // with its statement (a blanket impl's method on `&mut <closure>` did,
+    // silently, exit 0). Unresolved is a malfunction, never a dropped call.
+    if (!ptr || tname.empty())
+        return bug_null("method call `{}`: receiver of type `{}` reached the struct path "
+                        "without a struct (resolved symbol `{}`)",
+                        method, recv_t ? type_str(recv_t) : std::string("?"), resolved_symbol);
     // ⚠ NOT strip_struct_pkg (task #99): the compiler-synthesised AnyVal has no
     // package, so its mlir key IS the bare "AnyVal"; a user `struct AnyVal` keys
     // as "<pkg>.AnyVal" and must not be spilled into an i32 slot.
