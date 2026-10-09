@@ -2,7 +2,6 @@
 // the inherent method over it (it was refused: only the free `i64_from_str` & co. existed). The turbofish of an inherent
 // `impl str` method is honoured. rustc twin: 50.
 package str_parse_method;
-use logos.lang.num.parse;
 use logos.lang.num.error;
 fn main() -> i32 {
     let a: i64 = "42".parse::<i64>().unwrap();

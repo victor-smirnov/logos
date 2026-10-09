@@ -8390,11 +8390,12 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 // instantiation (its slice pattern selects on the unsized
                 // arg, e.g. PkdArray<[u8]> → the VLE spec).
                 unsized_ok_ = true;
-            } else if (!param_known && code_of(item) == la::DYN_TYPE) {
+            } else if (!param_known && code_of(item) == la::DYN_TYPE && !item.has_key(la::IS_REF)) {
                 // The target's params can't be consulted yet — the struct is
                 // still a pass-0 STUB (empty type_params) because alias RHS
                 // types resolve in phase 2 BEFORE phase 1 fills struct bodies.
-                // A bare `dyn Trait` as a type-ARGUMENT is inherently unsized;
+                // A bare `dyn Trait` (no written `&` — the grammar folds `&dyn`
+                // into this node with IS_REF) as a type-ARGUMENT is inherently unsized;
                 // defaulting it to the sized fat-VALUE `TraitObject` (the legacy
                 // by-value bare-dyn shape) is wrong for an owned tail
                 // (`Arc<dyn>`/`Rc<dyn>`) and produced the dual `udyn`/`&dyn`
