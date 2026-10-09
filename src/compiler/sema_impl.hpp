@@ -10897,6 +10897,7 @@ private:
                                                          bool* degraded = nullptr);
     // A mutable-use position refusing a `Deref`-only step (rustc E0594/E0596).
     void refuse_deref_only(TypeRef t);
+    void raw_deref_needs_unsafe_(TypeRef t, bool mut_use);
     // The place-projection nodes that carry a mutable-use position down to
     // their base (parens unwrapped): DEREF / FIELD_READ / INDEX_READ / TUPLE_INDEX.
     bool is_place_node(writ::TinyMapView n) noexcept;

@@ -1,0 +1,3 @@
+// `&x as *const u8` with x: i32 is refused (rustc E0606): another pointee goes through a raw pointer first (`&x as *const i32 as *const u8`). The cast table ignored the pointee.
+package p;
+fn main() -> i32 { let x: i32 = 7; let p = &x as *const u8; return unsafe { *p } as i32; }

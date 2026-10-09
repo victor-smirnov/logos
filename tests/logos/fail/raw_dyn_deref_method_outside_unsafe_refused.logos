@@ -1,0 +1,6 @@
+// `(*p).get()` over `*const dyn C` outside `unsafe` is refused (rustc E0133); a raw fat pointer's deref skipped the check.
+package u7;
+trait C { fn get(&self) -> i64; }
+struct A { n: i64 }
+impl C for A { fn get(&self) -> i64 { self.n } }
+fn main() -> i32 { let a = A { n: 4 }; let p: *const dyn C = &a; return (*p).get() as i32; }

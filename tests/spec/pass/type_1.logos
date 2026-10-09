@@ -86,7 +86,7 @@ unsafe fn main() -> i64 {
         nd.next = target;                                  // lower to self-relative offset
         let back: *mut i64 = nd.next;                      // materialise absolute ptr
         if *back != 777i64 { return 13; }
-        let slot: *const i64 = (&nd.next) as *const i64;
+        let slot: *const i64 = (&nd.next) as *const RP<i64> as *const i64;
         if *slot != (target as i64) - (slot as i64) { return 14; }  // stored bytes are an offset
         free(mem); free(nd as *mut u8);
     }

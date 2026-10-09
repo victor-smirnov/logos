@@ -84,10 +84,10 @@ pub fn tcp_listen(ip: u32, port: u16, backlog: i32) -> TcpListener {
 
         // SO_REUSEADDR = 2, SOL_SOCKET = 1
         let one: i32 = 1;
-        setsockopt(fd, 1, 2, &one as *const u8, 4);
+        setsockopt(fd, 1, 2, &one as *const i32 as *const u8, 4);
 
         let addr: SockAddr4 = sockaddr4(ip, port);
-        let rc: i32 = bind(fd, &addr as *const u8, 16);
+        let rc: i32 = bind(fd, &addr as *const SockAddr4 as *const u8, 16);
         if rc < 0 { close(fd); return TcpListener { fd: 0 - 1 }; }
 
         let rc2: i32 = listen(fd, backlog);
@@ -108,11 +108,11 @@ pub fn tcp_listen_reuseport(ip: u32, port: u16, backlog: i32) -> TcpListener {
 
         // SO_REUSEADDR = 2, SO_REUSEPORT = 15, SOL_SOCKET = 1
         let one: i32 = 1;
-        setsockopt(fd, 1, 2,  &one as *const u8, 4);
-        setsockopt(fd, 1, 15, &one as *const u8, 4);
+        setsockopt(fd, 1, 2,  &one as *const i32 as *const u8, 4);
+        setsockopt(fd, 1, 15, &one as *const i32 as *const u8, 4);
 
         let addr: SockAddr4 = sockaddr4(ip, port);
-        let rc: i32 = bind(fd, &addr as *const u8, 16);
+        let rc: i32 = bind(fd, &addr as *const SockAddr4 as *const u8, 16);
         if rc < 0 { close(fd); return TcpListener { fd: 0 - 1 }; }
 
         let rc2: i32 = listen(fd, backlog);
@@ -132,7 +132,7 @@ impl TcpListener {
             let mut addr: SockAddr4 = SockAddr4 { family: 0 as u16, port: 0 as u16,
                                                    addr: 0 as u32, zero0: 0 as u32, zero1: 0 as u32 };
             let mut addrlen: i32 = 16;
-            let cfd: i32 = accept(self.fd, &mut addr as *mut u8, &mut addrlen);
+            let cfd: i32 = accept(self.fd, &mut addr as *mut SockAddr4 as *mut u8, &mut addrlen);
             return TcpStream { fd: cfd };
         }
     }
@@ -166,7 +166,7 @@ pub fn tcp_connect(ip: u32, port: u16) -> TcpStream {
         if fd < 0 { return TcpStream { fd: 0 - 1 }; }
 
         let addr: SockAddr4 = sockaddr4(ip, port);
-        let rc: i32 = connect(fd, &addr as *const u8, 16);
+        let rc: i32 = connect(fd, &addr as *const SockAddr4 as *const u8, 16);
         if rc < 0 { close(fd); return TcpStream { fd: 0 - 1 }; }
 
         return TcpStream { fd: fd };
@@ -222,7 +222,7 @@ pub fn udp_bind(ip: u32, port: u16) -> UdpSocket {
         if fd < 0 { return UdpSocket { fd: 0 - 1 }; }
 
         let addr: SockAddr4 = sockaddr4(ip, port);
-        let rc: i32 = bind(fd, &addr as *const u8, 16);
+        let rc: i32 = bind(fd, &addr as *const SockAddr4 as *const u8, 16);
         if rc < 0 { close(fd); return UdpSocket { fd: 0 - 1 }; }
 
         return UdpSocket { fd: fd };
@@ -239,7 +239,7 @@ impl UdpSocket {
                      from: &mut SockAddr4) -> i64 {
         unsafe {
             let mut addrlen: i32 = 16;
-            return recvfrom(self.fd, buf, len, 0, from as *mut u8, &mut addrlen);
+            return recvfrom(self.fd, buf, len, 0, from as *mut SockAddr4 as *mut u8, &mut addrlen);
         }
     }
 
@@ -248,7 +248,7 @@ impl UdpSocket {
     pub fn send_to(self: &UdpSocket, buf: *const u8, len: i64,
                    to: &SockAddr4) -> i64 {
         unsafe {
-            return sendto(self.fd, buf, len, 0, to as *const u8, 16);
+            return sendto(self.fd, buf, len, 0, to as *const SockAddr4 as *const u8, 16);
         }
     }
 
@@ -407,7 +407,7 @@ pub fn async_tcp_connect(ip: u32, port: u16) -> TcpStream {
         let addr: SockAddr4 = sockaddr4(ip, port);
         let sqe: *mut u8 = reactor_get_sqe(r);
         if sqe == 0 as *mut u8 { close(fd); return TcpStream { fd: 0 - 1 }; }
-        logos_io_uring_prep_connect(sqe, fd, &addr as *const u8, 16);
+        logos_io_uring_prep_connect(sqe, fd, &addr as *const SockAddr4 as *const u8, 16);
         let res: i32 = reactor_submit_and_park(r, sqe);
         if res < 0 { close(fd); return TcpStream { fd: res }; }
         return TcpStream { fd: fd };

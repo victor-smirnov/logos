@@ -419,9 +419,18 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
     auto it = scope_.find(name);
     if (it == scope_.end()) {
         auto parent_mod = builder_.getBlock()->getParent()->getParentOfType<mlir::ModuleOp>();
+        // A fn named as a value: its symbol as declared — a library fn's link
+        // name carries its module (`logos_lang..logos.lang.cmp.i64__max__f__…`),
+        // exactly as a call's callee is qualified (link_name_str); no look-alike.
+        auto fn_value_sym = [&]() -> mlir::func::FuncOp {
+            if (auto f = parent_mod.lookupSymbol<mlir::func::FuncOp>(name)) return f;
+            if (std::string ln = link_name_str(name); ln != name)
+                if (auto f = parent_mod.lookupSymbol<mlir::func::FuncOp>(ln)) { name = ln; return f; }
+            return {};
+        };
         // Check if name is a free function being used as a bare fn-ptr.
         if (type && LogosType::is_fn_value_kind(TypeRef(type).kind())) {
-            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(name);
+            auto fn_sym = fn_value_sym();
             if (fn_sym) {
                 // Return just the function address as a raw ptr.
                 auto fn_ref = builder_.create<mlir::func::ConstantOp>(
@@ -433,7 +442,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EVarRefView v, TypeRef type) {
         // Check if name is a free function being used as a value (closure fat pointer).
         // Create a non-capturing closure: {fn_ptr, null_env}.
         if (type && TypeRef(type).kind() == LogosType::Kind::Closure) {
-            auto fn_sym = parent_mod.lookupSymbol<mlir::func::FuncOp>(name);
+            auto fn_sym = fn_value_sym();
             if (fn_sym) {
                 // Build closure fat pointer: { fn_ptr, env_ptr=null }
                 auto closure_struct_t = mlir::LLVM::LLVMStructType::getLiteral(

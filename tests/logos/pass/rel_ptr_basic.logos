@@ -23,7 +23,7 @@ fn main() -> i32 {
         if *back != 777i64 { return 1i32; }    // round-trips through deref
 
         // the STORED bytes are an OFFSET (target − slot), not the absolute ptr:
-        let slot: *const i64 = (&nd.next) as *const i64;
+        let slot: *const i64 = (&nd.next) as *const RP<i64> as *const i64;
         if *slot != (target as i64) - (slot as i64) { return 2i32; }
 
         // re-point + re-read (overwrite path):

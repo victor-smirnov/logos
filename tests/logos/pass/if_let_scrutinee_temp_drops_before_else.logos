@@ -1,0 +1,19 @@
+// Rust 2024 if-let rescope: an `if let`'s temporary scrutinee drops BEFORE the else block (it dropped after); the then arm keeps it to its end. Value, early-return, loop-break and statement forms.
+package p;
+use logos.std.fmt;
+use logos.lang.option;
+struct D { id: i64 }
+impl Drop for D { fn drop(&mut self) { println!("drop {}", self.id); } }
+fn mk(i: i64, s: bool) -> Option<D> { if s { Some(D { id: i }) } else { None } }
+fn early(i: i64) -> i64 { if let None = mk(i, true) { return 0; } else { println!("else-early"); return 1; } }
+fn main() {
+    let v = if let None = mk(1, true) { 10 } else { println!("else-val"); 20 };
+    println!("v {}", v);
+    let w = if let Some(d) = mk(2, true) { d.id } else { 0 };
+    println!("w {}", w);
+    println!("e {}", early(3));
+    let mut n = 0;
+    loop { n += 1; if let None = mk(4, true) { println!("never"); } else { println!("brk"); break; } }
+    if let None = mk(7, false) { println!("none7"); } else { println!("else7"); }
+    println!("end {}", n);
+}

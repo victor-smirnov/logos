@@ -1,0 +1,3 @@
+// `&*p` over a raw pointer outside `unsafe` is refused (rustc E0133); the reborrow arm skipped the deref's check.
+package u2;
+fn main() -> i32 { let x = 5i64; let p: *const i64 = &x; let r: &i64 = &*p; return *r as i32; }

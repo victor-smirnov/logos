@@ -48,7 +48,7 @@ fn main() -> i32 {
     // mem::copy_bytes / zero_bytes
     unsafe {
         let mut buf: i32 = 0x12345678;
-        let ptr: *mut u8 = &mut buf as *mut u8;
+        let ptr: *mut u8 = &mut buf as *mut i32 as *mut u8;
         zero_bytes(ptr, 4 as i64);
         if buf != 0 { return 11; }
     }

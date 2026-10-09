@@ -1,0 +1,4 @@
+// `&x as *mut i64` is refused (rustc E0606); the cast table ignored the borrow's mutability.
+package p1;
+use logos.std.fmt;
+fn main() { let x: i64 = 1; let p = &x as *mut i64; unsafe { *p = 2; } println!("{}", x); }

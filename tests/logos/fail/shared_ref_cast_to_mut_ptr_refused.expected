@@ -1,0 +1,1 @@
+casting `&i64` as `*mut i64` is invalid (E0606)
