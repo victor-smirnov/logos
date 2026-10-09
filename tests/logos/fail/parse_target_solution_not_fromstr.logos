@@ -1,7 +1,6 @@
 // The inference variable of `str::parse::<F>` solved by the annotation to a type that is not `FromStr`: the deferred
 // bound is checked on the solution at the call site (rustc E0277), not left to monomorphization.
 package parse_target_solution_not_fromstr;
-use logos.lang.num.parse;
 use logos.mem.collections.vec;
 fn main() -> i32 {
     let v: Vec<i32> = "42".parse().unwrap();

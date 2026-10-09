@@ -2039,11 +2039,10 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
     // bare names from packages that import nothing and rely on the lenient
     // program-wide fallback.
     const SemaFuncInfo* first_visible_arity = nullptr;
+    const auto& imports = effective_import_pkgs();   // re-exports count, as in filter_visible_
     auto visible = [&](const SemaFuncInfo& fi) {
         if (fi.package.empty() || fi.package == cur_package_) return true;
-        if (std::find(cur_imports_.wildcard_packages.begin(),
-                      cur_imports_.wildcard_packages.end(),
-                      fi.package) == cur_imports_.wildcard_packages.end())
+        if (std::find(imports.begin(), imports.end(), fi.package) == imports.end())
             return false;
         if (auto it = cur_imports_.pkg_from_module_id.find(fi.package);
             it != cur_imports_.pkg_from_module_id.end() && fi.module_id != it->second)
@@ -2058,14 +2057,16 @@ const SemaChecker::SemaFuncInfo* SemaChecker::find_generic_func(std::string_view
             if (!pkg_qualifier_ok(fi, base_name)) continue;  // T2-28: explicit pkg filter
             bool arity_ok = fi.is_vararg ? n_args >= fi.param_types.size()
                                          : fi.param_types.size() == n_args;
+            // In scope or not at all (Q1 row 4) — a path names its package itself.
+            const bool qualified = !call_pkg_qualifier_.empty() &&
+                                   (call_pkg_qualifier_name_.empty() || base_name == call_pkg_qualifier_name_);
+            if (!qualified && !visible(fi)) continue;
             if (!arity_ok) { if (!fallback) fallback = &fi; continue; }
             if (!cur_package_.empty() && fi.package == cur_package_) return &fi;
-            if (!first_visible_arity && visible(fi)) first_visible_arity = &fi;
-            if (!first_arity) first_arity = &fi;
+            if (!first_visible_arity) first_visible_arity = &fi;
         }
     }
     if (first_visible_arity) return first_visible_arity;
-    if (first_arity) return first_arity;
     return fallback;
 }
 
@@ -2221,12 +2222,9 @@ std::vector<const SemaChecker::SemaFuncInfo*> SemaChecker::filter_visible_(
         // giving a "module-private" error rather than a bare "undefined function".
         out.push_back(fi);
     }
-    // Empty-fallback for synthetic/unprimed phases — but NOT when the emptiness
-    // is an intentional `from`-restriction (else the negative case never errors).
-    if (out.empty() && !from_excluded_any) {
-        if (!all.empty()) logos::probe::census("q1.visible.fallback");   // Q1 row 4 retires it
-        return all;
-    }
+    // Nothing in scope is nothing: no fallback to every package's homonyms
+    // (Q1 row 4 measured its last users to zero; a name the scope does not
+    // reach is refused as undefined, never answered by a look-alike).
     // Rust's per-scope precedence for a free function: the package's own
     // shadow the imported ones, which shadow the package-less ones (extern
     // declarations, the root) — one scope's set, never a merge of two. A
@@ -8390,11 +8388,12 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 // instantiation (its slice pattern selects on the unsized
                 // arg, e.g. PkdArray<[u8]> → the VLE spec).
                 unsized_ok_ = true;
-            } else if (!param_known && code_of(item) == la::DYN_TYPE) {
+            } else if (!param_known && code_of(item) == la::DYN_TYPE && !item.has_key(la::IS_REF)) {
                 // The target's params can't be consulted yet — the struct is
                 // still a pass-0 STUB (empty type_params) because alias RHS
                 // types resolve in phase 2 BEFORE phase 1 fills struct bodies.
-                // A bare `dyn Trait` as a type-ARGUMENT is inherently unsized;
+                // A bare `dyn Trait` (no written `&` — the grammar folds `&dyn`
+                // into this node with IS_REF) as a type-ARGUMENT is inherently unsized;
                 // defaulting it to the sized fat-VALUE `TraitObject` (the legacy
                 // by-value bare-dyn shape) is wrong for an owned tail
                 // (`Arc<dyn>`/`Rc<dyn>`) and produced the dual `udyn`/`&dyn`

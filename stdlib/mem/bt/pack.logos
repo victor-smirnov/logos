@@ -39,6 +39,7 @@ use logos.mem.pkd.ssrle;         // SsrleRun + ssrle_compute_size
 use logos.mem.bt.node;           // NodeProfile — the map splice's node seam
 use logos.mem.bt.meta;       // the container SCHEMA document — follows the root
 use logos.mem.bt.view;           // NodeView / ColRef — the borrow-checked column skin
+use logos.mem.bt.map;            // trait Snapshot — `snapshot_id` is its method
 use logos.mem.bt.memstore;       // MemorySnapshot + tree_release (CoW discipline)
 use logos.mem.collections.vec;
 use logos.lang.mem;              // alloc/dealloc/copy_bytes — staging + privatize

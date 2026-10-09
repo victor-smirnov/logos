@@ -1,0 +1,6 @@
+package fn_from_unimported_package_refused;
+unsafe fn main() -> i32 {
+    let x: i64 = 5;
+    let y: i64 = read::<i64>(&x as *const i64);
+    return y as i32;
+}

@@ -52,3 +52,4 @@ pub use logos.lang.math;
 pub use logos.lang.num.float;
 pub use logos.lang.panic;
 pub use logos.lang.arith;
+pub use logos.lang.num.parse;
