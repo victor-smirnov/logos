@@ -23,6 +23,7 @@ package logos.mem.bt.btvec;
 
 use logos.mem.bt.node;       // NodeProfile — the node-form seam
 use logos.mem.bt.btss;       // the shared single-stream column mechanics
+use logos.mem.bt.map;            // trait Snapshot — `snapshot_id` is its method
 use logos.mem.bt.memstore;   // MemorySnapshot (creation stamp) + tree_release
 use logos.mem.bt.pack;       // the weight calculus (pack_node_weight)
 use logos.mem.bt.meta;       // the container SCHEMA document — follows the root

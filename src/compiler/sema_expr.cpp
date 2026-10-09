@@ -6770,7 +6770,9 @@ const SemaChecker::SemaFuncInfo* SemaChecker::resolve_trait_item_(std::string_vi
     };
     // ADR 0030 S9b row 2: Self's own impls by identity — the item of this
     // trait whose impl's Self matches (`impl Tr for W<i64>` is not `W<u8>`'s).
-    for (auto* fi : filter_visible_(methods_of_(self, name)))
+    // The trait is NAMED here (`Tr::m(x)`, a desugaring's lang item), so it
+    // need not be in scope (Rust: a path names its trait).
+    for (auto* fi : methods_of_(self, name))
         if (same_trait(fi) && (!fi->owner_self || self_pattern_match_(fi->owner_self, self))) {
             if (key_out) *key_out = fi->base_name;
             return fi;
