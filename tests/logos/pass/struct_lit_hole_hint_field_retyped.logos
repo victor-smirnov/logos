@@ -1,0 +1,10 @@
+package struct_lit_hole_hint_field_retyped;
+struct Tree<K, V> { key: K, val: V, left: Option<Box<Tree<K, V>>> }
+fn mk<K, V>(k: K, v: V) -> Option<Box<Tree<K, V>>> {
+    return Some(Box::new(Tree { key: k, val: v, left: None }));
+}
+fn main() -> i32 {
+    let t: Option<Box<Tree<i32, i32>>> = mk(5, 1);
+    if t.is_some() { return 7; }
+    return 1;
+}

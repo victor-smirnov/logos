@@ -13504,14 +13504,21 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // `let s: &mut [T] = &mut arr` was not.
                 // A generic field is judged at the literal's own arguments.
                 TypeRef ft_at = ft;
+                TypeRef s_ft = nullptr;   // the field's type at the literal's own arguments
                 if (ft && ft_has_typevar) {
                     SemaSubst inst;
                     for (size_t k = 0; k < sinfo.type_params.size() && k < args.size(); ++k)
                         if (args[k] && TypeRef(args[k]).kind() != LogosType::Kind::Error && !sinfo.type_params[k].is_variadic)
                             inst[sinfo.type_params[k].name] = args[k];
-                    TypeRef s_ft = inst.empty() ? TypeRef(nullptr) : subst_type_sema(ft, inst);
+                    s_ft = inst.empty() ? TypeRef(nullptr) : subst_type_sema(ft, inst);
                     if (s_ft && type_is_concrete(s_ft)) ft_at = s_ft;
                 }
+                // A field value lowered against a hint with `_` holes (the
+                // literal's own arguments were not known yet: `left: None`
+                // under `Box::new(Tree { .. })`) takes the field's type at the
+                // arguments the literal settled on — a hole is no type.
+                if (s_ft && type_has_inferred(expr_type(fval)) && !type_has_inferred(s_ft))
+                    builder().retype_expr(fval, s_ft);
                 if (ft_at && (!ft_has_typevar || ft_at != ft))
                     expect_type(fval, ft_at, CoercePos::StructLitField,
                                 std::format("struct literal '{}' field '{}':",

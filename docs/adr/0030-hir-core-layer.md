@@ -1140,6 +1140,16 @@ bare value names resolved by spelling with no RES outside metaprogram rounds
 -> 0 (inside a round: 380, the names a later round emits). Open beyond Q1:
 `pkg.path::Type::m` qualified type paths (row 2's last item).
 
+**Feature-interaction matrix re-run after S10 (2026-10-09).** 251 clusters
+against rustc 1.98.1 (stdout + exit code): 477 -> 220 differing members since
+the S3 re-run (2026-09-29): 259 fixed, 2 new. Both new ones are triaged: a
+struct literal under nested generic calls left a field value typed with the
+hint's `_` holes (`Some(Box::new(Tree { .., left: None }))` -> a `Tree<_, _>`
+instance reached mlir) - fixed with pass/struct_lit_hole_hint_field_retyped;
+and `iter().map(|p| &p.0)` refused since S9a, because the projection
+`Iter<'a, T>::Item` loses `'a` and the closure's parameter reads as
+higher-ranked - #740 (region-carrying projections).
+
 
 ## S0–S7 gap audit (2026-10-01)
 
