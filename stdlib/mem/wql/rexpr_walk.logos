@@ -9382,6 +9382,70 @@ fn rel_push_frag(row_ty: str, proj: ExprBlob) -> ExprBlob {
     };
 }
 
+// ── A recursive min/max rel's ROW: every column but the last is the KEY, the
+// last is the VALUE (the lattice). One key column is the key itself; several
+// are a tuple key `(c0, c1, …)` — a `HashMap<(K0, K1), V>` best map, as in Rust.
+fn agg_nk(prm: &MacroParams, ri: i64) -> i64 { return prm.rel_ccnt[ri] - 1i64; }
+
+fn agg_key_ty(prm: &MacroParams, ri: i64) -> String {
+    let off: i64 = prm.rel_coff[ri];
+    let nk: i64 = agg_nk(prm, ri);
+    let mut k: String = String::new();
+    if nk == 1i64 { k.push_str(prm.relc_ty[off]); return k; }
+    k.push_str("(");
+    let mut i: i64 = 0i64;
+    while i < nk { if i > 0i64 { k.push_str(", "); } k.push_str(prm.relc_ty[off + i]); i = i + 1i64; }
+    k.push_str(")");
+    return k;
+}
+
+fn agg_val_ty(prm: &MacroParams, ri: i64) -> str { return prm.relc_ty[prm.rel_coff[ri] + agg_nk(prm, ri)]; }
+
+/// The row a (key, value) pair is: `(k, v)`, or `(k.0, k.1, …, v)` for a tuple key.
+fn agg_row_text(prm: &MacroParams, ri: i64, k: str, v: str) -> String {
+    let nk: i64 = agg_nk(prm, ri);
+    let mut r: String = String::new();
+    r.push_str("(");
+    if nk == 1i64 { r.push_str(k); }
+    else {
+        let mut i: i64 = 0i64;
+        while i < nk {
+            if i > 0i64 { r.push_str(", "); }
+            r.push_str(k); r.push_str("."); r.push_i64(i);
+            i = i + 1i64;
+        }
+    }
+    r.push_str(", "); r.push_str(v); r.push_str(")");
+    return r;
+}
+
+/// The KEY of a lattice row, each component in its column's type: from a
+/// tuple `key` (a select `(k0, …, v)` — its first `nk` items — or a group key
+/// `(k0, …)`), or the one expression when the key is one column.
+fn agg_key_text(out: &mut String, key: SExpr, prm: &MacroParams, ri: i64, view: &OView,
+                t: &ElTypes, var: str) {
+    let off: i64 = prm.rel_coff[ri];
+    let nk: i64 = agg_nk(prm, ri);
+    match key {
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            if nk == 1i64 {
+                rel_comp_value(out, items.arg_at(0i64), resolve_alias_name(view, prm.relc_ty[off]), t, var);
+                return;
+            }
+            out.push_str("(");
+            let mut i: i64 = 0i64;
+            while i < nk {
+                if i > 0i64 { out.push_str(", "); }
+                rel_comp_value(out, items.arg_at(i), resolve_alias_name(view, prm.relc_ty[off + i]), t, var);
+                i = i + 1i64;
+            }
+            out.push_str(")");
+        }
+        _ => { rel_comp_value(out, key, resolve_alias_name(view, prm.relc_ty[off]), t, var); }
+    }
+}
+
 // The SEMILATTICE-ABSORB push (recursive min/max aggregation — the generalization
 // of the set-insert). A candidate `(key, arg)` is absorbed against the persistent
 // per-key best-map `__bp_<rel>`: kept iff it STRICTLY improves the running best
@@ -9395,9 +9459,12 @@ fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
                      key: ExprBlob, val: ExprBlob) -> ExprBlob {
     let rn:  str = prm.rel_names[ri];
     let off: i64 = prm.rel_coff[ri];
-    let kty: ExprBlob = parse_type(prm.relc_ty[off]);
-    let vty: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
-    let vty2: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
+    let kts: String = agg_key_ty(prm, ri);
+    let kty: ExprBlob = parse_type(string_as_str(&kts));
+    let vty: ExprBlob = parse_type(agg_val_ty(prm, ri));
+    let vty2: ExprBlob = parse_type(agg_val_ty(prm, ri));
+    let rws: String = agg_row_text(prm, ri, "__ak", "__av");
+    let row: ExprBlob = parse_expr(string_as_str(&rws));
     let s_bp: String = suffixed("__bp_", rn);   let n_bp: Ident = Ident::new(string_as_str(&s_bp));
     let s_ks: String = suffixed("__keys_", rn); let n_ks: Ident = Ident::new(string_as_str(&s_ks));
     let mut cmp: ExprBlob = quote_expr! { __av < *__cp };
@@ -9414,7 +9481,7 @@ fn rel_push_agg_frag(ri: i64, prm: &MacroParams,
             let mut __imp: bool = false;
             if __cp == (0i64 as *const #(vty2)) { __imp = true; #n_ks.push(__ak); }
             else { if #(cmp) { __imp = true; } }
-            if __imp { (*#n_bp).insert(__ak, __av); __out.push((__ak, __av)); }
+            if __imp { (*#n_bp).insert(__ak, __av); __out.push(#(row)); }
         }
     };
 }
@@ -9429,16 +9496,16 @@ fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: st
     match proj {
         SExpr::Tuple(tp) => {
             let items: SExprArr = tp.items_arr();
-            if items.len() != 2i64 {
-                error("wql!: a recursive-aggregate rel select must be `(key, aggout)` — exactly two components (slice-1)");
+            if items.len() != prm.rel_ccnt[ri] {
+                if prm.rel_ccnt[ri] == 2i64 { error("wql!: a recursive-aggregate rel select must be `(key, aggout)` — exactly two components (slice-1)"); }
+                else { error("wql!: a recursive-aggregate rel select must be `(key…, aggout)` — one component per column"); }
                 return false;
             }
             // Each operand in its COLUMN's type: an unsuffixed literal takes it
             // (`(s.id, 0)` against a `(i64, u64)` row), as in `rel_row_value`.
-            let off: i64 = prm.rel_coff[ri];
             let view: OView = oview_module_ast();
-            rel_comp_value(key_out, items.arg_at(0i64), resolve_alias_name(&view, prm.relc_ty[off]), t, var0);
-            rel_comp_value(val_out, items.arg_at(1i64), resolve_alias_name(&view, prm.relc_ty[off + 1i64]), t, var0);
+            agg_key_text(key_out, proj, prm, ri, &view, t, var0);
+            rel_comp_value(val_out, items.arg_at(agg_nk(prm, ri)), resolve_alias_name(&view, agg_val_ty(prm, ri)), t, var0);
             return true;
         }
         _ => {
@@ -9550,11 +9617,12 @@ fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64, b: i64,
         match se {
             SExpr::Tuple(tp) => {
                 let items: SExprArr = tp.items_arr();
-                if items.len() != 2i64 {
-                    error("wql!: a recursive-aggregate rel body must project `(key, aggout)` — exactly two components (slice-1)");
+                if items.len() != prm.rel_ccnt[ri] {
+                    if prm.rel_ccnt[ri] == 2i64 { error("wql!: a recursive-aggregate rel body must project `(key, aggout)` — exactly two components (slice-1)"); }
+                    else { error("wql!: a recursive-aggregate rel body must project `(key…, aggout)` — one component per column"); }
                     return false;
                 }
-                return chain_body_frag(ch, ri, b, prm, se, items.arg_at(0i64), items.arg_at(1i64),
+                return chain_body_frag(ch, ri, b, prm, se, se, items.arg_at(agg_nk(prm, ri)),
                                        has_where, we, out, h, hx);
             }
             _ => {
@@ -9622,8 +9690,8 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
         // (`typecheck::lattice_value_ok`).
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
         let val_opt: SExpr = simplify_sexpr(val_e, h).any().view::<SExpr>();
-        emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);
-        emit_sexpr(&mut val_body, val_opt, &ty, ch.base_var);
+        agg_key_text(&mut key_body, key_opt, prm, ri, &view, &ty, ch.base_var);
+        rel_comp_value(&mut val_body, val_opt, resolve_alias_name(&view, agg_val_ty(prm, ri)), &ty, ch.base_var);
     } else {
         let proj_opt: SExpr = simplify_sexpr(proj_e, h).any().view::<SExpr>();
         rel_row_value(&mut proj_body, proj_opt, ri, prm, &view, &ty, ch.base_var);
@@ -10214,17 +10282,19 @@ fn emit_scc_fn(c: i64, fn_name: str,
         // novelty structure was built (identity (ii)).
         fp_node_member(rn, string_as_str(&prm.rel_rowty[mem[m1]]), prm.rel_is_agg[mem[m1]]);
         if prm.rel_is_agg[mem[m1]] {
-            let off: i64 = prm.rel_coff[mem[m1]];
-            let kty:  ExprBlob = parse_type(prm.relc_ty[off]);
-            let kty2: ExprBlob = parse_type(prm.relc_ty[off]);
-            let kty3: ExprBlob = parse_type(prm.relc_ty[off]);
-            let kty4: ExprBlob = parse_type(prm.relc_ty[off]);
-            let kty5: ExprBlob = parse_type(prm.relc_ty[off]);
-            let kty6: ExprBlob = parse_type(prm.relc_ty[off]);
-            let vty:  ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
-            let vty2: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
-            let vty3: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
-            let vty4: ExprBlob = parse_type(prm.relc_ty[off + 1i64]);
+            let kts: String = agg_key_ty(prm, mem[m1]);
+            let kts_s: str = string_as_str(&kts);
+            let vts: str = agg_val_ty(prm, mem[m1]);
+            let kty:  ExprBlob = parse_type(kts_s);
+            let kty2: ExprBlob = parse_type(kts_s);
+            let kty3: ExprBlob = parse_type(kts_s);
+            let kty4: ExprBlob = parse_type(kts_s);
+            let kty5: ExprBlob = parse_type(kts_s);
+            let kty6: ExprBlob = parse_type(kts_s);
+            let vty:  ExprBlob = parse_type(vts);
+            let vty2: ExprBlob = parse_type(vts);
+            let vty3: ExprBlob = parse_type(vts);
+            let vty4: ExprBlob = parse_type(vts);
             let s_be: String = suffixed("__best_", rn);   let n_be: Ident = Ident::new(string_as_str(&s_be));
             let s_bp: String = suffixed("__bp_", rn);     let n_bp: Ident = Ident::new(string_as_str(&s_bp));
             let s_ks: String = suffixed("__keys_", rn);   let n_ks: Ident = Ident::new(string_as_str(&s_ks));
@@ -10430,9 +10500,11 @@ fn emit_scc_fn(c: i64, fn_name: str,
     while mt < nm {
         if prm.rel_is_agg[mem[mt]] {
             let rnt: str = prm.rel_names[mem[mt]];
-            let offt: i64 = prm.rel_coff[mem[mt]];
-            let ktyt: ExprBlob = parse_type(prm.relc_ty[offt]);
-            let vtyt: ExprBlob = parse_type(prm.relc_ty[offt + 1i64]);
+            let ktst: String = agg_key_ty(prm, mem[mt]);
+            let ktyt: ExprBlob = parse_type(string_as_str(&ktst));
+            let vtyt: ExprBlob = parse_type(agg_val_ty(prm, mem[mt]));
+            let rwt: String = agg_row_text(prm, mem[mt], "__kk", "*__vp");
+            let rowt: ExprBlob = parse_expr(string_as_str(&rwt));
             let s_ks: String = suffixed("__keys_", rnt); let n_ks: Ident = Ident::new(string_as_str(&s_ks));
             let s_bp: String = suffixed("__bp_", rnt);   let n_bp: Ident = Ident::new(string_as_str(&s_bp));
             let s_tt: String = suffixed("__tot_", rnt);  let n_tt: Ident = Ident::new(string_as_str(&s_tt));
@@ -10443,7 +10515,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
                         let __kk: #(ktyt) = #n_ks[__mk];
                         unsafe {
                             let __vp: *const #(vtyt) = (*#n_bp).get(&__kk);
-                            #n_tt.push((__kk, *__vp));
+                            #n_tt.push(#(rowt));
                         }
                         __mk = __mk + 1i64;
                     }

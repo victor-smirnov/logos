@@ -6861,8 +6861,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12066 -> 12067 (+1), NOIMPORTED 7507 -> 7508 (+1) — 2026-10-09 (recursive min/max over any integer / bool, Ord): +pass/wql_rel_lattice_u64_e2e, +fail/wql_rel_lattice_str_fail, -fail/wql_rel_col_wide_int_fail (its u64 lattice is admitted now; the shape lives on as the pass fixture).
 #                ALL 12067 -> 12068 (+1), NOIMPORTED 7508 -> 7509 (+1) — 2026-10-09 (lattice over str / Ord + Copy): fail/wql_rel_lattice_str_fail became pass/wql_rel_lattice_ord_e2e; +fail/wql_rel_lattice_no_ord_fail.
 #                ALL 12068 -> 12070 (+2), NOIMPORTED 7509 -> 7511 (+2) — 2026-10-09 (tuple group keys): pass/wql_group_tuple_key_e2e, fail/wql_group_tuple_key_f64_fail.
-REGISTRY-ALL         12070
-REGISTRY-NOIMPORTED  7511
+#                ALL 12070 -> 12072 (+2), NOIMPORTED 7511 -> 7513 (+2) — 2026-10-09 (multi-key recursive aggregates): pass/wql_rel_lattice_multikey_e2e, fail/wql_rel_lattice_key_arity_fail.
+REGISTRY-ALL         12072
+REGISTRY-NOIMPORTED  7513
 REGISTRY-TIERCOMMIT  194
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
