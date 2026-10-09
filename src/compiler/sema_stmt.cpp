@@ -7285,7 +7285,7 @@ std::optional<lir_view::StmtRef> SemaChecker::try_schema_field_write(
             }
             std::string base = tn + "__to_wany";
             sym = base;
-            for (auto* c : find_func_candidates(base))
+            for (auto* c : methods_of_(ftype, "to_wany"))   // by identity, as from_wany
                 if (c && c->param_types.size() == 2) {
                     sym = c->symbol_name.empty() ? base : c->symbol_name; break;
                 }

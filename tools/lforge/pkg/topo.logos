@@ -3,6 +3,7 @@
 // reference external lib names.
 
 package lforge.topo;
+use logos.lang.mem;
 
 use logos.mem.string;
 use logos.lang.str;

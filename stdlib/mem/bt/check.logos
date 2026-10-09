@@ -13,6 +13,7 @@
 // unsigned.) A Canon-emitted, schema-aware checker (per-container extra
 // invariants) is the natural next layer.
 package logos.mem.bt.check;
+use logos.mem.bt.meta;
 
 use logos.mem.pkd;
 use logos.mem.pkd.pdtbuf;

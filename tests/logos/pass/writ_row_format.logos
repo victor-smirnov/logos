@@ -21,6 +21,7 @@
 // materialize into a DIFFERENT arena, Ref column included. It used to pin the
 // refusal instead; the W_ROW arm in compactify_obj re-priced it.
 package writ_row_format;
+use logos.lang.writ.wstring;
 use logos.lang.writ.row;
 use logos.lang.writ.container;
 use logos.lang.writ.anyval;

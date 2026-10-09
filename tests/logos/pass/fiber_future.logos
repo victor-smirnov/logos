@@ -6,6 +6,7 @@
 // main verifies result == 42 → exit 42.
 
 package fiber_future;
+use logos.lang.mem;
 
 use logos.lcm.fiber;
 

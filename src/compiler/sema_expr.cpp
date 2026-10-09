@@ -12154,7 +12154,7 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
             ? std::move(any_val)
             : builder().addr_of_temp(std::move(any_val), false, wany_ref, BorrowOrigin::Desugar);
         std::string sym = "WAny__resolve";
-        for (auto* c : find_func_candidates("WAny__resolve"))
+        for (auto* c : methods_of_(TypeRef(wany_ref).pointee(), "resolve"))
             if (c && c->param_types.size() == 1) {
                 sym = c->symbol_name.empty() ? sym : c->symbol_name; break;
             }
@@ -12177,8 +12177,17 @@ SemaChecker::try_schema_method(lir::LExprPtr& recv, std::string_view method_name
         margs.push_back(builder().lit_int(cap, prim(LogosType::Kind::I64)));
         margs.push_back(builder().lit_int(static_cast<int64_t>(inst_code),
                                           prim(LogosType::Kind::U64)));
-        auto h = method_call_named_(std::move(wref), "make_schema_h",
-                                       std::move(margs), -1, make_synth_struct("WSchemaH"));
+        // The compiler's call: Writ's own `make_schema_h`, by identity — not a
+        // method looked up in the reader's scope.
+        lir::EMethodCall hmc;
+        hmc.receiver = std::move(wref);
+        hmc.method = "make_schema_h";
+        hmc.args = std::move(margs);
+        TypeRef wt = expr_type(hmc.receiver);
+        if (wt && is_ref_like(TypeRef(wt).kind()) && TypeRef(wt).pointee()) wt = TypeRef(wt).pointee();
+        for (auto* c : methods_of_(wt, "make_schema_h"))
+            if (c && c->param_types.size() == 3) { hmc.resolved_symbol = c->symbol_name; break; }
+        auto h = method_call_resolved_(std::move(hmc), make_synth_struct("WSchemaH"));
         builder().retype_expr(h, view_t);   // WSchemaH {m,z} → S {m,z} (identical layout)
         return h;
     }
@@ -12315,7 +12324,7 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
         TypeRef wany_ref = make_ref(false, make_synth_enum("WAny"));
         auto any_ref = builder().addr_of_temp(std::move(anyval), false, wany_ref, BorrowOrigin::Desugar);
         std::string rsym = "WAny__resolve";
-        for (auto* c : find_func_candidates("WAny__resolve"))
+        for (auto* c : methods_of_(TypeRef(wany_ref).pointee(), "resolve"))
             if (c && c->param_types.size() == 1) {
                 rsym = c->symbol_name.empty() ? rsym : c->symbol_name; break;
             }
@@ -12330,7 +12339,9 @@ lir::LExprPtr SemaChecker::schema_wany_to_typed(lir::LExprPtr anyval, TypeRef ft
     if (!tn.empty()) {
         std::string base = tn + "__from_wany";
         std::string sym = base;
-        for (auto* c : find_func_candidates(base))
+        // The field type's own `WritField::from_wany`, by identity — the
+        // conversion the schema needs, not a name in the reader's scope.
+        for (auto* c : methods_of_(ftype, "from_wany"))
             if (c && c->param_types.size() == 1) {
                 sym = c->symbol_name.empty() ? base : c->symbol_name; break;
             }

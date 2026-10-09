@@ -15,6 +15,7 @@
 // logosc.
 
 package lforge_graph_cas;
+use logos.lang.mem;
 
 use logos.std.io.fs;
 use logos.std.io.fs.path;

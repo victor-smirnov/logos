@@ -2,6 +2,7 @@
 // install / test). Each one consumes a parsed Manifest + a profile.
 
 package lforge.cmd;
+use logos.lang.mem;
 
 use logos.mem.string;
 use logos.lang.str;

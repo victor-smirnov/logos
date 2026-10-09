@@ -4,6 +4,7 @@
 // Pipe-based stdin/stdout/stderr redirect via std.pipe.
 
 package logos.std.process;
+use logos.lang.mem;
 
 use logos.std.io.pipe;
 use logos.mem.string;

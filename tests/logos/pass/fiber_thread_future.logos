@@ -7,6 +7,7 @@
 // main: joins pool, verifies result == 42 → exit 42.
 
 package fiber_thread_future;
+use logos.lang.mem;
 
 use logos.std.rt.fiber;
 use logos.lcm.fiber;

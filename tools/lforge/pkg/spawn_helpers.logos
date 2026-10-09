@@ -1,6 +1,7 @@
 // lforge — per-target spawn + path helpers used by build_lib / build_bin.
 
 package lforge.spawn_helpers;
+use logos.lang.mem;
 
 use logos.mem.string;
 use logos.lang.str;

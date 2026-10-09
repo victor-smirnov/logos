@@ -2,6 +2,7 @@
 // loan-carrying query explored every branch of the recursion down to its depth cap, exponentially — the compile hung for
 // minutes. Explored once per type now. Both nodes drop (weak parent, no strong cycle). rustc twin: 42.
 package rc_tree_weak_parent_recursive_type;
+use logos.lang.mem;
 use logos.lang.rc;
 use logos.lang.cell;
 use logos.lang.option;
