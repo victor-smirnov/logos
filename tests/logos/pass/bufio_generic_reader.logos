@@ -2,6 +2,7 @@
 // directly, and verifies BufReader<R>::read (trait impl) chains via
 // BufReader-over-BufReader.
 package test;
+use logos.lcm.io.write;
 
 use logos.std.io.buffered;
 use logos.std.io.pipe;

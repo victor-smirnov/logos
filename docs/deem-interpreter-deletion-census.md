@@ -6854,8 +6854,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12056 -> 12059 (+3), NOIMPORTED 7497 -> 7500 (+3) — 2026-10-08 (ADR 0031 R4.4): pass/wql_wide_lit_e2e, fail/wql_str_int_compare_fail, fail/wql_wide_lit_signed_fail.
 #                ALL 12059 -> 12059 (+0), NOIMPORTED 7500 -> 7500 (+0), TIERCOMMIT 195 -> 194 (-1) — (main, merged into `deem`) merge of origin/main: 2026-10-08: 8df5636dc #707's row leaves the ledger, its fail fixture's .expected; 0fd60ca41 Q1 row 4 traits
 #                ALL 12059 -> 12061 (+2), NOIMPORTED 7500 -> 7502 (+2) — 2026-10-08 (ADR 0031 R4.5): pass/wql_const_typed_e2e, fail/wql_const_type_mismatch_fail.
-REGISTRY-ALL         12061
-REGISTRY-NOIMPORTED  7502
+#                ALL 12061 -> 12062 (+1), NOIMPORTED 7502 -> 7503 (+1), TIERCOMMIT 194 -> 194 (+0) — (main, merged into `deem`) merge of origin/main: 2026-10-08: Q1 4d part 1, c905dc453 (decl_pkg for __deem_bind; field_type_name / struct_field_count / struct_field_name; value_type_name in source spelling)
+REGISTRY-ALL         12062
+REGISTRY-NOIMPORTED  7503
 REGISTRY-TIERCOMMIT  194
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

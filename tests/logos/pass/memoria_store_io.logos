@@ -11,6 +11,7 @@
 //     as ONE block (a rc > 1 witness), not a silently duplicated tree;
 //   - well-formedness — check_dir/check_ctr over the restored store.
 package test;
+use logos.mem.bt.node;
 
 use logos.lcm.canon.container_item;
 use logos.lcm.canon.metaclass;

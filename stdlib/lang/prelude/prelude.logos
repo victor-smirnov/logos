@@ -50,3 +50,5 @@ pub use logos.lang.ascii;
 pub use logos.lang.bool;
 pub use logos.lang.math;
 pub use logos.lang.num.float;
+pub use logos.lang.panic;
+pub use logos.lang.arith;

@@ -2,6 +2,7 @@
 // Uses /bin/echo and /bin/sh -c to emit known multi-line output.
 
 package process_lines;
+use logos.lang.mem;
 
 use logos.std.process;
 use logos.mem.string;

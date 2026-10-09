@@ -2,6 +2,7 @@
 // Encodes a body with chunked_write_chunk + chunked_finalize, writes to a
 // pipe, reads it back through the streaming decoder, verifies round-trip.
 package test;
+use logos.lcm.io.write;
 
 use logos.std.io.http;
 use logos.std.io.buffered;

@@ -833,6 +833,11 @@ static int render_deem_plan_chunks(const logos::compiler::lir::LProgram& prog,
             chunk += esc_lit(cit == prog.wstatic_sources.end() ? std::string()
                                                               : cit->second);
         }
+        // The deem declaration's own package: the item it lowers to lives there
+        // (Rust: a macro-emitted item belongs where it was declared), not in
+        // this chunk's logos.gen.
+        chunk += "\", \"";
+        chunk += esc_lit(p.package);
         chunk += "\");\n";
         if (logos_emit_source(chunk.c_str())) ++emitted;
     }
@@ -2665,7 +2670,42 @@ static std::set<std::string> g_metaprog_value_names;
 // consumer that has to spell the value elsewhere (the Soufflé exporter dumps a
 // const a query reads as a one-row relation, and has to type it).
 static std::map<std::string, std::string> g_metaprog_value_types;
+// A type in the spelling a metaprogram reads: source form, with Logos's `str`
+// (which IS `&[u8]`, Slice<u8>) named `str` wherever it occurs (`Vec<str>`).
+static std::string metaprog_type_spelling(logos::compiler::TypeRef t) {
+    std::string s = logos::compiler::type_str(t, true);
+    for (size_t at = 0; (at = s.find("&[u8]", at)) != std::string::npos;) { s.replace(at, 5, "str"); at += 3; }
+    return s;
+}
+// Name-keyed STRUCT query for metaprog code (ADR 0031 R4.5): every lowered
+// struct's fields in declaration order (name, type in source spelling), keyed
+// `pkg::Name` and bare `Name`. A row type a query reads may be declared in an
+// IMPORTED module, which the handler's one-module AST view cannot see. A bare
+// name two packages declare answers nothing (ambiguous, as in Rust).
+struct MetaprogStructFacts {
+    std::string pkg;
+    bool ambiguous = false;
+    std::vector<std::pair<std::string, std::string>> fields;
+};
+static std::map<std::string, MetaprogStructFacts> g_metaprog_structs;
+static const MetaprogStructFacts* metaprog_struct_(const uint8_t* ty, uint64_t len) {
+    auto it = g_metaprog_structs.find(std::string(reinterpret_cast<const char*>(ty), len));
+    return it == g_metaprog_structs.end() || it->second.ambiguous ? nullptr : &it->second;
+}
 static void note_metaprog_impl_facts(const logos::compiler::lir::LProgram& prog) {
+    for (auto& sd : prog.structs) {
+        std::string_view n = sd.name();
+        if (n.empty() || n.find('$') != std::string_view::npos) continue;   // an instance, not a declaration
+        MetaprogStructFacts f;
+        f.pkg = std::string(sd.pkg());
+        for (auto& fv : sd.fields()) {
+            auto t = fv.type(prog.type_pool.impl());
+            f.fields.emplace_back(std::string(fv.name()), t ? metaprog_type_spelling(t) : std::string());
+        }
+        g_metaprog_structs.try_emplace(f.pkg + "::" + std::string(n), f);
+        auto [it, fresh] = g_metaprog_structs.try_emplace(std::string(n), f);
+        if (!fresh && it->second.pkg != f.pkg) it->second.ambiguous = true;
+    }
     for (const auto& c : prog.consts) {
         std::string_view n = c.name();
         size_t cut = n.find_last_of(".:");
@@ -2674,7 +2714,7 @@ static void note_metaprog_impl_facts(const logos::compiler::lir::LProgram& prog)
         g_metaprog_value_names.emplace(n);
         if (!g_metaprog_value_types.count(std::string(n))) {
             auto t = c.type(prog.type_pool.impl());
-            if (t) g_metaprog_value_types.emplace(std::string(n), logos::compiler::type_str(t, true));
+            if (t) g_metaprog_value_types.emplace(std::string(n), metaprog_type_spelling(t));
         }
     }
     for (auto& impl : prog.impls)
@@ -2693,6 +2733,31 @@ extern "C" const uint8_t* logos_metaprog_value_type(const uint8_t* name, uint64_
     if (it == g_metaprog_value_types.end()) { *out_len = 0; return reinterpret_cast<const uint8_t*>(""); }
     *out_len = it->second.size();
     return reinterpret_cast<const uint8_t*>(it->second.data());
+}
+extern "C" const uint8_t* logos_metaprog_field_type(const uint8_t* ty, uint64_t ty_len,
+                                                   const uint8_t* field, uint64_t field_len,
+                                                   uint64_t* out_len) {
+    *out_len = 0;
+    const MetaprogStructFacts* s = metaprog_struct_(ty, ty_len);
+    if (s) {
+        std::string_view want(reinterpret_cast<const char*>(field), field_len);
+        for (auto& [fname, ftype] : s->fields)
+            if (fname == want) { *out_len = ftype.size(); return reinterpret_cast<const uint8_t*>(ftype.data()); }
+    }
+    return reinterpret_cast<const uint8_t*>("");
+}
+extern "C" int64_t logos_metaprog_struct_field_count(const uint8_t* ty, uint64_t ty_len) {
+    const MetaprogStructFacts* s = metaprog_struct_(ty, ty_len);
+    return s ? static_cast<int64_t>(s->fields.size()) : 0;
+}
+extern "C" const uint8_t* logos_metaprog_struct_field_name(const uint8_t* ty, uint64_t ty_len,
+                                                          int64_t i, uint64_t* out_len) {
+    *out_len = 0;
+    const MetaprogStructFacts* s = metaprog_struct_(ty, ty_len);
+    if (!s || i < 0 || static_cast<size_t>(i) >= s->fields.size()) return reinterpret_cast<const uint8_t*>("");
+    const std::string& n = s->fields[static_cast<size_t>(i)].first;
+    *out_len = n.size();
+    return reinterpret_cast<const uint8_t*>(n.data());
 }
 extern "C" int32_t logos_metaprog_has_impl(const uint8_t* trait, uint64_t trait_len,
                                            const uint8_t* ty, uint64_t ty_len) {
@@ -3763,6 +3828,9 @@ static bool bind_metaprog_host_externs(logos::jit::Jit& jit, const char* who) {
         && bind("logos_metaprog_has_impl",         reinterpret_cast<void*>(&logos_metaprog_has_impl))
         && bind("logos_metaprog_value_known",      reinterpret_cast<void*>(&logos_metaprog_value_known))
         && bind("logos_metaprog_value_type",       reinterpret_cast<void*>(&logos_metaprog_value_type))
+        && bind("logos_metaprog_field_type",       reinterpret_cast<void*>(&logos_metaprog_field_type))
+        && bind("logos_metaprog_struct_field_count", reinterpret_cast<void*>(&logos_metaprog_struct_field_count))
+        && bind("logos_metaprog_struct_field_name", reinterpret_cast<void*>(&logos_metaprog_struct_field_name))
         && bind("logos_metacall_freeze2",          reinterpret_cast<void*>(&logos_metacall_freeze2))
         && bind("logos_metaprog_test_module_blob", reinterpret_cast<void*>(&logos_metaprog_test_module_blob))
         && bind("logos_test_make_bin_op_blob",     reinterpret_cast<void*>(&logos_test_make_bin_op_blob))
