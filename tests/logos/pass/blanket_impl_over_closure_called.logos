@@ -1,0 +1,11 @@
+// `impl<F: FnMut(i64)> V for F`: `t.visit(i)` inside `walk<T: V>` at T = a closure, and `vis.visit(10)` directly. The bound call vanished (walk's body was empty, exit 0): mlir-gen took a `&mut <closure>` receiver down the struct path, found no struct and returned nothing.
+package m;
+use logos.std.fmt;
+trait V { fn visit(&mut self, v: i64); }
+impl<F: FnMut(i64)> V for F { fn visit(&mut self, v: i64) { println!("in visit {}", v); (*self)(v) } }
+fn walk<T: V>(t: &mut T) { t.visit(1); t.visit(2); }
+fn main() {
+    let mut acc: i64 = 0;
+    { let mut vis = |v: i64| { acc += v; }; walk(&mut vis); vis.visit(10); }
+    println!("{}", acc);
+}

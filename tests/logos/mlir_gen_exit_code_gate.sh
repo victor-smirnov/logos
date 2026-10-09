@@ -333,10 +333,14 @@ fi
 # over Try::branch; nothing produced ETry any more), and its codegen arm with it —
 # the arm's "ETry: cannot resolve Result enum" report went with the arm, not
 # with a shape that can still arrive. mlir_gen_expr.cpp 17 -> 16.
+# 2026-10-09, moved DELIBERATELY in the ADDING direction: a method call whose
+# receiver reaches the struct path with no struct now reports (bug_null) where
+# it returned null and the call vanished with its statement (a blanket impl's
+# method on `&mut <closure>`, exit 0). mlir_gen_expr.cpp 16 -> 17.
 REPORT_PIN=$(cat <<'REPORTS'
 mlir_gen.cpp 5
 mlir_gen_dyn.cpp 1
-mlir_gen_expr.cpp 16
+mlir_gen_expr.cpp 17
 mlir_gen_impl.hpp 11
 mlir_gen_stmt.cpp 15
 mlir_gen_types.cpp 5

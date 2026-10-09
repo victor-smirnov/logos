@@ -10355,6 +10355,11 @@ private:
         // Empty = the source declares no order, and an `order by` over it keeps
         // its Sort node.
         std::string ord_col;
+        // #322 (ADR 0026 F8) — `unique <rel> = <col>;`: a column whose value is
+        // a key of the relation (at most one row per value), as the source
+        // states it. One column per line, several lines allowed; de-duplicated
+        // (collect runs in several phases).
+        std::vector<std::string> uniq_cols;
         // #726 — `distinct <rel>.<col> = <fn>;`: the number of distinct values
         // of a column, reported by a fn of the source (`fn(&Self) -> u64`), for
         // the join cost model's selectivity. (column, fn) pairs.

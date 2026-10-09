@@ -4205,6 +4205,42 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             "first", target, rn, rn));
                     continue;
                 }
+                if (lead == "unique") {
+                    // #322 (ADR 0026 F8) — `unique <rel> = <col>;`: the column
+                    // is a key of the relation. A property the source STATES,
+                    // so only the column name is checked (as `order`'s is).
+                    std::string ucol(str_of(m.get(la::VALUE.code)));
+                    bool rel_found = false;
+                    for (auto& e : source_impls_[target])
+                        if (e.rel == rn) {
+                            rel_found = true;
+                            bool known = false;
+                            for (const auto& c : e.cols)
+                                if (c.name == ucol) { known = true; break; }
+                            if (!known) {
+                                std::string have;
+                                for (const auto& c : e.cols) {
+                                    if (!have.empty()) have += ", ";
+                                    have += c.name;
+                                }
+                                error(std::format(
+                                    "impl for '{}': `unique {} = {}` names no "
+                                    "column of rel '{}' — its columns are ({})",
+                                    target, rn, ucol, rn, have));
+                                break;
+                            }
+                            bool seen = false;
+                            for (const auto& u : e.uniq_cols) seen = seen || u == ucol;
+                            if (!seen) e.uniq_cols.push_back(ucol);
+                            break;
+                        }
+                    if (!rel_found)
+                        error(std::format(
+                            "impl for '{}': `unique {}` names no bound rel — "
+                            "declare `rel {} = <materializer>;` in this impl "
+                            "first", target, rn, rn));
+                    continue;
+                }
                 if (lead == "order") {
                     // ADR 0025 S3 — `order <rel> = <col>;`. WHICH column the
                     // relation's rows already arrive sorted by. Shares
@@ -4271,7 +4307,8 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     error(std::format(
                         "impl for '{}': unexpected member '{} {} = …' — the "
                         "leads of this shape are `rel <r> = <materializer>;`, "
-                        "`size <r> = <reporter>;` and `order <r> = <col>;`",
+                        "`size <r> = <reporter>;`, `order <r> = <col>;` and "
+                        "`unique <r> = <col>;`",
                         target, lead, rn));
                     continue;
                 }

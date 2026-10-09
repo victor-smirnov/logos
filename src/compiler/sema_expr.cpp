@@ -24898,6 +24898,13 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             spec += "^";
             spec += b.ord_col;
         }
+        // ── the UNIQUE columns (#322, ADR 0026 F8) ───────────────────────
+        // `?<col>` per key column the source states; placed with `^` for the
+        // same reason (after the sections whose ends a reader must find).
+        for (const auto& u : b.uniq_cols) {
+            spec += "?";
+            spec += u;
+        }
         // ── the SIZE operation (ADR 0024 S4) ─────────────────────────────
         // `$<fn>[%<ret-ty>]` — how many rows the relation holds, asked ONCE at
         // run time. The return type travels for the same reason a producer's
