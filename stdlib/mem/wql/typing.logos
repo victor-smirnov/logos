@@ -371,15 +371,8 @@ fn stamp_free_name(n: str, ty: &mut ElTypes, vars: &Vec<str>, tys: &Vec<str>) {
         k = k + 1i64;
     }
     if !value_name_known(n) { return; }
-    let vt: str = source_type_spelling(value_type_name(n));
+    let vt: str = value_type_name(n);
     if vt.len() > 0i64 { ty.set_ty_named(n, vt); }
-}
-
-/// A type as the host spells it, in source spelling: the host reports `str`
-/// LOWERED, as `&[u8]`.
-fn source_type_spelling(t: str) -> str {
-    if str_eq(t, "&[u8]") { return "str"; }
-    return t;
 }
 
 /// The row variables a clause binds and their row types, in body order.
