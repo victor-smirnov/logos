@@ -319,6 +319,83 @@ fn bind_clause(cl: &mut CClause, prm: &MacroParams) {
     }
 }
 
+// ── ADR 0031 R4.5 — every name an expression reads has its own type ────────
+//
+// A bare name that no source stamped is either a ROW variable read whole
+// (`select r`: its type is the row type) or a const/static some module
+// declares (asked of the compiler — this handler's view is one module). Left
+// unrecorded it read as the dictionary's `i64` baseline.
+
+/// Record the type of every bare name `e` reads that `ty` does not know:
+/// a row variable of `vars` (its row type from `tys`), else a const or static.
+pub fn stamp_free_names(e: SExpr, ty: &mut ElTypes, vars: &Vec<str>, tys: &Vec<str>) {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { stamp_free_name(f.name, ty, vars, tys); }
+            else { stamp_free_names(f.base_expr(), ty, vars, tys); }
+        }
+        SExpr::Param(p) => { stamp_free_name(p.name, ty, vars, tys); }
+        SExpr::Var(_v) => { }
+        SExpr::Lit(_l) => { }
+        SExpr::Bin(b) => { stamp_free_names(b.lhs_expr(), ty, vars, tys); stamp_free_names(b.rhs_expr(), ty, vars, tys); }
+        SExpr::Un(u) => { stamp_free_names(u.arg_expr(), ty, vars, tys); }
+        SExpr::Cast(c) => { stamp_free_names(c.arg_expr(), ty, vars, tys); }
+        SExpr::Cond(c) => {
+            stamp_free_names(c.cond_expr(), ty, vars, tys);
+            stamp_free_names(c.then_expr(), ty, vars, tys);
+            stamp_free_names(c.else_expr(), ty, vars, tys);
+        }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < args.len() { stamp_free_names(args.arg_at(i), ty, vars, tys); i = i + 1i64; }
+        }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() { stamp_free_names(items.arg_at(i), ty, vars, tys); i = i + 1i64; }
+        }
+        SExpr::Comp(cp) => { stamp_free_names(cp.head_expr(), ty, vars, tys); }
+    }
+}
+
+fn stamp_free_name(n: str, ty: &mut ElTypes, vars: &Vec<str>, tys: &Vec<str>) {
+    if n.len() == 0i64 || ty.knows(n) { return; }
+    let mut k: i64 = 0i64;
+    while k < vars.len() {
+        if str_eq(vars.get(k), n) {
+            if tys.get(k).len() > 0i64 { ty.set_ty_named(n, tys.get(k)); }
+            return;
+        }
+        k = k + 1i64;
+    }
+    if !value_name_known(n) { return; }
+    let vt: str = source_type_spelling(value_type_name(n));
+    if vt.len() > 0i64 { ty.set_ty_named(n, vt); }
+}
+
+/// A type as the host spells it, in source spelling: the host reports `str`
+/// LOWERED, as `&[u8]`.
+fn source_type_spelling(t: str) -> str {
+    if str_eq(t, "&[u8]") { return "str"; }
+    return t;
+}
+
+/// The row variables a clause binds and their row types, in body order.
+pub fn clause_vars(cl: &CClause, vars: &mut Vec<str>, tys: &mut Vec<str>) {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if !a.neg { vars.push(a.var); tys.push(a.row_ty); } }
+            CLit::Trav(t) => { if !t.neg { vars.push(t.var); tys.push(t.row_ty); } }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+}
+
 // ── ADR 0031 R4.2 — the types of a grouped clause's outputs ──────────────
 //
 // Moved from the group emitter: what each aggregate computes in, its user

@@ -1,0 +1,21 @@
+// ADR 0031 R4.5 — a const a query reads has its DECLARED type (asked of the
+// compiler; an imported one too), not the type dictionary's `i64` baseline:
+// a `str` const compares with a `str` column.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+pub const TAGX: str = "a";
+pub const CAP: u64 = 18446744073709551615u64;
+struct Row { pub k: str, pub n: i64, pub u: u64 }
+pub deem q(rs: &[Row]) { from rs r where r.k == TAGX select r.n }
+pub deem capped(rs: &[Row]) { from rs r where r.u == CAP select r.n }
+fn main() -> i32 {
+    let mut rs: Vec<Row> = Vec::<Row>::new();
+    rs.push(Row { k: "a", n: 1i64, u: 18446744073709551615u64 });
+    rs.push(Row { k: "b", n: 2i64, u: 3u64 });
+    let o: Vec<i64> = q(rs.as_slice()).unwrap();
+    if o.len() != 1i64 || o.get(0i64) != 1i64 { return 1i32; }
+    let c: Vec<i64> = capped(rs.as_slice()).unwrap();
+    if c.len() != 1i64 || c.get(0i64) != 1i64 { return 2i32; }
+    return 0i32;
+}
