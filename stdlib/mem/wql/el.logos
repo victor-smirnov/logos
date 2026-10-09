@@ -1807,6 +1807,38 @@ pub fn el_types_new() -> ElTypes {
     };
 }
 
+/// A copy of a type environment (ADR 0031 R4.5b: the checker computes one per
+/// rule and every emitter of that rule starts from a copy of it).
+pub fn el_types_clone(t: &ElTypes) -> ElTypes {
+    let mut c: ElTypes = el_types_new();
+    let mut i: i64 = 0i64;
+    while i < t.n { c.names.push(t.names[i]); c.tns.push(String::from_str(t.tns[i].as_str())); i = i + 1i64; }
+    c.n = t.n;
+    i = 0i64;
+    while i < t.udf_n { c.udf_names.push(t.udf_names[i]); c.udf_rets.push(t.udf_rets[i]); c.udf_arity.push(t.udf_arity[i]); i = i + 1i64; }
+    c.udf_n = t.udf_n;
+    i = 0i64;
+    while i < t.rb_n {
+        c.rb_var.push(t.rb_var[i]); c.rb_col.push(t.rb_col[i]); c.rb_idx.push(t.rb_idx[i]);
+        c.rb_tn.push(t.rb_tn[i]); c.rb_kind.push(t.rb_kind[i]);
+        i = i + 1i64;
+    }
+    c.rb_n = t.rb_n;
+    i = 0i64;
+    while i < t.named.len() { c.named.push(String::from_str(t.named[i].as_str())); i = i + 1i64; }
+    c.src.on = t.src.on;
+    c.src.text = String::from_str(t.src.text.as_str());
+    c.src.file = String::from_str(t.src.file.as_str());
+    c.src.line = t.src.line;
+    i = 0i64;
+    while i < t.src.seg_end.len() {
+        c.src.seg_end.push(t.src.seg_end[i]);
+        c.src.seg_origin.push(String::from_str(t.src.seg_origin[i].as_str()));
+        i = i + 1i64;
+    }
+    return c;
+}
+
 impl ElTypes {
     // The recorded value-type for `name` (EL_TY_*), or INT if unknown.
     //

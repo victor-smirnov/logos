@@ -1614,7 +1614,11 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
     // check has read the sources as written.
     // ADR 0031 R4.2 — every expression type-checked on the core, once, before
     // the plan is finished and anything is emitted.
-    if !core_typecheck(&early, prm, h) { return false; }
+    let mut ck_tys: Vec<ElTypes> = Vec::<ElTypes>::new();
+    let mut ck_off: Vec<i64> = Vec::<i64>::new();
+    if !core_typecheck(&early, prm, h, &mut ck_tys, &mut ck_off) { return false; }
+    prm.plan_tys = ck_tys;
+    prm.plan_ty_off = ck_off;
     core_bind_sources(&mut early, prm);
     plan_decide_rest(prm, &mut early, h, false);
     let jp: JoinPlan = plan_entry_order(&early, prm, h);

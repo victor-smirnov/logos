@@ -1924,8 +1924,7 @@ fn emit_empty(scan_e: RExpr, sel: WRef<SExpr>, axis: i32,
     let row_ty: str   = sc.row_ty;
 
     let view: OView = oview_module_ast();
-    let mut ty: ElTypes = type_chain(&view, prm, sc.src_name, row_ty, sc.var_name, &Vec::<str>::new(), &Vec::<str>::new(),
-                                 &Vec::<str>::new(), &Vec::<bool>::new(), 0i64, sel.any());
+    let mut ty: ElTypes = entry_env(prm);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
@@ -2892,8 +2891,7 @@ fn emit_simple(scan_e: RExpr, pred: WRef<SExpr>, has_where: bool, sel: WRef<SExp
     if ds.sort_elided { mods.has_sort = false; }
 
     let view: OView = oview_module_ast();
-    let mut ty: ElTypes = type_chain(&view, prm, src_name, row_ty, var_name, &Vec::<str>::new(), &Vec::<str>::new(),
-                                 &Vec::<str>::new(), &Vec::<bool>::new(), 0i64, sel.any());
+    let mut ty: ElTypes = entry_env(prm);
 
     let proj_sexpr: SExpr = sel.any().view::<SExpr>();
 
@@ -3332,8 +3330,7 @@ fn emit_find(scan_e: RExpr, pred: WRef<SExpr>, has_pred: bool,
     let var_name: str = sc.var_name;
 
     let view: OView = oview_module_ast();
-    let mut ty: ElTypes = type_chain(&view, prm, src_name, row_ty, var_name, &Vec::<str>::new(), &Vec::<str>::new(),
-                                 &Vec::<str>::new(), &Vec::<bool>::new(), 0i64, WAny::null());
+    let mut ty: ElTypes = entry_env(prm);
 
     let mut pred_body: String = String::new();
     if has_pred {
@@ -4738,8 +4735,7 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
     // Rel-sourced scans (slice B) stamp their COLUMN types + the positional
     // (var, col) → tuple-index bindings instead of a schema reflection.
     let view: OView = oview_module_ast();
-    let mut ty: ElTypes = type_chain(&view, prm, ch.base_src, ch.base_ty, ch.base_var, &ch.src, &ch.ty, &ch.var,
-                                 &ch.byval, ch.n, WAny::null());
+    let mut ty: ElTypes = entry_env(prm);
 
     // 3. Clause bodies (const-folded).
     let proj_opt: SExpr = simplify_sexpr(sel.any().view::<SExpr>(), h).any().view::<SExpr>();
@@ -5290,8 +5286,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
 
     // Types: every bound source's row schema + scalar params + key/outputs.
     let view: OView = oview_module_ast();
-    let mut ty: ElTypes = type_chain(&view, prm, ch.base_src, ch.base_ty, ch.base_var, &ch.src, &ch.ty, &ch.var,
-                                 &ch.byval, ch.n, WAny::null());
+    let mut ty: ElTypes = entry_env(prm);
     // ── P3b: THE REL'S OWN INPUT TYPE, STAMPED BY TYPE ONLY ────────────────
     // A rel-backed entry scans the REL, so the struct feeding the rel's BODIES
     // is nowhere in this dict — the walk above stamps only the ENTRY's sources.
@@ -10236,13 +10231,12 @@ fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: st
 // The single-source rel body's facts, read off the core clause and its chain.
 struct RelScanView { src_name: str, row_ty: str, var_name: str, select: WAny, where_pred: WAny }
 
-fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64,
+fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64, b: i64,
                         prm: &MacroParams, out: &mut ExprBlob, h: &Writ) -> bool {
     let s: RelScanView = RelScanView { src_name: ch.base_src, row_ty: ch.base_ty, var_name: ch.base_var,
                                        select: cl.head, where_pred: rule_where(cl) };
     let view: OView = oview_module_ast();
-    let mut ty: ElTypes = type_chain(&view, prm, s.src_name, s.row_ty, s.var_name, &Vec::<str>::new(), &Vec::<str>::new(),
-                                 &Vec::<str>::new(), &Vec::<bool>::new(), 0i64, WAny::null());
+    let mut ty: ElTypes = rule_env(prm, ri, b);
 
     let mut vars: Vec<str> = str_vec(1i64);
     vars[0] = s.var_name;
@@ -10325,7 +10319,7 @@ fn rel_body_simple_frag(cl: &CClause, ch: &DNest, ri: i64,
 
 // One JOIN-CHAIN rel body: build phases + nested probes (the existing per-step
 // strategy cascade — rel-sourced sides included) + optional where + dedup push.
-fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64,
+fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64, b: i64,
                       prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let se: SExpr = cl.head.view::<SExpr>();
     let w: WAny = rule_where(cl);
@@ -10339,7 +10333,7 @@ fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64,
                     error("wql!: a recursive-aggregate rel body must project `(key, aggout)` — exactly two components (slice-1)");
                     return false;
                 }
-                return chain_body_frag(ch, ri, prm, se, items.arg_at(0i64), items.arg_at(1i64),
+                return chain_body_frag(ch, ri, b, prm, se, items.arg_at(0i64), items.arg_at(1i64),
                                        has_where, we, out, h, hx);
             }
             _ => {
@@ -10348,14 +10342,14 @@ fn rel_body_join_frag(cl: &CClause, ch: &DNest, ri: i64,
             }
         }
     }
-    return chain_body_frag(ch, ri, prm, se, se, se, has_where, we, out, h, hx);
+    return chain_body_frag(ch, ri, b, prm, se, se, se, has_where, we, out, h, hx);
 }
 
 // One RECURSIVE-AGGREGATE rel body: same chain nest as a join body, but the inner
 // push is the semilattice absorb over `(group-key, aggregate-arg)` into the
 // best-map (min/max fixpoint). The surface `select (key, aggout)` is structural
 // only — the emitted operands are the group KEY and the aggregate's ARG expr.
-fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64,
+fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
                      prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     if ch.n == 0i64 {
         error("wql!: a recursive-aggregate rel body must JOIN the rel with an edge/relation slice (e.g. `from dist x join edges e on e.src == x.node …`) — a bare self-scan cannot propagate the fixpoint");
@@ -10371,20 +10365,19 @@ fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64,
     let val_e: SExpr = a0arg.view::<SExpr>();
     let w: WAny = rule_where(cl);
     let we: SExpr = if w.is_null() { key_e } else { w.view::<SExpr>() };
-    return chain_body_frag(ch, ri, prm, key_e, key_e, val_e, !w.is_null(), we, out, h, hx);
+    return chain_body_frag(ch, ri, b, prm, key_e, key_e, val_e, !w.is_null(), we, out, h, hx);
 }
 
 // The shared CHAIN-BODY emitter (join bodies + recursive-aggregate bodies). For a
 // non-aggregate member `proj_e` is the select projection (dedup-push); for an
 // aggregate member (`prm.rel_is_agg[ri]`) `key_e`/`val_e` are the group key + the
 // aggregate argument (semilattice absorb). `where_e` is valid only if `has_where`.
-fn chain_body_frag(ch: &DNest, ri: i64, prm: &MacroParams,
+fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
                    proj_e: SExpr, key_e: SExpr, val_e: SExpr,
                    has_where: bool, where_e: SExpr, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let is_agg: bool = prm.rel_is_agg[ri];
     let view: OView = oview_module_ast();
-    let mut ty: ElTypes = type_chain(&view, prm, ch.base_src, ch.base_ty, ch.base_var, &ch.src, &ch.ty, &ch.var,
-                                 &ch.byval, ch.n, WAny::null());
+    let mut ty: ElTypes = rule_env(prm, ri, b);
 
     // The whole-row-projection gate's var set. SCALAR-element traversal vars
     // (byval) are EXCLUDED: they bind a scalar VALUE (Vec<i64> → i64), which
@@ -10548,6 +10541,17 @@ fn rel_nrules(prm: &MacroParams, ri: i64) -> i64 {
     return rels[ri].rules.len();
 }
 
+// ADR 0031 R4.5b — every emitter starts from the type environment the
+// checker computed for its rule (`typecheck::core_typecheck`), not from one of
+// its own: the entry's is the last, rel `ri`'s rule `b` is at its offset.
+fn entry_env(prm: &MacroParams) -> ElTypes {
+    return el_types_clone(&prm.plan_tys.as_slice()[prm.plan_tys.len() - 1i64]);
+}
+
+fn rule_env(prm: &MacroParams, ri: i64, b: i64) -> ElTypes {
+    return el_types_clone(&prm.plan_tys.as_slice()[prm.plan_ty_off.get(ri) + b]);
+}
+
 fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
                  prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let ru: &CRule = rel_rule_of(prm, ri, b);
@@ -10559,26 +10563,26 @@ fn rel_body_frag(ri: i64, b: i64, ovr: &Vec<str>,
         CMode::All => { }
         CMode::First => { }
     }
-    return rel_clause_frag(ri, &ru.clause, ovr, prm, out, h, hx);
+    return rel_clause_frag(ri, b, &ru.clause, ovr, prm, out, h, hx);
 }
 
 // One rel body from a clause — the rule's, or a fixpoint variant's own (R7.3).
-fn rel_clause_frag(ri: i64, cl: &CClause, ovr: &Vec<str>,
+fn rel_clause_frag(ri: i64, b: i64, cl: &CClause, ovr: &Vec<str>,
                    prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
     let mut ch: DNest = plan_nest(cl);
     jchain_rel_rename(&mut ch, ovr);
     match &cl.group {
         Option::Some(g) => {
             if prm.rel_is_agg[ri] {
-                return rel_body_agg_frag(cl, g, &ch, ri, prm, out, h, hx);
+                return rel_body_agg_frag(cl, g, &ch, ri, b, prm, out, h, hx);
             }
             error("wql!: rel body must be a scan or join query (from/join/where/select)");
             return false;
         }
         Option::None => { }
     }
-    if ch.n == 0i64 { return rel_body_simple_frag(cl, &ch, ri, prm, out, h); }
-    return rel_body_join_frag(cl, &ch, ri, prm, out, h, hx);
+    if ch.n == 0i64 { return rel_body_simple_frag(cl, &ch, ri, b, prm, out, h); }
+    return rel_body_join_frag(cl, &ch, ri, b, prm, out, h, hx);
 }
 
 // A rel body's chain for one emission: each slot takes its override, if any.
@@ -10735,7 +10739,7 @@ fn variant_blocks(pl: &DScc, prm: &MacroParams, h: &Writ, out: &mut Vec<ExprBlob
             nrun = nrun + 1i64;
             let mut hx: Hoist = Hoist { on: hoist, base: 100i64 * nrun, inv: inv, builds: vec_new::<ExprBlob>() };
             let ok: bool = match &run.clause {
-                Option::Some(rc) => rel_clause_frag(pm.rel, rc, &run.ovr, prm, &mut f, h, &mut hx),
+                Option::Some(rc) => rel_clause_frag(pm.rel, run.rule, rc, &run.ovr, prm, &mut f, h, &mut hx),
                 Option::None => rel_body_frag(pm.rel, run.rule, &run.ovr, prm, &mut f, h, &mut hx),
             };
             if !ok { return false; }
