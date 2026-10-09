@@ -6869,8 +6869,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12081 -> 12083 (+2), NOIMPORTED 7522 -> 7524 (+2) — 2026-10-09 (tuple index `key.N`): pass/wql_tuple_index_e2e, fail/wql_tuple_index_range_fail.
 #                ALL 12089 -> 12094 (+5), NOIMPORTED 7530 -> 7535 (+5), TIERCOMMIT 194 -> 194 (+0) — 2026-10-09: merge of origin/main 0de42e796 into deem: main 12089 + deem's five (wql_tuple_index_e2e, fail/wql_tuple_index_range_fail, wql_rel_group_e2e, fail/wql_rel_group_step_var_fail, fail/wql_rel_group_in_cycle_fail); measured.
 #                ALL 12094 -> 12098 (+4), NOIMPORTED 7535 -> 7539 (+4), TIERCOMMIT 194 -> 194 (+0) — 2026-10-09: merge of origin/deem over e36ca105e: main's nonglob 4425 + deem's glob 239, measured by direct listing.
-REGISTRY-ALL         12098
-REGISTRY-NOIMPORTED  7539
+#                ALL 12098 -> 12099 (+1), NOIMPORTED 7539 -> 7540 (+1), TIERCOMMIT 194 -> 194 (+0) — 2026-10-09: closure_literal_borrowed_called (pass, nonglob).
+REGISTRY-ALL         12099
+REGISTRY-NOIMPORTED  7540
 REGISTRY-TIERCOMMIT  194
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

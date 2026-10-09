@@ -1,0 +1,14 @@
+// `&|v| ..` / `&mut |v| ..` is the address of the closure's {fn, env} pair (it was a slot holding that address: SIGSEGV on every call). Non-capturing, capturing, through &F, &dyn Fn, &mut F.
+package m;
+use logos.std.fmt;
+fn ap<F: Fn(i32) -> i32>(f: &F) -> i32 { f(2) }
+fn apd(f: &dyn Fn(i32) -> i32) -> i32 { f(3) }
+fn apm<F: FnMut(i32)>(f: &mut F) { f(4); f(5); }
+fn main() {
+    let k = 10;
+    let r = &|v: i32| v + 1;
+    let c = &|v: i32| v + k;
+    let mut acc = 0;
+    { let m = &mut |v: i32| { acc += v; }; m(1); apm(m); }
+    println!("{} {} {} {} {} {}", r(1), c(1), ap(&|v: i32| v * 7), apd(&|v: i32| v * k), ap(c), acc);
+}

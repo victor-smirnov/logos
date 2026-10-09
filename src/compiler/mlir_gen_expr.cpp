@@ -2245,7 +2245,12 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EAddrOfTempView v, TypeRef resu
                     // "ptr to {ptr,i64}" read 16 bytes from an 8-byte slot.
                     // Treat as already-spilled — return the ptr value.
                     inner_t.kind() == LogosType::Kind::Slice ||
-                    inner_t.kind() == LogosType::Kind::TraitObject))
+                    inner_t.kind() == LogosType::Kind::TraitObject ||
+                    // A closure value is the address of its {fn, env} pair, as
+                    // a `let c = |..|` local's slot is: `&|v| ..` is that
+                    // address, not a slot holding it (the call read {fn, env}
+                    // from the slot and jumped to a stack address).
+                    inner_t.kind() == LogosType::Kind::Closure))
         // T0-4 (temp lifetime extension): aggregates are normally
         // pointer-aliased so the value already IS the address — EXCEPT a
         // by-value aggregate (a fn-call return like `&String::from("x")`,
