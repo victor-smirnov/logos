@@ -5179,8 +5179,11 @@ pub fn emit_entry_group(ds: &DSimple, fn_name: str, params_text: str, prm: &Macr
             }
             let pred: WRef<SExpr> = if ds.pred.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.pred) };
             let hav: WRef<SExpr> = if ds.having.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.having) };
+            // The incremental handle is decided by the planner, before the batch
+            // form is emitted (ADR 0031 R7.4b).
+            let di: DIncr = plan_incremental(ds, prm, vis_strip(fn_name), h);
             return emit_aggregate(ch, key, ra, pred, !ds.pred.is_null(), hav, !ds.having.is_null(),
-                                  sel, mods, fn_name, params_text, prm, result_ty, has_result_ty, prelude, h);
+                                  sel, mods, fn_name, params_text, prm, result_ty, has_result_ty, prelude, h, &di);
         }
     }
 }
@@ -5190,7 +5193,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
                   having_ref: WRef<SExpr>, has_having: bool, sel: WRef<SExpr>,
                   mods: QMods,
                   fn_name: str, params_text: str, prm: &MacroParams,
-                  result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ) -> bool {
+                  result_ty0: str, has_result_ty: bool, prelude: str, h: &Writ, di: &DIncr) -> bool {
     // The input as a linearized chain: base + `ch.n` steps. `ch.n == 0` IS the
     // bare scan — the degenerate chain, not a special case.
     let ch: DNest = ch0;
@@ -5754,7 +5757,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
                          key_ty, string_as_str(&key_body), result_ty, tres,
                          string_as_str(&proj_body), string_as_str(&having_body),
                          has_having, proj_opt, having_ref, has_where, mods,
-                         fn_name, params_text, prm, prelude, h) { return false; }
+                         fn_name, params_text, prm, prelude, h, di) { return false; }
     return true;
 }
 
@@ -5924,7 +5927,8 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
                     has_having: bool, proj_e: SExpr, having_ref: WRef<SExpr>,
                     has_where: bool, mods: QMods,
                     fn_name: str, params_text: str, prm: &MacroParams,
-                    prelude: str, h: &Writ) -> bool {
+                    prelude: str, h: &Writ,
+                    di: &DIncr) -> bool {
     let bare0: str = vis_strip(fn_name);
     // P3b — is the ENTRY's base source a declared `rel`? Asked here, ahead of
     // eligibility, because it decides the SURFACE (`incr_retract_eligible`) as
@@ -5941,11 +5945,8 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // exactly once per query that gets a handle, and `incr_eligibility_gate.sh`
     // asserts that identity as a derived count. `retract_ok` is the untraced
     // derivation both callers read, so the two cannot disagree.
-    if !incr_eligible(ch, ty, aggs, acount, uda, act, key_ty, result_ty, tres,
-                      has_having, proj_e, having_ref, has_where, mods, prm,
-                      retract_ok(aggs, acount, acc) && rel_m0 < 0i64, bare0) {
-        return true;
-    }
+    // The handle is the PLAN's (`dplan::plan_incremental`, ADR 0031 R7.4b).
+    if !di.admit { return true; }
 
     let mut iarg: Vec<String> = vec![String::new(); acount];
     // ⚠ THE ACCUMULATORS ARE THE BATCH'S, PASSED IN. This used to call
@@ -5973,7 +5974,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // multiplicity MAP. One predicate for all four is what stops the emitted
     // signature, the state it owns and the arithmetic inside it from disagreeing
     // about what this query can do.
-    let retr: bool = incr_retract_eligible(aggs, acount, acc, rel_m0 >= 0i64, bare);
+    let retr: bool = di.retract;
     // From here the rel index is the ADMITTED one: eligibility has run and, if
     // it returned true with `rel_m0 >= 0`, every clause the rel arm depends on
     // holds. The slice parameter's index is re-found by the same walk the
@@ -6041,17 +6042,7 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     //                   is what keeps `want_map`'s own predicate untouched below:
     //                   `dred` implies no min/max, so `retr && is_mm` and
     //                   `sfold && is_mm` are the same bit for every query.
-    let dred: bool = rel_m >= 0i64 && !retr
-                     && retract_ok(aggs, acount, acc)
-                     && !aggs_any_minmax(aggs, acount);
-    // THE SIGNED-FOLD BIT. `retr` decides the SURFACE (which fns exist, whether
-    // `__wd` is a parameter); `sfold` decides only whether the per-aggregate FOLD
-    // is written in its WEIGHTED form (`acc + w·arg`) or its `+1` form. They were
-    // one variable while the only weighted caller was `<q>_apply`; the DRed driver
-    // is a second caller that needs the weighted arithmetic on a surface that has
-    // no weight parameter, so the two questions are named apart.
-    // ⚠ `sfold == retr` FOR EVERY NON-REL QUERY, which is what makes every P1/P2
-    // fixture a control on this split: nothing outside the rel path can move.
+    let dred: bool = di.dred;
     let sfold: bool = retr || dred;
     // ── THE AXIS IS TRACED HERE, EXACTLY ONCE PER REL-BACKED QUERY ─────────
     // ⚠ NOT AT THE EMISSION SITE, and the reason is the rule `incr_eligible`'s
@@ -6065,15 +6056,6 @@ fn emit_incremental(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
     // phases to drive, so tracing a `declined` for one would report a refusal
     // about a capability that does not apply — the same noise the `retraction`
     // axis avoids by not tracing before eligibility.
-    if rel_m >= 0i64 && !retr {
-        if dred {
-            dred_trace(bare, "EMITTED", DR_EMIT());
-        } else if !retract_ok(aggs, acount, acc) {
-            dred_trace(bare, "declined", DR_FLOAT());
-        } else {
-            dred_trace(bare, "declined", DR_MINMAX());
-        }
-    }
 
     // ── the handle's FIELDS, its INITIALIZERS, the SEEDS and the FOLDS ──────
     // One pass, four parallel cursors, because every one of them is indexed by
@@ -8798,350 +8780,7 @@ fn push_vec_new(out: &mut String, t: str) {
     out.push_str(">::new()");
 }
 
-// ══ IS THIS QUERY'S SHAPE EXPRESSIBLE ON A PERSISTED HANDLE? ════════════════
-//
-// DERIVED from the plan, never listed by a caller — which is what keeps the
-// population of incremental queries a property of the ARTIFACT rather than of
-// somebody's list. Every clause below states WHICH fact about a handle it rests
-// on, because a refusal whose ground is "not supported yet" is the one that
-// never gets revisited.
-//
-// ⚠ THE FLOOR IS THE DYNAMIC ENGINE'S OWN, AND THAT IS A CHOICE WITH A PAYOFF.
-// `IncrJoin` admits exactly `RDistinct?( RProj( RFilter?( RAggr( RScan ) ) ) )`
-// — one bare-scan source, `having` above the group, no `order by` / `limit` /
-// `edge` / `fix` / `rel`. The static `emit_aggregate` is strictly richer (it
-// takes a join chain and a pre-group `where`), so restricting P1 to the same
-// floor costs nothing that is not already deferred and buys a DIFFERENTIAL
-// against a genuinely separate implementation for every fixture — an asset that
-// stops existing when the interpreter is removed.
-// ⚠ EVERY DECISION IS TRACED WITH ITS GROUND, ON THE SAME CHANNEL AND IN THE
-// SAME SHAPE AS THE JOIN-ORDER DECISION (`LOGOS_TRACE_PLAN`, `plan_trace`). A
-// query that does NOT gain the incremental form gains it silently otherwise, and
-// "why did my query not get a handle" is then answerable only by reading this
-// function — which is the class of unobservable derived decision this compiler
-// has already paid for once at the join-order axis.
-fn incr_eligible(ch: &DNest, ty: &ElTypes, aggs: &RAggArr, acount: i64,
-                 uda: &Vec<bool>, act: &Vec<str>, key_ty: str,
-                 result_ty: str, tres: i32, has_having: bool, proj_e: SExpr,
-                 having_ref: WRef<SExpr>, has_where: bool, mods: QMods,
-                 prm: &MacroParams, retr: bool, qn: str) -> bool {
-    // ── A DECLARED `rel` IS A SET, AND A HANDLE OVER ONE ANSWERS WRONG ──────
-    //
-    // ⚠⚠ THIS CLAUSE CLOSES A SILENT WRONG ANSWER, NOT A MISSING FEATURE, AND
-    // THE FLOOR THIS FUNCTION'S OWN HEADER STATES ALREADY EXCLUDED `rel` —
-    // "one bare-scan source … no `order by` / `limit` / `edge` / `fix` / `rel`"
-    // — it was written down and never mechanized, so it got re-made. Until now
-    // NO clause here asked whether a source was a rel, and every consequence
-    // below was MEASURED on aaf16585 against the query's own batch fn:
-    //
-    //   • RECURSIVE rel (transitive closure), edges {(1,2),(2,3)} split into two
-    //     one-edge epochs: batch says group 1 has count 2 (it derives (1,3)),
-    //     the handle says 1. The closure of a union is not the union of the
-    //     closures.
-    //   • NON-RECURSIVE rel, the SAME edge presented in two epochs: batch says
-    //     1 (the rel dedups), the handle says 2. So the hole is EVERY declared
-    //     rel, not only a recursive one — dedup alone is enough to break it.
-    //   • one `_apply(h, 0, +2, …)`: a Z-set row of weight 2 is two copies, but
-    //     the rel is a SET, so the closure is unchanged and batch says 1 while
-    //     the handle says 2.
-    //   • a retraction through recursion: batch over the survivor has NO group 1
-    //     at all, the handle reports group 1 with count 1 — and returns `Ok`.
-    //
-    // THE MECHANISM, because a ground that does not name one is the ground that
-    // never gets revisited: `emit_incremental` splices the rel PRELUDE verbatim
-    // at the top of `<q>_apply` (the `prelude_frag` call below), exactly as the
-    // batch emitters do. That prelude declares `let mut __rel_<m> = Vec::new();`
-    // and runs the whole SCC fixpoint — so every call re-materializes the rel
-    // FROM AN EMPTY TOTAL over THE DELTA ALONE, then folds each resulting row at
-    // the delta's weight. Both properties a rel has are properties of the
-    // ACCUMULATED input: set-semantics dedup (`rel_push_frag`'s shadow-set gate)
-    // and the recursive closure. The handle stores neither the rel's rows nor
-    // the input they were derived from, so neither survives the epoch boundary.
-    //
-    // THE SUCCESSOR IS NAMED, NOT VAGUE. Insert-only maintenance means seeding
-    // the semi-naive loop with the EDB delta instead of the whole relation, and
-    // it needs: the per-member total `__tot_<m>` and shadow set `__rs_<m>`
-    // promoted from fn locals onto the handle; the accumulated EDB kept as
-    // handle state in Z-set normal form; a round-0 variant in `dplan::plan_scc`
-    // binding the EDB occurrence to the delta and the in-SCC occurrence to the
-    // existing total; and a SECOND prelude threaded through `walk_query` →
-    // `emit_incremental`, which today receives the prelude only as opaque text
-    // and never sees `RelScc` at all. RETRACTION through recursion is a further
-    // slice again — a fact may support ITSELF through a cycle, so "subtract what
-    // it added" is wrong; the answer is DRed (over-delete, compact, re-derive),
-    // which the dynamic engine already implements at `incr_rec.logos:776-910`
-    // and which degrades to full recompute for a lattice member.
-    //
-    // ⚠ WEIGHTS MAY NEVER FLOW NAIVELY INTO AN SCC, and that is why the fix is
-    // not "carry `__wd` through". Counting derivations through a cycle DIVERGES:
-    // `path(a,b) :- path(a,c), edge(c,b)` has unboundedly many derivations of
-    // one fact, and set semantics is exactly what makes the existing fixpoint
-    // terminate. Any successor collapses the inbound weight to a 0→positive
-    // PRESENCE crossing and folds each derived row at +1, never at `__wd`.
-    //
-    // ⚠ NATIVE rels are NOT refused, and that is MEASURED rather than assumed.
-    // A native rel (`<p>: &Writ`, materialized by `writ_graph_edges`) has no
-    // dedup and no recursion: it is a pure function of one caller-owned
-    // container, so folding each epoch's rows at their weight IS the multiset
-    // union a bare scan means. Measured on aaf16585: one epoch over a document
-    // equals the batch over that document. The accumulated input of several
-    // `&Writ`s is not expressible as a batch call at all, so there is no
-    // cross-epoch spec here to violate in the way a derived rel violates one.
-    // ── P3b: THE REFUSAL BECOMES AN ANSWER, FOR ONE SHAPE ──────────────────
-    //
-    // What replaced the blanket refusal is NOT "rels are fine now". The handle
-    // now OWNS the accumulated input and the rel's fixpoint TOTAL, and
-    // `<q>_epoch` extends that total by re-entering a cross-epoch semi-naïve
-    // driver rather than re-running the fixpoint from an empty one. That is the
-    // whole of the change, and everything the old ground said about a shape the
-    // handle does NOT own is still true and still refused below, with the
-    // specific antecedent named.
-    //
-    // ⚠ A REL IN JOIN POSITION IS STILL REFUSED, AND THE REFUSAL IS NOW PINNED.
-    // The previous round left this loop pinned by NOTHING — both matrix rel
-    // queries put the rel in BASE position, so deleting the loop left every gate
-    // green. `no_rel_join` in `wql_incr_eligibility_matrix.logos` is a rel in
-    // JOIN position and the gate asserts its ground, so this clause now bites.
-    // It is not a formality: the handle's join arm stores the joined side as a
-    // weighted Z-set (`__s1`/`__s1w`), and a rel side has no weight to store —
-    // its rows come out of a fixpoint that has already deduped them.
-    let mut rsi: i64 = 0i64;
-    while rsi < ch.n {
-        if incr_src_is_derived_rel(prm, ch.src[rsi]) {
-            return incr_decline_r(qn, IR_JOIN_SRC_REL());
-        }
-        rsi = rsi + 1i64;
-    }
-    let rel_m: i64 = prm.rel_find_src(ch.base_src);
-    if rel_m >= 0i64 {
-        // A rel in BASE position AND a join step: the epoch would have to
-        // maintain the fixpoint total AND a weighted Z-set side in one call.
-        if ch.n > 0i64 {
-            return incr_decline_r(qn, IR_BASE_REL_JOINS());
-        }
-        // THE SHAPE, DERIVED ONCE, IN `stamp_rel_incr_shape`. The ground travels
-        // with the flag — see the note on `rel_incr_why`. ⚠ This is also what
-        // keeps the admission and the ARTIFACT in step: `emit_rel_fns` emits the
-        // `_i` driver under the same flag, so an admission that disagreed would
-        // call a function that does not exist.
-        if !prm.rel_incr_ok[rel_m] { return incr_decline_dyn(qn, IR_REL_NOT_INCR(), prm.rel_incr_why[rel_m]); }
-        // ── THE ACCUMULATED INPUT MUST BE OWNABLE AND IDENTIFIABLE ──────────
-        // The handle keeps the rel's EDB — every fact ever applied — because the
-        // fixpoint is a function of the ACCUMULATED input and nothing else. That
-        // makes the input's row type subject to exactly the question P3 asks of a
-        // joined side: `str` is a borrow of caller bytes, and `f64` has no `==`
-        // that is identity for the presence gate to search on.
-        //
-        // ⚠ AND THERE MUST BE EXACTLY ONE OF THEM. `<q>_epoch` keeps the query's
-        // parameter list VERBATIM, so with two slice params a caller would pass
-        // both on every call and the emitter could not tell which one is the
-        // delta — the same ambiguity the join arm answers with a source TAG, and
-        // a rel-backed query has no `<q>_apply` to carry one. Scalar params ride
-        // through untouched (they are not input to accumulate).
-        let mut nsl: i64 = 0i64;
-        let mut spi: i64 = -1i64;
-        let mut pk: i64 = 0i64;
-        while pk < prm.n {
-            if prm.is_slice[pk] { nsl = nsl + 1i64; spi = pk; }
-            pk = pk + 1i64;
-        }
-        if nsl != 1i64 {
-            return incr_decline_r(qn, IR_REL_SLICE_COUNT());
-        }
-        if !incr_row_ty_ok(ty, prm.tys[spi]) {
-            return incr_decline_r(qn, IR_REL_ROW_TY());
-        }
-        // The rel's own ROW type is stored too (the fixpoint total). Its columns
-        // are the rel's DECLARED ones, so the question is asked of the column
-        // list rather than of a stamped struct — a rel row is a tuple and has no
-        // binding table to walk.
-        let coff: i64 = prm.rel_coff[rel_m];
-        let mut ci2: i64 = 0i64;
-        while ci2 < prm.rel_ccnt[rel_m] {
-            let ct: str = prm.relc_ty[coff + ci2];
-            if !incr_ty_ok(ct) || el_class_lookup(ct) == EL_TY_FLT() || el_class_lookup(ct) < 0i32 {
-                return incr_decline_r(qn, IR_REL_COL_TY());
-            }
-            ci2 = ci2 + 1i64;
-        }
-    }
-    // ── THE JOIN, P3: ONE STEP IS ADMITTED AND EVERY OTHER SHAPE IS NAMED ────
-    // The old ground was "COMBINING per-source deltas is the DBSP product rule
-    // and needs the joined side's state on the handle". That is still exactly
-    // right — so the handle now KEEPS the joined side's state, and the refusal
-    // retires for the shape where keeping it is derivable. What is left is a
-    // list, and every entry names the piece that is missing rather than saying
-    // "not supported yet".
-    //
-    // ⚠ TWO OR MORE STEPS IS THE ROTATION PROBLEM AND IT IS NOT THE FOLD'S. A
-    // delta at chain slot s makes s the OUTERMOST source, and re-rooting a nest
-    // changes four things at once — `chain_reorder`'s own header enumerates them
-    // — of which the emitter here can derive only the first: the outer source,
-    // WHICH HALF of each equi-term is the build key (`equi_term_sides` splits by
-    // the step's NEW row var, so exchanging the vars exchanges build and probe),
-    // therefore the STRATEGY (a direction may have no usable equi-key at all),
-    // and the PLACEMENT of every floating predicate. `chain_reorder` does all
-    // four but consumes a `JoinOrder` candidate table produced by the planner's
-    // `decide_join_orders`, and this emitter never runs it. With exactly ONE
-    // step there is ONE `on` predicate and NO placement question, and the nest
-    // is two loops in either direction — which is why the line falls here and
-    // not at "arbitrary chain".
-    if ch.n > 1i64 { return incr_decline_r(qn, IR_CHAIN_LONG()); }
-    if ch.n == 1i64 {
-        // A delta must name its SOURCE, and the tag lives in `<q>_apply`'s
-        // signature — which exists only on the RETRACTING surface. The two axes
-        // are independent (the tag says WHICH relation, the weight says WHICH
-        // DIRECTION) and only their combination is unbuilt: an insert-only join
-        // would need a THIRD emitted signature, `<q>_apply(&mut h, __src, …)`
-        // with no weight. Named, not hidden — and it is reached only by a query
-        // whose aggregate list already lost retraction to D4.
-        if !retr { return incr_decline_r(qn, IR_JOIN_INSERT_ONLY()); }
-        // An ANTI step is a MATCHCOUNT, not a product: a base row's membership
-        // in the output flips when its match count crosses 0, so a delta on the
-        // anti side must EMIT A RETRACTION of a row that itself did not change.
-        // That is a second state machine (the dynamic engine spends
-        // `incr.logos:1149-1251` on it) and it is not this fold.
-        if ch.anti[0] { return incr_decline_r(qn, IR_JOIN_ANTI()); }
-        // A TRAVERSAL step's source is a field-path expression re-derived per
-        // BOUND ROW (`a.children`), so there is no standalone relation for the
-        // handle to own and no tag that could name one.
-        if ch.edge[0] { return incr_decline_r(qn, IR_JOIN_EDGE()); }
-        // A BY-VALUE binding is the streamed/iterator shape's; the stored side is
-        // a `Vec` this emitter indexes by reference.
-        if ch.byval[0] { return incr_decline_r(qn, IR_JOIN_BYVAL()); }
-        // A STREAMED source yields its rows ONCE. The handle would have to be
-        // that single reader and would then own a relation the caller can no
-        // longer re-present as a delta.
-        // ⚠ A SURVIVOR OF ADR 0025 S2f/S2g. This is the incremental fold's
-        // DECLINE — a statement about who may READ the source, not about how the
-        // scan is spelled. S1's gate correction applies verbatim: the shape
-        // readings became `rel_src_unmaterialized` (the plan's node); this one
-        // is a decision and stays on the decision's boolean.
-        if prm.rel_src_streams(ch.base_src) || prm.rel_src_streams(ch.src[0]) {
-            return incr_decline_r(qn, IR_JOIN_STREAMS());
-        }
-        // A SELF-JOIN puts ONE relation in TWO chain positions, so one tag would
-        // have to feed both — and integrating the delta once while folding it
-        // against a state that must also already contain it is exactly the
-        // same-epoch double count this slice's fixture exists to catch. The
-        // dynamic engine refuses it too (`incr.logos:1780`).
-        if str_eq(ch.base_src, ch.src[0]) {
-            return incr_decline_r(qn, IR_SELF_JOIN());
-        }
-        // THE HANDLE OWNS ITS STORED SIDES, ROW BY ROW AND FIELD BY FIELD.
-        // ⚠⚠ THIS CLAUSE IS NOT A FORMALITY AND THE COMPILER DOES NOT ENFORCE
-        // IT. MEASURED (2026-08-07, prebuilt logosc): a row struct carrying a
-        // `str` field copies into a handle-owned `Vec<Row>` and COMPILES CLEAN
-        // — the handle then holds a view of source bytes it does not own, which
-        // silently destroys the capability this emitter's header states in
-        // capitals ("THE HANDLE BORROWS NOTHING … the caller may grow, move or
-        // drop the source between epochs"). `incr_ty_ok` was already asked of
-        // the group key, of every accumulator column and of every projected
-        // component — and never of the ROW, because until now no row was stored.
-        if !incr_row_ty_ok(ty, ch.base_ty) || !incr_row_ty_ok(ty, ch.ty[0]) {
-            return incr_decline_r(qn, IR_JOIN_ROW_TY());
-        }
-    }
-    // A PRE-GROUP `where` is admissible in principle and is refused here for the
-    // same reason the dynamic engine refuses it: it has never been folded through
-    // the incremental path, so admitting it would be an untested arm. `having`
-    // sits ABOVE the group and IS admitted — it is re-evaluated per snapshot.
-    if has_where { return incr_decline_r(qn, IR_PRE_WHERE()); }
-    // `order by` / `limit` / `distinct` all act on the SNAPSHOT rather than on
-    // the fold, so they are cheap to add later and are excluded now only to keep
-    // the emitted surface to what a fixture in this slice actually asserts.
-    if mods.has_sort || mods.has_limit || mods.distinct { return incr_decline_r(qn, IR_MODIFIERS()); }
-    // A generic `deem` would need the handle TYPE to carry the same type
-    // parameters, which is a second emitted-surface question (they would ride
-    // every one of the three fns as well). Named deferral.
-    if prm.tparams.len() > 0i64 { return incr_decline_r(qn, IR_GENERIC()); }
-    let mut i: i64 = 0i64;
-    while i < acount {
-        // A UDA threads the user's `A` and its own `_step`; its accumulator is
-        // outside `agg_acc_ty`'s domain by construction, and the dynamic engine's
-        // algebra gate refuses it too.
-        if uda[i] { return incr_decline_r(qn, IR_UDA()); }
-        // THE HANDLE OWNS ITS CELLS. A `str` accumulator column would be a BORROW
-        // of a source row, and the source is exactly what a handle does not keep.
-        if !incr_ty_ok(act[i]) { return incr_decline_r(qn, IR_AGG_STR()); }
-        i = i + 1i64;
-    }
-    // The group KEY is stored by value for the handle's whole life, so the same
-    // question is asked of it — and `str` keys are the named deferral this makes,
-    // not an oversight: the dynamic engine solves it by interning every string
-    // into its own Writ arena, which would put a Writ back into a path whose
-    // whole thesis is that it needs none.
-    if !incr_ty_ok(key_ty) { return incr_decline_r(qn, IR_KEY_STR()); }
-    if tres == 0i32 && !incr_ty_ok(result_ty) { return incr_decline_r(qn, IR_RESULT_STR()); }
-    // `select` and `having` must be evaluable from the GROUP ROW alone — no
-    // source row (its index is meaningless across epochs) and no scalar
-    // parameter (it is a per-call value, and `<q>_snapshot` takes none).
-    let mut onames: Vec<str> = str_vec(acount);
-    let mut j: i64 = 0i64;
-    while j < acount { onames[j] = aggs.agg_at(j).out; j = j + 1i64; }
-    if !sexpr_over_group_names(proj_e, &onames, acount) {
-        return incr_decline_r(qn, IR_SELECT_NAME());
-    }
-    if has_having && !sexpr_over_group_names(having_ref.any().view::<SExpr>(), &onames, acount) {
-        return incr_decline_r(qn, IR_HAVING_NAME());
-    }
-    // Every projected COMPONENT must be a value the handle can hand back without
-    // borrowing anything it does not own.
-    if !incr_proj_ty_ok(proj_e, ty) {
-        return incr_decline_r(qn, IR_PROJ_STR());
-    }
-    if ch.n == 1i64 {
-        incr_emit(qn, IR_EMIT_JOIN());
-        return true;
-    }
-    if rel_m >= 0i64 {
-        incr_emit(qn, IR_EMIT_REL());
-        return true;
-    }
-    incr_emit(qn, IR_EMIT_SCAN());
-    return true;
-}
 
-/// May a whole ROW of this type be OWNED by a handle? The question `incr_ty_ok`
-/// asks of ONE type, asked of every FIELD of a stored source row.
-///
-/// ⚠ IT REFUSES WHAT IT COULD NOT READ, and that direction is the whole point.
-/// `type_stamped` false means the reflection walk never reached this struct — an
-/// unknown name, an alias this module cannot follow, no module AST loaded — and
-/// an unread struct is not an empty one. Answering `true` there would admit
-/// exactly the rows whose fields nobody looked at.
-///
-/// ⚠ A FIELD WHOSE OWN TYPE IS A STRUCT IS REFUSED RATHER THAN WALKED. `el_ty`
-/// answers the `i64` baseline for a name outside the lattice, so a nested struct
-/// would pass `incr_ty_ok` while carrying a `str` two levels down — the silent
-/// wrong answer this clause exists to stop. Ownership is transitive and this
-/// function is not; refusing is the direction that cannot be wrong, and widening
-/// it later breaks no caller.
-///
-/// ⚠⚠ A FLOAT FIELD IS REFUSED TOO, AND THAT IS THE *SECOND* QUESTION THIS
-/// FUNCTION ANSWERS. Storing rows in Z-set NORMAL FORM means finding the entry a
-/// delta row is a copy of, and that search is a field-by-field `==`. On `f64`,
-/// `==` IS NOT IDENTITY — NaN ≠ NaN makes a row carrying one impossible to
-/// retract, and −0.0 == +0.0 lets a retraction of one cancel an insert of the
-/// other. That is Victor's open 2026-08-07 decision about the multiplicity map's
-/// key wearing a different hat, and an emitter may not answer it in passing.
-fn incr_row_ty_ok(t: &ElTypes, row_ty: str) -> bool {
-    if row_ty.len() == 0i64 { return false; }
-    if !t.type_stamped(row_ty) { return false; }
-    let mut i: i64 = 0i64;
-    while true {
-        let e: i64 = t.type_field_at(row_ty, i);
-        if e < 0i64 { return true; }
-        let ftn: str = t.binding_ty_name_at(e);
-        if ftn.len() == 0i64 { return false; }
-        if el_class_lookup(ftn) < 0i32 { return false; }
-        if !incr_ty_ok(ftn) { return false; }
-        if el_class_lookup(ftn) == EL_TY_FLT() { return false; }
-        if t.binding_col_at(e).len() == 0i64 { return false; }
-        i = i + 1i64;
-    }
-    return true;
-}
 
 /// The bare-scan retraction sensor's WHOLE-ROW identity: `(T0, T1, …)` into
 /// `ty_out` and `(v.f0, v.f1, …)` into `ex_out`, one component per stamped field
@@ -9252,214 +8891,19 @@ fn incr_row_eq_text(t: &ElTypes, row_ty: str, sv: str, dv: str, out: &mut String
     }
 }
 
-/// One declined incremental form, traced with its GROUND, then `false`.
-/// Is this chain source a DECLARED, DERIVED `rel` — one materialized by query
-/// BODIES rather than by an engine helper?
-///
-/// ⚠ `rel_find_src` resolves BOTH spellings a rel source wears (the emitted
-/// `__rel_<m>_sl` and the semi-naive delta's `__dl_<m>_sl`), which is why the
-/// question is asked of it rather than of `rel_names`: by the time a chain
-/// reaches `incr_eligible` the plan node's `src_name` has been rewritten to the
-/// emitted form, and matching the DECLARED name would silently answer "no rel
-/// here" for every query in the population this predicate exists to catch.
-///
-/// ⚠ NATIVE is excluded deliberately and the ground is in `incr_eligible`: a
-/// native rel has neither dedup nor recursion, so it carries no property of the
-/// accumulated input for an epoch boundary to lose.
-fn incr_src_is_derived_rel(prm: &MacroParams, src: str) -> bool {
-    let i: i64 = prm.rel_find_src(src);
-    if i < 0i64 { return false; }
-    return !prm.rel_native[i];
-}
 
 fn incr_decline(qn: str, why: str) -> bool {
     plan_trace("incremental", "declined", qn, why);
     return false;
 }
 
-/// A refusal named by its RULE (why.logos `IR_*`): the sentence is the rule's
-/// rendering, and `[facts]` names the rule — the antecedent that failed (E3).
-fn incr_decline_r(qn: str, r: i32) -> bool {
-    plan_trace("incremental", "declined", qn, ir_render(r));
-    incr_facts(qn, r);
-    return false;
-}
 
-/// The one refusal whose sentence is an OPERAND — the rel registry's own ground
-/// for a rel that cannot be accumulated (`rel_incr_why`), under one rule.
-fn incr_decline_dyn(qn: str, r: i32, why: str) -> bool {
-    plan_trace("incremental", "declined", qn, why);
-    incr_facts(qn, r);
-    return false;
-}
 
-fn incr_emit(qn: str, r: i32) {
-    plan_trace("incremental", "EMITTED", qn, ir_render(r));
-    incr_facts(qn, r);
-}
 
-fn incr_facts(qn: str, r: i32) {
-    if !plan_trace_facts_on() { return; }
-    let mut fl: String = String::new();
-    fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" incremental rule=");
-    fl.push_str(ir_name(r)); fl.push_str("\n");
-    plan_trace_raw(string_as_str(&fl));
-}
 
-// ══ MAY THIS QUERY'S HANDLE BE RUN BACKWARDS? ══════════════════════════════
-//
-// The question `<q>_apply`'s WEIGHT and `<q>_retract` rest on, asked of the SAME
-// aggregate array the folds are built from and traced on the SAME channel as
-// every other derived decision — because a query that silently loses its
-// retraction is exactly the unobservable derived decision `incr_eligible`'s
-// header already argues about.
-//
-// ⚠ THE LIST IS THE UNIT, NOT THE AGGREGATE. A retraction retracts a ROW, and a
-// row feeds every aggregate in the list at once. There is no shape in which
-// `min` runs backwards and the `sum` beside it does not — so ONE aggregate that
-// cannot take a negative weight takes the whole retracting surface away, and the
-// batch fn, `<q>_epoch` and `<q>_snapshot` are untouched by the refusal.
-//
-// ⚠ EXACTLY ONE THING IS REFUSED, AND IT IS A FORK RATHER THAN A GAP:
-//
-//   `count`   — the multiplicity is an integer and `+w` inverts `+(-w)`.
-//   `sum` over a NON-float accumulator — `i64` and `u64` both invert under
-//               their own checked predicates, with no representable value lost.
-//   `min`/`max`, AT EVERY TYPE INCLUDING f64 — these do NOT invert, and they do
-//               not have to. Retracting the current best is answered by RESCAN
-//               over a per-(group, aggregate) value→multiplicity map (see the
-//               semilattice fold in `emit_incremental`), which computes no
-//               inverse at all: an extremum is a value SELECTED from the
-//               multiset, never a value COMPUTED from it, so nothing rounds and
-//               f64 is admitted on the same footing as the integers.
-//   `sum`/`avg` over an f64 accumulator — REFUSED. `(S+x)-x != S`. That is
-//               decision D4, it is OPEN and reserved, and it is not this
-//               emitter's to take. Note this catches `avg` over an INTEGER
-//               column too: `avg` divides at snapshot out of an f64 running
-//               total, so its accumulator is a float whatever the column is.
-//
-// ⚠ THE PREDICATE READS `acc`, THE ACCUMULATOR ARRAY, AND NOT `agg_flt`. The two
-// axes answer the same cell — `compute_acc_tys` sets `acc[i] == "f64"` exactly
-// when `agg_flt[i]`, and `agg_flt` is unconditionally true for `avg` — but the
-// GROUND is about the accumulator, so the test that carries the ground should be
-// the one that names it. (A UDA is the only place the two could part, with
-// `acc[i] == ""`; `incr_eligible` declines a UDA one axis out, so this predicate
-// is never asked about one.)
-/// THE PREDICATE ITSELF, WITH NO TRACE — because ONE of its consumers has to ask
-/// it BEFORE the query is known to be eligible at all, and tracing a `retraction`
-/// verdict for a query that never gets a handle would break the derived count
-/// `incr_eligibility_gate.sh` asserts (the retract axis is traced exactly once
-/// per EMITTED handle, and that identity is the gate's second table).
-///
-/// ⚠ ONE DERIVATION, TWO CALLERS — not one decision asked twice. `incr_eligible`
-/// needs the answer because a JOIN chain on the INSERT-ONLY surface has no place
-/// to put a source tag (see the clause there); `incr_retract_eligible` needs it
-/// to trace and to shape the emitted fns. Both read THIS function, so they cannot
-/// answer differently — the `accw`/`compute_acc_tys` failure mode this file
-/// already carries two warnings about.
-fn retract_ok(aggs: &RAggArr, acount: i64, acc: &Vec<str>) -> bool {
-    let mut i: i64 = 0i64;
-    while i < acount {
-        let fnid: i32 = agg_of_name(aggs.agg_at(i).fn_name);
-        if (fnid == AGG_SUM() || fnid == AGG_AVG()) && str_eq(acc[i], "f64") { return false; }
-        i = i + 1i64;
-    }
-    return true;
-}
 
-/// Does the aggregate list contain a `min` or a `max`? Asked by the DRed
-/// driver's admission (`dred` in `emit_incremental`) and by nothing else.
-///
-/// ⚠ IT IS A QUESTION ABOUT STATE, NOT ABOUT ARITHMETIC, and that is why it is a
-/// SEPARATE predicate from `retract_ok` rather than a clause inside it.
-/// `retract_ok` answers "does this aggregate run backwards", and `min`/`max` DO
-/// — by rescanning the value→multiplicity map, exactly as its header says. What
-/// the DRed driver lacks is the MAP: `want_map` builds `__gm_<out>` only under
-/// `retr`, and a rel-backed query is on the insert-only surface, so the field
-/// does not exist for the driver's −1 fold to rescan. Folding the two grounds
-/// into one predicate would make `retract_ok` say something false about
-/// `min`/`max` at its other two call sites.
-fn aggs_any_minmax(aggs: &RAggArr, acount: i64) -> bool {
-    let mut i: i64 = 0i64;
-    while i < acount {
-        let fnid: i32 = agg_of_name(aggs.agg_at(i).fn_name);
-        if fnid == AGG_MIN() || fnid == AGG_MAX() { return true; }
-        i = i + 1i64;
-    }
-    return false;
-}
 
-fn incr_retract_eligible(aggs: &RAggArr, acount: i64, acc: &Vec<str>,
-                         rel_backed: bool, qn: str) -> bool {
-    // ── RETRACTION THROUGH RECURSION IS REFUSED, AND THE GROUND IS A FACT ───
-    //
-    // ⚠ ASKED FIRST, AHEAD OF THE AGGREGATE LIST, because it is the STRONGER
-    // refusal: an f64 `sum` is an open DECISION, this one is a property of
-    // recursion. A fact may support ITSELF through a cycle (`path(a,b)` derived
-    // from `path(a,c)`), so "subtract what it added" is not merely imprecise —
-    // there is no well-defined amount to subtract. The mechanism that IS correct
-    // is DRed (over-delete every consequence, compact, re-derive from surviving
-    // support), which the dynamic engine implements at `incr_rec.logos:776-910`;
-    // it is a second state machine over provenance, not an inverse fold.
-    //
-    // ⚠⚠ AND THE REFUSAL IS STRUCTURAL, NOT ADVISORY. Returning `false` here
-    // selects the INSERT-ONLY *WEIGHTED* surface: `<q>_apply` is not emitted at
-    // all and `__wd` does not exist in any scope this query emits, so folding a
-    // derived row at a caller-supplied weight is not expressible rather than
-    // merely wrong.
-    // ⚠⚠ WHAT THIS NO LONGER MEANS, SINCE THE SURFACE ROUND: it does NOT mean
-    // the query has no retraction. A rel-backed query that clears `dred` in
-    // `emit_incremental` gets a PUBLIC `<q>_retract` forwarding to
-    // `__wql_<q>_scc<c>_dred` — the DRed state machine this ground names as the
-    // correct mechanism, now built. This clause's job is to keep that surface
-    // off the INVERSE-FOLD path, not to withhold retraction. The doors that
-    // assert a missing `<q>_retract` are now the shapes `dred` itself refuses
-    // (`fail/wql_incr_rel_no_retract_minmax.logos`,
-    // `fail/wql_incr_rel_no_retract_float.logos`).
-    // Historically: `fail/wql_incr_rel_no_retract.logos` called `<q>_retract` and
-    // required the compile to FAIL on the missing name — flip this clause and
-    // that fixture goes green, which is a red gate on the per-commit path.
-    // ⚠ AND THAT `fail/` DOOR IS NOT THE LOAD-BEARING ONE — a missing name is
-    // true under every refusal that reaches the query. The gate that pins THIS
-    // clause by its GROUND is `logos_09_incr_mutrec_refusal` (tier_commit),
-    // which asserts `retraction -> declined` carrying the phrase "support ITSELF
-    // through a cycle" while the handle itself is EMITTED. CONTROL, MEASURED
-    // 2026-08-07: `if rel_backed` weakened to `if false`, archives dropped, full
-    // stdlib rebuild → that gate goes RED.
-    //
-    // ⚠⚠ DRed'S PHASE 1 IS NOW EMITTED AND THIS CLAUSE STILL SAYS NO, ON PURPOSE.
-    // `emit_scc_od_fns` emits `__wql_<q>_scc<c>_od` / `_odp` beside the insert
-    // driver, and `pass/wql_incr_rel_od_phase1.logos` proves the over-delete set
-    // against a from-scratch oracle — but phase 2 (COMPACT) and phase 3
-    // (RE-DERIVE) do not exist, nothing calls the two new fns outside that
-    // fixture, and the handle has no signed-diff group fold. Admitting the
-    // retraction surface on a phase-1-only engine would answer `Ok` with an
-    // OVER-DELETED relation, which is strictly worse than refusing. The ground
-    // below is unchanged for the same reason: what is missing is still the
-    // mechanism, not a preference.
-    if rel_backed {
-        return incr_no_retract_r(qn, RT_REC_REL());
-    }
-    if !retract_ok(aggs, acount, acc) {
-        return incr_no_retract_r(qn, RT_FLOAT_ACC());
-    }
-    plan_trace("retraction", "EMITTED", qn, rt_render(RT_EXACT()));
-    retract_facts(qn, RT_EXACT());
-    return true;
-}
 
-/// One query that keeps the INSERT-ONLY surface, traced with its GROUND.
-/// A separate channel name from `incr_decline`'s because it is a different
-/// answer: the query DOES get a handle, it does not get a `<q>_retract`.
-/// The DRed driver's verdict, named by its rule (why.logos `DR_*`, E3).
-fn dred_trace(bare: str, verdict: str, r: i32) {
-    plan_trace("rel dred driver", verdict, bare, dr_render(r));
-    if !plan_trace_facts_on() { return; }
-    let mut fl: String = String::new();
-    fl.push_str("[facts] "); fl.push_str(bare); fl.push_str(" dred rule=");
-    fl.push_str(dr_name(r)); fl.push_str("\n");
-    plan_trace_raw(string_as_str(&fl));
-}
 
 /// The aggregate's group-frame class, named by its rule (why.logos `AC_*`, E3).
 fn aggclass_trace(fn_name: str, r: i32) {
@@ -9476,12 +8920,6 @@ fn incr_no_retract(qn: str, why: str) -> bool {
     return false;
 }
 
-/// The refusal named by its rule (why.logos `RT_*`, E3).
-fn incr_no_retract_r(qn: str, r: i32) -> bool {
-    plan_trace("retraction", "declined", qn, rt_render(r));
-    retract_facts(qn, r);
-    return false;
-}
 
 /// What a bare-scan retraction is matched on, named by its rule (why.logos `RI_*`).
 fn rid_trace(qn: str, r: i32) {
@@ -9493,49 +8931,8 @@ fn rid_trace(qn: str, r: i32) {
     plan_trace_raw(string_as_str(&fl));
 }
 
-fn retract_facts(qn: str, r: i32) {
-    if !plan_trace_facts_on() { return; }
-    let mut fl: String = String::new();
-    fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" retraction rule=");
-    fl.push_str(rt_name(r)); fl.push_str("\n");
-    plan_trace_raw(string_as_str(&fl));
-}
 
-/// May a value of this type be OWNED by a handle that outlives the call that
-/// produced it? `str` is a VIEW — of a source row, of a Writ, of a literal — and
-/// the first two are exactly what a persisted handle does not keep alive; a
-/// `String` is owned but its `Vec<String>` snapshot would then differ from
-/// `<q>()`'s `Vec<str>`, which is a surface question (two return types for one
-/// query) rather than an emitter one. Both are DEFERRED, and pinned as refused
-/// by the eligibility fixture so that they cannot become silently mishandled.
-/// Everything else the EL lattice admits — the integer family, `bool`, `f64` —
-/// is a self-contained value.
-fn incr_ty_ok(t: str) -> bool {
-    if str_eq(t, "String") { return false; }
-    return el_ty(t).cls != EL_TY_STR();
-}
 
-/// The same question, asked of every component a tuple projection hands back.
-/// A `String`-returning call at a component root is caught by `returns_string`
-/// rather than by the component's inferred type, which is the same split
-/// `push_tuple_ty` makes when it decides an element type.
-fn incr_proj_ty_ok(e: SExpr, t: &ElTypes) -> bool {
-    match e {
-        SExpr::Tuple(tp) => {
-            let items: SExprArr = tp.items_arr();
-            let mut i: i64 = 0i64;
-            while i < items.len() {
-                if !incr_proj_ty_ok(items.arg_at(i), t) { return false; }
-                i = i + 1i64;
-            }
-            return true;
-        }
-        _ => {
-            if returns_string(e, t) { return false; }
-            return incr_ty_ok(infer_emit_ty(e, t));
-        }
-    }
-}
 
 // `__ga_<out>` / `__gf_<out>` / `<name><suffix>` — the generated-name spellings.
 // ⚠ Each returns the STRING: `Ident::new` borrows, so the caller keeps it.
