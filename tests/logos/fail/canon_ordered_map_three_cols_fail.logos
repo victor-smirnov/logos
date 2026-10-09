@@ -1,0 +1,17 @@
+// A `kind ordered_map` stores a key and a value: its b+tree leaf is a
+// (key, val) pair. A third entry column is refused with the way out — a wider
+// relation is a source trait of its own (see pass/deem_source_wide_e2e).
+package test;
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+
+pub container Wide {
+    kind ordered_map;
+    entry { key: u64, val: u64, extra: u64 }
+    measure count;
+    measure max(key);
+}
+
+fn main() -> i32 { return 0i32; }

@@ -1,0 +1,13 @@
+exit: 0
+stdout:
+at3 ann 4
+from2 3 ann
+from2 4 cy
+per_who ann 9
+per_who bob 7
+per_who cy 9
+cities 1 x
+cities 3 x
+cities 4 y
+big bob
+big cy

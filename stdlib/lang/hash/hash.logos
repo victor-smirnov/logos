@@ -249,6 +249,26 @@ impl Hash for str {
     }
 }
 
+// `Option` and `Result` hash their discriminant, then the payload — what
+// Rust's `#[derive(Hash)]` writes for them; `Eq` for both is in logos.lang.cmp.
+// `match *self` + `ref`: the payload is borrowed, never moved out of `&self`.
+impl<T: Hash> Hash for Option<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match *self {
+            Option::Some(ref a) => { state.write_u64(1u64); a.hash(state); }
+            Option::None => { state.write_u64(0u64); }
+        }
+    }
+}
+impl<T: Hash, E: Hash> Hash for Result<T, E> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        match *self {
+            Result::Ok(ref a) => { state.write_u64(0u64); a.hash(state); }
+            Result::Err(ref e) => { state.write_u64(1u64); e.hash(state); }
+        }
+    }
+}
+
 // Arrays and slices hash their length, then each element (Rust's `Hash for [T]`
 // writes the length prefix; `[T; N]` hashes as its slice).
 impl<T: Hash, const N: usize> Hash for [T; N] {
