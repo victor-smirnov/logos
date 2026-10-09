@@ -1,0 +1,34 @@
+// A recursive min aggregate over a u64 value column (shortest paths with u64
+// weights): the lattice is Ord, compared in its own type. A weight above 2^63
+// is NEGATIVE in the signed reading of its bits, so an absorb gate comparing
+// as i64 would keep the wrong path.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+struct Node { pub id: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub w: u64 }
+pub deem dist(src: &[Node], edges: &[Edge]) {
+    rel d(node: i64, lo: u64) {
+        from src s select (s.id, 0);
+        from d x join edges e on e.src == x.node
+            group by e.dst
+            aggregate lo = min(x.lo + e.w)
+            select (e.dst, lo);
+    }
+    from d r select (r.node, r.lo) order by r.node
+}
+fn main() -> i32 {
+    let big: u64 = 9223372036854775808u64;   // 2^63: negative if read as i64
+    let src: [Node; 1] = [ Node { id: 1i64 } ];
+    // 1 -> 2 directly costs 2^63 + 5; via 3 it costs 3 + 4 = 7. As u64 the
+    // minimum is 7; read as i64 the direct edge is NEGATIVE and would win.
+    let edges: [Edge; 3] = [ Edge { src: 1i64, dst: 2i64, w: big + 5u64 },
+                             Edge { src: 1i64, dst: 3i64, w: 3u64 },
+                             Edge { src: 3i64, dst: 2i64, w: 4u64 } ];
+    let out: Vec<(i64, u64)> = dist(&src[..], &edges[..]).unwrap();
+    if out.len() != 3i64 { return 1i32; }
+    if out.get(1i64).0 != 2i64 || out.get(1i64).1 != 7u64 { return 2i32; }
+    if out.get(2i64).0 != 3i64 || out.get(2i64).1 != 3u64 { return 3i32; }
+    return 0i32;
+}

@@ -198,6 +198,7 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
             if !prm.rel_is_agg[ri] { return true; }   // refused by the emitter's shape check
             let a0: WAny = match &g.aggs.as_slice()[0i64].arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
             if a0.is_null() { return true; }          // refused by the emitter's shape check
+            if !lattice_value_ok(view, prm, ri) { return false; }
             let key_opt: SExpr = simplify_sexpr(sx(g.key), h).any().view::<SExpr>();
             let val_opt: SExpr = simplify_sexpr(sx(a0), h).any().view::<SExpr>();
             if !reject_tuple_in(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; }
@@ -238,6 +239,25 @@ fn rel_proj_calls_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, ty: 
     }
     if nc == 1i64 && wide_lit_fits(proj, resolve_alias_name(view, prm.relc_ty[off])) { return true; }
     return check_calls(proj, ty, "wql!: rel `select`");
+}
+
+/// A recursive min/max is a LATTICE JOIN: the fixpoint converges to the
+/// extremum of the order the emitted comparison realizes, and the absorb gate
+/// compares values in the value column's own type. So that type must be
+/// totally ordered — `Ord`, as `Iterator::min` needs in Rust: an integer of any
+/// width or `bool` (an `f64`'s order is partial: no least upper bound).
+fn lattice_value_ok(view: &OView, prm: &MacroParams, ri: i64) -> bool {
+    let voff: i64 = prm.rel_coff[ri];
+    let vcty: str = resolve_alias_name(view, prm.relc_ty[voff + 1i64]);
+    let vct: ElTy = el_ty(vcty);
+    if vct.cls == EL_TY_INT() || vct.cls == EL_TY_BOOL() { return true; }
+    let mut mv: String = String::new();
+    mv.push_str("wql!: a recursive min/max aggregate's value column `");
+    mv.push_str(vcty);
+    mv.push_str("` must be totally ordered and compared in its own type (`Ord`, as `Iterator::min` needs in Rust): an integer of any width or `bool`");
+    if vct.cls == EL_TY_FLT() { mv.push_str(" — an f64 has only a partial order, so the fixpoint has no least upper bound to converge to"); }
+    error(string_as_str(&mv));
+    return false;
 }
 
 // ── the entry ───────────────────────────────────────────────────────────────

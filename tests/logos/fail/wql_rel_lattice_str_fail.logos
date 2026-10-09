@@ -1,0 +1,15 @@
+// A recursive min/max aggregate's value column must be an integer or bool
+// (Ord, compared in its own type); a `str` value column is refused at the rel.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Node { pub id: i64, pub tag: str }
+struct Edge { pub src: i64, pub dst: i64 }
+pub deem best(src: &[Node], edges: &[Edge]) {
+    rel b(node: i64, t: str) {
+        from src s select (s.id, s.tag);
+        from b x join edges e on e.src == x.node group by e.dst aggregate t = min(x.t) select (e.dst, t);
+    }
+    from b r select r.node
+}
+fn main() -> i32 { return 0i32; }
