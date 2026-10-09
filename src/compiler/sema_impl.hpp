@@ -9171,6 +9171,32 @@ private:
     // variants — as `<kind>:<path>`; "" for nothing, a type or const
     // parameter, or a name two imports supply alike.
     std::string resolve_value_path_(std::string_view name) {
+        std::string r = resolve_value_path_ns_(name);
+        return r.empty() ? resolve_macro_fn_path_(name) : r;
+    }
+    // A #[fn_macro] / #[token_macro] fn called as a function (a metacall
+    // thunk calls its handler so): the macro namespace, asked only when the
+    // value namespace has nothing — a value fn of the name always wins.
+    std::string resolve_macro_fn_path_(std::string_view name) {
+        if (name.empty()) return {};
+        auto oit = func_overloads_.find(std::string(name));
+        if (oit == func_overloads_.end()) return {};
+        auto has = [&](const std::string& pkg) {
+            for (const auto& sym : oit->second)
+                if (auto fit = funcs_.find(sym); fit != funcs_.end() && fit->second.package == pkg &&
+                    (fit->second.is_fn_macro || fit->second.is_token_macro)) return true;
+            return false;
+        };
+        if (has(cur_package_)) return "fn:" + cur_package_ + "::" + std::string(name);
+        std::string hit;
+        for (const auto& pkg : effective_import_pkgs())
+            if (pkg != cur_package_ && has(pkg)) {
+                if (!hit.empty()) return {};
+                hit = "fn:" + pkg + "::" + std::string(name);
+            }
+        return hit;
+    }
+    std::string resolve_value_path_ns_(std::string_view name) {
         if (name.empty() || current_type_params_.count(std::string(name))) return {};
         auto item = [&](const std::string& pkg) -> std::string {
             const std::string path = pkg + "::" + std::string(name);
@@ -9189,9 +9215,21 @@ private:
         };
         if (auto r = item(cur_package_); !r.empty()) return r;
         std::string hit;
+        // Extern declarations of one C symbol are one function wherever they
+        // were declared (filter_visible_ collapses them the same way).
+        auto extern_of = [&](const std::string& r) -> const SemaFuncInfo* {
+            if (!r.starts_with("fn:")) return nullptr;
+            const auto sep = r.rfind("::");
+            auto fit = funcs_.find(sema_key(r.substr(3, sep - 3), name));
+            return fit != funcs_.end() && fit->second.is_extern ? &fit->second : nullptr;
+        };
         auto take = [&](std::string r) {
             if (r.empty() || r == hit) return true;
-            if (!hit.empty()) return false;
+            if (!hit.empty()) {
+                const SemaFuncInfo* a = extern_of(hit);
+                const SemaFuncInfo* b = extern_of(r);
+                return a && b && a->symbol_name == b->symbol_name;
+            }
             hit = std::move(r);
             return true;
         };
@@ -9211,13 +9249,30 @@ private:
                     return true;
             return false;
         };
+        std::vector<std::string> fn_pkgs;   // imports supplying overloads of a free fn
+        bool other_kind = false, fn_conflict = false;
         for (const auto& pkg : effective_import_pkgs()) {
             if (pkg == cur_package_) continue;
-            if (auto r = item(pkg); from_module_ok(pkg, r) && !take(std::move(r))) return {};
+            std::string r = item(pkg);
+            if (!from_module_ok(pkg, r) || r.empty()) continue;
+            if (r.starts_with("fn:")) { if (std::find(fn_pkgs.begin(), fn_pkgs.end(), pkg) == fn_pkgs.end()) fn_pkgs.push_back(pkg); }
+            else other_kind = true;
+            if (!take(std::move(r))) {
+                if (!other_kind) { fn_conflict = true; continue; }   // overloads across imports: below
+                return {};
+            }
             if (auto pit = pub_variant_aliases_.find(pkg); pit != pub_variant_aliases_.end())
                 if (auto vit = pit->second.find(std::string(name)); vit != pit->second.end() &&
                                                                      !take("variant:" + vit->second + "::" + std::string(name)))
                     return {};
+        }
+        // Several imports supply overloads of the name (Logos overloads by
+        // signature; the prelude's option/result both export unwrap_or_i32):
+        // the union of exactly those packages' sets, chosen among by the call.
+        if (fn_conflict && !other_kind) {
+            std::string r = "fns:";
+            for (size_t i = 0; i < fn_pkgs.size(); ++i) r += (i ? "," : "") + fn_pkgs[i];
+            return r + "::" + std::string(name);
         }
         if (!hit.empty()) return hit;
         return item("");
@@ -9530,8 +9585,9 @@ private:
     std::string res_fn_package_(writ::TinyMapView node) {
         if (!node.has_key(logos::compiler::ast::RES)) return {};
         std::string_view r = str_of(node.get(logos::compiler::ast::RES.code));
-        if (!r.starts_with("fn:")) return {};
-        r.remove_prefix(3);
+        if (r.starts_with("fns:")) r.remove_prefix(4);        // a set of packages, comma-separated
+        else if (r.starts_with("fn:")) r.remove_prefix(3);
+        else return {};
         const auto sep = r.rfind("::");
         return sep == std::string_view::npos ? std::string() : std::string(r.substr(0, sep));
     }
@@ -9544,11 +9600,24 @@ private:
         return !call_owner_def_ || name != call_owner_key_ || !fi.is_method || !fi.owner_id.nominal ||
                fi.owner_id.nominal == call_owner_def_;
     }
+    // The qualifier names one package, or (a name several imports supply
+    // overloads of: RES `fns:a,b::name`) a comma-separated set of them.
+    bool qualifier_admits_(std::string_view pkg) const {
+        std::string_view q = call_pkg_qualifier_;
+        if (q.find(',') == std::string_view::npos) return pkg == q;
+        while (!q.empty()) {
+            const auto c = q.find(',');
+            if (q.substr(0, c) == pkg) return true;
+            if (c == std::string_view::npos) break;
+            q.remove_prefix(c + 1);
+        }
+        return false;
+    }
     bool pkg_qualifier_ok(const SemaFuncInfo& fi, std::string_view name) const {
         if (!call_owner_ok_(fi, name)) return false;
         if (call_pkg_qualifier_.empty()) return true;
         if (!call_pkg_qualifier_name_.empty() && name != call_pkg_qualifier_name_) return true;
-        return fi.package == call_pkg_qualifier_;
+        return qualifier_admits_(fi.package);
     }
     // Reconstruct the dotted package from a qualified-call node's
     // RECEIVER (first segment) + PATH_PARTS (the rest). "" if not qualified.

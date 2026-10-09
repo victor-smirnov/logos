@@ -1119,8 +1119,13 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
         // types_compatible(FnItem, FnPtr) rule + the downstream
         // is_fn_value_kind acceptance helper.
         std::vector<const SemaFuncInfo*> cands;
-        if (std::string rp = res_fn_package_(expr); !rp.empty())   // Q1 row 4e: the HIR's resolution
-            cands = pkg_fn_candidates_(rp, name);
+        if (std::string rp = res_fn_package_(expr); !rp.empty()) {   // Q1 row 4e: the HIR's resolution
+            for (size_t b = 0; b <= rp.size();) {                     // one package, or a comma set
+                const size_t e = std::min(rp.find(',', b), rp.size());
+                for (auto* c : pkg_fn_candidates_(rp.substr(b, e - b), name)) cands.push_back(c);
+                b = e + 1;
+            }
+        }
         else
             cands = find_func_candidates(name);
         // A GENERIC fn used as a value is an instantiation whose type arguments
@@ -4859,8 +4864,10 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         }
     // Q1 row 4e: the HIR resolved the callee once (RES): the call names that
     // package's overload set, as a path would — no second lookup by spelling.
+    // (A set of packages — overloads several imports supply — is exactly what
+    // the in-scope lookup answers; only a single package narrows it.)
     if (call_pkg_qualifier_.empty())
-        if (std::string rp = res_fn_package_(node); !rp.empty()) {
+        if (std::string rp = res_fn_package_(node); !rp.empty() && rp.find(',') == std::string::npos) {
             call_pkg_qualifier_ = std::move(rp);
             call_pkg_qualifier_name_ = std::string(callee);
         }
@@ -8945,6 +8952,11 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     return std::nullopt;
 }
 
+// `vec!`'s expansion names its functions by path, as rustc's `$crate::vec::…`.
+static std::string kVecFnRes(std::string_view f) {
+    return "fn:logos.mem.collections.vec::" + std::string(f);
+}
+
 lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
     auto callee = str_of(node.get(la::CALLEE.code));
 
@@ -8964,6 +8976,14 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
             li && li->target == AttrTarget::Fn) {
             call_pkg_qualifier_ = li->package;
             call_pkg_qualifier_name_ = li->name;
+        }
+    // Q1 row 4e: a resolved callee (RES) names its package, as a path does.
+    // (A set of packages — overloads several imports supply — is exactly what
+    // the in-scope lookup answers; only a single package narrows it.)
+    if (call_pkg_qualifier_.empty())
+        if (std::string rp = res_fn_package_(node); !rp.empty() && rp.find(',') == std::string::npos) {
+            call_pkg_qualifier_ = std::move(rp);
+            call_pkg_qualifier_name_ = std::string(callee);
         }
 
     // ── Type-trait intrinsics (C++26 type_traits style, compile-time folded) ──
@@ -20922,8 +20942,9 @@ lir::LExprPtr SemaChecker::lower_quote_item(TinyMapView node) {
                     }
                 } else if (tag.type_code() == lh::type_hash::TinyObjectMap) {
                     // Full form: #(expr) — lower inner expr against current scope.
-                    writ::TinyMapView inner(nv, holder_);
-                    auto lowered = lower_expr(inner);
+                    // It is code of the enclosing body: it goes through the HIR
+                    // pass (a fragment: the scope's locals are probed).
+                    auto lowered = lower_expr(hir_body_(nv));
                     if (!lowered) { walk_failed = true; return; }
                     if (is_ident_type(expr_type(lowered))) {
                         placeholders.push_back(
@@ -21913,10 +21934,9 @@ lir::LExprPtr SemaChecker::lower_quote_expr(TinyMapView node) {
             // map_of / arr_of all read through `holder_`, so lowering a dst node
             // against the source holder walks a foreign arena. Swap for the
             // duration — the same move lower_writ_blob makes for a fragment.
-            writ::TinyMapView inner(nv, doc.holder());
             auto* saved_holder = holder_;
             holder_ = doc.holder();
-            auto lowered = lower_expr(inner);
+            auto lowered = lower_expr(hir_body_(nv));   // code of the enclosing body (HIR fragment)
             holder_ = saved_holder;
             if (!lowered) return false;
             vt = expr_type(lowered);
@@ -23472,19 +23492,21 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
                 auto hole = synth_node(la::TYPE_REF.code, ln, {{la::NAME.code, synth_str("_")}});
                 call = synth_node(la::GENERIC_CALL.code, ln,
                     {{la::CALLEE.code, synth_str("vec_new")}, {la::TYPE_PARAMS.code, items_map({hole})},
-                     {la::ARGS.code, items_map({})}});
+                     {la::ARGS.code, items_map({})}, {la::RES.code, synth_str(kVecFnRes("vec_new"))}});
             } else if (margs.ok) {
                 // vec![a, b, c] = vec_from_arr([a, b, c]): the elements move
                 // into an array and from it into the Vec (rustc:
                 // `<[_]>::into_vec(Box::new([a, b, c]))`).
                 auto arr = synth_node(la::ARR_LIT.code, ln, {{la::ITEMS.code, synth_array(margs.items)}});
                 call = synth_node(la::CALL.code, ln,
-                    {{la::CALLEE.code, synth_str("vec_from_arr")}, {la::ARGS.code, synth_array({arr})}});
+                    {{la::CALLEE.code, synth_str("vec_from_arr")}, {la::ARGS.code, synth_array({arr})},
+                     {la::RES.code, synth_str(kVecFnRes("vec_from_arr"))}});
             } else if (MacroArgs rep = parse_macro_args_(node, MacroArgsEntry::VecRepeat); rep.ok) {
                 // vec![elem; n] = vec_from_elem(elem, n) (rustc's vec::from_elem).
                 call = synth_node(la::CALL.code, ln,
                     {{la::CALLEE.code, synth_str("vec_from_elem")},
-                     {la::ARGS.code, synth_array({rep.root.get(la::VALUE.code), rep.root.get(la::SIZE.code)})}});
+                     {la::ARGS.code, synth_array({rep.root.get(la::VALUE.code), rep.root.get(la::SIZE.code)})},
+                     {la::RES.code, synth_str(kVecFnRes("vec_from_elem"))}});
             } else {
                 error("vec!: expected `vec![a, b, …]` or `vec![elem; n]`");
                 return error_expr();
