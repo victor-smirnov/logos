@@ -1,0 +1,6 @@
+// Const-generic programs that agree on N stay admitted (annotated, turbofish, inferred).
+package c4;
+struct V<const N: usize> { v: [i32; N] }
+fn both<const N: usize>(a: V<N>, b: V<N>) -> i32 { a.v[0] + b.v[N - 1] }
+fn mk<const N: usize>(x: i32) -> V<N> { V { v: [x; N] } }
+fn main() -> i32 { let a: V<2> = V { v: [1, 2] }; let b: V<2> = V { v: [3, 4] }; let c: V<3> = mk::<3>(5); let d = mk::<2>(6); let e: V<2> = d; return both(a, b) + c.v[2] + e.v[1]; }

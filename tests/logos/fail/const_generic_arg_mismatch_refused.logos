@@ -1,0 +1,4 @@
+// `V<2>` is not a `V<3>` (rustc E0308): a const argument is part of the type; it unified, and `k.v[2]` read out of bounds.
+package c2;
+struct V<const N: usize> { v: [i32; N] }
+fn main() -> i32 { let m: V<2> = V { v: [1, 2] }; let k: V<3> = m; return k.v[2]; }

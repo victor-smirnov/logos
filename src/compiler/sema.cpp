@@ -2499,7 +2499,16 @@ bool types_compatible(TypeRef from, TypeRef to) noexcept {
                        k == LogosType::Kind::F32  || k == LogosType::Kind::F64 ||
                        k == LogosType::Kind::Bool || k == LogosType::Kind::Char;
             };
+            // A const argument (`V<2>`: an IntLit carrying its value) is part of
+            // the type: `V<2>` is not a `V<3>` (rustc E0308).
+            auto const_arg = [](TypeRef t) {
+                return TypeRef(t).kind() == LogosType::Kind::IntLit && TypeRef(t).const_val().has_value();
+            };
             for (size_t i = 0; i < fa.size(); ++i) {
+                if (const_arg(fa[i]) && const_arg(ta[i])) {
+                    if (*TypeRef(fa[i]).const_val() != *TypeRef(ta[i]).const_val()) goto struct_mismatch;
+                    continue;
+                }
                 if (unresolved(fa[i]) || unresolved(ta[i])) continue;
                 if (concrete_scalar(TypeRef(fa[i]).kind()) && concrete_scalar(TypeRef(ta[i]).kind())) {
                     if (!types_equal(fa[i], ta[i])) goto struct_mismatch;
@@ -2808,7 +2817,9 @@ std::string type_str(TypeRef t, bool source_form) {
     case LogosType::Kind::Usize:  return "usize";
     case LogosType::Kind::Isize:  return "isize";
     case LogosType::Kind::Char:   return "char";
-    case LogosType::Kind::IntLit:   return "{integer}";
+    // A const-generic argument (`V<2>`) carries its value: it is the type.
+    case LogosType::Kind::IntLit:
+        return t.const_val() ? std::to_string(*t.const_val()) : std::string("{integer}");
     case LogosType::Kind::WStaticLit: {
         char buf[24];
         std::snprintf(buf, sizeof(buf), "@hs_%016llx",

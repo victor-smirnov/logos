@@ -1,0 +1,5 @@
+// One `N` for two arguments: `both(V<2>, V<3>)` is refused (rustc E0308).
+package c3;
+struct V<const N: usize> { v: [i32; N] }
+fn both<const N: usize>(a: V<N>, b: V<N>) -> i32 { a.v[0] + b.v[0] }
+fn main() -> i32 { let a: V<2> = V { v: [1, 2] }; let b: V<3> = V { v: [1, 2, 3] }; return both(a, b); }
