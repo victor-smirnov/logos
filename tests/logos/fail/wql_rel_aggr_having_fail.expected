@@ -1,1 +1,1 @@
-wql!: rel 'dist': `having` is not supported in an aggregating rel body — the recursive min/max fold applies no group filter; filter the rel's rows in the entry query
+wql!: rel 'dist': `having` is not supported in a recursive aggregate rel body — the min/max fold applies no group filter; filter the rel's rows in the entry query, or group in a separate rel

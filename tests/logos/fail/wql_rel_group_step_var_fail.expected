@@ -1,0 +1,1 @@
+wql!: rel 'pr': a grouping body's `select` reads the join step's row `g`, which is not in scope after `group by`

@@ -101,21 +101,40 @@ pub fn plan_entry_scan(prm: &MacroParams, src: str, has_sort: bool) -> DScan {
 /// planner (single pass) and the emitter (`__g_row` or not) both read it — they
 /// used to ask it separately, of two different trees.
 pub fn plan_group_pure(ru: &CRule) -> bool {
+    if !clause_group_pure(&ru.clause) { return false; }
     match &ru.clause.group {
         Option::None => { return false; }
         Option::Some(g) => {
-            let mut onames: Vec<str> = Vec::<str>::new();
-            let ags: &[CAgg] = g.aggs.as_slice();
-            let mut j: i64 = 0i64;
-            while j < g.aggs.len() { onames.push(ags[j].name); j = j + 1i64; }
-            let n: i64 = onames.len();
-            if !sexpr_over_group_names(ru.clause.head.view::<SExpr>(), &onames, n) { return false; }
-            match &g.having {
-                Option::Some(h) => { if !sexpr_over_group_names((*h).view::<SExpr>(), &onames, n) { return false; } }
+            let onames: Vec<str> = group_out_names(g);
+            match &ru.env.order {
+                Option::Some(o) => { if !sexpr_over_group_names((*o).view::<SExpr>(), &onames, onames.len()) { return false; } }
                 Option::None => { }
             }
-            match &ru.env.order {
-                Option::Some(o) => { if !sexpr_over_group_names((*o).view::<SExpr>(), &onames, n) { return false; } }
+            return true;
+        }
+    }
+}
+
+/// The names a grouped clause's `select` / `having` may read besides `key`.
+pub fn group_out_names(g: &CGroup) -> Vec<str> {
+    let mut onames: Vec<str> = Vec::<str>::new();
+    let ags: &[CAgg] = g.aggs.as_slice();
+    let mut j: i64 = 0i64;
+    while j < g.aggs.len() { onames.push(ags[j].name); j = j + 1i64; }
+    return onames;
+}
+
+/// The clause's `select` and `having` read only the group (`key` and the
+/// aggregate outputs), never its representative row.
+pub fn clause_group_pure(cl: &CClause) -> bool {
+    match &cl.group {
+        Option::None => { return false; }
+        Option::Some(g) => {
+            let onames: Vec<str> = group_out_names(g);
+            let n: i64 = onames.len();
+            if !sexpr_over_group_names(cl.head.view::<SExpr>(), &onames, n) { return false; }
+            match &g.having {
+                Option::Some(h) => { if !sexpr_over_group_names((*h).view::<SExpr>(), &onames, n) { return false; } }
                 Option::None => { }
             }
             return true;

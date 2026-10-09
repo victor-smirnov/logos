@@ -1,0 +1,16 @@
+// A grouping rel body inside a recursive component: the rel is closed into a
+// cycle by its OTHER body, so the group's rows would have to join the
+// fixpoint. Only a recursive min/max closing its own self-cycle aggregates in
+// a fixpoint; group in a separate rel over the recursive one.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Edge { pub src: i64, pub dst: i64 }
+pub deem q(edges: &[Edge]) {
+    rel deg(n: i64, k: i64) {
+        from edges e group by e.src aggregate k = count() select (key, k);
+        from deg d join edges e on e.src == d.n select (e.dst, d.k);
+    }
+    from deg d select (d.n, d.k)
+}
+fn main() -> i32 { return 0i32; }

@@ -324,21 +324,6 @@ fn rel_rule_ok(rel: str, ru: &CRule) -> bool {
     match &ru.env.order { Option::Some(_o) => { return rel_err(rel, "`order by` is not allowed in a rel body — rels are unordered sets (order in the entry query)"); } Option::None => { } }
     match &ru.env.limit { CLimit::None => { } CLimit::N(_n) => { return rel_err(rel, "`limit` is not allowed in a rel body (an entry-query concern)"); } CLimit::Param(_q) => { return rel_err(rel, "`limit` is not allowed in a rel body (an entry-query concern)"); } }
     if ru.env.result_ty.len() > 0i64 { return rel_err(rel, "a `: ResultTy` annotation is not allowed in a rel body — the row type is the declared column list"); }
-    match &ru.clause.group {
-        Option::Some(g) => {
-            if g.aggs.len() != 1i64 {
-                let mut ma: String = String::new();
-                ma.push_str("a recursive aggregate rel supports exactly ONE aggregate (slice-1); found ");
-                ma.push_i64(g.aggs.len());
-                return rel_err(rel, string_as_str(&ma));
-            }
-            match &g.having {
-                Option::Some(_h) => { return rel_err(rel, "`having` is not supported in an aggregating rel body — the recursive min/max fold applies no group filter; filter the rel's rows in the entry query"); }
-                Option::None => { }
-            }
-        }
-        Option::None => { }
-    }
     return true;
 }
 
@@ -370,7 +355,7 @@ fn chain_vars_ok(cl: &CClause) -> bool {
     return true;
 }
 
-/// The rules' own shape: a rel body's envelope, a rel aggregate's arity, and
+/// The rules' own shape: a rel body's envelope and
 /// unique row vars in every chain.
 pub fn core_rules_ok(p: &CProgram) -> bool {
     let rels: &[CRel] = p.rels.as_slice();

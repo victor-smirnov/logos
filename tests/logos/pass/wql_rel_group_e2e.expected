@@ -1,0 +1,11 @@
+exit: 0
+stdout:
+pr eu 15 3 7
+pr us 5 2 4
+tp east 2
+tp eu 15
+ry ap 2025 2
+ry us 2024 5
+ry eu 2025 7
+ry eu 2024 8
+ry us 2023 9

@@ -1,0 +1,18 @@
+// `key.N` reads the N-th component of a tuple group key, as `t.N` in Rust — in
+// select, having and order by.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Sale { pub region: str, pub year: i64, pub amt: i64 }
+pub deem q(ss: &[Sale]) {
+    from ss s group by (s.region, s.year) aggregate t = sum(s.amt)
+    having key.1 >= 2024 select (key.0, key.1, t) order by key.1
+}
+fn main() -> i32 {
+    let ss: [Sale; 3] = [ Sale { region: "eu", year: 2025i64, amt: 5i64 }, Sale { region: "us", year: 2023i64, amt: 1i64 },
+                          Sale { region: "eu", year: 2024i64, amt: 7i64 } ];
+    let r: Vec<(str, i64, i64)> = q(&ss[..]).unwrap();
+    if r.len() != 2i64 { return 1i32; }
+    if r.get(0i64).1 != 2024i64 || r.get(0i64).2 != 7i64 || !(r.get(1i64).0 == "eu") || r.get(1i64).1 != 2025i64 { return 2i32; }
+    return 0i32;
+}

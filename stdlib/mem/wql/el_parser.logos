@@ -1042,6 +1042,24 @@ fn alt_postfix_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 break;
             }
         }
+        if !foldtmp0_ok {
+            let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
+            loop {
+                if lex.peek().kind != ElTK_DOT { lex.reset(gsp, gsln); break; }
+                let gfoldtmp0_1_2_t: Token = lex.next();
+                let gfoldtmp0_1_2: *const u8 = wstr_p(doc, gfoldtmp0_1_2_t.text(lex.src));
+                if lex.peek().kind != ElTK_INTEGER { lex.reset(gsp, gsln); break; }
+                let gfoldtmp0_2_2_t: Token = lex.next();
+                let gfoldtmp0_2_2: *const u8 = wstr_p(doc, gfoldtmp0_2_2_t.text(lex.src));
+                let gnode: SField = doc.make::<SField>();
+                gnode.base = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.name = wstr_as_str(gfoldtmp0_2_2);
+                gnode.soff = fstart;
+                foldtmp0 = gnode.as_ref().raw() as *const u8;
+                foldtmp0_ok = true;
+                break;
+            }
+        }
         if !foldtmp0_ok { lex.reset(rsp, rsln); break; }
         foldacc0 = foldtmp0;
         foldm0 = true;

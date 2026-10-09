@@ -9657,6 +9657,223 @@ fn rel_body_agg_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
     return chain_body_frag(ch, ri, b, prm, key_e, key_e, val_e, !w.is_null(), we, out, h, hx);
 }
 
+// One STRATIFIED GROUPING rel body (`rel_is_group`): the aggregate query's
+// group frame (`emit_aggregate`: the `__g_key` bucket scan, one accumulator
+// column per aggregate, the shared seeds and folds), then one rel row per group
+// through `having` into the rel's set. The body reads an earlier stratum only
+// (`check_stratified`), so it folds once and pushes once.
+fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
+                       prm: &MacroParams, out: &mut ExprBlob, h: &Writ, hx: &mut Hoist) -> bool {
+    let view: OView = oview_module_ast();
+    let mut ty: ElTypes = rule_env(prm, ri, b);
+    let key_opt: SExpr = simplify_sexpr(g.key.view::<SExpr>(), h).any().view::<SExpr>();
+    let mut key_tn: String = String::new();
+    key_tn.push_str(infer_ty_name(key_opt, &ty));
+    let key_tys: String = group_key_ty(key_opt, &ty);
+    let key_ty: str = string_as_str(&key_tys);
+    ty.set_ty_named("key", key_ty);
+    let mut gt: GroupTy = group_ty_new();
+    if !type_aggs(&view, &g.aggs, &mut ty, h, &mut gt) { return false; }
+    let acount: i64 = g.aggs.len();
+    let mut aggs: RAggArr = h.make::<RAggArr>();
+    aggs.set_len(acount);
+    let ags: &[CAgg] = g.aggs.as_slice();
+    let mut i: i64 = 0i64;
+    while i < acount {
+        let mut rg: RAgg = h.make::<RAgg>();
+        rg.out = ags[i].name;
+        rg.fn_name = ags[i].func;
+        match &ags[i].arg {
+            Option::Some(x) => { rg.has_arg = true; rg.arg = WRef::<SExpr>::from_any(*x); }
+            Option::None => { rg.has_arg = false; }
+        }
+        aggs.set_agg(i, rg.as_ref());
+        i = i + 1i64;
+    }
+    let pure_group: bool = clause_group_pure(cl);
+
+    let mut kb: String = String::new();
+    emit_sexpr(&mut kb, key_opt, &ty, ch.base_var);
+    let key_body: String = key_norm_body(string_as_str(&kb), string_as_str(&key_tn), key_ty);
+    let mut agg_body: Vec<String> = vec![String::new(); acount];
+    if !compute_agg_bodies(&aggs, acount, &ty, ch.base_var, h, &gt.uda,
+                           &gt.flt, &gt.cast, &gt.acc, &mut agg_body) { return false; }
+    let w: WAny = rule_where(cl);
+    let mut where_body: String = String::new();
+    if !w.is_null() {
+        let we_opt: SExpr = simplify_sexpr(w.view::<SExpr>(), h).any().view::<SExpr>();
+        emit_sexpr(&mut where_body, we_opt, &ty, ch.base_var);
+    }
+    let proj_opt: SExpr = simplify_sexpr(cl.head.view::<SExpr>(), h).any().view::<SExpr>();
+    let mut proj_body: String = String::new();
+    rel_row_value(&mut proj_body, proj_opt, ri, prm, &view, &ty, ch.base_var);
+    let mut having_body: String = String::new();
+    let mut has_having: bool = false;
+    match &g.having {
+        Option::Some(hv) => {
+            has_having = true;
+            let hv_opt: SExpr = simplify_sexpr((*hv).view::<SExpr>(), h).any().view::<SExpr>();
+            emit_sexpr(&mut having_body, hv_opt, &ty, ch.base_var);
+        }
+        Option::None => { }
+    }
+    let mut ns: NestSteps = nest_steps_new(ch.n);
+    if !analyze_chain(ch, &ty, ch.base_var, h, prm, &mut ns) { return false; }
+
+    // The group frame: as `emit_aggregate`'s, column for column.
+    let keyt_f: ExprBlob = parse_type(key_ty);
+    group_table_field(prm, ch.base_src, ch.base_var, key_ty, acount);
+    let mut needs_cnt: bool = false;
+    let mut nc: i64 = 0i64;
+    while nc < acount {
+        if !gt.uda[nc] && agg_of_name(aggs.agg_at(nc).fn_name) == AGG_AVG() { needs_cnt = true; }
+        nc = nc + 1i64;
+    }
+    let mut cnt_decl: ExprBlob = quote_block! { };
+    let mut cnt_seed: ExprBlob = quote_block! { };
+    let mut cnt_bump: ExprBlob = quote_block! { };
+    if needs_cnt {
+        group_count_field(prm, ch.base_src, ch.base_var);
+        cnt_decl = quote_block! { let mut __g_cnt: Vec<i64> = Vec::<i64>::new(); };
+        cnt_seed = quote_block! { __g_cnt.push(0i64); };
+        cnt_bump = quote_block! { __g_cnt.set(__gi, __g_cnt.get(__gi) + 1i64); };
+    }
+    let mut row_decl: ExprBlob = quote_block! { };
+    let mut row_seed: ExprBlob = quote_block! { };
+    if !pure_group {
+        group_rep_row_field(prm, ch.base_src, ch.base_var);
+        row_decl = quote_block! { let mut __g_row: Vec<i64> = Vec::<i64>::new(); };
+        row_seed = quote_block! { __g_row.push(__i0); };
+    }
+    let mut acols: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut folds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut gd: i64 = 0i64;
+    while gd < acount {
+        let a: RAgg = aggs.agg_at(gd);
+        let fnid: i32 = agg_of_name(a.fn_name);
+        let s_ga: String = ga_name(a.out);
+        let n_ga: Ident = Ident::new(string_as_str(&s_ga));
+        let arg_f: ExprBlob = parse_expr(string_as_str(&agg_body[gd]));
+        let mut atn: str = "";
+        if gt.uda[gd] {
+            let uacc: ExprBlob = parse_type(gt.uda_acc[gd]);
+            let uacc2: ExprBlob = parse_type(gt.uda_acc[gd]);
+            acols.push(quote_block! { let mut #n_ga: Vec<#(uacc)> = Vec::<#(uacc2)>::new(); });
+            atn = gt.uda_acc[gd];
+            let s_init: String = suffixed(a.fn_name, "_init");
+            let n_init: Ident = Ident::new(string_as_str(&s_init));
+            seeds.push(quote_block! { #n_ga.push(#n_init()); });
+            let s_step: String = suffixed(a.fn_name, "_step");
+            let n_step: Ident = Ident::new(string_as_str(&s_step));
+            folds.push(quote_block! { #n_ga.set(__gi, #n_step(#n_ga.get(__gi), (#(arg_f)))); });
+        } else {
+            let cell: str = if gt.flt[gd] { "f64" } else { gt.acc[gd] };
+            let bacc_f:  ExprBlob = parse_type(cell);
+            let bacc_f2: ExprBlob = parse_type(cell);
+            acols.push(quote_block! { let mut #n_ga: Vec<#(bacc_f)> = Vec::<#(bacc_f2)>::new(); });
+            atn = cell;
+            seeds.push(agg_seed_frag(fnid, gt.flt[gd], gt.acc[gd], string_as_str(&s_ga)));
+            folds.push(agg_fold_frag(fnid, gt.flt[gd], gt.cast[gd], gt.acc[gd],
+                                     string_as_str(&s_ga), string_as_str(&agg_body[gd])));
+        }
+        group_accum_field(prm, ch.base_src, ch.base_var, a.out, atn);
+        gd = gd + 1i64;
+    }
+    let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
+    let mut inner: ExprBlob = quote_block! {
+        let __k: #(keyt_f) = (#(key_f));
+        let mut __gi: i64 = -1i64;
+        let mut __s: i64 = 0i64;
+        while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+        if __gi < 0i64 {
+            __g_key.push(__k);
+            #(cnt_seed);
+            #(row_seed);
+            #( #seeds; )*
+            __gi = __g_key.len() - 1i64;
+        }
+        #(cnt_bump);
+        #( #folds; )*
+    };
+    if !w.is_null() {
+        let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
+        inner = quote_block! { if (#(where_f)) #(inner) };
+    }
+    let no_lim: ExprBlob = parse_expr("0i64");
+    let mut hk: i64 = 0i64;
+    while hx.on && hk < ch.n {
+        if hk + 1i64 < hx.inv.len() && hx.inv.get(hk + 1i64) { ns.slot[hk] = hx.base + hk + 1i64; }
+        hk = hk + 1i64;
+    }
+    inner = nest_wrap(prm, ch, &ns, inner, no_lim, false);
+    let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut bpi: i64 = 0i64;
+    while bpi < ch.n {
+        arrange_node(prm, ch.src[bpi], ch.var[bpi], ns.strat[bpi]);
+        let bp: ExprBlob = build_phase_frag(prm, ns.slot[bpi], ns.strat[bpi], ch.anti[bpi], ns.hasres[bpi],
+                                            ns.ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
+                                            string_as_str(&ns.build[bpi]), ns.stream[bpi]);
+        if ns.slot[bpi] != bpi + 1i64 { hx.builds.push(bp); } else { bps.push(bp); }
+        bpi = bpi + 1i64;
+    }
+    let base_src_f: ExprBlob = parse_expr(ch.base_src);
+    let base_ty_f:  ExprBlob = parse_type(ch.base_ty);
+    let base_vnm:   Ident    = Ident::new(ch.base_var);
+    // The base scan carries `__i0`, the source ordinal the representative row
+    // is re-read by (`group_binds_frag`'s `rep`).
+    let mut nest: ExprBlob = quote_block! { };
+    if slice_stream_src(prm, ch.base_src) {
+        let nbo_f: ExprBlob = quote_block! { };
+        let nbi_f: ExprBlob = quote_block! { };
+        let body_f: ExprBlob = quote_block! { #(inner); __i0 = __i0 + 1i64; };
+        let mut scan_f: ExprBlob = quote_block! { };
+        let wrap_f: ExprBlob = slice_scan(prm, ch.base_ty, ch.base_src, 0i64, base_vnm, base_ty_f, body_f, nbo_f, nbi_f, &mut scan_f);
+        plan_trace(ch.base_src, "scan", ch.base_var,
+                   "ADR 0025 R-F — a grouping rel body's base is a declared SLICE PARAM and rides the R-A wrap; `__i0` stays the SOURCE ordinal (advanced by the body) so the representative row is re-derivable by indexing the param");
+        nest = quote_block! {
+            let mut __i0: i64 = 0i64;
+            #(wrap_f);
+            #(scan_f);
+        };
+    } else {
+        nest = quote_block! {
+            let mut __i0: i64 = 0i64;
+            while __i0 < (#(base_src_f)).len() {
+                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+                #(inner);
+                __i0 = __i0 + 1i64;
+            }
+        };
+    }
+    // One rel row per group: re-bind the group, `having`, push.
+    let binds_r: ExprBlob = group_binds_frag(quote_expr! { __r }, &aggs, acount, &gt.act,
+                                             &gt.uda, &gt.uda_fin, &gt.uda_ret, key_ty, !pure_group,
+                                             needs_cnt, &gt.flt, ch.base_var, ch.base_ty, ch.base_src);
+    let mut push_f: ExprBlob = rel_push_frag(string_as_str(&prm.rel_rowty[ri]), parse_expr(string_as_str(&proj_body)));
+    if has_having {
+        let hav_f: ExprBlob = parse_expr(string_as_str(&having_body));
+        push_f = quote_block! { if (#(hav_f)) #(push_f) };
+    }
+    *out = quote_block! {
+        {
+            #( #bps; )*
+            let mut __g_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+            #(cnt_decl);
+            #(row_decl);
+            #( #acols; )*
+            #(nest);
+            let mut __r: i64 = 0i64;
+            while __r < __g_key.len() {
+                #(binds_r);
+                #(push_f);
+                __r = __r + 1i64;
+            }
+        }
+    };
+    return true;
+}
+
 // The shared CHAIN-BODY emitter (join bodies + recursive-aggregate bodies). For a
 // non-aggregate member `proj_e` is the select projection (dedup-push); for an
 // aggregate member (`prm.rel_is_agg[ri]`) `key_e`/`val_e` are the group key + the
@@ -9855,6 +10072,9 @@ fn rel_clause_frag(ri: i64, b: i64, cl: &CClause, ovr: &Vec<str>,
         Option::Some(g) => {
             if prm.rel_is_agg[ri] {
                 return rel_body_agg_frag(cl, g, &ch, ri, b, prm, out, h, hx);
+            }
+            if prm.rel_is_group[ri] {
+                return rel_body_group_frag(cl, g, &ch, ri, b, prm, out, h, hx);
             }
             error("wql!: rel body must be a scan or join query (from/join/where/select)");
             return false;

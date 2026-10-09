@@ -598,10 +598,57 @@ pub fn field_ty_name(f: SField, t: &ElTypes) -> str {
     if base_ref.any().is_null() { return ""; }   // a BARE name, not a step
     let be: SExpr = f.base_expr();
     let rn: str = root_ident_name(be);
-    if rn.len() > 0i64 { return t.rel_col_ty_name(rn, f.name); }
+    if rn.len() > 0i64 {
+        let rc: str = t.rel_col_ty_name(rn, f.name);
+        if rc.len() > 0i64 || !is_index_name(f.name) { return rc; }
+    }
     let bt: str = infer_ty_name(be, t);
     if bt.len() == 0i64 { return ""; }
+    // `t.N` over a TUPLE type is its N-th component's type (as in Rust).
+    if is_index_name(f.name) && str_byte_at(bt, 0i64) == 40u8 { return tuple_component_ty(bt, index_of_name(f.name)); }
     return t.type_col_ty_name(bt, f.name);
+}
+
+/// A field name that is a tuple index (`.0`, `.1`, …).
+pub fn is_index_name(n: str) -> bool {
+    if n.len() == 0i64 { return false; }
+    let mut i: i64 = 0i64;
+    while i < n.len() { let c: u8 = str_byte_at(n, i); if c < 48u8 || c > 57u8 { return false; } i = i + 1i64; }
+    return true;
+}
+
+fn index_of_name(n: str) -> i64 {
+    let mut v: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < n.len() { v = v * 10i64 + ((str_byte_at(n, i) - 48u8) as i64); i = i + 1i64; }
+    return v;
+}
+
+/// The `k`-th component of a tuple TYPE spelled `(A, B<C, D>, …)` — split at
+/// top-level commas; "" when there is no such component.
+pub fn tuple_component_ty(tt: str, k: i64) -> str {
+    let n: i64 = tt.len();
+    let mut depth: i64 = 0i64;
+    let mut idx: i64 = 0i64;
+    let mut start: i64 = 1i64;
+    let mut i: i64 = 1i64;
+    while i < n {
+        let c: u8 = str_byte_at(tt, i);
+        if c == 40u8 || c == 60u8 || c == 91u8 { depth = depth + 1i64; }
+        else if c == 41u8 || c == 62u8 || c == 93u8 {
+            if depth == 0i64 {
+                if idx == k { return str_trim(unsafe { str_from_raw((tt.as_ptr() as i64 + start) as *const u8, i - start) }); }
+                return "";
+            }
+            depth = depth - 1i64;
+        } else if c == 44u8 && depth == 0i64 {
+            if idx == k { return str_trim(unsafe { str_from_raw((tt.as_ptr() as i64 + start) as *const u8, i - start) }); }
+            idx = idx + 1i64;
+            start = i + 1i64;
+        }
+        i = i + 1i64;
+    }
+    return "";
 }
 
 // ── Tuple projections (`select (a, b, …)`) ─────────────────────────────────
@@ -2187,6 +2234,29 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
             if !check_calls(c.then_expr(), t, ctx) { return false; }
             if !check_calls(c.else_expr(), t, ctx) { return false; }
             return check_cond_branches(c, t, ctx);
+        }
+        SExpr::Field(f) => {
+            // `t.N` over a tuple: the tuple has an N-th component (as rustc's
+            // E0609 "no field `N` on type `(A, B)`").
+            let br: WRef<SExpr> = f.base;
+            if !br.any().is_null() {
+                if !check_calls(f.base_expr(), t, ctx) { return false; }
+                if is_index_name(f.name) {
+                    let bt: str = infer_ty_name(f.base_expr(), t);
+                    if bt.len() > 0i64 && str_byte_at(bt, 0i64) == 40u8 && tuple_component_ty(bt, index_of_name(f.name)).len() == 0i64 {
+                        let mut m: String = String::new();
+                        m.push_str(ctx);
+                        m.push_str(": no field `");
+                        m.push_str(f.name);
+                        m.push_str("` on type `");
+                        m.push_str(bt);
+                        m.push_str("` — a tuple's components are numbered from 0");
+                        ty_error(t, e, string_as_str(&m));
+                        return false;
+                    }
+                }
+            }
+            return true;
         }
         SExpr::Comp(cp) => { return check_calls(cp.head_expr(), t, ctx); }
         SExpr::Tuple(tp) => {
