@@ -419,19 +419,6 @@ stream_plane_batch_region_unnamed  defect  2  ADR 0028 blocker, priced 2026-09-2
     # each step. It closes three ADR 0028 blockers and is the last known instance of the
     # elision class.
 
-run_signature_matched_by_hand_six_places  risk  1  ADR 0028 — the deem `_run` signature has six hand-written readers
-    # 2026-09-22 — six census gates assert the shape of the deem-generated `_run`
-    # signature, in FIVE files, by FOUR different spellings: `grep -c "^pub fn \${FN}("`
-    # (slice_scan_codegen), a `grep -c` plus an `awk -v fn=` slice (drain_read_once_pair),
-    # `awk -v want="pub fn \$1("` (order_elision_pair, order_desc_pair), and three
-    # `^pub fn …_run\(` shape assertions (join_order_multi, join_order_key_fidelity,
-    # wql_shadowed_column, prepared_plan).
-    # THE RISK FIRED ONCE ALREADY: making the emitter write the query's region
-    # (`pub fn q_run<'a>(…)`) orphaned all six at the same moment and seven census
-    # gates went red for a reason unrelated to what they measure.
-    # WHAT IT NEEDS: one helper the gates share, so the next change to the emitted
-    # signature reaches every reader at once.
-
 e0106_hidden_result_regions  defect  2  ADR 0028 — E0106 does not see a HIDDEN result region
     # 2026-09-22 — the E0106 rule fires when the return type carries an elided
     # REFERENCE region (`&T`, `&[T]`, `&dyn Tr`) with more than one input region and
@@ -466,5 +453,5 @@ fnptr_coercion_not_general_enough_admitted 2026-09-23 types tests/logos/fail/bc_
 
 boxed_dyn_drop_is_not_a_use_of_its_region 2026-09-23 borrow-check tests/logos/pass/bc_d1r2_dyn_erasure_admits
 
-# TOTAL 27
-# SYNC-HASH c7ce09f410dcefd25d1cbbbc79765a9e
+# TOTAL 26
+# SYNC-HASH d77391361465f5241cc7fe7d5b4054a7
