@@ -265,11 +265,14 @@
            / MINUS unary => { CODE: "SUn", op: 2, arg: $2 }
            / postfix
 
-    // postfix := primary ( '.' ident )*       → SField (left-nested edge chain)
+    // postfix := primary ( '.' ident | '.' index )*   → SField (left-nested edge chain)
     // Each `.ident` step folds the running base ($0) into an SField whose `name`
-    // is the captured field-name IDENT ($2) — self-describing (Option B).
+    // is the captured field-name IDENT ($2) — self-describing (Option B). A
+    // `.N` step is a TUPLE index (`key.1` over a tuple group key), as in Rust:
+    // the same SField, its name the index's digits.
     postfix <- primary
-               ( DOT IDENT => { CODE: "SField", base: $0, name: $2 } )*
+               ( DOT IDENT => { CODE: "SField", base: $0, name: $2 }
+               / DOT INTEGER => { CODE: "SField", base: $0, name: $2 } )*
 
     // primary := literals | param | call | var/field-root | paren | tuple | comprehension
     //

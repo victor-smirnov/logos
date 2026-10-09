@@ -1,0 +1,8 @@
+// `key.N` over a tuple group key must name a component that exists (rustc
+// E0609: no field `N` on the tuple type).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Sale { pub region: str, pub year: i64, pub amt: i64 }
+pub deem q(ss: &[Sale]) { from ss s group by (s.region, s.year) aggregate t = sum(s.amt) select (key.2, t) }
+fn main() -> i32 { return 0i32; }

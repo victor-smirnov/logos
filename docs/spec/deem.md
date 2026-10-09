@@ -732,11 +732,11 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 ### `el.op.field` — postfix `.field` access
 
-`base.field` (postfix, left-nested) builds an `SField` chain carrying each field NAME as a `str` (self-describing IR, Option B); a bare IDENT is a base-less `SField` (field-root), rebound to `SVar` at the metacall when it names a comprehension loop variable; a rel-bound var's field emits positional tuple access (`deem.datalog.rel-tuple-binding`).
+`base.field` (postfix, left-nested) builds an `SField` chain carrying each field NAME as a `str` (self-describing IR, Option B); a bare IDENT is a base-less `SField` (field-root), rebound to `SVar` at the metacall when it names a comprehension loop variable; a rel-bound var's field emits positional tuple access (`deem.datalog.rel-tuple-binding`). A `.N` step is a TUPLE index, as in Rust: `key.1` over a tuple `group by` key has the type of its component, and an index past the tuple's last component is refused (`no field `N` on type …`, rustc's E0609). (`t.0.1` lexes `0.1` as a float, as rustc's lexer does without its special case; write `(t.0).1`.)
 
 *Divergence:* CEL field selection; EXPLICITLY no implicit projection (P2 rejects JMESPath-style implicit map projection) and no safe-navigation `?.` (D4 strict — optionality only via `Option`-typed fields).
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`postfix`, `primary`); `SField` `stdlib/mem/wql/ir.logos` (`SField`); emission `stdlib/mem/wql/codegen.logos` (`emit_sexpr_as`, `root_ident_name`)
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`postfix`, `primary`); `SField` `stdlib/mem/wql/ir.logos` (`SField`); emission `stdlib/mem/wql/codegen.logos` (`emit_sexpr_as`, `root_ident_name`, `field_ty_name`, `tuple_component_ty`); `tests/logos/pass/wql_tuple_index_e2e.logos`, `tests/logos/fail/wql_tuple_index_range_fail.logos`
 
 ### `el.primary.literals` — int / float / bool / string literals
 
