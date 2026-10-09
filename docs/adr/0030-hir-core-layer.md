@@ -1125,6 +1125,32 @@ Order: (1), (2), (3), (4), (5). Acceptance per row: task s9 L0 green, `--plus
 10` sample, and a census of the retired helpers' body-time callers falling to
 zero at row 4.
 
+**Status (2026-10-09): rows 1–5 landed.** (1) b8d59a6d6; (2) 3028259ec,
+42cb32046, b869e98ef (own items shadow imports; `pub use` re-exports
+variants; the prelude declares Some/None/Ok/Err); (3) fbcbdbb67, b869e98ef
+(types, then bare values with binder tracking); (4) 3fa0be3d6 (lang fns for
+sema's own calls), 1e469e4a7 (static calls by owner identity; inherent
+methods need no import), 38f402197 (generated code names by path; extern fns
+are items of their package), 0fd60ca41 (a trait's method is in scope when the
+trait is; a Rust-shaped prelude), a427297e8 + afc88e0ee (the empty->all
+fallbacks removed), a74a78123 + 20f4c372a (calls, consts, statics read the
+resolution or require scope); (5) this commit. Census at acceptance (stdlib
+build + task s9 L0): filter_visible_'s fallback ~214k firings -> removed;
+bare value names resolved by spelling with no RES outside metaprogram rounds
+-> 0 (inside a round: 380, the names a later round emits). Open beyond Q1:
+`pkg.path::Type::m` qualified type paths (row 2's last item).
+
+**Feature-interaction matrix re-run after S10 (2026-10-09).** 251 clusters
+against rustc 1.98.1 (stdout + exit code): 477 -> 220 differing members since
+the S3 re-run (2026-09-29): 259 fixed, 2 new. Both new ones are triaged: a
+struct literal under nested generic calls left a field value typed with the
+hint's `_` holes (`Some(Box::new(Tree { .., left: None }))` -> a `Tree<_, _>`
+instance reached mlir) - fixed with pass/struct_lit_hole_hint_field_retyped;
+and `iter().map(|p| &p.0)` refused since S9a, because the projection
+`Iter<'a, T>::Item` loses `'a` and the closure's parameter reads as
+higher-ranked - #740 (region-carrying projections).
+
+
 ## S0–S7 gap audit (2026-10-01)
 
 S0–S7 were closed by their ADR row tables; this audit checked them against

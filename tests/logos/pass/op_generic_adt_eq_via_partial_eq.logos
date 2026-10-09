@@ -1,0 +1,18 @@
+// `==` / `!=` on a generic ADT instance call the impl's `eq` (Rust: PartialEq::eq), never a builtin compare.
+package p;
+use logos.lang.cmp;
+struct W<T> { i: T }
+impl<T: PartialEq> PartialEq for W<T> { fn eq(&self, o: &W<T>) -> bool { self.i == o.i } }
+struct V2<T> { x: T }
+impl<T> PartialEq for V2<T> { fn eq(&self, o: &Self) -> bool { true } }
+fn main() -> i32 {
+    let x = W { i: 5i64 }; let y = W { i: 5i64 }; let z = W { i: 6i64 };
+    let a = V2 { x: 1i64 }; let b = V2 { x: 2i64 };
+    let mut r = 0;
+    if x == y { r = r + 1; }
+    if x != z { r = r + 2; }
+    if !(x == z) { r = r + 4; }
+    if a == b { r = r + 8; }
+    if a != b { r = r + 16; }
+    return r;
+}

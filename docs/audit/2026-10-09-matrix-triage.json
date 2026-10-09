@@ -1,0 +1,1080 @@
+[
+ {
+  "cluster": "open-range-for-head-parse",
+  "predicted_step": "L0+S10",
+  "members_checked": [
+   "pairs-1_47"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Parse: in a `for PAT in EXPR {` head, an open range `0..` takes the body `{` as its end operand, which gives 'syntax error near fn'. The RangeFrom semantics now work: `for i in (0i64..)`, `let r = 0i64..; for i in r` and `.next()` loops all print 15. A side gap: `RangeOfFrom` has no `start` field.",
+  "adr_step": "outside (grammar: the no-struct-literal / block restriction on the range end in an expression-before-block position)",
+  "severity": 3,
+  "min_repro": "package m;\nfn main() { for i in 0.. { if i > 5 { break; } } }",
+  "rustc_expected": "compiles; with the original body it prints 15, run=0 (Logos: cc=4 syntax error)"
+ },
+ {
+  "cluster": "unsize-in-aggregate-generic-ctor-slot",
+  "predicted_step": "R0+S4",
+  "members_checked": [
+   "pairs-11_42"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Sema (expected type / inference): the expected type of the let is not pushed into a generic struct constructor's argument. `Rc::new(Box::new(ByOne))` against `Rc<Box<dyn C>>` infers T=Box<ByOne> from the argument, then refuses ('aggregate slot ... expected &dyn Counter, got Box<ByOne>' plus a variance mismatch). An enum ctor (`Option`/`Some`) and a pre-coerced local both work. The message also shows `Box<dyn C>` modelled as `&dyn C`. A user generic `W::new` gives a third spelling: 'unsize from W<Box<ByOne>> to W<dyn Counter>'.",
+  "adr_step": "S7 (C-EXP into generic call args) + S4 (coercion at the arg)",
+  "severity": 3,
+  "min_repro": "package m;\nuse logos.std.fmt; use logos.mem.boxed; use logos.lang.rc;\ntrait Counter { fn peek(&self) -> i32; }\nstruct ByOne { n: i32 }\nimpl Counter for ByOne { fn peek(&self) -> i32 { self.n } }\nfn main() { let s: Rc<Box<dyn Counter>> = Rc::new(Box::new(ByOne { n: 3 })); println!(\"{}\", s.peek()); }",
+  "rustc_expected": "3, run=0"
+ },
+ {
+  "cluster": "tail-return-owned-double-drop",
+  "predicted_step": "S2",
+  "members_checked": [
+   "pairs-4_1"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "Fixture defect, not a compiler defect. pairs-4_1.logos (b1 only, prints 'hi') is not a port of pairs-4_1.rs (b1..b4, prints hi/4/1/1/1). A hand port of the .rs prints hi 4 1 1 1, run=0, and is valgrind-clean; the .logos as written is also valgrind-clean.",
+  "adr_step": "outside (fixture pair mismatch; regenerate the .logos from the .rs)",
+  "severity": 4,
+  "min_repro": "(port of pairs-4_1.rs) fn b4() -> Vec<i64> { let mut v: Vec<i64> = Vec::new(); v.push(1i64); { v } } ... -> Logos prints hi 4 1 1 1, matching",
+  "rustc_expected": "hi\n4\n1\n1\n1, run=0"
+ },
+ {
+  "cluster": "refmut-method-temp-behind-ref",
+  "predicted_step": "S6",
+  "members_checked": [
+   "pairs-4_39",
+   "pairs-1_18"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Method receiver adjustment: for a `&mut self` method the receiver's overloaded-deref step calls Deref (shared), not DerefMut, then reborrows `&mut *(&S)`, and BIR refuses ('_tN is written or mutably borrowed behind a & reference'). Seen in BIR: `RefMut__deref` then `&mut(2ph) (*_t6)`. Two shapes still fail: (a) the pick comes from a type-parameter bound (`S: P`, through RefMut<S>), even through a named `let mut g`; (b) the receiver is `v[0]` with `v: Vec<Box<C>>` (Index place then Box deref). Concrete-type RefMut, a field `h.b.bump()` and a local `&mut Box` work. With `LOGOS_DL_BC=0` both compile and print 1.",
+  "adr_step": "S8 (MethodProbe row 4 receiver adjustment: DerefMut by the picked self; residue on the type-param pick and the Index-place root)",
+  "severity": 3,
+  "min_repro": "package m;\nuse logos.std.fmt; use logos.lang.cell;\ntrait P { fn put(&mut self); }\nstruct C { n: i64 }\nimpl P for C { fn put(&mut self) { self.n += 1; } }\nfn f3<S: P>(s: &RefCell<S>) { s.borrow_mut().put(); }\nfn main() { let c = RefCell::new(C { n: 0 }); f3(&c); println!(\"{}\", c.borrow().n); }\n-- and: let mut v: Vec<Box<C>> = Vec::new(); v.push(Box::new(C{n:0})); println!(\"{}\", v[0].bump());",
+  "rustc_expected": "1, run=0 (both)"
+ },
+ {
+  "cluster": "generic-inference-through-deref-coercion",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-10_31"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The predicted mechanism is fixed: `cnt(&v)` with `cnt<T>(xs:&[T]) -> i64` infers T through &Vec->&[T] and prints 3. The remaining disagreement is stdlib typing: `.len()` on a slice, an array and Vec returns i64, not usize. `vec.logos` declares `pub fn len(&self) -> i64`, so `let n: usize = v.len()` and `-> usize { xs.len() }` are refused ('expected usize, got i64'). No DIVERGENCES row covers this.",
+  "adr_step": "outside (stdlib API: len() returns i64, not usize)",
+  "severity": 3,
+  "min_repro": "package m;\nuse logos.std.fmt;\nfn main() { let a = [1,2]; let s: &[i32] = &a; let m: usize = s.len(); println!(\"{}\", m); }",
+  "rustc_expected": "2, run=0 (original: 3)"
+ },
+ {
+  "cluster": "closure-param-from-expected-fn-signature",
+  "predicted_step": "S7+S10",
+  "members_checked": [
+   "pairs-8_40",
+   "triples-types_34"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Two separate defects; neither is closure-param inference (`Box<dyn Fn(i64)->Option<i64>> = Box::new(|x| Some(x+1))` works). (1) pairs-8_40, codegen, SIGSEGV: `&<closure literal>` adds one indirection too many. The LLVM IR stores the {fn,env} pair's address in a slot and the call site reads {fn,env} from that slot, so it calls a stack address. Any `&|v| ..` or `&mut |v| ..` crashes (non-capturing, capturing, passed to &F, &dyn Fn, or just `r(1)`). `let c = |..|; &c` works. (2) triples-types_34, sema resolution: a generic fn whose RPIT bound names its own type parameter (`fn mk<T>(..) -> impl Fn(T)->T` / `-> impl Get<T>`) is refused with 'unknown type T'. The same refusal comes from the 10-05 (coll) and deem binaries, so it predates Q1.",
+  "adr_step": "(1) S10 (C-CLO: closure value materialization under &); (2) Q1/S8 (path resolution: type params of the fn not in scope in the RPIT bound)",
+  "severity": 1,
+  "min_repro": "(1) package m;\nfn main() -> i32 { let r = &|v: i32| v + 1; return r(1); }\n(2) package m; use logos.std.fmt;\ntrait Get<T> { fn get(&self) -> T; }\nstruct W<T> { t: T }\nimpl<T: Copy> Get<T> for W<T> { fn get(&self) -> T { self.t } }\nfn mk<T: Copy>(t: T) -> impl Get<T> { W { t: t } }\nfn main() { let q = mk(1i64); println!(\"{}\", q.get()); }",
+  "rustc_expected": "(1) run=2 (Logos: SIGSEGV run=139); (2) prints 1"
+ },
+ {
+  "cluster": "default-method-self-static-generic-impl",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-1_24"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Sema static-call head resolution: inside a method body whose Self is a generic struct `Rect<T>`, `Self::tag()` (a trait static fn implemented by `impl<T> Named for Rect<T>`) is spelled as 'Rect$G1$T::tag' / 'Rect::tag' and not found. This holds in an inherited default method, an overriding impl method and an inherent impl method alike. `Rect::<T>::tag()` in a free generic fn, `Rect::<i32>::tag()`, and `Self::tag()` for a non-generic Sq all work. The fixture .logos uses Rect while the .rs uses Sq (pair mismatch), but rustc accepts the Rect form and exits 10. Side finding: `<Rect<i32> as Named>::tag()` is a syntax error (grammar), while `<Sq as Named>::tag()` parses.",
+  "adr_step": "S8 (C-RES: `Self` path head in a generic impl; Q1 row 4 lower_static_call heads)",
+  "severity": 3,
+  "min_repro": "package m;\ntrait Named { fn tag() -> i32; fn full(&self) -> i32 { Self::tag() + 1 } }\nstruct Rect<T> { w: T }\nimpl<T> Named for Rect<T> { fn tag() -> i32 { 9 } }\nfn main() -> i32 { let r = Rect { w: 3i32 }; return r.full(); }",
+  "rustc_expected": "run=10"
+ },
+ {
+  "cluster": "nested-fn-not-in-scope",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-10_52",
+   "pairs-12_55",
+   "pairs-1_56"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Name resolution: a block-local fn item is in scope only after its declaration and not inside its own body. Self-recursion gives 'call to undefined function inner', and so do a forward use and mutual recursion between sibling nested fns. A plain call after the declaration works. A generic nested fn `fn id<T>(x:T)->T` inside a body is a syntax error (grammar). Also fails on the 10-05 binary.",
+  "adr_step": "Q1/S8 (path resolution: items of a block scope are visible in the whole block, including their own bodies); the generic nested fn is outside (grammar)",
+  "severity": 3,
+  "min_repro": "package m;\nfn main() -> i32 { fn inner(d: i32) -> i32 { if d == 0 { 0 } else { 1 + inner(d - 1) } } return inner(4); }",
+  "rustc_expected": "run=4"
+ },
+ {
+  "cluster": "private-imported-name-shadows-local",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-13_37",
+   "pairs-7_55"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Name resolution: with `use logos.mem.collections.hashmap;` (which has a private `struct Slot<K,V>`), the head of a tuple-variant constructor call `Slot::A(3)` on a local `enum Slot` resolves to the imported private struct and is refused ('Slot is private to package hashmap'). A unit variant `Slot::B`, patterns, and a local struct named Slot all work, so only the static-call head is resolved by spelling and imports win. This is a Q1 row 2/4 case ('a struct in scope beating an enum of the current package').",
+  "adr_step": "Q1/S8 (row 4: lower_static_call / lower_enum_lit heads read RES; a private item must not enter the importer's scope)",
+  "severity": 3,
+  "min_repro": "package m;\nuse logos.mem.collections.hashmap;\nenum Slot { A(i32), B }\nfn main() -> i32 { let s = Slot::A(3); match s { Slot::A(v) => v, Slot::B => 0 } }",
+  "rustc_expected": "run=3 (original prints 4 / 3)"
+ },
+ {
+  "cluster": "adapter-instance-no-value",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-12_18"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Three defects stack. (1) The member is now blocked at parse: an associated-type binding in a dyn type, `dyn Iterator<Item = i64>` (also `&mut dyn Iterator<Item=i32>`), is a syntax error. `impl Iterator<Item=..>` and bounds `I: Iterator<Item=..>` parse. (2) The legacy spelling `Box<dyn Iterator<i32>>` gives an mlir_gen internal ICE: the vtable of RangeI32 as dyn Iterator has slots 2/6/7/11/12... with no function (generic provided methods put into the vtable). (3) `it.sum()` on a type-param receiver `I: Iterator<Item=i32>` cannot infer Sum's S from the return or let type ('expected i32, got S'). On a concrete receiver `(0..4).sum()` it works.",
+  "adr_step": "(1) outside (grammar: assoc-type binding in dyn); (2) S9 (vtable / obligations: non-object-safe generic methods must be excluded); (3) S7 (C-INF for a method generic on a type-param receiver)",
+  "severity": 2,
+  "min_repro": "(1) package m; use logos.mem.boxed; use logos.lang.iter; use logos.lang.ops;\nfn main() -> i32 { let b: Box<dyn Iterator<Item = i32>> = Box::new(0..4); let s: i32 = b.map(|x| x * 3).sum(); return s; }\n(2) same with Box<dyn Iterator<i32>> -> ICE\n(3) fn f<I: Iterator<Item = i32>>(it: I) -> i32 { it.sum() }  fn main() -> i32 { return f(0..4); }",
+  "rustc_expected": "(1) run=18; (3) run=6"
+ },
+ {
+  "cluster": "box-dyn-represented-as-ref-dyn",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-13_30",
+   "pairs-2_32",
+   "pairs-2_33"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Impl identity: an impl header whose self type is `Box<dyn Shape>` loses its type argument and is treated as a generic or bare `Box`. Effects: 'type parameter T has no trait bound providing method area' in `impl Shape for Box<dyn Shape>`; `impl From<Sq> for Box<dyn Shape>` gives 'expected Box, got Box<Sq>'; a plain call `b.area()` on such an impl aborts in LLVM ('layout of logos.mem.boxed.Box$M... never monomorphized', cc=134). Separately (pairs-2_32, S7), `one<T: Shape + ?Sized>(x: &Box<T>)` cannot infer T=dyn Shape from `&Box<dyn Shape>` ('could not infer all type arguments'), while T=Sq works.",
+  "adr_step": "S9 (impl identities for Box<dyn Tr> self types); pairs-2_32 inference half S7",
+  "severity": 2,
+  "min_repro": "package m;\nuse logos.mem.boxed;\ntrait Shape { fn area(&self) -> i32; }\nstruct Sq { s: i32 }\nimpl Shape for Sq { fn area(&self) -> i32 { self.s * self.s } }\nimpl Shape for Box<dyn Shape> { fn area(&self) -> i32 { 1 } }\nfn main() -> i32 { let b: Box<dyn Shape> = Box::new(Sq { s: 3 }); return b.area(); }",
+  "rustc_expected": "run=1 (Logos: LLVM ERROR abort cc=134); pairs-2_33 shape run=10, pairs-13_30 shape run=4, pairs-2_32 shape run=9"
+ },
+ {
+  "cluster": "generic-static-trait-call-not-emitted",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-1_27",
+   "pairs-13_15",
+   "pairs-8_26"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "(a) Mono ICE: reading an associated const through a type parameter (`X::K`) cannot resolve the trait item to an impl when the const is the trait's default and not overridden, or when it comes from a generic impl `impl<Q:P> P for S<Q>`: 'mono: internal: the trait item m::T::kassoc_K resolves to no impl at Self A (ADR 0030 S8 row 6)'. An overridden const on a concrete impl through a type param, and `A::K` directly, work. Also `Q::N` inside a generic impl's const initializer is refused as 'unknown enum Q'. (b) pairs-13_15, literal inference: `let m: M = 5.into()` with only `From<i64> for M` is refused ('M does not implement From'), because the unsuffixed literal is not inferred as i64 from the single impl. `5i64.into()` works.",
+  "adr_step": "S9 (mono trait-item -> impl resolution: default assoc consts, generic impls); (b) S7 (C-LIT under an obligation)",
+  "severity": 2,
+  "min_repro": "(a) package m;\ntrait T { const K: i32 = 7; }\nstruct A {}\nimpl T for A {}\nfn k_of<X: T>() -> i32 { X::K }\nfn main() -> i32 { k_of::<A>() }\n(b) package m; use logos.lang.convert;\nstruct M(i64);\nimpl From<i64> for M { fn from(x: i64) -> Self { M(x * 100) } }\nfn main() -> i32 { let m: M = 5.into(); (m.0 / 100) as i32 }",
+  "rustc_expected": "(a) run=7 (Logos: mono internal, cc=1); (b) run=5; originals: 2 / 500 / 8"
+ },
+ {
+  "cluster": "recursive-rpit-refused",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-5_19"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Opaque-type inference: a self-recursive call inside an `-> impl Mt` fn has type `impl Mt`, which is not identified with the hidden type. With `return 5i32` first, it is refused as 'every return must have the same hidden concrete type \u2014 returns impl Mt, earlier i32'. With the recursive return first, the hidden type stays `impl Mt` and the caller's `.m()` fails ('receiver is not a struct (got impl Mt)'). Also non-recursive: `fn f() -> impl Mt { 5 }` leaves the hidden type `{integer}` (no i32 fallback), so the caller fails ('got {integer}').",
+  "adr_step": "S7 (C-INF: opaque hidden type, including the literal fallback); the audit predicted S9",
+  "severity": 3,
+  "min_repro": "package m;\ntrait Mt { fn m(&self) -> i32; }\nimpl Mt for i32 { fn m(&self) -> i32 { *self } }\nfn f(n: i32) -> impl Mt { if n == 0 { return 5i32; } f(n - 1) }\nfn main() -> i32 { f(3).m() }",
+  "rustc_expected": "run=5 (also with unsuffixed 5, and for fn f() -> impl Mt { 5 })"
+ },
+ {
+  "cluster": "derive-debug-c-field-lexed-cstr",
+  "predicted_step": "R0",
+  "members_checked": [
+   "pairs-10_24",
+   "pairs-3_24",
+   "pairs-5_37"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "metaprog quote substitution: `##field` stringification (derive_debug.logos `__ds.field(##sn_f, ...)`) of a field name whose FIRST letter is 'c' comes out as a C-string literal (&'static CStr) in the substituted blob, so DebugStruct::field gets CStr instead of &[u8]. Fields b/xc/a pass, cx/count/c fail. Only that first-letter rule was observed; the substitution code was not read.",
+  "adr_step": "outside (metaprog quote splice / re-lex of `##` stringify; R0 covers parsing macro args as AST, not quote_item substitution)",
+  "severity": 3,
+  "min_repro": "package d_count;\nuse logos.std.fmt;\nuse logos.std.compiler.metaprog;\n#[derive_debug]\nstruct W { count: i64 }\nfn main() { println!(\"{:?}\", W { count: 2 }); }\n",
+  "rustc_expected": "stdout `W { count: 2 }`, exit 0; logos: cc=1 `expected &[u8], got &'static CStr`"
+ },
+ {
+  "cluster": "borrowed-closure-literal-arg",
+  "predicted_step": "S10",
+  "members_checked": [
+   "pairs-10_4",
+   "pairs-2_17",
+   "pairs-5_4"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "taking `&` of a closure-literal rvalue segfaults at runtime. It fails with no generic or call involved (`let f = &|x| x+1; f(10)`) and for &dyn Fn params; binding the closure to a let first and then writing `&c` works. So the temporary is not materialized for an address-of-closure-literal, and the call goes through a bad pointer.",
+  "adr_step": "S6 (rvalue-to-place temporary materialization for `&<closure expr>`; codegen symptom). Not S10, because no for/?/comprehension is involved.",
+  "severity": 2,
+  "min_repro": "package m22;\nfn main() -> i32 { let f = &|x: i64| x + 1; return f(10) as i32; }\n",
+  "rustc_expected": "exit 11, no stdout; logos: SIGSEGV run=139"
+ },
+ {
+  "cluster": "deref-coercion-missing-at-coercion-site",
+  "predicted_step": "S4",
+  "members_checked": [
+   "pairs-13_28",
+   "pairs-1_35",
+   "pairs-14_47"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Two mechanisms. (a) pairs-14_47: a method-call ARGUMENT gets no &&T->&T deref coercion. `b.add(p)` with p: &&i64 and param &i64 fails as 'B has no method add': the method candidate is filtered on the uncoerced argument type, and the miss is reported as a missing method. The same coercion works for free-fn arguments (f(rr), h(&&str) pass). (b) pairs-13_28 and pairs-1_35 do not involve deref coercion at all: the builtin `.len()` on str, slice and Vec is typed i64, not usize (sema_expr.cpp builtin len), so `fn g(s:&str)->usize { s.len() }` is rejected. No DIVERGENCES row blesses i64 len.",
+  "adr_step": "(a) S4 coercion at the method-arg site, interacting with S8 candidate filtering. (b) S8/outside: the builtin method's signature is not Rust's (len -> usize).",
+  "severity": 3,
+  "min_repro": "(a)\npackage m16;\nuse logos.std.fmt;\nstruct B { n: i64 }\nimpl B { fn add(&mut self, s: &i64) { self.n = self.n + *s; } }\nfn main() { let a = 2i64; let r = &a; let p = &r; let mut b = B { n: 0 }; b.add(p); println!(\"{}\", b.n); }\n\n(b)\npackage m1;\nuse logos.std.fmt;\nfn g(s: &str) -> usize { s.len() }\nfn main() { println!(\"{}\", g(\"abc\")); }\n",
+  "rustc_expected": "(a) stdout `2`, exit 0; logos cc=1 `'B' has no method 'add'`. (b) stdout `3`, exit 0; logos cc=1 `return type mismatch \u2014 expected usize, got i64`"
+ },
+ {
+  "cluster": "tuple-index-no-autoderef",
+  "predicted_step": "S6",
+  "members_checked": [
+   "pairs-1_43"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "a compound assignment to a TUPLE-INDEX place through a RefMut guard (`g.0 += 5`, g = RefCell::borrow_mut()) resolves the autoderef via Deref (a shared place), not DerefMut, and BIR rejects the write as 'behind a & reference'. Not affected: a named field through the same guard (`g.a += 5`), `t.borrow_mut().0 = 6` (plain assign), `Box.0 +=`, and `(&mut T).0 +=`.",
+  "adr_step": "S6",
+  "severity": 3,
+  "min_repro": "package t7;\nuse logos.std.fmt;\nuse logos.lang.cell;\nstruct T(i64, i64);\nfn main() { let t = RefCell::new(T(1, 2)); { let mut g = t.borrow_mut(); g.0 += 5; } println!(\"{}\", t.borrow().0); }\n",
+  "rustc_expected": "stdout `6`, exit 0; logos cc=1 `'_t11' is written or mutably borrowed behind a & reference`"
+ },
+ {
+  "cluster": "generic-struct-literal-field-inference",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-6_51"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "a struct-literal field of type `&'a [T]` with T not yet inferred, given `&[i32;2]`: the expected type is `&[<error>]` and the unsize coercion does not infer T=i32. Passing an already-typed `&[i32]` works.",
+  "adr_step": "S7 (C-INF through an unsize coercion site, with S4)",
+  "severity": 3,
+  "min_repro": "package g1;\nuse logos.std.fmt;\nstruct H<'a, T> { items: &'a [T] }\nfn main() { let data = [3i32, 9]; let h = H { items: &data }; println!(\"{}\", h.items[1]); }\n",
+  "rustc_expected": "stdout `9`, exit 0; logos cc=1 `field 'items': expected &[<error>], got &[i32; 2]`"
+ },
+ {
+  "cluster": "trait-static-call-self-inferred",
+  "predicted_step": "S7+S8",
+  "members_checked": [
+   "pairs-8_57"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "`Make::make(3)` with Self known only from a LATER use (`let h: G = g`, or a match on G::A) fails with 'call to undefined static method Make::make': resolution needs Self at the call, and there is no deferred inference variable for Self. It works when the let carries the type (`let g: G = Make::make(3)`).",
+  "adr_step": "S7+S8",
+  "severity": 3,
+  "min_repro": "package s2;\ntrait Make { fn make(v: i32) -> Self; }\nstruct G { v: i32 }\nimpl Make for G { fn make(v: i32) -> Self { G { v: v } } }\nfn main() -> i32 { let g = Make::make(3); let h: G = g; return h.v; }\n",
+  "rustc_expected": "exit 3; logos cc=1 `call to undefined static method 'Make::make'`"
+ },
+ {
+  "cluster": "derive-raw-pointer-field",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-12_56"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "stdlib has only Eq impls for *const T / *mut T (cmp.logos). PartialOrd, Ord and Hash are missing, so the derived `self.p.cmp(..)` / `.hash(..)` fails with E0599; derive_eq on the same struct works. Side finding: UFCS `Ord::cmp(&p,&p)` on *const i64 resolves to the look-alike `i64__cmp` impl and reports an arg mismatch, not 'not implemented'. That breaks the rule that an unresolved call is an ICE, never a look-alike.",
+  "adr_step": "outside (stdlib API gap: Ord/PartialOrd/Hash for raw pointers). The UFCS look-alike pick belongs to S8/S9.",
+  "severity": 3,
+  "min_repro": "package r4;\nuse logos.std.fmt;\nuse logos.lang.cmp;\nfn main() { let x = 1i64; let p: *const i64 = &x; println!(\"{}\", p.cmp(&p) == Ordering::Equal); }\n",
+  "rustc_expected": "stdout `true`, exit 0; logos cc=1 `no method named cmp found for raw pointer *const i64`"
+ },
+ {
+  "cluster": "no-implicit-reborrow-of-mut-receiver",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-12_34",
+   "pairs-7_50",
+   "triples-own_4"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Two mechanisms. (a) pairs-7_50 and triples-own_4: a method call on `a: &mut Box<dyn Tr>` with a &mut self method MOVES `a` instead of reborrowing, so a second call gives 'use of moved value'. `&mut Box<Concrete>` (inherent or trait method), `&mut Concrete`, and calls on a Box<dyn> directly all work: only the autoderef chain &mut Box -> dyn loses the reborrow adjustment. (b) pairs-12_34 is a different defect: `dyn Iterator<Item = i64>` (an assoc-type binding inside dyn) is a PARSE error in every position (let type, fn param, &mut dyn). `impl Iterator<Item = i64>` parses.",
+  "adr_step": "(a) S8 (receiver adjustment: reborrow for the dyn autoderef chain). (b) outside: grammar, dyn assoc-type binding.",
+  "severity": 3,
+  "min_repro": "(a)\npackage n4;\nuse logos.std.fmt;\nuse logos.mem.boxed;\ntrait Act { fn act(&mut self) -> i64; }\nstruct Counter { n: i64 }\nimpl Act for Counter { fn act(&mut self) -> i64 { self.n += 1; return self.n; } }\nfn main() { let mut b: Box<dyn Act> = Box::new(Counter { n: 0 }); let a: &mut Box<dyn Act> = &mut b; a.act(); println!(\"{}\", a.act()); }\n\n(b)\npackage n10;\nuse logos.std.fmt;\nfn f(it: Box<dyn Iterator<Item = i64>>) -> i64 { let mut n = 0; for x in it { n += x; } n }\nfn main() { println!(\"{}\", f(Box::new(0..3))); }\n",
+  "rustc_expected": "(a) stdout `2`, exit 0; logos cc=1 `use of moved value: 'a'`. (b) stdout `3`, exit 0; logos cc=4 `syntax error`"
+ },
+ {
+  "cluster": "raw-deref-unsafe-check-gaps",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-5_26",
+   "pairs-9_28",
+   "pairs-9_30"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "the unsafety/mutability checker misses three raw-deref shapes that plain `*p`, `(*p).n` and concrete `(*p).get()` are refused for: (1) `&*p` outside unsafe is accepted; (2) `(*p).method()` on `*const dyn Tr` outside unsafe is accepted; (3) an autoref'd &mut self call through `*const` (`unsafe{(*p).bump()}`) is accepted (E0596 in rustc) and mutates the immutable `a` (run=4). A direct `*p = 7` through *const IS refused.",
+  "adr_step": "S8 for the method-receiver cases (2 and 3, refusals keyed to the adjusted receiver). (1) belongs to S6 (place-expression unsafety for `&*p`).",
+  "severity": 1,
+  "min_repro": "(1)\npackage u2;\nfn main() -> i32 { let x = 5i64; let p: *const i64 = &x; let r: &i64 = &*p; return *r as i32; }\n\n(2)\npackage u7;\ntrait C { fn get(&self) -> i64; }\nstruct A { n: i64 }\nimpl C for A { fn get(&self) -> i64 { self.n } }\nfn main() -> i32 { let a = A { n: 4 }; let p: *const dyn C = &a; return (*p).get() as i32; }\n\n(3)\npackage u4;\nstruct A { t: i64 }\nimpl A { fn bump(&mut self) { self.t += 1; } }\nfn main() -> i32 { let a = A { t: 3 }; let p: *const A = &a; unsafe { (*p).bump(); } return a.t as i32; }\n",
+  "rustc_expected": "all three REJECTED: E0133, E0133, E0596; logos accepts, run=5 / run=4 / run=4"
+ },
+ {
+  "cluster": "assoc-const-typed-self",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-2_53",
+   "pairs-5_20",
+   "pairs-7_46"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "impl conformance compares an associated-const type against the trait's declared type WITHOUT substituting Self (or Self::Assoc) for the impl: `const ZERO: Self` and `const ZERO: Self::V` reject `i64` / `Self` / `N::V` in the impl. The diagnostic also cites a line past EOF (:481 in a 4-line file).",
+  "adr_step": "S9 (impl identity / Self substitution in obligations)",
+  "severity": 3,
+  "min_repro": "package a1;\ntrait Z { const ZERO: Self; }\nimpl Z for i64 { const ZERO: i64 = 7; }\nfn main() -> i32 { return i64::ZERO as i32; }\n",
+  "rustc_expected": "exit 7; logos cc=1 `associated constant 'ZERO' declared as 'i64' but trait requires 'Self'`"
+ },
+ {
+  "cluster": "const-generic-args-ignored-in-type-identity",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-10_20",
+   "pairs-2_8",
+   "pairs-5_52"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "type identity ignores const-generic arguments, so V<2> unifies with V<3> (let, fn arg, and shared-N generic params). Reading `k.v[2]` of a V<2> through `let k: V<3> = m` runs without a bounds panic and exits 1, an out-of-bounds read.",
+  "adr_step": "S9 (type identity / unification; const args also feed the mangler)",
+  "severity": 1,
+  "min_repro": "package c2;\nstruct V<const N: usize> { v: [i32; N] }\nfn main() -> i32 { let m: V<2> = V { v: [1, 2] }; let k: V<3> = m; return k.v[2]; }\n",
+  "rustc_expected": "REJECTED E0308 mismatched types; logos accepts, run=1"
+ },
+ {
+  "cluster": "generic-struct-byvalue-never-dropped",
+  "predicted_step": "S9",
+  "members_checked": [
+   "triples-own_6"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "a value of a GENERIC struct instance (P<i64>) passed by value into a generic `fn eat2<T>(x: T)` (including std `drop`) is never dropped: its Drop field's destructor does not run. These drop correctly: a non-generic struct through the same fn, `fn eat<T>(p: P<T>)`, a scope-end drop, and a move into a let. So the needs-drop/drop-glue lookup for T := P<i64> inside the monomorphized body misses, consistent with drop glue keyed on the instance's identity/mangled name.",
+  "adr_step": "S9 (impl identity / mangler for drop-glue lookup on a generic instance)",
+  "severity": 1,
+  "min_repro": "package b5;\nuse logos.std.fmt;\nstruct Noisy { n: i64 }\nimpl Drop for Noisy { fn drop(&mut self) { println!(\"drop {}\", self.n); } }\nstruct P<T> { n: Noisy, v: T }\nfn eat2<T>(x: T) {}\nfn main() { let a: P<i64> = P { n: Noisy { n: 7 }, v: 1 }; eat2(a); println!(\"end\"); }\n",
+  "rustc_expected": "stdout `drop 7\\nend`, exit 0; logos prints only `end`"
+ },
+ {
+  "cluster": "rpit-not-opaque",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-12_24",
+   "pairs-14_23",
+   "pairs-2_13"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "return-position `impl Trait` is typed as the concrete hidden type at the use site: `let d: Dog = get()`, field access `a.id`, and `let x: u8 = narrow(3)` are all accepted. No opaque type is introduced.",
+  "adr_step": "S9 (opaque types as obligations/identities)",
+  "severity": 4,
+  "min_repro": "package p2;\ntrait Animal { fn legs(&self) -> i64; }\nstruct Dog { id: i64 }\nimpl Animal for Dog { fn legs(&self) -> i64 { 4 } }\nfn get() -> impl Animal { Dog { id: 1 } }\nfn main() -> i32 { let d: Dog = get(); return d.id as i32; }\n",
+  "rustc_expected": "REJECTED E0308 mismatched types; logos accepts, run=1 (accepts invalid code; no wrong runtime value seen)"
+ },
+ {
+  "cluster": "EXTRA (found while minimizing no-implicit-reborrow; not in batch)",
+  "predicted_step": null,
+  "members_checked": [],
+  "still_reproduces": true,
+  "actual_mechanism": "SILENT WRONG OUTPUT: `fn f(it: impl Iterator<Item = i64>)` (also `<I: Iterator<Item=i64>>`) called as f(0..3) with unsuffixed literals: the Item=i64 projection bound does not drive literal inference and the obligation Range<int-default>: Iterator<Item=i64> is not checked, so the sum is garbage (run=176/240, printed 422176083411840). With `0i64..3` it gives the right result, 3.",
+  "adr_step": "S7 (C-LIT/C-INF from projection bound) + S9 (projection obligation unchecked)",
+  "severity": 1,
+  "min_repro": "package n14;\nfn f(it: impl Iterator<Item = i64>) -> i64 { let mut n = 0; for x in it { n += x; } return n; }\nfn main() -> i32 { return f(0..3) as i32; }\n",
+  "rustc_expected": "exit 3; logos run=176"
+ },
+ {
+  "cluster": "empty-macro-args-metacall",
+  "predicted_step": "R0",
+  "members_checked": [
+   "pairs-12_22"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "The original metacall crash on `panic!()` is gone: the program compiles and prints the panic message. The only remaining difference is the exit status, 134 (SIGABRT) against rustc's 101, which is the blessed panic=abort divergence (DIVERGENCES A7).",
+  "adr_step": "outside (blessed divergence A7, panic=abort)",
+  "severity": 4,
+  "min_repro": "package em;\nuse logos.std.fmt;\nfn main() { if true { panic!() } println!(\"x\"); }\n// logos: stderr 'panic: explicit panic', run=134",
+  "rustc_expected": "panic message on stderr, exit 101"
+ },
+ {
+  "cluster": "for-in-over-generic-iterator-param",
+  "predicted_step": "S10",
+  "members_checked": [
+   "pairs-11_46",
+   "pairs-13_31",
+   "pairs-8_38"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The original for-in failure is fixed: pairs-11_46 is a mismatched pair whose Logos side is unrelated, and its .rs program compiles and prints 6 when written in Logos. Two different defects remain. (a) The bound `I: Iterator<Item = i64>` is never enforced at the call, and an untyped range literal is not inferred from it. `s2(1..4)` and even `s2(5i32..6i32)` are accepted, the range is built as i32 and read back as i64, giving garbage: 5..6 prints 21474836480. rustc rejects the explicit-i32 call with E0271. (b) A trait method with its own type parameter, called on a receiver whose type is a type parameter, leaves that parameter unsubstituted. `it.sum()` with `let s: i64` gives 'expected i64, got S', and `it.collect()` into `Vec<i64>` gives 'got C'. The same calls on a concrete Range work.",
+  "adr_step": "(a) S9 (the equality obligation on the associated type is not checked; inferring the literal from it is S7). (b) S7/S8 (no return-type inference for a method-level type parameter on a call through a bound)",
+  "severity": 1,
+  "min_repro": "package a4;\nuse logos.std.fmt;\nfn s2<I: Iterator<Item = i64>>(mut it: I) -> i64 { let x = it.next(); match x { Some(v) => v, None => 0 } }\nfn main() { println!(\"{}\", s2(5..6)); }\n// logos prints 21474836480\n---\npackage b1;\nuse logos.std.fmt;\nfn total<I: Iterator<Item = i64>>(it: I) -> i64 { let s: i64 = it.sum(); return s; }\nfn main() { println!(\"{}\", total(1i64..4i64)); }\n// logos: let 's': type mismatch \u2014 expected i64, got S",
+  "rustc_expected": "a4: 5 (exit 0); with 5i32..6i32 rustc gives E0271; b1: 6"
+ },
+ {
+  "cluster": "shared-ref-to-mut-ptr-accepted",
+  "predicted_step": "S4",
+  "members_checked": [
+   "pairs-12_25"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The explicit cast check accepts `&T as *mut T` while ignoring mutability. rustc rejects it with E0606. The program then writes through a pointer derived from a shared borrow of an immutable local (UB) and prints 2. The implicit coercion `let p: *mut i64 = &x` is correctly rejected, so only the `as` cast path is wrong.",
+  "adr_step": "S4",
+  "severity": 1,
+  "min_repro": "package p1;\nuse logos.std.fmt;\nfn main() { let x: i64 = 1; let p = &x as *mut i64; unsafe { *p = 2; } println!(\"{}\", x); }\n// logos prints 2, run=0",
+  "rustc_expected": "error[E0606]: casting `&i64` as `*mut i64` is invalid"
+ },
+ {
+  "cluster": "closure-param-from-generic-bound-sibling",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-11_38"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Generics are not needed to trigger this. (a) An untyped closure literal under `&` that is expected as `&dyn Fn(i64)->i64` does not get its parameter types from the expected type: they stay {integer}, and the unsize to dyn Fn is refused ('expected dyn Fn(i64) -> i64, got &|{integer}| -> {integer}'). This happens both as a call argument and as a let initializer. (b) Worse, with annotated parameters, `&|a: i64| a * 10` passed directly as `&dyn Fn` compiles and then SEGFAULTs (run=139), as an argument or in a let. Binding the closure first (`let g = ...; ap(1, &g)`) works and prints 10, so the defect is in coercing a borrowed closure temporary to dyn (temporary or vtable lowering).",
+  "adr_step": "(a) S7 (expected type into closure parameters through &dyn); (b) S4 (coercing &{closure temporary} to &dyn Fn), crash in codegen",
+  "severity": 2,
+  "min_repro": "package c11;\nfn ap(a: i64, f: &dyn Fn(i64) -> i64) -> i64 { f(a) }\nfn main() -> i32 { return ap(1i64, &|a: i64| a * 10) as i32; }\n// logos: Segmentation fault, run=139\n---\npackage c3;\nuse logos.std.fmt;\nfn ap(a: i64, f: &dyn Fn(i64) -> i64) -> i64 { f(a) }\nfn main() { println!(\"{}\", ap(1i64, &|a| a * 10)); }\n// logos: call to 'ap' arg 2: expected dyn Fn(i64) -> i64, got &|{integer}| -> {integer}",
+  "rustc_expected": "c11: exit 10; c3: prints 10"
+ },
+ {
+  "cluster": "generic-struct-update-infers-nothing",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-10_30"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "pairs-10_30 is a mismatched pair: the Logos side is a different, simpler program and its output (5 9) is correct for that program. The .rs program, written in Logos (W<T,U> with `..w` update syntax, including an untyped `a: 5`), compiles and prints '5 8 9', the same as rustc. The original <error> type-argument defect no longer reproduces.",
+  "adr_step": "S7 (fixed)",
+  "severity": 4,
+  "min_repro": "package g1;\nuse logos.std.fmt;\nstruct W<T, U> { a: T, tag: U, n: i64 }\nfn main() { let w = W { a: 5i32, tag: 8u8, n: 1 }; let w2 = W { n: 9, ..w }; println!(\"{} {} {}\", w2.a, w2.tag, w2.n); }\n// logos: 5 8 9",
+  "rustc_expected": "5 8 9"
+ },
+ {
+  "cluster": "assoc-const-refers-const-param",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-14_51"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "When an associated const is used through a path with explicit generic arguments (`Buf::<4>::LEN`), its initializer is evaluated at the use site without binding the impl's generic parameters. A const parameter gives 'undefined variable M'. The same happens for a type parameter: `S::<Z>::N` with `const N = P::N + 1` gives 'unknown enum P'. Inside the impl, via `Self::LEN` from a method, it works and prints 4, and so does an inherent fn returning M.",
+  "adr_step": "S8",
+  "severity": 3,
+  "min_repro": "package k1;\nuse logos.std.fmt;\nstruct Buf<const M: usize> { d: [i64; M] }\nimpl<const M: usize> Buf<M> { const LEN: usize = M; }\nfn main() { println!(\"{}\", Buf::<4>::LEN); }\n// logos: undefined variable 'M'",
+  "rustc_expected": "4"
+ },
+ {
+  "cluster": "enum-eq-without-impl-accepted",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-2_10",
+   "pairs-5_35"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "For an enum with only unit variants, sema lowers `==` and `<` to a discriminant comparison without any PartialEq/PartialOrd impl, accepting code rustc rejects with E0369. An enum with a payload variant is correctly refused ('requires an Eq/PartialEq impl'). The runtime result is a coherent discriminant comparison, not garbage.",
+  "adr_step": "S8",
+  "severity": 4,
+  "min_repro": "package e1;\nenum C { R, G }\nfn main() -> i32 { if C::G == C::R { return 1; } return 2; }\n// logos: run=2 (also accepts C::G < C::R)",
+  "rustc_expected": "error[E0369]: binary operation `==` cannot be applied to type `C`"
+ },
+ {
+  "cluster": "operator-impl-for-ref-self",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-2_47",
+   "pairs-9_45"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The operator is not dispatched to an impl whose Self is &T when the operator is unary, or binary with an Rhs other than Self. `-&p` with `impl Neg for &P` and `&p * 3` with `impl Mul<i64> for &P` both get the operand's type &P, not Output: 'expected i64, got &P', and in the original members 'operand must be numeric, got &P'. `impl Mul<&P> for &P` (`&p * &p`) works and returns 16, and `impl Neg for P` works.",
+  "adr_step": "S8",
+  "severity": 3,
+  "min_repro": "package o6;\nstruct P { x: i64 }\nimpl Mul<i64> for &P { type Output = i64; fn mul(self, k: i64) -> i64 { self.x * k } }\nfn main() -> i32 { let p = P { x: 4 }; let n: i64 = &p * 3; return n as i32; }\n// logos: let 'n': type mismatch \u2014 expected i64, got &P",
+  "rustc_expected": "exit 12 (Neg twin: exit 6)"
+ },
+ {
+  "cluster": "slice-array-as-ptr-typing",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-13_41",
+   "pairs-4_43"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The method-call probe types `<[T]>::as_ptr()` as `*const u8` whatever T is. With an inferred binding, `p.add(1)` then steps one byte and reads a u8, so the output is silently wrong: it returns 0 where rustc gives 7 or 30. With an annotation `*const i64` it is a type mismatch ('got *const u8'). Separately, `as_ptr()` on an array value is refused ('receiver is not a struct (got [i32; 3])') because there is no array-to-slice autoref in the probe.",
+  "adr_step": "S8",
+  "severity": 1,
+  "min_repro": "package s4;\nfn f(s: &[i64]) -> i64 { let p = s.as_ptr(); unsafe { *p.add(1) } }\nfn main() -> i32 { let d = [5i64, 7]; return f(&d) as i32; }\n// logos: run=0",
+  "rustc_expected": "exit 7"
+ },
+ {
+  "cluster": "assoc-type-binding-not-normalized",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-11_47",
+   "pairs-1_28"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "pairs-11_47 is a mismatched pair. Its .rs program written in Logos still fails: unary `-a` with `A: Neg<Output = V>` is typed as A, not V ('return type mismatch \u2014 expected V, got A'). Binary `a + b` with `A: Add<Output = V>` works (7). So the problem is that the unary operator does not go through the trait projection, not projection normalization in general. pairs-1_28 has a different cause. Its Node<Val=i64> part works (15, 8). It fails on (i) `<S<Z> as Peano>::N`: any qualified path whose self type has generic arguments is a parse error, both inside println! and in a plain let (`<Z as Peano>::N` works), and (ii) `S::<Z>::N`, where the const initializer references the impl's type parameter P ('unknown enum P'), the same defect as assoc-const-refers-const-param.",
+  "adr_step": "unary operator projection: S8 (operator to trait-method lowering); `<Ty<Args> as Tr>::C`: outside (grammar, qualified-path self type with generics); `S::<Z>::N`: S8",
+  "severity": 3,
+  "min_repro": "package n6;\nstruct V { x: i32 }\nimpl Neg for V { type Output = V; fn neg(self) -> V { V { x: 0 - self.x } } }\nfn ng<A: Neg<Output = V>>(a: A) -> V { -a }\nfn main() -> i32 { return ng(V { x: 3 }).x + 10; }\n// logos: return type mismatch \u2014 expected V, got A\n---\n... fn main() { let x: i64 = <S<Z> as Peano>::N; println!(\"{}\", x); }\n// logos: syntax error near 'fn'",
+  "rustc_expected": "n6: exit 7; pairs-1_28: 15 / 8 / '3 1'"
+ },
+ {
+  "cluster": "derive-ord-enum-self",
+  "predicted_step": "S9",
+  "members_checked": [
+   "triples-types_37"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "`#[derive_ord]` on an enum is refused on purpose by the metaprog hook ('not supported yet'). The underlying defect is still there: a hand-written `impl Ord for Pri` (enum) fails while instantiating the provided default methods ('[fn Pri__min]: unknown type Self'). Self is not bound in default methods synthesized for an enum impl.",
+  "adr_step": "S9",
+  "severity": 3,
+  "min_repro": "package d3;\nuse logos.lang.cmp;\nenum Pri { Low, Mid(i64) }\nimpl PartialEq for Pri { fn eq(&self, o: &Pri) -> bool { self.k() == o.k() } }\nimpl Eq for Pri {}\nimpl PartialOrd for Pri { fn partial_cmp(&self, o: &Pri) -> Option<Ordering> { Some(self.cmp(o)) } }\nimpl Ord for Pri { fn cmp(&self, o: &Pri) -> Ordering { self.k().cmp(&o.k()) } }\nimpl Pri { fn k(&self) -> i64 { match self { Pri::Low => -1, Pri::Mid(v) => *v } } }\nfn main() -> i32 { if Pri::Low < Pri::Mid(1) { return 1; } return 2; }\n// logos: error [fn Pri__min]: unknown type 'Self'",
+  "rustc_expected": "exit 1 (original member prints 'true true')"
+ },
+ {
+  "cluster": "impl-elided-lifetime-vs-trait-signature",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-4_47",
+   "triples-types_21"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The impl-conformance check compares region names syntactically. When Self is `&'a M` and the trait argument is `&'a M`, an impl method whose parameter is the elided `&M` is rejected ('parameter 1 is declared &'a M and the impl declares &M'), although the elided region is more general and rustc accepts it. With Self = M (`impl<'a> Tk<&'a M> for M`) the same elision is accepted, and writing `o: &'a M` compiles and returns 12. The diagnostic also gives a bogus line number (481 in a 4-line file).",
+  "adr_step": "S9",
+  "severity": 3,
+  "min_repro": "package l1;\nstruct M { v: i64 }\nimpl<'a> Mul<&'a M> for &'a M { type Output = i64; fn mul(self, o: &M) -> i64 { self.v * o.v } }\nfn main() -> i32 { let a = M { v: 3 }; let b = M { v: 4 }; return (&a * &b) as i32; }\n// logos: impl Mul for $ref_M: method 'mul' does not match the trait declaration",
+  "rustc_expected": "exit 12"
+ },
+ {
+  "cluster": "structural-copy-clone-not-trait-impls",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-12_49",
+   "pairs-3_25",
+   "pairs-8_35",
+   "triples-types_27"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Types that sema treats as Copy without an impl are invisible to the trait-impl registry: Option<i64> (used twice after `let p = o` with run=6), auto-Copy structs (blessed A16, triples-types_27's P) and tuples. So `T: Copy` bounds fail with \"type 'Option' does not implement trait 'Copy'\" while tuples pass (y4 run=3). The stdlib also has no `impl Clone/Copy for Option<T>`: `o.clone()` gives 'receiver is not a struct (got &Option)', which also breaks #[derive_clone] on a struct with an Option field and `.copied()` over Options.",
+  "adr_step": "S9 (the obligation solver does not consult the structural or auto-Copy set; Option's Clone/Copy impls are missing from the stdlib)",
+  "severity": 3,
+  "min_repro": "package y1;\nfn dup<T: Copy>(x: T) -> (T, T) { (x, x) }\nfn main() -> i32 { let (a, b) = dup(Some(3i64)); return (a.unwrap() + b.unwrap()) as i32; }\n// logos: 'dup': type 'Option' does not implement trait 'Copy'\n---\npackage y2;\nfn main() -> i32 { let o: Option<i64> = Some(3); let p = o.clone(); return (o.unwrap() + p.unwrap()) as i32; }\n// logos: method call: receiver is not a struct (got Option)",
+  "rustc_expected": "exit 6 for both"
+ },
+ {
+  "cluster": "vec-macro-requires-copy",
+  "predicted_step": "R0",
+  "members_checked": [
+   "pairs-12_37"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "No compiler defect: pairs-12_37.logos is not the twin of pairs-12_37.rs (corpus defect) \u2014 the .logos is `vec![String::from(..),..]` returning v.len() (exit 2, correct); a faithful Logos port of the .rs (Vec<Box<dyn Tag>> via vec!, Option<Box<dyn Tag>>, Drop order) prints exactly rustc's output, and un-annotated vec![String,..] also works (prints `2 b`).",
+  "adr_step": "outside (corpus: mismatched twin; R0 symptom no longer reproduces)",
+  "severity": null,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.mem.collections.vec;\nuse logos.mem.string;\nfn main() { let v = vec![String::from(\"a\"), String::from(\"b\")]; println!(\"{} {}\", v.len(), v[1]); }",
+  "rustc_expected": "2 b / exit 0 (Logos matches)"
+ },
+ {
+  "cluster": "temp-lifetime-for-head-const-promotion",
+  "predicted_step": "S10",
+  "members_checked": [
+   "pairs-9_53"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The for-head/const-promotion part is FIXED (for n in NAMES.iter() {v.push(*n)} runs correctly); the member now fails on something else: a format-macro argument that is an INDEX expression whose element type is &str (`a[0]` on [&str;1] or Vec<&str>) instantiates fmt_display with T=[u8] (str's representation, the &-layer dropped) and is refused as unsized; `&v[0]`, `let s: &str = v[0]`, field `x.s`, tuple `a.0`, and Vec<&i64> index all work, and format!() fails the same way.",
+  "adr_step": "R0 (macro-arg lowering of an index place in println!/format!; not S10)",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nfn main() { let a: [&str; 1] = [\"x\"]; println!(\"{}\", a[0]); }",
+  "rustc_expected": "x / exit 0; Logos: error 'fmt_display': type argument '[u8]' has unsized type"
+ },
+ {
+  "cluster": "box-dyn-drop-glue-missing",
+  "predicted_step": "S4+S9",
+  "members_checked": [
+   "pairs-5_11"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "Drop glue for Box<dyn>/Rc<dyn> in VecDeque/BTreeMap/HashMap is FIXED: a faithful port (direct calls in unsafe{}) prints rustc's exact drop sequence. The remaining diff is a corpus defect: the .logos calls `pd.push_back(..)` on a `*mut VecDeque<..>` raw pointer, which Logos now correctly refuses (E0599, as rustc would). Side finding: VecDeque::push_back/pop_front and HashMap::insert are declared `pub unsafe fn` in the Logos stdlib (stdlib/mem/collections deque.logos:54,72) so safe-Rust calls need unsafe{} \u2014 stdlib API divergence; and the E0599 message renders Box<dyn Animal> as `&dyn Animal` (cosmetic).",
+  "adr_step": "outside (corpus twin defect; residual = stdlib API: collection mutators declared unsafe)",
+  "severity": null,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.mem.collections.deque;\nuse logos.mem.collections.hashmap;\nfn main() { let mut dq: VecDeque<i64> = VecDeque::new(); dq.push_back(1); let mut m: HashMap<i64, i64> = HashMap::new(); m.insert(1, 2); println!(\"{} {}\", dq.len(), m.len()); }",
+  "rustc_expected": "1 1 / exit 0; Logos: call to unsafe method 'VecDeque__push_back' / 'HashMap__insert' requires unsafe context"
+ },
+ {
+  "cluster": "collect-into-result-option",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-4_50"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Mostly stdlib API gaps, not inference: (a) Option<T> has no Clone impl (stdlib/lang/option/option.logos has no `impl Clone for Option`; `Some(1).clone()` -> 'receiver is not a struct'); (b) no `FromIterator<Option<T>> for Option<C>` (collect into Option<Vec<_>> refused); (c) no `Sum<Result/Option>` impls; (d) no Iterator::flatten (slice/vec iter of Option has no method flatten). Plus one real S7 inference miss: `.map(|x| Ok(*x)).collect()` into a `Result<Vec<i64>, i64>` binding cannot infer E (E0282) \u2014 the expected type does not reach the closure's Ok(..) literal; with `|x| -> Result<i64,i64>` it works, and collect-to-Result through a fn returning Result works.",
+  "adr_step": "outside (stdlib API gap: Option Clone/FromIterator, Sum for Result/Option, Iterator::flatten) + S7 for the closure-return E inference",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.mem.collections.vec;\nuse logos.lang.iter;\nfn main() { let a = Some(1i32); let b = a.clone(); println!(\"{:?}\", b); }\n// S7 part:\n// fn main() { let r: Result<Vec<i64>, i64> = [1i64, 2].iter().map(|x| Ok(*x)).collect(); println!(\"{:?}\", r); }",
+  "rustc_expected": "Some(1) (S7 part: Ok([1, 2])) / exit 0; Logos: 'receiver is not a struct (got Option)' ; S7 part: E0282 cannot infer `E`"
+ },
+ {
+  "cluster": "generic-typevar-leaks-to-codegen",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-14_25",
+   "pairs-9_19"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Three distinct defects: (1) [14_25] a fn's own generic param used inside its RPIT bound (`fn f<A>(a: A) -> impl Fn(A) -> i32`) is not in scope when the return type is resolved: 'unknown type A' (sema/HIR type-path resolution); (2) [9_19] calling a PROVIDED Iterator method (map) on a generic param bounded by Iterator (`fn f<I: Iterator<Item=i64>>(it: I) { it.map(..) }`) ICEs in mono: 'the method map of bound Iterator resolves to no impl at the concrete receiver RangeI64/VecIntoIter<i64>' (required method next/count are fine); also `it.map(..)` inside the generic body leaves the closure output as unnormalized `MapOut`; (3) calling a returned `impl Fn() -> i32` (`f()()` or `let g = f(); g()` used as a format arg) leaves the closure body's literal `7` as an unsolved `{integer}` that reaches mlir_gen (ICE 'unsolved integer literal type reached codegen'); with `let r: i32 = g()` it works.",
+  "adr_step": "S8 for (2) (bound-method -> impl resolution, ADR S8 row 6 per the ICE text); S7 for (3) (RPIT Fn output not used as expected type of the closure body literal); Q1/HIR type-path resolution for (1) (generic param scope in RPIT)",
+  "severity": 2,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.iter;\nfn f<I: Iterator<Item = i64>>(it: I) -> i64 { it.map(|x| x * 2).count() as i64 }\nfn main() { println!(\"{}\", f(1..3i64)); }\n// (3): fn f() -> impl Fn() -> i32 { move || 7 }  fn main() { println!(\"{}\", f()()); }\n// (1): fn f<A>(a: A) -> impl Fn(A) -> i32 { move |_x| 7 }  fn main() { println!(\"{}\", f(4i64)(5)); }",
+  "rustc_expected": "2 (and 7, 7) / exit 0; Logos: mono internal ICE (2); mlir_gen unsolved {integer} ICE (3); 'unknown type A' (1)"
+ },
+ {
+  "cluster": "borrow-of-unit-path-undefined",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-4_40"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "The cluster's defect (&UnitStruct / &None as a bare path) is FIXED (`f(&U)`, `&None` run correctly). The member still fails on an unrelated stdlib gap: no Display (and no Debug) impl for Box<T> or Rc<T>, so `println!(\"{}\", Box::new(5i64))` / Rc<String> are refused ('Box<i64> does not implement trait Display'); no `Display for Box`/`Rc` exists anywhere under stdlib/.",
+  "adr_step": "outside (stdlib API gap: Display/Debug for Box<T>, Rc<T>)",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nfn main() { let bi = Box::new(5i64); println!(\"{}\", bi); }",
+  "rustc_expected": "5 / exit 0; Logos: 'fmt_display': type 'Box<i64>' does not implement trait 'Display'"
+ },
+ {
+  "cluster": "generic-eq-moves-operands",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-13_18"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "`x == y` (and `!=`) on an instance of a GENERIC struct with a user `impl<T: PartialEq> PartialEq for W<T>` never calls the user eq (a println inside eq never fires); it lowers to a builtin comparison that yields false for two equal values and true for `x == x`  \u2014 silent wrong result. Explicit `x.eq(&y)` and non-generic structs are correct. The cluster's original 'moves operands' symptom is gone; what remains is operator dispatch.",
+  "adr_step": "S8",
+  "severity": 1,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.cmp;\nstruct W<T> { i: T }\nimpl<T: PartialEq> PartialEq for W<T> { fn eq(&self, o: &W<T>) -> bool { self.i == o.i } }\nfn main() { let x = W { i: 5i64 }; let y = W { i: 5i64 }; println!(\"{}\", x == y); }",
+  "rustc_expected": "true / exit 0; Logos prints false"
+ },
+ {
+  "cluster": "operator-on-enum-lowered-as-integer",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-12_15",
+   "pairs-14_26",
+   "pairs-3_9"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Binary/unary operators whose operand type is an ENUM ignore the user `impl Add/Sub/Neg for E` and are lowered as builtin integer ops on the representation: for unit enums this is silent wrong output (`E::A + E::A` -> A instead of impl's B; `-Sg::Pos` -> Pos (0 negated) instead of Neg), for payload enums codegen emits arith.addi/subi on !llvm.ptr and the MLIR verifier rejects it. Same operators on structs dispatch correctly. In 3_9 only `-Sg::Pos` diverges (1 vs -1); a minimal `let a = E::A; -a` with impl Neg returning E::B also yields A (wrong).",
+  "adr_step": "S8",
+  "severity": 1,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.ops;\nenum E { A, B }\nimpl Add for E { type Output = E; fn add(self, o: E) -> E { E::B } }\nfn ev(e: &E) -> i64 { match e { E::A => 1, E::B => 2 } }\nfn main() { let e = E::A + E::A; println!(\"{}\", ev(&e)); }",
+  "rustc_expected": "2 / exit 0; Logos prints 1 (payload-enum variant: MLIR 'arith.addi' operand must be integer, got !llvm.ptr)"
+ },
+ {
+  "cluster": "smart-pointer-inherent-method-shadows-pointee",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-14_38"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Method probe picks smart-pointer inherent methods before auto-deref to the pointee: on Ref/RefMut, the Logos-only inherent `get(&self) -> &T` (stdlib/lang/cell/cell.logos) shadows Vec::get ('Ref<Vec<i64>>__get: expected 0 args, got 1'); on Box/Rc, the probe autorefs to the raw receiver `self: *mut Box<T>` of the unsafe inherent `get` (boxed.logos, rc.logos) and silently accepts `b.get(1)` returning the wrong type ('expected Option, got i64'). `.len()` (no shadow) works.",
+  "adr_step": "S8 (probe order / raw-pointer autoref) + stdlib API divergence (inherent get on Ref/Box/Rc that Rust does not have)",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.cell;\nuse logos.mem.collections.vec;\nfn main() { let c = RefCell::new(vec![10i64, 20]); let r = c.borrow(); println!(\"{}\", *r.get(1).unwrap()); }",
+  "rustc_expected": "20 / exit 0; Logos: method call 'Ref$G1$Vec$G1$i64__get': expected 0 args, got 1 (Box variant: 'expected Option, got i64')"
+ },
+ {
+  "cluster": "assoc-type-equality-unchecked",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-12_23",
+   "pairs-4_17",
+   "pairs-8_5"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Associated-type equality constraints are never checked and an opaque projection unifies with anything in argument position: (a) `g::<T: C<Item = i64>>(&F)` with `F::Item = bool` is accepted and runs (prints 1 \u2014 bool reinterpreted as i64); (b) RPIT `-> impl C<Item = i64> { F }` with Item=bool accepted (prints true); (c) in a generic body `c.put(x)` with x: i64 passed where `T::Item` is expected is accepted even with no instantiation at all (rustc E0308), while return position (`-> i64 { c.get() }`) IS checked. Accepts ill-typed programs and executes them with type confusion.",
+  "adr_step": "S9",
+  "severity": 1,
+  "min_repro": "package p;\nuse logos.std.fmt;\ntrait C { type Item; fn get(&self) -> Self::Item; }\nstruct F;\nimpl C for F { type Item = bool; fn get(&self) -> bool { true } }\nfn g<T: C<Item = i64>>(c: &T) -> i64 { c.get() }\nfn main() { println!(\"{}\", g(&F)); }\n// arg-position: trait C { type Item; fn put(&mut self, x: Self::Item); }  fn f<T: C>(c: &mut T, x: i64) { c.put(x); }  fn main() { }",
+  "rustc_expected": "compile error E0271 type mismatch resolving `<F as C>::Item == i64` (arg-position variant: E0308); Logos compiles and prints 1"
+ },
+ {
+  "cluster": "enum-second-default-method",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-6_34"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "For an ENUM implementing a trait, only the FIRST provided (default) method is materialized correctly; the second default method is instantiated with Self = <error> ('receiver is not a struct (got &<error>)' inside E__two) and calls to it fail ('receiver is not a struct (got E)'). Holds even with an empty impl and trivial bodies; with only one default method, or for a tuple struct, it works.",
+  "adr_step": "S9 (impl identity / default-method instantiation for enum Self)",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nenum E { A(i32) }\ntrait Tr { fn one(&self) -> i32 { 1 } fn two(&self) -> i32 { 2 } }\nimpl Tr for E { }\nfn main() { let e = E::A(7); println!(\"{} {}\", e.one(), e.two()); }",
+  "rustc_expected": "1 2 / exit 0; Logos: method call: receiver is not a struct (got E)"
+ },
+ {
+  "cluster": "impl-trait-nested-in-type",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-12_33",
+   "pairs-2_43"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "`impl Trait` nested inside another type is not desugared: (a) RPIT nested in a type constructor (`-> Option<impl K>`, `-> (impl K, i64)`) is kept as a literal `impl K` type, so the body's Option<C> mismatches ('expected Option<impl K>, got Option<C>') and callers see an un-resolvable `impl K' receiver; (b) APIT nested in Box (`fn rd(c: Box<impl K>)`) fails generic inference ('could not infer all type arguments') although `Option<impl K>`, `Vec<impl K>` and explicit `fn rd<T: K>(c: Box<T>)` work. (Side: `fn rd(c: &impl K)` is a syntax error \u2014 the separate grammar cluster amp-impl-trait-and-bounds-parse.)",
+  "adr_step": "S9 for nested RPIT (opaque type identity); APIT-in-Box inference is S7",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\ntrait K { fn v(&self) -> i64; }\nstruct C;\nimpl K for C { fn v(&self) -> i64 { 6 } }\nfn mk() -> Option<impl K> { Some(C) }\nfn main() { println!(\"{}\", mk().unwrap().v()); }\n// APIT: use logos.mem.boxed; fn rd(c: Box<impl K>) -> i64 { c.v() }  fn main() { println!(\"{}\", rd(Box::new(C))); }",
+  "rustc_expected": "6 (and 6) / exit 0; Logos: return type mismatch \u2014 expected Option<impl K>, got Option<C> ; APIT: could not infer all type arguments"
+ },
+ {
+  "cluster": "tuple-ord-missing",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-12_50",
+   "triples-types_38"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Tuples have no PartialOrd/Ord impl in the obligation solver/impl registry: any `T: Ord`/`T: PartialOrd` obligation at a tuple type fails (Vec::sort, sort_by_key with tuple key, generic `fn mx<T: Ord>`), although builtin `a < b` on tuples works and tuple PartialEq bounds are satisfied. (Separately, `std::cmp::Ordering::Less` inside println! args fails to parse \u2014 macro-arg/path issue, not this cluster.)",
+  "adr_step": "S9 (structural tuple impls for PartialOrd/Ord in obligations); alternatively a stdlib impl gap",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.mem.collections.vec;\nuse logos.lang.cmp;\nfn main() { let mut v: Vec<(i64, i64)> = vec![(1, 3), (1, 2)]; v.sort(); println!(\"{:?}\", v); }",
+  "rustc_expected": "[(1, 2), (1, 3)] / exit 0; Logos: 'Vec__sort': type '(i64, i64)' does not implement trait 'Ord'"
+ },
+ {
+  "cluster": "vec-repeat-form",
+  "predicted_step": "R0",
+  "members_checked": [
+   "pairs-14_53"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The macro parse works now (`vec![7i64; 3]` runs). sema lowers `vec![e; n]` to the stdlib `vec_from_elem(elem: T, n: i64)`, so a `usize` count is refused ('vec_from_elem arg 2: expected i64, got usize') and an `i64` count is accepted, which rustc refuses with E0308 (checked with vr3).",
+  "adr_step": "outside: stdlib API. `vec_from_elem` in stdlib/mem/collections/vec/vec.logos takes `n: i64` instead of `usize`; the R0 part is closed",
+  "severity": 3,
+  "min_repro": "package m; <+ the `use` lines of the cluster member> \nfn main() { let n: usize = 3; let v = vec![7i64; n]; println!(\"{}\", v.len()); }",
+  "rustc_expected": "stdout '3', exit 0"
+ },
+ {
+  "cluster": "parse-target-through-question",
+  "predicted_step": "S10+S7",
+  "members_checked": [
+   "pairs-12_42"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The predicted mechanism is fixed: `let n: i64 = x.parse()?` compiles and prints 42. Two unrelated defects keep the member red. (a) In sema's call-argument check, `v.iter().find(..)` or `.position(..)` with `v: &Vec<i64>` a fn parameter is refused: 'VecIter__find arg 1: variance mismatch, expected &mut VecIter<'a, i64>, got &mut VecIter<i64>'. The same call on a local Vec, on a `&[i64]` param, or `.next()` on the same iterator all compile. (b) stdlib has no `Debug` for `ParseIntError`, so `{:?}` of `Result<i64, ParseIntError>` is refused.",
+  "adr_step": "outside: (a) the sema variance/lifetime-argument check (the lifetime arg is missing on the type of `iter()` over an elided `&Vec` param); (b) stdlib API gap (`ParseIntError: Debug`)",
+  "severity": 3,
+  "min_repro": "package m; <+ the `use` lines of the cluster member> \nfn fe(v: &Vec<i64>) -> i64 { let f = v.iter().find(|x| **x % 2 == 0); return *f.unwrap(); }\nfn main() { let v: Vec<i64> = vec![1, 4]; println!(\"{}\", fe(&v)); }\n// and (b): fn main() { let e: ParseIntError = \"x\".parse::<i64>().unwrap_err(); println!(\"{:?}\", e); }",
+  "rustc_expected": "(a) stdout '4', exit 0; (b) stdout 'ParseIntError { kind: InvalidDigit }', exit 0"
+ },
+ {
+  "cluster": "no-vtable-str-literal-to-dyn",
+  "predicted_step": "S4+S9",
+  "members_checked": [
+   "pairs-4_27"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "Not a compiler disagreement. The two twins differ: the .logos has a 4th element `&\"lit\"` that the .rs does not. With the .rs given the same 4 elements, rustc prints '[P3][bob][42][lit]', the same as Logos. `&&str -> &dyn Display` now compiles and runs correctly.",
+  "adr_step": "n/a (closed); the member's .rs twin is stale and needs the `&\"lit\"` element",
+  "severity": 4,
+  "min_repro": "(none; it agrees)",
+  "rustc_expected": "[P3][bob][42][lit] / P5 neg / P5+neg 6, exit 0 (matches Logos)"
+ },
+ {
+  "cluster": "copied-fold-closure-param-generic",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-1_52"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "Not a compiler disagreement. The .rs twin also computes and prints `q` (`ms.iter().fold(M(1), |a, b| a * *b)`); the .logos does not. Adding that line to the Logos program prints '24 24', the same as rustc. `.copied().fold` with a generic closure param works.",
+  "adr_step": "n/a (closed); the member's .logos twin is stale",
+  "severity": 4,
+  "min_repro": "(none; it agrees)",
+  "rustc_expected": "24 24, exit 0"
+ },
+ {
+  "cluster": "u16-mul-overflow-unchecked",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-10_17"
+  ],
+  "still_reproduces": false,
+  "actual_mechanism": "The original defect (no trap) is fixed: `255u16 * 300` now traps (SIGILL, exit 132, no stdout), and 200*300=60000 does not trap. rustc panics with exit 101. The only difference is trap versus panic exit status, which is blessed divergence A13 in DIVERGENCES.md (overflow always traps). i64 overflow traps the same way.",
+  "adr_step": "n/a (closed); the remaining exit-code difference is policy (DIVERGENCES A13)",
+  "severity": 4,
+  "min_repro": "fn f(b: u16) -> u16 { b * 300 }  fn main() { println!(\"{}\", f(255)); }  // Logos: run=132 (trap)",
+  "rustc_expected": "panic 'attempt to multiply with overflow', exit 101"
+ },
+ {
+  "cluster": "box-dyn-as-ref-missing",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-14_49",
+   "pairs-8_55"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Method lookup on a `Box<dyn A>` receiver goes straight to the trait object's methods and never considers Box's own impls. `b.as_ref()` fails with \"trait 'A' has no method 'as_ref'\", and `b.deref()` fails the same way. `Box<S>.as_ref()` works, and so does `&*b`. UFCS `AsRef::as_ref(&b)` reports an undefined static method. Separately, stdlib `impl<E> AsRef<E> for Box<E>` has no unsized bound on E.",
+  "adr_step": "S8",
+  "severity": 3,
+  "min_repro": "package m; <+ the `use` lines of the cluster member> \ntrait A { fn a(&self) -> i64; }\nstruct S(i64);\nimpl A for S { fn a(&self) -> i64 { self.0 } }\nfn main() { let b: Box<dyn A> = Box::new(S(3)); let r: &dyn A = b.as_ref(); println!(\"{}\", r.a()); }",
+  "rustc_expected": "stdout '3', exit 0"
+ },
+ {
+  "cluster": "mut-self-method-through-shared-generic-ref",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-3_4",
+   "pairs-8_4"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "A `&mut self` trait method called through a shared reference is accepted, and the call mutates through `&` (pairs-3_4 prints 11, pairs-8_4 prints '4 4'). This happens when the receiver is `&T` with T a type param, when it is `&dyn K`, and with UFCS `K::bump(t)` for `t: &T`. rustc refuses all three (E0596 / E0308). For a concrete `&C` receiver sema correctly says 'receiver: expected &mut C, got &C'. So the receiver-mutability check is skipped for trait dispatch through type params and dyn.",
+  "adr_step": "S8",
+  "severity": 1,
+  "min_repro": "package m;\nuse logos.std.fmt;\nstruct C { n: i64 }\ntrait K { fn bump(&mut self); }\nimpl K for C { fn bump(&mut self) { self.n += 10; } }\nfn g<T: K>(t: &T) { t.bump(); }\nfn main() { let c = C { n: 1 }; g(&c); println!(\"{}\", c.n); }\n",
+  "rustc_expected": "compile error E0596 'cannot borrow `*t` as mutable, as it is behind a `&` reference' (Logos compiles and prints 11)"
+ },
+ {
+  "cluster": "primitive-inherent-methods-missing",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-12_51"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "stdlib has no `checked_add` for u8/u16; stdlib/lang/cmp/ord.logos defines it only for i32/u32/u64/i64. `u8::wrapping_add` and `i32/u32::checked_add` resolve and run. The missing method is reported with a misleading 'method call: receiver is not a struct (got u8)'.",
+  "adr_step": "outside: stdlib API gap (the narrow-int `checked_*` family); the diagnostic wording is secondary",
+  "severity": 3,
+  "min_repro": "package m; <+ the `use` lines of the cluster member> \nfn main() { let c: u8 = 250; println!(\"{:?}\", c.checked_add(10)); }",
+  "rustc_expected": "stdout 'None', exit 0 (u16 variant: 'Some(260)')"
+ },
+ {
+  "cluster": "no-vtable-box-box-dyn",
+  "predicted_step": "S8+S4",
+  "members_checked": [
+   "pairs-1_20"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The original method-dispatch part is fixed: `bb.total()` on a `Box<Box<dyn B>>` built from a pre-coerced inner box prints 5. What remains is coercion: `let bb: Box<Box<dyn B>> = Box::new(Box::new(S{..}))` fails, because the expected type reaching the inner `Box::new` argument is rewritten to `&dyn B` ('aggregate slot <0>: expected &dyn B, got Box<S>'; 'expected Box<&dyn B>, got Box<Box<S>>'). So the unsize coercion `Box<S> -> Box<dyn B>` at a nested call-argument site is not performed.",
+  "adr_step": "S4",
+  "severity": 3,
+  "min_repro": "package m; <+ the `use` lines of the cluster member> \ntrait B { fn t(&self) -> i64; }\nstruct S { t: i64 }\nimpl B for S { fn t(&self) -> i64 { self.t } }\nfn main() { let bb: Box<Box<dyn B>> = Box::new(Box::new(S { t: 5 })); println!(\"{}\", 1); }",
+  "rustc_expected": "stdout '1', exit 0"
+ },
+ {
+  "cluster": "blanket-impl-not-found-for-bound",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-4_35"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "`impl<F: FnMut(i64)> V for F` is selected, but it is miscompiled in two ways. (1) The mono instance of `walk<T = closure>` is emitted as an empty body (LLVM: `define void @m$walk__g__refmut_T__...` contains only `ret void`), so every `t.visit(i)` call disappears silently: the blanket body never runs and acc stays 0. (2) A direct `vis.visit(1)` on the closure local passes a pointer to a stack slot holding `&closure` (one extra reference level) to a body that loads `{fnptr, env}` from it, which segfaults (exit 139).",
+  "adr_step": "S9 (impl identity / instance of a blanket impl over a closure type param at mono). The extra autoref in the direct call is S8.",
+  "severity": 1,
+  "min_repro": "package m;\nuse logos.std.fmt;\ntrait V { fn visit(&mut self, v: i64); }\nimpl<F: FnMut(i64)> V for F { fn visit(&mut self, v: i64) { println!(\"in visit {}\", v); (*self)(v) } }\nfn walk<T: V>(t: &mut T) { t.visit(1); t.visit(2); }\nfn main() {\n    let mut acc: i64 = 0;\n    { let mut vis = |v: i64| { acc += v; }; walk(&mut vis); }\n    println!(\"{}\", acc);\n}\n",
+  "rustc_expected": "stdout 'in visit 1 / in visit 2 / 3', exit 0 (Logos prints '0', exit 0; the direct-call variant segfaults)"
+ },
+ {
+  "cluster": "fmt-instance-for-ref-payload-missing",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-14_32"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The predicted mechanism is fixed: `&&String`, `Option<&i64>` and `Vec<&i64>` all format. What remains is that stdlib has no forwarding `Display`/`Debug` impl for `Box<T>` (grep finds none), so `println!(\"{}\", b)` with `b: Box<String>` is refused whether or not it is behind `&`. This is the same mechanism as audit cluster box-rc-display-debug-missing.",
+  "adr_step": "outside: stdlib API gap (`impl Display/Debug for Box<T>`)",
+  "severity": 3,
+  "min_repro": "package m; <+ the `use` lines of the cluster member> \nfn main() { let b = Box::new(String::from(\"a\")); println!(\"{}\", b); }",
+  "rustc_expected": "stdout 'a', exit 0"
+ },
+ {
+  "cluster": "move-dyn-out-of-box-accepted",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-9_29"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "There is no implicit `Sized` obligation on let bindings or on fn parameters. `let d = *b` with `b: Box<dyn Sh>` is accepted, and `d.area()` even runs and prints 2; `fn f(d: dyn Sh)` is accepted as well. rustc refuses both with E0277.",
+  "adr_step": "S9",
+  "severity": 3,
+  "min_repro": "package m; <+ the `use` lines of the cluster member> \ntrait Sh { fn area(&self) -> i64; }\nstruct Ci { r: i64 }\nimpl Sh for Ci { fn area(&self) -> i64 { self.r } }\nfn main() { let b: Box<dyn Sh> = Box::new(Ci { r: 2 }); let d = *b; println!(\"{}\", d.area()); }",
+  "rustc_expected": "compile error E0277 'the size for values of type `dyn Sh` cannot be known at compilation time'"
+ },
+ {
+  "cluster": "zip-bogus-param-outlives",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-11_32",
+   "pairs-1_30"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The symptom changed: the error is now E0282 'cannot infer the type argument `ZipOtherItem` of method `SliceIter__zip`'. stdlib's `zip<ZipOther: Iterator<Item = ZipOtherItem>, ZipOtherItem>` cannot solve ZipOtherItem when the other iterator's Item is a projection over a fn type param (`SliceIter<U>`). It works when the other side is concrete (`&[i64]`), and the generic param on the receiver side is fine. The same happens for VecIter. So the bound `SliceIter<U>: Iterator<Item = ?X>` is not normalized for generic U.",
+  "adr_step": "S9 (projection normalization in the obligation solver). S9a, a Rust-shaped `zip<U: IntoIterator>`, would also remove the extra param.",
+  "severity": 3,
+  "min_repro": "package m; <+ the `use` lines of the cluster member> \nfn pg<U>(a: &[i32], b: &[U]) -> i64 { let mut n = 0; for _p in a.iter().zip(b.iter()) { n += 1; } return n; }\nfn main() { println!(\"{}\", pg(&[1i32, 2], &[10i64, 20])); }",
+  "rustc_expected": "stdout '2', exit 0"
+ },
+ {
+  "cluster": "double-deref-box-dyn-to-dyn-refused",
+  "predicted_step": "R0+S4",
+  "members_checked": [
+   "pairs-1_17"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "sema types `&mut **rb` (rb: &mut Box<dyn C>) as `&mut Box<dyn C>` and then refuses the unsize to `&mut dyn C` (E0277). The shared form `&**rb`, the parenthesised `&mut *(*rb)`, `&mut *b`, and `&mut **rb` over Box<O>/Box<i64> all work, so only the unparenthesised `&mut **` over Box<dyn> drops one deref (a place/address-of collapse in sema). The audit's println `&(*b)` form is no longer the trigger.",
+  "adr_step": "S6",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.mem.boxed;\ntrait C { fn b(&mut self) -> i64; }\nstruct O { n: i64 }\nimpl C for O { fn b(&mut self) -> i64 { self.n += 1; self.n } }\nfn d(c: &mut dyn C) -> i64 { c.b() }\nfn main() { let mut b: Box<dyn C> = Box::new(O { n: 10 }); let rb = &mut b; println!(\"{}\", d(&mut **rb)); }",
+  "rustc_expected": "stdout '11', exit 0 (Logos: E0277 'Box<dyn C>: C not satisfied ... cast from &mut Box<dyn C>', cc=1)"
+ },
+ {
+  "cluster": "rust2024-temporary-scopes",
+  "predicted_step": "S2",
+  "members_checked": [
+   "pairs-5_33"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "When an `if let` pattern fails, the scrutinee temporary is dropped after the else block runs. Rust 2024 drops it before the else block. The then-arm order is already correct: `if let Some(_) = mk()` prints some/drop/end, the same as rustc. This is drop-scope placement in the if-let lowering, at runtime.",
+  "adr_step": "S5",
+  "severity": 1,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.option;\nstruct D { id: i64 }\nimpl Drop for D { fn drop(&mut self) { println!(\"drop {}\", self.id); } }\nfn mk() -> Option<D> { Some(D { id: 1 }) }\nfn main() { if let None = mk() { println!(\"none\"); } else { println!(\"else\"); } println!(\"end\"); }",
+  "rustc_expected": "stdout 'drop 1\\nelse\\nend', exit 0 (Logos prints 'else\\ndrop 1\\nend')"
+ },
+ {
+  "cluster": "range-index-only-slice-array",
+  "predicted_step": "S6",
+  "members_checked": [
+   "pairs-4_32"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The range-index part of this cluster is fixed: `&mut xs[1..3]`, `&mut arr[2..]` and `&arr[..2]` give the right values (3 90 7 7 3 2). The remaining failure is `{:?}` on a `&[i64]`. The stdlib has no `impl Debug for [T]`, and `impl<T: Debug> Debug for &T` does not cover an unsized T (no ?Sized), so the obligation fails. This happens even with a plain `let s: &[i64] = &v;`.",
+  "adr_step": "outside (stdlib API gap: Debug for [T] / ?Sized on the &T blanket impl)",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nfn main() { let v = [3i64, 9]; let s: &[i64] = &v; println!(\"{:?}\", s); }",
+  "rustc_expected": "stdout '[3, 9]', exit 0 (Logos: 'fmt_debug: type &[i64] does not implement trait Debug', cc=1)"
+ },
+ {
+  "cluster": "expected-type-not-reaching-literal-in-ctor",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-13_23"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The return literal of a closure that ignores its parameter (`|_x| 9`) stays `{integer}` and is not unified with i64 from the `Vec<i64>` let annotation through `collect`. The `Vec<i64>: FromIterator` obligation then fails. `|x| x + 1` and `unwrap_or_else(|| 5)` both work. This is inference/literal typing.",
+  "adr_step": "S7",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.mem.collections.vec;\nuse logos.lang.iter;\nfn main() { let v: Vec<i64> = vec![1, 2]; let z: Vec<i64> = v.iter().map(|_x| 9).collect(); println!(\"{}\", z[0] + z[1]); }",
+  "rustc_expected": "stdout '18', exit 0 (Logos: 'MapIter__collect: type Vec<i64> does not implement trait FromIterator', cc=1)"
+ },
+ {
+  "cluster": "vec-new-element-from-later-use",
+  "predicted_step": "S7",
+  "members_checked": [
+   "pairs-3_53"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The remaining member is not about Vec::new inference. f64 (and f32) do not satisfy a `T: PartialOrd` bound. Logos's `trait PartialOrd {}` is empty and has no float impls; integers pass only because obligation.cpp answers PartialOrd through Ord, and floats have no Ord. Writing `1.5f64`, a typed `let x: f64`, or a bare `{float}` all give the same refusal.",
+  "adr_step": "outside (stdlib API gap: no PartialOrd impl for f32/f64; touches L0/S9a lang-trait shape)",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.cmp;\nfn gt<T: PartialOrd>(a: T, b: T) -> bool { a > b }\nfn main() { println!(\"{}\", gt(1.5f64, -2.0)); }",
+  "rustc_expected": "stdout 'true', exit 0 (Logos: 'gt: type f64 does not implement trait PartialOrd', cc=1)"
+ },
+ {
+  "cluster": "const-item-as-const-generic-arg",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-3_45",
+   "pairs-8_56",
+   "pairs-11_51"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "In a generic-argument slot (`B<SIZE>`, `B::<SIZE>`), a bare const item path is resolved only as a type and fails with 'unknown type SIZE'. The braced `B::<{SIZE}>` and `[i64; SIZE]` both work. This is sema path resolution. pairs-11_51 fails for two different reasons. First, `a + a` on a `V<N>` with `impl<const N> Add for V<N>` is refused: 'operator + : left must be numeric', the same defect as operator-via-generic-impl. Second, `#[derive_clone]` on a struct with a `[i64; N]` field fails inside the metaprog blob: 'receiver is not a struct (got &[i64; N])'.",
+  "adr_step": "S8",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nconst SIZE: usize = 3;\nstruct B<const N: usize> { a: [i64; N] }\nfn main() { let b = B::<SIZE> { a: [1, 2, 3] }; println!(\"{}\", b.a[2]); }",
+  "rustc_expected": "stdout '3', exit 0 (Logos: 'unknown type SIZE', cc=1). Secondary: '#[derive_clone] struct V<const N: i64> { c: [i64; N] }' + 'a.clone()' -> rustc '2', Logos metaprog error"
+ },
+ {
+  "cluster": "nested-fn-captures-outer-local",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-2_12",
+   "pairs-3_20",
+   "pairs-4_19"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "A nested `fn` item can read locals of the enclosing fn. Logos compiles it and prints 42, where rustc refuses with E0434. The nested fn is lowered as a capturing closure, and name resolution lets the outer let-bindings into the fn item's scope. This accepts invalid code.",
+  "adr_step": "S8",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nfn main() { let x = 41i64; fn f() -> i64 { x + 1 } println!(\"{}\", f()); }",
+  "rustc_expected": "compile error E0434 'can't capture dynamic environment in a fn item' (Logos: compiles, prints '42', run=0). Severity is accepts-invalid, which the 1-4 scale has no slot for; 3 assigned"
+ },
+ {
+  "cluster": "primitive-method-path-as-fn",
+  "predicted_step": "S8",
+  "members_checked": [
+   "pairs-11_29"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The primitive method path `i64::max` / `i32::max` used as a fn value resolves to `logos.lang.cmp.i64__max__f__i64__i64`, which is never declared or instantiated. mlir_gen prints only a warning ('undefined ... no value emitted'). In let position the build fails ('let f initializer produced no value'). In argument position (`ap(i64::max)`) the whole println statement is silently dropped and the .o is written, so the program prints nothing and exits 0. A direct call `i32::max(3, 9)` works.",
+  "adr_step": "S8",
+  "severity": 1,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.cmp;\nfn ap(f: fn(i64, i64) -> i64) -> i64 { f(3, 9) }\nfn main() { println!(\"{}\", ap(i64::max)); }",
+  "rustc_expected": "stdout '9', exit 0 (Logos: empty stdout, run=0; the cluster's fold(i32::MIN, i32::max) member gives a self-diagnosed compile failure)"
+ },
+ {
+  "cluster": "operator-via-generic-impl",
+  "predicted_step": "S8+S9",
+  "members_checked": [
+   "pairs-3_29",
+   "triples-types_20"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The binary operator `+` on a generic-ADT instance (`M<i64>`) does not find `impl<T..> Add for M<T>`, even with no bound at all (`impl<T> Add for M<T>`). sema falls back to the primitive arithmetic check and refuses: 'operator + : left must be numeric, got M<i64>'. The explicit `.add()` call works, and a non-generic `impl Add for M` works. The defect is in operator-to-trait-method resolution for generic impls.",
+  "adr_step": "S8",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.ops;\nstruct M<T>(T);\nimpl<T> Add for M<T> { type Output = M<T>; fn add(self, o: Self) -> Self { self } }\nfn main() { let c = M(1i64) + M(2i64); println!(\"{}\", c.0); }",
+  "rustc_expected": "stdout '1', exit 0 (Logos: 'operator + : left must be numeric, got M<i64>', cc=1)"
+ },
+ {
+  "cluster": "bounded-generic-impl-method-vanishes",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-6_31"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The audit's 'method vanishes, empty println' no longer happens. What remains is a borrow-checker false positive. In `impl<'a> H<'a> { fn first(&self) -> &'a i32 { &self.items[0] } }` (items: &'a [i32]), the borrow of an element indexed through the Copy shared-ref field is tied to `self`, giving 'lifetime may not live long enough: region of self must outlive a'. Rebinding with `let s: &'a [i32] = self.items; &s[0]` is accepted and prints 3. The generic bound is not involved: the repro has no T.",
+  "adr_step": "outside (borrow checker, ADR 0028 region of a place through a shared-ref field)",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nstruct H<'a> { items: &'a [i32] }\nimpl<'a> H<'a> { fn first(&self) -> &'a i32 { &self.items[0] } }\nfn main() { let d = [3i32, 9]; let h = H { items: &d[..] }; println!(\"{}\", h.first()); }",
+  "rustc_expected": "stdout '3', exit 0 (Logos: 'lifetime may not live long enough: the region of self must outlive a', cc=1)"
+ },
+ {
+  "cluster": "generic-body-checked-per-instantiation",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-3_19",
+   "triples-own_9"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "Generic bodies are checked only per instantiation, not against their declared bounds. `a + b` on `T: Copy` (rustc E0369) and `self.v.clone()` on `Vec<T>` with T unbounded (rustc E0599) both compile, because each instantiation (i64, String) happens to support the operation. Logos prints 3 and 1. This accepts invalid code.",
+  "adr_step": "S9",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\nfn sum2<T: Copy>(a: T, b: T) -> T { a + b }\nfn main() { println!(\"{}\", sum2(1i64, 2)); }",
+  "rustc_expected": "compile error E0369 'cannot add T to T' (Logos: prints '3', run=0). Twin: struct P<T>{v:Vec<T>} impl<T> P<T>{fn dup(&self)->Vec<T>{self.v.clone()}} -> rustc E0599, Logos prints 1. Severity is accepts-invalid; 3 assigned"
+ },
+ {
+  "cluster": "operator-method-on-generic-instance-not-emitted",
+  "predicted_step": "S9",
+  "members_checked": [
+   "pairs-14_30",
+   "pairs-3_28",
+   "pairs-13_16"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "(a) `a == b` on a generic-ADT instance (`V2<i64>`) never calls the user's or the derived `impl<T> PartialEq for V2<T>`. A probe impl that prints 'called' prints nothing. The comparison falls back to a non-trait compare that returns false for equal values (`a == a` gives true). `a.eq(&b)` and a concrete `impl PartialEq for V2<i64>` are correct. This is the same operator-resolution root as operator-via-generic-impl, but here it gives silent wrong output instead of a refusal. (b) pairs-13_16 is a separate defect: `#[derive_partial_ord]` emits an empty `impl PartialOrd for Pt {}`. A direct `Pt > Pt` is refused ('Pt has no gt implementation'), and a generic `a > b` with T=Pt reaches MLIR as `arith.cmpi` on `!llvm.ptr`, a verifier failure.",
+  "adr_step": "S8",
+  "severity": 1,
+  "min_repro": "package p;\nuse logos.std.fmt;\nuse logos.lang.cmp;\nstruct V2<T> { x: T }\nimpl<T> PartialEq for V2<T> { fn eq(&self, o: &Self) -> bool { println!(\"called\"); true } }\nfn main() { let a = V2 { x: 1i64 }; let b = V2 { x: 2i64 }; println!(\"{}\", a == b); }",
+  "rustc_expected": "stdout 'called\\ntrue', exit 0 (Logos: 'false', run=0). Secondary: #[derive(Clone,Copy,PartialEq,PartialOrd)] struct Pt{x:i32}; fn gt<T:PartialOrd>(a:T,b:T)->bool{a>b}; gt(Pt{x:5},Pt{x:3}) -> rustc 'true', Logos MLIR 'arith.cmpi operand must be signless-integer-like, got !llvm.ptr' (severity 2)"
+ },
+ {
+  "cluster": "dyn-iterator-not-object-safe",
+  "predicted_step": "S9a",
+  "members_checked": [
+   "pairs-1_22"
+  ],
+  "still_reproduces": true,
+  "actual_mechanism": "The first blocker is the parser. A `dyn Trait<Assoc = T>` type with an associated-type binding fails to parse for any trait, user traits included: 'syntax error near fn at line N col 1', reported at the start of the enclosing fn. Behind it, as the audit predicted, bare `&mut dyn Iterator` is refused because Logos's Iterator is not object-safe ('method filter returns Self'), since the stdlib adapters lack `where Self: Sized`.",
+  "adr_step": "outside (grammar: assoc-type binding in a dyn type; GRAMMAR = superset of Rust) + S9a behind it",
+  "severity": 3,
+  "min_repro": "package p;\nuse logos.std.fmt;\ntrait Tr { type Item; fn g(&self) -> i64; }\nstruct A;\nimpl Tr for A { type Item = i64; fn g(&self) -> i64 { 7 } }\nfn use_it(t: &dyn Tr<Item = i64>) -> i64 { t.g() }\nfn main() { println!(\"{}\", use_it(&A)); }",
+  "rustc_expected": "stdout '7', exit 0 (Logos: syntax error, cc=4). Behind it: 'fn drain(it: &mut dyn Iterator) -> i64 { 0 }' -> Logos 'trait Iterator is not object-safe ... filter returns Self'"
+ }
+]

@@ -271,6 +271,8 @@ AnyVal Lowering::lower_map(AnyVal v, Ctx ctx) {
         (c == la::VAR_REF.code ||
          (c == la::CALL.code && !n.has_key(la::RECEIVER) && !n.has_key(la::QUAL_PARTS)))) {
         std::string_view name = text_of(n, c == la::VAR_REF.code ? la::NAME.code : la::CALLEE.code);
+        // A callee an antiquote substituted lands in NAME (as lower_call reads it).
+        if (name.empty() && c == la::CALL.code) name = text_of(n, la::NAME.code);
         if (!name.empty() && !bound_.count(std::string(name)) && !(local_ && local_(name))) {
             std::string r = val_res_(name);
             if (!r.empty()) cur = with_res(cur, r);
@@ -534,15 +536,23 @@ AnyVal Lowering::comprehension(TinyMapView n) {
     const std::string coll = std::format("__comp{}", fresh_++);
     auto var = [&]() { return node(la::VAR_REF.code, n, o, {{la::NAME.code, str(coll)}}); };
     auto lit = [&](int v) { return node(la::LIT_INT.code, n, o, {{la::VALUE.code, str(std::to_string(v))}}); };
+    // The builders are named by path (rustc's `$crate::…`), not looked up in
+    // the user's scope: RES is set here, as the HIR resolves a written name.
+    auto res = [&](std::string_view fn) {
+        const std::string_view pkg = fn.starts_with("writ_") ? "logos.lang.writ.comp_builder"
+                                   : fn == "hashmap_new"     ? "logos.mem.collections.hashmap"
+                                                             : "logos.mem.collections.vec";
+        return str(std::format("fn:{}::{}", pkg, fn));
+    };
     auto call = [&](std::string_view fn, std::vector<AnyVal> a) {
-        return node(la::CALL.code, n, o, {{la::CALLEE.code, str(fn)}, {la::ARGS.code, array(a)}});
+        return node(la::CALL.code, n, o, {{la::CALLEE.code, str(fn)}, {la::ARGS.code, array(a)}, {la::RES.code, res(fn)}});
     };
     // `vec_new::<_>()` / `hashmap_new::<_, _>()`: the element types are holes the
     // pushes / inserts solve (vec!'s own expansion of `vec![]`).
     auto hole = [&]() { return node(la::TYPE_REF.code, n, o, {{la::NAME.code, str("_")}}); };
     auto generic_call = [&](std::string_view fn, std::vector<AnyVal> tps) {
         return node(la::GENERIC_CALL.code, n, o, {{la::CALLEE.code, str(fn)}, {la::TYPE_PARAMS.code, list_map(tps)},
-                                                  {la::ARGS.code, list_map({})}});
+                                                  {la::ARGS.code, list_map({})}, {la::RES.code, res(fn)}});
     };
     AnyVal init = writ ? (map ? call("writ_map_comp_new", {lit(4096), lit(64)}) : call("writ_list_comp_new", {lit(128)}))
                        : map ? generic_call("hashmap_new", {hole(), hole()}) : generic_call("vec_new", {hole()});

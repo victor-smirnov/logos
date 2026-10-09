@@ -1,0 +1,10 @@
+// `&mut self` trait methods through `&mut T`, `&mut dyn K` and an owned `Box<dyn K>` stay admitted.
+package m;
+use logos.std.fmt;
+struct C { n: i64 }
+trait K { fn bump(&mut self); }
+impl K for C { fn bump(&mut self) { self.n += 10; } }
+fn g<T: K>(t: &mut T) { t.bump(); }
+fn h(t: &mut dyn K) { t.bump(); }
+fn bx(mut b: Box<dyn K>) { b.bump(); }
+fn main() { let mut c = C { n: 1 }; g(&mut c); h(&mut c); bx(Box::new(C { n: 0 })); println!("{}", c.n); }

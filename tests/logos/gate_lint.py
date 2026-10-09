@@ -207,6 +207,12 @@ NOT_GATES = {
     # the three gates that source it, and each of those IS registered. Bitten
     # 2026-08-21 on all three (a deleted facts dir, and a forged stamp): exit 2,
     # the missing/stale members named.
+    # The same kind: `deem_fn_sig.sh` (#452) holds the one spelling of a
+    # Deem-generated fn's head line and is `.`-sourced by the Deem gates that
+    # grep generated code; each of those is registered and pronounces the verdict.
+    "deem_fn_sig.sh":          "a sourced bash LIBRARY (the Deem-generated fn "
+                               "head spelling, no main); the Deem gates that "
+                               "source it are registered",
     "facts_fold.sh":           "a sourced bash LIBRARY (one function, no main); "
                                "its verdict is pronounced by the three "
                                "logos_09_* census gates that source it",

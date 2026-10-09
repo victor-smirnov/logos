@@ -1,0 +1,8 @@
+// A `&mut self` trait method through `t: &T` is refused (rustc E0596); it mutated through the shared reference.
+package m;
+use logos.std.fmt;
+struct C { n: i64 }
+trait K { fn bump(&mut self); }
+impl K for C { fn bump(&mut self) { self.n += 10; } }
+fn g<T: K>(t: &T) { t.bump(); }
+fn main() { let c = C { n: 1 }; g(&c); println!("{}", c.n); }

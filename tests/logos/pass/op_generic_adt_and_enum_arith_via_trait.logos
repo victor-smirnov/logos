@@ -1,0 +1,20 @@
+// `+` on a generic ADT instance and on enums, `-` on an enum: the impl's method (Rust: Add::add / Neg::neg), not integer arithmetic.
+package p;
+use logos.lang.ops;
+struct M<T>(T);
+impl<T> Add for M<T> { type Output = M<T>; fn add(self, o: Self) -> Self { o } }
+enum E { A, B }
+impl Add for E { type Output = E; fn add(self, o: E) -> E { E::B } }
+impl Neg for E { type Output = E; fn neg(self) -> E { match self { E::A => E::B, E::B => E::A } } }
+enum P { N(i64), Z }
+impl Add for P { type Output = P; fn add(self, o: P) -> P { match (self, o) { (P::N(a), P::N(b)) => P::N(a * 10 + b), _ => P::Z } } }
+fn ev(e: &E) -> i32 { match e { E::A => 1, E::B => 2 } }
+fn main() -> i32 {
+    let c = M(1i64) + M(3i64);
+    let e = E::A + E::A;
+    let f = -E::A;
+    let g = -E::B;
+    let p = P::N(4) + P::N(5);
+    let pv = match p { P::N(v) => v as i32, P::Z => 0 };
+    return (c.0 as i32) + ev(&e) * 10 + ev(&f) * 100 + ev(&g) * 1000 + pv * 10000 - 1000;
+}

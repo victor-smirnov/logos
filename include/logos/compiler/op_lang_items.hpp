@@ -15,28 +15,29 @@ struct OpLangItem {
     std::string_view method;         // its method (`add`, `eq`, `lt`, `neg`)
     std::string_view assign_trait;   // `AddAssign`, empty for comparisons / unary
     std::string_view assign_method;  // `add_assign`
+    std::string_view lang;           // the trait's `#[lang]` name (`add`, `partial_eq`, `ord`, `neg`)
     // A by-value operator trait with an `Output` (arithmetic, bitwise, shift).
     bool has_output() const noexcept { return !assign_trait.empty(); }
 };
 
 inline const OpLangItem* binary_op_item(std::string_view op) noexcept {
     static constexpr OpLangItem kBinary[] = {
-        {"+",  "Add",    "add",    "AddAssign",    "add_assign"},
-        {"-",  "Sub",    "sub",    "SubAssign",    "sub_assign"},
-        {"*",  "Mul",    "mul",    "MulAssign",    "mul_assign"},
-        {"/",  "Div",    "div",    "DivAssign",    "div_assign"},
-        {"%",  "Rem",    "rem",    "RemAssign",    "rem_assign"},
-        {"&",  "BitAnd", "bitand", "BitAndAssign", "bitand_assign"},
-        {"|",  "BitOr",  "bitor",  "BitOrAssign",  "bitor_assign"},
-        {"^",  "BitXor", "bitxor", "BitXorAssign", "bitxor_assign"},
-        {"<<", "Shl",    "shl",    "ShlAssign",    "shl_assign"},
-        {">>", "Shr",    "shr",    "ShrAssign",    "shr_assign"},
-        {"==", "Eq",     "eq",     {}, {}},
-        {"!=", "Eq",     "ne",     {}, {}},
-        {"<",  "Ord",    "lt",     {}, {}},
-        {"<=", "Ord",    "le",     {}, {}},
-        {">",  "Ord",    "gt",     {}, {}},
-        {">=", "Ord",    "ge",     {}, {}},
+        {"+",  "Add",    "add",    "AddAssign",    "add_assign", "add"},
+        {"-",  "Sub",    "sub",    "SubAssign",    "sub_assign", "sub"},
+        {"*",  "Mul",    "mul",    "MulAssign",    "mul_assign", "mul"},
+        {"/",  "Div",    "div",    "DivAssign",    "div_assign", "div"},
+        {"%",  "Rem",    "rem",    "RemAssign",    "rem_assign", "rem"},
+        {"&",  "BitAnd", "bitand", "BitAndAssign", "bitand_assign", "bitand"},
+        {"|",  "BitOr",  "bitor",  "BitOrAssign",  "bitor_assign", "bitor"},
+        {"^",  "BitXor", "bitxor", "BitXorAssign", "bitxor_assign", "bitxor"},
+        {"<<", "Shl",    "shl",    "ShlAssign",    "shl_assign", "shl"},
+        {">>", "Shr",    "shr",    "ShrAssign",    "shr_assign", "shr"},
+        {"==", "Eq",     "eq",     {}, {}, "partial_eq"},
+        {"!=", "Eq",     "ne",     {}, {}, "partial_eq"},
+        {"<",  "Ord",    "lt",     {}, {}, "ord"},
+        {"<=", "Ord",    "le",     {}, {}, "ord"},
+        {">",  "Ord",    "gt",     {}, {}, "ord"},
+        {">=", "Ord",    "ge",     {}, {}, "ord"},
     };
     for (auto& it : kBinary) if (it.op == op) return &it;
     return nullptr;
@@ -44,8 +45,8 @@ inline const OpLangItem* binary_op_item(std::string_view op) noexcept {
 
 inline const OpLangItem* unary_op_item(std::string_view op) noexcept {
     static constexpr OpLangItem kUnary[] = {
-        {"-", "Neg", "neg", {}, {}},
-        {"!", "Not", "not", {}, {}},
+        {"-", "Neg", "neg", {}, {}, "neg"},
+        {"!", "Not", "not", {}, {}, "not"},
     };
     for (auto& it : kUnary) if (it.op == op) return &it;
     return nullptr;

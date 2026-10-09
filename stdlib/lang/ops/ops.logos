@@ -22,6 +22,7 @@ use logos.lang.option;
 // add on demand.
 
 /// Overloads the binary `+` operator.
+#[lang = "add"]
 pub trait Add<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -29,6 +30,7 @@ pub trait Add<Rhs = Self> {
     fn add(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `-` operator.
+#[lang = "sub"]
 pub trait Sub<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -36,6 +38,7 @@ pub trait Sub<Rhs = Self> {
     fn sub(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `*` operator.
+#[lang = "mul"]
 pub trait Mul<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -43,6 +46,7 @@ pub trait Mul<Rhs = Self> {
     fn mul(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `/` operator.
+#[lang = "div"]
 pub trait Div<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -50,6 +54,7 @@ pub trait Div<Rhs = Self> {
     fn div(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `%` (remainder) operator.
+#[lang = "rem"]
 pub trait Rem<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -57,6 +62,7 @@ pub trait Rem<Rhs = Self> {
     fn rem(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the unary `-` (negation) operator.
+#[lang = "neg"]
 pub trait Neg {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -64,6 +70,7 @@ pub trait Neg {
     fn neg(self: Self) -> Self::Output;
 }
 /// Overloads the binary `<<` (left-shift) operator.
+#[lang = "shl"]
 pub trait Shl<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -71,6 +78,7 @@ pub trait Shl<Rhs = Self> {
     fn shl(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `>>` (right-shift) operator.
+#[lang = "shr"]
 pub trait Shr<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -81,6 +89,7 @@ pub trait Shr<Rhs = Self> {
 // ── Bitwise ───────────────────────────────────────────────────────
 
 /// Overloads the binary `&` (bitwise AND) operator.
+#[lang = "bitand"]
 pub trait BitAnd<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -88,6 +97,7 @@ pub trait BitAnd<Rhs = Self> {
     fn bitand(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `|` (bitwise OR) operator.
+#[lang = "bitor"]
 pub trait BitOr<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -95,6 +105,7 @@ pub trait BitOr<Rhs = Self> {
     fn bitor(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the binary `^` (bitwise XOR) operator.
+#[lang = "bitxor"]
 pub trait BitXor<Rhs = Self> {
     /// The result type of the operation (Rust's `Output`).
     type Output;
@@ -102,6 +113,7 @@ pub trait BitXor<Rhs = Self> {
     fn bitxor(self: Self, rhs: Rhs) -> Self::Output;
 }
 /// Overloads the unary `!` (logical/bitwise NOT) operator.
+#[lang = "not"]
 pub trait Not {
     /// The result type of the operation (Rust's `Output`).
     type Output;

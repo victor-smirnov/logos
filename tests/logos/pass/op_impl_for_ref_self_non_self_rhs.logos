@@ -1,0 +1,6 @@
+// `impl Mul<i64> for &P` / `impl Neg for &P`: `&p * 3` and `-&p` call them; the literal takes the impl's Rhs.
+package o6;
+struct P { x: i64 }
+impl Mul<i64> for &P { type Output = i64; fn mul(self, k: i64) -> i64 { self.x * k } }
+impl Neg for &P { type Output = i64; fn neg(self) -> i64 { 0 - self.x } }
+fn main() -> i32 { let p = P { x: 4 }; let n: i64 = &p * 3; let m: i64 = -&p; return (n + m + 2) as i32; }

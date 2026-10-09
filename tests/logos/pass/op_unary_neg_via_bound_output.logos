@@ -1,0 +1,6 @@
+// `-a` over `A: Neg<Output = V>` is typed V (the bound's Output), the instance's neg called.
+package n6;
+struct V { x: i32 }
+impl Neg for V { type Output = V; fn neg(self) -> V { V { x: 0 - self.x } } }
+fn ng<A: Neg<Output = V>>(a: A) -> V { -a }
+fn main() -> i32 { return ng(V { x: 3 }).x + 10; }
