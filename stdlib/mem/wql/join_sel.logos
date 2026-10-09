@@ -314,7 +314,10 @@ pub fn step_cascade(k: StepKey) -> StepSel {
         return StepSel { strat: JS_LOOP(), key_tn: k.ktn, sel: k.sel, g: g };
     }
     g.rule = JR_REFUSE();
-    error("wql!: join key type supports neither Hash, Ord, nor equality — cannot execute this join step (scalar i64/str/bool/f64 keys only today)");
+    // Unreachable on a checked program: an equi-key's `==` was type-checked on
+    // the core (`codegen::check_named_operator` refuses a type without
+    // `PartialEq`), and every type with `==` takes at least the loop tier.
+    logos.lang.panic::panic("ICE: a join key with no `==` reached the strategy cascade — the type checker admitted it (ADR 0031 R4.2)");
     return StepSel { strat: JS_LOOP(), key_tn: k.ktn, sel: -1i64, g: g };
 }
 
