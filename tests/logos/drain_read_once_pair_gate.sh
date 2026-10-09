@@ -105,6 +105,7 @@
 #
 # EXIT: 0 clean · 1 a claim failed · 2 the gate could not look (never clean).
 set -uo pipefail
+. "$(dirname "$0")/deem_fn_sig.sh"   # deem_fn_re / deem_fn_count / deem_fn_body
 
 LOGOSC=${1:?usage: drain_read_once_pair_gate.sh <logosc> <pass dir>}
 PASSD=${2:?usage: drain_read_once_pair_gate.sh <logosc> <pass dir>}
@@ -154,7 +155,7 @@ done
 extract() {                     # extract <dumpfile> <fnname> <outfile>
     local src="$1" fn="$2" out="$3"
     local n
-    n=$(grep -cE "^pub fn ${fn}(<[^>]*>)?\\(" "$src")
+    n=$(deem_fn_count "$src" "$fn")
     if [ "$n" != "1" ]; then
         note "expected exactly ONE definition of ${fn} in the dump, found ${n}.
       With two, \"the emitted query\" is ambiguous and every clause below is
@@ -162,8 +163,7 @@ extract() {                     # extract <dumpfile> <fnname> <outfile>
         : > "$out"
         return 1
     fi
-    awk -v fn="^pub fn ${fn}(<[^>]*>)?\\\\(" '$0 ~ fn {f=1} f {print} f && /^}$/ {exit}' \
-        "$src" > "$out"
+    deem_fn_body "$src" "$fn" > "$out"
 }
 
 RR=$TMPD/deem_join_step_reread.txt

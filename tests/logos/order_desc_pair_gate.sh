@@ -106,6 +106,7 @@
 #
 # EXIT: 0 clean · 1 a claim failed · 2 the gate could not look (never clean).
 set -uo pipefail
+. "$(dirname "$0")/deem_fn_sig.sh"   # deem_fn_re / deem_fn_count / deem_fn_body
 
 LOGOSC=${1:?usage: order_desc_pair_gate.sh <logosc> <pass dir>}
 PASSD=${2:?usage: order_desc_pair_gate.sh <logosc> <pass dir>}
@@ -151,11 +152,7 @@ slice_fn() {   # slice_fn <fn-name> <artifact> <outfile>
     # ⚠ NO `exit` IN THE awk PROGRAM: awk's `exit` and the shell's are spelled
     # identically and a static reader cannot tell which one a line means. A
     # `done` flag leaves exactly one meaning of the word in this file.
-    awk -v want="pub fn $1" '
-        !done && index($0, want) == 1 { inside = 1 }
-        inside && !done { print }
-        inside && $0 == "}" { inside = 0; done = 1 }
-    ' "$2" > "$3"
+    deem_fn_body "$2" "$1" > "$3"
     [ -s "$3" ]
 }
 for f in desc_asc_run desc_all_run top_three_run tail_desc_run desc_val_run; do
