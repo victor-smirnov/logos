@@ -4229,10 +4229,12 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                 // holds monomorphized defs after clone_struct_def);
                 // falls back to bare name for non-generic structs.
                 const TypePoolImpl* df_pool = out_.type_pool.impl();
+                bool def_seen = false;
                 for (auto& sd : out_.structs) {
                     bool match = (!cname.empty() && sd.name() == cname) ||
                                  sd.name() == TypeRef(ty).struct_name();
                     if (!match) continue;
+                    def_seen = true;
                     for (auto fv : sd.fields()) {
                         TypeRef f_type = fv.type(df_pool);
                         if (!f_type) continue;
@@ -4262,6 +4264,12 @@ lir_view::StmtRef Mono::subst_stmt(lir_view::StmtRef sref, const SubstMap& s) {
                     }
                     break;
                 }
+                // A generic instance's definition is cloned on demand and may
+                // not exist yet when this body is (`fn eat<T>(x: T)` at
+                // `P<i64>`): the fields are then mlir-gen's to walk (its
+                // gen_drop_value no-ops when none is droppable). Skipping them
+                // left `x`'s fields undropped.
+                if (!def_seen) drop_fields = true;
             }
             // Enum value-repr / tuple / array: the substituted concrete type
             // owns its variant payload / elements INLINE, but sema emitted the

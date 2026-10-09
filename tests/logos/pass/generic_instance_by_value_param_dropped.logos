@@ -1,0 +1,18 @@
+// A generic struct instance passed by value into `fn eat2<T>(x: T)` drops its fields: the instance's definition is cloned on demand, after the body, and its field walk was skipped (P<i64>'s Noisy never dropped).
+package b5;
+use logos.std.fmt;
+struct Noisy { n: i64 }
+impl Drop for Noisy { fn drop(&mut self) { println!("drop {}", self.n); } }
+struct P<T> { n: Noisy, v: T }
+struct W<T> { v: T }
+struct Plain<T> { a: i64, v: T }
+fn eat2<T>(x: T) {}
+fn pass<T>(x: T) -> T { x }
+fn main() {
+    let a: P<i64> = P { n: Noisy { n: 7 }, v: 1 }; eat2(a);
+    let b = W { v: P { n: Noisy { n: 8 }, v: Noisy { n: 9 } } }; eat2(b);
+    let c = W { v: Noisy { n: 10 } }; let c2 = pass(c); eat2(c2);
+    let d = Plain { a: 1, v: 2i64 }; eat2(d);
+    let mut v = Vec::new(); v.push(P { n: Noisy { n: 11 }, v: 0i64 }); eat2(v);
+    println!("end");
+}
