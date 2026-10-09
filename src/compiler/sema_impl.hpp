@@ -6601,6 +6601,12 @@ private:
             auto it = const_pkg_of_.find(std::string(name));
             if (it != const_pkg_of_.end()) {
                 std::string k = sema_key(it->second, name);
+                // In scope or not at all (Q1 row 4): the declaring package is
+                // this one, imported, or re-exported into an import.
+                const auto& im = effective_import_pkgs();
+                if (!it->second.empty() && it->second != cur_package_ &&
+                    std::find(im.begin(), im.end(), it->second) == im.end())
+                    return {};
                 if (module_consts_.count(k)) return k;
             }
         }
@@ -6665,6 +6671,14 @@ private:
     bool is_module_static_unshadowed(std::string_view name) const {
         if (module_statics_.find(std::string(name)) == module_statics_.end())
             return false;
+        // In scope or not at all (Q1 row 4): a static of this package, the
+        // root, or an imported (re-exported) one — module_statics_ is keyed by
+        // the bare name, the DefTable by package.
+        bool in = static_cast<bool>(defs_.find(DefNs::Value, cur_package_, name)) ||
+                  static_cast<bool>(defs_.find(DefNs::Value, "", name));
+        for (const auto& p : effective_import_pkgs())
+            if (!in) in = static_cast<bool>(defs_.find(DefNs::Value, p, name));
+        if (!in) return false;
         for (auto it = scope_.rbegin(); it != scope_.rend(); ++it)
             if (it->vars.count(std::string(name))) return false;
         if (current_type_params_.count(std::string(name))) return false;
@@ -9510,6 +9524,17 @@ private:
     // callee): the call's arguments are lowered while the qualifier stands, and
     // `buf.as_str()` inside `__fmt_println(…)` is not the callee's package's.
     std::string call_pkg_qualifier_name_;
+    // Q1 row 4e: the package of the free function the HIR resolved a bare
+    // value name to (RES `fn:pkg::name`), "" when it resolved to none or to
+    // the root package.
+    std::string res_fn_package_(writ::TinyMapView node) {
+        if (!node.has_key(logos::compiler::ast::RES)) return {};
+        std::string_view r = str_of(node.get(logos::compiler::ast::RES.code));
+        if (!r.starts_with("fn:")) return {};
+        r.remove_prefix(3);
+        const auto sep = r.rfind("::");
+        return sep == std::string_view::npos ? std::string() : std::string(r.substr(0, sep));
+    }
     // Q1 row 4: a static call `Type::m(..)` names the methods of the TYPE its
     // path resolves to — not of every homonym type whose methods share the
     // spelled key `Type__m` (two `Buffer`s in the stdlib).

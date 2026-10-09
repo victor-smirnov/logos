@@ -110,6 +110,17 @@ static std::string thunk_site_uses(const std::vector<std::string>& site_imports,
     return out;
 }
 
+// The macro fn a thunk calls, by its path: the compiler wrote the call, so it
+// names what it means (a homonym in the site's scope must not capture it).
+// A same-package macro is the site's own item (the package's own items win);
+// a one-segment package has no path spelling (`pkg::f` reads as `Type::f`).
+template <class FI>
+static std::string macro_callee_path_(const FI& fi, std::string_view site_pkg) {
+    if (fi.package.empty() || fi.package == site_pkg || fi.package.find('.') == std::string::npos)
+        return fi.base_name;
+    return fi.package + "::" + fi.base_name;
+}
+
 static void push_metacall_site(lir::LProgram& prog, const MetacallSiteStage& s) {
     namespace mck = lir_schema::metacall_keys;
     DeclBuilder b(prog, lir_schema::decl::Code::MetacallSite, /*cap=*/10);
@@ -1107,7 +1118,11 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
         // identity. Auto-coerces to FnPtr at value-use sites via the
         // types_compatible(FnItem, FnPtr) rule + the downstream
         // is_fn_value_kind acceptance helper.
-        auto cands = find_func_candidates(name);
+        std::vector<const SemaFuncInfo*> cands;
+        if (std::string rp = res_fn_package_(expr); !rp.empty())   // Q1 row 4e: the HIR's resolution
+            cands = pkg_fn_candidates_(rp, name);
+        else
+            cands = find_func_candidates(name);
         // A GENERIC fn used as a value is an instantiation whose type arguments
         // are inference variables (C-INF): the use fixes them — a parameter's
         // `F: Fn(Vec<i64>) -> i64` bound, an annotated `let` — as `f::<…>` would.
@@ -4841,6 +4856,13 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             li && li->target == AttrTarget::Fn) {
             call_pkg_qualifier_ = li->package;
             call_pkg_qualifier_name_ = li->name;
+        }
+    // Q1 row 4e: the HIR resolved the callee once (RES): the call names that
+    // package's overload set, as a path would — no second lookup by spelling.
+    if (call_pkg_qualifier_.empty())
+        if (std::string rp = res_fn_package_(node); !rp.empty()) {
+            call_pkg_qualifier_ = std::move(rp);
+            call_pkg_qualifier_name_ = std::string(callee);
         }
 
     // CP-cm-03, EARLY: the prelude shorthand `Some(x)` / `Ok(x)` / `Err(x)` with
@@ -23769,7 +23791,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
             "}}\n",
             pkg, thunk_callee_use(macro_info->package, pkg), thunk_name, site_id,
             static_cast<int64_t>(raw_text.size()),
-            macro_info->base_name);
+            macro_callee_path_(*macro_info, cur_package_));
 
         MetacallSiteStage site;
         site.ast_idx = cur_ast_idx_;
@@ -23897,7 +23919,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
             "    let e0: ExprBlob = ExprBlob {{ ptr: unsafe {{ logos_macro_arg({}u64, 0u64) }} }};\n"
             "    return {}(e0);\n"
             "}}\n",
-            pkg, cu, thunk_name, site_id, macro_info->base_name);
+            pkg, cu, thunk_name, site_id, macro_callee_path_(*macro_info, cur_package_));
     } else {
         std::string body;
         for (size_t i = 0; i < arg_avs.size(); ++i) {
@@ -23916,7 +23938,7 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
             "{}"
             "    return {}(v);\n"
             "}}\n",
-            pkg, cu, thunk_name, body, macro_info->base_name);
+            pkg, cu, thunk_name, body, macro_callee_path_(*macro_info, cur_package_));
     }
 
     MetacallSiteStage site;
@@ -24108,7 +24130,7 @@ void SemaChecker::emit_token_macro_item_site(
                 static_cast<int64_t>(pub_mask.size()),
                 static_cast<int64_t>(natspec.size()),
                 static_cast<int64_t>(rules_text.size()),
-                macro_info->base_name);
+                macro_callee_path_(*macro_info, cur_package_));
         } else if (ir_mode) {
             // (name, params, extra, natspec, tparams, ir) — the unified rule-IR
             // ABI. `extra` is the pub mask (mapping) or the fusion spec (deem!);
@@ -24137,7 +24159,7 @@ void SemaChecker::emit_token_macro_item_site(
                 static_cast<int64_t>(pub_mask.size()),
                 static_cast<int64_t>(natspec.size()),
                 static_cast<int64_t>(rules_text.size()),
-                macro_info->base_name);
+                macro_callee_path_(*macro_info, cur_package_));
         } else if (nargs == 3) {
             call_text = std::format(
                 "{{\n"
@@ -24152,7 +24174,7 @@ void SemaChecker::emit_token_macro_item_site(
                 site_id, static_cast<int64_t>(resource_name.size()),
                 static_cast<int64_t>(params_text.size()),
                 static_cast<int64_t>(raw_text.size()),
-                macro_info->base_name);
+                macro_callee_path_(*macro_info, cur_package_));
         } else if (nargs == 2) {
             call_text = std::format(
                 "{{\n"
@@ -24164,7 +24186,7 @@ void SemaChecker::emit_token_macro_item_site(
                 "}}",
                 site_id, static_cast<int64_t>(resource_name.size()),
                 site_id, static_cast<int64_t>(raw_text.size()),
-                macro_info->base_name);
+                macro_callee_path_(*macro_info, cur_package_));
         } else {
             call_text = std::format(
                 "{{\n"
@@ -24173,7 +24195,7 @@ void SemaChecker::emit_token_macro_item_site(
                 "    {}(__s)\n"
                 "}}",
                 site_id, static_cast<int64_t>(raw_text.size()),
-                macro_info->base_name);
+                macro_callee_path_(*macro_info, cur_package_));
         }
         std::string thunk_src;
         if (rt_is_il) {
@@ -26591,7 +26613,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     std::string thunk_name = std::format("__metacall_thunk_{}", site_id);
     std::string call_text;
     if (sig_zero) {
-        call_text = std::format("{}()", macro_info->base_name);
+        call_text = std::format("{}()", macro_callee_path_(*macro_info, cur_package_));
     } else {
         // sig_vec — reconstitute Vec<ExprBlob>.
         std::string vec_build;
@@ -26606,7 +26628,7 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
             "{}"
             "    {}(__v)\n"
             "}}",
-            vec_build, macro_info->base_name);
+            vec_build, macro_callee_path_(*macro_info, cur_package_));
     }
 
     std::string thunk_src;
