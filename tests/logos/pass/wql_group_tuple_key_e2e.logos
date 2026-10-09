@@ -1,0 +1,42 @@
+// `group by (a, b)` — a TUPLE key groups by every component, as a
+// `HashMap<(K1, K2), …>` key in Rust; `key` is the tuple, and the grouped
+// columns can be read off the group's row. The incremental handle maintains
+// the same groups under insertion and retraction.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+struct Sale { pub region: str, pub year: i64, pub amt: i64 }
+pub deem by_ry(ss: &[Sale]) {
+    from ss s group by (s.region, s.year) aggregate n = count(), total = sum(s.amt)
+    having n > 0 select (s.region, s.year, n, total) order by total
+}
+pub deem keys(ss: &[Sale]) { from ss s group by (s.region, s.year) aggregate n = count(), t = sum(s.amt) select (key, n, t) }
+fn find(v: &Vec<((str, i64), i64, i64)>, r: str, y: i64) -> i64 {
+    let mut i: i64 = 0i64;
+    while i < v.len() { let e: ((str, i64), i64, i64) = v.get(i); if e.0.0 == r && e.0.1 == y { return i; } i = i + 1i64; }
+    return -1i64;
+}
+fn main() -> i32 {
+    let ss: [Sale; 4] = [ Sale { region: "eu", year: 2024i64, amt: 10i64 }, Sale { region: "eu", year: 2025i64, amt: 5i64 },
+                          Sale { region: "eu", year: 2024i64, amt: 7i64 }, Sale { region: "us", year: 2024i64, amt: 1i64 } ];
+    let r: Vec<(str, i64, i64, i64)> = by_ry(&ss[..]).unwrap();
+    if r.len() != 3i64 { return 1i32; }
+    if !(r.get(0i64).0 == "us") || r.get(0i64).3 != 1i64 { return 2i32; }
+    if !(r.get(2i64).0 == "eu") || r.get(2i64).1 != 2024i64 || r.get(2i64).2 != 2i64 || r.get(2i64).3 != 17i64 { return 3i32; }
+    let k: Vec<((str, i64), i64, i64)> = keys(&ss[..]).unwrap();
+    if k.len() != 3i64 { return 4i32; }
+    let e: i64 = find(&k, "eu", 2024i64);
+    if e < 0i64 || k.get(e).1 != 2i64 || k.get(e).2 != 17i64 { return 5i32; }
+    // incremental: the same groups, then one row retracted
+    let mut h: KeysIncr = keys_incremental();
+    match keys_epoch(&mut h, &ss) { Result::Ok(_n) => {} Result::Err(_e) => { return 6i32; } }
+    let s0: Vec<((str, i64), i64, i64)> = match keys_snapshot(&h) { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if s0.len() != 3i64 { return 8i32; }
+    let gone: [Sale; 1] = [ Sale { region: "eu", year: 2024i64, amt: 10i64 } ];
+    match keys_retract(&mut h, &gone) { Result::Ok(_n) => {} Result::Err(_e) => { return 9i32; } }
+    let s1: Vec<((str, i64), i64, i64)> = match keys_snapshot(&h) { Result::Ok(v) => { v } Result::Err(_e) => { return 10i32; } };
+    let e1: i64 = find(&s1, "eu", 2024i64);
+    if s1.len() != 3i64 || e1 < 0i64 || s1.get(e1).1 != 1i64 || s1.get(e1).2 != 7i64 { return 11i32; }
+    return 0i32;
+}

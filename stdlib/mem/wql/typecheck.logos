@@ -198,6 +198,7 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
             if !prm.rel_is_agg[ri] { return true; }   // refused by the emitter's shape check
             let a0: WAny = match &g.aggs.as_slice()[0i64].arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
             if a0.is_null() { return true; }          // refused by the emitter's shape check
+            if !lattice_value_ok(view, prm, ri) { return false; }
             let key_opt: SExpr = simplify_sexpr(sx(g.key), h).any().view::<SExpr>();
             let val_opt: SExpr = simplify_sexpr(sx(a0), h).any().view::<SExpr>();
             if !reject_tuple_in(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; }
@@ -240,6 +241,34 @@ fn rel_proj_calls_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, ty: 
     return check_calls(proj, ty, "wql!: rel `select`");
 }
 
+/// A recursive min/max is a LATTICE JOIN: the fixpoint converges to the
+/// extremum of the order the emitted comparison realizes, and the absorb gate
+/// compares values with `<` in the value column's own type. So that type must
+/// be totally ordered — `Ord`, as `Iterator::min` needs in Rust: an integer of
+/// any width, `bool`, `str` (byte-lexicographic), or a user type that is `Ord`
+/// and `Copy` (each improving value is copied into the best map). An `f64`'s
+/// order is partial: no least upper bound.
+fn lattice_value_ok(view: &OView, prm: &MacroParams, ri: i64) -> bool {
+    let voff: i64 = prm.rel_coff[ri];
+    let vcty: str = resolve_alias_name(view, prm.relc_ty[voff + 1i64]);
+    let vct: ElTy = el_ty(vcty);
+    if vct.cls == EL_TY_INT() || vct.cls == EL_TY_BOOL() || str_eq(vcty, "str") { return true; }
+    let mut miss: str = "";
+    if vct.cls < 0i32 {
+        if !named_has_ord(vcty) { miss = "`Ord`"; }
+        else if !named_is_copy(vcty) { miss = "`Copy` (each improving value is copied into the best map)"; }
+        else { return true; }
+    }
+    let mut mv: String = String::new();
+    mv.push_str("wql!: a recursive min/max aggregate's value column `");
+    mv.push_str(vcty);
+    mv.push_str("` must be totally ordered and compared in its own type (`Ord`, as `Iterator::min` needs in Rust): an integer, `bool`, `str`, or an `Ord + Copy` type");
+    if miss.len() > 0i64 { mv.push_str(" — `"); mv.push_str(vcty); mv.push_str("` is not "); mv.push_str(miss); }
+    if vct.cls == EL_TY_FLT() { mv.push_str(" — an f64 has only a partial order, so the fixpoint has no least upper bound to converge to"); }
+    error(string_as_str(&mv));
+    return false;
+}
+
 // ── the entry ───────────────────────────────────────────────────────────────
 
 fn check_entry(view: &OView, prm: &MacroParams, ru: &CRule, h: &Writ) -> bool {
@@ -269,11 +298,10 @@ fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty
     let cl: &CClause = &ru.clause;
     let mut ty: ElTypes = ty0;
     let key_e: SExpr = sx(g.key);
-    if !reject_tuple_in(key_e, &ty, "wql!: `group by`") { return false; }
+    // A tuple key groups by every component (R: `HashMap<(K1, K2), …>`).
     if !check_calls(key_e, &ty, "wql!: `group by`") { return false; }
     let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
-    let mut key_tys: String = String::new();
-    key_tys.push_str(infer_emit_ty(key_opt, &ty));
+    let key_tys: String = group_key_ty(key_opt, &ty);
     if !group_key_ok(key_opt, &ty, string_as_str(&key_tys)) { return false; }
     ty.set_ty_named("key", string_as_str(&key_tys));
     let mut gt: GroupTy = group_ty_new();
@@ -297,6 +325,20 @@ fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty
 /// A group key needs an identity: its type's own `==` and hash, kept through
 /// the emitted bucket key; a named key needs `Eq` and `Copy`.
 fn group_key_ok(key_opt: SExpr, ty: &ElTypes, key_ty: str) -> bool {
+    match key_opt {
+        SExpr::Tuple(tp) => {
+            // A tuple key is an identity iff each component is one.
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() {
+                let c: SExpr = items.arg_at(i);
+                if !group_key_ok(c, ty, infer_emit_ty(c, ty)) { return false; }
+                i = i + 1i64;
+            }
+            return true;
+        }
+        _ => { }
+    }
     let key_ety: i32 = infer_ty(key_opt, ty);
     let mut key_tn3s: String = String::new();
     key_tn3s.push_str(infer_ty_name(key_opt, ty));

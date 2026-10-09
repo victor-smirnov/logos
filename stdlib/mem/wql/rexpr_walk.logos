@@ -5255,8 +5255,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // the floats whose equality is not reflexive in any type.
     // OWNED for the same reason `key_tn3s` is: the inferred name is a view into
     // `ty`'s table and `set_ty("key", …)` below writes that table.
-    let mut key_tys: String = String::new();
-    key_tys.push_str(infer_emit_ty(key_opt, &ty));
+    let key_tys: String = group_key_ty(key_opt, &ty);
     let key_ty: str = string_as_str(&key_tys);
     // The key's identity is checked on the core (`typecheck::group_key_ok`).
     ty.set_ty_named("key", key_ty);
@@ -9434,8 +9433,12 @@ fn split_agg_proj(proj: SExpr, ri: i64, prm: &MacroParams, t: &ElTypes, var0: st
                 error("wql!: a recursive-aggregate rel select must be `(key, aggout)` — exactly two components (slice-1)");
                 return false;
             }
-            emit_sexpr(key_out, items.arg_at(0i64), t, var0);
-            emit_sexpr(val_out, items.arg_at(1i64), t, var0);
+            // Each operand in its COLUMN's type: an unsuffixed literal takes it
+            // (`(s.id, 0)` against a `(i64, u64)` row), as in `rel_row_value`.
+            let off: i64 = prm.rel_coff[ri];
+            let view: OView = oview_module_ast();
+            rel_comp_value(key_out, items.arg_at(0i64), resolve_alias_name(&view, prm.relc_ty[off]), t, var0);
+            rel_comp_value(val_out, items.arg_at(1i64), resolve_alias_name(&view, prm.relc_ty[off + 1i64]), t, var0);
             return true;
         }
         _ => {
@@ -9615,17 +9618,8 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
     let mut val_body: String = String::new();
     if is_agg {
         // Recursive-aggregate: the value column carries an ORDER (the lattice); a
-        // single-key group (slice-1). A min/max fixpoint converges to the extremum
-        // of the order the emitted comparison realizes, and the emitted lattice
-        // join is the i64 baseline — so the value column must be `i64`, whose
-        // order is faithful. Rel columns are admitted by `Eq + Hash` (ADR 0031
-        // R4.1), which says nothing about an order; this check is what does.
-        let voff: i64 = prm.rel_coff[ri];
-        let vcty: str = prm.relc_ty[voff + 1i64];
-        if !str_eq(vcty, "i64") {
-            error("wql!: a recursive min/max aggregate value column must be i64 (the ordered lattice; a str column is totally ordered but the emitted lattice join is the i64 baseline — out of slice-1)");
-            return false;
-        }
+        // single-key group (slice-1). Its type was checked on the core
+        // (`typecheck::lattice_value_ok`).
         let key_opt: SExpr = simplify_sexpr(key_e, h).any().view::<SExpr>();
         let val_opt: SExpr = simplify_sexpr(val_e, h).any().view::<SExpr>();
         emit_sexpr(&mut key_body, key_opt, &ty, ch.base_var);

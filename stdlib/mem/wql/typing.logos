@@ -395,13 +395,24 @@ pub fn type_aggs(view: &OView, aggs: &Vec<CAgg>, t: &mut ElTypes, h: &Writ, out:
     return true;
 }
 
+/// The type of a `group by` key: a tuple key (`group by (s.a, s.b)`) is the
+/// tuple of its components' types — a `HashMap<(K1, K2), …>` key in Rust — and
+/// any other key its expression's emitted type.
+pub fn group_key_ty(key_opt: SExpr, t: &ElTypes) -> String {
+    let mut k: String = String::new();
+    match key_opt {
+        SExpr::Tuple(tp) => { push_tuple_ty(&mut k, tp, t); }
+        _ => { k.push_str(infer_emit_ty(key_opt, t)); }
+    }
+    return k;
+}
+
 /// The names a `group by` binds for what follows it — `key` (the key's own
 /// type) and each aggregate's output — recorded in `t`. False when a user
 /// aggregate does not resolve (diagnosed).
 pub fn type_group_outputs(view: &OView, g: &CGroup, t: &mut ElTypes, h: &Writ) -> bool {
     let key_opt: SExpr = simplify_sexpr(g.key.view::<SExpr>(), h).any().view::<SExpr>();
-    let mut kt: String = String::new();
-    kt.push_str(infer_emit_ty(key_opt, t));
+    let kt: String = group_key_ty(key_opt, t);
     t.set_ty_named("key", kt.as_str());
     let mut gt: GroupTy = group_ty_new();
     return type_aggs(view, &g.aggs, t, h, &mut gt);

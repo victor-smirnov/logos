@@ -82,7 +82,7 @@ Every query opens with `from <src> <var>`: `src` names a source (slice param or 
 
 `from a x ([anti] join b y on ON)* [where P] group by K aggregate name=fn(arg?),… [having H] select …` — join steps are OPTIONAL here (aggregate over the joined or single-source stream); `having` is a predicate over the group key + aggregate output names.
 
-*Divergence:* SQL `GROUP BY … HAVING …`, restricted to a SINGLE group key expression `K` (RESTRICTION; no multi-column `GROUP BY a,b` — use a tuple key expression).
+*Divergence:* SQL `GROUP BY … HAVING …`; a multi-column key is spelled as one tuple, `group by (a, b)` (`deem.clause.group-by`).
 
 *Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`aggr_query`, `agg_list`, `having_clause`); lowering `stdlib/mem/wql/lower.logos` (`lower_aggr`: where→RAggr→having-as-RFilter→order→project→distinct→limit)
 
@@ -114,11 +114,11 @@ The four shapes are distinguished by PEG ordered choice — join, then aggregate
 
 ### `deem.clause.group-by` — `group by K`
 
-`group by <K>` partitions rows by the EL key expression `K`; groups feed the `aggregate` specs; lowers to an `RAggr` (γ) carrying one key + the aggregate-spec array.
+`group by <K>` partitions rows by the EL key expression `K`; groups feed the `aggregate` specs. A TUPLE key `group by (a, b, …)` groups by every component, as a `HashMap<(K1, K2, …), …>` key in Rust: `key` is the tuple, and its type is the tuple of the components' types; each component must itself be a key (an identity: `Eq`, not `f64`), and the refusal names the component. The grouped columns can be read off the group's row (`select (s.a, s.b, n)`) as well as through `key`. The incremental handle maintains tuple-keyed groups under insertion and retraction. (A recursive `min`/`max` rel's key is still one column.)
 
-*Divergence:* SQL `GROUP BY`, single-key only (see `deem.query.aggregate`).
+*Divergence:* SQL `GROUP BY` with an expression list, spelled as one tuple.
 
-*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`aggr_query`, `key_body`); `stdlib/mem/wql/ir.logos` (`RAggr`)
+*Evidence:* `stdlib/mem/wql/grammars/wql.peg` (`aggr_query`, `key_body`); `stdlib/mem/wql/typing.logos` (`group_key_ty`); `stdlib/mem/wql/typecheck.logos` (`group_key_ok`); `tests/logos/pass/wql_group_tuple_key_e2e.logos`, `tests/logos/fail/wql_group_tuple_key_f64_fail.logos`
 
 ### `deem.clause.aggregate` — `aggregate name=fn(arg?),…`
 
@@ -419,13 +419,15 @@ After the demand rewrite, a rel is LIVE when the entry reads it or a live rel's 
 
 *Evidence:* `stdlib/mem/wql/lower.logos` (`magic_program`); `stdlib/mem/wql/why.logos` (`MS_*`); `tests/logos/pass/wql_rel_demand_e2e.logos`
 
-### `deem.datalog.rel-columns` — rel-block columns are i64/str/bool, at most 12
+### `deem.datalog.rel-columns` — a rel column is any `Eq + Hash` type, at most 12
 
-A column of a `rel` block (in a deem body, or spliced from a mapping) must be `i64`/`str`/`bool` — rels are sets deduped by structural equality, so a column type needs a reflexive, injective identity and must be the type the EL computes in: `el_set_col_admit` admits exactly those three, `f64`/`f32` get their own named diagnostic (Eq loss is the reason), and a non-canonical integer such as `u64` is refused naming the remedy. (A source-trait `rel` member is checked by sema against `Hash` instead — `deem.source.trait`.) A rel holds at most 12 columns: its row is a tuple, and a tuple implements `Hash` and `Clone` up to 12 elements, as in Rust; a 13th column is a named error at the declaration. Every other list of a program — rels, bodies, join steps, aggregates, tuple items, call arguments, path segments — holds any number of items.
+A column of a `rel` block (in a deem body, or spliced from a mapping) has the Logos type it is declared with, and that type must implement `Eq` and `Hash` — a rel is a set of rows, deduplicated by `==` and a hash, as a `HashSet` key in Rust. Integers of every width (`u64` and `u128` included), `bool`, `str` and a user type deriving both are admitted; `f64`/`f32` are refused because they are not `Eq` (a NaN is unequal to itself), and the refusal names the missing trait. A select component is checked against the column's TYPE: an unsuffixed literal takes the column's type and must fit it (`(s.id, 0)` against a `(i64, u128)` row; `256` is out of range for a `u8` column), an integer widens by value into a wider one, a `String` is stored through its `str` view. (A source-trait `rel` member is checked by sema against `Hash` — `deem.source.trait`.) A rel holds at most 12 columns: its row is a tuple, and a tuple implements `Hash` and `Clone` up to 12 elements, as in Rust; a 13th column is a named error at the declaration.
 
-*Divergence:* RESTRICTION — narrower than SQL/Datalog value domains; f64 is excluded because set membership needs Eq.
+A recursive `min`/`max` aggregate rel is a lattice: its value column must be totally ordered and compared in its own type (`Ord`, as `Iterator::min` needs in Rust) — an integer of any width, `bool`, `str` (byte-lexicographic), or a user type that is `Ord + Copy`; a `u64` value above 2^63 orders as a `u64`.
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`walk_program_params` — the 12-column check, `rel_col_ty_ok`); `stdlib/mem/wql/el.logos` (`el_set_col_admit`, `el_set_col_why`); grammar `stdlib/mem/wql/grammars/wql.peg` (`rel_col`, `rel_cols`); `tests/logos/fail/wql_rel_cols13_fail.logos`, `tests/logos/fail/wql_rel_float_col_fail.logos`, `tests/logos/fail/wql_rel_col_wide_int_fail.logos`
+*Divergence:* none (Rust's `HashSet` bound for a column; `Ord` for a lattice value).
+
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`walk_program_params` — the 12-column check, `rel_col_ty_ok`); `stdlib/mem/wql/typecheck.logos` (`rel_select_ok`, `lattice_value_ok`); `stdlib/mem/wql/codegen.logos` (`expr_reaches_ty`, `int_lit_fits`); grammar `stdlib/mem/wql/grammars/wql.peg` (`rel_col`, `rel_cols`); `tests/logos/fail/wql_rel_cols13_fail.logos`, `tests/logos/fail/wql_rel_float_col_fail.logos`, `tests/logos/pass/wql_rel_col_u64_e2e.logos`, `tests/logos/pass/wql_rel_col_user_type_e2e.logos`, `tests/logos/pass/wql_rel_lattice_u64_e2e.logos`, `tests/logos/pass/wql_rel_lattice_ord_e2e.logos`, `tests/logos/fail/wql_rel_lattice_no_ord_fail.logos`
 
 ### `deem.datalog.rel-body-gates` — rel body modifier gates
 
@@ -503,7 +505,7 @@ The deem/trama handlers reflect every top-level `fn` of the trigger module into 
 
 ### `deem.udf.call-check` — arity and return-type checking
 
-`check_calls` validates each call: unknown function (not builtin, not UDF) errors, arity mismatch errors, and an out-of-lattice UDF return type (`el_ret_class` = -1, e.g. a struct/reference/unit) errors; narrower int returns get an `as i64` widening cast at the emit site (u64/u128/i128 beyond i64 range truncate — documented MVP).
+`check_calls` validates each call: unknown function (not builtin, not UDF) errors, arity mismatch errors, and an out-of-lattice UDF return type (`el_ret_class` = -1, e.g. a struct/reference/unit) errors; a call's value has the fn's declared return type, with no normalizing cast (a `u64` result stays a `u64`).
 
 *Divergence:* EXTENSION — static UDF type-checking against the EL lattice, the agentic selector (P3).
 
@@ -834,7 +836,7 @@ f64 lacks Hash+Eq, so it cannot be a rel column, a `group by`/join hash key, or 
 
 *Divergence:* RESTRICTION — narrower than CEL/SQL where floats may appear anywhere; Deem excludes f64 from keyed/set positions because equality/hashing is unsound.
 
-*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`rel_col_ty_ok`); `stdlib/mem/wql/el.logos` (`el_set_col_admit` → `EL_COL_NO_EQ`); `stdlib/mem/wql/rexpr_walk.logos` (`emit_aggregate`, the `group by` f64 refusal); `stdlib/mem/wql/join_sel.logos` (`step_cascade`); `tests/logos/fail/wql_rel_float_col_fail.logos`, `tests/logos/fail/wql_group_f64_key_fail.logos`; ADR 0012-queue2 §4a (join keys / rel columns)
+*Evidence:* `stdlib/mem/wql/plan_walker.logos` (`rel_col_ty_ok`: `f64` is not `Eq`); `stdlib/mem/wql/typecheck.logos` (`group_key_ok`, the `group by` f64 refusal); `stdlib/mem/wql/join_sel.logos` (`step_cascade`); `tests/logos/fail/wql_rel_float_col_fail.logos`, `tests/logos/fail/wql_group_f64_key_fail.logos`; ADR 0012-queue2 §4a (join keys / rel columns)
 
 ### `el.restrict.column-decl` — what may be a COLUMN is decided at the source's declaration
 

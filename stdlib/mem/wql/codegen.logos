@@ -362,6 +362,8 @@ pub fn infer_emit_ty(e: SExpr, t: &ElTypes) -> str {
     }
     let n: str = infer_ty_name(e, t);
     if el_class_lookup(n) >= 0i32 { return n; }
+    // A TUPLE type (a tuple `group by` key read as `key`) is printed as itself.
+    if n.len() > 0i64 && str_byte_at(n, 0i64) == 40u8 { return n; }
     // A NAMED type is printed as itself (`HashMap<Sku, …>`), never as a class
     // representative.
     if infer_ty(e, t) == EL_TY_NAMED() && n.len() > 0i64 { return n; }

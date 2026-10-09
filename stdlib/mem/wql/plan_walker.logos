@@ -506,7 +506,7 @@ fn check_edge_step(bv: str, path: &Vec<str>, var: str,
                 error(string_as_str(&m6));
                 return false;
             }
-            let tn: str = field_type_name(&view, decl, seg);
+            let tn: str = logos.std.wql.reflect::field_type_name(&view, decl, seg);
             if tn.len() == 0i64 {
                 let mut m7: String = String::new();
                 m7.push_str("wql!: traversal path: intermediate segment `.");
@@ -521,7 +521,7 @@ fn check_edge_step(bv: str, path: &Vec<str>, var: str,
         } else {
             // FINAL segment: must be a collection field.
             if elem.len() == 0i64 {
-                let tn2: str = field_type_name(&view, decl, seg);
+                let tn2: str = logos.std.wql.reflect::field_type_name(&view, decl, seg);
                 let mut m8: String = String::new();
                 m8.push_str("wql!: `join ");
                 m8.push_str(bv);
