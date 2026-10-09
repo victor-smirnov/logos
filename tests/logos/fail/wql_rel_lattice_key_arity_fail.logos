@@ -1,0 +1,15 @@
+// A recursive aggregate's key is every column but the last: a `group by` key
+// whose arity differs from the rel's key columns is refused at the key.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Start { pub id: i64, pub mode: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub mode: i64, pub w: i64 }
+pub deem dist(starts: &[Start], edges: &[Edge]) {
+    rel d(node: i64, mode: i64, lo: i64) {
+        from starts s select (s.id, s.mode, 0);
+        from d x join edges e on e.src == x.node group by e.dst aggregate lo = min(x.lo + e.w) select (e.dst, e.mode, lo);
+    }
+    from d r select r.node
+}
+fn main() -> i32 { return 0i32; }

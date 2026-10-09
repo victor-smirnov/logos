@@ -201,7 +201,24 @@ fn check_rel_rule(view: &OView, prm: &MacroParams, ri: i64, ru: &CRule, h: &Writ
             if !lattice_value_ok(view, prm, ri) { return false; }
             let key_opt: SExpr = simplify_sexpr(sx(g.key), h).any().view::<SExpr>();
             let val_opt: SExpr = simplify_sexpr(sx(a0), h).any().view::<SExpr>();
-            if !reject_tuple_in(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; }
+            // The key covers every column but the value: a tuple of that many
+            // components, or one expression when the rel has two columns.
+            let nk: i64 = prm.rel_ccnt[ri] - 1i64;
+            let mut karity: i64 = 1i64;
+            match key_opt { SExpr::Tuple(tp) => { karity = tp.items_arr().len(); } _ => { } }
+            if karity != nk {
+                if nk == 1i64 { if !reject_tuple_in(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; } }
+                let mut mk: String = String::new();
+                mk.push_str("wql!: rel '");
+                mk.push_str(prm.rel_names[ri]);
+                mk.push_str("': a recursive aggregate's `group by` key has ");
+                mk.push_i64(karity);
+                mk.push_str(" component(s) and the rel has ");
+                mk.push_i64(nk);
+                mk.push_str(" key column(s) — every column but the last (the aggregate's value) is the key");
+                ty_error(&ty, key_opt, string_as_str(&mk));
+                return false;
+            }
             if !check_calls(key_opt, &ty, "wql!: rel aggregate `group by`") { return false; }
             if !check_calls(val_opt, &ty, "wql!: rel aggregate argument") { return false; }
         }
@@ -250,7 +267,7 @@ fn rel_proj_calls_ok(proj: SExpr, ri: i64, prm: &MacroParams, view: &OView, ty: 
 /// order is partial: no least upper bound.
 fn lattice_value_ok(view: &OView, prm: &MacroParams, ri: i64) -> bool {
     let voff: i64 = prm.rel_coff[ri];
-    let vcty: str = resolve_alias_name(view, prm.relc_ty[voff + 1i64]);
+    let vcty: str = resolve_alias_name(view, prm.relc_ty[voff + prm.rel_ccnt[ri] - 1i64]);
     let vct: ElTy = el_ty(vcty);
     if vct.cls == EL_TY_INT() || vct.cls == EL_TY_BOOL() || str_eq(vcty, "str") { return true; }
     let mut miss: str = "";

@@ -1,0 +1,37 @@
+// A recursive min aggregate whose KEY is several columns: every column but the
+// last is the key (a tuple `group by (k0, k1)`), the last is the value — a
+// `HashMap<(K0, K1), V>` best map. Shortest distance per (node, mode), where
+// a path only follows edges of its own mode.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+struct Start { pub id: i64, pub mode: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub mode: i64, pub w: i64 }
+pub deem dist(starts: &[Start], edges: &[Edge]) {
+    rel d(node: i64, mode: i64, lo: i64) {
+        from starts s select (s.id, s.mode, 0);
+        from d x join edges e on e.src == x.node && e.mode == x.mode
+            group by (e.dst, e.mode)
+            aggregate lo = min(x.lo + e.w)
+            select (e.dst, e.mode, lo);
+    }
+    from d r select (r.node, r.mode, r.lo) order by r.node * 10 + r.mode
+}
+fn main() -> i32 {
+    let starts: [Start; 2] = [ Start { id: 1i64, mode: 0i64 }, Start { id: 1i64, mode: 1i64 } ];
+    // mode 0: 1 -> 2 (5), 2 -> 3 (5)     → node 3 at 10
+    // mode 1: 1 -> 3 (2), 1 -> 2 (9)     → node 3 at 2, node 2 at 9
+    let edges: [Edge; 4] = [ Edge { src: 1i64, dst: 2i64, mode: 0i64, w: 5i64 },
+                             Edge { src: 2i64, dst: 3i64, mode: 0i64, w: 5i64 },
+                             Edge { src: 1i64, dst: 3i64, mode: 1i64, w: 2i64 },
+                             Edge { src: 1i64, dst: 2i64, mode: 1i64, w: 9i64 } ];
+    let out: Vec<(i64, i64, i64)> = dist(&starts[..], &edges[..]).unwrap();
+    // (1,0,0) (1,1,0) (2,0,5) (2,1,9) (3,0,10) (3,1,2)
+    if out.len() != 6i64 { return 1i32; }
+    if out.get(2i64).0 != 2i64 || out.get(2i64).1 != 0i64 || out.get(2i64).2 != 5i64 { return 2i32; }
+    if out.get(3i64).0 != 2i64 || out.get(3i64).1 != 1i64 || out.get(3i64).2 != 9i64 { return 3i32; }
+    if out.get(4i64).0 != 3i64 || out.get(4i64).2 != 10i64 { return 4i32; }
+    if out.get(5i64).0 != 3i64 || out.get(5i64).2 != 2i64 { return 5i32; }
+    return 0i32;
+}

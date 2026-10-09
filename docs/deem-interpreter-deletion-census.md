@@ -6861,11 +6861,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12066 -> 12067 (+1), NOIMPORTED 7507 -> 7508 (+1) — 2026-10-09 (recursive min/max over any integer / bool, Ord): +pass/wql_rel_lattice_u64_e2e, +fail/wql_rel_lattice_str_fail, -fail/wql_rel_col_wide_int_fail (its u64 lattice is admitted now; the shape lives on as the pass fixture).
 #                ALL 12067 -> 12068 (+1), NOIMPORTED 7508 -> 7509 (+1) — 2026-10-09 (lattice over str / Ord + Copy): fail/wql_rel_lattice_str_fail became pass/wql_rel_lattice_ord_e2e; +fail/wql_rel_lattice_no_ord_fail.
 #                ALL 12068 -> 12070 (+2), NOIMPORTED 7509 -> 7511 (+2) — 2026-10-09 (tuple group keys): pass/wql_group_tuple_key_e2e, fail/wql_group_tuple_key_f64_fail.
-#                ALL 12070 -> 12075 (+5), NOIMPORTED 7511 -> 7516 (+5), TIERCOMMIT 194 -> 194 (+0) — 2026-10-09: merge of origin/deem over b087dacbd: main's nonglob 4418 (four op_* fixtures) + deem's glob 236, measured by direct listing.
-#                ALL 12075 -> 12079 (+4), NOIMPORTED 7516 -> 7520 (+4), TIERCOMMIT 194 -> 194 (+0) — 2026-10-09: slice_as_ptr_typed_by_element + mut_self_method_through_mut_ref_admitted (pass, nonglob), two fail fixtures (registry only).
-#                ALL 12079 -> 12080 (+1), NOIMPORTED 7520 -> 7521 (+1), TIERCOMMIT 194 -> 194 (+0) — 2026-10-09: library_fn_path_as_fn_value (pass, nonglob).
-REGISTRY-ALL         12080
-REGISTRY-NOIMPORTED  7521
+#                ALL 12070 -> 12072 (+2), NOIMPORTED 7511 -> 7513 (+2) — 2026-10-09 (multi-key recursive aggregates): pass/wql_rel_lattice_multikey_e2e, fail/wql_rel_lattice_key_arity_fail.
+#                ALL 12072 -> 12081 (+9), NOIMPORTED 7513 -> 7522 (+9), TIERCOMMIT 194 -> 194 (+0) — (main, merged into `deem`) merge of origin/main: 2026-10-09: Q1 closed (fb1f6b81a), lang-trait operators (b087dacbd), gate_lint NOT_GATES deem_fn_sig.sh (e5bd59e1c)
+#                ALL 12081 -> 12082 (+1), NOIMPORTED 7522 -> 7523 (+1), TIERCOMMIT 194 -> 194 (+0) — 2026-10-09: merge of origin/deem dc5473b3a over 0df86f7d4: main's nonglob 4421 + deem's glob 237, measured by direct listing.
+REGISTRY-ALL         12082
+REGISTRY-NOIMPORTED  7523
 REGISTRY-TIERCOMMIT  194
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
