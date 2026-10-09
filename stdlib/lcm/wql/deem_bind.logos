@@ -98,7 +98,7 @@ pub struct PlanCmp { pub col: str, pub op: i32, pub why: str,
 // them. A leading `-` on `name` marks a non-pub query (the params.logos
 // convention).
 pub fn __deem_bind(name: str, params: str, query: str, family: str,
-                   spec: str, cfg_src: str) -> ItemList {
+                   spec: str, cfg_src: str, decl_pkg: str) -> ItemList {
     let out: ItemList = item_list_new();
     if name.len() == 0i64 || family.len() == 0i64 {
         error("deem bind: empty query name or family (driver seam regression?)");

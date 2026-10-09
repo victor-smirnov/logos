@@ -1,0 +1,22 @@
+package metaprog_imported_struct_field_types;
+
+use logos.std.compiler.metaprog;
+use logos.mem.deem;
+
+pub const TAGX: str = "a";
+
+fn probe() -> i64 {
+    let mut code: i64 = 0;
+    if str_eq(field_type_name("DynEdge", "kind"), "str") { code = code + 1; }
+    if str_eq(field_type_name("logos.mem.deem::DynEdge", "parent"), "i64") { code = code + 2; }
+    if struct_field_count("DynEdge") >= 8 { code = code + 4; }
+    if str_eq(struct_field_name("DynEdge", 0), "parent") { code = code + 8; }
+    if field_type_name("DynEdge", "no_such_field").len() == 0 { code = code + 16; }
+    if str_eq(value_type_name("TAGX"), "str") { code = code + 32; }
+    return code;
+}
+
+unsafe fn main() -> i32 {
+    let n: i64 = metacall probe();
+    return n as i32;
+}
