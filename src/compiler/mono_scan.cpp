@@ -1012,8 +1012,11 @@ void Mono::enqueue_method_inst(TypeRef concrete_struct_t,
     // (overloads keep their distinct signatures).
     auto* lmi_pool = out_.type_pool.impl();
     std::vector<std::pair<std::string, lir_view::FunctionView>> matches;
+    // A trait-qualified template (`Bx__A__m`, two traits' `m` on one type) is
+    // keyed `A__m…`; its carried METHOD_BASE is still `m`, and the instance
+    // keeps the qualifier (method_instance_name), so both traits' `m` coexist.
     for (auto& [sn, fp] : *sit_inner) {
-        if (sn == method_name ||
+        if (sn == method_name || fp.method_base() == method_name ||
             (sn.size() > method_name.size() + 5 &&
              sn.compare(0, method_name.size(), method_name) == 0 &&
              sn.compare(method_name.size(), 5, "__g__") == 0))

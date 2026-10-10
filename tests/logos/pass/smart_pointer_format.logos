@@ -1,0 +1,14 @@
+package smart_pointer_format;
+use logos.std.fmt;
+use logos.mem.boxed;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.string;
+fn main() {
+    let b: Box<i64> = Box::new(5);
+    let r: Rc<String> = Rc::new(String::from("rc"));
+    println!("{} {:?} {} {:?}", b, b, r, r);
+    let c = RefCell::new(4i64);
+    println!("{} {:?}", c.borrow(), c.borrow());
+    { let m = c.borrow_mut(); println!("{} {:?}", m, m); }
+}

@@ -1,0 +1,10 @@
+package two_traits_same_method_generic_struct;
+use logos.std.fmt;
+trait A { fn m(&self) -> i64; }
+trait B { fn m(&self) -> i64; }
+struct Bx<T> { v: T }
+impl<T> A for Bx<T> { fn m(&self) -> i64 { return 1; } }
+impl<T> B for Bx<T> { fn m(&self) -> i64 { return 2; } }
+fn ga<T: A>(x: &T) -> i64 { return x.m(); }
+fn gb<T: B>(x: &T) -> i64 { return x.m(); }
+fn main() { let b: Bx<i64> = Bx { v: 4 }; println!("{} {}", ga(&b), gb(&b)); }

@@ -1,0 +1,6 @@
+// A program's own non-generic `struct Rc` beside stdlib's `impl<T: Display> Display for Rc<T>`:
+// the generic impl names no concrete type, so the blanket `ToString` is not instanced for this one.
+package user_struct_named_like_generic_display_impl;
+use logos.std.fmt;
+pub struct Rc { pub x: i32, }
+fn main() { let r = Rc { x: 7 }; println!("{}", r.x); }
