@@ -201,24 +201,28 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
             let dir: i32 = deps.head_agg_dir_of(f);
             if agg_algebra(dir) == AGG_CLASS_SEMILATTICE() {
                 // ADMISSIBLE recursive aggregation — the absorb gate IS the
-                // lattice order (monotone fixpoint). Slice-1 restricts the SCC to
-                // the SINGLE aggregate rel (self-recursion): mutual plain↔agg
-                // recursion has non-monotone interaction (design §7 critique #3).
-                let mut nmem: i64 = 0i64;
+                // lattice order (monotone fixpoint). A component of SEVERAL rels
+                // is admitted when EVERY member is a min/max lattice of this
+                // direction: each absorbs its own stale values, so the result is
+                // the least fixpoint of the product lattice whatever the round
+                // order. A PLAIN member would keep the tuples it derived from a
+                // value later improved — an answer that depends on evaluation
+                // order (design §7 critique #3) — and is refused.
                 let mut r0: i64 = 0i64;
                 while r0 < prm.rel_n {
-                    if scc.comp[r0] == scc.comp[f] { nmem = nmem + 1i64; }
+                    if scc.comp[r0] == scc.comp[f] && deps.head_agg_dir_of(r0) != dir {
+                        let mut mm: String = String::new();
+                        mm.push_str("wql!: rel '");
+                        mm.push_str(prm.rel_names[r0]);
+                        mm.push_str("' shares the recursive component ");
+                        push_scc_members(&mut mm, prm, scc, scc.comp[f]);
+                        mm.push_str(" with the min/max aggregate rel '");
+                        mm.push_str(prm.rel_names[f]);
+                        mm.push_str("' but is not a min/max lattice of the same direction — mutual recursion through an aggregate is admitted only between lattices (a plain rel would keep tuples derived from values the lattice later improves, an answer that depends on evaluation order); compute it from the lattice's result in a later rel");
+                        error(string_as_str(&mm));
+                        return false;
+                    }
                     r0 = r0 + 1i64;
-                }
-                if nmem > 1i64 {
-                    let mut mm: String = String::new();
-                    mm.push_str("wql!: rel '");
-                    mm.push_str(prm.rel_names[f]);
-                    mm.push_str("': a recursive min/max aggregate must be its OWN recursive component — ");
-                    push_scc_members(&mut mm, prm, scc, scc.comp[f]);
-                    mm.push_str(" has multiple rels; mutual recursion through an aggregate is not supported (slice-1)");
-                    error(string_as_str(&mm));
-                    return false;
                 }
                 prm.rel_is_agg[f]  = true;
                 prm.rel_agg_dir[f] = dir;
@@ -265,18 +269,11 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
         if deps.head_agg_dir_of(r) != 0i32 && !prm.rel_is_agg[r] {
-            // Recursive through a PLAIN edge (another body closes the cycle):
-            // the group's rows would have to join the fixpoint — not supported.
-            if scc.rec[scc.comp[r]] {
-                let mut m3: String = String::new();
-                m3.push_str("wql!: rel '");
-                m3.push_str(prm.rel_names[r]);
-                m3.push_str("': a grouping rel body inside the recursive component ");
-                push_scc_members(&mut m3, prm, scc, scc.comp[r]);
-                m3.push_str(" — only a recursive min/max closing its own self-cycle may aggregate in a fixpoint; group in a separate rel over the recursive one");
-                error(string_as_str(&m3));
-                return false;
-            }
+            // Inside a recursive component through a PLAIN edge (another body
+            // closes the cycle): the grouping bodies read earlier strata only
+            // (an aggregate edge into the component was refused above), so
+            // their rows are a constant input to the fixpoint — seeds, folded
+            // once before the first round.
             prm.rel_is_group[r] = true;
         }
         r = r + 1i64;
