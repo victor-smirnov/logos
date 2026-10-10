@@ -246,6 +246,14 @@ The conjunctive `on` predicate is decomposed into AND-terms; the first usable `<
 
 ## Edge traversal (graph steps)
 
+### `deem.join.outer` — `left join` / `full join`
+
+`from a x left join b y on P` keeps every row bound so far: for each, the step runs with `y` bound to each row of `b` satisfying `P`, or — when none does — once with `y` absent. After its step `y`'s columns read as `Option<T>` (`Some` on a match, `None` without one), as in Rust: they do not compare with a `T`, and the EL reads them with `is_some(x)`, `is_none(x)` and `unwrap_or(x, d)` (`d` typed as `T`); `Option<T>` values compare with each other, group, sort and project as named types (`None` is a group of its own and joins `None`). Inside the step's own `on`, `y` is present and its columns are `T`. `y` is never read whole (refused: the row may not exist) nor through a deeper path (`y.a.b`: `y.a` is an `Option`). `full join` (two sources only: `from a x full join b y on P`) also keeps `b`'s rows nothing matched, with `x` absent — both vars' columns read as `Option<T>`. A chain with an outer step is not reordered (the kept side is the written one). Not yet: an outer join in a rel body, `group by` over a `full join`, a `full join` whose second source streams, and the Soufflé oracle (an outer join is outside its fragment).
+
+*Divergence:* SQL's LEFT/FULL OUTER JOIN with Rust's `Option<T>` in place of NULL — no three-valued logic: `None == None` holds and a comparison with a `T` is a type error. RIGHT JOIN is a `left join` with its sources swapped.
+
+*Evidence:* grammar `stdlib/mem/wql/grammars/wql.peg` (`join_step`: `KW_LEFT`/`KW_FULL`, `RQJoinStep.outer`); `stdlib/mem/wql/core.logos` (`CAtom.outer`, `OUTER_LEFT`/`OUTER_FULL`); `stdlib/mem/wql/check.logos` (`entry_outer_ok`); `stdlib/mem/wql/typing.logos` (`type_outer`); `stdlib/mem/wql/typecheck.logos` (`outer_rows_ok`); `stdlib/mem/wql/rexpr_walk.logos` (`step_wrap`'s outer branch, `outer_bindings`, `outer_rebind_frag`, `chain_nest_frag`'s full-join pass); `stdlib/mem/wql/el.logos` (`BFN_IS_SOME`/`BFN_IS_NONE`/`BFN_UNWRAP_OR`); `tests/logos/pass/deem_left_join_e2e.logos`, `tests/logos/pass/deem_full_join_e2e.logos`, `tests/logos/fail/deem_outer_whole_row_fail.logos`, `tests/logos/fail/deem_outer_compare_fail.logos`, `tests/logos/fail/deem_full_join_three_fail.logos`, `tests/logos/fail/deem_full_join_group_fail.logos`, `tests/logos/fail/deem_option_builtin_non_option_fail.logos`, `tests/logos/fail/deem_left_join_rel_body_fail.logos`
+
 ### `deem.edge.traversal` — `[anti] join base.field[.field] var [on P]`
 
 A traversal step ranges a new `var` over a COLLECTION FIELD PATH of an already-bound row var (`base.field…`); `on` is OPTIONAL (containment IS the join, `P` is a residual filter); it lowers to `REdge`, not `RJoin`.

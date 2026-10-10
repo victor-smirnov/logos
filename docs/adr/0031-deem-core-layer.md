@@ -225,3 +225,16 @@ The incremental entry's admission (`incr_eligible`: 24 decline grounds) and its 
 - **Multi-key recursive aggregates.** A recursive `min`/`max` rel's KEY is every column but the last (one column, or a tuple — a `HashMap<(K0, K1), V>` best map) and its VALUE is the last; the absorb push, the seed rows, the state and the materialized total spell the row from the key's components (`agg_key_ty` / `agg_val_ty` / `agg_key_text` / `agg_row_text`); a `group by` key of the wrong arity is refused at the key. Fixtures `wql_rel_lattice_multikey_e2e` (shortest distance per (node, mode); a one-column key would mix the modes and answer differently), `fail/wql_rel_lattice_key_arity_fail`. Every existing lattice fixture's gen byte-identical.
 - **Tuple index `key.N`.** The EL's postfix step takes a tuple index (`el.peg` `postfix`: `. INTEGER`, the same `SField` with the digits as its name; the Logos parser regenerated, the C++ one built from the grammar): `key.1` over a tuple group key has its component's type (`codegen::field_ty_name` → `tuple_component_ty`), and an index past the last component is refused at its place (rustc's E0609). Fixtures `wql_tuple_index_e2e`, `fail/wql_tuple_index_range_fail`.
 - **Stratified aggregate rels.** A rel body that groups and is not a recursive min/max lattice reads earlier strata only (`plan_walker::check_stratified` sets `rel_is_group` where it used to refuse): `typecheck::check_group_rel` types it as the aggregate query (key identity, `type_aggs`, `having`) in the post-group scope — `key`, the outputs, the base row as the representative; a join step's row is refused — and `rexpr_walk::rel_body_group_frag` emits the aggregate query's group frame (the shared seeds/folds and `group_binds_frag`) and pushes one rel row per group. The one-aggregate and no-`having` limits moved from the core's envelope check to the recursive lattice's arm, where they belong; a grouping rel closed into a cycle by another body is refused. Fixtures `wql_rel_group_e2e`, `fail/wql_rel_group_step_var_fail`, `fail/wql_rel_group_in_cycle_fail`.
+
+## Extension 2026-10-10 — the outer atom
+
+`left join` / `full join` cannot be a desugaring into the existing core
+without changing the answer: the unmatched rows are a second clause, and the
+entry is one rule — a union through a rel would deduplicate what SQL keeps.
+So the core gains one literal form beside the negated atom: `CAtom.outer`
+(`OUTER_LEFT` / `OUTER_FULL`), whose `on` rides in `conds` as an anti atom's
+does (the match is its scope; `core_verify` admits exactly that). It is one
+form, not surface variety: `check::entry_outer_ok` refuses it where the planner
+and emitters do not handle it yet (rel bodies, `find`, `full join` beyond two
+sources or under `group by`), `join_order` refuses to reorder it (`WG_OUTER`),
+and `dl_export` keeps it outside the oracle fragment. Spec: `deem.join.outer`.

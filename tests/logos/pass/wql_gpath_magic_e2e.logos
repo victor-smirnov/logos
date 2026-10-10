@@ -4,13 +4,13 @@
 // prefix before the `**`, projecting the node it stands on), and
 // `__reach_<src>` starts from those seeds instead of from every node.
 //
-// The oracle is INDEPENDENT of the rewrite: `full` below is the naive
+// The oracle is INDEPENDENT of the rewrite: `closure` below is the naive
 // descendant-or-self closure written by hand, the shape `__reach_<src>` had
 // before M6. Two properties are asserted:
-//   (1) results ≡ full walk: every `**` query answers what the same query over
-//       `full` answers;
-//   (2) derived tuples strictly fewer: |__reach_g| < |full| for a demand that
-//       does not cover the document, and = |full restricted to the seeds|.
+//   (1) results ≡ closure walk: every `**` query answers what the same query over
+//       `closure` answers;
+//   (2) derived tuples strictly fewer: |__reach_g| < |closure| for a demand that
+//       does not cover the document, and = |closure restricted to the seeds|.
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
@@ -26,24 +26,24 @@ pub deem db_engines(g: &Writ) {
     from g .db ** .engine e select e.vs : str
 }
 pub deem db_engines_full(g: &Writ) {
-    rel full(a: i64, b: i64) {
+    rel closure(a: i64, b: i64) {
         from g e select (e.parent, e.parent);
         from g e select (e.child, e.child);
-        from full r join g e on e.parent == r.b select (r.a, e.child);
+        from closure r join g e on e.parent == r.b select (r.a, e.child);
     }
-    from g .db d join full f on f.a == d.child join g e on e.parent == f.b
+    from g .db d join closure f on f.a == d.child join g e on e.parent == f.b
     where e.key == "engine" select e.vs : str
 }
 pub deem any_engines(g: &Writ) {
     from g ** .engine e select e.vs : str
 }
 pub deem any_engines_full(g: &Writ) {
-    rel full(a: i64, b: i64) {
+    rel closure(a: i64, b: i64) {
         from g e select (e.parent, e.parent);
         from g e select (e.child, e.child);
-        from full r join g e on e.parent == r.b select (r.a, e.child);
+        from closure r join g e on e.parent == r.b select (r.a, e.child);
     }
-    from g __ga join full f on f.a == __ga.child join g e on e.parent == f.b
+    from g __ga join closure f on f.a == __ga.child join g e on e.parent == f.b
     where __ga.parent == 0 && e.key == "engine" select e.vs : str
 }
 // two `**` in one path: the second site's seed body reads `__reach_g` itself
@@ -54,12 +54,12 @@ pub deem pool_leaves(g: &Writ) {
 
 // ── (2) sizes: the reach relation each program derived ─────────────────────
 pub deem full_size(g: &Writ) {
-    rel full(a: i64, b: i64) {
+    rel closure(a: i64, b: i64) {
         from g e select (e.parent, e.parent);
         from g e select (e.child, e.child);
-        from full r join g e on e.parent == r.b select (r.a, e.child);
+        from closure r join g e on e.parent == r.b select (r.a, e.child);
     }
-    from full r select r.a
+    from closure r select r.a
 }
 pub deem db_reach_size(g: &Writ) {
     rel hit(v: str) {

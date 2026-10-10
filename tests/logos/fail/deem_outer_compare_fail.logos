@@ -1,0 +1,10 @@
+// After a `left join` the new var's column is `Option<T>`: it does not compare with a `T` (use `unwrap_or` / `is_some`).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+struct Boss { pub id: i64 }
+pub deem q(es: &[Emp], ds: &[Dept], bs: &[Boss]) { from es e left join ds d on d.id == e.dept where d.floor > 3 select e.id }
+fn main() -> i32 { return 0i32; }

@@ -324,6 +324,10 @@ pub fn BFN_UPPER()       -> i32 { return 2i32; }
 pub fn BFN_LOWER()       -> i32 { return 3i32; }
 pub fn BFN_CONTAINS()    -> i32 { return 4i32; }
 pub fn BFN_STARTS_WITH() -> i32 { return 5i32; }
+// Over an `Option<T>` (an outer join's optional column, an Option column):
+pub fn BFN_IS_SOME()     -> i32 { return 6i32; }
+pub fn BFN_IS_NONE()     -> i32 { return 7i32; }
+pub fn BFN_UNWRAP_OR()   -> i32 { return 8i32; }   // its value is T (codegen)
 
 // Resolve a call name → builtin id (BFN_*). Unknown ⇒ BFN_UNKNOWN.
 pub fn builtin_of_name(name: str) -> i32 {
@@ -332,6 +336,9 @@ pub fn builtin_of_name(name: str) -> i32 {
     if str_eq(name, "lower")       { return BFN_LOWER(); }
     if str_eq(name, "contains")    { return BFN_CONTAINS(); }
     if str_eq(name, "starts_with") { return BFN_STARTS_WITH(); }
+    if str_eq(name, "is_some")     { return BFN_IS_SOME(); }
+    if str_eq(name, "is_none")     { return BFN_IS_NONE(); }
+    if str_eq(name, "unwrap_or")   { return BFN_UNWRAP_OR(); }
     return BFN_UNKNOWN();
 }
 
@@ -339,6 +346,8 @@ pub fn builtin_of_name(name: str) -> i32 {
 pub fn builtin_arity(bfn: i32) -> i64 {
     if bfn == BFN_LEN() || bfn == BFN_UPPER() || bfn == BFN_LOWER() { return 1i64; }
     if bfn == BFN_CONTAINS() || bfn == BFN_STARTS_WITH()           { return 2i64; }
+    if bfn == BFN_IS_SOME() || bfn == BFN_IS_NONE()                { return 1i64; }
+    if bfn == BFN_UNWRAP_OR()                                      { return 2i64; }
     return 0i64;
 }
 
@@ -349,6 +358,8 @@ pub fn builtin_ret_ty(bfn: i32) -> i32 {
     if bfn == BFN_LOWER()       { return EL_TY_STR(); }
     if bfn == BFN_CONTAINS()    { return EL_TY_BOOL(); }
     if bfn == BFN_STARTS_WITH() { return EL_TY_BOOL(); }
+    if bfn == BFN_IS_SOME()     { return EL_TY_BOOL(); }
+    if bfn == BFN_IS_NONE()     { return EL_TY_BOOL(); }
     return EL_TY_INT();
 }
 
@@ -419,6 +430,15 @@ pub fn EL_TY_FLT()  -> i32 { return 3i32; }
 pub fn EL_TY_NAMED() -> i32 { return 4i32; }
 
 /// `Head<…>` — an identifier followed by a type-argument list.
+/// `Option<T>` → `T` ("" when `ty` is not an Option spelling).
+pub fn el_option_inner<'a>(ty: &'a str) -> &'a str {
+    let n: i64 = ty.len();
+    if n < 9i64 || str_byte_at(ty, n - 1i64) != 62u8 { return ""; }
+    let h: str = unsafe { str_from_raw(ty.as_ptr(), 7i64) };
+    if !str_eq(h, "Option<") { return ""; }
+    return unsafe { str_from_raw((ty.as_ptr() as i64 + 7i64) as *const u8, n - 8i64) };
+}
+
 pub fn el_is_generic_spelling(ty: str) -> bool {
     let n: i64 = ty.len();
     if n < 3i64 || str_byte_at(ty, n - 1i64) != 62u8 { return false; }   // '>'
@@ -1786,6 +1806,19 @@ pub struct ElTypes {
     // The NAMED types (`EL_TY_NAMED`): the plain structs/enums the module
     // declares. OWNED for the same reason `tns` is.
     pub named: Vec<String>,
+    // OUTER-JOIN vars (`left join b y`): after their step a row var may be
+    // ABSENT, so a field read `y.f` is `Option<T>` — emitted as the local
+    // `__ov_y_f` the step binds to `Some(y.f)` or `None`. `opt_live` is false
+    // while the step's OWN `on` is read (there the row is present).
+    pub opt_vars: Vec<String>,
+    pub opt_live: Vec<bool>,
+    // The fields of those vars the rule reads: (var, col) → T, `Option<T>`,
+    // and the local's name.
+    pub ov_var: Vec<String>,
+    pub ov_col: Vec<String>,
+    pub ov_inner: Vec<String>,
+    pub ov_ty: Vec<String>,
+    pub ov_local: Vec<String>,
 }
 
 /// Access codes for `ElTypes.rb_idx`. A tuple component is its own index, so
@@ -1815,6 +1848,13 @@ pub fn el_types_new() -> ElTypes {
         rb_n:   0i64,
         named:  vec_new::<String>(),
         src:    qsrc_none(),
+        opt_vars: vec_new::<String>(),
+        opt_live: vec_new::<bool>(),
+        ov_var: vec_new::<String>(),
+        ov_col: vec_new::<String>(),
+        ov_inner: vec_new::<String>(),
+        ov_ty: vec_new::<String>(),
+        ov_local: vec_new::<String>(),
     };
 }
 
@@ -1837,6 +1877,15 @@ pub fn el_types_clone(t: &ElTypes) -> ElTypes {
     c.rb_n = t.rb_n;
     i = 0i64;
     while i < t.named.len() { c.named.push(String::from_str(t.named[i].as_str())); i = i + 1i64; }
+    i = 0i64;
+    while i < t.opt_vars.len() { c.opt_vars.push(String::from_str(t.opt_vars[i].as_str())); c.opt_live.push(t.opt_live[i]); i = i + 1i64; }
+    i = 0i64;
+    while i < t.ov_var.len() {
+        c.ov_var.push(String::from_str(t.ov_var[i].as_str())); c.ov_col.push(String::from_str(t.ov_col[i].as_str()));
+        c.ov_inner.push(String::from_str(t.ov_inner[i].as_str())); c.ov_ty.push(String::from_str(t.ov_ty[i].as_str()));
+        c.ov_local.push(String::from_str(t.ov_local[i].as_str()));
+        i = i + 1i64;
+    }
     c.src.on = t.src.on;
     c.src.text = String::from_str(t.src.text.as_str());
     c.src.file = String::from_str(t.src.file.as_str());
@@ -1851,6 +1900,43 @@ pub fn el_types_clone(t: &ElTypes) -> ElTypes {
 }
 
 impl ElTypes {
+    /// Mark row var `v` as the optional side of an outer join (live).
+    pub fn opt_add(self: &mut ElTypes, v: str) {
+        if self.opt_index(v) >= 0i64 { return; }
+        self.opt_vars.push(String::from_str(v)); self.opt_live.push(true);
+    }
+    fn opt_index(self: &ElTypes, v: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.opt_vars.len() { if str_eq(self.opt_vars[i].as_str(), v) { return i; } i = i + 1i64; }
+        return -1i64;
+    }
+    /// `v` reads as possibly absent here (an outer var, outside its own `on`).
+    pub fn opt_is_live(self: &ElTypes, v: str) -> bool {
+        let i: i64 = self.opt_index(v);
+        return i >= 0i64 && self.opt_live[i];
+    }
+    pub fn opt_is_var(self: &ElTypes, v: str) -> bool { return self.opt_index(v) >= 0i64; }
+    pub fn opt_set_live(self: &mut ElTypes, v: str, live: bool) {
+        let i: i64 = self.opt_index(v);
+        if i >= 0i64 { self.opt_live[i] = live; }
+    }
+    /// Record that the rule reads field `col` (of type `inner`) of outer var `v`.
+    pub fn ov_add(self: &mut ElTypes, v: str, col: str, inner: str) {
+        if self.ov_find(v, col) >= 0i64 { return; }
+        let mut ty: String = String::new(); ty.push_str("Option<"); ty.push_str(inner); ty.push_str(">");
+        let mut lc: String = String::new(); lc.push_str("__ov_"); lc.push_str(v); lc.push_str("_"); lc.push_str(col);
+        self.ov_var.push(String::from_str(v)); self.ov_col.push(String::from_str(col));
+        self.ov_inner.push(String::from_str(inner)); self.ov_ty.push(ty); self.ov_local.push(lc);
+    }
+    pub fn ov_find(self: &ElTypes, v: str, col: str) -> i64 {
+        let mut i: i64 = 0i64;
+        while i < self.ov_var.len() {
+            if str_eq(self.ov_var[i].as_str(), v) && str_eq(self.ov_col[i].as_str(), col) { return i; }
+            i = i + 1i64;
+        }
+        return -1i64;
+    }
+
     // The recorded value-type for `name` (EL_TY_*), or INT if unknown.
     //
     // ⚠ DERIVED, not stored. The class used to be a second column beside the

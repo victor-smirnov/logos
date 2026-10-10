@@ -1,0 +1,20 @@
+exit: 0
+stdout:
+floors 1 4
+floors 2 0
+floors 3 7
+floors 4 4
+orphan 2
+count 4
+below 1 -1
+below 2 10
+below 2 20
+below 3 10
+below 4 -1
+boss 1 50
+boss 2 -1
+boss 3 -1
+boss 4 50
+floor_n 1
+floor_n 1
+floor_n 2

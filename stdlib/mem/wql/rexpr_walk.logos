@@ -3502,6 +3502,10 @@ struct NestSteps {
     /// #322 — the step's index is keyed by a column its source declares
     /// UNIQUE: one row a key, so the index is a map and the probe binds one row.
     uniq:   Vec<bool>,
+    /// OUTER steps: the bindings of the optional var's read fields
+    /// (`__ov_<var>_<col>`) on a match (`Some(..)`) and when it has none (`None`).
+    obind:  Vec<ExprBlob>,
+    onone:  Vec<ExprBlob>,
     /// The naming slot of each step's build and probe (`__hm<s>`, `__mp<s>`, …):
     /// `k + 1` for step k, unless the step's index is HOISTED out of a fixpoint
     /// loop, when it takes a slot unique in its fn (R7.2).
@@ -3518,6 +3522,13 @@ struct Hoist { on: bool, base: i64, inv: Vec<bool>, builds: Vec<ExprBlob> }
 
 fn hoist_off() -> Hoist { return Hoist { on: false, base: 0i64, inv: Vec::<bool>::new(), builds: vec_new::<ExprBlob>() }; }
 
+fn empty_blobs(n: i64) -> Vec<ExprBlob> {
+    let mut v: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut i: i64 = 0i64;
+    while i < n { v.push(quote_block! { }); i = i + 1i64; }
+    return v;
+}
+
 fn nest_steps_new(n: i64) -> NestSteps {
     let mut sl: Vec<i64> = Vec::<i64>::new();
     let mut k: i64 = 0i64;
@@ -3525,7 +3536,8 @@ fn nest_steps_new(n: i64) -> NestSteps {
     return NestSteps { build: vec![String::new(); n], probe: vec![String::new(); n],
                        resid: vec![String::new(); n], pred: vec![String::new(); n],
                        strat: vec![0i32; n], ktn: str_vec(n), hasres: vec![false; n],
-                       equi: vec![false; n], stream: vec![false; n], uniq: vec![false; n], slot: sl };
+                       equi: vec![false; n], stream: vec![false; n], uniq: vec![false; n],
+                       obind: empty_blobs(n), onone: empty_blobs(n), slot: sl };
 }
 
 /// Wrap `inner` in the nest's steps, innermost (last-bound) step first.
@@ -3538,7 +3550,8 @@ fn nest_wrap(prm: &MacroParams, ch: &DNest, ns: &NestSteps, inner0: ExprBlob,
                           ns.hasres[ki], ns.ktn[ki], ch.src[ki], ch.ty[ki],
                           ch.var[ki], ch.byval[ki], string_as_str(&ns.probe[ki]),
                           string_as_str(&ns.resid[ki]), string_as_str(&ns.pred[ki]),
-                          lim_f, has_lim_use, ns.stream[ki], ns.uniq[ki]);
+                          lim_f, has_lim_use, ns.stream[ki], ns.uniq[ki],
+                          ch.outer[ki], ns.obind[ki], ns.onone[ki]);
         ki = ki - 1i64;
     }
     return inner;
@@ -3556,74 +3569,161 @@ fn nest_builds(prm: &MacroParams, ch: &DNest, ns: &NestSteps, bps: &mut Vec<Expr
     }
 }
 
+// After a sort, an outer var's read fields re-bound from its recorded ordinal:
+// `Some(row.f)` when the step matched (`ix >= 0`), `None` when it had no row.
+fn outer_rebind_frag(t: &ElTypes, var: str, src: str, rowty: str, ix: str) -> ExprBlob {
+    let mut tp: ElTypes = el_types_clone(t);
+    tp.opt_set_live(var, false);
+    let mut bs: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut k: i64 = 0i64;
+    while k < t.ov_var.len() {
+        if str_eq(t.ov_var[k].as_str(), var) {
+            let lc: Ident = Ident::new(t.ov_local[k].as_str());
+            let ty1: ExprBlob = parse_type(t.ov_ty[k].as_str());
+            let mut ft: String = String::new();
+            outer_field_text(&tp, var, t.ov_col[k].as_str(), t.ov_inner[k].as_str(), &mut ft);
+            let fe: ExprBlob = parse_expr(string_as_str(&ft));
+            let ixe: ExprBlob = parse_expr(ix);
+            let ixe2: ExprBlob = parse_expr(ix);
+            let sf: ExprBlob = parse_expr(src);
+            let rt: ExprBlob = parse_type(rowty);
+            let vn: Ident = Ident::new(var);
+            bs.push(quote_block! {
+                let #lc: #(ty1) = if (#(ixe)) >= 0i64 {
+                    let #vn: &#(rt) = &(#(sf))[#(ixe2)];
+                    Option::Some(#(fe))
+                } else { Option::None };
+            });
+        }
+        k = k + 1i64;
+    }
+    return quote_block! { #( #bs; )* };
+}
+
+// An OUTER step's bindings of its var's read fields: `let __ov_v_f:
+// Option<T> = Option::Some(v.f);` on a match, `= Option::None;` without one.
+// `t` lists the fields (with the var live); `tp` reads them present.
+fn outer_bindings(t: &ElTypes, tp: &ElTypes, var: str, some: &mut ExprBlob, none: &mut ExprBlob) {
+    let mut sb: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut nb: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut k: i64 = 0i64;
+    while k < t.ov_var.len() {
+        if str_eq(t.ov_var[k].as_str(), var) {
+            let lc: Ident = Ident::new(t.ov_local[k].as_str());
+            let ty1: ExprBlob = parse_type(t.ov_ty[k].as_str());
+            let ty2: ExprBlob = parse_type(t.ov_ty[k].as_str());
+            let mut ft: String = String::new();
+            outer_field_text(tp, var, t.ov_col[k].as_str(), t.ov_inner[k].as_str(), &mut ft);
+            let fe: ExprBlob = parse_expr(string_as_str(&ft));
+            sb.push(quote_block! { let #lc: #(ty1) = Option::Some(#(fe)); });
+            let lc2: Ident = Ident::new(t.ov_local[k].as_str());
+            nb.push(quote_block! { let #lc2: #(ty2) = Option::None; });
+        }
+        k = k + 1i64;
+    }
+    *some = quote_block! { #( #sb; )* };
+    *none = quote_block! { #( #nb; )* };
+}
+
+// The present row's field, as the value the Some carries: a rel row's column
+// by position, a struct field by name; copied when `Copy`, cloned otherwise.
+fn outer_field_text(tp: &ElTypes, var: str, col: str, inner: str, out: &mut String) {
+    let k: i64 = tp.rel_col_of(var, col);
+    if tp.rel_col_ty(var, col) >= 0i32 && k >= 0i64 {
+        out.push_str(var); out.push_str("."); out.push_i64(k);
+    } else if tp.rel_col_ty(var, col) >= 0i32 && k == COL_WHOLE() {
+        out.push_str("(*"); out.push_str(var); out.push_str(")");
+    } else {
+        out.push_str(var); out.push_str("."); out.push_str(col);
+    }
+    let c: i32 = el_class_lookup(inner);
+    if c < 0i32 && !named_is_copy(inner) && named_is_clone(inner) { out.push_str(".clone()"); }
+}
+
 fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
                  ns: &mut NestSteps) -> bool {
     let mut i: i64 = 0i64;
     while i < ch.n {
-        // ADR 0025 S2g — THE PLAN'S NODE, not a shape read off a boolean. A
-        // step's source is pulled from an iterator when the plan put NO
-        // materialization over it; it is subscripted when the plan put a
-        // Drain, a Sort, or was handed a container. Same predicate, one
-        // authority — see `MacroParams::rel_src_unmaterialized`, which carries
-        // the equivalence argument (`plan_apply_access` writes `AD_NONE`
-        // under exactly the `ap.stream[ri]` that sets `rel_stream[ri]`).
-        ns.stream[i] = prm.rel_src_unmaterialized(ch.src[i]);
-        if ch.edge[i] {
-            ns.strat[i]  = JS_LOOP();
-            ns.ktn[i]    = "";
-            ns.hasres[i] = false;
-            ns.equi[i]   = false;
-            if ch.onw[i] != 0i64 {
-                let on_opt: WRef<SExpr> = simplify_sexpr(sexpr_of_word(ch.onw[i]), h);
-                emit_sexpr(&mut ns.pred[i], on_opt.any().view::<SExpr>(), t, var0);
-            } else {
-                ns.pred[i].push_str("true");
-            }
+        // An OUTER step reads its own `on` with its var PRESENT; after the
+        // step the var may be absent, and the step binds its read fields.
+        let mut tstep: ElTypes = el_types_clone(t);
+        if ch.outer[i] != 0i32 {
+            tstep.opt_set_live(ch.var[i], false);
+            if ch.outer[i] == OUTER_FULL() { tstep.opt_set_live(var0, false); }
+            outer_bindings(t, &tstep, ch.var[i], &mut ns.obind[i], &mut ns.onone[i]);
+        }
+        if !analyze_step(ch, i, &tstep, var0, h, prm, ns) { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+// One step of `analyze_chain`, against the step's own type env (an outer
+// step reads its own `on` with its var present).
+fn analyze_step(ch: &DNest, i: i64, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams,
+                ns: &mut NestSteps) -> bool {
+    // ADR 0025 S2g — THE PLAN'S NODE, not a shape read off a boolean. A
+    // step's source is pulled from an iterator when the plan put NO
+    // materialization over it; it is subscripted when the plan put a
+    // Drain, a Sort, or was handed a container. Same predicate, one
+    // authority — see `MacroParams::rel_src_unmaterialized`, which carries
+    // the equivalence argument (`plan_apply_access` writes `AD_NONE`
+    // under exactly the `ap.stream[ri]` that sets `rel_stream[ri]`).
+    ns.stream[i] = prm.rel_src_unmaterialized(ch.src[i]);
+    if ch.edge[i] {
+        ns.strat[i]  = JS_LOOP();
+        ns.ktn[i]    = "";
+        ns.hasres[i] = false;
+        ns.equi[i]   = false;
+        if ch.onw[i] != 0i64 {
+            let on_opt: WRef<SExpr> = simplify_sexpr(sexpr_of_word(ch.onw[i]), h);
+            emit_sexpr(&mut ns.pred[i], on_opt.any().view::<SExpr>(), t, var0);
         } else {
-            let onr: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(ch.onw[i] as *const u8) });
-            let strat: i32 = ch.jstrat[i];
-            let sel: i64   = ch.jsel[i];
-            // The key's EMITTED type — the index map's key type and the type both
-            // key expressions must reach. Re-derived from the SAME term index the
-            // plan recorded, so the pre-decided path and the decide-here path
-            // cannot disagree: `step_key_ty_of` is a function of that term.
-            let mut ktn: str = "i64";
-            if strat == JS_NONE() {
-                // Every step is the planner's (ADR 0031 R5.3, `plan_decide_rest`).
-                logos.lang.panic::panic("ICE: a join step reached emission undecided (plan_walker::plan_decide_rest)");
-            } else if sel >= 0i64 {
-                let stt: StepTerms = step_terms(onr, h);
-                if sel < stt.tl.n {
-                    let sd2: EquiSides = equi_term_sides(sexpr_of_word(stt.tl.w[sel]), ch.var[i]);
-                    if sd2.bw != 0i64 {
-                        ktn = step_key_ty_of(sexpr_of_word(sd2.bw), sexpr_of_word(sd2.pw), t);
-                        // #322 — a hash index keyed by a column the step's source
-                        // declares unique holds one row a key (ADR 0026 F8).
-                        if strat == JS_HASH() && !ch.anti[i] {
-                            if unique_key_col(prm, sexpr_of_word(sd2.bw), ch.var[i], ch.src[i]) {
-                                ns.uniq[i] = true;
-                                plan_trace(ch.src[i], "unique index", ch.var[i], "the build key is a column the source declares unique — a map of one row per key, probed without a bucket loop");
-                            }
+            ns.pred[i].push_str("true");
+        }
+    } else {
+        let onr: WRef<SExpr> = WRef::<SExpr>::from_any(unsafe { WAny::ref_to(ch.onw[i] as *const u8) });
+        let strat: i32 = ch.jstrat[i];
+        let sel: i64   = ch.jsel[i];
+        // The key's EMITTED type — the index map's key type and the type both
+        // key expressions must reach. Re-derived from the SAME term index the
+        // plan recorded, so the pre-decided path and the decide-here path
+        // cannot disagree: `step_key_ty_of` is a function of that term.
+        let mut ktn: str = "i64";
+        if strat == JS_NONE() {
+            // Every step is the planner's (ADR 0031 R5.3, `plan_decide_rest`).
+            logos.lang.panic::panic("ICE: a join step reached emission undecided (plan_walker::plan_decide_rest)");
+        } else if sel >= 0i64 {
+            let stt: StepTerms = step_terms(onr, h);
+            if sel < stt.tl.n {
+                let sd2: EquiSides = equi_term_sides(sexpr_of_word(stt.tl.w[sel]), ch.var[i]);
+                if sd2.bw != 0i64 {
+                    ktn = step_key_ty_of(sexpr_of_word(sd2.bw), sexpr_of_word(sd2.pw), t);
+                    // #322 — a hash index keyed by a column the step's source
+                    // declares unique holds one row a key (ADR 0026 F8).
+                    if strat == JS_HASH() && !ch.anti[i] {
+                        if unique_key_col(prm, sexpr_of_word(sd2.bw), ch.var[i], ch.src[i]) {
+                            ns.uniq[i] = true;
+                            plan_trace(ch.src[i], "unique index", ch.var[i], "the build key is a column the source declares unique — a map of one row per key, probed without a bucket loop");
                         }
                     }
                 }
             }
-            if ns.stream[i] && !js_reads_once(strat) {
-                let mut m: String = String::new();
-                m.push_str("wql!: internal — join step over `");
-                m.push_str(ch.src[i]);
-                m.push_str("` is streamed but its strategy rescans the source; the plan proved a single read that the emitted shape does not have");
-                error(string_as_str(&m));
-                return false;
-            }
-            ns.strat[i]  = strat;
-            ns.hasres[i] = emit_step_texts(onr, ch.var[i], sel, ktn, t, var0, h,
-                                           &mut ns.build[i], &mut ns.probe[i],
-                                           &mut ns.resid[i], &mut ns.pred[i]);
-            ns.ktn[i]    = ktn;
-            ns.equi[i]   = sel >= 0i64;
         }
-        i = i + 1i64;
+        if ns.stream[i] && !js_reads_once(strat) {
+            let mut m: String = String::new();
+            m.push_str("wql!: internal — join step over `");
+            m.push_str(ch.src[i]);
+            m.push_str("` is streamed but its strategy rescans the source; the plan proved a single read that the emitted shape does not have");
+            error(string_as_str(&m));
+            return false;
+        }
+        ns.strat[i]  = strat;
+        ns.hasres[i] = emit_step_texts(onr, ch.var[i], sel, ktn, t, var0, h,
+                                       &mut ns.build[i], &mut ns.probe[i],
+                                       &mut ns.resid[i], &mut ns.pred[i]);
+        ns.ktn[i]    = ktn;
+        ns.equi[i]   = sel >= 0i64;
     }
     return true;
 }
@@ -3982,7 +4082,28 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
 fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
              has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
              probe_key: str, residual: str, pred: str,
-             lim: ExprBlob, has_lim: bool, streams: bool, uniq: bool) -> ExprBlob {
+             lim: ExprBlob, has_lim: bool, streams: bool, uniq: bool,
+             outer: i32, obind: ExprBlob, onone: ExprBlob) -> ExprBlob {
+    // OUTER step: the inner step's shape, the body run once per match with the
+    // var's fields bound `Some(..)`, and once more with them `None` when the
+    // step matched nothing — the row so far survives (SQL's LEFT JOIN).
+    if outer != 0i32 {
+        let s_om: String = nk_str("__om", s);  let n_om: Ident = Ident::new(string_as_str(&s_om));
+        let n_om2: Ident = Ident::new(string_as_str(&s_om));
+        let n_om3: Ident = Ident::new(string_as_str(&s_om));
+        let matched: ExprBlob = quote_block! { #n_om2 = true; #(obind); #(inner) };
+        let scan: ExprBlob = step_wrap(prm, matched, s, strat, false, has_resid, ktn, src, ty, var, byval,
+                                       probe_key, residual, pred, lim, has_lim, streams, uniq,
+                                       0i32, obind, onone);
+        // the absent row's ordinal for a sort's re-bind: -1 (`outer_rebind_frag`)
+        let s_rj: String = nk_str("__j", s);   let n_rj: Ident = Ident::new(string_as_str(&s_rj));
+        let s_rr: String = nk_str("__ri", s);  let n_rr: Ident = Ident::new(string_as_str(&s_rr));
+        return quote_block! {
+            let mut #n_om: bool = false;
+            #(scan);
+            if !#n_om3 { let #n_rj: i64 = -1i64; let #n_rr: i64 = -1i64; #(onone); #(inner) }
+        };
+    }
     let s_pk: String = nk_str("__pk", s);   let n_pk: Ident = Ident::new(string_as_str(&s_pk));
     let s_m:  String = nk_str("__m",  s);   let n_m:  Ident = Ident::new(string_as_str(&s_m));
     let s_j:  String = nk_str("__j",  s);   let n_j:  Ident = Ident::new(string_as_str(&s_j));
@@ -4543,6 +4664,27 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     // Per-step strategy analysis (Part 2) — chosen by the plan, read here.
     let mut ns: NestSteps = nest_steps_new(ch.n);
     if !analyze_chain(ch, ty, ch.base_var, h, prm, &mut ns) { return false; }
+    // A FULL join (`from a x full join b y on P`, the core admits two sources):
+    // the base row's fields are optional too, a match marks the step row, and a
+    // second pass emits the step rows nothing matched with the base absent.
+    let full: bool = ch.n == 1i64 && ch.outer[0i64] == OUTER_FULL();
+    let mut xsome: ExprBlob = quote_block! { };
+    let mut xnone: ExprBlob = quote_block! { };
+    let mut ysome: ExprBlob = quote_block! { };
+    if full {
+        if ns.stream[0i64] {
+            error("wql!: a `full join` whose second source streams is not supported — its unmatched rows are read in a second pass, and an iterator is spent after the first");
+            return false;
+        }
+        let mut tx: ElTypes = el_types_clone(ty);
+        tx.opt_set_live(ch.base_var, false);
+        outer_bindings(ty, &tx, ch.base_var, &mut xsome, &mut xnone);
+        ysome = ns.obind[0i64];
+        let ordv: str = if ns.strat[0i64] == JS_LOOP() { "__j1" } else { "__ri1" };
+        let ordf: ExprBlob = parse_expr(ordv);
+        let yb: ExprBlob = ns.obind[0i64];
+        ns.obind[0i64] = quote_block! { #(yb); __fm1.set(#(ordf), true); };
+    }
 
     // The bound sources of THIS order: the generated row-index expression each
     // one contributes to the sort's tuple, and the query slot it belongs in.
@@ -4591,8 +4733,10 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
         inner = quote_block! { if (#(where_f)) #(inner) };
     }
 
+    let body_inner: ExprBlob = inner;
     // Wrap one step at a time, innermost step LAST-bound first.
     inner = nest_wrap(prm, ch, &ns, inner, lim_f, has_lim_use);
+    if full { inner = quote_block! { #(xsome); #(inner) }; }
 
     // The base loop. The DRIVING side may stream: it is the outermost loop of a
     // left-deep nest, so it is read once by construction — which is the fact the
@@ -4669,6 +4813,34 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     // Build phases — one per hash/tree step, spliced by the caller BEFORE the
     // nest (at body level for one order, inside the branch for two).
     nest_builds(prm, ch, &ns, bps);
+    if full {
+        let ysrc: ExprBlob = parse_expr(ch.src[0i64]);
+        let ysrc2: ExprBlob = parse_expr(ch.src[0i64]);
+        let ysrc3: ExprBlob = parse_expr(ch.src[0i64]);
+        let yty: ExprBlob = parse_type(ch.ty[0i64]);
+        let yv: Ident = Ident::new(ch.var[0i64]);
+        let mut fcond: ExprBlob = quote_expr! { __fj1 < (#(ysrc2)).len() };
+        if has_lim_use { fcond = quote_expr! { __fj1 < (#(ysrc2)).len() && __out.len() < (#(lim_f)) }; }
+        nest = quote_block! {
+            let mut __fm1: Vec<bool> = Vec::<bool>::new();
+            let mut __fz1: i64 = 0i64;
+            while __fz1 < (#(ysrc)).len() { __fm1.push(false); __fz1 = __fz1 + 1i64; }
+            #(nest);
+            let mut __fj1: i64 = 0i64;
+            while #(fcond) {
+                if !__fm1.get(__fj1) {
+                    let #yv: &#(yty) = &(#(ysrc3))[__fj1];
+                    let __i0: i64 = -1i64;
+                    let __j1: i64 = __fj1;
+                    let __ri1: i64 = __fj1;
+                    #(xnone);
+                    #(ysome);
+                    #(body_inner);
+                }
+                __fj1 = __fj1 + 1i64;
+            }
+        };
+    }
     *out = nest;
     return true;
 }
@@ -5035,7 +5207,11 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
                 let bs: ExprBlob = parse_expr(bnd_src[rk]);
                 let bt: ExprBlob = parse_type(bnd_ty[rk]);
                 let bv: Ident = Ident::new(bnd_var[rk]);
-                if bnd_byval[rk] {
+                if ty.opt_is_var(bnd_var[rk]) {
+                    let mut ixs: String = String::new();
+                    ixs.push_str(string_as_str(&sx)); ixs.push_str(".get(0i64)");
+                    rb.push(outer_rebind_frag(&ty, bnd_var[rk], bnd_src[rk], bnd_ty[rk], string_as_str(&ixs)));
+                } else if bnd_byval[rk] {
                     rb.push(quote_block! { let #bv: #(bt) = (#(bs))[#nx.get(0i64)]; });
                 } else {
                     rb.push(quote_block! { let #bv: &#(bt) = &(#(bs))[#nx.get(0i64)]; });
@@ -5058,7 +5234,11 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
                 let bs: ExprBlob = parse_expr(bnd_src[rk2]);
                 let bt: ExprBlob = parse_type(bnd_ty[rk2]);
                 let bv: Ident = Ident::new(bnd_var[rk2]);
-                if bnd_byval[rk2] {
+                if ty.opt_is_var(bnd_var[rk2]) {
+                    let mut ixs: String = String::new();
+                    ixs.push_str(string_as_str(&sx)); ixs.push_str(".get(__o)");
+                    rb.push(outer_rebind_frag(&ty, bnd_var[rk2], bnd_src[rk2], bnd_ty[rk2], string_as_str(&ixs)));
+                } else if bnd_byval[rk2] {
                     rb.push(quote_block! { let #bv: #(bt) = (#(bs))[#nx.get(__o)]; });
                 } else {
                     rb.push(quote_block! { let #bv: &#(bt) = &(#(bs))[#nx.get(__o)]; });

@@ -1,0 +1,11 @@
+// An outer join is not supported in a rel body yet (a rel is a set of rows).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+pub deem q(es: &[Emp], ds: &[Dept]) {
+    rel r(id: i64) { from es e left join ds d on d.id == e.dept select e.id; }
+    from r x select x.id
+}
+fn main() -> i32 { return 0i32; }

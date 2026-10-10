@@ -202,6 +202,8 @@ pub struct JCh {
     pub strat: Vec<i32>,
     pub sel:   Vec<i64>,
     pub sground: Vec<i64>,
+    /// The chain has an outer step (its order is the written one).
+    pub outer_any: bool,
 }
 
 /// A chain of `n` steps: `n + 1` slots, each at its default.
@@ -215,7 +217,7 @@ pub fn jch_new(n: i64) -> JCh {
                  edge: vec![false; m],
                  strat: vec![0i32; m],
                  sel:   vec![-1i64; m],
-                 sground: vec![0i64; m] };
+                 sground: vec![0i64; m], outer_any: false };
 }
 
 // ── The decision ──────────────────────────────────────────────────────────
@@ -910,7 +912,10 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: 
     // header. The general constraint C4 reaches the same conclusion on every shape
     // in the corpus; keeping the specific antecedent is what tells a reader WHICH
     // property of their query stopped the reorder.
-    if c.edge[1] {
+    if c.outer_any {
+        // an outer join's kept side is fixed by the written order
+        jo = jo_ground(WG_OUTER(), AX_REFUSED());
+    } else if c.edge[1] {
         jo = jo_ground(WG_EDGE_FIRST(), AX_REFUSED());
     } else if c.anti[1] {
         jo = jo_ground(WG_ANTI_FIRST(), AX_REFUSED());
@@ -1006,16 +1011,18 @@ pub fn jch_from_core(cl: &CClause) -> JCh {
             CLit::Atom(a) => {
                 c.src[s] = a.name; c.var[s] = a.var;
                 if s > 0i64 {
-                    c.onw[s] = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                    c.onw[s] = if a.neg || a.outer != 0i32 { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
                     c.anti[s] = a.neg;
+                    if a.outer != 0i32 { c.outer_any = true; }
                     c.strat[s] = a.strat; c.sel[s] = a.jsel as i64; c.sground[s] = a.ground;
                 }
                 s = s + 1i64;
             }
             CLit::Trav(t) => {
                 c.src[s] = t.name; c.var[s] = t.var;
-                c.onw[s] = if t.neg { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                c.onw[s] = if t.neg || t.outer != 0i32 { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
                 c.anti[s] = t.neg;
+                if t.outer != 0i32 { c.outer_any = true; }
                 c.edge[s] = true;
                 s = s + 1i64;
             }

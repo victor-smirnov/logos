@@ -179,9 +179,9 @@
     // fields and cap is 9 — `peg_schema_mirror_wql` holds the two equal. A
     // TinyObjectMap's capacity is fixed at construction, so the parser must size
     // for writes it never makes.
-    RQJoinStep    : code(0x0012_0000_0000_0012) cap(9) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
+    RQJoinStep    : code(0x0012_0000_0000_0012) cap(10) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
                     is_edge: "bool" = 5, has_on: "bool" = 6, base_var: "str" = 7,
-                    path: "ref RQPathSegArr" = 8 }
+                    path: "ref RQPathSegArr" = 8, outer: "i32" = 9 }
     RQJoinStepArr : code(0x0012_0000_0000_0013) cap(2) { count: "i32" = 0, steps: "list set_step" = 1 }
 
     // ── graph-path steps (ADR 0016 M2a) ───────────────────────────────────
@@ -220,6 +220,8 @@
     KW_WHERE     = "where"
     KW_SELECT    = "select"
     KW_ANTI      = "anti"
+    KW_LEFT      = "left"
+    KW_FULL      = "full"
     KW_JOIN      = "join"
     KW_ON        = "on"
     KW_GROUP     = "group"
@@ -522,6 +524,22 @@
                 / KW_ANTI? KW_JOIN IDENT IDENT
                   KW_ON on_body
                   => { CODE: "RQJoinStep", is_anti: $1, src_name: $3,
+                       var_name: $4, on: $6, has_on: true, is_edge: false }
+                // OUTER joins: `left join` keeps every row so far and binds the
+                // new var to its matches or to NONE (its columns read as
+                // `Option<T>` after the step); `full join` also keeps the new
+                // source's unmatched rows. outer = 1 left / 2 full.
+                / KW_LEFT KW_JOIN IDENT path_segs IDENT
+                  on_clause?
+                  => { CODE: "RQJoinStep", outer: 1, base_var: $3, path: $4,
+                       var_name: $5, on: $6, has_on: $6, is_edge: true }
+                / KW_LEFT KW_JOIN IDENT IDENT
+                  KW_ON on_body
+                  => { CODE: "RQJoinStep", outer: 1, src_name: $3,
+                       var_name: $4, on: $6, has_on: true, is_edge: false }
+                / KW_FULL KW_JOIN IDENT IDENT
+                  KW_ON on_body
+                  => { CODE: "RQJoinStep", outer: 2, src_name: $3,
                        var_name: $4, on: $6, has_on: true, is_edge: false }
 
     // `on P` — the traversal step's OPTIONAL residual (value = the SExpr, $2).

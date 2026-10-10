@@ -1,0 +1,26 @@
+// `full join` of two sources: both sides keep their unmatched rows, so both
+// row vars' columns read as `Option<T>`. The step rows nothing matched are
+// emitted after the base's, with the base absent; a sort orders them all.
+// Rows: hand-derived.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+use logos.std.fmt;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+pub deem both(es: &[Emp], ds: &[Dept]) {
+    from es e full join ds d on d.id == e.dept
+    select (unwrap_or(e.id, -1), unwrap_or(d.id, -1)) order by unwrap_or(e.id, 100) * 1000 + unwrap_or(d.id, 0)
+}
+pub deem both_unsorted(es: &[Emp], ds: &[Dept]) { from es e full join ds d on d.id == e.dept select e.id }
+fn main() -> i32 {
+    let es: [Emp; 3] = [ Emp { id: 1, dept: 10 }, Emp { id: 2, dept: 99 }, Emp { id: 3, dept: 10 } ];
+    let ds: [Dept; 3] = [ Dept { id: 10, floor: 4 }, Dept { id: 20, floor: 7 }, Dept { id: 30, floor: 1 } ];
+    let r: Vec<(i64, i64)> = both(&es[..], &ds[..]).unwrap();
+    let mut i: i64 = 0i64;
+    while i < r.len() { println!("{} {}", r.get(i).0, r.get(i).1); i = i + 1i64; }
+    println!("n {}", both_unsorted(&es[..], &ds[..]).unwrap().len());
+    return 0i32;
+}

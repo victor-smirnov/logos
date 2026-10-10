@@ -933,6 +933,8 @@ fn dx_core_body(p: &CProgram, cl: &mut DxClause, env: &DxEnv, body: &Vec<CLit>) 
     while i < body.len() {
         match &bs[i] {
             CLit::Atom(a) => {
+                // an outer join keeps rows a Datalog atom cannot: not exported
+                if a.outer != 0i32 { return dx_no(cl, "outer join (left / full)"); }
                 match &a.src {
                     CSrc::Unit => {
                         if cl.body.len() > 0i64 { cl.body.push_str(", "); }
@@ -966,6 +968,7 @@ fn dx_core_body(p: &CProgram, cl: &mut DxClause, env: &DxEnv, body: &Vec<CLit>) 
                 }
             }
             CLit::Trav(t) => {
+                if t.outer != 0i32 { return dx_no(cl, "outer join (left / full)"); }
                 let cs: i64 = dx_trav_src(env, cl, t.base, &t.path);
                 if cs < 0i64 { return dx_no(cl, "traversal outside the fragment (a nested path, or a collection wider than Soufflé's arity)"); }
                 if t.neg {

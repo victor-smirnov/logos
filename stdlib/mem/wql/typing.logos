@@ -133,7 +133,96 @@ pub fn type_clause(view: &OView, prm: &MacroParams, cl: &CClause, to_trav: bool)
         i = i + 1i64;
     }
     type_finish(&mut ty, view, prm, WAny::null());
+    type_outer(&mut ty, cl, WAny::null());
     return ty;
+}
+
+/// OUTER joins: mark each optional row var (a `left join`'s new var; both of a
+/// `full join`'s) and record every field of it the clause reads — `y.f` is
+/// `Option<T>` after the step, bound to a local the step fills. `extra` is one
+/// more expression the rule reads (its `order by` key; null = none).
+pub fn type_outer(ty: &mut ElTypes, cl: &CClause, extra: WAny) {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut base: str = "";
+    let mut full: bool = false;
+    let mut any: bool = false;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if base.len() == 0i64 { base = a.var; }
+                if a.outer != 0i32 { ty.opt_add(a.var); any = true; if a.outer == OUTER_FULL() { full = true; } }
+            }
+            CLit::Trav(t) => { if t.outer != 0i32 { ty.opt_add(t.var); any = true; } }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    if !any { return; }
+    if full { ty.opt_add(base); }
+    // field types are read with every optional var present
+    let mut k: i64 = 0i64;
+    while k < ty.opt_vars.len() { ty.opt_live[k] = false; k = k + 1i64; }
+    if !cl.head.is_null() { collect_opt(ty, cl.head.view::<SExpr>()); }
+    i = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => { collect_opt(ty, c.e.view::<SExpr>()); }
+            CLit::Atom(a) => { let mut j: i64 = 0i64; while j < a.conds.len() { collect_opt(ty, a.conds.get(j).view::<SExpr>()); j = j + 1i64; } }
+            CLit::Trav(t) => { let mut j: i64 = 0i64; while j < t.conds.len() { collect_opt(ty, t.conds.get(j).view::<SExpr>()); j = j + 1i64; } }
+        }
+        i = i + 1i64;
+    }
+    match &cl.group {
+        Option::Some(g) => {
+            collect_opt(ty, g.key.view::<SExpr>());
+            let ags: &[CAgg] = g.aggs.as_slice();
+            let mut a: i64 = 0i64;
+            while a < g.aggs.len() {
+                match &ags[a].arg { Option::Some(x) => { collect_opt(ty, (*x).view::<SExpr>()); } Option::None => { } }
+                a = a + 1i64;
+            }
+            match &g.having { Option::Some(h) => { collect_opt(ty, (*h).view::<SExpr>()); } Option::None => { } }
+        }
+        Option::None => { }
+    }
+    if !extra.is_null() { collect_opt(ty, extra.view::<SExpr>()); }
+    k = 0i64;
+    while k < ty.opt_vars.len() { ty.opt_live[k] = true; k = k + 1i64; }
+}
+
+// Record each `v.f` over an optional var `v` in `e`.
+fn collect_opt(ty: &mut ElTypes, e: SExpr) {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { return; }
+            let be: SExpr = f.base_expr();
+            let rn: str = root_ident_name(be);
+            if rn.len() > 0i64 && ty.opt_is_var(rn) {
+                let mut inner: String = String::new();
+                inner.push_str(field_ty_name(f, ty));
+                if inner.len() > 0i64 { ty.ov_add(rn, f.name, string_as_str(&inner)); }
+                return;
+            }
+            collect_opt(ty, be);
+        }
+        SExpr::Bin(b) => { collect_opt(ty, b.lhs_expr()); collect_opt(ty, b.rhs_expr()); }
+        SExpr::Un(u) => { collect_opt(ty, u.arg_expr()); }
+        SExpr::Cast(c) => { collect_opt(ty, c.arg_expr()); }
+        SExpr::Cond(c) => { collect_opt(ty, c.cond_expr()); collect_opt(ty, c.then_expr()); collect_opt(ty, c.else_expr()); }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < args.len() { collect_opt(ty, args.arg_at(i)); i = i + 1i64; }
+        }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() { collect_opt(ty, items.arg_at(i)); i = i + 1i64; }
+        }
+        _ => { }
+    }
 }
 
 // ── ADR 0031 R4.0 — atoms resolved and typed from the DECLARATIONS ──────────

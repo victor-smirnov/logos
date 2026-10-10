@@ -366,9 +366,49 @@ pub fn core_rules_ok(p: &CProgram) -> bool {
         while b < rels[r].rules.len() {
             if !rel_rule_ok(rels[r].name, &rs[b]) { return false; }
             if !chain_vars_ok(&rs[b].clause) { return false; }
+            if clause_outer_count(&rs[b].clause) > 0i64 {
+                return rel_err(rels[r].name, "an outer join (`left join` / `full join`) is not supported in a rel body yet — a rel is a set of rows; join in the entry query");
+            }
             b = b + 1i64;
         }
         r = r + 1i64;
     }
-    return chain_vars_ok(&p.entry.clause);
+    if !chain_vars_ok(&p.entry.clause) { return false; }
+    return entry_outer_ok(&p.entry);
+}
+
+// The entry's outer steps: not under `find` (one borrowed row has no absent
+// side to stand for); a `full join` joins exactly two sources (the base and
+// that one step) — the unmatched rows of a source joined after other steps
+// would need every earlier side absent at once.
+fn entry_outer_ok(ru: &CRule) -> bool {
+    let cl: &CClause = &ru.clause;
+    if clause_outer_count(cl) == 0i64 { return true; }
+    match &ru.env.mode {
+        CMode::Find => { error("wql!: `find` over an outer join is not supported — `find` borrows one matching row, and an outer join's absent side has none"); return false; }
+        CMode::All => { }
+        CMode::First => { }
+    }
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut nsrc: i64 = 0i64;
+    let mut full: bool = false;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { nsrc = nsrc + 1i64; if a.outer == OUTER_FULL() { full = true; } }
+            CLit::Trav(_t) => { nsrc = nsrc + 1i64; }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
+    if full && grouped {
+        error("wql!: `group by` over a `full join` is not supported yet — group the joined rows in a rel, or use a `left join`");
+        return false;
+    }
+    if full && nsrc != 2i64 {
+        error("wql!: a `full join` joins exactly two sources (`from a x full join b y on P`) — with more steps the unmatched rows of one side would need every other side absent at once; join the rest in a rel first");
+        return false;
+    }
+    return true;
 }

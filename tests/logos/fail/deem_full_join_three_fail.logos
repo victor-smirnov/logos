@@ -1,0 +1,10 @@
+// A `full join` joins exactly two sources.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+struct Boss { pub id: i64 }
+pub deem q(es: &[Emp], ds: &[Dept], bs: &[Boss]) { from es e full join ds d on d.id == e.dept join bs b on b.id == e.id select e.id }
+fn main() -> i32 { return 0i32; }

@@ -74,8 +74,14 @@ fn ons_ok(cl: &CClause, ty: &ElTypes, ctx: str) -> bool {
     while i < ch.n {
         if ch.onw[i] != 0i64 {
             let on_e: SExpr = unsafe { WAny::ref_to(ch.onw[i] as *const u8) }.view::<SExpr>();
-            if !reject_tuple_in(on_e, ty, ctx) { return false; }
-            if !check_calls(on_e, ty, ctx) { return false; }
+            // an outer step's own `on` reads its var (and a full join's base) present
+            let mut tp: ElTypes = el_types_clone(ty);
+            if ch.outer[i] != 0i32 {
+                tp.opt_set_live(ch.var[i], false);
+                if ch.outer[i] == OUTER_FULL() { tp.opt_set_live(ch.base_var, false); }
+            }
+            if !reject_tuple_in(on_e, &tp, ctx) { return false; }
+            if !check_calls(on_e, &tp, ctx) { return false; }
         }
         i = i + 1i64;
     }
@@ -146,6 +152,7 @@ fn rule_type_env(view: &OView, prm: &MacroParams, ru: &CRule, entry: bool) -> El
     stamp_rule_names(ru, &mut ty);
     let find: bool = match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
     if entry && !find && !cl.head.is_null() { stamp_comp_vars(sx(cl.head), &mut ty, prm); }
+    match &ru.env.order { Option::Some(o) => { type_outer(&mut ty, cl, *o); } Option::None => { } }
     return ty;
 }
 
@@ -407,6 +414,7 @@ fn check_entry(view: &OView, prm: &MacroParams, ru: &CRule, h: &Writ) -> bool {
     let mut ty: ElTypes = type_clause(view, prm, cl, false);
     ty.src = query_src_of(prm);
     stamp_rule_names(ru, &mut ty);
+    if !outer_rows_ok(ru, &ty) { return false; }
     let find: bool = match &ru.env.mode { CMode::Find => true, CMode::All => false, CMode::First => false };
     if find { return cond_ok(cond_where(cl), &ty, "wql!: `find`"); }
     if !cl.head.is_null() { stamp_comp_vars(sx(cl.head), &mut ty, prm); }
@@ -423,6 +431,98 @@ fn check_entry(view: &OView, prm: &MacroParams, ru: &CRule, h: &Writ) -> bool {
         Option::None => { }
     }
     return ons_ok(cl, &ty, "wql!: `on`");
+}
+
+/// An outer join's optional row var is read by its FIELDS (each `Option<T>`),
+/// never whole: after its step the row may not exist.
+fn outer_rows_ok(ru: &CRule, ty: &ElTypes) -> bool {
+    if ty.opt_vars.len() == 0i64 { return true; }
+    let cl: &CClause = &ru.clause;
+    if !cl.head.is_null() && !outer_row_free(sx(cl.head), ty) { return false; }
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Cond(c) => { if !outer_row_free(sx(c.e), ty) { return false; } }
+            CLit::Atom(_a) => { }
+            CLit::Trav(_t) => { }
+        }
+        i = i + 1i64;
+    }
+    match &cl.group {
+        Option::Some(g) => {
+            if !outer_row_free(sx(g.key), ty) { return false; }
+            match &g.having { Option::Some(hv) => { if !outer_row_free(sx(*hv), ty) { return false; } } Option::None => { } }
+        }
+        Option::None => { }
+    }
+    match &ru.env.order { Option::Some(o) => { if !outer_row_free(sx(*o), ty) { return false; } } Option::None => { } }
+    return true;
+}
+
+fn outer_row_free(e: SExpr, ty: &ElTypes) -> bool {
+    match e {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() {
+                if ty.opt_is_var(f.name) {
+                    let mut m: String = String::new();
+                    m.push_str("wql!: the row `");
+                    m.push_str(f.name);
+                    m.push_str("` is read whole, but after its outer join it may not exist — read its fields (each is `Option<T>`), e.g. `");
+                    m.push_str(f.name);
+                    m.push_str(".<field>`, `is_some(");
+                    m.push_str(f.name);
+                    m.push_str(".<field>)`");
+                    ty_error(ty, e, string_as_str(&m));
+                    return false;
+                }
+                return true;
+            }
+            let be: SExpr = f.base_expr();
+            // `v.f` reads a field; only a deeper path through `v` is refused
+            let rn: str = root_ident_name(be);
+            if rn.len() > 0i64 { return true; }
+            // `v.x.y` over an optional `v`: `v.x` is an Option, which has no fields
+            match be {
+                SExpr::Field(bf) => {
+                    let bb: WRef<SExpr> = bf.base;
+                    if !bb.any().is_null() {
+                        let vr: str = root_ident_name(bf.base_expr());
+                        if vr.len() > 0i64 && ty.opt_is_var(vr) {
+                            let mut m2: String = String::new();
+                            m2.push_str("wql!: `");
+                            m2.push_str(vr); m2.push_str("."); m2.push_str(bf.name);
+                            m2.push_str("` is `Option<_>` after its outer join, so it has no field `");
+                            m2.push_str(f.name);
+                            m2.push_str("` — read a top-level column of the optional row");
+                            ty_error(ty, e, string_as_str(&m2));
+                            return false;
+                        }
+                    }
+                }
+                _ => { }
+            }
+            return outer_row_free(be, ty);
+        }
+        SExpr::Bin(b) => { return outer_row_free(b.lhs_expr(), ty) && outer_row_free(b.rhs_expr(), ty); }
+        SExpr::Un(u) => { return outer_row_free(u.arg_expr(), ty); }
+        SExpr::Cast(c) => { return outer_row_free(c.arg_expr(), ty); }
+        SExpr::Cond(c) => { return outer_row_free(c.cond_expr(), ty) && outer_row_free(c.then_expr(), ty) && outer_row_free(c.else_expr(), ty); }
+        SExpr::Call(c) => {
+            let args: SExprArr = c.args_arr();
+            let mut i: i64 = 0i64;
+            while i < args.len() { if !outer_row_free(args.arg_at(i), ty) { return false; } i = i + 1i64; }
+            return true;
+        }
+        SExpr::Tuple(tp) => {
+            let items: SExprArr = tp.items_arr();
+            let mut i: i64 = 0i64;
+            while i < items.len() { if !outer_row_free(items.arg_at(i), ty) { return false; } i = i + 1i64; }
+            return true;
+        }
+        _ => { return true; }
+    }
 }
 
 fn check_group_entry(view: &OView, prm: &MacroParams, ru: &CRule, g: &CGroup, ty0: ElTypes, h: &Writ) -> bool {

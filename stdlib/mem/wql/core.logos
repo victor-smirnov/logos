@@ -42,6 +42,25 @@ pub enum CSrc {
 /// A source atom: binds `var` to each row of `src`. A NEGATED atom binds
 /// nothing visible outside it; its `conds` are the anti join's `on`, scoped to
 /// the negation (`!exists var in src: conds`).
+pub fn OUTER_LEFT() -> i32 { return 1i32; }
+pub fn OUTER_FULL() -> i32 { return 2i32; }
+
+/// How many outer steps (`left join` / `full join`) a clause has.
+pub fn clause_outer_count(cl: &CClause) -> i64 {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if a.outer != 0i32 { n = n + 1i64; } }
+            CLit::Trav(t) => { if t.outer != 0i32 { n = n + 1i64; } }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return n;
+}
+
 pub struct CAtom {
     pub src: CSrc,
     /// The source's index in the walker's registry (`MacroParams.rel_srcs`) in
@@ -54,6 +73,9 @@ pub struct CAtom {
     pub var: str,
     pub row_ty: str,
     pub neg: bool,
+    /// An OUTER step: 0 inner, OUTER_LEFT (`left join`), OUTER_FULL (`full join`).
+    /// Its `on` rides in `conds`, as an anti step's does: the match is its scope.
+    pub outer: i32,
     pub conds: Vec<WAny>,
     /// A join step's strategy as the planner decided it (`plan_decide_chain`,
     /// on a planned core's entry): `JS_*`, the equi-key term, the packed ground.
@@ -74,6 +96,7 @@ pub struct CTrav {
     pub var: str,
     pub row_ty: str,
     pub neg: bool,
+    pub outer: i32,
     pub conds: Vec<WAny>,
 }
 
@@ -249,7 +272,7 @@ fn base_atom(lx: &CLower, src: str, var: str, row_ty: str) -> CLit {
     // `__u` — `crewrite::core_desugar_facts` then reads it as `__unit`.
     let v: str = if src.len() == 0i64 && var.len() == 0i64 { "__u" } else { var };
     return CLit::Atom(CAtom { src: src_of(lx, src), reg: -1i64, name: src, var: v, row_ty: row_ty,
-                              neg: false, conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
+                              neg: false, outer: 0i32, conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
 }
 
 // A join chain's steps, in order: each step an atom (or a traversal), and a
@@ -264,20 +287,21 @@ fn lower_steps(lx: &CLower, steps: WAny, body: &mut Vec<CLit>) {
         let mut conds: Vec<WAny> = Vec::<WAny>::new();
         let on: WAny = st.on.any();
         let has_on: bool = st.has_on && !on.is_null();
-        if st.is_anti && has_on { conds.push(on); }
+        let outer: i32 = st.outer;
+        if (st.is_anti || outer != 0i32) && has_on { conds.push(on); }
         if st.is_edge {
             let mut path: Vec<str> = Vec::<str>::new();
             let pa: RQPathSegArr = st.path_arr();
             let mut k: i64 = 0i64;
             while k < pa.len() { path.push(pa.seg_at(k).name); k = k + 1i64; }
             body.push(CLit::Trav(CTrav { name: st.src_name, base: st.base_var, path: path, var: st.var_name,
-                                         row_ty: st.row_ty, neg: st.is_anti, conds: conds }));
+                                         row_ty: st.row_ty, neg: st.is_anti, outer: outer, conds: conds }));
         } else {
             body.push(CLit::Atom(CAtom { src: src_of(lx, st.src_name), reg: -1i64, name: st.src_name, var: st.var_name,
-                                         row_ty: st.row_ty, neg: st.is_anti, conds: conds,
+                                         row_ty: st.row_ty, neg: st.is_anti, outer: outer, conds: conds,
                                          strat: 0i32, jsel: -1i32, ground: 0i64 }));
         }
-        if !st.is_anti && has_on { body.push(CLit::Cond(CCond { e: on, site: CSite::On })); }
+        if !st.is_anti && outer == 0i32 && has_on { body.push(CLit::Cond(CCond { e: on, site: CSite::On })); }
         i = i + 1i64;
     }
 }
@@ -538,12 +562,13 @@ fn verify_clause(p: &CProgram, cl: &CClause, rel: str, entry_find: bool) {
                     CSrc::Param(n) => { if n.len() == 0i64 { ice("an atom reads an unnamed parameter", rel); } }
                     CSrc::Unit => { }
                 }
-                if !a.neg && a.conds.len() > 0i64 { ice("a positive atom carries scoped conditions", rel); }
+                if !a.neg && a.outer == 0i32 && a.conds.len() > 0i64 { ice("an inner atom carries scoped conditions", rel); }
+                if a.neg && a.outer != 0i32 { ice("an atom is both negated and outer", rel); }
             }
             CLit::Trav(t) => {
                 if t.var.len() == 0i64 || t.base.len() == 0i64 { ice("a traversal without a base or a variable", rel); }
                 if t.path.len() == 0i64 { ice("a traversal with an empty path", rel); }
-                if !t.neg && t.conds.len() > 0i64 { ice("a positive traversal carries scoped conditions", rel); }
+                if !t.neg && t.outer == 0i32 && t.conds.len() > 0i64 { ice("an inner traversal carries scoped conditions", rel); }
             }
             CLit::Cond(c) => { if c.e.is_null() { ice("a null condition", rel); } }
         }

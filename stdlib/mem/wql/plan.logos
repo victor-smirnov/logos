@@ -156,10 +156,10 @@ pub schema RQJoinStep : code(0x0012_0000_0000_0012) {
     has_on:   bool         = 6,
     base_var: str          = 7,
     path:     WRef<RQPathSegArr> = 8,
-    // Keys 9–12 held THE PLAN'S DECISION for the step (strategy, key term,
-    // ground). The planner records it on the planned core's atom now
-    // (`core::CAtom.strat/jsel/ground`, ADR 0031 R4.0); the parse tree does not
-    // carry it.
+    // An OUTER join: 0 inner, 1 `left join`, 2 `full join`. (Keys 9–12 once
+    // held the plan's decision for the step; it lives on the planned core's
+    // atom, `core::CAtom.strat/jsel/ground`, ADR 0031 R4.0.)
+    outer:    i32          = 9,
 }
 
 impl RQJoinStep {
