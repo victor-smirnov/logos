@@ -16430,6 +16430,26 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     // is skipped only where mono re-judges the concrete instantiation — the
     // CALL rows. An annotation position judges it here (a GAT bound violation
     // must not slip through as "unresolved").
+    // A projection over one of THIS fn's own type parameters (`T::Item` for
+    // `T: C` in scope) is not unresolved: no instantiation re-judges it, and
+    // with no `Item = X` in the bound it is opaque (rustc E0308): only the same
+    // projection is one.
+    // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature being
+    // checked — see SemaChecker::normalize_assoc_eq for the full ground.
+    if (TypeRef(expected).kind() == LogosType::Kind::AssocType && TypeRef(expected).assoc_base() &&
+        TypeRef(TypeRef(expected).assoc_base()).kind() == LogosType::Kind::TypeVar &&
+        current_type_params_.count(std::string(TypeRef(TypeRef(expected).assoc_base()).type_var_name()))) {
+        TypeRef got = expr_type(e);
+        const auto gk = got ? TypeRef(got).kind() : LogosType::Kind::Error;
+        const bool concrete_other = got && gk != LogosType::Kind::AssocType && gk != LogosType::Kind::TypeVar &&
+                                    gk != LogosType::Kind::Error && !has_lit_var_(got) && !has_infer_var_(got) &&
+                                    type_is_concrete(got);
+        if (concrete_other) {
+            error(std::format("{} mismatched types (E0308): expected the associated type `{}`, found `{}`",
+                              ctx, type_str(expected), type_str(got)));
+            return false;
+        }
+    }
     if ((mask_for(pos) & CFLAG_SKIP_UNRESOLVED) &&
         (TypeRef(expected).kind() == LogosType::Kind::TypeVar ||
          TypeRef(expected).kind() == LogosType::Kind::AssocType)) return true;

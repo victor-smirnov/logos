@@ -1,0 +1,5 @@
+// In `fn f<T: C>`, `c.put(x)` with x: i64 where `T::Item` is expected is refused (rustc E0308): the projection is opaque.
+package p;
+trait C { type Item; fn put(&mut self, x: Self::Item); }
+fn f<T: C>(c: &mut T, x: i64) { c.put(x); }
+fn main() { }

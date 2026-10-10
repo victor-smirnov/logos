@@ -1,0 +1,9 @@
+// Projections that agree stay admitted: the same projection passed back (`c.put(c.get())`), `Item = i64` in the bound, an RPIT whose impl's Item matches, Iterator<Item = i64>.
+package p;
+use logos.std.fmt;
+trait C { type Item; fn put(&mut self, x: Self::Item); fn get(&self) -> Self::Item; }
+struct S { v: i64 }
+impl C for S { type Item = i64; fn put(&mut self, x: i64) { self.v = x; } fn get(&self) -> i64 { self.v } }
+fn copy_back<T: C>(c: &mut T) { let x = c.get(); c.put(x); }
+fn set<T: C<Item = i64>>(c: &mut T, x: i64) { c.put(x); }
+fn main() { let mut s = S { v: 3 }; copy_back(&mut s); set(&mut s, 9); println!("{}", s.get()); }
