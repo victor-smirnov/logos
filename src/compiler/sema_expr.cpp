@@ -24785,14 +24785,16 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         // i64 — the cast is where a stored `u64::MAX` became `-1`.
         std::vector<std::string> trait_params;
         std::vector<std::string> trait_args;
-        if (auto* trt = resolve_trait(b.trait_name))
+        // The trait by the impl's identity, never by the use site's scope.
+        const std::string& bound_trait_key = b.trait_key.empty() ? b.trait_name : b.trait_key;
+        if (auto* trt = resolve_trait(bound_trait_key))
             for (const auto& tp : trt->type_params)
                 trait_params.push_back(tp.name);
         if (!trait_params.empty()) {
             std::string base = ptype_stripped;
             if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
             while (!base.empty() && base.back() == ' ') base.pop_back();
-            if (auto* impl = find_impl_by_spelling_(b.trait_name, base)) {
+            if (auto* impl = find_impl_by_spelling_(bound_trait_key, base)) {
                 // A GENERIC source impl (`impl<K,V> MapSource<K,V> for
                 // HashMap<K,V>`) states its trait args as its own TYPE PARAMS,
                 // so taking them verbatim yields `K`/`V` and the query is typed
