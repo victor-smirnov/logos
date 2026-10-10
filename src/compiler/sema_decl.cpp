@@ -683,6 +683,12 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                                                         ? no_args : current_impl_trait_args_));
         dit != decl_symbols_.end())
         fi_ptr = const_cast<SemaFuncInfo*>(find_func_by_symbol(dit->second));
+    // A block-local fn item: the HIR rewrote its node (its body desugared), so
+    // the declaration's key is the collect-time node's; its registered name is
+    // unique (`<outer>$<name>`), and that names it.
+    if (!fi_ptr && !name_override.empty())
+        if (auto c = pkg_fn_candidates_(cur_package_, name_override); c.size() == 1)
+            fi_ptr = const_cast<SemaFuncInfo*>(c[0]);
     }
     if (!fi_ptr) {            // shouldn't happen after collect
         // Door 2 — a body collect never registered gets a NAMED, EMPTY function
