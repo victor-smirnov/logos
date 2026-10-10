@@ -2632,7 +2632,8 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             if (t.kind() != LogosType::Kind::Struct || tuple_struct_(t)) break;
             lir::LExprPtr base = recv;
             if (TypeRef(expr_type(recv)).kind() != LogosType::Kind::Struct) base = builder().deref(recv, t);
-            auto stepped = emit_generic_deref_step(base, /*want_mut=*/in_place_write_lhs_);
+            // A mutable place (`t.borrow_mut().0 += 5`) steps through DerefMut.
+            auto stepped = emit_generic_deref_step(base, /*want_mut=*/in_place_write_lhs_ || tmut_ctx);
             if (!stepped) break;
             recv = std::move(*stepped);
         }
@@ -10360,6 +10361,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (fi && !fi->param_types.empty() && fi->param_types[0] &&
                     TypeRef(fi->param_types[0]).kind() == LogosType::Kind::MutRef &&
                     (!fi->owner_self || self_pattern_match_(fi->owner_self, et))) { wants_mut = true; break; }
+            // ... or the method the probe picks a deref step further (`v[0].bump()`
+            // over `Vec<Box<C>>`: Box -> C's `bump(&mut self)`).
+            if (!wants_mut) {
+                ProbePick pk = probe_method_(expr_type(recv), method_name);
+                wants_mut = pk.dyn_mut || pk.autoref == 2 ||
+                            (pk.fi && !pk.fi->param_types.empty() && pk.fi->param_types[0] &&
+                             TypeRef(pk.fi->param_types[0]).kind() == LogosType::Kind::MutRef);
+            }
             if (wants_mut) {
                 if (temp_rooted) {
                     if (cur_stmt_temp_hoist_ && cur_stmt_temp_hoist_->size() > mark_hoist)

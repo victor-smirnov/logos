@@ -1,0 +1,18 @@
+// A mutable use through an overloaded deref steps through DerefMut / IndexMut: `t.borrow_mut().0 += 5` (a tuple index on RefMut) and `v[0].bump()` over `Vec<Box<C>>` (`bump(&mut self)` a Box step further) were refused as 'written behind a & reference'.
+package mutrecv;
+use logos.std.fmt;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.collections.vec;
+use logos.mem.boxed;
+struct T(i64, i64);
+struct C { n: i64 }
+impl C { fn bump(&mut self) -> i64 { self.n += 1; self.n } }
+fn main() {
+    let t = Rc::new(RefCell::new(T(1, 2)));
+    t.borrow_mut().0 += 5;
+    let mut v: Vec<Box<C>> = Vec::new();
+    v.push(Box::new(C { n: 0 }));
+    v[0].bump();
+    println!("{} {}", t.borrow().0, v[0].bump());
+}
