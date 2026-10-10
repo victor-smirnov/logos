@@ -22,8 +22,8 @@
 //                               conjunct, `_` otherwise
 //   a FROM-less `select`      → a body over the one-row `__unit`
 //   types: i8..i64/isize → number, str/String → symbol, bool → number (0/1)
-// Outside it (the export is skipped, never approximated): aggregates, `first`,
-// `find`, `limit`, `||`, `!` on an expression, calls, casts, comprehensions,
+// Outside it (the export is skipped, never approximated): aggregates other than
+// `dx_aggr_rule`'s, `find`, `limit`, `||`, `!` on an expression, calls, casts, comprehensions,
 // unsigned or float columns, non-slice sources (graph params, natives).
 package logos.std.wql.dl_export;
 
@@ -302,6 +302,11 @@ struct DxClause {
     pub al_vars: Vec<str>,
     pub al_tys: Vec<str>,     // their Soufflé types (entry typing only)
     pub al_kinds: Vec<str>,   // their dump kinds
+    // after `group by`: a key component spelled `v.f` and its group variable —
+    // the representative row's `v.f` IS that component's value in its group
+    pub kc_var: Vec<str>,
+    pub kc_fld: Vec<str>,
+    pub kc_out: Vec<str>,
     // the first construct outside the fragment (`dl_export` writes it to
     // `<q>.skip`, and the gate counts the reasons)
     pub why: str,
@@ -320,7 +325,8 @@ fn dx_set(why: &mut String, w: str) -> bool {
 fn dx_new_clause() -> DxClause {
     return DxClause { body: String::new(), ok: true, nv: 0i64, vars: Vec::<str>::new(), vsrc: Vec::<i64>::new(),
                       nparams: 0i64, params: Vec::<str>::new(), consts: Vec::<str>::new(), nal: 0i64, al_names: Vec::<str>::new(),
-                      al_vars: Vec::<str>::new(), al_tys: Vec::<str>::new(), al_kinds: Vec::<str>::new(), why: "" };
+                      al_vars: Vec::<str>::new(), al_tys: Vec::<str>::new(), al_kinds: Vec::<str>::new(),
+                      kc_var: Vec::<str>::new(), kc_fld: Vec::<str>::new(), kc_out: Vec::<str>::new(), why: "" };
 }
 
 // Start the clause's alias list over with `key` → `gk`.
@@ -332,6 +338,24 @@ fn dx_alias_key(cl: &mut DxClause, ty: str, kind: str) {
 fn dx_alias_add(cl: &mut DxClause, nm: str, var: str, ty: str, kind: str) {
     cl.al_names.push(nm); cl.al_vars.push(var); cl.al_tys.push(ty); cl.al_kinds.push(kind);
     cl.nal = cl.nal + 1i64;
+}
+
+// A tuple group key's component `i`: its alias name (`key.i` is looked up
+// by the index's digits) and its Datalog variable. Static spellings: a rel row
+// holds at most 12 columns, so a key has at most 12 components.
+fn dx_kdig(i: i64) -> str {
+    let d: [str; 12] = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+    return d[i];
+}
+fn dx_kvar(i: i64) -> str {
+    let v: [str; 12] = ["gk0", "gk1", "gk2", "gk3", "gk4", "gk5", "gk6", "gk7", "gk8", "gk9", "gk10", "gk11"];
+    return v[i];
+}
+fn dx_digits(n: str) -> bool {
+    if n.len() == 0i64 { return false; }
+    let mut i: i64 = 0i64;
+    while i < n.len() { let c: u8 = str_byte_at(n, i); if c < 48u8 || c > 57u8 { return false; } i = i + 1i64; }
+    return true;
 }
 
 fn dx_alias(cl: &DxClause, nm: str) -> i64 {
@@ -453,8 +477,22 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 SExpr::Field(bf) => {
                     let bb: WRef<SExpr> = bf.base;
                     if !bb.any().is_null() { return dx_no(cl, "nested field path"); }
+                    // `key.N` over a tuple group key: that component's variable
+                    if str_eq(bf.name, "key") && dx_alias(cl, "key") < 0i64 && dx_digits(f.name) {
+                        let ki: i64 = dx_alias(cl, f.name);
+                        if ki < 0i64 { return dx_no(cl, "tuple key index out of range"); }
+                        out.push_str(cl.al_vars[ki]);
+                        return true;
+                    }
                     let vs: i64 = dx_var_src(cl, bf.name);
-                    if vs < 0i64 { return dx_no(cl, "row variable not bound by an atom"); }
+                    if vs < 0i64 {
+                        let mut kc: i64 = 0i64;
+                        while kc < cl.kc_var.len() {
+                            if str_eq(cl.kc_var[kc], bf.name) && str_eq(cl.kc_fld[kc], f.name) { out.push_str(cl.kc_out[kc]); return true; }
+                            kc = kc + 1i64;
+                        }
+                        return dx_no(cl, "row variable not bound by an atom");
+                    }
                     if dx_col_opaque(env, vs, f.name) { return dx_no(cl, dx_opaque_why(dx_col_ty(env, vs, f.name))); }
                     dx_push_var(out, bf.name, f.name);
                     return true;
@@ -1037,20 +1075,55 @@ fn dx_consts(out: &mut String, dump: &mut String, ddir: str) {
 // in select/having are the variables gk / a_<a>.
 fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, env: &DxEnv,
                 out: &mut String, why: &mut String) -> bool {
+    // The key's components: one, or each of a tuple key's (`group by (a, b)`
+    // groups by every component — one Datalog variable each).
     let key: SExpr = g.key.view::<SExpr>();
-    match key { SExpr::Tuple(_t) => { return dx_set(why, "tuple group key"); } _ => { } }
+    let mut kes: Vec<SExpr> = Vec::<SExpr>::new();
+    let mut tuple: bool = false;
+    match key {
+        SExpr::Tuple(t) => {
+            tuple = true;
+            let items: SExprArr = t.items.any().view::<SExprArr>();
+            let mut j: i64 = 0i64;
+            while j < items.len() { kes.push(items.arg_at(j)); j = j + 1i64; }
+        }
+        _ => { kes.push(key); }
+    }
+    let nk: i64 = kes.len();
+    if nk > 12i64 { return dx_set(why, "group key wider than 12 components"); }
     let mut kb: DxClause = dx_new_clause();
     if !dx_core_body(p, &mut kb, env, &c.body) { return dx_set(why, kb.why); }
-    let mut kt: String = String::new();
-    if !dx_term(&mut kt, key, env, &mut kb) { return dx_set(why, kb.why); }
-    let kty: str = dx_term_ty(key, env, &kb);
-    if kty.len() == 0i64 { return dx_set(why, "group key type"); }
+    let mut kts: Vec<String> = Vec::<String>::new();
+    let mut ktys: Vec<str> = Vec::<str>::new();
+    let mut kj: i64 = 0i64;
+    while kj < nk {
+        kts.push(String::new());
+        if !dx_term(&mut kts[kj], kes[kj], env, &mut kb) { return dx_set(why, kb.why); }
+        let kty: str = dx_term_ty(kes[kj], env, &kb);
+        if kty.len() == 0i64 { return dx_set(why, "group key type"); }
+        ktys.push(kty);
+        kj = kj + 1i64;
+    }
     dx_param_atoms(&mut kb);
+    // the key columns' declarations / variables / wildcards
+    let mut kdecl: String = String::new();
+    let mut kvars: String = String::new();
+    let mut gvars: String = String::new();
+    let mut kterms: String = String::new();
+    kj = 0i64;
+    while kj < nk {
+        if kj > 0i64 { kdecl.push_str(", "); kvars.push_str(", "); gvars.push_str(", "); kterms.push_str(", "); }
+        kdecl.push_str("k"); if tuple { kdecl.push_i64(kj); } kdecl.push_str(": "); kdecl.push_str(ktys[kj]);
+        kvars.push_str("k"); if tuple { kvars.push_i64(kj); }
+        if tuple { gvars.push_str(dx_kvar(kj)); } else { gvars.push_str("gk"); }
+        kterms.push_str(dx_view(&kts[kj]));
+        kj = kj + 1i64;
+    }
     // __ab: the key, then every column of every bound (positive) row var
     let mut ab: String = String::new();
     ab.push_str("__ab_"); ab.push_str(head);
     let mut decl: String = String::new();
-    decl.push_str(".decl "); decl.push_str(dx_view(&ab)); decl.push_str("(k: "); decl.push_str(kty);
+    decl.push_str(".decl "); decl.push_str(dx_view(&ab)); decl.push_str("("); decl.push_str(dx_view(&kdecl));
     let mut cols: Vec<String> = Vec::<String>::new();
     let mut nc: i64 = 0i64;
     let mut vi: i64 = 0i64;
@@ -1071,11 +1144,11 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
     // Soufflé's interpreter builds relations up to arity 22 (interpreter/Util.h,
     // FOR_EACH_BTREE) and aborts above it — wql_gpath_e2e::kind_hist joins three
     // 8-column graph rows. Kept a margin below; wider is outside the fragment.
-    if nc + 1i64 > 20i64 { return dx_set(why, "aggregate body wider than 20 columns"); }
+    if nc + nk > 20i64 { return dx_set(why, "aggregate body wider than 20 columns"); }
     decl.push_str(")\n");
     out.push_str(dx_view(&decl));
     let mut c0: String = String::new();
-    c0.push_str(dx_view(&ab)); c0.push_str("("); c0.push_str(dx_view(&kt));
+    c0.push_str(dx_view(&ab)); c0.push_str("("); c0.push_str(dx_view(&kterms));
     let mut ci: i64 = 0i64;
     while ci < nc { c0.push_str(", "); c0.push_str(dx_view(&cols[ci])); ci = ci + 1i64; }
     c0.push_str(") :- "); c0.push_str(dx_view(&kb.body)); c0.push_str(".\n");
@@ -1083,16 +1156,46 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
     // __gk: the group keys
     let mut gk: String = String::new();
     gk.push_str("__gk_"); gk.push_str(head);
-    out.push_str(".decl "); out.push_str(dx_view(&gk)); out.push_str("(k: "); out.push_str(kty); out.push_str(")\n");
-    out.push_str(dx_view(&gk)); out.push_str("(k) :- "); out.push_str(dx_view(&ab)); out.push_str("(k");
+    out.push_str(".decl "); out.push_str(dx_view(&gk)); out.push_str("("); out.push_str(dx_view(&kdecl)); out.push_str(")\n");
+    out.push_str(dx_view(&gk)); out.push_str("("); out.push_str(dx_view(&kvars)); out.push_str(") :- "); out.push_str(dx_view(&ab)); out.push_str("("); out.push_str(dx_view(&kvars));
     ci = 0i64;
     while ci < nc { out.push_str(", _"); ci = ci + 1i64; }
     out.push_str(").\n");
     // the head clause
     let mut hb: String = String::new();
-    hb.push_str(dx_view(&gk)); hb.push_str("(gk)");
+    hb.push_str(dx_view(&gk)); hb.push_str("("); hb.push_str(dx_view(&gvars)); hb.push_str(")");
     let mut hcl: DxClause = dx_new_clause();
-    dx_alias_key(&mut hcl, "", "");
+    if tuple {
+        // `key` itself has no Datalog value; `key.N` is component N
+        hcl.al_names.clear(); hcl.al_vars.clear(); hcl.al_tys.clear(); hcl.al_kinds.clear();
+        hcl.nal = 0i64;
+        kj = 0i64;
+        while kj < nk { dx_alias_add(&mut hcl, dx_kdig(kj), dx_kvar(kj), "", ""); kj = kj + 1i64; }
+    } else {
+        dx_alias_key(&mut hcl, "", "");
+    }
+    kj = 0i64;
+    while kj < nk {
+        match kes[kj] {
+            SExpr::Field(kf) => {
+                let kbr: WRef<SExpr> = kf.base;
+                if !kbr.any().is_null() {
+                    match kbr.any().view::<SExpr>() {
+                        SExpr::Field(kv) => {
+                            let kvb: WRef<SExpr> = kv.base;
+                            if kvb.any().is_null() {
+                                hcl.kc_var.push(kv.name); hcl.kc_fld.push(kf.name);
+                                hcl.kc_out.push(if tuple { dx_kvar(kj) } else { "gk" });
+                            }
+                        }
+                        _ => { }
+                    }
+                }
+            }
+            _ => { }
+        }
+        kj = kj + 1i64;
+    }
     let ags: &[CAgg] = g.aggs.as_slice();
     let mut i: i64 = 0i64;
     while i < g.aggs.len() {
@@ -1129,7 +1232,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
             hb.push_str(f);
             if at.len() > 0i64 { hb.push_str(" "); hb.push_str(at); }
         }
-        hb.push_str(" : { "); hb.push_str(dx_view(&ab)); hb.push_str("(gk");
+        hb.push_str(" : { "); hb.push_str(dx_view(&ab)); hb.push_str("("); hb.push_str(dx_view(&gvars));
         ci = 0i64;
         while ci < nc {
             hb.push_str(", ");
@@ -1215,7 +1318,14 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             match b {
                 SExpr::Field(bf) => {
                     let si: i64 = dx_var_src(cl, bf.name);
-                    if si < 0i64 { return ""; }
+                    if si < 0i64 {
+                        // `key.N` over a tuple key: the component's alias
+                        if str_eq(bf.name, "key") && dx_digits(f.name) {
+                            let ki: i64 = dx_alias(cl, f.name);
+                            if ki >= 0i64 { let t: str = cl.al_tys[ki]; return unsafe { str_from_raw(t.as_ptr(), t.len()) }; }
+                        }
+                        return "";
+                    }
                     let mut k: i64 = 0i64;
                     while k < env.cn[si] {
                         if str_eq(env.cnames[si][k], f.name) { return dl_ty(env.ctys[si][k]); }
@@ -1262,7 +1372,14 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             match b {
                 SExpr::Field(bf) => {
                     let si: i64 = dx_var_src(cl, bf.name);
-                    if si < 0i64 { return ""; }
+                    if si < 0i64 {
+                        // `key.N` over a tuple key: the component's alias
+                        if str_eq(bf.name, "key") && dx_digits(f.name) {
+                            let ki: i64 = dx_alias(cl, f.name);
+                            if ki >= 0i64 { let k: str = cl.al_kinds[ki]; return unsafe { str_from_raw(k.as_ptr(), k.len()) }; }
+                        }
+                        return "";
+                    }
                     let mut k: i64 = 0i64;
                     while k < env.cn[si] {
                         if str_eq(env.cnames[si][k], f.name) {
@@ -1326,9 +1443,26 @@ fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
     match &ru.clause.group {
         Option::Some(g) => {
             let key: SExpr = g.key.view::<SExpr>();
-            let kty: str = dx_term_ty(key, env, cl);
-            let kkd: str = dx_term_kind(key, env, cl);
-            dx_alias_key(cl, kty, kkd);
+            match key {
+                SExpr::Tuple(t) => {
+                    // a tuple key: `key.N` is component N, typed as it
+                    cl.al_names.clear(); cl.al_vars.clear(); cl.al_tys.clear(); cl.al_kinds.clear();
+                    cl.nal = 0i64;
+                    let items: SExprArr = t.items.any().view::<SExprArr>();
+                    let mut j: i64 = 0i64;
+                    while j < items.len() && j < 12i64 {
+                        let cty: str = dx_term_ty(items.arg_at(j), env, cl);
+                        let ckd: str = dx_term_kind(items.arg_at(j), env, cl);
+                        dx_alias_add(cl, dx_kdig(j), dx_kvar(j), cty, ckd);
+                        j = j + 1i64;
+                    }
+                }
+                _ => {
+                    let kty: str = dx_term_ty(key, env, cl);
+                    let kkd: str = dx_term_kind(key, env, cl);
+                    dx_alias_key(cl, kty, kkd);
+                }
+            }
             let ags: &[CAgg] = g.aggs.as_slice();
             let mut a: i64 = 0i64;
             while a < g.aggs.len() {

@@ -1063,6 +1063,7 @@ pub fn AR_SCAN_NO_COVER() -> i32   { return 9i32; }
 pub fn AR_EXACT_DROP() -> i32      { return 10i32; }
 pub fn AR_EXACT_KEEP() -> i32      { return 11i32; }
 pub fn AR_SUPERSET() -> i32        { return 12i32; }
+pub fn AR_EXACT_CONJ() -> i32      { return 13i32; }   // exact for ONE conjunct of the filter (ADR 0026 F1)
 
 /// The facts and the rule they entailed for one rel; packed with `jg_pack`'s
 /// layout (`ag_pack`) to travel in the plan's per-rel arrays.
@@ -1099,6 +1100,7 @@ pub fn ag_render(r: i32) -> str {
     if r == AR_EXACT_DROP()     { return "an operation EXACT for that comparison — the residual filter is redundant and was dropped"; }
     if r == AR_EXACT_KEEP()     { return "an operation exact for that comparison, but the filter ranges over more than this source, so it stays"; }
     if r == AR_SUPERSET()       { return "a covering operation; its rows are a superset, so the filter stays"; }
+    if r == AR_EXACT_CONJ()     { return "an operation exact for ONE conjunct of the filter — the narrowest one; the other conjuncts still test each row, so the filter stays"; }
     return "no filter reaches this rel";
 }
 
@@ -1115,6 +1117,7 @@ pub fn ar_name(r: i32) -> str {
     if r == AR_EXACT_DROP()     { return "exact_drop"; }
     if r == AR_EXACT_KEEP()     { return "exact_keep"; }
     if r == AR_SUPERSET()       { return "superset"; }
+    if r == AR_EXACT_CONJ()     { return "exact_conj"; }
     return "unset";
 }
 

@@ -1,0 +1,44 @@
+// PLAN-INDEPENDENCE: OBSERVES-CHOICE codes=0 — only the UNIQUE index sees the duplicate key; a forced order that indexes the other side builds none, so the source's broken declaration goes unseen (a logic error in the source, unspecified as in Rust) and the query answers.
+// A source that declares `unique entry = id;` and then returns two rows with
+// one id breaks its own declaration — a logic error in the source, as an `Ord`
+// that is not a total order is one for a BTreeMap in Rust. The unique index
+// sees it while building and panics with what happened instead of keeping one
+// row silently: SIGABRT, exit 134 (see pass/deem_source_unique_e2e).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+
+pub trait LedgerSource { rel entry(id: i64, who: str, amt: i64); }
+struct Ledger { pub rows: Vec<(i64, str, i64)> }   // ids unique
+pub fn ledger_rows(l: &Ledger) -> Vec<(i64, str, i64)> {
+    let mut out: Vec<(i64, str, i64)> = vec_new::<(i64, str, i64)>();
+    let mut i: i64 = 0i64;
+    while i < l.rows.len() { out.push(l.rows.get(i)); i = i + 1i64; }
+    return out;
+}
+pub fn ledger_len(l: &Ledger) -> i64 { return l.rows.len(); }
+impl LedgerSource for Ledger {
+    rel entry = ledger_rows;
+    size entry = ledger_len;
+    unique entry = id;
+}
+
+struct User { pub name: str, pub lid: i64 }
+
+pub deem owed(l: &Ledger, users: &[User]) {
+    from users u join l e on e.id == u.lid select (u.name, e.who, e.amt) order by u.name
+}
+
+fn main() -> i32 {
+    let mut rows: Vec<(i64, str, i64)> = vec_new::<(i64, str, i64)>();
+    rows.push((1i64, "ann", 5i64)); rows.push((2i64, "bob", 7i64)); rows.push((3i64, "cy", 4i64)); rows.push((3i64, "dup", 1i64));
+    let l: Ledger = Ledger { rows: rows };
+    let users: [User; 5] = [ User { name: "dan", lid: 3 }, User { name: "eve", lid: 2 }, User { name: "zed", lid: 9 },
+                             User { name: "fay", lid: 3 }, User { name: "gus", lid: 7 } ];
+    let r: Vec<(str, str, i64)> = owed(&l, &users[..]).unwrap();
+    let mut i: i64 = 0i64;
+    while i < r.len() { println!("{} {} {}", r.get(i).0, r.get(i).1, r.get(i).2); i = i + 1i64; }
+    return 0i32;
+}

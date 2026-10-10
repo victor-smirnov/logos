@@ -706,4 +706,5 @@ impl<K: Hash + Eq + Copy, V: Copy> MapSource<K, V> for HashMap<K, V> {
     rel entry = hashmap_rows;
     op entry.key eq = hashmap_at  exact;
     size entry = hashmap_len;
+    unique entry = key;   // a map holds one value per key (#322, ADR 0026 F8)
 }

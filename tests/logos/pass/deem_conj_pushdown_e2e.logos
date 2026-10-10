@@ -1,0 +1,94 @@
+// ADR 0026 F1 — a conjunctive `where` narrows by one of its conjuncts.
+//
+// The narrowing used to read the whole `where` as one comparison, so
+// `e.id >= 2 && e.ok` (an `&&` at the top, no column on either side of it)
+// scanned every row although the source declares an operation for `e.id >= k`.
+// Each conjunct is now tried alone; the narrowest access wins (a point probe
+// over a range), and the whole filter is KEPT — the operation answers one
+// conjunct, not the others.
+//
+// THE ORACLE IS WHICH OPERATION RAN, counted by the source itself: every
+// producer bumps its own counter. A trace would only repeat what the planner
+// believes; the counters say what the generated code called. The answers are
+// derived by hand.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.cell;
+
+pub trait LedgerSource { rel entry(id: i64, amt: i64, ok: bool); }
+
+struct Ledger { pub rows: Vec<(i64, i64, bool)>, pub n_rows: Cell<i64>, pub n_at: Cell<i64>, pub n_from: Cell<i64> }
+
+pub fn ledger_rows(l: &Ledger) -> Vec<(i64, i64, bool)> {
+    l.n_rows.set(l.n_rows.get() + 1i64);
+    let mut out: Vec<(i64, i64, bool)> = vec_new::<(i64, i64, bool)>();
+    let mut i: i64 = 0i64;
+    while i < l.rows.len() { out.push(l.rows.get(i)); i = i + 1i64; }
+    return out;
+}
+pub fn ledger_at(l: &Ledger, k: i64) -> Vec<(i64, i64, bool)> {
+    l.n_at.set(l.n_at.get() + 1i64);
+    let mut out: Vec<(i64, i64, bool)> = vec_new::<(i64, i64, bool)>();
+    let mut i: i64 = 0i64;
+    while i < l.rows.len() { if l.rows.get(i).0 == k { out.push(l.rows.get(i)); } i = i + 1i64; }
+    return out;
+}
+pub fn ledger_from(l: &Ledger, lo: i64) -> Vec<(i64, i64, bool)> {
+    l.n_from.set(l.n_from.get() + 1i64);
+    let mut out: Vec<(i64, i64, bool)> = vec_new::<(i64, i64, bool)>();
+    let mut i: i64 = 0i64;
+    while i < l.rows.len() { if l.rows.get(i).0 >= lo { out.push(l.rows.get(i)); } i = i + 1i64; }
+    return out;
+}
+
+impl LedgerSource for Ledger {
+    rel entry = ledger_rows;
+    op entry.id eq = ledger_at   exact;
+    op entry.id ge = ledger_from exact;
+}
+
+// a range conjunct beside a non-column one: the range narrows, `e.ok` still filters
+pub deem range_ok(l: &Ledger) { from l e where e.id >= 2 && e.ok select (e.id, e.amt) order by e.id }
+// the narrowing conjunct second
+pub deem ok_at(l: &Ledger) { from l e where e.ok && e.id == 3 select (e.id, e.amt) }
+// two narrowing conjuncts: the point probe wins over the range
+pub deem both(l: &Ledger) { from l e where e.id >= 2 && e.id == 3 select (e.id, e.amt) }
+// three conjuncts, none answerable by an operation: a scan
+pub deem none(l: &Ledger) { from l e where e.ok && e.amt > 4 && e.amt < 9 select e.id order by e.id }
+
+fn reset(l: &Ledger) { l.n_rows.set(0i64); l.n_at.set(0i64); l.n_from.set(0i64); }
+fn calls(l: &Ledger, rows: i64, at: i64, from: i64) -> bool {
+    return l.n_rows.get() == rows && l.n_at.get() == at && l.n_from.get() == from;
+}
+
+fn main() -> i32 {
+    let mut rows: Vec<(i64, i64, bool)> = vec_new::<(i64, i64, bool)>();
+    rows.push((1i64, 5i64, true)); rows.push((2i64, 7i64, false));
+    rows.push((3i64, 4i64, true)); rows.push((4i64, 9i64, true)); rows.push((5i64, 6i64, true));
+    let l: Ledger = Ledger { rows: rows, n_rows: Cell::<i64>::new(0i64), n_at: Cell::<i64>::new(0i64), n_from: Cell::<i64>::new(0i64) };
+
+    // ids >= 2 that are ok: 3 (4), 4 (9), 5 (6)
+    reset(&l);
+    let a: Vec<(i64, i64)> = range_ok(&l).unwrap();
+    if a.len() != 3i64 || a.get(0i64).0 != 3i64 || a.get(1i64).0 != 4i64 || a.get(2i64).1 != 6i64 { return 1i32; }
+    if !calls(&l, 0i64, 0i64, 1i64) { return 2i32; }
+
+    reset(&l);
+    let b: Vec<(i64, i64)> = ok_at(&l).unwrap();
+    if b.len() != 1i64 || b.get(0i64).1 != 4i64 { return 3i32; }
+    if !calls(&l, 0i64, 1i64, 0i64) { return 4i32; }
+
+    reset(&l);
+    let c: Vec<(i64, i64)> = both(&l).unwrap();
+    if c.len() != 1i64 || c.get(0i64).0 != 3i64 { return 5i32; }
+    if !calls(&l, 0i64, 1i64, 0i64) { return 6i32; }
+
+    // ok, 4 < amt < 9: 1 (5), 5 (6) — id 3 has 4, id 4 has 9
+    reset(&l);
+    let d: Vec<i64> = none(&l).unwrap();
+    if d.len() != 2i64 || d.get(0i64) != 1i64 || d.get(1i64) != 5i64 { return 7i32; }
+    if !calls(&l, 1i64, 0i64, 0i64) { return 8i32; }
+    return 0i32;
+}

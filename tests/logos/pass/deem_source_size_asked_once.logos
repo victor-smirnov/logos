@@ -1,0 +1,58 @@
+// `size <rel> = <fn>;` is O(1) BY CONTRACT (#348) — as `ExactSizeIterator::len`
+// is in Rust: the plan asks it before the first row to order a join, and a
+// source whose count costs a traversal does not declare `size` (the plan then
+// orders by its cardinality ordinal and says `size unknown`). What the plan
+// owes in return is to ask at most ONCE per query, whatever the walk's shape —
+// counted here by the source itself.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.cell;
+
+pub trait PairSource { rel entry(k: i64, v: i64); }
+
+struct Sized { pub rows: Vec<(i64, i64)>, pub n_size: Cell<i64> }
+pub fn sized_rows(s: &Sized) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < s.rows.len() { out.push(s.rows.get(i)); i = i + 1i64; }
+    return out;
+}
+pub fn sized_len(s: &Sized) -> i64 { s.n_size.set(s.n_size.get() + 1i64); return s.rows.len(); }
+impl PairSource for Sized { rel entry = sized_rows; size entry = sized_len; }
+
+struct Unsized { pub rows: Vec<(i64, i64)> }
+pub fn unsized_rows(s: &Unsized) -> Vec<(i64, i64)> {
+    let mut out: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    let mut i: i64 = 0i64;
+    while i < s.rows.len() { out.push(s.rows.get(i)); i = i + 1i64; }
+    return out;
+}
+impl PairSource for Unsized { rel entry = unsized_rows; }
+
+// a join: both sides are measured to choose which one to index
+pub deem joined(a: &Sized, b: &Unsized) { from a x join b y on y.k == x.k select (x.k, x.v, y.v) order by x.k }
+// a scan
+pub deem scanned(a: &Sized) { from a x where x.v > 1 select x.k order by x.k }
+
+fn main() -> i32 {
+    let mut ra: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    ra.push((1i64, 10i64)); ra.push((2i64, 20i64)); ra.push((3i64, 1i64));
+    let mut rb: Vec<(i64, i64)> = vec_new::<(i64, i64)>();
+    rb.push((2i64, 7i64)); rb.push((3i64, 8i64)); rb.push((4i64, 9i64));
+    let a: Sized = Sized { rows: ra, n_size: Cell::<i64>::new(0i64) };
+    let b: Unsized = Unsized { rows: rb };
+
+    // (2, 20, 7), (3, 1, 8)
+    let j: Vec<(i64, i64, i64)> = joined(&a, &b).unwrap();
+    if j.len() != 2i64 || j.get(0i64).2 != 7i64 || j.get(1i64).1 != 1i64 { return 1i32; }
+    if a.n_size.get() > 1i64 { return 2i32; }
+    let after_join: i64 = a.n_size.get();
+
+    // keys with v > 1: 1, 2
+    let s: Vec<i64> = scanned(&a).unwrap();
+    if s.len() != 2i64 || s.get(0i64) != 1i64 || s.get(1i64) != 2i64 { return 3i32; }
+    if a.n_size.get() - after_join > 1i64 { return 4i32; }
+    return 0i32;
+}

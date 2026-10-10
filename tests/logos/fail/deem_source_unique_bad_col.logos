@@ -1,0 +1,11 @@
+// `unique <rel> = <col>;` must name a column the relation publishes.
+package test;
+use logos.mem.collections.vec;
+pub trait Rows { rel entry(id: i64, amt: i64); }
+struct Led { pub xs: Vec<(i64, i64)> }
+pub fn led_rows(l: &Led) -> Vec<(i64, i64)> { return vec_new::<(i64, i64)>(); }
+impl Rows for Led {
+    rel entry = led_rows;
+    unique entry = nokey;
+}
+fn main() -> i32 { return 0i32; }

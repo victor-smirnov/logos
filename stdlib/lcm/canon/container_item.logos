@@ -2393,7 +2393,7 @@ fn emit_cfg_doc(name: str, cs: &ContainerSpec) -> bool {
     }
     let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce);
     if nb1 != ce {
-        error("container item: wave-0 `kind ordered_map` supports exactly two entry columns (key, val)");
+        error("container item: a `kind ordered_map` stores exactly two entry columns, a key and a value (its b+tree leaf is a (key, val) pair); a wider relation is a source of its own — declare a trait with `rel entry(c1: T1, …, cN: TN);` and implement it with `rel`/`op`/`size`/`order` members, as a generated family does");
         return false;
     }
     let k1: i64 = cf_find(cs.entry, 0i64, 58u8);       // ':' of key col
@@ -4190,7 +4190,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
         }
         let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce2);
         if nb1 != ce2 {
-            error("container item: wave-0 `kind node` supports exactly two entry columns (key, val)");
+            error("container item: a `kind node` stores exactly two entry columns, a key and a value (its b+tree leaf is a (key, val) pair); a wider relation is a source of its own — declare a trait with `rel entry(c1: T1, …, cN: TN);` and implement it with `rel`/`op`/`size`/`order` members, as a generated family does");
             return;
         }
         let k1: i64 = cf_find(cs.entry, 0i64, 58u8);            // ':' of key col
@@ -4278,7 +4278,7 @@ fn container_item_run(name: str, spec: str, emit_cfg: bool, cfg_src: str) {
         }
         let nb1: i64 = cf_next_comma(cs.entry, nb0 + 1i64, ce2);
         if nb1 != ce2 {
-            error("container item: wave-0 `kind ordered_map` supports exactly two entry columns (key, val)");
+            error("container item: a `kind ordered_map` stores exactly two entry columns, a key and a value (its b+tree leaf is a (key, val) pair); a wider relation is a source of its own — declare a trait with `rel entry(c1: T1, …, cN: TN);` and implement it with `rel`/`op`/`size`/`order` members, as a generated family does");
             return;
         }
         let k1: i64 = cf_find(cs.entry, 0i64, 58u8);

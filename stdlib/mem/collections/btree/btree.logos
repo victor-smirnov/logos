@@ -528,4 +528,5 @@ impl<K: Ord + Copy, V: Copy> OrderedMapSource<K, V> for BTreeMap<K, V> {
     op entry.key ge = btree_from  exact;
     op entry.key le = btree_upto  exact;
     size entry = btree_len;
+    unique entry = key;   // a map holds one value per key (#322, ADR 0026 F8)
 }

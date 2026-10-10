@@ -402,6 +402,13 @@ the declaration vocabulary should grow once, for all of them:
     unique entry = <col>;          -- new; closes 0026 F8
     nullable entry.<col>;          -- new; the table's own need
 
+**Amended 2026-10-09 (#322).** The relation was never two-column outside the
+Canon `ordered_map` emitter, whose leaf is a (key, val) pair: a hand-written
+source declares `entry(c1..cN)` today (`pass/deem_source_wide_e2e`), and the
+emitter's error now says so. `unique` landed (ADR 0026 F8 closed). `nullable`
+is NOT a keyword: a column that may be absent is typed `Option<T>`, as in Rust
+— the decision is the column's type, and the type system already carries it.
+
 ## D10 — a key's value sequence IS the row's buffer
 
 For a clustered table, `K -> sequence` is not "many rows per key": the sequence

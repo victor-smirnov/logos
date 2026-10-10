@@ -469,14 +469,13 @@ fn prep_size_reason(prm: &MacroParams, src: str) -> i32 {
 /// the deferred decision cost a traversal per call — the query's own work traded for
 /// a plan fact, which is the exact error this axis exists to refuse.
 ///
-/// ⚠ AND THIS COMPILER CANNOT ASK. There is no capability that reports what a
-/// receiver's `len()` costs — `declares_size` says a source HAS a reported size, not
-/// what reading it costs, and `rel_src_streams` says it has none at all. So the
-/// guarantee is carried by the two shapes above and by the fact that nothing else can
-/// reach here, NOT by a check. The remedy the day a source arrives whose length is
-/// computed rather than stored is a DECLARATION on the same channel as `size` — the
-/// cost class of the length, asked here — and not a special case in this function.
-/// Until then this is a declared limit with its ground, deliberately not silent.
+/// ⚠ AND NO DECLARATION IS ASKED HERE — BY CONTRACT, NOT BY OMISSION (#348). A
+/// declared `size <rel> = <fn>;` is O(1) by contract, as `ExactSizeIterator::len`
+/// is in Rust (`docs/spec/deem.md` `deem.source.members`): a source whose count
+/// costs a traversal does not declare `size`, and `size_expr_of` then reports it
+/// unmeasured. What reaches THIS function is structural — a slice parameter or a
+/// `Vec` the prelude materialized, both answering `len()` from a field — and
+/// nothing else can reach here (`rel_src_streams` is the invariant below).
 ///
 /// ⚠ REPEATS ARE ELIMINATED SEPARATELY, and that is a different property from this
 /// one: `rexpr_walk::push_size_bindings_4` binds one fact per distinct expression

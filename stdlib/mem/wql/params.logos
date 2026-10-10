@@ -133,6 +133,9 @@ pub struct MacroParams {
     pub rel_ccnt: Vec<i64>,    // column count
     pub relc_name: Vec<str>,   // flat column names
     pub relc_ty:   Vec<str>,   // flat column type names ("i64"/"str"/"bool")
+    // #322 — the source declares the column UNIQUE (`unique <rel> = <col>;`):
+    // no two rows share its value, so an index keyed by it holds one row a key.
+    pub relc_uniq: Vec<bool>,
     pub rel_n:     i64,
     // ── recursive-aggregate rels (semilattice min/max — the fixpoint lattice) ──
     // Finalized by the stratification check when a rel's aggregate body closes a
@@ -405,6 +408,7 @@ pub fn macro_params_new() -> MacroParams {
         rel_ccnt:  Vec::<i64>::new(),
         relc_name: Vec::<str>::new(),
         relc_ty:   Vec::<str>::new(),
+        relc_uniq: Vec::<bool>::new(),
         rel_n: 0i64,
         rel_is_agg:  Vec::<bool>::new(),
         rel_is_group: Vec::<bool>::new(),
@@ -823,7 +827,31 @@ impl MacroParams {
         if k != self.relc_name.len() { logos.lang.panic::panic("wql!: a rel column appended away from the flat table's top"); }
         self.relc_name.push(col_name);
         self.relc_ty.push(col_ty);
+        self.relc_uniq.push(false);
         self.rel_ccnt[i]  = self.rel_ccnt[i] + 1i64;
+    }
+
+    /// Mark column `col` of the LAST registered rel unique (false: no such column).
+    pub fn rel_set_unique(self: &mut MacroParams, col: str) -> bool {
+        if self.rel_n == 0i64 { return false; }
+        let i: i64 = self.rel_n - 1i64;
+        let mut c: i64 = 0i64;
+        while c < self.rel_ccnt[i] {
+            if str_eq(self.relc_name[self.rel_coff[i] + c], col) { self.relc_uniq[self.rel_coff[i] + c] = true; return true; }
+            c = c + 1i64;
+        }
+        return false;
+    }
+
+    /// Rel `ri`'s column `col` is declared unique.
+    pub fn rel_col_unique(self: &MacroParams, ri: i64, col: str) -> bool {
+        if ri < 0i64 || ri >= self.rel_n { return false; }
+        let mut c: i64 = 0i64;
+        while c < self.rel_ccnt[ri] {
+            if str_eq(self.relc_name[self.rel_coff[ri] + c], col) { return self.relc_uniq[self.rel_coff[ri] + c]; }
+            c = c + 1i64;
+        }
+        return false;
     }
 
     // Rel index by DECLARED name ("step"), or -1.
