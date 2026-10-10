@@ -1,0 +1,5 @@
+// `Option<String>` is not Copy: impl<T: Copy> Copy for Option<T> needs String: Copy.
+package p;
+use logos.mem.string;
+fn need_copy<T: Copy>(x: T) -> T { x }
+fn main() { let o = need_copy::<Option<String>>(Option::None); }
