@@ -10659,8 +10659,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& b : wit->second) if (provides(b.trait_name)) { recv_where_bounded = true; break; }
         }
     if (recv_is_tv || recv_is_assoc || recv_where_bounded) {
-        // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
-        std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
+        // The arguments are lowered once the method is chosen: a closure
+        // literal takes its parameters from the method's Fn bound
+        // (`it.map(|x| ..)` under `I: Iterator<Item = i64>` is `|x: i64|`).
+        std::vector<lir::LExprPtr> arg_exprs;
 
         auto bit = current_type_bounds_.find(recv_bound_key);
         const SemaTraitMethodInfo* chosen_method = nullptr;
@@ -10794,6 +10796,40 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
         if (chosen_method) {
             if (chosen_method->is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // through a bound
+            {
+                SemaSubst hint_subst = chosen_subst;
+                hint_subst["Self"] = recv_inner;
+                auto arg_asts = collect_arg_asts(node);
+                for (size_t i = 0; i < arg_asts.size(); ++i) {
+                    TypeRef h = nullptr;
+                    if (i + 1 < chosen_method->param_types.size() && chosen_method->param_types[i + 1])
+                        h = closure_hint_from_fn_bound(chosen_method->param_types[i + 1],
+                                                       chosen_method->type_params, hint_subst);
+                    // A formal written as a fn type (`fn(&Self::Item) -> bool`) is the hint itself.
+                    if (!h && i + 1 < chosen_method->param_types.size() && chosen_method->param_types[i + 1] &&
+                        LogosType::is_fn_value_kind(TypeRef(chosen_method->param_types[i + 1]).kind()))
+                        h = subst_type_sema(chosen_method->param_types[i + 1], hint_subst);
+                    // `Self::Item` under the receiver's bound (`Item = i64`), also
+                    // behind a reference (`filter`'s `&Self::Item`).
+                    if (h && (TypeRef(h).kind() == LogosType::Kind::Closure ||
+                              LogosType::is_fn_value_kind(TypeRef(h).kind()))) {
+                        auto norm = [&](TypeRef t) -> TypeRef {
+                            if (!t) return t;
+                            if (is_ref_like(TypeRef(t).kind()) && TypeRef(t).pointee()) {
+                                TypeRef np = normalize_assoc_eq(TypeRef(t).pointee());
+                                return np == TypeRef(t).pointee() ? t
+                                       : make_ref(TypeRef(t).kind() == LogosType::Kind::MutRef, np);
+                            }
+                            return normalize_assoc_eq(t);
+                        };
+                        std::vector<TypeRef> ps;
+                        for (auto p : TypeRef(h).closure_params()) ps.push_back(norm(p));
+                        TypeRef r = TypeRef(h).closure_ret() ? norm(TypeRef(h).closure_ret()) : void_t();
+                        h = make_closure_type(ps, r);
+                    }
+                    arg_exprs.push_back(h ? lower_expr_expecting(arg_asts[i], h, h) : lower_expr(arg_asts[i]));
+                }
+            }
 
             size_t expected_explicit = chosen_method->param_types.size() > 0
                 ? chosen_method->param_types.size() - 1 : 0;
@@ -10923,6 +10959,23 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 for (uint64_t i = 0; i < arg_exprs.size() && i + 1 < chosen_method->param_types.size(); ++i)
                     unify_arg_(subst_type_sema(chosen_method->param_types[i + 1], self_subst),
                                expr_type(arg_exprs[i]), mb);
+                // A parameter only an Fn bound names (`map<B, F: FnMut(Item) -> B>`)
+                // is read off the closure the bound's parameter is bound to.
+                for (auto& tp : chosen_method->type_params) {
+                    auto fit = mb.find(tp.name);
+                    if (fit == mb.end() || !fit->second) continue;
+                    TypeRef ct = zonk_(fit->second);
+                    if (!ct || TypeRef(ct).kind() != LogosType::Kind::Closure) continue;
+                    for (auto& b : tp.bounds) {
+                        if (!b.is_fn_family) continue;
+                        SemaSubst partial(mb.begin(), mb.end());
+                        auto cps = TypeRef(ct).closure_params();
+                        for (size_t q = 0; q < b.fn_params.size() && q < cps.size(); ++q)
+                            if (b.fn_params[q]) unify_types(subst_type_sema(b.fn_params[q], partial), cps[q], mb);
+                        if (b.fn_ret && TypeRef(ct).closure_ret())
+                            unify_types(subst_type_sema(b.fn_ret, partial), TypeRef(ct).closure_ret(), mb);
+                    }
+                }
                 if (TypeRef rh = ret_hint_(); rh && type_is_concrete(rh) && chosen_method->ret_type) {
                     SemaSubst partial(mb.begin(), mb.end());
                     unify_types(subst_type_sema(chosen_method->ret_type, partial), rh, mb);
@@ -11108,6 +11161,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (!deref_bound_fallthrough) {
             error(std::format("type parameter '{}' has no trait bound providing method '{}'",
                               TypeRef(recv_inner).type_var_name(), std::string(method_name)));
+            if (arg_exprs.empty()) arg_exprs = lower_call_args(node);
             return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
         }
     }
