@@ -191,6 +191,11 @@ SINGLETONS = {
         T('logos_00_deem_layer_lint',
           ['{tsrc}/deem_layer_lint.sh', '{src}'],
           'logos;lint;suite_lint;tier_commit', timeout=60),
+        # FOUNDATIONS ANCHORS: every link and symbol in docs/foundations/ exists;
+        # --selftest plants each defect kind first and fails if one goes unreported.
+        T('logos_00_foundations_lint',
+          ['{python3}', '{src}/scripts/foundations_lint.py', '--selftest', '{src}'],
+          'logos;lint;suite_lint;tier_commit', timeout=60),
         # A STDLIB DEFAULT METHOD BODY MAY NOT BE LOWERED INTO A USER IMPL
         T('logos_00_trait_homonym_no_injected_symbol',
           ['{tsrc}/trait_homonym_symbol_gate.sh', '{logosc}', '{libdir}'],
