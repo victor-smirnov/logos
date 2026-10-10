@@ -1,6 +1,6 @@
 ---
 title: Glossary
-verified-at: 6fa0d2c92
+verified-at: a943b5379
 sources: [docs/book/src/p1-02-system-map.md, docs/adr/0032-logos-core-composition.md]
 ---
 
