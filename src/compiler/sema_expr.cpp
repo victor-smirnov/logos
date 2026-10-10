@@ -10117,6 +10117,9 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                                       std::string(method_name), type_str(rt)));
                     return error_expr();
                 }
+                // A `&mut` receiver is reborrowed, not moved (Rust's auto-reborrow at
+                // the receiver; `a.act(); a.act()` over `a: &mut Box<dyn Tr>`).
+                if (rt.kind() == LogosType::Kind::MutRef) try_implicit_reborrow_mut(recv, rt, false);
                 // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
                 std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
                 uint64_t explicit_args = arg_exprs.size();
