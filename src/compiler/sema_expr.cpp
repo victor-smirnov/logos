@@ -9446,12 +9446,8 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
 // as INVOKE_EXPR with RECEIVER = callee expression + ARGS = arg-list.
 lir::LExprPtr SemaChecker::lower_invoke_expr(TinyMapView node) {
     auto recv = lower_expr(map_of(node.get(la::RECEIVER.code)));
-    std::vector<lir::LExprPtr> arg_exprs;
-    if (node.has_key(la::ARGS)) {
-        auto args = arr_of(node.get(la::ARGS.code));
-        for (uint64_t i = 0; i < args.size(); ++i)
-            arg_exprs.push_back(lower_expr(map_of(args.get(i))));
-    }
+    // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
+    std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
     return lower_invoke_on(std::move(recv), std::move(arg_exprs));
 }
 
@@ -9941,12 +9937,8 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_tagged(
         auto& m = tit->methods[mi];
         if (m.name != method_name) continue;
         if (m.is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // a trait item: no symbol
-        std::vector<lir::LExprPtr> arg_exprs;
-        if (node.has_key(la::ARGS)) {
-            auto args_node = arr_of(node.get(la::ARGS.code));
-            for (uint64_t i = 0; i < args_node.size(); ++i)
-                arg_exprs.push_back(lower_expr(map_of(args_node.get(i))));
-        }
+        // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
+        std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
         size_t expected_explicit = m.param_types.size() > 0
             ? m.param_types.size() - 1 : 0;
         if (arg_exprs.size() != expected_explicit)
@@ -10075,12 +10067,8 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
             auto& m = *vtab[mi].second;
             if (m.name == method_name) {
                 if (m.is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // a trait item: no symbol
-                std::vector<lir::LExprPtr> arg_exprs;
-                if (node.has_key(la::ARGS)) {
-                    auto args = arr_of(node.get(la::ARGS.code));
-                    for (uint64_t i = 0; i < args.size(); ++i)
-                        arg_exprs.push_back(lower_expr(map_of(args.get(i))));
-                }
+                // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
+                std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
                 uint64_t explicit_args = arg_exprs.size();
                 size_t expected_explicit = m.param_types.size() > 0
                     ? m.param_types.size() - 1 : 0;
@@ -10633,12 +10621,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& b : wit->second) if (provides(b.trait_name)) { recv_where_bounded = true; break; }
         }
     if (recv_is_tv || recv_is_assoc || recv_where_bounded) {
-        std::vector<lir::LExprPtr> arg_exprs;
-        if (node.has_key(la::ARGS)) {
-            auto args = arr_of(node.get(la::ARGS.code));
-            for (uint64_t i = 0; i < args.size(); ++i)
-                arg_exprs.push_back(lower_expr(map_of(args.get(i))));
-        }
+        // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
+        std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
 
         auto bit = current_type_bounds_.find(recv_bound_key);
         const SemaTraitMethodInfo* chosen_method = nullptr;
@@ -25143,7 +25127,7 @@ bool SemaChecker::reconstruct_mapping_def(writ::TinyMapView node,
                         // in a set of rows, so it must be hashable. This path
                         // runs at lowering, after every impl is collected, so
                         // the check is inline rather than deferred.
-                        if (!rel_col_type_hashable(ct)) {
+                        if (!rel_col_type_hashable(ct, {}, map_of(cp.get(la::TYPE.code)))) {
                             out.err = std::format(
                                 "mapping '{}': rel '{}' column '{}: {}' — a rel "
                                 "column type must implement `Hash` (rows are "

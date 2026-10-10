@@ -1,0 +1,1 @@
+trait 'Bad': rel 'bad' column 'key: W<NoHash>' — a rel column type must implement `Hash`
