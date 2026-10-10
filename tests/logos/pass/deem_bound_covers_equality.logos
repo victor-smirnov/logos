@@ -19,6 +19,7 @@
 // return the right row — so the assertion that matters is the one on the plan
 // trace, which the .expected file carries.
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.mem.bt.map;             // trait OrderedMapSource

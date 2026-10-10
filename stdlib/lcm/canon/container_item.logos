@@ -1699,7 +1699,8 @@ fn emit_cow_map(name: str, lname: str, bname: str, kty: str, vty: str, vol: bool
         bupto_s.push_str("__ctr_bupto_"); bupto_s.push_str(name);
         let buptofn: Ident = Ident::new(bupto_s.as_str());
         let pq: QuoteItemBlob = quote_item! {
-            use logos.mem.bt.map;             // trait OrderedMapSource — the hub rel
+            use logos.mem.bt.map;
+            use logos.std.wql.source;         // trait OrderedMapSource — the query plane's source vocabulary (#342)
             use logos.mem.collections.vec;
             use logos.lang.option;            // Option — absence, from `find`
             // The relation carries the container's OWN column types. It used
@@ -3292,7 +3293,8 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
         bupto_s.push_str("__ctr_bupto_"); bupto_s.push_str(name);
         let buptofn: Ident = Ident::new(bupto_s.as_str());
         let pq: QuoteItemBlob = quote_item! {
-            use logos.mem.bt.map;             // trait PositionalSource — the hub rel
+            use logos.mem.bt.map;
+            use logos.std.wql.source;         // trait PositionalSource — the query plane's source vocabulary (#342)
             use logos.mem.collections.vec;
             use logos.lang.option;
             // A positional container CAN be narrowed — its ordinal is a column

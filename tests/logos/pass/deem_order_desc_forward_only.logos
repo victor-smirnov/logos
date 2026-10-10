@@ -40,6 +40,7 @@
 // that exact trio, nothing else. It is a metaprog/JIT defect independent of
 // S3, and the split here is a fixture boundary, not a fix.
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.mem.bt.map;             // trait OrderedMapSource

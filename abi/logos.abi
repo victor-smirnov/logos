@@ -18493,7 +18493,7 @@ sym	logos_mem.logos.mem.fmt$fmt_tuple_close__f__refmut_Formatter$M906c9710fe03ed
 sym	logos_mem.logos.mem.fmt$fmt_tuple_open__f__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem.logos.mem.fmt$fmt_tuple_sep__f__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem.logos.mem.fmt$formatter_for__f__refmut_String$M5ca39a0a178b867d
-sym	logos_mem.logos.mem.fmt$formatter_for_sink__f__&dyn FmtWrite
+sym	logos_mem.logos.mem.fmt$formatter_for_sink__f__&mut dyn FmtWrite
 sym	logos_mem.logos.mem.fmt$ok__f__void
 sym	logos_mem.logos.mem.manually_drop$alignment_new__f__u64
 sym	logos_mem.logos.mem.manually_drop$alignment_new_unchecked__f__u64
@@ -19632,10 +19632,7 @@ vtable	logos.mem.bt.map.BatchMmEntry	slots=[key_cell,val_run]
 vtable	logos.mem.bt.map.BtBranch	slots=[adopt,new_sibling,block,child_count,sep_at,child_addr,set_child_addr,max_sep,total_size,totals,count_at,count_prefix,find_child,push_row,insert_row,update_row,can_insert_child,split_into,cow_clone,free_block]
 vtable	logos.mem.bt.map.BtLeaf	slots=[adopt,new_sibling,block,count,key_at,val_at,lower_bound,try_insert,with_entry,split_into,cow_clone,free]
 vtable	logos.mem.bt.map.Ctr	slots=[size]
-vtable	logos.mem.bt.map.MapSource	slots=[]
 vtable	logos.mem.bt.map.Multimap	slots=[size,find,insert]
-vtable	logos.mem.bt.map.OrderedMapSource	slots=[]
-vtable	logos.mem.bt.map.PositionalSource	slots=[]
 vtable	logos.mem.bt.map.Snapshot	slots=[snapshot_id,snapshot_uid,commit,remove,status,snapshot_parent,has_parent,set_as_branch,set_as_master,snap_pin,snap_unpin,leaf_pin,leaf_unpin]
 vtable	logos.mem.bt.map.Store	slots=[]
 vtable	logos.mem.bt.node.NodeProfile	slots=[alloc,pkd,ncols,snapshot,set_snapshot,rc,inc_rc,dec_rc,child_slot,set_child_slot,free,no_children,block_size]

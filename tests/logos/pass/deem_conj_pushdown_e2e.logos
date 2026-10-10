@@ -7,10 +7,11 @@
 // over a range), and the whole filter is KEPT — the operation answers one
 // conjunct, not the others.
 //
-// THE ORACLE IS WHICH OPERATION RAN, counted by the source itself: every
-// producer bumps its own counter. A trace would only repeat what the planner
-// believes; the counters say what the generated code called. The answers are
-// derived by hand.
+// THE ORACLE IS WHICH OPERATION RAN, counted by the source itself: each
+// declared operation bumps its own counter. A trace would only repeat what the
+// planner believes; the counters say what the generated code called. The
+// materializer's own count is not asserted — the Soufflé oracle's input dump
+// calls it too (LOGOS_DEEM_ORACLE). The answers are derived by hand.
 package test;
 use logos.std.wql.wql;
 use logos.mem.collections.vec;
@@ -59,8 +60,8 @@ pub deem both(l: &Ledger) { from l e where e.id >= 2 && e.id == 3 select (e.id, 
 pub deem none(l: &Ledger) { from l e where e.ok && e.amt > 4 && e.amt < 9 select e.id order by e.id }
 
 fn reset(l: &Ledger) { l.n_rows.set(0i64); l.n_at.set(0i64); l.n_from.set(0i64); }
-fn calls(l: &Ledger, rows: i64, at: i64, from: i64) -> bool {
-    return l.n_rows.get() == rows && l.n_at.get() == at && l.n_from.get() == from;
+fn calls(l: &Ledger, at: i64, from: i64) -> bool {
+    return l.n_at.get() == at && l.n_from.get() == from;
 }
 
 fn main() -> i32 {
@@ -73,22 +74,22 @@ fn main() -> i32 {
     reset(&l);
     let a: Vec<(i64, i64)> = range_ok(&l).unwrap();
     if a.len() != 3i64 || a.get(0i64).0 != 3i64 || a.get(1i64).0 != 4i64 || a.get(2i64).1 != 6i64 { return 1i32; }
-    if !calls(&l, 0i64, 0i64, 1i64) { return 2i32; }
+    if !calls(&l, 0i64, 1i64) { return 2i32; }
 
     reset(&l);
     let b: Vec<(i64, i64)> = ok_at(&l).unwrap();
     if b.len() != 1i64 || b.get(0i64).1 != 4i64 { return 3i32; }
-    if !calls(&l, 0i64, 1i64, 0i64) { return 4i32; }
+    if !calls(&l, 1i64, 0i64) { return 4i32; }
 
     reset(&l);
     let c: Vec<(i64, i64)> = both(&l).unwrap();
     if c.len() != 1i64 || c.get(0i64).0 != 3i64 { return 5i32; }
-    if !calls(&l, 0i64, 1i64, 0i64) { return 6i32; }
+    if !calls(&l, 1i64, 0i64) { return 6i32; }
 
     // ok, 4 < amt < 9: 1 (5), 5 (6) — id 3 has 4, id 4 has 9
     reset(&l);
     let d: Vec<i64> = none(&l).unwrap();
     if d.len() != 2i64 || d.get(0i64) != 1i64 || d.get(1i64) != 5i64 { return 7i32; }
-    if !calls(&l, 1i64, 0i64, 0i64) { return 8i32; }
+    if !calls(&l, 0i64, 0i64) { return 8i32; }
     return 0i32;
 }

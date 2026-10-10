@@ -37,6 +37,7 @@
 //   [plan] s -> drain on undecided: no join strategy   (…a traversal earlier in the chain binds a var the plan cannot type yet)
 //   [plan] s -> drain on unproven: no single-read proof (…the plan cannot prove a single read)
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.mem.bt.map;             // trait MapSource — `rel entry` is the offer

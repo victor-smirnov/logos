@@ -37,6 +37,7 @@
 // is decided by the row-index tuple tiebreak alone — which is what licenses two
 // nests to exist at all.
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.std.wql.join_cost;      // JC_NOFACT / jc_none_cost — both sides of the pin

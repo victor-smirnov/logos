@@ -1257,6 +1257,52 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
     return true;
 }
 
+// A recursive aggregate's direction: -1 one `min`, +1 one `max`, 0 otherwise.
+fn dx_lattice_dir(g: &CGroup) -> i32 {
+    if g.aggs.len() != 1i64 { return 0i32; }
+    match &g.having { Option::Some(_h) => { return 0i32; } Option::None => { } }
+    let f: str = g.aggs.as_slice()[0i64].func;
+    if str_eq(f, "min") { return -1i32; }
+    if str_eq(f, "max") { return 1i32; }
+    return 0i32;
+}
+
+// One recursive min/max body as a plain clause `rel(key…, arg) :- body.`: the
+// candidate rows; the rel's subsumption clause keeps the best one per key.
+fn dx_lattice_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, env: &DxEnv,
+                   out: &mut String, why: &mut String) -> bool {
+    let arg: WAny = match &g.aggs.as_slice()[0i64].arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
+    if arg.is_null() { return dx_set(why, "recursive aggregate without an argument"); }
+    let key: SExpr = g.key.view::<SExpr>();
+    let mut kes: Vec<SExpr> = Vec::<SExpr>::new();
+    match key {
+        SExpr::Tuple(t) => {
+            let items: SExprArr = t.items.any().view::<SExprArr>();
+            let mut j: i64 = 0i64;
+            while j < items.len() { kes.push(items.arg_at(j)); j = j + 1i64; }
+        }
+        _ => { kes.push(key); }
+    }
+    if kes.len() + 1i64 != arity { return dx_set(why, "recursive aggregate key arity"); }
+    let mut cl: DxClause = dx_new_clause();
+    if !dx_core_body(p, &mut cl, env, &c.body) { return dx_set(why, cl.why); }
+    let mut hd: String = String::new();
+    hd.push_str(head); hd.push_str("(");
+    let mut j: i64 = 0i64;
+    while j < kes.len() {
+        if !dx_term(&mut hd, kes[j], env, &mut cl) { return dx_set(why, cl.why); }
+        hd.push_str(", ");
+        j = j + 1i64;
+    }
+    if !dx_term(&mut hd, arg.view::<SExpr>(), env, &mut cl) { return dx_set(why, cl.why); }
+    hd.push_str(")");
+    dx_param_atoms(&mut cl);
+    let mut c1: String = String::new();
+    c1.push_str(dx_view(&hd)); c1.push_str(" :- "); c1.push_str(dx_view(&cl.body)); c1.push_str(".\n");
+    out.push_str(dx_view(&dx_wild(dx_view(&c1))));
+    return true;
+}
+
 // The entry's output arity and column types, from its select ("" = unknown).
 fn dx_out_cols(sel: SExpr, env: &DxEnv, cl: &DxClause, out: &mut String) -> i64 {
     match sel {
@@ -1872,17 +1918,41 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
         let rel2: &CRel = &rels[r];
         let rules: &[CRule] = rel2.rules.as_slice();
         let mut b: i64 = 0i64;
+        // A recursive min/max (Deem's semilattice rel) is Soufflé's
+        // SUBSUMPTION: each aggregating body is a plain rule producing
+        // (key…, candidate), and one `<=` clause keeps the best per key.
+        let mut lat_dir: i32 = 0i32;
         while b < rel2.rules.len() {
+            let mut lat: bool = false;
             match &rules[b].clause.group {
-                Option::Some(_g) => {
+                Option::Some(g) => {
                     if core_rule_reaches(p, &rules[b], r) {
-                        return dx_set(why, "recursive aggregate (Soufflé rejects cyclic aggregation)");
+                        let d: i32 = dx_lattice_dir(g);
+                        if d == 0i32 { return dx_set(why, "recursive aggregate other than one min/max"); }
+                        if lat_dir != 0i32 && lat_dir != d { return dx_set(why, "recursive aggregate mixing min and max"); }
+                        lat_dir = d;
+                        if !dx_lattice_rule(p, &rules[b].clause, g, rel2.name, rel2.cols.len(), &env, out, why) { return false; }
+                        lat = true;
                     }
                 }
                 Option::None => { }
             }
-            if !dx_rule(p, &rules[b], rel2.name, rel2.cols.len(), &env, out, why) { return false; }
+            if !lat && !dx_rule(p, &rules[b], rel2.name, rel2.cols.len(), &env, out, why) { return false; }
             b = b + 1i64;
+        }
+        if lat_dir != 0i32 {
+            let cols2: &[CCol] = rel2.cols.as_slice();
+            let vty: str = dl_col_ty(cols2[rel2.cols.len() - 1i64].ty);
+            if !str_eq(vty, "number") && !str_eq(vty, "unsigned") {
+                return dx_set(why, "recursive aggregate over a non-numeric value (Soufflé orders symbols by table ordinal)");
+            }
+            out.push_str(rel2.name); out.push_str("(");
+            let mut kk: i64 = 0i64;
+            while kk + 1i64 < rel2.cols.len() { out.push_str("k"); out.push_i64(kk); out.push_str(", "); kk = kk + 1i64; }
+            out.push_str("v1) <= "); out.push_str(rel2.name); out.push_str("(");
+            kk = 0i64;
+            while kk + 1i64 < rel2.cols.len() { out.push_str("k"); out.push_i64(kk); out.push_str(", "); kk = kk + 1i64; }
+            if lat_dir < 0i32 { out.push_str("v2) :- v2 <= v1.\n"); } else { out.push_str("v2) :- v2 >= v1.\n"); }
         }
         r = r + 1i64;
     }
