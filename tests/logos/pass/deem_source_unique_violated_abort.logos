@@ -1,3 +1,4 @@
+// PLAN-INDEPENDENCE: OBSERVES-CHOICE codes=0 — only the UNIQUE index sees the duplicate key; a forced order that indexes the other side builds none, so the source's broken declaration goes unseen (a logic error in the source, unspecified as in Rust) and the query answers.
 // A source that declares `unique entry = id;` and then returns two rows with
 // one id breaks its own declaration — a logic error in the source, as an `Ord`
 // that is not a total order is one for a BTreeMap in Rust. The unique index
