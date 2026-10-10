@@ -111,6 +111,15 @@ the walk and keep the whole `&&` in the row loop. The answer is unchanged, the
 access path is right, and the price is one redundant re-check of a condition the
 walk already guarantees.
 
+**CLOSED 2026-10-09.** `plan_walker::plan_decide_access` flattens a top-level
+`&&` (`pw_conjuncts`), tries each conjunct alone through `plan_narrow_rel`,
+takes the narrowest access (exactness breaks a tie, the earlier conjunct a
+remaining one) and keeps the whole filter — the new ground `exact_conj` (why
+`AR_EXACT_CONJ`) says so. `pass/deem_conj_pushdown_e2e` pins the PLAN by what
+the source counts it was asked (range + flag, flag + point, range + point → the
+point, no answerable conjunct → a scan); a control with the decomposition off
+fails it (exit 2, the range query scanned).
+
 **⚠ THIS IS NOT A MEMORIA ROW.** Every source that declares operations is
 affected: `BTreeMap` and `HashMap` declare `op entry.key eq` and lose the same
 pushdown on any `&&`.
