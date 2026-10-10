@@ -2964,8 +2964,21 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
             i = i + 1i64;
             let o0: i64 = i;
             while i < n && str_byte_at(natspec, i) != 36u8
-                  && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }  // '$'|';'
+                  && str_byte_at(natspec, i) != 63u8
+                  && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }  // '$'|'?'|';'
             ordcol = pw_slice(natspec, o0, i);
+        }
+        // `?<col>` per UNIQUE column (#322, ADR 0026 F8), from the source's
+        // `unique <rel> = <col>;` declarations; written after `^`, before `$`.
+        let mut uniq: Vec<str> = Vec::<str>::new();
+        while i < n && str_byte_at(natspec, i) == 63u8 {                       // '?'
+            i = i + 1i64;
+            let q0: i64 = i;
+            while i < n && str_byte_at(natspec, i) != 36u8
+                  && str_byte_at(natspec, i) != 63u8
+                  && str_byte_at(natspec, i) != 126u8
+                  && str_byte_at(natspec, i) != 59u8 { i = i + 1i64; }  // '$'|'?'|'~'|';'
+            uniq.push(pw_slice(natspec, q0, i));
         }
         // `$<fn>[%<ret-ty>]` — the source's declared SIZE operation (ADR 0024
         // S4). Absent for a source that reports no size, which stays perfectly
@@ -3039,6 +3052,14 @@ fn register_native_rels(prm: &mut MacroParams, natspec: str,
         while c < nc {
             prm.rel_add_col(cnames[c], ctys[c]);
             c = c + 1i64;
+        }
+        let mut uq: i64 = 0i64;
+        while uq < uniq.len() {
+            if !prm.rel_set_unique(uniq.get(uq)) {
+                logos.lang.panic::panic("ICE: a `unique` column the compiler checked is not a column of the registered rel");
+            }
+            plan_trace(regname, "unique key", uniq.get(uq), "declared by the source: no two rows share it, so an index keyed by it holds one row per key");
+            uq = uq + 1i64;
         }
         let mut o: i64 = 0i64;
         while o < nops {

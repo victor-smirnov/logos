@@ -3499,6 +3499,9 @@ struct NestSteps {
     hasres: Vec<bool>,
     equi:   Vec<bool>,
     stream: Vec<bool>,
+    /// #322 — the step's index is keyed by a column its source declares
+    /// UNIQUE: one row a key, so the index is a map and the probe binds one row.
+    uniq:   Vec<bool>,
     /// The naming slot of each step's build and probe (`__hm<s>`, `__mp<s>`, …):
     /// `k + 1` for step k, unless the step's index is HOISTED out of a fixpoint
     /// loop, when it takes a slot unique in its fn (R7.2).
@@ -3522,7 +3525,7 @@ fn nest_steps_new(n: i64) -> NestSteps {
     return NestSteps { build: vec![String::new(); n], probe: vec![String::new(); n],
                        resid: vec![String::new(); n], pred: vec![String::new(); n],
                        strat: vec![0i32; n], ktn: str_vec(n), hasres: vec![false; n],
-                       equi: vec![false; n], stream: vec![false; n], slot: sl };
+                       equi: vec![false; n], stream: vec![false; n], uniq: vec![false; n], slot: sl };
 }
 
 /// Wrap `inner` in the nest's steps, innermost (last-bound) step first.
@@ -3535,7 +3538,7 @@ fn nest_wrap(prm: &MacroParams, ch: &DNest, ns: &NestSteps, inner0: ExprBlob,
                           ns.hasres[ki], ns.ktn[ki], ch.src[ki], ch.ty[ki],
                           ch.var[ki], ch.byval[ki], string_as_str(&ns.probe[ki]),
                           string_as_str(&ns.resid[ki]), string_as_str(&ns.pred[ki]),
-                          lim_f, has_lim_use, ns.stream[ki]);
+                          lim_f, has_lim_use, ns.stream[ki], ns.uniq[ki]);
         ki = ki - 1i64;
     }
     return inner;
@@ -3548,7 +3551,7 @@ fn nest_builds(prm: &MacroParams, ch: &DNest, ns: &NestSteps, bps: &mut Vec<Expr
         arrange_node(prm, ch.src[bpi], ch.var[bpi], ns.strat[bpi]);
         bps.push(build_phase_frag(prm, ns.slot[bpi], ns.strat[bpi], ch.anti[bpi], ns.hasres[bpi],
                                   ns.ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                                  string_as_str(&ns.build[bpi]), ns.stream[bpi]));
+                                  string_as_str(&ns.build[bpi]), ns.stream[bpi], ns.uniq[bpi]));
         bpi = bpi + 1i64;
     }
 }
@@ -3594,6 +3597,14 @@ fn analyze_chain(ch: &DNest, t: &ElTypes, var0: str, h: &Writ, prm: &MacroParams
                     let sd2: EquiSides = equi_term_sides(sexpr_of_word(stt.tl.w[sel]), ch.var[i]);
                     if sd2.bw != 0i64 {
                         ktn = step_key_ty_of(sexpr_of_word(sd2.bw), sexpr_of_word(sd2.pw), t);
+                        // #322 — a hash index keyed by a column the step's source
+                        // declares unique holds one row a key (ADR 0026 F8).
+                        if strat == JS_HASH() && !ch.anti[i] {
+                            if unique_key_col(prm, sexpr_of_word(sd2.bw), ch.var[i], ch.src[i]) {
+                                ns.uniq[i] = true;
+                                plan_trace(ch.src[i], "unique index", ch.var[i], "the build key is a column the source declares unique — a map of one row per key, probed without a bucket loop");
+                            }
+                        }
                     }
                 }
             }
@@ -3643,9 +3654,29 @@ fn payload_ty_frag(streams: bool, ty: str) -> ExprBlob {
     return parse_type("i64");
 }
 
+/// The build key `var.col` over a column the step's source declares unique
+/// (`unique <rel> = <col>;`).
+fn unique_key_col(prm: &MacroParams, bk: SExpr, var: str, src: str) -> bool {
+    match bk {
+        SExpr::Field(f) => {
+            let br: WRef<SExpr> = f.base;
+            if br.any().is_null() { return false; }
+            match br.any().view::<SExpr>() {
+                SExpr::Field(v) => {
+                    let vb: WRef<SExpr> = v.base;
+                    if !vb.any().is_null() || !str_eq(v.name, var) { return false; }
+                    return prm.rel_col_unique(prm.rel_find_src(src), f.name);
+                }
+                _ => { return false; }
+            }
+        }
+        _ => { return false; }
+    }
+}
+
 fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid: bool,
                     ktn: str, src: str, ty: str, var: str, build_key: str,
-                    streams: bool) -> ExprBlob {
+                    streams: bool, uniq: bool) -> ExprBlob {
     if strat == JS_LOOP() { return quote_block! { }; }
     let set_form: bool = strat == JS_HASH() && anti && !has_resid;
 
@@ -3688,6 +3719,15 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
             let mut #n_hs: HashSet<#(kt)> = hashset_new::<#(kt)>();
             let #n_sp: *mut HashSet<#(kt)> = &mut #n_hs;
         };
+    } else if strat == JS_HASH() && uniq {
+        // One row a key: the payload itself, no bucket vector.
+        let p1: ExprBlob = payload_ty_frag(streams, ty);
+        let p2: ExprBlob = payload_ty_frag(streams, ty);
+        let p3: ExprBlob = payload_ty_frag(streams, ty);
+        decl = quote_block! {
+            let mut #n_hm: HashMap<#(kt), #(p1)> = hashmap_new::<#(kt), #(p2)>();
+            let #n_mp: *mut HashMap<#(kt), #(p3)> = &mut #n_hm;
+        };
     } else if strat == JS_HASH() {
         let p1: ExprBlob = payload_ty_frag(streams, ty);
         let p2: ExprBlob = payload_ty_frag(streams, ty);
@@ -3711,6 +3751,20 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
     let mut ins: ExprBlob = quote_block! { };
     if set_form {
         ins = quote_block! { unsafe { let _nb: bool = (*#n_sp).insert(#n_k); } };
+    } else if strat == JS_HASH() && uniq {
+        // A second row under one key breaks the source's own `unique`
+        // declaration — a logic error in the source, reported where it shows.
+        let mut pay: ExprBlob = quote_expr! { #n_b };
+        if streams { pay = quote_expr! { #n_br }; }
+        let po: ExprBlob = payload_ty_frag(streams, ty);
+        ins = quote_block! {
+            unsafe {
+                if (*#n_mp).contains_key(&#n_k) {
+                    logos.lang.panic::panic("deem: a source declared `unique` on its index key, and two rows share a key");
+                }
+                let _old: Option<#(po)> = (*#n_mp).insert(#n_k, #(pay));
+            }
+        };
     } else if strat == JS_HASH() {
         let p1: ExprBlob = payload_ty_frag(streams, ty);
         let p2: ExprBlob = payload_ty_frag(streams, ty);
@@ -3928,7 +3982,7 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
 fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
              has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
              probe_key: str, residual: str, pred: str,
-             lim: ExprBlob, has_lim: bool, streams: bool) -> ExprBlob {
+             lim: ExprBlob, has_lim: bool, streams: bool, uniq: bool) -> ExprBlob {
     let s_pk: String = nk_str("__pk", s);   let n_pk: Ident = Ident::new(string_as_str(&s_pk));
     let s_m:  String = nk_str("__m",  s);   let n_m:  Ident = Ident::new(string_as_str(&s_m));
     let s_j:  String = nk_str("__j",  s);   let n_j:  Ident = Ident::new(string_as_str(&s_j));
@@ -4109,6 +4163,34 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
         };
     }
 
+    // UNIQUE HASH probe (#322): the key's one row, no bucket loop.
+    if strat == JS_HASH() && uniq {
+        let s_mp: String = nk_str("__mp", s);   let n_mp: Ident = Ident::new(string_as_str(&s_mp));
+        let q1: ExprBlob = payload_ty_frag(streams, ty);
+        let q2: ExprBlob = payload_ty_frag(streams, ty);
+        let q3: ExprBlob = payload_ty_frag(streams, ty);
+        let mut uguard: ExprBlob = inner;
+        if has_resid {
+            let resid_u: ExprBlob = parse_expr(residual);
+            uguard = quote_block! { if (#(resid_u)) #(uguard) };
+        }
+        let mut ubind: ExprBlob = quote_block! {
+            let #n_ri: i64 = unsafe { *#n_bp };
+            let #vnm: &#(rowt) = &(#(src_f))[#n_ri];
+        };
+        if streams { ubind = quote_block! { let #vnm: &#(rowt) = unsafe { &*#n_bp }; }; }
+        let mut ucond: ExprBlob = quote_expr! { #n_bp != (0i64 as *const #(q3)) };
+        if has_lim { ucond = quote_expr! { #n_bp != (0i64 as *const #(q3)) && __out.len() < (#(lim)) }; }
+        return quote_block! {
+            #(pk_decl);
+            let mut #n_bp: *const #(q1) = 0i64 as *const #(q2);
+            unsafe { #n_bp = (*#n_mp).get(&#n_pk); }
+            if #(ucond) {
+                #(ubind);
+                #(uguard);
+            }
+        };
+    }
     // HASH / TREE probe: bucket lookup → row loop → (residual guard).
     let lookup: ExprBlob = bucket_lookup_frag(s, strat, streams, ty);
     let p1: ExprBlob = payload_ty_frag(streams, ty);
@@ -9813,7 +9895,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         arrange_node(prm, ch.src[bpi], ch.var[bpi], ns.strat[bpi]);
         let bp: ExprBlob = build_phase_frag(prm, ns.slot[bpi], ns.strat[bpi], ch.anti[bpi], ns.hasres[bpi],
                                             ns.ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                                            string_as_str(&ns.build[bpi]), ns.stream[bpi]);
+                                            string_as_str(&ns.build[bpi]), ns.stream[bpi], ns.uniq[bpi]);
         if ns.slot[bpi] != bpi + 1i64 { hx.builds.push(bp); } else { bps.push(bp); }
         bpi = bpi + 1i64;
     }
@@ -9958,7 +10040,7 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
         arrange_node(prm, ch.src[bpi], ch.var[bpi], ns.strat[bpi]);
         let bp: ExprBlob = build_phase_frag(prm, ns.slot[bpi], ns.strat[bpi], ch.anti[bpi], ns.hasres[bpi],
                                             ns.ktn[bpi], ch.src[bpi], ch.ty[bpi], ch.var[bpi],
-                                            string_as_str(&ns.build[bpi]), ns.stream[bpi]);
+                                            string_as_str(&ns.build[bpi]), ns.stream[bpi], ns.uniq[bpi]);
         if ns.slot[bpi] != bpi + 1i64 { hx.builds.push(bp); } else { bps.push(bp); }
         bpi = bpi + 1i64;
     }

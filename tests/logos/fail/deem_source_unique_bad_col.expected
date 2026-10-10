@@ -1,0 +1,1 @@
+impl for 'Led': `unique entry = nokey` names no column of rel 'entry' — its columns are (id, amt)
