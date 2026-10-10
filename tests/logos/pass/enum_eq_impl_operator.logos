@@ -4,7 +4,7 @@ package enum_eq_impl_operator;
 // correct discriminant fast-path - through their own Eq impl (rustc E0369
 // without one).
 enum MyOpt { MNone, MSome(i64) }
-impl Eq for MyOpt {
+impl PartialEq for MyOpt {
     fn eq(self: &Self, other: &Self) -> bool {
         match self {
             MyOpt::MSome(a) => { match other { MyOpt::MSome(b) => { return *a == *b; } MyOpt::MNone => { return false; } } }
@@ -12,8 +12,9 @@ impl Eq for MyOpt {
         }
     }
 }
+impl Eq for MyOpt {}
 enum Color { Red, Green, Blue }
-impl Eq for Color {
+impl PartialEq for Color {
     fn eq(self: &Self, other: &Self) -> bool {
         match self {
             Color::Red => { match other { Color::Red => { return true; } _ => { return false; } } }
@@ -22,6 +23,7 @@ impl Eq for Color {
         }
     }
 }
+impl Eq for Color {}
 fn main() -> i64 {
     let a: MyOpt = MyOpt::MSome(3);
     let b: MyOpt = MyOpt::MSome(3);

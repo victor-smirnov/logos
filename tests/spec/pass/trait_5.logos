@@ -44,7 +44,8 @@ fn need_mk_i64<T: Mk<i64>>(v: &T) -> i64 { return v.mk(); }
 // ── trait.bounds.partialeq-via-eq ────────────────────────────────────────────
 // A `T: PartialEq` bound is satisfied by an Eq impl (alias resolution).
 struct Pt { v: i64 }
-impl Eq for Pt { fn eq(&self, o: &Pt) -> bool { return self.v == o.v; } }
+impl PartialEq for Pt { fn eq(&self, o: &Pt) -> bool { return self.v == o.v; } }
+impl Eq for Pt {}
 
 fn need_peq<T: PartialEq>(a: &T, b: &T) -> bool { return a.eq(b); }
 

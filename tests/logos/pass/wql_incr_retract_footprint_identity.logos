@@ -73,11 +73,11 @@ pub deem namq(rs: &[N]) { from rs r group by r.g aggregate s = sum(r.v) select (
 
 // §7/§8: a NAMED field whose type has `Eq` joins the identity — by value when
 // it is `Copy` (§7), cloned when it is only `Clone` (§8, which owns a String).
-#[derive_eq] #[derive_copy] #[derive_clone]
+#[derive_partial_eq] #[derive_eq] #[derive_copy] #[derive_clone]
 pub enum Kind2 { A, B }
 pub struct N2 { pub g: i64, pub v: i64, pub k: Kind2 }
 pub deem nm2q(rs: &[N2]) { from rs r group by r.g aggregate s = sum(r.v) select (key, s) }
-#[derive_eq] #[derive_clone]
+#[derive_partial_eq] #[derive_eq] #[derive_clone]
 pub struct Tag { pub s: String }
 pub struct T { pub g: i64, pub v: i64, pub t: Tag }
 pub deem tagq(rs: &[T]) { from rs r group by r.g aggregate s = sum(r.v) select (key, s) }

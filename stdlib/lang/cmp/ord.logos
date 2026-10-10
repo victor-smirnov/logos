@@ -1030,9 +1030,10 @@ impl u16 {
 /// Turns a max-heap (`BinaryHeap`) into a min-heap.
 pub struct Reverse<T>(pub T);
 
-impl<T: Eq> Eq for Reverse<T> {
+impl<T: PartialEq> PartialEq for Reverse<T> {
     fn eq(&self, other: &Self) -> bool { return self.0.eq(&other.0); }
 }
+impl<T: Eq> Eq for Reverse<T> {}
 
 impl<T: Ord> Ord for Reverse<T> {
     fn cmp(&self, other: &Self) -> Ordering { return other.0.cmp(&self.0); }

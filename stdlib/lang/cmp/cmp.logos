@@ -10,26 +10,11 @@ use logos.lang.str;
 use logos.lang.option;
 use logos.lang.result;
 
-/// Defines total equality via `eq`, with `ne` derived by default.
-/// Not implemented for floats — NaN != NaN breaks totality; see `PartialEq` instead.
+/// Total equality: `PartialEq` whose `eq` is reflexive (Rust's `core::cmp::Eq`).
+/// A marker — `eq` / `ne` are `PartialEq`'s. Not implemented for floats (NaN != NaN).
 #[lang = "eq"]
-pub trait Eq {
-    /// Returns `true` if `self` and `other` are equal.
-    fn eq(&self, other: &Self) -> bool;
-    /// Returns `true` if `self` and `other` are not equal; the default derives it from `eq`.
-    // Mirrors Rust's `PartialEq::ne(&self, &Self) -> bool { !self.eq(other) }`.
-    fn ne(&self, other: &Self) -> bool { return !self.eq(other); }
-}
+pub trait Eq: PartialEq {}
 
-// SL-sl-02: Rust's hierarchy is `Eq: PartialEq` (every Eq is PartialEq).
-// Logos pre-2026-05-15 declared `PartialEq` as an empty marker for
-// forward-compat. Now `PartialEq` actually carries `eq`/`ne` so floats
-// (which can't impl total `Eq` because NaN != NaN) can still satisfy
-// equality bounds, and so user code with `T: PartialEq` can call
-// `t1.eq(&t2)`. Existing `impl Eq for X` blocks continue to provide
-// `eq` via the bound-check fallback in sema_collect.cpp that treats
-// `Eq` as a PartialEq satisfier — no per-impl migration needed for
-// the integer types.
 /// Defines partial equality via `eq`, with `ne` derived by default.
 /// Unlike `Eq`, does not require totality — implemented for floats where NaN != NaN.
 #[lang = "partial_eq"]
@@ -58,17 +43,28 @@ pub trait PartialOrd {}
 impl PartialEq for f32 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl PartialEq for f64 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 
-impl Eq for i32  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for i64  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for u32  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for u64  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for u8   { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for i8   { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for u16  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for i16  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for bool { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for usize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for isize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl PartialEq for i32 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i32 {}
+impl PartialEq for i64 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i64 {}
+impl PartialEq for u32 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u32 {}
+impl PartialEq for u64 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u64 {}
+impl PartialEq for u8 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u8 {}
+impl PartialEq for i8 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i8 {}
+impl PartialEq for u16 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u16 {}
+impl PartialEq for i16 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i16 {}
+impl PartialEq for bool { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for bool {}
+impl PartialEq for usize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for usize {}
+impl PartialEq for isize { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for isize {}
 // THE 128-BIT AND PACKED WIDTHS. These were held out by a comment claiming that
 // `impl Eq for u128 { *self == *other }` SEGFAULTS AT THE CALL. It does not, and
 // it is not clear it ever did on this tree: re-measured 2026-08-05 at c6c212c7,
@@ -77,41 +73,53 @@ impl Eq for isize { fn eq(&self, other: &Self) -> bool { return *self == *other;
 // true and exits 0. The exercise is `wql_el_cmp_measured` — it calls `eqv::<K>`,
 // a generic that can only reach the value through the trait method, on every
 // lattice type including these six, and it is where a real one would surface.
-impl Eq for u128 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for i128 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for u56  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for i56  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for u24  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for i24  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for char  { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
-impl Eq for str   {
+impl PartialEq for u128 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u128 {}
+impl PartialEq for i128 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i128 {}
+impl PartialEq for u56 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u56 {}
+impl PartialEq for i56 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i56 {}
+impl PartialEq for u24 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for u24 {}
+impl PartialEq for i24 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for i24 {}
+impl PartialEq for char { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+impl Eq for char {}
+impl PartialEq for str {
     fn eq(&self, other: &Self) -> bool {
         // self / other are `&str` which canonicalises to `Slice<u8>` (str
         // is the value form of UnsizedSlice<u8>). Pass through directly.
         return str_eq(*self, *other);
     }
 }
+impl Eq for str {}
 
 // By-reference Eq, Rust's `impl<A: ?Sized + PartialEq<B>, B: ?Sized> PartialEq<&B> for &A`:
 // a reference compares as its referent does (`&str`, the elements of a by-ref
 // iterator), as `Ord for &T` and `Debug for &T` already do.
-impl<T: Eq> Eq for &T {
+impl<T: PartialEq> PartialEq for &T {
     fn eq(&self, other: &&T) -> bool { return (**self).eq(*other); }
 }
-impl<T: Eq> Eq for &mut T {
+impl<T: Eq> Eq for &T {}
+impl<T: PartialEq> PartialEq for &mut T {
     fn eq(&self, other: &&mut T) -> bool { return (**self).eq(&**other); }
 }
+impl<T: Eq> Eq for &mut T {}
 
 // Raw pointers compare by ADDRESS (Rust: `impl<T: ?Sized> PartialEq for *const T`
 // / `*mut T`) — the pointee is never read.
-impl<T> Eq for *const T {
+impl<T> PartialEq for *const T {
     fn eq(&self, other: &Self) -> bool { return (*self as usize) == (*other as usize); }
     fn ne(&self, other: &Self) -> bool { return (*self as usize) != (*other as usize); }
 }
-impl<T> Eq for *mut T {
+impl<T> Eq for *const T {}
+impl<T> PartialEq for *mut T {
     fn eq(&self, other: &Self) -> bool { return (*self as usize) == (*other as usize); }
     fn ne(&self, other: &Self) -> bool { return (*self as usize) != (*other as usize); }
 }
+impl<T> Eq for *mut T {}
 
 // Tuple Eq — single variadic-arity impl covering any tuple shape.
 // Replaces the per-arity hand-rolled impls (2/3/4) that lived here
@@ -121,7 +129,7 @@ impl<T> Eq for *mut T {
 // pack-binds A to the concrete tuple's element list, so
 // `Self → (T1, T2, ...)` substitutes correctly through
 // `subst_type_sema`'s Tuple-pack-expansion fast-path.
-impl<A...: Eq> Eq for (A...) {
+impl<A...: PartialEq> PartialEq for (A...) {
     fn eq(self: &Self, other: &Self) -> bool {
         return tuple_all_eq::<Self>(self, other);
     }
@@ -129,11 +137,12 @@ impl<A...: Eq> Eq for (A...) {
         return !tuple_all_eq::<Self>(self, other);
     }
 }
+impl<A...: Eq> Eq for (A...) {}
 
 /// Element-wise equality of two slices (Rust's `impl PartialEq for [T]`): equal
 /// lengths and `a[i] == b[i]` for every `i`. The lowering of `==` / `!=` over
 /// slices whose elements are not primitives.
-pub fn slice_eq<T: Eq>(a: &[T], b: &[T]) -> bool {
+pub fn slice_eq<T: PartialEq>(a: &[T], b: &[T]) -> bool {
     let n: i64 = a.len() as i64;
     if n != b.len() as i64 { return false; }
     unsafe { return slice_eq_raw::<T>(a.as_ptr() as *const T, b.as_ptr() as *const T, n); }
@@ -144,7 +153,7 @@ pub fn slice_eq<T: Eq>(a: &[T], b: &[T]) -> bool {
 /// over arrays — nested ones included, whose elements are contiguous — of
 /// non-primitive elements.
 /// SAFETY: `pa` and `pb` each point at `n` initialized `T`s.
-pub unsafe fn slice_eq_raw<T: Eq>(pa: *const T, pb: *const T, n: i64) -> bool {
+pub unsafe fn slice_eq_raw<T: PartialEq>(pa: *const T, pb: *const T, n: i64) -> bool {
     let esz: i64 = sizeof::<T>() as i64;
     let mut i: i64 = 0i64;
     while i < n {
@@ -166,7 +175,7 @@ pub unsafe fn slice_eq_raw<T: Eq>(pa: *const T, pb: *const T, n: i64) -> bool {
 // forbids writing a modifier at all. So the scrutinee is dereferenced: `match
 // *self` leaves the default mode `move`, and the written `ref a` is then the
 // thing that makes the binding a borrow.
-impl<T: Eq> Eq for Option<T> {
+impl<T: PartialEq> PartialEq for Option<T> {
     fn eq(self: &Self, other: &Self) -> bool {
         match *self {
             Option::Some(ref a) => { match *other { Option::Some(ref b) => { return *a == *b; } Option::None => { return false; } } }
@@ -174,8 +183,9 @@ impl<T: Eq> Eq for Option<T> {
         }
     }
 }
+impl<T: Eq> Eq for Option<T> {}
 
-impl<T: Eq, E: Eq> Eq for Result<T, E> {
+impl<T: PartialEq, E: PartialEq> PartialEq for Result<T, E> {
     fn eq(self: &Self, other: &Self) -> bool {
         match *self {
             Result::Ok(ref a) => { match *other { Result::Ok(ref b) => { return *a == *b; } Result::Err(ref b) => { return false; } } }
@@ -183,3 +193,4 @@ impl<T: Eq, E: Eq> Eq for Result<T, E> {
         }
     }
 }
+impl<T: Eq, E: Eq> Eq for Result<T, E> {}

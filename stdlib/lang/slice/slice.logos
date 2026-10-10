@@ -493,7 +493,7 @@ impl<T> SliceMethods<T> for [T] {
     }
 }
 
-/// `[T]` methods that compare elements (`T: Eq`).
+/// `[T]` methods that compare elements (`T: PartialEq`, as Rust's).
 pub trait SliceEqMethods<T> {
     /// `true` if some element equals `x`.
     fn contains(&self, x: &T) -> bool;
@@ -503,7 +503,7 @@ pub trait SliceEqMethods<T> {
     fn ends_with(&self, needle: &[T]) -> bool;
 }
 
-impl<T: Eq> SliceEqMethods<T> for [T] {
+impl<T: PartialEq> SliceEqMethods<T> for [T] {
     fn contains(&self, x: &T) -> bool {
         let n: i64 = self.len() as i64;
         unsafe {

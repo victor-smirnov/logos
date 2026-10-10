@@ -41,11 +41,12 @@ pub struct TypeId {
 
 impl Copy for TypeId {}
 
-impl Eq for TypeId {
+impl PartialEq for TypeId {
     fn eq(self: &Self, other: &Self) -> bool {
         return self.lo == other.lo && self.hi == other.hi;
     }
 }
+impl Eq for TypeId {}
 
 /// Returns the `TypeId` of `_T` — the `TypeId::of::<T>()` analogue.
 /// `_T` appears only at the type level (via `type_uid::<_T>()`), never in the

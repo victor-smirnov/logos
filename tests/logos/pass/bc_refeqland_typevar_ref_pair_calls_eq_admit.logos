@@ -17,11 +17,12 @@
 package bc_refeqland_typevar_ref_pair_calls_eq_admit;
 use logos.lang.cmp;
 struct D { v: i64 }
-impl Eq for D {
+impl PartialEq for D {
     fn eq(&self, other: &D) -> bool {
         return self.v == other.v;
     }
 }
+impl Eq for D {}
 fn same<T: Eq>(a: &T, b: &T) -> bool {
     return a == b;
 }

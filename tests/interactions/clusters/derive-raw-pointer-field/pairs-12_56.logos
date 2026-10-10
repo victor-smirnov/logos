@@ -24,6 +24,7 @@ use logos.lang.ptr;
 use logos.lang.num.error;
 use logos.lang.num.parse;
 #[derive_hash]
+#[derive_partial_eq]
 #[derive_eq]
 #[derive_partial_ord]
 #[derive_ord]

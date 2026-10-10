@@ -21,7 +21,7 @@ use logos.lang.hash;
 use logos.lang.cmp;
 use logos.lang.result;
 
-#[derive_hash] #[derive_eq] #[derive_copy] #[derive_clone]
+#[derive_hash] #[derive_partial_eq] #[derive_eq] #[derive_copy] #[derive_clone]
 pub struct Sku { pub a: i64, pub b: i64 }
 
 pub struct Line { pub sku: Sku, pub qty: i64 }

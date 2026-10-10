@@ -3,9 +3,11 @@ package eq_ref_pairs_through_value;
 use logos.lang.cmp;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct S { v: i64 }
-impl Eq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+impl PartialEq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+impl Eq for S {}
 struct W<T> { x: T }
-impl<T: Eq> Eq for W<T> { fn eq(&self, other: &W<T>) -> bool { return self.x == other.x; } }
+impl<T: PartialEq> PartialEq for W<T> { fn eq(&self, other: &W<T>) -> bool { return self.x == other.x; } }
+impl<T: Eq> Eq for W<T> {}
 fn b(x: bool) -> i32 { if x { return 1i32; } return 0i32; }
 fn main() -> i32 {
     let s1: S = S { v: 1i64 }; let s2: S = S { v: 1i64 };

@@ -21,7 +21,8 @@ package bc_refeqland_struct_ref_pair_calls_eq_admit;
 use logos.lang.cmp;
 
 struct D { v: i64 }
-impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+impl PartialEq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+impl Eq for D {}
 
 fn main() -> i32 {
     let a: D = D { v: 4i64 };

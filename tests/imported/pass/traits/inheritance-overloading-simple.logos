@@ -13,9 +13,10 @@ trait MyNum: Eq { }
 
 struct MyInt { val: i64 }
 
-impl Eq for MyInt {
+impl PartialEq for MyInt {
     fn eq(self: &MyInt, other: &MyInt) -> bool { return self.val == other.val; }
 }
+impl Eq for MyInt {}
 
 impl MyNum for MyInt {}
 

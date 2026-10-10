@@ -2,7 +2,8 @@
 package arraylit_cast_target_elem_type;
 use logos.lang.cmp;
 struct S { v: i64 }
-impl Eq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+impl PartialEq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+impl Eq for S {}
 fn main() -> i32 {
     let e: [S; 0] = [];
     if e != [] as [S; 0] { return 1i32; }
