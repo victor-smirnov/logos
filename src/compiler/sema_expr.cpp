@@ -785,10 +785,10 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
         // type_args() returns a FRESH vector per call — never iterate
         // begin()/end() across two calls (different temporaries → garbage
         // range). Pass the materialised vector directly.
-        ref_t = make_trait_object(std::string(TypeRef(target).trait_name()),
-                                  TypeRef(target).type_args(),
-                                  TraitOwningKind::Borrow, false, false, {},
-                                  TypeRef(target).pkg_name());
+        ref_t = dyn_mut_(make_trait_object(std::string(TypeRef(target).trait_name()),
+                                           TypeRef(target).type_args(),
+                                           TraitOwningKind::Borrow, false, false, {},
+                                           TypeRef(target).pkg_name()), want_mut);
     else if (tgt_kind == LogosType::Kind::UnsizedSlice)
         ref_t = make_slice_type(TypeRef(target).elem(), want_mut);
     else
@@ -1133,7 +1133,9 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
         // types_compatible(FnItem, FnPtr) rule + the downstream
         // is_fn_value_kind acceptance helper.
         std::vector<const SemaFuncInfo*> cands;
-        if (std::string rp = res_fn_package_(expr); !rp.empty()) {   // Q1 row 4e: the HIR's resolution
+        if (std::string li = local_fn_item_(name); !li.empty())   // a block-local fn item, as a value
+            cands = pkg_fn_candidates_(cur_package_, li);
+        else if (std::string rp = res_fn_package_(expr); !rp.empty()) {   // Q1 row 4e: the HIR's resolution
             for (size_t b = 0; b <= rp.size();) {                     // one package, or a comma set
                 const size_t e = std::min(rp.find(',', b), rp.size());
                 for (auto* c : pkg_fn_candidates_(rp.substr(b, e - b), name)) cands.push_back(c);
@@ -2144,12 +2146,12 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 TypeRef(op_t).owning_trait_object()) {
                 auto a = TypeRef(op_t).type_args();
                 builder().retype_expr(operand,
-                    make_trait_object(TypeRef(op_t).trait_name(),
-                                      std::vector<TypeRef>(a.begin(), a.end()),
-                                      TraitOwningKind::Borrow,
-                                      TypeRef(op_t).trait_requires_send(),
-                                      TypeRef(op_t).trait_requires_sync(), {},
-                                      TypeRef(op_t).pkg_name()));
+                    dyn_mut_(make_trait_object(TypeRef(op_t).trait_name(),
+                                               std::vector<TypeRef>(a.begin(), a.end()),
+                                               TraitOwningKind::Borrow,
+                                               TypeRef(op_t).trait_requires_send(),
+                                               TypeRef(op_t).trait_requires_sync(), {},
+                                               TypeRef(op_t).pkg_name()), true));   // `&mut *b`
                 return operand;
             }
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
@@ -2284,8 +2286,16 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             rargs.push_back(std::move(b));
             return finish_generic_call(sym, *rfi, {bt}, std::move(rargs));
         }
+        const TypeRef item_hint = range_item_hint_;
+        range_item_hint_ = nullptr;   // this range's alone, not its operands'
         auto lo = lower_expr(map_of(expr.get(la::LHS.code)));
         auto hi = lower_expr(map_of(expr.get(la::RHS.code)));
+        if (item_hint) {
+            if (is_lit_var_(expr_type(lo))) lit_solve_(expr_type(lo), item_hint);
+            if (is_lit_var_(expr_type(hi))) lit_solve_(expr_type(hi), item_hint);
+            builder().retype_expr(lo, lit_zonk_(expr_type(lo)));
+            builder().retype_expr(hi, lit_zonk_(expr_type(hi)));
+        }
         if (!is_integer(expr_type(lo)) && TypeRef(expr_type(lo)).kind() != LogosType::Kind::Error)
             error(std::format("range start must be integer, got {}", type_str(expr_type(lo))));
         if (!is_integer(expr_type(hi)) && TypeRef(expr_type(hi)).kind() != LogosType::Kind::Error)
@@ -3272,6 +3282,14 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                                  TypeRef(lt).pointee().kind() == LogosType::Kind::Enum);
         if (generic_adt || k == LogosType::Kind::Enum || ref_struct)
             if (auto c = lower_op_by_trait_(*oi, lhs, &rhs)) return c;
+        // `==` / `!=` on an enum with no PartialEq (or Eq) impl: rustc E0369 —
+        // there is no builtin equality on an enum.
+        if (k == LogosType::Kind::Enum && (op == "==" || op == "!=") && rt &&
+            TypeRef(rt).kind() == LogosType::Kind::Enum) {
+            error(std::format("binary operation `{}` cannot be applied to type `{}` (E0369): "
+                              "it requires an Eq/PartialEq impl", op, type_str(lt, true)));
+            return error_expr();
+        }
     }
     if (TypeRef(lt_sv).kind() == LogosType::Kind::Struct) {
         // Map operator to trait name and method
@@ -4910,6 +4928,15 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             call_pkg_qualifier_ = li->package;
             call_pkg_qualifier_name_ = li->name;
         }
+    // A block-local fn item of an enclosing body (`fn inner` declared in it):
+    // its symbol in this package, never a homonym in scope.
+    std::string local_item_sym_;
+    if (call_pkg_qualifier_.empty() && !antiquot_callee && !lookup(callee))
+        if (local_item_sym_ = local_fn_item_(callee); !local_item_sym_.empty()) {
+            callee = local_item_sym_;
+            call_pkg_qualifier_ = cur_package_;
+            call_pkg_qualifier_name_ = local_item_sym_;
+        }
     // Q1 row 4e: the HIR resolved the callee once (RES): the call names that
     // package's overload set, as a path would — no second lookup by spelling.
     // (A set of packages — overloads several imports supply — is exactly what
@@ -5396,7 +5423,25 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             // literal by the bound's signature, under the same bindings.
             if (TypeRef h = closure_hint_for((size_t)i)) arg_shape = formal_shape_(h, hint_fi->type_params, arg_binds);
             TypeRef arg_expect = arg_shape && type_is_concrete(arg_shape) ? arg_shape : TypeRef(nullptr);
+            // `f(0..3)` against `I: Iterator<Item = i64>`: the range's literals
+            // take the bound's Item (range_item_hint_).
+            range_item_hint_ = nullptr;
+            if (hint_fi && i < hint_fi->param_types.size() && hint_fi->param_types[i] &&
+                TypeRef(hint_fi->param_types[i]).kind() == LogosType::Kind::TypeVar) {
+                const std::string tvn(TypeRef(hint_fi->param_types[i]).type_var_name());
+                for (auto& tp : hint_fi->type_params) {
+                    if (tp.name != tvn) continue;
+                    for (auto& b : tp.bounds) {
+                        if (!trait_key_is_lang_item(canonical_trait_name(b.trait_name), "iterator") &&
+                            !trait_key_is_lang_item(canonical_trait_name(b.trait_name), "into_iterator"))
+                            continue;
+                        for (auto& [an, aty] : b.assoc_eqs)
+                            if (an == "Item" && aty && is_integer(aty) && !is_lit_var_(aty)) range_item_hint_ = aty;
+                    }
+                }
+            }
             arg_exprs.push_back(lower_expr_expecting(map_of(args.get(i)), arg_expect, arg_shape));
+            range_item_hint_ = nullptr;
             if (hint_fi && i < hint_fi->param_types.size() && hint_fi->param_types[i] && arg_exprs.back() &&
                 expr_type(arg_exprs.back())) {
                 TypeRef at = expr_type(arg_exprs.back());
@@ -7888,6 +7933,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {
 }
 
 std::vector<TypeRef> SemaChecker::collect_type_args(TinyMapView node) {
+    struct ArgSlot { int& d; ArgSlot(int& x) : d(x) { ++d; } ~ArgSlot() { --d; } } arg_slot_{generic_arg_depth_};
     std::vector<TypeRef> out;
     if (!node.has_key(la::TYPE_PARAMS)) return out;
     auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
@@ -8905,7 +8951,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (size_t i = 0; i < items.size(); ++i)
-                    targs.push_back(resolve_type(map_of(items.get(i))));
+                    targs.push_back(resolve_type_arg_(map_of(items.get(i))));
             }
         }
         auto type_t = make_synth_struct("Type");
@@ -9346,7 +9392,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
                 auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items_size; ++i)
-                    targs.push_back(resolve_type(map_of(items.get(i))));
+                    targs.push_back(resolve_type_arg_(map_of(items.get(i))));
             }
             const TypeRef saved_shape = shape_;
             if (!targs.empty() && targs.size() == vesi->type_params.size())
@@ -9381,7 +9427,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
                 !fi_ptr->type_params[i].implicit_sized) {
                 unsized_ok_ = true;
             }
-            type_args.push_back(resolve_type(map_of(items.get(i))));
+            type_args.push_back(resolve_type_arg_(map_of(items.get(i))));
             unsized_ok_ = was_ok;
         }
     }
@@ -10067,6 +10113,21 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
             auto& m = *vtab[mi].second;
             if (m.name == method_name) {
                 if (m.is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // a trait item: no symbol
+                // A `&mut self` slot through a shared `&dyn Tr` (rustc E0596, #741):
+                // a borrowed trait object written `&mut` carries that in its type.
+                if (!m.param_types.empty() && m.param_types[0] &&
+                    TypeRef(m.param_types[0]).kind() == LogosType::Kind::MutRef &&
+                    ((rt.kind() == LogosType::Kind::TraitObject && !rt.owning_trait_object() && !rt.raw_fat() &&
+                      !rt.mut_borrowed_trait_object()) ||
+                     rt.kind() == LogosType::Kind::Ref)) {
+                    error(std::format("cannot borrow data in a `&` reference as mutable (E0596): `{}` takes "
+                                      "`&mut self`, the receiver is `{}`",
+                                      std::string(method_name), type_str(rt)));
+                    return error_expr();
+                }
+                // A `&mut` receiver is reborrowed, not moved (Rust's auto-reborrow at
+                // the receiver; `a.act(); a.act()` over `a: &mut Box<dyn Tr>`).
+                if (rt.kind() == LogosType::Kind::MutRef) try_implicit_reborrow_mut(recv, rt, false);
                 // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
                 std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
                 uint64_t explicit_args = arg_exprs.size();
@@ -10438,7 +10499,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             bool was_ok = unsized_ok_;
             unsized_ok_ = true;
             for (uint64_t i = 0; i < items.size(); ++i)
-                user_type_args.push_back(resolve_type(map_of(items.get(i))));
+                user_type_args.push_back(resolve_type_arg_(map_of(items.get(i))));
             unsized_ok_ = was_ok;
         }
     }
@@ -10621,8 +10682,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             for (auto& b : wit->second) if (provides(b.trait_name)) { recv_where_bounded = true; break; }
         }
     if (recv_is_tv || recv_is_assoc || recv_where_bounded) {
-        // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
-        std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
+        // The arguments are lowered once the method is chosen: a closure
+        // literal takes its parameters from the method's Fn bound
+        // (`it.map(|x| ..)` under `I: Iterator<Item = i64>` is `|x: i64|`).
+        std::vector<lir::LExprPtr> arg_exprs;
 
         auto bit = current_type_bounds_.find(recv_bound_key);
         const SemaTraitMethodInfo* chosen_method = nullptr;
@@ -10756,6 +10819,40 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
 
         if (chosen_method) {
             if (chosen_method->is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // through a bound
+            {
+                SemaSubst hint_subst = chosen_subst;
+                hint_subst["Self"] = recv_inner;
+                auto arg_asts = collect_arg_asts(node);
+                for (size_t i = 0; i < arg_asts.size(); ++i) {
+                    TypeRef h = nullptr;
+                    if (i + 1 < chosen_method->param_types.size() && chosen_method->param_types[i + 1])
+                        h = closure_hint_from_fn_bound(chosen_method->param_types[i + 1],
+                                                       chosen_method->type_params, hint_subst);
+                    // A formal written as a fn type (`fn(&Self::Item) -> bool`) is the hint itself.
+                    if (!h && i + 1 < chosen_method->param_types.size() && chosen_method->param_types[i + 1] &&
+                        LogosType::is_fn_value_kind(TypeRef(chosen_method->param_types[i + 1]).kind()))
+                        h = subst_type_sema(chosen_method->param_types[i + 1], hint_subst);
+                    // `Self::Item` under the receiver's bound (`Item = i64`), also
+                    // behind a reference (`filter`'s `&Self::Item`).
+                    if (h && (TypeRef(h).kind() == LogosType::Kind::Closure ||
+                              LogosType::is_fn_value_kind(TypeRef(h).kind()))) {
+                        auto norm = [&](TypeRef t) -> TypeRef {
+                            if (!t) return t;
+                            if (is_ref_like(TypeRef(t).kind()) && TypeRef(t).pointee()) {
+                                TypeRef np = normalize_assoc_eq(TypeRef(t).pointee());
+                                return np == TypeRef(t).pointee() ? t
+                                       : make_ref(TypeRef(t).kind() == LogosType::Kind::MutRef, np);
+                            }
+                            return normalize_assoc_eq(t);
+                        };
+                        std::vector<TypeRef> ps;
+                        for (auto p : TypeRef(h).closure_params()) ps.push_back(norm(p));
+                        TypeRef r = TypeRef(h).closure_ret() ? norm(TypeRef(h).closure_ret()) : void_t();
+                        h = make_closure_type(ps, r);
+                    }
+                    arg_exprs.push_back(h ? lower_expr_expecting(arg_asts[i], h, h) : lower_expr(arg_asts[i]));
+                }
+            }
 
             size_t expected_explicit = chosen_method->param_types.size() > 0
                 ? chosen_method->param_types.size() - 1 : 0;
@@ -10877,6 +10974,38 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 for (size_t i = 0; i + 1 < chosen_method->param_types.size()
                                   && i < arg_exprs.size(); ++i)
                     if (arg_exprs[i]) walk(chosen_method->param_types[i + 1], expr_type(arg_exprs[i]));
+            }
+            // The method's own type parameters the arguments, else the call's
+            // expected type, fix (`sum<S>(self) -> S` under `let s: i64`).
+            if (!chosen_method->type_params.empty() && user_type_args.empty()) {
+                StrMap<TypeRef> mb(self_subst.begin(), self_subst.end());
+                for (uint64_t i = 0; i < arg_exprs.size() && i + 1 < chosen_method->param_types.size(); ++i)
+                    unify_arg_(subst_type_sema(chosen_method->param_types[i + 1], self_subst),
+                               expr_type(arg_exprs[i]), mb);
+                // A parameter only an Fn bound names (`map<B, F: FnMut(Item) -> B>`)
+                // is read off the closure the bound's parameter is bound to.
+                for (auto& tp : chosen_method->type_params) {
+                    auto fit = mb.find(tp.name);
+                    if (fit == mb.end() || !fit->second) continue;
+                    TypeRef ct = zonk_(fit->second);
+                    if (!ct || TypeRef(ct).kind() != LogosType::Kind::Closure) continue;
+                    for (auto& b : tp.bounds) {
+                        if (!b.is_fn_family) continue;
+                        SemaSubst partial(mb.begin(), mb.end());
+                        auto cps = TypeRef(ct).closure_params();
+                        for (size_t q = 0; q < b.fn_params.size() && q < cps.size(); ++q)
+                            if (b.fn_params[q]) unify_types(subst_type_sema(b.fn_params[q], partial), cps[q], mb);
+                        if (b.fn_ret && TypeRef(ct).closure_ret())
+                            unify_types(subst_type_sema(b.fn_ret, partial), TypeRef(ct).closure_ret(), mb);
+                    }
+                }
+                if (TypeRef rh = ret_hint_(); rh && type_is_concrete(rh) && chosen_method->ret_type) {
+                    SemaSubst partial(mb.begin(), mb.end());
+                    unify_types(subst_type_sema(chosen_method->ret_type, partial), rh, mb);
+                }
+                for (auto& tp : chosen_method->type_params)
+                    if (auto it = mb.find(tp.name); it != mb.end() && it->second && !self_subst.count(tp.name))
+                        self_subst[tp.name] = it->second;
             }
             TypeRef ret_type = subst_type_sema(chosen_method->ret_type, self_subst, lt_subst_tv);
 
@@ -11055,6 +11184,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         if (!deref_bound_fallthrough) {
             error(std::format("type parameter '{}' has no trait bound providing method '{}'",
                               TypeRef(recv_inner).type_var_name(), std::string(method_name)));
+            if (arg_exprs.empty()) arg_exprs = lower_call_args(node);
             return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
         }
     }
@@ -13294,7 +13424,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         bool was_uok = unsized_ok_;
                         if (!sinfo.type_params[i].implicit_sized ||
                             struct_has_specs(sname)) unsized_ok_ = true;
-                        auto resolved = resolve_type(map_of(items.get(i)));
+                        auto resolved = resolve_type_arg_(map_of(items.get(i)));
                         unsized_ok_ = was_uok;
                         if (resolved && TypeRef(resolved).kind() != LogosType::Kind::Error) {
                             inferred[sinfo.type_params[i].name] = resolved;
@@ -14977,10 +15107,13 @@ lir::LExprPtr SemaChecker::try_lower_generic_assoc_const(const std::string& cnam
         if (!tit) continue;
         for (auto& ac : tit->assoc_consts) {
             if (ac.name != mname) continue;
+            TypeRef self_t = current_type_params_.count(cname) ? current_type_params_[cname] : make_typevar(cname);
             TypeRef ret_t = ac.type ? ac.type : prim(LogosType::Kind::I64);
-            auto ti = trait_item_ref_(tn, "kassoc_" + mname,
-                                      current_type_params_.count(cname) ? current_type_params_[cname]
-                                                                        : make_typevar(cname));
+            {   // `const ZERO: Self` read through `T`: its type is T (a projection normalized by T's bounds)
+                SemaSubst ss; ss["Self"] = self_t;
+                ret_t = normalize_assoc_eq(subst_type_sema(ret_t, ss));
+            }
+            auto ti = trait_item_ref_(tn, "kassoc_" + mname, self_t);
             return builder().call(cname + "__kassoc_" + mname, {}, {}, ret_t, &ti);
         }
     }
@@ -15180,7 +15313,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
-                for (size_t i = 0; i < items.size(); ++i) written.push_back(resolve_type(map_of(items.get(i))));
+                for (size_t i = 0; i < items.size(); ++i) written.push_back(resolve_type_arg_(map_of(items.get(i))));
             }
         }
         std::vector<TypeRef> targs;
@@ -15866,7 +15999,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (size_t i = 0; i < items.size() && i < einfo.type_params.size(); ++i) {
-                    auto ta = resolve_type(map_of(items.get(i)));
+                    auto ta = resolve_type_arg_(map_of(items.get(i)));
                     // `_` is left to the payload / hint / inference passes below.
                     if (ta && TypeRef(ta).kind() != LogosType::Kind::Error &&
                         TypeRef(ta).kind() != LogosType::Kind::InferredType)
@@ -18314,7 +18447,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     if (tplist.has_key(la::ITEMS)) {
                         auto items = arr_of(tplist.get(la::ITEMS.code));
                         for (uint64_t i = 0; i < items.size(); ++i)
-                            tf.push_back(resolve_type(map_of(items.get(i))));
+                            tf.push_back(resolve_type_arg_(map_of(items.get(i))));
                     }
                 }
                 if (!tf.empty()) {
@@ -18378,7 +18511,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 std::vector<TypeRef> tf_args;
                 bool all_concrete = true;
                 for (uint64_t i = 0; i < items.size(); ++i) {
-                    auto t = resolve_type(map_of(items.get(i)));
+                    auto t = resolve_type_arg_(map_of(items.get(i)));
                     if (!t || TypeRef(t).kind() == LogosType::Kind::TypeVar) { all_concrete = false; break; }
                     tf_args.push_back(t);
                 }
@@ -18691,7 +18824,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i) {
-                    auto t = resolve_type(map_of(items.get(i)));
+                    auto t = resolve_type_arg_(map_of(items.get(i)));
                     if (t && (TypeRef(t).kind() == LogosType::Kind::TypeVar ||
                               TypeRef(t).kind() == LogosType::Kind::AssocType)) {
                         in_generic_context = true; break;
@@ -18708,7 +18841,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 if (tplist.has_key(la::ITEMS)) {
                     auto items = arr_of(tplist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size(); ++i)
-                        inferred.push_back(resolve_type(map_of(items.get(i))));
+                        inferred.push_back(resolve_type_arg_(map_of(items.get(i))));
                     have_inferred = !inferred.empty();
                 }
             }
@@ -18744,7 +18877,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 if (tplist.has_key(la::ITEMS)) {
                     auto items = arr_of(tplist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size(); ++i)
-                        type_var_args.push_back(resolve_type(map_of(items.get(i))));
+                        type_var_args.push_back(resolve_type_arg_(map_of(items.get(i))));
                 }
             }
             if (type_var_args.empty()) {
@@ -23004,7 +23137,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             std::string out = "::<";
             for (uint64_t i = 0; i < items.size(); ++i) {
                 if (i) out += ", ";
-                out += type_str(resolve_type(map_of(items.get(i))), /*source_form=*/true);
+                out += type_str(resolve_type_arg_(map_of(items.get(i))), /*source_form=*/true);
             }
             out += ">";
             return out;
@@ -27457,6 +27590,36 @@ void SemaChecker::lit_close_fn_(const std::string& fn_name) {
                 if (TypeRef sel = lit_select_by_trait_(b.trait_name)) { lit_solve_(v, sel); break; }
             }
         }
+    // A variable that is a TRAIT ARGUMENT of another parameter's bound
+    // (`5.into()` through `impl<T, U: From<T>> Into<U> for T`, U = M): the one
+    // integer type the subject's impls of that trait take there (`impl
+    // From<i64> for M`), as rustc selects before the integer fallback.
+    for (auto& d : lit_deferred_bounds_) {
+        SemaSubst ds;
+        for (size_t j = 0; j < d.tps.size() && j < d.args.size(); ++j) ds[d.tps[j].name] = lit_resolve_(d.args[j]);
+        for (size_t j = 0; j < d.tps.size() && j < d.args.size(); ++j) {
+            TypeRef subject = lit_zonk_(d.args[j]);
+            if (!subject || !type_is_concrete(subject) || has_lit_var_(subject)) continue;
+            for (auto& b : d.tps[j].bounds) {
+                if (b.is_fn_family) continue;
+                for (size_t k = 0; k < b.type_args.size(); ++k) {
+                    if (!b.type_args[k]) continue;
+                    TypeRef v = lit_resolve_(subst_type_sema(TypeRef(b.type_args[k]), ds));
+                    if (!is_lit_var_(v)) continue;
+                    TypeRef pick = nullptr; bool many = false;
+                    for (const SemaImplInfo* info : impls_for_(bound_identity_(b), subject)) {
+                        if (info->is_negative || k >= info->trait_type_args.size()) continue;
+                        TypeRef ta = info->trait_type_args[k];
+                        if (!ta || !is_integer(ta) || is_lit_var_(ta) || TypeRef(ta).kind() == LogosType::Kind::IntLit)
+                            continue;
+                        if (!pick) pick = ta;
+                        else if (!types_equal(pick, ta)) many = true;
+                    }
+                    if (pick && !many) lit_solve_(v, pick);
+                }
+            }
+        }
+    }
     // Unsolved: i32, or i64 when a literal of the variable's CLASS does not fit
     // (Logos's default) — `[1, 2, 10000000000]` is one variable of three.
     std::unordered_map<std::string, bool> root_wide;

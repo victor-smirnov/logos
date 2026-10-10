@@ -119,6 +119,7 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             tnt.pkg_name   = std::string(inner.pkg_name());   // #438: the trait's package
             tnt.type_args = inner.type_args();
             if (raw_ptr) { tnt.mut_ptr = tv.mut_ptr(); tnt.const_val = int64_t(TypeRef::RAW_FAT_BIT); }
+            else if (tv.kind() == LogosType::Kind::MutRef) tnt.const_val = int64_t(TypeRef::DYN_MUT_BORROW_BIT);   // #741
             return out_.type_pool.alloc(std::move(tnt));
         }
         // Phase 1B-14: when substitution lands a custom-DST struct as the

@@ -552,6 +552,13 @@ public:
         auto cv = const_val();
         return cv && (uint64_t(*cv) & OWNED_ENV_BIT);
     }
+    // #741: a `&mut dyn Tr` (a borrowed trait object written `&mut`); `&dyn Tr`
+    // and `&mut dyn Tr` are distinct types, as in Rust.
+    bool mut_borrowed_trait_object() const noexcept {
+        if (kind() != LogosType::Kind::TraitObject) return false;
+        auto cv = const_val();
+        return cv && (uint64_t(*cv) & DYN_MUT_BORROW_BIT);
+    }
     bool mut_borrowed_dyn_callable() const noexcept {
         auto cv = const_val();
         return borrowed_dyn_callable() && cv && (uint64_t(*cv) & DYN_MUT_BORROW_BIT);

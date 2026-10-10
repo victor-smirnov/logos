@@ -1,0 +1,10 @@
+// Provided Iterator adapters through a bound `I: Iterator<Item = i64>`: map/filter/fold/collect/any. `B` of map<B, F: FnMut(Item) -> B> is read off the closure (mono ICE'd: 'map resolves to no impl'), and a closure argument takes its parameters from the method's Fn bound or fn-typed formal, `Self::Item` normalized by the bound.
+package p;
+use logos.std.fmt;
+use logos.lang.iter;
+use logos.mem.collections.vec;
+fn f<I: Iterator<Item = i64>>(it: I) -> i64 { it.map(|x| x * 2).count() as i64 }
+fn g<I: Iterator<Item = i64>>(it: I) -> i64 { it.filter(|x| *x % 2 == 0).fold(0, |a, x| a + x) }
+fn h<I: Iterator<Item = i64>>(it: I) -> i64 { let v: Vec<i64> = it.map(|x| x + 1).collect(); v.len() as i64 + v[0] }
+fn k<I: Iterator<Item = i64>>(mut it: I) -> bool { it.any(|x| x > 2) }
+fn main() { println!("{} {} {} {}", f(1..3i64), g(1..7i64), h(vec![5i64, 6].into_iter()), k(0..4i64)); }

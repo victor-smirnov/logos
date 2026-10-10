@@ -1,7 +1,8 @@
 package enum_eq_impl_operator;
 // G150-2: `==`/`!=` on a payload-carrying enum routes to its Eq impl
 // (was a silent pointer/discriminant miscompile). C-like enums keep the
-// correct discriminant fast-path.
+// correct discriminant fast-path - through their own Eq impl (rustc E0369
+// without one).
 enum MyOpt { MNone, MSome(i64) }
 impl Eq for MyOpt {
     fn eq(self: &Self, other: &Self) -> bool {
@@ -12,6 +13,15 @@ impl Eq for MyOpt {
     }
 }
 enum Color { Red, Green, Blue }
+impl Eq for Color {
+    fn eq(self: &Self, other: &Self) -> bool {
+        match self {
+            Color::Red => { match other { Color::Red => { return true; } _ => { return false; } } }
+            Color::Green => { match other { Color::Green => { return true; } _ => { return false; } } }
+            Color::Blue => { match other { Color::Blue => { return true; } _ => { return false; } } }
+        }
+    }
+}
 fn main() -> i64 {
     let a: MyOpt = MyOpt::MSome(3);
     let b: MyOpt = MyOpt::MSome(3);
@@ -21,7 +31,7 @@ fn main() -> i64 {
     if a == c { return 2; }
     if a == n { return 3; }
     if !(a != c) { return 4; }
-    // C-like discriminant compare still works:
+    // A C-like enum compares through its impl too:
     let r: Color = Color::Red;
     let g: Color = Color::Green;
     if r == g { return 5; }

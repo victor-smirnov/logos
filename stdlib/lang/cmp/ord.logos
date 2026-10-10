@@ -102,6 +102,16 @@ pub fn cmp_opt_is_ge(o: Option<Ordering>) -> bool {
     match o { Option::Some(x) => { return x.is_ge(); } Option::None => { return false; } }
 }
 
+// Rust core derives these for Ordering: `a.cmp(&b) == Ordering::Less`.
+impl PartialEq for Ordering {
+    fn eq(&self, other: &Ordering) -> bool {
+        match self {
+            Ordering::Less => { match other { Ordering::Less => { return true; } _ => { return false; } } }
+            Ordering::Equal => { match other { Ordering::Equal => { return true; } _ => { return false; } } }
+            Ordering::Greater => { match other { Ordering::Greater => { return true; } _ => { return false; } } }
+        }
+    }
+}
 /// Trait for types that form a total order.
 /// Float types are intentionally excluded: `NaN` breaks totality.
 #[lang = "ord"]

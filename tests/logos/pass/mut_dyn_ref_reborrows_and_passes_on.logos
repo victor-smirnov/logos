@@ -1,0 +1,10 @@
+// #741: `&mut dyn K` reborrows as `&dyn K` and passes on as `&mut dyn K`; `&mut *b` over Box<dyn K> is a `&mut dyn K`.
+package m;
+use logos.std.fmt;
+trait K { fn bump(&mut self); fn get(&self) -> i64; }
+struct C { n: i64 }
+impl K for C { fn bump(&mut self) { self.n += 10; } fn get(&self) -> i64 { self.n } }
+fn rd(t: &dyn K) -> i64 { t.get() }
+fn wr(t: &mut dyn K) { t.bump(); let r: &dyn K = t; let _ = r.get(); }
+fn pass_on(t: &mut dyn K) -> i64 { wr(t); rd(t) }
+fn main() { let mut c = C { n: 1 }; let m: &mut dyn K = &mut c; let v = pass_on(m); let mut b: Box<dyn K> = Box::new(C { n: 5 }); wr(&mut *b); println!("{} {}", v, rd(&*b)); }

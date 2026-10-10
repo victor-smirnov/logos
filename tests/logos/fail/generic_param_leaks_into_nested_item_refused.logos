@@ -1,0 +1,14 @@
+// Was SOUNDNESS QUEUE row generic_param_leaks_into_nested_item_admitted (#536): a nested fn item cannot use its enclosing fn's generic parameter (rustc E0401); block-local fn items are fns of their own.
+package generic_param_leaks_into_nested_item_admitted;
+fn outer<T>(x: T) -> T {
+    fn inner(y: T) -> T { return y; }
+    return inner(x);
+}
+fn main() -> i32 {
+    let a: i64 = outer::<i64>(11);
+    let b: i32 = outer::<i32>(22);
+    if a == 11 && b == 22 {
+        return 0;
+    }
+    return 1;
+}

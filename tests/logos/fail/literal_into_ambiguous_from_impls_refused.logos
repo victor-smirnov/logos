@@ -1,0 +1,6 @@
+// Two From impls (i64, u8): the literal is not selected and falls back to i32, which M does not take (rustc E0277).
+package m; use logos.lang.convert;
+struct M(i64);
+impl From<i64> for M { fn from(x: i64) -> Self { M(x) } }
+impl From<u8> for M { fn from(x: u8) -> Self { M(x as i64) } }
+fn main() -> i32 { let m: M = 5.into(); m.0 as i32 }

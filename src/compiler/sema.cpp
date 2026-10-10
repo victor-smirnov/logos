@@ -2383,6 +2383,24 @@ static bool pointee_compatible_(TypeRef f, TypeRef t) noexcept {
 bool types_compatible(TypeRef from, TypeRef to) noexcept {
     if (!from || !to) return false;
     if (types_equal(from, to)) return true;
+    // #741: `&mut dyn Tr` reborrows as `&dyn Tr` (Rust's `&mut T -> &T`); a
+    // `&dyn Tr` is never a `&mut dyn Tr`. The two differ in that bit alone.
+    if (TypeRef(from).kind() == LogosType::Kind::TraitObject &&
+        TypeRef(to).kind() == LogosType::Kind::TraitObject &&
+        TypeRef(from).mut_borrowed_trait_object() != TypeRef(to).mut_borrowed_trait_object()) {
+        if (!TypeRef(from).mut_borrowed_trait_object()) return false;
+        TypeRef f(from), t(to);
+        if (f.trait_name() != t.trait_name() || f.pkg_name() != t.pkg_name() ||
+            f.owning_trait_object() || t.owning_trait_object() ||
+            f.trait_requires_send() != t.trait_requires_send() ||
+            f.trait_requires_sync() != t.trait_requires_sync())
+            return false;
+        auto fa = f.type_args(), ta = t.type_args();
+        if (fa.size() != ta.size()) return false;
+        for (size_t i = 0; i < fa.size(); ++i)
+            if (!types_equal(fa[i], ta[i])) return false;
+        return true;
+    }
     // ADR 0029 S1: A LITERAL'S TYPE ERASES TO THE WRITTEN FORM. Since a closure
     // literal's type carries its own identity, it is no longer EQUAL to the
     // erased type a slot is written with — `Box<|| -> i64>` against
@@ -3035,7 +3053,7 @@ std::string type_str(TypeRef t, bool source_form) {
         }
         return r + ">"; }
     case LogosType::Kind::TraitObject: {
-        std::string r = (TypeRef(t).raw_fat() ? (TypeRef(t).mut_ptr() ? "*mut dyn " : "*const dyn ") : "&dyn ")
+        std::string r = (TypeRef(t).raw_fat() ? (TypeRef(t).mut_ptr() ? "*mut dyn " : "*const dyn ") : TypeRef(t).mut_borrowed_trait_object() ? "&mut dyn " : "&dyn ")
                         + std::string(TypeRef(t).trait_name());
         auto ta = TypeRef(t).type_args();
         if (!ta.empty()) {
@@ -7138,9 +7156,10 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
         // Phase 1B-4: same canonicalisation for UnsizedDyn → TraitObject.
         if (inner && inner.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = inner.type_args();
-            return make_trait_object(inner.trait_name(), std::move(args_vec),
-                                     TraitOwningKind::Borrow, false, false,
-                                     regslot_s_ ? lt : std::string{}, inner.pkg_name());
+            return dyn_mut_(make_trait_object(inner.trait_name(), std::move(args_vec),
+                                              TraitOwningKind::Borrow, false, false,
+                                              regslot_s_ ? lt : std::string{}, inner.pkg_name()),
+                            t.kind() == LogosType::Kind::MutRef);
         }
         // Phase 1B-14/15: `&DstStruct` / `&mut DstStruct` → DstRef.
         if (inner && is_effective_dst(inner)) {
@@ -7306,7 +7325,7 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
                                        /*req_send=*/t.trait_requires_send(),
                                        /*req_sync=*/t.trait_requires_sync(),
                                        olt, t.pkg_name());
-        return t.raw_fat() ? make_raw_fat(ro, t.mut_ptr()) : ro;   // ADR 0028: keep raw
+        return t.raw_fat() ? make_raw_fat(ro, t.mut_ptr()) : dyn_mut_(ro, t.mut_borrowed_trait_object());   // ADR 0028: keep raw; #741: keep `&mut`
     }
     case LogosType::Kind::Closure:
     case LogosType::Kind::FnItem:
@@ -8132,6 +8151,7 @@ TypeRef SemaChecker::resolve_generic_wstatic_const(const std::string& name,
 }
 
 TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
+    struct ArgSlot { int& d; ArgSlot(int& x) : d(x) { ++d; } ~ArgSlot() { --d; } } arg_slot_{generic_arg_depth_};
     int32_t tc = code_of(node); (void)tc;
     auto name = str_of(node.get(la::NAME.code));
 
@@ -8904,9 +8924,9 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             std::vector<TypeRef> args_vec = inner.type_args();
             logos::probe::census(lt.empty() ? "regslot.mutref.dyn.elided"
                                             : "regslot.mutref.dyn.written");
-            return make_trait_object(inner.trait_name(), std::move(args_vec),
-                                     TraitOwningKind::Borrow, false, false,
-                                     regslot_m_ ? lt : std::string{}, inner.pkg_name());
+            return dyn_mut_(make_trait_object(inner.trait_name(), std::move(args_vec),
+                                              TraitOwningKind::Borrow, false, false,
+                                              regslot_m_ ? lt : std::string{}, inner.pkg_name()), true);
         }
         // Phase 1B-14/15: `&mut DstStruct` → Kind::DstRef. Includes
         // post-substitution DST (generic `?Sized` instantiation).
@@ -9200,10 +9220,12 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
         logos::probe::census(dlt.empty() ? "regslot.dyntype.elided"
                                          : "regslot.dyntype.written");
         if (dlt.empty()) dlt = plus_lt;
-        return make_trait_object(tname, std::move(args),
-                                 TraitOwningKind::Borrow,
-                                 req_send, req_sync,
-                                 logos::probe::arm_regslot() ? dlt : std::string{});
+        return dyn_mut_(make_trait_object(tname, std::move(args),
+                                          TraitOwningKind::Borrow,
+                                          req_send, req_sync,
+                                          logos::probe::arm_regslot() ? dlt : std::string{}),
+                        node.has_key(la::IS_MUT) && !node.get(la::IS_MUT.code).is_null() &&
+                            node.get(la::IS_MUT.code).as_value<int32_t>() != 0);
     }
 
     if (tc == la::TAGGED_TYPE) {
@@ -9588,6 +9610,16 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                               std::format("the type '{}'", name),
                               "a metaprogram round");
             return error_t();
+        }
+        // A const item in scope where a type was asked (`B<SIZE>`, `B::<SIZE>`):
+        // the const-generic argument it denotes, as rustc reads a bare path in
+        // a generic-argument slot (the braced `B::<{SIZE}>` already was one).
+        if (writ::TinyMapView cv = generic_arg_depth_ > 0 ? resolve_const_value(name) : writ::TinyMapView{};
+            !cv.is_null()) {
+            if (auto v = ctfe_eval_const(cv, holder_)) {
+                LogosTypeBuilder t; t.kind = LogosType::Kind::IntLit; t.const_val = v.value().i;
+                return pool_->alloc(std::move(t));
+            }
         }
         // Bug 4 fix: give a more informative error when a generic alias is used
         // without its required type arguments.
@@ -10620,6 +10652,22 @@ SemaChecker::build_annotation_instance(TinyMapView ann,
     return inst;
 }
 
+// The block-local fn items the enclosing fn queued (lower_nested_fn), each a
+// fn of its own: lowered with no enclosing locals in scope (an item captures
+// nothing), the enclosing bodies' items still named. Their own items queue in
+// turn.
+void SemaChecker::drain_nested_fns_(lir::LProgram& prog) {
+    while (!pending_nested_fns_.empty()) {
+        PendingNestedFn p = std::move(pending_nested_fns_.back());
+        pending_nested_fns_.pop_back();
+        auto saved_items = std::move(local_fn_items_);
+        local_fn_items_ = std::move(p.scope);
+        auto fp = lower_fn(p.node, {}, nullptr, p.sym);
+        prog.functions.push_back(fp.view<lir_view::FunctionView>());
+        local_fn_items_ = std::move(saved_items);
+    }
+}
+
 void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
@@ -11409,6 +11457,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 auto fp = lower_fn(item);
                 prog.functions.push_back(fp.view<lir_view::FunctionView>());
             }
+            drain_nested_fns_(prog);
         }
         else if (c == la::CONST_DEF) {
             // Stage E direct-build: lower_const_def built NAME+TYPE into the
@@ -11779,7 +11828,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 }
             }
         }
-        else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);
+        else if (c == la::IMPL_BLOCK) { lower_impl_block(item, prog); drain_nested_fns_(prog); }
         // Defensive: clear any unused doc from items that didn't consume it.
         pending_doc_.clear();
         pending_annots.clear();

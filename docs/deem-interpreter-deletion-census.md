@@ -6880,9 +6880,21 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12103 -> 12110 (+7), NOIMPORTED 7544 -> 7551 (+7), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: deem's seven (pass/deem_source_wide_e2e, pass/deem_source_unique_e2e, pass/deem_source_unique_violated_abort, pass/deem_conj_pushdown_e2e, fail/canon_ordered_map_three_cols_fail, fail/deem_source_unique_bad_col, fail/wql_generic_col_not_copy_fail); measured.
 #                ALL 12110 -> 12118 (+8), NOIMPORTED 7551 -> 7559 (+8), TIERCOMMIT 193 -> 193 (+0) — 2026-10-10: merge of origin/main through 1ec4de6d8 (main's seven above, counted from the common 12103) + pass/deem_source_size_asked_once (#348); measured.
 #                ALL 12118 -> 12119 (+1), NOIMPORTED 7559 -> 7560 (+1), TIERCOMMIT 193 -> 193 (+0) — 2026-10-10: pass/deem_source_option_col_e2e (#322c); measured.
-REGISTRY-ALL         12119
-REGISTRY-NOIMPORTED  7560
-REGISTRY-TIERCOMMIT  193
+#                ALL 12119 -> 12124 (+5), NOIMPORTED 7560 -> 7565 (+5), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: merge of origin/deem over bbc89800b: main's nonglob 4436 + deem's glob 245, measured by direct listing.
+#                ALL 12124 -> 12125 (+1), NOIMPORTED 7565 -> 7566 (+1), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: iterator_adapters_through_bound (pass, nonglob).
+#                ALL 12125 -> 12126 (+1), NOIMPORTED 7566 -> 7567 (+1), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: trait_default_const_through_type_param (pass, nonglob).
+#                ALL 12126 -> 12128 (+2), NOIMPORTED 7567 -> 7569 (+2), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: literal_into_via_unique_from_impl (pass, nonglob) + literal_into_ambiguous_from_impls_refused (fail).
+#                ALL 12128 -> 12129 (+1), NOIMPORTED 7569 -> 7570 (+1), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: rpit_closure_literal_solved_for_callers (pass, nonglob).
+#                ALL 12129 -> 12130 (+1), NOIMPORTED 7570 -> 7571 (+1), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: const_item_as_const_generic_arg (pass, nonglob).
+#                ALL 12130 -> 12131 (+1), NOIMPORTED 7571 -> 7572 (+1), TIERCOMMIT 193 -> 192 (-1) — 2026-10-09: nested_fn_items_in_block_scope (pass, nonglob) + squeue #536 closes as fail/generic_param_leaks_into_nested_item_refused (tier_commit -1).
+#                ALL 12131 -> 12132 (+1), NOIMPORTED 7572 -> 7573 (+1), TIERCOMMIT 192 -> 192 (+0) — 2026-10-09: local_type_shadows_imported_homonym_of_other_kind (pass, nonglob).
+#                ALL 12132 -> 12133 (+1), NOIMPORTED 7573 -> 7574 (+1), TIERCOMMIT 192 -> 192 (+0) — 2026-10-09: mut_box_dyn_receiver_reborrowed (pass, nonglob).
+#                ALL 12133 -> 12134 (+1), NOIMPORTED 7574 -> 7575 (+1), TIERCOMMIT 192 -> 192 (+0) — 2026-10-09: assoc_const_typed_self (pass, nonglob).
+#                ALL 12134 -> 12135 (+1), NOIMPORTED 7575 -> 7576 (+1), TIERCOMMIT 192 -> 192 (+0) — 2026-10-09: nested_fn_item_with_desugared_body (pass, nonglob).
+#                ALL 12135 -> 12137 (+2), NOIMPORTED 7576 -> 7578 (+2), TIERCOMMIT 192 -> 192 (+0) — 2026-10-09: ordering_partial_eq (pass, nonglob) + enum_eq_without_partialeq_refused (fail).
+REGISTRY-ALL         12137
+REGISTRY-NOIMPORTED  7578
+REGISTRY-TIERCOMMIT  192
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

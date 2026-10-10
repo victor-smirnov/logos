@@ -1,0 +1,5 @@
+// #741: `&dyn K` is not a `&mut dyn K` (rustc E0308).
+package m;
+trait K { fn get(&self) -> i64; }
+fn f(t: &dyn K) { let m: &mut dyn K = t; }
+fn main() {}

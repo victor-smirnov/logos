@@ -316,9 +316,9 @@ private:
             return make_slice_type(pointee.elem(), mut);
         if (pointee && pointee.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = pointee.type_args();
-            return make_trait_object(pointee.trait_name(), std::move(args_vec),
-                                     TraitOwningKind::Borrow, false, false, {},
-                                     pointee.pkg_name());
+            return dyn_mut_(make_trait_object(pointee.trait_name(), std::move(args_vec),
+                                              TraitOwningKind::Borrow, false, false, {},
+                                              pointee.pkg_name()), mut);
         }
         LogosTypeBuilder t;
         t.kind = mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
@@ -857,9 +857,9 @@ private:
                 out.push_back(dlt);
                 std::vector<TypeRef> as;
                 for (auto a : t.type_args()) as.push_back(mint_type_lts_(a, out, fixed, depth + 1));
-                return make_trait_object(t.trait_name(), std::move(as), TraitOwningKind::Borrow,
-                                         t.trait_requires_send(), t.trait_requires_sync(), dlt,
-                                         t.pkg_name());
+                return dyn_mut_(make_trait_object(t.trait_name(), std::move(as), TraitOwningKind::Borrow,
+                                                  t.trait_requires_send(), t.trait_requires_sync(), dlt,
+                                                  t.pkg_name()), t.mut_borrowed_trait_object());
             }
             return t;
         }
@@ -2737,6 +2737,16 @@ private:
     // the name is resolved here, in the scope it was written in. ⚠ EVERY
     // rebuild must carry it — the same rule the raw-fat bit needed, and for the
     // same reason: a walker that drops it mints a different type.
+    // #741: the `&mut dyn Tr` form of a borrowed trait object (the borrow's
+    // mutability is part of the type); `t` unchanged when `m` is false.
+    TypeRef dyn_mut_(TypeRef t, bool m) {
+        if (!m || !t || TypeRef(t).kind() != LogosType::Kind::TraitObject || TypeRef(t).owning_trait_object() ||
+            TypeRef(t).raw_fat())
+            return t;
+        LogosTypeBuilder b = TypeRef(t).to_builder();
+        b.const_val = int64_t(uint64_t(b.const_val.value_or(0)) | TypeRef::DYN_MUT_BORROW_BIT);
+        return pool_->alloc(std::move(b));
+    }
     TypeRef make_trait_object(std::string_view tname,
                               std::vector<TypeRef> args = {},
                               TraitOwningKind owning = TraitOwningKind::Borrow,
@@ -7346,6 +7356,11 @@ private:
         };
         if (!cur_package_.empty())
             if (auto* v = probe(cur_package_)) return {cur_package_, v};
+        // A type of ANOTHER kind this package declares under the name shadows
+        // every import of it (Rust: one type namespace, the local item wins):
+        // a local `enum Slot` is not an imported private `struct Slot`.
+        if (!cur_package_.empty() && defs_.find(DefNs::Type, cur_package_, name))
+            return {std::string{}, nullptr};
         for (auto& pkg : effective_import_pkgs()) {
             auto* v = probe(pkg);
             if (!v) continue;
@@ -9046,7 +9061,28 @@ private:
     DeclBuilder lower_spec_struct(writ::TinyMapView node);
     DeclBuilder lower_spec_fn(writ::TinyMapView node);
     void collect_fn(writ::TinyMapView node, std::string_view struct_ctx = {},
-                    std::string_view trait_ctx = {});
+                    std::string_view trait_ctx = {}, std::string_view name_override = {});
+    // ── BLOCK-LOCAL FN ITEMS (`fn inner() {..}` in a body; Rust items of a
+    // block scope) ── registered at collect under `<outer>$<inner>`, visible
+    // in their whole enclosing body (a forward use, recursion, siblings), and
+    // lowered after the enclosing fn as fns of their own: an item captures
+    // nothing (rustc E0434). Keyed (outer, name, line): the HIR rewrites the
+    // node, so its address is no key.
+    StrMap<std::string> nested_fn_sym_;
+    std::vector<StrMap<std::string>> local_fn_items_;   // the enclosing bodies' name -> symbol
+    struct PendingNestedFn { writ::TinyMapView node; std::string sym; std::vector<StrMap<std::string>> scope; };
+    std::vector<PendingNestedFn> pending_nested_fns_;
+    void drain_nested_fns_(lir::LProgram& prog);
+    static std::string nested_fn_key_(std::string_view outer, std::string_view name, uint32_t line) {
+        return std::string(outer) + "|" + std::string(name) + "|" + std::to_string(line);
+    }
+    void collect_nested_fns_(writ::AnyVal v, const std::string& outer, int depth = 0);
+    void nested_fn_items_of_(writ::AnyVal v, const std::string& outer, StrMap<std::string>& out, int depth = 0);
+    std::string local_fn_item_(std::string_view name) const {
+        for (auto it = local_fn_items_.rbegin(); it != local_fn_items_.rend(); ++it)
+            if (auto f = it->find(name); f != it->end()) return f->second;
+        return {};
+    }
 
     // ── Auto trait satisfaction ───────────────────────────────────
 
@@ -9492,6 +9528,21 @@ private:
     // `expected_`.
     TypeRef shape_ = nullptr;
     TypeRef shape_next_ = nullptr;
+    // The element type a `lo..hi` of unsuffixed literals takes when it is the
+    // argument for a formal bounded `T: Iterator<Item = X>` (rustc infers the
+    // `{integer}` from the obligation); consumed by the range lowering.
+    TypeRef range_item_hint_ = nullptr;
+    // >0 while the arguments of a generic type / turbofish resolve: a bare
+    // const item there is a const-generic argument (`B<SIZE>`).
+    int generic_arg_depth_ = 0;
+    // A generic ARGUMENT slot's type (a turbofish item, `S::<..>`'s item):
+    // resolve_type under generic_arg_depth_.
+    TypeRef resolve_type_arg_(writ::TinyMapView n) {
+        ++generic_arg_depth_;
+        TypeRef t = resolve_type(n);
+        --generic_arg_depth_;
+        return t;
+    }
     // The type a call's return is inferred against: the expectation, else its
     // shape (holes bind nothing: `let r: Result<i64, _> = s.parse()`).
     TypeRef ret_hint_() const { return expected_ ? expected_ : shape_; }
@@ -11084,7 +11135,8 @@ private:
     // `*out_type_params`. When null (free fns / collected struct methods), the
     // builder is complete on return.
     DeclBuilder lower_fn(writ::TinyMapView node, std::string_view struct_ctx = {},
-                         std::vector<TypeParam>* out_type_params = nullptr);
+                         std::vector<TypeParam>* out_type_params = nullptr,
+                         std::string_view name_override = {});
     // A parameter's destructuring pattern as a `let` pattern node; bound as
     // `let PAT = synth;` (bind_param_pattern).
     writ::TinyMapView param_pattern_node(writ::TinyMapView pnode);

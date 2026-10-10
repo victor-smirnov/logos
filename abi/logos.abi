@@ -959,12 +959,14 @@ sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.cmp.Ordering__eq__f__ref_Ordering$Mdf8dc4b1c48621d7__ref_Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__is_eq__f__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__is_ge__f__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__is_gt__f__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__is_le__f__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__is_lt__f__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__is_ne__f__Ordering$Mdf8dc4b1c48621d7
+sym	logos_lang..logos.lang.cmp.Ordering__ne__f__ref_Ordering$Mdf8dc4b1c48621d7__ref_Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__reverse__f__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__then__f__Ordering$Mdf8dc4b1c48621d7__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__then_with__f__Ordering$Mdf8dc4b1c48621d7__fn() -> Ordering
@@ -18493,7 +18495,7 @@ sym	logos_mem.logos.mem.fmt$fmt_tuple_close__f__refmut_Formatter$M906c9710fe03ed
 sym	logos_mem.logos.mem.fmt$fmt_tuple_open__f__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem.logos.mem.fmt$fmt_tuple_sep__f__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem.logos.mem.fmt$formatter_for__f__refmut_String$M5ca39a0a178b867d
-sym	logos_mem.logos.mem.fmt$formatter_for_sink__f__&dyn FmtWrite
+sym	logos_mem.logos.mem.fmt$formatter_for_sink__f__&mut dyn FmtWrite
 sym	logos_mem.logos.mem.fmt$ok__f__void
 sym	logos_mem.logos.mem.manually_drop$alignment_new__f__u64
 sym	logos_mem.logos.mem.manually_drop$alignment_new_unchecked__f__u64

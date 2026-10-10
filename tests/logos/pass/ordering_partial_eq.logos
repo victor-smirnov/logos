@@ -1,0 +1,4 @@
+// Ordering is PartialEq (Rust core derives it): `a.cmp(&b) == Ordering::Less`.
+package ordering_eq;
+use logos.lang.cmp;
+fn main() -> i32 { let a = 3i64; let b = 5i64; if a.cmp(&b) == Ordering::Less && b.cmp(&a) != Ordering::Less { return 7; } return 1; }

@@ -451,13 +451,14 @@ void SemaChecker::compute_fn_lifetime_outlives(
 }
 
 DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
-                                  std::vector<TypeParam>* out_type_params) {
+                                  std::vector<TypeParam>* out_type_params,
+                                  std::string_view name_override) {
     namespace dk = lir_schema::decl_keys;
     // C-INF: literals minted as integer variables only inside a body that
     // infer_close_fn_ closes.
     ++fn_body_depth_;
     struct FnDepth_ { int& d; ~FnDepth_() { --d; } } fn_depth_guard_{fn_body_depth_};
-    auto raw_name = str_of(node.get(la::NAME.code));
+    auto raw_name = name_override.empty() ? str_of(node.get(la::NAME.code)) : name_override;
     // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
     // Allowing `fn _()` would let `_(...)` be a valid call expression and
     // collide with future ignored-binding patterns.
@@ -521,6 +522,13 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         ~CurFnGuard() { slot = std::move(prev); }
     };
     CurFnGuard _cfn_guard(current_fn_mangled_, mangled);
+    // The body's block-local fn items are in scope in the whole body.
+    {
+        StrMap<std::string> items;
+        if (node.has_key(la::BODY)) nested_fn_items_of_(node.get(la::BODY.code), mangled, items);
+        local_fn_items_.push_back(std::move(items));
+    }
+    struct LocalItemsPop { std::vector<StrMap<std::string>>& v; ~LocalItemsPop() { v.pop_back(); } } _lip{local_fn_items_};
 
     // Some trait-default bodies and impl methods refer to `Self` in their
     // parameter types.  Keep a concrete Self binding alive for the duration
@@ -675,6 +683,12 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
                                                                         ? no_args : current_impl_trait_args_));
         dit != decl_symbols_.end())
         fi_ptr = const_cast<SemaFuncInfo*>(find_func_by_symbol(dit->second));
+    // A block-local fn item: the HIR rewrote its node (its body desugared), so
+    // the declaration's key is the collect-time node's; its registered name is
+    // unique (`<outer>$<name>`), and that names it.
+    if (!fi_ptr && !name_override.empty())
+        if (auto c = pkg_fn_candidates_(cur_package_, name_override); c.size() == 1)
+            fi_ptr = const_cast<SemaFuncInfo*>(c[0]);
     }
     if (!fi_ptr) {            // shouldn't happen after collect
         // Door 2 — a body collect never registered gets a NAMED, EMPTY function
@@ -1555,6 +1569,11 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // Local type inference: E0282 for a variable nothing fixed; the solutions
     // go to mono under this function's LIR name.
     infer_close_fn_(std::string(fn_name));
+    // An inferred `impl Trait` return (`-> impl Fn() -> i32 { move || 7 }`) was
+    // recorded before this fn's literals were solved: its callers read it, so
+    // the solution goes in (the `7`'s `?l0` reached a caller's codegen).
+    if (fi_ptr->ret_type && (has_lit_var_(fi_ptr->ret_type) || has_infer_var_(fi_ptr->ret_type)))
+        fi_ptr->ret_type = lit_zonk_(zonk_(fi_ptr->ret_type));
     if (auto it = cur_prog_->infer_substs.find(std::string(fn_name));
         it != cur_prog_->infer_substs.end() && !it->second.empty()) {
         namespace dk = lir_schema::decl_keys;
@@ -3370,6 +3389,37 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             }
         }
         pending_doc_.clear();
+    }
+    // A trait const the impl omits: the default is the impl's item as well, so
+    // `X::K` at this impl's Self reads it (ADR 0030 S8 row 6), exactly as a
+    // written const's accessor above.
+    if (!trait_name.empty() && impl_tps.empty() && !target_struct_tmpl) {
+        if (auto* ctit = find_trait_iter_scoped(trait_name)) {
+            for (auto& ac : ctit->assoc_consts) {
+                if (!ac.has_default || ac.default_value_ast.is_null()) continue;
+                const std::string sym = lower_target + "__kassoc_" + ac.name;
+                if (std::find(impl_method_syms.begin(), impl_method_syms.end(), sym) != impl_method_syms.end())
+                    continue;
+                auto val = lower_expr(map_of(ac.default_value_ast));
+                if (ac.type) builder().retype_expr(val, ac.type);
+                namespace dk = lir_schema::decl_keys;
+                DeclBuilder acc(prog, lir_schema::decl::Code::Func, /*cap=*/40);
+                acc.str_always(dk::NAME, sym);
+                acc.str(dk::METHOD_BASE, "kassoc_" + ac.name);
+                acc.str(dk::PKG, cur_package_);
+                acc.type(dk::RET_TYPE, ac.type ? ac.type : (val ? expr_type(val) : void_t()));
+                acc.flag(dk::IS_PUB, true);
+                acc.str(dk::SOURCE_FILE, file_);
+                acc.str(dk::UNIT_KEY, cur_unit_key_);
+                {
+                    std::vector<lir_view::StmtRef> acc_body;
+                    acc_body.push_back(builder().stmt_return(val, 0));
+                    acc.block(dk::BODY, lir_mirror_block(*cur_prog_, acc_body));
+                }
+                prog.functions.push_back(acc.view<lir_view::FunctionView>());
+                impl_method_syms.emplace_back(sym);
+            }
+        }
     }
     // Lower default methods from the trait that weren't overridden.
     if (!trait_name.empty()) {

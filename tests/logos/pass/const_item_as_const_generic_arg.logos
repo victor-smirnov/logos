@@ -1,0 +1,6 @@
+// A bare const item in a generic-argument slot (`B<SIZE>`, `B::<SIZE>`) is the const-generic argument it denotes ('unknown type SIZE'); outside such a slot it is still not a type.
+package p;
+use logos.std.fmt;
+const SIZE: usize = 3;
+struct B<const N: usize> { a: [i64; N] }
+fn main() { let b = B::<SIZE> { a: [1, 2, 3] }; let c: B<SIZE> = B { a: [4, 5, 6] }; println!("{} {}", b.a[2], c.a[0]); }

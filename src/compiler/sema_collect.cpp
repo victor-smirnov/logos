@@ -4560,7 +4560,32 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (tit2 && ctype) {
                         for (auto& ac_def : tit2->assoc_consts) {
                             if (ac_def.name == cname && ac_def.type) {
-                                if (!types_equal(ac_def.type, ctype))
+                                // The trait's type at THIS impl: `Self` is the impl's
+                                // self type, `Self::Val` its own `type Val = ..`.
+                                TypeRef want = ac_def.type;
+                                if (impl_self_ty) {
+                                    SemaSubst ss; ss["Self"] = impl_self_ty;
+                                    want = subst_type_sema(want, ss);
+                                    if (want && TypeRef(want).kind() == LogosType::Kind::AssocType &&
+                                        TypeRef(want).assoc_base() &&
+                                        types_equal(TypeRef(want).assoc_base(), impl_self_ty)) {
+                                        const std::string an(TypeRef(want).assoc_type_name());
+                                        for (auto& it : collecting_assoc_types_)
+                                            if (it.name == an && it.type) { want = it.type; break; }
+                                        if (TypeRef(want).kind() == LogosType::Kind::AssocType && node.has_key(la::ITEMS)) {
+                                            auto mems = arr_of(node.get(la::ITEMS.code));
+                                            for (uint64_t mi = 0; mi < mems.size(); ++mi) {
+                                                auto mm = map_of(mems.get(mi));
+                                                if (code_of(mm) == la::ASSOC_TYPE_IMPL && mm.has_key(la::TYPE) &&
+                                                    str_of(mm.get(la::NAME.code)) == an) {
+                                                    want = resolve_type(map_of(mm.get(la::TYPE.code)));
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!types_equal(want, ctype))
                                     error(std::format(
                                         "impl {} for {}: associated constant '{}' declared as '{}' but trait requires '{}'",
                                         trait_name, target, cname,
@@ -6705,12 +6730,68 @@ void SemaChecker::refuse_misplaced_implied_self_(TinyMapView p, uint64_t index) 
     error(std::format("expected `: <type>` after parameter '{}'", n));
 }
 
+static bool av_is_array_(writ::AnyVal v) noexcept {
+    if (v.is_null() || !v.is_pointer()) return false;
+    const uint8_t* p = v.resolve();
+    return p && writ::TypeTag::read_before(p).type_code() == writ::type_hash::Array;
+}
+
+void SemaChecker::collect_nested_fns_(writ::AnyVal v, const std::string& outer, int depth) {
+    if (depth > 256) return;
+    if (av_is_array_(v)) {
+        writ::ArrayView a(v, nullptr);
+        for (uint64_t i = 0; i < a.size(); ++i) collect_nested_fns_(a.get(i), outer, depth + 1);
+        return;
+    }
+    TinyMapView n = map_of(v);
+    if (n.is_null()) return;
+    if (code_of(n) == la::NESTED_FN) {
+        const std::string name(str_of(n.get(la::NAME.code)));
+        const std::string key = nested_fn_key_(outer, name, get_line(n));
+        std::string sym = outer + "$" + name;
+        for (auto& [k, sv] : nested_fn_sym_) if (sv == sym && k != key) { sym += "$" + std::to_string(get_line(n)); break; }
+        nested_fn_sym_[key] = sym;
+        const std::string saved_ctx = ctx_;
+        const uint32_t saved_line = node_line_;
+        node_line_ = get_line(n);   // a signature diagnostic names the item's own line
+        collect_fn(n, {}, {}, sym);   // collects its own nested items under `sym`
+        ctx_ = saved_ctx;
+        node_line_ = saved_line;
+        return;
+    }
+    const uint64_t bits = n.bitmap();
+    for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)
+        if ((bits & (1ull << k)) && k != la::CODE.code) collect_nested_fns_(n.get(k), outer, depth + 1);
+}
+
+void SemaChecker::nested_fn_items_of_(writ::AnyVal v, const std::string& outer, StrMap<std::string>& out, int depth) {
+    if (depth > 256) return;
+    if (av_is_array_(v)) {
+        writ::ArrayView a(v, nullptr);
+        for (uint64_t i = 0; i < a.size(); ++i) nested_fn_items_of_(a.get(i), outer, out, depth + 1);
+        return;
+    }
+    TinyMapView n = map_of(v);
+    if (n.is_null()) return;
+    if (code_of(n) == la::NESTED_FN) {
+        const std::string name(str_of(n.get(la::NAME.code)));
+        if (auto it = nested_fn_sym_.find(nested_fn_key_(outer, name, get_line(n))); it != nested_fn_sym_.end())
+            out[name] = it->second;
+        return;   // its own items are its body's
+    }
+    const uint64_t bits = n.bitmap();
+    for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)
+        if ((bits & (1ull << k)) && k != la::CODE.code) nested_fn_items_of_(n.get(k), outer, out, depth + 1);
+}
+
 void SemaChecker::collect_fn(TinyMapView node, std::string_view struct_ctx,
-                             std::string_view trait_ctx) {
-    auto raw_name = str_of(node.get(la::NAME.code));
+                             std::string_view trait_ctx, std::string_view name_override) {
+    auto raw_name = name_override.empty() ? str_of(node.get(la::NAME.code)) : name_override;
     std::string base_name = struct_ctx.empty()
         ? std::string(raw_name)
         : std::string(struct_ctx) + "__" + std::string(raw_name);
+    // The body's block-local fn items, registered under `<base_name>$<name>`.
+    if (node.has_key(la::BODY)) collect_nested_fns_(node.get(la::BODY.code), base_name);
     ctx_ = std::format("fn {}", base_name);
 
     // Specialisations are validated and lowered inline by lower_spec_fn;

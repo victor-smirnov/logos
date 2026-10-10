@@ -1,0 +1,9 @@
+// A trait const an impl omits is read through a type parameter (`X::K`): its default is the impl's item too (mono ICE'd: 'kassoc_K resolves to no impl').
+package m;
+trait T { const K: i32 = 7; const L: i32 = 1; }
+struct A {}
+struct B {}
+impl T for A {}
+impl T for B { const K: i32 = 30; }
+fn k_of<X: T>() -> i32 { X::K * 10 + X::L }
+fn main() -> i32 { k_of::<A>() + k_of::<B>() - 300 }

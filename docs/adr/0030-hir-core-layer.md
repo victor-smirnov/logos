@@ -1150,6 +1150,17 @@ and `iter().map(|p| &p.0)` refused since S9a, because the projection
 `Iter<'a, T>::Item` loses `'a` and the closure's parameter reads as
 higher-ranked - #740 (region-carrying projections).
 
+**Matrix re-run after the triage burn-down (2026-10-10).** 220 -> 172 differing
+members (676/848 agree), 48 fixed, none new. The triage's sixteen severity-1
+clusters are closed (docs/audit/2026-10-09-matrix-triage.md): operators via
+their lang traits, raw-deref unsafety and ref-to-pointer casts, the if-let
+rescope, drop through a type parameter, const-generic identity, `&` of a
+closure literal, a blanket impl over a closure, RPIT bounds naming the fn's
+parameters, associated-type equality (E0271) and the opaque projection
+(E0308), `&dyn` vs `&mut dyn` (#741), range literals from an `Item = X` bound,
+and a bound method's return-only / Fn-bound-only type parameters. Open from
+it: #742 (let-chain binding drop order), #743 (metaprog helper-fn JIT crash).
+
 
 ## S0–S7 gap audit (2026-10-01)
 
