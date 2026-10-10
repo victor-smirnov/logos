@@ -1,0 +1,8 @@
+// `-> impl C<Item = i64> { F }` with F::Item = bool is refused (rustc E0271).
+package p;
+use logos.std.fmt;
+trait C { type Item; fn get(&self) -> Self::Item; }
+struct F;
+impl C for F { type Item = bool; fn get(&self) -> bool { true } }
+fn r() -> impl C<Item = i64> { F }
+fn main() { println!("{}", r().get()); }

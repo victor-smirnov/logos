@@ -10,6 +10,7 @@ package logos.lang.result;
 use logos.lang.option;
 use logos.lang.panic;
 use logos.lang.default;
+use logos.lang.clone;
 
 /// Represents either success (`Ok(T)`) or failure (`Err(E)`).
 ///
@@ -313,4 +314,12 @@ pub fn is_ok_i32(r: Result<i32, i32>) -> bool {
 /// Returns `true` if `r` is `Err`; `i32`-monomorphic shim for `is_err`.
 pub fn is_err_i32(r: Result<i32, i32>) -> bool {
     return r.is_err();
+}
+
+// Rust core: a Result is Copy / Clone exactly when both payloads are.
+impl<T: Copy, E: Copy> Copy for Result<T, E> {}
+impl<T: Clone, E: Clone> Clone for Result<T, E> {
+    fn clone(&self) -> Result<T, E> {
+        match self { Result::Ok(x) => { return Result::Ok(x.clone()); } Result::Err(e) => { return Result::Err(e.clone()); } }
+    }
 }

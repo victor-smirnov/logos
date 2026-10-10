@@ -102,6 +102,9 @@ struct TypeSets {
     std::unordered_set<std::string> drop_type_ids;
     bool                            drop_ids_complete = true;
     std::unordered_set<std::string> copy_types;
+    // A GENERIC Copy impl (`impl<T: Copy> Copy for Option<T>`): the instance is
+    // Copy only when its type arguments are (every such impl is derive-shaped).
+    std::unordered_set<std::string> cond_copy_types;
     // `#[borrow_carrying]` struct names — values of these types may hold a Ref into
     // an arena (WAny); escape-tracked like references.
     std::unordered_set<std::string> borrow_carrying;
@@ -277,9 +280,10 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     for (auto& impl : prog.impls)
         if (lir_is_copy_lang_item(impl.identity_trait()))
         {
-            ts.copy_types.insert(std::string(impl.target_type()));
+            auto& set = impl.impl_type_params_empty() ? ts.copy_types : ts.cond_copy_types;
+            set.insert(std::string(impl.target_type()));
             if (!impl.pkg().empty())
-                ts.copy_types.insert(std::string(impl.pkg()) + "::" + std::string(impl.target_type()));
+                set.insert(std::string(impl.pkg()) + "::" + std::string(impl.target_type()));
         }
     // strip_generic: ONLY for DIRECT (attribute) marks — the spec's flag is
     // a verbatim copy of the template's (mono_clone), so registering the
@@ -618,6 +622,11 @@ static bool copy_type_has(const TypeSets& ts, TypeRef t, std::string_view name) 
         return ts.copy_types.count(std::string(pk) + "::" + std::string(name)) > 0;
     return ts.copy_types.count(std::string(name)) > 0;
 }
+static bool cond_copy_type_has(const TypeSets& ts, TypeRef t, std::string_view name) {
+    if (t) if (std::string_view pk = t.pkg_name(); !pk.empty())
+        return ts.cond_copy_types.count(std::string(pk) + "::" + std::string(name)) > 0;
+    return ts.cond_copy_types.count(std::string(name)) > 0;
+}
 
 static bool has_droppable_fields(TypeRef, const lir::LProgram&, const TypeSets&);
 
@@ -703,8 +712,16 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
     // compute_auto_copy_types) when it has no Drop impl and every field is
     // Copy. Asking only `needs_drop` made `struct S<'a> { r: &'a mut i32 }`
     // Copy: it owns nothing droppable, yet its `&mut` field is affine.
+    // A generic Copy impl's instance: Copy exactly when every type argument is.
+    auto cond_copy = [&](TypeRef x, std::string_view name) {
+        if (!cond_copy_type_has(ts, x, name)) return false;
+        for (auto a : TypeRef(x).type_args())
+            if (a && is_move_type(a, prog, ts, copy_tvs)) return false;
+        return true;
+    };
     auto struct_is_move = [&](TypeRef x) {
         if (copy_type_has(ts, x, TypeRef(x).struct_name())) return false;
+        if (cond_copy(x, TypeRef(x).struct_name())) return false;
         if (needs_drop(x, prog, ts)) return true;
         std::string want = concrete_struct_name(x);
         auto sit = struct_def_find(ts.struct_by_name, x, want);
@@ -742,6 +759,7 @@ static bool is_move_type(TypeRef t, const lir::LProgram& prog, const TypeSets& t
     auto enum_is_move = [&](TypeRef x) -> bool {
         std::string en(TypeRef(x).enum_name());
         if (copy_type_has(ts, x, en)) return false;    // explicitly Copy enum
+        if (cond_copy(x, en)) return false;            // a generic Copy impl, args Copy
         if (ts.drop_types.count(en)) return true;       // has a Drop impl
         // A generic enum INSTANCE's def is keyed by the name mono composed
         // (`Option__String`), not by the base, so the bare key missed and the

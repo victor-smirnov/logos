@@ -10336,6 +10336,9 @@ private:
 
     struct SourceRelBind {
         std::string trait_name;           // which trait declared the rel
+        // Its identity (`pkg::Trait`), resolved where the IMPL is collected: a
+        // use site need not import the trait's package to query the source.
+        std::string trait_key;
         std::string rel;                  // trait rel name
         std::string mat_fn;               // materializer: fn(&T) -> Vec<RowTuple>
         std::string mat_module;           // its package (empty = resolve at use)

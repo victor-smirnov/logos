@@ -22,6 +22,7 @@ use logos.lang.panic;
 use logos.lang.default;
 use logos.lang.result;
 use logos.lang.mem;
+use logos.lang.clone;
 
 /// Represents an optional value: either `Some(T)` or `None`.
 #[lang = "Option"]
@@ -425,4 +426,12 @@ pub fn unwrap_or_i32(opt: Option<i32>, def: i32) -> i32 {
 /// Compat shim for older call-sites; prefer `opt.is_some()`.
 pub fn is_some_i32(opt: Option<i32>) -> bool {
     return opt.is_some();
+}
+
+// Rust core: an Option is Copy / Clone exactly when its payload is.
+impl<T: Copy> Copy for Option<T> {}
+impl<T: Clone> Clone for Option<T> {
+    fn clone(&self) -> Option<T> {
+        match self { Option::Some(x) => { return Option::Some(x.clone()); } Option::None => { return Option::None; } }
+    }
 }

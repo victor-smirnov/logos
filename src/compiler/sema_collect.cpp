@@ -1403,6 +1403,24 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 return true;
             };
             if (sel.holds()) {
+                // `T: Tr<Item = X>`: the selected impl's `Item` must BE X
+                // (rustc E0271); the projection was never compared, so a
+                // `bool` item ran as an `i64`.
+                bool assoc_bad = false;
+                for (auto& [an, aty] : bound.assoc_eqs) {
+                    if (!aty) continue;
+                    TypeRef want = subst_type_sema(aty, call_subst);
+                    if (!want || !type_is_concrete(want)) continue;
+                    TypeRef got = project_assoc_(bound_identity_(bound), subject, bound_targs, an);
+                    if (!got || !type_is_concrete(got) || types_equal(got, want)) continue;
+                    assoc_bad = true;
+                    if (bounds_probe_) { bounds_probe_ok_ = false; break; }
+                    error(std::format("type mismatch resolving `<{} as {}>::{} == {}`: it is `{}` (E0271)",
+                                      type_str(concrete), bound.trait_name, an,
+                                      type_str(want), type_str(got)));
+                    break;
+                }
+                if (assoc_bad) continue;
                 // The lifetime half of an impl's selection (B62/B63/B85): the
                 // bound's quantified regions against the impl's trait arguments.
                 const SemaImplInfo* found = sel.kind == obl::Kind::Impl && sel.impl
@@ -4334,6 +4352,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 }
                 SourceRelBind b;
                 b.trait_name = trait_name;
+                if (rti) b.trait_key = defs_.path(rti->def);
                 b.rel    = rn;
                 b.mat_fn = std::string(str_of(m.get(la::VALUE.code)));
                 b.mat_module = cur_package_;   // refined at spec time if needed

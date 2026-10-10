@@ -637,6 +637,9 @@ sema.cpp	current_type_bounds_	D	1	type_str(result)
 sema.cpp	current_type_bounds_	D	1	type_str(x)
 sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
 sema_expr.cpp	current_type_bounds_	D	2	std::string(TypeRef(actual).type_var_name())
+# 2026-10-09: expect_type asks whether a projection's base is one of THIS fn's own type
+# parameters (an opaque `T::Item`, rustc E0308) — a type-parameter name in the signature scope.
+sema_expr.cpp	current_type_params_	D	1	std::string(TypeRef(TypeRef(expected).assoc_base()).type_var_name())
 sema_expr.cpp	current_type_relaxed_sized_	D	1	std::string(TypeRef(t).type_var_name())
 sema_expr.cpp	infer_solved_	D	1	std::string(TypeRef(t).type_var_name())
 sema_stmt.cpp	current_type_bounds_	D	1	std::string(TypeRef(t).type_var_name())

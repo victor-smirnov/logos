@@ -1,0 +1,8 @@
+// `g::<T: C<Item = i64>>(&F)` with F::Item = bool is refused (rustc E0271); it ran, reading a bool as an i64.
+package p;
+use logos.std.fmt;
+trait C { type Item; fn get(&self) -> Self::Item; }
+struct F;
+impl C for F { type Item = bool; fn get(&self) -> bool { true } }
+fn g<T: C<Item = i64>>(c: &T) -> i64 { c.get() }
+fn main() { println!("{}", g(&F)); }

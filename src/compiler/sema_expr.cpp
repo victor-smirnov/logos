@@ -16430,6 +16430,26 @@ bool SemaChecker::expect_type(lir::LExprPtr& e, TypeRef expected, CoercePos pos,
     // is skipped only where mono re-judges the concrete instantiation — the
     // CALL rows. An annotation position judges it here (a GAT bound violation
     // must not slip through as "unresolved").
+    // A projection over one of THIS fn's own type parameters (`T::Item` for
+    // `T: C` in scope) is not unresolved: no instantiation re-judges it, and
+    // with no `Item = X` in the bound it is opaque (rustc E0308): only the same
+    // projection is one.
+    // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature being
+    // checked — see SemaChecker::normalize_assoc_eq for the full ground.
+    if (TypeRef(expected).kind() == LogosType::Kind::AssocType && TypeRef(expected).assoc_base() &&
+        TypeRef(TypeRef(expected).assoc_base()).kind() == LogosType::Kind::TypeVar &&
+        current_type_params_.count(std::string(TypeRef(TypeRef(expected).assoc_base()).type_var_name()))) {
+        TypeRef got = expr_type(e);
+        const auto gk = got ? TypeRef(got).kind() : LogosType::Kind::Error;
+        const bool concrete_other = got && gk != LogosType::Kind::AssocType && gk != LogosType::Kind::TypeVar &&
+                                    gk != LogosType::Kind::Error && !has_lit_var_(got) && !has_infer_var_(got) &&
+                                    type_is_concrete(got);
+        if (concrete_other) {
+            error(std::format("{} mismatched types (E0308): expected the associated type `{}`, found `{}`",
+                              ctx, type_str(expected), type_str(got)));
+            return false;
+        }
+    }
     if ((mask_for(pos) & CFLAG_SKIP_UNRESOLVED) &&
         (TypeRef(expected).kind() == LogosType::Kind::TypeVar ||
          TypeRef(expected).kind() == LogosType::Kind::AssocType)) return true;
@@ -24765,14 +24785,16 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         // i64 — the cast is where a stored `u64::MAX` became `-1`.
         std::vector<std::string> trait_params;
         std::vector<std::string> trait_args;
-        if (auto* trt = resolve_trait(b.trait_name))
+        // The trait by the impl's identity, never by the use site's scope.
+        const std::string& bound_trait_key = b.trait_key.empty() ? b.trait_name : b.trait_key;
+        if (auto* trt = resolve_trait(bound_trait_key))
             for (const auto& tp : trt->type_params)
                 trait_params.push_back(tp.name);
         if (!trait_params.empty()) {
             std::string base = ptype_stripped;
             if (auto lt = base.find('<'); lt != std::string::npos) base.resize(lt);
             while (!base.empty() && base.back() == ' ') base.pop_back();
-            if (auto* impl = find_impl_by_spelling_(b.trait_name, base)) {
+            if (auto* impl = find_impl_by_spelling_(bound_trait_key, base)) {
                 // A GENERIC source impl (`impl<K,V> MapSource<K,V> for
                 // HashMap<K,V>`) states its trait args as its own TYPE PARAMS,
                 // so taking them verbatim yields `K`/`V` and the query is typed

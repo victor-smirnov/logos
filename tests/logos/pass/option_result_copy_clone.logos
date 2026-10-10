@@ -1,0 +1,15 @@
+// Option / Result are Copy / Clone exactly when their payloads are (Rust core): a `T: Copy` bound holds at Option<i64>, Clone deep-copies an Option<String> (it was refused: no clone method).
+package p;
+use logos.std.fmt;
+use logos.mem.string;
+fn need_copy<T: Copy>(x: T) -> T { x }
+fn need_clone<T: Clone>(x: &T) -> T { x.clone() }
+fn main() {
+    let o = need_copy::<Option<i64>>(Option::Some(3i64));
+    let r = need_copy::<Result<i64, bool>>(Result::Ok(4i64));
+    let s: Option<String> = Option::Some(String::from("hi"));
+    let s2 = need_clone(&s);
+    let e: Result<String, i64> = Result::Err(7);
+    let e2 = e.clone();
+    println!("{} {} {} {} {}", o.unwrap(), r.unwrap(), s2.unwrap(), s.unwrap(), e2.unwrap_err());
+}

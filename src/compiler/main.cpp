@@ -2658,6 +2658,10 @@ extern "C" void logos_qib_free_cursors(const uint8_t* blob) {
 // and an impl never disappears. Blanket and negative impls are not facts here —
 // a type they alone cover answers false (deny is the conservative answer).
 static std::set<std::pair<std::string, std::string>> g_metaprog_impl_facts;
+// (trait, head) of a GENERIC impl (`impl<T: Tr> Tr for Option<T>`): an instance
+// `Head<A, ..>` holds it when every argument holds the same trait (derive-shaped
+// impls; an impl with weaker bounds can only answer false here, never a wrong true).
+static std::set<std::pair<std::string, std::string>> g_metaprog_generic_impl_heads;
 // Name-keyed VALUE query for metaprog code (#729): the simple names of every
 // const and static the discovery loop has lowered so far, whatever package or
 // module declared them. A query handler asks it about a bare name its own
@@ -2718,8 +2722,11 @@ static void note_metaprog_impl_facts(const logos::compiler::lir::LProgram& prog)
         }
     }
     for (auto& impl : prog.impls)
-        if (!impl.is_blanket() && !impl.is_negative() && !impl.identity_trait().empty())
+        if (!impl.is_blanket() && !impl.is_negative() && !impl.identity_trait().empty()) {
             g_metaprog_impl_facts.emplace(std::string(impl.identity_trait()), std::string(impl.target_type()));
+            if (!impl.impl_type_params_empty())
+                g_metaprog_generic_impl_heads.emplace(std::string(impl.identity_trait()), std::string(impl.target_type()));
+        }
     // An impl a derive handler is synthesizing this round (#723).
     for (const auto& f : prog.pending_trait_facts) g_metaprog_impl_facts.insert(f);
 }
@@ -2759,11 +2766,58 @@ extern "C" const uint8_t* logos_metaprog_struct_field_name(const uint8_t* ty, ui
     *out_len = n.size();
     return reinterpret_cast<const uint8_t*>(n.data());
 }
+// The top-level comma-separated parts of `s` (nesting by <>, (), []).
+static std::vector<std::string> metaprog_split_top_(std::string_view s) {
+    std::vector<std::string> out;
+    int depth = 0;
+    size_t b = 0;
+    auto push = [&](size_t e) {
+        std::string_view p = s.substr(b, e - b);
+        while (!p.empty() && p.front() == ' ') p.remove_prefix(1);
+        while (!p.empty() && p.back() == ' ') p.remove_suffix(1);
+        if (!p.empty()) out.emplace_back(p);
+    };
+    for (size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
+        if (c == '<' || c == '(' || c == '[') ++depth;
+        else if (c == '>' || c == ')' || c == ']') --depth;
+        else if (c == ',' && depth == 0) { push(i); b = i + 1; }
+    }
+    push(s.size());
+    return out;
+}
+// `trait` for the type SPELLED `ty`: a concrete impl's fact, or a generic
+// instance / tuple whose arguments (elements) hold it (deem #322c).
+static bool metaprog_holds_(const std::string& trait, std::string_view ty, int depth = 0) {
+    while (!ty.empty() && ty.front() == ' ') ty.remove_prefix(1);
+    while (!ty.empty() && ty.back() == ' ') ty.remove_suffix(1);
+    if (ty.empty() || depth > 16) return false;
+    if (g_metaprog_impl_facts.count({trait, std::string(ty)})) return true;
+    // A const argument (`V<3>`) is not a type: it imposes nothing.
+    if (ty.find_first_not_of("-0123456789") == std::string_view::npos) return depth > 0;
+    if (ty.front() == '(' && ty.back() == ')') {
+        auto parts = metaprog_split_top_(ty.substr(1, ty.size() - 2));
+        if (parts.empty()) return false;
+        for (auto& p : parts) if (!metaprog_holds_(trait, p, depth + 1)) return false;
+        return true;
+    }
+    size_t lt = ty.find('<');
+    if (lt == std::string_view::npos || ty.back() != '>') return false;
+    std::string head(ty.substr(0, lt));
+    if (!g_metaprog_generic_impl_heads.count({trait, head})) {
+        size_t cut = head.find_last_of(".:");
+        if (cut == std::string::npos || !g_metaprog_generic_impl_heads.count({trait, head.substr(cut + 1)}))
+            return false;
+    }
+    auto args = metaprog_split_top_(ty.substr(lt + 1, ty.size() - lt - 2));
+    if (args.empty()) return false;
+    for (auto& a : args) if (!metaprog_holds_(trait, a, depth + 1)) return false;
+    return true;
+}
 extern "C" int32_t logos_metaprog_has_impl(const uint8_t* trait, uint64_t trait_len,
                                            const uint8_t* ty, uint64_t ty_len) {
-    std::pair<std::string, std::string> k{std::string(reinterpret_cast<const char*>(trait), trait_len),
-                                          std::string(reinterpret_cast<const char*>(ty), ty_len)};
-    return g_metaprog_impl_facts.count(k) ? 1 : 0;
+    return metaprog_holds_(std::string(reinterpret_cast<const char*>(trait), trait_len),
+                           std::string_view(reinterpret_cast<const char*>(ty), ty_len)) ? 1 : 0;
 }
 
 static std::vector<std::unique_ptr<std::string>> g_gensym_buf;
