@@ -316,9 +316,9 @@ private:
             return make_slice_type(pointee.elem(), mut);
         if (pointee && pointee.kind() == LogosType::Kind::UnsizedDyn) {
             std::vector<TypeRef> args_vec = pointee.type_args();
-            return make_trait_object(pointee.trait_name(), std::move(args_vec),
-                                     TraitOwningKind::Borrow, false, false, {},
-                                     pointee.pkg_name());
+            return dyn_mut_(make_trait_object(pointee.trait_name(), std::move(args_vec),
+                                              TraitOwningKind::Borrow, false, false, {},
+                                              pointee.pkg_name()), mut);
         }
         LogosTypeBuilder t;
         t.kind = mut ? LogosType::Kind::MutRef : LogosType::Kind::Ref;
@@ -857,9 +857,9 @@ private:
                 out.push_back(dlt);
                 std::vector<TypeRef> as;
                 for (auto a : t.type_args()) as.push_back(mint_type_lts_(a, out, fixed, depth + 1));
-                return make_trait_object(t.trait_name(), std::move(as), TraitOwningKind::Borrow,
-                                         t.trait_requires_send(), t.trait_requires_sync(), dlt,
-                                         t.pkg_name());
+                return dyn_mut_(make_trait_object(t.trait_name(), std::move(as), TraitOwningKind::Borrow,
+                                                  t.trait_requires_send(), t.trait_requires_sync(), dlt,
+                                                  t.pkg_name()), t.mut_borrowed_trait_object());
             }
             return t;
         }
@@ -2737,6 +2737,16 @@ private:
     // the name is resolved here, in the scope it was written in. ⚠ EVERY
     // rebuild must carry it — the same rule the raw-fat bit needed, and for the
     // same reason: a walker that drops it mints a different type.
+    // #741: the `&mut dyn Tr` form of a borrowed trait object (the borrow's
+    // mutability is part of the type); `t` unchanged when `m` is false.
+    TypeRef dyn_mut_(TypeRef t, bool m) {
+        if (!m || !t || TypeRef(t).kind() != LogosType::Kind::TraitObject || TypeRef(t).owning_trait_object() ||
+            TypeRef(t).raw_fat())
+            return t;
+        LogosTypeBuilder b = TypeRef(t).to_builder();
+        b.const_val = int64_t(uint64_t(b.const_val.value_or(0)) | TypeRef::DYN_MUT_BORROW_BIT);
+        return pool_->alloc(std::move(b));
+    }
     TypeRef make_trait_object(std::string_view tname,
                               std::vector<TypeRef> args = {},
                               TraitOwningKind owning = TraitOwningKind::Borrow,

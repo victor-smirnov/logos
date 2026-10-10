@@ -785,10 +785,10 @@ std::optional<lir::LExprPtr> SemaChecker::emit_generic_deref_call(
         // type_args() returns a FRESH vector per call — never iterate
         // begin()/end() across two calls (different temporaries → garbage
         // range). Pass the materialised vector directly.
-        ref_t = make_trait_object(std::string(TypeRef(target).trait_name()),
-                                  TypeRef(target).type_args(),
-                                  TraitOwningKind::Borrow, false, false, {},
-                                  TypeRef(target).pkg_name());
+        ref_t = dyn_mut_(make_trait_object(std::string(TypeRef(target).trait_name()),
+                                           TypeRef(target).type_args(),
+                                           TraitOwningKind::Borrow, false, false, {},
+                                           TypeRef(target).pkg_name()), want_mut);
     else if (tgt_kind == LogosType::Kind::UnsizedSlice)
         ref_t = make_slice_type(TypeRef(target).elem(), want_mut);
     else
@@ -2144,12 +2144,12 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                 TypeRef(op_t).owning_trait_object()) {
                 auto a = TypeRef(op_t).type_args();
                 builder().retype_expr(operand,
-                    make_trait_object(TypeRef(op_t).trait_name(),
-                                      std::vector<TypeRef>(a.begin(), a.end()),
-                                      TraitOwningKind::Borrow,
-                                      TypeRef(op_t).trait_requires_send(),
-                                      TypeRef(op_t).trait_requires_sync(), {},
-                                      TypeRef(op_t).pkg_name()));
+                    dyn_mut_(make_trait_object(TypeRef(op_t).trait_name(),
+                                               std::vector<TypeRef>(a.begin(), a.end()),
+                                               TraitOwningKind::Borrow,
+                                               TypeRef(op_t).trait_requires_send(),
+                                               TypeRef(op_t).trait_requires_sync(), {},
+                                               TypeRef(op_t).pkg_name()), true));   // `&mut *b`
                 return operand;
             }
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
@@ -10067,6 +10067,18 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
             auto& m = *vtab[mi].second;
             if (m.name == method_name) {
                 if (m.is_unsafe) require_unsafe_ctx_(std::string(method_name), true);   // a trait item: no symbol
+                // A `&mut self` slot through a shared `&dyn Tr` (rustc E0596, #741):
+                // a borrowed trait object written `&mut` carries that in its type.
+                if (!m.param_types.empty() && m.param_types[0] &&
+                    TypeRef(m.param_types[0]).kind() == LogosType::Kind::MutRef &&
+                    ((rt.kind() == LogosType::Kind::TraitObject && !rt.owning_trait_object() && !rt.raw_fat() &&
+                      !rt.mut_borrowed_trait_object()) ||
+                     rt.kind() == LogosType::Kind::Ref)) {
+                    error(std::format("cannot borrow data in a `&` reference as mutable (E0596): `{}` takes "
+                                      "`&mut self`, the receiver is `{}`",
+                                      std::string(method_name), type_str(rt)));
+                    return error_expr();
+                }
                 // ARGS is a flat list, or {ITEMS} under a turbofish (`x.m::<H>(h)`).
                 std::vector<lir::LExprPtr> arg_exprs = lower_call_args(node);
                 uint64_t explicit_args = arg_exprs.size();

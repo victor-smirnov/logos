@@ -1,0 +1,8 @@
+// #741: a `&mut self` trait method through `&dyn K` is refused (rustc E0596); `&dyn` and `&mut dyn` were one type, so it mutated through the shared borrow.
+package m;
+use logos.std.fmt;
+struct C { n: i64 }
+trait K { fn bump(&mut self); }
+impl K for C { fn bump(&mut self) { self.n += 10; } }
+fn g(t: &dyn K) { t.bump(); }
+fn main() { let c = C { n: 1 }; g(&c); println!("{}", c.n); }

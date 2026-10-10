@@ -6876,8 +6876,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12101 -> 12103 (+2), NOIMPORTED 7542 -> 7544 (+2), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: rel_column_generic_instance_hashable (pass, nonglob) + rel_column_generic_instance_not_hashable (fail).
 #                ALL 12103 -> 12110 (+7), NOIMPORTED 7544 -> 7551 (+7), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: deem's seven (pass/deem_source_wide_e2e, pass/deem_source_unique_e2e, pass/deem_source_unique_violated_abort, pass/deem_conj_pushdown_e2e, fail/canon_ordered_map_three_cols_fail, fail/deem_source_unique_bad_col, fail/wql_generic_col_not_copy_fail); measured.
 #                ALL 12110 -> 12118 (+8), NOIMPORTED 7551 -> 7559 (+8), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: merge of origin/deem 55d248b84 over 1ec4de6d8: main's nonglob 4433 + deem's glob 244, measured by direct listing.
-REGISTRY-ALL         12118
-REGISTRY-NOIMPORTED  7559
+#                ALL 12118 -> 12121 (+3), NOIMPORTED 7559 -> 7562 (+3), TIERCOMMIT 193 -> 193 (+0) — 2026-10-09: mut_dyn_ref_reborrows_and_passes_on (pass, nonglob) + two &dyn/&mut dyn fail fixtures.
+REGISTRY-ALL         12121
+REGISTRY-NOIMPORTED  7562
 REGISTRY-TIERCOMMIT  193
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
