@@ -1,0 +1,13 @@
+// A rel column of a generic instance type is judged by the type resolver: `W<i64>` (impl<T: Hash> Hash for W<T>) and a tuple are hashable; `W<NoHash>` is refused. Its spelling was looked up as one name, so every generic instance was refused.
+package rc;
+use logos.lang.hash;
+struct W<T> { pub a: T }
+impl<T: Hash> Hash for W<T> { fn hash<H: Hasher>(self: &W<T>, h: &mut H) { self.a.hash::<H>(h); } }
+struct NoHash { pub a: i64 }
+pub trait Src {
+    rel ok(key: W<i64>, t: (i64, i64));
+}
+pub trait Ok2 {
+    rel ok2(key: W<u8>);
+}
+fn main() -> i32 { return 0; }

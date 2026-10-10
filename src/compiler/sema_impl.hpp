@@ -10277,7 +10277,9 @@ private:
     // hardcoded Writ/IncrRec dispatch dies. The Writ/IncrRec built-ins are
     // seeded here as the FIRST registrations of the open mechanism; they move
     // to stdlib declarations when cross-module decl-export lands.
-    struct TraitRelCol { std::string name, ty; };
+    // `node`: the column's TYPE node, resolved by the type resolver
+    // (a generic instance `Option<i64>` has no single name to look up).
+    struct TraitRelCol { std::string name, ty; writ::TinyMapView node{}; };
     // `file`/`line` are the trait DECLARATION's place, carried because the
     // column check is deferred to the final pass: by then the walk is over and
     // the ambient diagnostic context belongs to whatever item happened to be
@@ -10302,10 +10304,12 @@ private:
     // diagnostic is worse than none.
     // `ty` is resolved where it was written: the declaring trait's package
     // (empty = the current one).
-    bool rel_col_type_hashable(const std::string& ty, const std::string& pkg = {}) {
+    bool rel_col_type_hashable(const std::string& ty, const std::string& pkg = {},
+                               writ::TinyMapView node = {}) {
         const std::string saved_pkg = cur_package_;
         if (!pkg.empty()) cur_package_ = pkg;
-        TypeRef t = lookup_type_by_name(ty);
+        TypeRef t = !node.is_null() ? resolve_type(node) : lookup_type_by_name(ty);
+        if (t && TypeRef(t).kind() == LogosType::Kind::Error) t = nullptr;
         if (!t) {
             if (auto [dp, di] = find_datatype_by_name(ty); di) t = make_datatype_type(ty, dp);
             else if (auto [sp, si] = find_struct_by_name(ty); si) t = make_struct_type(ty, sp);

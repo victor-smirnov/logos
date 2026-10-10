@@ -3148,7 +3148,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
                             // may be collected after this trait, and a check
                             // that depends on declaration order is a diagnostic
                             // that fires or not by accident.
-                            sig.cols.push_back({cn, ct});
+                            sig.cols.push_back({cn, ct, map_of(cp.get(la::TYPE.code))});
                         }
                     }
                 }
@@ -7207,7 +7207,7 @@ void SemaChecker::check_rel_column_types() {
             };
             for (auto& col : sig.cols) {
                 if (col.ty.empty() || is_trait_param(col.ty)) continue;
-                if (rel_col_type_hashable(col.ty, defs_[tdef].package)) continue;
+                if (rel_col_type_hashable(col.ty, defs_[tdef].package, col.node)) continue;
                 // A type whose capability is still being SYNTHESIZED is not a
                 // type that lacks it. `#[derive_hash] struct Sku` asks the
                 // compiler for `impl Hash for Sku`, and the handler runs in a

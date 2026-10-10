@@ -800,18 +800,6 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     TypeRef ret_type = mint_ret_ ? mint_ret_ : subst_type_sema(fi_ptr->ret_type, {});
     ret_type_      = ret_type;
     ret_shape_ = ret_shape_of_ = nullptr;
-    if (node.has_key(la::RET_TYPE) && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait) {
-        auto rn = map_of(node.get(la::RET_TYPE.code));
-        if (code_of(rn) == la::IMPL_TYPE) {
-            TraitBound tb;
-            tb.trait_name = std::string(str_of(rn.get(la::NAME.code)));
-            read_trait_bound_args(rn, tb);
-            if (tb.is_fn_family) {
-                ret_shape_ = make_closure_type(tb.fn_params, tb.fn_ret ? tb.fn_ret : void_t());
-                ret_shape_of_ = ret_type;
-            }
-        }
-    }
     // Working param list: built incrementally (self detection, variadic, tuple/
     // pattern/mut desugar) then emitted to PARAMS at the end.
     std::vector<lir::LParam> params;
@@ -861,6 +849,20 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     deposit_implied_type_outlives(fi_ptr->param_types, fi_ptr->ret_type,
                                   type_params);
     push_type_params(type_params);
+    // `-> impl Tr<T>` / `-> impl Fn(T) -> T`: the bound's arguments name the
+    // fn's own type parameters, so they are read with those in scope.
+    if (node.has_key(la::RET_TYPE) && TypeRef(ret_type).kind() == LogosType::Kind::ImplTrait) {
+        auto rn = map_of(node.get(la::RET_TYPE.code));
+        if (code_of(rn) == la::IMPL_TYPE) {
+            TraitBound tb;
+            tb.trait_name = std::string(str_of(rn.get(la::NAME.code)));
+            read_trait_bound_args(rn, tb);
+            if (tb.is_fn_family) {
+                ret_shape_ = make_closure_type(tb.fn_params, tb.fn_ret ? tb.fn_ret : void_t());
+                ret_shape_of_ = ret_type;
+            }
+        }
+    }
     // Per-method `where T: Trait` TRAIT bounds → the body scope. The subject
     // may be an IMPL-level param (not in this fn's own type_params), so they
     // can't ride tp.bounds; they augment current_type_bounds_ for the body

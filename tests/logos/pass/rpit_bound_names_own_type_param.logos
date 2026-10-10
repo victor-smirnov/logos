@@ -1,0 +1,9 @@
+// `-> impl Get<T>` / `-> impl Fn(T) -> T`: the bound's arguments name the fn's own type parameters (they were read before those were in scope: 'unknown type T').
+package m;
+use logos.std.fmt;
+trait Get<T> { fn get(&self) -> T; }
+struct W<T> { t: T }
+impl<T: Copy> Get<T> for W<T> { fn get(&self) -> T { self.t } }
+fn mk<T: Copy>(t: T) -> impl Get<T> { W { t: t } }
+fn adder<T: Copy + Add<Output = T>>(k: T) -> impl Fn(T) -> T { move |x: T| x + k }
+fn main() { let q = mk(1i64); let a = adder(5i64); println!("{} {} {}", q.get(), mk(true).get(), a(2)); }

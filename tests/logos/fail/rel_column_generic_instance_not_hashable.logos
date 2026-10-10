@@ -1,0 +1,10 @@
+// `W<NoHash>` as a rel column: W's Hash impl needs T: Hash, NoHash has none.
+package rc;
+use logos.lang.hash;
+struct W<T> { pub a: T }
+impl<T: Hash> Hash for W<T> { fn hash<H: Hasher>(self: &W<T>, h: &mut H) { self.a.hash::<H>(h); } }
+struct NoHash { pub a: i64 }
+pub trait Bad {
+    rel bad(key: W<NoHash>);
+}
+fn main() -> i32 { return 0; }
