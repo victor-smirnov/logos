@@ -347,6 +347,15 @@ This is the same shape as F6 — a capability the source has and cannot state �
 and the two should probably be answered together, since both add a fact to the
 declaration vocabulary rather than a rule to the planner.
 
+**CLOSED 2026-10-09 (#322).** `unique <rel> = <col>;` is a source member
+(sema: main 10b54b0f1; natspec `?<col>`); a HASH step whose build key is that
+column builds `HashMap<K, P>` and probes one row without the loop
+(`rexpr_walk::build_phase_frag` / `step_wrap`), and a source that returns two
+rows under one key panics with that message. `BTreeMap` and `HashMap` declare
+`unique entry = key;`. Tests: `pass/deem_source_unique_e2e` (the plan's
+`unique index` line and the answer), `pass/deem_source_unique_violated_abort`,
+`fail/deem_source_unique_bad_col`.
+
 ---
 
 ## F9 — there is no merge join, and the strategy is chosen by key capability alone

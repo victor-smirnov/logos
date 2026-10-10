@@ -343,9 +343,24 @@ Native Logos objects are deliberately UNTAGGED (types are known statically or vi
 
 A trait may declare `rel` members (`rel edge(parent: i64, …);` — a column type must implement `Hash`, checked by sema once every impl is collected; a column typed by a trait type parameter is checked at the impl); an impl binds each rel to a MATERIALIZER (`rel edge = writ_graph_edges;`, `fn(&T) -> Vec<RowTuple>`). A deem param typed by an implementing type carries the trait's relations: a single-rel vocabulary is addressable as the param itself (`from g …`), a multi-rel one is param-prefixed (`from e_trace t …`). The walker is source-type-blind — which params carry relations, their columns, and the materializer all arrive as compiler-computed data (the natspec).
 
-The mechanism is OPEN: any user type may implement a source trait. Since P5 the only source declared in the stdlib is `Writ` (`impl GraphSource for Writ`, `rel edge = writ_graph_edges;`) — the `IncrRec`/`EngineState` instance was withdrawn with the interpreter, see `deem.source.engine-state` below.
+The mechanism is OPEN: any user type may implement a source trait. The stdlib declares `Writ` (`impl GraphSource for Writ`, `rel edge = writ_graph_edges;`) and the `mem` collections `HashMap` and `BTreeMap` (`deem.source.members`) — the `IncrRec`/`EngineState` instance was withdrawn with the interpreter, see `deem.source.engine-state` below.
 
 *Evidence:* `src/compiler/sema_collect.cpp` (`SemaChecker::check_rel_column_types`), `src/compiler/sema_impl.hpp` (`rel_col_type_hashable`), `tests/logos/fail/deem_rel_col_hashable_fail.logos`, `tests/logos/fail/wql_source_trait_f64_col_fail.logos`; `stdlib/mem/wql/writ_graph.logos` (the `Writ` instance); `tests/logos/pass/wql_source_trait_e2e.logos` exercises the OPEN mechanism with user types (`MyGraph`, `Timetable`) and never names `Writ`; the built-in instance is exercised by `tests/logos/pass/wql_writ_graph_e2e.logos` and `tests/logos/pass/wql_gpath_e2e.logos`.
+
+### `deem.source.members` — what an impl declares about its relation
+
+An impl of a source trait states, per relation, what the planner may rely on; every member is a declaration the source makes about itself, checked against the relation's columns by sema and carried to the planner in the natspec:
+
+- `rel <rel> = <fn>;` — the materializer, `fn(&T) -> Vec<RowTuple>` (or an `Iterator` / `BatchStream` of rows). The relation has the columns its trait declares — any number, up to the rel limit of `deem.datalog.rel-columns`; a `kind ordered_map` Canon family has two because its b+tree leaf is a (key, val) pair, and a wider relation is a source trait of its own.
+- `op <rel>.<col> <cmp> = <fn> [exact];` — an access operation: the rows whose `<col>` satisfies `<cmp>` (`eq`/`ge`/`le`/`gt`/`lt`) against the argument; `exact` says it returns exactly those rows, so a comparison it answers is not re-tested (without it the rows are a superset and the query keeps its filter).
+- `size <rel> = <fn>;` — how many rows the relation holds, read once before the first row.
+- `order <rel> = <col>;` — the rows arrive sorted by `<col>`; honoured only when the materializer's return type implements `OrderedBy`, and an `order by` over that column then needs no sort.
+- `distinct <rel>.<col> = <fn>;` — how many distinct values the column holds (the join cost model).
+- `unique <rel> = <col>;` — no two rows share the column's value (several lines, one column each). A join that indexes the relation by that column builds a map of one row per key and probes it without a bucket loop; a source that returns two rows under one key breaks its own declaration, and the query panics with that message.
+
+*Divergence:* none in Rust terms (a declaration the type cannot express, stated by the implementor as an invariant — `unique` broken by the source is a logic error, as a non-total `Ord` is for a `BTreeMap`); Datalog/SQL analogue: declared keys and access paths.
+
+*Evidence:* `src/compiler/sema_collect.cpp` (the impl-member leads `rel`/`op`/`size`/`order`/`distinct`/`unique`), `src/compiler/sema_expr.cpp` (`native_source_spec`); `stdlib/mem/wql/plan_walker.logos` (`register_native_rels`), `stdlib/mem/wql/rexpr_walk.logos` (`build_phase_frag`, `step_wrap` — the unique index); `stdlib/mem/collections/btree/btree.logos`, `stdlib/mem/collections/hashmap/hashmap.logos` (stdlib instances); `tests/logos/pass/deem_source_wide_e2e.logos`, `tests/logos/pass/deem_source_unique_e2e.logos`, `tests/logos/pass/deem_source_unique_violated_abort.logos`, `tests/logos/pass/deem_order_elision.logos`, `tests/logos/pass/deem_source_size.logos`, `tests/logos/fail/deem_source_unique_bad_col.logos`, `tests/logos/fail/canon_ordered_map_three_cols_fail.logos`
 
 ### `deem.source.engine-state` — WITHDRAWN at P5
 
