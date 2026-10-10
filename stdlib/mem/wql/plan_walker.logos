@@ -1848,8 +1848,54 @@ fn plan_decide_access(prm: &MacroParams, pc: &CProgram, argb: &mut String) -> Ac
     // and proving the base's narrowing subsumes it is a different claim from
     // the one exactness makes. An aggregate's base likewise.
     let simple: bool = !grouped && core_source_count(cl) == 1i64;
-    plan_narrow_rel(prm, argb, &mut ap, base_reg, !we.is_null(), we, simple);
+    // ADR 0026 F1 — a conjunctive `where` narrows by ONE of its conjuncts: each
+    // is tried alone, the narrowest access wins (exactness breaks a tie, the
+    // earlier conjunct a remaining one), and the whole filter is KEPT — the
+    // operation answers the chosen conjunct, not the others.
+    if !we.is_null() {
+        let mut cj: Vec<WAny> = Vec::<WAny>::new();
+        pw_conjuncts(we, &mut cj);
+        if cj.len() > 1i64 {
+            let mut best: i64 = -1i64;
+            let mut bcard: i32 = CARD_ALL();
+            let mut bexact: bool = false;
+            let mut k: i64 = 0i64;
+            while k < cj.len() {
+                let mut trial: AccessPlan = access_plan_new(prm.rel_n);
+                let mut targ: String = String::new();
+                plan_narrow_rel(prm, &mut targ, &mut trial, base_reg, true, cj.get(k), false, true);
+                if base_reg >= 0i64 && trial.op[base_reg] >= 0i64 {
+                    let c: i32 = trial.card[base_reg];
+                    let ex: bool = trial.exact[base_reg];
+                    if best < 0i64 || c < bcard || (c == bcard && ex && !bexact) {
+                        best = k; bcard = c; bexact = ex;
+                    }
+                }
+                k = k + 1i64;
+            }
+            if best >= 0i64 {
+                plan_narrow_rel(prm, argb, &mut ap, base_reg, true, cj.get(best), false, true);
+                return ap;
+            }
+        }
+    }
+    plan_narrow_rel(prm, argb, &mut ap, base_reg, !we.is_null(), we, simple, false);
     return ap;
+}
+
+/// The conjuncts of `w` — `a && b && c` flattened, left to right.
+fn pw_conjuncts(w: WAny, out: &mut Vec<WAny>) {
+    match w.view::<SExpr>() {
+        SExpr::Bin(b) => {
+            if b.op == OP_AND() {
+                pw_conjuncts(b.lhs.any(), out);
+                pw_conjuncts(b.rhs.any(), out);
+                return;
+            }
+        }
+        _ => { }
+    }
+    out.push(w);
 }
 
 /// The registry index of each source literal of a clause, in order (-1 for a
@@ -1893,7 +1939,7 @@ fn core_where(cl: &CClause) -> WAny {
 /// that is EXACT for the demand is allowed to retire the query's own filter.
 fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
                    ri: i64, has_where: bool, wexpr: WAny,
-                   may_drop: bool) {
+                   may_drop: bool, conj: bool) {
     if ri < 0i64 { return; }
     // THE GROUND (why.logos `AccessGround`): every test below records its answer
     // as a fact, and every exit names the rule that fired. No sentence is written
@@ -2044,7 +2090,7 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
             // this source alone, which is what `may_drop` carries.
             ag_fact(&mut g, AA_EXACT(), best_ex);
             let drops: bool = best_ex && ag_fact(&mut g, AA_MAY_DROP(), may_drop);
-            g.rule = if drops { AR_EXACT_DROP() } else if best_ex { AR_EXACT_KEEP() } else { AR_SUPERSET() };
+            g.rule = if drops { AR_EXACT_DROP() } else if best_ex && conj { AR_EXACT_CONJ() } else if best_ex { AR_EXACT_KEEP() } else { AR_SUPERSET() };
             ap.choose(ri, oi, prm.opc_fn[oi], string_as_str(argb), col, cmp,
                       prm.opc_cmp[oi], best_ex, &g);
             if drops { ap.drop_where = true; }
