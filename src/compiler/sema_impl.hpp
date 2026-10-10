@@ -9502,6 +9502,10 @@ private:
     // `expected_`.
     TypeRef shape_ = nullptr;
     TypeRef shape_next_ = nullptr;
+    // The element type a `lo..hi` of unsuffixed literals takes when it is the
+    // argument for a formal bounded `T: Iterator<Item = X>` (rustc infers the
+    // `{integer}` from the obligation); consumed by the range lowering.
+    TypeRef range_item_hint_ = nullptr;
     // The type a call's return is inferred against: the expectation, else its
     // shape (holes bind nothing: `let r: Result<i64, _> = s.parse()`).
     TypeRef ret_hint_() const { return expected_ ? expected_ : shape_; }

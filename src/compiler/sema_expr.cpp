@@ -2284,8 +2284,16 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             rargs.push_back(std::move(b));
             return finish_generic_call(sym, *rfi, {bt}, std::move(rargs));
         }
+        const TypeRef item_hint = range_item_hint_;
+        range_item_hint_ = nullptr;   // this range's alone, not its operands'
         auto lo = lower_expr(map_of(expr.get(la::LHS.code)));
         auto hi = lower_expr(map_of(expr.get(la::RHS.code)));
+        if (item_hint) {
+            if (is_lit_var_(expr_type(lo))) lit_solve_(expr_type(lo), item_hint);
+            if (is_lit_var_(expr_type(hi))) lit_solve_(expr_type(hi), item_hint);
+            builder().retype_expr(lo, lit_zonk_(expr_type(lo)));
+            builder().retype_expr(hi, lit_zonk_(expr_type(hi)));
+        }
         if (!is_integer(expr_type(lo)) && TypeRef(expr_type(lo)).kind() != LogosType::Kind::Error)
             error(std::format("range start must be integer, got {}", type_str(expr_type(lo))));
         if (!is_integer(expr_type(hi)) && TypeRef(expr_type(hi)).kind() != LogosType::Kind::Error)
@@ -5396,7 +5404,25 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             // literal by the bound's signature, under the same bindings.
             if (TypeRef h = closure_hint_for((size_t)i)) arg_shape = formal_shape_(h, hint_fi->type_params, arg_binds);
             TypeRef arg_expect = arg_shape && type_is_concrete(arg_shape) ? arg_shape : TypeRef(nullptr);
+            // `f(0..3)` against `I: Iterator<Item = i64>`: the range's literals
+            // take the bound's Item (range_item_hint_).
+            range_item_hint_ = nullptr;
+            if (hint_fi && i < hint_fi->param_types.size() && hint_fi->param_types[i] &&
+                TypeRef(hint_fi->param_types[i]).kind() == LogosType::Kind::TypeVar) {
+                const std::string tvn(TypeRef(hint_fi->param_types[i]).type_var_name());
+                for (auto& tp : hint_fi->type_params) {
+                    if (tp.name != tvn) continue;
+                    for (auto& b : tp.bounds) {
+                        if (!trait_key_is_lang_item(canonical_trait_name(b.trait_name), "iterator") &&
+                            !trait_key_is_lang_item(canonical_trait_name(b.trait_name), "into_iterator"))
+                            continue;
+                        for (auto& [an, aty] : b.assoc_eqs)
+                            if (an == "Item" && aty && is_integer(aty) && !is_lit_var_(aty)) range_item_hint_ = aty;
+                    }
+                }
+            }
             arg_exprs.push_back(lower_expr_expecting(map_of(args.get(i)), arg_expect, arg_shape));
+            range_item_hint_ = nullptr;
             if (hint_fi && i < hint_fi->param_types.size() && hint_fi->param_types[i] && arg_exprs.back() &&
                 expr_type(arg_exprs.back())) {
                 TypeRef at = expr_type(arg_exprs.back());
@@ -10889,6 +10915,21 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 for (size_t i = 0; i + 1 < chosen_method->param_types.size()
                                   && i < arg_exprs.size(); ++i)
                     if (arg_exprs[i]) walk(chosen_method->param_types[i + 1], expr_type(arg_exprs[i]));
+            }
+            // The method's own type parameters the arguments, else the call's
+            // expected type, fix (`sum<S>(self) -> S` under `let s: i64`).
+            if (!chosen_method->type_params.empty() && user_type_args.empty()) {
+                StrMap<TypeRef> mb(self_subst.begin(), self_subst.end());
+                for (uint64_t i = 0; i < arg_exprs.size() && i + 1 < chosen_method->param_types.size(); ++i)
+                    unify_arg_(subst_type_sema(chosen_method->param_types[i + 1], self_subst),
+                               expr_type(arg_exprs[i]), mb);
+                if (TypeRef rh = ret_hint_(); rh && type_is_concrete(rh) && chosen_method->ret_type) {
+                    SemaSubst partial(mb.begin(), mb.end());
+                    unify_types(subst_type_sema(chosen_method->ret_type, partial), rh, mb);
+                }
+                for (auto& tp : chosen_method->type_params)
+                    if (auto it = mb.find(tp.name); it != mb.end() && it->second && !self_subst.count(tp.name))
+                        self_subst[tp.name] = it->second;
             }
             TypeRef ret_type = subst_type_sema(chosen_method->ret_type, self_subst, lt_subst_tv);
 

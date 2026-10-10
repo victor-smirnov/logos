@@ -1,0 +1,5 @@
+// `f(0..3)` against `impl Iterator<Item = i64>` / `I: Iterator<Item = i64>`: the range's unsuffixed literals take the bound's Item (it was built over i32 and read back as i64: garbage), as rustc infers them.
+package p;
+fn f(it: impl Iterator<Item = i64>) -> i64 { let mut t = 0; for x in it { t += x; } t }
+fn g<I: Iterator<Item = i64>>(it: I) -> i64 { let mut t = 0; for x in it { t += x; } t }
+fn main() -> i32 { return (f(0..3) + g(1..3)) as i32; }

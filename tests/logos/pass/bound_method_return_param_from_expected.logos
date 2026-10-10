@@ -1,0 +1,7 @@
+// A trait method's own type parameter that only its return names (`sum<S>`, `collect<C>`), called through a bound `I: Iterator`, takes the call's expected type (it stayed `S` / `C`).
+package b2;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn total<I: Iterator<Item = i64>>(it: I) -> i64 { let s: i64 = it.sum(); return s; }
+fn coll<I: Iterator<Item = i64>>(it: I) -> i64 { let v: Vec<i64> = it.collect(); return v.len() as i64; }
+fn main() { println!("{} {} {}", total(1i64..4i64), coll(0..5), total(vec![2i64, 3].into_iter())); }
