@@ -15,6 +15,7 @@
 // ORACLE: the pull count. Both plans return the same rows; only how far the
 // source was read says which one ran.
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.mem.bt.map;

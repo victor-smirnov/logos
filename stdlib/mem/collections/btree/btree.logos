@@ -20,7 +20,7 @@ use logos.lang.option;
 use logos.lang.marker;
 use logos.lang.default;
 use logos.mem.collections.vec;   // Vec — the relational projection's rows
-use logos.mem.bt.map;            // trait OrderedMapSource — the query plane (ADR 0024 S6)
+use logos.std.wql.source;        // trait OrderedMapSource — the query plane's source vocabulary (#342)
 
 /// Ordered map backed by a sorted parallel-array (not a real B-tree).
 ///

@@ -17,6 +17,7 @@
 // admitted and elides. A refusal pinned alone cannot tell separation from
 // over-refusal.
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.mem.bt.map;   // the source traits this file implements

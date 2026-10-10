@@ -18,7 +18,7 @@ use logos.lang.ops;
 use logos.lang.marker;
 use logos.lang.default;
 use logos.mem.collections.vec;   // Vec — the relational projection's rows
-use logos.mem.bt.map;            // trait MapSource — the query plane (ADR 0024 S6)
+use logos.std.wql.source;        // trait MapSource — the query plane's source vocabulary (#342)
 
 let SLOT_EMPTY:     u8 = 0 as u8;
 let SLOT_OCCUPIED:  u8 = 1 as u8;

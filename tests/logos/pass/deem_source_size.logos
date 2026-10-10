@@ -38,6 +38,7 @@
 // measures — the container is borrowed for a root read, and a walk landed after
 // it must still return exactly the suffix.
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.lcm.canon.container_item;
 use logos.lcm.canon.metaclass;

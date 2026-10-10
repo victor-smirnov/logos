@@ -1151,6 +1151,18 @@ NOT hubbed: it appears only in impl headers, which resolve from the generated
 unit's own `use`, and hubbing it would make `it.next()` ambiguous for every
 consumer of the map hub — the same collision that keeps it out of the prelude.
 
+**The hub-trait move LANDED 2026-10-10 (#342).** `MapSource`, `OrderedMapSource`
+and `PositionalSource` live in `logos.std.wql.source` beside the plane's
+`Source`/`IntoSource`; `logos.mem.bt.map` keeps the container interfaces.
+Import graph after the move: `logos.mem.collections.{btree,hashmap}` and the
+Canon family emitter (`logos.lcm.canon.container_item`, in its generated
+items) import `logos.std.wql.source`; `logos.std.wql.source` imports only
+`logos.lang.option`. A module that merely USES a source (`m: &BTreeMap<…>`)
+imports nothing new: sema resolves the impl's trait by the impl's own identity
+(`SourceRelBind::trait_key`, main 1ec4de6d8). The `it.next()` ambiguity that
+refused hubbing `logos.lang.stream` did not appear: all 442 deem/wql/trama/
+memoria/canon fixtures are green with the new import.
+
 ## 12. Deem-call pipelines and the fiber-backed pull form
 
 Today every query copies its result into a returned `Vec` — correct, poorly

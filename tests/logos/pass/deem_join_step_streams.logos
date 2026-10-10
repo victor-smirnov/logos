@@ -47,6 +47,7 @@
 //   let mut __rel_s: Vec<(i64, i64)> = Vec::<(i64, i64)>::new();
 //   loop { let __dr: Option<(i64, i64)> = __it_s.next(); … __rel_s.push(__dr.unwrap()); }
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.mem.bt.map;             // trait MapSource

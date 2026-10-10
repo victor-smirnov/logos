@@ -62,6 +62,7 @@
 // `--gen-dir` dump for the `Buffer<` landing and its `LOGOS_TRACE_PLAN=1` output
 // for `drain on drained: second use`, and reds if either stops being true.
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.mem.bt.map;   // the source traits this file implements

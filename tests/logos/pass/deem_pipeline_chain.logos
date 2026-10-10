@@ -71,6 +71,7 @@
 // of the Vec surface that changed rows, order or count reds here; so does a
 // stream surface that agrees with itself and with nothing else.
 package test;
+use logos.std.wql.source;      // the query plane's source vocabulary (#342)
 
 use logos.std.wql.wql;
 use logos.mem.bt.map;              // trait OrderedMapSource — the chain source
