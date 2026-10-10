@@ -3282,6 +3282,14 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                                  TypeRef(lt).pointee().kind() == LogosType::Kind::Enum);
         if (generic_adt || k == LogosType::Kind::Enum || ref_struct)
             if (auto c = lower_op_by_trait_(*oi, lhs, &rhs)) return c;
+        // `==` / `!=` on an enum with no PartialEq (or Eq) impl: rustc E0369 —
+        // there is no builtin equality on an enum.
+        if (k == LogosType::Kind::Enum && (op == "==" || op == "!=") && rt &&
+            TypeRef(rt).kind() == LogosType::Kind::Enum) {
+            error(std::format("binary operation `{}` cannot be applied to type `{}` (E0369): "
+                              "it requires an Eq/PartialEq impl", op, type_str(lt, true)));
+            return error_expr();
+        }
     }
     if (TypeRef(lt_sv).kind() == LogosType::Kind::Struct) {
         // Map operator to trait name and method

@@ -1,0 +1,5 @@
+// `==` on an enum with no PartialEq/Eq impl is refused (rustc E0369): there is no builtin enum equality.
+package f37_enum_eq_without_partialeq;
+use logos.std.fmt;
+enum Color { Red, Green }
+fn main() { println!("{}", Color::Green == Color::Red); }
