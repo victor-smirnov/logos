@@ -451,13 +451,14 @@ void SemaChecker::compute_fn_lifetime_outlives(
 }
 
 DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
-                                  std::vector<TypeParam>* out_type_params) {
+                                  std::vector<TypeParam>* out_type_params,
+                                  std::string_view name_override) {
     namespace dk = lir_schema::decl_keys;
     // C-INF: literals minted as integer variables only inside a body that
     // infer_close_fn_ closes.
     ++fn_body_depth_;
     struct FnDepth_ { int& d; ~FnDepth_() { --d; } } fn_depth_guard_{fn_body_depth_};
-    auto raw_name = str_of(node.get(la::NAME.code));
+    auto raw_name = name_override.empty() ? str_of(node.get(la::NAME.code)) : name_override;
     // Sprint 6.3 — B-fn-08: reserve `_` for ignored-binding semantics.
     // Allowing `fn _()` would let `_(...)` be a valid call expression and
     // collide with future ignored-binding patterns.
@@ -521,6 +522,13 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
         ~CurFnGuard() { slot = std::move(prev); }
     };
     CurFnGuard _cfn_guard(current_fn_mangled_, mangled);
+    // The body's block-local fn items are in scope in the whole body.
+    {
+        StrMap<std::string> items;
+        if (node.has_key(la::BODY)) nested_fn_items_of_(node.get(la::BODY.code), mangled, items);
+        local_fn_items_.push_back(std::move(items));
+    }
+    struct LocalItemsPop { std::vector<StrMap<std::string>>& v; ~LocalItemsPop() { v.pop_back(); } } _lip{local_fn_items_};
 
     // Some trait-default bodies and impl methods refer to `Self` in their
     // parameter types.  Keep a concrete Self binding alive for the duration

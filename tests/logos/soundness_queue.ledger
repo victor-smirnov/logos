@@ -55,8 +55,6 @@ format_named_and_captured_args_refused 2 tests/soundness/open/format_named_and_c
 
 generic_index_output_refused 2 tests/soundness/open/generic_index_output_refused refuses
 
-generic_param_leaks_into_nested_item_admitted 2 tests/soundness/open/generic_param_leaks_into_nested_item_admitted admits
-
 let_else_nondiverging_else_admitted 2 tests/soundness/open/let_else_nondiverging_else_admitted admits
 
 match_guard_temp_drop_timing_wrong 2 tests/soundness/open/match_guard_temp_drop_timing_wrong run 0
@@ -432,5 +430,5 @@ ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_a
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 126
-# SYNC-HASH 3de90d28f7a7bd789e4e62dfa52b759d
+# TOTAL 125
+# SYNC-HASH 8550a69beca72d20cfee03e7d5c5aa12

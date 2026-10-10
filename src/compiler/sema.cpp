@@ -10652,6 +10652,22 @@ SemaChecker::build_annotation_instance(TinyMapView ann,
     return inst;
 }
 
+// The block-local fn items the enclosing fn queued (lower_nested_fn), each a
+// fn of its own: lowered with no enclosing locals in scope (an item captures
+// nothing), the enclosing bodies' items still named. Their own items queue in
+// turn.
+void SemaChecker::drain_nested_fns_(lir::LProgram& prog) {
+    while (!pending_nested_fns_.empty()) {
+        PendingNestedFn p = std::move(pending_nested_fns_.back());
+        pending_nested_fns_.pop_back();
+        auto saved_items = std::move(local_fn_items_);
+        local_fn_items_ = std::move(p.scope);
+        auto fp = lower_fn(p.node, {}, nullptr, p.sym);
+        prog.functions.push_back(fp.view<lir_view::FunctionView>());
+        local_fn_items_ = std::move(saved_items);
+    }
+}
+
 void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
     if (!mod.has_key(la::ITEMS)) return;
     auto items = arr_of(mod.get(la::ITEMS.code));
@@ -11441,6 +11457,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 auto fp = lower_fn(item);
                 prog.functions.push_back(fp.view<lir_view::FunctionView>());
             }
+            drain_nested_fns_(prog);
         }
         else if (c == la::CONST_DEF) {
             // Stage E direct-build: lower_const_def built NAME+TYPE into the
@@ -11811,7 +11828,7 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 }
             }
         }
-        else if (c == la::IMPL_BLOCK) lower_impl_block(item, prog);
+        else if (c == la::IMPL_BLOCK) { lower_impl_block(item, prog); drain_nested_fns_(prog); }
         // Defensive: clear any unused doc from items that didn't consume it.
         pending_doc_.clear();
         pending_annots.clear();

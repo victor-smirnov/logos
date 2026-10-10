@@ -1673,16 +1673,16 @@ lir_view::StmtRef SemaChecker::lower_let_else_core(lir::LExprPtr scrut, TinyMapV
 // emitted as an SLet with the closure value; the variable's type comes
 // from the closure's own inferred type.
 lir_view::StmtRef SemaChecker::lower_nested_fn(TinyMapView node) {
+    // A block-local fn ITEM (collect registered it under its symbol): lowered
+    // after the enclosing fn, as a fn of its own that captures nothing; here it
+    // is no statement.
     auto name = std::string(str_of(node.get(la::NAME.code)));
-    auto value = lower_closure_expr(node);
-    auto var_type = value ? expr_type(value) : error_t();
-    define(name, var_type, /*is_mut=*/false);
-    lir::SLet sl;
-    sl.name   = name;
-    sl.type   = var_type;
-    sl.is_mut = false;
-    sl.value  = std::move(value);
-    return make_stmt_emit(node_line_, std::move(sl));
+    std::string sym = local_fn_item_(name);
+    if (!sym.empty())
+        pending_nested_fns_.push_back({node, sym, local_fn_items_});
+    lir::SBlock sb;
+    sb.body = lir_mirror_block(*cur_prog_, {});
+    return make_stmt_emit(node_line_, std::move(sb));
 }
 
 lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {

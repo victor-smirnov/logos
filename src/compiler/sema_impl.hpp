@@ -9056,7 +9056,28 @@ private:
     DeclBuilder lower_spec_struct(writ::TinyMapView node);
     DeclBuilder lower_spec_fn(writ::TinyMapView node);
     void collect_fn(writ::TinyMapView node, std::string_view struct_ctx = {},
-                    std::string_view trait_ctx = {});
+                    std::string_view trait_ctx = {}, std::string_view name_override = {});
+    // ── BLOCK-LOCAL FN ITEMS (`fn inner() {..}` in a body; Rust items of a
+    // block scope) ── registered at collect under `<outer>$<inner>`, visible
+    // in their whole enclosing body (a forward use, recursion, siblings), and
+    // lowered after the enclosing fn as fns of their own: an item captures
+    // nothing (rustc E0434). Keyed (outer, name, line): the HIR rewrites the
+    // node, so its address is no key.
+    StrMap<std::string> nested_fn_sym_;
+    std::vector<StrMap<std::string>> local_fn_items_;   // the enclosing bodies' name -> symbol
+    struct PendingNestedFn { writ::TinyMapView node; std::string sym; std::vector<StrMap<std::string>> scope; };
+    std::vector<PendingNestedFn> pending_nested_fns_;
+    void drain_nested_fns_(lir::LProgram& prog);
+    static std::string nested_fn_key_(std::string_view outer, std::string_view name, uint32_t line) {
+        return std::string(outer) + "|" + std::string(name) + "|" + std::to_string(line);
+    }
+    void collect_nested_fns_(writ::AnyVal v, const std::string& outer, int depth = 0);
+    void nested_fn_items_of_(writ::AnyVal v, const std::string& outer, StrMap<std::string>& out, int depth = 0);
+    std::string local_fn_item_(std::string_view name) const {
+        for (auto it = local_fn_items_.rbegin(); it != local_fn_items_.rend(); ++it)
+            if (auto f = it->find(name); f != it->end()) return f->second;
+        return {};
+    }
 
     // ── Auto trait satisfaction ───────────────────────────────────
 
@@ -11109,7 +11130,8 @@ private:
     // `*out_type_params`. When null (free fns / collected struct methods), the
     // builder is complete on return.
     DeclBuilder lower_fn(writ::TinyMapView node, std::string_view struct_ctx = {},
-                         std::vector<TypeParam>* out_type_params = nullptr);
+                         std::vector<TypeParam>* out_type_params = nullptr,
+                         std::string_view name_override = {});
     // A parameter's destructuring pattern as a `let` pattern node; bound as
     // `let PAT = synth;` (bind_param_pattern).
     writ::TinyMapView param_pattern_node(writ::TinyMapView pnode);

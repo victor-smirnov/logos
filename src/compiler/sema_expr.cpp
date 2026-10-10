@@ -1133,7 +1133,9 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
         // types_compatible(FnItem, FnPtr) rule + the downstream
         // is_fn_value_kind acceptance helper.
         std::vector<const SemaFuncInfo*> cands;
-        if (std::string rp = res_fn_package_(expr); !rp.empty()) {   // Q1 row 4e: the HIR's resolution
+        if (std::string li = local_fn_item_(name); !li.empty())   // a block-local fn item, as a value
+            cands = pkg_fn_candidates_(cur_package_, li);
+        else if (std::string rp = res_fn_package_(expr); !rp.empty()) {   // Q1 row 4e: the HIR's resolution
             for (size_t b = 0; b <= rp.size();) {                     // one package, or a comma set
                 const size_t e = std::min(rp.find(',', b), rp.size());
                 for (auto* c : pkg_fn_candidates_(rp.substr(b, e - b), name)) cands.push_back(c);
@@ -4917,6 +4919,15 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             li && li->target == AttrTarget::Fn) {
             call_pkg_qualifier_ = li->package;
             call_pkg_qualifier_name_ = li->name;
+        }
+    // A block-local fn item of an enclosing body (`fn inner` declared in it):
+    // its symbol in this package, never a homonym in scope.
+    std::string local_item_sym_;
+    if (call_pkg_qualifier_.empty() && !antiquot_callee && !lookup(callee))
+        if (local_item_sym_ = local_fn_item_(callee); !local_item_sym_.empty()) {
+            callee = local_item_sym_;
+            call_pkg_qualifier_ = cur_package_;
+            call_pkg_qualifier_name_ = local_item_sym_;
         }
     // Q1 row 4e: the HIR resolved the callee once (RES): the call names that
     // package's overload set, as a path would — no second lookup by spelling.

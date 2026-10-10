@@ -1,0 +1,12 @@
+// Block-local fn items are items of the block scope (Rust): visible in the whole body - a use before the declaration, self-recursion, mutual recursion of siblings, a fn value - and they capture nothing.
+package nested_items;
+use logos.std.fmt;
+fn apply(f: fn(i64) -> i64, x: i64) -> i64 { f(x) }
+fn main() {
+    println!("{}", fact(5));
+    fn fact(n: i64) -> i64 { if n <= 1 { 1 } else { n * fact(n - 1) } }
+    fn is_even(n: i64) -> bool { if n == 0 { true } else { is_odd(n - 1) } }
+    fn is_odd(n: i64) -> bool { if n == 0 { false } else { is_even(n - 1) } }
+    fn twice(x: i64) -> i64 { x * 2 }
+    println!("{} {} {}", is_even(10), is_odd(7), apply(twice, 21));
+}
