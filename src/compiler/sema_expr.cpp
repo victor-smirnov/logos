@@ -27564,6 +27564,36 @@ void SemaChecker::lit_close_fn_(const std::string& fn_name) {
                 if (TypeRef sel = lit_select_by_trait_(b.trait_name)) { lit_solve_(v, sel); break; }
             }
         }
+    // A variable that is a TRAIT ARGUMENT of another parameter's bound
+    // (`5.into()` through `impl<T, U: From<T>> Into<U> for T`, U = M): the one
+    // integer type the subject's impls of that trait take there (`impl
+    // From<i64> for M`), as rustc selects before the integer fallback.
+    for (auto& d : lit_deferred_bounds_) {
+        SemaSubst ds;
+        for (size_t j = 0; j < d.tps.size() && j < d.args.size(); ++j) ds[d.tps[j].name] = lit_resolve_(d.args[j]);
+        for (size_t j = 0; j < d.tps.size() && j < d.args.size(); ++j) {
+            TypeRef subject = lit_zonk_(d.args[j]);
+            if (!subject || !type_is_concrete(subject) || has_lit_var_(subject)) continue;
+            for (auto& b : d.tps[j].bounds) {
+                if (b.is_fn_family) continue;
+                for (size_t k = 0; k < b.type_args.size(); ++k) {
+                    if (!b.type_args[k]) continue;
+                    TypeRef v = lit_resolve_(subst_type_sema(TypeRef(b.type_args[k]), ds));
+                    if (!is_lit_var_(v)) continue;
+                    TypeRef pick = nullptr; bool many = false;
+                    for (const SemaImplInfo* info : impls_for_(bound_identity_(b), subject)) {
+                        if (info->is_negative || k >= info->trait_type_args.size()) continue;
+                        TypeRef ta = info->trait_type_args[k];
+                        if (!ta || !is_integer(ta) || is_lit_var_(ta) || TypeRef(ta).kind() == LogosType::Kind::IntLit)
+                            continue;
+                        if (!pick) pick = ta;
+                        else if (!types_equal(pick, ta)) many = true;
+                    }
+                    if (pick && !many) lit_solve_(v, pick);
+                }
+            }
+        }
+    }
     // Unsolved: i32, or i64 when a literal of the variable's CLASS does not fit
     // (Logos's default) — `[1, 2, 10000000000]` is one variable of three.
     std::unordered_map<std::string, bool> root_wide;
