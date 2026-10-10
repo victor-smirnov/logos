@@ -15099,10 +15099,13 @@ lir::LExprPtr SemaChecker::try_lower_generic_assoc_const(const std::string& cnam
         if (!tit) continue;
         for (auto& ac : tit->assoc_consts) {
             if (ac.name != mname) continue;
+            TypeRef self_t = current_type_params_.count(cname) ? current_type_params_[cname] : make_typevar(cname);
             TypeRef ret_t = ac.type ? ac.type : prim(LogosType::Kind::I64);
-            auto ti = trait_item_ref_(tn, "kassoc_" + mname,
-                                      current_type_params_.count(cname) ? current_type_params_[cname]
-                                                                        : make_typevar(cname));
+            {   // `const ZERO: Self` read through `T`: its type is T (a projection normalized by T's bounds)
+                SemaSubst ss; ss["Self"] = self_t;
+                ret_t = normalize_assoc_eq(subst_type_sema(ret_t, ss));
+            }
+            auto ti = trait_item_ref_(tn, "kassoc_" + mname, self_t);
             return builder().call(cname + "__kassoc_" + mname, {}, {}, ret_t, &ti);
         }
     }

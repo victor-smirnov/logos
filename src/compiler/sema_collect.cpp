@@ -4560,7 +4560,32 @@ void SemaChecker::collect_impl(TinyMapView node) {
                     if (tit2 && ctype) {
                         for (auto& ac_def : tit2->assoc_consts) {
                             if (ac_def.name == cname && ac_def.type) {
-                                if (!types_equal(ac_def.type, ctype))
+                                // The trait's type at THIS impl: `Self` is the impl's
+                                // self type, `Self::Val` its own `type Val = ..`.
+                                TypeRef want = ac_def.type;
+                                if (impl_self_ty) {
+                                    SemaSubst ss; ss["Self"] = impl_self_ty;
+                                    want = subst_type_sema(want, ss);
+                                    if (want && TypeRef(want).kind() == LogosType::Kind::AssocType &&
+                                        TypeRef(want).assoc_base() &&
+                                        types_equal(TypeRef(want).assoc_base(), impl_self_ty)) {
+                                        const std::string an(TypeRef(want).assoc_type_name());
+                                        for (auto& it : collecting_assoc_types_)
+                                            if (it.name == an && it.type) { want = it.type; break; }
+                                        if (TypeRef(want).kind() == LogosType::Kind::AssocType && node.has_key(la::ITEMS)) {
+                                            auto mems = arr_of(node.get(la::ITEMS.code));
+                                            for (uint64_t mi = 0; mi < mems.size(); ++mi) {
+                                                auto mm = map_of(mems.get(mi));
+                                                if (code_of(mm) == la::ASSOC_TYPE_IMPL && mm.has_key(la::TYPE) &&
+                                                    str_of(mm.get(la::NAME.code)) == an) {
+                                                    want = resolve_type(map_of(mm.get(la::TYPE.code)));
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if (!types_equal(want, ctype))
                                     error(std::format(
                                         "impl {} for {}: associated constant '{}' declared as '{}' but trait requires '{}'",
                                         trait_name, target, cname,
