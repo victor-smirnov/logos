@@ -153,6 +153,27 @@ const uint8_t* logos_metaprog_value_type(const uint8_t* name, uint64_t len, uint
     metaprog_unavailable("logos_metaprog_value_type");
 }
 
+// A struct's field facts (field_type_name / struct_field_count /
+// struct_field_name): JIT-bound in the compiler; dead in a linked binary.
+__attribute__((weak))
+const uint8_t* logos_metaprog_field_type(const uint8_t* ty, uint64_t ty_len,
+                                         const uint8_t* field, uint64_t field_len, uint64_t* out_len) {
+    (void)ty; (void)ty_len; (void)field; (void)field_len; (void)out_len;
+    metaprog_unavailable("logos_metaprog_field_type");
+}
+
+__attribute__((weak))
+int64_t logos_metaprog_struct_field_count(const uint8_t* ty, uint64_t ty_len) {
+    (void)ty; (void)ty_len;
+    metaprog_unavailable("logos_metaprog_struct_field_count");
+}
+
+__attribute__((weak))
+const uint8_t* logos_metaprog_struct_field_name(const uint8_t* ty, uint64_t ty_len, int64_t i, uint64_t* out_len) {
+    (void)ty; (void)ty_len; (void)i; (void)out_len;
+    metaprog_unavailable("logos_metaprog_struct_field_name");
+}
+
 __attribute__((weak))
 const uint8_t* logos_macro_arg(uint64_t site_id, uint64_t arg_idx) {
     (void)site_id; (void)arg_idx;
