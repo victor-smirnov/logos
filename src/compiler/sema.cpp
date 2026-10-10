@@ -8151,6 +8151,7 @@ TypeRef SemaChecker::resolve_generic_wstatic_const(const std::string& name,
 }
 
 TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
+    struct ArgSlot { int& d; ArgSlot(int& x) : d(x) { ++d; } ~ArgSlot() { --d; } } arg_slot_{generic_arg_depth_};
     int32_t tc = code_of(node); (void)tc;
     auto name = str_of(node.get(la::NAME.code));
 
@@ -9609,6 +9610,16 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
                               std::format("the type '{}'", name),
                               "a metaprogram round");
             return error_t();
+        }
+        // A const item in scope where a type was asked (`B<SIZE>`, `B::<SIZE>`):
+        // the const-generic argument it denotes, as rustc reads a bare path in
+        // a generic-argument slot (the braced `B::<{SIZE}>` already was one).
+        if (writ::TinyMapView cv = generic_arg_depth_ > 0 ? resolve_const_value(name) : writ::TinyMapView{};
+            !cv.is_null()) {
+            if (auto v = ctfe_eval_const(cv, holder_)) {
+                LogosTypeBuilder t; t.kind = LogosType::Kind::IntLit; t.const_val = v.value().i;
+                return pool_->alloc(std::move(t));
+            }
         }
         // Bug 4 fix: give a more informative error when a generic alias is used
         // without its required type arguments.

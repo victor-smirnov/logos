@@ -9506,6 +9506,17 @@ private:
     // argument for a formal bounded `T: Iterator<Item = X>` (rustc infers the
     // `{integer}` from the obligation); consumed by the range lowering.
     TypeRef range_item_hint_ = nullptr;
+    // >0 while the arguments of a generic type / turbofish resolve: a bare
+    // const item there is a const-generic argument (`B<SIZE>`).
+    int generic_arg_depth_ = 0;
+    // A generic ARGUMENT slot's type (a turbofish item, `S::<..>`'s item):
+    // resolve_type under generic_arg_depth_.
+    TypeRef resolve_type_arg_(writ::TinyMapView n) {
+        ++generic_arg_depth_;
+        TypeRef t = resolve_type(n);
+        --generic_arg_depth_;
+        return t;
+    }
     // The type a call's return is inferred against: the expectation, else its
     // shape (holes bind nothing: `let r: Result<i64, _> = s.parse()`).
     TypeRef ret_hint_() const { return expected_ ? expected_ : shape_; }

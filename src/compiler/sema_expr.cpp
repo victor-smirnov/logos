@@ -7914,6 +7914,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_type_code_of(TinyMapView node) {
 }
 
 std::vector<TypeRef> SemaChecker::collect_type_args(TinyMapView node) {
+    struct ArgSlot { int& d; ArgSlot(int& x) : d(x) { ++d; } ~ArgSlot() { --d; } } arg_slot_{generic_arg_depth_};
     std::vector<TypeRef> out;
     if (!node.has_key(la::TYPE_PARAMS)) return out;
     auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
@@ -8931,7 +8932,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (size_t i = 0; i < items.size(); ++i)
-                    targs.push_back(resolve_type(map_of(items.get(i))));
+                    targs.push_back(resolve_type_arg_(map_of(items.get(i))));
             }
         }
         auto type_t = make_synth_struct("Type");
@@ -9372,7 +9373,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
                 auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items_size; ++i)
-                    targs.push_back(resolve_type(map_of(items.get(i))));
+                    targs.push_back(resolve_type_arg_(map_of(items.get(i))));
             }
             const TypeRef saved_shape = shape_;
             if (!targs.empty() && targs.size() == vesi->type_params.size())
@@ -9407,7 +9408,7 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
                 !fi_ptr->type_params[i].implicit_sized) {
                 unsized_ok_ = true;
             }
-            type_args.push_back(resolve_type(map_of(items.get(i))));
+            type_args.push_back(resolve_type_arg_(map_of(items.get(i))));
             unsized_ok_ = was_ok;
         }
     }
@@ -10476,7 +10477,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             bool was_ok = unsized_ok_;
             unsized_ok_ = true;
             for (uint64_t i = 0; i < items.size(); ++i)
-                user_type_args.push_back(resolve_type(map_of(items.get(i))));
+                user_type_args.push_back(resolve_type_arg_(map_of(items.get(i))));
             unsized_ok_ = was_ok;
         }
     }
@@ -13401,7 +13402,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         bool was_uok = unsized_ok_;
                         if (!sinfo.type_params[i].implicit_sized ||
                             struct_has_specs(sname)) unsized_ok_ = true;
-                        auto resolved = resolve_type(map_of(items.get(i)));
+                        auto resolved = resolve_type_arg_(map_of(items.get(i)));
                         unsized_ok_ = was_uok;
                         if (resolved && TypeRef(resolved).kind() != LogosType::Kind::Error) {
                             inferred[sinfo.type_params[i].name] = resolved;
@@ -15287,7 +15288,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit(TinyMapView node) {
             auto tplist = map_of(node.get(la::TYPE_PARAMS.code));
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
-                for (size_t i = 0; i < items.size(); ++i) written.push_back(resolve_type(map_of(items.get(i))));
+                for (size_t i = 0; i < items.size(); ++i) written.push_back(resolve_type_arg_(map_of(items.get(i))));
             }
         }
         std::vector<TypeRef> targs;
@@ -15973,7 +15974,7 @@ lir::LExprPtr SemaChecker::lower_enum_lit_data_from_static(
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (size_t i = 0; i < items.size() && i < einfo.type_params.size(); ++i) {
-                    auto ta = resolve_type(map_of(items.get(i)));
+                    auto ta = resolve_type_arg_(map_of(items.get(i)));
                     // `_` is left to the payload / hint / inference passes below.
                     if (ta && TypeRef(ta).kind() != LogosType::Kind::Error &&
                         TypeRef(ta).kind() != LogosType::Kind::InferredType)
@@ -18421,7 +18422,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                     if (tplist.has_key(la::ITEMS)) {
                         auto items = arr_of(tplist.get(la::ITEMS.code));
                         for (uint64_t i = 0; i < items.size(); ++i)
-                            tf.push_back(resolve_type(map_of(items.get(i))));
+                            tf.push_back(resolve_type_arg_(map_of(items.get(i))));
                     }
                 }
                 if (!tf.empty()) {
@@ -18485,7 +18486,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 std::vector<TypeRef> tf_args;
                 bool all_concrete = true;
                 for (uint64_t i = 0; i < items.size(); ++i) {
-                    auto t = resolve_type(map_of(items.get(i)));
+                    auto t = resolve_type_arg_(map_of(items.get(i)));
                     if (!t || TypeRef(t).kind() == LogosType::Kind::TypeVar) { all_concrete = false; break; }
                     tf_args.push_back(t);
                 }
@@ -18798,7 +18799,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             if (tplist.has_key(la::ITEMS)) {
                 auto items = arr_of(tplist.get(la::ITEMS.code));
                 for (uint64_t i = 0; i < items.size(); ++i) {
-                    auto t = resolve_type(map_of(items.get(i)));
+                    auto t = resolve_type_arg_(map_of(items.get(i)));
                     if (t && (TypeRef(t).kind() == LogosType::Kind::TypeVar ||
                               TypeRef(t).kind() == LogosType::Kind::AssocType)) {
                         in_generic_context = true; break;
@@ -18815,7 +18816,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 if (tplist.has_key(la::ITEMS)) {
                     auto items = arr_of(tplist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size(); ++i)
-                        inferred.push_back(resolve_type(map_of(items.get(i))));
+                        inferred.push_back(resolve_type_arg_(map_of(items.get(i))));
                     have_inferred = !inferred.empty();
                 }
             }
@@ -18851,7 +18852,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 if (tplist.has_key(la::ITEMS)) {
                     auto items = arr_of(tplist.get(la::ITEMS.code));
                     for (uint64_t i = 0; i < items.size(); ++i)
-                        type_var_args.push_back(resolve_type(map_of(items.get(i))));
+                        type_var_args.push_back(resolve_type_arg_(map_of(items.get(i))));
                 }
             }
             if (type_var_args.empty()) {
@@ -23111,7 +23112,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             std::string out = "::<";
             for (uint64_t i = 0; i < items.size(); ++i) {
                 if (i) out += ", ";
-                out += type_str(resolve_type(map_of(items.get(i))), /*source_form=*/true);
+                out += type_str(resolve_type_arg_(map_of(items.get(i))), /*source_form=*/true);
             }
             out += ">";
             return out;
