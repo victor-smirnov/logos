@@ -84,7 +84,7 @@ They use Core's mechanisms (source declarations, Deem rules, Writ, capabilities)
 | 0036 | object capabilities: no ambient authority | 0035 |
 | 0037 | specifications and SMT offload | 0035, 0028 S4 linearisation |
 | 0038 | Lean integration | 0037 |
-| 0039 | persistent snapshottable structures: one logical level, many implementations (Memoria one of them); refines D7 / C7 and ADR 0033 D6 | 0032 D7, 0033 D6 |
+| 0039 | memory models as part of the model of computation; persistence (Memoria) supplies atomic commitment for distributed execution, isolation levels built on it; refines D7 / C7 and ADR 0033 D6 | 0032 D7, 0033 D6 |
 
 Priority (Victor): 0033 first, together with the seam rows of this ADR; 0035 → 0036 next; 0037 → 0038 after effects give purity.
 

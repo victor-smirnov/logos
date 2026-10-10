@@ -1,112 +1,132 @@
-# ADR 0039. Persistent snapshottable structures: one logical level, many implementations
+# ADR 0039. Memory models, persistence and atomic commitment (Memoria)
 
-Status: PROPOSED for pair review (2026-10-10). Part of the set under [0032](0032-logos-core-composition.md). Refines [0032](0032-logos-core-composition.md) D7 / row C7 and [0033](0033-incremental-deem-dbsp-translator.md) D6 / row I8. Inputs: [0017](0017-deem-storage-engine.md), [0018](0018-memoria-port.md), [0020](0020-memoria-container-interface-plane.md), [0027](0027-row-store-tables.md). Victor, 2026-10-10: «Я не против сделать уровень инкрементности снэпшотами Мемории, но тогда Меморию нужно будет универсализировать, и это должно быть включено в планы. Например, в виде двух уровней: логический концептуальный уровень персистентных снэпшотируемых структур данных и множество возможных реализаций (где текущая Мемория — один из вариантов).»
+Status: PROPOSED for pair review (2026-10-10). Part of the set under [0032](0032-logos-core-composition.md). Refines [0032](0032-logos-core-composition.md) D7 / row C7 and [0033](0033-incremental-deem-dbsp-translator.md) D6 / row I8; relates to [0034](0034-hest-core-graph-layer.md) D2 / D7 (radii, placement). Inputs: [0017](0017-deem-storage-engine.md), [0018](0018-memoria-port.md), [0020](0020-memoria-container-interface-plane.md), [0027](0027-row-store-tables.md).
+
+Victor, 2026-10-10: «Я не против сделать уровень инкрементности снэпшотами Мемории, но тогда Меморию нужно будет универсализировать… логический концептуальный уровень персистентных снэпшотируемых структур данных и множество возможных реализаций.» And, on the framing: «за системообразующий принцип возьми модели и иерархии памяти, и рассматривай Меморию как систему абстракций над ними. Модель памяти является частью модели вычислений. В обычных ЯП обе модели идут в качестве аксиом, производных от одной-двух целевых архитектур (x86_64/ARM). Logos от этого уходит… есть Rust-bias, наследующий x86_64 (одноранговое адресное пространство, когерентные кэши), но это просто артефакт исторической преемственности. Logos не зависит от аппаратной модели, хотя и для своего удобства структурирует предпочтительную модель в виде LCM.» And: «неизменяемые CoW-узлы, снапшоты, коммиты и дельты — это просто способ организовать персистентность. А последняя нужна для организации распределенного режима, так как предоставляет ценный atomic commitment, на котором можно удобно строить более сложные уровни изоляции.»
 
 ## Problem
 
-ADR 0033 D6 makes the parent snapshot the z⁻¹ of an incremental Deem circuit and lets Memoria containers capture changes by snapshot diff. That ties incremental Deem to one storage implementation unless the snapshot is a concept with several implementations. Today it is not.
+### The memory model is an axiom in other languages; in Logos it is not
+
+A conventional language takes its model of computation, and the memory model inside it, as axioms derived from one or two target architectures: one flat address space, caches kept coherent by hardware, volatile RAM, persistence reached only through IO calls. Rust inherits exactly this (raw pointers into one address space; `&mut` uniqueness and `Send` / `Sync` stated against coherent memory). Logos targets machines where these axioms fail: LCM (internally synchronous xPUs, distributed memory and function blocks, no cache coherence, possibly unreliable channels, ADR 0034), devices with their own memory and storage (a storage device running its own logic), hosts where RAM is a cache over durable media. The x86-host model is one instance among these, not the definition.
+
+### Distributed execution needs atomic commitment; Memoria supplies it, but is described as a library
+
+Once memory is distributed and not coherent (LCM, devices, RAM over durable media, several hosts), a state change that spans more than one agent or level is not made visible by a store instruction; it needs ATOMIC COMMITMENT: a set of writes becomes visible and durable as a whole, or not at all. Persistence is what provides it, and isolation levels (snapshot isolation, serializability, the consistency of a replicated or incremental computation) are built on top of it. Memoria is Logos' persistence framework, so it is the supplier of atomic commitment; ADR 0033 D6 depends on exactly this (a tick is a commit; the parent version is the circuit's z⁻¹). Today the code presents it as a container library with one store and the memory model implicit, and the commitment it provides is local to one RAM level.
 
 ### Measured state (2026-10-10)
 
-- **Two persistent stacks, neither a logical level.**
-  - `logos.mem.bt` (11 631 lines): `trait Snapshot` (`map.logos:72-135`) is the public object-safe tier — id plane (`snapshot_id`, `snapshot_uid` → `Uid256`), lifecycle (`commit`, `remove`, `status`), lineage (`snapshot_parent`, `has_parent`, `set_as_branch`, `set_as_master`), and residency pins whose leaf form takes a block address (`leaf_pin(*const u8)`, `:132`). `trait Store` is an empty marker (`:52`, "lifecycle hand-written per store"); no trait says "fork" or "open a container". `Ctr` has `size` only (`:143`). The tree traits `BtLeaf` / `BtBranch` (`:242-335`) are block-specific.
-  - `MemoryStore` / `MemorySnapshot` (`memstore.logos`): a snapshot DAG with ONE parent per snapshot (`SnapDesc.parent`, `:95`), named branches, status ACTIVE / COMMITTED / DROPPED (`:81-83`), `store_fork*`, history queries (`store_linear_history`, `store_children_of`, `store_heads`, `:920-1019`), `store_pack` (reclaims dropped leaves), `store_save` / `store_load` (`:1196,1281`, committed snapshots only).
-  - `logos.lcm.deem.data` (ADR 0017 survivor): `trait IStore` (`store.logos:63`) with MULTI-PARENT merge commits (`register_merge_commit`, `:80`; `Store::merge` select-one, `handle.logos:409-423`), commit labels, a first-parent `log`; `Arc<dyn BTreeNode>` tree; no save/load, no pack. Consumers: 28 `data_*` / `derive_branch_node_*` pass fixtures, 1 fail fixture, two examples, `derive_branch_node.logos`.
-- **The privileged tier is a downcast to one concrete type.** Node allocation, child-ref resolution and the directory (`root_of` / `set_root`) are inherent methods of `MemorySnapshot`, reached by a `dyn_data` downcast hard-coded in every Canon-generated family (`container_item.logos:1228,1231,2688,2695,3055,3062`, "generated for MemoryStore"). `map.logos:70-71` already names the missing piece: "a `trait NodeStore: Snapshot` once a second store lands".
-- **No diff between snapshots.** Nothing computes the changes from one snapshot to another (grep: none). ADR 0017 P1 deferred it ("producer (B)", `0017:106-116`); ADR 0020 asks for `changes(since) → Z-set` (`0020:97`); ADR 0033 D6 assumes it.
-- **The in-memory model exists; the external one does not.** `MemoryStore` keeps CoW nodes in RAM (with a whole-store `store_save` / `store_load`); there is no transactional backing store (block device, KV) under it. `mem.collections.BTreeMap` is a sorted array mutated in place, outside the framework.
-- **The C++ Memoria port seam of ADR 0018** (`IStore` / `ISnapshot` / `ICtr`, `0018:179-186`) does not exist under those names; `conuco/memoria/src/store/store.logos` is a 14-line stub; the real seam is `logos.mem.bt.map`.
-- **The relational interface is already logical.** The query plane's source traits (`MapSource`, `OrderedMapSource`, `PositionalSource`, `logos.std.wql.source`, #342) and the source members (`rel` / `op` / `size` / `order` / `unique`, #322) describe a structure by what relational operations it executes, independently of its representation.
-- **Consumers of the current store API**: 104 pass and 19 fail fixtures name `store_new`, `create_ctr`, `memstore` or `Snapshot` (32 of them `memoria_*`).
+- **Two persistent stacks, neither stated against a memory model.**
+  - `logos.mem.bt` (11 631 lines): `trait Snapshot` (`map.logos:72-135`) — id plane (`snapshot_id`, `snapshot_uid` → `Uid256`), lifecycle (`commit`, `remove`, `status`), lineage (`snapshot_parent`, `has_parent`, `set_as_branch`, `set_as_master`), and residency pins whose leaf form takes a block address (`leaf_pin(*const u8)`, `:132`). `trait Store` is an empty marker (`:52`); no trait says "fork" or "open a container". `Ctr` has `size` only (`:143`). `BtLeaf` / `BtBranch` (`:242-335`) are node-layout traits. `MemoryStore` / `MemorySnapshot` (`memstore.logos`): CoW nodes in RAM, a snapshot DAG with ONE parent per snapshot (`:95`), named branches, status ACTIVE / COMMITTED / DROPPED (`:81-83`), history queries (`:920-1019`), `store_pack`, whole-store `store_save` / `store_load` (`:1196,1281`). There is no transactional backing store under RAM.
+  - `logos.lcm.deem.data` (ADR 0017 survivor): `trait IStore` (`store.logos:63`) with multi-parent merge commits (`:80`; `Store::merge` select-one, `handle.logos:409-423`), labels, first-parent `log`; `Arc<dyn BTreeNode>` nodes; no save / load, no pack. Consumers: 28 `data_*` / `derive_branch_node_*` pass fixtures, 1 fail fixture, two examples, `derive_branch_node.logos`.
+- **Node placement is a downcast to one concrete store.** Node allocation, child-ref resolution and the directory (`root_of` / `set_root`) are inherent methods of `MemorySnapshot`, reached by a `dyn_data` downcast in every Canon-generated family (`container_item.logos:1228,1231,2688,2695,3055,3062`); `map.logos:70-71` anticipates "a `trait NodeStore: Snapshot` once a second store lands".
+- **No difference between snapshots** is computed anywhere (ADR 0017 P1 deferred it; ADR 0020 `:97` asks for `changes(since) → Z-set`; ADR 0033 D6 assumes it).
+- **No description of a memory model exists in the language.** The tiers (`module_manifest.cpp:50-62`: lang "synthesizable, static memory", mem + malloc, lcm + virtualised IO / threads / fibers, std + processes / OS IO) are the closest thing, enforced by link order only (ADR 0035 D5 restates them as effect bounds).
+- **The relational interface of a structure is already model-free.** The source traits (`MapSource`, `OrderedMapSource`, `PositionalSource`, `logos.std.wql.source`) and members (`rel` / `op` / `size` / `order` / `unique`) say what a structure computes, not where its bytes live.
+- **Consumers of the current store API**: 104 pass and 19 fail fixtures name `store_new`, `create_ctr`, `memstore` or `Snapshot` (32 `memoria_*`).
 
 ## Decisions
 
-### D1. Two levels
+### D1. The memory model is an explicit part of the model of computation
 
-- **Logical level (Core).** Traits and laws for versioned, persistent, snapshottable data: what a snapshot is, what forking and committing mean, what a persistent structure promises, and how changes between versions are read. No blocks, pages, allocators or node layouts.
-- **Implementation level.** The Memoria framework provides the logical traits over the memory models it covers (D4), each declaring its properties (durability, cost of fork, cost of diff, concurrency); Canon is the factory of the framework's families, not the owner of the interface (ADR 0032 D9).
+A memory model is described, not assumed. It is a hierarchy of LEVELS and the EDGES between them:
 
-A program, a Deem query and an incremental circuit are written against the logical level; choosing an implementation is a binding decision, not a rewrite.
+- a level states its addressing (byte-addressed / block- or page-addressed / key-addressed), its coherence domain (which agents observe a write, and when; coherent, incoherent, single-agent), volatility, access and failure-atomicity granularity (byte, line, block, page, object), and a cost class (latency, bandwidth);
+- an edge states how data moves between two levels (fill, write-back, copy, replication, publication) and with what guarantee (none, atomic per unit, transactional per commit).
 
-### D2. The logical vocabulary
+The x86-host model is one description (a coherent byte-addressed RAM level; durable storage reachable by IO). LCM is Logos' preferred structured model: per-xPU synchronous local memory, distributed memory without global coherence, message edges. A device that runs logic beside its media is another description. The description is data the compiler and the runtime read (placement, ADR 0034 D7; effect and capability bounds, ADR 0035 / 0036); its surface form is O1.
+
+The Rust-inherited parts of the language (raw pointers, `&mut` aliasing rules, `Send` / `Sync`) are the semantics INSIDE one coherence domain. State that crosses a level boundary or a coherence domain is published by an atomic commit (D2) and read as a committed version, never through a pointer.
+
+### D2. Persistence supplies atomic commitment; isolation is built on it
+
+The primitive Memoria contributes to the model of computation is ATOMIC COMMITMENT over a memory model: a workspace's writes are published as one version, on a level and to the agents of that level, all or nothing. Everything distributed is built on it:
+
+- **Isolation levels** are policies over versions: snapshot isolation (a reader holds one committed version), serializability (commit validates against versions committed since the fork), select-one or relational merge (D7). They are layered above the commit, not inside the structures.
+- **Replication and movement between levels** move committed versions; what is committed does not change, so a replica or a cached copy of it needs no coherence protocol.
+- **Change** between two versions (`delta_since`) is what a consumer must receive to catch up: a replica, a remote radius (ADR 0034), an incremental circuit (ADR 0033).
+
+How a model REALISES persistence is an implementation choice, not part of the abstraction: copy-on-write trees of immutable nodes with snapshots (today's `logos.mem.bt`), a log of writes replayed over a base, shadow paging, or an existing transactional store behind a seam. The vocabulary (D3) and the laws (D4) say what a committed version promises; D5 records how each covered model keeps that promise.
+
+A program writes against the vocabulary; the same structures run under any memory model Memoria covers, and choosing one is a binding decision, not a rewrite.
+
+### D3. The logical vocabulary
 
 | Trait | Promise |
 |---|---|
-| `Version` | an opaque, totally comparable-within-a-lineage identity of a state (`Uid256` remains the boundary representation) |
-| `Snapshot` | an immutable state: reads only; `version()`, `parents()` (≥ 0; more than one after a merge) |
+| `Version` | an identity of a state, ordered within a lineage (`Uid256` remains its boundary representation) |
+| `Snapshot` | an immutable cut: reads only; `version()`, `parents()` (≥ 0; more than one after a merge) |
 | `Workspace` | a mutable state forked from a snapshot: writes; `commit() -> Snapshot`, `abort()` |
-| `VersionStore` | the lineage: `fork(&Snapshot) -> Workspace`, `heads()`, named branches, `log`, `merge` (D6), `release` |
-| `Persistent<S>` | a structure `S` living in a snapshot / workspace: opened by id, read through `&Snapshot`, written through `&mut Workspace` |
-| `Versioned` (change capture) | `delta_since(&Version) -> Delta<Row>` and `version()`: the change of a structure's relation between two versions of one lineage |
+| `VersionStore` | the lineage: `fork(&Snapshot) -> Workspace`, `heads()`, named branches, `log`, `merge` (D7), `release` |
+| `Persistent<S>` | a structure `S` living in a cut: opened by id, read through `&Snapshot`, written through `&mut Workspace` |
+| `Versioned` | `delta_since(&Version) -> Delta<Row>`, `version()`: the change of a structure's relation between two versions of one lineage — ADR 0033's `DeltaSource` |
 
-The relational face of a persistent structure is its source declaration (ADR 0032 D4): a persistent ordered map is an `OrderedMapSource` with its `op` / `size` / `order` / `unique` members, plus `Versioned`. ADR 0033's `DeltaSource` is this `Versioned` trait; it is not declared separately.
+A persistent structure's relational face is its source declaration (ADR 0032 D4): a persistent ordered map is an `OrderedMapSource` with its members, plus `Versioned`. Node-layout traits (`BtLeaf`, `BtBranch`, `NodeProfile`, `BlockStore`) and residency pins belong to D6, not to the vocabulary.
 
-The block-specific traits (`BtLeaf`, `BtBranch`, `NodeProfile`, `BlockStore`) and residency pins move to the implementation level. Pins become an implementation capability (`Resident`), asked for only by code that already knows it runs on a paged implementation (ADR 0025 §7).
+### D4. Laws
 
-### D3. Laws
+Checked by one law suite run under every memory model (row M6):
 
-Each law is a property every implementation must satisfy, checked by one law suite run against every implementation (row P5):
-
-1. A committed snapshot never changes: every read of it returns the same answer.
+1. A committed snapshot never changes: every read of it returns the same answer, on every level it has been published to.
 2. A fork's writes are invisible to its parent and to sibling forks.
 3. Change capture is exact: for versions `v ≤ w` of one lineage, `state(w) = state(v) ⊕ delta_since(v)` at `w`, as Z-sets over the structure's relation.
 4. `delta_since(version())` is empty.
-5. Composition: `delta_since(u)` at `w` equals `delta_since(u)` at `v` plus `delta_since(v)` at `w`, for `u ≤ v ≤ w`.
-6. Fork cost is not proportional to the state: an implementation declares its fork cost class, and `O(state)` is admitted only for an implementation that declares it (a debugging copy).
-7. Release: a released snapshot's resources are reclaimed once no workspace or reader holds it; reading a released snapshot is impossible by construction (lifetimes), not a runtime error.
+5. Composition: for `u ≤ v ≤ w`, `delta_since(u)` at `w` = `delta_since(u)` at `v` + `delta_since(v)` at `w`.
+6. Fork cost is not proportional to the state (the cost class is declared per memory model).
+7. A released snapshot is reclaimed once nothing holds it; reading a released snapshot is impossible by construction (lifetimes), not a runtime error.
 
-### D4. Implementations: one framework, the memory models it covers
+### D5. Memory models Memoria covers, and how more are added
 
-Implementations are not a list of unrelated libraries: the Memoria framework provides them, and will, as instances of one design over different MEMORY MODELS. The logical level reflects the memory models that exist, so that their existing realisations can be bound to it rather than reimplemented:
-
-| Memory model | What | Fork | Diff | Durability |
+| Model | Levels and edges | Fork | Diff | Durability |
 |---|---|---|---|---|
-| **in-memory** | the structures live in RAM: CoW trees whose nodes are shared between snapshots (today's `MemoryStore` / `MemorySnapshot`) | O(1) (shared directory root) | tree diff skipping shared subtrees by snapshot-id stamp | none beyond an explicit save / load |
-| **external memory** | RAM is a cache over a block device or a KV store, with TRANSACTIONAL replication between them: a commit makes the snapshot durable on the backing store, a read faults nodes in, eviction writes nothing a committed snapshot does not already hold | O(1) | the same diff, over nodes resident or faulted in | the backing store's (block device, KV) |
+| **in-memory** | one coherent RAM level; nodes in RAM, shared between snapshots (today's `MemoryStore`) | O(1) (shared directory root) | tree diff skipping shared subtrees by snapshot-id stamp | none beyond an explicit save / load |
+| **external memory** | RAM as a cache level over a block device or KV level; fill and eviction edges; a transactional publication edge (commit makes the cut durable on the backing level; eviction writes nothing a committed cut does not already hold) | O(1) | the same diff, over resident or filled nodes | the backing level's |
 
-The two share the framework's tree code, the Canon families, and the logical traits; they differ in where a node lives and what a commit does. The backing store of the external-memory model is itself a seam (a block device, a page file, an existing KV store), so existing storage systems are covered by implementing that seam, not the whole stack.
+One framework provides both: tree code, Canon families and the vocabulary are shared; the models differ in the level a node lives on and in what a commit does. A further model (distributed memory without coherence, a device-resident store) is added by describing its levels and edges (D1) and implementing the node-placement seam (D6) for them — not by a new library. The backing level of the external model is itself such a seam (block device, page file, an existing KV store), so existing storage systems are covered by implementing it.
 
-### D5. The privileged tier becomes a trait
+### D6. Node placement is a trait of the model
 
-The `dyn_data` downcast to `MemorySnapshot` in generated code is replaced by an implementation-level trait (`NodeStore: Snapshot`, as `map.logos:70-71` anticipates) that a block-based implementation provides; a Canon family is generated against `NodeStore`, not against `MemorySnapshot`. A family then lives in either memory model (D4) and over any backing store of the external one.
+The `dyn_data` downcast to `MemorySnapshot` is replaced by a placement trait (`NodeStore: Snapshot`, as `map.logos:70-71` anticipates): allocate, resolve, release a node on a level; read and write the directory of a cut. Canon families are generated against it; each memory model implements it. Residency pins (ADR 0025 §7) are a capability of a model with a cache level (`Resident`), asked for only by code bound to such a model.
 
-### D6. Merge
+### D7. Merge
 
-The logical level admits multi-parent snapshots (`parents()`), because `logos.lcm.deem.data` already has merge commits and branch workflows need them. The merge OPERATION is a policy, not a law: `select_one` (ADR 0017 D2 v0, what `deem.data` implements) first; a relational merge (`edb_union` / three-way over a structure's relation, ADR 0017 v1) later, with conflicts reported as data. An implementation that cannot merge says so (`merge` is an optional capability). Schema-divergent merge (ADR 0020 open question) stays open.
+The vocabulary admits multi-parent snapshots (`parents()`): `logos.lcm.deem.data` already has merge commits and branch workflows need them. The merge OPERATION is a policy, not a law: `select_one` (ADR 0017 D2 v0) first; a relational merge (three-way over a structure's relation, ADR 0017 v1) later, with conflicts reported as data. A model that cannot merge declares it. Schema-divergent merge (ADR 0020) stays open.
 
-### D7. Incremental Deem binds to the logical level
+### D8. Incremental Deem and Hest bind to this layer
 
-ADR 0033's circuit state lives in a `Workspace`; a tick is a commit; the z⁻¹ of the circuit is the parent snapshot; input deltas of `Versioned` sources are read by `delta_since`. Checkpoint, fork and replay of a circuit are logical-level operations available in both memory models; under the external model a checkpoint is durable. The ADR 0033 I8 acceptance runs ONE circuit on both memory models (in-memory and external) and requires equal answers per tick.
+- ADR 0033: a circuit's state lives in a `Workspace`; a tick is a commit; the circuit's z⁻¹ is the parent snapshot; input deltas of `Versioned` sources are read by `delta_since`. Checkpoint, fork and replay are vocabulary operations under every model; under the external model a checkpoint is durable. ADR 0033 I8 runs one circuit under both models and requires equal answers per tick.
+- ADR 0034: a synchrony radius lies inside one coherence domain; a cross-radius edge carries values that are not pointers (`Reloc`, ADR 0034 D2), typically snapshots and deltas of D2's structures. Placement (ADR 0034 D7) reads the memory-model description (D1).
 
-### D8. What happens to the two stacks
+### D9. What happens to the two stacks
 
-- `logos.mem.bt` becomes the Memoria implementation of the logical level: `Snapshot` / `Ctr` split into the logical traits (D2) and the implementation traits (D5); `MemoryStore` implements `VersionStore` (single-parent today; `parents()` returns one).
-- `logos.lcm.deem.data`: its multi-parent merge and labels are the reference for D6; they are ported into the logical level and the Memoria implementation (ADR 0032 O3: port the missing property first), then the package is deleted with its consumers moved (ADR 0032 C7). It does not survive as a third implementation: its tree duplicates `mem.bt` without persistence or pack.
+- `logos.mem.bt` becomes the framework: `Snapshot` / `Ctr` split into the vocabulary (D3) and the placement trait (D6); `MemoryStore` is the in-memory model and implements `VersionStore` (single-parent today; `parents()` returns one).
+- `logos.lcm.deem.data`: its multi-parent merge and labels are ported into the vocabulary and the framework (ADR 0032 O3), then the package is deleted with its consumers moved (ADR 0032 C7). It does not survive as a model: its tree duplicates `mem.bt` without persistence or pack.
 
-### D9. Naming and placement
+### D10. Placement in tiers
 
-The logical traits live in Core's `mem` tier (a persistent structure is a data structure, not IO); the framework lives where its dependencies allow: the in-memory model in `mem`, the external model's backing-store seam in `lcm` / `std` where it does IO. Names are settled in review (O1).
+The vocabulary and the in-memory model are in the `mem` tier (a persistent structure is a data structure, not IO). The backing-level seam of the external model, and any model whose edges do IO, live in `lcm` / `std` and carry the effects and capabilities of ADR 0035 / 0036.
 
 ## Rows
 
 | Row | Content | Acceptance |
 |---|---|---|
-| P0 | census: every use of `Snapshot` / `Ctr` / `Store` / `store_*` / `create_ctr` / `MemorySnapshot` downcast / `logos.lcm.deem.data`, mapped to its trait under D2 / D5 | ledger file, pinned by a gate |
-| P1 | logical traits (D2) and laws (D3) in the `mem` tier | trait fixtures; the law suite (P5) compiles against a trivial reference implementation |
-| P2 | Memoria as an implementation: `logos.mem.bt` split into logical and implementation traits; `NodeStore` replaces the `dyn_data` downcast in Canon (D5) | every `memoria_*` / `ctr_*` / `deem_*` store fixture green unchanged in answers; the downcast census → 0 |
-| P3 | merge and labels ported from `deem.data` (D6, D8); `deem.data` deleted, its fixtures ported | `data_merge_heads`, `data_dag_topology` ported and green; package gone |
-| P4 | change capture `delta_since` in Memoria (shared-subtree skipping diff) | laws 3-5 on randomized histories; diff cost measured against state size |
-| P5 | the law suite: one set of property tests run against every memory model | a planted law violation in a test model turns it red |
-| P6 | the external memory model: the backing-store seam and transactional RAM ↔ store replication; a block-device / page-file backend first | law suite green on it; a committed snapshot survives a process restart; fixtures run unchanged on both models |
-| P7 | ADR 0033 binds to the logical level (D7): circuit state in a `Workspace`, I8 on both memory models | one circuit, two memory models, equal per-tick answers |
+| M0 | memory-model description (D1): a declaration form for levels and edges; the x86-host and LCM descriptions written; the two D5 models described in it | the descriptions parse and are readable as data (a fixture queries a level's coherence domain) |
+| M1 | census: every use of `Snapshot` / `Ctr` / `Store` / `store_*` / `create_ctr` / the `MemorySnapshot` downcast / `logos.lcm.deem.data`, mapped to D3 / D6 | ledger file, pinned by a gate |
+| M2 | vocabulary (D3) and laws (D4) in the `mem` tier | trait fixtures; the law suite compiles against a reference model |
+| M3 | the in-memory model as an instance: `logos.mem.bt` split into vocabulary and placement; `NodeStore` replaces the downcast in Canon (D6) | every `memoria_*` / `ctr_*` / `deem_*` store fixture green with unchanged answers; downcast census → 0 |
+| M4 | merge and labels ported from `deem.data` (D7, D9); `deem.data` deleted, its fixtures ported | `data_merge_heads`, `data_dag_topology` ported and green; package gone |
+| M5 | `delta_since` (shared-subtree skipping diff) | laws 3-5 on randomized histories; diff cost measured against state size |
+| M6 | the law suite run under every model | a planted law violation in a test model turns it red |
+| M7 | the external memory model: backing-level seam, fill / eviction / transactional publication; a block-device / page-file backend first | law suite green; a committed snapshot survives a process restart; store fixtures run unchanged under both models |
+| M8 | ADR 0033 binds to this layer (D8): circuit state in a `Workspace`, I8 under both models | one circuit, two models, equal per-tick answers |
 
-Ordering against the set: P0-P2 before ADR 0033 I2 (so the translator's state model is written against D2); P3 with ADR 0032 C7; P4, P5 and P7 before ADR 0033 I8 (P7 needs P6 for its second model). ADR 0033 I2-I7 do not wait: they run on caller-provided deltas.
+Ordering against the set: M1-M3 before ADR 0033 I2 (so the translator's state model is written against D3); M4 with ADR 0032 C7; M5, M6, M8 before ADR 0033 I8 (M8 needs M7 for the second model). M0 runs alongside and feeds ADR 0034 D7 and ADR 0035 / 0036. ADR 0033 I2-I7 do not wait: they run on caller-provided deltas.
 
 ## Open
 
-- O1. Names: `Workspace` vs `WriteSnapshot` vs Memoria's own vocabulary; `Versioned` vs `DeltaSource` (ADR 0033 uses the latter).
-- O2. Version ordering across branches: `delta_since` is defined within a lineage (`v ≤ w`); whether it is also defined between siblings (as a three-way diff through the common ancestor) or refused.
-- O3. Granularity of change capture: per structure (as above) or per snapshot (all structures at once, the natural unit of a Deem tick over several sources).
-- O4. Concurrency: SWMR (ADR 0018 M5) as an implementation property or a law of the logical level.
-- O5. Durability as a law or a declared property of the memory model: the in-memory model has none beyond save / load; a program that needs durability binds to the external model.
-- O6. Whether `Ctr` survives as a logical notion (a named structure in a snapshot directory) or is replaced by `Persistent<S>` opened by id.
+- O1. Surface of a memory-model description: a manifest section, a `memory_model` item, or Writ documents read by the toolchain. Recommendation: Writ documents (data, not syntax), with the tiers and LCM as the first instances.
+- O2. Names: `Workspace` vs `WriteSnapshot`; `Versioned` vs `DeltaSource` (ADR 0033 uses the latter).
+- O3. `delta_since` across branches: within a lineage only (`v ≤ w`), or also between siblings through the common ancestor.
+- O4. Granularity of change capture: per structure (as above) or per snapshot (all structures of a cut, the natural unit of a Deem tick over several sources).
+- O5. Concurrency inside a level (SWMR, ADR 0018 M5): a property of the model or a law.
+- O6. Whether `Ctr` survives as a notion (a named structure in a cut's directory) or is replaced by `Persistent<S>` opened by id.
