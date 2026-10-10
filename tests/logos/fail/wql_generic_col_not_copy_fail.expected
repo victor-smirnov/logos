@@ -1,0 +1,1 @@
+wql!: `select`: `e.w` projects a value of type `W<i64>`, which is copied out of its row and so must be `Copy`

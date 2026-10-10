@@ -1,0 +1,22 @@
+// A source column of a GENERIC type (`W<i64>`) is carried in its own type: the
+// EL has no generic class, so it is a named type, and projecting it copies it
+// out of its row — it must be `Copy`. Until #322 the spelling was classed as
+// the integer representative, printed as `i64` and converted silently.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.hash;
+use logos.lang.cmp;
+
+struct W<T> { pub v: T }
+impl<T: Hash> Hash for W<T> { fn hash<H: Hasher>(&self, state: &mut H) { self.v.hash(state); } }
+impl<T: Eq> Eq for W<T> { fn eq(self: &Self, other: &Self) -> bool { return self.v == other.v; } }
+
+pub trait WSource { rel entry(id: i64, w: W<i64>); }
+struct Ws { pub n: i64 }
+pub fn ws_rows(s: &Ws) -> Vec<(i64, W<i64>)> { return vec_new::<(i64, W<i64>)>(); }
+impl WSource for Ws { rel entry = ws_rows; }
+
+pub deem all(s: &Ws) { from s e select (e.id, e.w) }
+
+fn main() -> i32 { return 0i32; }

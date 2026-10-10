@@ -418,6 +418,17 @@ pub fn EL_TY_FLT()  -> i32 { return 3i32; }
 /// such names keep the lenient INT below, which is what they always had.
 pub fn EL_TY_NAMED() -> i32 { return 4i32; }
 
+/// `Head<…>` — an identifier followed by a type-argument list.
+pub fn el_is_generic_spelling(ty: str) -> bool {
+    let n: i64 = ty.len();
+    if n < 3i64 || str_byte_at(ty, n - 1i64) != 62u8 { return false; }   // '>'
+    let c0: u8 = str_byte_at(ty, 0i64);
+    if !((c0 >= 65u8 && c0 <= 90u8) || (c0 >= 97u8 && c0 <= 122u8) || c0 == 95u8) { return false; }
+    let mut i: i64 = 0i64;
+    while i < n { if str_byte_at(ty, i) == 60u8 { return true; } i = i + 1i64; }   // '<'
+    return false;
+}
+
 // Map a Logos type NAME (as written in the surface) to an EL value-type tag.
 // `str`/`String` → STR, `bool` → BOOL, `f64`/`f32` → FLT, everything else →
 // INT. This holds no module view, so it cannot know a NAMED type; a caller with
@@ -1852,11 +1863,15 @@ impl ElTypes {
     }
 
     /// The class of a type NAME: the lattice's, `EL_TY_NAMED` for a declared
-    /// plain struct/enum, the lenient INT otherwise.
+    /// plain struct/enum or a generic instantiation, the lenient INT otherwise.
     pub fn class_of_name(self: &ElTypes, ty: str) -> i32 {
         let c: i32 = el_class_lookup(ty);
         if c >= 0i32 { return c; }
         if self.is_named(ty) { return EL_TY_NAMED(); }
+        // `Head<…>` (`Option<i64>`, `W<u8>`): the lattice has no generic class,
+        // so it is a named type carried in its own spelling — read as INT it
+        // was printed as `i64` and its values converted (#322).
+        if el_is_generic_spelling(ty) { return EL_TY_NAMED(); }
         return EL_TY_INT();
     }
 
