@@ -3371,6 +3371,37 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         }
         pending_doc_.clear();
     }
+    // A trait const the impl omits: the default is the impl's item as well, so
+    // `X::K` at this impl's Self reads it (ADR 0030 S8 row 6), exactly as a
+    // written const's accessor above.
+    if (!trait_name.empty() && impl_tps.empty() && !target_struct_tmpl) {
+        if (auto* ctit = find_trait_iter_scoped(trait_name)) {
+            for (auto& ac : ctit->assoc_consts) {
+                if (!ac.has_default || ac.default_value_ast.is_null()) continue;
+                const std::string sym = lower_target + "__kassoc_" + ac.name;
+                if (std::find(impl_method_syms.begin(), impl_method_syms.end(), sym) != impl_method_syms.end())
+                    continue;
+                auto val = lower_expr(map_of(ac.default_value_ast));
+                if (ac.type) builder().retype_expr(val, ac.type);
+                namespace dk = lir_schema::decl_keys;
+                DeclBuilder acc(prog, lir_schema::decl::Code::Func, /*cap=*/40);
+                acc.str_always(dk::NAME, sym);
+                acc.str(dk::METHOD_BASE, "kassoc_" + ac.name);
+                acc.str(dk::PKG, cur_package_);
+                acc.type(dk::RET_TYPE, ac.type ? ac.type : (val ? expr_type(val) : void_t()));
+                acc.flag(dk::IS_PUB, true);
+                acc.str(dk::SOURCE_FILE, file_);
+                acc.str(dk::UNIT_KEY, cur_unit_key_);
+                {
+                    std::vector<lir_view::StmtRef> acc_body;
+                    acc_body.push_back(builder().stmt_return(val, 0));
+                    acc.block(dk::BODY, lir_mirror_block(*cur_prog_, acc_body));
+                }
+                prog.functions.push_back(acc.view<lir_view::FunctionView>());
+                impl_method_syms.emplace_back(sym);
+            }
+        }
+    }
     // Lower default methods from the trait that weren't overridden.
     if (!trait_name.empty()) {
         // #100: SCOPED, not bare. `traits_.find(trait_name)` answers for whichever
