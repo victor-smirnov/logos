@@ -1,0 +1,33 @@
+// has_trait_named over a generic SPELLING (deem #322c): `Option<i64>` is Copy
+// (impl<T: Copy> Copy for Option<T>, i64 Copy), `Option<String>` is not but is
+// Clone, a tuple holds when its elements do, nested instances recurse.
+package has_trait_named_generic_spelling;
+use logos.lang.clone;
+use logos.std.compiler.metaprog;
+use logos.lang.writ.anyval;
+use logos.mem.string;
+use logos.lang.str;
+extern fn printf(fmt: *const u8, ...) -> i32;
+
+#[metaprog_handler("htg")]
+fn htg_hook(target_offset: u32) -> () {
+    let view: OView = oview_module_ast();
+    if view.holder == (0 as *mut u8) { return; }
+    let mut em: Emitter = Emitter::new();
+    em.emit_target_pkg(&view);
+    em.buf.push_str("pub fn probe() -> i32 { return 1");
+    em.buf.push_str(if has_trait_named("logos.lang.clone::Copy", "Option<i64>") { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.clone::Copy", "Option<String>") { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.clone::Clone", "Option<String>") { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.clone::Copy", "(i64, bool)") { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.clone::Copy", "Result<i64, Option<u8>>") { "1" } else { "0" });
+    em.buf.push_str(if has_trait_named("logos.lang.clone::Copy", "(i64, String)") { "1" } else { "0" });
+    em.buf.push_str("i32; }");
+    em.commit();
+    return;
+}
+
+#[htg]
+pub struct Anchor { pub a: i64 }
+
+fn main() -> i32 { unsafe { printf("%d\n".as_ptr(), probe()); } return 0; }
