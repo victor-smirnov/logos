@@ -1,0 +1,74 @@
+// A column that may be absent is typed `Option<T>` (#322, ADR 0027 D9 amended):
+// no `nullable` keyword — the type says it, as in Rust. `Option<i64>` is Hash,
+// Eq and Copy because i64 is, so it projects, groups (`None` is a group of its
+// own) and joins (`None == None`, as Rust's `Eq` for `Option` says — not SQL's
+// NULL, which equals nothing). The answers are derived by hand.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+
+pub trait NoteSource { rel entry(id: i64, note: Option<i64>); }
+
+struct Notes { pub rows: Vec<(i64, Option<i64>)> }
+pub fn notes_rows(n: &Notes) -> Vec<(i64, Option<i64>)> {
+    let mut out: Vec<(i64, Option<i64>)> = vec_new::<(i64, Option<i64>)>();
+    let mut i: i64 = 0i64;
+    while i < n.rows.len() { out.push(n.rows.get(i)); i = i + 1i64; }
+    return out;
+}
+impl NoteSource for Notes { rel entry = notes_rows; }
+
+struct Tags { pub rows: Vec<(i64, Option<i64>)> }
+pub fn tags_rows(t: &Tags) -> Vec<(i64, Option<i64>)> {
+    let mut out: Vec<(i64, Option<i64>)> = vec_new::<(i64, Option<i64>)>();
+    let mut i: i64 = 0i64;
+    while i < t.rows.len() { out.push(t.rows.get(i)); i = i + 1i64; }
+    return out;
+}
+impl NoteSource for Tags { rel entry = tags_rows; }
+
+pub deem all(n: &Notes) { from n e select (e.id, e.note) order by e.id }
+pub deem per_note(n: &Notes) { from n e group by e.note aggregate c = count() select (key, c) }
+pub deem same_note(n: &Notes, t: &Tags) {
+    from n a join t b on b.note == a.note select (a.id, b.id) order by a.id * 10 + b.id
+}
+
+fn some_is(o: Option<i64>, v: i64) -> bool { match o { Option::Some(x) => { return x == v; } Option::None => { return false; } } }
+fn is_none(o: Option<i64>) -> bool { match o { Option::Some(_x) => { return false; } Option::None => { return true; } } }
+
+fn main() -> i32 {
+    let mut nr: Vec<(i64, Option<i64>)> = vec_new::<(i64, Option<i64>)>();
+    nr.push((1i64, Option::Some(7i64))); nr.push((2i64, Option::None));
+    nr.push((3i64, Option::Some(7i64))); nr.push((4i64, Option::None)); nr.push((5i64, Option::Some(8i64)));
+    let n: Notes = Notes { rows: nr };
+    let mut tr: Vec<(i64, Option<i64>)> = vec_new::<(i64, Option<i64>)>();
+    tr.push((1i64, Option::None)); tr.push((2i64, Option::Some(8i64))); tr.push((3i64, Option::Some(9i64)));
+    let t: Tags = Tags { rows: tr };
+
+    let a: Vec<(i64, Option<i64>)> = all(&n).unwrap();
+    if a.len() != 5i64 || !some_is(a.get(0i64).1, 7i64) || !is_none(a.get(1i64).1) || !some_is(a.get(4i64).1, 8i64) { return 1i32; }
+
+    // groups: Some(7) x2, None x2, Some(8) x1 — in any order
+    let p: Vec<(Option<i64>, i64)> = per_note(&n).unwrap();
+    if p.len() != 3i64 { return 2i32; }
+    let mut i: i64 = 0i64;
+    let mut seen: i64 = 0i64;
+    while i < p.len() {
+        let g: (Option<i64>, i64) = p.get(i);
+        if some_is(g.0, 7i64) && g.1 == 2i64 { seen = seen + 1i64; }
+        if is_none(g.0) && g.1 == 2i64 { seen = seen + 10i64; }
+        if some_is(g.0, 8i64) && g.1 == 1i64 { seen = seen + 100i64; }
+        i = i + 1i64;
+    }
+    if seen != 111i64 { return 3i32; }
+
+    // None joins None: (2,1), (4,1); Some(8): (5,2); Some(7) and Some(9) have no partner
+    let j: Vec<(i64, i64)> = same_note(&n, &t).unwrap();
+    if j.len() != 3i64 { return 4i32; }
+    if j.get(0i64).0 != 2i64 || j.get(0i64).1 != 1i64 { return 5i32; }
+    if j.get(1i64).0 != 4i64 || j.get(1i64).1 != 1i64 { return 6i32; }
+    if j.get(2i64).0 != 5i64 || j.get(2i64).1 != 2i64 { return 7i32; }
+    return 0i32;
+}
