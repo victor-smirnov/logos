@@ -1,0 +1,7 @@
+// An inferred `impl Fn` return whose closure body holds an unsuffixed literal (`move || 7`): the solved literal reaches the callers (its `?l0` reached main's codegen: ICE), with a type parameter in the bound too.
+package p;
+use logos.std.fmt;
+fn f<A>(a: A) -> impl Fn(A) -> i32 { move |_x| 7 }
+fn g() -> impl Fn() -> i32 { move || 7 }
+fn h(k: i64) -> impl Fn(i64) -> i64 { move |x| x * k + 1 }
+fn main() { println!("{} {} {}", f(4i64)(5), g()(), h(3)(4)); }

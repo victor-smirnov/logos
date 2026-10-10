@@ -1555,6 +1555,11 @@ DeclBuilder SemaChecker::lower_fn(TinyMapView node, std::string_view struct_ctx,
     // Local type inference: E0282 for a variable nothing fixed; the solutions
     // go to mono under this function's LIR name.
     infer_close_fn_(std::string(fn_name));
+    // An inferred `impl Trait` return (`-> impl Fn() -> i32 { move || 7 }`) was
+    // recorded before this fn's literals were solved: its callers read it, so
+    // the solution goes in (the `7`'s `?l0` reached a caller's codegen).
+    if (fi_ptr->ret_type && (has_lit_var_(fi_ptr->ret_type) || has_infer_var_(fi_ptr->ret_type)))
+        fi_ptr->ret_type = lit_zonk_(zonk_(fi_ptr->ret_type));
     if (auto it = cur_prog_->infer_substs.find(std::string(fn_name));
         it != cur_prog_->infer_substs.end() && !it->second.empty()) {
         namespace dk = lir_schema::decl_keys;
