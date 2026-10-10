@@ -2801,6 +2801,16 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     const bool rhs_lit = rhs && expr_type(rhs) && TypeRef(expr_type(rhs)).kind() == LogosType::Kind::IntLit;
     if (lhs && rhs && (is_lit_var_(expr_type(lhs)) || is_lit_var_(expr_type(rhs)))) {
         TypeRef la = lit_resolve_(expr_type(lhs)), ra = lit_resolve_(expr_type(rhs));
+        // `{integer} + &i64` (a fold's `acc + x` over `&i64` items) is Rust's
+        // `i64 + &i64`: the variable takes the referent's integer type.
+        auto peel_int_ref = [](TypeRef t) -> TypeRef {
+            if (t && (TypeRef(t).kind() == LogosType::Kind::Ref || TypeRef(t).kind() == LogosType::Kind::MutRef) &&
+                TypeRef(t).pointee() && is_integer_kind(TypeRef(TypeRef(t).pointee()).kind()))
+                return TypeRef(t).pointee();   // never through a raw pointer (`p == 0` is the null compare)
+            return t;
+        };
+        if (is_lit_var_(la) && !is_lit_var_(ra)) ra = peel_int_ref(ra);
+        else if (is_lit_var_(ra) && !is_lit_var_(la)) la = peel_int_ref(la);
         if (is_lit_var_(la) && TypeRef(ra).kind() == LogosType::Kind::IntLit && !is_lit_var_(ra))
             builder().retype_expr(rhs, la);
         else if (is_lit_var_(ra) && TypeRef(la).kind() == LogosType::Kind::IntLit && !is_lit_var_(la))
@@ -11355,7 +11365,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     expected_ && (ak == LogosType::Kind::IntLit ? is_integer_kind(TypeRef(expected_).kind())
                                                                  : (TypeRef(expected_).kind() == LogosType::Kind::F32 || TypeRef(expected_).kind() == LogosType::Kind::F64)))
                     want = expected_;
-                if (!want) want = ak == LogosType::Kind::IntLit ? lit_peek_default_(at) : prim(LogosType::Kind::F64);
+                // An integer variable stays one (rustc: `{integer}`): the closure that
+                // takes it (`fold(0, |acc, x| acc + x)` over `&i64`) solves it.
+                if (!want) want = ak == LogosType::Kind::IntLit ? (is_lit_var_(at) ? at : lit_peek_default_(at))
+                                                                : prim(LogosType::Kind::F64);
                 at = want;
                 ak = TypeRef(at).kind();
             }
