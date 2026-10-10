@@ -401,6 +401,35 @@ pub schema enum RQuery : category(0x0012_0000_0000_0000) {
 pub schema RQRelCol : code(0x0012_0000_0000_0014) {
     name:    str = 0,
     ty_name: str = 1,
+    ty:      WRef<RQTy> = 2,   // when the type is not one identifier (#744)
+}
+
+// A column type beyond one identifier (#744): `Head<A, …>` or a tuple.
+pub schema RQTy : code(0x0012_0000_0000_0020) {
+    name:  str = 0,
+    args:  WRef<RQTyArr> = 1,
+    tuple: bool = 2,
+}
+
+impl RQTy {
+    pub fn as_ref(self: RQTy) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
+    pub fn args_arr(self: RQTy) -> RQTyArr { return self.args.any().view::<RQTyArr>(); }
+}
+
+pub schema RQTyArr : code(0x0012_0000_0000_0021) {
+    count: i32 = 0,
+    items: WAny = 1,
+}
+
+impl RQTyArr {
+    pub fn len(self: &RQTyArr) -> i64 { return self.count as i64; }
+    pub fn item_at(self: RQTyArr, i: i64) -> RQTy { return list_get(self.items, i).view::<RQTy>(); }
+    pub fn set_item(self: &mut RQTyArr, i: i64, h: WAny) {
+        let z: *mut u8 = unsafe { (*(self as *const RQTyArr as *const WSchemaH)).z };
+        self.items = list_set(self.items, z, i, h);
+    }
+    pub fn set_len(self: &mut RQTyArr, n: i64) { self.count = n as i32; }
+    pub fn as_ref(self: RQTyArr) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 impl RQRelCol {

@@ -200,7 +200,11 @@
     // fixed at construction, so the parser must size for writes it never makes.
     RQProgram     : code(0x0012_0000_0000_0019) cap(6) { rels: "ref RQRelArr" = 0, entry: "ref RQuery" = 1 }
     RQRel         : code(0x0012_0000_0000_0016) cap(3) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2 }
-    RQRelCol      : code(0x0012_0000_0000_0014) cap(2) { name: "str" = 0, ty_name: "str" = 1 }
+    RQRelCol      : code(0x0012_0000_0000_0014) cap(3) { name: "str" = 0, ty_name: "str" = 1, ty: "ref RQTy" = 2 }
+    // A column TYPE beyond one identifier (#744): `Head<A, B>` (name + args) or a
+    // tuple `(A, B)` (no name, args); the handler renders it into `ty_name`.
+    RQTy          : code(0x0012_0000_0000_0020) cap(3) { name: "str" = 0, args: "ref RQTyArr" = 1, tuple: "bool" = 2 }
+    RQTyArr       : code(0x0012_0000_0000_0021) cap(2) { count: "i32" = 0, items: "list set_item" = 1 }
     RQRelColArr   : code(0x0012_0000_0000_0015) cap(2) { count: "i32" = 0, cols: "list set_col" = 1 }
     RQRelArr      : code(0x0012_0000_0000_0017) cap(2) { count: "i32" = 0, rels: "list set_rel" = 1 }
     RQBodyArr     : code(0x0012_0000_0000_0018) cap(2) { count: "i32" = 0, bodies: "list set_body" = 1 }
@@ -243,6 +247,8 @@
     STAR     = "*"
     LBRACK   = "["
     RBRACK   = "]"
+    LT       = "<"
+    GT       = ">"
 
     INTEGER = /[0-9]+/
     IDENT = /[a-zA-Z_][a-zA-Z0-9_]*/
@@ -278,11 +284,24 @@
     // The rel list (≥ 1) → RQRelArr fan-out (the join_steps pattern).
     rel_list <- rel_block rel_block* => { CODE: "RQRelArr", rels: $... }
 
-    // One declared column: `name: ty` (ty ∈ i64/str/bool — walker-checked;
-    // f64 is rejected there: set semantics require Eq).
-    //   $1=IDENT(name) $2=COLON $3=IDENT(ty)
-    rel_col  <- IDENT COLON IDENT
+    // One declared column: `name: ty` — any `Eq + Hash` type (walker-checked).
+    // A plain identifier is the type's name; a generic instantiation
+    // `Option<i64>` or a tuple `(i64, str)` is a type node the handler renders
+    // into the same spelling (#744).
+    //   $1=IDENT(name) $2=COLON $3=IDENT(ty)   |   $3=rel_ty
+    rel_col  <- IDENT COLON IDENT !LT
                 => { CODE: "RQRelCol", name: $1, ty_name: $3 }
+              / IDENT COLON rel_ty
+                => { CODE: "RQRelCol", name: $1, ty: $3 }
+
+    // A column type: `Head<A, …>`, `(A, B, …)` or a plain name.
+    rel_ty   <- IDENT LT rel_tys GT
+                => { CODE: "RQTy", name: $1, args: $3 }
+              / LPAREN rel_tys RPAREN
+                => { CODE: "RQTy", args: $2, tuple: $1 }
+              / IDENT
+                => { CODE: "RQTy", name: $1 }
+    rel_tys  <- rel_ty ( COMMA rel_ty )* => { CODE: "RQTyArr", items: $... }
 
     // The column list (≥ 1) → RQRelColArr fan-out.
     rel_cols <- rel_col ( COMMA rel_col )* => { CODE: "RQRelColArr", cols: $... }

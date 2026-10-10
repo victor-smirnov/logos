@@ -205,6 +205,86 @@ pub fn resolve_alias_name<'a>(view: &'a OView, name: &'a str) -> &'a str {
     return cur;
 }
 
+/// `name` is a `type` alias declared in this module. A generic alias
+/// (`type El<T> = T`) applied to arguments is NOT a generic instantiation the
+/// EL may carry by its spelling: what it stands for needs its parameters
+/// substituted, which this layer does not do — it stays the default-deny name.
+fn is_module_type_alias(view: &OView, name: str) -> bool {
+    let d: WAny = find_decl_by_name(view, name);
+    if d.is_null() { return false; }
+    return (view.ast_node_code(d) & (0xFFFF as u64)) == LA_TYPE_ALIAS();
+}
+
+/// A struct field's full declared type as the compiler holds it, asked by the
+/// module-qualified struct name first (a bare name answers only when exactly
+/// one package declares it — `Item` is not such a name), then bare. The bytes
+/// are host-owned for the compilation.
+fn host_field_type(view: &OView, struct_name: str, field: str) -> &'static str {
+    let mut q: String = String::new();
+    view.module_package_append(&mut q);
+    if q.len() > 0i64 {
+        q.push_str("::"); q.push_str(struct_name);
+        let a: str = logos.std.compiler.metaprog::field_type_name(string_as_str(&q), field);
+        if a.len() > 0i64 { return unsafe { str_from_raw(a.as_ptr(), a.len()) }; }
+    }
+    let b: str = logos.std.compiler.metaprog::field_type_name(struct_name, field);
+    return unsafe { str_from_raw(b.as_ptr(), b.len()) };
+}
+
+/// A field's declared type in its full spelling: a generic instantiation
+/// with its arguments (`Option<i64>`, #744) as the compiler holds it — the
+/// bytes are host-owned for the compilation, so the bindings may keep the view
+/// — any other name through `resolve_alias_name`.
+pub fn field_type_spelling<'a>(view: &'a OView, struct_name: str, fld: WAny) -> &'a str {
+    let nm: str = sview_str(view.ast_field_type_name(fld));
+    let tn: WAny = view.ast_type_child(fld);
+    if !tn.is_null() && (view.ast_node_code(tn) & (0xFFFF as u64)) == LA_GENERIC_INST() && !str_eq(nm, "Vec")
+       && !is_module_type_alias(view, nm) {
+        let fnm: str = sview_str(view.ast_field_name(fld));
+        let full: str = host_field_type(view, struct_name, fnm);
+        if full.len() > 0i64 { return unsafe { str_from_raw(full.as_ptr(), full.len()) }; }
+    }
+    return resolve_alias_name(view, nm);
+}
+
+/// The FULL spelling an alias of a generic instantiation stands for
+/// (`type ONote = Option<i64>;` → `Option<i64>`), written to `out` (#744).
+/// False when `name` is not such an alias — `resolve_alias_name` already
+/// answers for an alias of a plain name, and it drops type arguments.
+pub fn resolve_alias_spelling(view: &OView, name: str, out: &mut String) -> bool {
+    if view.holder == (0 as *mut u8) || name.len() == 0i64 { return false; }
+    if el_class_lookup(name) >= 0i32 { return false; }
+    let decl: WAny = find_decl_by_name(view, name);
+    if decl.is_null() { return false; }
+    if (view.ast_node_code(decl) & (0xFFFF as u64)) != LA_TYPE_ALIAS() { return false; }
+    if view.ast_type_param_count(decl) != (0 as u64) { return false; }
+    let tgt: WAny = view.ast_type_child(decl);
+    if tgt.is_null() { return false; }
+    let items: WAny = view.tiny_map_get(tgt, 2 as u8);       // GENERIC_INST ITEMS
+    if items.is_null() || view.array_len(items) == (0 as u64) { return false; }
+    return render_type_node(view, tgt, out);
+}
+
+// A type node's spelling: NAME, then `<…>` over GENERIC_INST's ITEMS.
+fn render_type_node(view: &OView, t: WAny, out: &mut String) -> bool {
+    let nm: str = sview_str(view.ast_node_name(t));
+    if nm.len() == 0i64 { return false; }
+    out.push_str(resolve_alias_name(view, nm));
+    let items: WAny = view.tiny_map_get(t, 2 as u8);
+    if items.is_null() { return true; }
+    let n: u64 = view.array_len(items);
+    if n == (0 as u64) { return true; }
+    out.push_str("<");
+    let mut i: u64 = 0 as u64;
+    while i < n {
+        if i > (0 as u64) { out.push_str(", "); }
+        if !render_type_node(view, view.array_get(items, i), out) { return false; }
+        i = i + (1 as u64);
+    }
+    out.push_str(">");
+    return true;
+}
+
 // Look up the declared Logos TYPE NAME of field `field_name` within the struct
 // node `decl` (an AST item handle from `find_decl_by_name`). Returns an empty
 // `str` if the field is absent. This is the per-field reflection primitive.
@@ -216,7 +296,15 @@ pub fn field_type_name<'a>(view: &'a OView, decl: WAny, field_name: str) -> &'a 
         let fld: WAny = view.ast_struct_field(decl, i);
         let fnm: SView = view.ast_field_name(fld);
         if sview_eq_str(fnm, field_name) {
-            return sview_str(view.ast_field_type_name(fld));
+            // a generic instantiation in its full spelling (#744)
+            let tn: WAny = view.ast_type_child(fld);
+            let nm: str = sview_str(view.ast_field_type_name(fld));
+            if !tn.is_null() && (view.ast_node_code(tn) & (0xFFFF as u64)) == LA_GENERIC_INST() && !str_eq(nm, "Vec")
+               && !is_module_type_alias(view, nm) {
+                let full: str = host_field_type(view, sview_str(view.ast_node_name(decl)), field_name);
+                if full.len() > 0i64 { return unsafe { str_from_raw(full.as_ptr(), full.len()) }; }
+            }
+            return nm;
         }
         i = i + (1 as u64);
     }
@@ -498,7 +586,9 @@ pub fn column_decl_admit(view: &OView, fld: WAny) -> i32 {
         // may be an imported nested-path base); a generic instantiation is not,
         // because `Option<T>` is exactly this shape and it is the measured
         // silent wrong answer.
-        if generic { return CD_OPAQUE_GEN(); }
+        // A generic instantiation (`Option<i64>`) is a NAMED EL type carried in
+        // its own spelling (#744, el::el_is_generic_spelling) and held to the
+        // named-type rules downstream (Copy / Eq / Hash / Ord).
         return CD_OK();
     }
     let dc: u64 = view.ast_node_code(decl) & (0xFFFF as u64);
@@ -508,7 +598,6 @@ pub fn column_decl_admit(view: &OView, fld: WAny) -> i32 {
         if enum_carries_payload(view, decl) { return CD_DATA_ENUM(); }
         return CD_OK();
     }
-    if generic { return CD_OPAQUE_GEN(); }
     return CD_OK();
 }
 
@@ -744,7 +833,7 @@ pub fn stamp_types_from_schema(view: &OView, t: &mut ElTypes, struct_name: str,
         // must not come back out of the emitter as `i64` (ADR 0024 S3), and a
         // `Score` field must not be a type nothing is known about when `Score` IS
         // i64 (see `resolve_alias_name`).
-        let tyname: str = resolve_alias_name(view, sview_str(view.ast_field_type_name(fld)));
+        let tyname: str = field_type_spelling(view, struct_name, fld);
         if fnm.len() > 0i64 && tyname.len() > 0i64 {
             // KEYED ON THE BINDING. `row_var` is the row variable this schema
             // was bound to at the scan (`from as a` → "a"); the pair (a, n) is
@@ -809,7 +898,7 @@ fn stamp_schema_by_type(view: &OView, t: &mut ElTypes, sname: str) {
     while i < nf {
         let fld: WAny = view.ast_struct_field(decl, i);
         let fnm: str = sview_str(view.ast_field_name(fld));
-        let tyname: str = resolve_alias_name(view, sview_str(view.ast_field_type_name(fld)));
+        let tyname: str = field_type_spelling(view, ty_of, fld);
         if fnm.len() > 0i64 && tyname.len() > 0i64 { t.type_bind_named(ty_of, fnm, tyname); }
         i = i + (1 as u64);
     }

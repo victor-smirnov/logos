@@ -1872,6 +1872,8 @@ impl ElTypes {
         // so it is a named type carried in its own spelling — read as INT it
         // was printed as `i64` and its values converted (#322).
         if el_is_generic_spelling(ty) { return EL_TY_NAMED(); }
+        // `(A, B)` likewise: a tuple is no lattice class either.
+        if ty.len() > 2i64 && str_byte_at(ty, 0i64) == 40u8 { return EL_TY_NAMED(); }
         return EL_TY_INT();
     }
 

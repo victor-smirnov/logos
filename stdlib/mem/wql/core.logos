@@ -14,6 +14,7 @@
 package logos.std.wql.core;
 
 use logos.lang.writ.anyval;
+use logos.lang.writ.container;   // Writ — the handler's arena (#744: rendered column types)
 use logos.lang.writ.wstring;   // WAny::as_wstr (core_text's string literal)
 use logos.lang.str;
 use logos.lang.option;
@@ -355,7 +356,22 @@ pub fn envelope_new() -> CEnvelope {
 }
 
 /// The whole program: every rel's bodies, then the entry.
-pub fn lower_program(root: WAny) -> CProgram {
+/// A column type node's spelling: `Head<A, B>`, `(A, B)` or `Name`.
+fn render_rel_ty(t: RQTy, out: &mut String) {
+    if !t.tuple { out.push_str(t.name); }
+    if t.args.any().is_null() { return; }
+    let a: RQTyArr = t.args_arr();
+    out.push_str(if t.tuple { "(" } else { "<" });
+    let mut i: i64 = 0i64;
+    while i < a.len() {
+        if i > 0i64 { out.push_str(", "); }
+        render_rel_ty(a.item_at(i), out);
+        i = i + 1i64;
+    }
+    out.push_str(if t.tuple { ")" } else { ">" });
+}
+
+pub fn lower_program(root: WAny, h: &Writ) -> CProgram {
     let lx: CLower = CLower { names: prog_rel_names(root) };
     let names: &Vec<str> = &lx.names;
     let prog: RQProgram = root.view::<RQProgram>();
@@ -369,7 +385,17 @@ pub fn lower_program(root: WAny) -> CProgram {
             let mut c: i64 = 0i64;
             while c < ca.len() {
                 let col: RQRelCol = ca.col_at(c);
-                cols.push(CCol { name: col.name, ty: col.ty_name });
+                let mut cty: str = col.ty_name;
+                if !col.ty.any().is_null() {
+                    // A type node (#744): rendered once, interned in the
+                    // handler's arena, which outlives the core.
+                    let mut tx: String = String::new();
+                    render_rel_ty(col.ty.any().view::<RQTy>(), &mut tx);
+                    let ws: &WString = h.wstring(string_as_str(&tx));
+                    let wv: str = ws.as_str();
+                    cty = unsafe { str_from_raw(wv.as_ptr(), wv.len()) };
+                }
+                cols.push(CCol { name: col.name, ty: cty });
                 c = c + 1i64;
             }
         }
@@ -779,8 +805,8 @@ pub fn core_planned_done(p: &CProgram, name: str) {
 }
 
 /// Lower, verify, and dump when asked. The one entry point the handler calls.
-pub fn core_build(root: WAny, name: str) -> CProgram {
-    let p: CProgram = lower_program(root);
+pub fn core_build(root: WAny, name: str, h: &Writ) -> CProgram {
+    let p: CProgram = lower_program(root, h);
     core_finish(&p, name);
     return p;
 }

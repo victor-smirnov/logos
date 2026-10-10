@@ -72,6 +72,7 @@ package logos.std.wql.plan_walker;
 use logos.std.compiler.metaprog;  // error, OView, oview_module_ast
 use logos.lang.writ.container;    // Writ
 use logos.lang.writ.anyval;       // WAny
+use logos.lang.writ.wstring;      // WString — interned column spellings (#744)
 use logos.std.wql.ir;             // RExpr, WRef
 use logos.std.wql.plan;           // RQuery, RQProgram, RQRel*
 use logos.std.wql.params;         // MacroParams — the parsed deem!(…) param list + rel registry
@@ -1432,14 +1433,31 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
             dsrc_bufs[i].push_str("__dl_");
             dsrc_bufs[i].push_str(rname);
             dsrc_bufs[i].push_str("_sl");
+            // #744 — a column declared through an alias of a generic type is
+            // registered under the type it stands for, so every check and the
+            // row type read one spelling.
+            let view0: OView = oview_module_ast();
+            let mut ctys: Vec<str> = Vec::<str>::new();
+            let mut kn: i64 = 0i64;
+            while kn < nc {
+                let mut full: String = String::new();
+                if resolve_alias_spelling(&view0, cols[kn].ty, &mut full) {
+                    let ws: &WString = h.wstring(string_as_str(&full));
+                    let wv: str = ws.as_str();
+                    ctys.push(unsafe { str_from_raw(wv.as_ptr(), wv.len()) });
+                } else {
+                    ctys.push(cols[kn].ty);
+                }
+                kn = kn + 1i64;
+            }
             if nc == 1i64 {
-                row_bufs[i].push_str(cols[0i64].ty);
+                row_bufs[i].push_str(ctys.get(0i64));
             } else {
                 row_bufs[i].push_str("(");
                 let mut k3: i64 = 0i64;
                 while k3 < nc {
                     if k3 > 0i64 { row_bufs[i].push_str(", "); }
-                    row_bufs[i].push_str(cols[k3].ty);
+                    row_bufs[i].push_str(ctys.get(k3));
                     k3 = k3 + 1i64;
                 }
                 row_bufs[i].push_str(")");
@@ -1451,7 +1469,7 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
             let mut k4: i64 = 0i64;
             while k4 < nc {
                 let c4: &CCol = &cols[k4];
-                prm.rel_add_col(c4.name, c4.ty);
+                prm.rel_add_col(c4.name, ctys.get(k4));
                 k4 = k4 + 1i64;
             }
             i = i + 1i64;
