@@ -14,11 +14,12 @@ package tuple_eq_via_trait;
 use logos.lang.cmp;
 
 struct Point { x: i32, y: i32 }
-impl Eq for Point {
+impl PartialEq for Point {
     fn eq(&self, other: &Self) -> bool {
         return (*self).x == (*other).x && (*self).y == (*other).y;
     }
 }
+impl Eq for Point {}
 
 fn main() -> i32 {
     // Primitive-only — fast-path covers this too, but verify trait

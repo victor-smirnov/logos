@@ -188,8 +188,6 @@ box_dyn_fn_not_fn_refused 3 tests/soundness/open/box_dyn_fn_not_fn_refused refus
 
 box_dyn_return_mut_self_object_lifetime_refused 3 tests/soundness/open/box_dyn_return_mut_self_object_lifetime_refused refuses
 
-box_rc_display_debug_refused 3 tests/soundness/open/box_rc_display_debug_refused refuses
-
 char_hash_ord_impls_refused 3 tests/soundness/open/char_hash_ord_impls_refused refuses
 
 closure_return_region_of_param_refused 3 tests/soundness/open/closure_return_region_of_param_refused refuses
@@ -210,8 +208,6 @@ option_combinators_take_fn_pointers_refused 3 tests/soundness/open/option_combin
 
 owned_return_from_ref_param_keeps_loan_refused 3 tests/soundness/open/owned_return_from_ref_param_keeps_loan_refused refuses
 
-partialeq_eq_derive_both_refused 3 tests/soundness/open/partialeq_eq_derive_both_refused refuses
-
 partialord_marker_no_lt_refused 3 tests/soundness/open/partialord_marker_no_lt_refused refuses
 
 qualified_path_generic_self_type_refused 3 tests/soundness/open/qualified_path_generic_self_type_refused refuses
@@ -225,8 +221,6 @@ split_adapter_static_lifetime_refused 3 tests/soundness/open/split_adapter_stati
 string_str_method_autoderef_refused 3 tests/soundness/open/string_str_method_autoderef_refused refuses
 
 tuple_struct_closure_param_pattern_refused 3 tests/soundness/open/tuple_struct_closure_param_pattern_refused refuses
-
-vec_eq_requires_eq_refused 3 tests/soundness/open/vec_eq_requires_eq_refused refuses
 
 vec_iter_find_elided_region_refused 3 tests/soundness/open/vec_iter_find_elided_region_refused refuses
 
@@ -430,5 +424,5 @@ ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_a
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 125
-# SYNC-HASH 8550a69beca72d20cfee03e7d5c5aa12
+# TOTAL 122
+# SYNC-HASH c05ebe6926663f6e72a83eb28709e673

@@ -1,0 +1,11 @@
+// Closed squeue box_rc_display_debug_refused (#666): stdlib forwards Display/Debug through Box<T>, Rc<T>, Ref<T>, RefMut<T>; output matches rustc.
+package box_rc_display_debug_refused;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.rc;
+fn main() {
+    let b: Box<i64> = Box::new(5);
+    let s = Rc::new(String::from("hi"));
+    println!("{} {:?} {} {:?}", b, b, s, Rc::new(3i64));
+}

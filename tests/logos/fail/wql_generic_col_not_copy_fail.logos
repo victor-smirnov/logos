@@ -10,7 +10,8 @@ use logos.lang.cmp;
 
 struct W<T> { pub v: T }
 impl<T: Hash> Hash for W<T> { fn hash<H: Hasher>(&self, state: &mut H) { self.v.hash(state); } }
-impl<T: Eq> Eq for W<T> { fn eq(self: &Self, other: &Self) -> bool { return self.v == other.v; } }
+impl<T: PartialEq> PartialEq for W<T> { fn eq(self: &Self, other: &Self) -> bool { return self.v == other.v; } }
+impl<T: Eq> Eq for W<T> {}
 
 pub trait WSource { rel entry(id: i64, w: W<i64>); }
 struct Ws { pub n: i64 }

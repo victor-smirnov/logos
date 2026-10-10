@@ -3,11 +3,12 @@
 package bc_0915b_refeqland_hb_f07_admit;
 use logos.lang.cmp;
 struct D { v: i64 }
-impl Eq for D {
+impl PartialEq for D {
     fn eq(&self, other: &D) -> bool {
         return self.v == other.v;
     }
 }
+impl Eq for D {}
 trait Same: Eq {
     fn same(&self, o: &Self) -> bool {
         return self == o;

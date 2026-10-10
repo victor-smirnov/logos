@@ -3,11 +3,12 @@
 package bc_0915b_refeqland_hb_f56_admit;
 use logos.lang.cmp;
 struct W<T> { x: T }
-impl Eq for W<i64> {
+impl PartialEq for W<i64> {
     fn eq(&self, other: &W<i64>) -> bool {
         return self.x == other.x;
     }
 }
+impl Eq for W<i64> {}
 fn main() -> i32 {
     let a: W<i64> = W::<i64> { x: 5i64 };
     let b: W<i64> = W::<i64> { x: 5i64 };

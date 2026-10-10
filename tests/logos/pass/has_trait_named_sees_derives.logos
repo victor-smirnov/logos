@@ -1,8 +1,8 @@
 // #723: `has_trait_named` (#340) answers for an impl a `#[derive_*]` handler is synthesizing in the
 // same round exactly as for a hand-written one. A derive handler declares the trait it implements
 // (`#[metaprog_handler("derive_eq", "logos.lang.cmp::Eq")]`), and every target of it is a pending fact.
-// Bits: Hash Eq PartialEq Copy Clone Ord. Nothing here derives PartialEq (beside Eq its `eq`
-// collides today), and `#[derive_ord]` on an enum is not supported yet, so Color has no Ord. `None0` (no impls) is the control: all zero.
+// Bits: Hash Eq PartialEq Copy Clone Ord. `Eq` is a marker over `PartialEq` (Rust's shape), so each
+// `#[derive_eq]` stands beside `#[derive_partial_eq]`, and `#[derive_ord]` on an enum is not supported yet, so Color has no Ord. `None0` (no impls) is the control: all zero.
 package has_trait_named_sees_derives;
 use logos.lang.hash;
 use logos.lang.cmp;
@@ -39,17 +39,18 @@ fn htn_hook(target_offset: u32) -> () {
 }
 
 #[htn]
-#[derive_hash] #[derive_eq] #[derive_copy] #[derive_clone] #[derive_partial_ord] #[derive_ord]
+#[derive_hash] #[derive_partial_eq] #[derive_eq] #[derive_copy] #[derive_clone] #[derive_partial_ord] #[derive_ord]
 pub struct Sku { pub a: i64, pub b: i64 }
 
 #[htn]
-#[derive_hash] #[derive_eq] #[derive_copy] #[derive_clone]
+#[derive_hash] #[derive_partial_eq] #[derive_eq] #[derive_copy] #[derive_clone]
 pub enum Color { Red, Green, Blue }
 
 #[htn]
 pub struct Hand { pub a: i64 }
 impl Hash for Hand { fn hash<H: Hasher>(&self, state: &mut H) { self.a.hash(state); } }
-impl Eq for Hand { fn eq(&self, o: &Hand) -> bool { self.a == o.a } }
+impl PartialEq for Hand { fn eq(&self, o: &Hand) -> bool { self.a == o.a } }
+impl Eq for Hand {}
 
 #[htn]
 pub struct None0 { pub a: i64 }

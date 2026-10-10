@@ -2667,7 +2667,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                             // called with both sides borrowed, its `&self` exactly.
                             bool via_impl = false;
                             if (callee_sym.empty() && et.kind() != LogosType::Kind::Slice) {
-                                callee_sym = trait_item_symbol_("logos.lang.cmp::Eq", et, "eq", 2);
+                                callee_sym = trait_item_symbol_("logos.lang.cmp::PartialEq", et, "eq", 2);
                                 via_impl = !callee_sym.empty();
                             }
                             if (callee_sym.empty()) {
@@ -3534,11 +3534,10 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     for (auto a : method_args) if (!a || contains_typevar(a)) args_concrete = false;
                     if (!args_concrete) continue;
                     std::string r = trait_item_symbol_(ident, cr, method, nargs + 1, nullptr, &trait_args, &method_args);
-                    // SL-sl-02, as sema's bound check: a `PartialEq` / `PartialOrd`
-                    // bound is satisfied by the type's `Eq` / `Ord` impl, which
-                    // carries the method.
-                    if (r.empty() && (tt == "PartialEq" || tt == "PartialOrd"))
-                        r = trait_item_symbol_(tt == "PartialEq" ? "logos.lang.cmp::Eq" : "logos.lang.cmp::Ord", cr,
+                    // SL-sl-02, as sema's bound check: a `PartialOrd` bound is
+                    // satisfied by the type's `Ord` impl, which carries the method.
+                    if (r.empty() && tt == "PartialOrd")
+                        r = trait_item_symbol_("logos.lang.cmp::Ord", cr,
                                                method, nargs + 1, nullptr, &trait_args, &method_args);
                     if (r.empty()) continue;
                     if (sym.empty()) sym = std::move(r);

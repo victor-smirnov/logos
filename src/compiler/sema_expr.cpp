@@ -2632,7 +2632,8 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             if (t.kind() != LogosType::Kind::Struct || tuple_struct_(t)) break;
             lir::LExprPtr base = recv;
             if (TypeRef(expr_type(recv)).kind() != LogosType::Kind::Struct) base = builder().deref(recv, t);
-            auto stepped = emit_generic_deref_step(base, /*want_mut=*/in_place_write_lhs_);
+            // A mutable place (`t.borrow_mut().0 += 5`) steps through DerefMut.
+            auto stepped = emit_generic_deref_step(base, /*want_mut=*/in_place_write_lhs_ || tmut_ctx);
             if (!stepped) break;
             recv = std::move(*stepped);
         }
@@ -3621,7 +3622,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         std::string tv_name(TypeRef(tv_ref_pair ? TypeRef(lt).pointee() : TypeRef(lt)).type_var_name());
         auto bit = current_type_bounds_.find(tv_name);
         bool provides_eq = false;
-        int  eq_providers = 0;
+        std::string eq_provider;   // the bound (or supertrait) that declares `eq`
         if (bit != current_type_bounds_.end()) {
             StrSet seen;
             std::function<void(const std::string&)> walk = [&](const std::string& tn) {
@@ -3629,21 +3630,16 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 auto* it = find_trait_iter_scoped(tn);
                 if (!it) return;
                 for (auto& m : it->methods)
-                    if (m.name == "eq") { provides_eq = true; break; }
+                    if (m.name == "eq") {
+                        if (!provides_eq) eq_provider = it->name;
+                        provides_eq = true;
+                        break;
+                    }
                 for (auto& s : it->supertraits) walk(s.trait_name);
             };
             for (auto& b : bit->second) walk(b.trait_name);
         }
         if (provides_eq) {
-            for (auto& [tn_def, ti] : traits_) {
-            // ⚠ The trait's own NAME — see the note at the sibling loops: the
-            // impl key spaces are composed from the spelling at the impl.
-            const std::string& tn = ti.name;
-                (void)tn;
-                for (auto& mm : ti.methods)
-                    if (mm.name == "eq") { eq_providers++; break; }
-                if (eq_providers > 1) break;
-            }
             std::string m = (op == "==") ? "eq" : "ne";
             auto lref = tv_ref_pair ? std::move(lhs) : take_operand_ref(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
             auto rref = tv_ref_pair ? std::move(rhs) : take_operand_ref(map_of(node.get(la::RHS.code)), std::move(rhs), rt);
@@ -3656,7 +3652,8 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             mc.args = std::move(margs);
             mc.vtable_index = -1;
             mc.resolved_type = "";
-            if (eq_providers > 1) mc.tag_trait = "Eq";
+            // The trait that declares `eq` (`T: Eq` reaches it through its supertrait).
+            mc.tag_trait = eq_provider;
             return method_call_resolved_(std::move(mc), bool_t());
         }
         // No eq-providing bound — fall through to the generic operator check.
@@ -6887,9 +6884,7 @@ lir::LExprPtr SemaChecker::lower_op_by_trait_(const OpLangItem& oi, lir::LExprPt
     auto lit = [&](TypeRef t) {
         return t && (TypeRef(t).kind() == K::IntLit || TypeRef(t).kind() == K::FloatLit || is_lit_var_(t));
     };
-    // Logos keeps `Eq` beside `PartialEq`, each declaring `eq`: `==` takes either.
     std::vector<std::string_view> langs{oi.lang};
-    if (oi.lang == "partial_eq") langs.push_back("eq");
     for (auto lang : langs) {
         const std::string tkey = lang_trait_key_(lang);
         if (tkey.empty()) continue;
@@ -10360,6 +10355,14 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (fi && !fi->param_types.empty() && fi->param_types[0] &&
                     TypeRef(fi->param_types[0]).kind() == LogosType::Kind::MutRef &&
                     (!fi->owner_self || self_pattern_match_(fi->owner_self, et))) { wants_mut = true; break; }
+            // ... or the method the probe picks a deref step further (`v[0].bump()`
+            // over `Vec<Box<C>>`: Box -> C's `bump(&mut self)`).
+            if (!wants_mut) {
+                ProbePick pk = probe_method_(expr_type(recv), method_name);
+                wants_mut = pk.dyn_mut || pk.autoref == 2 ||
+                            (pk.fi && !pk.fi->param_types.empty() && pk.fi->param_types[0] &&
+                             TypeRef(pk.fi->param_types[0]).kind() == LogosType::Kind::MutRef);
+            }
             if (wants_mut) {
                 if (temp_rooted) {
                     if (cur_stmt_temp_hoist_ && cur_stmt_temp_hoist_->size() > mark_hoist)

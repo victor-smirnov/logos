@@ -20,6 +20,7 @@ use logos.lang.cell;
 #[derive_clone]
 #[derive_copy]
 #[derive_debug]
+#[derive_partial_eq]
 #[derive_eq]
 #[derive_partial_ord]
 #[derive_ord]

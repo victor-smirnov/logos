@@ -3,11 +3,12 @@ package ref_pair_nonprim_tuple_eq_compares_addresses_run;
 use logos.lang.cmp;
 use logos.mem.string;
 struct S { v: i64 }
-impl Eq for S {
+impl PartialEq for S {
     fn eq(&self, other: &S) -> bool {
         return self.v == other.v;
     }
 }
+impl Eq for S {}
 fn main() -> i32 {
     let u1: (S, i64) = (S { v: 5i64 }, 6i64);
     let u2: (S, i64) = (S { v: 5i64 }, 6i64);

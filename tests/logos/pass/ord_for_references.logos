@@ -6,7 +6,8 @@ package ord_for_references;
 use logos.std.fmt; use logos.mem.collections.vec; use logos.mem.string; use logos.lang.cmp; use logos.lang.option; use logos.lang.iter; use logos.lang.clone;
 struct Ver { major: i64 }
 impl Clone for Ver { fn clone(&self) -> Ver { Ver { major: self.major } } }
-impl Eq for Ver { fn eq(&self, o: &Ver) -> bool { self.major == o.major } }
+impl PartialEq for Ver { fn eq(&self, o: &Ver) -> bool { self.major == o.major } }
+impl Eq for Ver {}
 impl PartialOrd for Ver {}
 impl Ord for Ver { fn cmp(&self, o: &Ver) -> Ordering { self.major.cmp(&o.major) } }
 fn main() {

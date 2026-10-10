@@ -980,12 +980,12 @@ pub fn iter_ge<I: Iterator<Item = T>, J: Iterator<Item = T>, T: Ord>(a: I, b: J)
     }
 }
 /// Returns `true` iff the two iterators are not pairwise equal.
-pub fn iter_ne<I: Iterator<Item = T>, J: Iterator<Item = T>, T: Eq>(a: I, b: J) -> bool {
+pub fn iter_ne<I: Iterator<Item = T>, J: Iterator<Item = T>, T: PartialEq>(a: I, b: J) -> bool {
     return !iter_eq::<I, J, T>(a, b);
 }
 
 /// Returns `true` iff both iterators yield the same number of items and all pairs compare equal.
-pub fn iter_eq<I: Iterator<Item = T>, J: Iterator<Item = T>, T: Eq>(a: I, b: J) -> bool {
+pub fn iter_eq<I: Iterator<Item = T>, J: Iterator<Item = T>, T: PartialEq>(a: I, b: J) -> bool {
     let mut ai: I = a;
     let mut bi: J = b;
     loop {

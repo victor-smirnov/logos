@@ -45,9 +45,10 @@ pub struct NonZero<T> {
 impl<T: Copy> Copy for NonZero<T> {}
 
 // Two NonZero<T> are equal iff their wrapped values are. (Rust derives this.)
-impl<T: Eq> Eq for NonZero<T> {
+impl<T: PartialEq> PartialEq for NonZero<T> {
     fn eq(self: &Self, other: &Self) -> bool { return self.val.eq(&other.val); }
 }
+impl<T: Eq> Eq for NonZero<T> {}
 
 impl<T: Default + Eq + Copy> NonZero<T> {
     /// Creates a `NonZero` if `n` is non-zero.

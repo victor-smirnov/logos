@@ -1,4 +1,4 @@
-// A tuple holding an enum with no `Eq` is not comparable (Rust E0369). Twin
+// A tuple holding an enum with no `PartialEq` is not comparable (Rust E0369). Twin
 // of tests/logos/pass/tuple_enum_elem_eq_shapes.logos.
 package tuple_enum_elem_without_eq_refused;
 enum K { A, B(i64) }

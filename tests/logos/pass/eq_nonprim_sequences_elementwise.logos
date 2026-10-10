@@ -5,7 +5,8 @@ use logos.mem.string;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct S { v: i64, c: *mut i64 }
 impl Drop for S { fn drop(self: &mut S) { unsafe { *self.c = *self.c + 1i64; } } }
-impl Eq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+impl PartialEq for S { fn eq(&self, other: &S) -> bool { return self.v == other.v; } }
+impl Eq for S {}
 fn b(x: bool) -> i32 { if x { return 1i32; } return 0i32; }
 fn main() -> i32 {
     let mut n: i64 = 0i64;
