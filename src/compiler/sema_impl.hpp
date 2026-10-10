@@ -7356,6 +7356,11 @@ private:
         };
         if (!cur_package_.empty())
             if (auto* v = probe(cur_package_)) return {cur_package_, v};
+        // A type of ANOTHER kind this package declares under the name shadows
+        // every import of it (Rust: one type namespace, the local item wins):
+        // a local `enum Slot` is not an imported private `struct Slot`.
+        if (!cur_package_.empty() && defs_.find(DefNs::Type, cur_package_, name))
+            return {std::string{}, nullptr};
         for (auto& pkg : effective_import_pkgs()) {
             auto* v = probe(pkg);
             if (!v) continue;
