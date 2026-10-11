@@ -203,7 +203,7 @@ CEL scalars (arith/bool/compare/field-access/calls) + comprehension.
 - **D3 → YES** paper-design the whole IR first (the seam-spike).
 - **D4 → STRICT (option 2):** everything mandatory by schema; optionality ONLY via explicit
   `Option`-typed schema fields. No `has()` / `?.` safe-nav. (Lenient-`null` deferred to queue-2
-  interpreter, where erased data lives.)
+  interpreter, where erased data lives.) [2026-10-11: the queue-2 interpreter was deleted (e1dd0ac5e) and query-side lenient `null` withdrawn with it — `deem.exec.lenient-null` WITHDRAWN at P5, `docs/spec/deem.md`; erased query sources are refused (`SemaChecker::enrich_deem_params`). Lenient `null` survives only in the template engine (`stdlib/mem/deem/tpl.logos`).]
 - **D5 → comprehensions ARE in** (revises skeleton's "start without" — they are the Datalog seam).
 - **D7 → static case: schema ALWAYS known at compile time** (mandatory; that is what makes it static).
 - **D1** → embedded DSL via metacall regardless of surface; still a *separate surface* sharing

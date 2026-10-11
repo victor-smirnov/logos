@@ -132,6 +132,7 @@ to simulate metaprogramming C++ lacks:
   EXTENSION to carry into the port's store design.
 - **Epoch-history + ΔEDB journal wiring for Deem** (ADR-0017 P1/P3) — rehosts
   on the seam traits unchanged.
+  [2026-10-11: that code was deleted with the Deem interpreter — `FactStore` (`stdlib/mem/deem/incr.logos`) and `FactHistory` (`stdlib/lcm/deem/facthistory.logos`), `e1dd0ac5e`; nothing to rehost.]
 
 ### 1.4 Profiles → WritStatic
 
@@ -175,6 +176,8 @@ conuco/memoria/
   tests/                  # property tests + oracle op-log driver
 ```
 
+[2026-10-11: layout did not hold. `pkd` and `bt` live in stdlib as `logos.mem.pkd.*` / `logos.mem.bt.*` (`stdlib/mem/{pkd,bt}`, see `conuco/memoria/README.md`); the memory CoW store is `stdlib/mem/bt/memstore.logos`; `conuco/memoria/src` holds `ctr/`, `store/` (`store.logos`, `fileio.logos`), `testkit/`; the tests moved into the corpus as `tests/logos/pass/memoria_*` (`94eb0abc2`).]
+
 ### 2.2 The stdlib seam (per the extras-tier decision)
 
 stdlib keeps dyn-compatible traits: `IStore`/`ISnapshot`/`ICtr` (+ chunk-iter
@@ -183,6 +186,7 @@ the instantiating module REGISTERS its container flavours in the Store
 (Memoria-style). `persistent` = mock impl of the seam; `conuco/memoria` = the
 real one. Deem's P1–P3 layers (epochs/branches/journal) move onto the seam
 unchanged.
+[2026-10-11: `FactStore` and the P1–P3 epoch/journal layers were deleted (`e1dd0ac5e`); the seam was not built — `IStore` (`stdlib/lcm/deem/data/store.logos`) and `trait Snapshot`/`Ctr` (`stdlib/mem/bt/map.logos`) remain separate.]
 
 ### 2.3 Container declaration (replaces BTTypes+CtrTF+mbt)
 

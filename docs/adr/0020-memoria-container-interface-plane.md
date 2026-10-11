@@ -344,7 +344,7 @@ available, chosen per ALTER kind:
 - **eager rewrite** via the §4.3 pipe: CTAS into the new format + swap —
   bulk speed (hundreds of MB/core) makes a full rewrite cheap;
 - **lazy per-block**: the registry already supports format coexistence
-  (`format_hash`); blocks upgrade on CoW touch — fit for metadata-only
+  (`format_hash`) [2026-10-11: no format registry and no `format_hash` exist; see the note in §7]; blocks upgrade on CoW touch — fit for metadata-only
   changes (add column with default).
 
 **Static/dynamic tiers.** Statically declared managed tables are schema
@@ -458,7 +458,7 @@ is itself EDB, queryable by Deem; the loop closes.
   with different lifetimes: code ABI (lives with releases) vs **on-disk data
   formats** (must outlive releases). The ADR 0018 registry already decouples
   them: formats are identified by `ctr_type_hash`/`block_hash`, not by
-  release. Both options stay open — in-tree with hash-locked formats, or a
+  release. [2026-10-11: no such registry exists; the store image is self-describing — "no level, no type hashes, no registry" (`stdlib/mem/bt/memstore.logos`, save/restore header); the only TypeHash is compiler-side (`src/compiler/mono_clone.cpp`, structural TypeHash).] Both options stay open — in-tree with hash-locked formats, or a
   separate release train (the SDK-extras line). Prerequisite either way:
   `format_hash` is a first-class fact from day one, so format-compatibility
   questions ("which formats does this build read; what migrates on store

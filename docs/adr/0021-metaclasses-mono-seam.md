@@ -134,6 +134,8 @@ container Legend { kind ordered_map; entry { key: u64, val: str } measure max(ke
     (d) instantiation of CtrClass<CFG> demands the factory (metacall)
 ```
 
+[2026-10-11: no alias is emitted. The decl site emits only the CFG const; `typeof(Decl)` is the declaration→type bridge (`typeof(Map::<i64, i64>) == CtrClass<@{...}>`), `e075ad231`, `3e44431d5`, header of `stdlib/lcm/canon/metaclass.logos`.]
+
 Key properties, each inherited from an existing mechanism rather than built:
 
 - **Aliases are transparent.** `Legend` is a type alias; sema resolves it;
@@ -141,6 +143,7 @@ Key properties, each inherited from an existing mechanism rather than built:
   configuration are one type — mono unifies them out of the box. Container
   typing is **structural**; distinguishing two containers of the same shape
   is a runtime matter (`ctr_id`). No `typeof` operator, no newtype wrappers.
+  [2026-10-11: superseded — there is no alias and `typeof` is the bridge; see the note under the block above.]
 - **Identity = the config document.** WritStatic documents already mangle as
   content hashes (`@hs_<64bit>`, ADR 0017 machinery). The mangle of
   `CtrClass<@hs_X>` is the family key: structural memoization, twin
@@ -284,6 +287,7 @@ not back to the generic library. The two `create_ctr` also **collide by
 name**: ADR 0017's lives in `logos.lcm.deem` and is still linked/used by
 `facthistory.logos`; the Canon-plane one must be package-scoped (own module),
 not a second bare `create_ctr`.
+[2026-10-11: `facthistory.logos` deleted (`e1dd0ac5e`); ADR 0017's `create_ctr`/`open_ctr` remain in `stdlib/lcm/deem/data/handle.logos`; the package-scoped ones are `logos.lcm.canon.metaclass` `create_ctr`/`open_ctr::<C: CtrFamily>`.]
 
 **The C++ factory chain maps directly onto the three-layer split** (user,
 2026-07-17): the TMP factories become metafunctions, Canon does their
@@ -320,6 +324,7 @@ memoria suite + targeted ctest slices; full ctest in background per group.
 1. **CFG + alias**: `container` declarations additionally lower to a
    WritStatic CFG doc + `type <Name> = CtrClass<CFG>`; decl-time facts
    unchanged. (Handler synthesizes the const+alias pair.)
+   [2026-10-11: only the const is synthesized; no alias, `typeof(Decl)` bridges, `e075ad231`.]
 2. **Demand hook**: mono demand on `CtrClass<CFG>` → factory metacall →
    dispatch round; sema-side harvest replaced by the mono edge.
 3. **Factory re-keying**: identity and memoization by `@hs(CFG)`; Canon
@@ -327,6 +332,7 @@ memoria suite + targeted ctest slices; full ctest in background per group.
    between emitters retired; family member names derived from the hash, with
    alias names emitted as a comment header in `--gen-dir` dumps for
    navigability.
+   [2026-10-11: family memoization is by CFG hash (`factory_demand_hashes_`, `src/compiler/mono.cpp`); `blob_seen` survives as the generic dedup of emitted item blobs in `src/compiler/main.cpp` `logos_emit_item_blob` / `logos_emit_item_blob_subst_in`.]
 4. **Uniform API + retirement**: `create_ctr::<Legend>(&mut snp, ctr_id)` as
    the single instantiation surface (package-scoped — see §5 collision);
    consumers migrated (pre-release, break freely); retire the harvest patch,
@@ -355,7 +361,7 @@ memoria suite + targeted ctest slices; full ctest in background per group.
 
 ### What this unlocks (acceptance gates)
 
-- `conuco/memoria/tests/map_consumer.logos.pending` un-parked: a generic
+- `tests/logos/pass/memoria_map_consumer.logos` un-parked: a generic
   `pub container Map<K,V>` in a library (`memoria.ctr.map`), instantiated
   cross-module.
 - Twin declarations deduplicate to one family (alias transparency).
@@ -373,6 +379,7 @@ memoria suite + targeted ctest slices; full ctest in background per group.
   `logos.std.memoria`), never a second bare `create_ctr`. ADR 0017's engine
   is nominally superseded (memoria port) but cannot be deleted while linked;
   coexist by package.
+  [2026-10-11: `facthistory.logos` deleted (`e1dd0ac5e`); old fns still in `stdlib/lcm/deem/data/handle.logos`; the Canon-plane API is `logos.lcm.canon.metaclass` `create_ctr`/`open_ctr`.]
 - Naming of the metaclass base type (`CtrClass<CFG>` vs lowercase
   `container<CFG>`); collision with the existing `Ctr` handle trait.
 - `catalog` slot shape (runtime DDL descriptor) — deferred to the DDL arc.

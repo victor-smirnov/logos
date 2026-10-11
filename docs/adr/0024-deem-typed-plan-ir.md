@@ -957,6 +957,7 @@ description and became a module boundary.
 Cost: `rexpr_walk.logos` (~4000 lines) is rewritten across several cycles, and
 Deem grows a type layer. The slicing above is what keeps that from being a
 long-lived broken branch.
+[2026-10-11: `stdlib/mem/wql/rexpr_walk.logos` is now 12,039 lines (`wc -l` at `4cb5cffcd`); the plan IR moved to Core + `dplan` (ADR 0031; `stdlib/mem/wql/core.logos`, `stdlib/mem/wql/dplan.logos`).]
 
 ## References
 

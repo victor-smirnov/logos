@@ -19,6 +19,7 @@ was applied, and **criterion 2 was not STATED anywhere** in the tree or the last
 30 commits. Its verdict, verbatim: *"#47 cannot be answered until the three
 criteria and their two instruments are written into the tree."* This file is
 that, plus the third instrument the audit's F2 asked for.
+[2026-10-11: #47/#62/#70/#74/#75/#76 here are task-tracker numbers of the 2026-08 arc, not GitHub issues.]
 
 **Supersede-in-place discipline applies here as to any ledger.** A number in
 this file is either re-derivable by running the command printed beside it, or it

@@ -33,6 +33,8 @@ WQL IR lives in its own Writ documents, so it cannot collide with the compiler's
 | ~~`0x0012`~~ | ~~WQL type descriptors~~ — **DROPPED, reuse compiler `CAT_TYPE`** (§3) |
 | `0x0013` | Trama AST (port of `TplASTCodes`) |
 
+[2026-10-11: category `0x0012` is now reused by the query-plan tier (`RQuery` family, `RQSimple`/`RQAgg`/`RQJoinStep`), `stdlib/mem/wql/plan.logos`.]
+
 **[?]** When the u56 code-narrowing (ADR 0011 future item) lands, category width may shrink;
 codes here are 64-bit for now.
 
@@ -56,6 +58,8 @@ schema enum SExpr : category(0x0010_0000_0000_0000) {
     Bin(SBin), Un(SUn), Call(SCall), Cond(SCond), Comp(SComp),
 }
 ```
+
+[2026-10-11: `SParam` and `SField` identify by NAME, not index/key byte — `SParam { name: str, soff }`, `SField { base, name: str, soff }`, `stdlib/mem/wql/ir.logos` (224d52e6a).]
 
 Notes:
 - `SField.base` typed `WRef<SExpr>` because the base is itself an expression (a var, a param, or
@@ -115,6 +119,7 @@ directly; the static backend lowers to LIR anyway, so emit the real Logos type r
 translating a WQL-local descriptor. No WQL-local `TDesc` schema (category 0x0012 dropped). If the
 queue-2 interpreter later needs a runtime tag for erased data, it reuses the same `CAT_TYPE`
 encoding — no new scheme.
+[2026-10-11: no WQL code references `CAT_TYPE`; types are carried as type-NAME strings (`RScan.row_ty: str`, `SCast.ty: str`, `stdlib/mem/wql/ir.logos`).]
 
 ---
 

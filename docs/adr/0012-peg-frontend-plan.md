@@ -2,11 +2,13 @@
 
 **Status:** IMPLEMENTED (checked 2026-10-11). Design note of 2026-06-30, the Phase-1 investigation for the "peg-ify the WQL/Trama frontends" workstream. It was carried out under [`0012-peg-parsers-schema-emission.md`](0012-peg-parsers-schema-emission.md): schema emission in peg_gen_logos landed in 224d52e6a, and the generated parsers went live with the hand parsers retired in b148a2295 and 2473af9ba (QLexer). The generated parsers are `stdlib/mem/wql/{el,trama,wql_surface}_parser.logos`, built from `stdlib/mem/wql/grammars/*.peg`. The `stdlib/std/wql/` paths below moved to `stdlib/mem/wql/` in 2cfe5f139. Companion to [`0012-writ-query-language.md`](0012-writ-query-language.md) and [`0012-impl-seam.md`](0012-impl-seam.md).
 
-The goal: replace the hand-written recursive-descent parsers under `stdlib/std/wql/`
+The goal: replace the hand-written recursive-descent parsers under `stdlib/mem/wql/`
 (`el.logos` `ElParser`, `wql.logos` `QLexer`, `trama.logos` `TrParser`) with
 **peg_gen_logos-generated** parsers, and teach peg_gen to emit **schema-based node
 construction** (dogfood ADR 0011: `h.make::<S>()` + typed field writes) instead of raw
 TOM `put`/`get`.
+
+[2026-10-11: done — the hand parsers `ElParser` / `QLexer` / `TrParser` are retired (b148a2295, 2473af9ba); `el.logos` now holds only shared EL types (`OP_*`, `EL_TY_*`, `ElTypes`); the live parsers are the generated `stdlib/mem/wql/{el,trama,wql_surface}_parser.logos`. Sections below describe the pre-swap tree.]
 
 ---
 
@@ -113,7 +115,7 @@ by the `peg_gen_logos_oracle` target, not by `add_test`.
 
 `main.logos` already accepts an arbitrary grammar path + `--out-dir`. Running it on
 `el.peg` / `wql.peg` / `trama.peg` needs only:
-1. **Grammars.** Author `stdlib/std/wql/grammars/{el,wql,trama}.peg` — the EL precedence
+1. **Grammars.** Author `stdlib/mem/wql/grammars/{el,wql,trama}.peg` — the EL precedence
    grammar (a subset of the logos.peg expression chain), the outer wql clause grammar
    (`fn N from src:[RowTy] var (where PRED)? (join …|group …)? select PROJ (: ResultTy)?`),
    and the Trama template grammar. `%meta output` = `el_parser` / `wql_parser` /
@@ -124,7 +126,7 @@ by the `peg_gen_logos_oracle` target, not by `add_test`.
    `%nodes` int). The action then emits `h.make::<S>()` + `n.field = $n`. `emit_action`
    gains this mode; `emit_public_entries` builds into the caller's arena (`&Writ`) rather
    than allocating a fresh `writ_new` doc, so the wql!/trama! handler passes its `h`.
-3. **Output path + regen target.** `--out-dir stdlib/std/wql`; wire a `wql_peg_regen`
+3. **Output path + regen target.** `--out-dir stdlib/mem/wql`; wire a `wql_peg_regen`
    custom target that runs the three generations offline. Commit the outputs.
 
 No new generator *entry point* is required beyond the schema-emission mode and letting the
@@ -133,7 +135,7 @@ internally, codegen.logos:2471).
 
 ## 5. NAME INTERNING — the load-bearing decision
 
-This is the crux the goal flags. Today the WQL codegen (`stdlib/std/wql/codegen.logos`)
+This is the crux the goal flags. Today the WQL codegen (`stdlib/mem/wql/codegen.logos`)
 reads the IR **structurally via schema `match`** (`SExpr::Field(f) => f.key`,
 `SExpr::Lit(l) => l.val`) — good, that survives. But it recovers the *textual* names/types
 from the **`ElParser` dense tables**, NOT the nodes:
