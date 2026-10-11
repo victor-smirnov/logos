@@ -465,6 +465,42 @@ pub fn sort_key_vector(prm: &MacroParams, src: str, var: str, key_ty: str, nb: i
 // derivation — and the census gate compares the two per fixture, so a call that
 // drifted out of its branch is red rather than merely wrong.
 
+/// Can the group frame index its keys (ADR 0026 F10)? A key the fold copies
+/// into the index and the key vector both: an integer, bool, char or `str`, or
+/// a tuple of them.
+pub fn group_key_indexable(key_ty: str) -> bool {
+    if key_ty.len() >= 2i64 && str_byte_at(key_ty, 0i64) == 40u8 && str_byte_at(key_ty, key_ty.len() - 1i64) == 41u8 {
+        // `(A, B, …)`: each component, split at the top-level commas
+        let mut depth: i64 = 0i64;
+        let mut s0: i64 = 1i64;
+        let mut i: i64 = 1i64;
+        while i < key_ty.len() - 1i64 {
+            let c: u8 = str_byte_at(key_ty, i);
+            if c == 40u8 || c == 60u8 { depth = depth + 1i64; }
+            if c == 41u8 || c == 62u8 { depth = depth - 1i64; }
+            if c == 44u8 && depth == 0i64 {
+                if !group_key_indexable(str_trim_view(key_ty, s0, i)) { return false; }
+                s0 = i + 1i64;
+            }
+            i = i + 1i64;
+        }
+        return group_key_indexable(str_trim_view(key_ty, s0, key_ty.len() - 1i64));
+    }
+    return str_eq(key_ty, "i8") || str_eq(key_ty, "i16") || str_eq(key_ty, "i32") || str_eq(key_ty, "i64")
+        || str_eq(key_ty, "u8") || str_eq(key_ty, "u16") || str_eq(key_ty, "u32") || str_eq(key_ty, "u64")
+        || str_eq(key_ty, "isize") || str_eq(key_ty, "usize") || str_eq(key_ty, "bool") || str_eq(key_ty, "char")
+        || str_eq(key_ty, "str") || str_eq(key_ty, "&str");
+}
+
+// `s[a..b]` without the spaces at either end.
+fn str_trim_view(s: str, a: i64, b: i64) -> str {
+    let mut x: i64 = a;
+    let mut y: i64 = b;
+    while x < y && str_byte_at(s, x) == 32u8 { x = x + 1i64; }
+    while y > x && str_byte_at(s, y - 1i64) == 32u8 { y = y - 1i64; }
+    return unsafe { str_from_raw(((s.as_ptr() as i64) + x) as *const u8, y - x) };
+}
+
 /// `__g_key` — one per emitted batch aggregate. `nagg` is the number of
 /// accumulator columns that hang off it, which is the group frame's WIDTH and
 /// the one number a reader needs to price the state from a single line.
@@ -473,7 +509,13 @@ pub fn group_table_field(prm: &MacroParams, src: str, var: str, key_ty: str, nag
     let mut w: String = String::new();
     w.push_str("the fold finds a row's group by a linear `==` scan over `__g_key: Vec<");
     w.push_str(key_ty);
-    w.push_str(">` (no index is built — this is the group frame's dedup, not an Arrange) and carries ");
+    if group_key_indexable(key_ty) {
+        w.push_str(">` until it holds 16 groups, then through `__g_idx: HashMap<");
+        w.push_str(key_ty);
+        w.push_str(", i64>` built from the keys so far (ADR 0026 F10; the group frame's dedup, not an Arrange) and carries ");
+    } else {
+        w.push_str(">` (no index is built: the key is not a Copy hashable type — this is the group frame's dedup, not an Arrange) and carries ");
+    }
     w.push_i64(nagg);
     w.push_str(" accumulator column(s) beside it");
     plan_trace(node_subject(prm, src, var), "group frame", AG_GROUPS(),

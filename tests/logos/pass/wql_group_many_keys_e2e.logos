@@ -1,0 +1,100 @@
+// The group frame past 16 groups (ADR 0026 F10): the fold scans `__g_key`
+// linearly while it holds fewer than 16 groups and then builds `__g_idx`, a
+// HashMap of the keys so far, and probes it. Every query here has more than 16
+// groups, so the indexed path runs, for an integer, a str and a tuple key, in
+// an entry aggregate and in a rel body. The answers were computed independently
+// (a script over the same rows), not by Deem.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct R { pub k: i64, pub s: str, pub a: i64, pub b: i64, pub v: i64 }
+struct E { pub src: i64, pub dst: i64 }
+
+pub deem by_int(rs: &[R]) { from rs r group by r.k aggregate n = count(), t = sum(r.v) select (key, n, t) order by key }
+pub deem by_str(rs: &[R]) { from rs r group by r.s aggregate n = count(), m = max(r.v) select (n, m) order by m }
+pub deem by_pair(rs: &[R]) { from rs r group by (r.a, r.b) aggregate n = count(), t = sum(r.v) select (key.0, key.1, n, t) order by key.0 * 10 + key.1 }
+pub deem out_deg(es: &[E]) {
+    rel deg(n: i64, k: i64) { from es e group by e.src aggregate k = count() select (key, k); }
+    from deg d select (d.n, d.k) order by d.n
+}
+
+fn main() -> i32 {
+    let rs: [R; 60] = [
+        R { k: 0, s: "n0", a: 0, b: 0, v: 0 },
+        R { k: 1, s: "n1", a: 1, b: 1, v: 1 },
+        R { k: 2, s: "n2", a: 2, b: 2, v: 2 },
+        R { k: 3, s: "n3", a: 3, b: 3, v: 3 },
+        R { k: 4, s: "n4", a: 4, b: 0, v: 4 },
+        R { k: 5, s: "n5", a: 0, b: 1, v: 5 },
+        R { k: 6, s: "n6", a: 1, b: 2, v: 6 },
+        R { k: 7, s: "n7", a: 2, b: 3, v: 7 },
+        R { k: 8, s: "n8", a: 3, b: 0, v: 8 },
+        R { k: 9, s: "n9", a: 4, b: 1, v: 9 },
+        R { k: 10, s: "n10", a: 0, b: 2, v: 10 },
+        R { k: 11, s: "n11", a: 1, b: 3, v: 11 },
+        R { k: 12, s: "n12", a: 2, b: 0, v: 12 },
+        R { k: 13, s: "n13", a: 3, b: 1, v: 13 },
+        R { k: 14, s: "n14", a: 4, b: 2, v: 14 },
+        R { k: 15, s: "n15", a: 0, b: 3, v: 15 },
+        R { k: 16, s: "n16", a: 1, b: 0, v: 16 },
+        R { k: 17, s: "n17", a: 2, b: 1, v: 17 },
+        R { k: 18, s: "n0", a: 3, b: 2, v: 18 },
+        R { k: 19, s: "n1", a: 4, b: 3, v: 19 },
+        R { k: 0, s: "n2", a: 0, b: 0, v: 20 },
+        R { k: 1, s: "n3", a: 1, b: 1, v: 21 },
+        R { k: 2, s: "n4", a: 2, b: 2, v: 22 },
+        R { k: 3, s: "n5", a: 3, b: 3, v: 23 },
+        R { k: 4, s: "n6", a: 4, b: 0, v: 24 },
+        R { k: 5, s: "n7", a: 0, b: 1, v: 25 },
+        R { k: 6, s: "n8", a: 1, b: 2, v: 26 },
+        R { k: 7, s: "n9", a: 2, b: 3, v: 27 },
+        R { k: 8, s: "n10", a: 3, b: 0, v: 28 },
+        R { k: 9, s: "n11", a: 4, b: 1, v: 29 },
+        R { k: 10, s: "n12", a: 0, b: 2, v: 30 },
+        R { k: 11, s: "n13", a: 1, b: 3, v: 31 },
+        R { k: 12, s: "n14", a: 2, b: 0, v: 32 },
+        R { k: 13, s: "n15", a: 3, b: 1, v: 33 },
+        R { k: 14, s: "n16", a: 4, b: 2, v: 34 },
+        R { k: 15, s: "n17", a: 0, b: 3, v: 35 },
+        R { k: 16, s: "n0", a: 1, b: 0, v: 36 },
+        R { k: 17, s: "n1", a: 2, b: 1, v: 37 },
+        R { k: 18, s: "n2", a: 3, b: 2, v: 38 },
+        R { k: 19, s: "n3", a: 4, b: 3, v: 39 },
+        R { k: 0, s: "n4", a: 0, b: 0, v: 40 },
+        R { k: 1, s: "n5", a: 1, b: 1, v: 41 },
+        R { k: 2, s: "n6", a: 2, b: 2, v: 42 },
+        R { k: 3, s: "n7", a: 3, b: 3, v: 43 },
+        R { k: 4, s: "n8", a: 4, b: 0, v: 44 },
+        R { k: 5, s: "n9", a: 0, b: 1, v: 45 },
+        R { k: 6, s: "n10", a: 1, b: 2, v: 46 },
+        R { k: 7, s: "n11", a: 2, b: 3, v: 47 },
+        R { k: 8, s: "n12", a: 3, b: 0, v: 48 },
+        R { k: 9, s: "n13", a: 4, b: 1, v: 49 },
+        R { k: 10, s: "n14", a: 0, b: 2, v: 50 },
+        R { k: 11, s: "n15", a: 1, b: 3, v: 51 },
+        R { k: 12, s: "n16", a: 2, b: 0, v: 52 },
+        R { k: 13, s: "n17", a: 3, b: 1, v: 53 },
+        R { k: 14, s: "n0", a: 4, b: 2, v: 54 },
+        R { k: 15, s: "n1", a: 0, b: 3, v: 55 },
+        R { k: 16, s: "n2", a: 1, b: 0, v: 56 },
+        R { k: 17, s: "n3", a: 2, b: 1, v: 57 },
+        R { k: 18, s: "n4", a: 3, b: 2, v: 58 },
+        R { k: 19, s: "n5", a: 4, b: 3, v: 59 }
+    ];
+    let es: [E; 40] = [ E { src: 0, dst: 0 }, E { src: 1, dst: 7 }, E { src: 2, dst: 14 }, E { src: 3, dst: 21 }, E { src: 4, dst: 5 }, E { src: 5, dst: 12 }, E { src: 6, dst: 19 }, E { src: 7, dst: 3 }, E { src: 8, dst: 10 }, E { src: 9, dst: 17 }, E { src: 10, dst: 1 }, E { src: 11, dst: 8 }, E { src: 12, dst: 15 }, E { src: 13, dst: 22 }, E { src: 14, dst: 6 }, E { src: 15, dst: 13 }, E { src: 16, dst: 20 }, E { src: 0, dst: 4 }, E { src: 1, dst: 11 }, E { src: 2, dst: 18 }, E { src: 3, dst: 2 }, E { src: 4, dst: 9 }, E { src: 5, dst: 16 }, E { src: 6, dst: 0 }, E { src: 7, dst: 7 }, E { src: 8, dst: 14 }, E { src: 9, dst: 21 }, E { src: 10, dst: 5 }, E { src: 11, dst: 12 }, E { src: 12, dst: 19 }, E { src: 13, dst: 3 }, E { src: 14, dst: 10 }, E { src: 15, dst: 17 }, E { src: 16, dst: 1 }, E { src: 0, dst: 8 }, E { src: 1, dst: 15 }, E { src: 2, dst: 22 }, E { src: 3, dst: 6 }, E { src: 4, dst: 13 }, E { src: 5, dst: 20 } ];
+    let a: Vec<(i64, i64, i64)> = by_int(&rs[..]).unwrap();
+    let mut i: i64 = 0i64;
+    while i < a.len() { println!("{} {} {}", a.get(i).0, a.get(i).1, a.get(i).2); i = i + 1i64; }
+    let b: Vec<(i64, i64)> = by_str(&rs[..]).unwrap();
+    i = 0i64;
+    while i < b.len() { println!("{} {}", b.get(i).0, b.get(i).1); i = i + 1i64; }
+    let c: Vec<(i64, i64, i64, i64)> = by_pair(&rs[..]).unwrap();
+    i = 0i64;
+    while i < c.len() { println!("{} {} {} {}", c.get(i).0, c.get(i).1, c.get(i).2, c.get(i).3); i = i + 1i64; }
+    let d: Vec<(i64, i64)> = out_deg(&es[..]).unwrap();
+    i = 0i64;
+    while i < d.len() { println!("{} {}", d.get(i).0, d.get(i).1); i = i + 1i64; }
+    return 0i32;
+}

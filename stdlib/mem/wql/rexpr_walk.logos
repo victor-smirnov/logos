@@ -4611,20 +4611,140 @@ fn push_jctable(out: &mut String, jo: &JoinOrder, nf: &NdvFacts, prm: &MacroPara
     out.push_str("] }");
 }
 
+// `w` split on its top-level `&&`.
+fn where_conjuncts(w: WAny, out: &mut Vec<WAny>) {
+    match w.view::<SExpr>() {
+        SExpr::Bin(b) => {
+            if b.op == OP_AND() { where_conjuncts(b.lhs.any(), out); where_conjuncts(b.rhs.any(), out); return; }
+        }
+        _ => { }
+    }
+    out.push(w);
+}
+
+// Does conjunct `e` read no step variable of the nest (only the base row,
+// parameters, constants) and call no UDF? (ADR 0026 F7.)
+fn base_only_conjunct(e: SExpr, ch: &DNest) -> bool {
+    match e {
+        SExpr::Field(f) => {
+            let bref: WRef<SExpr> = f.base;
+            let rn: str = if bref.any().is_null() { f.name } else { root_ident_name(f.base_expr()) };
+            let mut i: i64 = 0i64;
+            while i < ch.n { if str_eq(ch.var.as_slice()[i], rn) { return false; } i = i + 1i64; }
+            return true;
+        }
+        SExpr::Lit(_l) => { return true; }
+        SExpr::Param(_p) => { return true; }
+        SExpr::Bin(b)  => { return base_only_conjunct(b.lhs_expr(), ch) && base_only_conjunct(b.rhs_expr(), ch); }
+        SExpr::Un(u)   => { return base_only_conjunct(u.arg_expr(), ch); }
+        SExpr::Cast(c) => { return base_only_conjunct(c.arg_expr(), ch); }
+        SExpr::Cond(c) => {
+            return base_only_conjunct(c.cond_expr(), ch) && base_only_conjunct(c.then_expr(), ch)
+                && base_only_conjunct(c.else_expr(), ch);
+        }
+        SExpr::Call(c) => {
+            if builtin_of_name(c.fn_name) == BFN_UNKNOWN() { return false; }
+            let args: SExprArr = c.args_arr();
+            let mut k: i64 = 0i64;
+            while k < args.len() { if !base_only_conjunct(args.arg_at(k), ch) { return false; } k = k + 1i64; }
+            return true;
+        }
+        _ => { return false; }
+    }
+}
+
+fn str_has_byte(s: str, b: u8) -> bool {
+    let mut i: i64 = 0i64;
+    while i < s.len() { if str_byte_at(s, i) == b { return true; } i = i + 1i64; }
+    return false;
+}
+
+// THE GROUP FRAME'S FOLD: find the row's group, seed a new one, fold.
+// ADR 0026 F10 — the dedup is a linear `==` scan over `__g_key` while the
+// frame holds fewer than GROUP_INDEX_AT() groups (a handful is faster to scan
+// than to hash, and the group count is unknown before the fold); at that size,
+// for a key that is Copy and hashable (`group_key_indexable`), it builds
+// `__g_idx: HashMap<K, i64>` from the keys so far and probes it from then on.
+// The early exit (`&& __gi < 0i64`) is answer-preserving because the key
+// vector is push-only: no duplicate key can exist, so first and last match
+// select the same group.
+fn group_fold_frag(keyt_f: ExprBlob, key_f: ExprBlob, key_ty: str, cnt_seed: ExprBlob, row_seed: ExprBlob,
+                   seeds_r: &Vec<ExprBlob>, cnt_bump: ExprBlob, folds_r: &Vec<ExprBlob>) -> ExprBlob {
+    let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut si: i64 = 0i64;
+    while si < seeds_r.len() { seeds.push(seeds_r.get(si)); si = si + 1i64; }
+    let mut folds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut fi: i64 = 0i64;
+    while fi < folds_r.len() { folds.push(folds_r.get(fi)); fi = fi + 1i64; }
+    if !group_key_indexable(key_ty) {
+        return quote_block! {
+            let __k: #(keyt_f) = (#(key_f));
+            let mut __gi: i64 = -1i64;
+            let mut __s: i64 = 0i64;
+            while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+            if __gi < 0i64 {
+                __g_key.push(__k);
+                #(cnt_seed);
+                #(row_seed);
+                #( #seeds; )*
+                __gi = __g_key.len() - 1i64;
+            }
+            #(cnt_bump);
+            #( #folds; )*
+        };
+    }
+    let at_f: ExprBlob = parse_expr("16i64");
+    return quote_block! {
+        let __k: #(keyt_f) = (#(key_f));
+        let mut __gi: i64 = -1i64;
+        if __g_hon {
+            let __gp: *const i64 = unsafe { __g_idx.get(&__k) };
+            if __gp != (0i64 as *const i64) { __gi = unsafe { *__gp }; }
+        } else {
+            let mut __s: i64 = 0i64;
+            while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+        }
+        if __gi < 0i64 {
+            __g_key.push(__k);
+            #(cnt_seed);
+            #(row_seed);
+            #( #seeds; )*
+            __gi = __g_key.len() - 1i64;
+            if __g_hon { __g_idx.insert(__k, __gi); }
+            else if __g_key.len() >= (#(at_f)) {
+                let mut __t: i64 = 0i64;
+                while __t < __g_key.len() { __g_idx.insert(__g_key.get(__t), __t); __t = __t + 1i64; }
+                __g_hon = true;
+            }
+        }
+        #(cnt_bump);
+        #( #folds; )*
+    };
+}
+
+// The group frame's index, declared beside `__g_key` when the key admits one.
+fn group_index_decl(keyt_f: ExprBlob, key_ty: str) -> ExprBlob {
+    if !group_key_indexable(key_ty) { return quote_block! { }; }
+    return quote_block! {
+        let mut __g_idx: HashMap<#(keyt_f), i64> = HashMap::<#(keyt_f), i64>::new();
+        let mut __g_hon: bool = false;
+    };
+}
+
 /// ONE CANDIDATE's whole branch: its build phases and its nest, as a single block.
 /// A function because `ncand` of them are needed and a nest spelled twice would be
 /// two chances to diverge in exactly the place where divergence is silent — a
 /// mis-collected index tuple is a wrong row, not a crash.
 fn cand_branch(ch: &DNest, jo: &JoinOrder, cix: i64, ty: &ElTypes, prm: &MacroParams,
                h: &Writ, has_sort: bool, first: bool, distinct: bool, has_where: bool,
-               where_body: str, key_body: str, proj_f: ExprBlob, result_ty: str,
+               where_body: str, where_w: WAny, key_body: str, proj_f: ExprBlob, result_ty: str,
                lim_f: ExprBlob, has_lim_use: bool, qvars: &Vec<str>, nq: i64,
                out: &mut ExprBlob) -> bool {
     let cch: DNest = chain_reorder(ch, jo, cix);
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut nst: ExprBlob = quote_block! { };
     if !chain_nest_frag(&cch, ty, prm, h, has_sort, first, distinct, has_where,
-                        where_body, key_body, proj_f, result_ty, lim_f, has_lim_use,
+                        where_body, where_w, key_body, proj_f, result_ty, lim_f, has_lim_use,
                         qvars, nq, &mut bps, &mut nst) { return false; }
     *out = quote_block! { #( #bps; )* #(nst); };
     return true;
@@ -4656,7 +4776,7 @@ fn qslot_of(qvars: &Vec<str>, nq: i64, v: str) -> i64 {
 // divergence is silent (a mis-collected tuple is a wrong row, not a crash).
 fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
                    has_sort: bool, first: bool, distinct: bool,
-                   has_where: bool, where_body: str, key_body: str,
+                   has_where: bool, where_body: str, where_w: WAny, key_body: str,
                    proj_f: ExprBlob, result_ty: str,
                    lim_f: ExprBlob, has_lim_use: bool,
                    qvars: &Vec<str>, nq: i64,
@@ -4728,14 +4848,43 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     } else {
         inner = push_guarded_frag(result_ty, proj_f, distinct);
     }
-    if has_where {
-        let where_f: ExprBlob = parse_expr(where_body);
+    // ADR 0026 F7: a conjunct that reads the BASE row alone is decided per base
+    // row, before any step probes — not once per matched tuple, innermost. Not
+    // hoisted: a conjunct calling a UDF (the call count is observable) or one
+    // that can fail (`?`: it never ran for a base row that matched nothing),
+    // and nothing under a `full join` (its base is optional).
+    let mut base_body: String = String::new();
+    let mut rest_body: String = String::from_str(where_body);
+    if has_where && !full && !where_w.is_null() {
+        let mut cs: Vec<WAny> = Vec::<WAny>::new();
+        where_conjuncts(where_w, &mut cs);
+        let mut rb: String = String::new();
+        let mut ci: i64 = 0i64;
+        while ci < cs.len() {
+            let c: SExpr = cs.get(ci).view::<SExpr>();
+            let mut ct: String = String::new();
+            emit_sexpr(&mut ct, c, ty, ch.base_var);
+            let tgt: &mut String = if base_only_conjunct(c, ch) && !str_has_byte(string_as_str(&ct), 63u8) { &mut base_body } else { &mut rb };
+            if tgt.len() > 0i64 { tgt.push_str(" && "); }
+            tgt.push_str("("); tgt.push_str(string_as_str(&ct)); tgt.push_str(")");
+            ci = ci + 1i64;
+        }
+        if base_body.len() > 0i64 { rest_body = rb; }
+    }
+    if has_where && rest_body.len() > 0i64 {
+        let where_f: ExprBlob = parse_expr(string_as_str(&rest_body));
         inner = quote_block! { if (#(where_f)) #(inner) };
     }
 
     let body_inner: ExprBlob = inner;
     // Wrap one step at a time, innermost step LAST-bound first.
     inner = nest_wrap(prm, ch, &ns, inner, lim_f, has_lim_use);
+    if base_body.len() > 0i64 {
+        let base_f: ExprBlob = parse_expr(string_as_str(&base_body));
+        inner = quote_block! { if (#(base_f)) { #(inner) } };
+        plan_trace(ch.base_src, "base filter", ch.base_var,
+                   "ADR 0026 F7 — a `where` conjunct reads the driving row alone, so it is decided once per driving row, before any step probes (a UDF call or a fallible conjunct stays innermost)");
+    }
     if full { inner = quote_block! { #(xsome); #(inner) }; }
 
     // The base loop. The DRIVING side may stream: it is the outermost loop of a
@@ -4920,9 +5069,10 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
     let mut proj_body: String = String::new();
     emit_proj_value(&mut proj_body, proj_opt, &ty, ch.base_var);
     let mut where_body: String = String::new();
+    let mut where_w: WAny = WAny::null();
     if has_where {
-        let where_opt: SExpr = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any().view::<SExpr>();
-        emit_sexpr(&mut where_body, where_opt, &ty, ch.base_var);
+        where_w = simplify_sexpr(where_ref.any().view::<SExpr>(), h).any();
+        emit_sexpr(&mut where_body, where_w.view::<SExpr>(), &ty, ch.base_var);
     }
     let mut key_body: String = String::new();
     let mut key_ty: str = "i64";
@@ -5149,14 +5299,14 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
         // wrote rather than nothing at all.
         let mut acc: ExprBlob = quote_block! { };
         if !cand_branch(&ch, &jo, 0i64, &ty, prm, h, has_sort, first, mods.distinct,
-                        has_where, string_as_str(&where_body), string_as_str(&key_body),
+                        has_where, string_as_str(&where_body), where_w, string_as_str(&key_body),
                         proj_f, result_ty, lim_f, has_lim_use, &bnd_var, nb,
                         &mut acc) { return false; }
         let mut ci: i64 = 1i64;
         while ci < jo.ncand {
             let mut br: ExprBlob = quote_block! { };
             if !cand_branch(&ch, &jo, ci, &ty, prm, h, has_sort, first, mods.distinct,
-                            has_where, string_as_str(&where_body), string_as_str(&key_body),
+                            has_where, string_as_str(&where_body), where_w, string_as_str(&key_body),
                             proj_f, result_ty, lim_f, has_lim_use, &bnd_var, nb,
                             &mut br) { return false; }
             let mut cb: String = String::new();
@@ -5171,7 +5321,7 @@ fn emit_join_chain(ch: DNest, jp: JoinPlan, where_ref: WRef<SExpr>, has_where: b
         nest_all = acc;
     } else {
         if !chain_nest_frag(&ch, &ty, prm, h, has_sort, first, mods.distinct,
-                            has_where, string_as_str(&where_body), string_as_str(&key_body),
+                            has_where, string_as_str(&where_body), where_w, string_as_str(&key_body),
                             proj_f, result_ty, lim_f, has_lim_use,
                             &bnd_var, nb, &mut top_bps, &mut nest_all) { return false; }
     }
@@ -5752,28 +5902,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // The inner FOLD — find/insert the row's group by a linear `__g_key` scan
     // (the MVP dedup), bump `__g_cnt` (avg-only since S4), fold each accumulator column.
     let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
-    let mut inner: ExprBlob = quote_block! {
-        let __k: #(keyt_f) = (#(key_f));
-        let mut __gi: i64 = -1i64;
-        let mut __s: i64 = 0i64;
-        // S4a early exit: `&& __gi < 0i64` stops the dedup scan at the
-        // first match. This silently changed the rule from LAST-match-wins
-        // to FIRST-match-wins — ANSWER-PRESERVING because the key vectors
-        // are push-only (remove/set/pop have zero call sites, measured by
-        // the S4 audit), so duplicates are impossible by construction and
-        // both rules select the same index. If a mutating group-key op is
-        // ever added, this line is where the invariant breaks first.
-        while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
-        if __gi < 0i64 {
-            __g_key.push(__k);
-            #(cnt_seed);
-            #(row_seed);
-            #( #seeds; )*
-            __gi = __g_key.len() - 1i64;
-        }
-        #(cnt_bump);
-        #( #folds; )*
-    };
+    let mut inner: ExprBlob = group_fold_frag(keyt_f, key_f, key_ty, cnt_seed, row_seed, &seeds, cnt_bump, &folds);
     if has_where {
         let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
         inner = quote_block! { if (#(where_f)) #(inner) };
@@ -5995,6 +6124,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
         let mut __out: Buffer<#(elem_f)> = Buffer::<#(elem_f)>::new();
         #( #bps; )*
         let mut __g_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+        #(group_index_decl(keyt_f, key_ty));
         #(cnt_decl);
         #(row_decl);
         #( #acols; )*
@@ -10064,21 +10194,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         gd = gd + 1i64;
     }
     let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
-    let mut inner: ExprBlob = quote_block! {
-        let __k: #(keyt_f) = (#(key_f));
-        let mut __gi: i64 = -1i64;
-        let mut __s: i64 = 0i64;
-        while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
-        if __gi < 0i64 {
-            __g_key.push(__k);
-            #(cnt_seed);
-            #(row_seed);
-            #( #seeds; )*
-            __gi = __g_key.len() - 1i64;
-        }
-        #(cnt_bump);
-        #( #folds; )*
-    };
+    let mut inner: ExprBlob = group_fold_frag(keyt_f, key_f, key_ty, cnt_seed, row_seed, &seeds, cnt_bump, &folds);
     if !w.is_null() {
         let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
         inner = quote_block! { if (#(where_f)) #(inner) };
@@ -10142,6 +10258,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         {
             #( #bps; )*
             let mut __g_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+            #(group_index_decl(keyt_f, key_ty));
             #(cnt_decl);
             #(row_decl);
             #( #acols; )*
