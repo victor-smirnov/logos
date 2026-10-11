@@ -939,9 +939,37 @@ fn dx_names_var(e: SExpr, v: str) -> bool {
 }
 
 // The head: `name(t1, …)` from the select. `arity` must match.
+// `select p` with `p` a row variable: the whole row, its source's index (−1
+// otherwise, and for a row with collections, whose leading column is its
+// index rather than a value).
+fn dx_whole_row(sel: SExpr, env: &DxEnv, cl: &DxClause) -> i64 {
+    match sel {
+        SExpr::Field(f) => {
+            if !f.base.any().is_null() { return -1i64; }
+            let bs: i64 = dx_var_src(cl, f.name);
+            if bs < 0i64 || env.byval[bs] { return -1i64; }
+            if env.cn[bs] > 0i64 && str_eq(env.cnames[bs][0], "__i") { return -1i64; }
+            return bs;
+        }
+        _ => { return -1i64; }
+    }
+}
+
 fn dx_head(name: str, sel: SExpr, arity: i64, env: &DxEnv, cl: &mut DxClause, out: &mut String) -> bool {
     out.push_str(name);
     out.push_str("(");
+    let wr: i64 = dx_whole_row(sel, env, cl);
+    if wr >= 0i64 && arity == env.cn[wr] {
+        // the whole row: each of its columns
+        let mut k: i64 = 0i64;
+        while k < env.cn[wr] {
+            if k > 0i64 { out.push_str(", "); }
+            match sel { SExpr::Field(f) => { dx_push_var(out, f.name, env.cnames[wr][k]); } _ => { } }
+            k = k + 1i64;
+        }
+        out.push_str(")");
+        return true;
+    }
     match sel {
         SExpr::Tuple(t) => {
             let items: SExprArr = t.items.any().view::<SExprArr>();
@@ -1108,8 +1136,10 @@ fn dx_rule_in(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out:
     cl.udf_ok = true;
     let mut hd: String = String::new();
     let mut first: bool = false;
+    let mut findm: bool = false;
     match &ru.env.mode {
-        CMode::Find => { return dx_no(cl, "query form (sort, union, comprehension, …)"); }
+        // `find P` is `where P select first <row>`: the entry only
+        CMode::Find => { if !str_eq(head, "__out") { return dx_no(cl, "query form (sort, union, comprehension, …)"); } first = true; findm = true; }
         CMode::First => { first = true; }
         CMode::All => { }
     }
@@ -1121,7 +1151,15 @@ fn dx_rule_in(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out:
     }
     if dx_opt_vars(ru).len() > 0i64 { return dx_outer_rules(p, ru, head, arity, env, out, why); }
     if !dx_core_body(p, cl, env, &ru.clause.body) { return false; }
-    if !dx_head(head, ru.clause.head.view::<SExpr>(), arity, env, cl, &mut hd) { return false; }
+    if findm {
+        let fv: str = dx_find_var(ru);
+        let si: i64 = dx_var_src(cl, fv);
+        if si < 0i64 || env.byval[si] || env.cn[si] != arity { return dx_no(cl, "find over a row outside the fragment"); }
+        hd.push_str(head); hd.push_str("(");
+        let mut k: i64 = 0i64;
+        while k < env.cn[si] { if k > 0i64 { hd.push_str(", "); } dx_push_var(&mut hd, fv, env.cnames[si][k]); k = k + 1i64; }
+        hd.push_str(")");
+    } else if !dx_head(head, ru.clause.head.view::<SExpr>(), arity, env, cl, &mut hd) { return false; }
     dx_param_atoms(cl);
     let mut c1: String = String::new();
     c1.push_str(dx_view(&hd)); c1.push_str(" :- "); c1.push_str(dx_view(&cl.body)); c1.push_str(".\n");
@@ -1167,6 +1205,17 @@ fn dx_contains(hay: str, needle: str) -> bool {
         i = i + 1i64;
     }
     return false;
+}
+
+// The row variable `find` answers: the body's first positive atom's.
+fn dx_find_var<'a>(ru: &'a CRule) -> &'a str {
+    let bs: &[CLit] = ru.clause.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < ru.clause.body.len() {
+        match &bs[i] { CLit::Atom(a) => { if !a.neg { return a.var; } } _ => { } }
+        i = i + 1i64;
+    }
+    return "";
 }
 
 fn dx_src_name<'a>(p: &'a CProgram, s: &'a CSrc) -> &'a str {
@@ -2152,7 +2201,6 @@ fn dx_scalar_ty<'a>(env: &'a DxEnv, nm: str) -> &'a str {
 
 // The entry's row vars bound (types for `.decl __out` need them).
 fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
-    match &ru.env.mode { CMode::Find => { return; } _ => { } }
     let bs: &[CLit] = ru.clause.body.as_slice();
     let mut i: i64 = 0i64;
     while i < ru.clause.body.len() {
@@ -2667,14 +2715,32 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
         r = r + 1i64;
     }
     let entry: &CRule = &p.entry;
-    let sel: WAny = match &entry.env.mode { CMode::Find => { WAny::null() } _ => { entry.clause.head } };
-    if sel.is_null() { return dx_set(why, "entry without a select"); }
+    let findm: bool = match &entry.env.mode { CMode::Find => { true } _ => { false } };
+    let sel: WAny = if findm { WAny::null() } else { entry.clause.head };
+    if sel.is_null() && !findm { return dx_set(why, "entry without a select"); }
     let mut cl0: DxClause = dx_new_clause();
     dx_entry_vars(p, entry, &env, &mut cl0);
     let mut cols: String = String::new();
     let ov: Vec<str> = dx_opt_vars(entry);
-    let arity: i64 = if ov.len() > 0i64 { dx_out_cols_o(sel.view::<SExpr>(), &env, &cl0, &ov, &mut cols) }
-                     else { dx_out_cols(sel.view::<SExpr>(), &env, &cl0, &mut cols) };
+    // `find`: the first row variable's whole row (`dx_rule_in`)
+    let mut wr: i64 = -1i64;
+    if findm {
+        wr = dx_var_src(&cl0, dx_find_var(entry));
+        if wr < 0i64 || env.byval[wr] || (env.cn[wr] > 0i64 && str_eq(env.cnames[wr][0], "__i")) {
+            return dx_set(why, "find over a row outside the fragment");
+        }
+    } else { wr = dx_whole_row(sel.view::<SExpr>(), &env, &cl0); }
+    let mut arity: i64 = 0i64;
+    if wr >= 0i64 {
+        let mut k: i64 = 0i64;
+        while k < env.cn[wr] {
+            if k > 0i64 { cols.push_str(", "); }
+            cols.push_str("c"); cols.push_i64(k); cols.push_str(": "); cols.push_str(dl_col_ty(env.ctys[wr][k]));
+            k = k + 1i64;
+        }
+        arity = env.cn[wr];
+    } else if ov.len() > 0i64 { arity = dx_out_cols_o(sel.view::<SExpr>(), &env, &cl0, &ov, &mut cols); }
+    else { arity = dx_out_cols(sel.view::<SExpr>(), &env, &cl0, &mut cols); }
     if arity < 1i64 {
         // name the cause, not the symptom: the first item without a Soufflé
         // type is either refused as a term (its own reason) or a value of a
@@ -2700,12 +2766,13 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
         }
         return dx_set(why, "output column type");
     }
-    if dx_entry_struct_result(entry) && arity > 1i64 { return dx_set(why, "struct result"); }
+    if dx_entry_struct_result(entry) && arity > 1i64 && !findm { return dx_set(why, "struct result"); }
     out.push_str(".decl __out("); out.push_str(dx_view(&cols)); out.push_str(")\n.output __out\n");
     // `first` / `limit`: Soufflé has no order, so the clause is the UNLIMITED
     // query and the gate checks Deem's rows against it as a subset (at most n
     // rows, every one in Soufflé's answer, and all of it when fewer than n)
-    let lim: DxLimit = dx_entry_limit(entry);
+    let mut lim: DxLimit = dx_entry_limit(entry);
+    if findm { lim.first = true; }
     if lim.first { out.push_str("// first\n"); }
     else if lim.has { if lim.param.len() > 0i64 { out.push_str("// limit param "); out.push_str(lim.param); }
                       else { out.push_str("// limit "); out.push_i64(lim.n); }
@@ -2715,17 +2782,26 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
     dump.push_str(ddir); dump.push_str("/deem.err\");\n            { let __od: i32 = wql_oracle_open(\"");
     // `first` answers an Option: zero or one row, the loop runs at most once
     if lim.first { dump.push_str(ddir); dump.push_str("/deem.out\"); if __ov.is_some() { let __orow = __ov.as_ref().unwrap(); "); }
+    // (a whole row may be the source slice itself — an identity projection —
+    // which indexes, as a Vec does)
+    else if wr >= 0i64 { dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = &__ov[__oi]; "); }
     else { dump.push_str(ddir); dump.push_str("/deem.out\"); let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.borrow(__oi); "); }
-    let sel0: SExpr = sel.view::<SExpr>();
     let mut a: i64 = 0i64;
     while a < arity {
-        let item: SExpr = if arity == 1i64 { sel0 } else { dx_tuple_item(sel0, a) };
-        let kd: str = dx_item_kind(item, &env, &cl0, &ov);
+        let mut ox: String = String::new();
+        let mut kd: str = "";
+        if wr >= 0i64 {
+            // a whole row: its fields, by name
+            ox.push_str("(*__orow)."); ox.push_str(env.cnames[wr][a]);
+            kd = dx_kind(env.ctys[wr][a]);
+        } else {
+            let item: SExpr = if arity == 1i64 { sel.view::<SExpr>() } else { dx_tuple_item(sel.view::<SExpr>(), a) };
+            kd = dx_item_kind(item, &env, &cl0, &ov);
+            if arity == 1i64 { ox.push_str("(*__orow)"); }
+            else { ox.push_str("(__orow)."); ox.push_i64(a); }
+        }
         if kd.len() == 0i64 { return dx_set(why, "output column type"); }
         if a > 0i64 { dump.push_str("wql_oracle_tab(__od); "); }
-        let mut ox: String = String::new();
-        if arity == 1i64 { ox.push_str("(*__orow)"); }
-        else { ox.push_str("(__orow)."); ox.push_i64(a); }
         dx_cell(dump, kd, dx_view(&ox));
         a = a + 1i64;
     }
@@ -2735,11 +2811,16 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
     incsnap.push_str("{ let mut __oi: i64 = 0i64; while __oi < __ov.len() { let __orow = __ov.borrow(__oi); ");
     let mut a2: i64 = 0i64;
     while a2 < arity {
-        let item2: SExpr = if arity == 1i64 { sel0 } else { dx_tuple_item(sel0, a2) };
         if a2 > 0i64 { incsnap.push_str("wql_oracle_tab(__od); "); }
         let mut ox2: String = String::new();
-        if arity == 1i64 { ox2.push_str("(*__orow)"); } else { ox2.push_str("(__orow)."); ox2.push_i64(a2); }
-        dx_cell(incsnap, dx_item_kind(item2, &env, &cl0, &ov), dx_view(&ox2));
+        if wr >= 0i64 {
+            ox2.push_str("(*__orow)."); ox2.push_str(env.cnames[wr][a2]);
+            dx_cell(incsnap, dx_kind(env.ctys[wr][a2]), dx_view(&ox2));
+        } else {
+            let item2: SExpr = if arity == 1i64 { sel.view::<SExpr>() } else { dx_tuple_item(sel.view::<SExpr>(), a2) };
+            if arity == 1i64 { ox2.push_str("(*__orow)"); } else { ox2.push_str("(__orow)."); ox2.push_i64(a2); }
+            dx_cell(incsnap, dx_item_kind(item2, &env, &cl0, &ov), dx_view(&ox2));
+        }
         a2 = a2 + 1i64;
     }
     incsnap.push_str("wql_oracle_nl(__od); __oi = __oi + 1i64; } }\n");
