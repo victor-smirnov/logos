@@ -7577,6 +7577,16 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             error(std::format("call to '{}': expected {} args, got {}",
                   callee_diag, fi.param_types.size(), n_args));
         } else {
+            // The callee's region binders instantiated at THIS call (the receiver's
+            // region for a cloned default method's `impl<'a, T> … for VecIter<'a, T>`),
+            // for the variance check below — one map, as the return type's.
+            StrMap<std::string> call_lts_;
+            {
+                std::vector<TypeRef> spts_;
+                for (auto p0 : fi.param_types) spts_.push_back(subst_type_sema(p0, subst));
+                call_lts_ = build_call_lt_subst_(spts_, call_region_binders_(fi.lifetime_params, fi.param_types, fi.ret_type),
+                                                 arg_exprs, fi.ret_type);
+            }
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], subst);
                 expect_arg_(arg_exprs[i], pt,
@@ -7619,7 +7629,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     !(TypeRef(fi.param_types[i]).kind() == LogosType::Kind::TypeVar &&
                       !written_tparams.count(std::string(TypeRef(fi.param_types[i]).type_var_name())) &&
                       TypeRef(at).kind() == LogosType::Kind::Ref && covariant_regions_only(at)))
-                    check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
+                    check_variance(at, call_lts_.empty() ? pt : subst_type_sema(fi.param_types[i], subst, call_lts_),
+                                   std::format("call to '{}' arg {}", callee_diag, i + 1));
             }
         }
     }
