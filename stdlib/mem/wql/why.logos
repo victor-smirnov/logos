@@ -147,6 +147,7 @@ pub fn WG_MAX_CAND() -> i32     { return 20i32; }
 pub fn WG_REFUSED() -> i32      { return 21i32; }
 pub fn WG_ADMITTED() -> i32     { return 22i32; }
 pub fn WG_DEFERRED() -> i32     { return 23i32; }
+pub fn WG_OUTER() -> i32        { return 24i32; }   // the chain has an outer join
 
 // ⚠ `why_axis_of(g)` USED TO LIVE HERE AND IS DELIBERATELY GONE. There is no
 // function from a ground to a state, because there is no such function to write:
@@ -358,6 +359,9 @@ pub fn wg_words(g: i32) -> str {
     if g == WG_ANTI_FIRST() {
         return "an anti join is not symmetric: the rows of the base with no match are a different question from the rows of the step with no match";
     }
+    if g == WG_OUTER() {
+        return "the chain has an outer join: which side keeps its unmatched rows is fixed by the written order, so no other order answers the same question";
+    }
     if g == WG_NO_SORT() {
         return "the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order";
     }
@@ -389,6 +393,9 @@ pub fn wg_words(g: i32) -> str {
 pub fn wg_remedy(g: i32) -> str {
     if g == WG_EDGE_FIRST() {
         return "a traversal cannot lead: the remedy is a query whose first step is a classic join, with the traversal deeper in the chain where its base is already bound";
+    }
+    if g == WG_OUTER() {
+        return "there is no repair on this axis — an outer join's kept side is what the query asked for; joining the inner steps first, in a rel, leaves a chain the axis can reorder";
     }
     if g == WG_ANTI_FIRST() {
         return "there is no repair on this axis — an anti join's asymmetry is what the query ASKED for, and transposing it would answer a different question. Moving the anti join off the first step (a classic join first) leaves a pair the axis can reason about";

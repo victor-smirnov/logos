@@ -1,0 +1,1 @@
+wql!: rel 'r' column 'w': `Option<f64>` does not implement `Eq` and `Hash`

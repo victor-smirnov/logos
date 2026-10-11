@@ -223,7 +223,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // prints it.
     let rq: RQProgram = root.view::<RQProgram>();
     if rq.entry_any().is_null() { error("wql!: missing entry query"); return out; }
-    let mut core: CProgram = lower_program(root);
+    let mut core: CProgram = lower_program(root, &h);
     let mut fu: i64 = 0i64;
     while fu < fu_old.len() { core_fuse(&mut core, fu_lo[fu], fu_hi[fu], fu_old[fu], fu_new[fu]); fu = fu + 1i64; }
     let mut gperr: String = String::new();

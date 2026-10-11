@@ -1,0 +1,32 @@
+// A `rel` block column of a GENERIC type (#744): `Option<i64>` and an alias
+// of a generic type (`ONote`) — declared inline as in Rust, and carried in its own type (the alias registers under the type it
+// stands for). Rows: hand-derived.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+
+pub type ONote = Option<i64>;
+struct Item { pub id: i64, pub note: Option<i64> }
+
+// None joins None, Some(7) joins Some(7); a row never joins itself (a.id < b.id)
+pub deem same(xs: &[Item]) {
+    rel r(id: i64, note: Option<i64>) { from xs e select (e.id, e.note); }
+    from r a join r b on a.note == b.note where a.id < b.id select (a.id, b.id) order by a.id * 10 + b.id
+}
+// the alias column
+pub deem aliased(xs: &[Item]) {
+    rel q(id: i64, note: ONote) { from xs e where e.id > 2 select (e.id, e.note); }
+    from q x select x.id order by x.id
+}
+
+fn main() -> i32 {
+    let xs: [Item; 4] = [ Item { id: 1, note: Option::Some(7i64) }, Item { id: 2, note: Option::None },
+                          Item { id: 3, note: Option::Some(7i64) }, Item { id: 4, note: Option::None } ];
+    let s: Vec<(i64, i64)> = same(&xs[..]).unwrap();
+    if s.len() != 2i64 || s.get(0i64).0 != 1i64 || s.get(0i64).1 != 3i64 || s.get(1i64).0 != 2i64 || s.get(1i64).1 != 4i64 { return 1i32; }
+    let q: Vec<i64> = aliased(&xs[..]).unwrap();
+    if q.len() != 2i64 || q.get(0i64) != 3i64 || q.get(1i64) != 4i64 { return 3i32; }
+    return 0i32;
+}

@@ -179,9 +179,9 @@
     // fields and cap is 9 — `peg_schema_mirror_wql` holds the two equal. A
     // TinyObjectMap's capacity is fixed at construction, so the parser must size
     // for writes it never makes.
-    RQJoinStep    : code(0x0012_0000_0000_0012) cap(9) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
+    RQJoinStep    : code(0x0012_0000_0000_0012) cap(10) { is_anti: "bool" = 3, src_name: "str" = 0, var_name: "str" = 1, on: "ref SExpr" = 4,
                     is_edge: "bool" = 5, has_on: "bool" = 6, base_var: "str" = 7,
-                    path: "ref RQPathSegArr" = 8 }
+                    path: "ref RQPathSegArr" = 8, outer: "i32" = 9 }
     RQJoinStepArr : code(0x0012_0000_0000_0013) cap(2) { count: "i32" = 0, steps: "list set_step" = 1 }
 
     // ── graph-path steps (ADR 0016 M2a) ───────────────────────────────────
@@ -200,7 +200,11 @@
     // fixed at construction, so the parser must size for writes it never makes.
     RQProgram     : code(0x0012_0000_0000_0019) cap(6) { rels: "ref RQRelArr" = 0, entry: "ref RQuery" = 1 }
     RQRel         : code(0x0012_0000_0000_0016) cap(3) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2 }
-    RQRelCol      : code(0x0012_0000_0000_0014) cap(2) { name: "str" = 0, ty_name: "str" = 1 }
+    RQRelCol      : code(0x0012_0000_0000_0014) cap(3) { name: "str" = 0, ty_name: "str" = 1, ty: "ref RQTy" = 2 }
+    // A column TYPE beyond one identifier (#744): `Head<A, B>` (name + args) or a
+    // tuple `(A, B)` (no name, args); the handler renders it into `ty_name`.
+    RQTy          : code(0x0012_0000_0000_0020) cap(3) { name: "str" = 0, args: "ref RQTyArr" = 1, tuple: "bool" = 2 }
+    RQTyArr       : code(0x0012_0000_0000_0021) cap(2) { count: "i32" = 0, items: "list set_item" = 1 }
     RQRelColArr   : code(0x0012_0000_0000_0015) cap(2) { count: "i32" = 0, cols: "list set_col" = 1 }
     RQRelArr      : code(0x0012_0000_0000_0017) cap(2) { count: "i32" = 0, rels: "list set_rel" = 1 }
     RQBodyArr     : code(0x0012_0000_0000_0018) cap(2) { count: "i32" = 0, bodies: "list set_body" = 1 }
@@ -216,6 +220,8 @@
     KW_WHERE     = "where"
     KW_SELECT    = "select"
     KW_ANTI      = "anti"
+    KW_LEFT      = "left"
+    KW_FULL      = "full"
     KW_JOIN      = "join"
     KW_ON        = "on"
     KW_GROUP     = "group"
@@ -243,6 +249,8 @@
     STAR     = "*"
     LBRACK   = "["
     RBRACK   = "]"
+    LT       = "<"
+    GT       = ">"
 
     INTEGER = /[0-9]+/
     IDENT = /[a-zA-Z_][a-zA-Z0-9_]*/
@@ -278,11 +286,24 @@
     // The rel list (≥ 1) → RQRelArr fan-out (the join_steps pattern).
     rel_list <- rel_block rel_block* => { CODE: "RQRelArr", rels: $... }
 
-    // One declared column: `name: ty` (ty ∈ i64/str/bool — walker-checked;
-    // f64 is rejected there: set semantics require Eq).
-    //   $1=IDENT(name) $2=COLON $3=IDENT(ty)
-    rel_col  <- IDENT COLON IDENT
+    // One declared column: `name: ty` — any `Eq + Hash` type (walker-checked).
+    // A plain identifier is the type's name; a generic instantiation
+    // `Option<i64>` or a tuple `(i64, str)` is a type node the handler renders
+    // into the same spelling (#744).
+    //   $1=IDENT(name) $2=COLON $3=IDENT(ty)   |   $3=rel_ty
+    rel_col  <- IDENT COLON IDENT !LT
                 => { CODE: "RQRelCol", name: $1, ty_name: $3 }
+              / IDENT COLON rel_ty
+                => { CODE: "RQRelCol", name: $1, ty: $3 }
+
+    // A column type: `Head<A, …>`, `(A, B, …)` or a plain name.
+    rel_ty   <- IDENT LT rel_tys GT
+                => { CODE: "RQTy", name: $1, args: $3 }
+              / LPAREN rel_tys RPAREN
+                => { CODE: "RQTy", args: $2, tuple: $1 }
+              / IDENT
+                => { CODE: "RQTy", name: $1 }
+    rel_tys  <- rel_ty ( COMMA rel_ty )* => { CODE: "RQTyArr", items: $... }
 
     // The column list (≥ 1) → RQRelColArr fan-out.
     rel_cols <- rel_col ( COMMA rel_col )* => { CODE: "RQRelColArr", cols: $... }
@@ -503,6 +524,22 @@
                 / KW_ANTI? KW_JOIN IDENT IDENT
                   KW_ON on_body
                   => { CODE: "RQJoinStep", is_anti: $1, src_name: $3,
+                       var_name: $4, on: $6, has_on: true, is_edge: false }
+                // OUTER joins: `left join` keeps every row so far and binds the
+                // new var to its matches or to NONE (its columns read as
+                // `Option<T>` after the step); `full join` also keeps the new
+                // source's unmatched rows. outer = 1 left / 2 full.
+                / KW_LEFT KW_JOIN IDENT path_segs IDENT
+                  on_clause?
+                  => { CODE: "RQJoinStep", outer: 1, base_var: $3, path: $4,
+                       var_name: $5, on: $6, has_on: $6, is_edge: true }
+                / KW_LEFT KW_JOIN IDENT IDENT
+                  KW_ON on_body
+                  => { CODE: "RQJoinStep", outer: 1, src_name: $3,
+                       var_name: $4, on: $6, has_on: true, is_edge: false }
+                / KW_FULL KW_JOIN IDENT IDENT
+                  KW_ON on_body
+                  => { CODE: "RQJoinStep", outer: 2, src_name: $3,
                        var_name: $4, on: $6, has_on: true, is_edge: false }
 
     // `on P` — the traversal step's OPTIONAL residual (value = the SExpr, $2).

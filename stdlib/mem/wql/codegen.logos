@@ -313,6 +313,9 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
             // A builtin's value is its class's representative; a user fn's is its
             // declared return type (E4.5).
             let bfn: i32 = builtin_of_name(c.fn_name);
+            if bfn == BFN_UNWRAP_OR() && c.args_arr().len() == 2i64 {
+                return el_option_inner(infer_ty_name(c.args_arr().arg_at(0i64), t));
+            }
             if bfn != BFN_UNKNOWN() { return el_class_repr(builtin_ret_ty(bfn)); }
             let ui: i64 = t.udf_find(c.fn_name);
             if ui >= 0i64 {
@@ -598,6 +601,10 @@ pub fn field_ty_name(f: SField, t: &ElTypes) -> str {
     if base_ref.any().is_null() { return ""; }   // a BARE name, not a step
     let be: SExpr = f.base_expr();
     let rn: str = root_ident_name(be);
+    if rn.len() > 0i64 && t.opt_is_live(rn) {
+        let ok: i64 = t.ov_find(rn, f.name);
+        if ok >= 0i64 { return t.ov_ty[ok].as_str(); }
+    }
     if rn.len() > 0i64 {
         let rc: str = t.rel_col_ty_name(rn, f.name);
         if rc.len() > 0i64 || !is_index_name(f.name) { return rc; }
@@ -1814,6 +1821,12 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 // 1-COLUMN rel stores SCALAR rows — its (only) column reads the
                 // whole row through the binding: `(*s)`.
                 let rn: str = root_ident_name(be);
+                // An OUTER join's optional var: its step bound the field to a
+                // local `Option<T>` (`__ov_<var>_<col>`), Some on a match.
+                if rn.len() > 0i64 && t.opt_is_live(rn) {
+                    let ok: i64 = t.ov_find(rn, name);
+                    if ok >= 0i64 { out.push_str(t.ov_local[ok].as_str()); return; }
+                }
                 if rn.len() > 0i64 {
                     if t.rel_col_ty(rn, name) >= 0i32 {
                         let k: i64 = t.rel_col_of(rn, name);
@@ -2020,6 +2033,21 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
         out.push_str(").len())");
         return;
     }
+    if bfn == BFN_IS_SOME() || bfn == BFN_IS_NONE() {
+        out.push_str("((");
+        emit_sexpr(out, args.arg_at(0i64), t, var);
+        out.push_str(if bfn == BFN_IS_SOME() { ").is_some())" } else { ").is_none())" });
+        return;
+    }
+    if bfn == BFN_UNWRAP_OR() {
+        let inner: str = el_option_inner(infer_ty_name(args.arg_at(0i64), t));
+        out.push_str("((");
+        emit_sexpr(out, args.arg_at(0i64), t, var);
+        out.push_str(").unwrap_or(");
+        emit_sexpr_as(out, args.arg_at(1i64), t, var, inner);
+        out.push_str("))");
+        return;
+    }
     if bfn == BFN_UPPER() || bfn == BFN_LOWER() {
         if bfn == BFN_UPPER() { out.push_str("logos.std.wql.el::wql_upper("); }
         else                  { out.push_str("logos.std.wql.el::wql_lower("); }
@@ -2156,7 +2184,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     m.push_str(ctx);
                     m.push_str(": unknown function '");
                     m.push_str(name);
-                    m.push_str("' — EL builtins are len/upper/lower/contains/starts_with; a user function must be a top-level fn declared in the module containing the query (imported fns are not visible to reflection)");
+                    m.push_str("' — EL builtins are len/upper/lower/contains/starts_with/is_some/is_none/unwrap_or; a user function must be a top-level fn declared in the module containing the query (imported fns are not visible to reflection)");
                     ty_error(t, e, string_as_str(&m));
                     return false;
                 }
@@ -2189,6 +2217,18 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                 // declared type and there is no normalization to survive (E4.5;
                 // pass/wql_udf_wide_ret_e2e).
             } else {
+                if (bfn == BFN_IS_SOME() || bfn == BFN_IS_NONE() || bfn == BFN_UNWRAP_OR()) && argc >= 1i64
+                   && el_option_inner(infer_ty_name(args.arg_at(0i64), t)).len() == 0i64 {
+                    let mut mo: String = String::new();
+                    mo.push_str(ctx);
+                    mo.push_str(": builtin '");
+                    mo.push_str(name);
+                    mo.push_str("' takes an `Option<T>` (an outer join's optional column, or an Option column), and its argument is `");
+                    mo.push_str(infer_ty_name(args.arg_at(0i64), t));
+                    mo.push_str("`");
+                    ty_error(t, e, string_as_str(&mo));
+                    return false;
+                }
                 if argc != builtin_arity(bfn) {
                     let mut m4: String = String::new();
                     m4.push_str(ctx);

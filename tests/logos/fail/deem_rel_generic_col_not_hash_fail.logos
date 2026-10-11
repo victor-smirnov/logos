@@ -1,0 +1,12 @@
+// A rel column's type must be `Eq + Hash` (a rel is a set) — through generic
+// arguments too: `Option<f64>` is not, because `f64` is not (#744).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+struct Item { pub id: i64, pub w: Option<f64> }
+pub deem bad(xs: &[Item]) {
+    rel r(id: i64, w: Option<f64>) { from xs e select (e.id, e.w); }
+    from r x select x.id
+}
+fn main() -> i32 { return 0i32; }

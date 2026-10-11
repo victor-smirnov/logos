@@ -454,6 +454,8 @@ pub struct DNest {
     pub ty:   Vec<str>,
     pub var:  Vec<str>,
     pub anti: Vec<bool>,
+    /// 0 inner, `core::OUTER_LEFT`, `core::OUTER_FULL` (its `on` in `onw`, as an anti step's).
+    pub outer: Vec<i32>,
     pub onw:  Vec<i64>,     // raw arena words of the per-step on-pred edges (0 = none)
     pub edge:  Vec<bool>,
     pub byval: Vec<bool>,
@@ -465,7 +467,7 @@ pub struct DNest {
 pub fn dnest_new() -> DNest {
     return DNest { base_src: "", base_ty: "", base_var: "", n: 0i64,
                     src: Vec::<str>::new(), ty: Vec::<str>::new(), var: Vec::<str>::new(),
-                    anti: Vec::<bool>::new(), onw: Vec::<i64>::new(), edge: Vec::<bool>::new(),
+                    anti: Vec::<bool>::new(), outer: Vec::<i32>::new(), onw: Vec::<i64>::new(), edge: Vec::<bool>::new(),
                     byval: Vec::<bool>::new(), jstrat: Vec::<i32>::new(), jsel: Vec::<i64>::new(),
                     jground: Vec::<i64>::new() };
 }
@@ -474,6 +476,7 @@ pub fn dnest_new() -> DNest {
 pub fn dn_push(ch: &mut DNest, src: str, ty: str, var: str, anti: bool, onw: i64, edge: bool,
            byval: bool, jstrat: i32, jsel: i64, jground: i64) {
     ch.src.push(src); ch.ty.push(ty); ch.var.push(var); ch.anti.push(anti); ch.onw.push(onw);
+    ch.outer.push(0i32);
     ch.edge.push(edge); ch.byval.push(byval); ch.jstrat.push(jstrat); ch.jsel.push(jsel);
     ch.jground.push(jground);
     ch.n = ch.n + 1i64;
@@ -503,15 +506,17 @@ pub fn plan_nest(cl: &CClause) -> DNest {
                 if i == 0i64 {
                     ch.base_src = a.name; ch.base_ty = a.row_ty; ch.base_var = a.var;
                 } else {
-                    let onw: i64 = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                    let onw: i64 = if a.neg || a.outer != 0i32 { if a.conds.len() > 0i64 { a.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
                     dn_push(&mut ch, a.name, a.row_ty, a.var, a.neg, onw, false, false,
                             a.strat, a.jsel as i64, a.ground);
+                    ch.outer[ch.n - 1i64] = a.outer;
                 }
             }
             CLit::Trav(t) => {
-                let eon: i64 = if t.neg { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
+                let eon: i64 = if t.neg || t.outer != 0i32 { if t.conds.len() > 0i64 { t.conds.get(0i64).raw() } else { 0i64 } } else { next_on };
                 dn_push(&mut ch, t.name, t.row_ty, t.var, t.neg, eon, true,
                         el_ret_class(t.row_ty) >= 0i32, 0i32, -1i64, 0i64);
+                ch.outer[ch.n - 1i64] = t.outer;
             }
             CLit::Cond(_c) => { }
         }
@@ -691,8 +696,14 @@ pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
 /// key differently. Later steps are left `JS_NONE`; `plan_insert_drains` reads
 /// that as "not proven read-once" and drains the step's source on
 /// `MG_UNDECIDED`.
+fn core_base_var_of(cl: &CClause) -> str {
+    if cl.body.len() < 1i64 { return ""; }
+    match &cl.body.as_slice()[0i64] { CLit::Atom(a) => { return a.var; } CLit::Trav(t) => { return t.var; } CLit::Cond(_c) => { return ""; } }
+}
+
 pub fn plan_decide_clause(prm: &MacroParams, view: &OView, cl: &mut CClause, h: &Writ, full: bool) {
     let t: ElTypes = type_clause(view, prm, cl, !full);
+    let bvar: String = String::from_str(core_base_var_of(cl));
     let n: i64 = cl.body.len();
     let mut i: i64 = 1i64;
     while i < n {
@@ -708,8 +719,12 @@ pub fn plan_decide_clause(prm: &MacroParams, view: &OView, cl: &mut CClause, h: 
         match &mut cl.body[i] {
             CLit::Atom(a) => {
               if a.strat == JS_NONE() {
-                let on: WAny = if a.neg { if a.conds.len() > 0i64 { a.conds.get(0i64) } else { WAny::null() } } else { next_on };
-                let ss: StepSel = decide_join_step(WRef::<SExpr>::from_any(on), a.var, &t, h);
+                let on: WAny = if a.neg || a.outer != 0i32 { if a.conds.len() > 0i64 { a.conds.get(0i64) } else { WAny::null() } } else { next_on };
+                // an outer step's own `on` reads its var present
+                let mut tp: ElTypes = el_types_clone(&t);
+                if a.outer != 0i32 { tp.opt_set_live(a.var, false); }
+                if a.outer == OUTER_FULL() { tp.opt_set_live(string_as_str(&bvar), false); }
+                let ss: StepSel = decide_join_step(WRef::<SExpr>::from_any(on), a.var, &tp, h);
                 a.strat = ss.strat;
                 a.jsel  = ss.sel as i32;
                 a.ground = jg_pack(&ss.g);
@@ -737,7 +752,7 @@ fn lit_copy(l: &CLit) -> CLit {
             let mut k: i64 = 0i64;
             while k < a.conds.len() { cs.push(a.conds.get(k)); k = k + 1i64; }
             let src: CSrc = match &a.src { CSrc::Rel(x) => CSrc::Rel(*x), CSrc::Param(n) => CSrc::Param(*n), CSrc::Unit => CSrc::Unit };
-            return CLit::Atom(CAtom { src: src, reg: a.reg, name: a.name, var: a.var, row_ty: a.row_ty, neg: a.neg,
+            return CLit::Atom(CAtom { src: src, reg: a.reg, name: a.name, var: a.var, row_ty: a.row_ty, neg: a.neg, outer: a.outer,
                                       conds: cs, strat: 0i32, jsel: -1i32, ground: 0i64 });
         }
         CLit::Trav(t) => {
@@ -747,7 +762,7 @@ fn lit_copy(l: &CLit) -> CLit {
             let mut path: Vec<str> = Vec::<str>::new();
             let mut k3: i64 = 0i64;
             while k3 < t.path.len() { path.push(t.path.get(k3)); k3 = k3 + 1i64; }
-            return CLit::Trav(CTrav { name: t.name, base: t.base, path: path, var: t.var, row_ty: t.row_ty, neg: t.neg, conds: cs2 });
+            return CLit::Trav(CTrav { name: t.name, base: t.base, path: path, var: t.var, row_ty: t.row_ty, neg: t.neg, outer: t.outer, conds: cs2 });
         }
         CLit::Cond(c) => {
             let site: CSite = match &c.site { CSite::Where => CSite::Where, CSite::On => CSite::On };
