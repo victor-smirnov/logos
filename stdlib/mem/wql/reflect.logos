@@ -739,6 +739,44 @@ pub fn fn_ret_type_name(view: &OView, decl: WAny) -> str {
     return sview_str(view.ast_node_name(rt));
 }
 
+// A UDF the Soufflé oracle can read: every parameter a Copy value of a
+// Soufflé type, the return such a value or a `String`. `out` gets one dump
+// kind per parameter, then the return's ('i' an integer of at most 64 bits
+// other than u64, 'b' bool, 's' str, 'U' u64 / usize, 'S' String — return
+// only). One predicate for both sides: the oracle build's call log
+// (`codegen::emit_udf_call`) and the relation the exporter reads
+// (`dl_export`), so a call is logged exactly when the export reads it.
+pub fn udf_oracle_kinds(view: &OView, name: str, out: &mut String) -> bool {
+    if view.holder == (0 as *mut u8) { return false; }
+    let decl: WAny = find_fn_decl(view, name);
+    if decl.is_null() { return false; }
+    let params: WAny = view.tiny_map_get(decl, 4 as u8);    // PARAMS = 4
+    let n: i64 = fn_param_count(view, decl);
+    let mut i: i64 = 0i64;
+    while i < n {
+        let inner: WAny = view.tiny_map_get(params, 2 as u8);   // ITEMS = 2
+        let p: WAny = view.array_get(inner, i as u64);
+        let k: str = udf_oracle_kind(resolve_alias_name(view, sview_str(view.ast_field_type_name(p))));
+        if k.len() == 0i64 || str_eq(k, "S") { return false; }
+        out.push_str(k);
+        i = i + 1i64;
+    }
+    let rk: str = udf_oracle_kind(resolve_alias_name(view, fn_ret_type_name(view, decl)));
+    if rk.len() == 0i64 { return false; }
+    out.push_str(rk);
+    return true;
+}
+
+fn udf_oracle_kind(tn: str) -> str {
+    if str_eq(tn, "bool") { return "b"; }
+    if str_eq(tn, "str") || str_eq(tn, "&str") { return "s"; }
+    if str_eq(tn, "String") { return "S"; }
+    if str_eq(tn, "u64") || str_eq(tn, "usize") { return "U"; }
+    if str_eq(tn, "isize") || str_eq(tn, "i64") || str_eq(tn, "i32") || str_eq(tn, "i16") || str_eq(tn, "i8")
+       || str_eq(tn, "u32") || str_eq(tn, "u16") || str_eq(tn, "u8") { return "i"; }
+    return "";
+}
+
 // Register EVERY top-level `fn` of the trigger module as a UDF-table entry
 // (name → {return EL class, return type name, arity}) so the shared codegen
 // (emit_call / infer_ty / returns_string / check_calls) can resolve

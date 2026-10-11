@@ -18,6 +18,8 @@ use logos.lang.writ.anyval;
 use logos.lang.writ.wstring;   // WAny::as_wstr (string-literal payloads)
 use logos.std.wql.ir;
 use logos.std.wql.el;          // ElTypes, EL_TY_*, OP_*
+use logos.std.wql.reflect;     // udf_oracle_kinds (an oracle build's UDF call log)
+use logos.std.wql.oracle_rt;   // oracle_cell_text
 use logos.mem.string;
 use logos.lang.str;
 // ── LOAD-CLOSURE ANCHORS, not this module's own dependencies ──────────────
@@ -2104,6 +2106,40 @@ fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
     // The call's value is the fn's own RETURN TYPE (E4.5): no normalizing cast.
     // It used to be `as i64` for every non-canonical integer (and `as f64` for
     // f32), which reinterpreted a u64 result and was refused for u128.
+    //
+    // AN ORACLE BUILD (`LOGOS_DEEM_ORACLE=<dir>`) LOGS THE CALL: the arguments,
+    // evaluated once, and the answer, as one row of `<dir>/udf_<name>.facts` —
+    // the relation the Soufflé export reads for this fn (`dl_export`). The fn is
+    // never called a second time, so what it observes does not change.
+    let mut odir: String = String::new();
+    let mut ks: String = String::new();
+    if udf_oracle_dir(&mut odir) && udf_oracle_kinds(&oview_module_ast(), name, &mut ks) {
+        out.push_str("{ ");
+        let mut j: i64 = 0i64;
+        while j < argc {
+            out.push_str("let __ua"); out.push_i64(j); out.push_str(" = ");
+            emit_sexpr(out, args.arg_at(j), t, var);
+            out.push_str("; ");
+            j = j + 1i64;
+        }
+        out.push_str("let __ur = "); out.push_str(name); out.push_str("(");
+        j = 0i64;
+        while j < argc { if j > 0i64 { out.push_str(", "); } out.push_str("__ua"); out.push_i64(j); j = j + 1i64; }
+        out.push_str("); let __od: i32 = wql_oracle_append(\"");
+        out.push_str(string_as_str(&odir)); out.push_str("/udf_"); out.push_str(name); out.push_str(".facts\"); ");
+        let kv: str = string_as_str(&ks);
+        j = 0i64;
+        while j <= argc {
+            if j > 0i64 { out.push_str("wql_oracle_tab(__od); "); }
+            let mut ex: String = String::new();
+            if j < argc { ex.push_str("__ua"); ex.push_i64(j); } else { ex.push_str("__ur"); }
+            let kj: str = unsafe { str_from_raw(((kv.as_ptr() as i64) + j) as *const u8, 1i64) };
+            oracle_cell_text(out, kj, string_as_str(&ex));
+            j = j + 1i64;
+        }
+        out.push_str("wql_oracle_nl(__od); wql_oracle_close(__od); __ur }");
+        return;
+    }
     out.push_str(name);
     out.push_str("(");
     let mut i: i64 = 0i64;
@@ -2113,6 +2149,19 @@ fn emit_udf_call(out: &mut String, name: str, args: SExprArr, argc: i64,
         i = i + 1i64;
     }
     out.push_str(")");
+}
+
+// `LOGOS_DEEM_ORACLE`'s directory, when this is an oracle build.
+fn udf_oracle_dir(out: &mut String) -> bool {
+    let mut ev: String = String::new();
+    ev.push_str("LOGOS_DEEM_ORACLE");
+    ev.push_u8(0u8);
+    let dir: *const u8 = unsafe { getenv(ev.as_ptr()) };
+    if dir == 0 as *const u8 { return false; }
+    let mut dl: i64 = 0i64;
+    while unsafe { *(((dir as i64) + dl) as *const u8) } != 0u8 { dl = dl + 1i64; }
+    out.push_str(unsafe { str_from_raw(dir, dl) });
+    return true;
 }
 
 // True iff `e` is (or contains at its root) a call to an unknown function or one

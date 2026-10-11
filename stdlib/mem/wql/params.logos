@@ -391,6 +391,9 @@ pub struct MacroParams {
     pub oracle_dir: String,
     pub oracle_inc_rows: String,
     pub oracle_inc_snap: String,
+    // An oracle build at all (set by `dl_export` whether or not the program is
+    // in the fragment): the emitted UDF calls log what they answered.
+    pub oracle_on: bool,
 }
 
 pub fn macro_params_new() -> MacroParams {
@@ -470,6 +473,7 @@ pub fn macro_params_new() -> MacroParams {
         oracle_dir: String::new(),
         oracle_inc_rows: String::new(),
         oracle_inc_snap: String::new(),
+        oracle_on: false,
     };
 }
 
@@ -582,7 +586,7 @@ impl MacroParams {
             } else { it = it + 1i64; }
         }
         // The oracle's runtime helpers, last, and only in an oracle build.
-        if self.oracle_dump.len() > 0i64 && seen == k { return "logos.std.wql.oracle_rt"; }
+        if (self.oracle_dump.len() > 0i64 || self.oracle_on) && seen == k { return "logos.std.wql.oracle_rt"; }
         return "";
     }
 

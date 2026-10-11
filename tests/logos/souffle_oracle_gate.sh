@@ -42,6 +42,14 @@
 # skipped and counted, for the batch path's reason. An Ok retraction that drives
 # a count below zero is a disagreement in itself.
 #
+# USER-DEFINED FUNCTIONS. An oracle build logs every call of a UDF whose
+# parameters are Copy values of a Soufflé type (`reflect::udf_oracle_kinds`):
+# arguments evaluated once, then the answer, one row of `<dir>/udf_<f>.facts`
+# (`codegen::emit_udf_call`); the export reads the call as the atom
+# `udf_<f>(args…, v)` of that relation. The fn is never called again, so what
+# it observes does not change; a Soufflé that needs a value Deem never computed
+# finds no tuple and loses the row — a disagreement, never a silent pass.
+#
 # ⚠ THE POPULATION IS PINNED FROM BELOW. A change that pushes programs out of
 # the fragment would make the gate compare less and stay green; COMPARED_FLOOR
 # turns that into a red. Raise it when the population grows.
@@ -54,10 +62,10 @@ NSHARDS="${4:-1}"
 # wrapper; the oracle is the system Soufflé (2.5, 64-bit word = Deem's i64).
 SOUFFLE="${SOUFFLE:-/usr/bin/souffle}"
 # per shard (index = SHARD), measured; raise when the population grows
-COMPARED_FLOORS=(155 65 75 118)  # 2026-10-11, + one outer join per entry (left / full, Option as Soufflé's ADT) and Option<T> columns: 413 compared in all (2026-10-09: 150 62 68 106, + tuple group keys / `key.N` / stratified aggregate rels in the export: 386 compared in all (2026-10-04: 142 55 47 91)
-ROWS_FLOORS=(2195 210 179 348)   # 2026-10-11 (2026-10-09: 2175 197 156 311; 2026-10-04: 2159 177 119 254)
+COMPARED_FLOORS=(165 67 97 121)  # 2026-10-11, + UDF calls read as the relation of the calls an oracle build logged: 450 compared in all (earlier 2026-10-11: 155 65 75 118, + one outer join per entry (left / full, Option as Soufflé's ADT) and Option<T> columns: 413 compared in all (2026-10-09: 150 62 68 106, + tuple group keys / `key.N` / stratified aggregate rels in the export: 386 compared in all (2026-10-04: 142 55 47 91)
+ROWS_FLOORS=(2250 240 288 353)   # 2026-10-11 UDF (outer join: 2195 210 179 348; 2026-10-09: 2175 197 156 311; 2026-10-04: 2159 177 119 254)
 LIMITED_FLOORS=(6 5 9 4)      # first/limit checked as subsets, 24 in all
-ISNAP_FLOORS=(102 29 35 59)    # incremental snapshots, 225 in all
+ISNAP_FLOORS=(102 29 36 59)    # incremental snapshots, 225 in all
 COMPARED_FLOOR="${COMPARED_FLOORS[$SHARD]:-0}"
 ISNAP_FLOOR="${ISNAP_FLOORS[$SHARD]:-0}"
 ROWS_FLOOR="${ROWS_FLOORS[$SHARD]:-0}"
