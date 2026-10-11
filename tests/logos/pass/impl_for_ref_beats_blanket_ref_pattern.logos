@@ -1,0 +1,10 @@
+// `r: &&V`, `r.m()`: `impl Tr for &V` is the method, not `impl<T: Tr> Tr for &T` at T = V (V: Tr fails, so
+// rustc's selection discards the pattern). Logos took the pattern and refused 'V does not implement Tr'. rustc: 7.
+package impl_for_ref_beats_blanket_ref_pattern;
+use logos.std.fmt;
+struct V { x: i64 }
+trait Tr { fn m(&self) -> i64; }
+impl<T: Tr> Tr for &T { fn m(&self) -> i64 { return 100 + (**self).m(); } }
+impl Tr for &V { fn m(&self) -> i64 { return self.x; } }
+fn go(v: &V) -> i64 { let r = &v; return r.m(); }
+fn main() { let v = V { x: 7 }; println!("{}", go(&v)); }

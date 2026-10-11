@@ -1,11 +1,25 @@
 // logos.std.compiler.metaprog — derive(PartialOrd).
 //
-// Logos's `PartialOrd` is currently a no-method marker trait (see
-// `stdlib/lang/cmp/cmp.logos`); the bound-check fallback satisfies
-// `T: PartialOrd` whenever `T: Ord` is in scope. The derive just
-// emits `impl PartialOrd for S {}` so user types with derive get
-// the same surface as Rust without needing partial_cmp wiring.
-// Header (type params bounded, const params carried): derive_shape.logos.
+// Hook for `#[derive_partial_ord]`. Emits rustc's lexicographic derive: pair up
+// the fields of both sides by pattern and compare them in declaration order,
+// returning the first `partial_cmp` that is not `Some(Equal)` (a `None` — an
+// incomparable field — included) —
+//
+//   impl<const N: usize, T: PartialOrd> PartialOrd for Name<N, T> {
+//       fn partial_cmp(&self, other: &Name<N, T>) -> Option<Ordering> {
+//           match (self, other) {
+//               (Name { f1: __self_0, … }, Name { f1: __arg1_0, … }) => {
+//                   { let __o: Option<Ordering> = __self_0.partial_cmp(__arg1_0);
+//                     match __o { Option::Some(Ordering::Equal) => {} _ => { return __o; } } }
+//                   …
+//                   return Option::Some(Ordering::Equal);
+//               }
+//           }
+//       }
+//   }
+//
+// Named, tuple and unit structs. An ENUM is refused, as `#[derive_ord]` refuses
+// one (derive-ord-enum-self). Shapes: see derive_shape.logos.
 //
 // §6.10 sub-deliverable 6/8.
 
@@ -22,15 +36,45 @@ fn derive_partial_ord_hook(target_offset: u32) -> () {
 
     let item: WAny = view.node_at(target_offset);
     if view.ast_node_name(item).len == (0 as u64) { return; }
+    if (view.ast_node_code(item) & (0xFFFF as u64)) == (80 as u64) {
+        error_at(target_offset, "#[derive_partial_ord] on an enum is not supported yet: `impl PartialOrd` for an enum does not compile (derive-ord-enum-self)");
+        return;
+    }
     let sh: DeriveShape = derive_shape_of(&view, item);
     let nm: Ident = sh.nm;
     let tparams: Vec<Ident> = sh.tparams;
     let cparams: Vec<Ident> = sh.cparams;
     let ctypes: Vec<Ident> = sh.ctypes;
     let gargs: Vec<Ident> = sh.gargs;
+    let sn: Vec<Ident> = sh.sn;
+    let sn_f: Vec<Vec<Ident>> = sh.sn_f;
+    let sn_a: Vec<Vec<Ident>> = sh.sn_a;
+    let sn_b: Vec<Vec<Ident>> = sh.sn_b;
+    let tn: Vec<Ident> = sh.tn;
+    let tn_a: Vec<Vec<Ident>> = sh.tn_a;
+    let tn_b: Vec<Vec<Ident>> = sh.tn_b;
 
     let blob: QuoteItemBlob = quote_item! {
-        impl<#( const #cparams: #ctypes ),*, #( #tparams: PartialOrd ),*> PartialOrd for #nm<#( #gargs ),*> {}
+        impl<#( const #cparams: #ctypes ),*, #( #tparams: PartialOrd ),*> PartialOrd for #nm<#( #gargs ),*> {
+            fn partial_cmp(&self, other: &#nm<#( #gargs ),*>) -> Option<Ordering> {
+                match (self, other) {
+                    #( (#sn { #( #sn_f: #sn_a ),* }, #sn { #( #sn_f: #sn_b ),* }) => {
+                        #( {
+                            let __o: Option<Ordering> = #sn_a.partial_cmp(#sn_b);
+                            match __o { Option::Some(Ordering::Equal) => {} _ => { return __o; } }
+                        } )*
+                        return Option::Some(Ordering::Equal);
+                    } )*
+                    #( (#tn( #( #tn_a ),* ), #tn( #( #tn_b ),* )) => {
+                        #( {
+                            let __o: Option<Ordering> = #tn_a.partial_cmp(#tn_b);
+                            match __o { Option::Some(Ordering::Equal) => {} _ => { return __o; } }
+                        } )*
+                        return Option::Some(Ordering::Equal);
+                    } )*
+                }
+            }
+        }
     };
     unsafe { logos_emit_item_blob_subst(&blob); }
     return;

@@ -24,16 +24,21 @@ pub trait PartialEq {
     /// Returns `true` if `self` and `other` are not equal; the default derives it from `eq`.
     fn ne(&self, other: &Self) -> bool { return !self.eq(other); }
 }
-// PartialOrd kept as an empty marker — full method shape
-// (`partial_cmp(&self, other: &Self) -> Option<Ordering>`) needs
-// `Option<Ordering>` to flow through bound-check, and the existing
-// `impl Ord for X` provides `cmp` returning bare `Ordering` rather
-// than `Option<Ordering>`. The marker plus the sema bound-check
-// fallback (Ord ⇒ PartialOrd) covers the integer types. Floats need
-// a separate `partial_cmp` shape — deferred until a driver appears.
-/// Marker trait for partial ordering — currently empty pending a `partial_cmp` method shape.
+/// Partial ordering (Rust's `core::cmp::PartialOrd`): `partial_cmp` answers `None` for an
+/// incomparable pair (a NaN), and every ordered comparison of such a pair is `false`.
 #[lang = "partial_ord"]
-pub trait PartialOrd {}
+pub trait PartialOrd: PartialEq {
+    /// The ordering of `self` relative to `other`, or `None` when they are incomparable.
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering>;
+    /// `self < other`.
+    fn lt(&self, other: &Self) -> bool { return cmp_opt_is_lt(self.partial_cmp(other)); }
+    /// `self <= other`.
+    fn le(&self, other: &Self) -> bool { return cmp_opt_is_le(self.partial_cmp(other)); }
+    /// `self > other`.
+    fn gt(&self, other: &Self) -> bool { return cmp_opt_is_gt(self.partial_cmp(other)); }
+    /// `self >= other`.
+    fn ge(&self, other: &Self) -> bool { return cmp_opt_is_ge(self.partial_cmp(other)); }
+}
 
 // f32 / f64 PartialEq impls — IEEE equality semantics (NaN != NaN).
 // Logos's primitive `==` on floats already does the IEEE compare, so
@@ -42,6 +47,23 @@ pub trait PartialOrd {}
 // the common `assert_eq!(a, b)` driver pattern.
 impl PartialEq for f32 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl PartialEq for f64 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
+// IEEE order: a NaN on either side is incomparable.
+impl PartialOrd for f32 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if *self < *other { return Option::Some(Ordering::Less); }
+        if *self > *other { return Option::Some(Ordering::Greater); }
+        if *self == *other { return Option::Some(Ordering::Equal); }
+        return Option::None;
+    }
+}
+impl PartialOrd for f64 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if *self < *other { return Option::Some(Ordering::Less); }
+        if *self > *other { return Option::Some(Ordering::Greater); }
+        if *self == *other { return Option::Some(Ordering::Equal); }
+        return Option::None;
+    }
+}
 
 impl PartialEq for i32 { fn eq(&self, other: &Self) -> bool { return *self == *other; } }
 impl Eq for i32 {}

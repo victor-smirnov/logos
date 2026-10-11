@@ -3386,6 +3386,25 @@ void SemaChecker::inject_implicit_prelude_(TinyMapView root) {
     if (std::find(w.begin(), w.end(), pre) == w.end()) w.push_back(pre);
 }
 
+// E0407: an impl method its trait does not declare (`impl Eq for X { fn eq }`,
+// `Eq` a marker over `PartialEq`) — a supertrait's method included, as in Rust.
+// Accepted, it registered a second `eq` beside the PartialEq impl's.
+void SemaChecker::check_impl_members_() {
+    for (auto& pm : pending_impl_members_) {
+        const SemaTraitInfo* ti = pm.trait ? trait_info(pm.trait) : nullptr;
+        if (!ti) continue;
+        for (auto& [mn, line] : pm.methods) {
+            bool declared = false;
+            for (auto& tm : ti->methods) if (tm.name == mn) { declared = true; break; }
+            if (!declared)
+                result_.diags.push_back({Diag::Level::Error, pm.ctx,
+                    std::format("method `{}` is not a member of trait `{}` (E0407)", mn, pm.trait_name),
+                    pm.file, line, 0});
+        }
+    }
+    pending_impl_members_.clear();
+}
+
 void SemaChecker::check_value_def_identity() {
     for (auto* m : {&funcs_, &generic_funcs_})
         for (auto& [k, fi] : *m) {
@@ -4671,6 +4690,18 @@ void SemaChecker::collect_impl(TinyMapView node) {
     }
     if (!trait_name.empty()) {
         auto* tit = find_trait_iter_scoped(trait_name);
+        // E0407 is checked once collection ends (check_impl_members_): an impl
+        // may precede its trait's declaration, whose methods are not yet known.
+        if (!cur_from_binary_ && node.has_key(la::ITEMS)) {
+            PendingImplMembers pm{tit ? tit->def : DefId{}, trait_name, {}, ctx_, file_};
+            auto items = arr_of(node.get(la::ITEMS.code));
+            for (uint64_t ii = 0; ii < items.size(); ++ii) {
+                auto im = map_of(items.get(ii));
+                if (code_of(im) == la::FN || code_of(im) == la::STATIC_FN)
+                    pm.methods.emplace_back(std::string(str_of(im.get(la::NAME.code))), get_line(im));
+            }
+            if (!pm.methods.empty()) pending_impl_members_.push_back(std::move(pm));
+        }
         if (tit) {
             for (auto& m : tit->methods) {
                 auto mangled = check_target + "__" + m.name;
@@ -5314,11 +5345,9 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             // default body's `&Self` signature resolves. Without
                             // this, every inherited default beyond the first
                             // (which only worked by inheriting a leaked Self)
-                            // failed with "unknown type 'Self'". RESTRICTED to
-                            // scalar kinds — `str` (a slice alias) / enum targets
-                            // (Option/Result) must NOT be bound here (their
-                            // defaults rely on Self staying a TypeVar for generic
-                            // eq inference).
+                            // failed with "unknown type 'Self'". Scalar kinds
+                            // only: `str` takes the header's type below, with
+                            // the other structural targets.
                             self_type = prim_t;
                         }
                     }
@@ -5354,13 +5383,15 @@ void SemaChecker::collect_impl(TinyMapView node) {
                                 : make_generic_struct(TypeRef(self_type).struct_name(), std::move(ta), std::move(sl), TypeRef(self_type).pkg_name());
                         }
                     }
-                    // A structural target (`&T`, `&mut T`, a tuple, an array) has no
-                    // name to re-derive Self from: it is the header's resolved type,
-                    // for EVERY default (the G160-3 leak, for the non-named kinds).
+                    // A structural target (`&T`, `&mut T`, a tuple, an array, `str`) has
+                    // no name to re-derive Self from: it is the header's resolved type,
+                    // for EVERY default (the G160-3 leak, for the non-named kinds; `str`'s
+                    // second default — PartialOrd's `le` after `lt` — met "unknown type 'Self'").
                     if (!is_blanket && !self_type && impl_self_ty) {
                         auto k = TypeRef(impl_self_ty).kind();
                         if (k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
-                            k == LogosType::Kind::Tuple || k == LogosType::Kind::Array)
+                            k == LogosType::Kind::Tuple || k == LogosType::Kind::Array ||
+                            k == LogosType::Kind::UnsizedSlice)
                             self_type = impl_self_ty;
                     }
                     if (is_blanket)

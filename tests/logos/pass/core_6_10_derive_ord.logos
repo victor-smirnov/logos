@@ -7,6 +7,8 @@
 // (the natural `.then(...)` chain doesn't have a matching repeat-
 // group separator operator).
 //
+// `Ord: Eq + PartialOrd` (Rust's shape): the three supertrait derives stand beside it.
+//
 // Verifies: equal structs cmp to Equal; first-field difference
 // determines order regardless of subsequent fields; equal first
 // field falls through to the next.
@@ -15,7 +17,7 @@ package core_6_10_derive_ord;
 use logos.std.compiler.metaprog;
 use logos.lang.cmp;
 
-#[derive_ord]
+#[derive_partial_eq] #[derive_eq] #[derive_partial_ord] #[derive_ord]
 struct Pt { x: i32, y: i32, z: i32 }
 
 fn main() -> i32 {

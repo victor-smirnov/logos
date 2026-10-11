@@ -11,11 +11,11 @@ namespace logos::compiler {
 
 struct OpLangItem {
     std::string_view op;
-    std::string_view trait;          // the lang trait (`Add`, `Eq`, `Ord`, `Neg`)
+    std::string_view trait;          // the lang trait (`Add`, `PartialEq`, `PartialOrd`, `Neg`)
     std::string_view method;         // its method (`add`, `eq`, `lt`, `neg`)
     std::string_view assign_trait;   // `AddAssign`, empty for comparisons / unary
     std::string_view assign_method;  // `add_assign`
-    std::string_view lang;           // the trait's `#[lang]` name (`add`, `partial_eq`, `ord`, `neg`)
+    std::string_view lang;           // the trait's `#[lang]` name (`add`, `partial_eq`, `partial_ord`, `neg`)
     // A by-value operator trait with an `Output` (arithmetic, bitwise, shift).
     bool has_output() const noexcept { return !assign_trait.empty(); }
 };
@@ -32,12 +32,12 @@ inline const OpLangItem* binary_op_item(std::string_view op) noexcept {
         {"^",  "BitXor", "bitxor", "BitXorAssign", "bitxor_assign", "bitxor"},
         {"<<", "Shl",    "shl",    "ShlAssign",    "shl_assign", "shl"},
         {">>", "Shr",    "shr",    "ShrAssign",    "shr_assign", "shr"},
-        {"==", "Eq",     "eq",     {}, {}, "partial_eq"},
-        {"!=", "Eq",     "ne",     {}, {}, "partial_eq"},
-        {"<",  "Ord",    "lt",     {}, {}, "ord"},
-        {"<=", "Ord",    "le",     {}, {}, "ord"},
-        {">",  "Ord",    "gt",     {}, {}, "ord"},
-        {">=", "Ord",    "ge",     {}, {}, "ord"},
+        {"==", "PartialEq",  "eq", {}, {}, "partial_eq"},
+        {"!=", "PartialEq",  "ne", {}, {}, "partial_eq"},
+        {"<",  "PartialOrd", "lt", {}, {}, "partial_ord"},
+        {"<=", "PartialOrd", "le", {}, {}, "partial_ord"},
+        {">",  "PartialOrd", "gt", {}, {}, "partial_ord"},
+        {">=", "PartialOrd", "ge", {}, {}, "partial_ord"},
     };
     for (auto& it : kBinary) if (it.op == op) return &it;
     return nullptr;
