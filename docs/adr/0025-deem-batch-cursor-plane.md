@@ -1636,6 +1636,7 @@ scan shape; every other cell is declared, not silently absent.
       drains. Recorded here for #47: a ratio over ground sentences is not a
       count of materializations, and this is the first measured case where the
       two move in opposite directions.
+      [2026-10-11: #47 (and tasks #50/#51) here are task-tracker numbers of the 2026-08 arc, not GitHub issues.]
     The cause is structural, not a bug: a `Buffer` is a POSITIONED stream with
     ONE cursor, so every re-read (a rel block, a self-join) must be drained,
     while a `Vec` + `as_slice()` is a landed relation any number of nested loops

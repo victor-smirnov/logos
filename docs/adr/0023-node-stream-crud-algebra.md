@@ -173,12 +173,12 @@ disagrees, the legacy is discarded, not emulated.
   LANDED (logos.mem.bt.alg).
 * **S2** — reference interpreter + law tests (pricing, atomicity, rejection
   paths, projections); existing surfaces re-expressed as batches.
-  LANDED (logos.mem.bt.interp; alg_interp/alg_entry gates — all five
+  LANDED (logos.mem.bt.interp; `memoria_alg_interp`/`memoria_alg_entry` gates (`tests/logos/pass/`) — all five
   hand-unrollings shown as algebra instances).
 * **S3** — the kernel generator (metafunction over NodeSchema), differential
   gate vs the interpreter across schemas × batches; fusion of user fns.
   LANDED (logos.lcm.canon.alg_kernel: entry family + the fused WITH_ENTRY
-  whose decide expression splices inline; alg_kernel_diff/alg_kernel_family
+  whose decide expression splices inline; `memoria_alg_kernel_diff`/`memoria_alg_kernel_family`
   gates against the interpreter, rejection boundary included).
 * **S4** — surface rebase: btss_upsert_* die into algebra instantiations;
   btfl entry ops and branch row ops become batches; `with_value`-style

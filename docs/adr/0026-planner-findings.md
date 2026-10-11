@@ -159,6 +159,8 @@ source. The row is not "delete it" — it is that a measurement with no consumer
 is either a dead emission or a plan step that stopped consulting its own input,
 and the trace currently asserts the second while the code shows the first.
 
+[2026-10-11, code reading, row stays OPEN: sizes ARE consumed by the join-order decision under `order by` (see the F3 note), but in `prepare`, through its own copy of the reporter call (`params.logos` `size_binding_text`). The `_run` prelude binding `__sz_<r>` (`plan_walker.logos` `emit_size_binding`) still has no reader in `_run`; `access_plan.logos` `AccessPlan.size_at` says "Nothing consumes `size_at` yet".]
+
 ---
 
 ## F3 — the prepared plan is passed and never read
@@ -186,6 +188,8 @@ copied into a struct. What decides whether it is one or the other is a query
 that DOES need a runtime choice — a join with `order by` — and none exists in
 the corpus or the example. Write it, then this row either closes or becomes F1's
 neighbour.
+
+[2026-10-11, code reading, row stays OPEN: the runtime order pick exists for a join under `order by` with ≥2 admissible orders (`join_order::decide_over_set` sets `jo.dynamic`; the order axis reaches size facts only under `order by`). There `prepare` measures the reporters (`size_expr_of` → `rel_size_at`), calls `join_cost::jc_order_pick` and stores `dyn_order: true, swap: (__ix == 1i64), order_ix: __ix` (`rexpr_walk.logos`, prepare emission), and `_run` branches on `__pl.order_ix` — or, deferred, binds `__defer_ix` via `__pl.order_pick` over `len()` reads. Fixtures: `tests/logos/pass/wql_join_order_multi_e2e.logos`, `wql_prepared_plan_e2e`, `wql_deferred_plan_e2e` (all added 2026-07-30, before this row; "none exists in the corpus" was already false). Remains: a join with no `order by` (the showcase `enrich`) and every non-join query still get a constant plan that `_run` does not read; the build side stays the query's source order.]
 
 ---
 
