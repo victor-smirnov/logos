@@ -46,7 +46,7 @@ impl<T, E> Result<T, E> {
     /// Returns `true` if the result is `Ok` and `pred` returns `true` for the contained value.
     ///
     /// Consumes `self` (the value is passed to `pred` by value).
-    pub fn is_ok_and(self: Result<T, E>, pred: fn(T) -> bool) -> bool {
+    pub fn is_ok_and<P: FnOnce(T) -> bool>(self: Result<T, E>, pred: P) -> bool {
         match self {
             Result::Ok(v)  => { return pred(v); }
             Result::Err(_) => { return false; }
@@ -56,7 +56,7 @@ impl<T, E> Result<T, E> {
     /// Returns `true` if the result is `Err` and `pred` returns `true` for the contained error.
     ///
     /// Consumes `self` (the error is passed to `pred` by value).
-    pub fn is_err_and(self: Result<T, E>, pred: fn(E) -> bool) -> bool {
+    pub fn is_err_and<P: FnOnce(E) -> bool>(self: Result<T, E>, pred: P) -> bool {
         match self {
             Result::Ok(_)  => { return false; }
             Result::Err(e) => { return pred(e); }
@@ -108,7 +108,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Returns the contained `Ok` value or computes a fallback from the error with `f`.
-    pub fn unwrap_or_else(self: Result<T, E>, f: fn(E) -> T) -> T {
+    pub fn unwrap_or_else<F: FnOnce(E) -> T>(self: Result<T, E>, f: F) -> T {
         match self {
             Result::Ok(v)  => { return v; }
             Result::Err(e) => { return f(e); }
@@ -132,7 +132,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Applies `f` to a contained `Ok` value, leaving an `Err` value untouched.
-    pub fn map<U>(self: Result<T, E>, f: fn(T) -> U) -> Result<U, E> {
+    pub fn map<U, F: FnOnce(T) -> U>(self: Result<T, E>, f: F) -> Result<U, E> {
         match self {
             Result::Ok(v)  => { return Result::Ok(f(v)); }
             Result::Err(e) => { return Result::Err(e); }
@@ -140,7 +140,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Applies `f` to a contained `Err` value, leaving an `Ok` value untouched.
-    pub fn map_err<F>(self: Result<T, E>, f: fn(E) -> F) -> Result<T, F> {
+    pub fn map_err<F, O: FnOnce(E) -> F>(self: Result<T, E>, f: O) -> Result<T, F> {
         match self {
             Result::Ok(v)  => { return Result::Ok(v); }
             Result::Err(e) => { return Result::Err(f(e)); }
@@ -148,7 +148,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Returns `default` if `Err`, or applies `f` to the contained `Ok` value.
-    pub fn map_or<U>(self: Result<T, E>, default: U, f: fn(T) -> U) -> U {
+    pub fn map_or<U, F: FnOnce(T) -> U>(self: Result<T, E>, default: U, f: F) -> U {
         match self {
             Result::Ok(v)  => { return f(v); }
             Result::Err(_) => { return default; }
@@ -156,7 +156,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Maps to `U` by applying `f` to a contained `Ok` value, or `dfl` to a contained `Err`.
-    pub fn map_or_else<U>(self: Result<T, E>, dfl: fn(E) -> U, f: fn(T) -> U) -> U {
+    pub fn map_or_else<U, D: FnOnce(E) -> U, F: FnOnce(T) -> U>(self: Result<T, E>, dfl: D, f: F) -> U {
         match self {
             Result::Ok(v)  => { return f(v); }
             Result::Err(e) => { return dfl(e); }
@@ -184,7 +184,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Calls `f` with the contained `Ok` value, otherwise propagates the `Err`.
-    pub fn and_then<U>(self: Result<T, E>, f: fn(T) -> Result<U, E>) -> Result<U, E> {
+    pub fn and_then<U, F: FnOnce(T) -> Result<U, E>>(self: Result<T, E>, f: F) -> Result<U, E> {
         match self {
             Result::Ok(v)  => { return f(v); }
             Result::Err(e) => { return Result::Err(e); }
@@ -192,7 +192,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Calls `f` with the contained `Err` value, otherwise propagates the `Ok`.
-    pub fn or_else<F>(self: Result<T, E>, f: fn(E) -> Result<T, F>) -> Result<T, F> {
+    pub fn or_else<F, O: FnOnce(E) -> Result<T, F>>(self: Result<T, E>, f: O) -> Result<T, F> {
         match self {
             Result::Ok(v)  => { return Result::Ok(v); }
             Result::Err(e) => { return f(e); }

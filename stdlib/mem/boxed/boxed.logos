@@ -11,6 +11,7 @@ use logos.lang.marker;
 use logos.lang.ops;
 use logos.lang.default;
 use logos.lang.convert;
+use logos.lang.clone;
 use logos.lang.error;
 use logos.mem.manually_drop;
 
@@ -117,6 +118,10 @@ impl<T: Default> Default for Box<T> {
     fn default() -> Box<T> { return box_new::<T>(T::default()); }
 }
 
+// Rust's `impl<T: Clone> Clone for Box<T>`: a new box of the pointee's clone.
+impl<T: Clone> Clone for Box<T> {
+    fn clone(&self) -> Box<T> { return Box::new((**self).clone()); }
+}
 // Rust's `AsRef<T>` / `AsMut<T>` for `Box<T>`.
 impl<E: ?Sized> AsRef<E> for Box<E> {
     fn as_ref(&self) -> &E { return &**self; }

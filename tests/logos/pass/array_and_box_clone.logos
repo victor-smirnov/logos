@@ -1,0 +1,13 @@
+// Clone for [T; N] (each element's clone, index order) and for Box<T> (a new box of the pointee's clone), as Rust's.
+package array_and_box_clone;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.mem.collections.vec;
+fn main() {
+    let a = [String::from("x"), String::from("yz")];
+    let b = a.clone();
+    let p = Box::new(vec![1i64, 2]);
+    let q = p.clone();
+    println!("{} {} {} {}", b[1], a[0], q.len(), p[1]);
+}

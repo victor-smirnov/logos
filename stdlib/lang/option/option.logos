@@ -82,7 +82,7 @@ impl<T> Option<T> {
 
     /// Returns the contained `Some` value or computes one from `f`.
     /// `f` is a fn-pointer; non-capturing closures coerce automatically.
-    pub fn unwrap_or_else(self: Option<T>, f: fn() -> T) -> T {
+    pub fn unwrap_or_else<F: FnOnce() -> T>(self: Option<T>, f: F) -> T {
         match self {
             Option::Some(v) => { return v; }
             Option::None    => { return f(); }
@@ -90,7 +90,7 @@ impl<T> Option<T> {
     }
 
     /// Maps `Option<T>` to `Option<U>` by applying `f` to a contained value.
-    pub fn map<U>(self: Option<T>, f: fn(T) -> U) -> Option<U> {
+    pub fn map<U, F: FnOnce(T) -> U>(self: Option<T>, f: F) -> Option<U> {
         match self {
             Option::Some(v) => { return Option::Some(f(v)); }
             Option::None    => { return Option::None; }
@@ -98,7 +98,7 @@ impl<T> Option<T> {
     }
 
     /// Returns `default` if `None`, otherwise applies `f` to the contained value.
-    pub fn map_or<U>(self: Option<T>, default: U, f: fn(T) -> U) -> U {
+    pub fn map_or<U, F: FnOnce(T) -> U>(self: Option<T>, default: U, f: F) -> U {
         match self {
             Option::Some(v) => { return f(v); }
             Option::None    => { return default; }
@@ -106,7 +106,7 @@ impl<T> Option<T> {
     }
 
     /// Computes a result from `dfl` if `None`, otherwise applies `f` to the contained value.
-    pub fn map_or_else<U>(self: Option<T>, dfl: fn() -> U, f: fn(T) -> U) -> U {
+    pub fn map_or_else<U, D: FnOnce() -> U, F: FnOnce(T) -> U>(self: Option<T>, dfl: D, f: F) -> U {
         match self {
             Option::Some(v) => { return f(v); }
             Option::None    => { return dfl(); }
@@ -122,7 +122,7 @@ impl<T> Option<T> {
     }
 
     /// Transforms into `Result<T, E>` like `ok_or`, computing the error lazily from `err`.
-    pub fn ok_or_else<E>(self: Option<T>, err: fn() -> E) -> Result<T, E> {
+    pub fn ok_or_else<E, G: FnOnce() -> E>(self: Option<T>, err: G) -> Result<T, E> {
         match self {
             Option::Some(v) => { return Result::Ok(v); }
             Option::None    => { return Result::Err(err()); }
@@ -138,7 +138,7 @@ impl<T> Option<T> {
     }
 
     /// Returns `None` if `self` is `None`, otherwise applies `f` to the wrapped value.
-    pub fn and_then<U>(self: Option<T>, f: fn(T) -> Option<U>) -> Option<U> {
+    pub fn and_then<U, F: FnOnce(T) -> Option<U>>(self: Option<T>, f: F) -> Option<U> {
         match self {
             Option::Some(v) => { return f(v); }
             Option::None    => { return Option::None; }
@@ -146,7 +146,7 @@ impl<T> Option<T> {
     }
 
     /// Returns `true` iff the option is `Some` and `pred` accepts the wrapped value.
-    pub fn is_some_and(self: Option<T>, pred: fn(T) -> bool) -> bool {
+    pub fn is_some_and<P: FnOnce(T) -> bool>(self: Option<T>, pred: P) -> bool {
         match self {
             Option::Some(v) => { return pred(v); }
             Option::None    => { return false; }
@@ -162,7 +162,7 @@ impl<T> Option<T> {
     }
 
     /// Returns `self` if it contains a value, otherwise calls `f` and returns the result.
-    pub fn or_else(self: Option<T>, f: fn() -> Option<T>) -> Option<T> {
+    pub fn or_else<F: FnOnce() -> Option<T>>(self: Option<T>, f: F) -> Option<T> {
         match self {
             Option::Some(v) => { return Option::Some(v); }
             Option::None    => { return f(); }
@@ -265,7 +265,7 @@ impl<T> Option<T> {
     /// Returns `Some(v)` if `self` is `Some(v)` and `pred(&v)` is `true`, otherwise `None`.
     /// `pred` BORROWS the wrapped value (Rust: `FnOnce(&T) -> bool`), so the value is never
     /// duplicated: exactly one owner, exactly one destructor call on either branch.
-    pub fn filter(self: Option<T>, pred: fn(&T) -> bool) -> Option<T> {
+    pub fn filter<P: FnOnce(&T) -> bool>(self: Option<T>, pred: P) -> Option<T> {
         match self {
             Option::None    => { return Option::None; }
             Option::Some(v) => {

@@ -178,8 +178,6 @@ vec_truncate_drop_order_wrong 2 tests/soundness/open/vec_truncate_drop_order_wro
 
 assoc_type_projection_expr_path_refused 3 tests/soundness/open/assoc_type_projection_expr_path_refused refuses
 
-box_clone_refused 3 tests/soundness/open/box_clone_refused refuses
-
 box_dyn_fn_not_fn_refused 3 tests/soundness/open/box_dyn_fn_not_fn_refused refuses
 
 box_dyn_return_mut_self_object_lifetime_refused 3 tests/soundness/open/box_dyn_return_mut_self_object_lifetime_refused refuses
@@ -193,8 +191,6 @@ dyn_assoc_binding_refused 3 tests/soundness/open/dyn_assoc_binding_refused refus
 field_slice_region_projection_refused 3 tests/soundness/open/field_slice_region_projection_refused refuses
 
 float_exp_format_c_style_wrong 3 tests/soundness/open/float_exp_format_c_style_wrong run 3
-
-option_combinators_take_fn_pointers_refused 3 tests/soundness/open/option_combinators_take_fn_pointers_refused refuses
 
 owned_return_from_ref_param_keeps_loan_refused 3 tests/soundness/open/owned_return_from_ref_param_keeps_loan_refused refuses
 
@@ -412,5 +408,5 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 116
-# SYNC-HASH 4d1f119a956ca0c758ff18a1654d48db
+# TOTAL 114
+# SYNC-HASH 307f795647ab45927d4637bf17dfe44e

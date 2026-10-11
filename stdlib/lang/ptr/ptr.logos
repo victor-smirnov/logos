@@ -31,6 +31,8 @@
 package logos.lang.ptr;
 
 use logos.lang.option;
+use logos.lang.clone;
+use logos.lang.mem;
 
 // ───────────────────────────────────────────────────────────────────
 // Free fns
@@ -329,5 +331,26 @@ impl<T> NonNull<T> {
     /// Returns the pointer offset by `count` elements; alias of `add`.
     pub unsafe fn offset(self: NonNull<T>, count: i64) -> NonNull<T> {
         unsafe { return self.add(count); }
+    }
+}
+
+// Rust's `impl<T: Clone, const N: usize> Clone for [T; N]`: each element's own clone,
+// written in index order into scratch storage and read out as the array. (Here: the
+// lang crate owns Clone, and lang.clone cannot import lang.ptr — option imports clone.)
+impl<T: Clone, const N: usize> Clone for [T; N] {
+    fn clone(&self) -> [T; N] {
+        unsafe {
+            let sz: i64 = sizeof::<[T; N]>();
+            let raw: *mut u8 = logos.lang.mem::alloc(if sz > 0i64 { sz } else { 1i64 });
+            let p: *mut T = raw as *mut T;
+            let mut i: usize = 0usize;
+            while i < N {
+                write::<T>(&mut p[i as i64] as *mut T, self[i].clone());
+                i = i + 1usize;
+            }
+            let out: [T; N] = read::<[T; N]>(raw as *const [T; N]);
+            logos.lang.mem::dealloc(raw);
+            return out;
+        }
     }
 }

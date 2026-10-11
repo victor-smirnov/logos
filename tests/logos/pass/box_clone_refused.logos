@@ -1,0 +1,11 @@
+// Closed squeue box_clone_refused (#663): impl<T: Clone> Clone for Box<T>, as Rust's; exit 0.
+package box_clone_refused;
+use logos.mem.boxed;
+use logos.lang.clone;
+
+fn main() -> i32 {
+    let b = Box::new(5i32);
+    let c = b.clone();
+    if *c == 5 { return 0; }
+    return 1;
+}

@@ -1,0 +1,2 @@
+exit: 0
+stdout: 11 Some(28) false 31 41 Err("none 10")

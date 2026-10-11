@@ -1,0 +1,16 @@
+// Closed squeue option_combinators_take_fn_pointers_refused (#680): Option / Result combinators take a generic F: FnOnce, as Rust's; exit 0.
+package option_combinators_take_fn_pointers_refused;
+use logos.lang.option;
+use logos.lang.result;
+fn main() -> i32 {
+    let k = 10i64;
+    let a: Option<i64> = None;
+    let b: Option<i64> = Some(4);
+    let r: Result<i64, i64> = Err(3);
+    if a.unwrap_or_else(|| k + 1) != 11 { return 1; }
+    match b.and_then(|x| Some(x * k)) { Some(40) => {}, _ => { return 2; } }
+    if r.unwrap_or_else(|e| e + k) != 13 { return 3; }
+    let e: Result<i64, i64> = a.ok_or_else(|| k);
+    match e { Err(10) => {}, _ => { return 4; } }
+    return 0;
+}

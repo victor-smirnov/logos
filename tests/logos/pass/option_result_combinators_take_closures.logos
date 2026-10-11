@@ -1,0 +1,21 @@
+// Option / Result combinators take a generic `F: FnOnce(..)` (Rust's), not a `fn(..)` pointer — a capturing
+// closure is accepted, a fn item still is. rustc: 11 Some(28) false 31 41 Err("none 10").
+package option_result_combinators_take_closures;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+fn double(x: i64) -> i64 { x * 2 }
+fn main() {
+    let k = 10i64;
+    let a: Option<i64> = None;
+    let b: Option<i64> = Some(4);
+    let r: Result<i64, i64> = Err(3);
+    let w = vec![String::from("a")];
+    let c1 = a.unwrap_or_else(|| k + 1);
+    let c2 = b.map(|x| x + k).map(double);
+    let c3 = b.filter(|x| *x > k).is_some();
+    let c4 = r.map_err(|e| e * k).unwrap_or_else(|e| e + w.len() as i64);
+    let c5 = b.and_then(|x| if x > 2 { Some(x * k) } else { None }).map_or(0, |x| x + 1);
+    let c6: Result<i64, String> = a.ok_or_else(|| format!("none {}", k));
+    println!("{} {:?} {} {} {} {:?}", c1, c2, c3, c4, c5, c6);
+}
