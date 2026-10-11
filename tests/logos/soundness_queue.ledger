@@ -188,8 +188,6 @@ box_dyn_fn_not_fn_refused 3 tests/soundness/open/box_dyn_fn_not_fn_refused refus
 
 box_dyn_return_mut_self_object_lifetime_refused 3 tests/soundness/open/box_dyn_return_mut_self_object_lifetime_refused refuses
 
-char_hash_ord_impls_refused 3 tests/soundness/open/char_hash_ord_impls_refused refuses
-
 closure_return_region_of_param_refused 3 tests/soundness/open/closure_return_region_of_param_refused refuses
 
 const_in_fn_body_refused 3 tests/soundness/open/const_in_fn_body_refused refuses
@@ -424,5 +422,5 @@ str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 122
-# SYNC-HASH 97650e40401821ff323e8ce03bca0600
+# TOTAL 121
+# SYNC-HASH 66af291e237f86101c9ae19225a2f05e

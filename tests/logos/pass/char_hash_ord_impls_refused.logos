@@ -1,0 +1,13 @@
+// Closed squeue char_hash_ord_impls_refused (#667): char implements Ord / PartialOrd / Hash, as Rust's; exit 0 as rustc.
+package char_hash_ord_impls_refused;
+use logos.mem.collections.set;
+use logos.lang.hash;
+use logos.lang.cmp;
+fn mx<T: Ord + Copy>(a: T, b: T) -> T { if a > b { a } else { b } }
+fn main() -> i32 {
+    if mx('a', 'z') != 'z' { return 3; }
+    let mut s: HashSet<char> = HashSet::new();
+    unsafe { s.insert('a'); }
+    if s.len() != 1 { return 4; }
+    return 0;
+}
