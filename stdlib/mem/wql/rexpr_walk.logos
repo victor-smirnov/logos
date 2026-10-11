@@ -4659,6 +4659,78 @@ fn str_has_byte(s: str, b: u8) -> bool {
     return false;
 }
 
+// THE GROUP FRAME'S FOLD: find the row's group, seed a new one, fold.
+// ADR 0026 F10 — the dedup is a linear `==` scan over `__g_key` while the
+// frame holds fewer than GROUP_INDEX_AT() groups (a handful is faster to scan
+// than to hash, and the group count is unknown before the fold); at that size,
+// for a key that is Copy and hashable (`group_key_indexable`), it builds
+// `__g_idx: HashMap<K, i64>` from the keys so far and probes it from then on.
+// The early exit (`&& __gi < 0i64`) is answer-preserving because the key
+// vector is push-only: no duplicate key can exist, so first and last match
+// select the same group.
+fn group_fold_frag(keyt_f: ExprBlob, key_f: ExprBlob, key_ty: str, cnt_seed: ExprBlob, row_seed: ExprBlob,
+                   seeds_r: &Vec<ExprBlob>, cnt_bump: ExprBlob, folds_r: &Vec<ExprBlob>) -> ExprBlob {
+    let mut seeds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut si: i64 = 0i64;
+    while si < seeds_r.len() { seeds.push(seeds_r.get(si)); si = si + 1i64; }
+    let mut folds: Vec<ExprBlob> = vec_new::<ExprBlob>();
+    let mut fi: i64 = 0i64;
+    while fi < folds_r.len() { folds.push(folds_r.get(fi)); fi = fi + 1i64; }
+    if !group_key_indexable(key_ty) {
+        return quote_block! {
+            let __k: #(keyt_f) = (#(key_f));
+            let mut __gi: i64 = -1i64;
+            let mut __s: i64 = 0i64;
+            while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+            if __gi < 0i64 {
+                __g_key.push(__k);
+                #(cnt_seed);
+                #(row_seed);
+                #( #seeds; )*
+                __gi = __g_key.len() - 1i64;
+            }
+            #(cnt_bump);
+            #( #folds; )*
+        };
+    }
+    let at_f: ExprBlob = parse_expr("16i64");
+    return quote_block! {
+        let __k: #(keyt_f) = (#(key_f));
+        let mut __gi: i64 = -1i64;
+        if __g_hon {
+            let __gp: *const i64 = unsafe { __g_idx.get(&__k) };
+            if __gp != (0i64 as *const i64) { __gi = unsafe { *__gp }; }
+        } else {
+            let mut __s: i64 = 0i64;
+            while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
+        }
+        if __gi < 0i64 {
+            __g_key.push(__k);
+            #(cnt_seed);
+            #(row_seed);
+            #( #seeds; )*
+            __gi = __g_key.len() - 1i64;
+            if __g_hon { __g_idx.insert(__k, __gi); }
+            else if __g_key.len() >= (#(at_f)) {
+                let mut __t: i64 = 0i64;
+                while __t < __g_key.len() { __g_idx.insert(__g_key.get(__t), __t); __t = __t + 1i64; }
+                __g_hon = true;
+            }
+        }
+        #(cnt_bump);
+        #( #folds; )*
+    };
+}
+
+// The group frame's index, declared beside `__g_key` when the key admits one.
+fn group_index_decl(keyt_f: ExprBlob, key_ty: str) -> ExprBlob {
+    if !group_key_indexable(key_ty) { return quote_block! { }; }
+    return quote_block! {
+        let mut __g_idx: HashMap<#(keyt_f), i64> = HashMap::<#(keyt_f), i64>::new();
+        let mut __g_hon: bool = false;
+    };
+}
+
 /// ONE CANDIDATE's whole branch: its build phases and its nest, as a single block.
 /// A function because `ncand` of them are needed and a nest spelled twice would be
 /// two chances to diverge in exactly the place where divergence is silent — a
@@ -5830,28 +5902,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // The inner FOLD — find/insert the row's group by a linear `__g_key` scan
     // (the MVP dedup), bump `__g_cnt` (avg-only since S4), fold each accumulator column.
     let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
-    let mut inner: ExprBlob = quote_block! {
-        let __k: #(keyt_f) = (#(key_f));
-        let mut __gi: i64 = -1i64;
-        let mut __s: i64 = 0i64;
-        // S4a early exit: `&& __gi < 0i64` stops the dedup scan at the
-        // first match. This silently changed the rule from LAST-match-wins
-        // to FIRST-match-wins — ANSWER-PRESERVING because the key vectors
-        // are push-only (remove/set/pop have zero call sites, measured by
-        // the S4 audit), so duplicates are impossible by construction and
-        // both rules select the same index. If a mutating group-key op is
-        // ever added, this line is where the invariant breaks first.
-        while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
-        if __gi < 0i64 {
-            __g_key.push(__k);
-            #(cnt_seed);
-            #(row_seed);
-            #( #seeds; )*
-            __gi = __g_key.len() - 1i64;
-        }
-        #(cnt_bump);
-        #( #folds; )*
-    };
+    let mut inner: ExprBlob = group_fold_frag(keyt_f, key_f, key_ty, cnt_seed, row_seed, &seeds, cnt_bump, &folds);
     if has_where {
         let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
         inner = quote_block! { if (#(where_f)) #(inner) };
@@ -6073,6 +6124,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
         let mut __out: Buffer<#(elem_f)> = Buffer::<#(elem_f)>::new();
         #( #bps; )*
         let mut __g_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+        #(group_index_decl(keyt_f, key_ty));
         #(cnt_decl);
         #(row_decl);
         #( #acols; )*
@@ -10142,21 +10194,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         gd = gd + 1i64;
     }
     let key_f: ExprBlob = parse_expr(string_as_str(&key_body));
-    let mut inner: ExprBlob = quote_block! {
-        let __k: #(keyt_f) = (#(key_f));
-        let mut __gi: i64 = -1i64;
-        let mut __s: i64 = 0i64;
-        while __s < __g_key.len() && __gi < 0i64 { if __g_key.get(__s) == __k { __gi = __s; } __s = __s + 1i64; }
-        if __gi < 0i64 {
-            __g_key.push(__k);
-            #(cnt_seed);
-            #(row_seed);
-            #( #seeds; )*
-            __gi = __g_key.len() - 1i64;
-        }
-        #(cnt_bump);
-        #( #folds; )*
-    };
+    let mut inner: ExprBlob = group_fold_frag(keyt_f, key_f, key_ty, cnt_seed, row_seed, &seeds, cnt_bump, &folds);
     if !w.is_null() {
         let where_f: ExprBlob = parse_expr(string_as_str(&where_body));
         inner = quote_block! { if (#(where_f)) #(inner) };
@@ -10220,6 +10258,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         {
             #( #bps; )*
             let mut __g_key: Vec<#(keyt_f)> = Vec::<#(keyt_f)>::new();
+            #(group_index_decl(keyt_f, key_ty));
             #(cnt_decl);
             #(row_decl);
             #( #acols; )*
