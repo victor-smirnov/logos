@@ -198,8 +198,6 @@ slice_debug_missing_refused 3 tests/soundness/open/slice_debug_missing_refused r
 
 split_adapter_static_lifetime_refused 3 tests/soundness/open/split_adapter_static_lifetime_refused refuses
 
-tuple_struct_closure_param_pattern_refused 3 tests/soundness/open/tuple_struct_closure_param_pattern_refused refuses
-
 vec_iter_find_elided_region_refused 3 tests/soundness/open/vec_iter_find_elided_region_refused refuses
 
 implicit_integer_widening_admitted 4 tests/soundness/open/implicit_integer_widening_admitted admits
@@ -222,9 +220,6 @@ wf_self_type_impl_lifetime_mismatch_admits 2 tests/soundness/open/wf_self_type_i
 
 struct_field_move_then_index_read_admits 2 tests/soundness/open/struct_field_move_then_index_read_admits admits
 
-# ── 2026-10-01 ADR 0030 S0-S7 gap audit: the clusters OUTSIDE ADR 0030 (grammar / metaprog / stdlib)
-open_range_for_head_parse_refused 3 tests/soundness/open/open_range_for_head_parse_refused refuses
-
 collect_into_option_refused 3 tests/soundness/open/collect_into_option_refused refuses
 
 # ── 2026-10-01 long-red fail fixtures re-triaged: holes owned by a later step
@@ -243,6 +238,8 @@ str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_
 rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visible_admitted admits
 
 closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_data_refused refuses
+
+# ── 2026-10-01 ADR 0030 S0-S7 gap audit: the clusters OUTSIDE ADR 0030 (grammar / metaprog / stdlib)
 
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
@@ -404,5 +401,5 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 112
-# SYNC-HASH ab0eaddcb661c7eea5abec7fa88827f4
+# TOTAL 110
+# SYNC-HASH 408b505477047821e382b43de223368b

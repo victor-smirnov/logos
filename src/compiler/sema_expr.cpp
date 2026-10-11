@@ -9472,6 +9472,14 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
             if (vit != cur_imports_.variant_aliases.end())
                 if (auto e = try_variant(vit->second, std::string(callee))) return e;
         }
+        // `V::<4>` naming a generic UNIT struct: its value, `V::<4> {}`.
+        if (auto [spkg, ssi] = find_struct_by_name(callee); ssi && ssi->fields.empty()) {
+            (void)spkg;
+            auto lit = synth_node(la::STRUCT_LIT.code, node_line_,
+                                  {{la::NAME.code, node.get(la::CALLEE.code)},
+                                   {la::TYPE_PARAMS.code, node.get(la::TYPE_PARAMS.code)}});
+            return lower_expr(map_of(lit));
+        }
         error(std::format("undefined function in generic-ref '{}'", std::string(callee)));
         return error_expr();
     }

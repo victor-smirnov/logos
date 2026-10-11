@@ -1305,7 +1305,16 @@
     pub_struct_unit <- pub_vis KW_STRUCT IDENT SEMI
                     => { CODE: STRUCT, IS_PUB: 1, VIS: $1, NAME: $3 }
 
-    struct_unit <- KW_STRUCT IDENT SEMI
+    // A generic UNIT struct takes CONST parameters only (`struct V<const N: usize>;`):
+    // an unused type or lifetime parameter is E0392 in Rust, and `struct Foo<i32>;`
+    // is Logos's explicit instantiation declaration (below).
+    unit_const_param <- KW_CONST IDENT COLON type_ref
+                     => { CODE: CONST_PARAM, NAME: $2, TYPE: $4 }
+    unit_const_params <- LT unit_const_param (COMMA unit_const_param)* COMMA? GT
+                      => { ITEMS: $... }
+    struct_unit <- KW_STRUCT IDENT unit_const_params SEMI
+                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3 }
+                 / KW_STRUCT IDENT SEMI
                 => { CODE: STRUCT, NAME: $2 }
 
     // Explicit struct instantiation declaration (binds annotations to generic instantiation).
@@ -2482,6 +2491,12 @@
              => { CODE: FOR, NAME: $3, LHS: $5, RHS: $7, BODY: $8, INCLUSIVE: true, IS_MUT: true }
               / KW_FOR KW_MUT IDENT KW_IN expr_ns DOTDOT   expr_ns block_body
              => { CODE: FOR, NAME: $3, LHS: $5, RHS: $7, BODY: $8, INCLUSIVE: false, IS_MUT: true }
+              // `for i in lo..` — an open range (the HIR's RANGE_EXPR with no
+              // RHS: RangeFrom). After the bounded forms, which consume `..hi`.
+              / KW_FOR IDENT KW_IN expr_ns DOTDOT block_body
+             => { CODE: FOR, NAME: $2, LHS: $4, BODY: $6 }
+              / KW_FOR KW_MUT IDENT KW_IN expr_ns DOTDOT block_body
+             => { CODE: FOR, NAME: $3, LHS: $5, BODY: $7, IS_MUT: true }
               / KW_FOR IDENT KW_IN expr_ns             block_body
              => { CODE: FOR_EACH, NAME: $2, ITER: $4, BODY: $5 }
               // Rust parity: `for PATTERN in iter` — a destructuring loop
@@ -3799,7 +3814,11 @@
                    // `AMP IDENT` form made them a by-reference NAME: x bound the
                    // whole `&T` (`|&x| x % 2` refused, `|m, &x| if x > m { x }`
                    // mistyped).
-                   / IDENT
+                   // A bare name only where the parameter ENDS: `|Id(k)|` is a tuple-
+                   // struct pattern (pat_single below), not the name `Id`.
+                   / IDENT &COMMA
+                  => { CODE: PARAM, NAME: $1 }
+                   / IDENT &PIPE
                   => { CODE: PARAM, NAME: $1 }
                    // `|(a, b)|`, `|&(a, b)|`: an untyped pattern, typed from the
                    // call site's expected closure type as an untyped name is.

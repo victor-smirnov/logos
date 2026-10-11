@@ -1,0 +1,17 @@
+// Three grammar forms: a tuple-struct pattern as a closure parameter (`|Id(k)|` — the bare-name form took `Id`),
+// an open range in a for head (`for i in 0..`), a generic unit struct (`struct V<const N: usize>;`, `V::<4>`).
+// rustc: 3 15 4.
+package grammar_tuple_struct_param_open_range_unit_generic;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct Id(i64);
+struct V<const N: usize>;
+impl<const N: usize> V<N> { fn n(&self) -> usize { N } }
+fn main() {
+    let v: Vec<Id> = vec![Id(1), Id(2)];
+    let s: i64 = v.into_iter().map(|Id(k)| k).sum();
+    let mut n = 0i64;
+    for i in 0.. { if i > 5 { break; } n += i; }
+    let u = V::<4>;
+    println!("{} {} {}", s, n, u.n());
+}
