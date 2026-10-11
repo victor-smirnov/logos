@@ -1,0 +1,51 @@
+// Predicate and term forms the Soufflé oracle reads (souffle_oracle_gate.sh):
+// `||` (Soufflé's body disjunction), `!` over a comparison, a conjunction and a
+// bool column (De Morgan, a flipped operator, `= 0`), `contains` / `starts_with`
+// and their negations, `len` of a str (`strlen`), and `c ? a : b` (a variable
+// bound in each disjunct). The answers are hand-derived from the five rows.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Person { pub id: i64, pub name: str, pub dept: str, pub age: i64, pub active: bool }
+
+pub deem young_or_old(ps: &[Person]) { from ps p where p.age < 25 || p.age > 50 select p.id order by p.id }
+pub deem not_senior_active(ps: &[Person]) { from ps p where !(p.age >= 30 && p.active) select p.id order by p.id }
+pub deem inactive(ps: &[Person]) { from ps p where !p.active select p.id order by p.id }
+pub deem no_small_a(ps: &[Person]) { from ps p where !contains(p.name, "a") select p.id order by p.id }
+pub deem a_not_ab(ps: &[Person]) { from ps p where starts_with(p.name, "A") && !starts_with(p.name, "Ab") select p.id order by p.id }
+pub deem over40(ps: &[Person]) { from ps p select (p.id, p.age > 40 ? 1 : 0) order by p.id }
+pub deem three_letters(ps: &[Person]) { from ps p where len(p.name) == 3 select p.id order by p.id }
+pub deem eng_or_idle_ops(ps: &[Person]) { from ps p where p.dept == "eng" || (p.dept == "ops" && !p.active) select p.id order by p.id }
+pub deem active_name_len(ps: &[Person]) { from ps p where p.active select (p.id, len(p.name)) order by p.id }
+
+fn show(v: &Vec<i64>) {
+    let mut i: i64 = 0i64;
+    while i < v.len() { if i > 0i64 { print!(" "); } print!("{}", v.get(i)); i = i + 1i64; }
+    println!("");
+}
+fn show2(v: &Vec<(i64, i64)>) {
+    let mut i: i64 = 0i64;
+    while i < v.len() { if i > 0i64 { print!(" "); } print!("{}:{}", v.get(i).0, v.get(i).1); i = i + 1i64; }
+    println!("");
+}
+fn main() -> i32 {
+    let ps: [Person; 5] = [
+        Person { id: 1, name: "Ann", dept: "eng", age: 30, active: true },
+        Person { id: 2, name: "Bob", dept: "ops", age: 45, active: false },
+        Person { id: 3, name: "Al", dept: "eng", age: 22, active: true },
+        Person { id: 4, name: "Cara", dept: "hr", age: 51, active: false },
+        Person { id: 5, name: "Abe", dept: "ops", age: 38, active: true },
+    ];
+    show(&young_or_old(&ps[..]).unwrap());
+    show(&not_senior_active(&ps[..]).unwrap());
+    show(&inactive(&ps[..]).unwrap());
+    show(&no_small_a(&ps[..]).unwrap());
+    show(&a_not_ab(&ps[..]).unwrap());
+    show2(&over40(&ps[..]).unwrap());
+    show(&three_letters(&ps[..]).unwrap());
+    show(&eng_or_idle_ops(&ps[..]).unwrap());
+    show2(&active_name_len(&ps[..]).unwrap());
+    return 0i32;
+}

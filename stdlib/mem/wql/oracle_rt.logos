@@ -151,3 +151,21 @@ pub fn wql_oracle_newid(dir: str) -> i64 {
     wql_oracle_close(fd);
     return k;
 }
+
+// One dump cell as generated source: `wql_oracle_<k>(__od, <expr>);` for dump
+// kind `kind` ('i' integer as i64, 'b' bool, 'S' a String through `as_str`,
+// 'f' an f32 by its canonical bits, 'u' a u64 bit-cast, 'U' a u64, 'F' an f64,
+// 'z' an opaque 0, anything else a `str`). Written by the exporter's dumps
+// (`dl_export::dx_cell`) and by an oracle build's UDF call log
+// (`codegen::emit_udf_call`).
+pub fn oracle_cell_text(out: &mut String, kind: str, expr: str) {
+    if str_eq(kind, "i") { out.push_str("wql_oracle_i64(__od, (("); out.push_str(expr); out.push_str(") as i64)); "); }
+    else if str_eq(kind, "b") { out.push_str("wql_oracle_bool(__od, "); out.push_str(expr); out.push_str("); "); }
+    else if str_eq(kind, "S") { out.push_str("wql_oracle_str(__od, ("); out.push_str(expr); out.push_str(").as_str()); "); }
+    else if str_eq(kind, "f") { out.push_str("wql_oracle_i64(__od, f64_canon_bits(("); out.push_str(expr); out.push_str(") as f64) as i64); "); }
+    else if str_eq(kind, "u") { out.push_str("wql_oracle_i64(__od, ("); out.push_str(expr); out.push_str(") as i64); "); }
+    else if str_eq(kind, "U") { out.push_str("wql_oracle_u64(__od, ("); out.push_str(expr); out.push_str(") as u64); "); }
+    else if str_eq(kind, "F") { out.push_str("wql_oracle_f64(__od, ("); out.push_str(expr); out.push_str(") as f64); "); }
+    else if str_eq(kind, "z") { out.push_str("wql_oracle_str(__od, \"0\"); "); }
+    else { out.push_str("wql_oracle_str(__od, "); out.push_str(expr); out.push_str("); "); }
+}
