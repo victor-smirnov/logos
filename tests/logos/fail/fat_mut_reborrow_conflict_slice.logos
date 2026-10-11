@@ -1,0 +1,7 @@
+// `&mut *m` over a fat `&mut` is a loan of `*m`: using the original while the reborrow is live is refused (rustc E0499/E0506).
+package fat_mut_reborrow_conflict_slice;
+use logos.std.fmt;
+trait A { fn g(&mut self); fn v(&self) -> i64; }
+struct D { a: i64 }
+impl A for D { fn g(&mut self) { self.a += 1; } fn v(&self) -> i64 { self.a } }
+fn main() { let mut a = [1i64, 2]; let s: &mut [i64] = &mut a; let s2 = &mut *s; s[1] = 5; s2[0] = 7; println!("{}", a[0]); }

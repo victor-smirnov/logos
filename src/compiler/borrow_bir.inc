@@ -1094,8 +1094,12 @@ private:
                 // `&*fat` where the inner expression already IS the fat
                 // reference (a borrow of an unsized place: `&self.inner.val`
                 // for `T = dyn`, `&v[..]`): same type in and out, no new loan.
+                // ⚠ NOT `&mut *m` written over a `&mut dyn` / `&mut [T]`: that
+                // is a reborrow of the place `*m` (a loan), and lowering it as
+                // `m` itself MOVED the `&mut`.
                 if (TypeRef it = v.inner() ? v.inner().type(pool_) : TypeRef{};
                     it && t && it.kind() == t.kind() &&
+                    !(v.is_mut() && v.inner().kind() == ECode::Deref) &&
                     ((it.kind() == LogosType::Kind::Slice && !it.owning_slice()) ||
                      (it.kind() == LogosType::Kind::TraitObject && !it.owning_trait_object()) ||
                      (it.kind() == LogosType::Kind::DstRef && !it.owning_dst()))) {
@@ -5098,6 +5102,20 @@ private:
             default: return false;
         }
     }
+    // A `&T`, and the borrowed fat pointers written `&` (`&'a [T]`, `&'a dyn
+    // Tr`): the deref that ends rustc's supporting-prefix walk. Only `Ref`
+    // counted, so `&self.items[0]` with `items: &'a [i32]` walked on to `*self`
+    // and demanded `'self: 'a`. A `&Dst` carries no mutability bit here and
+    // stays non-shared (the walk goes on, which only refuses more).
+    static bool is_shared_borrowing_pointer(TypeRef t) {
+        if (!t || !is_borrowing_pointer(t)) return false;
+        switch (t.kind()) {
+            case LogosType::Kind::Ref:         return true;
+            case LogosType::Kind::Slice:       return !t.mut_ptr();
+            case LogosType::Kind::TraitObject: return !t.mut_borrowed_trait_object();
+            default: return false;
+        }
+    }
     // A MOVE out through a raw pointer written as a DEREF (`*x`, `(*x).f`) is
     // rustc's E0507 ("cannot move out of `*x` which is behind a raw pointer";
     // `ptr::read` is the legal way). An INDEX (`x[i]`, i.e. `(*x)[i]`) is Logos's
@@ -5748,7 +5766,7 @@ void BirFacts::emit(dl::Database& db, dl::Symbols& syms) {
                                 bool ref_deref = pj.k == bir::Proj::K::Deref &&
                                     (synth || is_borrowing_pointer(pt));
                                 if (ref_deref)
-                                    derefs.emplace_back(prefix, !synth && pt && pt.kind() == LogosType::Kind::Ref);
+                                    derefs.emplace_back(prefix, !synth && is_shared_borrowing_pointer(pt));
                                 if (pj.k == bir::Proj::K::Deref && synth) { pt = root.synth_pointee; synth = false; }
                                 else if (pj.k == bir::Proj::K::Deref) pt = pt ? pt.pointee() : TypeRef{};
                                 else if (pj.k == bir::Proj::K::Field) pt = pj.ty;   // the field's type, when the place recorded it

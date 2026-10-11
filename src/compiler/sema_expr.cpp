@@ -2169,6 +2169,20 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                                                TypeRef(op_t).pkg_name()), true));   // `&mut *b`
                 return operand;
             }
+            // `&mut *m` over a borrowed `&mut dyn Tr` / `&mut [T]`: a REBORROW of
+            // the place `*m`, of m's own fat type. It fell to the address-of at
+            // the end and was typed `&mut &mut dyn Tr`, which borrowed `m`
+            // itself and demanded `let mut m`.
+            if (!operand_unsized &&
+                ((TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
+                  !TypeRef(op_t).owning_trait_object() && !TypeRef(op_t).raw_fat() &&
+                  TypeRef(op_t).mut_borrowed_trait_object()) ||
+                 (TypeRef(op_t).kind() == LogosType::Kind::Slice &&
+                  !TypeRef(op_t).owning_slice() && !TypeRef(op_t).raw_fat() &&
+                  TypeRef(op_t).mut_ptr()))) {
+                auto deref = builder().deref(std::move(operand), op_t);
+                return builder().addr_of_temp(std::move(deref), true, op_t, BorrowOrigin::Explicit);
+            }
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
                 TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
                 TypeRef(op_t).kind() == LogosType::Kind::Ref) {
