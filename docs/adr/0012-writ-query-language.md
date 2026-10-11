@@ -1,7 +1,6 @@
 # ADR 0012 — Writ Query Language (WQL): unified query language over Writ
 
-**Status:** DRAFT / SKELETON (2026-06-30) — captured from design discussion; to be
-designed in detail. NOTHING here is final; sections marked **[OPEN]** are the live forks.
+**Status:** PARTIALLY IMPLEMENTED (checked 2026-10-11). Skeleton 2026-06-30, decisions taken in the 2026-07-01 design session below. Queue 1 (static) shipped with the MVP (4c62dfd6a) and static Datalog rel blocks (c8a325bce); the `wql!` surface became `deem!` (c55741c52) and then the `deem` language item (e8689a510, handler `stdlib/mem/wql/wql.logos` `deem`); Trama stays `resource x = trama!(…){…}` (`stdlib/mem/wql/trama_render.logos` `trama`); the relational IR was replaced by the Deem core of ADR 0031 (`core.logos`, `dplan.logos`; `RExpr` cut to `Scan | Filter` in 3fb805854). Queue 2 shipped (c00b28886, bbdeeca17, 956b68a52), and its query half was DELETED at P5 (e1dd0ac5e); the template half `Tpl` survives (`stdlib/mem/deem/tpl.logos`). Queue 3 (JIT → Logos VM) has not started: nothing under `stdlib/mem/wql` refers to it.
 **Date:** 2026-06-30
 **Related:** [ADR 0011 — Writ schemas](0011-writ-schemas.md) (the typing substrate this
 builds on); the **Datalog** roadmap item; the planned **Logos VM**.

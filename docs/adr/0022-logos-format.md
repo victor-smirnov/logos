@@ -1,6 +1,6 @@
 # ADR 0022 — logos-format: the canonical source formatter
 
-- Status: **DRAFT** (2026-07-18)
+- Status: DRAFT (checked 2026-10-11). Drafted 2026-07-18 (`3b079d3d2`); not started — no `logos-format` binary, no `lforge fmt`, no `tests/format/` golden corpus exist. Emitter hand-formatting retired by a different route: the factory emits through `quote_item!` (`544aefe1f`, "0 push_text left") and `--gen-dir` dumps render via `render_module_source_for_dump` (`src/compiler/sema_render.cpp`).
 - Builds on: the --gen-dir render/reparse machinery (d25d4fa1: render →
   file → REPARSE → swap, per-emission fidelity gate), the sema_render item/
   block renderer, ADR 0021 (generated families are real source; dumps must

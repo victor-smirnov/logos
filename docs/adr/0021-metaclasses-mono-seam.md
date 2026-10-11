@@ -1,7 +1,6 @@
 # ADR 0021 — Metaclasses: one instantiation engine, factories via metacall, reasoners as metafunctions
 
-- Status: **DRAFT** (pair-designed 2026-07-17; implementation in progress —
-  converting the wave-0 container pipeline of ADR 0020 onto this seam)
+- Status: IMPLEMENTED (checked 2026-10-11). Drafted 2026-07-17 (pair; `37791df25`), no acceptance recorded in the file's history. Ladder landed: mono factory-demand channel (`e1ac0778e`, `90b5de353`), factory-generated families (`add288975`), `create_ctr`/`open_ctr::<C: CtrFamily>` (`a6f0b55c1`, `stdlib/lcm/canon/metaclass.logos`), decl-site CFG + harvest retired (`5f9043a0e`, `50171d4fc`), wave-0 debts closed (`69ac45571`). Deviation from §2: no type alias — `typeof(Decl)` is the declaration→type bridge to `CtrClass<CFG>` (`e075ad231`, `3e44431d5`). Open: the `catalog` slot, a second metaclass.
 - Date: 2026-07-17
 - Builds on: ADR 0020 (Memoria container plane + Canon; the invariant "Canon
   never emits; metaprog never decides" is generalized here), ADR 0017

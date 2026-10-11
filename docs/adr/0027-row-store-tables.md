@@ -1,9 +1,6 @@
 # ADR 0027 — row-store tables and indexes: Memoria as an OLTP engine
 
-Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-08-17). The one
-sub-decision that was OPEN (OPEN-1, the key/value type mechanism) is RESOLVED
-2026-08-18 — see the `WritObjectData` section. Its implementation opened one
-successor question (OPEN-2, canonical bytes for byte-compared keys).
+Status: PARTIALLY IMPLEMENTED (checked 2026-10-11). Accepted as direction 2026-08-17 (Victor + Claude PAIR); OPEN-1 resolved 2026-08-18 by `WritObjectData` (3dfbfa91c). Landed: S1 `WRow` (e4563ce91, `writ/row.logos`), S3 `RowRef`/`RowBuf` (9167660b1), S4 relation widening (#322 closed: dfc32bbc6, 0f3063975; `nullable` became an `Option<T>` column), S4.5 (3dfbfa91c). Not started (no code in the tree): S2, S5–S9, S11–S13; OPEN-2 (canonical key bytes) still open (`objdata.logos` comment).
 Scope: two new container kinds (clustered and heap tables), the `Row` /
 `TableMetadata` pair they store, the container-registry and dispatch extensions
 they need, and the Deem-side consequences. Builds on ADR 0020 (container plane),
@@ -546,10 +543,10 @@ groups marked ∥ are independent of each other.
 
 | # | slice | depends on | note |
 |---|---|---|---|
-| S1 | `Row` object type + popcount access | — | format only; no container |
+| S1 | `Row` object type + popcount access | — | ✅ LANDED (e4563ce91, `WRow`) — format only; no container |
 | S2 | `TableMetadata` as a Writ container | — ∥ | ordinary document; column IDs monotone |
 | S3 | `RowRef` / `RowBuf` + the assembly path | S1 | ✅ LANDED — D11; borrow-carrying; residency is the holder's own borrow (the §7 pin ladder still has no caller) |
-| S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | also closes 0026 F6/F8 |
+| S4 | relation widening (`entry(c1..cN)`, `unique`, `nullable`) | — ∥ | ✅ LANDED (#322 closed; `nullable` = `Option<T>` column) — closed 0026 F8; F6 (`order` on BTreeMap) still open |
 | S4.5 | `WritObjectData` (tagless run + external tag) | — | ✅ LANDED with OPEN-1's resolution |
 | S5 | base arm: `Map<K,V>` over BTFL, K/V = `WritObjectData` | S1, S4, S4.5 | Memoria-level; no table kind; u16 key framing |
 | S6 | `ClusteredTable` wrapper | S5, S13 | LIBRARY, not a kind; PK = the base's key |

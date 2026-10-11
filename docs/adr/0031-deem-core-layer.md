@@ -1,6 +1,6 @@
 # ADR 0031 — The Deem core layer: one normalised clause form between the surface and the plan
 
-Status: IMPLEMENTED 2026-10-09 — every row R0–R8 closed (§7). ACCEPTED 2026-10-06 (Victor: «Отлично. Заканчивай текущую работу и берись за ADR 0031. Потом — уже всё остальное будем делать с учётом ADR 0031»; §6 taken as recommended). Parent: [0024-deem-typed-plan-ir.md](0024-deem-typed-plan-ir.md).
+Status: IMPLEMENTED (checked 2026-10-11). Accepted 2026-10-06 (Victor; §6 taken as recommended); every row R0–R8 closed by 2026-10-09 (R0 43c6a88da … R8 b8c752f73 `logos_00_deem_layer_lint`, R7 closed 61b257315). Extension 2026-10-10, the outer atom, landed in e9ce02fb5 (`CAtom.outer` / `CTrav.outer`, `check::entry_outer_ok`, `WG_OUTER`, `dl_export` refusal); still refused by `entry_outer_ok`: an outer join in a rel body, under `find`, and a `full join` beyond two sources or under `group by`.
 Reference architecture: Soufflé 2.5 (`~/sandbox/souffle`, = `/usr/bin/souffle`).
 
 ## 0. Mandate
@@ -200,7 +200,7 @@ The incremental entry's admission (`incr_eligible`: 24 decline grounds) and its 
 - **R3.5 — 6eeed36f2.** Mapping fusion on the core (`core_fuse`). **R3 closed**: every rewrite of the program is Core → Core; lower.logos 2042 → 101 lines.
 - Each R3 step: shadow over build + L0 first (R3.5 excepted: a single rename, its oracle the 10 mapping fixtures in the snapshot), then the switch; gen + traces byte-identical.
 - **R8 — b8c752f73.** `logos_00_deem_layer_lint`: no `RQ*` (surface) type in the code of any Deem module but the schemas, the generated parser, the lowering, the handler and the position resolver; a planted canary proves it fires. Graph paths ride the core as `Vec<CPathStep>`; the walker no longer views the parse tree.
-- **R7.1 — 59c33b345.** An SCC's fixpoint is a plan (`dplan::DScc`: per member its rules, the seeds, and one `DRun` per in-SCC occurrence of every recursive rule — the rule and its per-slot delta/total renames); the semi-naïve (`_scc`, `_scc_i`) and DRed (`_od`, `_odp`) drivers spell it. Byte-identical.
+- **R7.1 — da42ea087** (progress note 59c33b345). An SCC's fixpoint is a plan (`dplan::DScc`: per member its rules, the seeds, and one `DRun` per in-SCC occurrence of every recursive rule — the rule and its per-slot delta/total renames); the semi-naïve (`_scc`, `_scc_i`) and DRed (`_od`, `_odp`) drivers spell it. Byte-identical.
 - **R7.2 — 684bf27b2.** The index over a source a fixpoint's loop does not change (a parameter, a rel outside the SCC; `DRun.inv`) is built once, before the loop, not every round. Single-source reachability over N edges: 1350 ms → 1 ms at N = 4000, linear to 256k. Answers and traces unchanged; gate `logos_09_scc_index_hoist` (structural) + fixture.
 - **R7.3 — ec581d92a.** A fixpoint variant drives from its DELTA (`dplan::delta_first`): the delta atom first, the rest in written order, each `on` re-attached to the last source it reads; admissible only if every positive join step keeps a linking condition (else the written order stays — 3 variants in the corpus). The planner plans the SCCs before emission (`plan_sccs`) and decides the reordered variants' steps with the rule's own decision (`plan_decide_clause`, moved from the walker). `from edges e join reach r …`: 133 ms → 1 ms at 4000 edges, linear. Answers unchanged; census `hash join` decisions +69 (derived per fixture). `LOGOS_DEEM_NO_HOIST` / `LOGOS_DEEM_NO_DELTA_FIRST` switch R7.2 / R7.3 off for measuring.
 - **R7.2b — 55c427bbd.** DRed's propagation driver (`_odp`) builds its loop-invariant indexes once, before its loop, like the semi-naive drivers. Answers and traces unchanged (26 DRed units differ by the moved builds only).
@@ -232,9 +232,16 @@ The incremental entry's admission (`incr_eligible`: 24 decline grounds) and its 
 without changing the answer: the unmatched rows are a second clause, and the
 entry is one rule — a union through a rel would deduplicate what SQL keeps.
 So the core gains one literal form beside the negated atom: `CAtom.outer`
-(`OUTER_LEFT` / `OUTER_FULL`), whose `on` rides in `conds` as an anti atom's
+(and `CTrav.outer` for a traversal; `OUTER_LEFT` / `OUTER_FULL`), whose `on` rides in `conds` as an anti atom's
 does (the match is its scope; `core_verify` admits exactly that). It is one
 form, not surface variety: `check::entry_outer_ok` refuses it where the planner
 and emitters do not handle it yet (rel bodies, `find`, `full join` beyond two
 sources or under `group by`), `join_order` refuses to reorder it (`WG_OUTER`),
 and `dl_export` keeps it outside the oracle fragment. Spec: `deem.join.outer`.
+
+## Extension 2026-10-10 — aggregation inside a recursive component (3b3d02fb2)
+
+No new core form: both cases are admission decisions in `plan_walker::check_stratified`, over the existing aggregate and lattice rules. Decided with Victor as the two cases with a clear semantics and an oracle; monotone `count`/`sum` (Ross–Sagiv) and lattices beyond min/max wait for incremental Datalog (ADR 0033).
+
+- A grouping rel inside a recursive component whose cycle is closed by a plain body is admitted: an aggregate edge into the component is still refused, so its grouping bodies read earlier strata only and are folded once as seeds of the fixpoint (`wql_rel_group_in_cycle_e2e`).
+- A component of several rels is admitted when every member is a min/max lattice of the same direction: each absorbs its own stale values, so the answer is the least fixpoint of the product lattice in any round order (`wql_rel_lattice_mutual_e2e`). A plain member in such a component is refused with that ground (`wql_rel_lattice_mixed_scc_fail`). The oracle receives recursive min/max as Soufflé subsumption (`dl_export::dx_lattice_rule`, 413811e40). Spec: `deem.datalog.stratified-aggregation`.

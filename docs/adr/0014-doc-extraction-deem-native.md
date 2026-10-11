@@ -1,6 +1,6 @@
 # ADR 0014 — Deem-native Documentation Extraction (`logosc --emit-docs` + `lforge doc`)
 
-- Status: **Proposed** (design-only; first slice specified in §8)
+- Status: **PARTIALLY IMPLEMENTED** (checked 2026-10-11). Proposed 2026-07-05. The extract → resolve → serialize vertical landed in 9832f3542 (2026-07-06), §§10–12: `logosc --emit-docs` (`src/compiler/emit_module.cpp` `emit_docs_facts`), `tools/docgen/docgen.logos`, and `lforge doc` (`tools/lforge/pkg/doc.logos`), all gated by `tests/lforge/{emit_docs,doc_json,doc_cmd}.sh`. Deem has no part in it yet. The §3 cross-reference rules and the `DocSigMention` facts (slice-1b) were never built; `implementors` is a plain fold in docgen. The runtime engines that §6 and §11 name (the queue-2 `Query::compile` and the ADR 0013 incremental engine) were deleted at P5 (e1dd0ac5e).
 - Date: 2026-07-05
 - Builds on: ADR 0011 (Writ schemas), ADR 0012 (WQL/Deem), ADR 0013 (incremental DBSP engine).
 - Does **not** change the IR, the grammar, or the doc-comment lexing (all already shipped — see §0.1).

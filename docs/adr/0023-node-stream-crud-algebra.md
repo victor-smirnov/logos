@@ -1,6 +1,6 @@
 # ADR 0023 — Node stream-CRUD algebra + fused-kernel metaprogramming
 
-Status: ACCEPTED (design pinned 2026-07-24, Victor + Claude PAIR).
+Status: PARTIALLY IMPLEMENTED (checked 2026-10-11). Design pinned 2026-07-24 (Victor + Claude pair). S1–S3 landed (`a581a0964` `logos.mem.bt.alg`, `885ef3a4f` `logos.mem.bt.interp`, `546808d2c`/`8c009a4b9` `logos.lcm.canon.alg_kernel`; fixtures `tests/logos/pass/memoria_alg_*`); S4 landed for the ordered_map plane (`8e7afe269`, `16dd8edb0`; `btss_upsert_*` deleted, `stdlib/mem/bt/btss.logos`). Open: the btfl multimap step (`btfl_step`, `stdlib/mem/bt/btfl.logos`, still a hand runtime step), split/merge, the container-API / Deem co-design stage.
 Scope: the node-level mutation machinery of Memoria/Logos (leaf AND branch);
 the metaprogramming plane that compiles it per schema.
 

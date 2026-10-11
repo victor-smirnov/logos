@@ -1,7 +1,6 @@
 # ADR 0020 — Memoria: the container-interface plane of Deem, and Canon, its design orchestrator
 
-- Status: **ACCEPTED** (user, 2026-07-13; pair-designed 2026-07-12..13; wave-0
-  prototype landed on main — the design survived implementation unchanged)
+- Status: PARTIALLY IMPLEMENTED (checked 2026-10-11). Accepted 2026-07-13 (user; pair-designed 07-12..13, `1c6faaf23`). Landed: §10 steps 1–3 — the `container` item (`8b059e933`, `e596b3600`; `SemaChecker::reconstruct_container_def`), Canon verdicts (`6255d860a`, `stdlib/lcm/canon/canon.logos`), verdict-driven projection (`1082b58be`), kinds `vector` + `ordered_map` (`stdlib/lcm/canon/vocab.logos`; `c8cca71a8`), parity gate measured not-equal, ceiling 1.45x (`87f40c9b6`, `tests/logos/ctr_point_parity_gate.sh`); the wave-0 implementation strategy is superseded by ADR 0021. Open: Queue, Index, AssocMemory kinds, the Z-set write plane / DML layer and the ingestion gate, the `format_hash` fact, `#[derive_rel_source]` (none found in `stdlib/`, `src/`, `tests/`).
 - Date: 2026-07-13
 - Builds on: ADR 0016 (mappings first-class; since c246699b/e8689a51 the whole
   query surface is language items — `deem`/`mapping`/`rel`; `deem!` retired,

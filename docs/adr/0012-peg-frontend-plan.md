@@ -1,9 +1,6 @@
 # ADR 0012 — moving wql!/trama! PARSING onto peg_gen_logos, with schema-emitting actions
 
-**Status:** DESIGN NOTE (2026-06-30). Phase-1 investigation output for the
-"peg-ify the WQL/Trama frontends" workstream. Companion to
-[`0012-writ-query-language.md`](0012-writ-query-language.md) and
-[`0012-impl-seam.md`](0012-impl-seam.md). No code changes in this phase.
+**Status:** IMPLEMENTED (checked 2026-10-11). Design note of 2026-06-30, the Phase-1 investigation for the "peg-ify the WQL/Trama frontends" workstream. It was carried out under [`0012-peg-parsers-schema-emission.md`](0012-peg-parsers-schema-emission.md): schema emission in peg_gen_logos landed in 224d52e6a, and the generated parsers went live with the hand parsers retired in b148a2295 and 2473af9ba (QLexer). The generated parsers are `stdlib/mem/wql/{el,trama,wql_surface}_parser.logos`, built from `stdlib/mem/wql/grammars/*.peg`. The `stdlib/std/wql/` paths below moved to `stdlib/mem/wql/` in 2cfe5f139. Companion to [`0012-writ-query-language.md`](0012-writ-query-language.md) and [`0012-impl-seam.md`](0012-impl-seam.md).
 
 The goal: replace the hand-written recursive-descent parsers under `stdlib/std/wql/`
 (`el.logos` `ElParser`, `wql.logos` `QLexer`, `trama.logos` `TrParser`) with
