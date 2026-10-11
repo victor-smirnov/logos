@@ -1,0 +1,6 @@
+// Closed squeue derive_lifetime_generic_struct_refused (#671): derives carry the struct's lifetime parameters into the impl header; as rustc.
+package derive_lifetime_generic_struct_refused;
+use logos.std.compiler.metaprog;
+#[derive_debug]
+struct S<'a> { r: &'a i64 }
+fn main() -> i32 { let x = 1i64; let s = S { r: &x }; return (*s.r - 1i64) as i32; }

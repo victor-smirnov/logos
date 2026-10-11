@@ -1,16 +1,16 @@
 // logos.std.compiler.metaprog — derive(Clone).
 //
 // Hook for `#[derive_clone]`. Emits rustc's expansion: rebuild the same shape
-// from each field's own `.clone()`, in declaration order.
+// from each field's `Clone::clone(&field)` (rustc's expansion: a `&'a T` field clones the reference, not the T), in declaration order.
 //
 //   impl<const N: usize, T: Clone> Clone for Name<N, T> {
 //       fn clone(&self) -> Name<N, T> {
 //           match self {
 //               Self::U => { return Self::U; }
-//               Self::T(__self_0) => { return Self::T(__self_0.clone()); }
-//               Self::S { x: __self_0 } => { return Self::S { x: __self_0.clone() }; }
-//               Name { x: __self_0 } => { return Name { x: __self_0.clone() }; }
-//               Name(__self_0) => { return Name(__self_0.clone()); }
+//               Self::T(__self_0) => { return Self::T(Clone::clone(__self_0)); }
+//               Self::S { x: __self_0 } => { return Self::S { x: Clone::clone(__self_0) }; }
+//               Name { x: __self_0 } => { return Name { x: Clone::clone(__self_0) }; }
+//               Name(__self_0) => { return Name(Clone::clone(__self_0)); }
 //           }
 //       }
 //   }
@@ -33,6 +33,7 @@ fn derive_clone_hook(target_offset: u32) -> () {
     if view.ast_node_name(item).len == (0 as u64) { return; }
     let sh: DeriveShape = derive_shape_of(&view, item);
     let nm: Ident = sh.nm;
+    let lparams: Vec<Ident> = sh.lparams;
     let tparams: Vec<Ident> = sh.tparams;
     let cparams: Vec<Ident> = sh.cparams;
     let ctypes: Vec<Ident> = sh.ctypes;
@@ -50,21 +51,21 @@ fn derive_clone_hook(target_offset: u32) -> () {
     let tn_a: Vec<Vec<Ident>> = sh.tn_a;
 
     let blob: QuoteItemBlob = quote_item! {
-        impl<#( const #cparams: #ctypes ),*, #( #tparams: Clone ),*> Clone for #nm<#( #gargs ),*> {
+        impl<#( #lparams ),*, #( const #cparams: #ctypes ),*, #( #tparams: Clone ),*> Clone for #nm<#( #gargs ),*> {
             fn clone(&self) -> #nm<#( #gargs ),*> {
                 match self {
                     #( Self::#unit_v => { return Self::#unit_v; } )*
                     #( Self::#tup_v( #( #tup_a ),* ) => {
-                        return Self::#tup_v( #( #tup_a.clone() ),* );
+                        return Self::#tup_v( #( Clone::clone(#tup_a) ),* );
                     } )*
                     #( Self::#st_v { #( #st_f: #st_a ),* } => {
-                        return Self::#st_v { #( #st_f: #st_a.clone() ),* };
+                        return Self::#st_v { #( #st_f: Clone::clone(#st_a) ),* };
                     } )*
                     #( #sn { #( #sn_f: #sn_a ),* } => {
-                        return #sn { #( #sn_f: #sn_a.clone() ),* };
+                        return #sn { #( #sn_f: Clone::clone(#sn_a) ),* };
                     } )*
                     #( #tn( #( #tn_a ),* ) => {
-                        return #tn( #( #tn_a.clone() ),* );
+                        return #tn( #( Clone::clone(#tn_a) ),* );
                     } )*
                 }
             }

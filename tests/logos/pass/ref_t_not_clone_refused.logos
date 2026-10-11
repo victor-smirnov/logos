@@ -1,0 +1,4 @@
+// Closed squeue ref_t_not_clone_refused (#685): impl<'a, T: ?Sized> Clone for &'a T resolves through a trait path; exit 0 as rustc.
+package ref_t_not_clone_refused;
+fn need<T: Clone>(x: T) -> T { x.clone() }
+fn main() -> i32 { let a = 5i32; let r = &a; let b = need(r); if *b == 5i32 { return 0i32; } return 1i32; }

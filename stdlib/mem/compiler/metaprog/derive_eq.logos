@@ -20,13 +20,14 @@ fn derive_eq_hook(target_offset: u32) -> () {
     if view.ast_node_name(item).len == (0 as u64) { return; }
     let sh: DeriveShape = derive_shape_of(&view, item);
     let nm: Ident = sh.nm;
+    let lparams: Vec<Ident> = sh.lparams;
     let tparams: Vec<Ident> = sh.tparams;
     let cparams: Vec<Ident> = sh.cparams;
     let ctypes: Vec<Ident> = sh.ctypes;
     let gargs: Vec<Ident> = sh.gargs;
 
     let blob: QuoteItemBlob = quote_item! {
-        impl<#( const #cparams: #ctypes ),*, #( #tparams: Eq ),*> Eq for #nm<#( #gargs ),*> {}
+        impl<#( #lparams ),*, #( const #cparams: #ctypes ),*, #( #tparams: Eq ),*> Eq for #nm<#( #gargs ),*> {}
     };
     unsafe { logos_emit_item_blob_subst(&blob); }
     return;

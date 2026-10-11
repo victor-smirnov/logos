@@ -43,6 +43,7 @@ fn derive_ord_hook(target_offset: u32) -> () {
     }
     let sh: DeriveShape = derive_shape_of(&view, item);
     let nm: Ident = sh.nm;
+    let lparams: Vec<Ident> = sh.lparams;
     let tparams: Vec<Ident> = sh.tparams;
     let cparams: Vec<Ident> = sh.cparams;
     let ctypes: Vec<Ident> = sh.ctypes;
@@ -56,7 +57,7 @@ fn derive_ord_hook(target_offset: u32) -> () {
     let tn_b: Vec<Vec<Ident>> = sh.tn_b;
 
     let blob: QuoteItemBlob = quote_item! {
-        impl<#( const #cparams: #ctypes ),*, #( #tparams: Ord ),*> Ord for #nm<#( #gargs ),*> {
+        impl<#( #lparams ),*, #( const #cparams: #ctypes ),*, #( #tparams: Ord ),*> Ord for #nm<#( #gargs ),*> {
             fn cmp(&self, other: &#nm<#( #gargs ),*>) -> Ordering {
                 match (self, other) {
                     #( (#sn { #( #sn_f: #sn_a ),* }, #sn { #( #sn_f: #sn_b ),* }) => {

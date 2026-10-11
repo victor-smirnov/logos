@@ -33,6 +33,8 @@ pub struct DeriveShape {
     pub nm: Ident,
     /// `true` when the item declares any type or const param.
     pub generic: bool,
+    /// Lifetime params (`'a`), first in the impl header and the argument list.
+    pub lparams: Vec<Ident>,
     /// Type params (each gets the derive's trait bound).
     pub tparams: Vec<Ident>,
     /// Const param names, parallel to `ctypes`.
@@ -110,7 +112,7 @@ pub fn derive_shape_of(view: &OView, item: WAny) -> DeriveShape {
     let nm: Ident = ds_ident(view.ast_node_name(item));
     let mut sh: DeriveShape = DeriveShape {
         nm: nm, generic: false,
-        tparams: vec_new::<Ident>(), cparams: vec_new::<Ident>(),
+        lparams: vec_new::<Ident>(), tparams: vec_new::<Ident>(), cparams: vec_new::<Ident>(),
         ctypes: vec_new::<Ident>(), gargs: vec_new::<Ident>(),
         unit_v: vec_new::<Ident>(),
         tup_v: vec_new::<Ident>(), tup_a: vec_new::<Vec<Ident>>(), tup_b: vec_new::<Vec<Ident>>(),
@@ -132,7 +134,12 @@ pub fn derive_shape_of(view: &OView, item: WAny) -> DeriveShape {
             while k < np {
                 let p: WAny = view.array_get(inner, k);
                 let c: u64 = ds_code(view, p);
-                if c == (90 as u64) {
+                if c == (131 as u64) {
+                    let id: Ident = ds_ident(view.ast_node_name(p));
+                    sh.lparams.push(id);
+                    sh.gargs.push(id);
+                    sh.generic = true;
+                } else if c == (90 as u64) {
                     let id: Ident = ds_ident(view.ast_node_name(p));
                     sh.tparams.push(id);
                     sh.gargs.push(id);

@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row rpit_hidden_type_visible_admitted (tier 4, `admits`). A return-position `impl Trait` is TRANSPARENT in Logos: the caller sees the hidden type, so its fields, its inherent methods, its other traits (Clone, Copy) and its moves are the hidden type's. Rust's opaque type offers the bound alone.
+// Logos: compiles clean and prints 1 — `r.w` reads a field of the hidden `Rect` through `impl Area`
+// rustc: error[E0609]: no field `w` on type `impl Area` (rustc 1.98.1 --edition 2024); the matrix cluster rpit-not-opaque has five more shapes (E0308 opaque vs concrete, E0277 Clone not in the bound, E0382 a move the opaque type does not let Copy cover)
+// corpus: tests/interactions/clusters/rpit-not-opaque/
+// fix hint: an opaque type at the call site (Kind::Opaque{fn, bounds, hidden}) — sema answers fields / methods / obligations / Copy from the bounds; mono and codegen take the hidden type. A design step: pair it.
+package rpit_hidden_type_visible_admitted;
+use logos.std.fmt;
+trait Area { fn area(&self) -> i64; }
+struct Rect { w: i64 }
+impl Area for Rect { fn area(&self) -> i64 { self.w } }
+fn mk() -> impl Area { Rect { w: 1 } }
+fn main() { let r = mk(); println!("{}", r.w); }

@@ -1979,7 +1979,11 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
     case la::LIT_CHAR: return lower_char_lit(expr);
     case la::LIT_STR: {
         auto sv = str_of(expr.get(la::VALUE.code));
-        if (!sv.empty() && sv.front() == 'c') return lower_cstr_lit(sv);
+        // `c"…"` / `cr"…"` / `cr#"…"#` — the prefix AND its quote: a quote-less value
+        // (`##field` stringified `cents`) is an ordinary string starting with `c`.
+        const bool cstr = sv.size() > 1 && sv[0] == 'c' &&
+                          (sv[1] == '"' || (sv[1] == 'r' && sv.size() > 2 && (sv[2] == '"' || sv[2] == '#')));
+        if (cstr) return lower_cstr_lit(sv);
         return builder().lit_str(std::string(sv), make_slice_type(u8_t(), false, TypeRef::OwningKind::Borrow, "'static"));
     }
 
@@ -13743,11 +13747,19 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // ft stays `[T; <symbolic N>]` and the validator fires
                 // "expected [T; 0] got [T; K]". Type-params and args are
                 // index-aligned from the struct definition.
+                // Every parameter bound here: `ft` IS the field at the literal's arguments.
+                bool ft_at_args = false;
                 if (ft && !sinfo.type_params.empty() && !args.empty()) {
                     SemaSubst sb;
-                    for (size_t i = 0; i < sinfo.type_params.size() && i < args.size(); ++i)
+                    bool all = args.size() >= sinfo.type_params.size();
+                    for (size_t i = 0; i < sinfo.type_params.size() && i < args.size(); ++i) {
                         sb[sinfo.type_params[i].name] = args[i];
+                        if (sinfo.type_params[i].is_variadic || !args[i] ||
+                            TypeRef(args[i]).kind() == LogosType::Kind::Error)
+                            all = false;
+                    }
                     ft = subst_type_sema(ft, sb);
+                    ft_at_args = all;
                 }
                 // Recursively detect a typevar anywhere inside ft (e.g. `*mut Inner<K>`
                 // for generic field declared as `*mut Inner<K>` — sema doesn't substitute
@@ -13779,6 +13791,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // `let s: &mut [T] = &mut arr` was not.
                 // A generic field is judged at the literal's own arguments.
                 TypeRef ft_at = ft;
+                bool judged_at_args = false;   // ft_at is the field at the literal's arguments
                 TypeRef s_ft = nullptr;   // the field's type at the literal's own arguments
                 if (ft && ft_has_typevar) {
                     SemaSubst inst;
@@ -13786,7 +13799,16 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                         if (args[k] && TypeRef(args[k]).kind() != LogosType::Kind::Error && !sinfo.type_params[k].is_variadic)
                             inst[sinfo.type_params[k].name] = args[k];
                     s_ft = inst.empty() ? TypeRef(nullptr) : subst_type_sema(ft, inst);
-                    if (s_ft && type_is_concrete(s_ft)) ft_at = s_ft;
+                    // Every struct parameter bound: what remains of a type variable is the
+                    // enclosing item's own (rigid) parameter, so the field is judged too —
+                    // `W<'a, T> { p: t }` with `t: T` against `p: &'a T` was waved through
+                    // to mono, which never judged it (the program ran and segfaulted).
+                    if (s_ft && type_is_concrete(s_ft)) {
+                        ft_at = s_ft;
+                    } else if (ft_at_args && !type_has_inferred(ft) && !has_infer_var_(ft)) {
+                        ft_at = ft;                // already at the arguments (substituted above)
+                        judged_at_args = true;     // even when it spells as the declaration's `T`
+                    }
                 }
                 // A field value lowered against a hint with `_` holes (the
                 // literal's own arguments were not known yet: `left: None`
@@ -13794,7 +13816,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // arguments the literal settled on — a hole is no type.
                 if (s_ft && type_has_inferred(expr_type(fval)) && !type_has_inferred(s_ft))
                     builder().retype_expr(fval, s_ft);
-                if (ft_at && (!ft_has_typevar || ft_at != ft))
+                if (ft_at && (!ft_has_typevar || ft_at != ft || judged_at_args))
                     expect_type(fval, ft_at, CoercePos::StructLitField,
                                 std::format("struct literal '{}' field '{}':",
                                             sname, fname));
@@ -18326,7 +18348,22 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 }
             }
         }
-        while (!by_value_self && rt && (is_ref_like(TypeRef(rt).kind()) ||
+        // A `&self` method's Self is the argument less ONE reference, as rustc's
+        // (`Clone::clone(a)` with `a: &&'a T` is `<&'a T as Clone>::clone`, a
+        // `&'a T` — peeling to T called T's clone and returned a T). Only when
+        // that type has no impl does the old full peel answer.
+        if (!ufcs_fi && !by_value_self && rt && is_ref_like(TypeRef(rt).kind()) && TypeRef(rt).pointee()) {
+            const TypeRef one = TypeRef(rt).pointee();
+            std::string k1;
+            std::vector<TypeRef> t1 = node.has_key(la::TYPE_PARAMS) ? collect_type_args(node) : std::vector<TypeRef>{};
+            if (is_ref_like(TypeRef(one).kind()))
+                if ((ufcs_fi = resolve_trait_item_(class_name, one, method_name, &k1, t1))) {
+                    resolved_class = type_str(one);
+                    mangled = k1;
+                    rt = one;
+                }
+        }
+        while (!ufcs_fi && !by_value_self && rt && (is_ref_like(TypeRef(rt).kind()) ||
                       TypeRef(rt).kind() == LogosType::Kind::Ptr) &&
                TypeRef(rt).pointee())
             rt = TypeRef(rt).pointee();

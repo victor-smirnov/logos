@@ -1,0 +1,11 @@
+// A derive on a struct with a lifetime parameter: the impl header carries it (`impl<'a, T: Debug> Debug for Wrap<'a, T>`)
+// — derive_shape's lparams, and the quote cursor turns a `'a` ident in a type-param / type-arg slot into a LIFETIME_PARAM.
+package derive_on_lifetime_generic_struct;
+use logos.std.fmt;
+#[derive_debug] #[derive_clone] #[derive_copy] #[derive_partial_eq]
+struct Wrap<'a, T> { p: &'a T, k: u8 }
+fn main() {
+    let x = 5i64; let y = 5i64;
+    let a = Wrap { p: &x, k: 1 }; let b = a; let c = Wrap { p: &y, k: 1 };
+    println!("{:?} {} {}", a.clone(), b == c, *b.p + a.k as i64);
+}

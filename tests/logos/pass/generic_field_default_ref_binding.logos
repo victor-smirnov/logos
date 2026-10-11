@@ -1,0 +1,12 @@
+// The default binding mode binds `&T` for a type-parameter field too: `match self { G { x: a, .. } }` over `&G<T>`
+// gave `a: T` (a copy read out from behind the reference); a derive's `Clone::clone(__self_0)` then passed a value
+// where `&T` was expected. rustc: 42 8.
+package generic_field_default_ref_binding;
+use logos.std.fmt;
+struct G<T> { x: T, y: T }
+fn take(r: &i64) -> i64 { *r + 1 }
+impl<T> G<T> {
+    fn get(&self) -> &T { match self { G { x: a, .. } => a } }
+    fn second(&self) -> &T { let G { y, .. } = self; y }
+}
+fn main() { let g: G<i64> = G { x: 41, y: 7 }; println!("{} {}", take(g.get()), take(g.second())); }

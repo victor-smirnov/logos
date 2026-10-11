@@ -190,8 +190,6 @@ closure_return_region_of_param_refused 3 tests/soundness/open/closure_return_reg
 
 const_in_fn_body_refused 3 tests/soundness/open/const_in_fn_body_refused refuses
 
-derive_lifetime_generic_struct_refused 3 tests/soundness/open/derive_lifetime_generic_struct_refused refuses
-
 dyn_assoc_binding_refused 3 tests/soundness/open/dyn_assoc_binding_refused refuses
 
 field_slice_region_projection_refused 3 tests/soundness/open/field_slice_region_projection_refused refuses
@@ -203,8 +201,6 @@ option_combinators_take_fn_pointers_refused 3 tests/soundness/open/option_combin
 owned_return_from_ref_param_keeps_loan_refused 3 tests/soundness/open/owned_return_from_ref_param_keeps_loan_refused refuses
 
 qualified_path_generic_self_type_refused 3 tests/soundness/open/qualified_path_generic_self_type_refused refuses
-
-ref_t_not_clone_refused 3 tests/soundness/open/ref_t_not_clone_refused refuses
 
 slice_debug_missing_refused 3 tests/soundness/open/slice_debug_missing_refused refuses
 
@@ -219,8 +215,6 @@ vec_iter_find_elided_region_refused 3 tests/soundness/open/vec_iter_find_elided_
 implicit_integer_widening_admitted 4 tests/soundness/open/implicit_integer_widening_admitted admits
 
 struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_match_scrutinee_admitted admits
-
-ufcs_trait_path_peels_every_reference 1 tests/soundness/open/ufcs_trait_path_peels_every_reference run 1
 
 len_returns_i64_not_usize 3 tests/soundness/open/len_returns_i64_not_usize refuses
 
@@ -241,8 +235,6 @@ struct_field_move_then_index_read_admits 2 tests/soundness/open/struct_field_mov
 # ── 2026-10-01 ADR 0030 S0-S7 gap audit: the clusters OUTSIDE ADR 0030 (grammar / metaprog / stdlib)
 open_range_for_head_parse_refused 3 tests/soundness/open/open_range_for_head_parse_refused refuses
 
-derive_debug_c_field_cstr_refused 3 tests/soundness/open/derive_debug_c_field_cstr_refused refuses
-
 collect_into_option_refused 3 tests/soundness/open/collect_into_option_refused refuses
 
 # ── 2026-10-01 long-red fail fixtures re-triaged: holes owned by a later step
@@ -257,6 +249,8 @@ default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/defa
 ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_after_region_erased_binding_refused refuses
 
 str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_quotes_bytes run 3
+
+rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visible_admitted admits
 
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
@@ -418,5 +412,5 @@ str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 119
-# SYNC-HASH 3972edbab7a8cd9320929d0e626ba10a
+# TOTAL 116
+# SYNC-HASH 13759e59d17a50aed464a962b61e062a

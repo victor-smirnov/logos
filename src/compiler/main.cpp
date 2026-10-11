@@ -1349,6 +1349,19 @@ extern "C" int32_t logos_emit_item_blob_subst_in(const void* blob_ptr,
                                 dbase = WritAccess::base(doc);
                                 tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
                                 tom.remove(la::NAME_VAR.code);
+                                // A lifetime (`'a`, a derive's `#( #lparams ),*`) in a type-param
+                                // or type-arg slot is a LIFETIME_PARAM node, as the grammar
+                                // parses `<'a>` — not a type named `'a`.
+                                if (slot == la::NAME.code && pod.len > 1 && pod.ptr[0] == '\'' &&
+                                    tom.has_key(la::CODE.code)) {
+                                    AnyVal cv = tom.get(la::CODE.code);
+                                    int32_t nc = cv.is_value() ? cv.as_value<int32_t>() : 0;
+                                    if (nc == la::TYPE_PARAM.code || nc == la::TYPE_REF.code) {
+                                        (void)tom.put(la::CODE.code, AnyVal::from_value(int32_t(la::LIFETIME_PARAM.code)));
+                                        dbase = WritAccess::base(doc);
+                                        tom = logos::writ::TinyMapView(arena_offset_t(off), doc.holder());
+                                    }
+                                }
                             }
                         }
                     }

@@ -1,0 +1,6 @@
+// Closed squeue ufcs_trait_path_peels_every_reference (#699): a trait path's &self method takes Self = the argument less one reference (<&u8 as Mo>::m), as rustc's; 156, exit 0.
+package ufcs_trait_path_peels_every_reference;
+trait Mo { fn m(&self, o: &Self) -> i64; fn big(self: Self, o: Self) -> i64 where Self: Sized { Mo::m(&self, &o) } }
+impl Mo for u8 { fn m(&self, o: &u8) -> i64 { (*self as i64) * 10 + (*o as i64) } }
+impl<T: Mo> Mo for &T { fn m(&self, o: &&T) -> i64 { (**self).m(*o) + 100 } }
+fn main() -> i32 { let a: u8 = 5; let b: u8 = 6; if (&a).big(&b) != 156 { return 1i32; } return 0i32; }

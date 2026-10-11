@@ -1,0 +1,8 @@
+// A generic struct literal's field is judged at the literal's arguments even when they are the enclosing item's
+// own parameters: `W { p: t }` with `t: T` against `p: &'a T` was waved through to mono, which never judged it —
+// the program ran and segfaulted. rustc: E0308.
+package struct_literal_generic_field_judged;
+use logos.std.fmt;
+struct W<'a, T> { p: &'a T }
+fn mk<'a, T: Clone>(p: &'a T) -> W<'a, T> { let t: T = p.clone(); return W { p: t }; }
+fn main() { let x = 5i64; println!("{}", *mk(&x).p); }

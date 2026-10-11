@@ -1,0 +1,5 @@
+// Closed squeue derive_debug_c_field_cstr_refused (#717): a stringified field name starting with c is an ordinary string, not a C-string literal; prints A { c: 3 } as rustc.
+package derive_debug_c_field_cstr_refused;
+use logos.std.fmt;
+#[derive_debug] struct A { c: i32 }
+fn main() { println!("{:?}", A { c: 3 }); }

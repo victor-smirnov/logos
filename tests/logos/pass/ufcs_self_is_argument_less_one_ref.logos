@@ -1,0 +1,8 @@
+// `Clone::clone(a)` with `a: &&'a T` is `<&'a T as Clone>::clone` (Self = the argument less one reference, as
+// rustc's) — it took T's clone and returned a T. rustc prints 5 2.
+package ufcs_self_is_argument_less_one_ref;
+use logos.std.fmt;
+use logos.lang.clone;
+struct W<'a, T> { p: &'a T, n: i64 }
+impl<'a, T: Clone> W<'a, T> { fn dup(&self) -> W<'a, T> { match self { W { p: a, n: b } => { return W { p: Clone::clone(a), n: Clone::clone(b) }; } } } }
+fn main() { let x = 5i64; let w = W { p: &x, n: 2 }; let v = w.dup(); println!("{} {}", *v.p, v.n); }

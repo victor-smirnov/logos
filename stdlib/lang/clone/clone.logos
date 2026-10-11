@@ -59,7 +59,7 @@ impl Copy for str   {}
 
 // A shared reference is Clone by copying the reference (Rust's
 // `impl<T: ?Sized> Clone for &T`).
-impl<T: ?Sized> Clone for &T { fn clone(&self) -> &T { return *self; } }
+impl<'a, T: ?Sized> Clone for &'a T { fn clone(&self) -> &'a T { return *self; } }
 
 // Tuples of Copy / Clone elements are Copy / Clone (Rust's per-arity impls, up to 12).
 impl<A: Copy, B: Copy> Copy for (A, B) {}

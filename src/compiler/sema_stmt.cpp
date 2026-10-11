@@ -4745,8 +4745,10 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
     auto mint_dbm_ref = [&](const std::string& nm, TypeRef bt,
                             lir::Pattern& out) -> bool {
         if (!dbm_ref || nm.empty()) return false;  // `_` is filtered by dbm_named_bind
-        if (!bt || TypeRef(bt).kind() == LogosType::Kind::Error ||
-            TypeRef(bt).kind() == LogosType::Kind::TypeVar) return false;
+        // A type parameter binds `&T` too (rustc's default binding mode is not
+        // type-directed): `match self { G { x: a } }` over `&G<T>` gave `a: T`,
+        // a copy of the field read out from behind the reference.
+        if (!bt || TypeRef(bt).kind() == LogosType::Kind::Error) return false;
         // A bare name that is a VALUE — a no-payload variant of the component's
         // enum (`S { tag: None, .. }` through `&S`), a module const (`S { v: K }`)
         // — is a test, not a binder: build_pattern decides it. Minted here, it

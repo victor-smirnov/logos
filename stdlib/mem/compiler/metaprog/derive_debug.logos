@@ -26,6 +26,7 @@ fn derive_debug_hook(target_offset: u32) -> () {
     if view.ast_node_name(item).len == (0 as u64) { return; }
     let sh: DeriveShape = derive_shape_of(&view, item);
     let nm: Ident = sh.nm;
+    let lparams: Vec<Ident> = sh.lparams;
     let tparams: Vec<Ident> = sh.tparams;
     let cparams: Vec<Ident> = sh.cparams;
     let ctypes: Vec<Ident> = sh.ctypes;
@@ -43,7 +44,7 @@ fn derive_debug_hook(target_offset: u32) -> () {
     let tn_a: Vec<Vec<Ident>> = sh.tn_a;
 
     let blob: QuoteItemBlob = quote_item! {
-        impl<#( const #cparams: #ctypes ),*, #( #tparams: Debug ),*> Debug for #nm<#( #gargs ),*> {
+        impl<#( #lparams ),*, #( const #cparams: #ctypes ),*, #( #tparams: Debug ),*> Debug for #nm<#( #gargs ),*> {
             fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
                 match self {
                     #( Self::#unit_v => { return f.write_str(##unit_v); } )*

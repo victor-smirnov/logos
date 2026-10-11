@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+M { cents: 5, cr_id: 6, zz: 7 }
+2
