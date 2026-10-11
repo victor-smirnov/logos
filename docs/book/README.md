@@ -1,6 +1,6 @@
 # The Logos Book
 
-A monograph on how Logos is built: premises, the core language, the compiler, the data layers, Memoria, execution, directions. Primary reader: a model loading context before work on an area. Secondary reader: an engineer entering a subsystem. The table of contents is [src/SUMMARY.md](src/SUMMARY.md); `mdbook build docs/book` renders it.
+A monograph on how Logos is built: premises, the core language, the compiler, the data layers, Memoria, execution, directions. Primary reader: a model loading context before work on an area. Secondary reader: an engineer entering a subsystem. The table of contents and chapter order is [src/SUMMARY.md](src/SUMMARY.md).
 
 ## How to load it
 
@@ -16,6 +16,17 @@ Chapters are in reading order: a chapter uses only terms and results of earlier 
 | docs/book/ | how the system is built now: model, invariants, mechanism, location in code, rejected alternatives, evidence | rewritten when the code moves; `verified-at` pins the commit |
 
 A chapter cites ADRs and spec sections instead of copying them. When a chapter and an ADR disagree on current state, the chapter is checked against code and the loser is fixed. Part VII (Directions) describes proposed work; every other part describes the code at `verified-at`, with proposed parts marked in the chapter's status section.
+
+## Format
+
+Source is Markdown; it is the form models load and the lint checks. Human outputs are built from it with pandoc: PDF through LaTeX for reading the book whole, HTML for navigation and links (build not set up yet). To keep both outputs free of hand fixes:
+
+- No raw HTML.
+- Math in `$…$` (pandoc passes it to LaTeX; KaTeX in HTML).
+- Pipe tables only, no merged cells.
+- Diagrams as SVG files next to the chapter or as fenced text blocks.
+- Logos code in fences tagged `logos`; highlighting borrows Rust's until a Logos definition exists.
+- Front matter is YAML; pandoc reads it as metadata.
 
 ## Chapter shape
 
