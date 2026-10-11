@@ -6618,6 +6618,9 @@ private:
     // Resolve a bare const name to its package-qualified map key, current package
     // first, then a uniquely-named const. Empty ⇒ not a const OR ambiguous.
     std::string resolve_const_key(std::string_view name) const {
+        // A block-local const of an enclosing body (`<outer>$N`) is the nearer item.
+        if (std::string li = local_fn_item_(name); !li.empty())
+            if (std::string lq = sema_key(cur_package_, li); module_consts_.count(lq)) return lq;
         std::string q = sema_key(cur_package_, name);
         if (module_consts_.count(q)) return q;
         if (!ambiguous_const_names_.count(std::string(name))) {

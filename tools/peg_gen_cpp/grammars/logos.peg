@@ -2413,7 +2413,11 @@
     // name and binds the local name to a fn-ptr value. No captures —
     // a nested fn is a fn, not a closure; reads of enclosing locals
     // are rejected by sema (use a closure for that).
-    nested_fn_stmt <- KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+    nested_fn_stmt <- KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+                   => { CODE: NESTED_FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
+                    / KW_FN IDENT type_param_list LPAREN param_list? RPAREN where_clause? block
+                   => { CODE: NESTED_FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
+                    / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
                    => { CODE: NESTED_FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
                     / KW_FN IDENT LPAREN param_list? RPAREN block
                    => { CODE: NESTED_FN, NAME: $2, PARAMS: $4, BODY: $6 }
@@ -2425,10 +2429,17 @@
     nested_deem_stmt <- IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
                      => { CODE: DEEM_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RAW_TEXT: $7 }
 
+    // ── Block-local const (`const N: T = v;` at stmt position) ──
+    // Rust's block-scoped item: sema registers it under `<outer>$N` and binds
+    // `N` in the enclosing body (shadowing a module const of the name).
+    nested_const_stmt <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+                      => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
+
     // ── Statements ───────────────────────────────────────────────
     stmt <- HASH LPAREN stmt RPAREN STAR
              => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
           / nested_fn_stmt
+          / nested_const_stmt
           / nested_deem_stmt
           / labeled_loop_stmt
           / let_else_stmt

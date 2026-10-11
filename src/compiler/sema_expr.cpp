@@ -1111,6 +1111,17 @@ lir::LExprPtr SemaChecker::lower_bytes_lit(TinyMapView expr) {
 lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     int32_t c = code_of(expr); (void)c;
     auto name = str_of(expr.get(la::NAME.code));
+    // A block-local const (`const N: i64 = 100;` in this body) names its module
+    // const `<outer>$N` — over a module const of the same name, under a let.
+    // Its value is inlined (it is no module item the backend emits).
+    if (!is_local_binding_(name))
+        if (std::string li = local_fn_item_(name); !li.empty()) {
+            const std::string ck = sema_key(cur_package_, li);
+            auto cit = module_consts_.find(ck);
+            auto vit = module_const_values_.find(ck);
+            if (cit != module_consts_.end() && vit != module_const_values_.end() && cit->second)
+                return lower_typed_const_(vit->second, cit->second);
+        }
     auto t = lookup(name);
     if (!t) {
         // Const-generic value-use: `<const N: T>` param referenced in
