@@ -1,8 +1,6 @@
 # ADR 0017 — the Deem storage engine («data»): persistent absorbed, completed, integrated
 
-Status: ACCEPTED (direction reviewed by the user — four accents incorporated). Date: 2026-07-10.
-
-> **Status note.** P0 landed (`320c739c6`) at the `stdlib/std/deem/data/` / `logos.std.deem.data.*` target written below; `756ea4c1d` then moved the plane to the `lcm` tier, so it lives at `stdlib/lcm/deem/data/` under `logos.lcm.deem.data.*`. Neither `stdlib/std/deem/` nor `stdlib/std/data/persistent/` exists. ⚠ The demand drivers D1 (durable FactStore) and D3 (the `jn_*` replay journal) were deleted with the engine at P5 (`e1dd0ac5e`, "DELETE THE DEEM INTERPRETER": `incr.logos`, `incr_rec.logos`, `facthistory.logos`), as was the S4 fork/merge D2 served (census §6 L5, L3, L6); the storage plane itself survives the cut. §5's `incr.logos` / `incr_rec.logos` citations name deleted files.
+Status: PARTIALLY IMPLEMENTED (checked 2026-10-11). Accepted 2026-07-10 (direction reviewed by the user, four accents). Survives: P0 absorption (`320c739c6`, moved to the `lcm` tier by `756ea4c1d`: `stdlib/lcm/deem/data/`, `logos.lcm.deem.data.*`, `data_*` fixtures) and P2a commit history (`641102e7f`: `Store::merge`, `set_label`/`label_of`, `log` in `stdlib/lcm/deem/data/handle.logos`). DELETED: P1 FactStore epochs (`198f2b5a0`), P2b S4 select_one (`6e9bd8794`) and P3 journal container (`e18553f93`) all lived in `incr.logos` and died with the interpreter (`e1dd0ac5e`); P4 dump/load never landed here (Memoria's `store_save`/`store_load`, `stdlib/mem/bt/memstore.logos`, took that role); P5 hygiene not started. The surviving plane is slated for deletion by ADR 0032 row C7 / ADR 0039 (both PROPOSED); §5's `incr.logos` / `incr_rec.logos` citations name deleted files.
 
 ## 0. Context and mandate
 

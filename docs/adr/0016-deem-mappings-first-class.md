@@ -1,6 +1,6 @@
 # ADR 0016 — Deem mappings as first-class objects
 
-- Status: **Accepted** (design baseline; slices gated individually)
+- Status: **PARTIALLY IMPLEMENTED** (checked 2026-10-11). Accepted 2026-07-08. The following landed statically: M1a, a graph param as a native rel (acf38a0f); M2a, path sugar (d0c82fff); M2b, the `mapping` item (843505c8b) with fusion (05a22025f); §6 T1–T3, source traits and generic mappings (323806aea, 4d265c04a); scalar binding (d2e2f3948); case 2b static, `#[derive_graph_source]` (4f0d713c); M6 demand, now the core rewrite `crewrite.logos` `core_magic` (bea7992a1). Mappings are static-only and emit no items (4e690a747). M5 (engine as a source) and the runtime binding time were deleted at P5 (e1dd0ac5e); `bind_source_erased`/`bind_source_tree` were removed in e5c6be369. Still open: M3 (per-relation materialization annotation), the M4 dynamic half (dyn/TypeId), rules-backed impls, incremental mappings.
 - Date: 2026-07-08
 - Builds on: ADR 0012 (runtime query engine), ADR 0013 (incremental engine), ADR 0015 (self-applicable reasoner — the S-case below), the virtual graph sources (commits `da86fddf`, `64dd1286`), the no-gratuitous-materialization rule.
 - Companion threads: reasoning-in-large (ADR 0015 §9 — mappings are its first motivating instance), Gellish ontologies (relation-type vocabularies = mapping libraries), the tag-system user-type integration (the traverse seam).
@@ -34,11 +34,11 @@ It declares (a) the source shape, (b) the relations it exposes — names + typed
 
 | case | source shape | enumeration | status |
 |---|---|---|---|
-| **1 — tabular** | array of homogeneous rows | scan; mapping ≈ column typing (degenerate: one rule) | shipped: `bind_source`/`bind_source_erased`/`deem!` slices |
-| **2a — structural: Writ graph** | tag-dispatched object graph | the generic EDGE vocabulary: `(parent, key, idx, child, kind, tag, vi, vs)`; edges always emit, containers expand once (DAG/cycle safe); container id = handle, leaf id = synthetic FNV(parent, ordinal) | shipped: `bind_source_tree` (`64dd1286`) |
-| **2b — structural: Logos graph** | native language objects (structs, Box/Rc, Vec, references) | same edge vocabulary; key = field name, idx = element position, child id = address (stable while alive; cycles legal via Rc) | open |
-| **3 — domain** | any 2x source | user-declared path-pattern rules → domain relations: `port(svc, p) ⇐ svc.ports[*]`, `engine(owner, n) ⇐ **.engine` | open (the mapping DSL) |
-| **S — self-applicability** | a Deem engine instance | the engine's own state as EDB: trace, residual descriptor, journal | hand-rolled precursor shipped (ADR 0015 S1–S3 accessors) |
+| **1 — tabular** | array of homogeneous rows | scan; mapping ≈ column typing (degenerate: one rule) | shipped statically: `deem` slice params; the runtime `bind_source_erased` was removed in e5c6be369, and `QEnv::bind_source` now serves only `Tpl` |
+| **2a — structural: Writ graph** | tag-dispatched object graph | the generic EDGE vocabulary: `(parent, key, idx, child, kind, tag, vi, vs)`; edges always emit, containers expand once (DAG/cycle safe); container id = handle, leaf id = synthetic FNV(parent, ordinal) | shipped statically: `g: &Writ` (`writ_graph.logos` `writ_graph_edges`, acf38a0f); the runtime `bind_source_tree` (`64dd1286`) was removed in e5c6be369, and the walker `graphsrc.logos` `dyn_graph_edges` survives |
+| **2b — structural: Logos graph** | native language objects (structs, Box/Rc, Vec, references) | same edge vocabulary; key = field name, idx = element position, child id = address (stable while alive; cycles legal via Rc) | static half shipped: `#[derive_graph_source]` (4f0d713c, `stdlib/mem/compiler/metaprog/derive_graph_source.logos`); dynamic half (dyn/TypeId) open |
+| **3 — domain** | any 2x source | user-declared path-pattern rules → domain relations: `port(svc, p) ⇐ svc.ports[*]`, `engine(owner, n) ⇐ **.engine` | shipped: the `mapping` item plus path sugar (843505c8b, d0c82fff, 05a22025f) |
+| **S — self-applicability** | a Deem engine instance | the engine's own state as EDB: trace, residual descriptor, journal | deleted at P5 (e1dd0ac5e), together with ADR 0015 S1–S3 and M5 |
 
 ### 2b — the shared traverse seam
 

@@ -1,8 +1,6 @@
 # ADR 0012 — WQL seam-spike: IR schemas + FE→IR contract + resource ABI
 
-**Status:** REVIEW ROUND 1 RESOLVED (2026-07-01). Assistant's first pass; user reviewed §8 and
-locked the four majors (see §9). Companion to [`0012-writ-query-language.md`](0012-writ-query-language.md).
-Remaining `[?]` are minor impl details + the dir3 type-env-capture crux.
+**Status:** SUPERSEDED by ADR 0031 for the relational tier; the scalar tier is IMPLEMENTED (checked 2026-10-11). Review round 1 resolved 2026-07-01 (§9). The seam shipped with the MVP (4c62dfd6a): `SExpr` is in `stdlib/mem/wql/ir.logos`, where nodes carry NAMES instead of the `idx` fields in §1, and the Trama AST (category 0x0013) is `TStmt` in `stdlib/mem/wql/trama.logos`. The `RExpr` relational tier of §2 (`REdge`/`RProj`/`RJoin`/`RAnti`/`RAggr`/`RFix` and the rest) was deleted in 3fb805854 (ADR 0031 R6.7c) and is now `RExpr = Scan | Filter`, a comprehension's source and filter; plans go through the Deem core (`core.logos` `CRule`) and `dplan.logos`. The `wql!` resource form of §6 was retired for the `deem` item (c55741c52 → e8689a510), and `trama!` resources survive. Companion to [`0012-writ-query-language.md`](0012-writ-query-language.md).
 
 The point of the seam-spike: fix the three interfaces so dir1 (EE) and dir2 (FE) can be built in
 parallel without diverging — (1) the IR as Writ schemas, (2) the FE→IR contract, (3) the resource
@@ -199,10 +197,10 @@ let html = trama! { "<ul>{% for u in users %}<li>{{ u.name }}</li>{% endfor %}</
 
 | node | queue-1 static |
 |------|----------------|
-| all `SExpr` | implemented (scalar → LIR) |
-| `RScan`, `REdge`, `RFilter`, `RProj`, `SComp` | implemented (the EL+comprehension core) |
-| `RJoin`, `RAnti`, `RAggr` | **implemented — MVP includes ALL relational ops** (user 2026-07-01) |
-| `RFix` | **declared only** (Datalog base; "not yet" in backend) — the sole inert node in queue 1 |
+| all `SExpr` | implemented (scalar → LIR); live in `ir.logos` |
+| `RScan`, `REdge`, `RFilter`, `RProj`, `SComp` | implemented; `REdge`/`RProj` deleted in 3fb805854 (ADR 0031 R6.7c), `RScan`/`RFilter`/`SComp` live as the comprehension core |
+| `RJoin`, `RAnti`, `RAggr` | implemented in the MVP; deleted in 3fb805854; joins, anti joins and aggregates are planned from the Deem core (`dplan.logos`) |
+| `RFix` | never built: recursion shipped as rel SCCs with semi-naive evaluation (c8a325bce) instead; the schema was deleted in 3fb805854 |
 
 ---
 

@@ -1,5 +1,7 @@
 # ADR 0025 — the three criteria, their instruments, and the residual inventory
 
+Status: HISTORICAL; follow-up ledger OPEN (checked 2026-10-11). The arc closed 2026-08-16 (§7.1 PASS: C1 met with one admission, C2 not met, C3 holds in substance). Follow-up ledger (§7.1): 2 closed (L1 `direct` — `rexpr_walk::emit_stream_direct`; L2 join build side, #330 closed), 10 open (L3–L12; L7 and L11 confirmed open in `tests/logos/criterion1_materialization_instrument.sh` — `BIND` still requires a leading `_`, `rm -rf "$OUT"` unvalidated; the rest unverified).
+
 Sibling of [`0025-deem-batch-cursor-plane.md`](0025-deem-batch-cursor-plane.md).
 That document is the DESIGN and the slice journal. This one is the arc's
 DEFINITION OF DONE: Victor's three criteria as stated, what each means

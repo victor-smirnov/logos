@@ -1,6 +1,6 @@
 # ADR 0015 — HOCP×Deem: the Self-Applicable Reasoner (agency amplifier)
 
-- Status: **Accepted** (design baseline; slices S1–S5 gated individually)
+- Status: **DELETED** (code removed, e1dd0ac5e, 2026-08-09; checked 2026-10-11). Accepted 2026-07-06 as the design baseline. S1 trace (df3db235b), S2 budget/`TruncatedTail` (de4b711ee), S3 control atoms/journal plus the L1 Observer (cd1b3a751) and S4 v0 `select_one` (6e9bd8794) all landed on `IncrRec`/`FactHistory`, and P5 deleted every one of them (loss ledger `docs/deem-interpreter-deletion-census.md` §6 L1–L3, L6, L7); no `TraceStep`/`TruncatedTail`/`ControlAtom` remains under `stdlib/`. Only the storage-plane merge commit survives (`stdlib/lcm/deem/data/handle.logos` `merge`, ADR 0017). S5 and S5b were never started; their precursor, ADR 0016 M5 "engine as a source" (c0b8c9bdd), was also deleted at P5.
 - Date: 2026-07-06
 - Builds on: ADR 0012 (WQL/Deem), ADR 0013 (DBSP incremental engine — semi-naive strata, DRed retraction, semilattice/recursive aggregation, FactStore change-capture, provenance R4), the unfinished `persistent` subsystem (confluently-persistent structures over Writ documents; Memoria-lite).
 - External basis: the **Synthea framework** (Smirnov & Synthea, DOI 10.5281/zenodo.20547879) — Observer/Agency/Moral-Agency decomposition, HOCP, causal break / truncated tail, need–emotion cycle. Referenced here as *the article*.
@@ -175,10 +175,10 @@ Top layer (S5/S5b) has **no external oracle yet** — accepted. Surrogates until
 
 | slice | content | gate |
 |---|---|---|
-| S1 | trace reification (`step_stats` et al.) — **LANDED** (IncrRec first cut, §2) | golden trace + consistency oracle (`query_incr_trace_e2e`) |
-| S2 | `budget()` + `truncated_tail` descriptor — **LANDED** (IncrRec first cut, §3) | soundness/bound/resume-equivalence oracles (`query_incr_budget_e2e`); NAF oracle deferred to the general engine |
-| S3 | epochs + control atoms + journal — **LANDED** (IncrRec first cut, §4) | replay oracle (`query_incr_ctl_journal_e2e`) + L1 Observer causal chain (`query_observer_l1`) |
-| S4 | GLR fork/merge over `persistent` EDB, `select_one` | merge-law oracles |
+| S1 | trace reification (`step_stats` et al.) — **LANDED** (IncrRec first cut, §2, df3db235b), **DELETED at P5** (e1dd0ac5e) | golden trace + consistency oracle (`query_incr_trace_e2e`) |
+| S2 | `budget()` + `truncated_tail` descriptor — **LANDED** (IncrRec first cut, §3, de4b711ee), **DELETED at P5** (e1dd0ac5e) | soundness/bound/resume-equivalence oracles (`query_incr_budget_e2e`); NAF oracle deferred to the general engine |
+| S3 | epochs + control atoms + journal — **LANDED** (IncrRec first cut, §4, cd1b3a751), **DELETED at P5** (e1dd0ac5e) | replay oracle (`query_incr_ctl_journal_e2e`) + L1 Observer causal chain (`query_observer_l1`) |
+| S4 | GLR fork/merge over `persistent` EDB, `select_one` — **v0 LANDED** (6e9bd8794), **DELETED at P5** (e1dd0ac5e) except the storage-plane `merge` (`handle.logos`) | merge-law oracles |
 | S5 | self-ontology + free-will demonstration pair | protocol §6 as ctest |
 | S5b | decision journal + `core(D)` queries | theory-invariant tests |
 

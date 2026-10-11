@@ -1,7 +1,6 @@
 # ADR 0026 — what the planner leaves on the table: a findings ledger
 
-Status: OPEN (a LEDGER, not a design — it collects measured defects in Deem's
-optimizer and emitter, and closes a row only when a fix lands with a test).
+Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 2 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 9 open with no closing commit (F2, F3, F4, F6, F7, F9, F10, F11, F12).
 Scope: `plan_decide_access` / `plan_narrow_rel` in `stdlib/mem/wql/plan_walker.logos`,
 the access-path and materialization choices they drive, and the code
 `rexpr_walk` emits from them. Sources are the declared kind of ADR 0024 §6 —

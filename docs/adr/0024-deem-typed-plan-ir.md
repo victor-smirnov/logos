@@ -1,6 +1,6 @@
 # ADR 0024 — Deem's typed plan IR: the universal query compiler
 
-Status: ACCEPTED (design pinned 2026-07-27, Victor + Claude PAIR).
+Status: IMPLEMENTED; the plan-IR half SUPERSEDED by ADR 0031 (checked 2026-10-11). Accepted 2026-07-27 (Victor + Claude PAIR). Landed: S0 (0c34c3e93, 5e0ec7419), S1/S2 (aa1df0867, 3d102283a; finished by ADR 0031 R4.1, 9d37f7349), S3 (c825ee0e9; finished by ADR 0031 R4.2–R4.5), S4a–S4q, S5 (no `push_text` in `rexpr_walk`, dbe92778c), S6; decision 2's "`RExpr` grows into a real IR" is replaced by ADR 0031's Core + `dplan` (`RExpr` cut to `Scan | Filter`, 3fb805854). Residual against decision 1: operand classes survive as `el::EL_TY_INT/STR/BOOL/FLT/NAMED`.
 Scope: the whole Deem compilation path — the expression language, the relational
 algebra, the planner, and codegen. Canon becomes a supplier of facts and a
 codegen instrument for it, not its owner. Memoria containers become one source

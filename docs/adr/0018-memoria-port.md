@@ -1,7 +1,6 @@
 # ADR 0018 — Memoria → Logos: conuco/memoria + the storage seam
 
-Status: ACCEPTED — scope §0.1, decisions §4 (user, 2026-07-10). Goal: базовая
-Мемория в Logos + полноценная интеграция с инкрементным Deem. Date: 2026-07-10.
+Status: PARTIALLY IMPLEMENTED (checked 2026-10-11). Accepted 2026-07-10 (user: scope §0.1, decisions §4). Landed: M1 pkd (`stdlib/mem/pkd/alloc.logos`, hoisted into the mem tier by `5f2caa503`), M2 b+tree + containers (`stdlib/mem/bt/btss.logos`, `btfl.logos` bulk build; `conuco/memoria/src/ctr/{map,vec,multimap}.logos`), M3 memory CoW store (`4aa2491de`: `MemoryStore`/`MemorySnapshot`, branches, `store_save`/`store_load` in `stdlib/mem/bt/memstore.logos`); the §2.1 layout did not hold — the layers moved into stdlib `logos.mem.{pkd,bt}` and the tests into the corpus (`94eb0abc2`). Not done: the merge-commit extension in the Memoria store (no multi-parent commit in `memstore.logos`), the `(ctr_type_hash, block_hash)` registry (save/load is self-describing, no registry — `memstore.logos` save comment), the `IStore`/`ISnapshot`/`ICtr` seam (two stacks remain: `IStore` in `stdlib/lcm/deem/data/store.logos`, `trait Snapshot`/`Ctr` in `stdlib/mem/bt/map.logos`; unification proposed by ADR 0039); M4 Deem rehosting lost its subject when FactStore was deleted (`e1dd0ac5e`).
 
 ## 0. Mandate
 
