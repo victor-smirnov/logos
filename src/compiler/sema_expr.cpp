@@ -19600,6 +19600,16 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
             ret_type = hret_;
             has_annot = true;
         }
+        // …and a CONCRETE non-reference return, as rustc deduces the closure's
+        // signature from the expected `FnOnce() -> i64`: `opt.unwrap_or_else(|| 5)`
+        // types the literal i64 (it closed at i32 and failed the bound). Not an
+        // uninstantiated `T` (closrethint's one cost, PROBES.md 2026-09-04e §4).
+        else if (!has_annot && hret_ && type_is_concrete(hret_) && !has_infer_var_(hret_) &&
+                 !has_lit_var_(hret_) && TypeRef(hret_).kind() != LogosType::Kind::Void) {
+            logos::probe::census("closbnd.ret.adopted.concrete");
+            ret_type = hret_;
+            has_annot = true;
+        }
         if (is_ref_(ret_type) && TypeRef(ret_type).lifetime().empty()) {
             std::string rlt_;
             // (H) the bound WRITES a region at the return position.
