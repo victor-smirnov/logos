@@ -6591,7 +6591,11 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                             if (eq)
                                 if (TypeRef fx = param_assoc_eq_(actual, have.trait_name, n)) unify_types(eq, fx, bindings);
                     }
-        if (type_is_concrete(actual))
+        // The caller's own (rigid) parameters inside `actual` are no obstacle:
+        // `SliceIter<'_, B>`'s Item is `&B` by the selected impl, as for i64.
+        if (type_is_concrete(actual) ||
+            (TypeRef(actual).kind() != LogosType::Kind::TypeVar && !type_has_inferred(actual) &&
+             !has_infer_var_(actual)))
             for (auto& b : tp.bounds)
                 for (auto& [n, eq] : b.assoc_eqs) {
                     if (!eq) continue;
@@ -7183,6 +7187,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     for (size_t i = 0; targs_written && i < type_args.size() && i < fi.type_params.size(); ++i)
         if (type_args[i] && TypeRef(type_args[i]).kind() != LogosType::Kind::InferredType)
             written_tparams.insert(fi.type_params[i].name);
+    for (auto& n : finish_call_written_names_) written_tparams.insert(n);
+    finish_call_written_names_.clear();
     std::string callee_diag = SemaResult::strip_fold_codes(callee);   // a package fold is not a name
     if (auto p = callee_diag.find("__g__"); p != std::string::npos)
         callee_diag.resize(p);
@@ -7395,9 +7401,17 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
     }
 
     // Validate trait bounds for all type params (including variadic pack elements)
-    for (auto& ta_ : type_args)
-        if (ta_) check_written_type_wf(ta_, std::format("turbofish type argument of '{}'", callee_diag),
-                                       current_outlives_, /*decl_site=*/false);
+    // A WRITTEN type argument's well-formedness. An inferred one carries the
+    // regions inference put there — a projection's impl region (`SliceIter`'s
+    // Item `&'a B` for `zip`) is no region of this body, and asking `B: 'a`
+    // of it refused a legal call.
+    for (size_t i = 0; i < type_args.size(); ++i) {
+        const TypeRef ta_ = type_args[i];
+        if (!ta_) continue;
+        if (i < fi.type_params.size() && !written_tparams.count(fi.type_params[i].name)) continue;
+        check_written_type_wf(ta_, std::format("turbofish type argument of '{}'", callee_diag),
+                              current_outlives_, /*decl_site=*/false);
+    }
     check_type_bounds(callee_diag, fi.type_params, type_args);
     check_call_outlives(callee_diag, fi.param_types, arg_exprs, fi.lifetime_outlives, {},
                         /*first_arg_is_receiver=*/false, fi.ret_type);
@@ -11513,6 +11527,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(recv));
                 for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+                for (size_t i = 0; i < fi_ptr->type_params.size() && i < user_type_args.size(); ++i)
+                    finish_call_written_names_.insert(fi_ptr->type_params[i].name);
                 return finish_generic_call(
                     fi_ptr->symbol_name.empty() ? generic_key : fi_ptr->symbol_name,
                     *fi_ptr, std::move(m_type_args), std::move(pargs));
@@ -11669,6 +11685,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 std::vector<lir::LExprPtr> pargs;
                 pargs.push_back(std::move(recv));
                 for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+                for (size_t i = 0; i < fi_ptr->type_params.size() && i < user_type_args.size(); ++i)
+                    finish_call_written_names_.insert(fi_ptr->type_params[i].name);
                 return finish_generic_call(
                     fi_ptr->symbol_name.empty() ? mangled_prim : fi_ptr->symbol_name,
                     *fi_ptr, std::move(m_type_args), std::move(pargs));
@@ -12057,6 +12075,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
     // `Self` is trait-bounded reports `expected &mut H, got &mut FxHasher` even
     // though H could be inferred from the arg.
     std::vector<TypeRef> m_type_args;
+    std::set<std::string> written_method_targs;   // the turbofish's, for finish_generic_call
     if (!fi.type_params.empty()) {
         // Partial-spec impls (impl<E> PkdArray<[E]>): the positional
         // struct_subst above binds the BASE template's param names — a spec's
@@ -12124,8 +12143,10 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             }
             for (size_t i = 0;
                  method_tp_start + i < fi.type_params.size() && i < user_type_args.size();
-                 ++i)
+                 ++i) {
                 struct_subst[fi.type_params[method_tp_start + i].name] = user_type_args[i];
+                written_method_targs.insert(fi.type_params[method_tp_start + i].name);
+            }
         }
         // Impl-level params that appear only in the RECEIVER formal
         // (`impl<T> Pin<&T> { fn get_ref(&self) -> &T }`) can't be inferred
@@ -12319,6 +12340,7 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::vector<lir::LExprPtr> pargs;
             pargs.push_back(std::move(recv));
             for (auto& a : arg_exprs) pargs.push_back(std::move(a));
+            finish_call_written_names_ = written_method_targs;
             return finish_generic_call(
                 fi.symbol_name.empty() ? mangled : fi.symbol_name, fi,
                 std::move(m_type_args), std::move(pargs));

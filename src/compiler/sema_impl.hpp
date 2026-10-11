@@ -3767,6 +3767,8 @@ private:
     std::vector<PendingImplMembers> pending_impl_members_;
     void check_impl_members_();
     void read_impl_more_bounds_(writ::TinyMapView impl_node, TypeParam& tp);
+    // The type parameters a method call's turbofish WROTE (finish_generic_call reads, then clears).
+    std::set<std::string> finish_call_written_names_;
 
     void error(std::string msg) {
         result_.diags.push_back({Diag::Level::Error, ctx_, std::move(msg), file_, node_line_, node_col_()});

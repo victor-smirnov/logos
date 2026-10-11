@@ -1,0 +1,8 @@
+// `zip` over the caller's own parameters: ZipOtherItem is the projection of the selected impl's Item (`&B`) — it
+// was projected only for concrete types — and an inferred type argument is not held to WF regions inference
+// put there (`B: 'a` for SliceIter's impl region). rustc: 2 2 20.
+package zip_over_caller_type_params;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn pairs<A: Copy, B: Copy>(a: &[A], b: &[B]) -> Vec<(A, B)> { a.iter().zip(b.iter()).map(|(x, y)| (*x, *y)).collect() }
+fn main() { let p = pairs(&[1i32, 2, 3], &[10i64, 20]); println!("{} {} {}", p.len(), p[1].0, p[1].1); }
