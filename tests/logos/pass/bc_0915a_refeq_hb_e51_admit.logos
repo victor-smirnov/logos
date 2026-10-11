@@ -4,11 +4,12 @@ package bc_0915a_refeq_hb_e51_admit;
 use logos.lang.cmp;
 use logos.mem.collections.vec;
 struct D { v: i64 }
-impl Eq for D {
+impl PartialEq for D {
     fn eq(&self, other: &D) -> bool {
         return self.v == other.v;
     }
 }
+impl Eq for D {}
 fn main() -> i32 {
     let mut v: Vec<D> = vec_new::<D>();
     v.push(D { v: 4i64 });

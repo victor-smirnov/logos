@@ -4,7 +4,7 @@ package generic_enum_method_let_annotation;
 // (not the i32 literal default) — otherwise a generic `impl<T> Eq for MyOpt<T>`
 // method instantiates at the wrong T and the call mismatches the emission.
 enum MyOpt<T> { MNone, MSome(T) }
-impl<T: Eq> Eq for MyOpt<T> {
+impl<T: PartialEq> PartialEq for MyOpt<T> {
     fn eq(self: &Self, other: &Self) -> bool {
         match self {
             MyOpt::MSome(a) => { match other { MyOpt::MSome(b) => { return *a == *b; } MyOpt::MNone => { return false; } } }
@@ -12,6 +12,7 @@ impl<T: Eq> Eq for MyOpt<T> {
         }
     }
 }
+impl<T: Eq> Eq for MyOpt<T> {}
 fn main() -> i64 {
     let a: MyOpt<i64> = MyOpt::MSome(3);
     let b: MyOpt<i64> = MyOpt::MSome(3);

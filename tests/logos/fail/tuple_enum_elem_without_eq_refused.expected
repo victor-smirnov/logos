@@ -1,1 +1,1 @@
-type 'K' does not implement trait 'Eq'
+type 'K' does not implement trait 'PartialEq'

@@ -1,0 +1,10 @@
+// Closed squeue vec_eq_requires_eq_refused (#691): Vec<T: PartialEq> implements PartialEq (and Eq for T: Eq), as Rust's; exit 0 as rustc.
+package vec_eq_requires_eq_refused;
+use logos.mem.collections.vec;
+
+fn main() -> i32 {
+    let a: Vec<i64> = vec![1, 2];
+    let b: Vec<i64> = vec![1, 2];
+    if a == b { return 0; }
+    return 1;
+}

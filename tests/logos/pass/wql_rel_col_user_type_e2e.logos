@@ -6,7 +6,7 @@ use logos.mem.collections.vec;
 use logos.lang.hash;
 use logos.std.compiler.metaprog;
 #[derive_hash]
-#[derive_eq]
+#[derive_partial_eq] #[derive_eq]
 #[derive_clone]
 struct Tag { pub a: i64 }
 impl Copy for Tag { }

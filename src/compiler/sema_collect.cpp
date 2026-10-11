@@ -5045,6 +5045,23 @@ void SemaChecker::collect_impl(TinyMapView node) {
                         if (logos::probe::on("sigparamlt") &&
                             !detail::types_equal_with_lifetimes(tp, cp))
                             { sig_match = false; break; }
+                        // An impl parameter whose regions are ELIDED where the
+                        // trait's are named (`o: &M` for the trait's `&'a M`) is
+                        // more general - each elision a fresh late-bound region,
+                        // as rustc's compare_impl_method allows.
+                        auto all_elided = [&](TypeRef t) {
+                            std::function<bool(TypeRef, int)> walk = [&](TypeRef x, int d) -> bool {
+                                if (!x || d > 12) return true;
+                                std::string_view lt = TypeRef(x).lifetime();
+                                if (!lt.empty() && lt != "'_" && lt != "_" && !lt_is_minted(std::string(lt))) return false;
+                                if (TypeRef(x).pointee() && TypeRef(x).pointee() != x && !walk(TypeRef(x).pointee(), d + 1)) return false;
+                                for (auto a : TypeRef(x).type_args()) if (!walk(a, d + 1)) return false;
+                                return true;
+                            };
+                            return walk(t, 0);
+                        };
+                        if (all_elided(cp) && type_str_regions_erased(tp) == type_str_regions_erased(cp))
+                            continue;
                         if (!types_equal(tp, cp)) {
                             // Only reachable for a `Self`-shaped trait slot
                             // because of the substitution above.

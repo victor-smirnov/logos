@@ -541,7 +541,7 @@ impl<T> FromIterator<T> for Vec<T> {
 
 /// Returns `true` if `v` contains an element equal to `val` — linear scan, requires `T: Eq`.
 /// Free-fn form keeps the base `impl<T> Vec<T>` bound-free; see also `Vec::contains`.
-pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
+pub fn vec_contains<T: PartialEq>(v: &Vec<T>, val: &T) -> bool {
     let mut i: i64 = 0;
     unsafe {
         while i < v.len {
@@ -555,10 +555,25 @@ pub fn vec_contains<T: Eq>(v: &Vec<T>, val: &T) -> bool {
     return false;
 }
 
+// Element-wise equality (Rust's `impl<T: PartialEq<U>, U> PartialEq<Vec<U>> for Vec<T>`).
+impl<T: PartialEq> PartialEq for Vec<T> {
+    fn eq(&self, other: &Vec<T>) -> bool {
+        let n: i64 = self.length();
+        if n != other.length() { return false; }
+        let mut i: i64 = 0i64;
+        while i < n {
+            if !(*self.borrow(i) == *other.borrow(i)) { return false; }
+            i = i + 1i64;
+        }
+        return true;
+    }
+}
+impl<T: Eq> Eq for Vec<T> {}
+
 // §2 Wave 9 — `vec.contains(&val)` method-call shape (Rust API parity).
 // Bound `T: Eq` keyed on a separate impl block so the bare `impl<T> Vec<T>`
 // stays bound-free for other methods.
-impl<T: Eq> Vec<T> {
+impl<T: PartialEq> Vec<T> {
     /// Returns `true` if the vector contains an element equal to `val` (linear scan).
     pub fn contains(&self, val: &T) -> bool {
         return vec_contains::<T>(self, val);
@@ -884,7 +899,7 @@ impl<T: Ord> Vec<T> {
     }
 }
 
-impl<T: Eq> Vec<T> {
+impl<T: PartialEq> Vec<T> {
     /// Removes consecutive repeated elements, keeping the first of each run (Rust's `dedup`).
     pub fn dedup(&mut self) {
         unsafe {

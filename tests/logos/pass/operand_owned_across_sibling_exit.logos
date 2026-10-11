@@ -4,7 +4,8 @@ use logos.lang.cmp;
 extern fn printf(fmt: *const u8, ...) -> i32;
 struct D { v: i64, s: *mut i64 }
 impl Drop for D { fn drop(self: &mut D) { unsafe { *self.s = *self.s * 10i64 + self.v; } } }
-impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+impl PartialEq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+impl Eq for D {}
 struct P { a: D, b: D }
 fn mk(v: i64, s: *mut i64) -> D { return D { v: v, s: s }; }
 fn two(a: D, b: D) -> i64 { return a.v + b.v; }

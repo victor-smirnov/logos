@@ -191,6 +191,11 @@ SINGLETONS = {
         T('logos_00_deem_layer_lint',
           ['{tsrc}/deem_layer_lint.sh', '{src}'],
           'logos;lint;suite_lint;tier_commit', timeout=60),
+        # THE LOGOS BOOK ANCHORS: every link and symbol in docs/book/ exists;
+        # --selftest plants each defect kind first and fails if one goes unreported.
+        T('logos_00_book_lint',
+          ['{python3}', '{src}/scripts/book_lint.py', '--selftest', '{src}'],
+          'logos;lint;suite_lint;tier_commit', timeout=60),
         # A STDLIB DEFAULT METHOD BODY MAY NOT BE LOWERED INTO A USER IMPL
         T('logos_00_trait_homonym_no_injected_symbol',
           ['{tsrc}/trait_homonym_symbol_gate.sh', '{logosc}', '{libdir}'],

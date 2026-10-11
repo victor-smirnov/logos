@@ -1,0 +1,20 @@
+// `Eq` is a marker over `PartialEq` (Rust's shape): `eq` / `ne` are PartialEq's, `T: Eq` reaches them through
+// the supertrait, and Vec / contains / Option ask only PartialEq (f64 passes). Output as rustc 1.98.1.
+package eq_marker_over_partial_eq;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+#[derive_clone] #[derive_copy] #[derive_debug]
+struct P { x: i64 }
+impl PartialEq for P { fn eq(&self, o: &P) -> bool { self.x == o.x } }
+impl Eq for P {}
+fn same<T: Eq>(a: &T, b: &T) -> bool { a == b && a.eq(b) && !a.ne(b) }
+fn has<T: PartialEq>(v: &Vec<T>, x: &T) -> bool { v.contains(x) }
+fn main() {
+    let a = P { x: 1 };
+    let b = P { x: 1 };
+    let c = P { x: 2 };
+    println!("{} {} {}", same(&a, &b), same(&a, &c), a != c);
+    println!("{} {}", vec![1, 2] == vec![1, 2], vec![a, c] == vec![b, c]);
+    println!("{} {}", has(&vec![1.5f64, 2.5], &2.5), has(&vec![a], &c));
+    println!("{}", Some(a) == Some(b));
+}

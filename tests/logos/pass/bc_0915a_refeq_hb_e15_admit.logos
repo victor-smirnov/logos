@@ -8,11 +8,12 @@ impl Drop for S {
         unsafe { *self.c = *self.c + 1i64; }
     }
 }
-impl Eq for S {
+impl PartialEq for S {
     fn eq(&self, other: &S) -> bool {
         return self.v == other.v;
     }
 }
+impl Eq for S {}
 fn main() -> i32 {
     let mut n: i64 = 0i64;
     let p: *mut i64 = &mut n;

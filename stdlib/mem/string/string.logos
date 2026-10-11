@@ -599,11 +599,12 @@ unsafe fn std_utf8_encode(cp: u32, buf: *mut u8) -> i64 {
 // String total equality (Rust: `impl Eq for String`). Enables `String == String`
 // and, transitively, `Option<String> == …` / `Vec<String> == …` through the
 // generic `impl<T: Eq> Eq for …` blanket impls in logos.lang.cmp.
-impl Eq for String {
+impl PartialEq for String {
     fn eq(self: &Self, other: &Self) -> bool {
         return self.eq_string(other);
     }
 }
+impl Eq for String {}
 
 // Lexicographic byte order (Rust: `impl Ord for String`), for sorting and ordered maps.
 impl Ord for String {

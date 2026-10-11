@@ -3,11 +3,12 @@
 package bc_0915a_refeq_hb_e28_admit;
 use logos.lang.cmp;
 struct D { v: i64 }
-impl Eq for D {
+impl PartialEq for D {
     fn eq(&self, other: &D) -> bool {
         return self.v == other.v;
     }
 }
+impl Eq for D {}
 fn main() -> i32 {
     let a: D = D { v: 4i64 };
     let b: D = D { v: 4i64 };

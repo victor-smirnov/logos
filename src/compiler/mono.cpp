@@ -756,6 +756,11 @@ lir::LProgram Mono::run(lir::LProgram&& in, int /*max_depth*/) {
             for (auto& impl : out_.impls) {
                 if (impl.is_blanket()) continue;
                 if (impl.identity_trait() != bound_q) continue;
+                // A generic impl (`impl<T: Display> Display for Rc<T>`) names no
+                // concrete type: its bare target spelling `Rc` resolved to a
+                // program's own non-generic `struct Rc` and instanced the blanket
+                // for a type that has no such impl.
+                if (TypeRef tt = impl.target_typeref(out_.type_pool.impl()); tt && contains_typevar(tt)) continue;
                 candidates.push_back(std::string(impl.target_type()));
             }
             // Chain-satisfiers: types whose bound_trait impl is itself

@@ -5,7 +5,8 @@ package ref_typearg_comparisons_through_refs;
 use logos.lang.cmp;
 use logos.lang.option;
 struct D { v: i64 }
-impl Eq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+impl PartialEq for D { fn eq(&self, other: &D) -> bool { return self.v == other.v; } }
+impl Eq for D {}
 impl Ord for D { fn cmp(&self, other: &D) -> Ordering { if self.v < other.v { return Ordering::Less; } if self.v > other.v { return Ordering::Greater; } return Ordering::Equal; } }
 fn same<T: Eq>(a: T, b: T) -> bool { return a == b; }
 fn less<T: Ord>(a: T, b: T) -> bool { return a < b; }

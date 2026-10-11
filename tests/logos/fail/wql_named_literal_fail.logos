@@ -12,7 +12,8 @@ use logos.lang.cmp;
 use logos.lang.clone;
 
 pub struct Sku { pub a: i64, pub b: i64 }
-impl Eq for Sku { fn eq(&self, o: &Sku) -> bool { return self.a == o.a && self.b == o.b; } }
+impl PartialEq for Sku { fn eq(&self, o: &Sku) -> bool { return self.a == o.a && self.b == o.b; } }
+impl Eq for Sku {}
 impl Clone for Sku { fn clone(&self) -> Sku { return Sku { a: self.a, b: self.b }; } }
 impl Copy for Sku {}
 pub struct Line { pub sku: Sku, pub qty: i64 }

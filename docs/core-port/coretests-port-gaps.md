@@ -61,7 +61,7 @@ Still open / partial, high-leverage:
 - CP-cm-08b Partial — tuple `==` for str / nested-tuple fields (canonicalisation + recursive-bound + recursive-call ABI)
 - SL-sl-03 Partial — Option `.as_ref` / `.as_mut` / `.take` / `.replace` not yet implemented
 - SL-sl-05 Partial — Iterator adapter `.map<R>`, `.fold<B>`, etc. blocked on baghunt_iter_method_generic_mono
-- SL-sl-02 Partial — full PartialEq/Eq split deferred (forward-compat aliases land)
+- SL-sl-02 Partial — `Eq: PartialEq` is Rust's shape (2026-10-10, `Eq` a marker); `PartialOrd` is still an empty marker and `Ord` answers `PartialOrd` bounds
 
 Notable closures since this tracker started (2026-05-13):
 - CP-cm-03 — bare Some/None/Ok/Err prelude shorthand
@@ -76,7 +76,7 @@ Notable closures since this tracker started (2026-05-13):
 Still open (high-leverage):
 - CP-cm-08 — tuple `==` returns false even for equal tuples
 - CP-cm-12 — mono drops method-level tparam in enum-typed param signature
-- SL-sl-02 — PartialEq / Eq separation (Logos's Eq = Rust's PartialEq)
+- SL-sl-02 — PartialOrd / Ord separation (`partial_cmp`; the Eq half closed 2026-10-10)
 - SL-sl-05 — Iterator adapter surface (collect/fold/take/skip/zip/…)
 
 ## Workflow

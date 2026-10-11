@@ -1,13 +1,9 @@
 // logos.std.compiler.metaprog — derive(Eq).
 //
-// Logos's `Eq` (in `stdlib/lang/cmp/cmp.logos`) carries `eq`/`ne`
-// methods rather than being a pure marker — the supertrait
-// relationship Eq ⊇ PartialEq is reflected in shared method
-// signatures, so derive_eq's emit is derive_partial_eq's (a match over
-// `(self, other)` pairing the same shape and comparing payloads; see
-// derive_partial_eq.logos) with the target trait renamed.
-//
-// §6.10 sub-deliverable 3/8.
+// rustc's expansion: `impl<T: Eq> Eq for X<T> {}`. `Eq` is a marker over
+// `PartialEq` (stdlib/lang/cmp/cmp.logos); `eq` comes from the type's
+// `PartialEq` impl — `#[derive_partial_eq]` beside it, as Rust's
+// `#[derive(PartialEq, Eq)]`.
 
 package logos.std.compiler.metaprog;
 
@@ -28,47 +24,9 @@ fn derive_eq_hook(target_offset: u32) -> () {
     let cparams: Vec<Ident> = sh.cparams;
     let ctypes: Vec<Ident> = sh.ctypes;
     let gargs: Vec<Ident> = sh.gargs;
-    let unit_v: Vec<Ident> = sh.unit_v;
-    let tup_v: Vec<Ident> = sh.tup_v;
-    let tup_a: Vec<Vec<Ident>> = sh.tup_a;
-    let tup_b: Vec<Vec<Ident>> = sh.tup_b;
-    let st_v: Vec<Ident> = sh.st_v;
-    let st_f: Vec<Vec<Ident>> = sh.st_f;
-    let st_a: Vec<Vec<Ident>> = sh.st_a;
-    let st_b: Vec<Vec<Ident>> = sh.st_b;
-    let sn: Vec<Ident> = sh.sn;
-    let sn_f: Vec<Vec<Ident>> = sh.sn_f;
-    let sn_a: Vec<Vec<Ident>> = sh.sn_a;
-    let sn_b: Vec<Vec<Ident>> = sh.sn_b;
-    let tn: Vec<Ident> = sh.tn;
-    let tn_a: Vec<Vec<Ident>> = sh.tn_a;
-    let tn_b: Vec<Vec<Ident>> = sh.tn_b;
 
     let blob: QuoteItemBlob = quote_item! {
-        impl<#( const #cparams: #ctypes ),*, #( #tparams: Eq ),*> Eq for #nm<#( #gargs ),*> {
-            fn eq(&self, other: &#nm<#( #gargs ),*>) -> bool {
-                match (self, other) {
-                    #( (Self::#unit_v, Self::#unit_v) => { return true; } )*
-                    #( (Self::#tup_v( #( #tup_a ),* ), Self::#tup_v( #( #tup_b ),* )) => {
-                        #( if !(*#tup_a == *#tup_b) { return false; } )*
-                        return true;
-                    } )*
-                    #( (Self::#st_v { #( #st_f: #st_a ),* }, Self::#st_v { #( #st_f: #st_b ),* }) => {
-                        #( if !(*#st_a == *#st_b) { return false; } )*
-                        return true;
-                    } )*
-                    #( (#sn { #( #sn_f: #sn_a ),* }, #sn { #( #sn_f: #sn_b ),* }) => {
-                        #( if !(*#sn_a == *#sn_b) { return false; } )*
-                        return true;
-                    } )*
-                    #( (#tn( #( #tn_a ),* ), #tn( #( #tn_b ),* )) => {
-                        #( if !(*#tn_a == *#tn_b) { return false; } )*
-                        return true;
-                    } )*
-                    _ => { return false; }
-                }
-            }
-        }
+        impl<#( const #cparams: #ctypes ),*, #( #tparams: Eq ),*> Eq for #nm<#( #gargs ),*> {}
     };
     unsafe { logos_emit_item_blob_subst(&blob); }
     return;

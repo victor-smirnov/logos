@@ -85,7 +85,8 @@ impl Mul for Vec2 { type Output = Vec2; fn mul(self: Vec2, rhs: Vec2) -> Vec2 { 
 
 // Eq with by-&self method (autoref of value operands).
 struct Pair { p: i64, q: i64 }
-impl Eq for Pair { fn eq(&self, other: &Pair) -> bool { return self.p == other.p && self.q == other.q; } }
+impl PartialEq for Pair { fn eq(&self, other: &Pair) -> bool { return self.p == other.p && self.q == other.q; } }
+impl Eq for Pair {}
 
 // PartialOrd derive: only partial_cmp is implemented (returns Ordering directly),
 // relational ops route through partial_cmp + Ordering::is_<op>.
@@ -98,7 +99,8 @@ impl Score { fn partial_cmp(&self, other: &Score) -> Ordering {
 
 // Tuple Eq impl (at least one non-primitive field -> routes to Eq).
 struct Inner { z: i64 }
-impl Eq for Inner { fn eq(&self, other: &Inner) -> bool { return self.z == other.z; } }
+impl PartialEq for Inner { fn eq(&self, other: &Inner) -> bool { return self.z == other.z; } }
+impl Eq for Inner {}
 
 // ── tag-dispatch entry emission (overridden + default-body method) ──
 #[tag_dispatch(DataTypeTagSystem)]
