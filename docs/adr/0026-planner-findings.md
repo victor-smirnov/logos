@@ -1,6 +1,6 @@
 # ADR 0026 — what the planner leaves on the table: a findings ledger
 
-Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 4 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 7 open with no closing commit (F2, F3, F4, F6, F7, F9, F10).
+Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 5 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 6 open with no closing commit (F2, F3, F4, F6, F9, F10).
 Scope: `plan_decide_access` / `plan_narrow_rel` in `stdlib/mem/wql/plan_walker.logos`,
 the access-path and materialization choices they drive, and the code
 `rexpr_walk` emits from them. Sources are the declared kind of ADR 0024 §6 —
@@ -331,6 +331,14 @@ reject a narrowing.
 Note the interaction with F1: the join's `where` is a single conjunct here. With
 `&&` it would not be split, so a mixed predicate (`e.val > 900 && q.val < X`)
 would neither push down nor hoist — the two rows compound.
+
+**CLOSED 2026-10-11 (c977e0324).** `rexpr_walk::chain_nest_frag` splits the join's
+`where` on `&&`; a conjunct that reads no step variable (`base_only_conjunct`)
+wraps the nest, decided once per driving row before any probe. A conjunct that
+calls a UDF (its call count is observable) or can fail (`?`) stays innermost,
+and nothing is hoisted under a `full join`. The decision is traced
+(`[plan] <src> -> base filter on <var>`) and the census pins it
+(`EXPECT_BFILT` 37 in 16 fixtures, `plan_ground_census_gate.sh`).
 
 ---
 
