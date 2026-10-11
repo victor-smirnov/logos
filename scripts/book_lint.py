@@ -1,19 +1,20 @@
 #!/usr/bin/env python3
-"""foundations_lint — anchors in docs/foundations/*.md must point at real code.
+"""book_lint — anchors in The Logos Book (docs/book/src/*.md) must point at real code.
 
 Errors (exit 1):
-  - an article lacks front matter with `title`, `verified-at`, `sources`;
+  - a chapter lacks front matter with `title`, `verified-at`, `sources`;
   - `verified-at` is not a commit of the repository;
   - a relative link does not resolve to a file or directory;
   - a symbol anchor [`A::b`](path) names a file in which `b` does not occur;
-  - an article is missing from README.md's index, or the index lists a missing file.
+  - a chapter file is missing from SUMMARY.md, or SUMMARY.md links a missing file
+    (a draft chapter `[Title]()` has no file and is fine).
 
-Warnings (exit 0): a file anchored by an article changed after its `verified-at`.
-The article may describe old code; re-verify and move `verified-at`.
+Warnings (exit 0): a file anchored by a chapter changed after its `verified-at`.
+The chapter may describe old code; re-verify and move `verified-at`.
 
-The lint checks anchors, not claims. See docs/foundations/README.md "Anchors and the lint".
+The lint checks anchors, not claims. See docs/book/README.md "Anchors and the lint".
 
-Usage: foundations_lint.py SRC_ROOT [--no-stale]
+Usage: book_lint.py SRC_ROOT [--no-stale]
 """
 import os
 import re
@@ -23,6 +24,7 @@ import sys
 LINK = re.compile(r'\[([^\]]*)\]\(([^)\s]+)\)')
 SYMBOL_TEXT = re.compile(r'^`([A-Za-z_][\w:.<>]*)`$')
 FENCE = re.compile(r'^(```|~~~)')
+CODE_SPAN = re.compile(r'(`+)(.+?)\1')
 
 
 def git(root, *args):
@@ -52,7 +54,8 @@ def links(text):
             continue
         if in_fence:
             continue
-        # drop inline code spans that are not link texts, so `[x](y)` inside code is ignored
+        # a code span that contains a whole link is an example, not an anchor
+        line = CODE_SPAN.sub(lambda m: '' if '](' in m.group(2) else m.group(0), line)
         for m in LINK.finditer(line):
             yield no, m.group(1), m.group(2)
 
@@ -68,11 +71,11 @@ def main(argv):
         return 2
     root = os.path.abspath(argv[1])
     check_stale = '--no-stale' not in argv
-    fdir = os.path.join(root, 'docs', 'foundations')
+    fdir = os.path.join(root, 'docs', 'book', 'src')
     errors, warnings = [], []
-    articles = sorted(f for f in os.listdir(fdir) if f.endswith('.md') and f != 'README.md')
+    articles = sorted(f for f in os.listdir(fdir) if f.endswith('.md') and f != 'SUMMARY.md')
 
-    readme = open(os.path.join(fdir, 'README.md'), encoding='utf-8').read()
+    readme = open(os.path.join(fdir, 'SUMMARY.md'), encoding='utf-8').read()
     indexed = set()
     for _, _, target in links(readme):
         t = target.split('#')[0]
@@ -80,17 +83,18 @@ def main(argv):
             indexed.add(t)
     for a in articles:
         if a not in indexed:
-            errors.append(f'README.md: article {a} is not in the index')
+            errors.append(f'SUMMARY.md: chapter {a} is not in the summary')
     for t in sorted(indexed):
         if not os.path.exists(os.path.join(fdir, t)):
-            errors.append(f'README.md: index lists {t}, which does not exist')
+            errors.append(f'SUMMARY.md: links {t}, which does not exist')
 
-    for name in ['README.md'] + articles:
+    for name in ['../README.md', 'SUMMARY.md'] + articles:
         path = os.path.join(fdir, name)
+        base = os.path.dirname(os.path.normpath(path))
         text = open(path, encoding='utf-8').read()
         anchored = set()
         commit = None
-        if name != 'README.md':
+        if name not in ('../README.md', 'SUMMARY.md'):
             fm = front_matter(text)
             if fm is None:
                 errors.append(f'{name}: no front matter')
@@ -106,11 +110,12 @@ def main(argv):
             if re.match(r'^[a-z]+:', target) or target.startswith('#'):
                 continue
             rel = target.split('#')[0]
-            dest = os.path.normpath(os.path.join(fdir, rel))
+            dest = os.path.normpath(os.path.join(base, rel))
             if not os.path.exists(dest):
                 errors.append(f'{name}:{no}: link target {target} does not exist')
                 continue
-            if dest.startswith(root + os.sep):
+            # links between chapters are not anchors into code: a chapter edit does not stale another
+            if dest.startswith(root + os.sep) and not dest.startswith(os.path.join(root, 'docs', 'book') + os.sep):
                 anchored.add(os.path.relpath(dest, root))
             m = SYMBOL_TEXT.match(ltext.strip())
             if m and os.path.isfile(dest):
@@ -128,7 +133,7 @@ def main(argv):
         print('warning:', w)
     for e in errors:
         print('error:', e)
-    print(f'foundations_lint: {len(articles)} article(s), {len(errors)} error(s), {len(warnings)} warning(s)')
+    print(f'book_lint: {len(articles)} article(s), {len(errors)} error(s), {len(warnings)} warning(s)')
     return 1 if errors else 0
 
 
@@ -136,28 +141,30 @@ def selftest():
     """Plant one defect of each kind in a scratch repo; every one must be reported."""
     import tempfile
     with tempfile.TemporaryDirectory() as root:
-        os.makedirs(os.path.join(root, 'docs', 'foundations'))
+        os.makedirs(os.path.join(root, 'docs', 'book', 'src'))
         os.makedirs(os.path.join(root, 'src'))
         open(os.path.join(root, 'src', 'a.cpp'), 'w').write('void present() {}\n')
         git(root, 'init', '-q')
         git(root, '-c', 'user.name=t', '-c', 'user.email=t@t', 'add', '.')
         git(root, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'x')
         head = git(root, 'rev-parse', 'HEAD').stdout.strip()
-        f = os.path.join(root, 'docs', 'foundations')
-        open(os.path.join(f, 'README.md'), 'w').write('[good](good.md) [gone](gone.md)\n')
+        f = os.path.join(root, 'docs', 'book', 'src')
+        open(os.path.join(root, 'docs', 'book', 'README.md'), 'w').write('[s](src/SUMMARY.md)\n')
+        open(os.path.join(f, 'SUMMARY.md'), 'w').write('- [good](good.md)\n- [gone](gone.md)\n- [draft]()\n')
         open(os.path.join(f, 'good.md'), 'w').write(
             f'---\ntitle: g\nverified-at: {head}\nsources: []\n---\n'
-            '[`present`](../../src/a.cpp) [`absent`](../../src/a.cpp) [x](../../src/nope.cpp)\n')
+            '[`present`](../../../src/a.cpp) [`absent`](../../../src/a.cpp) [x](../../../src/nope.cpp)\n'
+            '`[example](../../../src/example.cpp)` is prose, not an anchor\n')
         open(os.path.join(f, 'unlisted.md'), 'w').write('no front matter\n')
         import io, contextlib
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
             rc = main(['', root])
         text = out.getvalue()
-        expect = ['unlisted.md is not in the index', 'gone.md, which does not exist',
+        expect = ['unlisted.md is not in the summary', 'gone.md, which does not exist',
                   'unlisted.md: no front matter', 'symbol `absent`', 'nope.cpp does not exist']
         missing = [e for e in expect if e not in text]
-        if rc != 1 or missing or 'symbol `present`' in text:
+        if rc != 1 or missing or 'symbol `present`' in text or 'example.cpp' in text:
             print(text)
             print('selftest FAILED; not reported:', missing)
             return 1
