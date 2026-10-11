@@ -1,6 +1,6 @@
 # ADR 0026 — what the planner leaves on the table: a findings ledger
 
-Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 5 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 6 open with no closing commit (F2, F3, F4, F6, F9, F10).
+Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 6 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324; F10 be563e468), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 5 open with no closing commit (F2, F3, F4, F6, F9).
 Scope: `plan_decide_access` / `plan_narrow_rel` in `stdlib/mem/wql/plan_walker.logos`,
 the access-path and materialization choices they drive, and the code
 `rexpr_walk` emits from them. Sources are the declared kind of ADR 0024 §6 —
@@ -445,6 +445,15 @@ The fix is not "always hash": a handful of groups is genuinely faster linear, an
 the group count is not known before the fold. What is missing is the decision —
 and note that this is F2 again from the other end, because the source's declared
 `size` is the one number that bounds the group count before the first row.
+
+**CLOSED 2026-10-11 (be563e468).** The decision is made at run time rather than
+from a size fact: the fold scans `__g_key` linearly while the frame holds fewer
+than 16 groups and, at 16, for a Copy hashable key (`join_sel::group_key_indexable`),
+builds `__g_idx: HashMap<K, i64>` from the keys so far and probes it from then
+on (`rexpr_walk::group_fold_frag`, shared by the entry aggregate and the
+rel-body group). The test is `pass/wql_group_many_keys_e2e` (more than 16
+groups for an integer, a str and a tuple key, and in a rel body); storing a
+wrong index in the map turns it red.
 
 ---
 
