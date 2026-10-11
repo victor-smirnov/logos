@@ -998,7 +998,29 @@ void SemaChecker::check_impl_trait_ret_bound(writ::TinyMapView ret_node,
     TypeParam tp;
     tp.name = "impl " + tb.trait_name;
     tp.bounds.push_back(std::move(tb));
+    read_impl_more_bounds_(ret_node, tp);
     check_type_bounds(std::string(fn_name), {tp}, {hidden});
+}
+
+// `impl A + B + 'a`: the bounds after the first (SUPERS) — each trait bound
+// joins `tp.bounds`, each lifetime `tp.lifetime_outlives`, as for `T: A + B + 'a`.
+void SemaChecker::read_impl_more_bounds_(writ::TinyMapView impl_node, TypeParam& tp) {
+    if (!impl_node.has_key(la::SUPERS)) return;
+    auto sup = map_of(impl_node.get(la::SUPERS.code));
+    if (!sup.has_key(la::ITEMS)) return;
+    auto items = arr_of(sup.get(la::ITEMS.code));
+    for (uint64_t i = 0; i < items.size(); ++i) {
+        auto it = map_of(items.get(i));
+        if (code_of(it) == la::LIFETIME_PARAM) {
+            tp.lifetime_outlives.emplace_back(str_of(it.get(la::NAME.code)));
+            continue;
+        }
+        TraitBound tb;
+        tb.trait_name = std::string(str_of(it.get(la::NAME.code)));
+        if (tb.trait_name.empty()) continue;
+        read_trait_bound_args(it, tb);
+        tp.bounds.push_back(std::move(tb));
+    }
 }
 
 void SemaChecker::check_type_bounds(const std::string& target_name,

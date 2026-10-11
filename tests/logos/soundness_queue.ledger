@@ -176,8 +176,6 @@ recursive_type_via_option_payload_crash 2 tests/soundness/open/recursive_type_vi
 
 vec_truncate_drop_order_wrong 2 tests/soundness/open/vec_truncate_drop_order_wrong run 3
 
-amp_impl_trait_param_refused 3 tests/soundness/open/amp_impl_trait_param_refused refuses
-
 assoc_fn_path_as_value_refused 3 tests/soundness/open/assoc_fn_path_as_value_refused refuses
 
 assoc_type_projection_expr_path_refused 3 tests/soundness/open/assoc_type_projection_expr_path_refused refuses
@@ -420,5 +418,5 @@ str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 120
-# SYNC-HASH aefdb2f57b31c955e46324efb9164f3e
+# TOTAL 119
+# SYNC-HASH 3972edbab7a8cd9320929d0e626ba10a

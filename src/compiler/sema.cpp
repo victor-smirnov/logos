@@ -9275,6 +9275,7 @@ TypeRef SemaChecker::resolve_type(TinyMapView node) {
             tb.trait_name = tname;
             read_trait_bound_args(node, tb);
             tp.bounds.push_back(std::move(tb));
+            read_impl_more_bounds_(node, tp);
             auto tv = make_typevar(tp.name);
             pending_impl_trait_params_.push_back(std::move(tp));
             return tv;

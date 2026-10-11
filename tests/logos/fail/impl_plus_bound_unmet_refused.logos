@@ -1,0 +1,8 @@
+// `impl Debug + Clone`: every bound after the first is a bound too — a type without Clone is refused (rustc E0277).
+package impl_plus_bound_unmet_refused;
+use logos.std.fmt;
+use logos.mem.string;
+struct NoClone { v: i64 }
+impl Debug for NoClone { fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return f.write_str("n"); } }
+fn both(x: impl Debug + Clone) -> String { format!("{:?}", x.clone()) }
+fn main() { let s = both(NoClone { v: 1 }); }

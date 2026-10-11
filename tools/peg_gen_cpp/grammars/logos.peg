@@ -1837,7 +1837,24 @@
     // bounded by the same trait. Fn-family `(args) -> ret` lands in
     // PARAMS/RET_TYPE; generic-trait args in TYPE_PARAMS — the same slots
     // read_trait_bound_args() consumes.
-    impl_type <- KW_IMPL IDENT LT bound_arg_list GT_TYPE
+    // `impl A + B + 'a`: the first bound keeps the single-bound shape (NAME and
+    // its arguments, which every IMPL_TYPE reader takes); the rest — trait
+    // bounds and outlives lifetimes — ride in SUPERS (ITEMS = TRAIT_BOUND /
+    // LIFETIME_PARAM), as a type parameter's `T: A + B + 'a` list.
+    impl_more_item <- LIFETIME
+                   => { CODE: LIFETIME_PARAM, NAME: $1 }
+                    / trait_bound
+    impl_more <- (PLUS impl_more_item)+
+              => { ITEMS: $... }
+    impl_type <- KW_IMPL IDENT LT bound_arg_list GT_TYPE impl_more
+              => { CODE: IMPL_TYPE, NAME: $2, TYPE_PARAMS: $4, SUPERS: $6 }
+               / KW_IMPL IDENT LPAREN closure_type_args RPAREN ARROW type_ref impl_more
+              => { CODE: IMPL_TYPE, NAME: $2, PARAMS: $4, RET_TYPE: $7, SUPERS: $8 }
+               / KW_IMPL IDENT LPAREN RPAREN ARROW type_ref impl_more
+              => { CODE: IMPL_TYPE, NAME: $2, RET_TYPE: $6, SUPERS: $7 }
+               / KW_IMPL IDENT impl_more
+              => { CODE: IMPL_TYPE, NAME: $2, SUPERS: $3 }
+               / KW_IMPL IDENT LT bound_arg_list GT_TYPE
               => { CODE: IMPL_TYPE, NAME: $2, TYPE_PARAMS: $4 }
                / KW_IMPL IDENT LPAREN closure_type_args RPAREN ARROW type_ref
               => { CODE: IMPL_TYPE, NAME: $2, PARAMS: $4, RET_TYPE: $7 }
@@ -2104,7 +2121,7 @@
     // A bare `dyn Trait` pointee (`& &dyn Tr` = `&` over `&dyn Tr`, the inner
     // `&dyn` taken by ref_type then this) and a parenthesised one
     // (`&'a (dyn Tr + 'b)`, Rust's spelling of a region-bounded object).
-    ref_pointee <- ptr_type / ref_type / dyn_type / arr_type / tuple_type / paren_type / unit_type / qualified_assoc_type / assoc_type_ref / fn_ptr_type / simple_type
+    ref_pointee <- ptr_type / ref_type / dyn_type / impl_type / arr_type / tuple_type / paren_type / unit_type / qualified_assoc_type / assoc_type_ref / fn_ptr_type / simple_type
 
     // |T1, T2| -> R — closure type (used in function parameter type annotations)
     closure_type_args <- type_ref (COMMA type_ref)*
