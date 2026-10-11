@@ -1904,6 +1904,18 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 // range-checked back into it.
                 let nt: str = arith_node_ty(e, t);
                 emit_arith_fit_open(out, nt, tw);
+                // ADR 0026 F12: `/` / `%` by a POSITIVE integer literal cannot
+                // divide by zero nor overflow (`MIN / -1` needs -1), so the
+                // checked call's test is decided here: infix, in the tower.
+                if (op == OP_DIV() || op == OP_MOD()) && is_pos_int_lit(rhs) {
+                    out.push_str("(");
+                    emit_norm_operand(out, lhs, t, var, ir);
+                    out.push_str(emit_binop(op));
+                    emit_norm_operand(out, rhs, t, var, ir);
+                    out.push_str(")");
+                    emit_arith_fit_close(out, nt, tw);
+                    return;
+                }
                 out.push_str(el_int_op_fn(op, tw));
                 out.push_str("(");
                 emit_norm_operand(out, lhs, t, var, ir);
@@ -2510,6 +2522,19 @@ pub fn emit_truthy(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
     out.push_str("((");
     emit_sexpr(out, e, t, var);
     out.push_str(") != 0i64)");
+}
+
+// An integer literal greater than zero (and within i64: a literal past
+// i64::MAX keeps no value, `el_lit_poison`).
+fn is_pos_int_lit(e: SExpr) -> bool {
+    match e {
+        SExpr::Lit(l) => {
+            let v: WAny = l.val;
+            if v.is_null() || v.is_string() || v.is_bool() || v.is_float() { return false; }
+            return v.as_i64() > 0i64 && v.as_i64() != el_lit_poison();
+        }
+        _ => { return false; }
+    }
 }
 
 // SBin arithmetic op id → the error-returning checked-op fn NAME (logos.std

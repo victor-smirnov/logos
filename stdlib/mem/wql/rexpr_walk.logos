@@ -5944,7 +5944,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
         let lim_f: ExprBlob = limit_expr(&mods);
         ocond = quote_expr! { __o < __ix0.len() && __out.len() < (#(lim_f)) };
     }
-    let output: ExprBlob = quote_block! {
+    let mut output: ExprBlob = quote_block! {
         let mut __ix0: Vec<i64> = Vec::<i64>::new();
         #(ksdecl);
         let mut __r: i64 = 0i64;
@@ -5960,6 +5960,27 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
             __o = __o + 1i64;
         }
     };
+    // ADR 0026 F11: with neither `order by` nor `having` the permutation is the
+    // identity, so the output phase reads the group frame by its own index.
+    if !mods.has_sort && !has_having {
+        let binds_i: ExprBlob = group_binds_frag(quote_expr! { __o }, &aggs, acount, &act,
+                                                 &uda, &uda_fin, &uda_ret, key_ty, !pure_group,
+                                                 needs_cnt, &agg_flt,
+                                                 ch.base_var, ch.base_ty, ch.base_src);
+        let mut icond: ExprBlob = quote_expr! { __o < __g_key.len() };
+        if mods.has_limit {
+            let lim_i: ExprBlob = limit_expr(&mods);
+            icond = quote_expr! { __o < __g_key.len() && __out.len() < (#(lim_i)) };
+        }
+        output = quote_block! {
+            let mut __o: i64 = 0i64;
+            while #(icond) {
+                #(binds_i);
+                #(push_f);
+                __o = __o + 1i64;
+            }
+        };
+    }
 
     // §12 `direct` — AN AGGREGATE IS NOT ELIGIBLE for the same reason a sort is
     // not: a fold's first output row is not known until the last input row has
