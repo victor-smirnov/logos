@@ -198,8 +198,6 @@ slice_debug_missing_refused 3 tests/soundness/open/slice_debug_missing_refused r
 
 split_adapter_static_lifetime_refused 3 tests/soundness/open/split_adapter_static_lifetime_refused refuses
 
-vec_iter_find_elided_region_refused 3 tests/soundness/open/vec_iter_find_elided_region_refused refuses
-
 implicit_integer_widening_admitted 4 tests/soundness/open/implicit_integer_widening_admitted admits
 
 struct_literal_match_scrutinee_admitted 4 tests/soundness/open/struct_literal_match_scrutinee_admitted admits
@@ -230,8 +228,6 @@ guard_closure_moves_ref_mut_binding_admits 2 tests/soundness/open/guard_closure_
 raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused refuses
 
 default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/default_method_generics_shadow_impl_generics_refused refuses
-
-ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_after_region_erased_binding_refused refuses
 
 str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_quotes_bytes run 3
 
@@ -401,5 +397,5 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 110
-# SYNC-HASH 408b505477047821e382b43de223368b
+# TOTAL 108
+# SYNC-HASH 472696577e10ae11f5e17aee2ffabcdd

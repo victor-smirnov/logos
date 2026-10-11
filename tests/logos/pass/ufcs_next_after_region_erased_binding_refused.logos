@@ -1,0 +1,13 @@
+// Closed squeue ufcs_next_after_region_erased_binding_refused (#735): the generic call's variance check now instantiates the callee's call-region binders (8920ff62b).
+package ufcs_next_after_region_erased_binding_refused;
+struct S { v: Vec<i64> }
+impl S {
+    fn sum(&self) -> i64 {
+        let mut s: i64 = 0;
+        match IntoIterator::into_iter(self.v.iter()) {
+            mut it => loop { match Iterator::next(&mut it) { Some(x) => { s = s + *x; } None => { break; } } }
+        }
+        s
+    }
+}
+fn main() -> i32 { let s = S { v: vec![1, 2, 3] }; return s.sum() as i32; }

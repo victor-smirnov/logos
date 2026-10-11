@@ -1,0 +1,5 @@
+// Closed squeue vec_iter_find_elided_region_refused (#692): the generic call's variance check now instantiates the callee's call-region binders (8920ff62b).
+package vec_iter_find_elided_region_refused;
+use logos.mem.collections.vec;
+fn fe(v: &Vec<i64>) -> i64 { let mut it = v.iter(); let f = it.find(|x| **x % 2 == 0); return match f { Some(x) => *x, None => -1 }; }
+fn main() -> i32 { let v: Vec<i64> = vec![1, 4]; return fe(&v) as i32 - 4; }
