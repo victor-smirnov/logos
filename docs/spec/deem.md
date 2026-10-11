@@ -653,9 +653,32 @@ Two SOURCE bindings remain. `bind_source` (a Writ array of schema'd rows, `QB_SR
 *Evidence:* `stdlib/mem/deem/deem.logos` (`QB_SRC`, `QB_EDGE`, `QEnv::bind_source`, `QEnv::bind_edge_rows`); `stdlib/mem/deem/tpl.logos` (`env_val`, `check_root`, `src_elem_ty` — no `QB_EDGE` arm); `stdlib/mem/deem/graphsrc.logos` (`dyn_graph_edges`, `dyn_graph_edge_rows`)
 <!-- spec-gone: stdlib/mem/deem/check.logos — deleted at P5: the dynamic query CHECKER; its template half had already been ported to stdlib/mem/deem/tpl.logos -->
 
-### `deem.exec.incremental` — WITHDRAWN at P5
+### `deem.exec.incremental` — the compiled incremental handle of a group entry
 
-Withdrawn with the interpreter. `Query::incremental` — DBSP maintenance of query results under ±-weighted fact deltas over a `FactStore` (ADR 0013), with recursion (`IncrRec`, DRed) and the engine's own history as a source — was deleted at P5 together with `FactStore`, `IncrJoin`, `IncrRec` and `FactHistory` (census §6 L1–L6, L10). Nothing in the tree maintains a deem result incrementally; ADR 0013 stands as a design. Every `query_incr_*` fixture this rule cited died with it.
+A `deem` entry with `group by` gets an incremental HANDLE when the planner admits its shape. No syntax opts in. `dplan::plan_incremental` returns `DIncr { admit, retract, dred, rowid }`, and an entry without a group gets `dincr_none()`. The emitter (`emit_incremental`) generates free fns beside `<q>()`:
+
+- `<q>_incremental()` returns the empty handle.
+- `<q>_epoch(&mut h, <q>'s parameters verbatim)` folds a batch in at weight +1.
+- `<q>_retract(&mut h, …)` takes a batch out at weight −1.
+- `<q>_apply(&mut h, src: i32, w: i64, …)` is the primitive, with the source tag as the join-chain position and one scalar weight per batch. An out-of-range tag is `Err(ElError::SrcUnknown)`.
+- `<q>_snapshot(&h)` returns the group rows in the shape `<q>()` returns them.
+
+Delta rows have the source's own element type, passed in the query's slice parameter. The handle owns its state and borrows nothing. Every call is transactional: it runs on a shadow copy that is committed only on `Ok`, so an `Err(ElError)` (`Overflow`, `RetractAbsent` for a row never folded, `SrcUnknown`) leaves the handle unchanged.
+
+What the handle maintains: group keys and counts; one accumulator per aggregate; for a retracting `min`/`max`, a value→multiplicity map per group, rescanned when the best is retracted; the two stored sides of a one-step join as weighted rows; and, for a rel-backed entry, the recursive SCC's fixpoint total. A group emptied by retraction is tombstoned: `<q>_snapshot` skips it, and the key vector `__gk` never shrinks. Which fns exist depends on the shape:
+
+- **Bare scan, every aggregate invertible** (`retract_ok`: no `f64` `sum`/`avg`): `_epoch`, `_retract`, `_apply` and `_snapshot`. A retracted row is identified by its value, or by its key footprint when its columns cannot be owned and compared (`rowid`, `incr_rowid_text`).
+- **Bare scan with an `f64` `sum`/`avg`**: insert-only, so there is no `_retract` and no `_apply`.
+- **One-step join of two distinct sources**: admitted only with the retracting surface, and it has only `_apply` and `_snapshot`. Snapshot order is the order groups are first matched, so a check against `<q>()` compares by key.
+- **Base source is a recursive `rel` whose SCC contains every declared rel** (no aggregate, native or streaming member, and no lower-stratum rel; `stamp_rel_incr_shape`): `_epoch` extends the fixpoint insert-only through the `_scc<c>_i` driver. When the aggregates are invertible and none is `min`/`max`, `_retract` is DRed through the `_scc<c>_dred` driver (`_od`, `_odp`, `_cpt`, then `_i`). Its own ground text (`DR_EMIT`) records it as measured at 1.15–1.9x a from-scratch recompute.
+
+Everything else gets no handle, and the caller recomputes by calling `<q>()`. `incr_admit` declines on the first of 24 grounds (`IR_JOIN_SRC_REL` … `IR_REL_NOT_INCR`, texts in `why.logos`). Among them: a join chain of two or more steps, anti-join, edge traversal, self-join, `where` before the group, `order by` / `limit` / `distinct`, a generic query, a user aggregate, a `str` key, aggregate or result, a non-recursive or outside-the-SCC `rel`, and a recursive aggregate rel. Each decision is traced with its ground under `LOGOS_TRACE_PLAN`. There is no Z-set type and no change capture from containers: the caller hands in delta rows. The interpreter-era `Query::incremental` (`FactStore`, `IncrJoin`, `IncrRec`, `FactHistory`) was deleted at P5 (census §6 L1–L6, L10) and is not this mechanism.
+
+ADR 0033 (PROPOSED) replaces this handle with a DBSP translator over DPlan, whose generated circuit exposes one `step` per tick instead of `_apply` / `_epoch` / `_retract`.
+
+*Divergence:* EXTENSION — per-query materialized-view maintenance under ±-weighted batches, with DRed for recursion. There is no Rust analogue. Admission is a list of shapes, not an algebra (ADR 0033 "Diagnosis").
+
+*Evidence:* `stdlib/mem/wql/dplan.logos` (`DIncr`, `plan_incremental`, `incr_admit`, `incr_retract_eligible`, `retract_ok`, `incr_ty_ok`, `incr_row_ty_ok`, `incr_rowid_text`); `stdlib/mem/wql/params.logos` (`stamp_rel_incr_shape`); `stdlib/mem/wql/rexpr_walk.logos` (`emit_incremental`, the `<q>_incremental` / `<q>_apply` / `<q>_snapshot` emission, the `_scc<c>_i` and `_dred` drivers); `stdlib/mem/wql/why.logos` (`IR_*` decline grounds, `RT_REC_REL`, `DR_EMIT`); `stdlib/mem/wql/el.logos` (`ElError`); `tests/logos/pass/deem_incr_static_retract_e2e.logos`, `tests/logos/pass/wql_incr_retract_matrix.logos`, `tests/logos/pass/wql_incr_retract_two_ways.logos`, `tests/logos/pass/deem_incr_join_e2e.logos`, `tests/logos/pass/wql_incr_epoch_atomic_e2e.logos`, `tests/logos/pass/wql_incr_eligibility_matrix.logos`, `tests/logos/pass/wql_incr_rel_rec_epochs.logos`, `tests/logos/pass/wql_incr_rel_mutrec_epochs.logos`, `tests/logos/pass/wql_incr_rel_dred_driver.logos`; refusals `tests/logos/fail/wql_incr_rel_no_retract_float.logos`, `tests/logos/fail/wql_incr_rel_no_retract_minmax.logos`, `tests/logos/fail/wql_incr_mutrec_outside_rel.logos`; gates `tests/logos/incr_eligibility_gate.sh`, `tests/logos/incr_retraction_gate.sh`, `tests/logos/incr_scc_driver_gate.sh`, `tests/logos/incr_mutrec_refusal_gate.sh`; planner ownership b6978bdc8, 61b257315 (ADR 0031 R7.4b/c); ADR 0033
 <!-- spec-gone: stdlib/mem/deem/incr.logos — deleted at P5: the DBSP incremental engine (IncrJoin, FactStore, AggState) -->
 <!-- spec-gone: stdlib/mem/deem/incr_rec.logos — deleted at P5: the recursive incremental engine (IncrRec, dred) -->
 

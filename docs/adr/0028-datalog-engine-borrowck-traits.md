@@ -1,9 +1,27 @@
 # ADR 0028. A Datalog engine inside logosc: borrow checking and trait resolution as rules
 
-Status: ACCEPTED as direction (Victor + Claude PAIR, 2026-09-18). D1-D3 below
-are TAKEN; O1-O3 are OPEN. The MIR-like linearisation (slice S4) is accepted as
-work to do; only its placement (O2) is open. Tracking: #419, slices S1-S7 are
-sub-issues #420-#426. Scope: a small bottom-up Datalog engine in C++ inside
+Status: PARTIALLY IMPLEMENTED (checked 2026-10-11). Accepted as direction by
+Victor + Claude PAIR on 2026-09-18. The Datalog borrow checker over BIR is the
+DEFAULT since 70f16045f (2026-09-21); `LOGOS_DL_BC=0` restores the old checker
+as a bisect escape hatch (`dl_bc_live` in `src/compiler/borrow_bir.inc`). A
+function BIR cannot lower (`BirVerdict::unsupported`) still falls back to the
+old checker (the `dl_bc_live()` branch in `src/compiler/borrow_check.cpp`).
+Landed: S1, the engine in `src/compiler/dl/` (e6289b69a, 2026-09-18); S2, S4
+and S5 in shadow mode (68cd32023, 2026-09-18), then extractor fixes (474684d7a
+and the #423 series); S6, live behind `LOGOS_DL_BC=1` (16b73602e, 2026-09-21);
+the default switch with rustc's diagnostic wording (70f16045f; that commit calls
+itself S7, but the S7 row below is the deletions). Departs from D3:
+initialisation is bitset dataflow in BIR (`initialization()`), not Datalog
+relations (93e064602, 2026-09-19); the embedded rules are `polonius.dl` and
+`logos_bc.dl`. Superseded: S2/S3 trait rules. `traits.dl`, `trait_rules.cpp`
+and `trait_engine.{hpp,cpp}` were deleted by ADR 0030 S9 row 4 (076a7ca4f,
+2026-10-05), and trait resolution is ADR 0030's C-OBL solver, not this engine.
+Open: S7 deletions (`VarState` and `release_dead_borrows` in
+`borrow_check.cpp`, `RegionInferer::find_conflicts` in `region_infer.cpp` are
+still in the tree, and the old checker still runs as the fallback above);
+O1-O5 below were not re-checked. The original D1-D3 are taken, with the D3
+departure above. Tracking: #419, slices S1-S7 are sub-issues #420-#426; all
+eight are still OPEN on GitHub, including the slices that landed. Scope: a small bottom-up Datalog engine in C++ inside
 logosc; trait resolution and borrow checking re-expressed as rule sets over
 facts extracted from the compiler's IR. Deem replaces the engine once logosc is
 rewritten in Logos ([project_logosc_rewrite]); the rule files are the part that

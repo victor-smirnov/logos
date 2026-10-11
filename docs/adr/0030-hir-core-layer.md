@@ -1,6 +1,23 @@
 # ADR 0030. A core layer between the AST and sema: one desugaring pass, one implementation per semantic rule, lossless with provenance
 
-Status: DRAFT for pair review (2026-09-26). Nothing here is implemented. Inputs:
+Status: IMPLEMENTED, with named residue (checked 2026-10-11). Drafted for pair
+review 2026-09-26; decisions taken the same day (section "Decisions taken in
+review"). The HIR pass is `src/compiler/hir_lower.{hpp,cpp}` (`hir::Lowering`).
+Closed, each by its row table: R0 4b9104b12 (2026-09-27); H0 2e916617d +
+739f020aa (2026-09-27); L0 d62863a7d..980ac6f65 (2026-09-27); S1 843cb237c
+(2026-09-27); S2 bb355637b, found met by the gap audit e43d512f5 (2026-10-01);
+S3 edfb71a85 (2026-09-29); S4 3293945dc (2026-09-29); S5 30ea1415f
+(2026-09-30); S6 bd5e18cbe (2026-09-30); S7 fd6016865 (2026-10-01); S0
+57a0df8a6 (2026-10-01); S0-S7 gap rounds 428cce311, d5e27d7b7; S8 2eb554d31
+(2026-10-04); S9 c37200668 (2026-10-06); S9a 08fda1d3a (2026-10-06); S10
+cef000d9e (2026-10-07). S9b rows (4), (1), (2), (3) and the cleanup landed on
+2026-10-07 (75d2439dd, 2eb39f1f6, 44b28d10b, 32172e035, c1db2ddbe). The S9b
+section does not declare the step closed by row: enums and `dst_len` keep the
+name scan. Q1 (path resolution into the HIR) rows 1-5 landed: b8d59a6d6
+(2026-10-07) through fb1f6b81a (2026-10-09). Open: Q1's last item,
+`pkg.path::Type::m` qualified type paths; Q3 (not landed); Q5, HIR exposure to `metacall`
+reflection (#649, OPEN); R0's by-reason exclusions (M2/M3/M6/M7, D1); the
+matrix re-run issues #740, #742, #743 (OPEN). Inputs:
 `docs/audit/2026-09-26-sema-path-inventory.md` (the "path inventory"),
 `docs/audit/2026-09-26-representation-pipeline.md` (the "repr audit"),
 `docs/audit/2026-09-26-rust-parity.md`. Open questions for the pair are in the
