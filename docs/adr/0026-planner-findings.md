@@ -1,6 +1,6 @@
 # ADR 0026 — what the planner leaves on the table: a findings ledger
 
-Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 2 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 9 open with no closing commit (F2, F3, F4, F6, F7, F9, F10, F11, F12).
+Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 4 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 7 open with no closing commit (F2, F3, F4, F6, F7, F9, F10).
 Scope: `plan_decide_access` / `plan_narrow_rel` in `stdlib/mem/wql/plan_walker.logos`,
 the access-path and materialization choices they drive, and the code
 `rexpr_walk` emits from them. Sources are the declared kind of ADR 0024 §6 —
@@ -465,6 +465,12 @@ Same class as F2 and F3 — machinery emitted for a case the query does not
 have — and the cheapest of the three to answer, because "no `order by`" is known
 where the permutation is emitted.
 
+**CLOSED 2026-10-11 (4fba560e8).** With neither `order by` nor `having`, the
+output phase reads the group frame by its own index (`rexpr_walk`, the aggregate
+output phase). The test is the census: `__ix<k>` permutation vectors 434 → 301
+and pull-shape `walks_internal` −133 are pinned (`plan_ground_census_gate.sh`,
+`pull_shape_gate.sh`), so the identity permutation coming back reddens both.
+
 ---
 
 ## F12 — a checked division by a literal is emitted with its check
@@ -491,6 +497,13 @@ that a divisor known non-zero at compile time makes the check decidable there.
 Scope note: this is EL lowering rather than planning, and it is in this ledger
 because it was found the same way and lives in the same emitted body. It is the
 one row here that a constant-folding pass closes without any plan-level decision.
+
+**CLOSED 2026-10-11 (4fba560e8).** `/` and `%` by an integer literal greater
+than zero are emitted infix in the tower (`codegen`, `is_pos_int_lit`): such a
+divisor is neither zero nor −1, so neither the zero test nor the `MIN / -1`
+overflow can fire. A query whose only fallible step was such a division is no
+longer fallible; the test is the census's first-reason partition, pinned with
+13 doors moved from `fallible` to `slice` (`plan_ground_census_gate.sh`).
 
 ---
 
