@@ -3190,6 +3190,7 @@ lir::LProgram SemaChecker::run(const std::vector<writ::Writ>& asts,
     check_symbol_key_separators();
     check_trait_def_identity();
     check_value_def_identity();
+    check_impl_members_();
 
 
     if (!result_.ok()) {

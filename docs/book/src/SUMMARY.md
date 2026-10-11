@@ -2,7 +2,7 @@
 
 # Part I. Premises
 
-- [A language for model authors]()
+- [A language for model authors](p1-01-model-authors.md)
 - [System map](p1-02-system-map.md)
 - [Method: oracles, divergences, gates]()
 

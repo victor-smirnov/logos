@@ -14,6 +14,13 @@ impl Ord for &V {
         return Ordering::Equal;
     }
 }
+impl PartialEq for &V {
+    fn eq(&self, other: &Self) -> bool { return self.cmp(other) == Ordering::Equal; }
+}
+impl Eq for &V {}
+impl PartialOrd for &V {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 fn main() -> i32 {
     let a = V { x: 5i64 };
     let b = V { x: 7i64 };

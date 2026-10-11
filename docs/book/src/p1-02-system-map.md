@@ -1,6 +1,6 @@
 ---
 title: System map
-verified-at: a943b5379
+verified-at: a4f617303
 sources: [docs/adr/0032-logos-core-composition.md, docs/adr/0030-hir-core-layer.md, docs/adr/0031-deem-core-layer.md, docs/adr/0028-datalog-engine-borrowck-traits.md, docs/adr/0018-memoria-port.md, docs/adr/0020-memoria-container-interface-plane.md, docs/adr/0021-metaclasses-mono-seam.md, docs/adr/0034-hest-core-graph-layer.md, docs/spec/deem.md, docs/spec/writ.md, docs/spec/modules.md]
 ---
 

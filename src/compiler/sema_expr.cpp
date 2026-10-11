@@ -7077,6 +7077,14 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
             const TypeRef want = ar == 0 ? cur : make_ref(ar == 2, cur);
             ProbePick pick;
             int best_rank = 0;
+            bool pick_generic = false;   // the pick's declared self is a pattern (`&T`), not the type
+            std::function<bool(TypeRef)> has_typevar = [&](TypeRef t) -> bool {
+                if (!t) return false;
+                if (TypeRef(t).kind() == K::TypeVar) return true;
+                if (has_typevar(TypeRef(t).pointee()) || has_typevar(TypeRef(t).elem())) return true;
+                for (auto a : TypeRef(t).type_args()) if (has_typevar(a)) return true;
+                return false;
+            };
             for (auto& c : cands) {
                 TypeRef f0 = c.fi->param_types[0];
                 if (TypeRef(f0).kind() == K::Ptr && ck != K::Ptr) continue;
@@ -7093,8 +7101,21 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
                 // stdlib's; `WAny::as_array` lives in another stdlib package).
                 const int rank = (c.fi->trait_name.empty() ? 0 : 2) +
                                  (!tpkg.empty() && !c.fi->package.empty() && c.fi->package != tpkg ? 1 : 0);
+                // One trait's method from two impls (`impl Tr for &V` beside `impl<T: Tr> Tr
+                // for &T`): the impl written for the type wins over the pattern. Coherence
+                // admits both only when the pattern's bounds fail here (`V: Tr`), as rustc's
+                // selection discards it.
+                const bool generic = c.blanket_self || has_typevar(f0);
+                if (pick.fi && rank == best_rank && pick_generic && !generic &&
+                    pick.fi->trait_name == c.fi->trait_name) {
+                    pick = {c.fi, (int)d, ar, c.key, {c.fi}}; pick_generic = false;
+                    continue;
+                }
+                if (pick.fi && rank == best_rank && !pick_generic && generic &&
+                    pick.fi->trait_name == c.fi->trait_name)
+                    continue;
                 if (!pick.fi || rank < best_rank) {
-                    pick = {c.fi, (int)d, ar, c.key, {c.fi}}; best_rank = rank;
+                    pick = {c.fi, (int)d, ar, c.key, {c.fi}}; best_rank = rank; pick_generic = generic;
                 } else if (rank == best_rank &&
                            std::find(pick.tied.begin(), pick.tied.end(), c.fi) == pick.tied.end()) {
                     pick.tied.push_back(c.fi);

@@ -1,27 +1,29 @@
 // audit-v2 T2-16: PartialOrd via `partial_cmp`. The comparison operators
 // dispatched only to a struct's direct `lt`/`le`/`gt`/`ge` methods; when
-// a user impls the canonical Rust `fn partial_cmp(&self,&other)->Ordering`
-// instead, `<`/`<=`/`>`/`>=` now derive from it
-// (`a.partial_cmp(&b).is_lt()` etc.), matching Rust's default bodies.
-// A direct `lt` impl still wins (kept for back-compat).
+// a user impls the canonical Rust `fn partial_cmp(&self,&other)->Option<Ordering>`
+// instead, `<`/`<=`/`>`/`>=` now derive from it (PartialOrd's default
+// `lt` / `le` / `gt` / `ge`). An `lt` the impl overrides wins over the
+// default: W's `partial_cmp` answers Equal, its `lt` the real order.
 package partial_ord_partial_cmp;
 
 use logos.lang.cmp;
 
 struct V { n: i32 }
-
+impl PartialEq for V { fn eq(&self, other: &V) -> bool { return self.n == other.n; } }
 impl PartialOrd for V {
-    fn partial_cmp(self: &V, other: &V) -> Ordering {
-        if self.n < other.n { return Ordering::Less; }
-        if self.n > other.n { return Ordering::Greater; }
-        return Ordering::Equal;
+    fn partial_cmp(&self, other: &V) -> Option<Ordering> {
+        if self.n < other.n { return Option::Some(Ordering::Less); }
+        if self.n > other.n { return Option::Some(Ordering::Greater); }
+        return Option::Some(Ordering::Equal);
     }
 }
 
-// Direct-lt impl still resolves (no partial_cmp).
+// An overridden `lt` wins over the default derived from partial_cmp.
 struct W { n: i32 }
+impl PartialEq for W { fn eq(&self, other: &W) -> bool { return self.n == other.n; } }
 impl PartialOrd for W {
-    fn lt(self: &W, other: &W) -> bool { return self.n < other.n; }
+    fn partial_cmp(&self, other: &W) -> Option<Ordering> { return Option::Some(Ordering::Equal); }
+    fn lt(&self, other: &W) -> bool { return self.n < other.n; }
 }
 
 fn main() -> i32 {

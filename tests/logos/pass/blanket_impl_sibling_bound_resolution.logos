@@ -32,6 +32,13 @@ impl Ord for U64Key {
         return Ordering::Equal;
     }
 }
+impl PartialEq for U64Key {
+    fn eq(&self, other: &Self) -> bool { return self.cmp(other) == Ordering::Equal; }
+}
+impl Eq for U64Key {}
+impl PartialOrd for U64Key {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 
 pub struct U64Val { pub x: u64, }
 impl Primitive for U64Val { type Prim = u64; }

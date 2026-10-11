@@ -8,7 +8,9 @@ struct Ver { major: i64 }
 impl Clone for Ver { fn clone(&self) -> Ver { Ver { major: self.major } } }
 impl PartialEq for Ver { fn eq(&self, o: &Ver) -> bool { self.major == o.major } }
 impl Eq for Ver {}
-impl PartialOrd for Ver {}
+impl PartialOrd for Ver {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for Ver { fn cmp(&self, o: &Ver) -> Ordering { self.major.cmp(&o.major) } }
 fn main() {
     let b: Vec<u8> = vec![4, 9, 2]; println!("u8 {} {}", b.iter().max().unwrap(), b.iter().min().unwrap());

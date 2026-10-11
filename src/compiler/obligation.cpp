@@ -395,10 +395,6 @@ struct Solver {
             return {Kind::Builtin, nullptr, {}};
         Selection s = by_impls(trait, self, args);
         if (s.holds()) return s;
-        // SL-sl-02: Logos's `Ord` is not declared `: PartialOrd`; the total impl
-        // answers the partial bound. (`Eq: PartialEq` is declared, as in Rust.)
-        const LangIds& l = env.lang;
-        if (!l.partial_ord.empty() && trait == l.partial_ord && !l.ord.empty()) return select(l.ord, self, args);
         return s;
     }
 };

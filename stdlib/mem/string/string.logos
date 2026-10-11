@@ -615,6 +615,9 @@ impl Ord for String {
         return Ordering::Equal;
     }
 }
+impl PartialOrd for String {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 
 // Datum: present a heap String as a runtime-typed cell (datatype String,
 // W_STRING). Its STORAGE form is the UTF-8 CONTENT, not the {ptr,len,cap}

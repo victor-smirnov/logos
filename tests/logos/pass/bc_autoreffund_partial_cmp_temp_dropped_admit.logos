@@ -11,11 +11,12 @@ impl Eq for D {}
 fn mk(v: i64, c: *mut i64) -> D { return D { v: v, c: c }; }
 struct V { v: i64, c: *mut i64 }
 impl Drop for V { fn drop(self: &mut V) { unsafe { *self.c = *self.c + self.v; } } }
+impl PartialEq for V { fn eq(&self, other: &V) -> bool { return self.v == other.v; } }
 impl PartialOrd for V {
-    fn partial_cmp(self: &V, other: &V) -> Ordering {
-        if self.v < other.v { return Ordering::Less; }
-        if self.v > other.v { return Ordering::Greater; }
-        return Ordering::Equal;
+    fn partial_cmp(&self, other: &V) -> Option<Ordering> {
+        if self.v < other.v { return Option::Some(Ordering::Less); }
+        if self.v > other.v { return Option::Some(Ordering::Greater); }
+        return Option::Some(Ordering::Equal);
     }
 }
 fn body(p: *mut i64) -> i64 {

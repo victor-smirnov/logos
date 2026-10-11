@@ -796,7 +796,7 @@ fn core_bound_vars(cl: &CClause) -> Vec<str> {
 // `HashSet` of the row tuple — so, as in Rust, every column type must be `Eq`
 // and `Hash`; nothing else is asked. The column is stored and read as the type
 // it is declared with. `f64` has no `Eq` (a NaN is unequal to itself), and a
-// struct gains both by `#[derive_partial_eq]` + `#[derive_eq]` / `#[derive_hash]`.
+// struct gains both by `#[derive_partial_eq] #[derive_eq]` / `#[derive_hash]`.
 fn rel_col_ty_ok(rel_name: str, col_name: str, t: str) -> bool {
     let view: OView = oview_module_ast();
     let rt: str = resolve_alias_name(&view, t);

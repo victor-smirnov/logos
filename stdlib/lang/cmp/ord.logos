@@ -115,7 +115,7 @@ impl PartialEq for Ordering {
 /// Trait for types that form a total order.
 /// Float types are intentionally excluded: `NaN` breaks totality.
 #[lang = "ord"]
-pub trait Ord {
+pub trait Ord: Eq + PartialOrd {
     /// Returns the `Ordering` of `self` relative to `other`.
     fn cmp(&self, other: &Self) -> Ordering;
     /// The greater of `self` and `other`; `other` when they are equal (Rust's `Ord::max`).
@@ -136,9 +136,21 @@ pub trait Ord {
 }
 
 impl Ord for i8  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for i8 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for i16 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for i16 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for i32 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for i32 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for i64 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for i64 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 // By-reference Ord, Rust's `impl<A: Ord> Ord for &A`: a reference compares as its
 // referent does, so the elements of a by-ref iterator (`v.iter().max()`) are Ord
 // whenever the element type is (there were hand copies for `&i32` / `&i64` only).
@@ -159,23 +171,62 @@ impl<T: Ord> Ord for &T {
         return self;
     }
 }
+impl<T: Ord> PartialOrd for &T {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for u8  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for u8 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for u16 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for u16 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for u32 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for u32 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for u64 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for u64 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for usize { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for usize {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for isize { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for isize {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 // The 128-bit and packed widths. `<` / `>` on all six realize the TYPE'S OWN
 // order — the signed widths compare signed, the unsigned ones unsigned, and both
 // halves of a 128-bit value participate — measured over each type's own
 // {MIN, 0, MAX} ladder by `wql_el_cmp_measured`, which is also what pins the
 // lattice's `self_ord` row for them.
 impl Ord for u128 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for u128 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for i128 { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for i128 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for u56  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for u56 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for i56  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for i56 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for u24  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for u24 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for i24  { fn cmp(&self, other: &Self) -> Ordering { if *self < *other { return Ordering::Less; } if *self > *other { return Ordering::Greater; } return Ordering::Equal; } }
+impl PartialOrd for i24 {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for bool {
     fn cmp(&self, other: &Self) -> Ordering {
         // false < true
@@ -183,6 +234,9 @@ impl Ord for bool {
         if *self && !*other { return Ordering::Greater; }
         return Ordering::Equal;
     }
+}
+impl PartialOrd for bool {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
 }
 // `str` orders byte-lexicographically (Rust parity: `Ord for str`). The native
 // `<`/`>` relationals already lower to the byte-lexicographic `str_cmp`, so
@@ -194,6 +248,9 @@ impl Ord for str {
         if *self > *other { return Ordering::Greater; }
         return Ordering::Equal;
     }
+}
+impl PartialOrd for str {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
 }
 
 // SL-sl-13: `.max(other)` / `.min(other)` / `.clamp(lo, hi)` on integer
@@ -1037,4 +1094,7 @@ impl<T: Eq> Eq for Reverse<T> {}
 
 impl<T: Ord> Ord for Reverse<T> {
     fn cmp(&self, other: &Self) -> Ordering { return other.0.cmp(&self.0); }
+}
+impl<T: Ord> PartialOrd for Reverse<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
 }

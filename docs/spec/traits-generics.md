@@ -169,13 +169,11 @@ For a bound `T: Trait<Args>`, a name-keyed impl hit proves only that SOME Trait 
 
 *Source:* `src/compiler/sema_collect.cpp#L936-L1007`
 
-### `trait.bounds.partialeq-via-eq` — PartialEq/PartialOrd satisfied by Eq/Ord impls
+### `trait.bounds.partialeq-via-eq` — Eq / Ord are PartialEq / PartialOrd's subtraits (Rust's hierarchy)
 
-A `T: PartialEq` bound is satisfied by an existing Eq impl, and `T: PartialOrd` by an Ord impl (alias resolution over concrete and unwrapped names).
+`Eq: PartialEq` (a marker) and `Ord: Eq + PartialOrd`, as in Rust: `eq` / `ne` are PartialEq's, `partial_cmp` / `lt` / `le` / `gt` / `ge` PartialOrd's, `cmp` / `max` / `min` / `clamp` Ord's. A `T: PartialEq` bound is satisfied only by a PartialEq impl, and an `Eq` / `Ord` impl requires its supertraits' impls.
 
-**Divergence.** Logos Eq/Ord carry the methods Rust puts on PartialEq/PartialOrd; full split pending.
-
-*Source:* `src/compiler/sema_collect.cpp#L1110-L1131`
+*Source:* `stdlib/lang/cmp/cmp.logos`, `stdlib/lang/cmp/ord.logos`
 
 ### `trait.bounds.ref-subject-impl-key` — where &T: Trait satisfied only by reference-Self impl
 
