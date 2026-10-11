@@ -237,7 +237,7 @@ does (the match is its scope; `core_verify` admits exactly that). It is one
 form, not surface variety: `check::entry_outer_ok` refuses it where the planner
 and emitters do not handle it yet (rel bodies, `find`, `full join` beyond two
 sources or under `group by`), `join_order` refuses to reorder it (`WG_OUTER`),
-and `dl_export` keeps it outside the oracle fragment. Spec: `deem.join.outer`.
+and `dl_export` renders one outer atom per entry as a matched clause plus an `__m` relation and a negated clause per kept side, `Option` as Soufflé's ADT (2026-10-11; two outer atoms or one under `group by` stay outside the fragment). Spec: `deem.join.outer`.
 
 ## Extension 2026-10-10 — aggregation inside a recursive component (3b3d02fb2)
 
