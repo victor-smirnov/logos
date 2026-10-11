@@ -344,6 +344,12 @@ pub trait ToString {
 // in `mem.fmt`, every primitive is `Display`), as in Rust: a concrete impl beside
 // it would overlap (E0119).
 
+// Rust's `impl Deref for String { type Target = str; }`: str's methods (`chars`, `trim`,
+// `split`, ...) are String's through autoderef, and `&String` coerces to `&str`.
+impl Deref<str> for String {
+    fn deref(&self) -> &str { return self.as_str(); }
+}
+
 /// An independent copy of the bytes (Rust's `impl Clone for String`).
 impl Clone for String {
     fn clone(&self) -> String { return String::from(self.as_str()); }

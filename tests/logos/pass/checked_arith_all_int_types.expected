@@ -1,0 +1,4 @@
+exit: 0
+stdout:
+None Some(255) None Some(-128)
+None Some(18446744073709551615) None Some(-9223372036854775807)

@@ -1357,3 +1357,125 @@ impl<A: Ord, B: Ord, C: Ord, D: Ord, E: Ord, F: Ord, G: Ord, H: Ord, I: Ord, J: 
         return self.11.cmp(&other.11);
     }
 }
+
+// checked_add / checked_sub / checked_mul for the remaining integer types (Rust's
+// inherent `checked_*`): computed one width up, None outside the type's range.
+impl i8 {
+    /// Returns `Some(self + other)`, or `None` on overflow.
+    pub fn checked_add(self: i8, other: i8) -> Option<i8> {
+        let r: i64 = (self as i64) + (other as i64);
+        if r > 127i64 || r < (0i64 - 128i64) { return Option::None; }
+        return Option::Some(r as i8);
+    }
+    /// Returns `Some(self - other)`, or `None` on overflow.
+    pub fn checked_sub(self: i8, other: i8) -> Option<i8> {
+        let r: i64 = (self as i64) - (other as i64);
+        if r > 127i64 || r < (0i64 - 128i64) { return Option::None; }
+        return Option::Some(r as i8);
+    }
+    /// Returns `Some(self * other)`, or `None` on overflow.
+    pub fn checked_mul(self: i8, other: i8) -> Option<i8> {
+        let r: i64 = (self as i64) * (other as i64);
+        if r > 127i64 || r < (0i64 - 128i64) { return Option::None; }
+        return Option::Some(r as i8);
+    }
+}
+impl i16 {
+    /// Returns `Some(self + other)`, or `None` on overflow.
+    pub fn checked_add(self: i16, other: i16) -> Option<i16> {
+        let r: i64 = (self as i64) + (other as i64);
+        if r > 32767i64 || r < (0i64 - 32768i64) { return Option::None; }
+        return Option::Some(r as i16);
+    }
+    /// Returns `Some(self - other)`, or `None` on overflow.
+    pub fn checked_sub(self: i16, other: i16) -> Option<i16> {
+        let r: i64 = (self as i64) - (other as i64);
+        if r > 32767i64 || r < (0i64 - 32768i64) { return Option::None; }
+        return Option::Some(r as i16);
+    }
+    /// Returns `Some(self * other)`, or `None` on overflow.
+    pub fn checked_mul(self: i16, other: i16) -> Option<i16> {
+        let r: i64 = (self as i64) * (other as i64);
+        if r > 32767i64 || r < (0i64 - 32768i64) { return Option::None; }
+        return Option::Some(r as i16);
+    }
+}
+impl u8 {
+    /// Returns `Some(self + other)`, or `None` on overflow.
+    pub fn checked_add(self: u8, other: u8) -> Option<u8> {
+        let r: i64 = (self as i64) + (other as i64);
+        if r > 255i64 || r < 0i64 { return Option::None; }
+        return Option::Some(r as u8);
+    }
+    /// Returns `Some(self - other)`, or `None` on overflow.
+    pub fn checked_sub(self: u8, other: u8) -> Option<u8> {
+        let r: i64 = (self as i64) - (other as i64);
+        if r > 255i64 || r < 0i64 { return Option::None; }
+        return Option::Some(r as u8);
+    }
+    /// Returns `Some(self * other)`, or `None` on overflow.
+    pub fn checked_mul(self: u8, other: u8) -> Option<u8> {
+        let r: i64 = (self as i64) * (other as i64);
+        if r > 255i64 || r < 0i64 { return Option::None; }
+        return Option::Some(r as u8);
+    }
+}
+impl u16 {
+    /// Returns `Some(self + other)`, or `None` on overflow.
+    pub fn checked_add(self: u16, other: u16) -> Option<u16> {
+        let r: i64 = (self as i64) + (other as i64);
+        if r > 65535i64 || r < 0i64 { return Option::None; }
+        return Option::Some(r as u16);
+    }
+    /// Returns `Some(self - other)`, or `None` on overflow.
+    pub fn checked_sub(self: u16, other: u16) -> Option<u16> {
+        let r: i64 = (self as i64) - (other as i64);
+        if r > 65535i64 || r < 0i64 { return Option::None; }
+        return Option::Some(r as u16);
+    }
+    /// Returns `Some(self * other)`, or `None` on overflow.
+    pub fn checked_mul(self: u16, other: u16) -> Option<u16> {
+        let r: i64 = (self as i64) * (other as i64);
+        if r > 65535i64 || r < 0i64 { return Option::None; }
+        return Option::Some(r as u16);
+    }
+}
+impl isize {
+    /// Returns `Some(self + other)`, or `None` on overflow.
+    pub fn checked_add(self: isize, other: isize) -> Option<isize> {
+        let r: i128 = (self as i128) + (other as i128);
+        if r > 9223372036854775807i128 || r < (0i128 - 9223372036854775807i128 - 1i128) { return Option::None; }
+        return Option::Some(r as isize);
+    }
+    /// Returns `Some(self - other)`, or `None` on overflow.
+    pub fn checked_sub(self: isize, other: isize) -> Option<isize> {
+        let r: i128 = (self as i128) - (other as i128);
+        if r > 9223372036854775807i128 || r < (0i128 - 9223372036854775807i128 - 1i128) { return Option::None; }
+        return Option::Some(r as isize);
+    }
+    /// Returns `Some(self * other)`, or `None` on overflow.
+    pub fn checked_mul(self: isize, other: isize) -> Option<isize> {
+        let r: i128 = (self as i128) * (other as i128);
+        if r > 9223372036854775807i128 || r < (0i128 - 9223372036854775807i128 - 1i128) { return Option::None; }
+        return Option::Some(r as isize);
+    }
+}
+impl usize {
+    /// Returns `Some(self + other)`, or `None` on overflow.
+    pub fn checked_add(self: usize, other: usize) -> Option<usize> {
+        let r: u128 = (self as u128) + (other as u128);
+        if r > 18446744073709551615u128 { return Option::None; }
+        return Option::Some(r as usize);
+    }
+    /// Returns `Some(self - other)`, or `None` on underflow.
+    pub fn checked_sub(self: usize, other: usize) -> Option<usize> {
+        if other > self { return Option::None; }
+        return Option::Some(self - other);
+    }
+    /// Returns `Some(self * other)`, or `None` on overflow (a u64 product fits u128).
+    pub fn checked_mul(self: usize, other: usize) -> Option<usize> {
+        let r: u128 = (self as u128) * (other as u128);
+        if r > 18446744073709551615u128 { return Option::None; }
+        return Option::Some(r as usize);
+    }
+}

@@ -11515,8 +11515,10 @@ inline bool intlit_fits(int64_t v, LogosType::Kind k) noexcept {
     case LogosType::Kind::I128: return true; // all int64_t values fit in i128
     case LogosType::Kind::U128: return v >= 0; // non-negative int64_t values fit
     case LogosType::Kind::Usize:
+        // 64-bit: as u64 — a literal past i64::MAX (`18446744073709551615`) is held
+        // as its two's complement, and a NEGATED one is E0600 (lit_negated_), not this.
         return g_target_pointer_bits == 64
-            ? (v >= 0)
+            ? true
             : (v >= 0 && (uint64_t)v <= (uint64_t)UINT32_MAX);
     case LogosType::Kind::Isize:
         return g_target_pointer_bits == 64

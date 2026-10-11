@@ -1,0 +1,12 @@
+// String derefs to str (Rust's `impl Deref for String { type Target = str }`): str's methods reach a String through
+// autoderef. (`n(&s)`, &String → &str, held already.)
+package string_derefs_to_str;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+fn n(s: &str) -> i64 { s.len() }
+fn main() {
+    let s = String::from(" ab cd ");
+    let v: Vec<&str> = s.trim().split(' ').collect();
+    println!("{} {} {} {}", s.chars().count(), s.trim().len(), v.len(), n(&s));
+}

@@ -1,0 +1,8 @@
+// Closed squeue string_str_method_autoderef_refused (#689): String derefs to str, so str's methods reach a String; exit 0 as rustc.
+package string_str_method_autoderef_refused;
+use logos.mem.string;
+use logos.lang.str;
+fn main() -> i32 {
+    let s = String::from("ab cd");
+    return (s.trim().len() - 5) as i32;
+}

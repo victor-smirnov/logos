@@ -875,6 +875,8 @@ sym	logos_lang..logos.lang.cmp.Option$G1$i64__eq__g__ref_Option$M31ed4a4d45af85e
 sym	logos_lang..logos.lang.cmp.Option$G1$i64__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.cmp.Option$G1$i8__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.cmp.Option$G1$i8__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.cmp.Option$G1$isize__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.cmp.Option$G1$isize__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.cmp.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.cmp.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.cmp.Option$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
@@ -911,6 +913,8 @@ sym	logos_lang..logos.lang.cmp.Option$G1$u64__eq__g__ref_Option$M31ed4a4d45af85e
 sym	logos_lang..logos.lang.cmp.Option$G1$u64__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.cmp.Option$G1$u8__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.cmp.Option$G1$u8__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.cmp.Option$G1$usize__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.cmp.Option$G1$usize__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$String$M5ca39a0a178b867d
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$Vec$M4edea24aa4768b45$G1$i64
@@ -930,6 +934,7 @@ sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -948,6 +953,7 @@ sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__String$M5ca39a0a178b867d
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__Vec$M4edea24aa4768b45$G1$i64
@@ -967,6 +973,7 @@ sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__i32
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__i64
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__i8
+sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__isize
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__pmut_u8
@@ -985,6 +992,7 @@ sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__u32
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__u64
 sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__u8
+sym	logos_lang..logos.lang.cmp.Option__eq__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T__usize
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$String$M5ca39a0a178b867d
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$Vec$M4edea24aa4768b45$G1$i64
@@ -1004,6 +1012,7 @@ sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -1022,6 +1031,7 @@ sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.cmp.Option__ne__g__ref_Option$M31ed4a4d45af85e4$G1$T__ref_Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.cmp.Ordering__eq__f__ref_Ordering$Mdf8dc4b1c48621d7__ref_Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__is_eq__f__Ordering$Mdf8dc4b1c48621d7
 sym	logos_lang..logos.lang.cmp.Ordering__is_ge__f__Ordering$Mdf8dc4b1c48621d7
@@ -1105,6 +1115,9 @@ sym	logos_lang..logos.lang.cmp.i128__max__f__i128__i128
 sym	logos_lang..logos.lang.cmp.i128__min__f__i128__i128
 sym	logos_lang..logos.lang.cmp.i128__ne__f__ref_i128__ref_i128
 sym	logos_lang..logos.lang.cmp.i128__partial_cmp__f__ref_i128__ref_i128
+sym	logos_lang..logos.lang.cmp.i16__checked_add__f__i16__i16
+sym	logos_lang..logos.lang.cmp.i16__checked_mul__f__i16__i16
+sym	logos_lang..logos.lang.cmp.i16__checked_sub__f__i16__i16
 sym	logos_lang..logos.lang.cmp.i16__clamp__f__i16__i16__i16
 sym	logos_lang..logos.lang.cmp.i16__cmp__f__ref_i16__ref_i16
 sym	logos_lang..logos.lang.cmp.i16__eq__f__ref_i16__ref_i16
@@ -1246,6 +1259,9 @@ sym	logos_lang..logos.lang.cmp.i64__wrapping_add__f__i64__i64
 sym	logos_lang..logos.lang.cmp.i64__wrapping_mul__f__i64__i64
 sym	logos_lang..logos.lang.cmp.i64__wrapping_neg__f__i64
 sym	logos_lang..logos.lang.cmp.i64__wrapping_sub__f__i64__i64
+sym	logos_lang..logos.lang.cmp.i8__checked_add__f__i8__i8
+sym	logos_lang..logos.lang.cmp.i8__checked_mul__f__i8__i8
+sym	logos_lang..logos.lang.cmp.i8__checked_sub__f__i8__i8
 sym	logos_lang..logos.lang.cmp.i8__clamp__f__i8__i8__i8
 sym	logos_lang..logos.lang.cmp.i8__cmp__f__ref_i8__ref_i8
 sym	logos_lang..logos.lang.cmp.i8__eq__f__ref_i8__ref_i8
@@ -1265,6 +1281,9 @@ sym	logos_lang..logos.lang.cmp.isize__Ord__clamp__f__isize__isize__isize
 sym	logos_lang..logos.lang.cmp.isize__Ord__max__f__isize__isize
 sym	logos_lang..logos.lang.cmp.isize__Ord__min__f__isize__isize
 sym	logos_lang..logos.lang.cmp.isize__abs__f__isize
+sym	logos_lang..logos.lang.cmp.isize__checked_add__f__isize__isize
+sym	logos_lang..logos.lang.cmp.isize__checked_mul__f__isize__isize
+sym	logos_lang..logos.lang.cmp.isize__checked_sub__f__isize__isize
 sym	logos_lang..logos.lang.cmp.isize__clamp__f__isize__isize__isize
 sym	logos_lang..logos.lang.cmp.isize__cmp__f__ref_isize__ref_isize
 sym	logos_lang..logos.lang.cmp.isize__eq__f__ref_isize__ref_isize
@@ -1298,6 +1317,9 @@ sym	logos_lang..logos.lang.cmp.u128__max__f__u128__u128
 sym	logos_lang..logos.lang.cmp.u128__min__f__u128__u128
 sym	logos_lang..logos.lang.cmp.u128__ne__f__ref_u128__ref_u128
 sym	logos_lang..logos.lang.cmp.u128__partial_cmp__f__ref_u128__ref_u128
+sym	logos_lang..logos.lang.cmp.u16__checked_add__f__u16__u16
+sym	logos_lang..logos.lang.cmp.u16__checked_mul__f__u16__u16
+sym	logos_lang..logos.lang.cmp.u16__checked_sub__f__u16__u16
 sym	logos_lang..logos.lang.cmp.u16__clamp__f__u16__u16__u16
 sym	logos_lang..logos.lang.cmp.u16__cmp__f__ref_u16__ref_u16
 sym	logos_lang..logos.lang.cmp.u16__eq__f__ref_u16__ref_u16
@@ -1419,6 +1441,9 @@ sym	logos_lang..logos.lang.cmp.u64__wrapping_add__f__u64__u64
 sym	logos_lang..logos.lang.cmp.u64__wrapping_mul__f__u64__u64
 sym	logos_lang..logos.lang.cmp.u64__wrapping_neg__f__u64
 sym	logos_lang..logos.lang.cmp.u64__wrapping_sub__f__u64__u64
+sym	logos_lang..logos.lang.cmp.u8__checked_add__f__u8__u8
+sym	logos_lang..logos.lang.cmp.u8__checked_mul__f__u8__u8
+sym	logos_lang..logos.lang.cmp.u8__checked_sub__f__u8__u8
 sym	logos_lang..logos.lang.cmp.u8__clamp__f__u8__u8__u8
 sym	logos_lang..logos.lang.cmp.u8__cmp__f__ref_u8__ref_u8
 sym	logos_lang..logos.lang.cmp.u8__eq__f__ref_u8__ref_u8
@@ -1437,6 +1462,9 @@ sym	logos_lang..logos.lang.cmp.u8__wrapping_sub__f__u8__u8
 sym	logos_lang..logos.lang.cmp.usize__Ord__clamp__f__usize__usize__usize
 sym	logos_lang..logos.lang.cmp.usize__Ord__max__f__usize__usize
 sym	logos_lang..logos.lang.cmp.usize__Ord__min__f__usize__usize
+sym	logos_lang..logos.lang.cmp.usize__checked_add__f__usize__usize
+sym	logos_lang..logos.lang.cmp.usize__checked_mul__f__usize__usize
+sym	logos_lang..logos.lang.cmp.usize__checked_sub__f__usize__usize
 sym	logos_lang..logos.lang.cmp.usize__clamp__f__usize__usize__usize
 sym	logos_lang..logos.lang.cmp.usize__cmp__f__ref_usize__ref_usize
 sym	logos_lang..logos.lang.cmp.usize__eq__f__ref_usize__ref_usize
@@ -2843,6 +2871,7 @@ sym	logos_lang..logos.lang.iter.Option$G1$i16__into_iter__g__Option$M31ed4a4d45a
 sym	logos_lang..logos.lang.iter.Option$G1$i32__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.iter.Option$G1$i64__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.iter.Option$G1$i8__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.iter.Option$G1$isize__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.iter.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.iter.Option$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.iter.Option$G1$pmut_u8__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
@@ -2868,6 +2897,7 @@ sym	logos_lang..logos.lang.iter.Option$G1$u16__into_iter__g__Option$M31ed4a4d45a
 sym	logos_lang..logos.lang.iter.Option$G1$u32__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.iter.Option$G1$u64__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.iter.Option$G1$u8__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.iter.Option$G1$usize__into_iter__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$&dyn Error__cloned__g__OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$&dyn Error__copied__g__OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$&dyn Error__count__g__OptionIter$Mda436a411810b917$G1$T
@@ -4324,6 +4354,28 @@ sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$i8__skip_while__
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$i8__step_by__g__OptionIter$Mda436a411810b917$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$i8__take__g__OptionIter$Mda436a411810b917$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$i8__take_while__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__cloned__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__copied__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__count__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__enumerate__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__filter__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__inspect__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> void
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__last__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__max__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__max_by__g__OptionIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__min__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__min_by__g__OptionIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__next__g__refmut_OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__next_back__g__refmut_OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__nth__g__refmut_OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__nth_back__g__refmut_OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__peekable__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__rev__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__skip__g__OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__skip_while__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__step_by__g__OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__take__g__OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$isize__take_while__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$pmut_PkdAlloc$M19266910bb066e1b__cloned__g__OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$pmut_PkdAlloc$M19266910bb066e1b__copied__g__OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$pmut_PkdAlloc$M19266910bb066e1b__count__g__OptionIter$Mda436a411810b917$G1$T
@@ -4600,6 +4652,28 @@ sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$u8__skip_while__
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$u8__step_by__g__OptionIter$Mda436a411810b917$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$u8__take__g__OptionIter$Mda436a411810b917$G1$T__i64
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$u8__take_while__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__cloned__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__copied__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__count__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__enumerate__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__filter__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__inspect__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> void
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__last__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__max__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__max_by__g__OptionIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__min__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__min_by__g__OptionIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__next__g__refmut_OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__next_back__g__refmut_OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__nth__g__refmut_OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__nth_back__g__refmut_OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__peekable__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__rev__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__skip__g__OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__skip_while__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__step_by__g__OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__take__g__OptionIter$Mda436a411810b917$G1$T__i64
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$usize__take_while__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$&dyn Error
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$AnyBox$M66d547451262a5ef
@@ -4672,6 +4746,7 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -4697,6 +4772,7 @@ sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.iter.Option__into_iter__g__Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__cloned__g__PeekableIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__copied__g__PeekableIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__count__g__PeekableIter$Mda436a411810b917$G2$I$T
@@ -8132,6 +8208,10 @@ sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infall
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i8__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i8__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i8__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
+sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$isize__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
+sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$isize__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
+sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$isize__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
+sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$isize__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_PkdAlloc$M19266910bb066e1b__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_PkdAlloc$M19266910bb066e1b__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_PkdAlloc$M19266910bb066e1b__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
@@ -8232,6 +8312,10 @@ sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infall
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u8__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u8__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u8__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
+sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$usize__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
+sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$usize__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
+sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$usize__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
+sym	logos_lang..logos.lang.ops.ControlFlow$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$usize__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$AnyBox$M66d547451262a5ef__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$AnyBox$M66d547451262a5ef__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C
 sym	logos_lang..logos.lang.ops.ControlFlow$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$AnyBox$M66d547451262a5ef__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C
@@ -8544,6 +8628,7 @@ sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i32
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i64
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i8
+sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$isize
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_u8
@@ -8569,6 +8654,7 @@ sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u32
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u64
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u8
+sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$usize
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$AnyBox$M66d547451262a5ef
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$Infallible$M31ea931f8312bdc7
 sym	logos_lang..logos.lang.ops.ControlFlow__break_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$RowBuf$M376ea367f5932213
@@ -8701,6 +8787,7 @@ sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i32
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i64
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i8
+sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$isize
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_u8
@@ -8726,6 +8813,7 @@ sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u32
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u64
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u8
+sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$usize
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$AnyBox$M66d547451262a5ef
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$Infallible$M31ea931f8312bdc7
 sym	logos_lang..logos.lang.ops.ControlFlow__continue_value__g__ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$RowBuf$M376ea367f5932213
@@ -8858,6 +8946,7 @@ sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i32
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i64
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i8
+sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$isize
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_u8
@@ -8883,6 +8972,7 @@ sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u32
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u64
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u8
+sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$usize
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$AnyBox$M66d547451262a5ef
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$Infallible$M31ea931f8312bdc7
 sym	logos_lang..logos.lang.ops.ControlFlow__is_break__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$RowBuf$M376ea367f5932213
@@ -9015,6 +9105,7 @@ sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i32
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i64
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$i8
+sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$isize
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$pmut_u8
@@ -9040,6 +9131,7 @@ sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u32
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u64
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$u8
+sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$usize
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$AnyBox$M66d547451262a5ef
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$Infallible$M31ea931f8312bdc7
 sym	logos_lang..logos.lang.ops.ControlFlow__is_continue__g__ref_ControlFlow$M008a61b1d6bc564b$G2$B$C$G2$Result$M8a69b661b53db3d4$G2$Infallible$M31ea931f8312bdc7$CloneRefusal$M496d026d3e276ac0$RowBuf$M376ea367f5932213
@@ -10216,6 +10308,19 @@ sym	logos_lang..logos.lang.option.Option$G1$i8__unwrap__g__Option$M31ed4a4d45af8
 sym	logos_lang..logos.lang.option.Option$G1$i8__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T
 sym	logos_lang..logos.lang.option.Option$G1$i8__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.option.Option$G1$i8__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$isize__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$isize__default__g__void
+sym	logos_lang..logos.lang.option.Option$G1$isize__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8
+sym	logos_lang..logos.lang.option.Option$G1$isize__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T
+sym	logos_lang..logos.lang.option.Option$G1$isize__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$isize__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$isize__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$isize__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T
+sym	logos_lang..logos.lang.option.Option$G1$isize__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$isize__unwrap__g__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$isize__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T
+sym	logos_lang..logos.lang.option.Option$G1$isize__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$isize__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.option.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__default__g__void
 sym	logos_lang..logos.lang.option.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8
 sym	logos_lang..logos.lang.option.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T
@@ -10514,6 +10619,19 @@ sym	logos_lang..logos.lang.option.Option$G1$u8__unwrap__g__Option$M31ed4a4d45af8
 sym	logos_lang..logos.lang.option.Option$G1$u8__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T
 sym	logos_lang..logos.lang.option.Option$G1$u8__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.option.Option$G1$u8__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$usize__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$usize__default__g__void
+sym	logos_lang..logos.lang.option.Option$G1$usize__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8
+sym	logos_lang..logos.lang.option.Option$G1$usize__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T
+sym	logos_lang..logos.lang.option.Option$G1$usize__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$usize__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$usize__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$usize__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T
+sym	logos_lang..logos.lang.option.Option$G1$usize__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$usize__unwrap__g__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$usize__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T
+sym	logos_lang..logos.lang.option.Option$G1$usize__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.option.Option$G1$usize__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$Arc$M682c15861bb226ff$G1$udyn_Snapshot
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$PdtBuf$Mf0be1d770e9c2a9a
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$PdtSplit$Mf0be1d770e9c2a9a
@@ -10537,6 +10655,7 @@ sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$ref_i32
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$slice_slice_u8
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$slice_tup$2$slice_u8$slice_u8
@@ -10556,6 +10675,7 @@ sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.option.Option__clone__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$AnyBox$M66d547451262a5ef
@@ -10628,6 +10748,7 @@ sym	logos_lang..logos.lang.option.Option__default__g__void$G1$i16
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$i32
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$i64
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$i8
+sym	logos_lang..logos.lang.option.Option__default__g__void$G1$isize
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$pmut_u8
@@ -10653,6 +10774,7 @@ sym	logos_lang..logos.lang.option.Option__default__g__void$G1$u16
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$u32
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$u64
 sym	logos_lang..logos.lang.option.Option__default__g__void$G1$u8
+sym	logos_lang..logos.lang.option.Option__default__g__void$G1$usize
 sym	logos_lang..logos.lang.option.Option__default__g__void__Infallible$M31ea931f8312bdc7
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$Alignment$Mfe3f213feebda46f
@@ -10726,6 +10848,7 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$i32
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$i64
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$i8
+sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$isize
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$pmut_u8
@@ -10751,6 +10874,7 @@ sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$u32
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$u64
 sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$u8
+sym	logos_lang..logos.lang.option.Option__expect__g__Option$M31ed4a4d45af85e4$G1$T__slice_u8$G1$usize
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$AnyBox$M66d547451262a5ef
@@ -10823,6 +10947,7 @@ sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$i32
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$i64
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$i8
+sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$isize
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_u8
@@ -10848,6 +10973,7 @@ sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$u32
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$u64
 sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$u8
+sym	logos_lang..logos.lang.option.Option__get_or_insert__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$usize
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$AnyBox$M66d547451262a5ef
@@ -10920,6 +11046,7 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -10945,6 +11072,7 @@ sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.option.Option__is_none__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$AnyBox$M66d547451262a5ef
@@ -11017,6 +11145,7 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -11042,6 +11171,7 @@ sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.option.Option__is_some__g__ref_Option$M31ed4a4d45af85e4$G1$T__i32
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$Alignment$Mfe3f213feebda46f
@@ -11115,6 +11245,7 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -11140,6 +11271,7 @@ sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.option.Option__or__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$AnyBox$M66d547451262a5ef
@@ -11212,6 +11344,7 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45a
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$i32
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$i64
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$i8
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$isize
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_u8
@@ -11237,6 +11370,7 @@ sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45a
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$u32
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$u64
 sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$u8
+sym	logos_lang..logos.lang.option.Option__replace__g__refmut_Option$M31ed4a4d45af85e4$G1$T__T$G1$usize
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$AnyBox$M66d547451262a5ef
@@ -11309,6 +11443,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -11334,6 +11469,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__&dyn Error
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__AnyBox$M66d547451262a5ef
@@ -11406,6 +11542,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__i32
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__i64
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__i8
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__isize
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__pmut_u8
@@ -11419,6 +11556,7 @@ sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__u32
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__u64
 sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__u8
+sym	logos_lang..logos.lang.option.Option__take__g__refmut_Option$M31ed4a4d45af85e4$G1$T__usize
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$AnyBox$M66d547451262a5ef
@@ -11491,6 +11629,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -11516,6 +11655,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.option.Option__unwrap__g__Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$AnyBox$M66d547451262a5ef
@@ -11588,6 +11728,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$i32
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$i64
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$i8
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$isize
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$pmut_u8
@@ -11613,6 +11754,7 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$u32
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$u64
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T$G1$usize
 sym	logos_lang..logos.lang.option.Option__unwrap_or__g__Option$M31ed4a4d45af85e4$G1$T__T__i32
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$String$M5ca39a0a178b867d
@@ -11631,10 +11773,12 @@ sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$u16
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.option.Option__unwrap_or_default__g__Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$&dyn Error
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$AnyBox$M66d547451262a5ef
@@ -11707,6 +11851,7 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -11732,6 +11877,7 @@ sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T_
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.option.Option__xor__g__Option$M31ed4a4d45af85e4$G1$T__Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.range.RangeFromI32$Mc51a63d6f709b5c2__cloned__f__RangeFromI32$Mc51a63d6f709b5c2
 sym	logos_lang..logos.lang.range.RangeFromI32$Mc51a63d6f709b5c2__contains__f__ref_RangeFromI32$Mc51a63d6f709b5c2__ref_i32
 sym	logos_lang..logos.lang.range.RangeFromI32$Mc51a63d6f709b5c2__copied__f__RangeFromI32$Mc51a63d6f709b5c2
@@ -13514,6 +13660,9 @@ sym	logos_lang..logos.lang.try_trait.Option$G1$i64__from_residual__g__Option$M31
 sym	logos_lang..logos.lang.try_trait.Option$G1$i8__branch__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.try_trait.Option$G1$i8__from_output__g__T
 sym	logos_lang..logos.lang.try_trait.Option$G1$i8__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7
+sym	logos_lang..logos.lang.try_trait.Option$G1$isize__branch__g__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.try_trait.Option$G1$isize__from_output__g__T
+sym	logos_lang..logos.lang.try_trait.Option$G1$isize__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7
 sym	logos_lang..logos.lang.try_trait.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__branch__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.try_trait.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__from_output__g__T
 sym	logos_lang..logos.lang.try_trait.Option$G1$pmut_PkdAlloc$M19266910bb066e1b__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7
@@ -13589,6 +13738,9 @@ sym	logos_lang..logos.lang.try_trait.Option$G1$u64__from_residual__g__Option$M31
 sym	logos_lang..logos.lang.try_trait.Option$G1$u8__branch__g__Option$M31ed4a4d45af85e4$G1$T
 sym	logos_lang..logos.lang.try_trait.Option$G1$u8__from_output__g__T
 sym	logos_lang..logos.lang.try_trait.Option$G1$u8__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7
+sym	logos_lang..logos.lang.try_trait.Option$G1$usize__branch__g__Option$M31ed4a4d45af85e4$G1$T
+sym	logos_lang..logos.lang.try_trait.Option$G1$usize__from_output__g__T
+sym	logos_lang..logos.lang.try_trait.Option$G1$usize__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$&dyn Error
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$AnyBox$M66d547451262a5ef
@@ -13661,6 +13813,7 @@ sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$i32
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$i64
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$i8
+sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$isize
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$pmut_u8
@@ -13686,6 +13839,7 @@ sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$u32
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$u64
 sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$u8
+sym	logos_lang..logos.lang.try_trait.Option__branch__g__Option$M31ed4a4d45af85e4$G1$T$G1$usize
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$&dyn Error
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$AnyBox$M66d547451262a5ef
@@ -13758,6 +13912,7 @@ sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$i16
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$i32
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$i64
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$i8
+sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$isize
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$pmut_u8
@@ -13783,6 +13938,7 @@ sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$u16
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$u32
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$u64
 sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$u8
+sym	logos_lang..logos.lang.try_trait.Option__from_output__g__T$G1$usize
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$&dyn Error
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$Alignment$Mfe3f213feebda46f
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$AnyBox$M66d547451262a5ef
@@ -13855,6 +14011,7 @@ sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d4
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$i32
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$i64
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$i8
+sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$isize
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$pmut_u8
@@ -13880,6 +14037,7 @@ sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d4
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$u32
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$u64
 sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$u8
+sym	logos_lang..logos.lang.try_trait.Option__from_residual__g__Option$M31ed4a4d45af85e4$G1$Infallible$M31ea931f8312bdc7$G1$usize
 sym	logos_lang..logos.lang.try_trait.Result$G2$AnyBox$M66d547451262a5ef$CloneRefusal$M496d026d3e276ac0__branch__g__Result$M8a69b661b53db3d4$G2$T$E
 sym	logos_lang..logos.lang.try_trait.Result$G2$AnyBox$M66d547451262a5ef$CloneRefusal$M496d026d3e276ac0__from_output__g__T
 sym	logos_lang..logos.lang.try_trait.Result$G2$File$M4b9a63a8d8750da1$i32__branch__g__Result$M8a69b661b53db3d4$G2$T$E
@@ -14771,6 +14929,7 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i32__i32
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i64__i64
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i8__i8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$isize__isize
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$ref_i32__ref_i32
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$tup$2$i64$char__tup$2$i64$char
@@ -14779,6 +14938,7 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u32__u32
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u64__u64
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$usize__usize
 sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
@@ -14965,6 +15125,7 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i32__i32
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i64__i64
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i8__i8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$isize__isize
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$ref_i32__ref_i32
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$tup$2$i64$char__tup$2$i64$char
@@ -14973,6 +15134,7 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u32__u32
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u64__u64
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$usize__usize
 sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
@@ -15169,6 +15331,7 @@ sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$i32
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$i64
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$i8
+sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$isize
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$pmut_u8
@@ -15190,6 +15353,7 @@ sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$u32
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$u64
 sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$u8
+sym	logos_lang.logos.lang.iter$iter_pick_by__g__T__T__bool__Option$M31ed4a4d45af85e4$G1$usize
 sym	logos_lang.logos.lang.iter$iter_step_by_zero__f__void
 sym	logos_lang.logos.lang.math$E__f__void
 sym	logos_lang.logos.lang.math$LN_10__f__void
@@ -15321,6 +15485,7 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$i32
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$i64
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$i8
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$isize
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$pmut_PkdAlloc$M19266910bb066e1b
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$pmut_SsrleMeta$Mc24f90f3f2e09cc3
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$pmut_u8
@@ -15346,6 +15511,7 @@ sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af8
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$u32
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$u64
 sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$u8
+sym	logos_lang.logos.lang.mem$replace_ref__g__refmut_T__T__Option$M31ed4a4d45af85e4$G1$usize
 sym	logos_lang.logos.lang.mem$zero_bytes__f__pmut_u8__i64
 sym	logos_lang.logos.lang.num.float$f32_canon_bits__f__f32
 sym	logos_lang.logos.lang.num.float$f32_classify__f__f32
@@ -16847,6 +17013,7 @@ sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_Debu
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__i32
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__i64
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__i8
+sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__isize
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__ref_i32
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__refmut_i32
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__slice_u8
@@ -16862,6 +17029,7 @@ sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_Debu
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__u32
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__u64
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__u8
+sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__field__g__refmut_DebugTuple$M906c9710fe03ed97__ref_T__usize
 sym	logos_mem..logos.mem.fmt.DebugTuple$M906c9710fe03ed97__finish__f__refmut_DebugTuple$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Formatter$M906c9710fe03ed97__as_formatter__f__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Formatter$M906c9710fe03ed97__debug_list__f__refmut_Formatter$M906c9710fe03ed97
@@ -16901,6 +17069,7 @@ sym	logos_mem..logos.mem.fmt.Option$G1$i16__fmt__g__ref_Option$M31ed4a4d45af85e4
 sym	logos_mem..logos.mem.fmt.Option$G1$i32__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Option$G1$i64__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Option$G1$i8__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
+sym	logos_mem..logos.mem.fmt.Option$G1$isize__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Option$G1$ref_i32__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Option$G1$refmut_i32__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Option$G1$slice_u8__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
@@ -16916,6 +17085,7 @@ sym	logos_mem..logos.mem.fmt.Option$G1$u16__fmt__g__ref_Option$M31ed4a4d45af85e4
 sym	logos_mem..logos.mem.fmt.Option$G1$u32__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Option$G1$u64__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Option$G1$u8__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
+sym	logos_mem..logos.mem.fmt.Option$G1$usize__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$Ordering$Mdf8dc4b1c48621d7
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$String$M5ca39a0a178b867d
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$Vec$M4edea24aa4768b45$G1$i64
@@ -16935,6 +17105,7 @@ sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$i32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$i64
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$i8
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$isize
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$ref_i32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$refmut_i32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$slice_u8
@@ -16950,6 +17121,7 @@ sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$u32
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$u64
 sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$u8
+sym	logos_mem..logos.mem.fmt.Option__fmt__g__ref_Option$M31ed4a4d45af85e4$G1$T__refmut_Formatter$M906c9710fe03ed97$G1$usize
 sym	logos_mem..logos.mem.fmt.Ordering__Debug__fmt__f__ref_Ordering$Mdf8dc4b1c48621d7__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Ordering__Display__fmt__f__ref_Ordering$Mdf8dc4b1c48621d7__refmut_Formatter$M906c9710fe03ed97
 sym	logos_mem..logos.mem.fmt.Result$G2$String$M5ca39a0a178b867d$i32__fmt__g__ref_Result$M8a69b661b53db3d4$G2$T$E__refmut_Formatter$M906c9710fe03ed97
@@ -17328,6 +17500,7 @@ sym	logos_mem..logos.mem.string.String$M5ca39a0a178b867d__cmp__f__ref_String$M5c
 sym	logos_mem..logos.mem.string.String$M5ca39a0a178b867d__datum_meta__f__ref_String$M5ca39a0a178b867d
 sym	logos_mem..logos.mem.string.String$M5ca39a0a178b867d__datum_tag__f__pcst_String$M5ca39a0a178b867d
 sym	logos_mem..logos.mem.string.String$M5ca39a0a178b867d__default__f__void
+sym	logos_mem..logos.mem.string.String$M5ca39a0a178b867d__deref__f__ref_String$M5ca39a0a178b867d
 sym	logos_mem..logos.mem.string.String$M5ca39a0a178b867d__drop__f__refmut_String$M5ca39a0a178b867d
 sym	logos_mem..logos.mem.string.String$M5ca39a0a178b867d__eq__f__ref_String$M5ca39a0a178b867d__ref_String$M5ca39a0a178b867d
 sym	logos_mem..logos.mem.string.String$M5ca39a0a178b867d__eq_cstr__f__ref_String$M5ca39a0a178b867d__pcst_u8

@@ -1,0 +1,9 @@
+// checked_add / checked_sub / checked_mul for every integer type (one width up; usize through u128), and a usize
+// literal past i64::MAX (`18446744073709551615`) fits, as a u64 one does. Output as rustc 1.98.1.
+package checked_arith_all_int_types;
+use logos.std.fmt;
+fn main() {
+    let a: u16 = 65530; let c: u8 = 250; let i: i8 = -100; let u: usize = 18446744073709551615; let z: isize = 9223372036854775807;
+    println!("{:?} {:?} {:?} {:?}", a.checked_add(10), c.checked_add(5), i.checked_sub(29), i.checked_sub(28));
+    println!("{:?} {:?} {:?} {:?}", u.checked_mul(2), u.checked_add(0), 3usize.checked_sub(4), z.checked_mul(-1));
+}
