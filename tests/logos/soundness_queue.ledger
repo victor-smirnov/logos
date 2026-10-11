@@ -262,6 +262,8 @@ default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/defa
 
 ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_after_region_erased_binding_refused refuses
 
+str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_quotes_bytes run 3
+
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
 # ── 2026-09-06 OWNERSHIP AND DROP LATTICE (459 cells, generator tests/lattice/drop) ──
@@ -422,5 +424,5 @@ ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_a
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 121
-# SYNC-HASH 196131e1bb4a142f73dc7d7675819cde
+# TOTAL 122
+# SYNC-HASH 97650e40401821ff323e8ce03bca0600
