@@ -583,8 +583,49 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             return true;
         }
         SExpr::Cast(_c) => { return dx_no(cl, "cast"); }
-        SExpr::Cond(_c) => { return dx_no(cl, "conditional (if / else)"); }
+        SExpr::Cond(cd) => {
+            // `c ? a : b`: a fresh variable bound in each disjunct,
+            // `(c, v = a ; !c, v = b)` (no UDF atom inside, as for `||`)
+            let mut v: String = String::new();
+            v.push_str("v_cond"); v.push_i64(cl.nudf);
+            cl.nudf = cl.nudf + 1i64;
+            let saved: String = String::from_str(dx_view(&cl.body));
+            let saved_udf: bool = cl.udf_ok;
+            cl.udf_ok = false;
+            let mut br: Vec<String> = Vec::<String>::new();
+            let mut side: i64 = 0i64;
+            let mut ok: bool = true;
+            while side < 2i64 && ok {
+                cl.body.clear();
+                ok = dx_pred_p(cd.c.any().view::<SExpr>(), env, cl, side == 1i64);
+                let mut val: String = String::new();
+                if ok { ok = dx_term(&mut val, if side == 0i64 { cd.t.any().view::<SExpr>() } else { cd.e.any().view::<SExpr>() }, env, cl); }
+                cl.body.push_str(", "); cl.body.push_str(dx_view(&v)); cl.body.push_str(" = "); cl.body.push_str(dx_view(&val));
+                br.push(String::from_str(dx_view(&cl.body)));
+                side = side + 1i64;
+            }
+            cl.body.clear();
+            cl.body.push_str(dx_view(&saved));
+            cl.udf_ok = saved_udf;
+            if !ok { return false; }
+            let b0: str = dx_view(&br.as_slice()[0]);
+            let b1: str = dx_view(&br.as_slice()[1]);
+            cl.body.push_str(", (");
+            cl.body.push_str(dx_slice(b0, 2i64, b0.len()));
+            cl.body.push_str(" ; ");
+            cl.body.push_str(dx_slice(b1, 2i64, b1.len()));
+            cl.body.push_str(")");
+            out.push_str(dx_view(&v));
+            return true;
+        }
         SExpr::Call(c) => {
+            if dx_is_strlen(e, env, cl) {
+                // `len` of a str: its byte length, Soufflé's `strlen`
+                out.push_str("strlen(");
+                if !dx_term(out, c.args_arr().arg_at(0i64), env, cl) { return false; }
+                out.push_str(")");
+                return true;
+            }
             if builtin_of_name(c.fn_name) != BFN_UNKNOWN() { return dx_no(cl, "builtin call"); }
             let ui: i64 = dx_udf_idx(env, c.fn_name);
             if ui < 0i64 || !cl.udf_ok { return dx_no(cl, "user-defined function call"); }
@@ -632,29 +673,44 @@ fn dx_mixed_sign(l: SExpr, r: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
 }
 
 // A predicate as constraints, conjunct by conjunct.
-fn dx_pred(e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
+fn dx_pred(e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool { return dx_pred_p(e, env, cl, false); }
+
+// A predicate as constraints, `neg` its polarity (under a `!`): `&&` / `||`
+// are a conjunction and Soufflé's body disjunction `( … ; … )` (De Morgan
+// under `!`), a comparison flips its operator, a bool column / bool UDF is
+// `= 1` / `= 0`, `contains(h, n)` is Soufflé's `contains(n, h)`. A UDF atom
+// may not stand inside a disjunct: Deem evaluates the right side of `||` only
+// when the left is false, and the atom would bind the clause outside it.
+fn dx_pred_p(e: SExpr, env: &DxEnv, cl: &mut DxClause, neg: bool) -> bool {
     match e {
+        SExpr::Un(u) => {
+            if u.op != OP_NOT() { return dx_no(cl, "predicate form (call, not, bool column, …)"); }
+            return dx_pred_p(u.arg.any().view::<SExpr>(), env, cl, !neg);
+        }
         SExpr::Bin(b) => {
             let op: i32 = b.op;
-            if op == OP_AND() {
-                if !dx_pred(b.lhs.any().view::<SExpr>(), env, cl) { return false; }
-                return dx_pred(b.rhs.any().view::<SExpr>(), env, cl);
+            let l: SExpr = b.lhs.any().view::<SExpr>();
+            let r: SExpr = b.rhs.any().view::<SExpr>();
+            if (op == OP_AND() && !neg) || (op == OP_OR() && neg) {
+                if !dx_pred_p(l, env, cl, neg) { return false; }
+                return dx_pred_p(r, env, cl, neg);
             }
+            if op == OP_AND() || op == OP_OR() { return dx_disj(l, r, env, cl, neg); }
             let mut sym: str = "";
-            if op == OP_EQ() { sym = " = "; }
-            else if op == OP_NE() { sym = " != "; }
-            else if op == OP_LT() { sym = " < "; }
-            else if op == OP_LE() { sym = " <= "; }
-            else if op == OP_GT() { sym = " > "; }
-            else if op == OP_GE() { sym = " >= "; }
+            if op == OP_EQ() { sym = if neg { " != " } else { " = " }; }
+            else if op == OP_NE() { sym = if neg { " = " } else { " != " }; }
+            else if op == OP_LT() { sym = if neg { " >= " } else { " < " }; }
+            else if op == OP_LE() { sym = if neg { " > " } else { " <= " }; }
+            else if op == OP_GT() { sym = if neg { " <= " } else { " > " }; }
+            else if op == OP_GE() { sym = if neg { " < " } else { " >= " }; }
             else { return dx_no(cl, "predicate operator (or, not, …)"); }
-            if dx_mixed_sign(b.lhs.any().view::<SExpr>(), b.rhs.any().view::<SExpr>(), env, cl) {
+            if dx_mixed_sign(l, r, env, cl) {
                 return dx_no(cl, "operands of different numeric types in one comparison");
             }
             let mut t: String = String::new();
-            if !dx_term(&mut t, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
+            if !dx_term(&mut t, l, env, cl) { return false; }
             t.push_str(sym);
-            if !dx_term(&mut t, b.rhs.any().view::<SExpr>(), env, cl) { return false; }
+            if !dx_term(&mut t, r, env, cl) { return false; }
             cl.body.push_str(", ");
             cl.body.push_str(dx_view(&t));
             return true;
@@ -663,22 +719,94 @@ fn dx_pred(e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             // `where true` folds away; `where false` keeps the clause empty
             let v: WAny = l.val;
             if v.is_bool() {
-                if !v.as_bool() { cl.body.push_str(", 0 = 1"); }
+                if v.as_bool() == neg { cl.body.push_str(", 0 = 1"); }
                 return true;
             }
             return dx_no(cl, "non-boolean literal as a predicate");
         }
         SExpr::Call(c) => {
-            // a bool UDF as the predicate: its relation's result is 1
+            if builtin_of_name(c.fn_name) == BFN_CONTAINS() {
+                let args: SExprArr = c.args_arr();
+                if args.len() != 2i64 || !str_eq(dx_term_ty(args.arg_at(0i64), env, cl), "symbol")
+                   || !str_eq(dx_term_ty(args.arg_at(1i64), env, cl), "symbol") {
+                    return dx_no(cl, "predicate form (call, not, bool column, …)");
+                }
+                let mut t: String = String::new();
+                t.push_str(if neg { ", !contains(" } else { ", contains(" });
+                if !dx_term(&mut t, args.arg_at(1i64), env, cl) { return false; }
+                t.push_str(", ");
+                if !dx_term(&mut t, args.arg_at(0i64), env, cl) { return false; }
+                t.push_str(")");
+                cl.body.push_str(dx_view(&t));
+                return true;
+            }
+            if builtin_of_name(c.fn_name) == BFN_STARTS_WITH() {
+                // `starts_with(s, p)`: s is at least as long as p and begins with it
+                let args: SExprArr = c.args_arr();
+                if args.len() != 2i64 || !str_eq(dx_term_ty(args.arg_at(0i64), env, cl), "symbol")
+                   || !str_eq(dx_term_ty(args.arg_at(1i64), env, cl), "symbol") {
+                    return dx_no(cl, "predicate form (call, not, bool column, …)");
+                }
+                let mut sx: String = String::new();
+                let mut px: String = String::new();
+                if !dx_term(&mut sx, args.arg_at(0i64), env, cl) { return false; }
+                if !dx_term(&mut px, args.arg_at(1i64), env, cl) { return false; }
+                let sv: str = dx_view(&sx);
+                let pv: str = dx_view(&px);
+                let mut t: String = String::new();
+                t.push_str("strlen("); t.push_str(sv); t.push_str(") >= strlen("); t.push_str(pv); t.push_str("), substr(");
+                t.push_str(sv); t.push_str(", 0, strlen("); t.push_str(pv); t.push_str(")) ");
+                t.push_str(if neg { "!= " } else { "= " }); t.push_str(pv);
+                if neg {
+                    cl.body.push_str(", (strlen("); cl.body.push_str(sv); cl.body.push_str(") < strlen("); cl.body.push_str(pv);
+                    cl.body.push_str(") ; "); cl.body.push_str(dx_view(&t)); cl.body.push_str(")");
+                } else { cl.body.push_str(", "); cl.body.push_str(dx_view(&t)); }
+                return true;
+            }
+            // a bool UDF as the predicate: its relation's result is 1 (0 under `!`)
             let ui: i64 = dx_udf_idx(env, c.fn_name);
             if ui < 0i64 || !str_eq(dx_udf_kind(env, ui), "b") { return dx_no(cl, "predicate form (call, not, bool column, …)"); }
             let mut x: String = String::new();
             if !dx_term(&mut x, e, env, cl) { return false; }
-            cl.body.push_str(", "); cl.body.push_str(dx_view(&x)); cl.body.push_str(" = 1");
+            cl.body.push_str(", "); cl.body.push_str(dx_view(&x)); cl.body.push_str(if neg { " = 0" } else { " = 1" });
+            return true;
+        }
+        SExpr::Field(_f) => {
+            // a bool column read as the predicate (dumped 0 / 1)
+            if !str_eq(dx_term_kind(e, env, cl), "b") { return dx_no(cl, "predicate form (call, not, bool column, …)"); }
+            let mut x: String = String::new();
+            if !dx_term(&mut x, e, env, cl) { return false; }
+            cl.body.push_str(", "); cl.body.push_str(dx_view(&x)); cl.body.push_str(if neg { " = 0" } else { " = 1" });
             return true;
         }
         _ => { return dx_no(cl, "predicate form (call, not, bool column, …)"); }
     }
+}
+
+// `l || r` (or `!(l && r)`): one disjunct per side, each a conjunction of
+// constraints rendered apart from the clause body, no UDF atom inside.
+fn dx_disj(l: SExpr, r: SExpr, env: &DxEnv, cl: &mut DxClause, neg: bool) -> bool {
+    let saved: String = String::from_str(dx_view(&cl.body));
+    let saved_udf: bool = cl.udf_ok;
+    cl.udf_ok = false;
+    cl.body.clear();
+    let okl: bool = dx_pred_p(l, env, cl, neg);
+    let bl: String = String::from_str(dx_view(&cl.body));
+    cl.body.clear();
+    let okr: bool = okl && dx_pred_p(r, env, cl, neg);
+    let br: String = String::from_str(dx_view(&cl.body));
+    cl.body.clear();
+    cl.body.push_str(dx_view(&saved));
+    cl.udf_ok = saved_udf;
+    if !okr { return false; }
+    // a side with no constraint holds everywhere: the disjunction is true
+    if bl.len() == 0i64 || br.len() == 0i64 { return true; }
+    cl.body.push_str(", (");
+    cl.body.push_str(dx_slice(dx_view(&bl), 2i64, bl.len()));
+    cl.body.push_str(" ; ");
+    cl.body.push_str(dx_slice(dx_view(&br), 2i64, br.len()));
+    cl.body.push_str(")");
+    return true;
 }
 
 // A positive atom `s(v_v_f1, …)` for row var `v` over source `s`.
@@ -1793,6 +1921,18 @@ fn dx_out_cols(sel: SExpr, env: &DxEnv, cl: &DxClause, out: &mut String) -> i64 
     }
 }
 
+// `len(x)` over a str.
+fn dx_is_strlen(e: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
+    match e {
+        SExpr::Call(c) => {
+            if builtin_of_name(c.fn_name) != BFN_LEN() { return false; }
+            let args: SExprArr = c.args_arr();
+            return args.len() == 1i64 && str_eq(dx_term_ty(args.arg_at(0i64), env, cl), "symbol");
+        }
+        _ => { return false; }
+    }
+}
+
 fn dx_udf_idx(env: &DxEnv, name: str) -> i64 {
     let mut i: i64 = 0i64;
     while i < env.udf.len() { if str_eq(env.udf[i], name) { return i; } i = i + 1i64; }
@@ -1867,7 +2007,9 @@ fn dx_item_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<str>) -> &
 // for arithmetic.
 fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
     match e {
+        SExpr::Cond(cd) => { return dx_term_ty(cd.t.any().view::<SExpr>(), env, cl); }
         SExpr::Call(c) => {
+            if dx_is_strlen(e, env, cl) { return "number"; }
             let ui: i64 = dx_udf_idx(env, c.fn_name);
             if ui < 0i64 { return ""; }
             return dx_kind_ty(dx_udf_kind(env, ui));
@@ -1929,7 +2071,9 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
 // integers, a column or a parameter by its Logos type.
 fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
     match e {
+        SExpr::Cond(cd) => { return dx_term_kind(cd.t.any().view::<SExpr>(), env, cl); }
         SExpr::Call(c) => {
+            if dx_is_strlen(e, env, cl) { return "i"; }
             let ui: i64 = dx_udf_idx(env, c.fn_name);
             if ui < 0i64 { return ""; }
             return dx_udf_kind(env, ui);
