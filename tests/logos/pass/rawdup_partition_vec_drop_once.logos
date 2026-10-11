@@ -20,9 +20,9 @@ fn gt1(x: &Inner) -> bool { return x.n > 1i64; }
 fn main() -> i32 {
     let mut s: Vec<Inner> = vec_new::<Inner>();
     s.push(mk(1i64)); s.push(mk(2i64)); s.push(mk(3i64));
-    let p: ZipPair<Vec<Inner>, Vec<Inner>> =
+    let p: (Vec<Inner>, Vec<Inner>) =
         iter_partition_vec::<VecIntoIter<Inner>, Inner>(s.into_iter(), gt1);
-    println!("yes={} no={}", p.first.len(), p.second.len());
+    println!("yes={} no={}", p.0.len(), p.1.len());
     println!("-- end");
     return 0i32;
 }

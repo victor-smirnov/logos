@@ -64,11 +64,12 @@ case "$LOGOSC" in /*) ;; *) LOGOSC="$PWD/$LOGOSC" ;; esac
 [ -d "$FAILDIR" ] || { echo "FAIL: '$FAILDIR' is not a directory"; exit 2; }
 case "$FAILDIR" in /*) ;; *) FAILDIR="$PWD/$FAILDIR" ;; esac
 
-# The four fixtures whose refusal must come from the front end. Listed here and
+# The fixtures whose refusal must come from the front end. Listed here and
 # checked against the directory below: a name that no longer has a fixture is a
 # silent loss of coverage, so it is an error rather than a skip.
+# (wql_column_decl_option_col_fail left with #744: `Option<T>` is an admitted
+# column since, wql_column_option_group_e2e.)
 FIXTURES=(
-    wql_column_decl_option_col_fail
     wql_column_decl_data_enum_col_fail
     wql_column_decl_tuple_col_fail
     wql_domain_layer_mlir_tuple_col_fail

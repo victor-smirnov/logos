@@ -1,0 +1,12 @@
+// Closed squeue hashmap_iter_tuple_refused (#677): HashMap / BTreeMap iter and iter_mut yield (&K, &V) / (&K, &mut V) tuples, as Rust's; exit 0 as rustc.
+package hashmap_iter_tuple_refused;
+use logos.mem.collections.hashmap;
+fn main() -> i32 {
+    let mut m: HashMap<i64, i64> = HashMap::new();
+    *m.entry(1).or_insert(0) += 5;
+    for (k, v) in m.iter_mut() { *v += *k; }
+    let mut s: i64 = 0;
+    for (_k, v) in m.iter() { s += *v; }
+    if s != 6 { return 3; }
+    return 0;
+}

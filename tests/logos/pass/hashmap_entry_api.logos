@@ -25,7 +25,7 @@ fn main() -> i32 {
         let kb = String::from("b");
         if *(*pm).get(&kb) != 60 { return 3; }
     }
-    for p in m.iter_mut() { *p.second += 1; }
+    for p in m.iter_mut() { *p.1 += 1; }
     for (k, v) in m { total += v; if k.len() != 1 { return 4; } }
     return total - 194;
 }

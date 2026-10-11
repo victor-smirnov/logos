@@ -248,8 +248,8 @@ pub struct HashMapIter<'a, K, V> {
 // array is stable during iteration (resize only on insert), so `next()` returns
 // references into the occupied slot rather than copying.
 impl<'a, K: Hash + Eq, V> Iterator for HashMapIter<'a, K, V> {
-    type Item = ZipPair<&'a K, &'a V>;
-    fn next(self: &mut HashMapIter<'a, K, V>) -> Option<ZipPair<&'a K, &'a V>> {
+    type Item = (&'a K, &'a V);
+    fn next(self: &mut HashMapIter<'a, K, V>) -> Option<(&'a K, &'a V)> {
         unsafe {
             while self.idx < self.cap {
                 let i: i64 = self.idx;
@@ -261,7 +261,7 @@ impl<'a, K: Hash + Eq, V> Iterator for HashMapIter<'a, K, V> {
                     let vp: *const V = &e.val as *const V;
                     let k: &'a K = &*kp;
                     let v: &'a V = &*vp;
-                    return Option::Some(ZipPair { first: k, second: v });
+                    return Option::Some((k, v));
                 }
             }
             return Option::None;
@@ -324,7 +324,7 @@ impl<'a, K: Hash + Eq, V> Iterator for HashMapValues<'a, K, V> {
 }
 
 impl<K: Hash + Eq, V> HashMap<K, V> {
-    /// Returns an iterator yielding `ZipPair<&K, &V>` for each occupied entry.
+    /// Returns an iterator yielding `(&K, &V)` for each occupied entry.
     /// Order is arbitrary (table order). Do not insert while iterating.
     pub fn iter<'a>(&self) -> HashMapIter<'a, K, V> { unsafe {
         return HashMapIter {
@@ -400,7 +400,7 @@ impl<K: Hash + Eq, V> HashMap<K, V> {
         }
     }
 
-    /// Iterator yielding `ZipPair<&K, &mut V>` for each entry, in table order.
+    /// Iterator yielding `(&K, &mut V)` for each entry, in table order.
     pub fn iter_mut<'a>(self: &'a mut HashMap<K, V>) -> HashMapIterMut<'a, K, V> {
         return HashMapIterMut { states: self.states as *const u8, entries: self.entries,
                                 cap: self.cap, idx: 0 as i64, _inv: PhantomData::<&'a mut V> {} };
@@ -495,7 +495,7 @@ impl<'a, K: Hash + Eq, V: Default> Entry<'a, K, V> {
     }
 }
 
-/// Iterator over `ZipPair<&K, &mut V>` entries of a `HashMap`; created by `iter_mut()`.
+/// Iterator over `(&K, &mut V)` entries of a `HashMap`; created by `iter_mut()`.
 #[borrow_carrying]
 pub struct HashMapIterMut<'a, K, V> {
     states:  *const u8,
@@ -506,8 +506,8 @@ pub struct HashMapIterMut<'a, K, V> {
 }
 
 impl<'a, K: Hash + Eq, V> Iterator for HashMapIterMut<'a, K, V> {
-    type Item = ZipPair<&'a K, &'a mut V>;
-    fn next(self: &mut HashMapIterMut<'a, K, V>) -> Option<ZipPair<&'a K, &'a mut V>> {
+    type Item = (&'a K, &'a mut V);
+    fn next(self: &mut HashMapIterMut<'a, K, V>) -> Option<(&'a K, &'a mut V)> {
         unsafe {
             while self.idx < self.cap {
                 let i: i64 = self.idx;
@@ -518,7 +518,7 @@ impl<'a, K: Hash + Eq, V> Iterator for HashMapIterMut<'a, K, V> {
                     let vp: *mut V = &mut e.val as *mut V;
                     let k: &'a K = &*kp;
                     let v: &'a mut V = &mut *vp;
-                    return Option::Some(ZipPair { first: k, second: v });
+                    return Option::Some((k, v));
                 }
             }
             return Option::None;
@@ -660,7 +660,7 @@ pub fn hashmap_rows<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>) -> Vec<(K, 
         let mut it: HashMapIter<K, V> = (*(m as *const HashMap<K, V>)).iter();
         loop {
             match it.next() {
-                Option::Some(p) => { out.push((*p.first, *p.second)); }
+                Option::Some(p) => { out.push((*p.0, *p.1)); }
                 Option::None    => { break; }
             }
         }
@@ -676,7 +676,7 @@ pub fn hashmap_clone<K: Hash + Eq + Copy, V: Copy>(m: &HashMap<K, V>) -> HashMap
         let mut it: HashMapIter<K, V> = (*(m as *const HashMap<K, V>)).iter();
         loop {
             match it.next() {
-                Option::Some(p) => { out.insert(*p.first, *p.second); }
+                Option::Some(p) => { out.insert(*p.0, *p.1); }
                 Option::None    => { break; }
             }
         }

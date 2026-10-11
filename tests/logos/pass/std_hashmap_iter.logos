@@ -45,7 +45,7 @@ fn main() -> i32 {
             match it.next() {
                 Option::None     => { break; }
                 Option::Some(zp) => {
-                    if *zp.second != *zp.first * 100 { return 3; }
+                    if *zp.1 != *zp.0 * 100 { return 3; }
                     n = n + 1;
                 }
             }

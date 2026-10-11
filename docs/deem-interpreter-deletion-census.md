@@ -6903,9 +6903,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12158 -> 12158 (+0), NOIMPORTED 7599 -> 7599 (+0), TIERCOMMIT 190 -> 189 (-1) — 2026-10-09: partialord_marker_no_lt_refused closed → pass fixture; tier_commit -1.
 #                ALL 12158 -> 12159 (+1), NOIMPORTED 7599 -> 7600 (+1), TIERCOMMIT 189 -> 190 (+1) — 2026-10-10: squeue #745 str_is_u8_slice_debug_quotes_bytes (str as its own type, queued).
 #                ALL 12159 -> 12161 (+2), NOIMPORTED 7600 -> 7602 (+2), TIERCOMMIT 190 -> 189 (-1) — 2026-10-09: tuple_lexicographic_order, collections_safe_mutation_api (pass, nonglob); char_hash_ord_impls_refused (#667) closed → pass fixture, tier_commit -1.
+#                ALL 12161 -> 12161 (+0), NOIMPORTED 7602 -> 7602 (+0), TIERCOMMIT 189 -> 188 (-1) — 2026-10-09: hashmap_iter_tuple_refused (#677) closed → pass fixture; tier_commit -1.
 REGISTRY-ALL         12161
 REGISTRY-NOIMPORTED  7602
-REGISTRY-TIERCOMMIT  189
+REGISTRY-TIERCOMMIT  188
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

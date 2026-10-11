@@ -192,8 +192,8 @@ pub struct BTreeMapIter<'a, K, V> {
 // keys/vals parallel arrays are stable during iteration, so `next()` returns
 // references into them rather than copying.
 impl<'a, K: Ord, V> Iterator for BTreeMapIter<'a, K, V> {
-    type Item = ZipPair<&'a K, &'a V>;
-    fn next(self: &mut BTreeMapIter<'a, K, V>) -> Option<ZipPair<&'a K, &'a V>> {
+    type Item = (&'a K, &'a V);
+    fn next(self: &mut BTreeMapIter<'a, K, V>) -> Option<(&'a K, &'a V)> {
         if self.idx >= self.len { return Option::None; }
         unsafe {
             // Through a raw pointer the references are unbounded: 'a.
@@ -202,7 +202,7 @@ impl<'a, K: Ord, V> Iterator for BTreeMapIter<'a, K, V> {
             let k: &'a K = &*kp;
             let v: &'a V = &*vp;
             self.idx = self.idx + 1 as i64;
-            return Option::Some(ZipPair { first: k, second: v });
+            return Option::Some((k, v));
         }
     }
 }
@@ -306,7 +306,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
         }
     }
 
-    /// Iterator yielding `ZipPair<&K, &mut V>` in ascending key order.
+    /// Iterator yielding `(&K, &mut V)` in ascending key order.
     pub fn iter_mut<'a>(self: &'a mut BTreeMap<K, V>) -> BTreeMapIterMut<'a, K, V> {
         return BTreeMapIterMut { keys: self.keys as *const K, vals: self.vals, len: self.len,
                                  idx: 0 as i64, _inv: PhantomData::<&'a mut V> {} };
@@ -319,7 +319,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
     }
 }
 
-/// Iterator over `ZipPair<&K, &mut V>` entries of a `BTreeMap`, ascending.
+/// Iterator over `(&K, &mut V)` entries of a `BTreeMap`, ascending.
 #[borrow_carrying]
 pub struct BTreeMapIterMut<'a, K, V> {
     keys: *const K,
@@ -330,8 +330,8 @@ pub struct BTreeMapIterMut<'a, K, V> {
 }
 
 impl<'a, K: Ord, V> Iterator for BTreeMapIterMut<'a, K, V> {
-    type Item = ZipPair<&'a K, &'a mut V>;
-    fn next(self: &mut BTreeMapIterMut<'a, K, V>) -> Option<ZipPair<&'a K, &'a mut V>> {
+    type Item = (&'a K, &'a mut V);
+    fn next(self: &mut BTreeMapIterMut<'a, K, V>) -> Option<(&'a K, &'a mut V)> {
         if self.idx >= self.len { return Option::None; }
         unsafe {
             let kp: *const K = &self.keys[self.idx] as *const K;
@@ -339,7 +339,7 @@ impl<'a, K: Ord, V> Iterator for BTreeMapIterMut<'a, K, V> {
             self.idx = self.idx + 1 as i64;
             let k: &'a K = &*kp;
             let v: &'a mut V = &mut *vp;
-            return Option::Some(ZipPair { first: k, second: v });
+            return Option::Some((k, v));
         }
     }
 }

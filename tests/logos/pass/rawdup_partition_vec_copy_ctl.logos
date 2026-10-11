@@ -14,7 +14,7 @@ fn gt1(x: &i64) -> bool { return *x > 1i64; }
 fn main() -> i32 {
     let mut s: Vec<i64> = vec_new::<i64>();
     s.push(1i64); s.push(2i64); s.push(3i64);
-    let p: ZipPair<Vec<i64>, Vec<i64>> = iter_partition_vec::<VecIntoIter<i64>, i64>(s.into_iter(), gt1);
-    println!("yes={} no={}", p.first.len(), p.second.len());
+    let p: (Vec<i64>, Vec<i64>) = iter_partition_vec::<VecIntoIter<i64>, i64>(s.into_iter(), gt1);
+    println!("yes={} no={}", p.0.len(), p.1.len());
     return 0i32;
 }

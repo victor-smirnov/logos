@@ -178,7 +178,7 @@ impl<'a, K: Ord> Iterator for BTreeSetIter<'a, K> {
     type Item = &'a K;
     fn next(self: &mut BTreeSetIter<'a, K>) -> Option<&'a K> {
         match self.inner.next() {
-            Option::Some(p) => { return Option::Some(p.first); }
+            Option::Some(p) => { return Option::Some(p.0); }
             Option::None    => { return Option::None; }
         }
     }
