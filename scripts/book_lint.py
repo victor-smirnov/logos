@@ -114,7 +114,8 @@ def main(argv):
             if not os.path.exists(dest):
                 errors.append(f'{name}:{no}: link target {target} does not exist')
                 continue
-            if dest.startswith(root + os.sep):
+            # links between chapters are not anchors into code: a chapter edit does not stale another
+            if dest.startswith(root + os.sep) and not dest.startswith(os.path.join(root, 'docs', 'book') + os.sep):
                 anchored.add(os.path.relpath(dest, root))
             m = SYMBOL_TEXT.match(ltext.strip())
             if m and os.path.isfile(dest):
