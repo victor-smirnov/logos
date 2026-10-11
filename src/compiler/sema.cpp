@@ -6463,8 +6463,12 @@ SemaChecker::ArrayLen SemaChecker::resolve_array_len(TinyMapView len) {
             return r;
         }
         // Package-LOCAL, deliberately: a global search would rebind another
-        // package's const parameter.
-        auto vit = module_const_values_.find(sema_key(cur_package_, sv));
+        // package's const parameter. A block-local const of an enclosing body
+        // (`<outer>$N`) is the nearer item.
+        std::string lk = sema_key(cur_package_, sv);
+        if (std::string li = local_fn_item_(sv); !li.empty() && module_const_values_.count(sema_key(cur_package_, li)))
+            lk = sema_key(cur_package_, li);
+        auto vit = module_const_values_.find(lk);
         if (vit != module_const_values_.end()) {
             auto v = ctfe_eval_const(vit->second, holder_);
             if (!v) {

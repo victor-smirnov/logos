@@ -1,0 +1,14 @@
+// Block-local items: a `const` in a body (visible in the whole block, before its declaration too; over a module
+// const of its name; usable as an array length) and a GENERIC nested fn (`fn twice<T: Copy>`). rustc: 5 5 / 108 10 3 true
+// (g returns i64: Logos's len).
+package block_local_const_and_generic_fn;
+use logos.std.fmt;
+const LIMIT: i64 = 10;
+fn f() -> i64 { let a = EARLY * 2; const EARLY: i64 = 4; const LIMIT: i64 = 100; LIMIT + a }
+fn g() -> i64 { const N: usize = 3; let arr = [7i64; N]; arr.len() }
+fn id<U>(x: U) -> U { x }
+fn main() {
+    fn twice<T: Copy>(x: T) -> (T, T) { (x, x) }
+    { const K: i64 = 5; println!("{} {}", K, twice(K).1); }
+    println!("{} {} {} {}", f(), LIMIT, g(), id(true));
+}

@@ -1,0 +1,27 @@
+// `&mut *m` over `&mut dyn Tr` / `&mut [T]` is a reborrow of `*m` (m need not be
+// `mut`, and stays usable once the reborrow is dead); a shared `&'a [T]` field
+// ends the supporting-prefix walk, so `&self.items[0]` lives for 'a, not for
+// the borrow of `self`. rustc 1.98.1 accepts each and prints the same.
+package fat_mut_reborrow_and_shared_slice_prefix;
+use logos.std.fmt;
+trait A { fn g(&mut self); fn v(&self) -> i64; }
+struct D { a: i64 }
+impl A for D { fn g(&mut self) { self.a += 1; } fn v(&self) -> i64 { self.a } }
+struct H<'a> { items: &'a [i32] }
+impl<'a> H<'a> { fn first(&self) -> &'a i32 { &self.items[0] } }
+fn main() {
+    let mut d = D { a: 0 };
+    let m: &mut dyn A = &mut d;
+    let m2: &mut dyn A = &mut *m;
+    m2.g();
+    m.g();
+    let mut a = [1i64, 2];
+    let s: &mut [i64] = &mut a;
+    let s2 = &mut *s;
+    s2[0] = 7;
+    s[1] = 5;
+    let v = [3, 4];
+    let r;
+    { let h = H { items: &v }; r = h.first(); }
+    println!("{} {} {} {}", d.a, a[0], a[1], r);
+}

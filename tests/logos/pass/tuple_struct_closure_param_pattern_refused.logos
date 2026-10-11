@@ -1,0 +1,5 @@
+// Closed squeue tuple_struct_closure_param_pattern_refused (#690): a tuple-struct pattern is a closure parameter; exit 3 as rustc.
+package tuple_struct_closure_param_pattern_refused;
+struct Id(i64);
+fn ap(f: fn(Id) -> i64) -> i64 { f(Id(3)) }
+fn main() -> i32 { return ap(|Id(k)| k) as i32; }

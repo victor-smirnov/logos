@@ -1,0 +1,14 @@
+// An unannotated closure takes a CONCRETE non-reference return from its Fn bound (rustc deduces the signature):
+// `a.unwrap_or_else(|| 5)` on Option<i64> types the literal i64 — it closed at i32 and failed the bound once the
+// combinators took `F: FnOnce() -> T`. `mk(Vec::new)` likewise. rustc: 5 7 3 0.
+package closure_takes_concrete_bound_return;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn mk<F: FnOnce() -> Vec<i32>>(f: F) -> Vec<i32> { f() }
+fn main() {
+    let a: Option<i64> = None;
+    let c: Option<u8> = None;
+    let r: Result<u64, i64> = Err(1);
+    let v = mk(Vec::new);
+    println!("{} {} {} {}", a.unwrap_or_else(|| 5), c.map_or_else(|| 7u8, |x| x + 1), r.unwrap_or_else(|e| 3), v.len());
+}

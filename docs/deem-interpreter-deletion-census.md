@@ -6911,9 +6911,17 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12172 -> 12174 (+2), NOIMPORTED 7613 -> 7615 (+2), TIERCOMMIT 184 -> 182 (-2) — 2026-10-09: option_result_combinators_take_closures, array_and_box_clone (pass); squeue option_combinators_take_fn_pointers_refused, box_clone_refused closed → pass fixtures; tier_commit -2.
 #                ALL 12174 -> 12176 (+2), NOIMPORTED 7615 -> 7617 (+2), TIERCOMMIT 182 -> 181 (-1) — 2026-10-09: checked_arith_all_int_types, string_derefs_to_str (pass); string_str_method_autoderef_refused closed → pass fixture; tier_commit -1.
 #                ALL 12176 -> 12178 (+2), NOIMPORTED 7617 -> 7619 (+2), TIERCOMMIT 181 -> 181 (+0) — 2026-10-09: merge of origin/deem: deem_local_item_e2e (glob) and its fail twin.
-REGISTRY-ALL         12180
-REGISTRY-NOIMPORTED  7621
-REGISTRY-TIERCOMMIT  181
+#                ALL 12178 -> 12179 (+1), NOIMPORTED 7619 -> 7620 (+1), TIERCOMMIT 181 -> 181 (+0) — 2026-10-09: block_local_const_and_generic_fn (pass, nonglob).
+#                ALL 12179 -> 12179 (+0), NOIMPORTED 7620 -> 7620 (+0), TIERCOMMIT 181 -> 180 (-1) — 2026-10-09: const_in_fn_body_refused closed → pass fixture; tier_commit -1.
+#                ALL 12179 -> 12181 (+2), NOIMPORTED 7620 -> 7622 (+2), TIERCOMMIT 180 -> 178 (-2) — 2026-10-09: grammar_tuple_struct_param_open_range_unit_generic (pass); merge of origin/deem (wql_pred_forms_e2e, glob); squeue open_range_for_head_parse_refused, tuple_struct_closure_param_pattern_refused closed → pass fixtures; tier_commit -2.
+#                ALL 12181 -> 12182 (+1), NOIMPORTED 7622 -> 7623 (+1), TIERCOMMIT 178 -> 178 (+0) — 2026-10-09: closure_takes_concrete_bound_return (pass, nonglob).
+#                ALL 12182 -> 12183 (+1), NOIMPORTED 7623 -> 7624 (+1), TIERCOMMIT 178 -> 178 (+0) — 2026-10-11: +1 call_region_binders_variance (nonglob).
+#                ALL 12183 -> 12184 (+1), NOIMPORTED 7624 -> 7625 (+1), TIERCOMMIT 178 -> 178 (+0) — 2026-10-11: merge of origin/deem: wql_group_many_keys_e2e (glob).
+#                ALL 12184 -> 12184 (+0), NOIMPORTED 7625 -> 7625 (+0), TIERCOMMIT 178 -> 176 (-2) — 2026-10-11: squeue ufcs_next_after_region_erased_binding_refused, vec_iter_find_elided_region_refused closed → pass fixtures (nonglob); tier_commit -2.
+#                ALL 12184 -> 12187 (+3), NOIMPORTED 7625 -> 7628 (+3), TIERCOMMIT 176 -> 176 (+0) — 2026-10-11: fat_mut_reborrow_and_shared_slice_prefix (pass, nonglob); fat_mut_reborrow_conflict_dyn/_slice (fail).
+REGISTRY-ALL         12187
+REGISTRY-NOIMPORTED  7628
+REGISTRY-TIERCOMMIT  176
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

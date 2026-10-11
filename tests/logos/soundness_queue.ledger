@@ -184,8 +184,6 @@ box_dyn_return_mut_self_object_lifetime_refused 3 tests/soundness/open/box_dyn_r
 
 closure_return_region_of_param_refused 3 tests/soundness/open/closure_return_region_of_param_refused refuses
 
-const_in_fn_body_refused 3 tests/soundness/open/const_in_fn_body_refused refuses
-
 dyn_assoc_binding_refused 3 tests/soundness/open/dyn_assoc_binding_refused refuses
 
 field_slice_region_projection_refused 3 tests/soundness/open/field_slice_region_projection_refused refuses
@@ -199,10 +197,6 @@ qualified_path_generic_self_type_refused 3 tests/soundness/open/qualified_path_g
 slice_debug_missing_refused 3 tests/soundness/open/slice_debug_missing_refused refuses
 
 split_adapter_static_lifetime_refused 3 tests/soundness/open/split_adapter_static_lifetime_refused refuses
-
-tuple_struct_closure_param_pattern_refused 3 tests/soundness/open/tuple_struct_closure_param_pattern_refused refuses
-
-vec_iter_find_elided_region_refused 3 tests/soundness/open/vec_iter_find_elided_region_refused refuses
 
 implicit_integer_widening_admitted 4 tests/soundness/open/implicit_integer_widening_admitted admits
 
@@ -224,9 +218,6 @@ wf_self_type_impl_lifetime_mismatch_admits 2 tests/soundness/open/wf_self_type_i
 
 struct_field_move_then_index_read_admits 2 tests/soundness/open/struct_field_move_then_index_read_admits admits
 
-# ── 2026-10-01 ADR 0030 S0-S7 gap audit: the clusters OUTSIDE ADR 0030 (grammar / metaprog / stdlib)
-open_range_for_head_parse_refused 3 tests/soundness/open/open_range_for_head_parse_refused refuses
-
 collect_into_option_refused 3 tests/soundness/open/collect_into_option_refused refuses
 
 # ── 2026-10-01 long-red fail fixtures re-triaged: holes owned by a later step
@@ -238,13 +229,13 @@ raw_ptr_impl_method_refused 3 tests/soundness/open/raw_ptr_impl_method_refused r
 
 default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/default_method_generics_shadow_impl_generics_refused refuses
 
-ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_after_region_erased_binding_refused refuses
-
 str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_quotes_bytes run 3
 
 rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visible_admitted admits
 
 closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_data_refused refuses
+
+# ── 2026-10-01 ADR 0030 S0-S7 gap audit: the clusters OUTSIDE ADR 0030 (grammar / metaprog / stdlib)
 
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
@@ -406,5 +397,5 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 113
-# SYNC-HASH b341aaf1b9b944472c4f20023e8af14a
+# TOTAL 108
+# SYNC-HASH 472696577e10ae11f5e17aee2ffabcdd

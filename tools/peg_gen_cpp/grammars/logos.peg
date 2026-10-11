@@ -1305,7 +1305,16 @@
     pub_struct_unit <- pub_vis KW_STRUCT IDENT SEMI
                     => { CODE: STRUCT, IS_PUB: 1, VIS: $1, NAME: $3 }
 
-    struct_unit <- KW_STRUCT IDENT SEMI
+    // A generic UNIT struct takes CONST parameters only (`struct V<const N: usize>;`):
+    // an unused type or lifetime parameter is E0392 in Rust, and `struct Foo<i32>;`
+    // is Logos's explicit instantiation declaration (below).
+    unit_const_param <- KW_CONST IDENT COLON type_ref
+                     => { CODE: CONST_PARAM, NAME: $2, TYPE: $4 }
+    unit_const_params <- LT unit_const_param (COMMA unit_const_param)* COMMA? GT
+                      => { ITEMS: $... }
+    struct_unit <- KW_STRUCT IDENT unit_const_params SEMI
+                => { CODE: STRUCT, NAME: $2, TYPE_PARAMS: $3 }
+                 / KW_STRUCT IDENT SEMI
                 => { CODE: STRUCT, NAME: $2 }
 
     // Explicit struct instantiation declaration (binds annotations to generic instantiation).
@@ -2413,7 +2422,11 @@
     // name and binds the local name to a fn-ptr value. No captures —
     // a nested fn is a fn, not a closure; reads of enclosing locals
     // are rejected by sema (use a closure for that).
-    nested_fn_stmt <- KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
+    nested_fn_stmt <- KW_FN IDENT type_param_list LPAREN param_list? RPAREN ARROW type_ref where_clause? block
+                   => { CODE: NESTED_FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RET_TYPE: $8, WHERE: $9, BODY: $10 }
+                    / KW_FN IDENT type_param_list LPAREN param_list? RPAREN where_clause? block
+                   => { CODE: NESTED_FN, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, WHERE: $7, BODY: $8 }
+                    / KW_FN IDENT LPAREN param_list? RPAREN ARROW type_ref block
                    => { CODE: NESTED_FN, NAME: $2, PARAMS: $4, RET_TYPE: $7, BODY: $8 }
                     / KW_FN IDENT LPAREN param_list? RPAREN block
                    => { CODE: NESTED_FN, NAME: $2, PARAMS: $4, BODY: $6 }
@@ -2425,10 +2438,17 @@
     nested_deem_stmt <- IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
                      => { CODE: DEEM_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RAW_TEXT: $7 }
 
+    // ── Block-local const (`const N: T = v;` at stmt position) ──
+    // Rust's block-scoped item: sema registers it under `<outer>$N` and binds
+    // `N` in the enclosing body (shadowing a module const of the name).
+    nested_const_stmt <- KW_CONST IDENT COLON type_ref ASSIGN expr SEMI
+                      => { CODE: CONST_DEF, NAME: $2, TYPE: $4, VALUE: $6 }
+
     // ── Statements ───────────────────────────────────────────────
     stmt <- HASH LPAREN stmt RPAREN STAR
              => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
           / nested_fn_stmt
+          / nested_const_stmt
           / nested_deem_stmt
           / labeled_loop_stmt
           / let_else_stmt
@@ -2471,6 +2491,12 @@
              => { CODE: FOR, NAME: $3, LHS: $5, RHS: $7, BODY: $8, INCLUSIVE: true, IS_MUT: true }
               / KW_FOR KW_MUT IDENT KW_IN expr_ns DOTDOT   expr_ns block_body
              => { CODE: FOR, NAME: $3, LHS: $5, RHS: $7, BODY: $8, INCLUSIVE: false, IS_MUT: true }
+              // `for i in lo..` — an open range (the HIR's RANGE_EXPR with no
+              // RHS: RangeFrom). After the bounded forms, which consume `..hi`.
+              / KW_FOR IDENT KW_IN expr_ns DOTDOT block_body
+             => { CODE: FOR, NAME: $2, LHS: $4, BODY: $6 }
+              / KW_FOR KW_MUT IDENT KW_IN expr_ns DOTDOT block_body
+             => { CODE: FOR, NAME: $3, LHS: $5, BODY: $7, IS_MUT: true }
               / KW_FOR IDENT KW_IN expr_ns             block_body
              => { CODE: FOR_EACH, NAME: $2, ITER: $4, BODY: $5 }
               // Rust parity: `for PATTERN in iter` — a destructuring loop
@@ -3788,7 +3814,11 @@
                    // `AMP IDENT` form made them a by-reference NAME: x bound the
                    // whole `&T` (`|&x| x % 2` refused, `|m, &x| if x > m { x }`
                    // mistyped).
-                   / IDENT
+                   // A bare name only where the parameter ENDS: `|Id(k)|` is a tuple-
+                   // struct pattern (pat_single below), not the name `Id`.
+                   / IDENT &COMMA
+                  => { CODE: PARAM, NAME: $1 }
+                   / IDENT &PIPE
                   => { CODE: PARAM, NAME: $1 }
                    // `|(a, b)|`, `|&(a, b)|`: an untyped pattern, typed from the
                    // call site's expected closure type as an untyped name is.

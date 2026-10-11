@@ -1,0 +1,3 @@
+// Closed squeue open_range_for_head_parse_refused (#716): for i in lo.. parses (an open RangeFrom head); exit 15 as rustc.
+package open_range_for_head_parse_refused;
+fn main() -> i32 { let mut n = 0i64; for i in 0.. { if i > 5 { break; } n += i; } return n as i32; }

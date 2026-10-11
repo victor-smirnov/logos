@@ -1,0 +1,3 @@
+// Closed squeue const_in_fn_body_refused (#669): a const item in a fn body is a block-local item, as Rust's; exit 0.
+package const_in_fn_body_refused;
+fn main() -> i32 { const N: i64 = 5; if N == 5 { return 0i32; } return 1i32; }

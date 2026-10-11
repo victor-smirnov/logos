@@ -1111,6 +1111,17 @@ lir::LExprPtr SemaChecker::lower_bytes_lit(TinyMapView expr) {
 lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
     int32_t c = code_of(expr); (void)c;
     auto name = str_of(expr.get(la::NAME.code));
+    // A block-local const (`const N: i64 = 100;` in this body) names its module
+    // const `<outer>$N` — over a module const of the same name, under a let.
+    // Its value is inlined (it is no module item the backend emits).
+    if (!is_local_binding_(name))
+        if (std::string li = local_fn_item_(name); !li.empty()) {
+            const std::string ck = sema_key(cur_package_, li);
+            auto cit = module_consts_.find(ck);
+            auto vit = module_const_values_.find(ck);
+            if (cit != module_consts_.end() && vit != module_const_values_.end() && cit->second)
+                return lower_typed_const_(vit->second, cit->second);
+        }
     auto t = lookup(name);
     if (!t) {
         // Const-generic value-use: `<const N: T>` param referenced in
@@ -2157,6 +2168,20 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                                                TypeRef(op_t).trait_requires_sync(), {},
                                                TypeRef(op_t).pkg_name()), true));   // `&mut *b`
                 return operand;
+            }
+            // `&mut *m` over a borrowed `&mut dyn Tr` / `&mut [T]`: a REBORROW of
+            // the place `*m`, of m's own fat type. It fell to the address-of at
+            // the end and was typed `&mut &mut dyn Tr`, which borrowed `m`
+            // itself and demanded `let mut m`.
+            if (!operand_unsized &&
+                ((TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
+                  !TypeRef(op_t).owning_trait_object() && !TypeRef(op_t).raw_fat() &&
+                  TypeRef(op_t).mut_borrowed_trait_object()) ||
+                 (TypeRef(op_t).kind() == LogosType::Kind::Slice &&
+                  !TypeRef(op_t).owning_slice() && !TypeRef(op_t).raw_fat() &&
+                  TypeRef(op_t).mut_ptr()))) {
+                auto deref = builder().deref(std::move(operand), op_t);
+                return builder().addr_of_temp(std::move(deref), true, op_t, BorrowOrigin::Explicit);
             }
             if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
                 TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
@@ -7566,6 +7591,16 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             error(std::format("call to '{}': expected {} args, got {}",
                   callee_diag, fi.param_types.size(), n_args));
         } else {
+            // The callee's region binders instantiated at THIS call (the receiver's
+            // region for a cloned default method's `impl<'a, T> … for VecIter<'a, T>`),
+            // for the variance check below — one map, as the return type's.
+            StrMap<std::string> call_lts_;
+            {
+                std::vector<TypeRef> spts_;
+                for (auto p0 : fi.param_types) spts_.push_back(subst_type_sema(p0, subst));
+                call_lts_ = build_call_lt_subst_(spts_, call_region_binders_(fi.lifetime_params, fi.param_types, fi.ret_type),
+                                                 arg_exprs, fi.ret_type);
+            }
             for (uint64_t i = 0; i < n_args; ++i) {
                 auto pt = subst_type_sema(fi.param_types[i], subst);
                 expect_arg_(arg_exprs[i], pt,
@@ -7608,7 +7643,8 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                     !(TypeRef(fi.param_types[i]).kind() == LogosType::Kind::TypeVar &&
                       !written_tparams.count(std::string(TypeRef(fi.param_types[i]).type_var_name())) &&
                       TypeRef(at).kind() == LogosType::Kind::Ref && covariant_regions_only(at)))
-                    check_variance(at, pt, std::format("call to '{}' arg {}", callee_diag, i + 1));
+                    check_variance(at, call_lts_.empty() ? pt : subst_type_sema(fi.param_types[i], subst, call_lts_),
+                                   std::format("call to '{}' arg {}", callee_diag, i + 1));
             }
         }
     }
@@ -9460,6 +9496,14 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
             auto vit = cur_imports_.variant_aliases.find(std::string(callee));
             if (vit != cur_imports_.variant_aliases.end())
                 if (auto e = try_variant(vit->second, std::string(callee))) return e;
+        }
+        // `V::<4>` naming a generic UNIT struct: its value, `V::<4> {}`.
+        if (auto [spkg, ssi] = find_struct_by_name(callee); ssi && ssi->fields.empty()) {
+            (void)spkg;
+            auto lit = synth_node(la::STRUCT_LIT.code, node_line_,
+                                  {{la::NAME.code, node.get(la::CALLEE.code)},
+                                   {la::TYPE_PARAMS.code, node.get(la::TYPE_PARAMS.code)}});
+            return lower_expr(map_of(lit));
         }
         error(std::format("undefined function in generic-ref '{}'", std::string(callee)));
         return error_expr();
@@ -19578,6 +19622,16 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
         // is `closrethint`, declined; PROBES.md 2026-09-04e §3.
         if (!has_annot && is_ref_(hret_)) {
             logos::probe::census("closbnd.ret.adopted");
+            ret_type = hret_;
+            has_annot = true;
+        }
+        // …and a CONCRETE non-reference return, as rustc deduces the closure's
+        // signature from the expected `FnOnce() -> i64`: `opt.unwrap_or_else(|| 5)`
+        // types the literal i64 (it closed at i32 and failed the bound). Not an
+        // uninstantiated `T` (closrethint's one cost, PROBES.md 2026-09-04e §4).
+        else if (!has_annot && hret_ && type_is_concrete(hret_) && !has_infer_var_(hret_) &&
+                 !has_lit_var_(hret_) && TypeRef(hret_).kind() != LogosType::Kind::Void) {
+            logos::probe::census("closbnd.ret.adopted.concrete");
             ret_type = hret_;
             has_annot = true;
         }

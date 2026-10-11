@@ -6828,6 +6828,22 @@ void SemaChecker::collect_nested_fns_(writ::AnyVal v, const std::string& outer, 
         local_deems_.push_back({cur_ast_idx_, n, sym});
         return;
     }
+    // A quote_*! body is a TEMPLATE (its items are emitted elsewhere, names
+    // may be antiquotes): no block-local item of this body lives there.
+    if (code_of(n) == la::QUOTE_ITEM || code_of(n) == la::QUOTE_EXPR || code_of(n) == la::QUOTE_TY ||
+        code_of(n) == la::REPEAT_GROUP)
+        return;
+    if (code_of(n) == la::CONST_DEF && n.has_key(la::NAME) && !str_of(n.get(la::NAME.code)).empty()) {
+        // A block-local const: a module const under `<outer>$N` (a copy of the
+        // node carrying that name), its value inlined by name like any const.
+        const std::string name(str_of(n.get(la::NAME.code)));
+        const std::string key = nested_fn_key_(outer, name, get_line(n));
+        std::string sym = outer + "$" + name;
+        for (auto& [k, sv] : nested_fn_sym_) if (sv == sym && k != key) { sym += "$" + std::to_string(get_line(n)); break; }
+        nested_fn_sym_[key] = sym;
+        collect_const(map_of(synth_with_key(n, la::NAME.code, synth_str(sym))));
+        return;
+    }
     if (code_of(n) == la::NESTED_FN) {
         const std::string name(str_of(n.get(la::NAME.code)));
         const std::string key = nested_fn_key_(outer, name, get_line(n));
@@ -6856,7 +6872,10 @@ void SemaChecker::nested_fn_items_of_(writ::AnyVal v, const std::string& outer, 
     }
     TinyMapView n = map_of(v);
     if (n.is_null()) return;
-    if (code_of(n) == la::NESTED_FN) {
+    if (code_of(n) == la::QUOTE_ITEM || code_of(n) == la::QUOTE_EXPR || code_of(n) == la::QUOTE_TY ||
+        code_of(n) == la::REPEAT_GROUP)
+        return;
+    if (code_of(n) == la::NESTED_FN || code_of(n) == la::CONST_DEF) {
         const std::string name(str_of(n.get(la::NAME.code)));
         if (auto it = nested_fn_sym_.find(nested_fn_key_(outer, name, get_line(n))); it != nested_fn_sym_.end())
             out[name] = it->second;

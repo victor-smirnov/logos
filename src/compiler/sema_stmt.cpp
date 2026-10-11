@@ -689,6 +689,12 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
     }
     if (c == la::NESTED_FN)    return lower_nested_fn(stmt);
     if (is_local_deem_(stmt))  return lower_nested_deem(stmt);
+    // A block-local const is an item (collected as `<outer>$N`): no statement.
+    if (c == la::CONST_DEF) {
+        lir::SBlock sb;
+        sb.body = lir_mirror_block(*cur_prog_, {});
+        return make_stmt_emit(node_line_, std::move(sb));
+    }
     if (c == la::ASSIGN)          return lower_assign(stmt);
     if (c == la::DESTRUCTURE_ASSIGN) {   // a let + assignments by now (the HIR pass)
         hir_gate_(stmt);
