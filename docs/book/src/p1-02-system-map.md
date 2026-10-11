@@ -200,7 +200,7 @@ Container ⟂ store. Containers are generated against a storage capability; stor
 
 Substrate: packed layouts in [stdlib/mem/pkd/](../../../stdlib/mem/pkd/) (packed allocator, `PackedDataTypeBuffer`, SSRLE codec and symbol sequence); B+tree layers in [stdlib/mem/bt/](../../../stdlib/mem/bt/) (single-stream `btss`, multi-stream free-layout `btfl`, node CRUD algebra of [ADR 0023](../../adr/0023-node-stream-crud-algebra.md)).
 
-Not built: the SWMR store, the `ctr_type_hash` registry and `open_dyn`, the queue kind, row-store tables ([ADR 0027](../../adr/0027-row-store-tables.md)). A second persistent stack from [ADR 0017](../../adr/0017-deem-storage-engine.md) survives in [stdlib/lcm/deem/data/](../../../stdlib/lcm/deem/data/); ADR 0032 D7 retires it. [ADR 0039](../../adr/) (persistent snapshottable structures as one logical level over many implementations) is on branch `deem`, not on main.
+Not built: the SWMR store, the `ctr_type_hash` registry and `open_dyn`, the queue kind, row-store tables ([ADR 0027](../../adr/0027-row-store-tables.md)). A second persistent stack from [ADR 0017](../../adr/0017-deem-storage-engine.md) survives in [stdlib/lcm/deem/data/](../../../stdlib/lcm/deem/data/); ADR 0032 D7 retires it. [ADR 0039](../../adr/0039-persistent-snapshot-structures.md) (PROPOSED): persistent snapshottable structures as one logical level over many implementations.
 
 ### 3.7 Trama
 
