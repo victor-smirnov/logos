@@ -1,0 +1,25 @@
+// HashSet / HashMap / BTreeMap insert, contains(_key), remove, clear and iteration are safe methods, as Rust's
+// (they were `unsafe fn`, so a Rust-shaped program needed `unsafe { }` around every insert). A char key hashes.
+package collections_safe_mutation_api;
+use logos.std.fmt;
+use logos.mem.collections.set;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+fn main() {
+    let mut s: HashSet<char> = HashSet::new();
+    s.insert('a'); s.insert('b'); s.insert('a');
+    let r = s.remove(&'b');
+    println!("{} {} {}", s.len(), s.contains(&'a'), r);
+    let mut m: HashMap<i64, i64> = HashMap::new();
+    m.insert(1, 10); m.insert(2, 20);
+    let old = m.insert(1, 11);
+    let mut sum: i64 = 0;
+    for v in m.values() { sum = sum + *v; }
+    println!("{} {:?} {}", m.contains_key(&2), old, sum);
+    let mut b: BTreeMap<i64, i64> = BTreeMap::new();
+    b.insert(3, 30); b.insert(1, 10);
+    let gone = b.remove(&3);
+    println!("{} {:?}", b.contains_key(&1), gone);
+    m.clear(); b.clear(); s.clear();
+    println!("{} {}", m.len(), s.len());
+}

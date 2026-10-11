@@ -3291,7 +3291,14 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
         const bool ref_struct = oi->has_output() && is_ref_t(lt) && TypeRef(lt).pointee() &&
                                 (TypeRef(lt).pointee().kind() == LogosType::Kind::Struct ||
                                  TypeRef(lt).pointee().kind() == LogosType::Kind::Enum);
-        if (generic_adt || k == LogosType::Kind::Enum || ref_struct)
+        // A tuple holding a non-scalar element (`((i64, char), i64)`, `(String, i64)`) orders through
+        // its PartialOrd impl (stdlib, one per arity); a tuple of scalars keeps the builtin compare.
+        bool tuple_rel = false;
+        if (k == LogosType::Kind::Tuple && (op == "<" || op == "<=" || op == ">" || op == ">="))
+            for (auto e : TypeRef(lt).tuple_elems())
+                if (!e || !(is_primitive_scalar_kind(TypeRef(e).kind()) || TypeRef(e).kind() == LogosType::Kind::Ptr))
+                    tuple_rel = true;
+        if (generic_adt || k == LogosType::Kind::Enum || ref_struct || tuple_rel)
             if (auto c = lower_op_by_trait_(*oi, lhs, &rhs)) return c;
         // `==` / `!=` on an enum with no PartialEq (or Eq) impl: rustc E0369 —
         // there is no builtin equality on an enum.

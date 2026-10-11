@@ -70,14 +70,14 @@ impl<K: Ord, V> BTreeMap<K, V> {
     }
 
     /// Returns `true` if `key` is present in the map.
-    pub unsafe fn contains_key(&self, key: &K) -> bool {
+    pub fn contains_key(&self, key: &K) -> bool { unsafe {
         let pos: i64 = self.lower_bound(key);
         if pos >= self.len { return false; }
         match (&self.keys[pos]).cmp(key) {
             Ordering::Equal => { return true; }
             _               => { return false; }
         }
-    }
+    } }
 
     /// Returns a pointer to the value for `key`, or a null `*const V` if absent.
     pub unsafe fn get(&self, key: &K) -> *const V {
@@ -101,7 +101,7 @@ impl<K: Ord, V> BTreeMap<K, V> {
 
     /// Inserts `key`/`val`, overwriting the existing value if `key` is already present.
     /// Grows the backing storage (doubling capacity) when full.
-    pub unsafe fn insert(&mut self, key: K, val: V) {
+    pub fn insert(&mut self, key: K, val: V) { unsafe {
         let pos: i64 = self.lower_bound(&key);
         // If key already present, update value in place.
         if pos < self.len {
@@ -132,11 +132,11 @@ impl<K: Ord, V> BTreeMap<K, V> {
         self.keys[pos] = key;
         self.vals[pos] = val;
         self.len = self.len + 1 as i64;
-    }
+    } }
 
     /// Removes `key` from the map, returning its value if it was present (Rust's
     /// `BTreeMap::remove`); the stored key is dropped.
-    pub unsafe fn remove(&mut self, key: &K) -> Option<V> {
+    pub fn remove(&mut self, key: &K) -> Option<V> { unsafe {
         let pos: i64 = self.lower_bound(key);
         if pos >= self.len { return Option::None; }
         match (&self.keys[pos]).cmp(key) {
@@ -153,10 +153,10 @@ impl<K: Ord, V> BTreeMap<K, V> {
         }
         self.len = self.len - 1 as i64;
         return Option::Some(v);
-    }
+    } }
 
     /// Removes and drops every entry; the backing storage is kept.
-    pub unsafe fn clear(&mut self) {
+    pub fn clear(&mut self) { unsafe {
         let mut i: i64 = 0;
         while i < self.len {
             let _k: K = self.keys[i];    // moved out and dropped
@@ -164,17 +164,17 @@ impl<K: Ord, V> BTreeMap<K, V> {
             i = i + 1 as i64;
         }
         self.len = 0 as i64;
-    }
+    } }
 
     /// Returns an iterator over `(&K, &V)` pairs in ascending key order.
-    pub unsafe fn iter<'a>(&self) -> BTreeMapIter<'a, K, V> {
+    pub fn iter<'a>(&self) -> BTreeMapIter<'a, K, V> { unsafe {
         return BTreeMapIter {
             keys: self.keys as *const K,
             vals: self.vals as *const V,
             len:  self.len,
             idx:  0 as i64,
         };
-    }
+    } }
 }
 
 // ── Iterator ─────────────────────────────────────────────────────────────────

@@ -23,6 +23,7 @@ use logos.lang.cell;
 use logos.lang.ptr;
 #[derive_debug]
 #[derive_partial_eq]
+#[derive_eq]
 #[derive_partial_ord]
 #[derive_ord]
 struct V { a: i32, b: i32 }

@@ -1,0 +1,14 @@
+// Tuples order lexicographically, one PartialOrd / Ord impl per arity (Rust's core); a tuple with a non-scalar
+// element orders through the impl, sort / max reach Ord, a NaN element is incomparable. Output as rustc 1.98.1.
+package tuple_lexicographic_order;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn main() {
+    let a = (1i64, 2i64); let b = (1i64, 3i64);
+    println!("{} {} {} {}", a < b, a >= b, (2i64,) > (1i64,), ((1i64, 'b'), 0i64) < ((1i64, 'a'), 9i64));
+    let mut v: Vec<(i64, i64, i64)> = vec![(3, 1, 0), (1, 9, 9), (1, 2, 3)];
+    v.sort();
+    println!("{:?} {:?}", v, v.iter().max());
+    let n = (1.0f64, 0.0f64 / 0.0f64); let m = (1.0f64, 2.0f64);
+    println!("{} {} {:?}", n < m, n > m, (0.5f64, 1i64).partial_cmp(&(0.5f64, 1i64)));
+}

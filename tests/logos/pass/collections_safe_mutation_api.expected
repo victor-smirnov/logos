@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+1 true true
+true Some(10) 31
+true Some(30)
+0 0

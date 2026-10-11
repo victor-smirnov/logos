@@ -25,6 +25,6 @@ use logos.lang.num.error;
 use logos.lang.num.parse;
 fn main() {
     let mut s: HashSet<char> = HashSet::new();
-    unsafe { let p: *mut HashSet<char> = &mut s; p.insert('a'); }
+    s.insert('a');
     println!("{}", s.len());
 }

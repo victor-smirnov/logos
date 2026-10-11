@@ -813,6 +813,13 @@ sym	logos_lang..logos.lang.cmp.$ref_$T__cmp__g__ref_ref_T__ref_ref_T__i32
 sym	logos_lang..logos.lang.cmp.$ref_$T__cmp__g__ref_ref_T__ref_ref_T__uslice_u8
 sym	logos_lang..logos.lang.cmp.$ref_$T__eq__g__ref_ref_T__ref_ref_T__i32
 sym	logos_lang..logos.lang.cmp.$ref_$T__eq__g__ref_ref_T__ref_ref_T__uslice_u8
+sym	logos_lang..logos.lang.cmp.$tuple$2__cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__String$M5ca39a0a178b867d
+sym	logos_lang..logos.lang.cmp.$tuple$2__cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__char
+sym	logos_lang..logos.lang.cmp.$tuple$2__cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__i32
+sym	logos_lang..logos.lang.cmp.$tuple$2__cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__i64
+sym	logos_lang..logos.lang.cmp.$tuple$2__cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__slice_u8
+sym	logos_lang..logos.lang.cmp.$tuple$2__cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__tup$2$i64$char
+sym	logos_lang..logos.lang.cmp.$tuple$2__cmp__g__ref_tup$2$A$B__ref_tup$2$A$B__i64__u8
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__i64__String$M5ca39a0a178b867d
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__i64__char
 sym	logos_lang..logos.lang.cmp.$tuple$variadic__eq__g__ref_tup$1$A__ref_tup$1$A__i64__i32
@@ -1062,8 +1069,17 @@ sym	logos_lang..logos.lang.cmp.bool__max__f__bool__bool
 sym	logos_lang..logos.lang.cmp.bool__min__f__bool__bool
 sym	logos_lang..logos.lang.cmp.bool__ne__f__ref_bool__ref_bool
 sym	logos_lang..logos.lang.cmp.bool__partial_cmp__f__ref_bool__ref_bool
+sym	logos_lang..logos.lang.cmp.char__clamp__f__char__char__char
+sym	logos_lang..logos.lang.cmp.char__cmp__f__ref_char__ref_char
 sym	logos_lang..logos.lang.cmp.char__eq__f__ref_char__ref_char
+sym	logos_lang..logos.lang.cmp.char__ge__f__ref_char__ref_char
+sym	logos_lang..logos.lang.cmp.char__gt__f__ref_char__ref_char
+sym	logos_lang..logos.lang.cmp.char__le__f__ref_char__ref_char
+sym	logos_lang..logos.lang.cmp.char__lt__f__ref_char__ref_char
+sym	logos_lang..logos.lang.cmp.char__max__f__char__char
+sym	logos_lang..logos.lang.cmp.char__min__f__char__char
 sym	logos_lang..logos.lang.cmp.char__ne__f__ref_char__ref_char
+sym	logos_lang..logos.lang.cmp.char__partial_cmp__f__ref_char__ref_char
 sym	logos_lang..logos.lang.cmp.f32__eq__f__ref_f32__ref_f32
 sym	logos_lang..logos.lang.cmp.f32__ge__f__ref_f32__ref_f32
 sym	logos_lang..logos.lang.cmp.f32__gt__f__ref_f32__ref_f32
@@ -1726,7 +1742,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1743,7 +1761,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1760,7 +1780,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1777,7 +1799,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1794,7 +1818,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1811,7 +1837,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1828,7 +1856,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1845,7 +1875,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1864,7 +1896,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__is_empty__g__ref_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__last__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__len__g__ref_EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__next_back__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
@@ -1886,7 +1920,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__is_empty__g__ref_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__last__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__len__g__ref_EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__next_back__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
@@ -1906,7 +1942,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1923,7 +1961,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1957,7 +1997,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a6
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1974,7 +2016,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a6
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -1991,7 +2035,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M5
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -2008,7 +2054,9 @@ sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__filter__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> bool
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__inspect__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T)) -> void
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__last__g__EnumIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__max__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__max_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
+sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__min__g__EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__min_by__g__EnumIter$Mda436a411810b917$G2$I$T__fn(&(i64, T), &(i64, T)) -> i32
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__next__g__refmut_EnumIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__nth__g__refmut_EnumIter$Mda436a411810b917$G2$I$T__i64
@@ -2080,7 +2128,9 @@ sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52e
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__FilterIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__FilterIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__FilterIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__FilterIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__FilterIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__FilterIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__FilterIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_FilterIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_FilterIter$Mda436a411810b917$G2$I$T__i64
@@ -2097,7 +2147,9 @@ sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb17
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__FilterIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__FilterIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__FilterIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__FilterIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__FilterIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__FilterIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__FilterIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_FilterIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_FilterIter$Mda436a411810b917$G2$I$T__i64
@@ -2420,7 +2472,9 @@ sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__InspectIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__InspectIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__InspectIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__InspectIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__InspectIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__InspectIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__InspectIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_InspectIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_InspectIter$Mda436a411810b917$G2$I$T__i64
@@ -2437,7 +2491,9 @@ sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__InspectIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__InspectIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__InspectIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__InspectIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__InspectIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__InspectIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__InspectIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_InspectIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_InspectIter$Mda436a411810b917$G2$I$T__i64
@@ -4103,7 +4159,9 @@ sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__enumerate_
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__filter__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__inspect__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__last__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__max__g__OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__max_by__g__OptionIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__min__g__OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__min_by__g__OptionIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__next__g__refmut_OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$char__next_back__g__refmut_OptionIter$Mda436a411810b917$G1$T
@@ -4417,7 +4475,9 @@ sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__filter__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__inspect__g__OptionIter$Mda436a411810b917$G1$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__last__g__OptionIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__max__g__OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__max_by__g__OptionIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__min__g__OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__min_by__g__OptionIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__next__g__refmut_OptionIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.OptionIter$Mda436a411810b917$G1$tup$2$i64$char__next_back__g__refmut_OptionIter$Mda436a411810b917$G1$T
@@ -4682,7 +4742,9 @@ sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M5
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__PeekableIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__PeekableIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__PeekableIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__PeekableIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__PeekableIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__PeekableIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__PeekableIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_PeekableIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_PeekableIter$Mda436a411810b917$G2$I$T__i64
@@ -4699,7 +4761,9 @@ sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__PeekableIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__PeekableIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__PeekableIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__PeekableIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__PeekableIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__PeekableIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__PeekableIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_PeekableIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_PeekableIter$Mda436a411810b917$G2$I$T__i64
@@ -5524,7 +5588,9 @@ sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__enumerate_
 sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__filter__g__ResultIter$Mda436a411810b917$G1$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__inspect__g__ResultIter$Mda436a411810b917$G1$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__last__g__ResultIter$Mda436a411810b917$G1$T
+sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__max__g__ResultIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__max_by__g__ResultIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__min__g__ResultIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__min_by__g__ResultIter$Mda436a411810b917$G1$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__next__g__refmut_ResultIter$Mda436a411810b917$G1$T
 sym	logos_lang..logos.lang.iter.ResultIter$Mda436a411810b917$G1$char__nth__g__refmut_ResultIter$Mda436a411810b917$G1$T__i64
@@ -5977,7 +6043,9 @@ sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__SkipIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__SkipIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__SkipIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__SkipIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__SkipIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__SkipIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__SkipIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_SkipIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_SkipIter$Mda436a411810b917$G2$I$T__i64
@@ -5994,7 +6062,9 @@ sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__SkipIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__SkipIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__SkipIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__SkipIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__SkipIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__SkipIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__SkipIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_SkipIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_SkipIter$Mda436a411810b917$G2$I$T__i64
@@ -6321,7 +6391,9 @@ sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__SkipWhileIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__SkipWhileIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__SkipWhileIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__SkipWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__SkipWhileIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__SkipWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__SkipWhileIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_SkipWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_SkipWhileIter$Mda436a411810b917$G2$I$T__i64
@@ -6338,7 +6410,9 @@ sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1c
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__SkipWhileIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__SkipWhileIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__SkipWhileIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__SkipWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__SkipWhileIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__SkipWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__SkipWhileIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_SkipWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_SkipWhileIter$Mda436a411810b917$G2$I$T__i64
@@ -6655,7 +6729,9 @@ sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52e
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__StepByIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__StepByIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__StepByIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__StepByIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__StepByIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__StepByIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__StepByIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_StepByIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_StepByIter$Mda436a411810b917$G2$I$T__i64
@@ -6672,7 +6748,9 @@ sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb17
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__StepByIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__StepByIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__StepByIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__StepByIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__StepByIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__StepByIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__StepByIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_StepByIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_StepByIter$Mda436a411810b917$G2$I$T__i64
@@ -6989,7 +7067,9 @@ sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__TakeIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__TakeIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__TakeIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__TakeIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__TakeIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__TakeIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__TakeIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_TakeIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_TakeIter$Mda436a411810b917$G2$I$T__i64
@@ -7006,7 +7086,9 @@ sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__TakeIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__TakeIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__TakeIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__TakeIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__TakeIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__TakeIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__TakeIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_TakeIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_TakeIter$Mda436a411810b917$G2$I$T__i64
@@ -7333,7 +7415,9 @@ sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__filter__g__TakeWhileIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__inspect__g__TakeWhileIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__last__g__TakeWhileIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max__g__TakeWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__max_by__g__TakeWhileIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min__g__TakeWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__min_by__g__TakeWhileIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__next__g__refmut_TakeWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__nth__g__refmut_TakeWhileIter$Mda436a411810b917$G2$I$T__i64
@@ -7350,7 +7434,9 @@ sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1c
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__filter__g__TakeWhileIter$Mda436a411810b917$G2$I$T__fn(&T) -> bool
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__inspect__g__TakeWhileIter$Mda436a411810b917$G2$I$T__fn(&T) -> void
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__last__g__TakeWhileIter$Mda436a411810b917$G2$I$T
+sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max__g__TakeWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__max_by__g__TakeWhileIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
+sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min__g__TakeWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__min_by__g__TakeWhileIter$Mda436a411810b917$G2$I$T__fn(&T, &T) -> i32
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__next__g__refmut_TakeWhileIter$Mda436a411810b917$G2$I$T
 sym	logos_lang..logos.lang.iter.TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__nth__g__refmut_TakeWhileIter$Mda436a411810b917$G2$I$T__i64
@@ -14212,7 +14298,9 @@ sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__enumerate__f__Char
 sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__filter__f__CharIndices$M52ee1cb1744c7040__fn(&(i64, char)) -> bool
 sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__inspect__f__CharIndices$M52ee1cb1744c7040__fn(&(i64, char)) -> void
 sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__last__f__CharIndices$M52ee1cb1744c7040
+sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__max__f__CharIndices$M52ee1cb1744c7040
 sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__max_by__f__CharIndices$M52ee1cb1744c7040__fn(&(i64, char), &(i64, char)) -> i32
+sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__min__f__CharIndices$M52ee1cb1744c7040
 sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__min_by__f__CharIndices$M52ee1cb1744c7040__fn(&(i64, char), &(i64, char)) -> i32
 sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__next__f__refmut_CharIndices$M52ee1cb1744c7040
 sym	logos_lang..logos.lang.str.CharIndices$M52ee1cb1744c7040__nth__f__refmut_CharIndices$M52ee1cb1744c7040__i64
@@ -14229,7 +14317,9 @@ sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__enumerate__f__Chars$M52e
 sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__filter__f__Chars$M52ee1cb1744c7040__fn(&char) -> bool
 sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__inspect__f__Chars$M52ee1cb1744c7040__fn(&char) -> void
 sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__last__f__Chars$M52ee1cb1744c7040
+sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__max__f__Chars$M52ee1cb1744c7040
 sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__max_by__f__Chars$M52ee1cb1744c7040__fn(&char, &char) -> i32
+sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__min__f__Chars$M52ee1cb1744c7040
 sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__min_by__f__Chars$M52ee1cb1744c7040__fn(&char, &char) -> i32
 sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__next__f__refmut_Chars$M52ee1cb1744c7040
 sym	logos_lang..logos.lang.str.Chars$M52ee1cb1744c7040__nth__f__refmut_Chars$M52ee1cb1744c7040__i64
@@ -15757,8 +15847,28 @@ sym	logos_lang.logos.lang.hint$spin_loop__f__void
 sym	logos_lang.logos.lang.hint$unreachable_unchecked__f__void
 sym	logos_lang.logos.lang.iter$iter_max__g__I__ByteSplitter$M52ee1cb1744c7040__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__Bytes$M52ee1cb1744c7040__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__CharIndices$M52ee1cb1744c7040__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__Chars$M52ee1cb1744c7040__char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__tup$2$i64$slice_u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__tup$2$i64$u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__tup$2$i64$String$M5ca39a0a178b867d
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__tup$2$i64$slice_u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__tup$2$i64$i32
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__tup$2$i64$i64
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__tup$2$i64$i32
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__tup$2$i64$i64
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__tup$2$i64$i32
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__tup$2$i64$i64
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__tup$2$i64$i32
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__tup$2$i64$i64
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__tup$2$i64$slice_u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__tup$2$i64$slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15773,6 +15883,8 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$S
 sym	logos_lang.logos.lang.iter$iter_max__g__I__FilterIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__InspectIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__InspectIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__InspectIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__InspectIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__InspectIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15789,6 +15901,7 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__LineReader$Mf80870be9762aff5__Str
 sym	logos_lang.logos.lang.iter$iter_max__g__I__Lines$M52ee1cb1744c7040__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$bool__bool
+sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i128__i128
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i16__i16
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i32__i32
@@ -15796,6 +15909,7 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$i8__i8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$ref_i32__ref_i32
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$slice_u8__slice_u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$tup$2$i64$char__tup$2$i64$char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u128__u128
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u16__u16
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u32__u32
@@ -15803,6 +15917,8 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u
 sym	logos_lang.logos.lang.iter$iter_max__g__I__OptionIter$Mda436a411810b917$G1$u8__u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__PeekableIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15823,6 +15939,7 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__RangeInclI32$Mc51a63d6f709b5c2__i
 sym	logos_lang.logos.lang.iter$iter_max__g__I__RangeInclI64$Mc51a63d6f709b5c2__i64
 sym	logos_lang.logos.lang.iter$iter_max__g__I__ResultIter$Mda436a411810b917$G1$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__ResultIter$Mda436a411810b917$G1$bool__bool
+sym	logos_lang.logos.lang.iter$iter_max__g__I__ResultIter$Mda436a411810b917$G1$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__ResultIter$Mda436a411810b917$G1$i128__i128
 sym	logos_lang.logos.lang.iter$iter_max__g__I__ResultIter$Mda436a411810b917$G1$i16__i16
 sym	logos_lang.logos.lang.iter$iter_max__g__I__ResultIter$Mda436a411810b917$G1$i32__i32
@@ -15840,6 +15957,8 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__RevRangeI32$Mc51a63d6f709b5c2__i3
 sym	logos_lang.logos.lang.iter$iter_max__g__I__RevRangeI64$Mc51a63d6f709b5c2__i64
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15854,6 +15973,8 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$Spl
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipWhileIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipWhileIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipWhileIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipWhileIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__SkipWhileIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15870,6 +15991,8 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__SplitWhitespace$M52ee1cb1744c7040
 sym	logos_lang.logos.lang.iter$iter_max__g__I__Splitter$M52ee1cb1744c7040__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15884,6 +16007,8 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$S
 sym	logos_lang.logos.lang.iter$iter_max__g__I__StepByIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15898,6 +16023,8 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$Spl
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeWhileIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeWhileIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeWhileIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeWhileIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_max__g__I__TakeWhileIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15914,8 +16041,28 @@ sym	logos_lang.logos.lang.iter$iter_max__g__I__VecIntoIter$M4edea24aa4768b45$G1$
 sym	logos_lang.logos.lang.iter$iter_max__g__I__VecIter$M4edea24aa4768b45$G1$i32__ref_i32
 sym	logos_lang.logos.lang.iter$iter_min__g__I__ByteSplitter$M52ee1cb1744c7040__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__Bytes$M52ee1cb1744c7040__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__CharIndices$M52ee1cb1744c7040__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__Chars$M52ee1cb1744c7040__char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__tup$2$i64$slice_u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__tup$2$i64$u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__tup$2$i64$String$M5ca39a0a178b867d
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__tup$2$i64$slice_u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__tup$2$i64$i32
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$RangeFromI64$Mc51a63d6f709b5c2$i64__tup$2$i64$i64
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$RangeI32$Mc51a63d6f709b5c2$i32__tup$2$i64$i32
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$RangeI64$Mc51a63d6f709b5c2$i64__tup$2$i64$i64
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$RangeInclI32$Mc51a63d6f709b5c2$i32__tup$2$i64$i32
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$RangeInclI64$Mc51a63d6f709b5c2$i64__tup$2$i64$i64
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$RevRangeI32$Mc51a63d6f709b5c2$i32__tup$2$i64$i32
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$RevRangeI64$Mc51a63d6f709b5c2$i64__tup$2$i64$i64
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$SplitWhitespace$M52ee1cb1744c7040$slice_u8__tup$2$i64$slice_u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__EnumIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__tup$2$i64$slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15930,6 +16077,8 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$S
 sym	logos_lang.logos.lang.iter$iter_min__g__I__FilterIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__InspectIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__InspectIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__InspectIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__InspectIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__InspectIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__InspectIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__InspectIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15946,6 +16095,7 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__LineReader$Mf80870be9762aff5__Str
 sym	logos_lang.logos.lang.iter$iter_min__g__I__Lines$M52ee1cb1744c7040__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$bool__bool
+sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i128__i128
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i16__i16
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i32__i32
@@ -15953,6 +16103,7 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$i8__i8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$ref_i32__ref_i32
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$slice_u8__slice_u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$tup$2$i64$char__tup$2$i64$char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u128__u128
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u16__u16
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u32__u32
@@ -15960,6 +16111,8 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u
 sym	logos_lang.logos.lang.iter$iter_min__g__I__OptionIter$Mda436a411810b917$G1$u8__u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__PeekableIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -15980,6 +16133,7 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__RangeInclI32$Mc51a63d6f709b5c2__i
 sym	logos_lang.logos.lang.iter$iter_min__g__I__RangeInclI64$Mc51a63d6f709b5c2__i64
 sym	logos_lang.logos.lang.iter$iter_min__g__I__ResultIter$Mda436a411810b917$G1$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__ResultIter$Mda436a411810b917$G1$bool__bool
+sym	logos_lang.logos.lang.iter$iter_min__g__I__ResultIter$Mda436a411810b917$G1$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__ResultIter$Mda436a411810b917$G1$i128__i128
 sym	logos_lang.logos.lang.iter$iter_min__g__I__ResultIter$Mda436a411810b917$G1$i16__i16
 sym	logos_lang.logos.lang.iter$iter_min__g__I__ResultIter$Mda436a411810b917$G1$i32__i32
@@ -15997,6 +16151,8 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__RevRangeI32$Mc51a63d6f709b5c2__i3
 sym	logos_lang.logos.lang.iter$iter_min__g__I__RevRangeI64$Mc51a63d6f709b5c2__i64
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -16011,6 +16167,8 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$Spl
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipWhileIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipWhileIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipWhileIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipWhileIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__SkipWhileIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -16027,6 +16185,8 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__SplitWhitespace$M52ee1cb1744c7040
 sym	logos_lang.logos.lang.iter$iter_min__g__I__Splitter$M52ee1cb1744c7040__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -16041,6 +16201,8 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$S
 sym	logos_lang.logos.lang.iter$iter_min__g__I__StepByIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32
@@ -16055,6 +16217,8 @@ sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$Spl
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeIter$Mda436a411810b917$G2$Splitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeWhileIter$Mda436a411810b917$G2$ByteSplitter$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeWhileIter$Mda436a411810b917$G2$Bytes$M52ee1cb1744c7040$u8__u8
+sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeWhileIter$Mda436a411810b917$G2$CharIndices$M52ee1cb1744c7040$tup$2$i64$char__tup$2$i64$char
+sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeWhileIter$Mda436a411810b917$G2$Chars$M52ee1cb1744c7040$char__char
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeWhileIter$Mda436a411810b917$G2$LineReader$Mf80870be9762aff5$String$M5ca39a0a178b867d__String$M5ca39a0a178b867d
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeWhileIter$Mda436a411810b917$G2$Lines$M52ee1cb1744c7040$slice_u8__slice_u8
 sym	logos_lang.logos.lang.iter$iter_min__g__I__TakeWhileIter$Mda436a411810b917$G2$RangeFromI32$Mc51a63d6f709b5c2$i32__i32

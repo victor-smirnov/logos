@@ -8,6 +8,8 @@ impl Clone for Ver { fn clone(&self) -> Ver { *self } }
 impl Copy for Ver {}
 impl PartialEq for Ver { fn eq(&self, o: &Ver) -> bool { self.major == o.major } }
 impl Eq for Ver {}
-impl PartialOrd for Ver {}
+impl PartialOrd for Ver {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 impl Ord for Ver { fn cmp(&self, o: &Ver) -> Ordering { self.major.cmp(&o.major) } }
 fn main() { let vs = vec![Ver { major: 1 }, Ver { major: 5 }, Ver { major: 2 }]; let mx = vs.iter().max().unwrap(); println!("{}", mx.major); }
