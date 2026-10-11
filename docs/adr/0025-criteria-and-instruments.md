@@ -1721,7 +1721,7 @@ standalone rc 0; the criterion-1 instrument rc 0.
 | L8 | **`__cv` pin** | one comprehension-lowering landing is accounted by a ground no gate holds — a second `__cv` currently reds nothing. Pin it beside `EXPECT_NOMAT["container"]` |
 | L9 | **re-ground the 3 `__gs_edges_<T>`** | their ground says "built outside the query plan" but the builder is a derive macro IN THIS COMPILATION; either re-ground or move them into the worklist |
 | L10 | **per-node attribution** | `__hm` 589 vs `arrange` 599 and `__ix` 321 sharing `key vector` 129 with `__ks` are credited CLASS-level; make the correspondence site-for-site or state the admission as permanent |
-| L11 | **criterion-1 instrument repairs** | (a) stop `rm -rf`-ing an unvalidated `$1` — refuse an OUTDIR that exists and was not created by this script, and refuse one under the repo or build tree; (b) add the output-side blindness floor its siblings have (`FAIL(2)` when the sweep produced no dumps, instead of a `ZeroDivisionError`) |
+| L11 | **criterion-1 instrument repairs** | (a) **DONE 2026-10-11**: the OUTDIR is refused when it is `/`, inside the repository, or an existing directory without the instrument's marker file — was: stop `rm -rf`-ing an unvalidated `$1` — refuse an OUTDIR that exists and was not created by this script, and refuse one under the repo or build tree; (b) add the output-side blindness floor its siblings have (`FAIL(2)` when the sweep produced no dumps, instead of a `ZeroDivisionError`) |
 | L12 | **`writ_graph_edges` = 45 of the 76** | the largest remaining C1 admission is one producer; the row is "does a writ walk have an in-plan producer", and it only becomes askable after L1/L2 |
 
 **PASS.** The tree supports every verdict above, the two undecided rows are

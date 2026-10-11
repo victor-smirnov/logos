@@ -179,7 +179,20 @@ export LOGOS_LIB_DIR=${LOGOS_LIB_DIR:-$REPO/build/lib/logos}
 export LC_ALL=C
 
 [ -x "$LOGOSC" ] || { echo "FAIL(2): no logosc at $LOGOSC"; exit 2; }
-rm -rf "$OUT"; mkdir -p "$OUT/_st"
+# THE OUTDIR IS REPLACED, SO IT IS VALIDATED FIRST (ADR 0025 criteria, L11a):
+# never a path inside the repository (the build tree included) or `/`, and an
+# existing directory only if this instrument made it (its marker file) — a
+# mistyped argument must not become an `rm -rf` of somebody's directory.
+OUT=$(realpath -m -- "$OUT")
+case "$OUT/" in
+    //|"$REPO"/*) echo "FAIL(2): OUTDIR $OUT is / or inside the repository — refused"; exit 2;;
+esac
+MARK=".criterion1_instrument_outdir"
+if [ -e "$OUT" ]; then
+    [ -f "$OUT/$MARK" ] || { echo "FAIL(2): OUTDIR $OUT exists and was not made by this instrument (no $MARK) — refused"; exit 2; }
+    rm -rf -- "$OUT"
+fi
+mkdir -p "$OUT/_st" && : > "$OUT/$MARK"
 shopt -s nullglob
 FIXTURES=("$TESTS"/wql_*.logos "$TESTS"/deem_*.logos)
 if [ "${#FIXTURES[@]}" -lt 20 ]; then echo "FAIL(2): ${#FIXTURES[@]} fixtures — population lost"; exit 2; fi
@@ -355,6 +368,21 @@ NOMAT = {
     # `retract identity` (2026-10-03): what a bare-scan retraction is matched
     # on. The store it decides is already counted as the handle's `__s0`.
     'row', 'footprint',
+    # 2026-10-11, the heads the planner gained since this table was written
+    # (ADR 0031 R3/R5, #322, ADR 0026), each a DECISION whose storage — if any —
+    # another head already counts:
+    #   live rels: `not evaluated` (a rel no reader reaches is pruned) and
+    #   `evaluated though unread` (kept for its Err); demand: `demand-driven`
+    #   (the adorned copy and its `__m_` rel are rels, counted by the rel
+    #   heads) and `fully materialized` (demand declined; the rel's own
+    #   materialization is its `materialize` line); source declarations:
+    #   `unique key`, `distinct-value count` and the cost line `join selectivity
+    #   from declared distinct counts`; `unique index` annotates the hash join's
+    #   Arrange (counted as `arrange`); `ledger_at` / `ledger_from` are source
+    #   operations like `btree_at`; `base filter` places a `where` conjunct.
+    'not evaluated', 'evaluated though unread', 'demand-driven', 'fully materialized',
+    'unique key', 'distinct-value count', 'join selectivity from declared distinct counts',
+    'unique index', 'ledger_at', 'ledger_from', 'base filter',
 }
 def head_of(line):
     m = re.match(r'^\[plan\] (.+?) -> (.*?)(?:   \(|$)', line)
