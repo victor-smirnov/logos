@@ -1,0 +1,18 @@
+// A PLAIN rel in a recursive component with a min lattice: it would keep
+// tuples derived from values the lattice later improves — an answer that
+// depends on evaluation order — so it is refused (compute it from the
+// lattice's result in a later rel).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Start { pub id: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
+pub deem bad(starts: &[Start], edges: &[Edge]) {
+    rel d(node: i64, lo: i64) {
+        from starts s select (s.id, 0);
+        from via v join edges e on e.src == v.node group by e.dst aggregate lo = min(v.lo + e.w) select (e.dst, lo);
+    }
+    rel via(node: i64, lo: i64) { from d x select (x.node, x.lo); }
+    from d r select (r.node, r.lo)
+}
+fn main() -> i32 { return 0i32; }

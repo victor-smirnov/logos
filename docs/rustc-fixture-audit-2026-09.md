@@ -266,14 +266,13 @@ and one `Rc<dyn Sp>`. rustc: **`error[E0592]: duplicate definitions with name `e
 **Clause:** `item.fn.signature-overloading` (items.md:194), whose Divergence line reads *"Rust does
 not permit free-function overloading by signature."*
 
-### 1 × PartialOrd is an empty marker in the Logos stdlib
-`bc_0914o_autoreffund_hb_h06_admit` (`exit: 0`, stdout `n=1001 r=0`). rustc: **`error[E0046]: not all
-trait items implemented`** — Logos's `impl PartialOrd for W { fn lt … }` supplies only `lt`, but
-Rust's `PartialOrd` requires `partial_cmp`.
-
-**Clause:** `trait.bounds.partialeq-via-eq` (divergences.md:2337): *"Logos Eq/Ord carry the methods
-Rust puts on PartialEq/PartialOrd; full split pending."* Logos's stdlib declares
-`pub trait PartialOrd {}` as an empty marker.
+### 1 × PartialOrd is an empty marker in the Logos stdlib — RETIRED 2026-10-10
+`bc_0914o_autoreffund_hb_h06_admit` (`exit: 0`, stdout `n=1001 r=0`). rustc refused the literal twin
+(**`error[E0046]: not all trait items implemented`** — `impl PartialOrd for W { fn lt … }` supplies only
+`lt`). PartialOrd is Rust's now (`partial_cmp` required, PartialEq its supertrait; clause
+`trait.bounds.partialeq-via-eq` carries no divergence), and the fixture was rewritten Rust-legal: W
+implements PartialEq and a `partial_cmp` answering None beside its `lt`, so the oracle still reaches 1001
+only through the overridden `lt`.
 
 ### 3 × relational operators from an INHERENT method
 `bc_0915a_refeq_hb_e39_admit` (inherent `partial_cmp`), `bc_0915b_refeqland_hb_f08r_admit` and

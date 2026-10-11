@@ -1,0 +1,1 @@
+wql!: rel 'r': an outer join (`left join` / `full join`) is not supported in a rel body yet

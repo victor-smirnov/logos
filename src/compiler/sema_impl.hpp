@@ -3757,6 +3757,15 @@ private:
     // type_params haven't been read yet.
     enum class SemaPhase { Init, Collect, Lower };
     SemaPhase phase_ = SemaPhase::Init;
+    // E0407, checked once collection ends (an impl may precede its trait).
+    struct PendingImplMembers {
+        DefId trait;
+        std::string trait_name;
+        std::vector<std::pair<std::string, uint32_t>> methods;   // name, line
+        std::string ctx, file;
+    };
+    std::vector<PendingImplMembers> pending_impl_members_;
+    void check_impl_members_();
 
     void error(std::string msg) {
         result_.diags.push_back({Diag::Level::Error, ctx_, std::move(msg), file_, node_line_, node_col_()});

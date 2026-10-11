@@ -12,6 +12,13 @@ impl Ord for S {
         return Ordering::Equal;
     }
 }
+impl PartialEq for S {
+    fn eq(&self, other: &Self) -> bool { return self.cmp(other) == Ordering::Equal; }
+}
+impl Eq for S {}
+impl PartialOrd for S {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 trait Ranked: Ord {}
 impl Ranked for S {}
 fn lt_ref<T: Ord>(a: &T, b: &T) -> bool { return a < b; }

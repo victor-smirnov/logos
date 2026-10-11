@@ -1,0 +1,1 @@
+wql!: the row `d` is read whole, but after its outer join it may not exist

@@ -2,7 +2,7 @@
 
 Cross-cutting view over the extracted rule corpus (`tools/spec-extract/rules/**`): every spec rule whose `divergence` field is non-empty, grouped by divergence tag/kind. This register is *derived from compiler evidence*; the policy source of truth is [`docs/DIVERGENCES.md`](../DIVERGENCES.md) — a tag here that matches a §A/§B row there is registered; anything without a matching row is flagged **unregistered — needs triage** per the "no silent divergence" rule.
 
-**496 divergence-carrying rules** — §A blessed: 165 · §B catch-up refs: 18 · baghunt G156-1: 3 · Logos-specific additions: 203 · unregistered (triage): 70 · conformance notes: 37.
+**495 divergence-carrying rules** — §A blessed: 165 · §B catch-up refs: 18 · baghunt G156-1: 3 · Logos-specific additions: 203 · unregistered (triage): 69 · conformance notes: 37.
 
 ---
 
@@ -2032,7 +2032,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 
 ## Unregistered — needs triage
 
-Untagged behavioral differences from Rust that are neither marked as additions nor tied to any `docs/DIVERGENCES.md` row. Per the register's rule, each must be triaged into a §A blessed row (with a tag) or a §B catch-up TODO — none may remain a silent divergence. Notable clusters: implicit integer widening, structural auto-`Copy`, free-fn signature overloading, `str` = `Slice<u8>`, `i64` where Rust uses `usize`, lifetimes not structurally tracked. 70 rule(s).
+Untagged behavioral differences from Rust that are neither marked as additions nor tied to any `docs/DIVERGENCES.md` row. Per the register's rule, each must be triaged into a §A blessed row (with a tag) or a §B catch-up TODO — none may remain a silent divergence. Notable clusters: implicit integer widening, structural auto-`Copy`, free-fn signature overloading, `str` = `Slice<u8>`, `i64` where Rust uses `usize`, lifetimes not structurally tracked. 69 rule(s).
 
 ### `borrow.closure.capture-by-ref-loan` — Non-move closure captures register field-path (RFC-2229) borrows
 - **Divergence**: RFC-2229 disjoint closure capture: field-path precision, but a whole-var SHARED capture is a liveness check only (not a recorded shared borrow) to avoid blocking sibling mutation
@@ -2316,11 +2316,6 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Divergence**: Rust's HRTB binder affects variance/soundness checking; Logos parses the syntax for source compatibility but erases it semantically (no lifetime-parametric trait-bound checking) — no existing DIVERGENCES.md tag covers this; noted here as a one-line divergence.
 - **Rule**: `for<'a, 'b, ...> Trait<...>` (HRTB) is accepted as a bound prefix on every trait_bound alternative, but Logos does not track lifetimes structurally: the binder is parsed into a disposable head and dropped, so `for<'a> Fn(&'a T)` is semantically identical to `Fn(&T)`.
 - **Source**: `tools/peg_gen_cpp/grammars/logos.peg#L3137-L3150`, `tools/peg_gen_cpp/grammars/logos.peg#L3157-L3168`
-
-### `trait.bounds.partialeq-via-eq` — PartialEq/PartialOrd satisfied by Eq/Ord impls
-- **Divergence**: Logos Eq/Ord carry the methods Rust puts on PartialEq/PartialOrd; full split pending.
-- **Rule**: A `T: PartialEq` bound is satisfied by an existing Eq impl, and `T: PartialOrd` by an Ord impl (alias resolution over concrete and unwrapped names).
-- **Source**: `src/compiler/sema_collect.cpp#L1110-L1131`
 
 ### `trait.impl.foreign-private-trait-error` — impl of a foreign private trait is an error
 - **Divergence**: Note: §4 module/package visibility model; trait must be pub-accessible to be implemented across package boundaries.

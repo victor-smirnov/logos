@@ -1,0 +1,1 @@
+builtin 'is_some' takes an `Option<T>`

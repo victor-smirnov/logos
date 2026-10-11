@@ -23,6 +23,13 @@ impl Ord for Inner {
         return Ordering::Equal;
     }
 }
+impl PartialEq for Inner {
+    fn eq(&self, other: &Self) -> bool { return self.cmp(other) == Ordering::Equal; }
+}
+impl Eq for Inner {}
+impl PartialOrd for Inner {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> { return Option::Some(self.cmp(other)); }
+}
 fn src() -> VecIntoIter<Inner> {
     let mut s: Vec<Inner> = vec_new::<Inner>();
     s.push(mk(3i64)); s.push(mk(1i64)); s.push(mk(2i64));

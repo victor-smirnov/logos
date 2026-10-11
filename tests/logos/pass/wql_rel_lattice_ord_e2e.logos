@@ -6,7 +6,7 @@ use logos.std.wql.wql;
 use logos.mem.collections.vec;
 use logos.lang.hash;
 use logos.std.compiler.metaprog;
-#[derive_ord]
+#[derive_partial_ord] #[derive_ord]
 #[derive_partial_eq] #[derive_eq]
 #[derive_hash]
 #[derive_clone]

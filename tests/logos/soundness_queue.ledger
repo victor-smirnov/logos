@@ -208,8 +208,6 @@ option_combinators_take_fn_pointers_refused 3 tests/soundness/open/option_combin
 
 owned_return_from_ref_param_keeps_loan_refused 3 tests/soundness/open/owned_return_from_ref_param_keeps_loan_refused refuses
 
-partialord_marker_no_lt_refused 3 tests/soundness/open/partialord_marker_no_lt_refused refuses
-
 qualified_path_generic_self_type_refused 3 tests/soundness/open/qualified_path_generic_self_type_refused refuses
 
 ref_t_not_clone_refused 3 tests/soundness/open/ref_t_not_clone_refused refuses
@@ -424,5 +422,5 @@ ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_a
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 122
-# SYNC-HASH c05ebe6926663f6e72a83eb28709e673
+# TOTAL 121
+# SYNC-HASH 196131e1bb4a142f73dc7d7675819cde

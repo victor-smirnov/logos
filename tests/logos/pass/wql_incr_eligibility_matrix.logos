@@ -306,8 +306,8 @@ pub deem no_rel_outside(es: &[E]) {
 // parameter"), which is a DIFFERENT clause; seeding `dist` from `ws` itself
 // keeps `any_agg` the only thing standing between this query and a handle, so
 // the gate's row cannot be satisfied by the wrong refusal. `plan_walker`'s
-// `check_stratified` forces a recursive min head to be its OWN component ("a
-// recursive min/max aggregate must be its OWN recursive component"), so
+// `check_stratified` admits a recursive min head only in a component of min
+// lattices ("mutual recursion through an aggregate is admitted only between lattices"), so
 // `rec` holds, `nmem == prm.rel_n == 1`, and `any_agg` is the FIRST clause in
 // the chain that can fire.
 pub deem no_rel_agg(ws: &[W]) {

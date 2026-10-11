@@ -1,0 +1,57 @@
+// `left join` (#8 roadmap): every row so far is kept, and the new var binds to
+// its matches or to none — its columns read as `Option<T>` after the step, as
+// in Rust (no SQL NULL logic). `is_some` / `is_none` / `unwrap_or` read them.
+// Sorted and unsorted, a hash (equi) and a nested-loop (non-equi) step, two
+// left joins in a chain (the second keyed through `unwrap_or` of the first's
+// optional column), a group by over an optional column. Rows: hand-derived.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+use logos.std.fmt;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64, pub boss: i64 }
+struct Boss { pub id: i64, pub age: i64 }
+// sorted, unwrap_or in select
+pub deem floors(es: &[Emp], ds: &[Dept]) {
+    from es e left join ds d on d.id == e.dept select (e.id, unwrap_or(d.floor, 0)) order by e.id
+}
+// the unmatched rows only (anti join spelled as a left join)
+pub deem orphans(es: &[Emp], ds: &[Dept]) {
+    from es e left join ds d on d.id == e.dept where is_none(d.floor) select e.id order by e.id
+}
+// unsorted (the direct push path)
+pub deem count_all(es: &[Emp], ds: &[Dept]) { from es e left join ds d on d.id == e.dept select e.id }
+// a non-equi on (nested loop)
+pub deem below(es: &[Emp], ds: &[Dept]) {
+    from es e left join ds d on d.id < e.dept select (e.id, d.id) order by e.id * 100 + unwrap_or(d.id, 0)
+}
+// two left joins in a chain; the second reads the first's optional column through unwrap_or
+pub deem bosses(es: &[Emp], ds: &[Dept], bs: &[Boss]) {
+    from es e left join ds d on d.id == e.dept left join bs b on b.id == unwrap_or(d.boss, -1)
+    select (e.id, b.age) order by e.id
+}
+// group by over an optional column
+pub deem per_floor(es: &[Emp], ds: &[Dept]) {
+    from es e left join ds d on d.id == e.dept group by d.floor aggregate n = count() select n order by n
+}
+fn opt(o: Option<i64>) -> i64 { match o { Option::Some(x) => { return x; } Option::None => { return -1i64; } } }
+fn main() -> i32 {
+    let es: [Emp; 4] = [ Emp { id: 1, dept: 10 }, Emp { id: 2, dept: 99 }, Emp { id: 3, dept: 20 }, Emp { id: 4, dept: 10 } ];
+    let ds: [Dept; 2] = [ Dept { id: 10, floor: 4, boss: 7 }, Dept { id: 20, floor: 7, boss: 8 } ];
+    let bs: [Boss; 1] = [ Boss { id: 7, age: 50 } ];
+    let f: Vec<(i64, i64)> = floors(&es[..], &ds[..]).unwrap();
+    let mut i: i64 = 0i64;
+    while i < f.len() { println!("floors {} {}", f.get(i).0, f.get(i).1); i = i + 1i64; }
+    let o: Vec<i64> = orphans(&es[..], &ds[..]).unwrap();
+    i = 0i64; while i < o.len() { println!("orphan {}", o.get(i)); i = i + 1i64; }
+    println!("count {}", count_all(&es[..], &ds[..]).unwrap().len());
+    let b: Vec<(i64, Option<i64>)> = below(&es[..], &ds[..]).unwrap();
+    i = 0i64; while i < b.len() { println!("below {} {}", b.get(i).0, opt(b.get(i).1)); i = i + 1i64; }
+    let bb: Vec<(i64, Option<i64>)> = bosses(&es[..], &ds[..], &bs[..]).unwrap();
+    i = 0i64; while i < bb.len() { println!("boss {} {}", bb.get(i).0, opt(bb.get(i).1)); i = i + 1i64; }
+    let p: Vec<i64> = per_floor(&es[..], &ds[..]).unwrap();
+    i = 0i64; while i < p.len() { println!("floor_n {}", p.get(i)); i = i + 1i64; }
+    return 0i32;
+}

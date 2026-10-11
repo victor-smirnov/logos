@@ -3534,11 +3534,6 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     for (auto a : method_args) if (!a || contains_typevar(a)) args_concrete = false;
                     if (!args_concrete) continue;
                     std::string r = trait_item_symbol_(ident, cr, method, nargs + 1, nullptr, &trait_args, &method_args);
-                    // SL-sl-02, as sema's bound check: a `PartialOrd` bound is
-                    // satisfied by the type's `Ord` impl, which carries the method.
-                    if (r.empty() && tt == "PartialOrd")
-                        r = trait_item_symbol_("logos.lang.cmp::Ord", cr,
-                                               method, nargs + 1, nullptr, &trait_args, &method_args);
                     if (r.empty()) continue;
                     if (sym.empty()) sym = std::move(r);
                     else if (sym != r) sym_ambiguous = true;

@@ -1,0 +1,6 @@
+// Closed squeue partialord_marker_no_lt_refused (#683): PartialOrd carries partial_cmp (Rust's shape) and derive_partial_ord emits the lexicographic one; exit 0 as rustc.
+package partialord_marker_no_lt_refused;
+use logos.std.compiler.metaprog;
+#[derive_partial_eq] #[derive_partial_ord]
+struct Q { n: i64 }
+fn main() -> i32 { let a = Q { n: 1 }; let b = Q { n: 2 }; if a < b { return 0; } return 1; }

@@ -709,7 +709,7 @@ fn cm_sips(p: &CProgram, atoms: &Vec<MtAtom>, conj: &Vec<i64>, hv: &Vec<str>, hf
 }
 
 fn fresh_atom(src: CSrc, name: str, var: str) -> CLit {
-    return CLit::Atom(CAtom { src: src, reg: -1i64, name: name, var: var, row_ty: "", neg: false,
+    return CLit::Atom(CAtom { src: src, reg: -1i64, name: name, var: var, row_ty: "", neg: false, outer: 0i32,
                               conds: Vec::<WAny>::new(), strat: 0i32, jsel: -1i32, ground: 0i64 });
 }
 
@@ -792,7 +792,7 @@ fn cm_magic_body(cl: &CClause, names: &Vec<str>, lit: &Vec<i64>, atoms: &Vec<MtA
                     let mut pk: i64 = 0i64;
                     while pk < tv.path.len() { path.push(dv(tv.path.get(pk))); pk = pk + 1i64; }
                     body.push(CLit::Trav(CTrav { name: dv(tv.name), base: dv(tv.base), path: path, var: dv(tv.var), row_ty: "",
-                                                 neg: false, conds: Vec::<WAny>::new() }));
+                                                 neg: false, outer: 0i32, conds: Vec::<WAny>::new() }));
                 }
                 _ => { logos.lang.panic::panic("ICE: core magic: a traversal atom is not a traversal literal"); }
             }
@@ -964,7 +964,7 @@ fn clause_copy(cl: &CClause) -> CClause {
                 let mut k: i64 = 0i64;
                 while k < a.conds.len() { cs.push(a.conds.get(k)); k = k + 1i64; }
                 body.push(CLit::Atom(CAtom { src: CSrc::Param(dv(a.name)), reg: a.reg, name: dv(a.name), var: dv(a.var), row_ty: dv(a.row_ty),
-                                             neg: a.neg, conds: cs, strat: a.strat, jsel: a.jsel, ground: a.ground }));
+                                             neg: a.neg, outer: a.outer, conds: cs, strat: a.strat, jsel: a.jsel, ground: a.ground }));
             }
             CLit::Trav(t) => {
                 let mut cs2: Vec<WAny> = Vec::<WAny>::new();
@@ -974,7 +974,7 @@ fn clause_copy(cl: &CClause) -> CClause {
                 let mut k3: i64 = 0i64;
                 while k3 < t.path.len() { path.push(dv(t.path.get(k3))); k3 = k3 + 1i64; }
                 body.push(CLit::Trav(CTrav { name: dv(t.name), base: dv(t.base), path: path, var: dv(t.var), row_ty: dv(t.row_ty),
-                                             neg: t.neg, conds: cs2 }));
+                                             neg: t.neg, outer: t.outer, conds: cs2 }));
             }
             CLit::Cond(c) => {
                 let site: CSite = match &c.site { CSite::Where => CSite::Where, CSite::On => CSite::On };
@@ -1381,7 +1381,7 @@ fn gp_clause(cl: &mut CClause, h: &Writ, inj: &mut GpInj, err: &mut String) -> b
         match l {
             CLit::Atom(a) => {
                 if !base_done {
-                    cl.body.push(CLit::Atom(CAtom { src: a.src, reg: a.reg, name: a.name, var: "__ga", row_ty: a.row_ty, neg: a.neg,
+                    cl.body.push(CLit::Atom(CAtom { src: a.src, reg: a.reg, name: a.name, var: "__ga", row_ty: a.row_ty, neg: a.neg, outer: a.outer,
                                                     conds: a.conds, strat: a.strat, jsel: a.jsel, ground: a.ground }));
                     base_done = true;
                     while chain.len() > 0i64 { cl.body.push(chain.remove(0i64)); }

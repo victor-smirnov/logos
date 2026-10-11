@@ -1,0 +1,34 @@
+// Mutual recursion through min lattices (#9 roadmap): `a` and `b` form one
+// recursive component and BOTH are min lattices, so each absorbs its own stale
+// values and the result is the least fixpoint of the product lattice,
+// whatever the round order. Rows: hand-derived.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Start { pub id: i64 }
+struct Edge { pub src: i64, pub dst: i64, pub w: i64 }
+// Shortest distances over a bipartite graph as two mutually recursive min
+// lattices: a(node) reached on the "left", b(node) on the "right"; ab edges go
+// left→right, ba edges right→left.
+pub deem dist(starts: &[Start], ab: &[Edge], ba: &[Edge]) {
+    rel a(node: i64, lo: i64) {
+        from starts s select (s.id, 0);
+        from b x join ba e on e.src == x.node group by e.dst aggregate lo = min(x.lo + e.w) select (e.dst, lo);
+    }
+    rel b(node: i64, lo: i64) {
+        from a x join ab e on e.src == x.node group by e.dst aggregate lo = min(x.lo + e.w) select (e.dst, lo);
+    }
+    from a r select (r.node, r.lo) order by r.node
+}
+fn main() -> i32 {
+    let starts: [Start; 1] = [ Start { id: 1 } ];
+    // 1 -ab3-> 10 -ba4-> 2 ; 1 -ab1-> 11 -ba1-> 2 ; 2 -ab1-> 10 -ba1-> 3
+    let ab: [Edge; 3] = [ Edge { src: 1, dst: 10, w: 3 }, Edge { src: 1, dst: 11, w: 1 }, Edge { src: 2, dst: 10, w: 1 } ];
+    let ba: [Edge; 3] = [ Edge { src: 10, dst: 2, w: 4 }, Edge { src: 11, dst: 2, w: 1 }, Edge { src: 10, dst: 3, w: 1 } ];
+    let r: Vec<(i64, i64)> = dist(&starts[..], &ab[..], &ba[..]).unwrap();
+    let mut i: i64 = 0i64;
+    while i < r.len() { println!("{} {}", r.get(i).0, r.get(i).1); i = i + 1i64; }
+    return 0i32;
+}

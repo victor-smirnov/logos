@@ -1,13 +1,12 @@
 // logos-core §6.10 sub-deliverable 6/8: derive(PartialOrd).
-// Logos's PartialOrd is a marker trait (no methods); handler emits
-// `impl PartialOrd for S {}` to satisfy the trait bound. With
-// `Ord` also derived, `T: PartialOrd` checks succeed via the
-// Ord-implies-PartialOrd bound-check fallback in sema.
+// As rustc's: a lexicographic `partial_cmp`; `Ord: Eq + PartialOrd`, so the
+// Eq / PartialEq derives stand beside it.
 package core_6_10_derive_partial_ord;
 
 use logos.std.compiler.metaprog;
 use logos.lang.cmp;
 
+#[derive_partial_eq] #[derive_eq]
 #[derive_partial_ord]
 #[derive_ord]
 struct Pair { a: i32, b: i32 }
