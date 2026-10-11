@@ -136,7 +136,8 @@ void Lowering::collect_binders(AnyVal v) {
         }
     } else if (c == la::PAT_FIELD.code) {
         if (!n.has_key(la::VALUE)) name = text_of(n, la::NAME.code);
-    } else if (c == la::LET.code || c == la::PARAM.code || c == la::NESTED_FN.code) {
+    } else if (c == la::LET.code || c == la::PARAM.code || c == la::NESTED_FN.code ||
+               c == la::DEEM_DEF.code || c == la::FN_MACRO_CALL_ITEM_DONE.code) {
         name = text_of(n, la::NAME.code);
     }
     if (!name.empty()) bound_.emplace(name);

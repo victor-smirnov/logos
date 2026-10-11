@@ -1,0 +1,13 @@
+// A block-local deem captures nothing (rustc E0434 for a fn item): a name of
+// the enclosing fn is not a row variable, a parameter, or a module const.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Edge { pub src: i64, pub dst: i64 }
+fn f(es: &[Edge], lim: i64) -> i64 {
+    deem q(edges: &[Edge]) { from edges e where e.src > lim select e.dst }
+    return q(es).unwrap().len();
+}
+fn main() -> i32 { let es: [Edge; 1] = [ Edge { src: 1, dst: 2 } ]; println!("{}", f(&es[..], 0)); return 0i32; }

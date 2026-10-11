@@ -10936,9 +10936,14 @@ void SemaChecker::lower_module_items(TinyMapView mod, lir::LProgram& prog) {
                 }
             }
         }
+        for (const auto& ld : local_deems_)
+            if (ld.ast_idx == cur_ast_idx_ && code_of(ld.node) == la::DEEM_DEF) cur_ast_has_pending_item_mc_ = true;
         if (cur_ast_has_pending_item_mc_ && !cur_package_.empty())
             metaprog_pending_pkgs_.insert(cur_package_);
     }
+    // Block-local deems: items of this module under their collected symbols.
+    for (const auto& ld : local_deems_)
+        if (ld.ast_idx == cur_ast_idx_ && code_of(ld.node) == la::DEEM_DEF) lower_deem_def(ld.node, prog, ld.sym);
     for (uint64_t i = 0; i < flat_items.size(); ++i) {
         auto item = flat_items[i];
         int32_t c = code_of(item);

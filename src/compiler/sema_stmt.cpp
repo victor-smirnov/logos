@@ -688,6 +688,7 @@ lir_view::StmtRef SemaChecker::lower_stmt_inner(TinyMapView stmt) {
         return lower_let_pat(stmt);
     }
     if (c == la::NESTED_FN)    return lower_nested_fn(stmt);
+    if (is_local_deem_(stmt))  return lower_nested_deem(stmt);
     if (c == la::ASSIGN)          return lower_assign(stmt);
     if (c == la::DESTRUCTURE_ASSIGN) {   // a let + assignments by now (the HIR pass)
         hir_gate_(stmt);
@@ -1680,6 +1681,16 @@ lir_view::StmtRef SemaChecker::lower_nested_fn(TinyMapView node) {
     std::string sym = local_fn_item_(name);
     if (!sym.empty())
         pending_nested_fns_.push_back({node, sym, local_fn_items_});
+    lir::SBlock sb;
+    sb.body = lir_mirror_block(*cur_prog_, {});
+    return make_stmt_emit(node_line_, std::move(sb));
+}
+
+// `deem q(…) { … }` in a block: an item of its module (lower_module_items
+// lowers it under the symbol collect gave it); here it is no statement.
+lir_view::StmtRef SemaChecker::lower_nested_deem(TinyMapView node) {
+    if (local_fn_item_(str_of(node.get(la::NAME.code))).empty())
+        error("deem in a block: the item was not collected (sema invariant)");
     lir::SBlock sb;
     sb.body = lir_mirror_block(*cur_prog_, {});
     return make_stmt_emit(node_line_, std::move(sb));
