@@ -1,0 +1,12 @@
+// SOUNDNESS QUEUE row closure_returns_param_data_refused (tier 3, `refuses`). A closure under an EARLY-BOUND parameter type (`map`'s `F: FnMut(Self::Item) -> B`, Item = `&'a B`) returns data its parameter points at; Logos gives the closure parameter a fresh universal region (as for a higher-ranked `Fn(&T)`), so the return "outlives" check refuses it.
+// Logos: lifetime may not live long enough: returning this value requires that the region of 'b outlives the closure's return
+// rustc: compiles and prints ["x", "yz"] (rustc 1.98.1 --edition 2024)
+// corpus: tests/interactions/clusters/closure-return-region-of-param/
+// fix hint: ret_tied (CL_RET_TIED) only reads an `Fn(&A) -> &B` bound; a bound parameter that is a projection / type parameter (not a reference WRITTEN in the Fn sugar) is early-bound — the closure's parameter region is the caller's, and a return typed by a type parameter may hold it. Carry that fact from closure_hint_from_fn_bound to the closure (the hint type is interned: not as a flag on it).
+package closure_returns_param_data_refused;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+struct B { t: String }
+fn titles(bs: &Vec<B>) -> Vec<&str> { let v: Vec<&str> = bs.iter().map(|b| b.t.as_str()).collect(); return v; }
+fn main() { let bs: Vec<B> = vec![B { t: String::from("x") }, B { t: String::from("yz") }]; println!("{:?}", titles(&bs)); }

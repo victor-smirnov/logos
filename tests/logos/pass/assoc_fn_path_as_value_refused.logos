@@ -1,0 +1,8 @@
+// Closed squeue assoc_fn_path_as_value_refused (#661): an argument-less Type::name path is the associated fn as a value (Type::new included); exit 7 as rustc.
+package assoc_fn_path_as_value_refused;
+struct S { x: i64 }
+impl S { fn new() -> S { S { x: 7 } } }
+fn main() -> i32 {
+    let g: fn() -> S = S::new;
+    return g().x as i32;
+}

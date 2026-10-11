@@ -176,8 +176,6 @@ recursive_type_via_option_payload_crash 2 tests/soundness/open/recursive_type_vi
 
 vec_truncate_drop_order_wrong 2 tests/soundness/open/vec_truncate_drop_order_wrong run 3
 
-assoc_fn_path_as_value_refused 3 tests/soundness/open/assoc_fn_path_as_value_refused refuses
-
 assoc_type_projection_expr_path_refused 3 tests/soundness/open/assoc_type_projection_expr_path_refused refuses
 
 box_clone_refused 3 tests/soundness/open/box_clone_refused refuses
@@ -251,6 +249,8 @@ ufcs_next_after_region_erased_binding_refused 3 tests/soundness/open/ufcs_next_a
 str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_quotes_bytes run 3
 
 rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visible_admitted admits
+
+closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_data_refused refuses
 
 # ── 2026-09-15a-refeq (PRICING, tier 1: `==` over two references compares the pointers) — found by the round's hand battery
 
@@ -413,4 +413,4 @@ rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visibl
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
 # TOTAL 116
-# SYNC-HASH 13759e59d17a50aed464a962b61e062a
+# SYNC-HASH 4d1f119a956ca0c758ff18a1654d48db

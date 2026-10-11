@@ -1,0 +1,15 @@
+// An associated fn as a VALUE: `P::new`, `P::get` (its receiver the first parameter), `Vec::<i64>::new`,
+// `String::new` under `fn() -> String` — `new` is a keyword, so the path forms never took it, and an
+// argument-less path lowered as a zero-argument call. rustc: 7 5 1 0.
+package assoc_fn_path_as_value;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+struct P { v: i64 }
+impl P { fn new() -> P { P { v: 7 } } fn get(&self) -> i64 { self.v } fn add(a: i64, b: i64) -> i64 { a + b } }
+fn main() {
+    let mk = P::new; let g = P::get; let a = P::add;
+    let f = Vec::<i64>::new; let mut v = f(); v.push(3);
+    let s: fn() -> String = String::new;
+    println!("{} {} {} {}", g(&mk()), a(2, 3), v.len(), s().len());
+}

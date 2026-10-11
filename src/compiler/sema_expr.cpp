@@ -17988,6 +17988,37 @@ lir::LExprPtr SemaChecker::lower_typaram_static_method(
 }
 
 lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
+    // `Vec::<i64>::new` / `String::new` with no argument list: the associated fn
+    // as a VALUE (`mk(Vec::new)`, `let g: fn() -> String = String::new`), as a
+    // payload variant is one — `|a0, ..| Type::name(a0, ..)` lowered against the
+    // expected shape. It lowered as a zero-argument CALL.
+    if (!node.has_key(la::ARGS) && node.has_key(la::RECEIVER) && node.has_key(la::NAME)) {
+        const uint32_t ln = node_line_;
+        std::vector<std::pair<uint8_t, writ::AnyVal>> tk{{la::NAME.code, node.get(la::RECEIVER.code)}};
+        writ::AnyVal tref = node.has_key(la::TYPE_PARAMS)
+            ? synth_node(la::TYPE_REF.code, ln, {{la::NAME.code, node.get(la::RECEIVER.code)},
+                                                 {la::TYPE_PARAMS.code, node.get(la::TYPE_PARAMS.code)}})
+            : synth_node(la::TYPE_REF.code, ln, {{la::NAME.code, node.get(la::RECEIVER.code)}});
+        TypeRef recv_t = resolve_type(map_of(tref));
+        const SemaFuncInfo* fi = nullptr;
+        if (recv_t && TypeRef(recv_t).kind() != LogosType::Kind::Error)
+            for (auto* c : methods_of_(recv_t, str_of(node.get(la::NAME.code))))
+                if (c) { fi = c; break; }   // a method's receiver is the closure's first parameter
+        if (fi) {
+            std::vector<writ::AnyVal> params, args;
+            for (size_t i = 0; i < fi->param_types.size(); ++i) {
+                auto nm = synth_str(std::format("__fnval_a{}", i));
+                params.push_back(synth_node(la::PARAM.code, ln, {{la::NAME.code, nm}}));
+                args.push_back(synth_node(la::VAR_REF.code, ln, {{la::NAME.code, nm}}));
+            }
+            auto call = synth_with_key(node, la::ARGS.code,
+                                       synth_node(la::BLOCK.code, ln, {{la::ITEMS.code, synth_array(args)}}));
+            auto clo = synth_node(la::CLOSURE_EXPR.code, ln,
+                                  {{la::PARAMS.code, synth_node(la::BLOCK.code, ln, {{la::ITEMS.code, synth_array(params)}})},
+                                   {la::VALUE.code, call}});
+            return lower_expr_expecting(map_of(clo), nullptr, closure_shape_());
+        }
+    }
     const TypeRef call_expected = expected_;   // the call's own expectation (args overwrite expected_)
     // Phase 1B-5 parity for TYPE-side turbofish (`PkdArray::<str>::format`):
     // bare `[T]`/`str`-as-unsized/`dyn` type args are legal when the class's

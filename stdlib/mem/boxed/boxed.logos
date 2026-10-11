@@ -118,11 +118,11 @@ impl<T: Default> Default for Box<T> {
 }
 
 // Rust's `AsRef<T>` / `AsMut<T>` for `Box<T>`.
-impl<E> AsRef<E> for Box<E> {
-    fn as_ref(&self) -> &E { return self.deref(); }
+impl<E: ?Sized> AsRef<E> for Box<E> {
+    fn as_ref(&self) -> &E { return &**self; }
 }
-impl<E> AsMut<E> for Box<E> {
-    fn as_mut(&mut self) -> &mut E { return self.deref_mut(); }
+impl<E: ?Sized> AsMut<E> for Box<E> {
+    fn as_mut(&mut self) -> &mut E { return &mut **self; }
 }
 
 impl<T> Deref<T> for Box<T> {
