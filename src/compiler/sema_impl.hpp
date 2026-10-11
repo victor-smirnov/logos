@@ -10523,7 +10523,25 @@ private:
                                      std::string& raw_text,
                                      std::string& enrich,
                                      std::string& natspec);
-    void          lower_deem_def(writ::TinyMapView node, lir::LProgram& prog);
+    void          lower_deem_def(writ::TinyMapView node, lir::LProgram& prog, std::string_view name_override = {});
+    lir_view::StmtRef lower_nested_deem(writ::TinyMapView node);
+    // Block-local deems (collect_nested_fns_): lowered as items of their
+    // module by lower_module_items, since a metaprog round stubs the bodies
+    // that hold them.
+    struct LocalDeem { size_t ast_idx; writ::TinyMapView node; std::string sym; };
+    std::vector<LocalDeem> local_deems_;
+    // A `deem` item in a block (DEEM_DEF, or the DONE marker the driver
+    // leaves on it once its handler ran).
+    static bool is_local_deem_(writ::TinyMapView n) {
+        namespace la = logos::compiler::ast;
+        if (n.is_null()) return false;
+        auto cav = n.get(la::CODE.code);
+        if (cav.is_null() || !cav.is_value()) return false;
+        const int32_t c = cav.as_value<int32_t>();
+        if (c != la::DEEM_DEF.code && c != la::FN_MACRO_CALL_ITEM_DONE.code) return false;
+        auto kw = n.get(la::REL_KW.code);
+        return !kw.is_null() && n.has_key(la::NAME);
+    }
     // `#[deem_source(<param> = "<materializer>")]` on a deem item: bind that
     // parameter's rel to the NAMED materializer instead of the one its source
     // impl carries. The seam a capability-directed plan needs — a specialized

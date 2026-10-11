@@ -1,0 +1,70 @@
+// `deem q(…) { … }` inside a fn body: a block-local item, as Rust's block-scoped
+// items. Sema registers it under a module-level symbol (`__ldeem_<outer>_<q>`)
+// and binds `q` and its companions in the enclosing body; it captures nothing
+// (deem_local_item_captures_fail). Pinned here: the same name in two fns, a
+// recursive rel block inside a method, the incremental handle's companions
+// inside a nested fn, a generic enclosing fn, and a local `q` shadowing a
+// module-level `q` (the module one still answers its own callers).
+// Rows: hand-derived.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Edge { pub src: i64, pub dst: i64 }
+struct Cnt { pub base: i64 }
+
+// the same local name in two fns
+fn a(es: &[Edge]) -> i64 {
+    deem q(edges: &[Edge]) { from edges e where e.src > 0 select e.dst }
+    return q(es).unwrap().len();
+}
+fn b(es: &[Edge]) -> i64 {
+    deem q(edges: &[Edge]) { from edges e where e.src == 0 select e.dst }
+    return q(es).unwrap().len();
+}
+// a rel block (recursive) inside a method
+impl Cnt {
+    fn reach(self: &Self, es: &[Edge]) -> i64 {
+        deem r(edges: &[Edge]) {
+            rel tc(x: i64, y: i64) {
+                from edges e select (e.src, e.dst);
+                from tc t join edges e on e.src == t.y select (t.x, e.dst);
+            }
+            from tc t select (t.x, t.y)
+        }
+        return self.base + r(es).unwrap().len();
+    }
+}
+// the incremental handle's companions, inside a nested fn
+fn outer() -> i64 {
+    fn inner(es: &[Edge]) -> i64 {
+        deem g(edges: &[Edge]) { from edges e group by e.src aggregate n = count() select (key, n) }
+        let mut h = g_incremental();
+        g_epoch(&mut h, es).unwrap();
+        return g_snapshot(&h).unwrap().len();
+    }
+    let es: [Edge; 3] = [ Edge { src: 1, dst: 2 }, Edge { src: 1, dst: 3 }, Edge { src: 2, dst: 4 } ];
+    return inner(&es[..]);
+}
+// a generic enclosing fn
+fn gen<T>(es: &[Edge], t: T) -> i64 {
+    deem q(edges: &[Edge]) { from edges e where e.dst > 2 select e.dst }
+    return q(es).unwrap().len();
+}
+// a module-level `q`, shadowed by the local one
+pub deem q(edges: &[Edge]) { from edges e select e.src }
+fn shadow(es: &[Edge]) -> i64 {
+    deem q(edges: &[Edge]) { from edges e where e.src > 5 select e.dst }
+    return q(es).unwrap().len();
+}
+fn main() -> i32 {
+    let es: [Edge; 3] = [ Edge { src: 1, dst: 2 }, Edge { src: 0, dst: 3 }, Edge { src: 2, dst: 4 } ];
+    println!("{} {}", a(&es[..]), b(&es[..]));
+    let c = Cnt { base: 100 };
+    let ch: [Edge; 3] = [ Edge { src: 1, dst: 2 }, Edge { src: 2, dst: 3 }, Edge { src: 3, dst: 4 } ];
+    println!("{}", c.reach(&ch[..]));
+    println!("{}", outer());
+    println!("{} {} {}", gen(&es[..], 7i64), shadow(&es[..]), q(&es[..]).unwrap().len());
+    return 0i32;
+}

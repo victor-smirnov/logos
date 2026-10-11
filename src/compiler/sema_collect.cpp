@@ -6815,6 +6815,19 @@ void SemaChecker::collect_nested_fns_(writ::AnyVal v, const std::string& outer, 
     }
     TinyMapView n = map_of(v);
     if (n.is_null()) return;
+    if (is_local_deem_(n)) {
+        // A block-local deem: a module-level item under a symbol the deem
+        // handler can spell (it emits source text), so no `$`.
+        const std::string name(str_of(n.get(la::NAME.code)));
+        const std::string key = nested_fn_key_(outer, name, get_line(n));
+        std::string sym = "__ldeem_";
+        for (char ch : outer) sym += (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_') ? ch : '_';
+        sym += "_" + name;
+        for (auto& [k, sv] : nested_fn_sym_) if (sv == sym && k != key) { sym += "_" + std::to_string(get_line(n)); break; }
+        nested_fn_sym_[key] = sym;
+        local_deems_.push_back({cur_ast_idx_, n, sym});
+        return;
+    }
     if (code_of(n) == la::NESTED_FN) {
         const std::string name(str_of(n.get(la::NAME.code)));
         const std::string key = nested_fn_key_(outer, name, get_line(n));
@@ -6848,6 +6861,17 @@ void SemaChecker::nested_fn_items_of_(writ::AnyVal v, const std::string& outer, 
         if (auto it = nested_fn_sym_.find(nested_fn_key_(outer, name, get_line(n))); it != nested_fn_sym_.end())
             out[name] = it->second;
         return;   // its own items are its body's
+    }
+    if (is_local_deem_(n)) {
+        // `q` and the companions a caller names (docs/spec/deem.md: the
+        // prepared plan and the incremental handle).
+        const std::string name(str_of(n.get(la::NAME.code)));
+        if (auto it = nested_fn_sym_.find(nested_fn_key_(outer, name, get_line(n))); it != nested_fn_sym_.end()) {
+            out[name] = it->second;
+            for (const char* sfx : {"_prepare", "_run", "_incremental", "_epoch", "_retract", "_apply", "_snapshot"})
+                out[name + sfx] = it->second + sfx;
+        }
+        return;
     }
     const uint64_t bits = n.bitmap();
     for (uint8_t k = 0; k < writ::TinyObjectMap::MAX_KEYS; ++k)

@@ -2418,10 +2418,18 @@
                     / KW_FN IDENT LPAREN param_list? RPAREN block
                    => { CODE: NESTED_FN, NAME: $2, PARAMS: $4, BODY: $6 }
 
+    // ── Block-local deem (`deem q(…) { … }` at stmt position) ───
+    // The item form of `deem_def` in a block, as Rust's block-scoped items:
+    // sema registers it under a gensym'd module-level name and binds `q` (and
+    // its companions) in the enclosing body; it captures nothing.
+    nested_deem_stmt <- IDENT IDENT type_param_list? LPAREN param_list? RPAREN RAW_GROUP_BRACE
+                     => { CODE: DEEM_DEF, REL_KW: $1, NAME: $2, TYPE_PARAMS: $3, PARAMS: $5, RAW_TEXT: $7 }
+
     // ── Statements ───────────────────────────────────────────────
     stmt <- HASH LPAREN stmt RPAREN STAR
              => { CODE: REPEAT_GROUP, VALUE: $3, OP: 0 }
           / nested_fn_stmt
+          / nested_deem_stmt
           / labeled_loop_stmt
           / let_else_stmt
           / let_stmt

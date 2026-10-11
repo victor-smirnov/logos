@@ -12,6 +12,14 @@ The static surface is the `deem` ITEM (grammar/Sema-owned head; contextual lead 
 
 *Evidence:* `src/compiler/sema_expr.cpp` (lower_deem_def), `stdlib/mem/wql/wql.logos`, `tests/logos/pass/wql_deem_item_e2e.logos`, `tests/logos/fail/wql_deem_macro_retired_fail.logos`
 
+### `deem.surface.local-item` — `deem q(params) { query }` in a block
+
+A `deem` item may stand at statement position in a fn body, as Rust's block-scoped items. It is an item of the module under a generated symbol (`__ldeem_<outer>_<q>`, made of identifier characters because the handler emits source text), never `pub`. `q` and the companions a caller names (`q_prepare`, `q_run`, `q_incremental`, `q_epoch`, `q_retract`, `q_apply`, `q_snapshot`) resolve to it in the whole enclosing body, and a local `q` shadows a module-level one there. It captures nothing: a name of the enclosing fn in the query is refused as for any other name that is not a row variable, a parameter or a const (rustc E0434 for a fn item). It is lowered with its module's items (`lower_module_items`), so a metaprog round that stubs the enclosing body still runs its handler.
+
+*Divergence:* none — Rust admits items in a block; the companions are this surface's own.
+
+*Evidence:* grammar `tools/peg_gen_cpp/grammars/logos.peg` (`nested_deem_stmt`); `src/compiler/sema_collect.cpp` (`collect_nested_fns_`, `nested_fn_items_of_`: `is_local_deem_`), `src/compiler/sema.cpp` (`lower_module_items`: `local_deems_`), `src/compiler/sema_stmt.cpp` (`lower_nested_deem`); `tests/logos/pass/deem_local_item_e2e.logos`, `tests/logos/fail/deem_local_item_captures_fail.logos`
+
 ### `deem.surface.params` — parenthesized parameter list
 
 The parens carry a genuine Logos fn parameter list, re-emitted VERBATIM into the generated signature (param order preserved) and thus type-checked by the compiler; the handler also parses it locally to bind sources and type scalars — there is no `$` sigil and no `with` clause (both retired).

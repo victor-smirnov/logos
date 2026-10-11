@@ -26036,11 +26036,13 @@ bool SemaChecker::is_pending_container_type(std::string_view sname) {
 // pipeline as `resource q = deem!(…){…}`. Unlike the resource form (always
 // pub), the item's visibility is real: non-pub emits a non-pub fn via the
 // `-` name-marker convention (vis_strip at the emit sites).
-void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog) {
+void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog, std::string_view name_override) {
     node_line_ = get_line(node);   // errors point at THIS item, not at stale state
     node_span_ = get_span(node);
     std::string lead(str_of(node.get(la::REL_KW.code)));
-    std::string qname(str_of(node.get(la::NAME.code)));
+    // A block-local deem lowers under its module-level symbol (lower_nested_deem).
+    std::string qname = name_override.empty() ? std::string(str_of(node.get(la::NAME.code)))
+                                              : std::string(name_override);
     ctx_ = std::format("deem {}", qname);
     if (lead != "deem") {
         error(std::format(
