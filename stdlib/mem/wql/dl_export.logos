@@ -364,6 +364,11 @@ struct DxClause {
     pub udf_ok: bool,
     pub nudf: i64,
     pub udf_used: Vec<i64>,
+    // an anti join whose `on` is not only equalities reads an auxiliary
+    // relation `__nx<auxp>_<i>` (`dx_anti_aux`): its rule goes to `extra`,
+    // which the caller writes after the clause; no prefix, no such anti join
+    pub auxp: String,
+    pub extra: String,
 }
 
 // Refuse with a reason: the first one set wins, which is the innermost.
@@ -381,7 +386,7 @@ fn dx_new_clause() -> DxClause {
                       nparams: 0i64, params: Vec::<str>::new(), consts: Vec::<str>::new(), nal: 0i64, al_names: Vec::<str>::new(),
                       al_vars: Vec::<str>::new(), al_tys: Vec::<str>::new(), al_kinds: Vec::<str>::new(),
                       kc_var: Vec::<str>::new(), kc_fld: Vec::<str>::new(), kc_out: Vec::<str>::new(), why: "",
-                      udf_ok: false, nudf: 0i64, udf_used: Vec::<i64>::new() };
+                      udf_ok: false, nudf: 0i64, udf_used: Vec::<i64>::new(), auxp: String::new(), extra: String::new() };
 }
 
 // Start the clause's alias list over with `key` → `gk`.
@@ -1150,6 +1155,7 @@ fn dx_rule_in(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out:
         Option::None => { }
     }
     if dx_opt_vars(ru).len() > 0i64 { return dx_outer_rules(p, ru, head, arity, env, out, why); }
+    cl.auxp.push_str(head); cl.auxp.push_str("_"); cl.auxp.push_i64(out.len());
     if !dx_core_body(p, cl, env, &ru.clause.body) { return false; }
     if findm {
         let fv: str = dx_find_var(ru);
@@ -1164,6 +1170,7 @@ fn dx_rule_in(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out:
     let mut c1: String = String::new();
     c1.push_str(dx_view(&hd)); c1.push_str(" :- "); c1.push_str(dx_view(&cl.body)); c1.push_str(".\n");
     out.push_str(dx_view(&dx_wild(dx_view(&c1))));
+    out.push_str(dx_view(&cl.extra));
     dx_udf_decls(env, cl, out);
     return true;
 }
@@ -1234,9 +1241,75 @@ fn dx_core_body(p: &CProgram, cl: &mut DxClause, env: &DxEnv, body: &Vec<CLit>) 
     let bs: &[CLit] = body.as_slice();
     let mut i: i64 = 0i64;
     while i < body.len() {
-        if !dx_core_lit(p, cl, env, &bs[i]) { return false; }
+        let mut aux: bool = false;
+        match &bs[i] {
+            CLit::Atom(a) => {
+                aux = a.neg && a.outer == 0i32 && a.conds.len() > 0i64 && cl.auxp.len() > 0i64
+                      && !dx_neg_only_eqs(a.conds.get(0i64).view::<SExpr>(), a.var);
+            }
+            _ => { }
+        }
+        if aux { if !dx_anti_aux(p, cl, env, body, i) { return false; } }
+        else if !dx_core_lit(p, cl, env, &bs[i]) { return false; }
         i = i + 1i64;
     }
+    return true;
+}
+
+// `anti join s v on P` with `P` more than equalities: a Datalog negation binds
+// only by position, so the rows that DO match are an auxiliary relation over
+// the variables bound before the anti join,
+//   __nx<k>(<prefix vars>) :- <prefix>, s(v…), P.
+// and the clause reads `!__nx<k>(<prefix vars>)`.
+fn dx_anti_aux(p: &CProgram, cl: &mut DxClause, env: &DxEnv, body: &Vec<CLit>, i: i64) -> bool {
+    let bs: &[CLit] = body.as_slice();
+    let mut vars: String = String::new();
+    let mut decl: String = String::new();
+    let mut ac: DxClause = dx_new_clause();
+    let mut nc: i64 = 0i64;
+    let mut j: i64 = 0i64;
+    while j < i {
+        if !dx_atom_vars(p, env, &bs[j], &mut vars) { return dx_no(cl, "anti join on a non-equality after a step outside the fragment"); }
+        match &bs[j] {
+            CLit::Atom(pa) => {
+                match &pa.src {
+                    CSrc::Unit => { }
+                    _ => {
+                        let si: i64 = dx_find(env, dx_src_name(p, &pa.src));
+                        let mut k: i64 = 0i64;
+                        while k < env.cn[si] {
+                            if decl.len() > 0i64 { decl.push_str(", "); }
+                            decl.push_str("x"); decl.push_i64(nc); decl.push_str(": "); decl.push_str(dl_col_ty(env.ctys[si][k]));
+                            nc = nc + 1i64;
+                            k = k + 1i64;
+                        }
+                    }
+                }
+            }
+            _ => { }
+        }
+        if !dx_core_lit(p, &mut ac, env, &bs[j]) { return dx_no(cl, ac.why); }
+        j = j + 1i64;
+    }
+    match &bs[i] {
+        CLit::Atom(a) => {
+            if !dx_atom(&mut ac, env, dx_src_name(p, &a.src), a.var) { return dx_no(cl, ac.why); }
+            let cs: &[WAny] = a.conds.as_slice();
+            let mut k: i64 = 0i64;
+            while k < a.conds.len() { if !dx_pred(cs[k].view::<SExpr>(), env, &mut ac) { return dx_no(cl, ac.why); } k = k + 1i64; }
+        }
+        _ => { return dx_no(cl, "anti join on a non-equality"); }
+    }
+    if vars.len() == 0i64 { return dx_no(cl, "anti join on a non-equality"); }
+    dx_param_atoms(&mut ac);
+    let mut nm: String = String::new();
+    nm.push_str("__nx"); nm.push_str(dx_view(&cl.auxp)); nm.push_str("_"); nm.push_i64(i);
+    cl.extra.push_str(".decl "); cl.extra.push_str(dx_view(&nm)); cl.extra.push_str("("); cl.extra.push_str(dx_view(&decl)); cl.extra.push_str(")\n");
+    let mut c1: String = String::new();
+    c1.push_str(dx_view(&nm)); c1.push_str("("); c1.push_str(dx_view(&vars)); c1.push_str(") :- ");
+    c1.push_str(dx_view(&ac.body)); c1.push_str(".\n");
+    cl.extra.push_str(dx_view(&dx_wild(dx_view(&c1))));
+    cl.body.push_str(", !"); cl.body.push_str(dx_view(&nm)); cl.body.push_str("("); cl.body.push_str(dx_view(&vars)); cl.body.push_str(")");
     return true;
 }
 
