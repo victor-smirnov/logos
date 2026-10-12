@@ -1,0 +1,18 @@
+// Rust's short-circuiting folds: `Sum` / `Product` of `Result<U, E>` and
+// `Option<U>` items, and `collect` into `Option<V>` — the fold of the `Ok` /
+// `Some` values, or the first `Err` / `None`. rustc 1.98.1 prints the same.
+package sum_product_collect_over_result_option;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn half(x: i64) -> Result<i64, i64> { if x % 2 == 0 { return Ok(x / 2); } Err(x) }
+fn pos(x: i64) -> Option<i64> { if x > 0 { return Some(x); } None }
+fn main() {
+    let a: Result<i64, i64> = [2i64, 4, 6].iter().map(|x| half(*x)).sum();
+    let b: Result<i64, i64> = [2i64, 3, 6].iter().map(|x| half(*x)).sum();
+    let c: Result<i64, i64> = [2i64, 4, 6].iter().map(|x| half(*x)).product();
+    let d: Option<i64> = [1i64, 2, 3].iter().map(|x| pos(*x)).sum();
+    let e: Option<i64> = [1i64, -2, 3].iter().map(|x| pos(*x)).product();
+    let f: Option<Vec<i64>> = [1i64, 2].iter().map(|x| pos(*x)).collect();
+    let g: Option<Vec<i64>> = [1i64, 0].iter().map(|x| pos(*x)).collect();
+    println!("{:?} {:?} {:?} {:?} {:?} {:?} {:?}", a, b, c, d, e, f, g);
+}

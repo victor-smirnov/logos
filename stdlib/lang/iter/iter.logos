@@ -222,6 +222,93 @@ impl Product<&i64> for i64 {
     }
 }
 
+// ── Short-circuiting folds over Result / Option ─────────────────────────────
+//
+// Rust's `impl<T: Sum<U>, U, E> Sum<Result<U, E>> for Result<T, E>` and its
+// Product / Option / FromIterator twins: the fold of the `Ok` / `Some` values,
+// or the first `Err` / `None`. The shunt yields the values and records the
+// stop, exactly as ResultShunt does for `collect`.
+
+/// Yields the `Some` payloads of `iter`, recording a `None` and stopping there.
+pub struct OptionShunt<I, A> {
+    iter: I,
+    hit_none: *mut bool,
+    _a: PhantomData<A>,
+}
+
+impl<A, I: Iterator<Item = Option<A>>> Iterator for OptionShunt<I, A> {
+    type Item = A;
+    fn next(&mut self) -> Option<A> {
+        match self.iter.next() {
+            Option::None => { return Option::None; }
+            Option::Some(o) => {
+                match o {
+                    Option::Some(x) => { return Option::Some(x); }
+                    Option::None => {
+                        unsafe { *self.hit_none = true; }
+                        return Option::None;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Collecting `Option`s: the collection of the `Some` values, or `None` if any
+/// item is `None` (Rust's `impl<A, V: FromIterator<A>> FromIterator<Option<A>> for Option<V>`).
+impl<A, V: FromIterator<A>> FromIterator<Option<A>> for Option<V> {
+    fn from_iter<I: Iterator<Item = Option<A>>>(iter: I) -> Option<V> {
+        let mut hit: bool = false;
+        let v: V = V::from_iter(OptionShunt::<I, A> { iter: iter, hit_none: &mut hit as *mut bool, _a: PhantomData::<A> {} });
+        if hit { return Option::None; }
+        return Option::Some(v);
+    }
+}
+
+/// The sum of the `Ok` values, or the first `Err`.
+impl<T: Sum<U>, U, E> Sum<Result<U, E>> for Result<T, E> {
+    fn sum<I: Iterator<Item = Result<U, E>>>(iter: I) -> Result<T, E> {
+        let mut err: Option<E> = Option::None;
+        let v: T = T::sum(ResultShunt::<I, U, E> { iter: iter, err: &mut err as *mut Option<E>, _a: PhantomData::<U> {} });
+        match err {
+            Option::Some(e) => { return Result::Err(e); }
+            Option::None => { return Result::Ok(v); }
+        }
+    }
+}
+
+/// The product of the `Ok` values, or the first `Err`.
+impl<T: Product<U>, U, E> Product<Result<U, E>> for Result<T, E> {
+    fn product<I: Iterator<Item = Result<U, E>>>(iter: I) -> Result<T, E> {
+        let mut err: Option<E> = Option::None;
+        let v: T = T::product(ResultShunt::<I, U, E> { iter: iter, err: &mut err as *mut Option<E>, _a: PhantomData::<U> {} });
+        match err {
+            Option::Some(e) => { return Result::Err(e); }
+            Option::None => { return Result::Ok(v); }
+        }
+    }
+}
+
+/// The sum of the `Some` values, or `None` if any item is `None`.
+impl<T: Sum<U>, U> Sum<Option<U>> for Option<T> {
+    fn sum<I: Iterator<Item = Option<U>>>(iter: I) -> Option<T> {
+        let mut hit: bool = false;
+        let v: T = T::sum(OptionShunt::<I, U> { iter: iter, hit_none: &mut hit as *mut bool, _a: PhantomData::<U> {} });
+        if hit { return Option::None; }
+        return Option::Some(v);
+    }
+}
+
+/// The product of the `Some` values, or `None` if any item is `None`.
+impl<T: Product<U>, U> Product<Option<U>> for Option<T> {
+    fn product<I: Iterator<Item = Option<U>>>(iter: I) -> Option<T> {
+        let mut hit: bool = false;
+        let v: T = T::product(OptionShunt::<I, U> { iter: iter, hit_none: &mut hit as *mut bool, _a: PhantomData::<U> {} });
+        if hit { return Option::None; }
+        return Option::Some(v);
+    }
+}
+
 
 // ── Core trait ───────────────────────────────────────────────────────────────
 

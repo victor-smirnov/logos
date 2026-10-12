@@ -6927,9 +6927,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12195 -> 12196 (+1), NOIMPORTED 7636 -> 7637 (+1), TIERCOMMIT 173 -> 173 (+0) — 2026-10-12: self_static_call_in_generic_impl (pass, nonglob).
 #                ALL 12196 -> 12197 (+1), NOIMPORTED 7637 -> 7638 (+1), TIERCOMMIT 173 -> 173 (+0) — 2026-10-12: enum_impl_every_default_method (pass, nonglob).
 #                ALL 12197 -> 12198 (+1), NOIMPORTED 7638 -> 7639 (+1), TIERCOMMIT 173 -> 173 (+0) — 2026-10-12: closure_shape_from_sibling_and_dyn_borrow (pass, nonglob).
-REGISTRY-ALL         12198
-REGISTRY-NOIMPORTED  7639
-REGISTRY-TIERCOMMIT  173
+#                ALL 12198 -> 12199 (+1), NOIMPORTED 7639 -> 7640 (+1), TIERCOMMIT 173 -> 173 (+0) — 2026-10-12: sum_product_collect_over_result_option (pass, nonglob).
+#                ALL 12199 -> 12199 (+0), NOIMPORTED 7640 -> 7640 (+0), TIERCOMMIT 173 -> 172 (-1) — 2026-10-12: squeue collect_into_option_refused closed → pass fixture (nonglob); tier_commit -1.
+REGISTRY-ALL         12199
+REGISTRY-NOIMPORTED  7640
+REGISTRY-TIERCOMMIT  172
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's

@@ -1,0 +1,5 @@
+// Closed squeue collect_into_option_refused (#718): stdlib gains FromIterator<Option<A>> for Option<V> and Sum/Product over Result/Option.
+package collect_into_option_refused;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn main() { let v = vec![Some(1i32), None]; let r = v.into_iter().collect::<Option<Vec<i32>>>(); println!("{:?}", r); }

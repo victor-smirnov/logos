@@ -212,8 +212,6 @@ wf_self_type_impl_lifetime_mismatch_admits 2 tests/soundness/open/wf_self_type_i
 
 struct_field_move_then_index_read_admits 2 tests/soundness/open/struct_field_move_then_index_read_admits admits
 
-collect_into_option_refused 3 tests/soundness/open/collect_into_option_refused refuses
-
 # ── 2026-10-01 long-red fail fixtures re-triaged: holes owned by a later step
 guard_closure_moves_scrutinee_admits 2 tests/soundness/open/guard_closure_moves_scrutinee_admits admits
 
@@ -391,5 +389,5 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 105
-# SYNC-HASH 51f3e9ba59777bd227b270812fcb4647
+# TOTAL 104
+# SYNC-HASH 612043723b261898d53c10ac5056b435
