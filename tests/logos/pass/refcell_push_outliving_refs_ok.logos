@@ -8,10 +8,10 @@ fn main() -> i32 {
     let cell: RefCell<Vec<&i64>> = RefCell::<Vec<&i64>>::new(Vec::<&i64>::new());
     {
         let mut gd = cell.borrow_mut();
-        gd.get_mut().push(&d);
-        gd.get_mut().push(&e);
+        gd.push(&d);
+        gd.push(&e);
     }
-    let n: i64 = cell.borrow().get().len() as i64;
-    let s: i64 = *cell.borrow().get().get(1i64);
+    let n: i64 = cell.borrow().len() as i64;
+    let s: i64 = *cell.borrow().get(1i64);
     return (n * 10i64 + s - 25i64) as i32;
 }

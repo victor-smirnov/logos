@@ -222,13 +222,13 @@ pub struct RefCell<T> {
     value: UnsafeCell<T>,
 }
 
-/// Guards a shared borrow of a `RefCell` value; access via `get`, released on drop.
+/// Guards a shared borrow of a `RefCell` value; access through `Deref` (`&*r`), released on drop.
 pub struct Ref<T> {
     value: *const T,
     state: *mut i32,
 }
 
-/// Guards an exclusive borrow of a `RefCell` value; access via `get`/`get_mut`, released on drop.
+/// Guards an exclusive borrow of a `RefCell` value; access through `Deref`/`DerefMut` (`&*r`, `&mut *r`), released on drop.
 /// INVARIANT in `T`, as Rust's `RefMut<'b, T>` (it is an exclusive borrow of
 /// `T`): a raw `*mut T` alone reads as covariant, so a guard of
 /// `RefCell<Vec<&'b i64>>` would accept a shorter-lived `&i64` and the cell
@@ -348,24 +348,6 @@ impl<T> RefCell<T> {
             *a.value = logos.lang.ptr::read(b.value as *const T);
             *b.value = tmp;
         }
-    }
-}
-
-impl<T> Ref<T> {
-    /// Returns a shared reference to the borrowed value.
-    pub fn get(&self) -> &T {
-        unsafe { return &*self.value; }
-    }
-}
-
-impl<T> RefMut<T> {
-    /// Returns a shared reference to the borrowed value.
-    pub fn get(&self) -> &T {
-        unsafe { return &*self.value; }
-    }
-    /// Returns a mutable reference to the borrowed value.
-    pub fn get_mut(&mut self) -> &mut T {
-        unsafe { return &mut *self.value; }
     }
 }
 

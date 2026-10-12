@@ -10,7 +10,7 @@ unsafe fn main() -> i32 {
     // try_borrow succeeds when unborrowed; guard Drop fires at arm end.
     {
         match c.try_borrow() {
-            Result::Ok(g)  => { if *g.get() != 10 { return 1; } }
+            Result::Ok(g)  => { if *g != 10 { return 1; } }
             Result::Err(_) => { return 2; }
         }
     }
@@ -18,13 +18,13 @@ unsafe fn main() -> i32 {
     // borrow_mut → write → drop
     {
         let mut g = c.borrow_mut();
-        *g.get_mut() = 42;
+        *g = 42;
     }
 
     // verify mutation
     {
         let g = c.borrow();
-        if *g.get() != 42 { return 3; }
+        if *g != 42 { return 3; }
     }
 
     // replace returns old
@@ -35,8 +35,8 @@ unsafe fn main() -> i32 {
     {
         let g1 = c.borrow();
         let g2 = c.borrow();
-        if *g1.get() != 99 { return 5; }
-        if *g2.get() != 99 { return 6; }
+        if *g1 != 99 { return 5; }
+        if *g2 != 99 { return 6; }
     }
 
     // borrow_mut blocks while a shared borrow is held.
@@ -54,8 +54,8 @@ unsafe fn main() -> i32 {
     {
         let gc = c.borrow();
         let gd = d.borrow();
-        if *gc.get() != 123 { return 8; }
-        if *gd.get() != 99 { return 9; }
+        if *gc != 123 { return 8; }
+        if *gd != 99 { return 9; }
     }
 
     let inner = c.into_inner();

@@ -14,11 +14,14 @@
 // Modifications:
 //   · `RefCell` is KEPT — it is `logos.lang.cell::RefCell`, the same guard shape
 //   · the cell's content `(&mut r, s)` -> a plain `i64`, and the `.0` projection ->
-//     `Ref::get()`. Logos's `Ref<T>` has no `Deref` and no field projection (measured
-//     2026-09-07: `x.borrow().a` reports "struct 'Ref$G1$P$...' has no field 'a'"),
-//     so `get()` IS the projection out of the guard. What is preserved is the whole
-//     subject: a reference derived from a guard TEMPORARY, used after the statement
-//     in which the guard is dropped.
+//     `.deref()` on the guard. Upstream's `.0` moves a `&mut` out through the
+//     guard, so the result borrows the guard; a copied `&i64` field would not
+//     (rustc accepts that twin), and `&*x.borrow()` is lifetime-EXTENDED (rustc
+//     accepts it too, measured 2026-10-11). `x.borrow().deref()` is the method-
+//     call receiver, which is not extended: rustc E0716, the upstream subject —
+//     a reference derived from a guard TEMPORARY, used after the statement in
+//     which the guard is dropped. (Was `Ref::get()`, removed 2026-10-11: Rust's
+//     guards have no inherent accessor.)
 //   · `println!("{}", val)` -> `return *val as i32` (assert -> exit code)
 // ⚠ THE `Ref` DROP RUNS: `impl<T> Drop for Ref<T>` decrements the borrow flag, so
 // the admitted program also releases the RefCell's borrow state while `val` is live.
@@ -26,6 +29,6 @@ package issue_36082;
 use logos.lang.cell;
 fn main() -> i32 {
     let x: RefCell<i64> = RefCell::new(5i64);
-    let val: &i64 = x.borrow().get();   // refused: upstream E0716
+    let val: &i64 = x.borrow().deref();   // refused: upstream E0716
     return *val as i32;
 }

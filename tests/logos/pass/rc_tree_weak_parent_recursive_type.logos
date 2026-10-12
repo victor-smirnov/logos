@@ -26,12 +26,12 @@ fn main() -> i32 {
             let root: Rc<Node> = rc_new::<Node>(Node { id: 1, c: c, parent: RefCell::new(Option::None), children: RefCell::new(Vec::<Rc<Node>>::new()) });
             let child: Rc<Node> = rc_new::<Node>(Node { id: 2, c: c, parent: RefCell::new(Option::None), children: RefCell::new(Vec::<Rc<Node>>::new()) });
 
-            child.parent.borrow_mut().get_mut().replace(root.downgrade());
-            root.children.borrow_mut().get_mut().push(child.clone_ref());
+            child.parent.borrow_mut().replace(root.downgrade());
+            root.children.borrow_mut().push(child.clone_ref());
 
             // check upgrade works via reference match (no Option clone needed)
             let pg = child.parent.borrow();
-            match pg.get() {
+            match &*pg {
                 Option::Some(w) => {
                     match w.upgrade() {
                         Option::Some(r) => { if r.id != 1 { return 1; } }
