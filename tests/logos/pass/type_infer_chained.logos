@@ -3,7 +3,7 @@ package type_infer_chained;
 
 fn identity<T>(x: T) -> T { return x; }
 
-fn add<T>(a: T, b: T) -> T { return a + b; }
+fn add<T: Add<Output = T>>(a: T, b: T) -> T { return a + b; }
 
 unsafe fn main() -> i32 {
     // identity(identity(42)): inner T=i32, outer T=i32

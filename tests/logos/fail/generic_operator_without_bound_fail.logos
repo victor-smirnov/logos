@@ -1,0 +1,6 @@
+// `a + b` on `T: Copy` is rustc's E0369: the body is checked against its bounds, not per
+// instantiation (it compiled and printed 3).
+package generic_operator_without_bound_fail;
+use logos.std.fmt;
+fn sum2<T: Copy>(a: T, b: T) -> T { a + b }
+fn main() { println!("{}", sum2(1, 2)); }

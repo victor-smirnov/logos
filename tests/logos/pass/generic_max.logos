@@ -7,14 +7,14 @@
 
 package generic_max;
 
-fn max<T>(a: T, b: T) -> T {
+fn max<T: PartialOrd>(a: T, b: T) -> T {
     if a > b {
         return a;
     }
     return b;
 }
 
-fn min<T>(a: T, b: T) -> T {
+fn min<T: PartialOrd>(a: T, b: T) -> T {
     if a < b {
         return a;
     }

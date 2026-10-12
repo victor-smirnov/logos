@@ -6,7 +6,7 @@ package generic_ref_slice2;
 
 fn id<T>(x: T) -> T { return x; }
 
-fn add_one<T>(x: T) -> T { return x + 1; }
+fn add_one<T: Add<Output = T> + From<u8>>(x: T) -> T { return x + T::from(1u8); }
 
 // Inside this generic body, `id::<T>` carries TypeVar(T) in its type_args.
 // Two distinct instantiations (i32, u64) verify the per-instantiation
@@ -15,7 +15,7 @@ fn get_id<T>() -> fn(T) -> T {
     return id::<T>;
 }
 
-fn get_add_one<T>() -> fn(T) -> T {
+fn get_add_one<T: Add<Output = T> + From<u8>>() -> fn(T) -> T {
     return add_one::<T>;
 }
 

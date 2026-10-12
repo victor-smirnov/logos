@@ -4,7 +4,7 @@ package generic_ref_slice1;
 
 fn id_generic<T>(x: T) -> T { return x; }
 
-fn add_one_generic<T>(x: T) -> T { return x + 1; }
+fn add_one_generic<T: Add<Output = T> + From<u8>>(x: T) -> T { return x + T::from(1u8); }
 
 fn main() -> i32 {
     // Take a fn-pointer to monomorphised id_generic::<i32>.

@@ -3579,14 +3579,10 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             // partial_cmp-only form, which is why this fires only after the
             // partial_cmp lookup has failed too.
             //
-            // ⚠ WHAT THIS DOES NOT CLOSE, measured and rowed rather than
-            // silently left: the same fabrication is reachable for EVERY
-            // operator in mono's table through an unbounded generic —
-            // `fn f<T>(x: T, y: T) { x + y }` at `T = S` yields `S__add` —
-            // because `is_numeric` admits TypeVar deliberately, deferring to
-            // "a precise error in mono" that does not exist (mono has no
-            // diagnostic channel). Requiring the bound is what rustc does and
-            // is a language-level decision, not this refusal's to take.
+            // The same fabrication through an unbounded generic (`fn f<T>(x: T,
+            // y: T) { x + y }` at `T = S` yielding `S__add`) is closed by
+            // tv_lacks_op_bound below: an operator on a type parameter needs
+            // its trait among the bounds (E0369), as in rustc.
             // ⚠ A GENERIC IMPL IS INVISIBLE TO THE LOOKUP ABOVE, AND REFUSING
             // OVER IT TURNED A TIER-1 ROW INTO A TIER-3 ONE. `impl<T: Eq> Eq
             // for W<T>` registers under the BARE struct key (`W__eq`, via
@@ -3637,6 +3633,57 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                     op, type_str(lt_sv), method_name,
                     rel_427_ ? " (and no 'partial_cmp')" : ""));
             // No impl found — fall through to normal type checking
+        }
+    }
+
+    // A bare type-parameter operand: its operator is the bound's (rustc E0369
+    // without one) — `fn f<T: Copy>(a: T, b: T) { a + b }` is refused, as the
+    // body is checked against its bounds, not per instantiation.
+    auto tv_lacks_op_bound = [&](TypeRef t, std::initializer_list<std::string_view> traits) -> bool {
+        if (!t || TypeRef(t).kind() != LogosType::Kind::TypeVar) return false;
+        // KEY-IDENTITY: a TYPE-PARAMETER name, scoped to the signature being
+        // checked — see SemaChecker::normalize_assoc_eq for the full ground.
+        auto bit = current_type_bounds_.find(std::string(TypeRef(t).type_var_name()));
+        if (bit == current_type_bounds_.end()) return true;
+        StrSet seen;
+        bool found = false;
+        std::function<void(const std::string&)> walk = [&](const std::string& tn) {
+            if (found || !seen.insert(tn).second) return;
+            auto* it = find_trait_iter_scoped(tn);
+            if (!it) return;
+            std::string_view bare = it->name;
+            if (auto d = bare.rfind('.'); d != std::string_view::npos) bare.remove_prefix(d + 1);
+            for (auto tr : traits) if (bare == tr) { found = true; return; }
+            for (auto& sp : it->supertraits) walk(sp.trait_name);
+        };
+        for (auto& b : bit->second) walk(b.trait_name);
+        return !found;
+    };
+    auto op_trait_ = [](std::string_view o) -> std::string_view {
+        if (o == "+") return "Add";
+        if (o == "-") return "Sub";
+        if (o == "*") return "Mul";
+        if (o == "/") return "Div";
+        if (o == "%") return "Rem";
+        if (o == "&") return "BitAnd";
+        if (o == "|") return "BitOr";
+        if (o == "^") return "BitXor";
+        if (o == "<<") return "Shl";
+        if (o == ">>") return "Shr";
+        if (o == "==" || o == "!=") return "PartialEq";
+        if (o == "<" || o == "<=" || o == ">" || o == ">=") return "PartialOrd";
+        return {};
+    };
+    if (std::string_view ot = op_trait_(op); !ot.empty()) {
+        std::initializer_list<std::string_view> eq_like = {"PartialEq", "Eq"};
+        std::initializer_list<std::string_view> ord_like = {"PartialOrd", "Ord"};
+        const bool lacks = ot == "PartialEq" ? tv_lacks_op_bound(lt, eq_like)
+                         : ot == "PartialOrd" ? tv_lacks_op_bound(lt, ord_like)
+                         : tv_lacks_op_bound(lt, {ot});
+        if (lacks) {
+            error(std::format("binary operation `{}` cannot be applied to type `{}` (E0369): "
+                              "the type parameter has no `{}` bound", op, type_str(lt), ot));
+            return error_expr();
         }
     }
 

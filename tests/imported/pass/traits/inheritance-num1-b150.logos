@@ -1,9 +1,8 @@
 // Imported from rust-lang/rust@4b0c9d76ae7d387229caea55cfa73c280b08b8a7
 // Original path: tests/ui/traits/inheritance/num1.rs
-// Modifications: dropped the `+ PartialOrd` supertrait (i64 does not impl
-//   PartialOrd in Logos stdlib yet — parity gap, not the point of this test);
-//   the comparison `*n > one` uses the builtin i64 `>`; added a concrete impl
-//   for i64 + a call so the supertrait chain (NumExt: NumCast) is exercised.
+// Modifications: added a concrete impl for i64 + a call so the supertrait
+//   chain (NumExt: NumCast + PartialOrd) is exercised. (The `+ PartialOrd`
+//   supertrait, once dropped, is back: `*n > one` on `T` needs it — E0369.)
 // Tests trait inheritance with a static (no-self) method on the supertrait
 //   (`NumCast::from_i32(i) -> Option<Self>`) called via `T::from_i32(..)`.
 package inheritance_num1_b150;
@@ -12,7 +11,7 @@ trait NumCast {
     fn from_i32(i: i32) -> Option<Self>;
 }
 
-trait NumExt: NumCast { }
+trait NumExt: NumCast + PartialOrd { }
 
 impl NumCast for i64 {
     fn from_i32(i: i32) -> Option<i64> { return Some(i as i64); }
