@@ -1,0 +1,14 @@
+// Closed squeue owned_return_from_ref_param_keeps_loan_refused (#681): borrow-checker type sets asked by identity: the user Item no longer inherits the stdlib ast::Item's loan (4e07402f4).
+package owned_return_from_ref_param_keeps_loan_refused;
+use logos.mem.string;
+use logos.std.fmt;
+use logos.lang.ops;
+struct Item { name: String }
+fn dup(x: &Item) -> Item { Item { name: x.name.clone() } }
+fn main() -> i32 {
+    let a = Item { name: String::from("a") };
+    let first = dup(&a);
+    let owned = a;
+    if first.name.len() != 1 || owned.name.len() != 1 { return 3; }
+    return 0;
+}

@@ -1,0 +1,28 @@
+// Closed squeue field_slice_region_projection_refused (#675): a shared fat reference ends the supporting-prefix walk and &mut *m over a fat &mut is a reborrow (85efefe0c).
+package field_slice_region_projection_refused;
+trait Animal { fn grow(self: &mut Self); }
+struct Dog { age: i64 }
+impl Animal for Dog { fn grow(self: &mut Self) { self.age += 1; } }
+struct Holder<'a> { items: &'a [i64] }
+impl<'a> Holder<'a> {
+    fn first(self: &Self) -> &'a i64 { &self.items[0] }
+}
+fn head(xs: &[i64]) -> &i64 { match xs { [a, ..] => a, _ => &xs[0] } }
+fn main() -> i32 {
+    let v = [5i64, 6, 7];
+    if *head(&v) != 5 { return 1; }
+    let m: &i64;
+    {
+        let h = Holder { items: &v };
+        m = h.first();
+    }
+    if *m != 5 { return 2; }
+    let mut d = Dog { age: 0 };
+    {
+        let q: &mut dyn Animal = &mut d;
+        let q2 = &mut *q;
+        q2.grow();
+    }
+    if d.age != 1 { return 3; }
+    return 0;
+}
