@@ -1,0 +1,17 @@
+// A full join negates its BASE too, so a rel full-joining from itself is
+// negation through recursion, refused like an anti join.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+// the full join's BASE is the rel itself: negated through recursion
+pub deem bad(es: &[Emp], ds: &[Dept]) {
+    rel p(n: Option<i64>, d: Option<i64>) {
+        from p a full join ds y on y.id == unwrap_or(a.d, 0) select (a.n, y.id);
+    }
+    from p x select unwrap_or(x.n, 0)
+}
+fn main() -> i32 { return 0i32; }

@@ -367,7 +367,14 @@ pub fn core_rules_ok(p: &CProgram) -> bool {
             if !rel_rule_ok(rels[r].name, &rs[b]) { return false; }
             if !chain_vars_ok(&rs[b].clause) { return false; }
             if clause_full_count(&rs[b].clause) > 0i64 {
-                return rel_err(rels[r].name, "a `full join` is not supported in a rel body yet — its base side is negated too; use a `left join` (twice, swapped) or join in the entry query");
+                // as in the entry: two sources, no group (`entry_outer_ok`)
+                let grouped: bool = match &rs[b].clause.group { Option::Some(_g) => true, Option::None => false };
+                if grouped {
+                    return rel_err(rels[r].name, "`group by` over a `full join` is not supported yet — group the joined rows in another rel, or use a `left join`");
+                }
+                if clause_src_count(&rs[b].clause) != 2i64 {
+                    return rel_err(rels[r].name, "a `full join` joins exactly two sources (`from a x full join b y on P`) — with more steps the unmatched rows of one side would need every other side absent at once; join the rest in another rel first");
+                }
             }
             b = b + 1i64;
         }
@@ -375,6 +382,17 @@ pub fn core_rules_ok(p: &CProgram) -> bool {
     }
     if !chain_vars_ok(&p.entry.clause) { return false; }
     return entry_outer_ok(&p.entry);
+}
+
+fn clause_src_count(cl: &CClause) -> i64 {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] { CLit::Cond(_c) => { } _ => { n = n + 1i64; } }
+        i = i + 1i64;
+    }
+    return n;
 }
 
 fn clause_full_count(cl: &CClause) -> i64 {

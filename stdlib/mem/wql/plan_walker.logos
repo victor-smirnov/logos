@@ -390,6 +390,20 @@ fn check_steps(cl: &CClause, base_var: str, base_ty: str, prm: &MacroParams,
                     // there removes an absent-side row), so it stratifies as an
                     // anti join does
                     if (a.neg || a.outer != 0i32) && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
+                }
+                // a FULL join negates its base side too (a joined row arriving
+                // removes a base row's absent-side row): the base, when a rel,
+                // stratifies as well
+                if a.outer == OUTER_FULL() && cur_rel >= 0i64 {
+                    match &bs[0] {
+                        CLit::Atom(b0) => {
+                            let sb: SrcRes = resolve_source(prm, b0.name, cur_rel, deps);
+                            if sb.ok && sb.is_rel { deps.add_anti(cur_rel, sb.idx); }
+                        }
+                        _ => { }
+                    }
+                }
+                if sr.is_rel {
                     relvars.push(a.var); *nrelv = *nrelv + 1i64;
                 }
                 vty.push_str(sr.row_ty);

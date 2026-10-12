@@ -1,0 +1,32 @@
+// A full join inside a rel body: both sides read as Option<T>. It is non-monotone
+// in BOTH sides (a row arriving on either side removes the other's absent-side
+// row), so both sources stratify — a param or a rel of an earlier stratum
+// (deem_full_join_rel_base_same_scc_fail refuses the rel itself as the base),
+// and, as in the entry, exactly two sources (deem_full_join_rel_body_three_fail).
+// Rows: hand-derived.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+// a full join over params, in a rel
+pub deem q1(es: &[Emp], ds: &[Dept]) {
+    rel m(e: Option<i64>, d: Option<i64>) { from es x full join ds y on y.id == x.dept select (x.id, y.id); }
+    from m r select (unwrap_or(r.e, -1), unwrap_or(r.d, -1)) order by unwrap_or(r.e, 100) * 1000 + unwrap_or(r.d, 0)
+}
+// a full join whose base is a rel of an earlier stratum
+pub deem q2(es: &[Emp], ds: &[Dept]) {
+    rel low(id: i64, dept: i64) { from es x where x.id < 3 select (x.id, x.dept); }
+    rel m2(e: Option<i64>, d: Option<i64>) { from low x full join ds y on y.id == x.dept select (x.id, y.id); }
+    from m2 r select (unwrap_or(r.e, -1), unwrap_or(r.d, -1)) order by unwrap_or(r.e, 100) * 1000 + unwrap_or(r.d, 0)
+}
+fn show(v: &Vec<(i64, i64)>) { let mut i: i64 = 0i64; while i < v.len() { print!("{}:{} ", v.get(i).0, v.get(i).1); i = i + 1i64; } println!(""); }
+fn main() -> i32 {
+    let es: [Emp; 3] = [ Emp { id: 1, dept: 10 }, Emp { id: 2, dept: 99 }, Emp { id: 3, dept: 10 } ];
+    let ds: [Dept; 3] = [ Dept { id: 10, floor: 4 }, Dept { id: 20, floor: 7 }, Dept { id: 30, floor: 1 } ];
+    show(&q1(&es[..], &ds[..]).unwrap());
+    show(&q2(&es[..], &ds[..]).unwrap());
+    return 0i32;
+}
