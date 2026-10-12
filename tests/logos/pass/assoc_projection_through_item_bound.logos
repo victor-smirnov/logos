@@ -1,0 +1,31 @@
+// `X::IntoIter::Item` is `X::Item`: the item bound `type IntoIter: Iterator<Item = Self::Item>`
+// normalizes the projection of a projection (was "expected Option<X::Item>, got
+// Option<X::IntoIter::Item>"). A `_` in a struct annotation leaves the other arguments
+// fixing theirs (`Flat<_, Option<i32>>` was `Flat<u8, <error>>`). rustc 1.98.1 prints the same.
+package assoc_projection_through_item_bound;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct Flat<I, X: IntoIterator> { outer: I, cur: Option<X::IntoIter> }
+impl<I: Iterator<Item = X>, X: IntoIterator> Iterator for Flat<I, X> {
+    type Item = X::Item;
+    fn next(&mut self) -> Option<X::Item> {
+        loop {
+            match &mut self.cur {
+                Some(inner) => { match inner.next() { Some(v) => { return Some(v); } None => {} } }
+                None => {}
+            }
+            match self.outer.next() { Some(x) => { self.cur = Some(x.into_iter()); } None => { return None; } }
+        }
+    }
+}
+fn mk<I: Iterator<Item = X>, X: IntoIterator>(i: I) -> Flat<I, X> { Flat { outer: i, cur: None } }
+fn main() {
+    let v: Vec<Option<i32>> = vec![Some(1), None, Some(3)];
+    let f = mk(v.into_iter());
+    let mut s = 0; for x in f { s += x; }
+    println!("{}", s);
+    let w: Vec<Option<i32>> = vec![Some(5), None];
+    let g: Flat<_, Option<i32>> = Flat { outer: w.into_iter(), cur: None };
+    let mut t = 0; for x in g { t += x; }
+    println!("{}", t);
+}

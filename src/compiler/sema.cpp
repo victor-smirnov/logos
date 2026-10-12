@@ -3706,6 +3706,43 @@ bool SemaChecker::is_move_type(TypeRef t) const {
 TypeRef SemaChecker::normalize_assoc_eq(TypeRef t) const {
     if (!t || TypeRef(t).kind() != LogosType::Kind::AssocType) return t;
     TypeRef base = TypeRef(t).assoc_base();
+    // A projection OF A PROJECTION, `X::IntoIter::Item`: the trait declaring
+    // `IntoIter` bounds it (`type IntoIter: Iterator<Item = Self::Item>`), and
+    // that bound's equation, with Self = X, is the answer (`X::Item`) — rustc
+    // normalizes through the item bound. Without it `inner.next()` on an
+    // `X::IntoIter` returned `Option<X::IntoIter::Item>`, which matched nothing.
+    if (base && TypeRef(base).kind() == LogosType::Kind::AssocType) {
+        TypeRef x = TypeRef(base).assoc_base();
+        if (x && TypeRef(x).kind() == LogosType::Kind::TypeVar) {
+            const std::string pa(TypeRef(base).assoc_type_name());
+            const std::string an(TypeRef(t).assoc_type_name());
+            const std::string tn(TypeRef(t).trait_name());
+            std::vector<std::string> traits;
+            if (!TypeRef(base).trait_name().empty())
+                traits.push_back(strip_trait_targ_suffix(TypeRef(base).trait_name()));
+            // KEY-IDENTITY: a TYPE-PARAMETER name, as the TypeVar case below.
+            else if (auto bit = current_type_bounds_.find(std::string(TypeRef(x).type_var_name()));
+                     bit != current_type_bounds_.end())
+                for (auto& b : bit->second) traits.push_back(b.trait_name);
+            for (auto& trn : traits) {
+                const SemaTraitInfo* tdef = resolve_trait(trn);
+                if (!tdef) continue;
+                for (auto& at : tdef->assoc_types) {
+                    if (at.name != pa) continue;
+                    for (auto& b : at.bounds) {
+                        if (!tn.empty() && !b.trait_name.empty() && b.trait_name != tn) continue;
+                        for (auto& [name, ty] : b.assoc_eqs)
+                            if (name == an && ty) {
+                                SemaSubst self_to_x;
+                                self_to_x["Self"] = x;
+                                return const_cast<SemaChecker*>(this)->subst_type_sema(ty, self_to_x);
+                            }
+                    }
+                }
+            }
+        }
+        return t;
+    }
     if (!base || TypeRef(base).kind() != LogosType::Kind::TypeVar) return t;
     // KEY-IDENTITY: the key is a TYPE-PARAMETER name (`T`, `Item`), not an
     // entity name. Its namespace is the signature currently being checked —
@@ -7517,7 +7554,12 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             nt.gat_args      = std::move(subbed_gat_args);
             nt.lifetime_args = std::move(subbed_lt_args);
             nt.type_args     = std::move(subbed_targs);
-            return pool_->alloc(std::move(nt));
+            TypeRef r = pool_->alloc(std::move(nt));
+            // `Self::Item` at Self = `X::IntoIter`: the item bound of
+            // `IntoIter` answers it (`X::Item`).
+            if (subbed_base && TypeRef(subbed_base).kind() == LogosType::Kind::AssocType)
+                return normalize_assoc_eq(r);
+            return r;
         }
         return t;
     }

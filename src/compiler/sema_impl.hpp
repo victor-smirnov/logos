@@ -9593,9 +9593,18 @@ private:
     TypeRef struct_shape_() const {
         if (!shape_ || (TypeRef(shape_).kind() != LogosType::Kind::Struct &&
                         TypeRef(shape_).kind() != LogosType::Kind::ZonedStruct)) return nullptr;
-        for (auto a : TypeRef(shape_).type_args())   // a `_` argument fixes nothing (as enum_shape_)
-            if (!a || TypeRef(a).kind() == LogosType::Kind::InferredType) return nullptr;
+        // A `_` argument fixes only itself (`F<_, Option<i32>>` still names X);
+        // each reader skips the holes it meets.
+        for (auto a : TypeRef(shape_).type_args())
+            if (!a) return nullptr;
         return shape_;
+    }
+    bool struct_shape_has_hole_() const {
+        TypeRef t = struct_shape_();
+        if (!t) return false;
+        for (auto a : TypeRef(t).type_args())
+            if (TypeRef(a).kind() == LogosType::Kind::InferredType) return true;
+        return false;
     }
     // The shape a struct literal takes its REGION arguments from: only one
     // with type arguments (as the struct hint was). A region-only struct's

@@ -13762,7 +13762,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         for (size_t i = 0, h_idx = 0; i < sinfo.type_params.size(); ++i) {
             auto& tp = sinfo.type_params[i];
             if (tp.is_variadic) {
-                if (struct_shape_() && TypeRef(struct_shape_()).struct_name() == std::string(sname)) {
+                if (struct_shape_() && !struct_shape_has_hole_() && TypeRef(struct_shape_()).struct_name() == std::string(sname)) {
                     while (h_idx < TypeRef(struct_shape_()).type_args().size())
                         args.push_back(TypeRef(struct_shape_()).type_args()[h_idx++]);
                 } else {
