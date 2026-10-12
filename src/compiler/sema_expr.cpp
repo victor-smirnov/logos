@@ -25041,25 +25041,99 @@ bool SemaChecker::source_named_by_text_(std::string_view ptype) const {
     return mappings_.count(base) > 0 || source_impls_.count(base) > 0;
 }
 
-std::string SemaChecker::producer_ret_type_(const std::string& fn_name) {
-    auto ovit = func_overloads_.find(fn_name);
-    if (ovit == func_overloads_.end() || ovit->second.empty()) return {};
-    auto fit = funcs_.find(ovit->second.front());
-    if (fit == funcs_.end() || !fit->second.ret_type) return {};
-    return type_str(fit->second.ret_type);
+const SemaChecker::SemaFuncInfo* SemaChecker::producer_info_(const std::string& fn_name) {
+    if (fn_name.empty()) return nullptr;
+    if (auto ovit = func_overloads_.find(fn_name);
+        ovit != func_overloads_.end() && !ovit->second.empty())
+        if (auto fit = funcs_.find(ovit->second.front()); fit != funcs_.end())
+            return &fit->second;
+    if (auto git = generic_overloads_.find(fn_name);
+        git != generic_overloads_.end() && !git->second.empty())
+        if (auto fit = generic_funcs_.find(git->second.front()); fit != generic_funcs_.end())
+            return &fit->second;
+    return nullptr;
+}
+
+// `Base<A, B<C, D>>` → ["A", "B<C, D>"]; empty for a type with no arguments.
+static std::vector<std::string> site_type_args_(const std::string& t) {
+    std::vector<std::string> out;
+    auto lt = t.find('<');
+    if (lt == std::string::npos || t.back() != '>') return out;
+    int depth = 0; std::string cur;
+    auto flush = [&] {
+        while (!cur.empty() && cur.front() == ' ') cur.erase(cur.begin());
+        while (!cur.empty() && cur.back() == ' ') cur.pop_back();
+        if (!cur.empty()) out.push_back(cur);
+        cur.clear();
+    };
+    for (char c : t.substr(lt + 1, t.size() - lt - 2)) {
+        if (c == '<' || c == '(' || c == '[') ++depth;
+        else if (c == '>' || c == ')' || c == ']') --depth;
+        if (c == ',' && depth == 0) { flush(); continue; }
+        cur += c;
+    }
+    flush();
+    return out;
+}
+
+std::string SemaChecker::producer_ret_type_(const std::string& fn_name, const std::string& site) {
+    const SemaFuncInfo* fi = producer_info_(fn_name);
+    if (!fi || !fi->ret_type) return {};
+    std::string rt = type_str(fi->ret_type);
+    if (fi->type_params.empty()) return rt;
+    // A generic producer: its params by the positions they take in the source
+    // type it reads (`&BTreeMap<K, V>`), bound to the use site's arguments.
+    // Unbound means the text names a type variable: no annotation at all.
+    if (fi->param_types.empty()) return {};
+    TypeRef src = fi->param_types[0];
+    while (src && (src.kind() == LogosType::Kind::Ref || src.kind() == LogosType::Kind::MutRef))
+        src = src.pointee();
+    if (!src) return {};
+    const auto formals = src.type_args();
+    const auto actuals = site_type_args_(site);
+    if (formals.size() != actuals.size()) return {};
+    StrMap<std::string> bind;
+    for (size_t i = 0; i < formals.size(); ++i)
+        if (TypeRef(formals[i]).kind() == LogosType::Kind::TypeVar)
+            bind[std::string(TypeRef(formals[i]).type_var_name())] = actuals[i];
+    std::string out;
+    for (size_t i = 0; i < rt.size();) {
+        if (std::isalpha(static_cast<unsigned char>(rt[i])) || rt[i] == '_') {
+            size_t j = i;
+            while (j < rt.size() && (std::isalnum(static_cast<unsigned char>(rt[j])) || rt[j] == '_')) ++j;
+            std::string id = rt.substr(i, j - i);
+            bool is_param = false;
+            for (const auto& tp : fi->type_params) if (tp.name == id) { is_param = true; break; }
+            if (is_param) {
+                auto b = bind.find(id);
+                if (b == bind.end()) return {};
+                out += b->second;
+            } else {
+                out += id;
+            }
+            i = j;
+        } else {
+            out += rt[i++];
+        }
+    }
+    return out;
 }
 
 bool SemaChecker::producer_impls_trait_(const std::string& fn_name,
                                         const std::string& trait_name) {
-    if (fn_name.empty()) return false;
-    auto ovit = func_overloads_.find(fn_name);
-    if (ovit == func_overloads_.end() || ovit->second.empty()) return false;
-    auto fit = funcs_.find(ovit->second.front());
-    if (fit == funcs_.end()) return false;
-    TypeRef rt = fit->second.ret_type;
+    const SemaFuncInfo* fi = producer_info_(fn_name);
+    if (!fi) return false;
+    TypeRef rt = fi->ret_type;
     while (rt && (TypeRef(rt).kind() == LogosType::Kind::Ref || TypeRef(rt).kind() == LogosType::Kind::MutRef))
         rt = TypeRef(rt).pointee();
-    return rt && implements_(trait_name, rt);
+    if (!rt) return false;
+    // A generic producer is asked under its own bounds: the impl holds for
+    // every instantiation the producer admits, so for the one at the site.
+    auto saved_bounds = current_type_bounds_;
+    for (const auto& tp : fi->type_params) current_type_bounds_[tp.name] = tp.bounds;
+    const bool holds = implements_(trait_name, rt);
+    current_type_bounds_ = std::move(saved_bounds);
+    return holds;
 }
 
 bool SemaChecker::producer_streams_(const std::string& fn_name) {
@@ -25164,7 +25238,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
             if (mat_randacc) spec += "n";
             if (mat_rowmaj)  spec += "m";
             spec += "%";
-            spec += producer_ret_type_(mat_fn_used);
+            spec += producer_ret_type_(mat_fn_used, ptype_stripped);
         }
         // ⚠ CHECKED IN THE ABUSE DIRECTION, and this is the half collect could
         // not do: a source may declare `order entry = key` over a producer
@@ -25191,7 +25265,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
                 "TYPE says whether there is an order at all, and it says "
                 "there is none",
                 ptype_stripped, b.rel, b.ord_col, mat_fn_used,
-                producer_ret_type_(mat_fn_used)));
+                producer_ret_type_(mat_fn_used, ptype_stripped)));
         }
         // The emitted chunk imports the materializer's module — omitted when
         // it already lives in the consuming package (importing your own
@@ -25340,7 +25414,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
                 const bool op_batches = producer_batches_(b.ops[i].fn);
                 if (op_batches || producer_streams_(b.ops[i].fn)) {
                     spec += op_batches ? "ib%" : "i%";
-                    spec += producer_ret_type_(b.ops[i].fn);
+                    spec += producer_ret_type_(b.ops[i].fn, ptype_stripped);
                 }
             }
             spec += "}";
@@ -25379,7 +25453,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
         if (!b.size_fn.empty()) {
             spec += "$";
             spec += b.size_fn;
-            std::string szty = producer_ret_type_(b.size_fn);
+            std::string szty = producer_ret_type_(b.size_fn, ptype_stripped);
             if (!szty.empty()) { spec += "%"; spec += szty; }
         }
         // ── the DISTINCT-VALUE counts (#726) ─────────────────────────────
@@ -25395,7 +25469,7 @@ std::string SemaChecker::native_source_spec(const std::string& pname,
                                   b.rel, col, col, b.rel));
                 continue;
             }
-            std::string nty = producer_ret_type_(fn);
+            std::string nty = producer_ret_type_(fn, ptype_stripped);
             if (!nty.empty() && nty != "u64" && nty != "u32" && nty != "usize" &&
                 nty != "u16" && nty != "u8") {
                 error(std::format("`distinct {}.{} = {}`: the reporter returns '{}' — a "

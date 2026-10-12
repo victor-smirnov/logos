@@ -19,7 +19,7 @@ use logos.lang.ops;
 use logos.lang.option;
 use logos.lang.marker;
 use logos.lang.default;
-use logos.mem.collections.vec;   // Vec — the relational projection's rows
+use logos.lang.stream;           // OrderedBy — the walk's order fact
 use logos.std.wql.source;        // trait OrderedMapSource — the query plane's source vocabulary (#342)
 
 /// Ordered map backed by a sorted parallel-array (not a real B-tree).
@@ -454,62 +454,77 @@ impl<K: Ord, V> FromIterator<(K, V)> for BTreeMap<K, V> {
 // makes exactness worth declaring rather than deriving — it is a RANGE, and the
 // rule "range ⇒ superset" would have been wrong about it.
 
-/// Every entry as a row, in key order.
-pub fn btree_rows<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>) -> Vec<(K, V)> {
-    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
-    unsafe {
-        let p: *const BTreeMap<K, V> = m as *const BTreeMap<K, V>;
-        let mut i: i64 = 0i64;
-        while i < p.len { out.push((p.keys[i], p.vals[i])); i = i + 1i64; }
+/// A window `[at, end)` of a map's entries, yielded as `(K, V)` rows in key
+/// order — the one producer type of the four doors below. Reads the parallel
+/// key/value arrays in place: no row is copied before the query asks for it.
+// Raw pointers, as `BTreeMapIter`: the arrays are stable while the map is
+// borrowed, and the query that holds the walk holds that borrow.
+pub struct BTreeRows<K, V> {
+    keys: *const K,
+    vals: *const V,
+    at:   i64,
+    end:  i64,
+}
+
+impl<K: Ord + Copy, V: Copy> Iterator for BTreeRows<K, V> {
+    type Item = (K, V);
+    fn next(self: &mut BTreeRows<K, V>) -> Option<(K, V)> {
+        if self.at >= self.end { return Option::None; }
+        unsafe {
+            let r: (K, V) = (self.keys[self.at], self.vals[self.at]);
+            self.at = self.at + 1i64;
+            return Option::Some(r);
+        }
     }
-    return out;
+}
+
+// THE ORDER FACT (ADR 0026 F6): every window is a run of the sorted key array.
+// Forward-only — no `Bidirectional`/`RandomAccess` — so an `order by … desc`
+// keeps its Sort node.
+impl<K: Ord + Copy, V: Copy> OrderedBy<K> for BTreeRows<K, V> { }
+
+fn btree_window<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, at: i64, end: i64) -> BTreeRows<K, V> {
+    return BTreeRows { keys: m.keys as *const K, vals: m.vals as *const V, at: at, end: end };
+}
+
+/// Every entry as a row, in key order.
+pub fn btree_rows<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>) -> BTreeRows<K, V> {
+    return btree_window::<K, V>(m, 0i64, m.len);
 }
 
 /// The point probe — the row for `k`, or none. EXACT for `==`.
-pub fn btree_at<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, k: K) -> Vec<(K, V)> {
-    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
+pub fn btree_at<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, k: K) -> BTreeRows<K, V> {
     unsafe {
-        let p: *const BTreeMap<K, V> = m as *const BTreeMap<K, V>;
-        let pos: i64 = (*p).lower_bound(&k);
-        if pos < p.len {
-            let kk: K = p.keys[pos];
-            match (&kk).cmp(&k) {
-                Ordering::Equal => { out.push((p.keys[pos], p.vals[pos])); }
+        let pos: i64 = m.lower_bound(&k);
+        let mut end: i64 = pos;
+        if pos < m.len {
+            match (&m.keys[pos]).cmp(&k) {
+                Ordering::Equal => { end = pos + 1i64; }
                 _               => { }
             }
         }
+        return btree_window::<K, V>(m, pos, end);
     }
-    return out;
 }
 
-/// The suffix from `lo` — one binary search, then a walk. EXACT for `>=`.
-pub fn btree_from<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, lo: K) -> Vec<(K, V)> {
-    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
-    unsafe {
-        let p: *const BTreeMap<K, V> = m as *const BTreeMap<K, V>;
-        let mut i: i64 = (*p).lower_bound(&lo);
-        while i < p.len { out.push((p.keys[i], p.vals[i])); i = i + 1i64; }
-    }
-    return out;
+/// The suffix from `lo` — one binary search. EXACT for `>=`.
+pub fn btree_from<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, lo: K) -> BTreeRows<K, V> {
+    unsafe { return btree_window::<K, V>(m, m.lower_bound(&lo), m.len); }
 }
 
-/// The prefix up to `hi`, inclusive — the walk stops ON the bound, which is
-/// what makes a RANGE exact. EXACT for `<=`.
-pub fn btree_upto<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, hi: K) -> Vec<(K, V)> {
-    let mut out: Vec<(K, V)> = vec_new::<(K, V)>();
+/// The prefix up to `hi`, inclusive — the window ends past the last key `<= hi`,
+/// which is what makes a RANGE exact. EXACT for `<=`.
+pub fn btree_upto<K: Ord + Copy, V: Copy>(m: &BTreeMap<K, V>, hi: K) -> BTreeRows<K, V> {
     unsafe {
-        let p: *const BTreeMap<K, V> = m as *const BTreeMap<K, V>;
-        let mut i: i64 = 0i64;
-        let mut go: bool = true;
-        while go && i < p.len {
-            let kk: K = p.keys[i];
-            match (&kk).cmp(&hi) {
-                Ordering::Greater => { go = false; }
-                _                 => { out.push((p.keys[i], p.vals[i])); i = i + 1i64; }
+        let mut end: i64 = m.lower_bound(&hi);
+        if end < m.len {
+            match (&m.keys[end]).cmp(&hi) {
+                Ordering::Equal => { end = end + 1i64; }
+                _               => { }
             }
         }
+        return btree_window::<K, V>(m, 0i64, end);
     }
-    return out;
 }
 
 /// How many rows the relation holds (ADR 0024 S4). A `mem` collection carries
@@ -529,4 +544,5 @@ impl<K: Ord + Copy, V: Copy> OrderedMapSource<K, V> for BTreeMap<K, V> {
     op entry.key le = btree_upto  exact;
     size entry = btree_len;
     unique entry = key;   // a map holds one value per key (#322, ADR 0026 F8)
+    order entry = key;    // the walk is `OrderedBy<K>` (ADR 0026 F6)
 }

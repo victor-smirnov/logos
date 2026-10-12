@@ -10514,8 +10514,14 @@ private:
     bool          producer_impls_trait_(const std::string& fn_name,
                                         const std::string& trait_name);
     // The producer's return type, as TEXT — what the emitted binding is
-    // annotated with. Empty when the function is not resolvable.
-    std::string   producer_ret_type_(const std::string& fn_name);
+    // annotated with. Empty when the function is not resolvable. A GENERIC
+    // producer (`btree_rows<K, V>(m: &BTreeMap<K, V>) -> BTreeRows<K, V>`) has
+    // its type params bound from `site`, the source type at the use site,
+    // through the positions of its first parameter's type arguments.
+    std::string   producer_ret_type_(const std::string& fn_name,
+                                     const std::string& site = {});
+    // The producer's declaration: a plain fn, or a generic one's template.
+    const SemaFuncInfo* producer_info_(const std::string& fn_name);
     // Does this parameter-type TEXT name something the deem pipeline can bind
     // a source from — a registered mapping, or a type (or type family, by
     // base name) carrying a source impl? The pipeline matches by text, so a

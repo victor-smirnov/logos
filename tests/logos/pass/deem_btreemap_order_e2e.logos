@@ -1,0 +1,65 @@
+// ADR 0026 F6 — the stdlib's ordered map declares its order.
+//
+// `BTreeMap`'s four doors return `BTreeRows<K, V>`, a window over the sorted
+// key array that implements `OrderedBy<K>`, and the source declares
+// `order entry = key`. So `order by e.key` emits no Sort node (the plan facts
+// gate pins the mode), with or without a narrowing `where`, and `limit` stops
+// the walk. The walk is forward-only, so `desc` keeps its Sort.
+//
+// The rows are inserted out of order and `val` DECREASES in `key`, so an
+// elision that fired on `order by e.val` returns the reverse sequence, and a
+// map that did not keep its keys sorted returns the insertion order.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.btree;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub deem by_key(m: &BTreeMap<i64, i64>) { from m e select (e.key, e.val) order by e.key }
+pub deem by_key_from(m: &BTreeMap<i64, i64>) { from m e where e.key >= 3 select (e.key, e.val) order by e.key }
+pub deem by_key_upto(m: &BTreeMap<i64, i64>) { from m e where e.key <= 3 select (e.key, e.val) order by e.key }
+pub deem head_two(m: &BTreeMap<i64, i64>) { from m e select (e.key, e.val) order by e.key limit 2 }
+pub deem by_key_desc(m: &BTreeMap<i64, i64>) { from m e select (e.key, e.val) order by e.key desc }
+pub deem by_val(m: &BTreeMap<i64, i64>) { from m e select (e.key, e.val) order by e.val }
+pub deem at_miss(m: &BTreeMap<i64, i64>) { from m e where e.key == 6 select (e.key, e.val) order by e.key }
+
+// The keys of `v`, in order, against `want` (`0` = none past the end).
+fn keys_are(v: &Vec<(i64, i64)>, w0: i64, w1: i64, w2: i64, w3: i64, w4: i64) -> bool {
+    let want: [i64; 5] = [w0, w1, w2, w3, w4];
+    let mut n: i64 = 0i64;
+    while n < 5i64 && want[n] != 0i64 { n = n + 1i64; }
+    if v.len() != n { return false; }
+    let mut i: i64 = 0i64;
+    while i < n {
+        if v.get(i).0 != want[i] { return false; }
+        if v.get(i).1 != 100i64 - want[i] * 10i64 { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+fn main() -> i32 {
+    let mut m: BTreeMap<i64, i64> = btreemap_new::<i64, i64>();
+    let ins: [i64; 5] = [4i64, 1i64, 5i64, 3i64, 2i64];
+    let mut i: i64 = 0i64;
+    while i < 5i64 {
+        unsafe { (*(&mut m as *mut BTreeMap<i64, i64>)).insert(ins[i], 100i64 - ins[i] * 10i64); }
+        i = i + 1i64;
+    }
+    let a: Vec<(i64, i64)> = match by_key(&m) { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
+    if !keys_are(&a, 1i64, 2i64, 3i64, 4i64, 5i64) { return 2i32; }
+    let f: Vec<(i64, i64)> = match by_key_from(&m) { Result::Ok(v) => { v } Result::Err(_e) => { return 3i32; } };
+    if !keys_are(&f, 3i64, 4i64, 5i64, 0i64, 0i64) { return 4i32; }
+    let u: Vec<(i64, i64)> = match by_key_upto(&m) { Result::Ok(v) => { v } Result::Err(_e) => { return 5i32; } };
+    if !keys_are(&u, 1i64, 2i64, 3i64, 0i64, 0i64) { return 6i32; }
+    let h: Vec<(i64, i64)> = match head_two(&m) { Result::Ok(v) => { v } Result::Err(_e) => { return 7i32; } };
+    if !keys_are(&h, 1i64, 2i64, 0i64, 0i64, 0i64) { return 8i32; }
+    let d: Vec<(i64, i64)> = match by_key_desc(&m) { Result::Ok(v) => { v } Result::Err(_e) => { return 9i32; } };
+    if !keys_are(&d, 5i64, 4i64, 3i64, 2i64, 1i64) { return 10i32; }
+    let b: Vec<(i64, i64)> = match by_val(&m) { Result::Ok(v) => { v } Result::Err(_e) => { return 11i32; } };
+    if !keys_are(&b, 5i64, 4i64, 3i64, 2i64, 1i64) { return 12i32; }
+    let x: Vec<(i64, i64)> = match at_miss(&m) { Result::Ok(v) => { v } Result::Err(_e) => { return 13i32; } };
+    if x.len() != 0i64 { return 14i32; }
+    return 0i32;
+}
