@@ -182,8 +182,6 @@ closure_return_region_of_param_refused 3 tests/soundness/open/closure_return_reg
 
 dyn_assoc_binding_refused 3 tests/soundness/open/dyn_assoc_binding_refused refuses
 
-float_exp_format_c_style_wrong 3 tests/soundness/open/float_exp_format_c_style_wrong run 3
-
 qualified_path_generic_self_type_refused 3 tests/soundness/open/qualified_path_generic_self_type_refused refuses
 
 slice_debug_missing_refused 3 tests/soundness/open/slice_debug_missing_refused refuses
@@ -387,5 +385,5 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 103
-# SYNC-HASH f3deda003e4640bc54093793f460579e
+# TOTAL 102
+# SYNC-HASH 2e4672979d420ebb89f664a3fa7078c8

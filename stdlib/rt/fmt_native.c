@@ -34,31 +34,6 @@ int32_t logos_fmt_f32_dbg(char* buf, int32_t cap, float x) {
     return (n >= cap) ? cap - 1 : n;
 }
 
-// LowerExp / UpperExp: scientific notation.
-int32_t logos_fmt_f64_e(char* buf, int32_t cap, double x) {
-    int n = snprintf(buf, (size_t)cap, "%e", x);
-    if (n < 0) return 0;
-    return (n >= cap) ? cap - 1 : n;
-}
-
-int32_t logos_fmt_f64_E(char* buf, int32_t cap, double x) {
-    int n = snprintf(buf, (size_t)cap, "%E", x);
-    if (n < 0) return 0;
-    return (n >= cap) ? cap - 1 : n;
-}
-
-int32_t logos_fmt_f32_e(char* buf, int32_t cap, float x) {
-    int n = snprintf(buf, (size_t)cap, "%e", (double)x);
-    if (n < 0) return 0;
-    return (n >= cap) ? cap - 1 : n;
-}
-
-int32_t logos_fmt_f32_E(char* buf, int32_t cap, float x) {
-    int n = snprintf(buf, (size_t)cap, "%E", (double)x);
-    if (n < 0) return 0;
-    return (n >= cap) ? cap - 1 : n;
-}
-
 // ── Rust's float rendering (Display / Debug / `{:.N}`) ─────────────────────
 // Display: the SHORTEST decimal that parses back to the same value, written
 // in positional notation (never an exponent); `-0`, `inf`, `-inf`, `NaN`.
@@ -124,6 +99,32 @@ static int32_t logos_fmt_float(char* buf, int32_t cap, double x, int is_f32, int
     buf[n] = 0;
     return n;
 }
+
+// LowerExp / UpperExp — Rust's `{:e}` / `{:E}`: the SHORTEST round-trip
+// digits as `d[.ddd]e<exp>`, the exponent unpadded and unsigned when positive
+// (`1.2345e3`, `1e-7`, `0e0`), `NaN` / `inf` as Display writes them. It was
+// printf's `%e` (`1.234500e+03`).
+static int32_t logos_fmt_exp(char* buf, int32_t cap, double x, int is_f32, int upper) {
+    int n = 0;
+    if (isnan(x)) { n = logos_put(buf, cap, n, "NaN"); buf[n] = 0; return n; }
+    if (signbit(x)) { n = logos_put(buf, cap, n, "-"); x = -x; }
+    if (isinf(x)) { n = logos_put(buf, cap, n, "inf"); buf[n] = 0; return n; }
+    if (x == 0.0) { n = logos_put(buf, cap, n, upper ? "0E0" : "0e0"); buf[n] = 0; return n; }
+    char d[32]; int e;
+    logos_shortest(x, is_f32, d, &e);
+    int nd = (int)strlen(d);
+    if (n < cap - 1) buf[n++] = d[0];
+    if (nd > 1) { if (n < cap - 1) buf[n++] = '.'; for (int i = 1; i < nd && n < cap - 1; ++i) buf[n++] = d[i]; }
+    char ex[16]; snprintf(ex, sizeof ex, upper ? "E%d" : "e%d", e);
+    n = logos_put(buf, cap, n, ex);
+    buf[n] = 0;
+    return n;
+}
+
+int32_t logos_fmt_f64_e(char* buf, int32_t cap, double x) { return logos_fmt_exp(buf, cap, x, 0, 0); }
+int32_t logos_fmt_f64_E(char* buf, int32_t cap, double x) { return logos_fmt_exp(buf, cap, x, 0, 1); }
+int32_t logos_fmt_f32_e(char* buf, int32_t cap, float x) { return logos_fmt_exp(buf, cap, (double)x, 1, 0); }
+int32_t logos_fmt_f32_E(char* buf, int32_t cap, float x) { return logos_fmt_exp(buf, cap, (double)x, 1, 1); }
 
 int32_t logos_fmt_f64_rust(char* buf, int32_t cap, double x, int32_t debug) {
     return logos_fmt_float(buf, cap, x, 0, debug);

@@ -1,0 +1,10 @@
+// Closed squeue float_exp_format_c_style_wrong (#676): LowerExp/UpperExp print Rust's shortest-digit form.
+package float_exp_format_c_style_wrong;
+use logos.mem.string;
+use logos.std.fmt;
+fn main() -> i32 {
+    let s: String = format!("{:e}", 1234.5f64);
+    if s.as_str() == "1.234500e+03" { return 3; }
+    if s.as_str() == "1.2345e3" { return 0; }
+    return 4;
+}

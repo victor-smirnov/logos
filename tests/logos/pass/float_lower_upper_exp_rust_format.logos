@@ -1,0 +1,9 @@
+// `{:e}` / `{:E}` print Rust's form: the shortest round-trip digits as
+// `d[.ddd]e<exp>` with an unpadded exponent (`1.2345e3`, `0e0`), not printf's
+// `%e` (`1.234500e+03`). rustc 1.98.1 prints the same.
+package float_lower_upper_exp_rust_format;
+use logos.std.fmt;
+fn main() {
+    println!("{:e} {:e} {:e} {:e} {:E} {:e} {:e}", 1234.5f64, 0.000123f64, 0.0f64, -2.0f64, 1e300f64, 1.5f32, 100.0f64);
+    println!("{:e} {:e} {:e}", (0.0f64 / 0.0f64), (1.0f64 / 0.0f64), -0.0f64);
+}
