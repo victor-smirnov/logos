@@ -1720,6 +1720,10 @@ const obl::Env& SemaChecker::obl_env_() {
     };
     e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t); };
     e.unsized_of = [this](TypeRef s) { return make_unsized_slice_type(TypeRef(s).elem()); };
+    e.len_type = [this](uint64_t len) {
+        LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = static_cast<int64_t>(len);
+        return pool_->alloc(std::move(lt));
+    };
     e.supertraits = [this](std::string_view trait) {
         std::vector<std::string> out;
         if (const SemaTraitInfo* ti = trait_by_key(trait))
@@ -5309,6 +5313,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             TypeRef(impl_self_ty).kind() == LogosType::Kind::TraitObject)) {
                     // `where Self: Sized` (Ord::max) does not exist for an unsized
                     // implementor (`impl Ord for str`): nothing to register.
+                } else if (m.has_default && !is_blanket && impl_self_ty &&
+                           !default_proj_bounds_hold_(m, tit, impl_self_ty, trait_type_args, nullptr)) {
+                    // `where Self::Item: B` the impl's item does not meet: no
+                    // such method on this impl (as body synthesis decides).
                 } else if (m.has_default) {
                     // This overload not explicitly provided; register the default.
                     // Build Self type; for generic impls include the type params as TypeVars.

@@ -887,6 +887,12 @@ pub trait Iterator {
         }
     }
 
+    /// Creates an adapter yielding the elements of each item in order, the items being
+    /// `IntoIterator` (Rust's `Iterator::flatten`).
+    fn flatten(self: Self) -> Flatten<Self, Self::Item> where Self::Item: IntoIterator {
+        return Flatten { outer: self, cur: Option::None };
+    }
+
 }
 
 // ── IntoIterator ─────────────────────────────────────────────────────────────
@@ -2425,6 +2431,51 @@ impl<T> IntoIterator for Option<T> {
     type IntoIter = OptionIter<T>;
     fn into_iter(self: Option<T>) -> OptionIter<T> {
         return OptionIter { state: self };
+    }
+}
+
+/// Flattening adapter (Rust's `Flatten`): drains each item's iterator in turn.
+pub struct Flatten<I, X: IntoIterator> {
+    /// Outer source iterator.
+    pub outer: I,
+    /// Currently-draining inner iterator; `None` before the first outer pull.
+    pub cur:   Option<X::IntoIter>,
+}
+
+impl<I: Iterator<Item = X>, X: IntoIterator> Iterator for Flatten<I, X> {
+    type Item = X::Item;
+    fn next(self: &mut Flatten<I, X>) -> Option<X::Item> {
+        loop {
+            match &mut self.cur {
+                Option::Some(inner) => {
+                    match inner.next() {
+                        Option::Some(v) => { return Option::Some(v); }
+                        Option::None    => { }
+                    }
+                }
+                Option::None => { }
+            }
+            match self.outer.next() {
+                Option::None    => { return Option::None; }
+                Option::Some(x) => { self.cur = Option::Some(x.into_iter()); }
+            }
+        }
+    }
+}
+
+impl<'a, T> IntoIterator for &'a Option<T> {
+    type Item = &'a T;
+    type IntoIter = OptionIter<&'a T>;
+    fn into_iter(self: &'a Option<T>) -> OptionIter<&'a T> {
+        return OptionIter { state: self.as_ref() };
+    }
+}
+
+impl<'a, T> IntoIterator for &'a mut Option<T> {
+    type Item = &'a mut T;
+    type IntoIter = OptionIter<&'a mut T>;
+    fn into_iter(self: &'a mut Option<T>) -> OptionIter<&'a mut T> {
+        return OptionIter { state: self.as_mut() };
     }
 }
 

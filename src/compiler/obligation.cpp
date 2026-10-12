@@ -45,6 +45,15 @@ bool same_nominal(std::string_view pa, std::string_view pb, std::string_view na,
 
 }  // namespace
 
+// The environment of the solver running on this thread: `unify` binds a const
+// length through it.
+static thread_local const Env* t_env = nullptr;
+struct EnvScope {
+    const Env* prev;
+    explicit EnvScope(const Env& e) : prev(t_env) { t_env = &e; }
+    ~EnvScope() { t_env = prev; }
+};
+
 // One type: a primitive scalar IS its kind, whichever pool (or none) carries it.
 static bool same_type(TypeRef a, TypeRef b) {
     if (!a || !b) return !a && !b;
@@ -79,8 +88,16 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
     case K::UnsizedSlice:
         return unify(c.elem(), p.elem(), generics, s, pack);
     case K::Array:
-        // `[T; N]` with N a const generic: any length.
-        if (!p.arr_size_var().empty()) return unify(c.elem(), p.elem(), generics, s, pack);
+        // `[T; N]` with N a const generic: any length, and N is that length.
+        if (!p.arr_size_var().empty()) {
+            if (!unify(c.elem(), p.elem(), generics, s, pack)) return false;
+            std::string n(p.arr_size_var());
+            if (!is_generic(generics, n) || !c.arr_size_var().empty() || !t_env || !t_env->len_type) return true;
+            if (auto it = s.find(n); it != s.end())
+                return !it->second.const_val() || *it->second.const_val() == static_cast<int64_t>(c.arr_size());
+            s.emplace(std::move(n), t_env->len_type(c.arr_size()));
+            return true;
+        }
         return p.arr_size() == c.arr_size() && unify(c.elem(), p.elem(), generics, s, pack);
     case K::Struct:
     case K::ZonedStruct:
@@ -286,6 +303,50 @@ struct Solver {
         return false;
     }
 
+    // `c` (open: it holds inference variables) could become an instance of
+    // `p`: an open leaf takes anything, a generic of `p` anything; otherwise the
+    // constructors agree all the way down.
+    bool could_match_(TypeRef c, TypeRef p, const std::vector<std::string>& g) const {
+        if (!c || !p) return true;
+        if ((p.kind() == K::TypeVar || p.kind() == K::ConstVar) && is_generic(g, p.type_var_name())) return true;
+        if (env.is_open(c) && c.type_args().empty() && c.tuple_elems().empty() && !c.pointee() && !c.elem())
+            return true;
+        if (p.kind() != c.kind()) return false;
+        switch (p.kind()) {
+        case K::Ptr: case K::Ref: case K::MutRef:
+            return could_match_(c.pointee(), p.pointee(), g);
+        case K::Slice: case K::UnsizedSlice: case K::Array:
+            return could_match_(c.elem(), p.elem(), g);
+        case K::Struct: case K::ZonedStruct: case K::Enum: {
+            const bool st = p.kind() != K::Enum;
+            if (!same_nominal(p.pkg_name(), c.pkg_name(), st ? p.struct_name() : p.enum_name(),
+                              st ? c.struct_name() : c.enum_name()))
+                return false;
+            auto pa = p.type_args(), ca = c.type_args();
+            if (pa.size() != ca.size()) return false;
+            for (size_t i = 0; i < pa.size(); ++i)
+                if (!could_match_(ca[i], pa[i], g)) return false;
+            return true;
+        }
+        case K::Tuple: {
+            auto pe = p.tuple_elems(), ce = c.tuple_elems();
+            if (pe.size() != ce.size()) return false;
+            for (size_t i = 0; i < pe.size(); ++i)
+                if (!could_match_(ce[i], pe[i], g)) return false;
+            return true;
+        }
+        default:
+            return true;   // a kind this walk does not take apart: no verdict, so no rejection
+        }
+    }
+    bool any_impl_could_take_(std::string_view trait, TypeRef self) const {
+        for (uint32_t i : table.of(trait)) {
+            const ImplFact& f = table.at(i);
+            if (!f.negative && could_match_(self, f.self, f.generics)) return true;
+        }
+        return false;
+    }
+
     Selection by_impls(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args,
                        std::vector<Selection>* all = nullptr) {
         Selection out;
@@ -380,7 +441,13 @@ struct Solver {
         if (!self) return {};
         if (depth > 48) return {};   // an obligation that does not terminate does not hold
         struct Depth { int& d; Depth(int& x) : d(x) { ++d; } ~Depth() { --d; } } guard{depth};
-        if (env.is_open && env.is_open(self)) return {Kind::Deferred, nullptr, {}};
+        if (env.is_open && env.is_open(self)) {
+            // An open type whose HEAD no impl can take (`Option<{integer}>:
+            // Iterator`) does not hold whatever the variable becomes — rustc
+            // rejects it as no candidate. A builtin or auto trait still defers.
+            if (!builtin(trait, self, args) && !any_impl_could_take_(trait, self)) return {};
+            return {Kind::Deferred, nullptr, {}};
+        }
         if (self.kind() == K::TypeVar) {
             if (env.param_holds && env.param_holds(self, trait, args)) return {Kind::Param, nullptr, {}};
             if (auto b = builtin(trait, self, args); b && *b) return {Kind::Builtin, nullptr, {}};
@@ -403,12 +470,14 @@ struct Solver {
 
 Selection select(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
                  const std::vector<TypeRef>& args, const FnSig* sig) {
+    EnvScope env_scope{env};
     Solver s{table, env, sig};
     return s.select(trait, self, args);
 }
 
 std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::string_view trait,
                                   TypeRef self, const std::vector<TypeRef>& args) {
+    EnvScope env_scope{env};
     Solver s{table, env, nullptr};
     return s.candidates(trait, self, args);
 }
@@ -416,6 +485,7 @@ std::vector<Selection> candidates(const ImplTable& table, const Env& env, std::s
 std::optional<TypeRef> project(const ImplTable& table, const Env& env, std::string_view trait, TypeRef self,
                                const std::vector<TypeRef>& args, std::string_view name,
                                const std::vector<TypeRef>& item_args) {
+    EnvScope env_scope{env};
     Solver s{table, env, nullptr};
     return s.project(trait, self, args, name, item_args);
 }
@@ -482,6 +552,7 @@ static bool spec_match(TypeRef c, TypeRef p, Subst& s) {
 
 SpecPick pick_specialization(const ImplTable& table, const Env& env, const std::vector<SpecCand>& cands,
                              const std::vector<TypeRef>& args, bool open_args_hold) {
+    EnvScope env_scope{env};
     SpecPick out;
     std::vector<int> best;
     for (size_t ci = 0; ci < cands.size(); ++ci) {

@@ -2122,6 +2122,8 @@ private:
         TypeRef tr(t);
         auto k = tr.kind();
         if (k == LogosType::Kind::Error || k == LogosType::Kind::TypeVar) return true;
+        // A projection off a type parameter (`X::IntoIter`) pins no more than `X`.
+        if (k == LogosType::Kind::AssocType && is_generic_projection(tr)) return true;
         if (k == LogosType::Kind::Enum) {
             auto args = tr.type_args();
             auto [pkg, esi] = enum_of(tr);
@@ -7113,6 +7115,9 @@ private:
     }
     // `self: trait<args>` by C-OBL, the trait named as written in this scope.
     bool implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args = {});
+    bool default_proj_bounds_hold_(const SemaTraitMethodInfo& m, const SemaTraitInfo* tit, TypeRef self_type,
+                                   const std::vector<TypeRef>& impl_trait_args,
+                                   std::vector<std::pair<TypeRef, std::string>>* deferred);
     // The same for a lang item (`#[lang = "index_mut"]`), by its identity.
     bool implements_lang_(std::string_view lang, TypeRef self) {
         const LangItem* li = lang_item(lang);
