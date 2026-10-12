@@ -1,0 +1,19 @@
+// Every inherited default method of an enum's trait impl binds Self to the
+// enum, for a plain and a generic enum. Only the first did: the Self selection
+// for defaults (sema_collect registration, sema_decl body synthesis) had no
+// enum arm, and later defaults took a leaked Self (`self.get()` on `&<error>`).
+// rustc 1.98.1 prints `1 5 3 11 12 21 22`.
+package enum_impl_every_default_method;
+use logos.std.fmt;
+enum E { A(i32) }
+trait Tr { fn get(&self) -> i32; fn one(&self) -> i32 { 1 } fn two(&self) -> i32 { self.get() } fn three(&self) -> i32 { 3 } }
+impl Tr for E { fn get(&self) -> i32 { 5 } }
+enum Op<T> { S(T), N }
+trait Tg { fn g(&self) -> i32; fn p1(&self) -> i32 { self.g() + 1 } fn p2(&self) -> i32 { self.g() + 2 } }
+impl<T> Tg for Op<T> { fn g(&self) -> i32 { match self { Op::S(_) => 10, Op::N => 20 } } }
+fn main() {
+    let e = E::A(7);
+    let a: Op<i64> = Op::S(1);
+    let b: Op<i64> = Op::N;
+    println!("{} {} {} {} {} {} {}", e.one(), e.two(), e.three(), a.p1(), a.p2(), b.p1(), b.p2());
+}

@@ -5351,6 +5351,12 @@ void SemaChecker::collect_impl(TinyMapView node) {
                             } else {
                                 self_type = make_datatype_type(target, dpkg_def);
                             }
+                        } else if (auto [epkg_def, esi_def] = find_enum_by_name(target); esi_def) {
+                            // An ENUM target: the same arm sema_decl's body
+                            // synthesis has, so declared and body types agree.
+                            // Without it every default after the first took a
+                            // leaked Self, as G160-3 below records for scalars.
+                            self_type = target_resolved ? target_resolved : make_enum_type(target, epkg_def);
                         } else if (auto prim_t = lookup_type_by_name(target);
                                    prim_t && [&]{
                                        auto k = TypeRef(prim_t).kind();

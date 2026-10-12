@@ -3553,6 +3553,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                             } else {
                                 self_type = make_datatype_type(target, dpkg2);
                             }
+                        } else if (auto [epkg2, esi2] = find_enum_by_name(target); esi2) {
+                            // An ENUM target. With no arm here Self kept the
+                            // previous default's binding, which the restore
+                            // after it had already undone, so every default
+                            // after the first saw `Self` unbound (`self.get()`
+                            // on `&<error>`).
+                            if (impl_target_typeref) self_type = impl_target_typeref;
+                            else self_type = make_enum_type(target, epkg2);
                         } else if (auto prim_t = lookup_type_by_name(target)) {
                             // impl Trait for <primitive> (isize / u32 / …):
                             // bind Self to the primitive type so default-body
