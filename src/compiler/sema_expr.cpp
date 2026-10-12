@@ -7175,6 +7175,26 @@ SemaChecker::ProbePick SemaChecker::probe_method_(TypeRef recv_t, std::string_vi
             ProbePick pick;
             pick.derefs = (int)d;
             pick.via_arm = true;
+            // The bound's method names the receiver's mutability, as the trait
+            // object's vtable does below: `s.borrow_mut().put(3)` under `S: P`
+            // with `fn put(&mut self)` steps `RefMut<S>` by `deref_mut`. Without
+            // it the step was `deref`, and `put` wrote through a `&S`.
+            const std::string key = ck == K::TypeVar ? std::string(TypeRef(cur).type_var_name())
+                                                     : type_str(cur);
+            if (auto wit = current_type_bounds_.find(key); wit != current_type_bounds_.end()) {
+                StrSet pv;
+                std::function<void(const std::string&)> look = [&](const std::string& tn) {
+                    if (!pv.insert(tn).second) return;
+                    auto* it = find_trait_iter_scoped(tn);
+                    if (!it) return;
+                    for (auto& m : it->methods)
+                        if (m.name == name && !m.param_types.empty() && m.param_types[0] &&
+                            TypeRef(m.param_types[0]).kind() == K::MutRef)
+                            pick.dyn_mut = true;
+                    for (auto& sp : it->supertraits) look(sp.trait_name);
+                };
+                for (auto& b : wit->second) look(b.trait_name);
+            }
             return pick;
         }
         // A trait object's own methods (its trait's and supertraits' vtable).
@@ -10573,8 +10593,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 // it is never dropped.
                 if (cur_stmt_temp_hoist_ && is_move_type(rt) && is_hoistable_temp_rvalue(recv))
                     recv = hoist_stmt_temp(std::move(recv), want_mut);
-                auto stepped = emit_generic_deref_step(recv, want_mut);
+                bool deref_only = false;
+                auto stepped = emit_generic_deref_step(recv, want_mut, &deref_only);
                 if (!stepped) break;
+                // A `&mut self` method through a `Deref`-only step (`Rc<S>`):
+                // rustc E0596, as the field-access walk refuses it.
+                if (want_mut && deref_only) { refuse_deref_only(rt); return error_expr(); }
                 recv = *stepped;
             }
         }

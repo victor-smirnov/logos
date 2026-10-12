@@ -1,0 +1,9 @@
+// The abuse direction: through a `Deref`-only `Rc<S>` the same bound method is rustc E0596.
+package bound_method_mut_self_through_rc;
+use logos.std.fmt;
+use logos.lang.rc;
+trait P { fn put(&mut self, x: i64); fn n(&self) -> i64; }
+struct Ints { v: Vec<i64> }
+impl P for Ints { fn put(&mut self, x: i64) { self.v.push(x); } fn n(&self) -> i64 { self.v.len() as i64 } }
+fn f<S: P>(s: Rc<S>) -> i64 { s.put(1); s.n() }
+fn main() { println!("{}", f(Rc::new(Ints { v: Vec::new() }))); }

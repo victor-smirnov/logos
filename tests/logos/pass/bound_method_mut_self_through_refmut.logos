@@ -1,0 +1,9 @@
+// A `&mut self` method found through a type parameter's bound (`S: P`) steps a `RefMut<S>` receiver by `deref_mut`, as a concrete receiver does. Was `deref`, and `put` wrote through a `&S`. rustc 1.98.1 prints 1.
+package bound_method_mut_self_through_refmut;
+use logos.std.fmt;
+use logos.lang.cell;
+trait P { fn put(&mut self, x: i64); }
+struct Ints { v: Vec<i64> }
+impl P for Ints { fn put(&mut self, x: i64) { self.v.push(x); } }
+fn f3<S: P>(s: &RefCell<S>) { s.borrow_mut().put(3); }
+fn main() { let r = RefCell::new(Ints { v: Vec::new() }); f3(&r); println!("{}", r.borrow().v.len()); }
