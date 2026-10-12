@@ -1,0 +1,7 @@
+// The abuse direction of supertrait_impl_from_derive: no derive, no Clone impl — rustc E0277.
+package supertrait_impl_missing_without_derive;
+use logos.std.fmt;
+trait Dup: Clone { fn two(&self) -> i32 { 2 } }
+struct T { n: i32 }
+impl Dup for T {}
+fn main() { let t = T { n: 3 }; println!("{}", t.two()); }

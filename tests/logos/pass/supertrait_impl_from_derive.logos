@@ -1,0 +1,11 @@
+// A supertrait impl provided by a derive (`#[derive_clone]` for `trait Dup:
+// Clone`) satisfies the impl's supertrait obligation: the check waits for the
+// metaprogram rounds instead of refusing before the derive expands. Its twin
+// without the derive is still refused (fail fixture). rustc 1.98.1 prints `3 3`.
+package supertrait_impl_from_derive;
+use logos.std.fmt;
+trait Dup: Clone { fn two(&self) -> (Self, Self) where Self: Sized { (self.clone(), self.clone()) } }
+#[derive_clone]
+struct T { n: i32 }
+impl Dup for T {}
+fn main() { let t = T { n: 3 }; let (a, b) = t.two(); println!("{} {}", a.n, b.n); }

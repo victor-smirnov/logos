@@ -7791,6 +7791,9 @@ void SemaChecker::check_supertrait_impls() {
             if (!super.trait_def || !trait_info(super.trait_def)) continue;  // reported above
             if (obl::select(obl_table_now_(), obl_env_(), defs_.path(super.trait_def), self, {}).holds())
                 continue;
+            // A metaprogram round may still owe the impl (`#[derive_clone]` on
+            // the target is a pending metacall): the final strict sema decides.
+            if (metaprog_mode_) continue;
             error(std::format("impl {} for {}: missing impl {} for {} (required by supertrait)",
                               tname, target, super.trait_name, target));
         }
