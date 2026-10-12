@@ -739,11 +739,18 @@ impl<T> Vec<T> {
 
     /// Shortens the vector to `n` elements, dropping the rest. No effect if `n >= len`.
     pub fn truncate(&mut self, n: i64) {
+        // Rust's order: the length shrinks first, then the tail is dropped
+        // front to back (`drop_in_place` over the slice), as `clear` does.
+        let start: i64 = if n < 0 { 0 } else { n };
+        if start >= self.len { return; }
+        let old: i64 = self.len;
+        self.len = start;
         unsafe {
             let p: *mut T = self.ptr;
-            while self.len > n && self.len > 0 {
-                self.len = self.len - 1;
-                let _x: T = p[self.len];   // dropped at the end of this iteration
+            let mut i: i64 = start;
+            while i < old {
+                let _x: T = p[i];   // dropped at the end of this iteration
+                i = i + 1;
             }
         }
     }

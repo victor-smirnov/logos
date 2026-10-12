@@ -174,8 +174,6 @@ char_classification_ascii_only_wrong 2 tests/soundness/open/char_classification_
 
 recursive_type_via_option_payload_crash 2 tests/soundness/open/recursive_type_via_option_payload_crash refuses
 
-vec_truncate_drop_order_wrong 2 tests/soundness/open/vec_truncate_drop_order_wrong run 3
-
 assoc_type_projection_expr_path_refused 3 tests/soundness/open/assoc_type_projection_expr_path_refused refuses
 
 box_dyn_fn_not_fn_refused 3 tests/soundness/open/box_dyn_fn_not_fn_refused refuses
@@ -389,5 +387,5 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 104
-# SYNC-HASH 612043723b261898d53c10ac5056b435
+# TOTAL 103
+# SYNC-HASH f3deda003e4640bc54093793f460579e
