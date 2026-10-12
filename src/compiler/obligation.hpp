@@ -107,6 +107,9 @@ struct Env {
     // A trait's direct supertraits by identity: an item a supertrait declares
     // projects through it (`<I as DoubleEndedIterator>::Item` is Iterator's).
     std::function<std::vector<std::string>(std::string_view trait)> supertraits;
+    // A const length as the type a const parameter binds to (`[T; N]` matched
+    // by `[i64; 0]` gives N = 0; the phase's pool allocates).
+    std::function<TypeRef(uint64_t len)> len_type;
 };
 
 class ImplTable {

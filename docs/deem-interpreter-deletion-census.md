@@ -6934,9 +6934,11 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12202 -> 12203 (+1), NOIMPORTED 7643 -> 7644 (+1), TIERCOMMIT 171 -> 170 (-1) — 2026-10-12: float_lower_upper_exp_rust_format (pass) + squeue float_exp_format_c_style_wrong closed → pass fixture (nonglob); tier_commit -1.
 #                ALL 12203 -> 12204 (+1), NOIMPORTED 7644 -> 7645 (+1), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: +pass/float_assoc_consts.
 #                ALL 12204 -> 12206 (+2), NOIMPORTED 7645 -> 7647 (+2), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: merge of origin/deem — deem_rel_full_join_e2e (pass) + deem_full_join_rel_base_same_scc_fail (fail).
-#                ALL 12206 -> 12208 (+2), NOIMPORTED 7647 -> 7649 (+2), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: deem_full_join_group_e2e (pass, glob) + deem_full_join_rel_group_row_fail (fail).
-REGISTRY-ALL         12208
-REGISTRY-NOIMPORTED  7649
+#                ALL 12206 -> 12207 (+1), NOIMPORTED 7647 -> 7648 (+1), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: +pass/assoc_projection_through_item_bound.
+#                ALL 12207 -> 12209 (+2), NOIMPORTED 7648 -> 7650 (+2), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: +pass/iter_flatten_option_ref, +fail/iter_flatten_item_not_into_iterator_fail.
+#                ALL 12209 -> 12211 (+2), NOIMPORTED 7650 -> 7652 (+2), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: merge of origin/deem — deem_full_join_group_e2e (pass, glob) + deem_full_join_rel_group_row_fail (fail).
+REGISTRY-ALL         12211
+REGISTRY-NOIMPORTED  7652
 REGISTRY-TIERCOMMIT  170
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

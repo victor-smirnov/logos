@@ -3618,28 +3618,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // (the gate above, Rust-shaped); a generic one is re-gated in
                     // mono (WHERE_TYPE_BOUNDS below).
                     std::vector<std::pair<TypeRef, std::string>> proj_type_bounds;
-                    bool proj_skip = false;
-                    if (!impl_is_blanket && self_type)
-                        for (auto& [an, pb] : m.self_proj_bounds) {
-                            const SemaTraitInfo* owner = nullptr;
-                            std::vector<const SemaTraitInfo*> work{tit};
-                            StrSet seen_t;
-                            for (size_t wi = 0; wi < work.size() && !owner; ++wi) {
-                                if (!seen_t.insert(trait_path(*work[wi])).second) continue;
-                                for (auto& at : work[wi]->assoc_types) if (at.name == an) owner = work[wi];
-                                for (auto& sp : work[wi]->supertraits)
-                                    if (auto* st = find_trait_iter_scoped(sp.trait_name)) work.push_back(st);
-                            }
-                            if (!owner) continue;
-                            TypeRef item = project_assoc_(trait_path(*owner), self_type,
-                                                          owner == tit ? impl_trait_args : std::vector<TypeRef>{}, an);
-                            if (!item) continue;
-                            if (type_is_concrete(item)) {
-                                if (!implements_(bound_identity_(pb), item, pb.type_args)) { proj_skip = true; break; }
-                            } else {
-                                proj_type_bounds.emplace_back(item, pb.trait_name);
-                            }
-                        }
+                    bool proj_skip = !impl_is_blanket && self_type &&
+                                     !default_proj_bounds_hold_(m, tit, self_type, impl_trait_args, &proj_type_bounds);
                     if (proj_skip) {
                         implied_type_lt_outlives_.clear();
                         shadow_scope_ = nullptr;
@@ -3906,4 +3886,34 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
         }
     }
 }
+// `where Self::Item: B` on a trait's default method: the item THIS impl names
+// must meet B, or the default is no method of the impl (Rust: the method does
+// not exist for it). A concrete item is decided here; a generic one goes to
+// `deferred` for mono's re-gate (WHERE_TYPE_BOUNDS).
+bool SemaChecker::default_proj_bounds_hold_(const SemaTraitMethodInfo& m, const SemaTraitInfo* tit,
+                                            TypeRef self_type, const std::vector<TypeRef>& impl_trait_args,
+                                            std::vector<std::pair<TypeRef, std::string>>* deferred) {
+    for (auto& [an, pb] : m.self_proj_bounds) {
+        const SemaTraitInfo* owner = nullptr;
+        std::vector<const SemaTraitInfo*> work{tit};
+        StrSet seen_t;
+        for (size_t wi = 0; wi < work.size() && !owner; ++wi) {
+            if (!seen_t.insert(trait_path(*work[wi])).second) continue;
+            for (auto& at : work[wi]->assoc_types) if (at.name == an) owner = work[wi];
+            for (auto& sp : work[wi]->supertraits)
+                if (auto* st = find_trait_iter_scoped(sp.trait_name)) work.push_back(st);
+        }
+        if (!owner) continue;
+        TypeRef item = project_assoc_(trait_path(*owner), self_type,
+                                      owner == tit ? impl_trait_args : std::vector<TypeRef>{}, an);
+        if (!item) continue;
+        if (type_is_concrete(item)) {
+            if (!implements_(bound_identity_(pb), item, pb.type_args)) return false;
+        } else if (deferred) {
+            deferred->emplace_back(item, pb.trait_name);
+        }
+    }
+    return true;
+}
+
 } // namespace logos::compiler

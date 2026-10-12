@@ -1,0 +1,25 @@
+// Iterator::flatten (Rust's Flatten over any IntoIterator item), IntoIterator for &Option<T> /
+// &mut Option<T>, and an item of an open type (`[Some(1), None]`, `{integer}`) projecting
+// through them. rustc 1.98.1 prints the same.
+package iter_flatten_option_ref;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn main() {
+    let v: Vec<Option<i32>> = vec![Some(1), None, Some(3)];
+    let s: i32 = v.iter().flatten().copied().sum();
+    println!("{}", s);
+    let a: Vec<&i32> = v.iter().flatten().collect();
+    println!("{:?}", a);
+    let w: Vec<Vec<i32>> = vec![vec![1, 2], vec![], vec![4]];
+    let c: Vec<i32> = w.into_iter().flatten().map(|x| x * 10).collect();
+    println!("{:?}", c);
+    let mut o: Option<i32> = Some(7);
+    for x in &mut o { *x += 1; }
+    for x in &o { println!("{}", x); }
+    let opts = [Some(1), None, Some(3)];
+    let flat: Vec<i32> = opts.iter().flatten().copied().collect();
+    println!("{:?}", flat);
+    let n: Vec<Option<u8>> = vec![Some(2), None, Some(5)];
+    let t: Vec<u8> = n.into_iter().flatten().collect();
+    println!("{:?}", t);
+}

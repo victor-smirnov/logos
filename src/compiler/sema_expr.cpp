@@ -13762,7 +13762,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         for (size_t i = 0, h_idx = 0; i < sinfo.type_params.size(); ++i) {
             auto& tp = sinfo.type_params[i];
             if (tp.is_variadic) {
-                if (struct_shape_() && TypeRef(struct_shape_()).struct_name() == std::string(sname)) {
+                if (struct_shape_() && !struct_shape_has_hole_() && TypeRef(struct_shape_()).struct_name() == std::string(sname)) {
                     while (h_idx < TypeRef(struct_shape_()).type_args().size())
                         args.push_back(TypeRef(struct_shape_()).type_args()[h_idx++]);
                 } else {
@@ -13855,6 +13855,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 // index-aligned from the struct definition.
                 // Every parameter bound here: `ft` IS the field at the literal's arguments.
                 bool ft_at_args = false;
+                const TypeRef ft_decl = ft;   // the declaration's, for a second substitution
                 if (ft && !sinfo.type_params.empty() && !args.empty()) {
                     SemaSubst sb;
                     bool all = args.size() >= sinfo.type_params.size();
@@ -13904,7 +13905,10 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                     for (size_t k = 0; k < sinfo.type_params.size() && k < args.size(); ++k)
                         if (args[k] && TypeRef(args[k]).kind() != LogosType::Kind::Error && !sinfo.type_params[k].is_variadic)
                             inst[sinfo.type_params[k].name] = args[k];
-                    s_ft = inst.empty() ? TypeRef(nullptr) : subst_type_sema(ft, inst);
+                    // From the declaration: `ft` already holds the arguments, and
+                    // substituting it again re-binds a name the arguments carry
+                    // (`Flatten<I, X>` at `I = ArrayChunksIter<I, T, N>`).
+                    s_ft = inst.empty() ? TypeRef(nullptr) : subst_type_sema(ft_decl, inst);
                     // Every struct parameter bound: what remains of a type variable is the
                     // enclosing item's own (rigid) parameter, so the field is judged too —
                     // `W<'a, T> { p: t }` with `t: T` against `p: &'a T` was waved through

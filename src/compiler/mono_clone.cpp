@@ -4851,6 +4851,10 @@ const obl::Env& Mono::obl_env_() {
         us.elem = TypeRef(s).elem();
         return out_.type_pool.alloc(us);
     };
+    e.len_type = [this](uint64_t len) {
+        LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = static_cast<int64_t>(len);
+        return out_.type_pool.alloc(lt);
+    };
     e.supertraits = [this](std::string_view trait) {
         std::vector<std::string> out;
         for (auto& td : out_.traits) {
