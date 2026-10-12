@@ -1,0 +1,18 @@
+// `Box<dyn Sh>` in a signature is `Box<dyn Sh + 'static>` (rustc's default object lifetime): a method returning one does not keep `self` borrowed, so two results may live together. rustc 1.98.1 prints 3.
+package box_dyn_result_default_static_bound;
+use logos.std.fmt;
+trait Sh { fn area(&self) -> i64; }
+struct Sq(i64);
+impl Sh for Sq { fn area(&self) -> i64 { return self.0; } }
+struct Gen { i: i64 }
+impl Gen {
+    fn nx(&mut self) -> Option<Box<dyn Sh>> { if self.i >= 3 { return None; } self.i += 1; return Some(Box::new(Sq(self.i))); }
+}
+fn main() {
+    let mut g = Gen { i: 0 };
+    let a = g.nx(); let b = g.nx();
+    let mut n = 0i64;
+    match a { Some(x) => n += x.area(), None => {} }
+    match b { Some(x) => n += x.area(), None => {} }
+    println!("{}", n);
+}

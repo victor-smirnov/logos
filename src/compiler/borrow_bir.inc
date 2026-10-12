@@ -4193,8 +4193,17 @@ private:
                 // admitted. The bound is not stored when written; rustc's
                 // default object lifetime for `&'a dyn Tr` is `'a`, so both
                 // take the borrow's label. An OWNING one (`Box<dyn Tr>`, one
-                // origin) keeps "?": its default bound is 'static, and claiming
-                // that would refuse every box of a borrowing value.
+                // origin) takes its written `+ 'a` bound, else rustc's default
+                // object lifetime for a box, 'static. As "?" it matched every
+                // source, so `fn nx(&mut self) -> Option<Box<dyn Sh>>` kept
+                // `self` borrowed for as long as the box lived.
+                if (same(dk, ak) && actual.owning_trait_object() && !actual.raw_fat()) {
+                    std::string lt(decl.lifetime());
+                    if (lt.empty()) lt = "'static";
+                    else if (lt == "'_") lt.clear();   // `+ '_`: elided, not the default
+                    out.insert(out.end(), n, lt);
+                    return;
+                }
                 if (!same(dk, ak) || actual.owning_trait_object() || actual.raw_fat()) break;
                 {
                     std::string lt(decl.lifetime());
@@ -4486,6 +4495,16 @@ private:
             for (auto& x : srcs) m += " '" + x.label + "'" + (x.outer_self ? "(self)" : "");
             std::fprintf(stderr, "%s\n", m.c_str());
         }
+        // The callee's `T: 'a` bounds, as ("T:<name>", "'a") (mono_clone carries
+        // them on the instance, #462).
+        std::set<std::pair<std::string, std::string>> tp_outlives;
+        if (!indirect && t.callee_fn)
+            for (auto [lo, sh] : t.callee_fn.lifetime_outlives())
+                if (lo.starts_with("T:")) {
+                    std::string S(sh);
+                    if (!S.empty() && S[0] != '\'') S = "'" + S;
+                    tp_outlives.emplace(std::string(lo), S);
+                }
         std::set<size_t> ambiguous_args;
         bool narrow = false;
         if (!self_ref && t.flow && t.flow->available) {
@@ -4593,7 +4612,12 @@ private:
                 } else if (unsourced_tp) {
                     from = sr.label != "'static";
                 } else {
-                    from = sr.label == L;
+                    // Or what a type parameter brought in, where the callee
+                    // bounds it by this region: `erase<'a, T: X + 'a>(v: T) ->
+                    // Box<dyn X + 'a>` returns v's regions under 'a.
+                    from = sr.label == L ||
+                           (sr.label.starts_with("T:") && sr.label.rfind(':') > 1 &&
+                            tp_outlives.count({sr.label.substr(0, sr.label.rfind(':')), L}));
                 }
                 if (from) {
                     subset(sr.origin, dst.os[j], p);

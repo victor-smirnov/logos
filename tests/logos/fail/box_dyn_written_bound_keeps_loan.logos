@@ -1,0 +1,8 @@
+// A WRITTEN `+ 'a` on a returned `Box<dyn Tr + 'a>` keeps the argument's loan: the box may not outlive `v` (rustc E0597).
+package box_dyn_written_bound_keeps_loan;
+use logos.std.fmt;
+trait Tr { fn get(&self) -> i64; }
+struct H<'a> { r: &'a i64 }
+impl<'a> Tr for H<'a> { fn get(&self) -> i64 { *self.r } }
+fn wrap<'a>(x: &'a i64) -> Box<dyn Tr + 'a> { Box::new(H { r: x }) }
+fn main() { let b; { let v = 5i64; b = wrap(&v); } println!("{}", b.get()); }
