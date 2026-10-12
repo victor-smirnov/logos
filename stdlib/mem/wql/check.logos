@@ -366,8 +366,8 @@ pub fn core_rules_ok(p: &CProgram) -> bool {
         while b < rels[r].rules.len() {
             if !rel_rule_ok(rels[r].name, &rs[b]) { return false; }
             if !chain_vars_ok(&rs[b].clause) { return false; }
-            if clause_outer_count(&rs[b].clause) > 0i64 {
-                return rel_err(rels[r].name, "an outer join (`left join` / `full join`) is not supported in a rel body yet — a rel is a set of rows; join in the entry query");
+            if clause_full_count(&rs[b].clause) > 0i64 {
+                return rel_err(rels[r].name, "a `full join` is not supported in a rel body yet — its base side is negated too; use a `left join` (twice, swapped) or join in the entry query");
             }
             b = b + 1i64;
         }
@@ -375,6 +375,17 @@ pub fn core_rules_ok(p: &CProgram) -> bool {
     }
     if !chain_vars_ok(&p.entry.clause) { return false; }
     return entry_outer_ok(&p.entry);
+}
+
+fn clause_full_count(cl: &CClause) -> i64 {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut n: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] { CLit::Atom(a) => { if a.outer == OUTER_FULL() { n = n + 1i64; } } _ => { } }
+        i = i + 1i64;
+    }
+    return n;
 }
 
 // The entry's outer steps: not under `find` (one borrowed row has no absent

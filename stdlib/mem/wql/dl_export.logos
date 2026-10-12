@@ -624,6 +624,28 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             return true;
         }
         SExpr::Call(c) => {
+            let ob: str = dx_opt_arg_branch(e, env, cl);
+            if ob.len() > 0i64 && builtin_of_name(c.fn_name) == BFN_UNWRAP_OR() {
+                // `unwrap_or(c, d)` over an Option column (Opt_<t>): a fresh
+                // variable bound in each disjunct, `(c = $Some(v), r = v ; c = $None(), r = d)`
+                let args: SExprArr = c.args_arr();
+                let mut cx: String = String::new();
+                let mut dxs: String = String::new();
+                if !dx_term(&mut cx, args.arg_at(0i64), env, cl) { return false; }
+                if !dx_term(&mut dxs, args.arg_at(1i64), env, cl) { return false; }
+                let mut r: String = String::new();
+                r.push_str("v_uw"); r.push_i64(cl.nudf);
+                let mut v: String = String::new();
+                v.push_str("v_ui"); v.push_i64(cl.nudf);
+                cl.nudf = cl.nudf + 1i64;
+                cl.body.push_str(", ("); cl.body.push_str(dx_view(&cx)); cl.body.push_str(" = $Some"); cl.body.push_str(ob);
+                cl.body.push_str("("); cl.body.push_str(dx_view(&v)); cl.body.push_str("), "); cl.body.push_str(dx_view(&r));
+                cl.body.push_str(" = "); cl.body.push_str(dx_view(&v)); cl.body.push_str(" ; "); cl.body.push_str(dx_view(&cx));
+                cl.body.push_str(" = $None"); cl.body.push_str(ob); cl.body.push_str("(), "); cl.body.push_str(dx_view(&r));
+                cl.body.push_str(" = "); cl.body.push_str(dx_view(&dxs)); cl.body.push_str(")");
+                out.push_str(dx_view(&r));
+                return true;
+            }
             if dx_is_strlen(e, env, cl) {
                 // `len` of a str: its byte length, Soufflé's `strlen`
                 out.push_str("strlen(");
@@ -743,6 +765,15 @@ fn dx_pred_p(e: SExpr, env: &DxEnv, cl: &mut DxClause, neg: bool) -> bool {
                 if !dx_term(&mut t, args.arg_at(0i64), env, cl) { return false; }
                 t.push_str(")");
                 cl.body.push_str(dx_view(&t));
+                return true;
+            }
+            let pb: str = dx_opt_arg_branch(e, env, cl);
+            if pb.len() > 0i64 && (builtin_of_name(c.fn_name) == BFN_IS_SOME() || builtin_of_name(c.fn_name) == BFN_IS_NONE()) {
+                let mut x: String = String::new();
+                if !dx_term(&mut x, c.args_arr().arg_at(0i64), env, cl) { return false; }
+                let is_none: bool = (builtin_of_name(c.fn_name) == BFN_IS_NONE()) != neg;
+                cl.body.push_str(", "); cl.body.push_str(dx_view(&x)); cl.body.push_str(if is_none { " = $None" } else { " != $None" });
+                cl.body.push_str(pb); cl.body.push_str("()");
                 return true;
             }
             if builtin_of_name(c.fn_name) == BFN_STARTS_WITH() {
@@ -1701,14 +1732,20 @@ fn dx_outer_rules(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, 
     let mut rk: Vec<bool> = Vec::<bool>::new();
     i = 0i64;
     while i < ov.len() { all.push(true); lk.push(i != 0i64); rk.push(i == 0i64); i = i + 1i64; }
+    // one pair of `__m` relations per clause: a program may hold several
+    // (rel bodies with outer joins), so the name carries the head and a stamp
+    let mut ml: String = String::new();
+    ml.push_str("__m_l_"); ml.push_str(head); ml.push_str("_"); ml.push_i64(out.len());
+    let mut mr: String = String::new();
+    mr.push_str("__m_r_"); mr.push_str(head); mr.push_str("_"); mr.push_i64(out.len());
     if !dx_outer_clause(p, ru, head, arity, env, oi, &ov, &all, "", "", out, why) { return false; }
-    if !dx_outer_match(p, ru, env, oi, 0i64, "__m_l", dx_view(&lv), out, why) { return false; }
-    if !dx_outer_clause(p, ru, head, arity, env, oi, &ov, &lk, "__m_l", dx_view(&lv), out, why) { return false; }
+    if !dx_outer_match(p, ru, env, oi, 0i64, dx_view(&ml), dx_view(&lv), out, why) { return false; }
+    if !dx_outer_clause(p, ru, head, arity, env, oi, &ov, &lk, dx_view(&ml), dx_view(&lv), out, why) { return false; }
     if ov.len() == 2i64 {
         let mut rv: String = String::new();
         if !dx_atom_vars(p, env, &bs[oi], &mut rv) { return dx_set(why, "outer join over a source outside the fragment"); }
-        if !dx_outer_match(p, ru, env, oi, 1i64, "__m_r", dx_view(&rv), out, why) { return false; }
-        if !dx_outer_clause(p, ru, head, arity, env, oi, &ov, &rk, "__m_r", dx_view(&rv), out, why) { return false; }
+        if !dx_outer_match(p, ru, env, oi, 1i64, dx_view(&mr), dx_view(&rv), out, why) { return false; }
+        if !dx_outer_clause(p, ru, head, arity, env, oi, &ov, &rk, dx_view(&mr), dx_view(&rv), out, why) { return false; }
     }
     return true;
 }
@@ -2043,6 +2080,29 @@ fn dx_out_cols(sel: SExpr, env: &DxEnv, cl: &DxClause, out: &mut String) -> i64 
     }
 }
 
+// A builtin call whose first argument is an Option column (`Opt_<t>`): the
+// ADT branch suffix (`_n` / `_s` / `_u`), else "".
+fn dx_opt_arg_branch<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
+    match e {
+        SExpr::Call(c) => {
+            if builtin_of_name(c.fn_name) == BFN_UNKNOWN() { return ""; }
+            let args: SExprArr = c.args_arr();
+            if args.len() < 1i64 { return ""; }
+            let t: str = dx_term_ty(args.arg_at(0i64), env, cl);
+            if str_eq(t, "Opt_number") { return "_n"; }
+            if str_eq(t, "Opt_symbol") { return "_s"; }
+            if str_eq(t, "Opt_unsigned") { return "_u"; }
+            return "";
+        }
+        _ => { return ""; }
+    }
+}
+fn dx_opt_inner_ty(t: str) -> str {
+    if str_eq(t, "Opt_symbol") { return "symbol"; }
+    if str_eq(t, "Opt_unsigned") { return "unsigned"; }
+    return "number";
+}
+
 // `len(x)` over a str.
 fn dx_is_strlen(e: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
     match e {
@@ -2128,6 +2188,9 @@ fn dx_item_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<str>) -> &
 // A term's Soufflé type: a column's declared type, a literal's kind, number
 // for arithmetic.
 fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
+    if dx_opt_arg_branch(e, env, cl).len() > 0i64 {
+        match e { SExpr::Call(c) => { if builtin_of_name(c.fn_name) == BFN_UNWRAP_OR() { return dx_opt_inner_ty(dx_term_ty(c.args_arr().arg_at(0i64), env, cl)); } } _ => { } }
+    }
     match e {
         SExpr::Cond(cd) => { return dx_term_ty(cd.t.any().view::<SExpr>(), env, cl); }
         SExpr::Call(c) => {
@@ -2192,6 +2255,17 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
 // A term's dump kind (see dx_kind): literals by their value, arithmetic as
 // integers, a column or a parameter by its Logos type.
 fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
+    if dx_opt_arg_branch(e, env, cl).len() > 0i64 {
+        match e {
+            SExpr::Call(c) => {
+                if builtin_of_name(c.fn_name) == BFN_UNWRAP_OR() {
+                    let ak: str = dx_term_kind(c.args_arr().arg_at(0i64), env, cl);
+                    if ak.len() == 2i64 { return dx_slice(ak, 1i64, 2i64); }
+                }
+            }
+            _ => { }
+        }
+    }
     match e {
         SExpr::Cond(cd) => { return dx_term_kind(cd.t.any().view::<SExpr>(), env, cl); }
         SExpr::Call(c) => {

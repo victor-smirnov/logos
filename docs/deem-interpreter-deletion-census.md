@@ -6919,8 +6919,8 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12183 -> 12184 (+1), NOIMPORTED 7624 -> 7625 (+1), TIERCOMMIT 178 -> 178 (+0) — 2026-10-11: merge of origin/deem: wql_group_many_keys_e2e (glob).
 #                ALL 12184 -> 12184 (+0), NOIMPORTED 7625 -> 7625 (+0), TIERCOMMIT 178 -> 176 (-2) — 2026-10-11: squeue ufcs_next_after_region_erased_binding_refused, vec_iter_find_elided_region_refused closed → pass fixtures (nonglob); tier_commit -2.
 #                ALL 12184 -> 12187 (+3), NOIMPORTED 7625 -> 7628 (+3), TIERCOMMIT 176 -> 176 (+0) — 2026-10-11: fat_mut_reborrow_and_shared_slice_prefix (pass, nonglob); fat_mut_reborrow_conflict_dyn/_slice (fail).
-REGISTRY-ALL         12187
-REGISTRY-NOIMPORTED  7628
+REGISTRY-ALL         12189
+REGISTRY-NOIMPORTED  7630
 REGISTRY-TIERCOMMIT  176
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

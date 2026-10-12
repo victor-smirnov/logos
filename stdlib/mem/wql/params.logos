@@ -1126,7 +1126,7 @@ pub struct RelScc {
 /// `rel_add` refuses past 8 (`rel_n >= 8` → -1), so `nmem <= rel_n <= 8` and
 /// `emit_scc_fn`'s `mem` list and the handle's total-name
 /// array cannot be overrun. If `rel_add`'s bound ever moves, both move with it.
-pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
+pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc, pc: &CProgram) {
     let mut r: i64 = 0i64;
     while r < prm.rel_n {
         let c: i64 = scc.comp[r];
@@ -1136,6 +1136,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
         let mut any_agg:    bool = false;
         let mut any_native: bool = false;
         let mut any_stream: bool = false;
+        let mut any_neg:    bool = false;
         let mut mask_u:     RelSet = relset_new(0i64);
         let mut k: i64 = 0i64;
         while k < prm.rel_n {
@@ -1152,6 +1153,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
                 // question, so this does not follow the readings that moved to
                 // `rel_src_unmaterialized`.
                 if prm.rel_iter[k] || prm.rel_stream[k] { any_stream = true; }
+                if rel_body_negates(pc, prm.rel_names[k]) { any_neg = true; }
                 mask_u.union_with(&scc.dep_mask[k]);
             }
             k = k + 1i64;
@@ -1180,6 +1182,8 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
             why = "a member of the SCC is NATIVE (`&Writ`) — it has no parse-side bodies and no fixpoint at all; it is a pure function of one caller-owned container";
         } else if any_stream {
             why = "a member of the SCC STREAMS — it is bound to an iterator rather than to a slice, and a total the handle owns must be a materialized Vec";
+        } else if any_neg {
+            why = "a member body of the recursive SCC has an ANTI or OUTER join — non-monotone in its negated side (a row arriving there retracts a derived row, or an absent-side row), and `<q>_epoch` only EXTENDS the fixpoint total";
         } else if !mask_u.is_empty() {
             why = "the recursive SCC DEPENDS ON A LOWER-STRATUM `rel` — that rel is itself derived, so maintaining this one across epochs means maintaining that one too and the handle would have to own both totals";
         }
@@ -1187,6 +1191,33 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc) {
         prm.rel_incr_ok[r]  = why.len() == 0i64;
         r = r + 1i64;
     }
+}
+
+// Does a body of rel `name` hold an anti join or an outer join?
+fn rel_body_negates(pc: &CProgram, name: str) -> bool {
+    let rels: &[CRel] = pc.rels.as_slice();
+    let mut r: i64 = 0i64;
+    while r < pc.rels.len() {
+        if str_eq(rels[r].name, name) {
+            let rs: &[CRule] = rels[r].rules.as_slice();
+            let mut b: i64 = 0i64;
+            while b < rels[r].rules.len() {
+                let bs: &[CLit] = rs[b].clause.body.as_slice();
+                let mut i: i64 = 0i64;
+                while i < rs[b].clause.body.len() {
+                    match &bs[i] {
+                        CLit::Atom(a) => { if a.neg || a.outer != 0i32 { return true; } }
+                        CLit::Trav(t) => { if t.neg || t.outer != 0i32 { return true; } }
+                        CLit::Cond(_c) => { }
+                    }
+                    i = i + 1i64;
+                }
+                b = b + 1i64;
+            }
+        }
+        r = r + 1i64;
+    }
+    return false;
 }
 
 pub fn rel_scc_new() -> RelScc {

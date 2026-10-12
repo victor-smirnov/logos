@@ -251,11 +251,11 @@ fn check_stratified(prm: &mut MacroParams, deps: &RelDeps, scc: &RelScc) -> bool
             let mut m2: String = String::new();
             m2.push_str("wql!: non-stratifiable negation — rel '");
             m2.push_str(prm.rel_names[deps.afrom[k2]]);
-            m2.push_str("' `anti join`s rel '");
+            m2.push_str("' `anti join`s or outer-joins rel '");
             m2.push_str(prm.rel_names[deps.ato[k2]]);
             m2.push_str("' of the same recursive component ");
             push_scc_members(&mut m2, prm, scc, scc.comp[deps.afrom[k2]]);
-            m2.push_str(" — negation through recursion has no stratified semantics; anti join only rels from an earlier stratum");
+            m2.push_str(" — negation through recursion has no stratified semantics (an outer join's absent side is a negation); anti join or outer-join only rels from an earlier stratum");
             error(string_as_str(&m2));
             return false;
         }
@@ -386,7 +386,10 @@ fn check_steps(cl: &CClause, base_var: str, base_ty: str, prm: &MacroParams,
                 let sr: SrcRes = resolve_source(prm, a.name, cur_rel, deps);
                 if !sr.ok { return false; }
                 if sr.is_rel {
-                    if a.neg && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
+                    // an outer join is non-monotone in its joined side (a new row
+                    // there removes an absent-side row), so it stratifies as an
+                    // anti join does
+                    if (a.neg || a.outer != 0i32) && cur_rel >= 0i64 { deps.add_anti(cur_rel, sr.idx); }
                     relvars.push(a.var); *nrelv = *nrelv + 1i64;
                 }
                 vty.push_str(sr.row_ty);
@@ -1511,7 +1514,7 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
         // query's lowering can read it (see `stamp_rel_incr_shape`). AFTER
         // stratification: an unstratifiable program never reaches emission, so
         // a flag stamped before it would describe a program that does not exist.
-        stamp_rel_incr_shape(prm, &scc);
+        stamp_rel_incr_shape(prm, &scc, &early);
         // ADR 0025 R-G — THE PRELUDE LANDINGS WHOSE KIND ONLY EXISTS NOW, and
         // then the plan is read back. `access_plan_explain` used to print from
         // inside `plan_apply_access`, three passes above: before `deps`, before
@@ -1546,7 +1549,7 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
         access_plan_explain(&pick_ap, prm);
         if prm.rel_n > 0i64 {
             scc = compute_rel_scc(&deps, prm.rel_n);
-            stamp_rel_incr_shape(prm, &scc);
+            stamp_rel_incr_shape(prm, &scc, &early);
         }
     }
 
