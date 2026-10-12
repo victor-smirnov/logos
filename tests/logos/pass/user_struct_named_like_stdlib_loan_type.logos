@@ -1,0 +1,14 @@
+// A user `struct Item` is not the stdlib's `metaprog::ast::Item` (which holds a
+// `WAny` and so carries loans): the borrow checker's type sets are asked by
+// IDENTITY (`pkg::Name`). By bare name, the clone below kept `items` borrowed
+// and the move was refused. rustc 1.98.1 prints `1 1`.
+package user_struct_named_like_stdlib_loan_type;
+use logos.std.fmt;
+struct Item { name: String, qty: u32 }
+impl Clone for Item { fn clone(&self) -> Item { Item { name: self.name.clone(), qty: self.qty } } }
+fn main() {
+    let items: Vec<Item> = vec![Item { name: String::from("a"), qty: 1 }];
+    let first = items[0].clone();
+    let owned = items;
+    println!("{} {}", first.qty, owned.len());
+}

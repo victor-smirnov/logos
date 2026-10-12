@@ -136,6 +136,10 @@ struct TypeSets {
     // is_ref_kind) plus tuple/array element seeding, which holds_mut_ref's set
     // builder lacks. Consumed only by type_may_carry_borrow.
     std::unordered_set<std::string> holds_any_ref;
+    // `pkg::Name` of every struct, struct instance and enum definition with a
+    // package: the IDENTITIES the name-keyed sets above are asked by (see
+    // nominal_key).
+    std::unordered_set<std::string> nominal_ids;
     // Name → def indices (built once in build_type_sets). Replace the per-type
     // linear scans of prog.structs / struct_specializations / enums that made
     // needs_drop / struct_is_dropck_relevant / enum_is_move O(structs) each —
@@ -175,8 +179,43 @@ static std::string declared_base_of(std::string_view n) {
     return s;
 }
 
+// A nominal type's key in TypeSets' name-keyed sets: its IDENTITY (`pkg::Name`)
+// when that names a definition, else the bare name. A BARE NAME IS NOT AN
+// IDENTITY: the stdlib's `metaprog::ast::Item` holds a `WAny`, so the bare
+// `Item` was loan-carrying, and a user's `struct Item { name: String }` got a
+// hidden region — `let c = items[0].clone(); let owned = items;` was refused
+// ("cannot move out of 'items' because it is borrowed").
+static std::string nominal_key(const TypeSets& ts, std::string_view name, std::string_view pkg) {
+    if (!pkg.empty()) {
+        std::string id = std::string(pkg) + "::" + std::string(name);
+        if (ts.nominal_ids.count(id)) return id;
+    }
+    return std::string(name);
+}
+static std::string nominal_key(const TypeSets& ts, TypeRef t) {
+    if (!t) return {};
+    auto k = t.kind();
+    if (k == LogosType::Kind::Enum) return nominal_key(ts, t.enum_name(), t.pkg_name());
+    if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
+        return nominal_key(ts, t.struct_name(), t.pkg_name());
+    return {};
+}
+// The bare part of a key (what follows `pkg::`), which a type asked WITHOUT a
+// known identity still finds.
+static std::string nominal_bare(const std::string& key) {
+    auto cc = key.find("::");
+    return cc == std::string::npos ? key : key.substr(cc + 2);
+}
+
 static TypeSets build_type_sets(const lir::LProgram& prog) {
     TypeSets ts;
+    for (auto& sd : prog.structs)
+        if (!sd.pkg().empty()) ts.nominal_ids.insert(std::string(sd.pkg()) + "::" + std::string(sd.name()));
+    for (auto& sd : prog.struct_specializations)
+        if (!sd.pkg().empty()) ts.nominal_ids.insert(std::string(sd.pkg()) + "::" + std::string(sd.name()));
+    for (auto& ed : prog.enums)
+        if (!ed.pkg().empty()) ts.nominal_ids.insert(std::string(ed.pkg()) + "::" + std::string(ed.name()));
+    auto def_key = [&](auto def) { return nominal_key(ts, def.name(), def.pkg()); };
     // `prog.consts` holds BOTH kinds (sema pushes CONST_DEF and STATIC_DEF into
     // the same vector); IS_STATIC is the one property that separates them.
     // ⚠ THE `is_static` SKIP IS NOT WHAT KEEPS `static` COMPILING TODAY, AND
@@ -296,7 +335,9 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     // `FilterIter$G…$VecIterMut…` spec is BC because of its ARGS — bare
     // "FilterIter" over a Slice chain is not (false E0716 on
     // closure_bare_param without this split).
-    auto reg_bc_name = [&](const std::string& name, bool strip_generic) {
+    auto reg_bc_name = [&](const std::string& key, bool strip_generic) {
+        ts.borrow_carrying.insert(key);
+        const std::string name = nominal_bare(key);
         ts.borrow_carrying.insert(name);
         std::string_view n = name;          // also the bare (pkg-stripped) name
         if (auto dot = n.rfind('.'); dot != std::string_view::npos)
@@ -310,27 +351,20 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         }
     };
     auto reg_bc = [&](lir_view::StructView sd) {
-        if (sd.borrow_carrying()) reg_bc_name(std::string(sd.name()), /*strip_generic=*/true);
+        if (sd.borrow_carrying()) reg_bc_name(def_key(sd), /*strip_generic=*/true);
     };
     for (auto& sd : prog.structs) reg_bc(sd);
     for (auto& sd : prog.struct_specializations) reg_bc(sd);
     // `#[borrow_carrying]` enums (WAny) — same escape tracking as the struct form.
     for (auto& ed : prog.enums)
-        if (ed.borrow_carrying()) reg_bc_name(std::string(ed.name()), /*strip_generic=*/true);
+        if (ed.borrow_carrying()) reg_bc_name(def_key(ed), /*strip_generic=*/true);
     // Transitive closure (escape tracking must see the WHOLE aggregate): a struct
     // or enum with an INLINE field / variant payload of a (transitively) borrow-
     // carrying type is itself borrow-carrying — the borrow rides inside the value,
     // so returning the aggregate escapes it exactly as returning the bare WAny
     // would. (Borrow-carrying as a generic CONTAINER element — `Vec<WAny>`, behind
     // an owning pointer — is handled by the container-element rule below.)
-    auto type_bc_name = [](TypeRef t) -> std::string {
-        if (!t) return {};
-        auto k = t.kind();
-        if (k == LogosType::Kind::Enum) return std::string(t.enum_name());
-        if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-            return std::string(t.struct_name());
-        return {};
-    };
+    auto type_bc_name = [&](TypeRef t) -> std::string { return nominal_key(ts, t); };
     auto type_is_bc = [&](TypeRef t) -> bool {
         // A direct borrow-carrying field/payload, OR a generic type-argument that
         // is borrow-carrying (a container of WAny — `Vec<WAny>`, `Option<WAny>` —
@@ -362,7 +396,9 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         }
         return false;
     };
-    auto reg_exempt_name = [&](const std::string& name) {
+    auto reg_exempt_name = [&](const std::string& key) {
+        ts.residency_exempt.insert(key);
+        const std::string name = nominal_bare(key);
         ts.residency_exempt.insert(name);
         std::string_view n = name;          // also the bare (pkg-stripped) name
         if (auto dot = n.rfind('.'); dot != std::string_view::npos)
@@ -381,22 +417,22 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     // handle happens to be ref-counted. No laundered-escape type is also
     // explicitly borrow-carrying — they are opposites.)
     for (auto& sd : prog.structs)
-        if (!sd.borrow_carrying() && holds_residency_holder(sd)) reg_exempt_name(std::string(sd.name()));
+        if (!sd.borrow_carrying() && holds_residency_holder(sd)) reg_exempt_name(def_key(sd));
     for (auto& sd : prog.struct_specializations)
-        if (!sd.borrow_carrying() && holds_residency_holder(sd)) reg_exempt_name(std::string(sd.name()));
+        if (!sd.borrow_carrying() && holds_residency_holder(sd)) reg_exempt_name(def_key(sd));
     bool bc_changed = true;
     while (bc_changed) {
         bc_changed = false;
         auto consider_struct = [&](lir_view::StructView sd) {
-            if (ts.borrow_carrying.count(std::string(sd.name()))) return;
+            if (ts.borrow_carrying.count(def_key(sd))) return;
             if (holds_residency_holder(sd)) return;   // laundered escape package — exempt
             for (auto& f : sd.fields())
-                if (type_is_bc(f.type(prog.type_pool.impl()))) { reg_bc_name(std::string(sd.name()), /*strip_generic=*/false); bc_changed = true; return; }
+                if (type_is_bc(f.type(prog.type_pool.impl()))) { reg_bc_name(def_key(sd), /*strip_generic=*/false); bc_changed = true; return; }
         };
         for (auto& sd : prog.structs)                consider_struct(sd);
         for (auto& sd : prog.struct_specializations) consider_struct(sd);
         for (auto& ed : prog.enums) {
-            std::string ed_name(ed.name());
+            std::string ed_name = def_key(ed);
             if (ts.borrow_carrying.count(ed_name)) continue;
             bool hit = false;
             ed.each_variant([&](lir_view::EnumVariantView var) {
@@ -414,7 +450,9 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
     // fact; it does not stop the contained borrow from reading that arena.
     ts.loan_carrying = ts.borrow_carrying;
     {
-        auto reg_lc_name = [&](const std::string& name) {
+        auto reg_lc_name = [&](const std::string& key) {
+            ts.loan_carrying.insert(key);
+            const std::string name = nominal_bare(key);
             ts.loan_carrying.insert(name);
             std::string_view n = name;
             if (auto dot = n.rfind('.'); dot != std::string_view::npos)
@@ -434,16 +472,16 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         while (lc_changed) {
             lc_changed = false;
             auto consider = [&](lir_view::StructView sd) {
-                if (ts.loan_carrying.count(std::string(sd.name()))) return;
+                if (ts.loan_carrying.count(def_key(sd))) return;
                 for (auto& f : sd.fields())
                     if (type_is_lc(f.type(prog.type_pool.impl()))) {
-                        reg_lc_name(std::string(sd.name())); lc_changed = true; return;
+                        reg_lc_name(def_key(sd)); lc_changed = true; return;
                     }
             };
             for (auto& sd : prog.structs)                 consider(sd);
             for (auto& sd : prog.struct_specializations)  consider(sd);
             for (auto& ed : prog.enums) {
-                std::string ed_name(ed.name());
+                std::string ed_name = def_key(ed);
                 if (ts.loan_carrying.count(ed_name)) continue;
                 bool hit = false;
                 ed.each_variant([&](lir_view::EnumVariantView var) {
@@ -472,7 +510,9 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
             }
             return false;
         };
-        auto reg_hm_name = [&](const std::string& name) {
+        auto reg_hm_name = [&](const std::string& key) {
+            ts.holds_mut_ref.insert(key);
+            const std::string name = nominal_bare(key);
             ts.holds_mut_ref.insert(name);
             std::string_view n = name;
             if (auto dot = n.rfind('.'); dot != std::string_view::npos)
@@ -482,16 +522,16 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         while (hm_changed) {
             hm_changed = false;
             auto consider = [&](lir_view::StructView sd) {
-                if (ts.holds_mut_ref.count(std::string(sd.name()))) return;
+                if (ts.holds_mut_ref.count(def_key(sd))) return;
                 for (auto& f : sd.fields())
                     if (type_is_hm(f.type(prog.type_pool.impl()))) {
-                        reg_hm_name(std::string(sd.name())); hm_changed = true; return;
+                        reg_hm_name(def_key(sd)); hm_changed = true; return;
                     }
             };
             for (auto& sd : prog.structs)                 consider(sd);
             for (auto& sd : prog.struct_specializations)  consider(sd);
             for (auto& ed : prog.enums) {
-                std::string ed_name(ed.name());
+                std::string ed_name = def_key(ed);
                 if (ts.holds_mut_ref.count(ed_name)) continue;
                 bool hit = false;
                 ed.each_variant([&](lir_view::EnumVariantView var) {
@@ -534,7 +574,9 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
                 return type_is_ha(t.elem());
             return false;
         };
-        auto reg_ha_name = [&](const std::string& name) {
+        auto reg_ha_name = [&](const std::string& key) {
+            ts.holds_any_ref.insert(key);
+            const std::string name = nominal_bare(key);
             ts.holds_any_ref.insert(name);
             std::string_view n = name;
             if (auto dot = n.rfind('.'); dot != std::string_view::npos)
@@ -544,16 +586,16 @@ static TypeSets build_type_sets(const lir::LProgram& prog) {
         while (ha_changed) {
             ha_changed = false;
             auto consider = [&](lir_view::StructView sd) {
-                if (ts.holds_any_ref.count(std::string(sd.name()))) return;
+                if (ts.holds_any_ref.count(def_key(sd))) return;
                 for (auto& f : sd.fields())
                     if (type_is_ha(f.type(prog.type_pool.impl()))) {
-                        reg_ha_name(std::string(sd.name())); ha_changed = true; return;
+                        reg_ha_name(def_key(sd)); ha_changed = true; return;
                     }
             };
             for (auto& sd : prog.structs)                 consider(sd);
             for (auto& sd : prog.struct_specializations)  consider(sd);
             for (auto& ed : prog.enums) {
-                std::string ed_name(ed.name());
+                std::string ed_name = def_key(ed);
                 if (ts.holds_any_ref.count(ed_name)) continue;
                 bool hit = false;
                 ed.each_variant([&](lir_view::EnumVariantView var) {
@@ -1667,11 +1709,7 @@ static void merge_loans(StateMap& base, StateMap& other) {
 static bool bc_is_borrow_carrying_type(const TypeSets& ts_, TypeRef t) {
     if (!t) return false;
     auto k = t.kind();
-    std::string nm;
-    if (k == LogosType::Kind::Enum)                 // WAny: the niche-enum form (F3)
-        nm = std::string(t.enum_name());
-    else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-        nm = std::string(t.struct_name());
+    std::string nm = nominal_key(ts_, t);   // WAny: the niche-enum form (F3) too
     // Laundered escape package (`Held<T>`/`HeldAny`: holds an Rc/Arc holder
     // that keeps the arena alive) — never borrow-carrying, including via its
     // type-args (`Held<WArray<WAny>>`). Same exemption the definition-side
@@ -1751,10 +1789,7 @@ static bool bc_is_borrow_carrying_type(const TypeSets& ts_, TypeRef t) {
 static bool bc_loan_carrying_type(const TypeSets& ts_, TypeRef t) {
     if (!t) return false;
     auto k = t.kind();
-    std::string nm;
-    if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
-    else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-        nm = std::string(t.struct_name());
+    std::string nm = nominal_key(ts_, t);
     if (!nm.empty() && ts_.loan_carrying.count(nm) > 0) return true;
     for (auto a : t.type_args())
         if (bc_loan_carrying_type(ts_, a)) return true;
@@ -1774,10 +1809,7 @@ static bool bc_holds_mut_ref_type(const TypeSets& ts_, TypeRef t) {
     if (!t) return false;
     auto k = t.kind();
     if (k == LogosType::Kind::MutRef) return true;
-    std::string nm;
-    if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
-    else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-        nm = std::string(t.struct_name());
+    std::string nm = nominal_key(ts_, t);
     if (!nm.empty() && ts_.holds_mut_ref.count(nm) > 0) return true;
     for (auto a : t.type_args())
         if (bc_holds_mut_ref_type(ts_, a)) return true;
@@ -1815,10 +1847,7 @@ static bool bc_holds_any_ref_type(const TypeSets& ts_, TypeRef t) {
     if (!t) return false;
     auto k = t.kind();
     if (is_ref_kind(t)) return true;
-    std::string nm;
-    if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
-    else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-        nm = std::string(t.struct_name());
+    std::string nm = nominal_key(ts_, t);
     if (!nm.empty() && ts_.holds_any_ref.count(nm) > 0) return true;
     for (auto a : t.type_args())
         if (bc_holds_any_ref_type(ts_, a)) return true;
@@ -7768,11 +7797,7 @@ private:
     // channel), so the #86 escape gate has to apply it itself.
     bool type_is_residency_exempt(TypeRef t) const {
         if (!t) return false;
-        auto k = t.kind();
-        std::string nm;
-        if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
-        else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-            nm = std::string(t.struct_name());
+        const std::string nm = nominal_key(ts_, t);
         return !nm.empty() && ts_.residency_exempt.count(nm) > 0;
     }
 
@@ -7818,12 +7843,15 @@ private:
     // `&Rc<Writ>` / `Option<Rc<T>>` need, and a recursive type cannot diverge.
     bool type_is_residency_backed(TypeRef t, int depth = 1) const {
         if (!t) return false;
-        auto k = t.kind();
-        std::string nm;
-        if (k == LogosType::Kind::Enum) nm = std::string(t.enum_name());
-        else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-            nm = std::string(t.struct_name());
-        if (!nm.empty()) {
+        const std::string nm = nominal_key(ts_, t);
+        // Asked by IDENTITY when the type names a known definition: a user
+        // struct named `Held` (or `Rc`) is not the stdlib's.
+        if (nm.find("::") != std::string::npos) {
+            if (ts_.residency_exempt.count(nm)) return true;
+            std::string b = nominal_bare(nm);
+            b = b.substr(0, b.find("$G"));
+            if ((b == "Rc" || b == "Arc") && std::string_view(t.pkg_name()).starts_with("logos.")) return true;
+        } else if (!nm.empty()) {
             if (ts_.residency_exempt.count(nm)) return true;
             std::string_view bare = nm;
             if (auto d = bare.rfind('.'); d != std::string_view::npos)
@@ -8245,11 +8273,7 @@ private:
                 return true;
         }
         {   // #71 SPIKE
-            auto k = t.kind();
-            std::string n;
-            if (k == LogosType::Kind::Enum) n = std::string(t.enum_name());
-            else if (k == LogosType::Kind::Struct || k == LogosType::Kind::ZonedStruct)
-                n = std::string(t.struct_name());
+            const std::string n = nominal_key(ts_, t);
             if (!n.empty() && ts_.holds_any_ref.count(n) > 0) return true;
         }
         for (auto a : t.type_args())
@@ -11602,8 +11626,7 @@ private:
                         bool _cmmut = _cmt &&
                             (_cmt.kind() == LogosType::Kind::MutRef ||
                              (_cmt.kind() == LogosType::Kind::Struct &&
-                              ts_.holds_mut_ref.count(
-                                  std::string(_cmt.struct_name())) > 0));
+                              ts_.holds_mut_ref.count(nominal_key(ts_, _cmt)) > 0));
                         if (_cmmut) logos::probe::census("capmove.mut");
                         // LANDED 2026-09-03p — a `move` capture of a `&mut` is
                         // a move. BOTH conditions are load-bearing and both are

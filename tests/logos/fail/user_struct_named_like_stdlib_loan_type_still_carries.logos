@@ -1,0 +1,12 @@
+// The admit twin's abuse direction: a user `#[borrow_carrying] struct Item` named like the stdlib's still carries its loan through a containing struct (asked by identity, the verdict is its own).
+package user_struct_named_like_stdlib_loan_type_still_carries;
+use logos.std.fmt;
+#[borrow_carrying]
+struct Item { p: *const i64 }
+struct Holder { it: Item }
+struct C { v: i64 }
+impl C {
+    fn mk(&self) -> Holder { return Holder { it: Item { p: &self.v as *const i64 } }; }
+    fn bump(&mut self) { self.v = self.v + 1i64; }
+}
+fn main() { let mut c = C { v: 1i64 }; let h = c.mk(); c.bump(); let h2 = h; println!("{}", c.v); }
