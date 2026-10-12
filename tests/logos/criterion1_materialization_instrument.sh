@@ -463,6 +463,7 @@ ACC = {
     '__ks':     (('key vector',),           'key vector (the sort keys)'),
     '__ix':     (('key vector',),           'key vector (the permuted index vectors)'),
     '__g_key':  (('group frame',),          'group frame (the group key column)'),
+    '__g_idx':  (('group frame',),          'group frame (its key index past 16 groups, ADR 0026 F10; the line says so)'),
     '__ga':     (('accumulator',),          'accumulator (per-group accumulator columns)'),
     '__g_cnt':  (('group count',),          "group count (avg's denominator)"),
     '__g_row':  (('representative row',),   'representative row (the group\'s base-row ordinal)'),
