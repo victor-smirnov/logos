@@ -1,7 +1,8 @@
 package z5;
+use logos.std.fmt;
 use logos.std.compiler.metaprog;
+trait Dup: Clone { fn two(&self) -> (Self, Self) where Self: Sized { (self.clone(), self.clone()) } }
 #[derive_clone]
-struct V { c: i64, d: i64 }
-#[derive_clone]
-struct W { c: i64 }
-fn main() -> i32 { let a = V { c: 3, d: 1 }; let b = a.clone(); let w = W { c: 1 }; let x = w.clone(); return b.c as i32; }
+struct T { n: i32 }
+impl Dup for T {}
+fn main() { let t = T { n: 3 }; let (a, b) = t.two(); println!("{} {}", a.n, b.n); }
