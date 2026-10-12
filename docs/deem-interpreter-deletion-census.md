@@ -6938,8 +6938,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12207 -> 12209 (+2), NOIMPORTED 7648 -> 7650 (+2), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: +pass/iter_flatten_option_ref, +fail/iter_flatten_item_not_into_iterator_fail.
 #                ALL 12209 -> 12211 (+2), NOIMPORTED 7650 -> 7652 (+2), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: merge of origin/deem — deem_full_join_group_e2e (pass, glob) + deem_full_join_rel_group_row_fail (fail).
 #                ALL 12211 -> 12214 (+3), NOIMPORTED 7652 -> 7655 (+3), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: +pass/trait_default_where_item_bound, +fail/blanket_default_where_item_unmet_fail, +fail/trait_default_where_item_unmet_fail.
-REGISTRY-ALL         12214
-REGISTRY-NOIMPORTED  7655
+#                ALL 12214 -> 12215 (+1), NOIMPORTED 7655 -> 7656 (+1), TIERCOMMIT 170 -> 170 (+0) — 2026-10-12: +pass/method_arg_deref_coercion.
+REGISTRY-ALL         12215
+REGISTRY-NOIMPORTED  7656
 REGISTRY-TIERCOMMIT  170
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

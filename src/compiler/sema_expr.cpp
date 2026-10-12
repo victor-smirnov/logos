@@ -11958,9 +11958,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                 if (specificity(x) != specificity(y)) return specificity(x) > specificity(y);
                 return n_bounds[x] > n_bounds[y];
             });
+            // Exact first; then admitting deref coercion (Rust looks a method up by
+            // its receiver and coerces the arguments after).
+            for (int pass = 0; pass < 2 && !fi_ptr; ++pass)
             for (auto* c : tied) {
                 if (c->param_types.size() != arg_exprs.size() + 1) {
-                    mwhy_arity_(c->param_types.size(), arg_exprs.size() + 1);
+                    if (pass == 0) mwhy_arity_(c->param_types.size(), arg_exprs.size() + 1);
                     continue;
                 }
                 bool ok = true;
@@ -11968,8 +11971,8 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                     TypeRef pt = c->param_types[a];
                     if (!recv_struct_subst.empty()) pt = subst_type_sema(pt, recv_struct_subst);
                     TypeRef at = expr_type(arg_exprs[a - 1]);
-                    ok = at && pt && arg_compatible_for_dispatch(arg_exprs[a - 1], at, pt);
-                    if (!ok) mwhy_arg_(a, pt, at);
+                    ok = at && pt && arg_compatible_for_dispatch(arg_exprs[a - 1], at, pt, pass == 1);
+                    if (!ok && pass == 0) mwhy_arg_(a, pt, at);
                 }
                 if (!ok) continue;
                 fi_ptr = c;

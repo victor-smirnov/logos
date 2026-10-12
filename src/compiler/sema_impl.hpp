@@ -11365,7 +11365,8 @@ private:
     }
     bool arg_compatible_for_dispatch(lir_view::ExprRef arg,
                                      TypeRef at,
-                                     TypeRef pt) {
+                                     TypeRef pt,
+                                     bool allow_deref = false) {
         if (types_equal(at, pt)) return true;
         // An unsuffixed literal against an integer slot is decided by its VALUE
         // (below), before types_compatible, which admits IntLit at every
@@ -11431,6 +11432,14 @@ private:
             if (all) return true;
         }
         if (struct_unsize_shape_ok(at, pt)) return true;
+        // Deref coercion (`&&str` / `&String` / `&Box<T>` at `&str` / `&T`), the
+        // pipeline's CFLAG_DEREF_COERCE — asked by the caller's second pass, so
+        // an exact overload still wins.
+        if (allow_deref && arg && at && pt &&
+            (TypeRef(at).kind() == LogosType::Kind::Ref || TypeRef(at).kind() == LogosType::Kind::MutRef)) {
+            lir::LExprPtr probe = arg;
+            if (try_deref_coerce(probe, pt)) return true;
+        }
         return false;
     }
 };

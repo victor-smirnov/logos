@@ -1,0 +1,25 @@
+// A method argument coerces by deref after the method is chosen by its receiver (Rust):
+// `s.push_str(p)` with `p: &&str`, `k.take(&string)` at `&str` (was "'String' has no method
+// 'push_str'"). rustc 1.98.1 prints the same.
+package method_arg_deref_coercion;
+use logos.std.fmt;
+use logos.mem.string;
+struct G<T> { v: T, n: usize }
+impl<T> G<T> { fn add(&mut self, s: &str) { self.n += s.len() as usize; } }
+trait Tk { fn take(&self, s: &str) -> usize; }
+struct K;
+impl Tk for K { fn take(&self, s: &str) -> usize { s.len() as usize } }
+fn main() {
+    let parts = ["a", "bc"];
+    let mut s = String::new();
+    for p in parts.iter() { s.push_str(p); }
+    println!("{}", s);
+    let q: &&str = &"xyz";
+    let mut g = G { v: 1i32, n: 0 };
+    g.add(q);
+    println!("{} {}", g.n, g.v);
+    let k = K;
+    println!("{}", k.take(q));
+    let st = String::from("hello");
+    println!("{}", k.take(&st));
+}
