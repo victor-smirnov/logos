@@ -1,0 +1,50 @@
+// `group by` over a `full join`: the unmatched rows of BOTH sides are folded —
+// the step rows nothing matched in the second pass, with the base absent. The
+// group reads only `key` and the aggregates (a group that names a row is
+// refused: deem_full_join_group_fail). Keys and aggregate arguments read the
+// optional columns through unwrap_or, or group by an Option column directly;
+// sorted and unsorted, `having`, a non-equi `on`, and the same group in a rel
+// body. Rows: hand-derived (e2 matches no dept; depts 30 and 40 match no emp).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+use logos.std.fmt;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+pub deem by_floor(es: &[Emp], ds: &[Dept]) {
+    from es e full join ds d on d.id == e.dept group by unwrap_or(d.floor, -1) aggregate n = count() select (key, n) order by key
+}
+pub deem by_dept(es: &[Emp], ds: &[Dept]) {
+    from es e full join ds d on d.id == e.dept group by unwrap_or(e.dept, 0)
+    aggregate s = sum(unwrap_or(d.floor, 0)), c = count() select (key, s, c) order by key
+}
+pub deem opt_key(es: &[Emp], ds: &[Dept]) {
+    from es e full join ds d on d.id == e.dept group by d.floor aggregate n = count() select n order by n
+}
+pub deem unsorted(es: &[Emp], ds: &[Dept]) {
+    from es e full join ds d on d.id == e.dept group by unwrap_or(d.floor, -1) aggregate n = count() select key
+}
+pub deem big(es: &[Emp], ds: &[Dept]) {
+    from es e full join ds d on d.id < e.dept group by unwrap_or(d.floor, -1) aggregate n = count() having n > 1 select (key, n) order by key
+}
+pub deem in_rel(es: &[Emp], ds: &[Dept]) {
+    rel per(f: i64, n: i64) { from es x full join ds y on y.id == x.dept group by unwrap_or(y.floor, -1) aggregate n = count() select (key, n); }
+    from per p select (p.f, p.n) order by p.f
+}
+fn show(t: str, v: &Vec<(i64, i64)>) { print!("{}", t); let mut i: i64 = 0i64; while i < v.len() { print!(" {}:{}", v.get(i).0, v.get(i).1); i = i + 1i64; } println!(""); }
+fn main() -> i32 {
+    let es: [Emp; 4] = [ Emp { id: 1, dept: 10 }, Emp { id: 2, dept: 99 }, Emp { id: 3, dept: 20 }, Emp { id: 4, dept: 10 } ];
+    let ds: [Dept; 4] = [ Dept { id: 10, floor: 4 }, Dept { id: 20, floor: 7 }, Dept { id: 30, floor: 4 }, Dept { id: 40, floor: 9 } ];
+    show("by_floor", &by_floor(&es[..], &ds[..]).unwrap());
+    let bd: Vec<(i64, i64, i64)> = by_dept(&es[..], &ds[..]).unwrap();
+    print!("by_dept"); let mut i: i64 = 0i64; while i < bd.len() { print!(" {}:{}:{}", bd.get(i).0, bd.get(i).1, bd.get(i).2); i = i + 1i64; } println!("");
+    let ok: Vec<i64> = opt_key(&es[..], &ds[..]).unwrap();
+    print!("opt_key"); i = 0i64; while i < ok.len() { print!(" {}", ok.get(i)); i = i + 1i64; } println!("");
+    let un: Vec<i64> = unsorted(&es[..], &ds[..]).unwrap();
+    print!("unsorted"); i = 0i64; while i < un.len() { print!(" {}", un.get(i)); i = i + 1i64; } println!("");
+    show("big", &big(&es[..], &ds[..]).unwrap());
+    show("in_rel", &in_rel(&es[..], &ds[..]).unwrap());
+    return 0i32;
+}

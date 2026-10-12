@@ -1158,6 +1158,9 @@ pub fn incr_admit(ch: &DNest, ty: &ElTypes, aggs: &Vec<CAgg>,
         // That is a second state machine (the dynamic engine spends
         // `incr.logos:1149-1251` on it) and it is not this fold.
         if ch.anti[0] { return incr_decline_r(qn, IR_JOIN_ANTI()); }
+        // An OUTER step: an unmatched row is emitted with the absent side, and
+        // it is retracted when a partner arrives — the same crossing.
+        if ch.outer[0] != 0i32 { return incr_decline_r(qn, IR_JOIN_OUTER()); }
         // A TRAVERSAL step's source is a field-path expression re-derived per
         // BOUND ROW (`a.children`), so there is no standalone relation for the
         // handle to own and no tag that could name one.

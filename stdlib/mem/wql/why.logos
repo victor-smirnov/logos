@@ -1287,6 +1287,7 @@ pub fn IR_REL_NOT_INCR() -> i32 { return 24i32; }
 pub fn IR_EMIT_JOIN() -> i32 { return 25i32; }
 pub fn IR_EMIT_REL() -> i32 { return 26i32; }
 pub fn IR_EMIT_SCAN() -> i32 { return 27i32; }
+pub fn IR_JOIN_OUTER() -> i32 { return 28i32; }
 
 pub fn ir_render(r: i32) -> str {
     if r == IR_JOIN_SRC_REL() { return "a JOIN-POSITION source is a DECLARED `rel` — the handle's joined side is stored as a weighted Z-set (`__s<k>`/`__s<k>w`) and a derived rel has no multiplicity to store: its rows come out of a set-semantics fixpoint over the ACCUMULATED input, which is state the join arm does not own"; }
@@ -1297,6 +1298,7 @@ pub fn ir_render(r: i32) -> str {
     if r == IR_CHAIN_LONG() { return "the input is a JOIN CHAIN OF TWO OR MORE STEPS — rooting the nest at a step other than the base re-splits every equi-term's build/probe halves and re-places every floating predicate, which is `decide_join_orders`' derivation and this emitter does not run it"; }
     if r == IR_JOIN_INSERT_ONLY() { return "the query JOINS and keeps the INSERT-ONLY surface (an aggregate accumulates in `f64` — decision D4), and the source TAG a join delta must carry lives on `<q>_apply`, which only the retracting surface emits"; }
     if r == IR_JOIN_ANTI() { return "the join step is ANTI — anti is a MATCHCOUNT whose 0↔positive crossing must emit a retraction of a row that never changed, which is a second state machine and not the product rule"; }
+    if r == IR_JOIN_OUTER() { return "the join step is OUTER — an absent side is a row whose presence flips when the match count crosses 0, the same second state machine as ANTI, and the handle folds only matched pairs"; }
     if r == IR_JOIN_EDGE() { return "the join step is a TRAVERSAL (`edge`) — its source is re-derived per bound row, so there is no standalone relation for the handle to own or for a source tag to name"; }
     if r == IR_JOIN_BYVAL() { return "the join step binds its row BY VALUE — the handle's stored side is a `Vec` this emitter binds by reference, and the two spellings are not interchangeable in the emitted predicate"; }
     if r == IR_JOIN_STREAMS() { return "a join source STREAMS — an iterator yields its rows once, so the handle would have to be its only reader and the caller could never re-present it as a delta"; }
@@ -1327,6 +1329,7 @@ pub fn ir_name(r: i32) -> str {
     if r == IR_CHAIN_LONG() { return "chain_long"; }
     if r == IR_JOIN_INSERT_ONLY() { return "join_insert_only"; }
     if r == IR_JOIN_ANTI() { return "join_anti"; }
+    if r == IR_JOIN_OUTER() { return "join_outer"; }
     if r == IR_JOIN_EDGE() { return "join_edge"; }
     if r == IR_JOIN_BYVAL() { return "join_byval"; }
     if r == IR_JOIN_STREAMS() { return "join_streams"; }
