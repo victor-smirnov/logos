@@ -1,0 +1,11 @@
+// Rust's float associated constants: f64:: / f32:: NAN, INFINITY, NEG_INFINITY,
+// MAX, MIN, MIN_POSITIVE, EPSILON (`f64::NAN` was "unknown enum 'f64'").
+// rustc 1.98.1 prints the same.
+package float_assoc_consts;
+use logos.std.fmt;
+fn main() {
+    println!("{} {} {} {}", f64::NAN.is_nan(), f64::INFINITY, f64::NEG_INFINITY, f64::MAX);
+    println!("{} {} {:e}", f64::MIN, f64::MIN_POSITIVE, f64::EPSILON);
+    println!("{} {} {} {:e} {:e}", f32::NAN.is_nan(), f32::INFINITY, f32::MAX, f32::MIN_POSITIVE, f32::EPSILON);
+    println!("{}", 1.0f64 + f64::EPSILON > 1.0f64);
+}

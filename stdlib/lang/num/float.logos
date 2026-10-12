@@ -316,6 +316,27 @@ pub fn f64_is_normal(x: f64) -> bool {
     }
 }
 
+// Rust's float associated constants (`f64::NAN`, `f32::EPSILON`, ...). The
+// extremes are written as the shortest literals rustc prints for them.
+impl f64 {
+    pub const NAN: f64 = 0.0f64 / 0.0f64;
+    pub const INFINITY: f64 = 1.0f64 / 0.0f64;
+    pub const NEG_INFINITY: f64 = -1.0f64 / 0.0f64;
+    pub const MAX: f64 = 1.7976931348623157e308f64;
+    pub const MIN: f64 = -1.7976931348623157e308f64;
+    pub const MIN_POSITIVE: f64 = 2.2250738585072014e-308f64;
+    pub const EPSILON: f64 = 2.220446049250313e-16f64;
+}
+impl f32 {
+    pub const NAN: f32 = 0.0f32 / 0.0f32;
+    pub const INFINITY: f32 = 1.0f32 / 0.0f32;
+    pub const NEG_INFINITY: f32 = -1.0f32 / 0.0f32;
+    pub const MAX: f32 = 3.4028235e38f32;
+    pub const MIN: f32 = -3.4028235e38f32;
+    pub const MIN_POSITIVE: f32 = 1.1754944e-38f32;
+    pub const EPSILON: f32 = 1.1920929e-7f32;
+}
+
 // Inherent method surface on the float primitives (Rust parity:
 // `x.is_nan()` etc.), delegating to the free-function classifiers above.
 impl f64 {
