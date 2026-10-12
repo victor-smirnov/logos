@@ -36,8 +36,10 @@
 #     DENOMINATOR D2 = emitted collection bindings — `let [mut] <n>: (Vec |
 #                      Buffer | HashMap | HashSet | BTreeMap)<…>` in the user dumps.
 #
-# ⚠⚠ D2's BIND regex ALSO carries an UNDOCUMENTED-until-R-G NAME filter: the
-# binding must start with `_`. That is the D4/HashSet shape a THIRD time, on
+# ⚠⚠ WIDENED 2026-10-11 (ADR 0025 criteria L7): the name filter below is gone;
+# BIND takes any identifier. What follows is the record of why.
+# D2's BIND regex ALSO carried an UNDOCUMENTED-until-R-G NAME filter: the
+# binding had to start with `_`. That is the D4/HashSet shape a THIRD time, on
 # the NAME axis instead of the TYPE axis: 2 compiler-emitted collections are
 # dropped by it TODAY — `let mut out: Vec<WritEdgeRow>` in `__gs_edges_Db` /
 # `__gs_edges_Cfg`, emitted by derive_graph_source.logos inside its quote and
@@ -179,7 +181,20 @@ export LOGOS_LIB_DIR=${LOGOS_LIB_DIR:-$REPO/build/lib/logos}
 export LC_ALL=C
 
 [ -x "$LOGOSC" ] || { echo "FAIL(2): no logosc at $LOGOSC"; exit 2; }
-rm -rf "$OUT"; mkdir -p "$OUT/_st"
+# THE OUTDIR IS REPLACED, SO IT IS VALIDATED FIRST (ADR 0025 criteria, L11a):
+# never a path inside the repository (the build tree included) or `/`, and an
+# existing directory only if this instrument made it (its marker file) — a
+# mistyped argument must not become an `rm -rf` of somebody's directory.
+OUT=$(realpath -m -- "$OUT")
+case "$OUT/" in
+    //|"$REPO"/*) echo "FAIL(2): OUTDIR $OUT is / or inside the repository — refused"; exit 2;;
+esac
+MARK=".criterion1_instrument_outdir"
+if [ -e "$OUT" ]; then
+    [ -f "$OUT/$MARK" ] || { echo "FAIL(2): OUTDIR $OUT exists and was not made by this instrument (no $MARK) — refused"; exit 2; }
+    rm -rf -- "$OUT"
+fi
+mkdir -p "$OUT/_st" && : > "$OUT/$MARK"
 shopt -s nullglob
 FIXTURES=("$TESTS"/wql_*.logos "$TESTS"/deem_*.logos)
 if [ "${#FIXTURES[@]}" -lt 20 ]; then echo "FAIL(2): ${#FIXTURES[@]} fixtures — population lost"; exit 2; fi
@@ -355,6 +370,21 @@ NOMAT = {
     # `retract identity` (2026-10-03): what a bare-scan retraction is matched
     # on. The store it decides is already counted as the handle's `__s0`.
     'row', 'footprint',
+    # 2026-10-11, the heads the planner gained since this table was written
+    # (ADR 0031 R3/R5, #322, ADR 0026), each a DECISION whose storage — if any —
+    # another head already counts:
+    #   live rels: `not evaluated` (a rel no reader reaches is pruned) and
+    #   `evaluated though unread` (kept for its Err); demand: `demand-driven`
+    #   (the adorned copy and its `__m_` rel are rels, counted by the rel
+    #   heads) and `fully materialized` (demand declined; the rel's own
+    #   materialization is its `materialize` line); source declarations:
+    #   `unique key`, `distinct-value count` and the cost line `join selectivity
+    #   from declared distinct counts`; `unique index` annotates the hash join's
+    #   Arrange (counted as `arrange`); `ledger_at` / `ledger_from` are source
+    #   operations like `btree_at`; `base filter` places a `where` conjunct.
+    'not evaluated', 'evaluated though unread', 'demand-driven', 'fully materialized',
+    'unique key', 'distinct-value count', 'join selectivity from declared distinct counts',
+    'unique index', 'ledger_at', 'ledger_from', 'base filter',
 }
 def head_of(line):
     m = re.match(r'^\[plan\] (.+?) -> (.*?)(?:   \(|$)', line)
@@ -433,6 +463,7 @@ ACC = {
     '__ks':     (('key vector',),           'key vector (the sort keys)'),
     '__ix':     (('key vector',),           'key vector (the permuted index vectors)'),
     '__g_key':  (('group frame',),          'group frame (the group key column)'),
+    '__g_idx':  (('group frame',),          'group frame (its key index past 16 groups, ADR 0026 F10; the line says so)'),
     '__ga':     (('accumulator',),          'accumulator (per-group accumulator columns)'),
     '__g_cnt':  (('group count',),          "group count (avg's denominator)"),
     '__g_row':  (('representative row',),   'representative row (the group\'s base-row ordinal)'),
@@ -681,7 +712,7 @@ ACC = {
 # they are UNOWNED, a weaker and different claim, and they stay in the worklist
 # until a head exists for them. The site-level reading and the printed figure
 # now agree; there is no residual floor to subtract.
-BIND = re.compile(r'\blet\s+(?:mut\s+)?(__?[A-Za-z_0-9]+?)\d*\s*:\s*(Vec|Buffer|HashMap|HashSet|BTreeMap)\s*<')
+BIND = re.compile(r'\blet\s+(?:mut\s+)?([A-Za-z_][A-Za-z_0-9]*?)\d*\s*:\s*(Vec|Buffer|HashMap|HashSet|BTreeMap)\s*<')
 cls = collections.Counter()
 D2 = 0
 for p in glob.glob(os.path.join(OUT, '*.user')):
