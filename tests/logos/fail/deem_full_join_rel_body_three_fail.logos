@@ -1,0 +1,14 @@
+// A full join in a rel body joins exactly two sources, as in the entry: with
+// more steps the unmatched rows of one side would need every other side absent.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+pub deem three(es: &[Emp], ds: &[Dept]) {
+    rel m(e: Option<i64>, d: Option<i64>) { from es x full join ds y on y.id == x.dept join ds z on z.id == x.dept select (x.id, y.id); }
+    from m r select unwrap_or(r.e, 0)
+}
+fn main() -> i32 { return 0i32; }

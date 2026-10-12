@@ -4788,23 +4788,9 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     // the base row's fields are optional too, a match marks the step row, and a
     // second pass emits the step rows nothing matched with the base absent.
     let full: bool = ch.n == 1i64 && ch.outer[0i64] == OUTER_FULL();
-    let mut xsome: ExprBlob = quote_block! { };
-    let mut xnone: ExprBlob = quote_block! { };
-    let mut ysome: ExprBlob = quote_block! { };
-    if full {
-        if ns.stream[0i64] {
-            error("wql!: a `full join` whose second source streams is not supported — its unmatched rows are read in a second pass, and an iterator is spent after the first");
-            return false;
-        }
-        let mut tx: ElTypes = el_types_clone(ty);
-        tx.opt_set_live(ch.base_var, false);
-        outer_bindings(ty, &tx, ch.base_var, &mut xsome, &mut xnone);
-        ysome = ns.obind[0i64];
-        let ordv: str = if ns.strat[0i64] == JS_LOOP() { "__j1" } else { "__ri1" };
-        let ordf: ExprBlob = parse_expr(ordv);
-        let yb: ExprBlob = ns.obind[0i64];
-        ns.obind[0i64] = quote_block! { #(yb); __fm1.set(#(ordf), true); };
-    }
+    let mut fp: FullParts = FullParts { xsome: quote_block! { }, xnone: quote_block! { }, ysome: quote_block! { } };
+    if full && !full_join_parts(ch, ty, &mut ns, &mut fp) { return false; }
+    let xsome: ExprBlob = fp.xsome;
 
     // The bound sources of THIS order: the generated row-index expression each
     // one contributes to the sort's tuple, and the query slot it belongs in.
@@ -4962,36 +4948,67 @@ fn chain_nest_frag(ch: &DNest, ty: &ElTypes, prm: &MacroParams, h: &Writ,
     // Build phases — one per hash/tree step, spliced by the caller BEFORE the
     // nest (at body level for one order, inside the branch for two).
     nest_builds(prm, ch, &ns, bps);
-    if full {
-        let ysrc: ExprBlob = parse_expr(ch.src[0i64]);
-        let ysrc2: ExprBlob = parse_expr(ch.src[0i64]);
-        let ysrc3: ExprBlob = parse_expr(ch.src[0i64]);
-        let yty: ExprBlob = parse_type(ch.ty[0i64]);
-        let yv: Ident = Ident::new(ch.var[0i64]);
-        let mut fcond: ExprBlob = quote_expr! { __fj1 < (#(ysrc2)).len() };
-        if has_lim_use { fcond = quote_expr! { __fj1 < (#(ysrc2)).len() && __out.len() < (#(lim_f)) }; }
-        nest = quote_block! {
-            let mut __fm1: Vec<bool> = Vec::<bool>::new();
-            let mut __fz1: i64 = 0i64;
-            while __fz1 < (#(ysrc)).len() { __fm1.push(false); __fz1 = __fz1 + 1i64; }
-            #(nest);
-            let mut __fj1: i64 = 0i64;
-            while #(fcond) {
-                if !__fm1.get(__fj1) {
-                    let #yv: &#(yty) = &(#(ysrc3))[__fj1];
-                    let __i0: i64 = -1i64;
-                    let __j1: i64 = __fj1;
-                    let __ri1: i64 = __fj1;
-                    #(xnone);
-                    #(ysome);
-                    #(body_inner);
-                }
-                __fj1 = __fj1 + 1i64;
-            }
-        };
-    }
+    if full { nest = full_join_pass(ch, nest, body_inner, &fp, has_lim_use, lim_f); }
     *out = nest;
     return true;
+}
+
+// ── A FULL JOIN's two halves (the entry's nest and a rel body's) ─────────────
+// `from a x full join b y on P` (two sources): the base row's fields are
+// optional too, a match marks the step row, and a second pass emits the step
+// rows nothing matched with the base absent.
+struct FullParts { pub xsome: ExprBlob, pub xnone: ExprBlob, pub ysome: ExprBlob }
+
+// The base's Some/None bindings, the step's Some binding, and the step's
+// binding re-made to mark its row matched (`__fm1`).
+fn full_join_parts(ch: &DNest, ty: &ElTypes, ns: &mut NestSteps, fp: &mut FullParts) -> bool {
+    if ns.stream[0i64] {
+        error("wql!: a `full join` whose second source streams is not supported — its unmatched rows are read in a second pass, and an iterator is spent after the first");
+        return false;
+    }
+    let mut tx: ElTypes = el_types_clone(ty);
+    tx.opt_set_live(ch.base_var, false);
+    outer_bindings(ty, &tx, ch.base_var, &mut fp.xsome, &mut fp.xnone);
+    fp.ysome = ns.obind[0i64];
+    let ordv: str = if ns.strat[0i64] == JS_LOOP() { "__j1" } else { "__ri1" };
+    let ordf: ExprBlob = parse_expr(ordv);
+    let yb: ExprBlob = ns.obind[0i64];
+    ns.obind[0i64] = quote_block! { #(yb); __fm1.set(#(ordf), true); };
+    return true;
+}
+
+// `nest` with the matched-mark vector before it and the unmatched step rows'
+// pass (base absent) after it, each running `body_inner`.
+fn full_join_pass(ch: &DNest, nest: ExprBlob, body_inner: ExprBlob, fp: &FullParts,
+                  has_lim_use: bool, lim_f: ExprBlob) -> ExprBlob {
+    let ysrc: ExprBlob = parse_expr(ch.src[0i64]);
+    let ysrc2: ExprBlob = parse_expr(ch.src[0i64]);
+    let ysrc3: ExprBlob = parse_expr(ch.src[0i64]);
+    let yty: ExprBlob = parse_type(ch.ty[0i64]);
+    let yv: Ident = Ident::new(ch.var[0i64]);
+    let xnone: ExprBlob = fp.xnone;
+    let ysome: ExprBlob = fp.ysome;
+    let mut fcond: ExprBlob = quote_expr! { __fj1 < (#(ysrc2)).len() };
+    if has_lim_use { fcond = quote_expr! { __fj1 < (#(ysrc2)).len() && __out.len() < (#(lim_f)) }; }
+    return quote_block! {
+        let mut __fm1: Vec<bool> = Vec::<bool>::new();
+        let mut __fz1: i64 = 0i64;
+        while __fz1 < (#(ysrc)).len() { __fm1.push(false); __fz1 = __fz1 + 1i64; }
+        #(nest);
+        let mut __fj1: i64 = 0i64;
+        while #(fcond) {
+            if !__fm1.get(__fj1) {
+                let #yv: &#(yty) = &(#(ysrc3))[__fj1];
+                let __i0: i64 = -1i64;
+                let __j1: i64 = __fj1;
+                let __ri1: i64 = __fj1;
+                #(xnone);
+                #(ysome);
+                #(body_inner);
+            }
+            __fj1 = __fj1 + 1i64;
+        }
+    };
 }
 
 
@@ -10322,6 +10339,11 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
     // Per-step strategy analysis (the same cascade as the query join shape).
     let mut ns: NestSteps = nest_steps_new(ch.n);
     if !analyze_chain(ch, &ty, ch.base_var, h, prm, &mut ns) { return false; }
+    // a FULL join in a rel body: the entry's two halves (`full_join_parts` /
+    // `full_join_pass`), the unmatched step rows' pass after the base scan
+    let full: bool = ch.n == 1i64 && ch.outer[0i64] == OUTER_FULL();
+    let mut fp: FullParts = FullParts { xsome: quote_block! { }, xnone: quote_block! { }, ysome: quote_block! { } };
+    if full && !full_join_parts(ch, &ty, &mut ns, &mut fp) { return false; }
 
     // The body block: builds + nest + shared inner push. A FRAGMENT — the
     // caller collects one per rel body and splices the run into its fn.
@@ -10344,6 +10366,7 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
         push_f = quote_block! { if (#(where_f)) #(push_f) };
     }
     let no_lim: ExprBlob = parse_expr("0i64");
+    let body_inner: ExprBlob = push_f;
     // R7.2 — a step whose index is hoisted out of the driver's loop is named
     // by its own slot (`hx.base + k`), so its build phase can sit at fn level.
     let mut hk: i64 = 0i64;
@@ -10352,6 +10375,7 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
         hk = hk + 1i64;
     }
     push_f = nest_wrap(prm, ch, &ns, push_f, no_lim, false);
+    if full { let xs: ExprBlob = fp.xsome; push_f = quote_block! { #(xs); #(push_f) }; }
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
@@ -10376,24 +10400,29 @@ fn chain_body_frag(ch: &DNest, ri: i64, b: i64, prm: &MacroParams,
         let wrap_f: ExprBlob = slice_scan(prm, ch.base_ty, ch.base_src, 0i64, base_vnm, base_ty_f, push_f, nbo_f, nbi_f, &mut scanc_f);
         plan_trace(ch.base_src, "scan", ch.base_var,
                    "ADR 0025 R-F — a joined rel body's driving side is a declared SLICE PARAM and rides the R-A wrap");
+        let mut scan_s: ExprBlob = quote_block! { #(wrap_f); #(scanc_f); };
+        if full { scan_s = full_join_pass(ch, scan_s, body_inner, &fp, false, no_lim); }
         *out = quote_block! {
             {
                 #( #bps; )*
-                #(wrap_f);
-                #(scanc_f);
+                #(scan_s);
             }
         };
         return true;
     }
+    let mut scan_i: ExprBlob = quote_block! {
+        let mut __i0: i64 = 0i64;
+        while __i0 < (#(base_src_f)).len() {
+            let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
+            #(push_f);
+            __i0 = __i0 + 1i64;
+        }
+    };
+    if full { scan_i = full_join_pass(ch, scan_i, body_inner, &fp, false, no_lim); }
     *out = quote_block! {
         {
             #( #bps; )*
-            let mut __i0: i64 = 0i64;
-            while __i0 < (#(base_src_f)).len() {
-                let #base_vnm: &#(base_ty_f) = &(#(base_src_f))[__i0];
-                #(push_f);
-                __i0 = __i0 + 1i64;
-            }
+            #(scan_i);
         }
     };
     return true;
