@@ -1,0 +1,1 @@
+wql!: rel 'per': a `group by` over a `full join` reads only `key` and the aggregates

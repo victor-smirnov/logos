@@ -1,0 +1,12 @@
+// In a rel body too, a `group by` over a `full join` reads only `key` and the aggregates.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.option;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+pub deem q(es: &[Emp], ds: &[Dept]) {
+    rel per(f: i64, n: i64) { from es x full join ds y on y.id == x.dept group by unwrap_or(y.floor, -1) aggregate n = count() select (n, unwrap_or(x.id, 0)); }
+    from per p select p.f
+}
+fn main() -> i32 { return 0i32; }

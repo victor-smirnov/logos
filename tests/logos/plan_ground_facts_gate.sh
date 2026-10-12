@@ -64,6 +64,7 @@ check deem_source_size \
 # The matrix fixture names its queries after the shape they test; the rule must agree.
 check wql_incr_eligibility_matrix '[facts] ok_join incremental rule=emit_join'
 check wql_incr_eligibility_matrix '[facts] no_join_self incremental rule=self_join'
+check wql_incr_eligibility_matrix '[facts] no_join_outer incremental rule=join_outer'
 check wql_incr_eligibility_matrix '[facts] no_where incremental rule=pre_where'
 check wql_incr_eligibility_matrix '[facts] no_rel_agg incremental rule=rel_not_incr'
 # ── may the handle run backwards (E3) ──

@@ -149,6 +149,10 @@ pub deem no_join2(uu: &[U], tt: &[T], vv: &[V]) {
 pub deem no_join_avg(uu: &[U], tt: &[T]) {
     from uu u join tt t on u.g == t.g group by u.g aggregate a = avg(t.w) select (key, a)
 }
+// An OUTER step: an unmatched row's presence flips when a partner arrives.
+pub deem no_join_outer(uu: &[U], tt: &[T]) {
+    from uu u left join tt t on u.g == t.g + 1 group by u.g aggregate n = count() select (key, n)
+}
 // A SELF-JOIN: one relation in two chain positions, so one tag would feed both.
 pub deem no_join_self(uu: &[U]) {
     from uu u join uu v on u.g == v.g group by u.g aggregate n = count() select (key, n)
@@ -525,6 +529,10 @@ fn main() -> i32 {
     match no_join_avg(uu.as_slice(), tt.as_slice()) {
         Result::Ok(v) => { if v.len() != 2i64 { return 46i32; } }
         Result::Err(_e) => { return 47i32; }
+    }
+    match no_join_outer(uu.as_slice(), tt.as_slice()) {
+        Result::Ok(v) => { if v.len() != 2i64 { return 104i32; } }
+        Result::Err(_e) => { return 105i32; }
     }
     match no_join_self(uu.as_slice()) {
         Result::Ok(v) => { if v.len() != 2i64 { return 48i32; } }

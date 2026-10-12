@@ -17,6 +17,7 @@ use logos.std.wql.optimize;       // name_refs
 use logos.std.wql.codegen;        // string_as_str
 use logos.std.wql.el;          // string_as_str
 use logos.std.wql.core;           // the core
+use logos.std.wql.dplan;          // clause_group_pure
 
 // ── The chain's row vars, in the scope of each clause ────────────────────────
 // A row var the chain declares is readable only where it is bound:
@@ -367,10 +368,10 @@ pub fn core_rules_ok(p: &CProgram) -> bool {
             if !rel_rule_ok(rels[r].name, &rs[b]) { return false; }
             if !chain_vars_ok(&rs[b].clause) { return false; }
             if clause_full_count(&rs[b].clause) > 0i64 {
-                // as in the entry: two sources, no group (`entry_outer_ok`)
+                // as in the entry: two sources, a group reads only itself (`entry_outer_ok`)
                 let grouped: bool = match &rs[b].clause.group { Option::Some(_g) => true, Option::None => false };
-                if grouped {
-                    return rel_err(rels[r].name, "`group by` over a `full join` is not supported yet — group the joined rows in another rel, or use a `left join`");
+                if grouped && !clause_group_pure(&rs[b].clause) {
+                    return rel_err(rels[r].name, "a `group by` over a `full join` reads only `key` and the aggregates — either side may be absent, so a group has no representative row to name");
                 }
                 if clause_src_count(&rs[b].clause) != 2i64 {
                     return rel_err(rels[r].name, "a `full join` joins exactly two sources (`from a x full join b y on P`) — with more steps the unmatched rows of one side would need every other side absent at once; join the rest in another rel first");
@@ -409,7 +410,8 @@ fn clause_full_count(cl: &CClause) -> i64 {
 // The entry's outer steps: not under `find` (one borrowed row has no absent
 // side to stand for); a `full join` joins exactly two sources (the base and
 // that one step) — the unmatched rows of a source joined after other steps
-// would need every earlier side absent at once.
+// would need every earlier side absent at once; a group over it reads only
+// itself (no representative row: either side may be absent).
 fn entry_outer_ok(ru: &CRule) -> bool {
     let cl: &CClause = &ru.clause;
     if clause_outer_count(cl) == 0i64 { return true; }
@@ -431,8 +433,8 @@ fn entry_outer_ok(ru: &CRule) -> bool {
         i = i + 1i64;
     }
     let grouped: bool = match &cl.group { Option::Some(_g) => true, Option::None => false };
-    if full && grouped {
-        error("wql!: `group by` over a `full join` is not supported yet — group the joined rows in a rel, or use a `left join`");
+    if full && grouped && !clause_group_pure(cl) {
+        error("wql!: a `group by` over a `full join` reads only `key` and the aggregates — either side may be absent, so a group has no representative row to name");
         return false;
     }
     if full && nsrc != 2i64 {

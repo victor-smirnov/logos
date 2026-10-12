@@ -5754,6 +5754,11 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // Per-step strategy analysis (the same Part-2 cascade as the join shape).
     let mut ns: NestSteps = nest_steps_new(ch.n);
     if !analyze_chain(&ch, &ty, ch.base_var, h, prm, &mut ns) { return false; }
+    // A FULL join folds its unmatched step rows in a second pass (the group is
+    // pure: no representative row, `check::entry_outer_ok`).
+    let full: bool = ch.n == 1i64 && ch.outer[0i64] == OUTER_FULL();
+    let mut fp: FullParts = FullParts { xsome: quote_block! { }, xnone: quote_block! { }, ysome: quote_block! { } };
+    if full && !full_join_parts(&ch, &ty, &mut ns, &mut fp) { return false; }
 
     // ══ the BODY is a QUOTE too (ADR 0024 S5) ═════════════════════════════
     // This emitter carries BOTH runtime-shaped dimensions at once — a nest
@@ -5928,7 +5933,9 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     // The joined-stream nest (NO limit on the match loops — grouping needs
     // every row; `limit` caps the group-row OUTPUT phase below).
     let no_lim: ExprBlob = parse_expr("0i64");
+    let body_inner: ExprBlob = inner;
     inner = nest_wrap(prm, &ch, &ns, inner, no_lim, false);
+    if full { let xsome: ExprBlob = fp.xsome; inner = quote_block! { #(xsome); #(inner) }; }
     // ── ADR 0025 S5-D5: THE AGGREGATE'S BASE IS A SCAN LIKE ANY OTHER ───────
     //
     // S4 left the fold single-pass at the OPERATOR and indexed at the ARTIFACT:
@@ -6013,6 +6020,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
         }
     };
     }
+    if full { nest = full_join_pass(&ch, nest, body_inner, &fp, false, no_lim); }
 
     // ── THERE IS NO FINALIZE PASS (ADR 0025 S4c) ────────────────────────────
     // WHAT USED TO BE HERE: a second walk over `__g_key` that re-bound the
@@ -10149,6 +10157,9 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
     }
     let mut ns: NestSteps = nest_steps_new(ch.n);
     if !analyze_chain(ch, &ty, ch.base_var, h, prm, &mut ns) { return false; }
+    let full: bool = ch.n == 1i64 && ch.outer[0i64] == OUTER_FULL();
+    let mut fp: FullParts = FullParts { xsome: quote_block! { }, xnone: quote_block! { }, ysome: quote_block! { } };
+    if full && !full_join_parts(ch, &ty, &mut ns, &mut fp) { return false; }
 
     // The group frame: as `emit_aggregate`'s, column for column.
     let keyt_f: ExprBlob = parse_type(key_ty);
@@ -10222,7 +10233,9 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
         if hk + 1i64 < hx.inv.len() && hx.inv.get(hk + 1i64) { ns.slot[hk] = hx.base + hk + 1i64; }
         hk = hk + 1i64;
     }
+    let body_inner: ExprBlob = inner;
     inner = nest_wrap(prm, ch, &ns, inner, no_lim, false);
+    if full { let xsome: ExprBlob = fp.xsome; inner = quote_block! { #(xsome); #(inner) }; }
     let mut bps: Vec<ExprBlob> = vec_new::<ExprBlob>();
     let mut bpi: i64 = 0i64;
     while bpi < ch.n {
@@ -10262,6 +10275,7 @@ fn rel_body_group_frag(cl: &CClause, g: &CGroup, ch: &DNest, ri: i64, b: i64,
             }
         };
     }
+    if full { nest = full_join_pass(ch, nest, body_inner, &fp, false, no_lim); }
     // One rel row per group: re-bind the group, `having`, push.
     let binds_r: ExprBlob = group_binds_frag(quote_expr! { __r }, &aggs, acount, &gt.act,
                                              &gt.uda, &gt.uda_fin, &gt.uda_ret, key_ty, !pure_group,

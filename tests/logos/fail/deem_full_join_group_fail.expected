@@ -1,1 +1,1 @@
-wql!: `group by` over a `full join` is not supported yet
+wql!: a `group by` over a `full join` reads only `key` and the aggregates
