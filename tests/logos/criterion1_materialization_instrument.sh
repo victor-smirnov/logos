@@ -36,8 +36,10 @@
 #     DENOMINATOR D2 = emitted collection bindings — `let [mut] <n>: (Vec |
 #                      Buffer | HashMap | HashSet | BTreeMap)<…>` in the user dumps.
 #
-# ⚠⚠ D2's BIND regex ALSO carries an UNDOCUMENTED-until-R-G NAME filter: the
-# binding must start with `_`. That is the D4/HashSet shape a THIRD time, on
+# ⚠⚠ WIDENED 2026-10-11 (ADR 0025 criteria L7): the name filter below is gone;
+# BIND takes any identifier. What follows is the record of why.
+# D2's BIND regex ALSO carried an UNDOCUMENTED-until-R-G NAME filter: the
+# binding had to start with `_`. That is the D4/HashSet shape a THIRD time, on
 # the NAME axis instead of the TYPE axis: 2 compiler-emitted collections are
 # dropped by it TODAY — `let mut out: Vec<WritEdgeRow>` in `__gs_edges_Db` /
 # `__gs_edges_Cfg`, emitted by derive_graph_source.logos inside its quote and
@@ -709,7 +711,7 @@ ACC = {
 # they are UNOWNED, a weaker and different claim, and they stay in the worklist
 # until a head exists for them. The site-level reading and the printed figure
 # now agree; there is no residual floor to subtract.
-BIND = re.compile(r'\blet\s+(?:mut\s+)?(__?[A-Za-z_0-9]+?)\d*\s*:\s*(Vec|Buffer|HashMap|HashSet|BTreeMap)\s*<')
+BIND = re.compile(r'\blet\s+(?:mut\s+)?([A-Za-z_][A-Za-z_0-9]*?)\d*\s*:\s*(Vec|Buffer|HashMap|HashSet|BTreeMap)\s*<')
 cls = collections.Counter()
 D2 = 0
 for p in glob.glob(os.path.join(OUT, '*.user')):
