@@ -1185,7 +1185,7 @@ fn dx_rule_in(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out:
         Option::Some(g) => { return dx_aggr_rule(p, &ru.clause, g, head, arity, env, out, why); }
         Option::None => { }
     }
-    if dx_opt_vars(ru).len() > 0i64 { return dx_outer_rules(p, ru, head, arity, env, out, why); }
+    if dx_opt_vars(&ru.clause).len() > 0i64 { return dx_outer_rules(p, &ru.clause, head, arity, env, &dx_oagg_none(), out, why); }
     cl.auxp.push_str(head); cl.auxp.push_str("_"); cl.auxp.push_i64(out.len());
     if !dx_core_body(p, cl, env, &ru.clause.body) { return false; }
     if findm {
@@ -1432,12 +1432,12 @@ fn dx_core_lit(p: &CProgram, cl: &mut DxClause, env: &DxEnv, lit: &CLit) -> bool
 
 // The entry's optional variables: the outer atom's, and for `full join` also
 // the source it is joined to (the body's first plain atom).
-fn dx_opt_vars(ru: &CRule) -> Vec<str> {
+fn dx_opt_vars(c: &CClause) -> Vec<str> {
     let mut ov: Vec<str> = Vec::<str>::new();
-    let bs: &[CLit] = ru.clause.body.as_slice();
+    let bs: &[CLit] = c.body.as_slice();
     let mut first: str = "";
     let mut i: i64 = 0i64;
-    while i < ru.clause.body.len() {
+    while i < c.body.len() {
         match &bs[i] {
             CLit::Atom(a) => {
                 if a.outer != 0i32 {
@@ -1567,62 +1567,88 @@ fn dx_outer_atom(p: &CProgram, cl: &mut DxClause, env: &DxEnv, a: &CAtom) -> boo
     return true;
 }
 
-// One clause of an outer entry. `keep` = -1 for the matched clause, else the
-// index (in `ov`) of the side kept unmatched: its partner is replaced by
-// `!<mname>(<mvars>)`, and for a right-kept `full` clause the partner is the
-// driving atom.
-fn dx_outer_clause(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, oi: i64, ov: &Vec<str>,
-                   some: &Vec<bool>, mname: str, mvars: str, out: &mut String, why: &mut String) -> bool {
+// Under `group by`, an outer clause's rows go to `__ab_<head>` (`dx_aggr_rule`)
+// as (key…, tag, value…, every column of every row var): the tag (0 matched,
+// 1 left kept, 2 right kept) and the absent side's columns, filled with a
+// constant of their type, keep one tuple per joined row; each aggregate's
+// argument is a value column, computed where the optional columns are known.
+struct DxOAgg { pub on: bool, pub kes: Vec<SExpr>, pub vals: Vec<SExpr>, pub lvars: Vec<str>, pub lsrc: Vec<i64> }
+fn dx_oagg_none() -> DxOAgg {
+    return DxOAgg { on: false, kes: Vec::<SExpr>::new(), vals: Vec::<SExpr>::new(), lvars: Vec::<str>::new(), lsrc: Vec::<i64>::new() };
+}
+
+// A constant of Soufflé type `t`: an absent row's column in `__ab`.
+fn dx_fill(t: str) -> str {
+    if str_eq(t, "float") { return "0.0"; }
+    if str_eq(t, "symbol") { return "\"\""; }
+    if str_eq(t, "Opt_number") { return "$None_n()"; }
+    if str_eq(t, "Opt_symbol") { return "$None_s()"; }
+    if str_eq(t, "Opt_unsigned") { return "$None_u()"; }
+    return "0";
+}
+
+// The Soufflé type of a term over the outer entry's variables: `unwrap_or` is
+// its column's, a bare optional column `Opt_<t>`; "" outside the fragment.
+fn dx_oterm_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause, ov: &Vec<str>) -> &'a str {
+    if dx_opt_call(e, ov).0 == BFN_UNWRAP_OR() { return dx_opt_arg_ty(e, env, cl); }
+    if dx_opt_col(e, ov) >= 0i64 {
+        let t: str = dx_term_ty(e, env, cl);
+        if str_eq(t, "number") { return "Opt_number"; }
+        if str_eq(t, "symbol") { return "Opt_symbol"; }
+        if str_eq(t, "unsigned") { return "Opt_unsigned"; }
+        return "";
+    }
+    if dx_names_any(e, ov) { return ""; }
+    return dx_term_ty(e, env, cl);
+}
+
+// One clause of an outer entry. `some[i]` says whether optional variable `i`
+// is matched: the matched clause has every one; a kept side's partner is
+// replaced by `!<mname>(<mvars>)`, and for a right-kept `full` clause the
+// partner is the driving atom.
+fn dx_outer_clause(p: &CProgram, c: &CClause, head: str, arity: i64, env: &DxEnv, oi: i64, ov: &Vec<str>,
+                   some: &Vec<bool>, mname: str, mvars: str, ag: &DxOAgg, out: &mut String, why: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
-    cl.udf_ok = true;
-    let bs: &[CLit] = ru.clause.body.as_slice();
-    let full_right: bool = ov.len() == 2i64 && !some[1];
-    let left_kept: bool = !some[0];
-    let mut i: i64 = 0i64;
-    while i < ru.clause.body.len() {
-        let lit: &CLit = &bs[i];
-        if i == oi {
-            match lit {
-                CLit::Atom(a) => {
-                    if left_kept {
-                        cl.body.push_str(", !"); cl.body.push_str(mname); cl.body.push_str("("); cl.body.push_str(mvars); cl.body.push_str(")");
-                    } else if full_right {
-                        // the right side alone: its `on` names the absent left
-                        if !dx_atom(&mut cl, env, dx_src_name(p, &a.src), a.var) { return dx_set(why, cl.why); }
-                    } else if !dx_outer_atom(p, &mut cl, env, a) { return dx_set(why, cl.why); }
-                }
-                _ => { }
-            }
-        } else if full_right {
-            // the driving atom is replaced; the outer atom (index oi) is bound alone below
-            match lit { CLit::Atom(_a) => { } _ => { return dx_set(why, "full join with more than two literals"); } }
-        } else {
-            match lit {
-                CLit::Cond(c) => {
-                    let r: i32 = if i > oi { dx_ocond(c.e.view::<SExpr>(), ov, some) } else { 2i32 };
-                    if r == 0i32 { return true; }                       // the clause keeps nothing
-                    if r < 0i32 { return dx_set(why, "outer join: a condition reads an optional column"); }
-                    if r == 2i32 && !dx_core_lit(p, &mut cl, env, lit) { return dx_set(why, cl.why); }
-                }
-                _ => {
-                    if i > oi && dx_names_any_lit(lit, ov) { return dx_set(why, "outer join: a later step reads an optional column"); }
-                    if !dx_core_lit(p, &mut cl, env, lit) { return dx_set(why, cl.why); }
-                }
-            }
-        }
-        i = i + 1i64;
-    }
-    if full_right {
-        cl.body.push_str(", !"); cl.body.push_str(mname); cl.body.push_str("("); cl.body.push_str(mvars); cl.body.push_str(")");
-    }
+    let r: i32 = dx_outer_body(p, c, env, oi, ov, some, mname, mvars, &mut cl, why);
+    if r < 0i32 { return false; }
+    if r == 0i32 { return true; }                           // the clause keeps nothing
     let mut hd: String = String::new();
     hd.push_str(head); hd.push_str("(");
-    let sel: SExpr = ru.clause.head.view::<SExpr>();
-    let mut a: i64 = 0i64;
-    while a < arity {
-        if a > 0i64 { hd.push_str(", "); }
-        if !dx_oterm(&mut hd, if arity == 1i64 { sel } else { dx_tuple_item(sel, a) }, env, &mut cl, ov, some) { return dx_set(why, cl.why); }
-        a = a + 1i64;
+    if ag.on {
+        let mut j: i64 = 0i64;
+        while j < ag.kes.len() {
+            if j > 0i64 { hd.push_str(", "); }
+            if !dx_oterm(&mut hd, ag.kes[j], env, &mut cl, ov, some) { return dx_set(why, cl.why); }
+            j = j + 1i64;
+        }
+        hd.push_str(if !some[0] { ", 1" } else if ov.len() == 2i64 && !some[1] { ", 2" } else { ", 0" });
+        j = 0i64;
+        while j < ag.vals.len() {
+            hd.push_str(", ");
+            if !dx_oterm(&mut hd, ag.vals[j], env, &mut cl, ov, some) { return dx_set(why, cl.why); }
+            j = j + 1i64;
+        }
+        j = 0i64;
+        while j < ag.lvars.len() {
+            let si: i64 = ag.lsrc[j];
+            let oj: i64 = dx_ov_index(ov, ag.lvars[j]);
+            let absent: bool = oj >= 0i64 && !some[oj];
+            let mut k: i64 = if env.parent[si] >= 0i64 { 1i64 } else { 0i64 };
+            while k < env.cn[si] {
+                hd.push_str(", ");
+                if absent { hd.push_str(dx_fill(dl_col_ty(env.ctys[si][k]))); } else { dx_push_var(&mut hd, ag.lvars[j], env.cnames[si][k]); }
+                k = k + 1i64;
+            }
+            j = j + 1i64;
+        }
+    } else {
+        let sel: SExpr = c.head.view::<SExpr>();
+        let mut a: i64 = 0i64;
+        while a < arity {
+            if a > 0i64 { hd.push_str(", "); }
+            if !dx_oterm(&mut hd, if arity == 1i64 { sel } else { dx_tuple_item(sel, a) }, env, &mut cl, ov, some) { return dx_set(why, cl.why); }
+            a = a + 1i64;
+        }
     }
     hd.push_str(")");
     dx_param_atoms(&mut cl);
@@ -1631,6 +1657,55 @@ fn dx_outer_clause(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv,
     out.push_str(dx_view(&dx_wild(dx_view(&c1))));
     dx_udf_decls(env, &cl, out);
     return true;
+}
+
+// The body of one outer clause into `cl`: 1 built, 0 the clause keeps nothing
+// (an `is_some` / `is_none` that is false in it), -1 outside the fragment.
+fn dx_outer_body(p: &CProgram, c: &CClause, env: &DxEnv, oi: i64, ov: &Vec<str>, some: &Vec<bool>,
+                 mname: str, mvars: str, cl0: &mut DxClause, why: &mut String) -> i32 {
+    let cl: &mut DxClause = cl0;
+    cl.udf_ok = true;
+    let bs: &[CLit] = c.body.as_slice();
+    let full_right: bool = ov.len() == 2i64 && !some[1];
+    let left_kept: bool = !some[0];
+    let mut i: i64 = 0i64;
+    while i < c.body.len() {
+        let lit: &CLit = &bs[i];
+        if i == oi {
+            match lit {
+                CLit::Atom(a) => {
+                    if left_kept {
+                        cl.body.push_str(", !"); cl.body.push_str(mname); cl.body.push_str("("); cl.body.push_str(mvars); cl.body.push_str(")");
+                    } else if full_right {
+                        // the right side alone: its `on` names the absent left
+                        if !dx_atom(cl, env, dx_src_name(p, &a.src), a.var) { dx_set(why, cl.why); return -1i32; }
+                    } else if !dx_outer_atom(p, cl, env, a) { dx_set(why, cl.why); return -1i32; }
+                }
+                _ => { }
+            }
+        } else if full_right {
+            // the driving atom is replaced; the outer atom (index oi) is bound alone below
+            match lit { CLit::Atom(_a) => { } _ => { dx_set(why, "full join with more than two literals"); return -1i32; } }
+        } else {
+            match lit {
+                CLit::Cond(c) => {
+                    let r: i32 = if i > oi { dx_ocond(c.e.view::<SExpr>(), ov, some) } else { 2i32 };
+                    if r == 0i32 { return 0i32; }                       // the clause keeps nothing
+                    if r < 0i32 { dx_set(why, "outer join: a condition reads an optional column"); return -1i32; }
+                    if r == 2i32 && !dx_core_lit(p, cl, env, lit) { dx_set(why, cl.why); return -1i32; }
+                }
+                _ => {
+                    if i > oi && dx_names_any_lit(lit, ov) { dx_set(why, "outer join: a later step reads an optional column"); return -1i32; }
+                    if !dx_core_lit(p, cl, env, lit) { dx_set(why, cl.why); return -1i32; }
+                }
+            }
+        }
+        i = i + 1i64;
+    }
+    if full_right {
+        cl.body.push_str(", !"); cl.body.push_str(mname); cl.body.push_str("("); cl.body.push_str(mvars); cl.body.push_str(")");
+    }
+    return 1i32;
 }
 
 fn dx_names_any_lit(lit: &CLit, ov: &Vec<str>) -> bool {
@@ -1648,11 +1723,11 @@ fn dx_names_any_lit(lit: &CLit, ov: &Vec<str>) -> bool {
 
 // `__m_<side>(<vars>) :- <the literals before the outer atom>, <outer atom>, <on>.`
 // (`side` 0: the left rows that matched; 1, `full` only: the right rows).
-fn dx_outer_match(p: &CProgram, ru: &CRule, env: &DxEnv, oi: i64, side: i64, mname: str, mvars: str,
+fn dx_outer_match(p: &CProgram, c: &CClause, env: &DxEnv, oi: i64, side: i64, mname: str, mvars: str,
                   out: &mut String, why: &mut String) -> bool {
     let mut cl: DxClause = dx_new_clause();
     cl.udf_ok = true;
-    let bs: &[CLit] = ru.clause.body.as_slice();
+    let bs: &[CLit] = c.body.as_slice();
     let mut i: i64 = 0i64;
     while i <= oi {
         match &bs[i] {
@@ -1669,7 +1744,7 @@ fn dx_outer_match(p: &CProgram, ru: &CRule, env: &DxEnv, oi: i64, side: i64, mna
     c1.push_str(mname); c1.push_str("("); c1.push_str(mvars); c1.push_str(") :- ");
     c1.push_str(dx_view(&cl.body)); c1.push_str(".\n");
     out.push_str(".decl "); out.push_str(mname); out.push_str("(");
-    out.push_str(dx_view(&dx_match_decl(p, ru, env, oi, side)));
+    out.push_str(dx_view(&dx_match_decl(p, c, env, oi, side)));
     out.push_str(")\n");
     out.push_str(dx_view(&dx_wild(dx_view(&c1))));
     dx_udf_decls(env, &cl, out);
@@ -1677,12 +1752,12 @@ fn dx_outer_match(p: &CProgram, ru: &CRule, env: &DxEnv, oi: i64, side: i64, mna
 }
 
 // The declaration columns of an `__m` relation: the kept side's atoms' columns.
-fn dx_match_decl(p: &CProgram, ru: &CRule, env: &DxEnv, oi: i64, side: i64) -> String {
+fn dx_match_decl(p: &CProgram, cc: &CClause, env: &DxEnv, oi: i64, side: i64) -> String {
     let mut d: String = String::new();
-    let bs: &[CLit] = ru.clause.body.as_slice();
+    let bs: &[CLit] = cc.body.as_slice();
     let mut i: i64 = 0i64;
     let mut c: i64 = 0i64;
-    while i < ru.clause.body.len() {
+    while i < cc.body.len() {
         let take: bool = if side == 0i64 { i < oi } else { i == oi };
         if take {
             match &bs[i] {
@@ -1708,24 +1783,33 @@ fn dx_match_decl(p: &CProgram, ru: &CRule, env: &DxEnv, oi: i64, side: i64) -> S
     return d;
 }
 
-// An entry with an outer atom: its clauses, as above.
-fn dx_outer_rules(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, out: &mut String,
-                  why: &mut String) -> bool {
-    let bs: &[CLit] = ru.clause.body.as_slice();
+// The body index of a clause's one outer atom; -1 (and `why`) outside the fragment.
+fn dx_outer_index(c: &CClause, why: &mut String) -> i64 {
+    let bs: &[CLit] = c.body.as_slice();
     let mut oi: i64 = -1i64;
     let mut i: i64 = 0i64;
-    while i < ru.clause.body.len() {
+    while i < c.body.len() {
         match &bs[i] {
-            CLit::Atom(a) => { if a.outer != 0i32 { if oi >= 0i64 { return dx_set(why, "more than one outer join"); } oi = i; } }
-            CLit::Trav(t) => { if t.outer != 0i32 { return dx_set(why, "outer join over a traversal"); } }
+            CLit::Atom(a) => { if a.outer != 0i32 { if oi >= 0i64 { dx_set(why, "more than one outer join"); return -1i64; } oi = i; } }
+            CLit::Trav(t) => { if t.outer != 0i32 { dx_set(why, "outer join over a traversal"); return -1i64; } }
             _ => { }
         }
         i = i + 1i64;
     }
-    let ov: Vec<str> = dx_opt_vars(ru);
+    return oi;
+}
+
+// A clause with an outer atom: its clauses, as above (`ag.on`: the rows of a
+// group's `__ab`, named `head`).
+fn dx_outer_rules(p: &CProgram, c: &CClause, head: str, arity: i64, env: &DxEnv, ag: &DxOAgg, out: &mut String,
+                  why: &mut String) -> bool {
+    let bs: &[CLit] = c.body.as_slice();
+    let oi: i64 = dx_outer_index(c, why);
+    if oi < 0i64 { return false; }
+    let ov: Vec<str> = dx_opt_vars(c);
+    let mut i: i64 = 0i64;
     // the left side's variables (every literal before the outer atom)
     let mut lv: String = String::new();
-    i = 0i64;
     while i < oi { if !dx_atom_vars(p, env, &bs[i], &mut lv) { return dx_set(why, "outer join after a step outside the fragment"); } i = i + 1i64; }
     let mut all: Vec<bool> = Vec::<bool>::new();
     let mut lk: Vec<bool> = Vec::<bool>::new();
@@ -1738,14 +1822,14 @@ fn dx_outer_rules(p: &CProgram, ru: &CRule, head: str, arity: i64, env: &DxEnv, 
     ml.push_str("__m_l_"); ml.push_str(head); ml.push_str("_"); ml.push_i64(out.len());
     let mut mr: String = String::new();
     mr.push_str("__m_r_"); mr.push_str(head); mr.push_str("_"); mr.push_i64(out.len());
-    if !dx_outer_clause(p, ru, head, arity, env, oi, &ov, &all, "", "", out, why) { return false; }
-    if !dx_outer_match(p, ru, env, oi, 0i64, dx_view(&ml), dx_view(&lv), out, why) { return false; }
-    if !dx_outer_clause(p, ru, head, arity, env, oi, &ov, &lk, dx_view(&ml), dx_view(&lv), out, why) { return false; }
+    if !dx_outer_clause(p, c, head, arity, env, oi, &ov, &all, "", "", ag, out, why) { return false; }
+    if !dx_outer_match(p, c, env, oi, 0i64, dx_view(&ml), dx_view(&lv), out, why) { return false; }
+    if !dx_outer_clause(p, c, head, arity, env, oi, &ov, &lk, dx_view(&ml), dx_view(&lv), ag, out, why) { return false; }
     if ov.len() == 2i64 {
         let mut rv: String = String::new();
         if !dx_atom_vars(p, env, &bs[oi], &mut rv) { return dx_set(why, "outer join over a source outside the fragment"); }
-        if !dx_outer_match(p, ru, env, oi, 1i64, dx_view(&mr), dx_view(&rv), out, why) { return false; }
-        if !dx_outer_clause(p, ru, head, arity, env, oi, &ov, &rk, dx_view(&mr), dx_view(&rv), out, why) { return false; }
+        if !dx_outer_match(p, c, env, oi, 1i64, dx_view(&mr), dx_view(&rv), out, why) { return false; }
+        if !dx_outer_clause(p, c, head, arity, env, oi, &ov, &rk, dx_view(&mr), dx_view(&rv), ag, out, why) { return false; }
     }
     return true;
 }
@@ -1842,15 +1926,25 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
     }
     let nk: i64 = kes.len();
     if nk > 12i64 { return dx_set(why, "group key wider than 12 components"); }
+    // over an outer join, `kb` is the matched clause (its variables are the
+    // `__ab` layout; the rows themselves are `dx_outer_rules`')
+    let ov: Vec<str> = dx_opt_vars(c);
+    let outer: bool = ov.len() > 0i64;
     let mut kb: DxClause = dx_new_clause();
-    if !dx_core_body(p, &mut kb, env, &c.body) { return dx_set(why, kb.why); }
+    if outer {
+        let oi: i64 = dx_outer_index(c, why);
+        if oi < 0i64 { return false; }
+        let mut all: Vec<bool> = Vec::<bool>::new();
+        while all.len() < ov.len() { all.push(true); }
+        if dx_outer_body(p, c, env, oi, &ov, &all, "", "", &mut kb, why) <= 0i32 { return dx_set(why, "outer join: a group with no matched rows"); }
+    } else if !dx_core_body(p, &mut kb, env, &c.body) { return dx_set(why, kb.why); }
     let mut kts: Vec<String> = Vec::<String>::new();
     let mut ktys: Vec<str> = Vec::<str>::new();
     let mut kj: i64 = 0i64;
     while kj < nk {
         kts.push(String::new());
-        if !dx_term(&mut kts[kj], kes[kj], env, &mut kb) { return dx_set(why, kb.why); }
-        let kty: str = dx_term_ty(kes[kj], env, &kb);
+        if !outer && !dx_term(&mut kts[kj], kes[kj], env, &mut kb) { return dx_set(why, kb.why); }
+        let kty: str = if outer { dx_oterm_ty(kes[kj], env, &kb, &ov) } else { dx_term_ty(kes[kj], env, &kb) };
         if kty.len() == 0i64 { return dx_set(why, "group key type"); }
         ktys.push(kty);
         kj = kj + 1i64;
@@ -1875,6 +1969,33 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
     ab.push_str("__ab_"); ab.push_str(head);
     let mut decl: String = String::new();
     decl.push_str(".decl "); decl.push_str(dx_view(&ab)); decl.push_str("("); decl.push_str(dx_view(&kdecl));
+    // the outer arm's tag and value columns (`DxOAgg`): one per aggregate
+    // argument, its type checked as the plain arm checks it in the head
+    let mut oag: DxOAgg = dx_oagg_none();
+    let ags0: &[CAgg] = g.aggs.as_slice();
+    if outer {
+        oag.on = true;
+        decl.push_str(", t: number");
+        let mut q: i64 = 0i64;
+        while q < g.aggs.len() {
+            match &ags0[q].arg {
+                Option::Some(x) => {
+                    if !str_eq(ags0[q].func, "count") {
+                        let ae: SExpr = (*x).view::<SExpr>();
+                        let aty: str = dx_oterm_ty(ae, env, &kb, &ov);
+                        if !dx_numeric(aty) { return dx_set(why, "aggregate argument not numeric"); }
+                        decl.push_str(", v"); decl.push_i64(oag.vals.len()); decl.push_str(": "); decl.push_str(aty);
+                        oag.vals.push(ae);
+                    }
+                }
+                Option::None => { }
+            }
+            q = q + 1i64;
+        }
+        kj = 0i64;
+        while kj < nk { oag.kes.push(kes[kj]); kj = kj + 1i64; }
+    }
+    let nx: i64 = if outer { 1i64 + oag.vals.len() } else { 0i64 };
     let mut cols: Vec<String> = Vec::<String>::new();
     let mut nc: i64 = 0i64;
     let mut vi: i64 = 0i64;
@@ -1895,22 +2016,28 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
     // Soufflé's interpreter builds relations up to arity 22 (interpreter/Util.h,
     // FOR_EACH_BTREE) and aborts above it — wql_gpath_e2e::kind_hist joins three
     // 8-column graph rows. Kept a margin below; wider is outside the fragment.
-    if nc + nk > 20i64 { return dx_set(why, "aggregate body wider than 20 columns"); }
+    if nc + nk + nx > 20i64 { return dx_set(why, "aggregate body wider than 20 columns"); }
     decl.push_str(")\n");
     out.push_str(dx_view(&decl));
-    let mut c0: String = String::new();
-    c0.push_str(dx_view(&ab)); c0.push_str("("); c0.push_str(dx_view(&kterms));
     let mut ci: i64 = 0i64;
-    while ci < nc { c0.push_str(", "); c0.push_str(dx_view(&cols[ci])); ci = ci + 1i64; }
-    c0.push_str(") :- "); c0.push_str(dx_view(&kb.body)); c0.push_str(".\n");
-    out.push_str(dx_view(&dx_wild(dx_view(&c0))));
+    if outer {
+        vi = 0i64;
+        while vi < kb.nv { oag.lvars.push(kb.vars[vi]); oag.lsrc.push(kb.vsrc[vi]); vi = vi + 1i64; }
+        if !dx_outer_rules(p, c, dx_view(&ab), 0i64, env, &oag, out, why) { return false; }
+    } else {
+        let mut c0: String = String::new();
+        c0.push_str(dx_view(&ab)); c0.push_str("("); c0.push_str(dx_view(&kterms));
+        while ci < nc { c0.push_str(", "); c0.push_str(dx_view(&cols[ci])); ci = ci + 1i64; }
+        c0.push_str(") :- "); c0.push_str(dx_view(&kb.body)); c0.push_str(".\n");
+        out.push_str(dx_view(&dx_wild(dx_view(&c0))));
+    }
     // __gk: the group keys
     let mut gk: String = String::new();
     gk.push_str("__gk_"); gk.push_str(head);
     out.push_str(".decl "); out.push_str(dx_view(&gk)); out.push_str("("); out.push_str(dx_view(&kdecl)); out.push_str(")\n");
     out.push_str(dx_view(&gk)); out.push_str("("); out.push_str(dx_view(&kvars)); out.push_str(") :- "); out.push_str(dx_view(&ab)); out.push_str("("); out.push_str(dx_view(&kvars));
     ci = 0i64;
-    while ci < nc { out.push_str(", _"); ci = ci + 1i64; }
+    while ci < nc + nx { out.push_str(", _"); ci = ci + 1i64; }
     out.push_str(").\n");
     // the head clause
     let mut hb: String = String::new();
@@ -1934,7 +2061,7 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
                     match kbr.any().view::<SExpr>() {
                         SExpr::Field(kv) => {
                             let kvb: WRef<SExpr> = kv.base;
-                            if kvb.any().is_null() {
+                            if kvb.any().is_null() && dx_ov_index(&ov, kv.name) < 0i64 {
                                 hcl.kc_var.push(kv.name); hcl.kc_fld.push(kf.name);
                                 hcl.kc_out.push(if tuple { dx_kvar(kj) } else { "gk" });
                             }
@@ -1957,7 +2084,18 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
         let mut abd: DxClause = dx_new_clause();
         let mut vj: i64 = 0i64;
         while vj < kb.nv { dx_bind(&mut abd, kb.vars[vj], kb.vsrc[vj]); vj = vj + 1i64; }
-        if !str_eq(f, "count") {
+        if outer && !str_eq(f, "count") {
+            // `v<n>`, the n-th value column; its type was checked at the decl
+            match &ag.arg { Option::Some(_x) => { } Option::None => { return dx_set(why, "aggregate without an argument"); } }
+            let mut vn: i64 = 0i64;
+            let mut q: i64 = 0i64;
+            while q < i { if !str_eq(ags[q].func, "count") { match &ags[q].arg { Option::Some(_x) => { vn = vn + 1i64; } Option::None => { } } } q = q + 1i64; }
+            if vn >= oag.vals.len() { return dx_set(why, "aggregate without an argument"); }
+            let aat: str = dx_oterm_ty(oag.vals[vn], env, &kb, &ov);
+            if str_eq(aat, "float") && (str_eq(f, "sum") || str_eq(f, "avg")) { return dx_set(why, "float sum/avg (rounding depends on fold order)"); }
+            if str_eq(aat, "float") { out.push_str("// nan-sensitive\n"); }
+            argt.push_str("ov"); argt.push_i64(vn);
+        } else if !str_eq(f, "count") {
             let arg: WAny = match &ag.arg { Option::Some(x) => { *x } Option::None => { WAny::null() } };
             if arg.is_null() { return dx_set(why, "aggregate without an argument"); }
             if !dx_term(&mut argt, arg.view::<SExpr>(), env, &mut abd) { return dx_set(why, abd.why); }
@@ -1984,6 +2122,15 @@ fn dx_aggr_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64, en
             if at.len() > 0i64 { hb.push_str(" "); hb.push_str(at); }
         }
         hb.push_str(" : { "); hb.push_str(dx_view(&ab)); hb.push_str("("); hb.push_str(dx_view(&gvars));
+        if outer {
+            hb.push_str(", _");
+            let mut q: i64 = 0i64;
+            while q < oag.vals.len() {
+                let mut vt: String = String::new(); vt.push_str("ov"); vt.push_i64(q);
+                hb.push_str(", "); hb.push_str(if str_eq(at, dx_view(&vt)) { at } else { "_" });
+                q = q + 1i64;
+            }
+        }
         ci = 0i64;
         while ci < nc {
             hb.push_str(", ");
@@ -2369,6 +2516,9 @@ fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
         }
         i = i + 1i64;
     }
+    // an outer join's optional columns: `unwrap_or` is its column's type, a
+    // bare one `Opt_<t>` (with none, these are `dx_term_ty` / `dx_term_kind`)
+    let ov: Vec<str> = dx_opt_vars(&ru.clause);
     match &ru.clause.group {
         Option::Some(g) => {
             let key: SExpr = g.key.view::<SExpr>();
@@ -2380,15 +2530,15 @@ fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
                     let items: SExprArr = t.items.any().view::<SExprArr>();
                     let mut j: i64 = 0i64;
                     while j < items.len() && j < 12i64 {
-                        let cty: str = dx_term_ty(items.arg_at(j), env, cl);
-                        let ckd: str = dx_term_kind(items.arg_at(j), env, cl);
+                        let cty: str = dx_oterm_ty(items.arg_at(j), env, cl, &ov);
+                        let ckd: str = dx_item_kind(items.arg_at(j), env, cl, &ov);
                         dx_alias_add(cl, dx_kdig(j), dx_kvar(j), cty, ckd);
                         j = j + 1i64;
                     }
                 }
                 _ => {
-                    let kty: str = dx_term_ty(key, env, cl);
-                    let kkd: str = dx_term_kind(key, env, cl);
+                    let kty: str = dx_oterm_ty(key, env, cl, &ov);
+                    let kkd: str = dx_item_kind(key, env, cl, &ov);
                     dx_alias_key(cl, kty, kkd);
                 }
             }
@@ -2400,10 +2550,10 @@ fn dx_entry_vars(p: &CProgram, ru: &CRule, env: &DxEnv, cl: &mut DxClause) {
                 let mut aty: str = "number";
                 let mut akd: str = "i";
                 if (str_eq(ag.func, "min") || str_eq(ag.func, "max")) && !arg.is_null() {
-                    aty = dx_term_ty(arg.view::<SExpr>(), env, cl);
-                    akd = dx_term_kind(arg.view::<SExpr>(), env, cl);
+                    aty = dx_oterm_ty(arg.view::<SExpr>(), env, cl, &ov);
+                    akd = dx_item_kind(arg.view::<SExpr>(), env, cl, &ov);
                 } else if str_eq(ag.func, "sum") && !arg.is_null()
-                          && str_eq(dx_term_ty(arg.view::<SExpr>(), env, cl), "unsigned") {
+                          && str_eq(dx_oterm_ty(arg.view::<SExpr>(), env, cl, &ov), "unsigned") {
                     aty = "unsigned";
                     akd = "U";
                 } else if str_eq(ag.func, "avg") {
@@ -2868,7 +3018,7 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
     let mut cl0: DxClause = dx_new_clause();
     dx_entry_vars(p, entry, &env, &mut cl0);
     let mut cols: String = String::new();
-    let ov: Vec<str> = dx_opt_vars(entry);
+    let ov: Vec<str> = dx_opt_vars(&entry.clause);
     // `find`: the first row variable's whole row (`dx_rule_in`)
     let mut wr: i64 = -1i64;
     if findm {
