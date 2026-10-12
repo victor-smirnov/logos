@@ -1,0 +1,49 @@
+// A trait default's `where Self::Item: B`: assumed in its body under a generic impl
+// (`Item = T` gives `T: IntoIterator`), decided per instance under a blanket impl, and
+// `IntoIterator::into_iter(t)` / `for` over `t: T` with `T: IntoIterator` taking the bound,
+// not the blanket `impl<I: Iterator> IntoIterator for I`. rustc 1.98.1 prints the same.
+package trait_default_where_item_bound;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+struct Flat2<I, X: IntoIterator> { outer: I, cur: Option<X::IntoIter> }
+impl<I: Iterator<Item = X>, X: IntoIterator> Iterator for Flat2<I, X> {
+    type Item = X::Item;
+    fn next(&mut self) -> Option<X::Item> {
+        loop {
+            match &mut self.cur {
+                Some(inner) => { match inner.next() { Some(v) => { return Some(v); } None => {} } }
+                None => {}
+            }
+            match self.outer.next() { Some(x) => { self.cur = Some(x.into_iter()); } None => { return None; } }
+        }
+    }
+}
+trait Fl: Iterator {
+    fn flat2(self) -> Flat2<Self, Self::Item> where Self::Item: IntoIterator, Self: Sized {
+        Flat2 { outer: self, cur: None }
+    }
+}
+impl<I: Iterator> Fl for I {}
+trait Src {
+    type Item;
+    fn get(self) -> Self::Item;
+    fn count_inner(self) -> i64 where Self::Item: IntoIterator, Self: Sized {
+        let mut n = 0;
+        for _x in self.get() { n += 1; }
+        n
+    }
+}
+struct W<T> { v: T }
+impl<T> Src for W<T> { type Item = T; fn get(self) -> T { self.v } }
+fn cnt<T: IntoIterator>(t: T) -> i64 { let mut n = 0; for _x in t { n += 1; } n }
+fn cnt2<T: IntoIterator>(t: T) -> i64 { let mut it = IntoIterator::into_iter(t); let mut n = 0; while let Some(_) = it.next() { n += 1; } n }
+fn main() {
+    let v: Vec<Option<i32>> = vec![Some(1), None, Some(3)];
+    let s: i32 = v.into_iter().flat2().sum();
+    println!("{}", s);
+    let a = W { v: vec![1, 2, 3] };
+    println!("{}", a.count_inner());
+    let b = W { v: 5i32 };
+    println!("{}", b.get());
+    println!("{} {}", cnt(vec![1, 2, 3]), cnt2(vec![1, 2]));
+}

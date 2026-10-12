@@ -1,1 +1,1 @@
-type 'i32' does not implement trait 'IntoIterator' required by parameter 'X'
+the trait bound `i32: IntoIterator` is not satisfied (E0277)

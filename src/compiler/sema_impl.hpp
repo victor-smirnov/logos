@@ -7117,7 +7117,10 @@ private:
     bool implements_(std::string_view trait, TypeRef self, const std::vector<TypeRef>& args = {});
     bool default_proj_bounds_hold_(const SemaTraitMethodInfo& m, const SemaTraitInfo* tit, TypeRef self_type,
                                    const std::vector<TypeRef>& impl_trait_args,
-                                   std::vector<std::pair<TypeRef, std::string>>* deferred);
+                                   std::vector<std::pair<TypeRef, std::string>>* deferred,
+                                   std::vector<std::pair<TypeRef, TraitBound>>* assumed = nullptr,
+                                   std::pair<TypeRef, std::string>* failed = nullptr);
+    bool default_where_refused_(std::string_view trait, std::string_view method, TypeRef self_type);
     // The same for a lang item (`#[lang = "index_mut"]`), by its identity.
     bool implements_lang_(std::string_view lang, TypeRef self) {
         const LangItem* li = lang_item(lang);

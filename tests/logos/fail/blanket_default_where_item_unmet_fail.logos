@@ -1,0 +1,16 @@
+// A blanket impl's default with `where Self::Item: IntoIterator` called on an iterator of
+// i32: rustc E0277 at the call (was an mlir ICE: `i32::IntoIter` unresolved).
+package blanket_default_where_item_unmet_fail;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+pub struct Flat2<I, X: IntoIterator> { outer: I, cur: Option<X::IntoIter> }
+trait Fl: Iterator {
+    fn flat2(self) -> Flat2<Self, Self::Item> where Self::Item: IntoIterator, Self: Sized {
+        Flat2 { outer: self, cur: None }
+    }
+}
+impl<I: Iterator> Fl for I {}
+fn main() {
+    let v: Vec<i32> = vec![1, 2];
+    let f = v.into_iter().flat2();
+}

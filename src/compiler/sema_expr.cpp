@@ -7240,6 +7240,15 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
                                       std::vector<lir::LExprPtr> arg_exprs,
                                       const lir::TraitItemRef* trait_item) {
     std::string callee{callee_sv};
+    // A trait method's `where Self::Item: B` at a concrete receiver (E0277).
+    if (fi.is_method && !fi.trait_name.empty() && !arg_exprs.empty() && arg_exprs[0]) {
+        TypeRef self_t = expr_type(arg_exprs[0]);
+        while (self_t && is_ref_like(TypeRef(self_t).kind()) && TypeRef(self_t).pointee())
+            self_t = TypeRef(self_t).pointee();
+        if (self_t && type_is_concrete(self_t) &&
+            default_where_refused_(fi.trait_name, fi.method_name.empty() ? fi.base_name : fi.method_name, self_t))
+            return error_expr();
+    }
     // Type parameters the caller WROTE (turbofish, not `_`): their regions are
     // the written ones, not fresh (see the argument check below).
     std::unordered_set<std::string> written_tparams;
@@ -9794,6 +9803,7 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
         // `impl<T, U: From<T>> Into<U> for T`) is inferred from arg types and
         // the let-binding's return-type hint. Positional binding misassigns
         // when the target isn't type_params[0].
+        if (default_where_refused_(bi.trait_name, method_name, recv_inner)) return error_expr();
         StrMap<TypeRef> tv_bind;
         tv_bind["Self"] = recv_inner;
         tv_bind[bi.target_typevar] = recv_inner;
@@ -11992,6 +12002,13 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
             std::fprintf(stderr, "PROBEFALLBACK %s:%u %s.%s pick=%s\n", ctx_.c_str(), node_line_,
                          type_str(expr_type(recv)).c_str(), std::string(method_name).c_str(),
                          pk.fi ? pk.key.c_str() : "-");
+    }
+    // A trait method's `where Self::Item: B` at a concrete receiver (E0277).
+    if (fi_ptr && !fi_ptr->trait_name.empty()) {
+        TypeRef st = expr_type(recv);
+        while (st && is_ref_like(TypeRef(st).kind()) && TypeRef(st).pointee()) st = TypeRef(st).pointee();
+        if (st && type_is_concrete(st) && default_where_refused_(fi_ptr->trait_name, method_name, st))
+            return error_expr();
     }
     if (!fi_ptr) {
         // Blanket-impl fallback: `impl<T: Bound> Trait for T { fn method … }`
@@ -18414,6 +18431,58 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         // trait-UFCS instance dispatch on the first arg's type (G159-2 guard).
         find_datatype_by_name(std::string(class_name)).second == nullptr) {
         TypeRef rt = expr_type(arg_exprs[0]);
+        // `Tr::m(t)` with `t: T` and `T: Tr` in the parameter environment: the
+        // bound answers, as rustc prefers a where-clause candidate to any impl
+        // (`IntoIterator::into_iter(t)` under `T: IntoIterator` is not the
+        // blanket `impl<I: Iterator> IntoIterator for I`). Lowered as the method
+        // call through the bound, from arguments that are plain variables (so
+        // lowering them again is pure).
+        if (rt && (TypeRef(rt).kind() == LogosType::Kind::TypeVar || is_generic_projection(rt))) {
+            const std::string bkey = TypeRef(rt).kind() == LogosType::Kind::TypeVar
+                ? std::string(TypeRef(rt).type_var_name()) : type_str(rt);
+            const SemaTraitInfo* want = find_trait_iter_scoped(std::string(class_name));
+            bool by_bound = false;
+            // KEY-IDENTITY: a type parameter's name / a projection's spelling, the
+            // signature's own namespace (as the method-call path keys it).
+            if (auto bit = current_type_bounds_.find(bkey); want && bit != current_type_bounds_.end())
+                for (auto& b : bit->second)
+                    if (b.trait_def ? b.trait_def == want->def : find_trait_iter_scoped(b.trait_name) == want)
+                        by_bound = true;
+            // The receiver, already lowered, is bound to a statement temporary
+            // the method call reads; the other arguments are lowered again, so
+            // they must be plain variables (pure).
+            auto arg_asts = collect_arg_asts(node);
+            bool plain = by_bound && !arg_asts.empty() && !node.has_key(la::TYPE_PARAMS);
+            for (size_t i = 1; i < arg_asts.size(); ++i) plain = plain && code_of(arg_asts[i]) == la::VAR_REF;
+            // A variable receiver is lowered again too; a fresh rvalue goes to a
+            // temporary (a place moved out of would be owned twice).
+            const bool recv_var = plain && code_of(arg_asts[0]) == la::VAR_REF;
+            const bool recv_temp = plain && !recv_var && cur_stmt_temp_hoist_ && is_hoistable_temp_rvalue(arg_exprs[0]);
+            if (recv_var || recv_temp) {
+                auto args_av = node.get(la::ARGS.code);
+                auto av = map_of(args_av).has_key(la::ITEMS) ? arr_of(map_of(args_av).get(la::ITEMS.code))
+                                                             : arr_of(args_av);
+                std::vector<writ::AnyVal> rest;
+                for (uint64_t i = 1; i < av.size(); ++i) rest.push_back(av.get(i));
+                if (recv_var) {
+                    auto call = synth_node(la::METHOD_CALL.code, node_line_,
+                                           {{la::RECEIVER.code, av.get(0)}, {la::NAME.code, synth_str(std::string(method_name))},
+                                            {la::ARGS.code, synth_array(rest)}});
+                    return lower_expr(map_of(call));
+                }
+                std::string nm = std::format("__rtmp_{}", destruct_counter_++);
+                register_stmt_temp(nm, rt, nullptr, /*is_mut=*/true);
+                std::vector<lir_view::StmtRef> blk;
+                blk.push_back(builder().stmt_assign(nm, std::move(arg_exprs[0]), node_line_));
+                auto recv_ast = synth_node(la::VAR_REF.code, node_line_, {{la::NAME.code, synth_str(nm)}});
+                auto call = synth_node(la::METHOD_CALL.code, node_line_,
+                                       {{la::RECEIVER.code, recv_ast}, {la::NAME.code, synth_str(std::string(method_name))},
+                                        {la::ARGS.code, synth_array(rest)}});
+                auto e = lower_expr(map_of(call));
+                TypeRef et = expr_type(e);
+                return builder().block_expr(lir_mirror_block(*cur_prog_, blk), std::move(e), et);
+            }
+        }
         // Self is the argument's type as the trait method's receiver takes it
         // (Rust): `fn into_iter(self)` over `&[T; N]` is the `&[T; N]` impl's;
         // a `&self` / `&mut self` method's argument is `&Self`.

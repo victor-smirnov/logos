@@ -3618,8 +3618,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     // (the gate above, Rust-shaped); a generic one is re-gated in
                     // mono (WHERE_TYPE_BOUNDS below).
                     std::vector<std::pair<TypeRef, std::string>> proj_type_bounds;
-                    bool proj_skip = !impl_is_blanket && self_type &&
-                                     !default_proj_bounds_hold_(m, tit, self_type, impl_trait_args, &proj_type_bounds);
+                    std::vector<std::pair<TypeRef, TraitBound>> proj_assumed;
+                    bool proj_skip = self_type &&
+                                     !default_proj_bounds_hold_(m, tit, self_type, impl_trait_args, &proj_type_bounds,
+                                                                &proj_assumed);
                     if (proj_skip) {
                         implied_type_lt_outlives_.clear();
                         shadow_scope_ = nullptr;
@@ -3628,7 +3630,23 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         else current_type_params_.erase("Self");
                         continue;
                     }
+                    // The body assumes what its where-clause states: under
+                    // `Item = T`, `where Self::Item: IntoIterator` is `T: IntoIterator`.
+                    std::vector<std::string> proj_keys;
+                    for (auto& [item, tb] : proj_assumed) {
+                        // KEY-IDENTITY: a type parameter's name, or a projection's spelling
+                        // in the signature's namespace (Gap-3's key) — not an entity name.
+                        std::string key = TypeRef(item).kind() == LogosType::Kind::TypeVar
+                            ? std::string(TypeRef(item).type_var_name()) : type_str(item);
+                        current_type_bounds_[key].push_back(tb);
+                        proj_keys.push_back(std::move(key));
+                    }
                     auto fn = lower_fn(map_of(m.default_ast), lower_target, &type_params);
+                    for (auto& key : proj_keys) {
+                        auto& v = current_type_bounds_[key];
+                        if (!v.empty()) v.pop_back();
+                        if (v.empty()) current_type_bounds_.erase(key);
+                    }
                     impl_method_syms.emplace_back(fn.view<lir_view::FunctionView>().name());
                     implied_type_lt_outlives_.clear();
                     shadow_scope_ = nullptr;
@@ -3892,7 +3910,9 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
 // `deferred` for mono's re-gate (WHERE_TYPE_BOUNDS).
 bool SemaChecker::default_proj_bounds_hold_(const SemaTraitMethodInfo& m, const SemaTraitInfo* tit,
                                             TypeRef self_type, const std::vector<TypeRef>& impl_trait_args,
-                                            std::vector<std::pair<TypeRef, std::string>>* deferred) {
+                                            std::vector<std::pair<TypeRef, std::string>>* deferred,
+                                            std::vector<std::pair<TypeRef, TraitBound>>* assumed,
+                                            std::pair<TypeRef, std::string>* failed) {
     for (auto& [an, pb] : m.self_proj_bounds) {
         const SemaTraitInfo* owner = nullptr;
         std::vector<const SemaTraitInfo*> work{tit};
@@ -3906,14 +3926,45 @@ bool SemaChecker::default_proj_bounds_hold_(const SemaTraitMethodInfo& m, const 
         if (!owner) continue;
         TypeRef item = project_assoc_(trait_path(*owner), self_type,
                                       owner == tit ? impl_trait_args : std::vector<TypeRef>{}, an);
+        // A blanket impl's Self is its parameter: the item is `I::Item`, for
+        // mono to decide per instance.
+        if (!item && TypeRef(self_type).kind() == LogosType::Kind::TypeVar) {
+            LogosTypeBuilder t;
+            t.kind            = LogosType::Kind::AssocType;
+            t.assoc_base      = self_type;
+            t.trait_name      = owner->name;
+            t.pkg_name        = owner->package;
+            t.assoc_type_name = an;
+            item = pool_->alloc(std::move(t));
+        }
         if (!item) continue;
         if (type_is_concrete(item)) {
-            if (!implements_(bound_identity_(pb), item, pb.type_args)) return false;
-        } else if (deferred) {
-            deferred->emplace_back(item, pb.trait_name);
+            if (!implements_(bound_identity_(pb), item, pb.type_args)) {
+                if (failed) *failed = {item, pb.trait_name};
+                return false;
+            }
+        } else {
+            if (deferred) deferred->emplace_back(item, pb.trait_name);
+            if (assumed) assumed->emplace_back(item, pb);
         }
     }
     return true;
+}
+
+// A call of trait method `method` on `self_type`: the item's `where Self::Item: B`
+// not met is rustc's E0277 at the call (the method does not exist for it).
+bool SemaChecker::default_where_refused_(std::string_view trait, std::string_view method, TypeRef self_type) {
+    const SemaTraitInfo* tit = find_trait_iter_scoped(std::string(trait));
+    if (!tit || !self_type) return false;
+    for (auto& m : tit->methods) {
+        if (m.name != method || m.self_proj_bounds.empty()) continue;
+        std::pair<TypeRef, std::string> failed;
+        if (default_proj_bounds_hold_(m, tit, self_type, {}, nullptr, nullptr, &failed)) return false;
+        error(std::format("the trait bound `{}: {}` is not satisfied (E0277): `{}::{}` requires it of `{}`'s item",
+                          type_str(failed.first), failed.second, tit->name, m.name, type_str(self_type)));
+        return true;
+    }
+    return false;
 }
 
 } // namespace logos::compiler

@@ -1,5 +1,5 @@
 // `flatten()` over items that are not IntoIterator is refused (rustc E0277: `i32` is not an
-// iterator). Logos names the Flatten instance's bound.
+// iterator), at the call.
 package iter_flatten_item_not_into_iterator_fail;
 use logos.std.fmt;
 use logos.mem.collections.vec;

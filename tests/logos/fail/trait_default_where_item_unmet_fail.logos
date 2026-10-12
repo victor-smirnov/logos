@@ -1,0 +1,22 @@
+// A generic impl's default with `where Self::Item: IntoIterator` called where the item is
+// i32: rustc E0277 at the call (was a borrow-check ICE: callee not resolved).
+package trait_default_where_item_unmet_fail;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+trait Src {
+    type Item;
+    fn get(self) -> Self::Item;
+    fn count_inner(self) -> i64 where Self::Item: IntoIterator, Self: Sized {
+        let mut n = 0;
+        for _x in self.get() { n += 1; }
+        n
+    }
+}
+struct W<T> { v: T }
+impl<T> Src for W<T> { type Item = T; fn get(self) -> T { self.v } }
+fn main() {
+    let a = W { v: vec![1, 2, 3] };
+    println!("{}", a.count_inner());
+    let b = W { v: 5i32 };
+    println!("{}", b.count_inner());
+}

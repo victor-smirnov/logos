@@ -191,6 +191,9 @@ void Mono::enqueue_blanket_concrete(const BlanketImplInfo& bi,
             if (!subst.count(tp.name())) { all_tp_bound = false; break; }   // transparent
         }
         if (!all_tp_bound) continue;
+        // A default's `where Self::Item: B` the candidate does not meet: no
+        // such method on it (Rust), so nothing to instantiate.
+        if (!method_bound_ok(tfn, subst)) continue;
         WorkItem wi;
         wi.mangled = dest;
         wi.tmpl    = tfn;
