@@ -1,0 +1,54 @@
+// A left join inside a rel body: the rel's columns read the joined side as
+// Option<T>, as in the entry. An outer join is non-monotone in its joined
+// side (a row arriving there removes an absent-side row), so it stratifies as
+// an anti join does: its source is a param or a rel of an earlier stratum
+// (deem_rel_outer_same_scc_fail refuses one in the same component), and a rel
+// whose body holds one is outside the incremental handle. Shapes: a
+// non-recursive rel over params, a rel left-joining an earlier stratum, and a
+// recursive rel whose seed body left-joins. Rows: hand-derived.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.std.fmt;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+struct Edge { pub src: i64, pub dst: i64 }
+
+// non-recursive rel, left join over params
+pub deem q1(es: &[Emp], ds: &[Dept]) {
+    rel ef(id: i64, fl: Option<i64>) { from es e left join ds d on d.id == e.dept select (e.id, d.floor); }
+    from ef x select (x.id, unwrap_or(x.fl, -1)) order by x.id
+}
+// left join over a rel of an earlier stratum
+pub deem q2(es: &[Emp], ds: &[Dept]) {
+    rel high(id: i64) { from ds d where d.floor > 5 select d.id; }
+    rel tag(id: i64, h: Option<i64>) { from es e left join high g on g.id == e.dept select (e.id, g.id); }
+    from tag t select (t.id, unwrap_or(t.h, 0)) order by t.id
+}
+// a recursive rel whose seed body left-joins a param
+pub deem q3(es: &[Emp], ds: &[Dept], ed: &[Edge]) {
+    rel r(n: i64, fl: Option<i64>) {
+        from es e left join ds d on d.id == e.dept select (e.id, d.floor);
+        from r p join ed x on x.src == p.n select (x.dst, p.fl);
+    }
+    from r p select (p.n, unwrap_or(p.fl, -1)) order by p.n * 100 + unwrap_or(p.fl, -1)
+}
+fn main() -> i32 {
+    let es: [Emp; 4] = [ Emp { id: 1, dept: 10 }, Emp { id: 2, dept: 99 }, Emp { id: 3, dept: 20 }, Emp { id: 4, dept: 10 } ];
+    let ds: [Dept; 2] = [ Dept { id: 10, floor: 4 }, Dept { id: 20, floor: 7 } ];
+    let ed: [Edge; 2] = [ Edge { src: 2, dst: 5 }, Edge { src: 5, dst: 6 } ];
+    let a: Vec<(i64, i64)> = q1(&es[..], &ds[..]).unwrap();
+    let mut i: i64 = 0i64;
+    while i < a.len() { print!("{}:{} ", a.get(i).0, a.get(i).1); i = i + 1i64; }
+    println!("");
+    let b: Vec<(i64, i64)> = q2(&es[..], &ds[..]).unwrap();
+    i = 0i64;
+    while i < b.len() { print!("{}:{} ", b.get(i).0, b.get(i).1); i = i + 1i64; }
+    println!("");
+    let c: Vec<(i64, i64)> = q3(&es[..], &ds[..], &ed[..]).unwrap();
+    i = 0i64;
+    while i < c.len() { print!("{}:{} ", c.get(i).0, c.get(i).1); i = i + 1i64; }
+    println!("");
+    return 0i32;
+}

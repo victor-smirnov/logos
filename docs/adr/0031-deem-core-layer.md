@@ -1,6 +1,6 @@
 # ADR 0031 — The Deem core layer: one normalised clause form between the surface and the plan
 
-Status: IMPLEMENTED (checked 2026-10-11). Accepted 2026-10-06 (Victor; §6 taken as recommended); every row R0–R8 closed by 2026-10-09 (R0 43c6a88da … R8 b8c752f73 `logos_00_deem_layer_lint`, R7 closed 61b257315). Extension 2026-10-10, the outer atom, landed in e9ce02fb5 (`CAtom.outer` / `CTrav.outer`, `check::entry_outer_ok`, `WG_OUTER`, `dl_export` refusal); still refused by `entry_outer_ok`: an outer join in a rel body, under `find`, and a `full join` beyond two sources or under `group by`.
+Status: IMPLEMENTED (checked 2026-10-11). Accepted 2026-10-06 (Victor; §6 taken as recommended); every row R0–R8 closed by 2026-10-09 (R0 43c6a88da … R8 b8c752f73 `logos_00_deem_layer_lint`, R7 closed 61b257315). Extension 2026-10-10, the outer atom, landed in e9ce02fb5 (`CAtom.outer` / `CTrav.outer`, `check::entry_outer_ok`, `WG_OUTER`, `dl_export` refusal); still refused by `entry_outer_ok`: under `find`, and a `full join` beyond two sources or under `group by`. 2026-10-11: a `left join` in a rel body is admitted (`check::core_rules_ok` refuses only a `full join` there); `plan_walker` records the outer atom as a negative dependency, so it stratifies as an anti join, and `params::stamp_rel_incr_shape` declines the incremental handle for a component whose bodies negate.
 Reference architecture: Soufflé 2.5 (`~/sandbox/souffle`, = `/usr/bin/souffle`).
 
 ## 0. Mandate
