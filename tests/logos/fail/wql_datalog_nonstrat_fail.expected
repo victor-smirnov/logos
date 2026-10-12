@@ -1,1 +1,1 @@
-rel 'q' `anti join`s rel 'p' of the same recursive component {p, q}
+rel 'q' `anti join`s or outer-joins rel 'p' of the same recursive component {p, q}

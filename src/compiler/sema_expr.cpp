@@ -18150,12 +18150,30 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
     // impl's concrete type name (bound in current_type_params_["Self"]) so the
     // static method resolves, exactly as if the type name were written.
     TypeRef self_spelled_enum = nullptr;  // `Self::V(..)` IS the impl self type
+    // `Self::m()` in a GENERIC impl (`impl<T> Rect<T>`, or a trait default
+    // method instantiated for one): Self is `Rect<T>`, and the call is
+    // `Rect::<T>::m()` — the struct's own name with Self's arguments as the
+    // class turbofish. The folded instance name (`Rect$G1$T`) names no method.
+    std::vector<TypeRef> self_class_targs;
     if (class_name == "Self") {
         auto sit = current_type_params_.find("Self");
         if (sit != current_type_params_.end() && sit->second) {
             auto st = TypeRef(sit->second);
+            // An inherent impl body binds Self to the BARE struct; the impl's
+            // own self type (`Rect<T>`) carries the arguments.
+            if (st.kind() == LogosType::Kind::Struct && st.type_args().empty() &&
+                !current_impl_self_types_.empty()) {
+                TypeRef it0 = current_impl_self_types_.front();
+                if (it0 && it0.kind() == LogosType::Kind::Struct &&
+                    it0.struct_name() == st.struct_name() && !it0.type_args().empty())
+                    st = it0;
+            }
             std::string resolved;
-            if (st.kind() == LogosType::Kind::Struct ||
+            if ((st.kind() == LogosType::Kind::Struct || st.kind() == LogosType::Kind::ZonedStruct) &&
+                !st.type_args().empty() && !type_is_concrete(st)) {
+                resolved = std::string(st.struct_name());
+                for (auto a : st.type_args()) self_class_targs.push_back(a);
+            } else if (st.kind() == LogosType::Kind::Struct ||
                 st.kind() == LogosType::Kind::ZonedStruct)
                 resolved = concrete_struct_name(sit->second);
             else if (st.kind() == LogosType::Kind::Enum)
@@ -19034,6 +19052,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                 }
             }
         }
+        if (!self_class_targs.empty()) in_generic_context = true;   // Self's args are the impl's parameters
         if (!in_generic_context) {
             std::vector<TypeRef> inferred;
             bool have_inferred = false;
@@ -19082,6 +19101,7 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
                         type_var_args.push_back(resolve_type_arg_(map_of(items.get(i))));
                 }
             }
+            if (type_var_args.empty()) type_var_args = self_class_targs;
             if (type_var_args.empty()) {
                 // The deferred call's return type names the CALLER's type
                 // parameters, not the callee's (`Box::new(v)` with `v: A` is

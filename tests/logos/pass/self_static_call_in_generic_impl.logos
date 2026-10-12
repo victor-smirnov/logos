@@ -1,0 +1,16 @@
+// `Self::m()` in a generic impl is `Rect::<T>::m()`: in an inherent impl body
+// Self is bound to the bare struct and the impl's self type carries `T`; in a
+// trait default instantiated for `impl<T> Named for Rect<T>` Self is `Rect<T>`.
+// Both named a method of no type (`Rect$M…::mk`, `Rect$G1$T::tag`).
+// rustc 1.98.1 prints `10 4 10 3`.
+package self_static_call_in_generic_impl;
+use logos.std.fmt;
+trait Named { fn tag() -> i64; fn full(&self) -> i64 { Self::tag() + 1 } }
+struct Rect<T> { w: T }
+impl<T> Named for Rect<T> { fn tag() -> i64 { 9 } }
+impl<T> Rect<T> {
+    fn mk() -> i64 { 4 }
+    fn g(&self) -> i64 { Self::mk() }
+    fn h(&self) -> i64 { Self::tag() + 1 }
+}
+fn main() { let r = Rect { w: 3i32 }; println!("{} {} {} {}", r.full(), r.g(), r.h(), r.w); }
