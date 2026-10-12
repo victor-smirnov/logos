@@ -1,0 +1,14 @@
+// A `full join` is not supported in a rel body yet: its base side is negated too
+// (a row arriving on the joined side removes a base row's absent-side row, and a
+// base row arriving removes the joined row's), so both sides would have to
+// stratify. A `left join` there is admitted (pass/deem_rel_left_join_e2e).
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct Emp { pub id: i64, pub dept: i64 }
+struct Dept { pub id: i64, pub floor: i64 }
+pub deem q(es: &[Emp], ds: &[Dept]) {
+    rel r(id: Option<i64>) { from es e full join ds d on d.id == e.dept select e.id; }
+    from r x select x.id
+}
+fn main() -> i32 { return 0i32; }
