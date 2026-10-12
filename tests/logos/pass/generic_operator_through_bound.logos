@@ -1,0 +1,12 @@
+// An operator on a type parameter is its bound's: Add / PartialOrd / PartialEq / BitAnd.
+// rustc 1.98.1 prints the same.
+package generic_operator_through_bound;
+use logos.std.fmt;
+use logos.lang.ops;
+fn sum2<T: Add<Output = T> + Copy>(a: T, b: T) -> T { a + b }
+fn big<T: PartialOrd + Copy>(a: T, b: T) -> T { if a > b { a } else { b } }
+fn same<T: PartialEq>(a: T, b: T) -> bool { a == b }
+fn mask<T: BitAnd<Output = T>>(a: T, b: T) -> T { a & b }
+fn main() {
+    println!("{} {} {} {}", sum2(1, 2), big(7, 4), same('a', 'a'), mask(6u8, 3u8));
+}

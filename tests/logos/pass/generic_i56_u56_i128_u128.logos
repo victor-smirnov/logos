@@ -2,7 +2,7 @@ package generic_i56_u56_i128_u128;
 
 fn identity<T>(x: T) -> T { return x; }
 
-fn add<T>(a: T, b: T) -> T { return a + b; }
+fn add<T: Add<Output = T>>(a: T, b: T) -> T { return a + b; }
 
 fn main() -> i32 {
     // Bug #3: is_known_type_name must recognize i56/u56/i128/u128

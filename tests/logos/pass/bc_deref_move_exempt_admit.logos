@@ -44,7 +44,7 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
 trait NumCast { fn from_i32(i: i32) -> Self; }
-trait NumExt: NumCast { }
+trait NumExt: NumCast + PartialOrd { }
 impl NumCast for i64 { fn from_i32(i: i32) -> i64 { return i as i64; } }
 impl NumExt for i64 { }
 fn greater_than_one<T: NumExt>(n: &T) -> bool {

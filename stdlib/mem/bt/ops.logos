@@ -27,7 +27,7 @@ use logos.mem.bt.map;       // BtLeaf / BtBranch — the node contracts (declare
 
 /// Point lookup from `(root, level)` down to the owning leaf; `sentinel` on miss.
 /// Mirrors `GenCow_descend_get` / `GenCowTree::get_or` (same walk, both used it).
-pub fn bt_descend_get<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+pub fn bt_descend_get<K: Copy + PartialOrd, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
     root: *mut u8, level: u32, key: K, sentinel: VOut) -> VOut {
     let mut node: *mut u8 = root;
     let mut lvl: u32 = level;
@@ -48,7 +48,7 @@ pub fn bt_descend_get<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B
 /// filters on equality needs the distinction — it is the difference between
 /// "one row" and "no rows" — so the container grows the operation that carries
 /// it rather than the query guessing a value no user will store.
-pub fn bt_descend_find<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
+pub fn bt_descend_find<K: Copy + PartialOrd, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>>(
     root: *mut u8, level: u32, key: K) -> Option<VOut> {
     let mut node: *mut u8 = root;
     let mut lvl: u32 = level;
@@ -250,7 +250,7 @@ pub fn bt_ins_rec<K: Copy, E: Copy, B: BtBranch<K, N>, const N: u32>(
 
 /// The single-stream UPSERT leaf step: try in place, else split at the middle
 /// and retry into the owning half.
-pub fn step_upsert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>>(
+pub fn step_upsert<K: Copy + PartialOrd, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>>(
     node: *mut u8, key: K, val: VIn, snp: u64) -> BtInsRet<K, 1> {
     let mut lf: L = L::adopt(node);
     if lf.try_insert(key, val) {
@@ -309,7 +309,7 @@ pub unsafe fn bt_branch_private<K: Copy, B: BtBranch<K, 1>, P: NodeProfile>(node
 /// via `tree_release` (structural-sharing rc-drop, not an unconditional free —
 /// the old block may still be referenced by a frozen sibling snapshot).
 /// Mirrors `GenCow_cow_insert`.
-pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>, P: NodeProfile>(
+pub unsafe fn bt_cow_insert<K: Copy + PartialOrd, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>, P: NodeProfile>(
     node: *mut u8, level: u32, key: K, val: VIn, cur: u64) -> BtInsRet<K, 1> {
     if level == 0u32 {
         let work: *mut u8 = bt_leaf_private::<K, VIn, VOut, L, P>(node, cur);
@@ -356,7 +356,7 @@ pub unsafe fn bt_cow_insert<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VO
 /// key's side (f runs again there — the BtLeaf contract asks it to be
 /// pure). Removal does no underflow handling (merge is the separate
 /// split/merge task); an emptied leaf remains a valid node.
-pub unsafe fn bt_cow_with_entry<K: Copy, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>, P: NodeProfile>(
+pub unsafe fn bt_cow_with_entry<K: Copy + PartialOrd, VIn: Copy, VOut: Copy, L: BtLeaf<K, VIn, VOut>, B: BtBranch<K, 1>, P: NodeProfile>(
     node: *mut u8, level: u32, key: K, f: fn(Option<VOut>) -> Option<VIn>, cur: u64) -> BtInsRet<K, 1> {
     if level == 0u32 {
         let work: *mut u8 = bt_leaf_private::<K, VIn, VOut, L, P>(node, cur);

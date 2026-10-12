@@ -551,7 +551,7 @@ impl WAny {
 // collide with the string/bitmap inherent methods.
 
 /// Supplies the per-key Writ wire tag (MapI32AnyVal=3101 .. MapU64AnyVal=3104).
-pub trait WIntKeyTag { fn map_code() -> u64; }
+pub trait WIntKeyTag: Copy + PartialEq { fn map_code() -> u64; }
 impl WIntKeyTag for i32 { fn map_code() -> u64 { return 3101u64; } }
 impl WIntKeyTag for u32 { fn map_code() -> u64 { return 3102u64; } }
 impl WIntKeyTag for i64 { fn map_code() -> u64 { return 3103u64; } }
