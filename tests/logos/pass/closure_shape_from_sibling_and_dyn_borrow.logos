@@ -1,0 +1,18 @@
+// A closure literal's parameter types come (1) from an EARLIER closure
+// argument through a shared type parameter — `compose(|x: i32| x + 1, |y| y * 2)`
+// fixes B from the first literal's return — and (2) from a `&dyn Fn(..)`
+// expectation it is borrowed under, which is one Closure-kind type here rather
+// than a Ref. Both left `{integer}` parameters before. rustc 1.98.1 prints
+// `12 12 12 3 12 14`.
+package closure_shape_from_sibling_and_dyn_borrow;
+use logos.std.fmt;
+fn ap<A, T>(a: A, t: T, f: &dyn Fn(A, T) -> A) -> A { f(a, t) }
+fn ap2(f: &dyn Fn(i64, i64) -> i64) -> i64 { f(1, 2) }
+fn compose<A, B, C>(f: impl Fn(A) -> B, g: impl Fn(B) -> C) -> impl Fn(A) -> C { move |x| g(f(x)) }
+fn main() {
+    let f: &dyn Fn(i64, i64) -> i64 = &|a, x| a * 10 + x;
+    let mut n = 0i64;
+    { let g: &mut dyn FnMut(i64) = &mut |a| n += a; g(3); }
+    let h = compose(|x: i32| x + 1, |y| y * 2);
+    println!("{} {} {} {} {} {}", f(1, 2), ap2(&|a, x| a * 10 + x), ap(1i64, 2i64, &|a, x| a * 10 + x), n, h(5), h(6));
+}

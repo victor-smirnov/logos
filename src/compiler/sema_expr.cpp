@@ -5491,6 +5491,22 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 const auto ak = TypeRef(at).kind();
                 if (ak != LogosType::Kind::Closure && !LogosType::is_fn_value_kind(ak) && ak != LogosType::Kind::Error)
                     unify_types(hint_fi->param_types[i], at, arg_binds);
+                // A closure binds through its bound's signature: `compose(|x: i32|
+                // x + 1, |y| y * 2)` with `f: impl Fn(A) -> B, g: impl Fn(B) -> C`
+                // fixes A and B from the first literal, so the second's `y` is
+                // i32 (rustc checks the arguments left to right).
+                else if (ak == LogosType::Kind::Closure)
+                    if (TypeRef h = closure_hint_for((size_t)i)) {
+                        if (TypeRef(h).kind() == LogosType::Kind::Ref || TypeRef(h).kind() == LogosType::Kind::MutRef)
+                            h = TypeRef(h).pointee();
+                        auto hp = TypeRef(h).closure_params(), cp = TypeRef(at).closure_params();
+                        if (hp.size() == cp.size()) {
+                            for (size_t k = 0; k < hp.size(); ++k)
+                                if (hp[k] && cp[k] && type_is_concrete(cp[k])) unify_types(hp[k], cp[k], arg_binds);
+                            TypeRef hr = TypeRef(h).closure_ret(), cr = TypeRef(at).closure_ret();
+                            if (hr && cr && type_is_concrete(cr) && !has_lit_var_(cr)) unify_types(hr, cr, arg_binds);
+                        }
+                    }
             }
             // Arguments run left to right: an earlier one with effects goes ahead
             // of the temporaries this argument hoisted (spill_before_hoist).

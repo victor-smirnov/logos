@@ -9584,8 +9584,11 @@ private:
         using K = LogosType::Kind;
         auto ref_like = [](TypeRef t) { return t && (t.kind() == K::Ref || t.kind() == K::MutRef || t.kind() == K::Ptr); };
         expect_next_ = ref_like(expected_) ? TypeRef(TypeRef(expected_).pointee()) : TypeRef(nullptr);
+        // `&dyn Fn(..)` is one Closure-kind type (the fat borrow IS the value),
+        // not a Ref: the operand of `&|a, x| ..` takes its signature from it.
         shape_next_ = ref_like(shape_) ? TypeRef(TypeRef(shape_).pointee())
-                    : (shape_ && TypeRef(shape_).kind() == K::Slice) ? shape_ : TypeRef(nullptr);
+                    : (shape_ && TypeRef(shape_).kind() == K::Slice) ? shape_
+                    : (shape_ && TypeRef(shape_).borrowed_dyn_callable()) ? shape_ : TypeRef(nullptr);
     }
     TypeRef struct_shape_() const {
         if (!shape_ || (TypeRef(shape_).kind() != LogosType::Kind::Struct &&
