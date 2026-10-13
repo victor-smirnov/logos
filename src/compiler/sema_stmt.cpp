@@ -6777,6 +6777,18 @@ writ::AnyVal SemaChecker::synth_str(std::string_view text) {
     return av;
 }
 
+writ::TinyMapView SemaChecker::const_accessor_fn_(const void* owner, const std::string& name, writ::AnyVal type,
+                                                 writ::AnyVal value, uint32_t line) {
+    auto& f = const_accessor_fns_[{owner, name}];
+    if (f.is_null()) {
+        auto ret = synth_node(la::RETURN.code, line, {{la::VALUE.code, value}});
+        auto body = synth_node(la::BLOCK.code, line, {{la::ITEMS.code, synth_array({ret})}});
+        f = synth_node(la::FN.code, line,
+                       {{la::NAME.code, synth_str("kassoc_" + name)}, {la::RET_TYPE.code, type}, {la::BODY.code, body}});
+    }
+    return map_of(f);
+}
+
 writ::AnyVal SemaChecker::synth_array(const std::vector<writ::AnyVal>& items) {
     if (synth_doc_.is_null()) synth_doc_ = writ::make_doc(1u << 20).get();
     auto arr = synth_doc_.make_array(items.empty() ? 1 : items.size()).get();

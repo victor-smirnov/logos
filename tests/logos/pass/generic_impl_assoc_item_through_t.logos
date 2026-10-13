@@ -1,0 +1,18 @@
+package generic_impl_assoc_item_through_t;
+use logos.std.fmt;
+trait W { const K: i64; const D: i64 = 40; fn w() -> i64; }
+struct A; struct B<T>(T);
+enum E<T> { V(T) }
+impl W for A { const K: i64 = 1; fn w() -> i64 { 10 } }
+impl<T: W> W for B<T> { const K: i64 = T::K * 3; fn w() -> i64 { T::w() + 1 } }
+impl<T: W> W for E<T> { const K: i64 = T::K + 100; const D: i64 = T::D - 1; fn w() -> i64 { 7 } }
+fn k<T: W>() -> i64 { T::K }
+fn d<T: W>() -> i64 { T::D }
+fn ww<T: W>() -> i64 { T::w() }
+fn main() {
+    println!("{} {} {}", k::<A>(), k::<B<A>>(), k::<B<B<A>>>());
+    println!("{} {} {} {}", k::<E<A>>(), d::<B<A>>(), d::<E<A>>(), d::<A>());
+    println!("{} {}", B::<A>::K, A::K);
+    println!("{} {}", ww::<B<B<A>>>(), ww::<E<B<A>>>());
+    let _ = B(A); let _ = E::V(A);
+}

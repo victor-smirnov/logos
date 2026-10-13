@@ -1,0 +1,10 @@
+// Closed squeue str_in_composite_annotation_resolves_to_u8_slice (#706): `&xs[i]` over a `&str` element kept its `&` (a RANGE index, not a
+// slice-kinded place, collapses `&`), so the element prints through Display. rustc 1.98.1: "ab cd ab 1".
+package str_in_composite_annotation_resolves_to_u8_slice;
+use logos.std.fmt;
+fn main() {
+    let s = String::from("ab");
+    let xs: [&str; 2] = [&s, "cd"];
+    let t: (&str, i64) = (&s, 1);
+    println!("{} {} {} {}", xs[0], xs[1], t.0, t.1);
+}

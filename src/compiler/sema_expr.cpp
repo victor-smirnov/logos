@@ -4714,8 +4714,10 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
         // place `[T]`; taking `&` of it IS the slice value (Logos's Slice
         // kind already is the `&[T]` fat form). Stacking another Ref typed
         // `&a[..]` as `&&[i64]` and broke every slice-pattern / `let s:
-        // &[T] = &a[..]` site (adversarial #1, G).
-        if (code_of(child) == la::INDEX_READ &&
+        // &[T] = &a[..]` site (adversarial #1, G). By the RANGE index, not the
+        // place's kind: an element that is itself `&[T]` / `&str` keeps its `&`.
+        if (code_of(child) == la::INDEX_READ && child.has_key(la::VALUE) &&
+            code_of(map_of(child.get(la::VALUE.code))) == la::RANGE_EXPR &&
             TypeRef(expr_type(inner)).kind() == LogosType::Kind::Slice)
             return inner;
         // `&<array expr>` — a field, a literal, any array place or rvalue —
@@ -19060,8 +19062,22 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
             }
         }
         // A trait's constant: the item of the impl C-OBL selects for the type.
-        if (auto* ce = trait_assoc_const_(lookup_type_by_name(cname_str), mname_str))
+        // A generic impl's (`S::<Z>::N` of `impl<P> Tr for S<P>`) is its
+        // accessor at Self, the value depending on the impl's parameters.
+        TypeRef const_self = lookup_type_by_name(cname_str);
+        if (node.has_key(la::TYPE_PARAMS) && const_self && TypeRef(const_self).kind() == LogosType::Kind::Struct)
+            const_self = make_generic_struct(std::string(TypeRef(const_self).struct_name()), collect_type_args(node), {},
+                                             std::string(TypeRef(const_self).pkg_name()));
+        std::string generic_trait;
+        if (auto* ce = trait_assoc_const_(const_self, mname_str, &generic_trait)) {
+            if (!generic_trait.empty() && type_is_concrete(const_self)) {
+                SemaSubst ss; ss["Self"] = const_self;
+                TypeRef ret_t = ce->type ? normalize_assoc_eq(subst_type_sema(ce->type, ss)) : prim(LogosType::Kind::I64);
+                auto ti = trait_item_ref_(generic_trait, "kassoc_" + mname_str, const_self);
+                return builder().call(cname_str + "__kassoc_" + mname_str, {}, {}, ret_t, &ti);
+            }
             return assoc_const_value_(*ce);
+        }
         // Generic static dispatch: DT::method() where DT is a type parameter with
         // a trait bound that declares a static method `method`.  The actual impl is
         // resolved during monomorphization (see mono_clone.cpp ECall branch — it

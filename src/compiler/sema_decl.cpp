@@ -3275,13 +3275,30 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             node_line_ = saved_line;
         }
     }
+    // The written items, then the accessors of the trait const defaults a
+    // generic impl omits (const_accessor_fn_).
+    std::vector<writ::AnyVal> impl_items;
     if (node.has_key(la::ITEMS)) {
         auto items = arr_of(node.get(la::ITEMS.code));
+        for (uint64_t i = 0; i < items.size(); ++i) impl_items.push_back(items.get(i));
+    }
+    if (!trait_name.empty())
+        if (auto* ctit = find_trait_iter_scoped(trait_name))
+            for (auto& ac : ctit->assoc_consts)
+                if (auto it = const_accessor_fns_.find({node.ptr(), ac.name}); it != const_accessor_fns_.end())
+                    impl_items.push_back(it->second);
+    if (!impl_items.empty()) {
         // Phase A.2: doc-line sweep — pending_doc_ primes the next lower_fn.
         pending_doc_.clear();
-        for (uint64_t i = 0; i < items.size(); ++i) {
-            auto m = map_of(items.get(i));
+        for (size_t i = 0; i < impl_items.size(); ++i) {
+            auto m = map_of(impl_items[i]);
             if (try_append_doc(pending_doc_, m)) continue;
+            // A generic trait impl's const: its accessor method, collected
+            // as one (const_accessor_fn_).
+            if (code_of(m) == la::ASSOC_CONST_IMPL && m.has_key(la::NAME))
+                if (auto it = const_accessor_fns_.find({m.ptr(), std::string(str_of(m.get(la::NAME.code)))});
+                    it != const_accessor_fns_.end())
+                    m = map_of(it->second);
             if (code_of(m) == la::FN || code_of(m) == la::STATIC_FN) {
                 namespace dk = lir_schema::decl_keys;
                 // Direct-build: lower_fn returns the open builder; type_params are

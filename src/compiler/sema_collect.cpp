@@ -1621,7 +1621,8 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
     return obl_table_;
 }
 
-SemaChecker::AssocConstEntry* SemaChecker::trait_assoc_const_(TypeRef self, const std::string& name) {
+SemaChecker::AssocConstEntry* SemaChecker::trait_assoc_const_(TypeRef self, const std::string& name,
+                                                              std::string* generic_trait) {
     if (!self) return nullptr;
     // A generic nominal named bare (`Foo::C`): its arguments are left to infer.
     if (TypeRef(self).kind() == LogosType::Kind::Struct && TypeRef(self).type_args().empty())
@@ -1649,6 +1650,7 @@ SemaChecker::AssocConstEntry* SemaChecker::trait_assoc_const_(TypeRef self, cons
                 }
                 found = e;
                 found_trait = tinfo.name;
+                if (generic_trait) *generic_trait = c.impl->generics.empty() ? std::string() : tinfo.name;
             }
     }
     return found;
@@ -3174,6 +3176,7 @@ void SemaChecker::collect_trait(TinyMapView node) {
                     ac.has_default = true;
                     ac.default_value_ast = m.get(la::VALUE.code);
                 }
+                if (m.has_key(la::TYPE)) ac.type_ast = m.get(la::TYPE.code);
                 ac.doc = std::move(trait_method_sweep_doc);
                 trait_method_sweep_doc.clear();
                 info.assoc_consts.push_back(std::move(ac));
@@ -4608,6 +4611,13 @@ void SemaChecker::collect_impl(TinyMapView node) {
                 auto cname = std::string(str_of(m.get(la::NAME.code)));
                 std::string assoc_doc = std::move(pending_doc_);
                 pending_doc_.clear();
+                // A generic trait impl's const may depend on the impl's
+                // parameters: its accessor is a method of the impl, per Self.
+                if (!trait_name.empty() && !impl_tps.empty() && !is_blanket &&
+                    m.has_key(la::VALUE) && m.has_key(la::TYPE))
+                    collect_fn(const_accessor_fn_(m.ptr(), cname, m.get(la::TYPE.code), m.get(la::VALUE.code),
+                                                  get_line(m)),
+                               method_base, trait_name);
                 if (trait_name.empty()) {
                     // B97: inherent assoc-const on `impl S { const C: T = ...; }`
                     // is allowed; register it under "inherent::<target>::<name>".
@@ -4737,6 +4747,22 @@ void SemaChecker::collect_impl(TinyMapView node) {
     }
     if (!trait_name.empty()) {
         auto* tit = find_trait_iter_scoped(trait_name);
+        // A trait const default a generic impl omits: its accessor, as a
+        // written one's above.
+        if (tit && !impl_tps.empty() && !is_blanket) {
+            StrSet written;
+            if (node.has_key(la::ITEMS)) {
+                auto items = arr_of(node.get(la::ITEMS.code));
+                for (uint64_t ii = 0; ii < items.size(); ++ii)
+                    if (auto im = map_of(items.get(ii)); code_of(im) == la::ASSOC_CONST_IMPL && im.has_key(la::NAME))
+                        written.insert(std::string(str_of(im.get(la::NAME.code))));
+            }
+            for (auto& ac : tit->assoc_consts)
+                if (ac.has_default && !ac.type_ast.is_null() && !written.count(ac.name))
+                    collect_fn(const_accessor_fn_(node.ptr(), ac.name, ac.type_ast, ac.default_value_ast,
+                                                  get_line(node)),
+                               method_base, trait_name);
+        }
         // E0407 is checked once collection ends (check_impl_members_): an impl
         // may precede its trait's declaration, whose methods are not yet known.
         if (!cur_from_binary_ && node.has_key(la::ITEMS)) {
