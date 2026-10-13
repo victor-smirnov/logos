@@ -1,0 +1,13 @@
+// A struct literal infers T from a `&[E; N]` / `&mut [E; N]` value for a `&[T]` / `&mut [T]` field (the unsize coercion at the field) — it gave `&[<error>]`. rustc 1.98.1 prints the same.
+package struct_lit_slice_field_infers_t;
+use logos.std.fmt;
+struct H<'a, T> { items: &'a [T] }
+struct M<'a, T> { items: &'a mut [T] }
+fn main() {
+    let data = [3i32, 9];
+    let h = H { items: &data };
+    let mut w = [1.5f64, 2.5, 4.0];
+    let m = M { items: &mut w };
+    m.items[0] = 8.0;
+    println!("{} {} {}", h.items[1], m.items.len(), w[0]);
+}

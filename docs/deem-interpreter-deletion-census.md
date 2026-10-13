@@ -6950,8 +6950,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12227 -> 12228 (+1), NOIMPORTED 7668 -> 7669 (+1), TIERCOMMIT 169 -> 169 (+0) — 2026-10-13: pass apit_nested_in_smart_ptr.
 #                ALL 12228 -> 12229 (+1), NOIMPORTED 7669 -> 7670 (+1), TIERCOMMIT 169 -> 168 (-1) — 2026-10-13: squeue #748 fn_ref_as_fnmut_refused closes into pass; fail fn_ref_of_fnmut_not_fnmut_fail.
 #                ALL 12229 -> 12230 (+1), NOIMPORTED 7670 -> 7671 (+1), TIERCOMMIT 168 -> 168 (+0) — 2026-10-13: pass vec_repeat_usize_count.
-REGISTRY-ALL         12230
-REGISTRY-NOIMPORTED  7671
+#                ALL 12230 -> 12231 (+1), NOIMPORTED 7671 -> 7672 (+1), TIERCOMMIT 168 -> 168 (+0) — 2026-10-13: struct literal: &[T] field infers T from &[E;N].
+REGISTRY-ALL         12231
+REGISTRY-NOIMPORTED  7672
 REGISTRY-TIERCOMMIT  168
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

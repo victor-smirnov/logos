@@ -13820,6 +13820,12 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 inferred[std::string(tv)] = val_t;
                 return;
             }
+            // `&[T]` from a `&[E; N]` (the unsize coercion at the field): T = E.
+            if (decl_t.kind() == K::Slice && (val_t.kind() == K::Ref || val_t.kind() == K::MutRef) &&
+                val_t.pointee() && TypeRef(val_t.pointee()).kind() == K::Array) {
+                unify_field_tv(decl_t.elem(), TypeRef(val_t.pointee()).elem());
+                return;
+            }
             // Recurse pairwise into matching structure.
             if (decl_t.elem() && val_t.elem())
                 unify_field_tv(decl_t.elem(), val_t.elem());
