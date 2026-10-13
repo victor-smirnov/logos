@@ -6951,8 +6951,9 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12228 -> 12229 (+1), NOIMPORTED 7669 -> 7670 (+1), TIERCOMMIT 169 -> 168 (-1) — 2026-10-13: squeue #748 fn_ref_as_fnmut_refused closes into pass; fail fn_ref_of_fnmut_not_fnmut_fail.
 #                ALL 12229 -> 12232 (+3), NOIMPORTED 7670 -> 7673 (+3), TIERCOMMIT 168 -> 168 (+0) — 2026-10-13: Deem eqrel — +pass/deem_eqrel_e2e (glob), +fail/deem_eqrel_arity_fail, +fail/deem_eqrel_col_ty_fail.
 #                ALL 12232 -> 12244 (+12), NOIMPORTED 7673 -> 7685 (+12), TIERCOMMIT 168 -> 168 (+0) — 2026-10-13: logos_09_souffle_oracle re-sharded 4 -> 16 (SOUFFLE_SHARDS).
-REGISTRY-ALL         12244
-REGISTRY-NOIMPORTED  7685
+#                ALL 12244 -> 12249 (+5), NOIMPORTED 7685 -> 7690 (+5), TIERCOMMIT 168 -> 168 (+0) — 2026-10-13: Deem subsume — +pass/deem_subsume_e2e, +pass/deem_subsume_rec_e2e (glob), +fail/deem_subsume_rec_group_fail, +fail/deem_subsume_eqrel_fail, +fail/deem_subsume_scope_fail.
+REGISTRY-ALL         12249
+REGISTRY-NOIMPORTED  7690
 REGISTRY-TIERCOMMIT  168
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count

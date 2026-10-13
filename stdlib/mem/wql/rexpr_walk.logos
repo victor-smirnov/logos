@@ -11215,7 +11215,7 @@ fn emit_scc_fn(c: i64, fn_name: str,
             let rtd12: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
             let rtd13: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
             let mut ovr: Vec<str> = Vec::<str>::new();
-            ovr.push("__dxa"); ovr.push("__dxb");
+            ovr.push("__rel__dom_a_sl"); ovr.push("__rel__dom_b_sl");
             let mut f1: ExprBlob = quote_block! { };
             if !rel_body_frag(mem[m3], dom, &ovr, prm, &mut f1, h, &mut hoist_off()) { return false; }
             let mut f2: ExprBlob = quote_block! { };
@@ -11240,13 +11240,13 @@ fn emit_scc_fn(c: i64, fn_name: str,
                         let __rsp: *mut HashSet<#(rtd6)> = &mut __dxs;
                         let __wcp: *mut i64 = &mut __dwc;
                         {
-                            let __dxa: &[#(rtd7)] = #n_dl.as_slice();
-                            let __dxb: &[#(rtd8)] = #n_tt.as_slice();
+                            let __rel__dom_a_sl: &[#(rtd7)] = #n_dl.as_slice();
+                            let __rel__dom_b_sl: &[#(rtd8)] = #n_tt.as_slice();
                             #(f1);
                         }
                         {
-                            let __dxa: &[#(rtd9)] = #n_tt.as_slice();
-                            let __dxb: &[#(rtd10)] = #n_dl.as_slice();
+                            let __rel__dom_a_sl: &[#(rtd9)] = #n_tt.as_slice();
+                            let __rel__dom_b_sl: &[#(rtd10)] = #n_dl.as_slice();
                             #(f2);
                         }
                     }
