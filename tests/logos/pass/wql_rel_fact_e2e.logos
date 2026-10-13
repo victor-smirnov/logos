@@ -9,7 +9,10 @@
 //       magic-sets seed takes);
 //   (c) a fact as the entry query;
 //   (d) facts mixed with an ordinary body, duplicates deduplicated (set
-//       semantics).
+//       semantics);
+//   (e) a fact in a RECURSIVE rel the entry reads with a bound column: the
+//       demand rewrite copies the fact into the adorned rel, and the copy
+//       still reads `__unit` (it once became a source named ``).
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
 
@@ -47,6 +50,15 @@ pub deem nodes(es: &[Edge]) {
     }
     from n x select x.v order by x.v
 }
+// (e)
+pub deem reach_bound(es: &[Edge], k: i64) {
+    rel r(a: i64, b: i64) {
+        from es e select (e.src, e.dst);
+        select (100, 1);
+        from r x join r y on x.b == y.a select (x.a, y.b);
+    }
+    from r x where x.a == k select x.b order by x.b
+}
 
 fn main() -> i32 {
     let es: [Edge; 4] = [
@@ -76,5 +88,8 @@ fn main() -> i32 {
     let none: [Edge; 0] = [];
     let d0: Vec<i64> = nodes(&none[..]).unwrap();
     if d0.len() != 2i64 { return 7i32; }
+    // (e) 100 -> 1 -> 2 -> 3 -> 1
+    let e: Vec<i64> = reach_bound(&es[..], 100i64).unwrap();
+    if e.len() != 3i64 || e.get(0i64) != 1i64 || e.get(2i64) != 3i64 { return 8i32; }
     return 0i32;
 }

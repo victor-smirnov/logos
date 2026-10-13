@@ -244,6 +244,7 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // ORACLE: `LOGOS_DEEM_ORACLE=<dir>` writes the program as Soufflé text,
     // before any rewrite of ours (the oracle checks what the user wrote).
     dl_export(&core, name, natspec, &mut prm);
+    core_desugar_eqrel(&mut core, &h);
     let mut msd: MsDecisions = ms_decisions_new();
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");

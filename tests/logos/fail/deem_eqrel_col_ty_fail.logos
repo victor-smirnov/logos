@@ -1,0 +1,12 @@
+// The two columns of an `eqrel` hold each other's values (a row `(a, b)`
+// implies `(b, a)`), so their types are one: `i64` against `str` is a named
+// error at the declaration.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct R { pub a: i64, pub s: str }
+pub deem q(rs: &[R]) {
+    rel w(a: i64, b: str) eqrel { from rs r select (r.a, r.s); }
+    from w x select x.a
+}
+fn main() -> i32 { return 0i32; }
