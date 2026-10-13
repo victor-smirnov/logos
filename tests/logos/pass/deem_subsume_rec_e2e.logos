@@ -1,0 +1,84 @@
+// deem_subsume_rec_e2e — `subsume` over a RECURSIVE rel (Soufflé's recursive
+// subsumption): at each round of the fixpoint the new rows another row
+// dominates are rejected, and the rows a new row dominates leave the total
+// (`emit_scc_fn`'s promote runs the rel's dominance rule, `CRel.dom`).
+//   (a) Pareto-optimal paths over (cost, time) in a graph WITH A CYCLE: without
+//       the pruning the fixpoint never ends (every lap mints a costlier path);
+//   (b) the shortest distance written as a subsumption, beside the same
+//       query as a `min` lattice — one answer;
+//   (c) the entry reads the rel with a bound column: a rel with `subsume` is
+//       evaluated whole (demand `subsume`), not adorned.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Edge { pub src: i64, pub dst: i64, pub c: i64, pub t: i64 }
+
+// (a)
+pub deem front(es: &[Edge]) {
+    rel p(src: i64, dst: i64, c: i64, t: i64) {
+        from es e select (e.src, e.dst, e.c, e.t);
+        from p x join es e on x.dst == e.src select (x.src, e.dst, x.c + e.c, x.t + e.t);
+        subsume a by b where a.src == b.src && a.dst == b.dst && b.c <= a.c && b.t <= a.t;
+    }
+    from p x where x.src == 1 select (x.dst, x.c * 100 + x.t) order by x.dst * 10000 + x.c * 100 + x.t
+}
+// (b)
+pub deem dist_sub(es: &[Edge], s: i64) {
+    rel d(n: i64, c: i64) {
+        select (s, 0);
+        from d x join es e on x.n == e.src select (e.dst, x.c + e.c);
+        subsume a by b where a.n == b.n && b.c < a.c;
+    }
+    from d x select x.n * 100 + x.c order by x.n * 100 + x.c
+}
+pub deem dist_min(es: &[Edge], s: i64) {
+    rel d(n: i64, c: i64) {
+        select (s, 0);
+        from d x join es e on x.n == e.src group by e.dst aggregate m = min(x.c + e.c) select (key, m);
+    }
+    from d x select x.n * 100 + x.c order by x.n * 100 + x.c
+}
+// (c)
+pub deem to_four(es: &[Edge], k: i64) {
+    rel p(src: i64, dst: i64, c: i64, t: i64) {
+        from es e select (e.src, e.dst, e.c, e.t);
+        from p x join es e on x.dst == e.src select (x.src, e.dst, x.c + e.c, x.t + e.t);
+        subsume a by b where a.src == b.src && a.dst == b.dst && b.c <= a.c && b.t <= a.t;
+    }
+    from p x where x.dst == k && x.src == 1 select x.c * 100 + x.t order by x.c * 100 + x.t
+}
+
+fn main() -> i32 {
+    // 1→2 (1,5)  1→3 (4,1)  2→4 (1,1)  3→4 (1,1)  2→3 (1,1)  4→1 (1,1): a cycle 1→…→4→1
+    let es: [Edge; 6] = [
+        Edge { src: 1i64, dst: 2i64, c: 1i64, t: 5i64 }, Edge { src: 1i64, dst: 3i64, c: 4i64, t: 1i64 },
+        Edge { src: 2i64, dst: 4i64, c: 1i64, t: 1i64 }, Edge { src: 3i64, dst: 4i64, c: 1i64, t: 1i64 },
+        Edge { src: 2i64, dst: 3i64, c: 1i64, t: 1i64 }, Edge { src: 4i64, dst: 1i64, c: 1i64, t: 1i64 },
+    ];
+    // (a) from 1 (c*100+t): to 1 {307, 603} (each front path to 4, then 4→1);
+    // to 2 {105} (a lap of the cycle first costs at least (3,3)); to 3 {206,
+    // 401}; to 4 {206, 502} (1-2-3-4 = 307 is dominated by 1-2-4)
+    let a: Vec<(i64, i64)> = front(&es[..]).unwrap();
+    let want: [(i64, i64); 7] = [ (1i64, 307i64), (1i64, 603i64), (2i64, 105i64),
+                                  (3i64, 206i64), (3i64, 401i64), (4i64, 206i64), (4i64, 502i64) ];
+    if a.len() != 7i64 { return 1i32; }
+    let mut i: i64 = 0i64;
+    while i < 7i64 {
+        if a.get(i).0 != want[i].0 || a.get(i).1 != want[i].1 { return 2i32; }
+        i = i + 1i64;
+    }
+    // (b) d(1)=0 d(2)=1 d(3)=2 d(4)=2
+    let b1: Vec<i64> = dist_sub(&es[..], 1i64).unwrap();
+    let b2: Vec<i64> = dist_min(&es[..], 1i64).unwrap();
+    if b1.len() != 4i64 || b2.len() != 4i64 { return 3i32; }
+    let mut j: i64 = 0i64;
+    while j < 4i64 { if b1.get(j) != b2.get(j) { return 4i32; } j = j + 1i64; }
+    if b1.get(0i64) != 100i64 || b1.get(1i64) != 201i64 || b1.get(2i64) != 302i64 || b1.get(3i64) != 402i64 { return 5i32; }
+    // (c)
+    let c: Vec<i64> = to_four(&es[..], 4i64).unwrap();
+    if c.len() != 2i64 || c.get(0i64) != 206i64 || c.get(1i64) != 502i64 { return 6i32; }
+    return 0i32;
+}
