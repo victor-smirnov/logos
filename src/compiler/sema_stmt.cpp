@@ -3725,11 +3725,12 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
         // variant's payload_field_names; build positional `bindings`
         // (length = payload arity). Missing fields without `..` are
         // an error; with `..` they're skipped (bound to "_").
-        if (vinfo && vinfo->payload_field_names.empty() && !vinfo->payload_types.empty()) {
-            error(std::format("{}::{} is a tuple-shape variant — use parentheses",
-                              pename, pvname));
-        }
-        size_t arity = vinfo ? vinfo->payload_field_names.size() : 0;
+        // A tuple-shape variant's fields are named by position (Rust:
+        // `E::T { 0: x, .. }`, `E::T { .. }`).
+        std::vector<std::string> pfield_names = vinfo ? vinfo->payload_field_names : std::vector<std::string>{};
+        if (vinfo && pfield_names.empty())
+            for (size_t k = 0; k < vinfo->payload_types.size(); ++k) pfield_names.push_back(std::to_string(k));
+        size_t arity = pfield_names.size();
         std::vector<std::string> by_pos(arity, "_");
         std::vector<bool> seen(arity, false);
         // Parallel to `by_pos`, same indexing. `bp_wild` is true ONLY for a
@@ -3761,12 +3762,15 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
                     size_t idx = arity;
                     if (vinfo) {
                         for (size_t k = 0; k < arity; ++k)
-                            if (vinfo->payload_field_names[k] == fname) { idx = k; break; }
+                            if (pfield_names[k] == fname) { idx = k; break; }
                     }
                     if (idx == arity) {
                         if (vinfo)
-                            error(std::format("pattern {}::{}: no field named '{}'",
-                                  pename, pvname, fname));
+                            error(std::format("pattern {}::{}: no field named '{}'{}",
+                                  pename, pvname, fname,
+                                  vinfo->payload_field_names.empty() && !vinfo->payload_types.empty()
+                                      ? " — a tuple-shape variant, its fields are named by position (`0`, `1`, ..)"
+                                      : ""));
                         continue;
                     }
                     if (seen[idx]) {
@@ -3824,7 +3828,7 @@ lir::Pattern SemaChecker::build_pattern_variant_data(TinyMapView pnode, TypeRef 
             std::vector<std::string> missing;
             for (size_t k = 0; k < arity; ++k)
                 if (!seen[k])
-                    missing.push_back(vinfo->payload_field_names[k]);
+                    missing.push_back(pfield_names[k]);
             if (!missing.empty()) {
                 std::string list;
                 for (size_t k = 0; k < missing.size(); ++k) {

@@ -1,5 +1,5 @@
-// #[derive_ord] on an enum is refused with a named diagnostic instead of the
-// struct-shaped expansion that compared zero fields (every value Equal).
+// #[derive_ord] alone on an enum is refused as rustc refuses #[derive(Ord)] alone (E0277): the
+// expansion needs its supertraits Eq and PartialOrd, which nothing here derives.
 package derive_ord_enum_refused;
 use logos.std.compiler.metaprog;
 use logos.lang.cmp;

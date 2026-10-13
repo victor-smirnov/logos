@@ -1,1 +1,1 @@
-#[derive_ord] on an enum is not supported yet
+missing impl PartialOrd for E (required by supertrait)

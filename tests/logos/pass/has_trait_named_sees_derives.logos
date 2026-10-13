@@ -2,7 +2,7 @@
 // same round exactly as for a hand-written one. A derive handler declares the trait it implements
 // (`#[metaprog_handler("derive_eq", "logos.lang.cmp::Eq")]`), and every target of it is a pending fact.
 // Bits: Hash Eq PartialEq Copy Clone Ord. `Eq` is a marker over `PartialEq` (Rust's shape), so each
-// `#[derive_eq]` stands beside `#[derive_partial_eq]`, and `#[derive_ord]` on an enum is not supported yet, so Color has no Ord. `None0` (no impls) is the control: all zero.
+// `#[derive_eq]` stands beside `#[derive_partial_eq]`, and `#[derive_ord]` beside `#[derive_partial_ord]`. `None0` (no impls) is the control: all zero.
 package has_trait_named_sees_derives;
 use logos.lang.hash;
 use logos.lang.cmp;
@@ -43,7 +43,7 @@ fn htn_hook(target_offset: u32) -> () {
 pub struct Sku { pub a: i64, pub b: i64 }
 
 #[htn]
-#[derive_hash] #[derive_partial_eq] #[derive_eq] #[derive_copy] #[derive_clone]
+#[derive_hash] #[derive_partial_eq] #[derive_eq] #[derive_copy] #[derive_clone] #[derive_partial_ord] #[derive_ord]
 pub enum Color { Red, Green, Blue }
 
 #[htn]
