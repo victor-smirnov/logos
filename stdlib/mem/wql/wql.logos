@@ -236,6 +236,13 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // the demand rewrite or the fact desugar invent a rel or a clause.
     if !core_rules_ok(&core) { return out; }
     if !core_scope_ok(&core, &prm) { return out; }
+    // a dominance clause reads its two row vars, the params and the consts
+    let mut sr: i64 = 0i64;
+    while sr < core.rels.len() {
+        let hs: bool = match &core.rels.as_slice()[sr].sub { Option::Some(_s) => true, Option::None => false };
+        if hs && !rule_scope_ok(&subsume_scope_rule(&core, sr, &h), false, &prm) { return out; }
+        sr = sr + 1i64;
+    }
     // DEMAND (#349): the rel the entry reads with a bound column is evaluated
     // on demand (magic sets, `crewrite::core_magic`). Before the fact
     // desugar: a seed can be a fact. `LOGOS_DEEM_NO_DEMAND` (any value) turns
@@ -245,6 +252,8 @@ pub fn deem(name: str, params: str, enrich: str, natspec: str, tparams: str,
     // before any rewrite of ours (the oracle checks what the user wrote).
     dl_export(&core, name, natspec, &mut prm);
     core_desugar_eqrel(&mut core, &h);
+    let mut suberr: String = String::new();
+    if !core_desugar_subsume(&mut core, &h, &mut suberr) { error(string_as_str(&suberr)); return out; }
     let mut msd: MsDecisions = ms_decisions_new();
     let mut nd: String = String::new();
     nd.push_str("LOGOS_DEEM_NO_DEMAND");

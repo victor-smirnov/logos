@@ -58,6 +58,137 @@ pub fn core_desugar_eqrel(p: &mut CProgram, h: &Writ) {
     }
 }
 
+// ── SUBSUMPTION ────────────────────────────────────────────────────────────
+
+/// The rule that keeps the rows of `src` no OTHER row dominates, for rel `r`'s
+/// clause `subsume a by b where P`:
+///   `from src a anti join src b on P && (a.c0 != b.c0 || …) select (a.c0, …)`.
+/// With `neg` false it is the plain join — the rows that ARE dominated — which
+/// a recursive rel keeps as its dominance rule (`CRel.dom`).
+/// Soufflé's non-recursive subsumption: delete every tuple a distinct tuple
+/// dominates (two rows that dominate each other both go).
+pub fn subsume_rule(p: &CProgram, r: i64, src: i64, neg: bool, h: &Writ) -> CRule {
+    let rel: &CRel = &p.rels.as_slice()[r];
+    let sn: str = p.rels.as_slice()[src].name;
+    let (a, b, pred): (str, str, WAny) = match &rel.sub {
+        Option::Some(s) => { (s.a, s.b, s.pred) }
+        Option::None => { ("", "", WAny::null()) }
+    };
+    let cols: &[CCol] = rel.cols.as_slice();
+    let mut ne: WRef<SExpr> = WRef::<SExpr>::from_any(WAny::null());
+    let mut k: i64 = 0i64;
+    while k < rel.cols.len() {
+        let d: WRef<SExpr> = gp_bin(h, OP_NE(), gp_field(h, a, cols[k].name), gp_field(h, b, cols[k].name));
+        ne = if ne.any().is_null() { d } else { gp_bin(h, OP_OR(), ne, d) };
+        k = k + 1i64;
+    }
+    let mut body: Vec<CLit> = Vec::<CLit>::new();
+    body.push(fresh_atom(CSrc::Rel(src), sn, a));
+    let on: WRef<SExpr> = gp_bin(h, OP_AND(), WRef::<SExpr>::from_any(pred), ne);
+    if neg {
+        let mut conds: Vec<WAny> = Vec::<WAny>::new();
+        conds.push(on.any());
+        body.push(CLit::Atom(CAtom { src: CSrc::Rel(src), reg: -1i64, name: sn, var: b, row_ty: "", neg: true, outer: 0i32,
+                                     conds: conds, strat: 0i32, jsel: -1i32, ground: 0i64 }));
+    } else {
+        body.push(fresh_atom(CSrc::Rel(src), sn, b));
+        body.push(on_cond(on));
+    }
+    let head: WRef<SExpr> = if rel.cols.len() == 1i64 { gp_field(h, a, cols[0].name) } else {
+        let mut arr: SExprArr = h.make::<SExprArr>();
+        let mut j: i64 = 0i64;
+        while j < rel.cols.len() { arr.set_arg(j, gp_field(h, a, cols[j].name).any()); j = j + 1i64; }
+        arr.count = rel.cols.len() as i32;
+        let t: STuple = h.make::<STuple>();
+        t.items = WRef::<SExprArr>::from_any(arr.as_ref());
+        WRef::<SExpr>::from_any(t.as_ref())
+    };
+    return gp_rule(head, body);
+}
+
+/// The dominance clause as the scope checker reads it: `from r a join r b
+/// where P` — the names `P` may read are a rel body's, and a diagnostic names
+/// the `where` the user wrote.
+pub fn subsume_scope_rule(p: &CProgram, r: i64, h: &Writ) -> CRule {
+    let rel: &CRel = &p.rels.as_slice()[r];
+    let (a, b, pred): (str, str, WAny) = match &rel.sub {
+        Option::Some(s) => { (s.a, s.b, s.pred) }
+        Option::None => { ("", "", WAny::null()) }
+    };
+    let mut body: Vec<CLit> = Vec::<CLit>::new();
+    body.push(fresh_atom(CSrc::Rel(r), rel.name, a));
+    body.push(fresh_atom(CSrc::Rel(r), rel.name, b));
+    body.push(CLit::Cond(CCond { e: pred, site: CSite::Where }));
+    return gp_rule(gp_field(h, a, rel.cols.as_slice()[0].name), body);
+}
+
+/// `subsume a by b where P;` on a NON-recursive rel `r`: its bodies move to a
+/// new rel `r__all`, and `r` keeps the rows of `r__all` no other row
+/// dominates (`subsume_rule`) — a stratified anti join, planned like any
+/// other. On a RECURSIVE rel the dominance join is appended as `r`'s
+/// dominance rule (`CRel.dom`), which the fixpoint runs at each promote.
+/// Run after the oracle export, which hands Soufflé the clause itself.
+/// False (with `err` set) for a recursive rel with a grouping body.
+pub fn core_desugar_subsume(p: &mut CProgram, h: &Writ, err: &mut String) -> bool {
+    // READ through an immutable view, WRITE through `p` (`core_magic`'s idiom):
+    // the rows and names read are arena/string-store texts, not rel storage.
+    let pr: *const CProgram = p as *const CProgram;
+    let rp: &CProgram = unsafe { &*pr };
+    let n0: i64 = rp.rels.len();
+    let mut r: i64 = 0i64;
+    while r < n0 {
+        let has: bool = match &rp.rels.as_slice()[r].sub { Option::Some(_s) => true, Option::None => false };
+        if has {
+            let mut rec: bool = false;
+            let mut b: i64 = 0i64;
+            while b < rp.rels.as_slice()[r].rules.len() {
+                if core_rule_reaches(rp, &rp.rels.as_slice()[r].rules.as_slice()[b], r) { rec = true; }
+                b = b + 1i64;
+            }
+            if rec {
+                // the fixpoint drops the dominated rows at each promote
+                let mut grouped: bool = false;
+                let mut g: i64 = 0i64;
+                while g < rp.rels.as_slice()[r].rules.len() {
+                    match &rp.rels.as_slice()[r].rules.as_slice()[g].clause.group { Option::Some(_x) => { grouped = true; } Option::None => { } }
+                    g = g + 1i64;
+                }
+                if grouped {
+                    err.push_str("wql!: rel '"); err.push_str(dv(rp.rels.as_slice()[r].name));
+                    err.push_str("': a recursive rel with `subsume` cannot group: a grouping body is a lattice or a seed, and the dominance clause would drop rows under either");
+                    return false;
+                }
+                let ru0: CRule = subsume_rule(rp, r, r, false, h);
+                let di: i64 = rp.rels.as_slice()[r].rules.len();
+                p.rels[r].rules.push(ru0);
+                p.rels[r].dom = di;
+                p.rels[r].sub = Option::None;
+                r = r + 1i64;
+                continue;
+            }
+            let mut nm: String = String::new();
+            nm.push_str(dv(rp.rels.as_slice()[r].name)); nm.push_str("__all");
+            let mut cols: Vec<CCol> = Vec::<CCol>::new();
+            let mut c: i64 = 0i64;
+            while c < rp.rels.as_slice()[r].cols.len() {
+                let cc: &CCol = &rp.rels.as_slice()[r].cols.as_slice()[c];
+                cols.push(CCol { name: dv(cc.name), ty: dv(cc.ty) });
+                c = c + 1i64;
+            }
+            let mut rules: Vec<CRule> = Vec::<CRule>::new();
+            while p.rels[r].rules.len() > 0i64 { rules.push(p.rels[r].rules.remove(0i64)); }
+            let src: i64 = p.rels.len();
+            p.rels.push(CRel { name: sv(&nm), cols: cols, rules: rules, eqrel: false, sub: Option::None, dom: -1i64 });
+            p.strs.push(nm);
+            let ru: CRule = subsume_rule(rp, r, src, true, h);
+            p.rels[r].rules.push(ru);
+            p.rels[r].sub = Option::None;
+        }
+        r = r + 1i64;
+    }
+    return true;
+}
+
 // ── FACTS (R3.1) ───────────────────────────────────────────────────────────
 
 /// A FROM-less `select` reads the one-row relation `__unit`, bound to `__u`:
@@ -659,6 +790,7 @@ fn cm_rel_verdict(p: &CProgram, ri: i64) -> i32 {
     let mut b0: i64 = 0i64;
     while b0 < rel.rules.len() { if rule_reaches(p, &rs[b0], ri) { rec = true; } b0 = b0 + 1i64; }
     if !rec { return MS_NONREC(); }
+    if rel.dom >= 0i64 { return MS_SUBSUME(); }
     let mut b: i64 = 0i64;
     while b < rel.rules.len() {
         let grouped: bool = match &rs[b].clause.group { Option::Some(_g) => true, Option::None => false };
@@ -1133,7 +1265,7 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
         }
         ms_note(out, dv(orel.name), sv(&cn), MS_DEMAND());
         colstrs.push(cn);
-        added.push(CRel { name: sv(&ctx.arel[w]), cols: cols, rules: rules, eqrel: false });
+        added.push(CRel { name: sv(&ctx.arel[w]), cols: cols, rules: rules, eqrel: false, sub: Option::None, dom: -1i64 });
         w = w + 1i64;
     }
     let mut m: i64 = 0i64;
@@ -1149,7 +1281,7 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
         }
         let mut mrules: Vec<CRule> = Vec::<CRule>::new();
         while ctx.mbody[m].len() > 0i64 { mrules.push(ctx.mbody[m].remove(0i64)); }
-        added.push(CRel { name: sv(&ctx.mrel[m]), cols: mcols, rules: mrules, eqrel: false });
+        added.push(CRel { name: sv(&ctx.mrel[m]), cols: mcols, rules: mrules, eqrel: false, sub: Option::None, dom: -1i64 });
         m = m + 1i64;
     }
     // WRITE phase.
@@ -1260,7 +1392,7 @@ fn gp_magic_seed(inj: &mut GpInj, src: str, body: CRule) {
     cols.push(i64_col("c"));
     let mut rules: Vec<CRule> = Vec::<CRule>::new();
     rules.push(body);
-    inj.rels.push(CRel { name: sv(&nm), cols: cols, rules: rules, eqrel: false });
+    inj.rels.push(CRel { name: sv(&nm), cols: cols, rules: rules, eqrel: false, sub: Option::None, dom: -1i64 });
     inj.strs.push(nm);
 }
 
@@ -1298,7 +1430,7 @@ fn gp_reach_rel<'b>(inj: &mut GpInj, src: str, h: &Writ) -> &'b str {
     b3.push(fresh_atom(CSrc::Param(rname), rname, "__rr"));
     gp_step(&mut b3, src, "__re", gp_bin(h, OP_EQ(), gp_field(h, "__re", "parent"), gp_field(h, "__rr", "b")));
     rules.push(gp_rule(gp_tuple2(h, gp_field(h, "__rr", "a"), gp_field(h, "__re", "child")), b3));
-    inj.rels.push(CRel { name: rname, cols: cols, rules: rules, eqrel: false });
+    inj.rels.push(CRel { name: rname, cols: cols, rules: rules, eqrel: false, sub: Option::None, dom: -1i64 });
     inj.strs.push(nm);
     inj.strs.push(mn);
     return rname;

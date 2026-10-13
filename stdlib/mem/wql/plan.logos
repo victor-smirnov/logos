@@ -497,6 +497,19 @@ pub schema RQRel : code(0x0012_0000_0000_0016) {
     cols:   WRef<RQRelColArr>  = 1,
     bodies: WRef<RQBodyArr>    = 2,
     eqrel:  bool               = 3,
+    sub:    WRef<RQSubsume>    = 4,
+}
+
+// `subsume a by b where P;` — row `a` is dropped when another row `b` of the
+// rel satisfies `P`.
+pub schema RQSubsume : code(0x0012_0000_0000_0022) {
+    a:    str          = 0,
+    b:    str          = 1,
+    pred: WRef<SExpr>  = 2,
+}
+
+impl RQSubsume {
+    pub fn as_ref(self: RQSubsume) -> WAny { return unsafe { WAny::ref_to((self.m as i64) as *const u8) }; }
 }
 
 impl RQRel {

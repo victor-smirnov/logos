@@ -1,0 +1,80 @@
+// deem_subsume_e2e — `subsume a by b where P;` as the last clause of a rel
+// drops every row `a` that some OTHER row `b` of the rel dominates (Soufflé's
+// subsumptive clause, non-recursive: two rows that dominate each other both
+// go). The core moves the bodies to `r__all` and keeps the rows no other row
+// dominates (an anti join); the oracle hands Soufflé the clause itself.
+//   (a) a Pareto front over (price, rating), with a tie: two offers of equal
+//       price and rating dominate each other and both leave;
+//   (b) the cheapest cost per node — a key equality in P;
+//   (c) a scalar parameter in P (dominated only by a margin);
+//   (d) the pruned rel read by another rel and joined back.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct Offer { pub id: i64, pub price: i64, pub rating: i64 }
+struct Cost { pub node: i64, pub cost: i64 }
+
+// (a)
+pub deem front(os: &[Offer]) {
+    rel best(id: i64, price: i64, rating: i64) {
+        from os o select (o.id, o.price, o.rating);
+        subsume a by b where b.price <= a.price && b.rating >= a.rating;
+    }
+    from best x select x.id order by x.id
+}
+// (b)
+pub deem cheapest(cs: &[Cost]) {
+    rel d(node: i64, cost: i64) {
+        from cs c select (c.node, c.cost);
+        subsume x by y where x.node == y.node && y.cost < x.cost;
+    }
+    from d x select (x.node, x.cost) order by x.node
+}
+// (c)
+pub deem margin(cs: &[Cost], m: i64) {
+    rel d(node: i64, cost: i64) {
+        from cs c select (c.node, c.cost);
+        subsume x by y where x.node == y.node && y.cost + m <= x.cost;
+    }
+    from d x select x.node * 1000 + x.cost order by x.node * 1000 + x.cost
+}
+// (d)
+pub deem rated(os: &[Offer]) {
+    rel best(id: i64, price: i64, rating: i64) {
+        from os o select (o.id, o.price, o.rating);
+        subsume a by b where b.price <= a.price && b.rating >= a.rating;
+    }
+    rel good(id: i64) { from best x where x.rating >= 4 select x.id; }
+    from os o join good g on g.id == o.id select o.price order by o.price
+}
+
+fn main() -> i32 {
+    // 1 (10,3) 2 (12,5) 3 (15,4)x by 2 · 4 (8,1) 5 (20,5)x by 2 · 6 (9,2) 7 (9,2) tie with 6
+    let os: [Offer; 7] = [
+        Offer { id: 1i64, price: 10i64, rating: 3i64 }, Offer { id: 2i64, price: 12i64, rating: 5i64 },
+        Offer { id: 3i64, price: 15i64, rating: 4i64 }, Offer { id: 4i64, price: 8i64, rating: 1i64 },
+        Offer { id: 5i64, price: 20i64, rating: 5i64 }, Offer { id: 6i64, price: 9i64, rating: 2i64 },
+        Offer { id: 7i64, price: 9i64, rating: 2i64 },
+    ];
+    let a: Vec<i64> = front(&os[..]).unwrap();
+    if a.len() != 3i64 || a.get(0i64) != 1i64 || a.get(1i64) != 2i64 || a.get(2i64) != 4i64 { return 1i32; }
+    let cs: [Cost; 6] = [
+        Cost { node: 1i64, cost: 7i64 }, Cost { node: 1i64, cost: 3i64 }, Cost { node: 2i64, cost: 5i64 },
+        Cost { node: 1i64, cost: 4i64 }, Cost { node: 3i64, cost: 9i64 }, Cost { node: 3i64, cost: 9i64 },
+    ];
+    let b: Vec<(i64, i64)> = cheapest(&cs[..]).unwrap();
+    if b.len() != 3i64 { return 2i32; }
+    if b.get(0i64).0 != 1i64 || b.get(0i64).1 != 3i64 { return 3i32; }
+    if b.get(1i64).0 != 2i64 || b.get(1i64).1 != 5i64 { return 4i32; }
+    if b.get(2i64).0 != 3i64 || b.get(2i64).1 != 9i64 { return 5i32; }
+    // (c) margin 2: node 1 keeps 3 and 4 (7 is dominated by 3 and 4? 3+2<=7 yes), 4 not (3+2>4)
+    let c: Vec<i64> = margin(&cs[..], 2i64).unwrap();
+    if c.len() != 4i64 || c.get(0i64) != 1003i64 || c.get(1i64) != 1004i64 || c.get(2i64) != 2005i64 || c.get(3i64) != 3009i64 { return 6i32; }
+    // (d) the front's rating >= 4: offer 2 only
+    let d: Vec<i64> = rated(&os[..]).unwrap();
+    if d.len() != 1i64 || d.get(0i64) != 12i64 { return 7i32; }
+    return 0i32;
+}

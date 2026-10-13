@@ -1,0 +1,13 @@
+// An `eqrel` holds every pair of a class, so it cannot `subsume`.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct R { pub a: i64, pub b: i64 }
+pub deem q(rs: &[R]) {
+    rel r(a: i64, b: i64) eqrel {
+        from rs x select (x.a, x.b);
+        subsume p by w where w.b < p.b;
+    }
+    from r x select x.b
+}
+fn main() -> i32 { return 0i32; }

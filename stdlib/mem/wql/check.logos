@@ -240,7 +240,7 @@ fn ns_wheres_ok(sc: &mut NameScope, cl: &CClause, prm: &MacroParams, label: str)
 // been issued: the steps' `on`s, then select, where and order by — or, grouped,
 // where, group by, the aggregates' arguments, then select, having and order by
 // with the group's names (`key`, the aggregate outputs) in scope.
-fn rule_scope_ok(ru: &CRule, entry: bool, prm: &MacroParams) -> bool {
+pub fn rule_scope_ok(ru: &CRule, entry: bool, prm: &MacroParams) -> bool {
     let mut sc: NameScope = ns_new();
     let cl: &CClause = &ru.clause;
     ns_clause(&mut sc, cl);
@@ -362,6 +362,10 @@ pub fn core_rules_ok(p: &CProgram) -> bool {
     let rels: &[CRel] = p.rels.as_slice();
     let mut r: i64 = 0i64;
     while r < p.rels.len() {
+        let has_sub: bool = match &rels[r].sub { Option::Some(_s) => true, Option::None => false };
+        if has_sub && rels[r].eqrel {
+            return rel_err(rels[r].name, "an `eqrel` cannot `subsume`: every pair of a class is in it, so a row dominating another would remove pairs the equivalence implies");
+        }
         if rels[r].eqrel {
             // Soufflé's `eqrel`: a binary relation over ONE domain
             let ec: &[CCol] = rels[r].cols.as_slice();

@@ -11188,10 +11188,88 @@ fn emit_scc_fn(c: i64, fn_name: str,
         // AGGREGATE member's total is the argmin/argmax MAP — materialized ONCE
         // after the fixpoint (the per-round best is the map, not an append-union),
         // so its promote is just the delta swap.
+        let dom: i64 = prm.plan_core.rels.as_slice()[mem[m3]].dom;
         if prm.rel_is_agg[mem[m3]] {
             promote.push(quote_block! {
                 #n_dl = #n_nd;
                 #n_nd = Vec::<#(rt3)>::new();
+            });
+        } else if dom >= 0i64 {
+            // `subsume` (Soufflé's recursive subsumption): after the union, the
+            // dominance rule runs twice — new rows a dominated by any row b of
+            // the total (which holds them), and rows a of the total dominated by
+            // a new row b — and every row it derives leaves the total and the
+            // round's delta. The novelty set keeps them, so a dominated row is
+            // not derived again (dominance is a strict partial order).
+            let rtd:  ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd2: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd3: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd4: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd5: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd6: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd7: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd8: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd9: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd10: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd11: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd12: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let rtd13: ExprBlob = parse_type(string_as_str(&prm.rel_rowty[mem[m3]]));
+            let mut ovr: Vec<str> = Vec::<str>::new();
+            ovr.push("__rel__dom_a_sl"); ovr.push("__rel__dom_b_sl");
+            let mut f1: ExprBlob = quote_block! { };
+            if !rel_body_frag(mem[m3], dom, &ovr, prm, &mut f1, h, &mut hoist_off()) { return false; }
+            let mut f2: ExprBlob = quote_block! { };
+            if !rel_body_frag(mem[m3], dom, &ovr, prm, &mut f2, h, &mut hoist_off()) { return false; }
+            promote.push(quote_block! {
+                #n_dl = #n_nd;
+                #n_nd = Vec::<#(rt3)>::new();
+                {
+                    let __ps: &[#(rt3b)] = #n_dl.as_slice();
+                    let mut __pk: i64 = 0i64;
+                    while __pk < __ps.len() {
+                        #n_tt.push(__ps[__pk]);
+                        __pk = __pk + 1i64;
+                    }
+                }
+                {
+                    let mut __dx: Vec<#(rtd)> = Vec::<#(rtd2)>::new();
+                    let mut __dxs: HashSet<#(rtd3)> = hashset_new::<#(rtd4)>();
+                    let mut __dwc: i64 = 0i64;
+                    {
+                        let __out: &mut Vec<#(rtd5)> = &mut __dx;
+                        let __rsp: *mut HashSet<#(rtd6)> = &mut __dxs;
+                        let __wcp: *mut i64 = &mut __dwc;
+                        {
+                            let __rel__dom_a_sl: &[#(rtd7)] = #n_dl.as_slice();
+                            let __rel__dom_b_sl: &[#(rtd8)] = #n_tt.as_slice();
+                            #(f1);
+                        }
+                        {
+                            let __rel__dom_a_sl: &[#(rtd9)] = #n_tt.as_slice();
+                            let __rel__dom_b_sl: &[#(rtd10)] = #n_dl.as_slice();
+                            #(f2);
+                        }
+                    }
+                    if __dx.len() > 0i64 {
+                        let __dsp: *mut HashSet<#(rtd11)> = &mut __dxs;
+                        let mut __kt: i64 = 0i64;
+                        let mut __kw: i64 = 0i64;
+                        while __kt < #n_tt.len() {
+                            let __tv: #(rtd12) = #n_tt.get(__kt);
+                            if !unsafe { (*__dsp).contains(&__tv) } { #n_tt.set(__kw, __tv); __kw = __kw + 1i64; }
+                            __kt = __kt + 1i64;
+                        }
+                        #n_tt.truncate(__kw);
+                        let mut __kd: i64 = 0i64;
+                        let mut __kv: i64 = 0i64;
+                        while __kd < #n_dl.len() {
+                            let __dv: #(rtd13) = #n_dl.get(__kd);
+                            if !unsafe { (*__dsp).contains(&__dv) } { #n_dl.set(__kv, __dv); __kv = __kv + 1i64; }
+                            __kd = __kd + 1i64;
+                        }
+                        #n_dl.truncate(__kv);
+                    }
+                }
             });
         } else {
             promote.push(quote_block! {

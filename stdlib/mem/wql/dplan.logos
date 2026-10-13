@@ -616,6 +616,8 @@ pub fn plan_scc(prm: &MacroParams, scc: &RelScc, c: i64, h: &Writ) -> DScc {
             let rules: &[CRule] = rels[r].rules.as_slice();
             let mut b: i64 = 0i64;
             while b < rels[r].rules.len() {
+                // the dominance rule is no derivation (`emit_scc_fn`'s promote runs it)
+                if b == rels[r].dom { b = b + 1i64; continue; }
                 m.all.push(b);
                 let mut pos: Vec<i64> = Vec::<i64>::new();
                 let mut orel: Vec<i64> = Vec::<i64>::new();

@@ -1137,6 +1137,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc, pc: &CProgram) 
         let mut any_native: bool = false;
         let mut any_stream: bool = false;
         let mut any_neg:    bool = false;
+        let mut any_sub:    bool = false;
         let mut mask_u:     RelSet = relset_new(0i64);
         let mut k: i64 = 0i64;
         while k < prm.rel_n {
@@ -1154,6 +1155,7 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc, pc: &CProgram) 
                 // `rel_src_unmaterialized`.
                 if prm.rel_iter[k] || prm.rel_stream[k] { any_stream = true; }
                 if rel_body_negates(pc, prm.rel_names[k]) { any_neg = true; }
+                if k < pc.rels.len() && pc.rels.as_slice()[k].dom >= 0i64 { any_sub = true; }
                 mask_u.union_with(&scc.dep_mask[k]);
             }
             k = k + 1i64;
@@ -1178,6 +1180,8 @@ pub fn stamp_rel_incr_shape(prm: &mut MacroParams, scc: &RelScc, pc: &CProgram) 
             why = "the program declares a `rel` OUTSIDE this recursive SCC — the entry prelude then has several materialization steps in a condensation order, and `<q>_epoch` would have to reproduce that order rather than derive its whole body from the registry";
         } else if any_agg {
             why = "a member of the recursive SCC is an AGGREGATE rel (a min/max semilattice head) — its state is a best-per-key MAP plus a distinct-key roster plus a convergence counter, and its total is MATERIALIZED after the loop rather than appended during it, so `the rows added this epoch` is not a suffix of the total; the `_i` variant seeds a shadow set from the total and there is no such seeding for a map";
+        } else if any_sub {
+            why = "a member of the recursive SCC has `subsume` — its promote DELETES the rows a new row dominates, so the total is not monotone and `the rows added this epoch` is not a suffix of it; `<q>_epoch` only EXTENDS the fixpoint total";
         } else if any_native {
             why = "a member of the SCC is NATIVE (`&Writ`) — it has no parse-side bodies and no fixpoint at all; it is a pure function of one caller-owned container";
         } else if any_stream {

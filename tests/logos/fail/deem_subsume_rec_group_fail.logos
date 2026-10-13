@@ -1,0 +1,16 @@
+// A recursive rel with `subsume` cannot also group: a grouping body is a
+// lattice or a fixpoint seed, and the dominance clause would drop rows under
+// either.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct R { pub a: i64, pub b: i64 }
+pub deem q(rs: &[R]) {
+    rel r(a: i64, b: i64) {
+        from rs x group by x.a aggregate m = min(x.b) select (key, m);
+        from r x join rs y on x.b == y.a select (x.a, y.b);
+        subsume p by w where p.a == w.a && w.b < p.b;
+    }
+    from r x select x.b
+}
+fn main() -> i32 { return 0i32; }
