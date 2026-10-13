@@ -766,7 +766,17 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 out.push_str(")");
                 return true;
             }
-            if builtin_of_name(c.fn_name) != BFN_UNKNOWN() { return dx_no(cl, "builtin call"); }
+            let bm: i32 = builtin_of_name(c.fn_name);
+            if (bm == BFN_MIN() || bm == BFN_MAX()) && c.args_arr().len() == 2i64 {
+                // Soufflé's own `min` / `max` functors
+                out.push_str(if bm == BFN_MIN() { "min(" } else { "max(" });
+                if !dx_term(out, c.args_arr().arg_at(0i64), env, cl) { return false; }
+                out.push_str(", ");
+                if !dx_term(out, c.args_arr().arg_at(1i64), env, cl) { return false; }
+                out.push_str(")");
+                return true;
+            }
+            if bm != BFN_UNKNOWN() { return dx_no(cl, "builtin call"); }
             let ui: i64 = dx_udf_idx(env, c.fn_name);
             if ui < 0i64 || !cl.udf_ok { return dx_no(cl, "user-defined function call"); }
             // the call's value: the variable of `udf_<f>(args…, v)` in this body
@@ -2490,6 +2500,13 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         SExpr::Cond(cd) => { return dx_term_ty(cd.t.any().view::<SExpr>(), env, cl); }
         SExpr::Call(c) => {
             if dx_is_strlen(e, env, cl) { return "number"; }
+            let bm: i32 = builtin_of_name(c.fn_name);
+            if (bm == BFN_MIN() || bm == BFN_MAX()) && c.args_arr().len() == 2i64 {
+                let t0: str = dx_term_ty(c.args_arr().arg_at(0i64), env, cl);
+                let t1: str = dx_term_ty(c.args_arr().arg_at(1i64), env, cl);
+                if str_eq(t0, "unsigned") || str_eq(t1, "unsigned") { return "unsigned"; }
+                return t0;
+            }
             let ui: i64 = dx_udf_idx(env, c.fn_name);
             if ui < 0i64 { return ""; }
             return dx_kind_ty(dx_udf_kind(env, ui));
@@ -2567,6 +2584,13 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         SExpr::Cond(cd) => { return dx_term_kind(cd.t.any().view::<SExpr>(), env, cl); }
         SExpr::Call(c) => {
             if dx_is_strlen(e, env, cl) { return "i"; }
+            let bm: i32 = builtin_of_name(c.fn_name);
+            if (bm == BFN_MIN() || bm == BFN_MAX()) && c.args_arr().len() == 2i64 {
+                // the kind of the argument that names the type (a literal names none)
+                let a0: SExpr = c.args_arr().arg_at(0i64);
+                if dx_is_lit(a0) { return dx_term_kind(c.args_arr().arg_at(1i64), env, cl); }
+                return dx_term_kind(a0, env, cl);
+            }
             let ui: i64 = dx_udf_idx(env, c.fn_name);
             if ui < 0i64 { return ""; }
             return dx_udf_kind(env, ui);

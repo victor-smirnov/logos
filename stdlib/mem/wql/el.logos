@@ -327,7 +327,11 @@ pub fn BFN_STARTS_WITH() -> i32 { return 5i32; }
 // Over an `Option<T>` (an outer join's optional column, an Option column):
 pub fn BFN_IS_SOME()     -> i32 { return 6i32; }
 pub fn BFN_IS_NONE()     -> i32 { return 7i32; }
-pub fn BFN_UNWRAP_OR()   -> i32 { return 8i32; }   // its value is T (codegen)
+pub fn BFN_UNWRAP_OR()   -> i32 { return 8i32; }
+// `min(a, b)` / `max(a, b)` over two integers of one type — Soufflé's functors;
+// the value is that type (codegen `minmax_ty`)
+pub fn BFN_MIN()         -> i32 { return 9i32; }
+pub fn BFN_MAX()         -> i32 { return 10i32; }   // its value is T (codegen)
 
 // Resolve a call name → builtin id (BFN_*). Unknown ⇒ BFN_UNKNOWN.
 pub fn builtin_of_name(name: str) -> i32 {
@@ -339,6 +343,8 @@ pub fn builtin_of_name(name: str) -> i32 {
     if str_eq(name, "is_some")     { return BFN_IS_SOME(); }
     if str_eq(name, "is_none")     { return BFN_IS_NONE(); }
     if str_eq(name, "unwrap_or")   { return BFN_UNWRAP_OR(); }
+    if str_eq(name, "min")         { return BFN_MIN(); }
+    if str_eq(name, "max")         { return BFN_MAX(); }
     return BFN_UNKNOWN();
 }
 
@@ -348,6 +354,7 @@ pub fn builtin_arity(bfn: i32) -> i64 {
     if bfn == BFN_CONTAINS() || bfn == BFN_STARTS_WITH()           { return 2i64; }
     if bfn == BFN_IS_SOME() || bfn == BFN_IS_NONE()                { return 1i64; }
     if bfn == BFN_UNWRAP_OR()                                      { return 2i64; }
+    if bfn == BFN_MIN() || bfn == BFN_MAX()                        { return 2i64; }
     return 0i64;
 }
 
