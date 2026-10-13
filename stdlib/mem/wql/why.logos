@@ -1220,7 +1220,7 @@ pub fn mr_name(r: i32) -> str {
     return "unset";
 }
 pub fn zr_render(r: i32) -> str {
-    if r == ZR_MEASURED()   { return "measured: the source reports its size, read once before the first row"; }
+    if r == ZR_MEASURED()   { return "measured: the source reports its size, asked in `prepare` where a join order reads it and nowhere else"; }
     if r == ZR_UNMEASURED() { return "unmeasured: the source declares no size operation, so the cardinality ORDINAL is all this plan has"; }
     return "";
 }

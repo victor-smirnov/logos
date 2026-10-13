@@ -1285,8 +1285,7 @@ fn emit_stream_surface(fn_name: str, params_text: str, tps: str,
 //     the census counts the two source classes separately and the claim
 //     "`direct` removes a pull" stays true of every door that got it.
 //   · NO `__`-PREFIXED NAME IN THE PROJECTION OR PREDICATE. The direct form
-//     drops the query's PRELUDE (the size binding `__sz_<r>`, any other rel's
-//     landing): the constructor builds the walk and nothing else. A clause that
+//     drops the query's PRELUDE (any other rel's landing): the constructor builds the walk and nothing else. A clause that
 //     reads a prelude binding would therefore be reading a name that no longer
 //     exists. Every emitted prelude name is `__`-prefixed and no EL surface can
 //     produce one, so this is a total test rather than a list of names.
