@@ -521,12 +521,13 @@ pub struct AccessPlan {
     /// runs before any container exists and must still choose; the measured
     /// number refines it for a decision made where the data is — a join's
     /// driving side, which is where a runtime fact changes the answer in
-    /// multiples rather than confirming it. Nothing consumes `size_at` yet: this
-    /// phase supplies the fact and records that it was obtained.
+    /// multiples rather than confirming it. `size_at`'s one reader is that
+    /// decision: the prepared join order binds it in `prepare` and compares.
+    /// `_run` emits no size binding (ADR 0026 F2: 66 of them had no reader).
     ///
     /// ⚠ ASKED ONCE. A size is a property of the relation, not of a row, so it
-    /// is read in the prelude beside the source's own binding and never inside a
-    /// walk. `size_at` naming ONE binding per rel is what holds that.
+    /// is read in `prepare`, before any walk. `size_at` naming ONE binding per
+    /// rel is what holds that.
     pub size_fn: Vec<String>,
     pub size_at: Vec<String>,
     // The SIZE ground per rel (`ZA_SIZE` / `ZR_*`).
@@ -873,9 +874,6 @@ pub fn access_plan_explain(ap: &AccessPlan, prm: &MacroParams) {
             let mut sb: String = String::new();
             if string_as_str(&ap.size_fn[ri]).len() > 0i64 {
                 sb.push_str(string_as_str(&ap.size_fn[ri]));
-                if string_as_str(&ap.size_at[ri]).len() > 0i64 {
-                    sb.push_str(" -> "); sb.push_str(string_as_str(&ap.size_at[ri]));
-                }
             }
             plan_trace(prm.rel_names[ri],
                        if string_as_str(&ap.size_fn[ri]).len() > 0i64 { "size" } else { "size unknown" },

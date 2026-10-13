@@ -3180,28 +3180,12 @@ fn pw_flag(flags: str, c: u8) -> bool {
 // NATIVE rel (ADR 0016 M1a): the materialization is the writ_graph helper —
 //   let __rel_<p>: Vec<WritEdgeRow> = writ_graph_edges(<p>);
 // (no `?` — the native walk has no EL fault path).
-/// The rel's SIZE, obtained ONCE (ADR 0024 S4).
-///
-/// `let __sz_<r>: <ty> = <reporter>(<source>);` — a statement of the PRELUDE, so
-/// it runs before the first row is read and cannot become a per-row cost however
-/// the walk below it is shaped. Emitted only when the source declared a reporter;
-/// otherwise nothing is emitted and the plan's trace says the size is unknown.
-///
-/// ⚠ ONE COPY, in params.logos (`size_binding_text`), because the PREPARE fn
-/// (ADR 0024 S4i) needs the same statement in a body of its own: a prepared
-/// plan measures before the query's prelude exists, and two spellings of the
-/// same reporter call is how a plan comes to compare numbers obtained
-/// differently.
-fn emit_size_binding(prelude: &mut String, prm: &MacroParams, r: i64) {
-    size_binding_text(prelude, prm, r);
-}
-
 fn emit_prelude_oneshot(prelude: &mut String, name: str, prm: &MacroParams,
                         scc: &RelScc, r: i64) {
     if prm.rel_native[r] {
-        // Before the source's own binding: a size is a fact ABOUT the relation,
-        // and reading it after landing a cursor would tie it to a walk.
-        emit_size_binding(prelude, prm, r);
+        // No size binding here (ADR 0026 F2): nothing in `_run` reads the size.
+        // Its one reader is the prepared join order, which asks the reporter in
+        // `prepare` (`size_binding_text`).
         // STREAMED (ADR 0024 S4): the producer's iterator is bound directly,
         // and nothing is collected. The type is INFERRED — the iterator's type
         // is the source's business, and naming it here would put a second copy

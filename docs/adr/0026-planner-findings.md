@@ -1,6 +1,6 @@
 # ADR 0026 — what the planner leaves on the table: a findings ledger
 
-Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 7 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324; F10 be563e468; F6 2026-10-12), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 4 open with no closing commit (F2, F3, F4, F9).
+Status: OPEN (checked 2026-10-12) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 8 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324; F10 be563e468; F6 a357cfbec; F2 2026-10-12), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 3 open with no closing commit (F3, F4, F9).
 Scope: `plan_decide_access` / `plan_narrow_rel` in `stdlib/mem/wql/plan_walker.logos`,
 the access-path and materialization choices they drive, and the code
 `rexpr_walk` emits from them. Sources are the declared kind of ADR 0024 §6 —
@@ -160,6 +160,17 @@ is either a dead emission or a plan step that stopped consulting its own input,
 and the trace currently asserts the second while the code shows the first.
 
 [2026-10-11, code reading, row stays OPEN: sizes ARE consumed by the join-order decision under `order by` (see the F3 note), but in `prepare`, through its own copy of the reporter call (`params.logos` `size_binding_text`). The `_run` prelude binding `__sz_<r>` (`plan_walker.logos` `emit_size_binding`) still has no reader in `_run`; `access_plan.logos` `AccessPlan.size_at` says "Nothing consumes `size_at` yet".]
+
+**CLOSED 2026-10-12 — a dead emission, deleted.** Measured over the corpus's
+generated code: 75 `__sz_<r>` bindings, 66 in `_run` fns and none of them read,
+9 in `_prepare` fns and all of them read (the join-order pick). The `_run`
+prelude no longer calls the reporter (`plan_walker::emit_prelude_oneshot`), and
+the size is asked only in `prepare`, through `params::size_binding_text`. The
+trace says so: `size on <reporter>`, ground "asked in `prepare` where a join
+order reads it and nowhere else". `plan_size_gate.sh` asserts zero reporter
+calls in `deem_source_size` (control: the dumps from before the change have 1),
+and, as the admit twin, that every `__sz_` of `wql_join_ndv_order_e2e` sits in a
+`_prepare` fn and is read there.
 
 ---
 
