@@ -185,6 +185,16 @@ pub struct CRel {
     /// `rel r(a: T, b: T) eqrel` — `rules` are the user's until
     /// `crewrite::core_desugar_eqrel` appends the closure.
     pub eqrel: bool,
+    /// `subsume a by b where P;` — until `crewrite::core_desugar_subsume`.
+    pub sub: Option<CSub>,
+}
+
+/// A rel's dominance clause: row `a` is dropped when another row `b` of the
+/// rel satisfies `pred` (Soufflé's subsumptive clause).
+pub struct CSub {
+    pub a: str,
+    pub b: str,
+    pub pred: WAny,
 }
 
 pub enum CMode {
@@ -437,7 +447,11 @@ pub fn lower_program(root: WAny, h: &Writ) -> CProgram {
                 b = b + 1i64;
             }
         }
-        rels.push(CRel { name: rq.name, cols: cols, rules: rules, eqrel: rq.eqrel });
+        let sub: Option<CSub> = if rq.sub.any().is_null() { Option::None } else {
+            let sq: RQSubsume = rq.sub.any().view::<RQSubsume>();
+            Option::Some(CSub { a: sq.a, b: sq.b, pred: sq.pred.any() })
+        };
+        rels.push(CRel { name: rq.name, cols: cols, rules: rules, eqrel: rq.eqrel, sub: sub });
         r = r + 1i64;
     }
     let mut env: CEnvelope = envelope_new();

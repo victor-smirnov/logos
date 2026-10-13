@@ -2201,6 +2201,28 @@ fn dx_lattice_rule(p: &CProgram, c: &CClause, g: &CGroup, head: str, arity: i64,
     return true;
 }
 
+// `subsume a by b where P` as Soufflé's subsumptive clause
+// `r(a…) <= r(b…) :- P.` — Soufflé deletes the dominated tuples itself.
+fn dx_subsume(name: str, s: &CSub, env: &DxEnv, out: &mut String, why: &mut String) -> bool {
+    let mut cl: DxClause = dx_new_clause();
+    if !dx_atom(&mut cl, env, name, s.a) { return dx_set(why, cl.why); }
+    let mut c1: String = String::new();
+    c1.push_str(dx_view(&cl.body)); c1.push_str(" <= ");
+    cl.body = String::new();
+    if !dx_atom(&mut cl, env, name, s.b) { return dx_set(why, cl.why); }
+    c1.push_str(dx_view(&cl.body));
+    cl.body = String::new();
+    if !dx_pred(s.pred.view::<SExpr>(), env, &mut cl) { return dx_set(why, cl.why); }
+    dx_param_atoms(&mut cl);
+    // the constraints are appended `, c` each — the first comma is the atoms'
+    let bv: str = dx_view(&cl.body);
+    let cut: i64 = if bv.len() >= 2i64 && str_byte_at(bv, 0i64) == 44u8 { 2i64 } else { 0i64 };
+    c1.push_str(" :- "); c1.push_str(unsafe { str_from_raw(((bv.as_ptr() as i64) + cut) as *const u8, bv.len() - cut) }); c1.push_str(".\n");
+    out.push_str(dx_view(&dx_wild(dx_view(&c1))));
+    out.push_str(dx_view(&cl.extra));
+    return true;
+}
+
 // The entry's output arity and column types, from its select ("" = unknown).
 fn dx_out_cols(sel: SExpr, env: &DxEnv, cl: &DxClause, out: &mut String) -> i64 {
     match sel {
@@ -3008,6 +3030,13 @@ pub fn dl_render(p: &CProgram, prm: &MacroParams, natspec: str, out: &mut String
             kk = 0i64;
             while kk + 1i64 < rel2.cols.len() { out.push_str("k"); out.push_i64(kk); out.push_str(", "); kk = kk + 1i64; }
             if lat_dir < 0i32 { out.push_str("v2) :- v2 <= v1.\n"); } else { out.push_str("v2) :- v2 >= v1.\n"); }
+        }
+        match &rel2.sub {
+            Option::Some(s) => {
+                if lat_dir != 0i32 { return dx_set(why, "subsume over a recursive aggregate"); }
+                if !dx_subsume(rel2.name, s, &env, out, why) { return false; }
+            }
+            Option::None => { }
         }
         r = r + 1i64;
     }
