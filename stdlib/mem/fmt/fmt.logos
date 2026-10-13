@@ -26,6 +26,7 @@ use logos.mem.boxed;
 use logos.lang.rc;
 use logos.lang.cell;
 use logos.lang.ops;
+use logos.lang.num.error;
 
 // f32/f64 extern decls — same symbols mem.string uses for legacy
 // Display. The forward decls live up here so they precede the impl
@@ -1076,6 +1077,74 @@ impl Debug for Ordering {
             Ordering::Less    => { return f.write_str("Less"); }
             Ordering::Equal   => { return f.write_str("Equal"); }
             Ordering::Greater => { return f.write_str("Greater"); }
+        }
+    }
+}
+
+// ── Number-parsing errors ───────────────────────────────────────────
+//
+// Text and shape follow `core::num`: Debug prints the struct (opaque
+// `TryFromIntError(())`), Display prints the reason.
+
+impl Debug for IntErrorKind {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            IntErrorKind::Empty        => { return f.write_str("Empty"); }
+            IntErrorKind::InvalidDigit => { return f.write_str("InvalidDigit"); }
+            IntErrorKind::PosOverflow  => { return f.write_str("PosOverflow"); }
+            IntErrorKind::NegOverflow  => { return f.write_str("NegOverflow"); }
+            IntErrorKind::Zero         => { return f.write_str("Zero"); }
+        }
+    }
+}
+impl Debug for ParseIntError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut ds: DebugStruct = f.debug_struct("ParseIntError");
+        ds.field("kind", &self.kind);
+        return ds.finish();
+    }
+}
+impl Display for ParseIntError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match &self.kind {
+            IntErrorKind::Empty        => { return f.pad("cannot parse integer from empty string", ""); }
+            IntErrorKind::InvalidDigit => { return f.pad("invalid digit found in string", ""); }
+            IntErrorKind::PosOverflow  => { return f.pad("number too large to fit in target type", ""); }
+            IntErrorKind::NegOverflow  => { return f.pad("number too small to fit in target type", ""); }
+            IntErrorKind::Zero         => { return f.pad("number would be zero for non-zero type", ""); }
+        }
+    }
+}
+impl Debug for TryFromIntError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.write_str("TryFromIntError(())");
+    }
+}
+impl Display for TryFromIntError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.pad("out of range integral type conversion attempted", "");
+    }
+}
+impl Debug for FloatErrorKind {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match self {
+            FloatErrorKind::Empty   => { return f.write_str("Empty"); }
+            FloatErrorKind::Invalid => { return f.write_str("Invalid"); }
+        }
+    }
+}
+impl Debug for ParseFloatError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut ds: DebugStruct = f.debug_struct("ParseFloatError");
+        ds.field("kind", &self.kind);
+        return ds.finish();
+    }
+}
+impl Display for ParseFloatError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        match &self.kind {
+            FloatErrorKind::Empty   => { return f.pad("cannot parse float from empty string", ""); }
+            FloatErrorKind::Invalid => { return f.pad("invalid float literal", ""); }
         }
     }
 }

@@ -1,0 +1,14 @@
+// Number-parsing errors print like core::num: Debug as the struct, Display as the reason.
+package num_parse_error_debug_display;
+use logos.lang.num.error;
+use logos.lang.num.parse;
+use logos.lang.result;
+use logos.std.fmt;
+fn main() {
+    let a: Result<i64, ParseIntError> = "x".parse::<i64>();
+    let b: Result<i64, ParseIntError> = "".parse::<i64>();
+    let c: Result<f64, ParseFloatError> = "zz".parse::<f64>();
+    println!("{:?} {:?} {:?}", a, b, c);
+    match a { Err(e) => { println!("{} [{:>40}]", e, e); println!("{:#?}", e); } Ok(_) => {} }
+    match c { Err(e) => { println!("{}", e); } Ok(_) => {} }
+}
