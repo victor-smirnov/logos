@@ -385,6 +385,10 @@ NOMAT = {
     'not evaluated', 'evaluated though unread', 'demand-driven', 'fully materialized',
     'unique key', 'distinct-value count', 'join selectivity from declared distinct counts',
     'unique index', 'ledger_at', 'ledger_from', 'base filter',
+    # ADR 0026 F9: `merge join` replaces the step's Arrange (no index is built;
+    # the run of equal-key rows is the walk's own cursor state, at most one key's
+    # rows) and `merge declined` names the clause that kept the hash join.
+    'merge join', 'merge declined',
 }
 def head_of(line):
     m = re.match(r'^\[plan\] (.+?) -> (.*?)(?:   \(|$)', line)

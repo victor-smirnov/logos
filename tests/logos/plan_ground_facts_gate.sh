@@ -65,6 +65,14 @@ check deem_btreemap_order_e2e \
   '[facts] m mode rule=ordered held=[iter,ordered] failed=[desc,drain]'
 # ── may the query have an incremental handle (E3): the FIRST FAILED antecedent ──
 # The matrix fixture names its queries after the shape they test; the rule must agree.
+# ADR 0026 F9 — the merge join: admitted over two ordered walks (the plain,
+# the repeated-key base, the ordinal-walked drained step), declined by a key that
+# is not the order column and by an `order by`.
+check deem_merge_join_e2e '[facts] mj merge rule=admit'
+check deem_merge_join_e2e '[facts] mj_both_runs merge rule=admit'
+check deem_merge_join_e2e '[facts] mj_drained merge rule=admit'
+check deem_merge_join_e2e '[facts] hj_val merge rule=not_order_col'
+check deem_merge_join_e2e '[facts] hj_order merge rule=order_by'
 check wql_incr_eligibility_matrix '[facts] ok_join incremental rule=emit_join'
 check wql_incr_eligibility_matrix '[facts] no_join_self incremental rule=self_join'
 check wql_incr_eligibility_matrix '[facts] no_join_outer incremental rule=join_outer'
@@ -112,5 +120,5 @@ while [ "$i" -lt "${#CF[@]}" ]; do
     fi
     i=$((i + 1))
 done
-[ "$fail" = 0 ] && echo "plan ground facts: 19 cases (3 join, 3 access, 4 mode, 4 incremental, 3 retraction, 1 dred, 1 aggclass), rule + held + negative explanation pinned"
+[ "$fail" = 0 ] && echo "plan ground facts: 24 cases (3 join, 5 merge, 3 access, 4 mode, 4 incremental, 3 retraction, 1 dred, 1 aggclass), rule + held + negative explanation pinned"
 exit $fail  # lint:exit-ok — `fail` is set only to the literals 0 and 1

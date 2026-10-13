@@ -3548,6 +3548,7 @@ fn nest_wrap(prm: &MacroParams, ch: &DNest, ns: &NestSteps, inner0: ExprBlob,
         inner = step_wrap(prm, inner, ns.slot[ki], ns.strat[ki], ch.anti[ki],
                           ns.hasres[ki], ns.ktn[ki], ch.src[ki], ch.ty[ki],
                           ch.var[ki], ch.byval[ki], string_as_str(&ns.probe[ki]),
+                          string_as_str(&ns.build[ki]),
                           string_as_str(&ns.resid[ki]), string_as_str(&ns.pred[ki]),
                           lim_f, has_lim_use, ns.stream[ki], ns.uniq[ki],
                           ch.outer[ki], ns.obind[ki], ns.onone[ki]);
@@ -3777,6 +3778,7 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
                     ktn: str, src: str, ty: str, var: str, build_key: str,
                     streams: bool, uniq: bool) -> ExprBlob {
     if strat == JS_LOOP() { return quote_block! { }; }
+    if strat == JS_MERGE() { return merge_cursor_frag(s, ktn, src, ty, streams); }
     let set_form: bool = strat == JS_HASH() && anti && !has_resid;
 
     // ⚠ Every generated name is a String LOCAL of this frame: `Ident::new`
@@ -4061,6 +4063,122 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
     return quote_block! { unsafe { #n_bp = (*#n_tp).get_mut(&#n_pk) as *const Vec<#(p1)>; } };
 }
 
+// ── ADR 0026 F9 — the MERGE step ─────────────────────────────────────────────
+// The step's source is a walk ascending on the key (`plan_decide_merge`), and so
+// are the base's keys. The cursor is the walk's next unread row (`__mc`, or its
+// ordinal `__mj` over a materialization), the RUN of rows equal to the last key
+// (`__mr`, rows or ordinals as a hash bucket holds them) and that key (`__mk`).
+// A base row with the run's key replays the run; a greater key reloads it,
+// skipping the step rows below it. Nothing is rescanned: each step row is read
+// once, and the run is the only copy.
+fn merge_cursor_frag(s: i64, ktn: str, src: str, ty: str, streams: bool) -> ExprBlob {
+    let s_mc: String = nk_str("__mc", s);   let n_mc: Ident = Ident::new(string_as_str(&s_mc));
+    let s_mj: String = nk_str("__mj", s);   let n_mj: Ident = Ident::new(string_as_str(&s_mj));
+    let s_mr: String = nk_str("__mr", s);   let n_mr: Ident = Ident::new(string_as_str(&s_mr));
+    let s_mk: String = nk_str("__mk", s);   let n_mk: Ident = Ident::new(string_as_str(&s_mk));
+    let kt: ExprBlob = parse_type(ktn);
+    let p1: ExprBlob = payload_ty_frag(streams, ty);
+    let p2: ExprBlob = payload_ty_frag(streams, ty);
+    let mut head: ExprBlob = quote_block! { let mut #n_mj: i64 = 0i64; };
+    if streams {
+        let rowt: ExprBlob = parse_type(ty);
+        let src_f: ExprBlob = parse_expr(src);
+        head = quote_block! { let mut #n_mc: Option<#(rowt)> = (#(src_f)).next(); };
+    }
+    return quote_block! {
+        #(head);
+        let mut #n_mr: Vec<#(p1)> = Vec::<#(p2)>::new();
+        let mut #n_mk: Option<#(kt)> = Option::None;
+    };
+}
+
+fn merge_step_frag(s: i64, ktn: str, src: str, ty: str, var: str, build_key: str,
+                   residual: str, has_resid: bool, inner: ExprBlob, lim: ExprBlob,
+                   has_lim: bool, streams: bool, pk_decl: ExprBlob) -> ExprBlob {
+    let s_mc: String = nk_str("__mc", s);   let n_mc: Ident = Ident::new(string_as_str(&s_mc));
+    let s_mj: String = nk_str("__mj", s);   let n_mj: Ident = Ident::new(string_as_str(&s_mj));
+    let s_mr: String = nk_str("__mr", s);   let n_mr: Ident = Ident::new(string_as_str(&s_mr));
+    let s_mk: String = nk_str("__mk", s);   let n_mk: Ident = Ident::new(string_as_str(&s_mk));
+    let s_mh: String = nk_str("__mh", s);   let n_mh: Ident = Ident::new(string_as_str(&s_mh));
+    let s_mw: String = nk_str("__mw", s);   let n_mw: Ident = Ident::new(string_as_str(&s_mw));
+    let s_mq: String = nk_str("__mq", s);   let n_mq: Ident = Ident::new(string_as_str(&s_mq));
+    let s_k0: String = nk_str("__mo", s);   let n_k0: Ident = Ident::new(string_as_str(&s_k0));
+    let s_pk: String = nk_str("__pk", s);   let n_pk: Ident = Ident::new(string_as_str(&s_pk));
+    let s_p:  String = nk_str("__p",  s);   let n_p:  Ident = Ident::new(string_as_str(&s_p));
+    let s_ri: String = nk_str("__ri", s);   let n_ri: Ident = Ident::new(string_as_str(&s_ri));
+    let kt:    ExprBlob = parse_type(ktn);
+    let rowt:  ExprBlob = parse_type(ty);
+    let src_f: ExprBlob = parse_expr(src);
+    let key_f: ExprBlob = parse_expr(build_key);
+    let vnm:   Ident    = Ident::new(var);
+    // The reload: skip the rows below the key, take the run equal to it, stop
+    // at the first row above it (left unread in the cursor).
+    let mut load: ExprBlob = quote_block! { };
+    if streams {
+        let src2: ExprBlob = parse_expr(src);
+        let src3: ExprBlob = parse_expr(src);
+        load = quote_block! {
+            loop {
+                if #n_mc.is_none() { break; }
+                let #n_mw: #(rowt) = #n_mc.unwrap();
+                let #vnm: &#(rowt) = &#n_mw;
+                let #n_mq: #(kt) = (#(key_f));
+                if #n_mq < #n_pk {
+                    #n_mc = (#(src2)).next();
+                } else if #n_mq == #n_pk {
+                    #n_mr.push(#n_mw);
+                    #n_mc = (#(src3)).next();
+                } else {
+                    #n_mc = Option::Some(#n_mw);
+                    break;
+                }
+            }
+        };
+    } else {
+        let src2: ExprBlob = parse_expr(src);
+        load = quote_block! {
+            while #n_mj < (#(src_f)).len() {
+                let #vnm: &#(rowt) = &(#(src2))[#n_mj];
+                let #n_mq: #(kt) = (#(key_f));
+                if #n_mq > #n_pk { break; }
+                if #n_mq == #n_pk { #n_mr.push(#n_mj); }
+                #n_mj = #n_mj + 1i64;
+            }
+        };
+    }
+    let mut guarded: ExprBlob = inner;
+    if has_resid {
+        let resid_f: ExprBlob = parse_expr(residual);
+        guarded = quote_block! { if (#(resid_f)) #(guarded) };
+    }
+    let mut bind: ExprBlob = quote_block! { let #vnm: &#(rowt) = #n_mr.borrow(#n_p); };
+    if !streams {
+        let src4: ExprBlob = parse_expr(src);
+        bind = quote_block! {
+            let #n_ri: i64 = #n_mr.get(#n_p);
+            let #vnm: &#(rowt) = &(#(src4))[#n_ri];
+        };
+    }
+    let mut pcond: ExprBlob = quote_expr! { #n_p < #n_mr.len() };
+    if has_lim { pcond = quote_expr! { #n_p < #n_mr.len() && __out.len() < (#(lim)) }; }
+    return quote_block! {
+        #(pk_decl);
+        let mut #n_mh: bool = false;
+        match #n_mk { Option::Some(#n_k0) => { #n_mh = #n_k0 == #n_pk; } Option::None => { } }
+        if !#n_mh {
+            #n_mr.clear();
+            #(load);
+            #n_mk = Option::Some(#n_pk);
+        }
+        let mut #n_p: i64 = 0i64;
+        while #(pcond) {
+            #(bind);
+            #(guarded);
+            #n_p = #n_p + 1i64;
+        }
+    };
+}
+
 // ── One step of the nest: WRAP the inner body ────────────────────────────────
 // ⚠ This is the open/close PAIR collapsed into one function, and that is the
 // whole reason the bodies could not be quotes before. `emit_step_open` wrote
@@ -4080,7 +4198,7 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
 // shape `analyze_chain` refuses to emit.
 fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
              has_resid: bool, ktn: str, src: str, ty: str, var: str, byval: bool,
-             probe_key: str, residual: str, pred: str,
+             probe_key: str, build_key: str, residual: str, pred: str,
              lim: ExprBlob, has_lim: bool, streams: bool, uniq: bool,
              outer: i32, obind: ExprBlob, onone: ExprBlob) -> ExprBlob {
     // OUTER step: the inner step's shape, the body run once per match with the
@@ -4092,7 +4210,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
         let n_om3: Ident = Ident::new(string_as_str(&s_om));
         let matched: ExprBlob = quote_block! { #n_om2 = true; #(obind); #(inner) };
         let scan: ExprBlob = step_wrap(prm, matched, s, strat, false, has_resid, ktn, src, ty, var, byval,
-                                       probe_key, residual, pred, lim, has_lim, streams, uniq,
+                                       probe_key, build_key, residual, pred, lim, has_lim, streams, uniq,
                                        0i32, obind, onone);
         // the absent row's ordinal for a sort's re-bind: -1 (`outer_rebind_frag`)
         let s_rj: String = nk_str("__j", s);   let n_rj: Ident = Ident::new(string_as_str(&s_rj));
@@ -4229,6 +4347,11 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
             #(matched);
             if (!#n_m) #(inner)
         };
+    }
+
+    if strat == JS_MERGE() {
+        return merge_step_frag(s, ktn, src, ty, var, build_key, residual, has_resid,
+                               inner, lim, has_lim, streams, pk_decl);
     }
 
     // NON-ANTI.

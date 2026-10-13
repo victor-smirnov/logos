@@ -1496,6 +1496,7 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
         core_resolve(&mut early, &oview_module_ast(), prm);
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &early, &mut pick_argb);
         plan_decide_joins(prm, &mut early, h);
+        plan_decide_merge(prm, &mut early, &pick_ap, h, name);
         plan_insert_drains(prm, &early, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
@@ -1549,6 +1550,7 @@ pub fn walk_program_params(root: WAny, pc: CProgram, name: str, params_text: str
         core_resolve(&mut early, &oview_module_ast(), prm);
         let mut pick_ap: AccessPlan = plan_decide_access(prm, &early, &mut pick_argb);
         plan_decide_joins(prm, &mut early, h);
+        plan_decide_merge(prm, &mut early, &pick_ap, h, name);
         plan_insert_drains(prm, &early, &mut pick_ap);
         access_plan_decide_mode(&mut pick_ap, prm);
         access_plan_ask_size(&mut pick_ap, prm);
@@ -2158,6 +2160,107 @@ fn plan_narrow_rel(prm: &MacroParams, argb: &mut String, ap: &mut AccessPlan,
 fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
     let view: OView = oview_module_ast();
     plan_decide_clause(prm, &view, &mut pc.entry.clause, h, false);
+}
+
+/// ADR 0026 F9 — a MERGE JOIN, admitted over pass 1's equi step when both
+/// walks ascend on the key. Every clause is a reason the merge would return
+/// different rows or not compile, and a step that fails one keeps its hash/tree
+/// decision:
+///
+///   1. two sources, the step positive and inner, its `on` an equi-key pass 1
+///      found (`jsel`). An outer or anti step reads absence, not runs.
+///   2. no `order by`: it may reorder the nest (`join_order`), and a reordered
+///      nest is a different pair of walks.
+///   3. each side of the key is the BARE declared order column of its own row
+///      var, and each source's chosen producer offers that order (`ap_offers`,
+///      the F6 predicate). The base's keys then arrive ascending, which is what
+///      lets the step's walk move forward only.
+///   4. the key type's emitted `<` realizes its order (`KeyCaps.ord`), the same
+///      comparison the producers sort by.
+///   5. the step's producer is not a batch one: the merge pulls it a row at a
+///      time (or walks its materialization by index).
+///
+/// The sequence is the nest's: for each base row in base order, its matches in
+/// step order. So C1 (`join_order`) has nothing to restore.
+fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: str) {
+    let cl: &CClause = &pc.entry.clause;
+    if core_source_count(cl) != 2i64 || cl.body.len() < 2i64 { return; }
+    let ordered: bool = match &pc.entry.env.order { Option::Some(_o) => true, Option::None => false };
+    let mut b0: i64 = -1i64;
+    let mut bvar: str = "";
+    match &cl.body[0i64] { CLit::Atom(a) => { if !a.neg && a.outer == 0i32 { b0 = a.reg; bvar = a.var; } } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { return; } }
+    let mut i: i64 = 1i64;
+    while i < cl.body.len() {
+        match &cl.body[i] { CLit::Atom(_a) => { break; } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { } }
+        i = i + 1i64;
+    }
+    if i >= cl.body.len() || i + 1i64 >= cl.body.len() { return; }
+    let mut on: WAny = WAny::null();
+    match &cl.body[i + 1i64] { CLit::Cond(c) => { match &c.site { CSite::On => { on = c.e; } CSite::Where => { } } } CLit::Atom(_a) => { } CLit::Trav(_t) => { } }
+    let mut s1: i64 = -1i64;
+    let mut svar: str = "";
+    let mut sel: i64 = -1i64;
+    let mut decided: bool = false;
+    match &cl.body[i] {
+        CLit::Atom(a) => {
+            if a.neg || a.outer != 0i32 || a.jsel < 0i32 { return; }
+            decided = a.strat == JS_HASH() || a.strat == JS_TREE();
+            s1 = a.reg; svar = a.var; sel = a.jsel as i64;
+        }
+        CLit::Trav(_t) => { return; }
+        CLit::Cond(_c) => { return; }
+    }
+    if !decided || on.is_null() { return; }
+    if b0 < 0i64 || s1 < 0i64 || b0 >= prm.rel_n || s1 >= prm.rel_n { return; }
+    if prm.rel_ordcol[b0].len() == 0i64 || prm.rel_ordcol[s1].len() == 0i64 { return; }
+    let stt: StepTerms = step_terms(WRef::<SExpr>::from_any(on), h);
+    if sel >= stt.tl.n { return; }
+    let sd: EquiSides = equi_term_sides(merge_sexpr(stt.tl.w[sel]), svar);
+    if sd.bw == 0i64 || sd.pw == 0i64 { return; }
+    let mut why: str = "";
+    let mut rule: str = "admit";
+    if ordered {
+        why = "the query has an `order by`, and the join order may reorder the nest"; rule = "order_by";
+    } else if !merge_bare_col(merge_sexpr(sd.bw), svar, prm.rel_ordcol[s1])
+           || !merge_bare_col(merge_sexpr(sd.pw), bvar, prm.rel_ordcol[b0]) {
+        why = "the key is not each side's declared order column"; rule = "not_order_col";
+    } else if !ap_offers(ap, prm, b0) || !ap_offers(ap, prm, s1) {
+        why = "a source's chosen producer does not offer its order"; rule = "not_offered";
+    } else if ap_effective_batch(prm, ap, s1) {
+        why = "the step's producer is a batch one"; rule = "batch_step";
+    }
+    let t: ElTypes = type_clause(&oview_module_ast(), prm, cl, true);
+    let ktn: str = step_key_ty_of(merge_sexpr(sd.bw), merge_sexpr(sd.pw), &t);
+    if why.len() == 0i64 && !join_key_caps_named(ktn).ord {
+        why = "the key type's emitted comparison does not realize its order"; rule = "key_order";
+    }
+    if plan_trace_facts_on() {
+        let mut fl: String = String::new();
+        fl.push_str("[facts] "); fl.push_str(qn); fl.push_str(" merge rule="); fl.push_str(rule); fl.push_str("\n");
+        plan_trace_raw(string_as_str(&fl));
+    }
+    if why.len() > 0i64 {
+        plan_trace(svar, "merge declined", ktn, why);
+        return;
+    }
+    match &mut pc.entry.clause.body[i] { CLit::Atom(a) => { a.strat = JS_MERGE(); } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
+    plan_trace(svar, "merge join", ktn, "both sources ascend on the key (their declared order columns, offered by the chosen producers) — the step's walk advances to each base key and keeps the run equal to it");
+}
+
+fn merge_sexpr(w: i64) -> SExpr { return unsafe { WAny::ref_to(w as *const u8) }.view::<SExpr>(); }
+
+/// `var.col`, spelled bare: no cast, no call, no arithmetic.
+fn merge_bare_col(e: SExpr, var: str, col: str) -> bool {
+    match e {
+        SExpr::Field(f) => {
+            if !str_eq(f.name, col) || f.base.any().is_null() { return false; }
+            match f.base_expr() {
+                SExpr::Field(b) => { return b.base.any().is_null() && str_eq(b.name, var); }
+                _ => { return false; }
+            }
+        }
+        _ => { return false; }
+    }
 }
 
 /// ADR 0031 R5.3 — EVERY STEP'S STRATEGY IS THE PLANNER'S. What pass 1 left

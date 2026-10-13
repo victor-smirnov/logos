@@ -59,22 +59,30 @@ pub fn JS_NONE() -> i32 { return 0i32; }
 pub fn JS_HASH() -> i32 { return 1i32; }
 pub fn JS_TREE() -> i32 { return 2i32; }
 pub fn JS_LOOP() -> i32 { return 3i32; }
+/// ADR 0026 F9 — two walks in step: the base and the step source both ascend on
+/// the equi-key, so the step's walk advances to each base key and keeps the run
+/// of rows equal to it. Never chosen by `step_cascade` (it needs the sources'
+/// orders, which the key type cannot tell); `plan_walker::plan_decide_merge`
+/// upgrades a decided step to it.
+pub fn JS_MERGE() -> i32 { return 4i32; }
 
 pub fn js_name(s: i32) -> str {
     if s == JS_HASH() { return "hash join"; }
     if s == JS_TREE() { return "tree join"; }
     if s == JS_LOOP() { return "loop join"; }
+    if s == JS_MERGE() { return "merge join"; }
     return "undecided";
 }
 
 /// Does this strategy read the step's source exactly once?
 ///
 /// HASH and TREE both build their index in a single pass over the source and
-/// then probe the INDEX, never the source again. LOOP is the one that rescans.
+/// then probe the INDEX, never the source again. MERGE walks the source once in
+/// step with the base. LOOP is the one that rescans.
 /// The planner's single-read proof for a step is this predicate and nothing
 /// else, which is why it is written here rather than restated at the caller.
 pub fn js_reads_once(s: i32) -> bool {
-    return s == JS_HASH() || s == JS_TREE();
+    return s == JS_HASH() || s == JS_TREE() || s == JS_MERGE();
 }
 
 // ── The key-capability table — THE selector seam ──────────────────────────
@@ -407,7 +415,7 @@ pub fn node_subject<'a>(prm: &'a MacroParams, src: &'a str, var: &'a str) -> &'a
 }
 
 pub fn arrange_node(prm: &MacroParams, src: str, var: str, strat: i32) {
-    if strat == JS_LOOP() { return; }
+    if strat == JS_LOOP() || strat == JS_MERGE() { return; }
     plan_trace(node_subject(prm, src, var), "arrange", MG_JOIN_BUILD(),
         "arranged: the join builds a keyed index over this source's rows before probing it — one per emitted nest, which is what the artifact builds");
 }
