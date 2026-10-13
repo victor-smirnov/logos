@@ -3778,7 +3778,7 @@ fn build_phase_frag(prm: &MacroParams, s: i64, strat: i32, anti: bool, has_resid
                     ktn: str, src: str, ty: str, var: str, build_key: str,
                     streams: bool, uniq: bool) -> ExprBlob {
     if strat == JS_LOOP() { return quote_block! { }; }
-    if strat == JS_MERGE() { return merge_cursor_frag(s, ktn, src, ty, streams); }
+    if strat == JS_MERGE() { return merge_cursor_frag(prm, s, ktn, src, ty, streams); }
     let set_form: bool = strat == JS_HASH() && anti && !has_resid;
 
     // ⚠ Every generated name is a String LOCAL of this frame: `Ident::new`
@@ -4071,7 +4071,61 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
 // A base row with the run's key replays the run; a greater key reloads it,
 // skipping the step rows below it. Nothing is rescanned: each step row is read
 // once, and the run is the only copy.
-fn merge_cursor_frag(s: i64, ktn: str, src: str, ty: str, streams: bool) -> ExprBlob {
+//
+// A BATCH producer (a Memoria leaf walk) hands out a leaf at a time, and the
+// leaf borrows the walk: it cannot outlive the next `next_batch()`, so it
+// cannot be the cursor across base rows. Its rows are COPIED into the cursor's
+// own buffer `__mb` — pushed in descending order, so `pop()` yields the next
+// row ascending and by value — and `__md` records the end of the walk.
+fn merge_batch_step(prm: &MacroParams, src: str, streams: bool) -> i64 {
+    if !streams { return -1i64; }
+    let r: i64 = prm.rel_find_src(src);
+    if r >= 0i64 && prm.rel_batch[r] { return r; }
+    return -1i64;
+}
+
+// `__mc` ← the walk's next row (None at its end).
+fn merge_pull_frag(prm: &MacroParams, s: i64, src: str, ty: str, br: i64) -> ExprBlob {
+    let s_mc: String = nk_str("__mc", s);   let n_mc: Ident = Ident::new(string_as_str(&s_mc));
+    let src_f: ExprBlob = parse_expr(src);
+    if br < 0i64 { return quote_block! { #n_mc = (#(src_f)).next(); }; }
+    let s_mb: String = nk_str("__mb", s);   let n_mb: Ident = Ident::new(string_as_str(&s_mb));
+    let s_md: String = nk_str("__md", s);   let n_md: Ident = Ident::new(string_as_str(&s_md));
+    let s_ob: String = nk_str("__mob", s);  let n_ob: Ident = Ident::new(string_as_str(&s_ob));
+    let s_bb: String = nk_str("__mbb", s);  let n_bb: Ident = Ident::new(string_as_str(&s_bb));
+    let s_bn: String = nk_str("__mbn", s);  let n_bn: Ident = Ident::new(string_as_str(&s_bn));
+    let s_bj: String = nk_str("__mbj", s);  let n_bj: Ident = Ident::new(string_as_str(&s_bj));
+    let s_br: String = nk_str("__mbr", s);  let n_br: Ident = Ident::new(string_as_str(&s_br));
+    let rowt: ExprBlob = parse_type(ty);
+    let mut rowx: String = String::new();
+    batch_row_text(&mut rowx, prm, br, string_as_str(&s_bb), string_as_str(&s_bj));
+    let rowe_f: ExprBlob = parse_expr(string_as_str(&rowx));
+    let mut lenx: String = String::new();
+    batch_len_text(&mut lenx, prm, br, string_as_str(&s_bb));
+    let lene_f: ExprBlob = parse_expr(string_as_str(&lenx));
+    let hoist_f: ExprBlob = batch_hoist_frag_at(prm, br, prm.rel_rowmaj[br], string_as_str(&s_bb));
+    return quote_block! {
+        while #n_mb.len() == 0i64 && !#n_md {
+            let #n_ob = (#(src_f)).next_batch();
+            if #n_ob.is_some() {
+                {
+                    let #n_bb = #n_ob.unwrap();
+                    let #n_bn: u64 = #(lene_f);
+                    #(hoist_f);
+                    let mut #n_bj: u64 = #n_bn;
+                    while #n_bj > 0u64 {
+                        #n_bj = #n_bj - 1u64;
+                        let #n_br: #(rowt) = #(rowe_f);
+                        #n_mb.push(#n_br);
+                    }
+                }
+            } else { #n_md = true; }
+        }
+        #n_mc = #n_mb.pop();
+    };
+}
+
+fn merge_cursor_frag(prm: &MacroParams, s: i64, ktn: str, src: str, ty: str, streams: bool) -> ExprBlob {
     let s_mc: String = nk_str("__mc", s);   let n_mc: Ident = Ident::new(string_as_str(&s_mc));
     let s_mj: String = nk_str("__mj", s);   let n_mj: Ident = Ident::new(string_as_str(&s_mj));
     let s_mr: String = nk_str("__mr", s);   let n_mr: Ident = Ident::new(string_as_str(&s_mr));
@@ -4082,8 +4136,22 @@ fn merge_cursor_frag(s: i64, ktn: str, src: str, ty: str, streams: bool) -> Expr
     let mut head: ExprBlob = quote_block! { let mut #n_mj: i64 = 0i64; };
     if streams {
         let rowt: ExprBlob = parse_type(ty);
-        let src_f: ExprBlob = parse_expr(src);
-        head = quote_block! { let mut #n_mc: Option<#(rowt)> = (#(src_f)).next(); };
+        let br: i64 = merge_batch_step(prm, src, streams);
+        let pull: ExprBlob = merge_pull_frag(prm, s, src, ty, br);
+        if br >= 0i64 {
+            let s_mb: String = nk_str("__mb", s);   let n_mb: Ident = Ident::new(string_as_str(&s_mb));
+            let s_md: String = nk_str("__md", s);   let n_md: Ident = Ident::new(string_as_str(&s_md));
+            let rowt2: ExprBlob = parse_type(ty);
+            let rowt3: ExprBlob = parse_type(ty);
+            head = quote_block! {
+                let mut #n_mb: Vec<#(rowt2)> = Vec::<#(rowt3)>::new();
+                let mut #n_md: bool = false;
+                let mut #n_mc: Option<#(rowt)> = Option::None;
+                #(pull);
+            };
+        } else {
+            head = quote_block! { let mut #n_mc: Option<#(rowt)> = Option::None; #(pull); };
+        }
     }
     return quote_block! {
         #(head);
@@ -4092,7 +4160,7 @@ fn merge_cursor_frag(s: i64, ktn: str, src: str, ty: str, streams: bool) -> Expr
     };
 }
 
-fn merge_step_frag(s: i64, ktn: str, src: str, ty: str, var: str, build_key: str,
+fn merge_step_frag(prm: &MacroParams, s: i64, ktn: str, src: str, ty: str, var: str, build_key: str,
                    residual: str, has_resid: bool, inner: ExprBlob, lim: ExprBlob,
                    has_lim: bool, streams: bool, pk_decl: ExprBlob) -> ExprBlob {
     let s_mc: String = nk_str("__mc", s);   let n_mc: Ident = Ident::new(string_as_str(&s_mc));
@@ -4115,8 +4183,9 @@ fn merge_step_frag(s: i64, ktn: str, src: str, ty: str, var: str, build_key: str
     // at the first row above it (left unread in the cursor).
     let mut load: ExprBlob = quote_block! { };
     if streams {
-        let src2: ExprBlob = parse_expr(src);
-        let src3: ExprBlob = parse_expr(src);
+        let br: i64 = merge_batch_step(prm, src, streams);
+        let pull2: ExprBlob = merge_pull_frag(prm, s, src, ty, br);
+        let pull3: ExprBlob = merge_pull_frag(prm, s, src, ty, br);
         load = quote_block! {
             loop {
                 if #n_mc.is_none() { break; }
@@ -4124,10 +4193,10 @@ fn merge_step_frag(s: i64, ktn: str, src: str, ty: str, var: str, build_key: str
                 let #vnm: &#(rowt) = &#n_mw;
                 let #n_mq: #(kt) = (#(key_f));
                 if #n_mq < #n_pk {
-                    #n_mc = (#(src2)).next();
+                    #(pull2);
                 } else if #n_mq == #n_pk {
                     #n_mr.push(#n_mw);
-                    #n_mc = (#(src3)).next();
+                    #(pull3);
                 } else {
                     #n_mc = Option::Some(#n_mw);
                     break;
@@ -4350,7 +4419,7 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
     }
 
     if strat == JS_MERGE() {
-        return merge_step_frag(s, ktn, src, ty, var, build_key, residual, has_resid,
+        return merge_step_frag(prm, s, ktn, src, ty, var, build_key, residual, has_resid,
                                inner, lim, has_lim, streams, pk_decl);
     }
 

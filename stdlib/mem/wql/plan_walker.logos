@@ -2226,8 +2226,6 @@ fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
         why = "the key is not each side's declared order column"; rule = "not_order_col";
     } else if !ap_offers(ap, prm, b0) || !ap_offers(ap, prm, s1) {
         why = "a source's chosen producer does not offer its order"; rule = "not_offered";
-    } else if ap_effective_batch(prm, ap, s1) {
-        why = "the step's producer is a batch one"; rule = "batch_step";
     }
     let t: ElTypes = type_clause(&oview_module_ast(), prm, cl, true);
     let ktn: str = step_key_ty_of(merge_sexpr(sd.bw), merge_sexpr(sd.pw), &t);
