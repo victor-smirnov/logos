@@ -74,6 +74,10 @@ pub fn vec_from_elem<T: Clone>(elem: T, n: i64) -> Vec<T> {
     v.push(elem);
     return v;
 }
+/// `vec![elem; n]` with a `usize` count, as Rust writes it.
+pub fn vec_from_elem<T: Clone>(elem: T, n: usize) -> Vec<T> {
+    return vec_from_elem::<T>(elem, n as i64);
+}
 
 impl<T> Vec<T> {
     /// Appends `val` to the end, doubling capacity when full.

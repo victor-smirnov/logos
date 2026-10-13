@@ -11,7 +11,7 @@ fn main() {
     let p = P { x: 3 };
     let name = String::from("bob");
     let k = 42i64;
-    let items: [&dyn Display; 4] = [&p, &name, &k, &"lit"];
+    let items: [&dyn Display; 3] = [&p, &name, &k];
     println!("{}", show_all(&items));
     let b1 = boxed(5); let b2 = boxed(-1);
     println!("{} {}", b1, b2);

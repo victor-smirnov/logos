@@ -1,0 +1,3 @@
+// `vec![e; n]` takes a `usize` count as Rust writes it (an overload beside the i64 one); literal and i64 counts are unchanged. rustc 1.98.1 prints [7, 7, 7] for the usize case.
+package vec_repeat_usize_count; use logos.std.fmt; use logos.mem.collections.vec;
+fn main() { let n: usize = 3; let m: i64 = 2; let a = vec![7i64; n]; let b = vec![1; m]; let c = vec![0u8; 4]; let d: Vec<i64> = vec![5; 2]; println!("{:?} {:?} {:?} {:?}", a, b, c, d); }

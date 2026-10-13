@@ -3475,6 +3475,13 @@ private:
     std::optional<lir_view::StmtRef> lower_temp_rooted_place_assign_(writ::TinyMapView node,
                                                                     writ::TinyMapView place);
     writ::AnyVal synth_str(std::string_view text);
+    // A generic trait impl's `const N: T = v;` — written, or the trait's
+    // default it omits — as the receiver-less method `fn kassoc_N() -> T {
+    // return v; }` of the impl: one node per (item or impl, const), made at
+    // collection and lowered from the same node.
+    std::map<std::pair<const void*, std::string>, writ::AnyVal> const_accessor_fns_;
+    writ::TinyMapView const_accessor_fn_(const void* owner, const std::string& name, writ::AnyVal type,
+                                         writ::AnyVal value, uint32_t line);
     // `place op= v` over a type parameter bounded by `<Op>Assign`: the trait
     // method call `place.op_assign(v)` (it desugared to `place = place op v`,
     // which calls `Op` — another method, or a refusal without Copy).
@@ -6179,6 +6186,7 @@ private:
         // into `assoc_const_impls_` for each `impl Trait for T {}` that omits
         // the const, so `T::CONST` resolves to the trait default.
         writ::AnyVal   default_value_ast;
+        writ::AnyVal   type_ast;       // the written type, for a default's accessor
         std::string doc;     // Phase A.3: outer `///` doc-comment
     };
     struct SemaTraitInfo {
@@ -7199,7 +7207,10 @@ private:
     std::deque<AssocConstEntry> impl_assoc_consts_;
     // `Type::NAME` of a trait `self` implements (Rust's associated-item lookup):
     // the constant of the impl C-OBL selects; null when none.
-    AssocConstEntry* trait_assoc_const_(TypeRef self, const std::string& name);
+    // `generic_trait`: the trait, when the impl selected is generic (its const
+    // is read through its accessor, const_accessor_fn_).
+    AssocConstEntry* trait_assoc_const_(TypeRef self, const std::string& name,
+                                        std::string* generic_trait = nullptr);
     // ... lowered once per entry.
     lir::LExprPtr assoc_const_value_(const AssocConstEntry& e);
 

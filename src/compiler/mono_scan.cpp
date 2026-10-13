@@ -1467,6 +1467,9 @@ std::string Mono::trait_item_symbol_(std::string_view trait, TypeRef self, std::
                                    : !targs.empty() ? mangle(std::string(sym), targs)
                                                     : std::string(sym);
                 if (!targs.empty()) enqueue_if_needed(name, targs);
+                // The struct instance's method is emitted on demand: Self may be
+                // an instance only this call names (`T::N` at `T = S<S<Z>>`).
+                if (generic && !flat && !prim) enqueue_method_inst(rt, std::string(method));
                 if (best.empty()) best = name; else if (best != name) ambiguous = true;
                 if (!arg_types || generic) continue;
                 auto ps = fn.params();
