@@ -17263,6 +17263,7 @@ sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__get__g__re
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__index__g__ref_Vec$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__index_mut__g__refmut_Vec$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__into_iter__g__Vec$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__len__g__ref_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__length__g__ref_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__ne__g__ref_Vec$M4edea24aa4768b45$G1$T__ref_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__new__g__void
