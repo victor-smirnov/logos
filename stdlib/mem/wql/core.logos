@@ -182,6 +182,9 @@ pub struct CRel {
     pub name: str,
     pub cols: Vec<CCol>,
     pub rules: Vec<CRule>,
+    /// `rel r(a: T, b: T) eqrel` — `rules` are the user's until
+    /// `crewrite::core_desugar_eqrel` appends the closure.
+    pub eqrel: bool,
 }
 
 pub enum CMode {
@@ -434,7 +437,7 @@ pub fn lower_program(root: WAny, h: &Writ) -> CProgram {
                 b = b + 1i64;
             }
         }
-        rels.push(CRel { name: rq.name, cols: cols, rules: rules });
+        rels.push(CRel { name: rq.name, cols: cols, rules: rules, eqrel: rq.eqrel });
         r = r + 1i64;
     }
     let mut env: CEnvelope = envelope_new();

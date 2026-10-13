@@ -496,6 +496,7 @@ pub schema RQRel : code(0x0012_0000_0000_0016) {
     name:   str                = 0,
     cols:   WRef<RQRelColArr>  = 1,
     bodies: WRef<RQBodyArr>    = 2,
+    eqrel:  bool               = 3,
 }
 
 impl RQRel {

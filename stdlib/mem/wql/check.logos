@@ -362,6 +362,16 @@ pub fn core_rules_ok(p: &CProgram) -> bool {
     let rels: &[CRel] = p.rels.as_slice();
     let mut r: i64 = 0i64;
     while r < p.rels.len() {
+        if rels[r].eqrel {
+            // Soufflé's `eqrel`: a binary relation over ONE domain
+            let ec: &[CCol] = rels[r].cols.as_slice();
+            if rels[r].cols.len() != 2i64 {
+                return rel_err(rels[r].name, "an `eqrel` has exactly two columns (`rel r(a: T, b: T) eqrel`) — it is an equivalence relation over one domain");
+            }
+            if !str_eq(ec[0].ty, ec[1].ty) {
+                return rel_err(rels[r].name, "the two columns of an `eqrel` have one type, spelled the same — a row `(a, b)` implies `(b, a)`, so each column holds the other's values");
+            }
+        }
         let rs: &[CRule] = rels[r].rules.as_slice();
         let mut b: i64 = 0i64;
         while b < rels[r].rules.len() {

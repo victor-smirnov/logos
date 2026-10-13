@@ -199,7 +199,7 @@
     // (src_file/src_line/segs — ADR 0024 S0). A TinyObjectMap's capacity is
     // fixed at construction, so the parser must size for writes it never makes.
     RQProgram     : code(0x0012_0000_0000_0019) cap(6) { rels: "ref RQRelArr" = 0, entry: "ref RQuery" = 1 }
-    RQRel         : code(0x0012_0000_0000_0016) cap(3) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2 }
+    RQRel         : code(0x0012_0000_0000_0016) cap(4) { name: "str" = 0, cols: "ref RQRelColArr" = 1, bodies: "ref RQBodyArr" = 2, eqrel: "bool" = 3 }
     RQRelCol      : code(0x0012_0000_0000_0014) cap(3) { name: "str" = 0, ty_name: "str" = 1, ty: "ref RQTy" = 2 }
     // A column TYPE beyond one identifier (#744): `Head<A, B>` (name + args) or a
     // tuple `(A, B)` (no name, args); the handler renders it into `ty_name`.
@@ -216,6 +216,7 @@
 // close-finder's structural-stop set (a top-level clause boundary).
 %tokens {
     KW_REL       = "rel"
+    KW_EQREL     = "eqrel"
     KW_FROM      = "from"
     KW_WHERE     = "where"
     KW_SELECT    = "select"
@@ -279,9 +280,15 @@
     // dependency edge list explicitly — slice C reuses it for the fixpoint).
     //   $1=KW_REL $2=IDENT(name) $3=LPAREN $4=rel_cols $5=RPAREN
     //   $6=LBRACE $7=rel_bodies $8=RBRACE
+    // `rel NAME(a: T, b: T) eqrel { … }` — an equivalence relation, as
+    // Soufflé's `eqrel` qualifier (the core closes it: `crewrite::core_desugar_eqrel`).
+    //   $6=KW_EQREL $7=LBRACE $8=rel_bodies
     rel_block <- KW_REL IDENT LPAREN rel_cols RPAREN
                  LBRACE rel_bodies RBRACE
                  => { CODE: "RQRel", name: $2, cols: $4, bodies: $7 }
+               / KW_REL IDENT LPAREN rel_cols RPAREN KW_EQREL
+                 LBRACE rel_bodies RBRACE
+                 => { CODE: "RQRel", name: $2, cols: $4, bodies: $8, eqrel: true }
 
     // The rel list (≥ 1) → RQRelArr fan-out (the join_steps pattern).
     rel_list <- rel_block rel_block* => { CODE: "RQRelArr", rels: $... }

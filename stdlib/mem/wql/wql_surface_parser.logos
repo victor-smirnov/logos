@@ -26,45 +26,46 @@ use logos.std.wql.ir;
 pub const WqTK_EOF:     i32 = 0i32;
 pub const WqTK_INVALID: i32 = 1i32;
 pub const WqTK_KW_REL: i32 = 2i32;
-pub const WqTK_KW_FROM: i32 = 3i32;
-pub const WqTK_KW_WHERE: i32 = 4i32;
-pub const WqTK_KW_SELECT: i32 = 5i32;
-pub const WqTK_KW_ANTI: i32 = 6i32;
-pub const WqTK_KW_LEFT: i32 = 7i32;
-pub const WqTK_KW_FULL: i32 = 8i32;
-pub const WqTK_KW_JOIN: i32 = 9i32;
-pub const WqTK_KW_ON: i32 = 10i32;
-pub const WqTK_KW_GROUP: i32 = 11i32;
-pub const WqTK_KW_BY: i32 = 12i32;
-pub const WqTK_KW_AGGREGATE: i32 = 13i32;
-pub const WqTK_KW_HAVING: i32 = 14i32;
-pub const WqTK_KW_DISTINCT: i32 = 15i32;
-pub const WqTK_KW_FIRST: i32 = 16i32;
-pub const WqTK_KW_FIND: i32 = 17i32;
-pub const WqTK_KW_ORDER: i32 = 18i32;
-pub const WqTK_KW_DESC: i32 = 19i32;
-pub const WqTK_KW_LIMIT: i32 = 20i32;
-pub const WqTK_COLON: i32 = 21i32;
-pub const WqTK_COMMA: i32 = 22i32;
-pub const WqTK_EQ: i32 = 23i32;
-pub const WqTK_LPAREN: i32 = 24i32;
-pub const WqTK_RPAREN: i32 = 25i32;
-pub const WqTK_LBRACE: i32 = 26i32;
-pub const WqTK_RBRACE: i32 = 27i32;
-pub const WqTK_SEMI: i32 = 28i32;
-pub const WqTK_DOT: i32 = 29i32;
-pub const WqTK_STAR2: i32 = 30i32;
-pub const WqTK_STAR: i32 = 31i32;
-pub const WqTK_LBRACK: i32 = 32i32;
-pub const WqTK_RBRACK: i32 = 33i32;
-pub const WqTK_LT: i32 = 34i32;
-pub const WqTK_GT: i32 = 35i32;
-pub const WqTK_INTEGER: i32 = 36i32;
-pub const WqTK_IDENT: i32 = 37i32;
+pub const WqTK_KW_EQREL: i32 = 3i32;
+pub const WqTK_KW_FROM: i32 = 4i32;
+pub const WqTK_KW_WHERE: i32 = 5i32;
+pub const WqTK_KW_SELECT: i32 = 6i32;
+pub const WqTK_KW_ANTI: i32 = 7i32;
+pub const WqTK_KW_LEFT: i32 = 8i32;
+pub const WqTK_KW_FULL: i32 = 9i32;
+pub const WqTK_KW_JOIN: i32 = 10i32;
+pub const WqTK_KW_ON: i32 = 11i32;
+pub const WqTK_KW_GROUP: i32 = 12i32;
+pub const WqTK_KW_BY: i32 = 13i32;
+pub const WqTK_KW_AGGREGATE: i32 = 14i32;
+pub const WqTK_KW_HAVING: i32 = 15i32;
+pub const WqTK_KW_DISTINCT: i32 = 16i32;
+pub const WqTK_KW_FIRST: i32 = 17i32;
+pub const WqTK_KW_FIND: i32 = 18i32;
+pub const WqTK_KW_ORDER: i32 = 19i32;
+pub const WqTK_KW_DESC: i32 = 20i32;
+pub const WqTK_KW_LIMIT: i32 = 21i32;
+pub const WqTK_COLON: i32 = 22i32;
+pub const WqTK_COMMA: i32 = 23i32;
+pub const WqTK_EQ: i32 = 24i32;
+pub const WqTK_LPAREN: i32 = 25i32;
+pub const WqTK_RPAREN: i32 = 26i32;
+pub const WqTK_LBRACE: i32 = 27i32;
+pub const WqTK_RBRACE: i32 = 28i32;
+pub const WqTK_SEMI: i32 = 29i32;
+pub const WqTK_DOT: i32 = 30i32;
+pub const WqTK_STAR2: i32 = 31i32;
+pub const WqTK_STAR: i32 = 32i32;
+pub const WqTK_LBRACK: i32 = 33i32;
+pub const WqTK_RBRACK: i32 = 34i32;
+pub const WqTK_LT: i32 = 35i32;
+pub const WqTK_GT: i32 = 36i32;
+pub const WqTK_INTEGER: i32 = 37i32;
+pub const WqTK_IDENT: i32 = 38i32;
 
 // ── Runtime preamble ───────────────────────────────────────────────────────
 pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }
-fn is_soft_ident(k: i32) -> bool { return k == WqTK_IDENT || k == WqTK_KW_REL || k == WqTK_KW_FROM || k == WqTK_KW_WHERE || k == WqTK_KW_SELECT || k == WqTK_KW_ANTI || k == WqTK_KW_LEFT || k == WqTK_KW_FULL || k == WqTK_KW_JOIN || k == WqTK_KW_ON || k == WqTK_KW_GROUP || k == WqTK_KW_BY || k == WqTK_KW_AGGREGATE || k == WqTK_KW_HAVING || k == WqTK_KW_DISTINCT || k == WqTK_KW_FIRST || k == WqTK_KW_FIND || k == WqTK_KW_ORDER || k == WqTK_KW_DESC || k == WqTK_KW_LIMIT; }
+fn is_soft_ident(k: i32) -> bool { return k == WqTK_IDENT || k == WqTK_KW_REL || k == WqTK_KW_EQREL || k == WqTK_KW_FROM || k == WqTK_KW_WHERE || k == WqTK_KW_SELECT || k == WqTK_KW_ANTI || k == WqTK_KW_LEFT || k == WqTK_KW_FULL || k == WqTK_KW_JOIN || k == WqTK_KW_ON || k == WqTK_KW_GROUP || k == WqTK_KW_BY || k == WqTK_KW_AGGREGATE || k == WqTK_KW_HAVING || k == WqTK_KW_DISTINCT || k == WqTK_KW_FIRST || k == WqTK_KW_FIND || k == WqTK_KW_ORDER || k == WqTK_KW_DESC || k == WqTK_KW_LIMIT; }
 impl Token {
     pub fn text<'a>(self: &Token, src: &'a str) -> &'a str {
         return unsafe { str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len) };
@@ -204,6 +205,10 @@ impl Lexer {
             self.pos = self.pos + 5i64;
             return Token { kind: WqTK_KW_WHERE, start: start, len: 5i64, line: sl };
         }
+        if self.cur(0i64) == 101u8 && self.cur(1i64) == 113u8 && self.cur(2i64) == 114u8 && self.cur(3i64) == 101u8 && self.cur(4i64) == 108u8 && !lx_is_alnum(self.cur(5i64)) {
+            self.pos = self.pos + 5i64;
+            return Token { kind: WqTK_KW_EQREL, start: start, len: 5i64, line: sl };
+        }
         if self.cur(0i64) == 102u8 && self.cur(1i64) == 105u8 && self.cur(2i64) == 114u8 && self.cur(3i64) == 115u8 && self.cur(4i64) == 116u8 && !lx_is_alnum(self.cur(5i64)) {
             self.pos = self.pos + 5i64;
             return Token { kind: WqTK_KW_FIRST, start: start, len: 5i64, line: sl };
@@ -216,6 +221,10 @@ impl Lexer {
             self.pos = self.pos + 5i64;
             return Token { kind: WqTK_KW_LIMIT, start: start, len: 5i64, line: sl };
         }
+        if self.cur(0i64) == 102u8 && self.cur(1i64) == 114u8 && self.cur(2i64) == 111u8 && self.cur(3i64) == 109u8 && !lx_is_alnum(self.cur(4i64)) {
+            self.pos = self.pos + 4i64;
+            return Token { kind: WqTK_KW_FROM, start: start, len: 4i64, line: sl };
+        }
         if self.cur(0i64) == 97u8 && self.cur(1i64) == 110u8 && self.cur(2i64) == 116u8 && self.cur(3i64) == 105u8 && !lx_is_alnum(self.cur(4i64)) {
             self.pos = self.pos + 4i64;
             return Token { kind: WqTK_KW_ANTI, start: start, len: 4i64, line: sl };
@@ -223,10 +232,6 @@ impl Lexer {
         if self.cur(0i64) == 108u8 && self.cur(1i64) == 101u8 && self.cur(2i64) == 102u8 && self.cur(3i64) == 116u8 && !lx_is_alnum(self.cur(4i64)) {
             self.pos = self.pos + 4i64;
             return Token { kind: WqTK_KW_LEFT, start: start, len: 4i64, line: sl };
-        }
-        if self.cur(0i64) == 102u8 && self.cur(1i64) == 114u8 && self.cur(2i64) == 111u8 && self.cur(3i64) == 109u8 && !lx_is_alnum(self.cur(4i64)) {
-            self.pos = self.pos + 4i64;
-            return Token { kind: WqTK_KW_FROM, start: start, len: 4i64, line: sl };
         }
         if self.cur(0i64) == 102u8 && self.cur(1i64) == 117u8 && self.cur(2i64) == 108u8 && self.cur(3i64) == 108u8 && !lx_is_alnum(self.cur(4i64)) {
             self.pos = self.pos + 4i64;
@@ -447,6 +452,7 @@ fn embed_at_kw(src: str, p: i64, len: i64) -> bool {
     let before: u8 = if p > 0i64 { str_byte_at(src, p - 1i64) } else { 32u8 };
     if lx_is_alnum(before) { return false; }
     if p + 3i64 <= len && str_byte_at(src, p + 0i64) == 114u8 && str_byte_at(src, p + 1i64) == 101u8 && str_byte_at(src, p + 2i64) == 108u8 && (p + 3i64 >= len || !lx_is_alnum(str_byte_at(src, p + 3i64))) { return true; }
+    if p + 5i64 <= len && str_byte_at(src, p + 0i64) == 101u8 && str_byte_at(src, p + 1i64) == 113u8 && str_byte_at(src, p + 2i64) == 114u8 && str_byte_at(src, p + 3i64) == 101u8 && str_byte_at(src, p + 4i64) == 108u8 && (p + 5i64 >= len || !lx_is_alnum(str_byte_at(src, p + 5i64))) { return true; }
     if p + 4i64 <= len && str_byte_at(src, p + 0i64) == 102u8 && str_byte_at(src, p + 1i64) == 114u8 && str_byte_at(src, p + 2i64) == 111u8 && str_byte_at(src, p + 3i64) == 109u8 && (p + 4i64 >= len || !lx_is_alnum(str_byte_at(src, p + 4i64))) { return true; }
     if p + 5i64 <= len && str_byte_at(src, p + 0i64) == 119u8 && str_byte_at(src, p + 1i64) == 104u8 && str_byte_at(src, p + 2i64) == 101u8 && str_byte_at(src, p + 3i64) == 114u8 && str_byte_at(src, p + 4i64) == 101u8 && (p + 5i64 >= len || !lx_is_alnum(str_byte_at(src, p + 5i64))) { return true; }
     if p + 6i64 <= len && str_byte_at(src, p + 0i64) == 115u8 && str_byte_at(src, p + 1i64) == 101u8 && str_byte_at(src, p + 2i64) == 108u8 && str_byte_at(src, p + 3i64) == 101u8 && str_byte_at(src, p + 4i64) == 99u8 && str_byte_at(src, p + 5i64) == 116u8 && (p + 6i64 >= len || !lx_is_alnum(str_byte_at(src, p + 6i64))) { return true; }
@@ -590,8 +596,47 @@ fn alt_rel_block_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return node.as_ref().raw() as *const u8;
 }
 
+fn alt_rel_block_1(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start + lex.base;
+    if lex.peek().kind != WqTK_KW_REL { lex.reset(sp, sln); return WqNULLP; }
+    let tk1: Token = lex.next();
+    let cap1: *const u8 = wstr_p(doc, tk1.text(lex.src));
+    if lex.peek().kind != WqTK_IDENT { lex.reset(sp, sln); return WqNULLP; }
+    let tk2: Token = lex.next();
+    let cap2: *const u8 = wstr_p(doc, tk2.text(lex.src));
+    if lex.peek().kind != WqTK_LPAREN { lex.reset(sp, sln); return WqNULLP; }
+    let tk3: Token = lex.next();
+    let cap3: *const u8 = wstr_p(doc, tk3.text(lex.src));
+    let cap4: *const u8 = rule_rel_cols(lex, doc);
+    if cap4 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_RPAREN { lex.reset(sp, sln); return WqNULLP; }
+    let tk5: Token = lex.next();
+    let cap5: *const u8 = wstr_p(doc, tk5.text(lex.src));
+    if lex.peek().kind != WqTK_KW_EQREL { lex.reset(sp, sln); return WqNULLP; }
+    let tk6: Token = lex.next();
+    let cap6: *const u8 = wstr_p(doc, tk6.text(lex.src));
+    if lex.peek().kind != WqTK_LBRACE { lex.reset(sp, sln); return WqNULLP; }
+    let tk7: Token = lex.next();
+    let cap7: *const u8 = wstr_p(doc, tk7.text(lex.src));
+    let cap8: *const u8 = rule_rel_bodies(lex, doc);
+    if cap8 == WqNULLP { lex.reset(sp, sln); return WqNULLP; }
+    if lex.peek().kind != WqTK_RBRACE { lex.reset(sp, sln); return WqNULLP; }
+    let tk9: Token = lex.next();
+    let cap9: *const u8 = wstr_p(doc, tk9.text(lex.src));
+    let node: RQRel = doc.make::<RQRel>();
+    node.bodies = WRef::<RQBodyArr>::from_any(hand_any(cap8));
+    node.eqrel = true;
+    node.name = wstr_as_str(cap2);
+    node.cols = WRef::<RQRelColArr>::from_any(hand_any(cap4));
+    return node.as_ref().raw() as *const u8;
+}
+
 fn rule_rel_block(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_rel_block_0(lex, doc); if r != WqNULLP { return r; } }
+    { let r: *const u8 = alt_rel_block_1(lex, doc); if r != WqNULLP { return r; } }
     return WqNULLP;
 }
 

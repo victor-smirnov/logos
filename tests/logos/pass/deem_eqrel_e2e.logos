@@ -1,0 +1,89 @@
+// deem_eqrel_e2e — `rel r(a: T, b: T) eqrel { … }` is the least EQUIVALENCE
+// relation holding its bodies' rows, as Soufflé's `eqrel`: reflexive over
+// every value a row names, symmetric, transitive. The core adds the three
+// closing rules (`crewrite::core_desugar_eqrel`); the oracle hands Soufflé the
+// bodies as written with the `eqrel` qualifier, which Soufflé keeps as a
+// union-find — a different algorithm for the same relation.
+//   (a) every pair of an i64 eqrel: classes {1,2,3,4} (a chain written in
+//       both directions), {5,6}, {7} (a self-loop);
+//   (b) one class, read with a bound column (the demand rewrite adorns the
+//       closed rel);
+//   (c) a str domain, two bodies (a source and facts);
+//   (d) a class representative: a stratified `min` over the eqrel, and the
+//       class sizes from the entry;
+//   (e) an eqrel fed by another rel, read under `anti join`.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.str;
+
+struct Edge { pub src: i64, pub dst: i64 }
+struct Alias { pub a: str, pub b: str }
+
+// (a)
+pub deem pairs(es: &[Edge]) {
+    rel same(a: i64, b: i64) eqrel { from es e select (e.src, e.dst); }
+    from same s select (s.a, s.b) order by s.a * 100 + s.b
+}
+// (b)
+pub deem class_of(es: &[Edge], k: i64) {
+    rel same(a: i64, b: i64) eqrel { from es e select (e.src, e.dst); }
+    from same s where s.a == k select s.b order by s.b
+}
+// (c)
+pub deem names(al: &[Alias]) {
+    rel syn(a: str, b: str) eqrel {
+        from al x select (x.a, x.b);
+        select ("car", "auto");
+    }
+    from syn s where s.a == "car" select s.b order by s.b
+}
+// (d)
+pub deem reps(es: &[Edge]) {
+    rel same(a: i64, b: i64) eqrel { from es e select (e.src, e.dst); }
+    rel rep(v: i64, m: i64) { from same s group by s.a aggregate m = min(s.b) select (key, m); }
+    from rep r group by r.m aggregate n = count() select (key, n) order by key
+}
+// (e)
+pub deem lonely(es: &[Edge]) {
+    rel hop(a: i64, b: i64) { from es e where e.src != e.dst select (e.src, e.dst); }
+    rel same(a: i64, b: i64) eqrel { from hop h select (h.a, h.b); }
+    from es e anti join same s on s.a == e.src select e.src order by e.src
+}
+
+fn main() -> i32 {
+    let es: [Edge; 6] = [
+        Edge { src: 1i64, dst: 2i64 }, Edge { src: 3i64, dst: 2i64 }, Edge { src: 4i64, dst: 3i64 },
+        Edge { src: 5i64, dst: 6i64 }, Edge { src: 7i64, dst: 7i64 }, Edge { src: 2i64, dst: 1i64 },
+    ];
+    // (a) 16 + 4 + 1 pairs
+    let a: Vec<(i64, i64)> = pairs(&es[..]).unwrap();
+    if a.len() != 21i64 { return 1i32; }
+    if a.get(0i64).0 != 1i64 || a.get(0i64).1 != 1i64 { return 2i32; }
+    if a.get(3i64).0 != 1i64 || a.get(3i64).1 != 4i64 { return 3i32; }
+    if a.get(15i64).0 != 4i64 || a.get(15i64).1 != 4i64 { return 4i32; }
+    if a.get(20i64).0 != 7i64 || a.get(20i64).1 != 7i64 { return 5i32; }
+    // (b)
+    let b: Vec<i64> = class_of(&es[..], 4i64).unwrap();
+    if b.len() != 4i64 || b.get(0i64) != 1i64 || b.get(3i64) != 4i64 { return 6i32; }
+    let b6: Vec<i64> = class_of(&es[..], 6i64).unwrap();
+    if b6.len() != 2i64 || b6.get(0i64) != 5i64 || b6.get(1i64) != 6i64 { return 7i32; }
+    let b9: Vec<i64> = class_of(&es[..], 9i64).unwrap();
+    if b9.len() != 0i64 { return 8i32; }
+    // (c) car ~ auto ~ automobile; motor ~ engine apart
+    let al: [Alias; 2] = [ Alias { a: "automobile", b: "auto" }, Alias { a: "motor", b: "engine" } ];
+    let c: Vec<str> = names(&al[..]).unwrap();
+    if c.len() != 3i64 || !str_eq(c.get(0i64), "auto") || !str_eq(c.get(1i64), "automobile") || !str_eq(c.get(2i64), "car") { return 9i32; }
+    // (d) representatives 1, 5, 7 with class sizes 4, 2, 1
+    let d: Vec<(i64, i64)> = reps(&es[..]).unwrap();
+    if d.len() != 3i64 { return 10i32; }
+    if d.get(0i64).0 != 1i64 || d.get(0i64).1 != 4i64 { return 11i32; }
+    if d.get(1i64).0 != 5i64 || d.get(1i64).1 != 2i64 { return 12i32; }
+    if d.get(2i64).0 != 7i64 || d.get(2i64).1 != 1i64 { return 13i32; }
+    // (e) only the self-loop 7 is in no class of `hop`
+    let e: Vec<i64> = lonely(&es[..]).unwrap();
+    if e.len() != 1i64 || e.get(0i64) != 7i64 { return 14i32; }
+    return 0i32;
+}

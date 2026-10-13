@@ -24,6 +24,40 @@ use logos.std.wql.why;             // MS_* — the demand rewrite's decision voc
 use logos.std.wql.writ_graph;      // WG_ROOT_PARENT — the graph-path anchor
 use logos.lang.writ.wstring;       // h.wstring — string-literal synthesis
 
+// ── EQREL ──────────────────────────────────────────────────────────────────
+
+/// `rel r(a: T, b: T) eqrel { … }` is the least equivalence relation holding
+/// the rows of its bodies, as Soufflé's `eqrel`: three rules close it —
+///   symmetric   `from r x select (x.b, x.a)`
+///   reflexive   `from r x select (x.a, x.a)` (with the first, both ends)
+///   transitive  `from r x join r y on x.b == y.a select (x.a, y.b)`.
+/// The rel is recursive from here on, so it is planned as any recursive rel
+/// (semi-naive, on demand). Run after the oracle export, which hands Soufflé
+/// the user's bodies and the `eqrel` qualifier (a union-find there).
+pub fn core_desugar_eqrel(p: &mut CProgram, h: &Writ) {
+    let mut r: i64 = 0i64;
+    while r < p.rels.len() {
+        if p.rels[r].eqrel {
+            let nm: str = p.rels.as_slice()[r].name;
+            let ca: str = p.rels.as_slice()[r].cols.as_slice()[0].name;
+            let cb: str = p.rels.as_slice()[r].cols.as_slice()[1].name;
+            let mut sym: Vec<CLit> = Vec::<CLit>::new();
+            sym.push(fresh_atom(CSrc::Rel(r), nm, "__eq_x"));
+            p.rels[r].rules.push(gp_rule(gp_tuple2(h, gp_field(h, "__eq_x", cb), gp_field(h, "__eq_x", ca)), sym));
+            let mut refl: Vec<CLit> = Vec::<CLit>::new();
+            refl.push(fresh_atom(CSrc::Rel(r), nm, "__eq_x"));
+            p.rels[r].rules.push(gp_rule(gp_tuple2(h, gp_field(h, "__eq_x", ca), gp_field(h, "__eq_x", ca)), refl));
+            let mut tr: Vec<CLit> = Vec::<CLit>::new();
+            tr.push(fresh_atom(CSrc::Rel(r), nm, "__eq_x"));
+            tr.push(fresh_atom(CSrc::Rel(r), nm, "__eq_y"));
+            tr.push(on_cond(gp_bin(h, OP_EQ(), gp_field(h, "__eq_x", cb), gp_field(h, "__eq_y", ca))));
+            p.rels[r].rules.push(gp_rule(gp_tuple2(h, gp_field(h, "__eq_x", ca), gp_field(h, "__eq_y", cb)), tr));
+            p.rels[r].eqrel = false;
+        }
+        r = r + 1i64;
+    }
+}
+
 // ── FACTS (R3.1) ───────────────────────────────────────────────────────────
 
 /// A FROM-less `select` reads the one-row relation `__unit`, bound to `__u`:
@@ -963,7 +997,9 @@ fn clause_copy(cl: &CClause) -> CClause {
                 let mut cs: Vec<WAny> = Vec::<WAny>::new();
                 let mut k: i64 = 0i64;
                 while k < a.conds.len() { cs.push(a.conds.get(k)); k = k + 1i64; }
-                body.push(CLit::Atom(CAtom { src: CSrc::Param(dv(a.name)), reg: a.reg, name: dv(a.name), var: dv(a.var), row_ty: dv(a.row_ty),
+                // a fact's `Unit` stays one (relink resolves the rest by name)
+                let src: CSrc = match &a.src { CSrc::Unit => CSrc::Unit, CSrc::Rel(_r) => CSrc::Param(dv(a.name)), CSrc::Param(_n) => CSrc::Param(dv(a.name)) };
+                body.push(CLit::Atom(CAtom { src: src, reg: a.reg, name: dv(a.name), var: dv(a.var), row_ty: dv(a.row_ty),
                                              neg: a.neg, outer: a.outer, conds: cs, strat: a.strat, jsel: a.jsel, ground: a.ground }));
             }
             CLit::Trav(t) => {
@@ -1097,7 +1133,7 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
         }
         ms_note(out, dv(orel.name), sv(&cn), MS_DEMAND());
         colstrs.push(cn);
-        added.push(CRel { name: sv(&ctx.arel[w]), cols: cols, rules: rules });
+        added.push(CRel { name: sv(&ctx.arel[w]), cols: cols, rules: rules, eqrel: false });
         w = w + 1i64;
     }
     let mut m: i64 = 0i64;
@@ -1113,7 +1149,7 @@ pub fn core_magic(pc: &mut CProgram, h: &Writ, prm: &MacroParams, out: &mut MsDe
         }
         let mut mrules: Vec<CRule> = Vec::<CRule>::new();
         while ctx.mbody[m].len() > 0i64 { mrules.push(ctx.mbody[m].remove(0i64)); }
-        added.push(CRel { name: sv(&ctx.mrel[m]), cols: mcols, rules: mrules });
+        added.push(CRel { name: sv(&ctx.mrel[m]), cols: mcols, rules: mrules, eqrel: false });
         m = m + 1i64;
     }
     // WRITE phase.
@@ -1224,7 +1260,7 @@ fn gp_magic_seed(inj: &mut GpInj, src: str, body: CRule) {
     cols.push(i64_col("c"));
     let mut rules: Vec<CRule> = Vec::<CRule>::new();
     rules.push(body);
-    inj.rels.push(CRel { name: sv(&nm), cols: cols, rules: rules });
+    inj.rels.push(CRel { name: sv(&nm), cols: cols, rules: rules, eqrel: false });
     inj.strs.push(nm);
 }
 
@@ -1262,7 +1298,7 @@ fn gp_reach_rel<'b>(inj: &mut GpInj, src: str, h: &Writ) -> &'b str {
     b3.push(fresh_atom(CSrc::Param(rname), rname, "__rr"));
     gp_step(&mut b3, src, "__re", gp_bin(h, OP_EQ(), gp_field(h, "__re", "parent"), gp_field(h, "__rr", "b")));
     rules.push(gp_rule(gp_tuple2(h, gp_field(h, "__rr", "a"), gp_field(h, "__re", "child")), b3));
-    inj.rels.push(CRel { name: rname, cols: cols, rules: rules });
+    inj.rels.push(CRel { name: rname, cols: cols, rules: rules, eqrel: false });
     inj.strs.push(nm);
     inj.strs.push(mn);
     return rname;
