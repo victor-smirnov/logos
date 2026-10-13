@@ -158,6 +158,74 @@ fn dx_w128_lit(e: SExpr, out: &mut String) -> bool {
     }
 }
 
+fn dx_is_pred_op(op: i32) -> bool {
+    return op == OP_EQ() || op == OP_NE() || op == OP_LT() || op == OP_LE() || op == OP_GT() || op == OP_GE()
+        || op == OP_AND() || op == OP_OR();
+}
+
+// `c ? t : e` as a fresh variable bound in each disjunct,
+// `(c, v = t ; !c, v = e)` (no UDF atom inside, as for `||`); with `konst`
+// the values are 1 and 0 — a predicate read as a bool value.
+fn dx_cond_bind(out: &mut String, c: SExpr, t: SExpr, e: SExpr, konst: bool, env: &DxEnv, cl: &mut DxClause) -> bool {
+    let mut v: String = String::new();
+    v.push_str("v_cond"); v.push_i64(cl.nudf);
+    cl.nudf = cl.nudf + 1i64;
+    let saved: String = String::from_str(dx_view(&cl.body));
+    let saved_udf: bool = cl.udf_ok;
+    cl.udf_ok = false;
+    let mut br: Vec<String> = Vec::<String>::new();
+    let mut side: i64 = 0i64;
+    let mut ok: bool = true;
+    while side < 2i64 && ok {
+        cl.body.clear();
+        ok = dx_pred_p(c, env, cl, side == 1i64);
+        let mut val: String = String::new();
+        if ok {
+            if konst { val.push_str(if side == 0i64 { "1" } else { "0" }); }
+            else { ok = dx_term(&mut val, if side == 0i64 { t } else { e }, env, cl); }
+        }
+        cl.body.push_str(", "); cl.body.push_str(dx_view(&v)); cl.body.push_str(" = "); cl.body.push_str(dx_view(&val));
+        br.push(String::from_str(dx_view(&cl.body)));
+        side = side + 1i64;
+    }
+    cl.body.clear();
+    cl.body.push_str(dx_view(&saved));
+    cl.udf_ok = saved_udf;
+    if !ok { return false; }
+    let b0: str = dx_view(&br.as_slice()[0]);
+    let b1: str = dx_view(&br.as_slice()[1]);
+    cl.body.push_str(", (");
+    cl.body.push_str(dx_slice(b0, 2i64, b0.len()));
+    cl.body.push_str(" ; ");
+    cl.body.push_str(dx_slice(b1, 2i64, b1.len()));
+    cl.body.push_str(")");
+    out.push_str(dx_view(&v));
+    return true;
+}
+
+// The LOGOS type of a plain column or scalar parameter ("" otherwise).
+fn dx_term_lty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
+    match e {
+        SExpr::Param(p) => { return dx_scalar_lty(env, p.name); }
+        SExpr::Field(f) => {
+            if f.base.any().is_null() {
+                if dx_is_scalar(env, f.name) { return dx_scalar_lty(env, f.name); }
+                return "";
+            }
+            match f.base.any().view::<SExpr>() {
+                SExpr::Field(bf) => {
+                    if !bf.base.any().is_null() { return ""; }
+                    let si: i64 = dx_var_src(cl, bf.name);
+                    if si < 0i64 || env.byval[si] { return ""; }
+                    return dx_col_ty(env, si, f.name);
+                }
+                _ => { return ""; }
+            }
+        }
+        _ => { return ""; }
+    }
+}
+
 // Is `e` a plain `v.c` over a 128-bit column of a bound row variable?
 fn dx_is_w128_col(e: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
     match e {
@@ -614,6 +682,8 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
         }
         SExpr::Bin(b) => {
             let op: i32 = b.op;
+            // a comparison or a connective as a VALUE: a bool, 1 / 0
+            if dx_is_pred_op(op) { return dx_cond_bind(out, e, e, e, true, env, cl); }
             if op != OP_ADD() && op != OP_SUB() && op != OP_MUL() && op != OP_DIV() && op != OP_MOD() {
                 return dx_no(cl, "operator outside + - * / % in a term");
             }
@@ -639,41 +709,32 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             out.push_str(")");
             return true;
         }
-        SExpr::Cast(_c) => { return dx_no(cl, "cast"); }
-        SExpr::Cond(cd) => {
-            // `c ? a : b`: a fresh variable bound in each disjunct,
-            // `(c, v = a ; !c, v = b)` (no UDF atom inside, as for `||`)
-            let mut v: String = String::new();
-            v.push_str("v_cond"); v.push_i64(cl.nudf);
-            cl.nudf = cl.nudf + 1i64;
-            let saved: String = String::from_str(dx_view(&cl.body));
-            let saved_udf: bool = cl.udf_ok;
-            cl.udf_ok = false;
-            let mut br: Vec<String> = Vec::<String>::new();
-            let mut side: i64 = 0i64;
-            let mut ok: bool = true;
-            while side < 2i64 && ok {
-                cl.body.clear();
-                ok = dx_pred_p(cd.c.any().view::<SExpr>(), env, cl, side == 1i64);
-                let mut val: String = String::new();
-                if ok { ok = dx_term(&mut val, if side == 0i64 { cd.t.any().view::<SExpr>() } else { cd.e.any().view::<SExpr>() }, env, cl); }
-                cl.body.push_str(", "); cl.body.push_str(dx_view(&v)); cl.body.push_str(" = "); cl.body.push_str(dx_view(&val));
-                br.push(String::from_str(dx_view(&cl.body)));
-                side = side + 1i64;
+        SExpr::Cast(c) => {
+            // a cast that keeps the value: an integer widened within Soufflé's
+            // `number`, or an integer of at most 32 bits to f64 (`to_float`
+            // is exact below 2^53)
+            let st: str = dx_term_lty(c.arg.any().view::<SExpr>(), env, cl);
+            let ws: i64 = dx_int_width(st);
+            if ws > 0i64 && str_eq(dl_ty(st), "number") {
+                let wt: i64 = dx_int_width(c.ty);
+                if wt > 0i64 && str_eq(dl_ty(c.ty), "number") {
+                    let ssig: bool = str_byte_at(st, 0i64) == 105u8;
+                    let tsig: bool = str_byte_at(c.ty, 0i64) == 105u8;
+                    if (ssig == tsig && wt >= ws) || (!ssig && tsig && wt > ws) {
+                        return dx_term(out, c.arg.any().view::<SExpr>(), env, cl);
+                    }
+                }
+                if str_eq(c.ty, "f64") && ws <= 32i64 {
+                    out.push_str("to_float(");
+                    if !dx_term(out, c.arg.any().view::<SExpr>(), env, cl) { return false; }
+                    out.push_str(")");
+                    return true;
+                }
             }
-            cl.body.clear();
-            cl.body.push_str(dx_view(&saved));
-            cl.udf_ok = saved_udf;
-            if !ok { return false; }
-            let b0: str = dx_view(&br.as_slice()[0]);
-            let b1: str = dx_view(&br.as_slice()[1]);
-            cl.body.push_str(", (");
-            cl.body.push_str(dx_slice(b0, 2i64, b0.len()));
-            cl.body.push_str(" ; ");
-            cl.body.push_str(dx_slice(b1, 2i64, b1.len()));
-            cl.body.push_str(")");
-            out.push_str(dx_view(&v));
-            return true;
+            return dx_no(cl, "cast");
+        }
+        SExpr::Cond(cd) => {
+            return dx_cond_bind(out, cd.c.any().view::<SExpr>(), cd.t.any().view::<SExpr>(), cd.e.any().view::<SExpr>(), false, env, cl);
         }
         SExpr::Call(c) => {
             let ob: str = dx_opt_arg_branch(e, env, cl);
@@ -2438,7 +2499,9 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             if l.val.is_float() { return "float"; }
             return "number";
         }
+        SExpr::Cast(c) => { return dl_ty(c.ty); }
         SExpr::Bin(b) => {
+            if dx_is_pred_op(b.op) { return "number"; }
             // a literal adapts (Soufflé's numeric constants are polymorphic);
             // an `unsigned` operand makes the whole term unsigned
             let blt: str = dx_term_ty(b.lhs.any().view::<SExpr>(), env, cl);
