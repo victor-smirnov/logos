@@ -690,6 +690,15 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             if dx_mixed_sign(b.lhs.any().view::<SExpr>(), b.rhs.any().view::<SExpr>(), env, cl) {
                 return dx_no(cl, "operands of different numeric types in one term");
             }
+            if op == OP_ADD() && str_eq(dx_term_ty(e, env, cl), "symbol") {
+                // string concatenation: Soufflé's `cat`
+                out.push_str("cat(");
+                if !dx_term(out, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
+                out.push_str(", ");
+                if !dx_term(out, b.rhs.any().view::<SExpr>(), env, cl) { return false; }
+                out.push_str(")");
+                return true;
+            }
             out.push_str("(");
             if !dx_term(out, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
             if op == OP_ADD() { out.push_str(" + "); }
@@ -2523,6 +2532,7 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             // an `unsigned` operand makes the whole term unsigned
             let blt: str = dx_term_ty(b.lhs.any().view::<SExpr>(), env, cl);
             let brt: str = dx_term_ty(b.rhs.any().view::<SExpr>(), env, cl);
+            if b.op == OP_ADD() && (str_eq(blt, "symbol") || str_eq(brt, "symbol")) { return "symbol"; }
             if str_eq(blt, "float") || str_eq(brt, "float") { return "float"; }
             if str_eq(blt, "unsigned") || str_eq(brt, "unsigned") { return "unsigned"; }
             return "number";
@@ -2603,6 +2613,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
         }
         SExpr::Bin(_b) => {
             let bt: str = dx_term_ty(e, env, cl);
+            if str_eq(bt, "symbol") { return "S"; }   // a concatenation is an owned String
             if str_eq(bt, "unsigned") { return "U"; }
             if str_eq(bt, "float") { return "F"; }
             return "i";
