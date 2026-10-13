@@ -384,6 +384,7 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # 2026-09-14h-harvest: found re-measuring hand program p2 (2026-09-10d-vecbare); reproduces on build c52dcb19dff987ff 43.
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
+fn_ref_as_fnmut_refused 3 tests/soundness/open/fn_ref_as_fnmut_refused refuses
 
-# TOTAL 102
-# SYNC-HASH 2e4672979d420ebb89f664a3fa7078c8
+# TOTAL 103
+# SYNC-HASH 64660bb68562941bb6509f5f4e236397
