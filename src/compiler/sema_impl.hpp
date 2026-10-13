@@ -10086,6 +10086,9 @@ private:
     // A synthesized default's `where Self::Item: B` with the item an impl parameter:
     // push_type_params adds B to that parameter (sema env only, not the LIR).
     std::map<std::string, std::vector<TraitBound>> assumed_param_bounds_;
+    // closure_hint_from_fn_bound: a hint whose bound parameter region is the caller's
+    // (a type parameter / projection substituted to a reference, or a named outer region).
+    std::unordered_map<std::string, bool> closure_hint_early_bound_;
     bool bounds_of_type_ = false;   // check_type_bounds called for a type's own arguments (resolve_type)
     bool finish_call_targs_written_ = false;   // lower_generic_call → finish_generic_call
     lir::LExprPtr lower_field_read(writ::TinyMapView node);

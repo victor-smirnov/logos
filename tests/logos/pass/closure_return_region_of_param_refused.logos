@@ -1,0 +1,11 @@
+// Closed squeue closure_return_region_of_param_refused (#668): a closure checked against `F: FnMut(&'a B) -> R` whose param is substituted to a borrow returns data tied to that param's region (early-bound R), not a fresh closure-local region. Matches rustc 1.98.1 (exit 0).
+package closure_return_region_of_param_refused;
+use logos.mem.string;
+use logos.mem.collections.vec;
+struct B { t: String }
+impl B { fn name(&self) -> &str { return self.t.as_str(); } }
+fn f(bs: &Vec<B>) -> Option<&str> { return bs.iter().map(|b| b.name()).next(); }
+fn main() -> i32 {
+    let bs: Vec<B> = vec![B { t: String::from("xy") }];
+    return match f(&bs) { Some(s) => s.len() as i32 - 2, None => 1 };
+}

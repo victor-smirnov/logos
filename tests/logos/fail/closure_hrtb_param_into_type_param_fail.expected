@@ -1,0 +1,1 @@
+returning this value requires that the region of 'v' outlives the closure's return
