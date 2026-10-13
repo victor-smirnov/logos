@@ -35,6 +35,8 @@ TIER_VALUES = ("tier_commit", "tier_full", "tier_explicit")
 
 # Every gate in tests/logos that runs a logosc-produced program gets this.
 LIB = ["LOGOS_LIB_DIR={libdir}"]
+# logos_09_souffle_oracle_<k>: the gate pins one floor per shard (souffle_oracle_gate.sh)
+SOUFFLE_SHARDS = 16
 
 
 def T(name, command, labels, timeout=None, env=(), processors=1, skip_rc=None,
@@ -272,12 +274,14 @@ SINGLETONS = {
           'logos;pass;suite_semantic_core;tier_full', timeout=120, env=LIB, fixtures_required=['logos_facts_glob']),
         # SOUFFLÉ AS AN INDEPENDENT ORACLE: every wql_/deem_ pass fixture, compiled
         # with LOGOS_DEEM_ORACLE, its exported deems run on /usr/bin/souffle over the
-        # dumped facts and compared as sets. Four shards so lt schedules the work
-        # (fixture i → shard i mod 4). Skips (77) when Soufflé is not installed.
+        # dumped facts and compared as sets. Each shard compiles its fixtures one
+        # after another (~11 s each, loaded), so the shard count IS the gate's
+        # parallelism: 16 shards of ~16 fixtures (fixture → cksum(name) mod 16;
+        # 4 shards took ~13-18 min each). Skips (77) when Soufflé is not installed.
         *[T('logos_09_souffle_oracle_%d' % k,
-            ['{tsrc}/souffle_oracle_gate.sh', '{logosc}', '{tsrc}/pass', str(k), '4'],
-            'logos;pass;suite_semantic_core;tier_full', timeout=2400, env=LIB, skip_rc=77)
-          for k in range(4)],
+            ['{tsrc}/souffle_oracle_gate.sh', '{logosc}', '{tsrc}/pass', str(k), str(SOUFFLE_SHARDS)],
+            'logos;pass;suite_semantic_core;tier_full', timeout=1200, env=LIB, skip_rc=77)
+          for k in range(SOUFFLE_SHARDS)],
         # ADR 0025 S2 — MATERIALIZATION AS A NAMED PLAN NODE (§4).
         T('logos_09_plan_nodes',
           ['{tsrc}/plan_nodes_gate.sh', '{logosc}', '{tsrc}/pass/deem_join_step_reread.logos', '{tsrc}/pass/deem_batch_scan_drain.logos', '{tsrc}/pass/deem_hashmap_source.logos', '{tsrc}/pass/deem_cross_domain_join.logos'],
