@@ -1,6 +1,6 @@
 # ADR 0026 — what the planner leaves on the table: a findings ledger
 
-Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 6 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324; F10 be563e468), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 5 open with no closing commit (F2, F3, F4, F6, F9).
+Status: OPEN (checked 2026-10-11) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 7 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324; F10 be563e468; F6 2026-10-12), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 4 open with no closing commit (F2, F3, F4, F9).
 Scope: `plan_decide_access` / `plan_narrow_rel` in `stdlib/mem/wql/plan_walker.logos`,
 the access-path and materialization choices they drive, and the code
 `rexpr_walk` emits from them. Sources are the declared kind of ADR 0024 §6 —
@@ -295,6 +295,24 @@ where that difference stops being invisible.
 
 **No corpus query orders by key over a BTreeMap**, so nothing measures either
 half of this today.
+
+**CLOSED 2026-10-12.** Both halves landed. `btree_rows` / `btree_at` /
+`btree_from` / `btree_upto` return `BTreeRows<K, V>`, a window `[at, end)` over
+the sorted key/value arrays, read in place (nothing is copied into a `Vec`).
+It implements `Iterator` and `OrderedBy<K>`, and the impl declares
+`order entry = key`. It is forward-only, so `desc` keeps its Sort. The compiler
+half: `producer_info_` / `producer_ret_type_` / `producer_impls_trait_`
+(`sema_expr.cpp`) now resolve a GENERIC producer. Its return type is bound from
+the source type at the use site, and its trait membership is asked under its
+own bounds. Before this, a generic producer resolved to nothing, and the
+`order` declaration was refused with "returns ''".
+Fixture: `pass/deem_btreemap_order_e2e`. Five queries elide the Sort (with
+and without a narrowing `where`, `limit`, a point miss). `desc` and
+`order by e.val` keep it, and the rows are seeded so that each wrong elision
+returns a different sequence. `plan_ground_facts_gate.sh` pins
+`m mode rule=ordered`.
+Cost: the Soufflé oracle does not drain a stream producer a second time, so
+`deem_btreemap_source`'s four range scans left its fragment (shard-2 floors).
 
 ---
 

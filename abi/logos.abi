@@ -19185,6 +19185,7 @@ type	logos.mem.collections.btree.BTreeMapIntoIter	fields=[keys:*mut K,vals:*mut 
 type	logos.mem.collections.btree.BTreeMapIter	fields=[keys:*const K,vals:*const V,len:i64,idx:i64]
 type	logos.mem.collections.btree.BTreeMapIterMut	fields=[keys:*const K,vals:*mut V,len:i64,idx:i64,_inv:PhantomData<&mut V>]
 type	logos.mem.collections.btree.BTreeMapValuesMut	fields=[vals:*mut V,len:i64,idx:i64,_inv:PhantomData<&mut V>]
+type	logos.mem.collections.btree.BTreeRows	fields=[keys:*const K,vals:*const V,at:i64,end:i64]
 type	logos.mem.collections.btreeset.BTreeSet	fields=[inner:BTreeMap<K, u8>]
 type	logos.mem.collections.btreeset.BTreeSetIntoIter	fields=[inner:BTreeMapIntoIter<K, u8>]
 type	logos.mem.collections.btreeset.BTreeSetIter	fields=[inner:BTreeMapIter<K, u8>]
