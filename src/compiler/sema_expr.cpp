@@ -7415,6 +7415,32 @@ lir::LExprPtr SemaChecker::finish_generic_call(std::string_view callee_sv,
             }
         }
     }
+    // A `{float}` type argument is f64 unless the expected type alone fixes the
+    // parameter (`let x: f32 = id(1.5)`), as rustc defaults a float variable.
+    {
+        StrMap<TypeRef> hint_b;
+        if (ret_hint_() && fi.ret_type) unify_types(fi.ret_type, ret_hint_(), hint_b);
+        std::function<TypeRef(TypeRef, TypeRef, int)> fdef = [&](TypeRef t, TypeRef to, int d) -> TypeRef {
+            if (!t || d > 24) return t;
+            if (TypeRef(t).kind() == LogosType::Kind::FloatLit) return to;
+            auto b = TypeRef(t).to_builder();
+            bool any = false;
+            auto walk = [&](TypeRef x) { if (!x) return x; TypeRef z = fdef(x, to, d + 1); any |= z != x; return z; };
+            b.pointee = walk(b.pointee);
+            b.elem = walk(b.elem);
+            for (auto& a : b.type_args) a = walk(a);
+            for (auto& e : b.tuple_elems) e = walk(e);
+            return any ? pool_->alloc(std::move(b)) : t;
+        };
+        for (size_t i = 0; i < type_args.size() && i < fi.type_params.size(); ++i) {
+            if (!has_float_lit_(type_args[i])) continue;
+            TypeRef to = prim(LogosType::Kind::F64);
+            if (auto h = hint_b.find(fi.type_params[i].name); h != hint_b.end() && h->second &&
+                (TypeRef(h->second).kind() == LogosType::Kind::F32 || TypeRef(h->second).kind() == LogosType::Kind::F64))
+                to = h->second;
+            type_args[i] = fdef(type_args[i], to, 0);
+        }
+    }
 
     // Build substitution map for non-variadic type params.
     //

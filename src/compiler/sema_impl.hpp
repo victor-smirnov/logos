@@ -9515,6 +9515,16 @@ private:
     TypeRef lit_freshen_(TypeRef t, int d = 0);  // every `{integer}` inside t a fresh variable (C-INF)
     TypeRef lit_peek_default_(TypeRef t, int d = 0);  // t with every open variable read as i32, nothing solved
     TypeRef lit_default_(TypeRef t);       // `{integer}` that must be concrete NOW: i32 (a variable is solved so)
+    bool has_float_lit_(TypeRef t, int d = 0) const {
+        if (!t || d > 24) return false;
+        TypeRef tr(t);
+        if (tr.kind() == LogosType::Kind::FloatLit) return true;
+        if (tr.pointee() && has_float_lit_(tr.pointee(), d + 1)) return true;
+        if (tr.elem() && has_float_lit_(tr.elem(), d + 1)) return true;
+        for (auto a : tr.type_args()) if (has_float_lit_(a, d + 1)) return true;
+        for (auto e : tr.tuple_elems()) if (has_float_lit_(e, d + 1)) return true;
+        return false;
+    }
     bool has_lit_var_(TypeRef t, int d = 0) const {
         if (!t || d > 24) return false;
         if (is_lit_var_(t)) return true;
