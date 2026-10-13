@@ -8572,22 +8572,29 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
     if (is_enum) {
         if (esi) {
             check_type_arg_arity(name, esi->type_params, args, "enum");
+            bounds_of_type_ = true;
             check_type_bounds(std::string(name), esi->type_params, args);
+            bounds_of_type_ = false;
         }
         return make_generic_enum(name, std::move(args), std::move(lt_args), epkg);
     }
     if (is_dtype) {
         if (dsi) {
             check_type_arg_arity(name, dsi->type_params, args, "datatype");
+            bounds_of_type_ = true;
             check_type_bounds(std::string(name), dsi->type_params, args);
+            bounds_of_type_ = false;
         }
         return make_generic_datatype(name, std::move(args), std::move(lt_args), dpkg);
     }
     if (ssi) {
         check_type_arg_arity(name, ssi->type_params, args, "struct");
         // A matching (partial) specialization governs — base bounds off.
-        if (!find_best_sema_struct_spec(name, args))
+        if (!find_best_sema_struct_spec(name, args)) {
+            bounds_of_type_ = true;
             check_type_bounds(std::string(name), ssi->type_params, args);
+            bounds_of_type_ = false;
+        }
     }
     return make_generic_struct(name, std::move(args), std::move(lt_args), spkg);
 }

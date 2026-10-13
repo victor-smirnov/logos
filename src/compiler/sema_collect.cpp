@@ -1288,7 +1288,18 @@ void SemaChecker::check_type_bounds(const std::string& target_name,
                 if (t.closure_ret() && mentions_tv(t.closure_ret())) return true;
                 return false;
             };
-            if (mentions_tv(cv)) continue;   // defer until mono
+            // A BARE type parameter of the scope being checked is decided HERE,
+            // against that scope's bounds (rustc checks a generic body once, under
+            // its declared env): `Vec<T>::clone()` with an unbounded `T` is E0599
+            // even when every instantiation has `T: Clone`. Anything else that
+            // mentions a type variable still waits for mono.
+            // A TYPE's arguments (`Flatten<Self, T>` in a signature) still wait:
+            // a signature is resolved at collect, before its where-clause env.
+            // KEY-IDENTITY: a type parameter's name in the scope being checked — not an entity name.
+            const bool scope_param = !bounds_of_type_ && cv.kind() == LogosType::Kind::TypeVar &&
+                                     current_type_params_.count(std::string(cv.type_var_name())) &&
+                                     !current_variadic_tps_.count(std::string(cv.type_var_name()));
+            if (mentions_tv(cv) && !scope_param) continue;   // defer until mono
         }
         if (cv.kind() == LogosType::Kind::AssocType) continue; // deferred (bounds checked via trait decl)
         if (cv.kind() == LogosType::Kind::CfgSlotType) continue; // deferred — concrete type known after CFG substitution
@@ -1702,6 +1713,12 @@ const obl::Env& SemaChecker::obl_env_() {
             std::string id = bound_identity_(*b);
             if (!seen.insert(id).second) continue;
             if (id == trait) return true;
+            // Rust's `trait Copy: Clone` and `Fn: FnMut: FnOnce` (stdlib's
+            // declarations name no supertrait).
+            const auto& L = obl_env_cache_->lang;
+            if (id == L.copy && trait == L.clone) return true;
+            if (id == L.fn && (trait == L.fn_mut || trait == L.fn_once)) return true;
+            if (id == L.fn_mut && trait == L.fn_once) return true;
             if (const SemaTraitInfo* ti = b->trait_def ? trait_info(b->trait_def) : nullptr)
                 for (auto& s : ti->supertraits) work.push_back(&s);
         }

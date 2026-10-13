@@ -7795,8 +7795,11 @@ private:
         bool was_relaxed_sized = false;
         std::vector<std::string> old_lt_outlives;
         bool had_lt_outlives = false;
+        bool was_variadic = false;
     };
     std::vector<std::vector<ShadowFrame>> type_param_shadow_stack_;
+    // The in-scope type params that are variadic packs (`T...`).
+    StrSet current_variadic_tps_;
     // The in-scope type params' LIFETIME bounds (`T: 'a`), keyed by param name.
     // The trait half of a bound has ridden `current_type_bounds_` since Phase 1B;
     // the lifetime half was read by nobody, so a callee's `T: 'a` obligation at a
@@ -7877,6 +7880,9 @@ private:
             auto bit = current_type_bounds_.find(tp.name);
             if (bit != current_type_bounds_.end()) { f.had_bounds = true; f.old_bounds = bit->second; }
             f.was_relaxed_sized = current_type_relaxed_sized_.count(tp.name) != 0;
+            f.was_variadic = current_variadic_tps_.count(tp.name) != 0;
+            if (tp.is_variadic) current_variadic_tps_.insert(tp.name);
+            else                current_variadic_tps_.erase(tp.name);
             {
                 auto lit = current_type_lt_outlives_.find(tp.name);
                 if (lit != current_type_lt_outlives_.end()) {
@@ -7896,6 +7902,10 @@ private:
                 current_type_bounds_[tp.name] = tp.bounds;
             } else {
                 current_type_bounds_.erase(tp.name);
+            }
+            if (auto ait = assumed_param_bounds_.find(tp.name); ait != assumed_param_bounds_.end()) {
+                auto& v = current_type_bounds_[tp.name];
+                v.insert(v.end(), ait->second.begin(), ait->second.end());
             }
             // Phase 1B-9: track `?Sized` opt-out per name. `implicit_sized`
             // was cleared by finalize_relaxed_bounds when `T: ?Sized` is
@@ -7939,6 +7949,8 @@ private:
             else                 current_type_bounds_.erase(rit->name);
             if (rit->was_relaxed_sized) current_type_relaxed_sized_.insert(rit->name);
             else                        current_type_relaxed_sized_.erase(rit->name);
+            if (rit->was_variadic) current_variadic_tps_.insert(rit->name);
+            else                   current_variadic_tps_.erase(rit->name);
             if (rit->had_lt_outlives) current_type_lt_outlives_[rit->name] = rit->old_lt_outlives;
             else                      current_type_lt_outlives_.erase(rit->name);
         }
@@ -10071,6 +10083,10 @@ private:
     std::vector<size_t> viable_blanket_impls(std::string_view method_name, TypeRef self);
     lir::LExprPtr lower_invoke_expr(writ::TinyMapView node);
     lir::LExprPtr lower_invoke_on(lir::LExprPtr recv, std::vector<lir::LExprPtr> arg_exprs);
+    // A synthesized default's `where Self::Item: B` with the item an impl parameter:
+    // push_type_params adds B to that parameter (sema env only, not the LIR).
+    std::map<std::string, std::vector<TraitBound>> assumed_param_bounds_;
+    bool bounds_of_type_ = false;   // check_type_bounds called for a type's own arguments (resolve_type)
     bool finish_call_targs_written_ = false;   // lower_generic_call → finish_generic_call
     lir::LExprPtr lower_field_read(writ::TinyMapView node);
     // ADR 0011 — convert a WAny (from a schema `get`) to the field's declared

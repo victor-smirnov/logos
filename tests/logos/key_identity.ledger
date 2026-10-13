@@ -825,3 +825,10 @@ sema_expr.cpp	lit_solved_	D	1	std::string(TypeRef(t).type_var_name())
 
 # 2026-10-06, ADR 0030 S9 row 8: mono_scan.cpp dyn_coerced_targets_ (B#98, keyed by the bare trait name)
 # RETIRED — a dyn coercion now demands its vtable by vtable_key, the trait object's identity.
+# 2026-10-12: check_type_bounds decides a BARE type parameter of the scope at a call (rustc
+# checks a generic body once): the scope's and variadic packs' sets are keyed by parameter name.
+sema_collect.cpp	current_type_params_	D	1	std::string(cv.type_var_name())
+sema_collect.cpp	current_variadic_tps_	D	1	std::string(cv.type_var_name())
+# 2026-10-12: a synthesized default's `where Self::Item: B` with Item = an impl parameter,
+# handed to push_type_params by that parameter's name.
+sema_decl.cpp	assumed_param_bounds_	D	1	std::string(TypeRef(item).type_var_name())

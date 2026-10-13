@@ -1,0 +1,20 @@
+// A bounded impl's method under a type parameter: the caller's bound (or Copy's Clone)
+// discharges it, a blanket impl provides a method on a bare T, and a literal in a
+// nested field infers the struct's argument. rustc 1.98.1 prints the same.
+package generic_impl_bound_at_call;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+trait Sh { fn sh(&self) -> i32; }
+struct W<T> { x: T }
+impl<T: Copy> Sh for W<T> { fn sh(&self) -> i32 { 1 } }
+trait Any2 { fn tag(&self) -> i32; }
+impl<T> Any2 for T { fn tag(&self) -> i32 { 7 } }
+struct Pool<T> { items: Vec<T> }
+impl<T: Clone> Pool<T> { fn dup(&self) -> Pool<T> { Pool { items: self.items.clone() } } }
+fn f<T: Copy>(w: &W<T>) -> i32 { w.sh() }
+fn g<T: Ord + Copy>(o: Option<T>) -> Option<T> { o.clone() }
+fn h<T>(x: &T) -> i32 { x.tag() }
+fn main() {
+    let p = Pool { items: vec![1, 2, 3] };
+    println!("{} {} {} {}", p.dup().items.len(), f(&W { x: 5 }), g(Some(4)).unwrap(), h(&2.5));
+}

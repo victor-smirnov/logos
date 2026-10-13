@@ -1,0 +1,10 @@
+// `impl<T: Clone> Clone for Vec<T>` under an unbounded `T`: the generic body is checked
+// once, against its own bounds, so the call is refused even though every instantiation
+// would have `T: Clone` (rustc E0599). It used to wait for mono and pass.
+package generic_impl_bound_unmet_at_call_fail;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+use logos.mem.string;
+struct Pool<T> { items: Vec<T> }
+impl<T> Pool<T> { fn dup(&self) -> Pool<T> { return Pool { items: self.items.clone() }; } }
+fn main() { let p: Pool<String> = Pool { items: vec![String::from("a")] }; println!("{}", p.dup().items.len()); }

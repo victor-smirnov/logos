@@ -3632,8 +3632,14 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                     }
                     // The body assumes what its where-clause states: under
                     // `Item = T`, `where Self::Item: IntoIterator` is `T: IntoIterator`.
+                    // An item that IS a type parameter is also handed to
+                    // push_type_params: lower_fn re-pushes the impl's params,
+                    // which replaces a bound set here.
                     std::vector<std::string> proj_keys;
                     for (auto& [item, tb] : proj_assumed) {
+                        // KEY-IDENTITY: an impl type parameter's name — not an entity name.
+                        if (TypeRef(item).kind() == LogosType::Kind::TypeVar)
+                            assumed_param_bounds_[std::string(TypeRef(item).type_var_name())].push_back(tb);
                         // KEY-IDENTITY: a type parameter's name, or a projection's spelling
                         // in the signature's namespace (Gap-3's key) — not an entity name.
                         std::string key = TypeRef(item).kind() == LogosType::Kind::TypeVar
@@ -3642,6 +3648,7 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
                         proj_keys.push_back(std::move(key));
                     }
                     auto fn = lower_fn(map_of(m.default_ast), lower_target, &type_params);
+                    assumed_param_bounds_.clear();
                     for (auto& key : proj_keys) {
                         auto& v = current_type_bounds_[key];
                         if (!v.empty()) v.pop_back();

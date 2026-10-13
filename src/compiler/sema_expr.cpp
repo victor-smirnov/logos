@@ -10913,6 +10913,56 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
         // (`it.map(|x| ..)` under `I: Iterator<Item = i64>` is `|x: i64|`).
         std::vector<lir::LExprPtr> arg_exprs;
 
+        // No bound of `T` provides the method, but a BLANKET impl does
+        // (`impl<T> Tr for T`): Rust's method probe takes it, so the body sees
+        // `T: Tr` for this call (and the bound's machinery dispatches it).
+        struct BlanketBoundPop {
+            SemaChecker* sc; std::string key; bool on = false;
+            ~BlanketBoundPop() {
+                if (!on) return;
+                auto& v = sc->current_type_bounds_[key];
+                if (!v.empty()) v.pop_back();
+                if (v.empty()) sc->current_type_bounds_.erase(key);
+            }
+        } blanket_pop{this, recv_bound_key};
+        if (recv_is_tv) {
+            StrSet pv;
+            std::function<bool(const SemaTraitInfo*)> provides = [&](const SemaTraitInfo* it) -> bool {
+                if (!it || !pv.insert(trait_path(*it)).second) return false;
+                for (auto& m : it->methods) if (m.name == method_name) return true;
+                for (auto& sp : it->supertraits) if (provides(find_trait_iter_scoped(sp.trait_name))) return true;
+                return false;
+            };
+            bool bounded = false;
+            if (auto b0 = current_type_bounds_.find(recv_bound_key); b0 != current_type_bounds_.end())
+                for (auto& b : b0->second)
+                    if (provides(b.trait_def ? trait_info(b.trait_def) : find_trait_iter_scoped(b.trait_name))) {
+                        bounded = true;
+                        break;
+                    }
+            if (!bounded) {
+                const SemaTraitInfo* only = nullptr;
+                int n = 0;
+                for (auto& [tdef, ti] : traits_) {
+                    if (find_trait_iter_scoped(ti.name) != &ti) continue;   // not in scope
+                    bool has = false;
+                    for (auto& m : ti.methods) if (m.name == method_name) { has = true; break; }
+                    if (!has || ti.type_params.size() || !implements_(trait_path(ti), recv_inner)) continue;
+                    only = &ti;
+                    ++n;
+                }
+                if (n == 1) {
+                    TraitBound tb;
+                    tb.trait_name      = only->name;
+                    tb.canonical_trait = trait_path(*only);
+                    tb.identity_trait  = impl_key_trait(tb.canonical_trait);
+                    tb.trait_def       = only->def;
+                    current_type_bounds_[recv_bound_key].push_back(tb);
+                    blanket_pop.on = true;
+                }
+            }
+        }
+
         auto bit = current_type_bounds_.find(recv_bound_key);
         const SemaTraitMethodInfo* chosen_method = nullptr;
         std::string chosen_trait;
@@ -13719,8 +13769,14 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
                 for (auto& tp : sinfo.type_params)
                     if (tp.name == tv) { is_param = true; break; }
                 if (!is_param) return;
-                if (val_t.kind() == K::Error || val_t.kind() == K::IntLit ||
-                    val_t.kind() == K::FloatLit) return;
+                if (val_t.kind() == K::Error) return;
+                // A literal's type as a direct `T` field takes it: the hint, else
+                // the default (`Pool { items: vec![1, 2] }` is `Pool<i32>`).
+                if (val_t.kind() == K::IntLit || val_t.kind() == K::FloatLit) {
+                    TypeRef h = hint_for_tv(tv);
+                    val_t = h && h.kind() != K::Error && h.kind() != K::InferredType ? h
+                            : val_t.kind() == K::IntLit ? i32_t() : prim(K::F64);
+                }
                 inferred[std::string(tv)] = val_t;
                 return;
             }
