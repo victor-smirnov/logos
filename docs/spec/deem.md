@@ -862,9 +862,9 @@ Primary literals are integer (`SLit` int, token→i64 decode), float (`FLOAT = [
 
 *Evidence:* `stdlib/mem/wql/grammars/el.peg` (`comprehension`, `comp_plan`, `comp_source`); `SComp` `stdlib/mem/wql/ir.logos` (`SComp`); emission `stdlib/mem/wql/codegen.logos` (`emit_comp`)
 
-### `el.builtins` — len / upper / lower / contains / starts_with
+### `el.builtins` — len / upper / lower / contains / starts_with / min / max
 
-The builtin functions are `len(x)`→INT (`(x).len()`), `upper(x)`/`lower(x)`→STR (owned `String` via `wql_upper`/`wql_lower`, ASCII byte-wise case folding), `contains(a,b)`→BOOL (`str_contains`), `starts_with(a,b)`→BOOL (`str_starts_with`); arities and return types are the registry (`builtin_arity`/`builtin_ret_ty`).
+The builtin functions are `len(x)`→INT (`(x).len()`), `upper(x)`/`lower(x)`→STR (owned `String` via `wql_upper`/`wql_lower`, ASCII byte-wise case folding), `contains(a,b)`→BOOL (`str_contains`), `starts_with(a,b)`→BOOL (`str_starts_with`), and `min(a,b)`/`max(a,b)` over two integers of one type, whose value is that type (`if a <= b { a } else { b }`; a literal takes the other argument's type, as beside a comparison; two types, or a non-integer, are named errors — `deem_minmax_builtin_str_fail`, `deem_minmax_builtin_mixed_fail`); arities and return types are the registry (`builtin_arity`/`builtin_ret_ty`; `min`/`max` by `minmax_ty`). A builtin's name wins over a user fn of the same name.
 
 *Divergence:* a small CEL-canon + common-Trama-filter subset; string builtins are byte-oriented ASCII (MVP), not Unicode-aware.
 

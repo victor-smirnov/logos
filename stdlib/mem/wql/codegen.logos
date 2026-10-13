@@ -318,6 +318,7 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
             if bfn == BFN_UNWRAP_OR() && c.args_arr().len() == 2i64 {
                 return el_option_inner(infer_ty_name(c.args_arr().arg_at(0i64), t));
             }
+            if (bfn == BFN_MIN() || bfn == BFN_MAX()) && c.args_arr().len() == 2i64 { return minmax_ty(c.args_arr(), t); }
             if bfn != BFN_UNKNOWN() { return el_class_repr(builtin_ret_ty(bfn)); }
             let ui: i64 = t.udf_find(c.fn_name);
             if ui >= 0i64 {
@@ -2022,6 +2023,16 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
     }
 }
 
+/// The type `min(a, b)` / `max(a, b)` is in: the one its non-literal
+/// argument names (a literal names none).
+pub fn minmax_ty(args: SExprArr, t: &ElTypes) -> str {
+    let a: str = operand_named_ty(args.arg_at(0i64), t);
+    if a.len() > 0i64 { return a; }
+    let b: str = operand_named_ty(args.arg_at(1i64), t);
+    if b.len() > 0i64 { return b; }
+    return infer_ty_name(args.arg_at(0i64), t);
+}
+
 // Emit a builtin call. `c` is the SCall; the call NAME is read off the node
 // (`c.fn_name`) and mapped to a builtin id (`builtin_of_name`). Each builtin
 // emits a fully-qualified stdlib call over its materialized args (`SExprArr`).
@@ -2060,6 +2071,21 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
         out.push_str(").unwrap_or(");
         emit_sexpr_as(out, args.arg_at(1i64), t, var, inner);
         out.push_str("))");
+        return;
+    }
+    if bfn == BFN_MIN() || bfn == BFN_MAX() {
+        // `if a <= b { a } else { b }` (`>=` for max), each side in the type
+        // the two share — a literal takes it, as beside a comparison
+        let ty: str = minmax_ty(args, t);
+        out.push_str("(if (");
+        emit_sexpr_as(out, args.arg_at(0i64), t, var, ty);
+        out.push_str(if bfn == BFN_MIN() { ") <= (" } else { ") >= (" });
+        emit_sexpr_as(out, args.arg_at(1i64), t, var, ty);
+        out.push_str(") { ");
+        emit_sexpr_as(out, args.arg_at(0i64), t, var, ty);
+        out.push_str(" } else { ");
+        emit_sexpr_as(out, args.arg_at(1i64), t, var, ty);
+        out.push_str(" })");
         return;
     }
     if bfn == BFN_UPPER() || bfn == BFN_LOWER() {
@@ -2289,6 +2315,20 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     mo.push_str("`");
                     ty_error(t, e, string_as_str(&mo));
                     return false;
+                }
+                if (bfn == BFN_MIN() || bfn == BFN_MAX()) && argc == 2i64 {
+                    if !check_operand_types_agree(e, args.arg_at(0i64), args.arg_at(1i64), OP_LT(), t, ctx) { return false; }
+                    if t.class_of_name(minmax_ty(args, t)) != EL_TY_INT() {
+                        let mut mm: String = String::new();
+                        mm.push_str(ctx);
+                        mm.push_str(": builtin '");
+                        mm.push_str(name);
+                        mm.push_str("' takes two integers of one type (Soufflé's `min`/`max` functors), and its arguments are `");
+                        mm.push_str(minmax_ty(args, t));
+                        mm.push_str("`");
+                        ty_error(t, e, string_as_str(&mm));
+                        return false;
+                    }
                 }
                 if argc != builtin_arity(bfn) {
                     let mut m4: String = String::new();

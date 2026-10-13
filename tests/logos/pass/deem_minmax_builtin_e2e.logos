@@ -1,0 +1,48 @@
+// deem_minmax_builtin_e2e — the EL builtins `min(a, b)` / `max(a, b)` over two
+// integers of one type (Soufflé's `min` / `max` functors; the oracle exports
+// them as those functors). The value is that type; a literal takes it, as
+// beside a comparison.
+//   (a) both, over two columns;
+//   (b) a clamp `max(x.a - 10, 0)` (checked arithmetic inside);
+//   (c) in `where`, and as an aggregate's argument;
+//   (d) i32 and u64 columns keep their type.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct P { pub a: i64, pub b: i64, pub s: i32, pub t: i32, pub u: u64 }
+
+// (a)
+pub deem lohi(ps: &[P]) { from ps x select (min(x.a, x.b), max(x.a, x.b)) order by min(x.a, x.b) }
+// (b)
+pub deem clamp(ps: &[P]) { from ps x select max(x.a - 10, 0) order by max(x.a - 10, 0) }
+// (c)
+pub deem wide(ps: &[P]) { from ps x where min(x.a, x.b) > 3 select x.a order by x.a }
+pub deem tot(ps: &[P]) { from ps x group by 1 aggregate m = sum(max(x.a, x.b)) select m }
+// (d)
+pub deem narrow(ps: &[P]) { from ps x select min(x.s, x.t) order by min(x.s, x.t) }
+pub deem cap(ps: &[P]) { from ps x select max(x.u, 7u64) order by max(x.u, 7u64) }
+
+fn main() -> i32 {
+    let ps: [P; 3] = [
+        P { a: 5i64, b: 9i64, s: 3i32, t: -2i32, u: 4u64 },
+        P { a: 12i64, b: 4i64, s: 7i32, t: 8i32, u: 10u64 },
+        P { a: 2i64, b: 1i64, s: 0i32, t: 0i32, u: 7u64 },
+    ];
+    let a: Vec<(i64, i64)> = lohi(&ps[..]).unwrap();
+    if a.len() != 3i64 || a.get(0i64).0 != 1i64 || a.get(0i64).1 != 2i64 || a.get(1i64).0 != 4i64 || a.get(1i64).1 != 12i64
+       || a.get(2i64).0 != 5i64 || a.get(2i64).1 != 9i64 { return 1i32; }
+    let b: Vec<i64> = clamp(&ps[..]).unwrap();
+    if b.len() != 3i64 || b.get(0i64) != 0i64 || b.get(1i64) != 0i64 || b.get(2i64) != 2i64 { return 2i32; }
+    let c: Vec<i64> = wide(&ps[..]).unwrap();
+    if c.len() != 2i64 || c.get(0i64) != 5i64 || c.get(1i64) != 12i64 { return 3i32; }
+    let d: Vec<i64> = tot(&ps[..]).unwrap();
+    if d.len() != 1i64 || d.get(0i64) != 23i64 { return 4i32; }
+    let e: Vec<i32> = narrow(&ps[..]).unwrap();
+    if e.len() != 3i64 || e.get(0i64) != -2i32 || e.get(1i64) != 0i32 || e.get(2i64) != 7i32 { return 5i32; }
+    let f: Vec<u64> = cap(&ps[..]).unwrap();
+    if f.len() != 3i64 || f.get(0i64) != 7u64 || f.get(1i64) != 7u64 || f.get(2i64) != 10u64 { return 6i32; }
+    return 0i32;
+}
