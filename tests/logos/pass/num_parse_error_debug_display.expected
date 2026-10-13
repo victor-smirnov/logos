@@ -1,0 +1,6 @@
+Err(ParseIntError { kind: InvalidDigit }) Err(ParseIntError { kind: Empty }) Err(ParseFloatError { kind: Invalid })
+invalid digit found in string [           invalid digit found in string]
+ParseIntError {
+    kind: InvalidDigit,
+}
+invalid float literal
