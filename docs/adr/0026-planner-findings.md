@@ -1,6 +1,6 @@
 # ADR 0026 — what the planner leaves on the table: a findings ledger
 
-Status: OPEN (checked 2026-10-13) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 9 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324; F10 be563e468; F6 a357cfbec; F2 2026-10-12; F3 2026-10-13, by design with a test), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 2 open with no closing commit (F4, F9).
+Status: OPEN (checked 2026-10-13) — a LEDGER, not a design (opened c39187194; a row closes only when a fix lands with a test). 12 rows: 10 CLOSED (F1 cd55c78c7; F8 0f3063975, #322 closed; F11, F12 4fba560e8; F7 c977e0324; F10 be563e468; F6 a357cfbec; F2 2026-10-12; F3 2026-10-13, by design with a test; F4 2026-10-13, measured: the scan protocol is ≤ 12% of a point get), 1 partly retired (F5, the `direct` door per ADR 0025 §12), 1 open with no closing commit (F9).
 Scope: `plan_decide_access` / `plan_narrow_rel` in `stdlib/mem/wql/plan_walker.logos`,
 the access-path and materialization choices they drive, and the code
 `rexpr_walk` emits from them. Sources are the declared kind of ADR 0024 §6 —
@@ -234,6 +234,8 @@ row records is that there is no point-get FORM: `==` pays the batch protocol
 row, plus F2's size read of the whole tree. Whether that costs enough to matter
 is unmeasured — this row is an observation with a number attached to it, and it
 should not be "fixed" before somebody measures it.
+
+[2026-10-13, MEASURED, CLOSED — the scan protocol is a small share of a point get. Probe and script: `bench/deem_point_get/run.sh [-O…]`, callgrind instruction counts (deterministic on the shared box), 10,000 entries, 20,000 lookups (half hit), a build-only control subtracted, `logosc 0.68.0` at 1748e1ffd, the probe at `-O2` (the stdlib archives at their own level). `BTreeMap<i64,i64>`: `deem pt(m, k) { from m e where e.key == k select e.val }` 649 instr/call against `m.get(&k)` 405. Both do one `lower_bound`, inlined into the caller. `pt_run` beyond the `get` loop is 81 (window, `next` and the frame, inlined together, so 81 is the protocol's upper bound, 12%). The result `Vec` adds about 150 (malloc/free and `Vec` methods). Memoria `Map<u64,u64>` (the store-backed family): 12,134 against `find` 10,753 (×1.13). Of the 1,381 difference, about 700 (5.8% of the call) is the batch protocol (`next_batch`, `advance`, `batch`, `resolve_fse`, `cols_batch_at`, `cell_ptr`, `block_of`, the walk's `assert`s). About 295 is the RANK: `seek_key` (with `size_prefix` inlined) against `bt_descend_find`, because `cu.pos()` feeds the ordinal-bounded `LeafWalk` (`at`/`endr`). The rest is the frame and the result. At `-O0` the shares differ (BTreeMap 1251 vs 753; Memoria 14,571 vs 11,633, of which `size_prefix` alone is 1,261) but no conclusion changes. So a point-get FORM would save at most 12% (BTreeMap) or 6% (Memoria) of the call, and the result `Vec` costs as much as the protocol does. The rank is a property of the Memoria walk: a key-bounded window of at most one row needs no ordinal. It is recorded as ADR 0039 O8, for the walk abstraction that replaces the generated `LeafWalk`.]
 
 ---
 
