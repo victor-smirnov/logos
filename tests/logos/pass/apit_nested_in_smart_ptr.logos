@@ -1,0 +1,13 @@
+// A param-position `impl Tr` nested in `Box<..>` / `Rc<..>` is one synthetic generic: the smart-pointer branch's probe resolved the argument once more and minted an orphan `__impl_N` ("could not infer all type arguments"). rustc 1.98.1 prints the same.
+package apit_nested_in_smart_ptr;
+use logos.mem.boxed; use logos.lang.rc; use logos.std.fmt;
+trait Counter { fn val(&self) -> i64; }
+struct C { n: i64 }
+impl Counter for C { fn val(&self) -> i64 { return self.n; } }
+fn read_boxed(c: Box<impl Counter>) -> i64 { c.val() + 1 }
+fn read_rc(c: Rc<impl Counter>, d: Box<impl Counter>) -> i64 { c.val() * 10 + d.val() }
+fn main() {
+    let b = Box::new(C { n: 6 });
+    println!("{} {}", read_boxed(b), read_boxed(Box::new(C { n: 5 })));
+    println!("{}", read_rc(Rc::new(C { n: 2 }), Box::new(C { n: 3 })));
+}

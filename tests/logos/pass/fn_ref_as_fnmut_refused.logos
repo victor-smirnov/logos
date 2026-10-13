@@ -1,0 +1,7 @@
+// Closed squeue fn_ref_as_fnmut_refused (#748): an FnMut call of a `&F` (Rust's `impl<F: Fn> FnMut for &F`) only reads through the reference — BIR reborrowed `*f` mutably. rustc 1.98.1 prints 6.
+package fn_ref_as_fnmut_refused;
+use logos.std.fmt;
+fn once<F: FnOnce() -> i32>(f: F) -> i32 { f() }
+fn twice<F: FnMut() -> i32>(mut f: F) -> i32 { f() + once(f) }
+fn thrice<F: Fn() -> i32>(f: F) -> i32 { twice(&f) + f() }
+fn main() { println!("{}", thrice(|| 2)); }

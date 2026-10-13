@@ -8349,8 +8349,12 @@ TypeRef SemaChecker::resolve_type_generic_inst(TinyMapView node) {
                 // the unsized-by-value diagnostic (matches the ?Sized param).
                 bool was_ok = unsized_ok_;
                 unsized_ok_ = true;
+                // A probe: a param-position `impl Tr` it desugars is minted
+                // again by the generic path below, so the probe's is dropped.
+                const size_t impl_mark = pending_impl_trait_params_.size();
                 auto inner = resolve_type(map_of(items.get(0)));
                 unsized_ok_ = was_ok;
+                pending_impl_trait_params_.resize(impl_mark);
                 // TraitObject OR UnsizedDyn (the probe runs under unsized_ok_, so
                 // bare `dyn Trait` now resolves to the unsized form — both denote
                 // the same owning trait object).

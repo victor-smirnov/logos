@@ -1,0 +1,4 @@
+// `&g` with `g` only FnMut (it mutates a capture) is no FnMut: `impl FnMut for &F` needs `F: Fn` (rustc E0525).
+package fn_ref_of_fnmut_not_fnmut_fail; use logos.std.fmt;
+fn twice<F: FnMut() -> i32>(mut f: F) -> i32 { f() + f() }
+fn main() { let mut n = 0; let g = || { n += 1; n }; println!("{}", twice(&g)); }
