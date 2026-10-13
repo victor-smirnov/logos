@@ -1718,7 +1718,8 @@ const obl::Env& SemaChecker::obl_env_() {
         for (auto& [k, v] : s) ss[k] = v;
         return subst_type_sema(t, ss);
     };
-    e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t); };
+    // A `{float}` is open too: it becomes f32 or f64 by a later use or the default.
+    e.is_open = [this](TypeRef t) { return has_infer_var_(t) || has_lit_var_(t) || has_float_lit_(t); };
     e.unsized_of = [this](TypeRef s) { return make_unsized_slice_type(TypeRef(s).elem()); };
     e.len_type = [this](uint64_t len) {
         LogosTypeBuilder lt; lt.kind = LogosType::Kind::IntLit; lt.const_val = static_cast<int64_t>(len);

@@ -1,0 +1,20 @@
+// A `{float}` argument to a bounded generic is an open variable: the bound waits, the
+// expected type fixes it (`let x: f32 = id(1.25)`), else it is f64 (was "type '{float}'
+// does not implement trait 'PartialOrd'"). rustc 1.98.1 prints the same.
+package generic_float_literal_arg;
+use logos.std.fmt;
+use logos.mem.collections.vec;
+fn big<T: PartialOrd + Copy>(a: T, b: T) -> T { if a > b { a } else { b } }
+fn id<T: Copy>(a: T) -> T { a }
+fn shw<T: Display>(a: T) { println!("{}", a); }
+fn main() {
+    println!("{}", big(3.5, 2.0));
+    println!("{}", id(1.5));
+    shw(2.5);
+    println!("{}", big(3, 2));
+    let x: f32 = id(1.25);
+    let y: f32 = big(0.5, 0.75);
+    println!("{} {}", x, y);
+    let v = vec![1.5, 0.5];
+    println!("{}", big(v[0], v[1]));
+}

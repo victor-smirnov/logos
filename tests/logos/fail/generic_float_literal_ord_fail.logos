@@ -1,0 +1,5 @@
+// `{float}` can only become f32 / f64, neither of which is Ord: rustc E0277 (it names `{float}`; the default to f64 is taken first here).
+package generic_float_literal_ord_fail;
+use logos.std.fmt;
+fn m<T: Ord>(a: T, b: T) -> bool { a < b }
+fn main() { println!("{}", m(1.5, 2.5)); }

@@ -309,6 +309,11 @@ struct Solver {
     bool could_match_(TypeRef c, TypeRef p, const std::vector<std::string>& g) const {
         if (!c || !p) return true;
         if ((p.kind() == K::TypeVar || p.kind() == K::ConstVar) && is_generic(g, p.type_var_name())) return true;
+        // A literal's variable becomes a number of its own family only.
+        if (c.kind() == K::FloatLit) return p.kind() == K::F32 || p.kind() == K::F64 || p.kind() == K::FloatLit;
+        if (c.kind() == K::IntLit && env.is_open(c))
+            return p.kind() == K::IntLit || (is_primitive_scalar_kind(p.kind()) && p.kind() != K::F32 &&
+                                             p.kind() != K::F64 && p.kind() != K::Bool && p.kind() != K::Char);
         if (env.is_open(c) && c.type_args().empty() && c.tuple_elems().empty() && !c.pointee() && !c.elem())
             return true;
         if (p.kind() != c.kind()) return false;
