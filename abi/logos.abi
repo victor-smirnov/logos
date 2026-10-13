@@ -16448,6 +16448,17 @@ sym	logos_mem..logos.mem.collections.hashmap.HashMap$Mecdf5396b4028aed$G2$u64$u6
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$Mecdf5396b4028aed$G2$u64$u64__get__g__refmut_HashMap$Mecdf5396b4028aed$G2$K$V__ref_K
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$Mecdf5396b4028aed$G2$u64$u64__insert__g__refmut_HashMap$Mecdf5396b4028aed$G2$K$V__K__V
 sym	logos_mem..logos.mem.collections.hashmap.HashMap$Mecdf5396b4028aed$G2$u64$u64__into_iter__g__HashMap$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$i64$Vec$M4edea24aa4768b45$G1$i64__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$slice_u8$Vec$M4edea24aa4768b45$G1$i64__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$slice_u8$u8__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$tup$2$slice_u8$slice_u8$u8__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$tup$3$slice_u8$i64$slice_u8$u8__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$tup$3$slice_u8$slice_u8$slice_u8$u8__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$tup$4$slice_u8$slice_u8$slice_u8$slice_u8$u8__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$tup$5$slice_u8$i64$slice_u8$slice_u8$i64$u8__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8$u8__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$u64$i64__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
+sym	logos_mem..logos.mem.collections.hashmap.HashMapIntoIter$Mecdf5396b4028aed$G2$u64$u64__drop__g__refmut_HashMapIntoIter$Mecdf5396b4028aed$G2$K$V
 sym	logos_mem..logos.mem.collections.set.HashSet$M6808284ab27b25e3$G1$slice_u8__contains__g__refmut_HashSet$M6808284ab27b25e3$G1$K__ref_K
 sym	logos_mem..logos.mem.collections.set.HashSet$M6808284ab27b25e3$G1$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.set.HashSet$M6808284ab27b25e3$G1$slice_u8__insert__g__refmut_HashSet$M6808284ab27b25e3$G1$K__K
@@ -16470,6 +16481,13 @@ sym	logos_mem..logos.mem.collections.set.HashSet$M6808284ab27b25e3$G1$tup$5$slic
 sym	logos_mem..logos.mem.collections.set.HashSet$M6808284ab27b25e3$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__default__g__void
 sym	logos_mem..logos.mem.collections.set.HashSet$M6808284ab27b25e3$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__insert__g__refmut_HashSet$M6808284ab27b25e3$G1$K__K
 sym	logos_mem..logos.mem.collections.set.HashSet$M6808284ab27b25e3$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__into_iter__g__HashSet$M6808284ab27b25e3$G1$K
+sym	logos_mem..logos.mem.collections.set.HashSetIntoIter$M6808284ab27b25e3$G1$slice_u8__drop__g__refmut_HashSetIntoIter$M6808284ab27b25e3$G1$K
+sym	logos_mem..logos.mem.collections.set.HashSetIntoIter$M6808284ab27b25e3$G1$tup$2$slice_u8$slice_u8__drop__g__refmut_HashSetIntoIter$M6808284ab27b25e3$G1$K
+sym	logos_mem..logos.mem.collections.set.HashSetIntoIter$M6808284ab27b25e3$G1$tup$3$slice_u8$i64$slice_u8__drop__g__refmut_HashSetIntoIter$M6808284ab27b25e3$G1$K
+sym	logos_mem..logos.mem.collections.set.HashSetIntoIter$M6808284ab27b25e3$G1$tup$3$slice_u8$slice_u8$slice_u8__drop__g__refmut_HashSetIntoIter$M6808284ab27b25e3$G1$K
+sym	logos_mem..logos.mem.collections.set.HashSetIntoIter$M6808284ab27b25e3$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__drop__g__refmut_HashSetIntoIter$M6808284ab27b25e3$G1$K
+sym	logos_mem..logos.mem.collections.set.HashSetIntoIter$M6808284ab27b25e3$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__drop__g__refmut_HashSetIntoIter$M6808284ab27b25e3$G1$K
+sym	logos_mem..logos.mem.collections.set.HashSetIntoIter$M6808284ab27b25e3$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__drop__g__refmut_HashSetIntoIter$M6808284ab27b25e3$G1$K
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$BranchRef$M56fcb7879b553d46__as_mut__g__refmut_Vec$M4edea24aa4768b45$G1$E
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$BranchRef$M56fcb7879b553d46__as_mut_slice__g__refmut_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$BranchRef$M56fcb7879b553d46__as_ref__g__ref_Vec$M4edea24aa4768b45$G1$E
@@ -17249,6 +17267,30 @@ sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__length__g_
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__ne__g__ref_Vec$M4edea24aa4768b45$G1$T__ref_Vec$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__new__g__void
 sym	logos_mem..logos.mem.collections.vec.Vec$M4edea24aa4768b45$G1$u8__push__g__refmut_Vec$M4edea24aa4768b45$G1$T__T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$BranchRef$M56fcb7879b553d46__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$DatumCol$M02e8fbcca2caa4f2__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$DirEntry$M4b9a63a8d8750da1__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$ExprBlob$Mfce1ca49d1fe71b8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$Header$M33e80fd2af710b76__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$Json$Md11f8e355a678ea3__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$JsonField$Md11f8e355a678ea3__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$NodeOp$M02e8fbcca2caa4f2__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$PdtDim$Mf0be1d770e9c2a9a__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$QuoteItemBlob$Mfce1ca49d1fe71b8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$RtVal$M8f5a4fce0b005221__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$SsrleRun$Md4ddd386245c865a__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$StreamDescr$M02e8fbcca2caa4f2__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$String$M5ca39a0a178b867d__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$TokenTree$M2a2cc95fe8ac97a7__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$Vec$M4edea24aa4768b45$G1$Ident$Mfce1ca49d1fe71b8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$Vec$M4edea24aa4768b45$G1$Vec$M4edea24aa4768b45$G1$i64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$Vec$M4edea24aa4768b45$G1$bool__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$Vec$M4edea24aa4768b45$G1$i64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$Vec$M4edea24aa4768b45$G1$slice_u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$WAny$Mbca990539d695b8c__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$bool__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$f64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__cloned__g__VecIntoIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__copied__g__VecIntoIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__count__g__VecIntoIter$M4edea24aa4768b45$G1$T
@@ -17274,6 +17316,19 @@ sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__s
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__step_by__g__VecIntoIter$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__take__g__VecIntoIter$M4edea24aa4768b45$G1$T__i64
 sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i32__take_while__g__VecIntoIter$M4edea24aa4768b45$G1$T__fn(&T) -> bool
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$i64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$slice_u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$2$slice_u8$slice_u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$3$slice_u8$i64$slice_u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$3$slice_u8$slice_u8$slice_u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$4$slice_u8$slice_u8$slice_u8$slice_u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$5$slice_u8$i64$slice_u8$slice_u8$i64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$5$slice_u8$slice_u8$slice_u8$slice_u8$slice_u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$tup$8$i64$slice_u8$i64$i64$slice_u8$i64$i64$slice_u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$u16__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$u32__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$u64__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
+sym	logos_mem..logos.mem.collections.vec.VecIntoIter$M4edea24aa4768b45$G1$u8__drop__g__refmut_VecIntoIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIter$M4edea24aa4768b45$G1$i32__cloned__g__VecIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIter$M4edea24aa4768b45$G1$i32__copied__g__VecIter$M4edea24aa4768b45$G1$T
 sym	logos_mem..logos.mem.collections.vec.VecIter$M4edea24aa4768b45$G1$i32__count__g__VecIter$M4edea24aa4768b45$G1$T
@@ -19259,7 +19314,7 @@ type	logos.mem.writ.tag_system.DataTypeTagSystem	fields=[]
 type	logos.mem.writ.tag_system.TomTagSystem	fields=[]
 type	logos.mem.writ.tag_system.WritTagSystem	fields=[]
 type	logos.mem.writ.tag_system.WritTypeTagSystem	fields=[]
-type	logos.std.compiler.metaprog.DeriveShape	fields=[nm:Ident,generic:bool,lparams:Vec<Ident>,tparams:Vec<Ident>,cparams:Vec<Ident>,ctypes:Vec<Ident>,gargs:Vec<Ident>,unit_v:Vec<Ident>,tup_v:Vec<Ident>,tup_a:Vec<Vec<Ident>>,tup_b:Vec<Vec<Ident>>,st_v:Vec<Ident>,st_f:Vec<Vec<Ident>>,st_a:Vec<Vec<Ident>>,st_b:Vec<Vec<Ident>>,sn:Vec<Ident>,sn_f:Vec<Vec<Ident>>,sn_a:Vec<Vec<Ident>>,sn_b:Vec<Vec<Ident>>,tn:Vec<Ident>,tn_a:Vec<Vec<Ident>>,tn_b:Vec<Vec<Ident>>]
+type	logos.std.compiler.metaprog.DeriveShape	fields=[nm:Ident,generic:bool,lparams:Vec<Ident>,tparams:Vec<Ident>,cparams:Vec<Ident>,ctypes:Vec<Ident>,gargs:Vec<Ident>,unit_v:Vec<Ident>,tup_v:Vec<Ident>,tup_a:Vec<Vec<Ident>>,tup_b:Vec<Vec<Ident>>,st_v:Vec<Ident>,st_f:Vec<Vec<Ident>>,st_a:Vec<Vec<Ident>>,st_b:Vec<Vec<Ident>>,sn:Vec<Ident>,sn_f:Vec<Vec<Ident>>,sn_a:Vec<Vec<Ident>>,sn_b:Vec<Vec<Ident>>,en_v:Vec<Vec<Ident>>,tn:Vec<Ident>,tn_a:Vec<Vec<Ident>>,tn_b:Vec<Vec<Ident>>]
 type	logos.std.compiler.metaprog.Emitter	fields=[buf:String]
 type	logos.std.compiler.metaprog.ExprBlob	fields=[ptr:*const u8]
 type	logos.std.compiler.metaprog.Ident	fields=[ptr:*const u8,len:u64]

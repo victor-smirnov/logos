@@ -67,6 +67,9 @@ pub struct DeriveShape {
     pub sn_a: Vec<Vec<Ident>>,
     /// `other`-side bindings of the named struct.
     pub sn_b: Vec<Vec<Ident>>,
+    /// An enum's variants in declaration order, as one inner list (none for a
+    /// struct): the variant order `PartialOrd` / `Ord` compare first.
+    pub en_v: Vec<Vec<Ident>>,
     /// A tuple struct's name (0 or 1 element).
     pub tn: Vec<Ident>,
     /// `self`-side bindings of the tuple struct.
@@ -120,6 +123,7 @@ pub fn derive_shape_of(view: &OView, item: WAny) -> DeriveShape {
         st_a: vec_new::<Vec<Ident>>(), st_b: vec_new::<Vec<Ident>>(),
         sn: vec_new::<Ident>(), sn_f: vec_new::<Vec<Ident>>(),
         sn_a: vec_new::<Vec<Ident>>(), sn_b: vec_new::<Vec<Ident>>(),
+        en_v: vec_new::<Vec<Ident>>(),
         tn: vec_new::<Ident>(), tn_a: vec_new::<Vec<Ident>>(), tn_b: vec_new::<Vec<Ident>>(),
     };
 
@@ -163,10 +167,12 @@ pub fn derive_shape_of(view: &OView, item: WAny) -> DeriveShape {
         let vl: WAny = view.tiny_map_get(item, 2 as u8);
         if !vl.is_null() { ds_collect(view, view.tiny_map_get(vl, 2 as u8), 81 as u64, &mut vars); }
         let nv: u64 = vars.len() as u64;
+        let mut allv: Vec<Ident> = vec_new::<Ident>();
         let mut i: u64 = 0 as u64;
         while i < nv {
             let v: WAny = vars[i as i64];
             let vname: Ident = ds_ident(view.ast_node_name(v));
+            allv.push(vname);
             // Payload: ITEMS(2) = { ITEMS(2): [type_ref …] } (tuple) or
             // { ITEMS(2): [FIELD_DEF …] } (struct-shape, IS_STRUCT_SHAPE(47)).
             let is_struct: bool = !view.tiny_map_get(v, 47 as u8).is_null();
@@ -205,6 +211,7 @@ pub fn derive_shape_of(view: &OView, item: WAny) -> DeriveShape {
             }
             i = i + (1 as u64);
         }
+        sh.en_v.push(allv);
         return sh;
     }
 

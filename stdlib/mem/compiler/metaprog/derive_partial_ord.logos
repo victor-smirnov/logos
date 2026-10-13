@@ -18,8 +18,9 @@
 //       }
 //   }
 //
-// Named, tuple and unit structs. An ENUM is refused, as `#[derive_ord]` refuses
-// one (derive-ord-enum-self). Shapes: see derive_shape.logos.
+// Named, tuple and unit structs, and enums: an enum compares the variants'
+// declaration order first (`en_v`), then the fields of one variant as a struct's.
+// Shapes: see derive_shape.logos.
 //
 // §6.10 sub-deliverable 6/8.
 
@@ -36,10 +37,6 @@ fn derive_partial_ord_hook(target_offset: u32) -> () {
 
     let item: WAny = view.node_at(target_offset);
     if view.ast_node_name(item).len == (0 as u64) { return; }
-    if (view.ast_node_code(item) & (0xFFFF as u64)) == (80 as u64) {
-        error_at(target_offset, "#[derive_partial_ord] on an enum is not supported yet: `impl PartialOrd` for an enum does not compile (derive-ord-enum-self)");
-        return;
-    }
     let sh: DeriveShape = derive_shape_of(&view, item);
     let nm: Ident = sh.nm;
     let lparams: Vec<Ident> = sh.lparams;
@@ -54,11 +51,44 @@ fn derive_partial_ord_hook(target_offset: u32) -> () {
     let tn: Vec<Ident> = sh.tn;
     let tn_a: Vec<Vec<Ident>> = sh.tn_a;
     let tn_b: Vec<Vec<Ident>> = sh.tn_b;
+    let unit_v: Vec<Ident> = sh.unit_v;
+    let tup_v: Vec<Ident> = sh.tup_v;
+    let tup_a: Vec<Vec<Ident>> = sh.tup_a;
+    let tup_b: Vec<Vec<Ident>> = sh.tup_b;
+    let st_v: Vec<Ident> = sh.st_v;
+    let st_f: Vec<Vec<Ident>> = sh.st_f;
+    let st_a: Vec<Vec<Ident>> = sh.st_a;
+    let st_b: Vec<Vec<Ident>> = sh.st_b;
+    let en_v: Vec<Vec<Ident>> = sh.en_v;
 
     let blob: QuoteItemBlob = quote_item! {
         impl<#( #lparams ),*, #( const #cparams: #ctypes ),*, #( #tparams: PartialOrd ),*> PartialOrd for #nm<#( #gargs ),*> {
             fn partial_cmp(&self, other: &#nm<#( #gargs ),*>) -> Option<Ordering> {
+                #( {
+                    let mut __ra: u64 = 0; let mut __rb: u64 = 0; let mut __k: u64 = 0;
+                    #( {
+                        if let Self::#en_v { .. } = self { __ra = __k; }
+                        if let Self::#en_v { .. } = other { __rb = __k; }
+                        __k = __k + 1;
+                    } )*
+                    if __ra != __rb { return __ra.partial_cmp(&__rb); }
+                } )*
                 match (self, other) {
+                    #( (Self::#unit_v, Self::#unit_v) => { return Option::Some(Ordering::Equal); } )*
+                    #( (Self::#tup_v( #( #tup_a ),* ), Self::#tup_v( #( #tup_b ),* )) => {
+                        #( {
+                            let __o: Option<Ordering> = #tup_a.partial_cmp(#tup_b);
+                            match __o { Option::Some(Ordering::Equal) => {} _ => { return __o; } }
+                        } )*
+                        return Option::Some(Ordering::Equal);
+                    } )*
+                    #( (Self::#st_v { #( #st_f: #st_a ),* }, Self::#st_v { #( #st_f: #st_b ),* }) => {
+                        #( {
+                            let __o: Option<Ordering> = #st_a.partial_cmp(#st_b);
+                            match __o { Option::Some(Ordering::Equal) => {} _ => { return __o; } }
+                        } )*
+                        return Option::Some(Ordering::Equal);
+                    } )*
                     #( (#sn { #( #sn_f: #sn_a ),* }, #sn { #( #sn_f: #sn_b ),* }) => {
                         #( {
                             let __o: Option<Ordering> = #sn_a.partial_cmp(#sn_b);
@@ -73,6 +103,7 @@ fn derive_partial_ord_hook(target_offset: u32) -> () {
                         } )*
                         return Option::Some(Ordering::Equal);
                     } )*
+                    _ => { return Option::Some(Ordering::Equal); }
                 }
             }
         }

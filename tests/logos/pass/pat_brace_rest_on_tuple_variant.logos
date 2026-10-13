@@ -1,0 +1,14 @@
+package pat_brace_rest_on_tuple_variant;
+use logos.std.fmt;
+enum C { A, B(i64, i64), D { v: i64 } }
+fn k(c: &C) -> i64 { match c { C::A { .. } => 1, C::B { .. } => 2, C::D { .. } => 3 } }
+fn main() {
+    let xs = [C::A, C::B(4, 5), C::D { v: 1 }];
+    for c in xs.iter() {
+        match c { C::B { .. } => println!("b {}", k(c)), _ => println!("o {}", k(c)) }
+    }
+    let b = C::B(7, 8);
+    if let C::B { .. } = b { println!("iflet"); }
+    let m = matches!(b, C::B { .. });
+    println!("{}", m);
+}

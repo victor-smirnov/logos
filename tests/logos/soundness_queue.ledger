@@ -137,8 +137,6 @@ for_while_as_expression_refused 4 tests/soundness/open/for_while_as_expression_r
 
 impl_trait_in_let_admitted 4 tests/soundness/open/impl_trait_in_let_admitted admits
 
-indexed_record_pattern_on_variant_refused 4 tests/soundness/open/indexed_record_pattern_on_variant_refused refuses
-
 lifetime_param_order_admitted 4 tests/soundness/open/lifetime_param_order_admitted admits
 
 link_attr_ignored_admitted 4 tests/soundness/open/link_attr_ignored_admitted admits
@@ -379,5 +377,5 @@ rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visibl
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 99
-# SYNC-HASH 39d300f525e12ac95b85bdb0a6d3aebb
+# TOTAL 98
+# SYNC-HASH b2b42224727459cbc50d850949f96504

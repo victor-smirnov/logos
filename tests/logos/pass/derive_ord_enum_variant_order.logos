@@ -1,0 +1,30 @@
+package derive_ord_enum_variant_order;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.mem.collections.vec;
+#[derive_partial_eq]
+#[derive_eq]
+#[derive_partial_ord]
+#[derive_ord]
+enum E<T> { A(T, T), B, C { x: T } }
+#[derive_partial_eq]
+#[derive_eq]
+#[derive_partial_ord]
+#[derive_ord]
+struct P { a: i64, b: i64 }
+#[derive_partial_eq]
+#[derive_eq]
+#[derive_partial_ord]
+#[derive_ord]
+enum K { One, Two, Three }
+fn main() {
+    let mut v: Vec<E<i64>> = Vec::new();
+    v.push(E::C { x: 1 }); v.push(E::B); v.push(E::A(2, 1)); v.push(E::A(1, 9)); v.push(E::C { x: 0 });
+    v.sort();
+    for e in v.iter() { match e { E::A(a, b) => print!("A{}{} ", a, b), E::B => print!("B "), E::C { x } => print!("C{} ", x) } }
+    println!("");
+    println!("{} {} {}", E::A(1, 1) < E::B, E::C { x: 5 } > E::B, E::A(3, 0).partial_cmp(&E::A(3, 0)) == Some(Ordering::Equal));
+    println!("{} {}", P { a: 1, b: 2 } < P { a: 1, b: 3 }, K::Three.max(K::One) == K::Three);
+    println!("{}", (K::Two).cmp(&K::One) == Ordering::Greater);
+}

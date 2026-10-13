@@ -1001,9 +1001,9 @@ A `E::V { f0, f1: p, .. }` pattern is allowed only for struct-shaped variants; n
 
 *Source: tools/peg_gen_cpp/grammars/logos.peg#L2121-L2122; tools/peg_gen_cpp/grammars/logos.peg#L2132-L2137; tools/peg_gen_cpp/grammars/logos.peg#L2181-L2182; tools/peg_gen_cpp/grammars/logos.peg#L2192-L2197*
 
-### `pat.variant.tuple-shape-needs-parens` — Tuple-shape variant rejects brace pattern
+### `pat.variant.tuple-shape-needs-parens` — Tuple-shape variant's brace pattern names fields by position
 
-A tuple-shaped variant (positional payload, no field names) cannot be matched with brace `{ .. }` pattern syntax.
+A tuple-shaped variant (positional payload, no field names) matched with brace syntax names its fields by position, as Rust: `E::V { 0: x, .. }`, `E::V { .. }` (also on a unit variant). Any other field name is refused as "no field named" (rustc E0026), with a tuple-shape hint.
 
 *Source: src/compiler/sema_stmt.cpp#L3569-L3572*
 

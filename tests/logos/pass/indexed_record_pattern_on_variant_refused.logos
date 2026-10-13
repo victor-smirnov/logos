@@ -1,0 +1,11 @@
+// Closed squeue indexed_record_pattern_on_variant_refused (#626): a tuple-shape variant's brace pattern names its fields by position
+// (`Opt::Some { 0: x }`, `E::V { .. }`), as rustc 1.98.1, which accepts it; main returns 7.
+package indexed_record_pattern_on_variant_refused;
+enum Opt { Some(i32), None }
+fn main() -> i32 {
+    let o = Opt::Some(7);
+    match o {
+        Opt::Some { 0: x } => x,
+        Opt::None => 0,
+    }
+}
