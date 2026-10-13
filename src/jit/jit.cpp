@@ -6,6 +6,9 @@
 #include <llvm/ExecutionEngine/Orc/CoreContainers.h>
 #include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
 #include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/MapperJITLinkMemoryManager.h>
+#include <llvm/ExecutionEngine/Orc/MemoryMapper.h>
+#include <llvm/ExecutionEngine/Orc/ObjectLinkingLayer.h>
 #include <llvm/ExecutionEngine/Orc/ObjectFileInterface.h>
 #include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
 #include <llvm/IR/LLVMContext.h>
@@ -79,6 +82,23 @@ bool Jit::init() {
                     std::move(*tm));
             });
     }
+    // ONE address-space reservation for every graph. The layer archives are
+    // small-code-model objects whose duplicate copies are marked Weak (see
+    // add_static_archive): an edge to a symbol its own graph defines gets no
+    // stub, yet the weak may resolve to another archive's copy — and with the
+    // default allocator each graph is its own mmap, which can land 2 GiB+
+    // away, out of reach of a rel32 branch ("relocation target ... is out of
+    // range of BranchPCRel32 fixup"; seen under load, gone on rerun). The
+    // layer archives total ~70 MB, so 1 GiB keeps every graph in range.
+    builder.setObjectLinkingLayerCreator(
+        [](llvm::orc::ExecutionSession& es, const llvm::Triple&)
+            -> llvm::Expected<std::unique_ptr<llvm::orc::ObjectLayer>> {
+            auto mm = llvm::orc::MapperJITLinkMemoryManager::CreateWithMapper<
+                llvm::orc::InProcessMemoryMapper>(size_t(1) << 30);
+            if (!mm) return mm.takeError();
+            // LLJIT adds its own eh-frame plugin to an ObjectLinkingLayer.
+            return std::make_unique<llvm::orc::ObjectLinkingLayer>(es, std::move(*mm));
+        });
     auto jit = builder.create();
     if (!jit) {
         last_err_ = take_err(jit.takeError());
