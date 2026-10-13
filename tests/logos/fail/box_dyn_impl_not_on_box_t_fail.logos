@@ -1,0 +1,8 @@
+// `impl Tag for Box<dyn Shape>` gives `Box<Sq>` and `Box<i64>` no `tag` (rustc E0599). It was registered under the generic `Box` and crashed codegen.
+package box_dyn_impl_not_on_box_t_fail; use logos.mem.boxed; use logos.std.fmt;
+trait Shape { fn area(&self) -> i64; }
+trait Tag { fn tag(&self) -> i64; }
+struct Sq { s: i64 }
+impl Shape for Sq { fn area(&self) -> i64 { self.s * self.s } }
+impl Tag for Box<dyn Shape> { fn tag(&self) -> i64 { 7 } }
+fn main() { let b: Box<Sq> = Box::new(Sq { s: 3 }); println!("{}", b.tag()); let i: Box<i64> = Box::new(1); println!("{}", i.tag()); }

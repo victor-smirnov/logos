@@ -1,0 +1,23 @@
+// `impl … for Box<dyn Tr>` targets the owning trait object, not every `Box<T>`: its methods win over the vtable for a Box<dyn> receiver (direct and through a generic `T: Shape`), `Box::from` into a `Box<dyn P>` picks the impl by the expectation, and `&Box<T>` infers T = dyn Shape. rustc 1.98.1 prints the same.
+package box_dyn_impl_target;
+use logos.mem.boxed; use logos.std.fmt; use logos.lang.ops;
+trait Shape { fn area(&self) -> i64; }
+trait Problem { fn msg(&self) -> i32; }
+struct Sq { s: i64 }
+struct Neg;
+impl Shape for Sq { fn area(&self) -> i64 { self.s * self.s } }
+impl Problem for Neg { fn msg(&self) -> i32 { 4 } }
+impl Shape for Box<dyn Shape> { fn area(&self) -> i64 { (**self).area() + 1 } }
+impl From<Neg> for Box<dyn Problem> { fn from(n: Neg) -> Self { Box::new(n) } }
+fn get<T: Shape>(t: &T) -> i64 { t.area() }
+fn one<T: Shape + ?Sized>(x: &Box<T>) -> i64 { x.area() }
+fn main() {
+    let b: Box<dyn Shape> = Box::new(Sq { s: 3 });
+    println!("{}", get(&b));
+    println!("{}", one(&b));
+    println!("{}", one::<dyn Shape>(&b));
+    println!("{}", b.area());
+    let p: Box<dyn Problem> = Box::from(Neg);
+    let q: Box<dyn Problem> = Neg.into();
+    println!("{} {}", p.msg(), q.msg());
+}

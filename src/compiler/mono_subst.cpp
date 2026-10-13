@@ -232,6 +232,19 @@ TypeRef Mono::subst_type(TypeRef tv, const SubstMap& s) noexcept {
             new_args.push_back(na);
         }
         if (!changed) return tv;
+        // `Box<T>` at T := `dyn Tr` is the owning trait object (sema's
+        // subst_type_sema collapses it the same way).
+        if (new_args.size() == 1 && new_args[0] && is_stdlib_box(tv)) {
+            TypeRef ti(new_args[0]);
+            if (ti.kind() == LogosType::Kind::UnsizedDyn ||
+                (ti.kind() == LogosType::Kind::TraitObject && !ti.owning_trait_object())) {
+                LogosTypeBuilder to = ti.to_builder();
+                to.kind = LogosType::Kind::TraitObject;
+                // owning kind in the low byte; the Send/Sync bound bits (8, 9) ride along
+                to.const_val = int64_t(uint8_t(TypeRef::OwningKind::Box)) | (ti.const_val().value_or(0) & int64_t(0x300));
+                return out_.type_pool.alloc(std::move(to));
+            }
+        }
         LogosTypeBuilder nt = tv.to_builder();
         nt.type_args = std::move(new_args);
         // Track this instantiation for struct monomorphization.

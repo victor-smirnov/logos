@@ -6234,6 +6234,17 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
             unify_types(formal.elem(), TypeRef(actual_norm.pointee()).elem(), bindings);
         break;
     case LogosType::Kind::Struct:
+        // `Box<T>` against a `Box<dyn Tr>` (the owning trait object): T = `dyn Tr`.
+        if (actual_norm.kind() == LogosType::Kind::TraitObject && formal.type_args().size() == 1 &&
+            !box_dyn_impl_target_(actual_norm).empty() && type_is_lang_item(formal, "owned_box")) {
+            LogosTypeBuilder ud;
+            ud.kind = LogosType::Kind::UnsizedDyn;
+            ud.trait_name = std::string(actual_norm.trait_name());
+            ud.pkg_name = std::string(actual_norm.pkg_name());
+            ud.type_args = actual_norm.type_args();
+            unify_types(formal.type_args()[0], pool_->alloc(std::move(ud)), bindings);
+            break;
+        }
         if (actual_norm.kind() == LogosType::Kind::Struct &&
             formal.struct_name() == actual_norm.struct_name()) {
             auto fa = formal.type_args();
@@ -10271,6 +10282,35 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
     // Phase 1B-11: inherent `impl Trait for dyn Foo` methods. Mangled as
     // `$dyn$Foo__method` (Phase 1B-10 collection). Try this BEFORE vtable
     // dispatch so impls override / extend trait-method resolution.
+    // A `Box<dyn Tr>` receiver probes its own `impl … for Box<dyn Tr>` first,
+    // auto-ref'd as any receiver (rustc's by-ref step precedes the deref to
+    // `dyn Tr`, whose methods are the vtable's).
+    // A receiver written `*b` / `**self` is the `dyn Tr` itself (the deref of
+    // an owning trait object is its identity in the representation).
+    auto recv_is_deref = [&] {
+        if (!node.has_key(la::RECEIVER)) return false;
+        auto n = map_of(node.get(la::RECEIVER.code));
+        while (!n.is_null() && code_of(n) == la::PAREN_EXPR && n.has_key(la::VALUE)) n = map_of(n.get(la::VALUE.code));
+        return !n.is_null() && code_of(n) == la::DEREF;
+    };
+    if (std::string bd = box_dyn_impl_target_(dyn_t); !bd.empty() && !recv_is_deref()) {
+        const OwnerId own = owner_id_of_(dyn_t);
+        const SemaFuncInfo* c = nullptr;
+        for (auto* m : methods_of_(dyn_t, method_name))
+            if (m && m->owner_id == own && m->type_params.empty() && !m->param_types.empty()) { c = m; break; }
+        if (c) {
+            TypeRef p0 = c->param_types[0];
+            lir::LExprPtr r = std::move(recv);
+            if (p0 && is_ref_like(TypeRef(p0).kind()) && !is_ref_like(TypeRef(expr_type(r)).kind()))
+                r = materialize_recv_ref(std::move(r), TypeRef(p0).kind() == LogosType::Kind::MutRef, p0,
+                                         BorrowOrigin::Autoref);
+            std::vector<lir::LExprPtr> pargs;
+            pargs.push_back(std::move(r));
+            for (auto& a : lower_call_args(node)) pargs.push_back(std::move(a));
+            return builder().call(c->symbol_name.empty() ? bd + "__" + std::string(method_name) : c->symbol_name,
+                                  {}, std::move(pargs), c->ret_type);
+        }
+    }
     {
         std::string dyn_key = "$dyn$" + tname + "__" + std::string(method_name);
         std::vector<lir::LExprPtr> d_args = lower_call_args(node);
@@ -18434,11 +18474,25 @@ lir::LExprPtr SemaChecker::lower_static_call(TinyMapView node) {
         resolved_class = method_owner_base_(resolved_class);
     }
     std::string mangled = resolved_class + "__" + std::string(method_name);
+    // `Box::m(..)` expected to be a `Box<dyn Tr>`, with `m` declared by an
+    // `impl … for Box<dyn Tr>`: Self is that impl's target (rustc infers the
+    // path's Self from the expectation; `Box::from(Neg)` into `Box<dyn P>`).
+    bool box_dyn_self = false;
+    if (std::string bd = box_dyn_impl_target_(call_expected); !bd.empty() && lang_pkg.empty())
+        if (const LangItem* bx = lang_item("owned_box");
+            bx && resolve_type_path_(class_name) == bx->package + "::" + bx->name)
+            for (auto* c : methods_of_(call_expected, method_name))
+                if (c && c->owner_id == owner_id_of_(call_expected)) {
+                    resolved_class = bd;
+                    mangled = bd + "__" + std::string(method_name);
+                    box_dyn_self = true;
+                    break;
+                }
     // The type the class path names (Rust's per-scope rule): its methods only.
     struct OwnerGuard { SemaChecker* s; DefId d; std::string k;
                         ~OwnerGuard() { s->call_owner_def_ = d; s->call_owner_key_ = std::move(k); } }
         _og{this, call_owner_def_, call_owner_key_};
-    if (lang_pkg.empty())
+    if (lang_pkg.empty() && !box_dyn_self)
         if (std::string p = resolve_type_path_(class_name); !p.empty()) {
             const auto sep = p.rfind("::");
             const DefId d = type_id(p.substr(0, sep), p.substr(sep + 2));

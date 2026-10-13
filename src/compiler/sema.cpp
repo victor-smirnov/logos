@@ -7238,6 +7238,18 @@ TypeRef SemaChecker::subst_type_sema(TypeRef t, const SemaSubst& s,
             else                  new_lt_args.push_back(lt);
         }
         if (!changed && !lt_changed) return t;
+        // `Box<T>` at T := `dyn Tr` is the owning trait object, as a written
+        // `Box<dyn Tr>` resolves (resolve_type's Box<dyn> collapse).
+        if (changed && new_args.size() == 1 && new_args[0] && type_is_lang_item(t, "owned_box")) {
+            TypeRef ti(new_args[0]);
+            if (ti.kind() == LogosType::Kind::UnsizedDyn ||
+                (ti.kind() == LogosType::Kind::TraitObject && !ti.owning_trait_object())) {
+                std::vector<TypeRef> targs = ti.type_args();
+                return make_trait_object(ti.trait_name(), std::move(targs), TraitOwningKind::Box,
+                                         ti.trait_requires_send(), ti.trait_requires_sync(),
+                                         std::string(ti.lifetime()), ti.pkg_name());
+            }
+        }
         LogosTypeBuilder nt;
         nt.kind = t.kind();
         nt.struct_name = t.struct_name();

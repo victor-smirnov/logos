@@ -2578,7 +2578,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
             target = std::string(str_of(tnode.get(la::NAME.code)));
             if (impl_tps.empty()) {
                 auto resolved = resolve_type(tnode);
-                if (resolved && !TypeRef(resolved).type_args().empty()) {
+                if (auto bd = box_dyn_impl_target_(resolved); !bd.empty()) {
+                    target = bd;   // mirrors collect_impl
+                    target_resolved = resolved;
+                } else if (resolved && !TypeRef(resolved).type_args().empty()) {
                     bool concrete = true;
                     for (auto a : TypeRef(resolved).type_args())
                         if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { concrete = false; break; }
@@ -3160,7 +3163,10 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     if (target_resolved) {
         auto tk = TypeRef(target_resolved).kind();
         if (tk == LogosType::Kind::Tuple || LogosType::is_fn_value_kind(tk) ||
-            tk == LogosType::Kind::Ref   || tk == LogosType::Kind::MutRef)
+            tk == LogosType::Kind::Ref   || tk == LogosType::Kind::MutRef ||
+            // `impl Tr for Box<dyn Tr2>`: the target is the owning trait object,
+            // and the struct-name fallback would read `Self` as the generic `Box`.
+            (tk == LogosType::Kind::TraitObject && TypeRef(target_resolved).owning_trait_object()))
             seed_self = self_named;
         else if ((tk == LogosType::Kind::Struct ||
                   tk == LogosType::Kind::ZonedStruct ||

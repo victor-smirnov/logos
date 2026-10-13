@@ -3715,7 +3715,10 @@ void SemaChecker::collect_impl(TinyMapView node) {
             if (impl_tps.empty()) {
                 // No own type params — may be a concrete specialization like impl Pair<i32>.
                 auto resolved = resolve_type(tnode);
-                if (resolved && !TypeRef(resolved).type_args().empty()) {
+                if (auto bd = box_dyn_impl_target_(resolved); !bd.empty()) {
+                    target = bd;
+                    target_resolved = resolved;
+                } else if (resolved && !TypeRef(resolved).type_args().empty()) {
                     bool concrete = true;
                     for (auto a : TypeRef(resolved).type_args())
                         if (a && TypeRef(a).kind() == LogosType::Kind::TypeVar) { concrete = false; break; }

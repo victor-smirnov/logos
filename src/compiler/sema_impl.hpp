@@ -6303,6 +6303,14 @@ private:
     // lower_impl_block alike): the target's spelling, except that a plain
     // nominal struct (no type arguments) is spelled by concrete_struct_name —
     // the encoder every lookup composes with.
+    // `impl Tr for Box<dyn Tr2>` (collect_impl and lower_impl_block alike): the
+    // target is the OWNING trait object, keyed apart from the generic `Box`
+    // (whose name it spells) and from `dyn Tr2`; empty for any other type.
+    static std::string box_dyn_impl_target_(TypeRef t) {
+        if (!t || TypeRef(t).kind() != LogosType::Kind::TraitObject || !TypeRef(t).owning_trait_object() ||
+            TypeRef(t).trait_owning_kind() != TypeRef::OwningKind::Box) return {};
+        return "$boxdyn$" + std::string(TypeRef(t).trait_name());
+    }
     std::string impl_method_base_(writ::TinyMapView tnode, const std::string& target, TypeRef target_resolved) {
         if (target_resolved || tnode.is_null()) return target;
         return method_owner_base_(target);
@@ -6949,7 +6957,10 @@ private:
         case K::Slice: case K::UnsizedSlice:     return "[]";
         case K::Array:                           return "[;]";
         case K::Tuple:                           return "(" + std::to_string(b.tuple_elems().size()) + ")";
-        case K::TraitObject: case K::UnsizedDyn: return "dyn " + std::string(b.trait_name());
+        case K::TraitObject:
+            if (b.owning_trait_object()) return "Box<dyn " + std::string(b.trait_name()) + ">";
+            return "dyn " + std::string(b.trait_name());
+        case K::UnsizedDyn:                      return "dyn " + std::string(b.trait_name());
         case K::Ptr:                             return b.mut_ptr() ? "*mut" : "*const";
         default:                                 return type_str_regions_erased(b);
         }
@@ -6993,6 +7004,9 @@ private:
             }
         };
         take(o);
+        // A `Box<dyn Tr>` receiver reaches `impl … for dyn Tr` through its deref.
+        if (o.shape.rfind("Box<dyn ", 0) == 0)
+            take(OwnerId{{}, o.ref, o.shape.substr(4, o.shape.size() - 5)});
         // `impl<T> Tr for &T` / `&mut T` owns every reference.
         if (o.ref && o.shape != "_") take(OwnerId{{}, o.ref, "_"});
         // Declaration order, not the registries' hash order (an overload set's

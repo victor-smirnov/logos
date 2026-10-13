@@ -3372,6 +3372,23 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             // The mirror stores vtable_index in a 24-bit field, so an unset
             // `-1` round-trips as 0x00FFFFFF. Treat any value with the 24-bit
             // sign bit set as "unset/virtual-unknown".
+            // `Box::deref` on a `Box<T>` that monomorphised to `Box<dyn Tr>` (the
+            // owning trait object, no struct): the box IS the fat pair, so its
+            // deref is that pair read as the borrowed `&dyn Tr`.
+            if (method == "deref" && new_recv && new_recv.type(out_.type_pool.impl())) {
+                TypeRef nrt = new_recv.type(out_.type_pool.impl());
+                TypeRef to = (nrt.kind() == LogosType::Kind::Ref && nrt.pointee()) ? TypeRef(nrt.pointee()) : TypeRef{};
+                std::string_view rb = bare_fn_name(resolved_symbol);
+                if (to && to.kind() == LogosType::Kind::TraitObject && to.owning_trait_object() &&
+                    to.trait_owning_kind() == TypeRef::OwningKind::Box &&
+                    rb.substr(rb.rfind('.') == std::string_view::npos ? 0 : rb.rfind('.') + 1).starts_with("Box__deref")) {
+                    LogosTypeBuilder bt = to.to_builder();
+                    bt.const_val = int64_t(uint8_t(TypeRef::OwningKind::Borrow)) | (to.const_val().value_or(0) & int64_t(0x300));
+                    if (bt.const_val == 0) bt.const_val.reset();
+                    mp_ = lir_mirror_emit_deref(out_, out_.type_pool.alloc(std::move(bt)), new_recv);
+                    break;
+                }
+            }
             bool vtable_unset = ((uint32_t)vtable_index) >= 0x00800000u;
             if (vtable_unset && resolved_symbol.empty() && tag_system.empty() &&
                 new_recv && new_recv.type(out_.type_pool.impl())) {
@@ -3381,6 +3398,28 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                TypeRef(nrt).kind() == LogosType::Kind::MutRef) &&
                        TypeRef(nrt).pointee())
                     nrt = TypeRef(nrt).pointee();
+                // A `Box<dyn Tr>` with its own `impl … for Box<dyn Tr>` declaring
+                // the method: that impl, as for any other concrete Self — the
+                // vtable answers only for `dyn Tr` itself.
+                if (nrt && TypeRef(nrt).kind() == LogosType::Kind::TraitObject &&
+                    TypeRef(nrt).owning_trait_object() &&
+                    TypeRef(nrt).trait_owning_kind() == TypeRef::OwningKind::Box) {
+                    const std::string key = "$boxdyn$" + std::string(TypeRef(nrt).trait_name()) + "__" + method;
+                    std::string sym;
+                    for (auto* pr : {&out_, &in_}) {
+                        for (auto& f : pr->functions) {
+                            std::string_view b = bare_fn_name(f.name());
+                            if (b == key || starts_with_parts(b, key, "__")) { sym = std::string(f.name()); break; }
+                        }
+                        if (!sym.empty()) break;
+                    }
+                    if (!sym.empty()) {
+                        std::vector<lir_view::ExprRef> c_args{new_recv};
+                        v.each_arg([&](lir_view::ExprRef ar) { c_args.push_back(subst_child_expr(ar)); });
+                        mp_ = lir_mirror_emit_call(out_, rt_, sym, {}, c_args, nullptr);
+                        break;
+                    }
+                }
                 if (nrt && (TypeRef(nrt).kind() == LogosType::Kind::TraitObject ||
                             TypeRef(nrt).kind() == LogosType::Kind::UnsizedDyn) &&
                     !TypeRef(nrt).trait_name().empty()) {
