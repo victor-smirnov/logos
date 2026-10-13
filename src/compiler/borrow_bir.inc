@@ -1742,6 +1742,9 @@ private:
                         if (ct && (ct.kind() == LogosType::Kind::Ref ||
                                    ct.kind() == LogosType::Kind::MutRef) && ct.pointee()) {
                             // Called through `&F` / `&mut F`: a reborrow of `*f`.
+                            // An FnMut call of a `&F` is `impl<F: Fn> FnMut for &F`,
+                            // which only reads through it (`Fn::call(&**self)`).
+                            if (ct.kind() == LogosType::Kind::Ref) m = false;
                             pointee = ct.pointee();
                             bir::Proj d(bir::Proj::K::Deref);
                             d.ty = pointee;
