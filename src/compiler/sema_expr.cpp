@@ -19625,7 +19625,39 @@ TypeRef SemaChecker::closure_hint_from_fn_bound(
             TypeRef cret = b.fn_ret
                 ? (subst.empty() ? b.fn_ret : subst_type_sema(b.fn_ret, subst))
                 : void_t();
-            return make_closure_type(std::move(cps), cret);
+            // EARLY-BOUND parameter region: a bound parameter that is a type
+            // parameter or projection (`FnMut(Self::Item) -> B`, Item = `&'a T`)
+            // names the caller's region, not a higher-ranked one, so a result
+            // typed by a parameter (`B`) may hold it. Only a reference WRITTEN
+            // in the Fn sugar is higher-ranked.
+            auto borrowed = [](TypeRef t) {
+                if (!t) return false;
+                auto k = TypeRef(t).kind();
+                return k == LogosType::Kind::Ref || k == LogosType::Kind::MutRef ||
+                       (k == LogosType::Kind::Slice && !TypeRef(t).owning_slice() && !TypeRef(t).raw_fat());
+            };
+            bool early = b.fn_ret && !borrowed(b.fn_ret) &&
+                         (TypeRef(b.fn_ret).kind() == LogosType::Kind::TypeVar ||
+                          TypeRef(b.fn_ret).kind() == LogosType::Kind::AssocType);
+            // …or a reference whose region is NAMED and in scope (the impl's
+            // `'a` of `Item = &'a T`), not one of the bound's own `for<>` binders.
+            auto named_outer = [&](TypeRef t) {
+                if (!borrowed(t)) return false;
+                std::string lt(TypeRef(t).lifetime());
+                if (lt.empty() || lt == "'_" || lt == "'static" || lt_is_minted(lt)) return false;
+                return std::find(b.hrtb_binders.begin(), b.hrtb_binders.end(), lt) == b.hrtb_binders.end();
+            };
+            bool early_param = false;
+            for (size_t i = 0; i < b.fn_params.size() && i < cps.size(); ++i)
+                if ((!borrowed(b.fn_params[i]) && borrowed(cps[i])) || named_outer(b.fn_params[i]))
+                    early_param = true;
+            early = early && early_param;
+            TypeRef hint = make_closure_type(std::move(cps), cret);
+            // Keyed by the region-erased spelling (the closure sees the hint with
+            // its regions erased); a same-spelled higher-ranked hint is not early.
+            auto [eit, fresh] = closure_hint_early_bound_.emplace(type_str_regions_erased(hint), early);
+            if (!fresh && !early) eit->second = false;
+            return hint;
         }
         break;
     }
@@ -19881,6 +19913,10 @@ lir::LExprPtr SemaChecker::lower_closure_expr(TinyMapView node) {
                 if (!olt_.empty() ? in_.count(olt_) != 0 : in_.size() == 1)
                     ret_tied_by_bound_ = true;
             }
+            if (hc_)
+                if (auto eit = closure_hint_early_bound_.find(type_str_regions_erased(hc_));
+                    eit != closure_hint_early_bound_.end() && eit->second)
+                    ret_tied_by_bound_ = true;
         }
         // (B) an UNANNOTATED closure under a bound whose return is a `&`
         // adopts that return. NARROWED TO `&` ON PURPOSE — the unnarrowed form

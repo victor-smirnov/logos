@@ -178,8 +178,6 @@ assoc_type_projection_expr_path_refused 3 tests/soundness/open/assoc_type_projec
 
 box_dyn_fn_not_fn_refused 3 tests/soundness/open/box_dyn_fn_not_fn_refused refuses
 
-closure_return_region_of_param_refused 3 tests/soundness/open/closure_return_region_of_param_refused refuses
-
 dyn_assoc_binding_refused 3 tests/soundness/open/dyn_assoc_binding_refused refuses
 
 qualified_path_generic_self_type_refused 3 tests/soundness/open/qualified_path_generic_self_type_refused refuses
@@ -220,8 +218,6 @@ default_method_generics_shadow_impl_generics_refused 3 tests/soundness/open/defa
 str_is_u8_slice_debug_quotes_bytes 2 tests/soundness/open/str_is_u8_slice_debug_quotes_bytes run 3
 
 rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visible_admitted admits
-
-closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_data_refused refuses
 
 # ── 2026-10-01 ADR 0030 S0-S7 gap audit: the clusters OUTSIDE ADR 0030 (grammar / metaprog / stdlib)
 
@@ -386,5 +382,5 @@ closure_returns_param_data_refused 3 tests/soundness/open/closure_returns_param_
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 fn_ref_as_fnmut_refused 3 tests/soundness/open/fn_ref_as_fnmut_refused refuses
 
-# TOTAL 103
-# SYNC-HASH 64660bb68562941bb6509f5f4e236397
+# TOTAL 101
+# SYNC-HASH 8f74d78d54548eab499a0fe9040b921f

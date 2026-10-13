@@ -1,0 +1,7 @@
+// The twin of closure_returns_param_data_refused: under `F: Fn(&i32) -> R` the parameter's
+// region is higher-ranked (written in the Fn sugar), so `R` cannot hold it (rustc: lifetime
+// may not live long enough).
+package closure_hrtb_param_into_type_param_fail;
+use logos.std.fmt;
+fn ap<R, F: Fn(&i32) -> R>(f: F) -> i32 { let x = 5; let _r = f(&x); 0 }
+fn main() { println!("{}", ap(|v| v)); }
