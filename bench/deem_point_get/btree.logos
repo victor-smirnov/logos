@@ -1,0 +1,32 @@
+// ADR 0026 F4 — a point get through Deem against the source's own lookup (BTreeMap).
+// `run.sh` substitutes MODE: 0 = build only (the control), 1 = the Deem query, 2 = the direct lookup.
+package deem_point_get_btree;
+use logos.std.wql.wql;
+use logos.mem.collections.btree;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+pub deem pt(m: &BTreeMap<i64, i64>, k: i64) { from m e where e.key == k select e.val }
+
+fn main() -> i32 {
+    let mut m: BTreeMap<i64, i64> = btreemap_new::<i64, i64>();
+    let mut i: i64 = 0i64;
+    while i < 10000i64 {
+        unsafe { (*(&mut m as *mut BTreeMap<i64, i64>)).insert(i * 2i64, i); }
+        i = i + 1i64;
+    }
+    let mut s: i64 = 0i64;
+    let mut q: i64 = 0i64;
+    while q < 20000i64 {
+        if MODE == 1 {
+            match pt(&m, q) { Result::Ok(v) => { if v.len() == 1i64 { s = s + v.get(0i64); } } Result::Err(_e) => { return 1i32; } }
+        }
+        if MODE == 2 {
+            let p: *const i64 = unsafe { m.get(&q) };
+            if p != 0 as *const i64 { s = s + unsafe { *p }; }
+        }
+        q = q + 1i64;
+    }
+    if MODE != 0 && s != 49995000i64 { return 2i32; }
+    return 0i32;
+}

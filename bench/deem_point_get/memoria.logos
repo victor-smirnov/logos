@@ -1,0 +1,41 @@
+// ADR 0026 F4 — a point get through Deem against the source's own lookup (Memoria Map<u64,u64>).
+// `run.sh` substitutes MODE: 0 = build only (the control), 1 = the Deem query, 2 = the direct lookup.
+package deem_point_get_memoria;
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+
+pub container Map<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+pub deem pt(c: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, k: u64) { from c e where e.key == k select e.val }
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut led = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 1u64);
+    let mut k: u64 = 0u64;
+    while k < 10000u64 { led.insert(k * 2u64, k); k = k + 1u64; }
+    let mut s: u64 = 0u64;
+    let mut q: u64 = 0u64;
+    while q < 20000u64 {
+        if MODE == 1 {
+            match pt(&led, q) { Result::Ok(v) => { if v.len() == 1i64 { s = s + v.get(0i64); } } Result::Err(_e) => { return 1i32; } }
+        }
+        if MODE == 2 {
+            match led.find(q) { Option::Some(v) => { s = s + v; } Option::None => {} }
+        }
+        q = q + 1u64;
+    }
+    if MODE != 0 && s != 49995000u64 { return 2i32; }
+    return 0i32;
+}
