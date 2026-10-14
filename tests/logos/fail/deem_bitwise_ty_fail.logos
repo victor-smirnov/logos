@@ -1,0 +1,7 @@
+// The bitwise operators take integers: `&` over a bool column is refused.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct R { pub a: i64, pub ok: bool }
+pub deem q(rs: &[R]) { from rs r select r.ok & r.ok }
+fn main() -> i32 { return 0i32; }

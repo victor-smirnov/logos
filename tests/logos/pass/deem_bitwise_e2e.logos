@@ -1,0 +1,63 @@
+// deem_bitwise_e2e — the EL's integer bitwise operators `&` `|` `^` `<<` `>>`
+// and `!` over an integer (its complement), at Rust's precedence (`|` < `^` <
+// `&` < shifts < `+`), computed in the operands' own type. A shift's amount
+// outside `[0, width)` is an `ElError::Overflow`, as Rust's `checked_shl`
+// refuses it; the shifted-out bits wrap off. The oracle exports them as
+// Soufflé's band / bor / bxor / bshl / bshr / bnot.
+//   (a) the five, over i64 columns; (b) precedence without parentheses;
+//   (c) a u8 column keeps its type (bits shift off the top); (d) `!` over an
+//   i32; (e) a flag test in `where`; (f) an out-of-width shift is an Err;
+//   (g) an i32 shifted past its sign bit wraps (the oracle sign-extends it back).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct R { pub a: i64, pub b: i64, pub f: u8, pub s: i32, pub id: i64 }
+
+// (a)
+pub deem ops(rs: &[R]) { from rs r select (r.a & r.b, r.a | r.b, r.a ^ r.b, r.a << 2, r.a >> 1) order by r.id }
+// (b) `1 | r.a & 6 << 1` is `1 | (r.a & (6 << 1))`
+pub deem prec(rs: &[R]) { from rs r select 1 | r.a & 6 << 1 order by r.id }
+// (c)
+pub deem bytes(rs: &[R]) { from rs r select (r.f << 4, r.f >> 4) order by r.id }
+// (d)
+pub deem comp(rs: &[R]) { from rs r select !r.s order by r.id }
+// (e)
+pub deem flagged(rs: &[R]) { from rs r where r.b & 4 != 0 select r.id order by r.id }
+// (f)
+pub deem wide(rs: &[R], k: i64) { from rs r select r.a << k }
+
+// (g)
+pub deem signwrap(rs: &[R]) { from rs r select r.s << 29 order by r.id }
+
+fn main() -> i32 {
+    let rs: [R; 2] = [
+        R { a: 12i64, b: 10i64, f: 0xABu8, s: 0i32, id: 1i64 },
+        R { a: -8i64, b: 5i64, f: 1u8, s: 7i32, id: 2i64 },
+    ];
+    let a: Vec<(i64, i64, i64, i64, i64)> = ops(&rs[..]).unwrap();
+    if a.len() != 2i64 { return 1i32; }
+    let a0: (i64, i64, i64, i64, i64) = a.get(0i64);
+    if a0.0 != 8i64 || a0.1 != 14i64 || a0.2 != 6i64 || a0.3 != 48i64 || a0.4 != 6i64 { return 2i32; }
+    let a1: (i64, i64, i64, i64, i64) = a.get(1i64);
+    if a1.0 != 0i64 || a1.1 != -3i64 || a1.2 != -3i64 || a1.3 != -32i64 || a1.4 != -4i64 { return 3i32; }
+    let b: Vec<i64> = prec(&rs[..]).unwrap();
+    // 12 & 12 = 12, | 1 = 13;  -8 & 12 = 8, | 1 = 9
+    if b.len() != 2i64 || b.get(0i64) != 13i64 || b.get(1i64) != 9i64 { return 4i32; }
+    let c: Vec<(u8, u8)> = bytes(&rs[..]).unwrap();
+    if c.len() != 2i64 || c.get(0i64).0 != 0xB0u8 || c.get(0i64).1 != 0x0Au8 || c.get(1i64).0 != 16u8 || c.get(1i64).1 != 0u8 { return 5i32; }
+    let d: Vec<i32> = comp(&rs[..]).unwrap();
+    if d.len() != 2i64 || d.get(0i64) != -1i32 || d.get(1i64) != -8i32 { return 6i32; }
+    let e: Vec<i64> = flagged(&rs[..]).unwrap();
+    if e.len() != 1i64 || e.get(0i64) != 2i64 { return 7i32; }
+    match wide(&rs[..], 64i64) { Result::Ok(_v) => { return 8i32; } Result::Err(_x) => { } }
+    match wide(&rs[..], -1i64) { Result::Ok(_v) => { return 9i32; } Result::Err(_x) => { } }
+    let f: Vec<i64> = wide(&rs[..], 63i64).unwrap();
+    if f.len() != 2i64 || f.get(0i64) != 0i64 { return 10i32; }
+    let g: Vec<i32> = signwrap(&rs[..]).unwrap();
+    if g.len() != 2i64 || g.get(0i64) != 0i32 || g.get(1i64) != -536870912i32 { return 11i32; }
+    return 0i32;
+}

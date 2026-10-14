@@ -295,6 +295,14 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
                || op == OP_EQ() || op == OP_NE()
                || op == OP_LT() || op == OP_LE()
                || op == OP_GT() || op == OP_GE() { return "bool"; }
+            if el_is_bit_op(op) {
+                // the operands' own integer type (a literal names none)
+                let bl: str = operand_named_ty(b.lhs_expr(), t);
+                if bl.len() > 0i64 { return bl; }
+                let br: str = operand_named_ty(b.rhs_expr(), t);
+                if br.len() > 0i64 { return br; }
+                return "i64";
+            }
             let lc: i32 = t.class_of_name(infer_ty_name(b.lhs_expr(), t));
             let rc: i32 = t.class_of_name(infer_ty_name(b.rhs_expr(), t));
             if op == OP_ADD() && (lc == EL_TY_STR() || rc == EL_TY_STR()) { return "str"; }
@@ -303,7 +311,12 @@ pub fn infer_ty_name(e: SExpr, t: &ElTypes) -> str {
             return arith_node_ty(e, t);
         }
         SExpr::Un(u) => {
-            if u.op == OP_NOT() { return "bool"; }
+            if u.op == OP_NOT() {
+                // `!` over an integer is its bitwise complement, as in Rust
+                let an: str = infer_ty_name(u.arg_expr(), t);
+                if t.class_of_name(an) == EL_TY_INT() { return an; }
+                return "bool";
+            }
             let ac: i32 = t.class_of_name(infer_ty_name(u.arg_expr(), t));
             if ac == EL_TY_FLT() { return float_node_ty(e, t); }
             if ac == EL_TY_INT() { return arith_node_ty(e, t); }
@@ -1926,6 +1939,26 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 emit_arith_fit_close(out, nt, tw);
                 return;
             }
+            // BITWISE: computed in the node's own type. `&` `|` `^` cannot leave
+            // it; a shift's AMOUNT is checked against the width (`el_shamt`), as
+            // Rust's `checked_shl` does — the shifted bits themselves wrap off.
+            if el_is_bit_op(op) {
+                let bt: str = infer_ty_name(e, t);
+                out.push_str("(");
+                emit_sexpr_as(out, lhs, t, var, bt);
+                if op == OP_SHL() || op == OP_SHR() {
+                    out.push_str(if op == OP_SHL() { " << logos.std.wql.el::el_shamt(((" } else { " >> logos.std.wql.el::el_shamt(((" });
+                    emit_sexpr_as(out, rhs, t, var, bt);
+                    out.push_str(") as i64), ");
+                    out.push_i64(el_int_bits(bt));
+                    out.push_str("i64)?)");
+                    return;
+                }
+                out.push_str(emit_binop(op));
+                emit_sexpr_as(out, rhs, t, var, bt);
+                out.push_str(")");
+                return;
+            }
             // STRING concatenation `a + b`: an OWNED `String` (`wql_cat`), as
             // `upper`/`lower` are — `str + str` is no Logos operator
             if op == OP_ADD() && (lt == EL_TY_STR() || rt == EL_TY_STR()) {
@@ -2031,6 +2064,21 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
             out.push_str("0i64");
         }
     }
+}
+
+/// The width in bits of an integer type name (`isize`/`usize` are 64).
+pub fn el_int_bits(n: str) -> i64 {
+    if str_eq(n, "isize") || str_eq(n, "usize") { return 64i64; }
+    if n.len() < 2i64 { return 64i64; }
+    let mut w: i64 = 0i64;
+    let mut i: i64 = 1i64;
+    while i < n.len() {
+        let c: u8 = str_byte_at(n, i);
+        if c < 48u8 || c > 57u8 { return 64i64; }
+        w = w * 10i64 + ((c - 48u8) as i64);
+        i = i + 1i64;
+    }
+    return w;
 }
 
 /// The type `min(a, b)` / `max(a, b)` is in: the one its non-literal
@@ -2402,6 +2450,22 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
             return true;
         }
         SExpr::Bin(b)  => {
+            if el_is_bit_op(b.op) {
+                // integers only — a bool, a float or a string has no bits to combine
+                let lcl: i32 = t.class_of_name(infer_ty_name(b.lhs_expr(), t));
+                let rcl: i32 = t.class_of_name(infer_ty_name(b.rhs_expr(), t));
+                if lcl != EL_TY_INT() || rcl != EL_TY_INT() {
+                    let mut mb: String = String::new();
+                    mb.push_str(ctx);
+                    mb.push_str(": `");
+                    sexpr_display(&mut mb, e);
+                    mb.push_str("` — the bitwise operators `&` `|` `^` `<<` `>>` take integers (Soufflé's band / bor / bxor / bshl / bshr), and an operand is `");
+                    mb.push_str(if lcl != EL_TY_INT() { infer_ty_name(b.lhs_expr(), t) } else { infer_ty_name(b.rhs_expr(), t) });
+                    mb.push_str("`");
+                    ty_error(t, e, string_as_str(&mb));
+                    return false;
+                }
+            }
             if !check_arith_operand(e, b.lhs_expr(), t, ctx) { return false; }
             if !check_arith_operand(e, b.rhs_expr(), t, ctx) { return false; }
             if !check_operand_types_agree(e, b.lhs_expr(), b.rhs_expr(), b.op, t, ctx) { return false; }
@@ -2683,6 +2747,11 @@ pub fn emit_binop(op: i32) -> str {
     if op == OP_SUB() { return " - "; }
     if op == OP_MUL() { return " * "; }
     if op == OP_DIV() { return " / "; }
+    if op == OP_BAND() { return " & "; }
+    if op == OP_BOR()  { return " | "; }
+    if op == OP_BXOR() { return " ^ "; }
+    if op == OP_SHL()  { return " << "; }
+    if op == OP_SHR()  { return " >> "; }
     return " % ";
 }
 

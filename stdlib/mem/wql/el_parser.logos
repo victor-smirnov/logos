@@ -28,33 +28,38 @@ pub const ElTK_EQEQ: i32 = 4i32;
 pub const ElTK_NE: i32 = 5i32;
 pub const ElTK_LE: i32 = 6i32;
 pub const ElTK_GE: i32 = 7i32;
-pub const ElTK_QUESTION: i32 = 8i32;
-pub const ElTK_COLON: i32 = 9i32;
-pub const ElTK_LT: i32 = 10i32;
-pub const ElTK_GT: i32 = 11i32;
-pub const ElTK_PLUS: i32 = 12i32;
-pub const ElTK_MINUS: i32 = 13i32;
-pub const ElTK_STAR: i32 = 14i32;
-pub const ElTK_SLASH: i32 = 15i32;
-pub const ElTK_PERCENT: i32 = 16i32;
-pub const ElTK_BANG: i32 = 17i32;
-pub const ElTK_DOT: i32 = 18i32;
-pub const ElTK_COMMA: i32 = 19i32;
-pub const ElTK_LPAREN: i32 = 20i32;
-pub const ElTK_RPAREN: i32 = 21i32;
-pub const ElTK_LBRACKET: i32 = 22i32;
-pub const ElTK_RBRACKET: i32 = 23i32;
-pub const ElTK_DOLLAR: i32 = 24i32;
-pub const ElTK_KW_FOR: i32 = 25i32;
-pub const ElTK_KW_IN: i32 = 26i32;
-pub const ElTK_KW_IF: i32 = 27i32;
-pub const ElTK_KW_AS: i32 = 28i32;
-pub const ElTK_TRUE: i32 = 29i32;
-pub const ElTK_FALSE: i32 = 30i32;
-pub const ElTK_FLOAT: i32 = 31i32;
-pub const ElTK_INTEGER: i32 = 32i32;
-pub const ElTK_STRING: i32 = 33i32;
-pub const ElTK_IDENT: i32 = 34i32;
+pub const ElTK_SHL: i32 = 8i32;
+pub const ElTK_SHR: i32 = 9i32;
+pub const ElTK_QUESTION: i32 = 10i32;
+pub const ElTK_COLON: i32 = 11i32;
+pub const ElTK_LT: i32 = 12i32;
+pub const ElTK_GT: i32 = 13i32;
+pub const ElTK_PLUS: i32 = 14i32;
+pub const ElTK_MINUS: i32 = 15i32;
+pub const ElTK_STAR: i32 = 16i32;
+pub const ElTK_SLASH: i32 = 17i32;
+pub const ElTK_PERCENT: i32 = 18i32;
+pub const ElTK_AMP: i32 = 19i32;
+pub const ElTK_PIPE: i32 = 20i32;
+pub const ElTK_CARET: i32 = 21i32;
+pub const ElTK_BANG: i32 = 22i32;
+pub const ElTK_DOT: i32 = 23i32;
+pub const ElTK_COMMA: i32 = 24i32;
+pub const ElTK_LPAREN: i32 = 25i32;
+pub const ElTK_RPAREN: i32 = 26i32;
+pub const ElTK_LBRACKET: i32 = 27i32;
+pub const ElTK_RBRACKET: i32 = 28i32;
+pub const ElTK_DOLLAR: i32 = 29i32;
+pub const ElTK_KW_FOR: i32 = 30i32;
+pub const ElTK_KW_IN: i32 = 31i32;
+pub const ElTK_KW_IF: i32 = 32i32;
+pub const ElTK_KW_AS: i32 = 33i32;
+pub const ElTK_TRUE: i32 = 34i32;
+pub const ElTK_FALSE: i32 = 35i32;
+pub const ElTK_FLOAT: i32 = 36i32;
+pub const ElTK_INTEGER: i32 = 37i32;
+pub const ElTK_STRING: i32 = 38i32;
+pub const ElTK_IDENT: i32 = 39i32;
 
 // ── Runtime preamble ───────────────────────────────────────────────────────
 pub struct Token { pub kind: i32, pub start: i64, pub len: i64, pub line: i64 }
@@ -202,6 +207,14 @@ impl Lexer {
             self.pos = self.pos + 2i64;
             return Token { kind: ElTK_GE, start: start, len: 2i64, line: sl };
         }
+        if self.cur(0i64) == 60u8 && self.cur(1i64) == 60u8 {
+            self.pos = self.pos + 2i64;
+            return Token { kind: ElTK_SHL, start: start, len: 2i64, line: sl };
+        }
+        if self.cur(0i64) == 62u8 && self.cur(1i64) == 62u8 {
+            self.pos = self.pos + 2i64;
+            return Token { kind: ElTK_SHR, start: start, len: 2i64, line: sl };
+        }
         if self.cur(0i64) == 61u8 && self.cur(1i64) == 61u8 {
             self.pos = self.pos + 2i64;
             return Token { kind: ElTK_EQEQ, start: start, len: 2i64, line: sl };
@@ -237,6 +250,18 @@ impl Lexer {
         if self.cur(0i64) == 37u8 {
             self.pos = self.pos + 1i64;
             return Token { kind: ElTK_PERCENT, start: start, len: 1i64, line: sl };
+        }
+        if self.cur(0i64) == 38u8 {
+            self.pos = self.pos + 1i64;
+            return Token { kind: ElTK_AMP, start: start, len: 1i64, line: sl };
+        }
+        if self.cur(0i64) == 124u8 {
+            self.pos = self.pos + 1i64;
+            return Token { kind: ElTK_PIPE, start: start, len: 1i64, line: sl };
+        }
+        if self.cur(0i64) == 94u8 {
+            self.pos = self.pos + 1i64;
+            return Token { kind: ElTK_CARET, start: start, len: 1i64, line: sl };
         }
         if self.cur(0i64) == 33u8 {
             self.pos = self.pos + 1i64;
@@ -663,7 +688,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     let sln: i64 = lex.save_line();
     let fline: i64 = lex.peek().line;
     let fstart: i64 = lex.peek().start + lex.base;
-    let cap1: *const u8 = rule_add(lex, doc);
+    let cap1: *const u8 = rule_bor(lex, doc);
     if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
     let mut foldacc0: *const u8 = cap1;
     let mut foldm0: bool = false;
@@ -677,7 +702,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 if lex.peek().kind != ElTK_LE { lex.reset(gsp, gsln); break; }
                 let gfoldtmp0_1_1_t: Token = lex.next();
                 let gfoldtmp0_1_1: *const u8 = wstr_p(doc, gfoldtmp0_1_1_t.text(lex.src));
-                let gfoldtmp0_2_1: *const u8 = rule_add(lex, doc);
+                let gfoldtmp0_2_1: *const u8 = rule_bor(lex, doc);
                 if gfoldtmp0_2_1 == ElNULLP { lex.reset(gsp, gsln); break; }
                 let gnode: SBin = doc.make::<SBin>();
                 gnode.op = 6 as i32;
@@ -695,7 +720,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 if lex.peek().kind != ElTK_GE { lex.reset(gsp, gsln); break; }
                 let gfoldtmp0_1_2_t: Token = lex.next();
                 let gfoldtmp0_1_2: *const u8 = wstr_p(doc, gfoldtmp0_1_2_t.text(lex.src));
-                let gfoldtmp0_2_2: *const u8 = rule_add(lex, doc);
+                let gfoldtmp0_2_2: *const u8 = rule_bor(lex, doc);
                 if gfoldtmp0_2_2 == ElNULLP { lex.reset(gsp, gsln); break; }
                 let gnode: SBin = doc.make::<SBin>();
                 gnode.op = 8 as i32;
@@ -713,7 +738,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 if lex.peek().kind != ElTK_LT { lex.reset(gsp, gsln); break; }
                 let gfoldtmp0_1_3_t: Token = lex.next();
                 let gfoldtmp0_1_3: *const u8 = wstr_p(doc, gfoldtmp0_1_3_t.text(lex.src));
-                let gfoldtmp0_2_3: *const u8 = rule_add(lex, doc);
+                let gfoldtmp0_2_3: *const u8 = rule_bor(lex, doc);
                 if gfoldtmp0_2_3 == ElNULLP { lex.reset(gsp, gsln); break; }
                 let gnode: SBin = doc.make::<SBin>();
                 gnode.op = 5 as i32;
@@ -731,7 +756,7 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
                 if lex.peek().kind != ElTK_GT { lex.reset(gsp, gsln); break; }
                 let gfoldtmp0_1_4_t: Token = lex.next();
                 let gfoldtmp0_1_4: *const u8 = wstr_p(doc, gfoldtmp0_1_4_t.text(lex.src));
-                let gfoldtmp0_2_4: *const u8 = rule_add(lex, doc);
+                let gfoldtmp0_2_4: *const u8 = rule_bor(lex, doc);
                 if gfoldtmp0_2_4 == ElNULLP { lex.reset(gsp, gsln); break; }
                 let gnode: SBin = doc.make::<SBin>();
                 gnode.op = 7 as i32;
@@ -754,6 +779,204 @@ fn alt_compare_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
 
 fn rule_compare(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     { let r: *const u8 = alt_compare_0(lex, doc); if r != ElNULLP { return r; } }
+    return ElNULLP;
+}
+
+fn alt_bor_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start + lex.base;
+    let cap1: *const u8 = rule_bxor(lex, doc);
+    if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
+    let mut foldacc0: *const u8 = cap1;
+    let mut foldm0: bool = false;
+    loop {
+        let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();
+        let mut foldtmp0: *const u8 = ElNULLP;
+        let mut foldtmp0_ok: bool = false;
+        if !foldtmp0_ok {
+            let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
+            loop {
+                if lex.peek().kind != ElTK_PIPE { lex.reset(gsp, gsln); break; }
+                let gfoldtmp0_1_1_t: Token = lex.next();
+                let gfoldtmp0_1_1: *const u8 = wstr_p(doc, gfoldtmp0_1_1_t.text(lex.src));
+                let gfoldtmp0_2_1: *const u8 = rule_bxor(lex, doc);
+                if gfoldtmp0_2_1 == ElNULLP { lex.reset(gsp, gsln); break; }
+                let gnode: SBin = doc.make::<SBin>();
+                gnode.op = 15 as i32;
+                gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
+                gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
+                foldtmp0 = gnode.as_ref().raw() as *const u8;
+                foldtmp0_ok = true;
+                break;
+            }
+        }
+        if !foldtmp0_ok { lex.reset(rsp, rsln); break; }
+        foldacc0 = foldtmp0;
+        foldm0 = true;
+        if lex.save_pos() == rsp { break; }
+    }
+    let cap2: *const u8 = foldacc0;
+    return cap2;
+}
+
+fn rule_bor(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_bor_0(lex, doc); if r != ElNULLP { return r; } }
+    return ElNULLP;
+}
+
+fn alt_bxor_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start + lex.base;
+    let cap1: *const u8 = rule_band(lex, doc);
+    if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
+    let mut foldacc0: *const u8 = cap1;
+    let mut foldm0: bool = false;
+    loop {
+        let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();
+        let mut foldtmp0: *const u8 = ElNULLP;
+        let mut foldtmp0_ok: bool = false;
+        if !foldtmp0_ok {
+            let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
+            loop {
+                if lex.peek().kind != ElTK_CARET { lex.reset(gsp, gsln); break; }
+                let gfoldtmp0_1_1_t: Token = lex.next();
+                let gfoldtmp0_1_1: *const u8 = wstr_p(doc, gfoldtmp0_1_1_t.text(lex.src));
+                let gfoldtmp0_2_1: *const u8 = rule_band(lex, doc);
+                if gfoldtmp0_2_1 == ElNULLP { lex.reset(gsp, gsln); break; }
+                let gnode: SBin = doc.make::<SBin>();
+                gnode.op = 16 as i32;
+                gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
+                gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
+                foldtmp0 = gnode.as_ref().raw() as *const u8;
+                foldtmp0_ok = true;
+                break;
+            }
+        }
+        if !foldtmp0_ok { lex.reset(rsp, rsln); break; }
+        foldacc0 = foldtmp0;
+        foldm0 = true;
+        if lex.save_pos() == rsp { break; }
+    }
+    let cap2: *const u8 = foldacc0;
+    return cap2;
+}
+
+fn rule_bxor(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_bxor_0(lex, doc); if r != ElNULLP { return r; } }
+    return ElNULLP;
+}
+
+fn alt_band_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start + lex.base;
+    let cap1: *const u8 = rule_shift(lex, doc);
+    if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
+    let mut foldacc0: *const u8 = cap1;
+    let mut foldm0: bool = false;
+    loop {
+        let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();
+        let mut foldtmp0: *const u8 = ElNULLP;
+        let mut foldtmp0_ok: bool = false;
+        if !foldtmp0_ok {
+            let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
+            loop {
+                if lex.peek().kind != ElTK_AMP { lex.reset(gsp, gsln); break; }
+                let gfoldtmp0_1_1_t: Token = lex.next();
+                let gfoldtmp0_1_1: *const u8 = wstr_p(doc, gfoldtmp0_1_1_t.text(lex.src));
+                let gfoldtmp0_2_1: *const u8 = rule_shift(lex, doc);
+                if gfoldtmp0_2_1 == ElNULLP { lex.reset(gsp, gsln); break; }
+                let gnode: SBin = doc.make::<SBin>();
+                gnode.op = 14 as i32;
+                gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
+                gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
+                foldtmp0 = gnode.as_ref().raw() as *const u8;
+                foldtmp0_ok = true;
+                break;
+            }
+        }
+        if !foldtmp0_ok { lex.reset(rsp, rsln); break; }
+        foldacc0 = foldtmp0;
+        foldm0 = true;
+        if lex.save_pos() == rsp { break; }
+    }
+    let cap2: *const u8 = foldacc0;
+    return cap2;
+}
+
+fn rule_band(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_band_0(lex, doc); if r != ElNULLP { return r; } }
+    return ElNULLP;
+}
+
+fn alt_shift_0(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    let sp: i64 = lex.save_pos();
+    let sln: i64 = lex.save_line();
+    let fline: i64 = lex.peek().line;
+    let fstart: i64 = lex.peek().start + lex.base;
+    let cap1: *const u8 = rule_add(lex, doc);
+    if cap1 == ElNULLP { lex.reset(sp, sln); return ElNULLP; }
+    let mut foldacc0: *const u8 = cap1;
+    let mut foldm0: bool = false;
+    loop {
+        let rsp: i64 = lex.save_pos(); let rsln: i64 = lex.save_line();
+        let mut foldtmp0: *const u8 = ElNULLP;
+        let mut foldtmp0_ok: bool = false;
+        if !foldtmp0_ok {
+            let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
+            loop {
+                if lex.peek().kind != ElTK_SHL { lex.reset(gsp, gsln); break; }
+                let gfoldtmp0_1_1_t: Token = lex.next();
+                let gfoldtmp0_1_1: *const u8 = wstr_p(doc, gfoldtmp0_1_1_t.text(lex.src));
+                let gfoldtmp0_2_1: *const u8 = rule_add(lex, doc);
+                if gfoldtmp0_2_1 == ElNULLP { lex.reset(gsp, gsln); break; }
+                let gnode: SBin = doc.make::<SBin>();
+                gnode.op = 17 as i32;
+                gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_1));
+                gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
+                foldtmp0 = gnode.as_ref().raw() as *const u8;
+                foldtmp0_ok = true;
+                break;
+            }
+        }
+        if !foldtmp0_ok {
+            let gsp: i64 = lex.save_pos(); let gsln: i64 = lex.save_line();
+            loop {
+                if lex.peek().kind != ElTK_SHR { lex.reset(gsp, gsln); break; }
+                let gfoldtmp0_1_2_t: Token = lex.next();
+                let gfoldtmp0_1_2: *const u8 = wstr_p(doc, gfoldtmp0_1_2_t.text(lex.src));
+                let gfoldtmp0_2_2: *const u8 = rule_add(lex, doc);
+                if gfoldtmp0_2_2 == ElNULLP { lex.reset(gsp, gsln); break; }
+                let gnode: SBin = doc.make::<SBin>();
+                gnode.op = 18 as i32;
+                gnode.rhs = WRef::<SExpr>::from_any(hand_any(gfoldtmp0_2_2));
+                gnode.lhs = WRef::<SExpr>::from_any(hand_any(foldacc0));
+                gnode.soff = fstart;
+                foldtmp0 = gnode.as_ref().raw() as *const u8;
+                foldtmp0_ok = true;
+                break;
+            }
+        }
+        if !foldtmp0_ok { lex.reset(rsp, rsln); break; }
+        foldacc0 = foldtmp0;
+        foldm0 = true;
+        if lex.save_pos() == rsp { break; }
+    }
+    let cap2: *const u8 = foldacc0;
+    return cap2;
+}
+
+fn rule_shift(lex: &mut Lexer, doc: &Writ) -> *const u8 {
+    { let r: *const u8 = alt_shift_0(lex, doc); if r != ElNULLP { return r; } }
     return ElNULLP;
 }
 
@@ -997,7 +1220,7 @@ fn rule_unary_impl(lex: &mut Lexer, doc: &Writ) -> *const u8 {
     return ElNULLP;
 }
 fn rule_unary(lex: &mut Lexer, doc: &Writ) -> *const u8 {
-    let mk: i64 = lex.save_pos() * 1024i64 + 9i64;
+    let mk: i64 = lex.save_pos() * 1024i64 + 13i64;
     let mut hok: bool = false; let mut hr: *const u8 = ElNULLP; let mut hep: i64 = 0i64; let mut hel: i64 = 0i64;
     unsafe {
         let mp: *mut HashMap<i64, ElMemoCell> = &mut lex.memo;
