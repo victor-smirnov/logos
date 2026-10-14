@@ -2183,18 +2183,29 @@ fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
 /// The sequence is the nest's: for each base row in base order, its matches in
 /// step order. So C1 (`join_order`) has nothing to restore.
 fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: str) {
-    let cl: &CClause = &pc.entry.clause;
-    if core_source_count(cl) != 2i64 || cl.body.len() < 2i64 { return; }
+    if core_source_count(&pc.entry.clause) < 2i64 || pc.entry.clause.body.len() < 2i64 { return; }
     let ordered: bool = match &pc.entry.env.order { Option::Some(_o) => true, Option::None => false };
     let mut b0: i64 = -1i64;
     let mut bvar: str = "";
-    match &cl.body[0i64] { CLit::Atom(a) => { if !a.neg && a.outer == 0i32 { b0 = a.reg; bvar = a.var; } } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { return; } }
+    match &pc.entry.clause.body[0i64] { CLit::Atom(a) => { if !a.neg && a.outer == 0i32 { b0 = a.reg; bvar = a.var; } } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { return; } }
+    if b0 < 0i64 || b0 >= prm.rel_n || prm.rel_ordcol[b0].len() == 0i64 { return; }
+    // EVERY step on its own: the base is the outermost loop, so a step probed
+    // by the base's ascending order column is probed in ascending order
+    // whatever the steps between them do (they only repeat a base row)
     let mut i: i64 = 1i64;
-    while i < cl.body.len() {
-        match &cl.body[i] { CLit::Atom(_a) => { break; } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { } }
+    while i < pc.entry.clause.body.len() {
+        let mut step: bool = false;
+        match &pc.entry.clause.body[i] { CLit::Atom(_a) => { step = true; } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { } }
+        if step { merge_decide_step(prm, pc, ap, h, qn, i, b0, bvar, ordered); }
         i = i + 1i64;
     }
-    if i >= cl.body.len() || i + 1i64 >= cl.body.len() { return; }
+}
+
+// The merge decision of the step at body position `i`, against base `b0`.
+fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: str,
+                     i: i64, b0: i64, bvar: str, ordered: bool) {
+    let cl: &CClause = &pc.entry.clause;
+    if i + 1i64 >= cl.body.len() { return; }
     let mut on: WAny = WAny::null();
     match &cl.body[i + 1i64] { CLit::Cond(c) => { match &c.site { CSite::On => { on = c.e; } CSite::Where => { } } } CLit::Atom(_a) => { } CLit::Trav(_t) => { } }
     let mut s1: i64 = -1i64;
@@ -2211,8 +2222,8 @@ fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
         CLit::Cond(_c) => { return; }
     }
     if !decided || on.is_null() { return; }
-    if b0 < 0i64 || s1 < 0i64 || b0 >= prm.rel_n || s1 >= prm.rel_n { return; }
-    if prm.rel_ordcol[b0].len() == 0i64 || prm.rel_ordcol[s1].len() == 0i64 { return; }
+    if s1 < 0i64 || s1 >= prm.rel_n { return; }
+    if prm.rel_ordcol[s1].len() == 0i64 { return; }
     let stt: StepTerms = step_terms(WRef::<SExpr>::from_any(on), h);
     if sel >= stt.tl.n { return; }
     let sd: EquiSides = equi_term_sides(merge_sexpr(stt.tl.w[sel]), svar);
@@ -2223,7 +2234,7 @@ fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
         why = "the query has an `order by`, and the join order may reorder the nest"; rule = "order_by";
     } else if !merge_bare_col(merge_sexpr(sd.bw), svar, prm.rel_ordcol[s1])
            || !merge_bare_col(merge_sexpr(sd.pw), bvar, prm.rel_ordcol[b0]) {
-        why = "the key is not each side's declared order column"; rule = "not_order_col";
+        why = "the key is not the step's declared order column against the base's"; rule = "not_order_col";
     } else if !ap_offers(ap, prm, b0) || !ap_offers(ap, prm, s1) {
         why = "a source's chosen producer does not offer its order"; rule = "not_offered";
     }

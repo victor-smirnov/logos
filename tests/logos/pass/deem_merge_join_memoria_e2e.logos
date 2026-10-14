@@ -7,7 +7,10 @@
 //   (b) a residual on the values;
 //   (c) `limit`;
 //   (d) a step whose keys start below the base's and end before it (the walk
-//       is exhausted while the base still runs; leading rows are skipped).
+//       is exhausted while the base still runs; leading rows are skipped);
+//   (e) three sources on the base's key — both steps merge;
+//   (f) a hash step between the base and a merge step (it repeats base rows,
+//       so the merge step's probes still ascend).
 // Every answer is checked against point lookups (`find`), not against Deem.
 // Exit 0 iff every assertion holds; a nonzero code names the first failure.
 package test;
@@ -39,6 +42,17 @@ pub deem mj_resid(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeo
 // (c)
 pub deem mj_limit(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle) {
     from a x join b y on x.key == y.key select x.key limit 5
+}
+
+// (e)
+pub deem mj3(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle,
+             c: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle) {
+    from a x join b y on x.key == y.key join c z on x.key == z.key select x.val + y.val + z.val
+}
+// (f)
+pub deem mjh(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle,
+             c: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle) {
+    from a x join c w on w.val == 1u64 && w.key == x.key + 1u64 join b y on x.key == y.key select y.val
 }
 
 fn main() -> i32 {
@@ -84,5 +98,33 @@ fn main() -> i32 {
     // (d) base a (0..9998 even) against c (1000..4000): the even keys in it
     let d: Vec<u64> = mj(&la, &lc).unwrap();
     if d.len() != want_d || want_d != 1501i64 { return 5i32; }
+    // (e) keys in a (even), b (multiples of 3) and c (1000..=4000): multiples
+    // of 6 in [1000, 4000]
+    let mut want_e: i64 = 0i64;
+    let mut want_es: u64 = 0u64;
+    let mut want_f: i64 = 0i64;
+    let mut want_fs: u64 = 0u64;
+    let mut q2: u64 = 0u64;
+    while q2 < 5000u64 {
+        let key: u64 = q2 * 2u64;
+        match lb.find(key) {
+            Option::Some(vb) => {
+                match lc.find(key) { Option::Some(vc) => { want_e = want_e + 1i64; want_es = want_es + q2 + vb + vc; } Option::None => { } }
+                match lc.find(key + 1u64) { Option::Some(_v) => { want_f = want_f + 1i64; want_fs = want_fs + vb; } Option::None => { } }
+            }
+            Option::None => { }
+        }
+        q2 = q2 + 1u64;
+    }
+    let e: Vec<u64> = mj3(&la, &lb, &lc).unwrap();
+    let mut es: u64 = 0u64;
+    let mut ei: i64 = 0i64;
+    while ei < e.len() { es = es + e.get(ei); ei = ei + 1i64; }
+    if e.len() != want_e || es != want_es || want_e != 500i64 { return 6i32; }
+    let f: Vec<u64> = mjh(&la, &lb, &lc).unwrap();
+    let mut fs: u64 = 0u64;
+    let mut fi: i64 = 0i64;
+    while fi < f.len() { fs = fs + f.get(fi); fi = fi + 1i64; }
+    if f.len() != want_f || fs != want_fs { return 7i32; }
     return 0i32;
 }
