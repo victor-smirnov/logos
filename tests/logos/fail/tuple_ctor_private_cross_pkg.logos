@@ -1,0 +1,10 @@
+// A tuple struct with a private positional field cannot be constructed from
+// another package (Rust E0423), as a named-field literal cannot.
+package tuple_ctor_private_cross_pkg;
+
+use mylib;
+
+fn main() -> i32 {
+    let s = TupSecret(3);
+    return 0;
+}

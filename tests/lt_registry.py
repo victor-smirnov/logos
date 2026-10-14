@@ -717,7 +717,7 @@ PASS_ARCHIVE_USERS = [
     ({"metacall_item_use_inherit"}, ["PUB_LIB_BIN"]),
     # LOCAL_PUBLIB_USERS
     ({"pub_module_internal_use", "pub_module_type_internal", "pub_cross_package",
-      "pkg_multifile", "pub_reexport", "pub_enum_trait_cross_pkg",
+      "pkg_multifile", "pub_reexport", "pub_enum_trait_cross_pkg", "tuple_field_pub_cross_pkg",
       "pub_static_cross_module", "pub_dyn_cross_module", "wql_wref_field_pkg"},
      ["PUB_LIB_BIN"]),
     # LOCAL_UB_BOUNDARY_USERS — the Freeze-predicate guard (archive built at -O2)
@@ -767,7 +767,9 @@ PASS_APPEND_RULES = [
 FAIL_ARCHIVE_USERS = [
     # FAIL_PUBLIB_USERS
     ({"pub_module_cross_module", "pub_module_type_cross_module", "pub_call_private",
-      "pub_private_field_access", "enum_private_cross_pkg", "trait_private_cross_pkg"},
+      "pub_private_field_access", "enum_private_cross_pkg", "trait_private_cross_pkg",
+      "tuple_field_private_cross_pkg_read", "tuple_field_private_cross_pkg_write",
+      "tuple_ctor_private_cross_pkg"},
      ["PUB_LIB_BIN"]),
     # FAIL_WQLMAP_USERS
     ({"wql_mapping_cross_module_priv_fail", "wql_mapping_cross_module_modvis_fail",

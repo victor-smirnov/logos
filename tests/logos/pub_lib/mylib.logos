@@ -50,3 +50,9 @@ pub static mut MYLIB_COUNTER: i32 = 0i32;
 pub struct Gadget { pub g: i32 }
 pub trait Describe { fn describe(&self) -> i32; }
 impl Describe for Gadget { fn describe(&self) -> i32 { return self.g; } }
+
+// Tuple-struct field privacy: a positional field without `pub` is closed to
+// other packages at the `.N` read / write and the `S(..)` constructor.
+pub struct TupSecret(i32);
+impl TupSecret { pub fn new(v: i32) -> TupSecret { return TupSecret(v); } }
+pub struct TupOpen<T>(pub T);

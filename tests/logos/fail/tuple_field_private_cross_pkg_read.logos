@@ -1,0 +1,10 @@
+// A tuple struct's private positional field is closed to other packages at the
+// `.N` read (Rust E0616), as a named private field is.
+package tuple_field_private_cross_pkg_read;
+
+use mylib;
+
+fn main() -> i32 {
+    let s = TupSecret::new(3);
+    return s.0;
+}

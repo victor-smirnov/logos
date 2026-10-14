@@ -964,6 +964,19 @@ void SemaChecker::check_pub_access(bool is_pub, const std::string& def_package,
         error(std::format("'{}' is private to package '{}'", item_name, def_package));
 }
 
+// A struct with a private field is built only inside its package — by a
+// literal `S { .. }` or a tuple constructor `S(..)` (Rust E0451 / E0423).
+void SemaChecker::check_ctor_fields_pub_(const SemaStructInfo& si, std::string_view sname) {
+    if (si.package.empty() || cur_package_.empty() || si.package == cur_package_) return;
+    for (auto& f : si.fields) {
+        if (!f.is_pub) {
+            error(std::format("cannot construct '{}' from package '{}': field '{}' is private",
+                              sname, cur_package_, f.name));
+            return;
+        }
+    }
+}
+
 // RPIT-BOUND (2026-09-12b). Prose in PROBES.md, "RPIT bound".
 void SemaChecker::check_impl_trait_ret_bound(writ::TinyMapView ret_node,
                                              TypeRef hidden,

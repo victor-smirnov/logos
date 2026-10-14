@@ -1,0 +1,14 @@
+// A `pub` positional field is open across packages: constructor, `.0`, and a
+// tuple-struct pattern in parameter position (`fn f(TupOpen(id): TupOpen<u64>)`).
+package tuple_field_pub_cross_pkg;
+
+use mylib;
+
+fn get(TupOpen(id): TupOpen<i32>) -> i32 { return id + 1; }
+
+fn main() -> i32 {
+    let p = TupOpen(5);
+    let mut q = TupOpen(1);
+    q.0 = 40;
+    return get(q) + p.0 - 5 - 41 + 7;
+}

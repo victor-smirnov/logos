@@ -1,0 +1,13 @@
+// A tuple struct's private positional field is closed to other packages at the
+// `.N` write through a `&mut` (Rust E0616).
+package tuple_field_private_cross_pkg_write;
+
+use mylib;
+
+fn bump(s: &mut TupSecret) { s.0 = 9; }
+
+fn main() -> i32 {
+    let mut s = TupSecret::new(3);
+    bump(&mut s);
+    return 0;
+}

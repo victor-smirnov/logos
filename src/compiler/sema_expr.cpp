@@ -2693,6 +2693,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
                         sname, idx, tsinfo->fields.size()));
                     return error_expr();
                 }
+                check_pub_access(tsinfo->fields[idx].is_pub, tsinfo->package, std::to_string(idx));
                 auto fname = std::string(tsinfo->fields[idx].type ? std::to_string(idx) : "");
                 TypeRef ft = tsinfo->fields[idx].type;
                 // Substitute struct type-params with the receiver's concrete
@@ -5098,6 +5099,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     if (!callee.empty()) {
         auto [tspkg, tsinfo] = find_struct_by_name(callee);
         if (tsinfo && tsinfo->is_tuple_struct) {
+            check_ctor_fields_pub_(*tsinfo, callee);
             std::vector<lir::LExprPtr> arg_exprs;
             if (node.has_key(la::ARGS)) {
                 auto args = args_array();   // an antiquot `#S(args)` wraps them
@@ -9381,6 +9383,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         // the explicit turbofish rather than inference.
         if (auto [tspkg, tsinfo] = find_struct_by_name(std::string(callee));
             tsinfo && tsinfo->is_tuple_struct) {
+            check_ctor_fields_pub_(*tsinfo, std::string(callee));
             std::vector<lir::LExprPtr> arg_exprs;
             if (node.has_key(la::ARGS)) {
                 AnyVal av = node.get(la::ARGS.code);
@@ -13651,16 +13654,7 @@ lir::LExprPtr SemaChecker::lower_struct_lit(TinyMapView node) {
         }
     }
 
-    // Pub check: struct with private fields can only be constructed within its package.
-    if (sinfo.package != cur_package_ && !sinfo.package.empty() && !cur_package_.empty()) {
-        for (auto& f : sinfo.fields) {
-            if (!f.is_pub) {
-                error(std::format("cannot construct '{}' from package '{}': field '{}' is private",
-                      sname, cur_package_, f.name));
-                break;
-            }
-        }
-    }
+    check_ctor_fields_pub_(sinfo, sname);
 
     // Lower all field values first (without validation), collecting names and types.
     std::vector<std::pair<std::string, lir::LExprPtr>> fields;
