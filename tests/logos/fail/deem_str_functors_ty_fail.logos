@@ -1,0 +1,7 @@
+// `substr(s, i, n)` takes a string and two integers: a string length is refused.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct W { pub s: str, pub t: str }
+pub deem q(ws: &[W]) { from ws w select substr(w.s, 0, w.t) }
+fn main() -> i32 { return 0i32; }

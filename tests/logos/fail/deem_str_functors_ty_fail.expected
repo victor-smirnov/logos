@@ -1,0 +1,1 @@
+builtin 'substr' takes a string and two integers that hold in i64
