@@ -2167,24 +2167,22 @@ fn plan_decide_joins(prm: &MacroParams, pc: &mut CProgram, h: &Writ) {
 /// different rows or not compile, and a step that fails one keeps its hash/tree
 /// decision:
 ///
-///   1. two sources, the step positive and inner, its `on` an equi-key pass 1
-///      found (`jsel`). An outer or anti step reads absence, not runs.
-///   2. no `order by`: it may reorder the nest (`join_order`), and a reordered
-///      nest is a different pair of walks.
-///   3. each side of the key is the BARE declared order column of its own row
-///      var, and each source's chosen producer offers that order (`ap_offers`,
-///      the F6 predicate). The base's keys then arrive ascending, which is what
-///      lets the step's walk move forward only.
-///   4. the key type's emitted `<` realizes its order (`KeyCaps.ord`), the same
+///   1. each step on its own (`merge_decide_step`), positive and inner, its
+///      `on` an equi-key pass 1 found (`jsel`). An outer or anti step reads
+///      absence, not runs.
+///   2. each side of the key is the BARE declared order column of its own row
+///      var — the step's against the BASE's — and each source's chosen producer
+///      offers that order (`ap_offers`, the F6 predicate). The base's keys then
+///      arrive ascending, which is what lets the step's walk move forward only.
+///   3. the key type's emitted `<` realizes its order (`KeyCaps.ord`), the same
 ///      comparison the producers sort by.
-///   5. the step's producer is not a batch one: the merge pulls it a row at a
-///      time (or walks its materialization by index).
 ///
 /// The sequence is the nest's: for each base row in base order, its matches in
-/// step order. So C1 (`join_order`) has nothing to restore.
+/// step order. Under `order by` the join order would be free to drive another
+/// side; a merge step pins the written nest instead (`WG_MERGE`), since a
+/// reordered nest is a different pair of walks.
 fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: str) {
     if core_source_count(&pc.entry.clause) < 2i64 || pc.entry.clause.body.len() < 2i64 { return; }
-    let ordered: bool = match &pc.entry.env.order { Option::Some(_o) => true, Option::None => false };
     let mut b0: i64 = -1i64;
     let mut bvar: str = "";
     match &pc.entry.clause.body[0i64] { CLit::Atom(a) => { if !a.neg && a.outer == 0i32 { b0 = a.reg; bvar = a.var; } } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { return; } }
@@ -2196,25 +2194,30 @@ fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
     while i < pc.entry.clause.body.len() {
         let mut step: bool = false;
         match &pc.entry.clause.body[i] { CLit::Atom(_a) => { step = true; } CLit::Trav(_t) => { return; } CLit::Cond(_c) => { } }
-        if step { merge_decide_step(prm, pc, ap, h, qn, i, b0, bvar, ordered); }
+        if step { merge_decide_step(prm, pc, ap, h, qn, i, b0, bvar); }
         i = i + 1i64;
     }
 }
 
 // The merge decision of the step at body position `i`, against base `b0`.
 fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: str,
-                     i: i64, b0: i64, bvar: str, ordered: bool) {
+                     i: i64, b0: i64, bvar: str) {
     let cl: &CClause = &pc.entry.clause;
-    if i + 1i64 >= cl.body.len() { return; }
     let mut on: WAny = WAny::null();
-    match &cl.body[i + 1i64] { CLit::Cond(c) => { match &c.site { CSite::On => { on = c.e; } CSite::Where => { } } } CLit::Atom(_a) => { } CLit::Trav(_t) => { } }
+    if i + 1i64 < cl.body.len() {
+        match &cl.body[i + 1i64] { CLit::Cond(c) => { match &c.site { CSite::On => { on = c.e; } CSite::Where => { } } } CLit::Atom(_a) => { } CLit::Trav(_t) => { } }
+    }
     let mut s1: i64 = -1i64;
     let mut svar: str = "";
     let mut sel: i64 = -1i64;
     let mut decided: bool = false;
     match &cl.body[i] {
         CLit::Atom(a) => {
-            if a.neg || a.outer != 0i32 || a.jsel < 0i32 { return; }
+            // an anti step and a `left join` merge too (the run is empty or not;
+            // the outer step's absent row follows an empty run) — their `on`
+            // rides in the atom's own conds; a `full join` reads its step twice
+            if a.outer == OUTER_FULL() || a.jsel < 0i32 { return; }
+            if a.neg || a.outer != 0i32 { on = if a.conds.len() > 0i64 { a.conds.get(0i64) } else { WAny::null() }; }
             decided = a.strat == JS_HASH() || a.strat == JS_TREE();
             s1 = a.reg; svar = a.var; sel = a.jsel as i64;
         }
@@ -2230,16 +2233,19 @@ fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
     if sd.bw == 0i64 || sd.pw == 0i64 { return; }
     let mut why: str = "";
     let mut rule: str = "admit";
-    if ordered {
-        why = "the query has an `order by`, and the join order may reorder the nest"; rule = "order_by";
-    } else if !merge_bare_col(merge_sexpr(sd.bw), svar, prm.rel_ordcol[s1])
+    if !merge_bare_col(merge_sexpr(sd.bw), svar, prm.rel_ordcol[s1])
            || !merge_bare_col(merge_sexpr(sd.pw), bvar, prm.rel_ordcol[b0]) {
         why = "the key is not the step's declared order column against the base's"; rule = "not_order_col";
     } else if !ap_offers(ap, prm, b0) || !ap_offers(ap, prm, s1) {
         why = "a source's chosen producer does not offer its order"; rule = "not_offered";
     }
     let t: ElTypes = type_clause(&oview_module_ast(), prm, cl, true);
-    let ktn: str = step_key_ty_of(merge_sexpr(sd.bw), merge_sexpr(sd.pw), &t);
+    let mut outer_step: bool = false;
+    match &cl.body[i] { CLit::Atom(a) => { outer_step = a.outer != 0i32; } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
+    // an outer step's columns are `Option<T>` after the step and `T` inside its
+    // own `on`: the key's type is the base side's
+    let ktn: str = if outer_step { step_key_ty_of(merge_sexpr(sd.pw), merge_sexpr(sd.pw), &t) }
+                   else { step_key_ty_of(merge_sexpr(sd.bw), merge_sexpr(sd.pw), &t) };
     if why.len() == 0i64 && !join_key_caps_named(ktn).ord {
         why = "the key type's emitted comparison does not realize its order"; rule = "key_order";
     }
@@ -2312,6 +2318,17 @@ fn plan_entry_order(pc: &CProgram, prm: &MacroParams, h: &Writ) -> JoinPlan {
         Option::None => { }
     }
     return join_plan_none();
+}
+
+/// Does a step of the clause merge with its base (`plan_decide_merge`)?
+fn clause_has_merge(cl: &CClause) -> bool {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] { CLit::Atom(a) => { if a.strat == JS_MERGE() { return true; } } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
+        i = i + 1i64;
+    }
+    return false;
 }
 
 /// The outer kind of step `k` of a clause (0 for an inner step or a traversal).
@@ -2639,6 +2656,24 @@ fn plan_prove_once(prm: &MacroParams, pc: &CProgram, ap: &mut AccessPlan) -> Vec
     if !grouped {
         let bi: i64 = regs.get(0i64);
         let ns: i64 = regs.len() - 1i64;
+        // THE MERGE'S ELISION: a merge step pins the written nest (`WG_MERGE`),
+        // so a join whose base ascends on its order column already emits its
+        // rows in `order by <base col>`'s sequence — ties in the sort's own
+        // tiebreak order (base row, then step rows, as the merge walks them).
+        // The sort is a no-op, and nothing is collected for it to rebind.
+        let mut ordered: bool = has_order;
+        if has_order && bi >= 0i64 && !ru.env.desc && clause_has_merge(cl) {
+            let okey: WAny = match &ru.env.order { Option::Some(k) => *k, Option::None => WAny::null() };
+            let mut nb: i64 = 0i64;
+            let mut zb: i64 = 0i64;
+            while zb < regs.len() { if regs.get(zb) == bi { nb = nb + 1i64; } zb = zb + 1i64; }
+            if nb == 1i64 && ap_order_is_noop(prm, ap, bi, okey, false, core_base_var(cl)) {
+                ap.ord_noop[bi] = true;
+                ap.ord_rev[bi] = false;
+                ordered = false;
+            }
+        }
+        let has_order: bool = ordered;
         // How many times does the chain NAME each rel?
         let mut cnt: Vec<i64> = Vec::<i64>::new();
         let mut zc: i64 = 0i64;

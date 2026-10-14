@@ -912,6 +912,9 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: 
     // header. The general constraint C4 reaches the same conclusion on every shape
     // in the corpus; keeping the specific antecedent is what tells a reader WHICH
     // property of their query stopped the reorder.
+    let mut merged: bool = false;
+    let mut sm: i64 = 1i64;
+    while sm <= c.n { if c.strat[sm] == JS_MERGE() { merged = true; } sm = sm + 1i64; }
     if c.outer_any {
         // an outer join's kept side is fixed by the written order
         jo = jo_ground(WG_OUTER(), AX_REFUSED());
@@ -921,6 +924,9 @@ pub fn decide_join_orders(c: &JCh, has_sort: bool, key_tn: str, key_kv: str, t: 
         jo = jo_ground(WG_ANTI_FIRST(), AX_REFUSED());
     } else if !has_sort {
         jo = jo_ground(WG_NO_SORT(), AX_REFUSED());
+    } else if merged {
+        // a merge step walks both sources in the written order (`plan_decide_merge`)
+        jo = jo_ground(WG_MERGE(), AX_REFUSED());
     } else if el_cmp_fidelity(key_tn, key_kv) != EL_ORD_OK() {
         // C1's SECOND antecedent. `order by` is present, so a sequence is named —
         // but the sort restores THAT sequence only if the comparison the backend

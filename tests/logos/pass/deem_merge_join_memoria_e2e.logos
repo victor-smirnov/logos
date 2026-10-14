@@ -55,6 +55,12 @@ pub deem mjh(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map
     from a x join c w on w.val == 1u64 && w.key == x.key + 1u64 join b y on x.key == y.key select y.val
 }
 
+// (g) `order by` the base key with a limit: the sort is elided, so the walk
+// stops after five rows instead of collecting every match
+pub deem mj_top(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle) {
+    from a x join b y on x.key == y.key select x.key order by x.key limit 5
+}
+
 fn main() -> i32 {
     let mut store: Arc<MemoryStore> = store_new();
     let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
@@ -126,5 +132,7 @@ fn main() -> i32 {
     let mut fi: i64 = 0i64;
     while fi < f.len() { fs = fs + f.get(fi); fi = fi + 1i64; }
     if f.len() != want_f || fs != want_fs { return 7i32; }
+    let g: Vec<u64> = mj_top(&la, &lb).unwrap();
+    if g.len() != 5i64 || g.get(0i64) != 0u64 || g.get(1i64) != 6u64 || g.get(4i64) != 24u64 { return 8i32; }
     return 0i32;
 }

@@ -66,13 +66,13 @@ check deem_btreemap_order_e2e \
 # ── may the query have an incremental handle (E3): the FIRST FAILED antecedent ──
 # The matrix fixture names its queries after the shape they test; the rule must agree.
 # ADR 0026 F9 — the merge join: admitted over two ordered walks (the plain,
-# the repeated-key base, the ordinal-walked drained step), declined by a key that
-# is not the order column and by an `order by`.
+# the repeated-key base, the ordinal-walked drained step, under an `order by`),
+# declined by a key that is not the order column.
 check deem_merge_join_e2e '[facts] mj merge rule=admit'
 check deem_merge_join_e2e '[facts] mj_both_runs merge rule=admit'
 check deem_merge_join_e2e '[facts] mj_drained merge rule=admit'
 check deem_merge_join_e2e '[facts] hj_val merge rule=not_order_col'
-check deem_merge_join_e2e '[facts] hj_order merge rule=order_by'
+check deem_merge_join_e2e '[facts] mj_order merge rule=admit'
 check wql_incr_eligibility_matrix '[facts] ok_join incremental rule=emit_join'
 check wql_incr_eligibility_matrix '[facts] no_join_self incremental rule=self_join'
 check wql_incr_eligibility_matrix '[facts] no_join_outer incremental rule=join_outer'
