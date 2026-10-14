@@ -86,6 +86,14 @@ pub deem hj_val(a: &BTreeMap<i64, i64>, b: &BTreeMap<i64, i64>) {
 // (ties base-then-step, the sort's own tiebreak), so the sort is elided
 pub deem mj_sorted(r: &Runs, s: &Runs) {
     from r x join s y on x.key == y.key select (x.key, x.val, y.val) order by x.key }
+// an anti join and a `left join` merge too: the run equal to the base key is
+// empty or not (with a residual: has a passing row or not)
+pub deem mj_anti(r: &Runs, s: &Runs) {
+    from r x anti join s y on x.key == y.key select (x.key, x.val, 0) }
+pub deem mj_anti_resid(r: &Runs, s: &Runs) {
+    from r x anti join s y on x.key == y.key && y.val > 8 select (x.key, x.val, 0) }
+pub deem mj_left(r: &Runs, s: &Runs) {
+    from r x left join s y on x.key == y.key select (x.key, x.val, unwrap_or(y.val, -1)) }
 pub deem mj_order(r: &Runs, s: &Runs) {
     from r x join s y on x.key == y.key select (x.key, x.val, y.val) order by y.val }
 
@@ -141,6 +149,15 @@ fn main() -> i32 {
         (4i64, 5i64, 8i64), (4i64, 5i64, 9i64)];
     if !rows_are(&mj_both_runs(&r, &s).unwrap(), &w_rs[..]) { return 8i32; }
     if !rows_are(&mj_sorted(&r, &s).unwrap(), &w_rs[..]) { return 13i32; }
+    // r: 2→1 2→2 4→3 4→4 4→5 8→6;  s: 2→7 4→8 4→9 6→0
+    let w_anti: [(i64, i64, i64); 1] = [(8i64, 6i64, 0i64)];
+    if !rows_are(&mj_anti(&r, &s).unwrap(), &w_anti[..]) { return 14i32; }
+    let w_ar: [(i64, i64, i64); 3] = [(2i64, 1i64, 0i64), (2i64, 2i64, 0i64), (8i64, 6i64, 0i64)];
+    if !rows_are(&mj_anti_resid(&r, &s).unwrap(), &w_ar[..]) { return 15i32; }
+    let w_left: [(i64, i64, i64); 9] = [(2i64, 1i64, 7i64), (2i64, 2i64, 7i64),
+        (4i64, 3i64, 8i64), (4i64, 3i64, 9i64), (4i64, 4i64, 8i64), (4i64, 4i64, 9i64),
+        (4i64, 5i64, 8i64), (4i64, 5i64, 9i64), (8i64, 6i64, -1i64)];
+    if !rows_are(&mj_left(&r, &s).unwrap(), &w_left[..]) { return 16i32; }
     if !rows_are(&mj_drained(&r, &s, &xs[..]).unwrap(), &w_rs[..]) { return 9i32; }
     // grouped: key 2 → 2 rows, sum 14; key 4 → 6 rows, sum 3·(8+9) = 51.
     let w_g: [(i64, i64, i64); 2] = [(2i64, 2i64, 14i64), (4i64, 6i64, 51i64)];

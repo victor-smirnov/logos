@@ -2203,16 +2203,21 @@ fn plan_decide_merge(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
 fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &Writ, qn: str,
                      i: i64, b0: i64, bvar: str) {
     let cl: &CClause = &pc.entry.clause;
-    if i + 1i64 >= cl.body.len() { return; }
     let mut on: WAny = WAny::null();
-    match &cl.body[i + 1i64] { CLit::Cond(c) => { match &c.site { CSite::On => { on = c.e; } CSite::Where => { } } } CLit::Atom(_a) => { } CLit::Trav(_t) => { } }
+    if i + 1i64 < cl.body.len() {
+        match &cl.body[i + 1i64] { CLit::Cond(c) => { match &c.site { CSite::On => { on = c.e; } CSite::Where => { } } } CLit::Atom(_a) => { } CLit::Trav(_t) => { } }
+    }
     let mut s1: i64 = -1i64;
     let mut svar: str = "";
     let mut sel: i64 = -1i64;
     let mut decided: bool = false;
     match &cl.body[i] {
         CLit::Atom(a) => {
-            if a.neg || a.outer != 0i32 || a.jsel < 0i32 { return; }
+            // an anti step and a `left join` merge too (the run is empty or not;
+            // the outer step's absent row follows an empty run) — their `on`
+            // rides in the atom's own conds; a `full join` reads its step twice
+            if a.outer == OUTER_FULL() || a.jsel < 0i32 { return; }
+            if a.neg || a.outer != 0i32 { on = if a.conds.len() > 0i64 { a.conds.get(0i64) } else { WAny::null() }; }
             decided = a.strat == JS_HASH() || a.strat == JS_TREE();
             s1 = a.reg; svar = a.var; sel = a.jsel as i64;
         }
@@ -2235,7 +2240,12 @@ fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
         why = "a source's chosen producer does not offer its order"; rule = "not_offered";
     }
     let t: ElTypes = type_clause(&oview_module_ast(), prm, cl, true);
-    let ktn: str = step_key_ty_of(merge_sexpr(sd.bw), merge_sexpr(sd.pw), &t);
+    let mut outer_step: bool = false;
+    match &cl.body[i] { CLit::Atom(a) => { outer_step = a.outer != 0i32; } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
+    // an outer step's columns are `Option<T>` after the step and `T` inside its
+    // own `on`: the key's type is the base side's
+    let ktn: str = if outer_step { step_key_ty_of(merge_sexpr(sd.pw), merge_sexpr(sd.pw), &t) }
+                   else { step_key_ty_of(merge_sexpr(sd.bw), merge_sexpr(sd.pw), &t) };
     if why.len() == 0i64 && !join_key_caps_named(ktn).ord {
         why = "the key type's emitted comparison does not realize its order"; rule = "key_order";
     }

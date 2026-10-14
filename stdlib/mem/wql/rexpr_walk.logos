@@ -4317,6 +4317,19 @@ fn step_wrap(prm: &MacroParams, inner: ExprBlob, s: i64, strat: i32, anti: bool,
         pk_decl = quote_block! { let #n_pk: #(kt) = (#(pk_f)); };
     }
 
+    if anti && strat == JS_MERGE() {
+        // ANTI over a MERGE: the run equal to the base key, scanned for a row
+        // that passes the residual (any row at all when there is none)
+        let n_m2: Ident = Ident::new(string_as_str(&s_m));
+        let mark: ExprBlob = quote_block! { #n_m2 = true; };
+        let probe: ExprBlob = merge_step_frag(prm, s, ktn, src, ty, var, build_key, residual, has_resid,
+                                              mark, lim, false, streams, pk_decl);
+        return quote_block! {
+            let mut #n_m: bool = false;
+            #(probe);
+            if (!#n_m) #(inner)
+        };
+    }
     if anti {
         // ANTI: compute the matched flag flat, then guard the inner body with
         // `if (!__m{s})` — the step's var binds only inside its own probe/scan.
