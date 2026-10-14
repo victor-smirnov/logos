@@ -104,11 +104,11 @@
       "id": "intrinsic.include-str.macro",
       "domain": "intrinsic",
       "title": "include_str! / include_bytes! embed file contents",
-      "statement": "`include_str!(\"path\")` and `include_bytes!(\"path\")` read the file at compile time (path relative to the including file) and yield its contents as a `&str` (`Slice<u8>`) literal; both forms collapse to the same representation since `str` is `Slice<u8>`. Unreadable files are a compile error.",
+      "statement": "`include_str!(\"path\")` and `include_bytes!(\"path\")` read the file at compile time (path relative to the including file) and yield its contents as a literal: a `&str` for include_str!, a `&[u8]` for include_bytes!. Unreadable files are a compile error.",
       "evidence": [
         "src/compiler/sema_expr.cpp#L18252-L18282"
       ],
-      "divergence": "Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are Slice<u8>."
+      "divergence": "Rust's include_bytes! has type &[u8; N]; Logos gives &[u8] (no array-typed byte literal reference)."
     },
     {
       "id": "intrinsic.env.macro",

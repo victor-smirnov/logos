@@ -1,0 +1,15 @@
+// `str` is its own type, as Rust's: `&str` and `&[u8]` take their own impls, `as_bytes` is the one road from
+// the first to the second, and a slice of strs is a `[T]` like any other.
+package str_own_type_vs_byte_slice;
+use logos.std.fmt;
+use logos.mem.string;
+use logos.mem.collections.vec;
+fn first<T: Copy>(s: &[T]) -> T { s[0] }
+fn main() {
+    let s: &str = "hi";
+    let b: &[u8] = s.as_bytes();
+    let words: [&str; 2] = ["ab", "cd"];
+    let v: Vec<&str> = "x y".split(' ').collect();
+    println!("{:?} {:?} {:?} {:?}", s, b, &words[..], v);
+    println!("{} {} {}", first(&words[..]), first(b), b.len());
+}

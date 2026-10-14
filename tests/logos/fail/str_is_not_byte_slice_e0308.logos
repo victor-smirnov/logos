@@ -1,0 +1,5 @@
+// `&str` is not `&[u8]` (Rust E0308): the bytes are reached through `as_bytes`.
+package str_is_not_byte_slice_e0308;
+fn main() {
+    let b: &[u8] = "hi";
+}

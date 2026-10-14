@@ -70,11 +70,11 @@ The `str` keyword resolves to the fat-pointer slice form `Slice<u8>` (the `&[u8]
 
 **Source:** `src/compiler/sema.cpp#L2552-L2561`
 
-### `type.str.slice-alias` — str is an alias for `Slice<u8>`; impls aliased to `&[u8]`
+### `type.str.slice-alias` — str is its own unsized type, distinct from [u8]
 
-`str` is a built-in that resolves to `Slice<u8>` (printed `&[u8]`); a trait impl whose target is `str` is also registered under target `&[u8]` so trait-satisfaction checks keyed on the printed slice type find the impl.
+`str` is a built-in unsized type, distinct from `[u8]` (Rust's `str` DST): its element is the primitive `str` unit (`LogosType::Kind::Str`), so `&str` is `Slice<str>` and unsized `str` is `UnsizedSlice<str>` — the fat-pointer ABI of `&[u8]`, not its type. A trait impl whose target is `str` is a primary fact at the unsized `str`, with a fallback twin at `&str` that answers only when no impl names `&str` itself; no `[T]` or `&[u8]` impl applies to `str`, and no type variable binds the `str` unit.
 
-**Divergence:** Logos models `str` as `Slice<u8>`; Rust `str` is a distinct DST.
+**Divergence:** Rust-conformant (str is a distinct DST; squeue #745)
 
 **Source:** `src/compiler/sema_collect.cpp#L3777-L3787`
 

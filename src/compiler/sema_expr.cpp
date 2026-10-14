@@ -7903,11 +7903,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_has_trait_of(TinyMapView node) {
         error("has_trait_of::<Trait>(t) requires exactly one Type argument");
         return error_expr();
     }
-    LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-    TypeRef u8_t = pool_->alloc(std::move(u8_b));
-    LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-    sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return pool_->alloc(std::move(s_)); }();   // `str`, not `[u8]`
-    TypeRef str_slice_t = pool_->alloc(std::move(sl_b));
+    TypeRef str_slice_t = make_str_type();
     std::vector<lir::LExprPtr> all_args;
     all_args.push_back(builder().lit_str(std::move(trait_name), str_slice_t));
     all_args.push_back(std::move(rargs[0]));
@@ -8804,11 +8800,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         }
         std::vector<TypeRef> targs; targs.push_back(elem);
         std::vector<lir::LExprPtr> rargs;
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return pool_->alloc(std::move(s_)); }();   // `str`, not `[u8]`
-        TypeRef str_slice_t = pool_->alloc(std::move(sl_b));
+        TypeRef str_slice_t = make_str_type();
         rargs.push_back(builder().lit_str(std::move(trait_name), str_slice_t));
         return builder().call("__has_trait__",
                               std::move(targs), std::move(rargs),
@@ -12969,7 +12961,7 @@ std::string SemaChecker::writfield_type_name(TypeRef t) {
         case K::I64:   return "i64";  case K::U64:   return "u64";
         case K::Isize: return "isize"; case K::Usize: return "usize";
         case K::F32:   return "f32";  case K::F64:   return "f64";
-        case K::Slice: return "str";  // str field (Slice<u8>)
+        case K::Slice: return is_str_type(t) ? "str" : std::string();  // a str field; no other slice is a WritField
         case K::Struct:
         case K::ZonedStruct: {
             // A user struct field type (e.g. WQL `WRef<S>`) is a WritField iff it
@@ -24166,11 +24158,7 @@ lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {
         error(std::format("concat!: unsupported arg '{}' (string/int/bool literals only)", p));
         return error_expr();
     }
-    LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-    TypeRef u8_t = pool_->alloc(std::move(u8_b));
-    LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-    sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return pool_->alloc(std::move(s_)); }();   // `str`, not `[u8]`
-    TypeRef str_slice_t = pool_->alloc(std::move(sl_b));
+    TypeRef str_slice_t = make_str_type();
     return builder().lit_str(std::move(out), str_slice_t);
 }
 
@@ -24433,11 +24421,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         return builder().lit_int(0LL, prim(LogosType::Kind::U32));
     }
     if (callee_name == "file" || callee_name == "module_path") {
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return pool_->alloc(std::move(s_)); }();   // `str`, not `[u8]`
-        TypeRef str_slice_t = pool_->alloc(std::move(sl_b));
+        TypeRef str_slice_t = make_str_type();
         std::string val = callee_name == "file" ? file_ : cur_package_;
         return builder().lit_str(std::move(val), str_slice_t);
     }
@@ -24453,9 +24437,6 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     // include_str!("path") — read file at compile time. Path is resolved
     // relative to the file containing the include_str! call (mirrors
     // Rust). Errors out if the file can't be read.
-    // include_bytes! is a thin alias — Rust's `&[u8; N]` and `&str` differ
-    // in type, but Logos's `str` IS `Slice<u8>` so both forms collapse to
-    // the same representation; users distinguish by intent only.
     if (callee_name == "include_str" || callee_name == "include_bytes") {
         std::string raw;
         if (node.has_key(la::RAW_TEXT))
@@ -24480,12 +24461,9 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         }
         std::string contents((std::istreambuf_iterator<char>(in)),
                              std::istreambuf_iterator<char>());
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return pool_->alloc(std::move(s_)); }();   // `str`, not `[u8]`
-        TypeRef str_slice_t = pool_->alloc(std::move(sl_b));
-        return builder().lit_str(std::move(contents), str_slice_t);
+        // include_bytes! is bytes (Rust `&[u8; N]`, here `&[u8]`), include_str! a `&str`.
+        TypeRef lit_t = callee_name == "include_bytes" ? make_slice_type(prim(LogosType::Kind::U8)) : make_str_type();
+        return builder().lit_str(std::move(contents), lit_t);
     }
 
     // env!("VAR") / option_env!("VAR") — read environment at compile time.
@@ -24504,11 +24482,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
             raw = raw.substr(1, raw.size() - 2);
         const char* val = std::getenv(raw.c_str());
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return pool_->alloc(std::move(s_)); }();   // `str`, not `[u8]`
-        TypeRef str_slice_t = pool_->alloc(std::move(sl_b));
+        TypeRef str_slice_t = make_str_type();
         if (!val) {
             if (callee_name == "env") {
                 error(std::format("env!: environment variable '{}' not set", raw));
@@ -24544,11 +24518,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         std::string text;
         if (node.has_key(la::RAW_TEXT))
             text = std::string(str_of(node.get(la::RAW_TEXT.code)));
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return pool_->alloc(std::move(s_)); }();   // `str`, not `[u8]`
-        TypeRef str_slice_t = pool_->alloc(std::move(sl_b));
+        TypeRef str_slice_t = make_str_type();
         return builder().lit_str(std::move(text), str_slice_t);
     }
 

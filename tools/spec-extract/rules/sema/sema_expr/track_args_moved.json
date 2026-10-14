@@ -30,10 +30,10 @@
     {
       "id": "expr.str.as-bytes-identity",
       "domain": "expr",
-      "title": "&str.as_bytes() is a representation identity",
-      "statement": "`&str` is modeled as `Slice<u8>` — the same fat-pointer ABI as `&[u8]`. Calling `.as_bytes()` on a receiver whose slice element kind is `U8` lowers to the receiver expression unchanged (no conversion emitted).",
+      "title": "&str.as_bytes() retypes the fat pointer to &[u8]",
+      "statement": "`.as_bytes()` on `&str` is the one road to `&[u8]`: it retypes the receiver's fat pointer (same data pointer and length) to `&[u8]` without copying. It is defined on `str` only; a `&[u8]` receiver has no `as_bytes`.",
       "evidence": ["src/compiler/sema_expr.cpp#L6505-L6514"],
-      "divergence": "Logos models &str as Slice<u8>; .as_bytes() is a no-op identity conversion by construction."
+      "divergence": "Rust-conformant (str::as_bytes; squeue #745)"
     },
     {
       "id": "expr.str.method-forwarding",

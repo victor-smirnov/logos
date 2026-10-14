@@ -138,7 +138,7 @@ fn main() -> i64 {
     }
 
     // @rule expr.str.as-bytes-identity
-    // &str is Slice<u8>; s.as_bytes() returns the receiver verbatim (same len).
+    // s.as_bytes() is the &str's bytes as &[u8] (same pointer, same len).
     {
         let s: &str = "abcd";
         let bytes: &[u8] = s.as_bytes();

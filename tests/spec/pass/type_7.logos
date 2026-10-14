@@ -41,8 +41,7 @@ impl Tag for BaseAlias { fn tag(&self) -> i64 { return self.b; } }
 fn main() -> i64 {
 
     // @rule type.str.slice-alias
-    // `str` resolves to Slice<u8> (printed &[u8]); a trait impl on `str` is also
-    // registered under &[u8], so calling the trait method on a str value finds it.
+    // `str` is its own type; a trait impl on `str` answers a str value.
     {
         let s: str = "hi";
         if s.three() != 3i64 { return 1; }
@@ -53,8 +52,8 @@ fn main() -> i64 {
     // resolves and the method body type-checks/runs.
     {
         let s: str = "Az";
-        // str is Slice<u8>; the [u8] impl method applies to its byte slice
-        if s.fb() != 65i64 { return 2; }   // 'A' = 65
+        // str is not [u8]: the [u8] impl method applies to its bytes
+        if s.as_bytes().fb() != 65i64 { return 2; }   // 'A' = 65
     }
 
     // @rule type.copy.structural-auto

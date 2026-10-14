@@ -194,10 +194,10 @@ unsafe fn main() -> i32 {
 
     // @rule intrinsic.include-str.macro
     // include_str!/include_bytes! read a file at compile time (path relative to
-    // the including file) and yield its contents as a &str/Slice<u8> literal.
+    // the including file) and yield its contents as a &str / &[u8] literal.
     let inc: str = include_str!("intrinsic_3_data/inc.txt");
     if inc.len() != 23i64 { return 17; }
-    let incb: str = include_bytes!("intrinsic_3_data/inc.txt");
+    let incb: &[u8] = include_bytes!("intrinsic_3_data/inc.txt");
     if incb.len() != 23i64 { return 17; }
 
     return 0;
