@@ -1,0 +1,43 @@
+// Rust's `impl<T: PartialOrd> PartialOrd for Option<T>` (and Ord, and the same
+// pair for Result): the derived order, `None < Some(_)` and `Ok(_) < Err(_)`,
+// payloads compared by their own order. Output checked against rustc 1.98.1.
+package option_result_ordering;
+use logos.std.fmt;
+use logos.lang.cmp;
+use logos.lang.option;
+use logos.mem.collections.vec;
+use logos.mem.string;
+#[derive_partial_eq]
+#[derive_eq]
+#[derive_partial_ord]
+#[derive_ord]
+#[derive_debug]
+#[derive_clone]
+#[derive_copy]
+enum Lvl { Low, Mid(i64), High }
+fn main() {
+    let a: Option<i64> = None;
+    let b: Option<i64> = Some(1);
+    let c: Option<i64> = Some(2);
+    println!("{} {} {} {} {}", a < b, b < c, c > a, b <= b, a >= a);
+    println!("{:?} {:?}", b.partial_cmp(&c), a.cmp(&b));
+    let r1: Result<i64, i64> = Ok(5);
+    let r2: Result<i64, i64> = Err(1);
+    println!("{} {} {:?}", r1 < r2, r2 > r1, r1.cmp(&Ok(4)));
+    let mut v: Vec<Option<i64>> = vec![Some(3), None, Some(1)];
+    v.sort();
+    println!("{:?}", v);
+    println!("{:?}", v.iter().max());
+    let n1: Option<(i64, char)> = Some((1, 'b'));
+    let n2: Option<(i64, char)> = Some((1, 'a'));
+    println!("{}", n1 > n2);
+    let s1: Option<String> = Some("ab".to_string());
+    let s2: Option<String> = Some("b".to_string());
+    println!("{}", s1 < s2);
+    println!("{} {}", Lvl::Mid(3) < Lvl::High, Some(Lvl::Mid(1)) < Some(Lvl::Mid(0)));
+    // Option<f64> stays IEEE-partial: a NaN payload is incomparable.
+    let fnan: Option<f64> = Some(0.0 / 0.0);
+    let fone: Option<f64> = Some(1.0);
+    let fnone: Option<f64> = None;
+    println!("{} {} {} {:?} {}", fnan < fone, fnan >= fone, fnone < fnan, fnan.partial_cmp(&fone), fone < Some(2.0));
+}

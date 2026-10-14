@@ -1105,6 +1105,42 @@ impl<T: Ord> PartialOrd for Reverse<T> {
 
 // Tuples order lexicographically (Rust's core, one impl per arity up to 12): the first
 // element pair that is not Equal decides.
+// Rust's derived order on `Option` / `Result`: variants in declaration order
+// (`None < Some(_)`, `Ok(_) < Err(_)`), payloads by their own order. Same
+// `match *self` / `ref` spelling as the PartialEq impls in cmp.logos.
+impl<T: PartialOrd> PartialOrd for Option<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match *self {
+            Option::Some(ref a) => { match *other { Option::Some(ref b) => { return a.partial_cmp(b); } Option::None => { return Option::Some(Ordering::Greater); } } }
+            Option::None => { match *other { Option::Some(ref b) => { return Option::Some(Ordering::Less); } Option::None => { return Option::Some(Ordering::Equal); } } }
+        }
+    }
+}
+impl<T: Ord> Ord for Option<T> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match *self {
+            Option::Some(ref a) => { match *other { Option::Some(ref b) => { return a.cmp(b); } Option::None => { return Ordering::Greater; } } }
+            Option::None => { match *other { Option::Some(ref b) => { return Ordering::Less; } Option::None => { return Ordering::Equal; } } }
+        }
+    }
+}
+impl<T: PartialOrd, E: PartialOrd> PartialOrd for Result<T, E> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match *self {
+            Result::Ok(ref a) => { match *other { Result::Ok(ref b) => { return a.partial_cmp(b); } Result::Err(ref b) => { return Option::Some(Ordering::Less); } } }
+            Result::Err(ref a) => { match *other { Result::Ok(ref b) => { return Option::Some(Ordering::Greater); } Result::Err(ref b) => { return a.partial_cmp(b); } } }
+        }
+    }
+}
+impl<T: Ord, E: Ord> Ord for Result<T, E> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match *self {
+            Result::Ok(ref a) => { match *other { Result::Ok(ref b) => { return a.cmp(b); } Result::Err(ref b) => { return Ordering::Less; } } }
+            Result::Err(ref a) => { match *other { Result::Ok(ref b) => { return Ordering::Greater; } Result::Err(ref b) => { return a.cmp(b); } } }
+        }
+    }
+}
+
 impl<A: PartialOrd> PartialOrd for (A,) {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         return self.0.partial_cmp(&other.0);

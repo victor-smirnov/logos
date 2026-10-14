@@ -4955,7 +4955,7 @@ bool Mono::mono_concrete_satisfies_bound(const TraitQuery& q,
     const auto& table = obl_table_now_();
     std::string key = q.key();
     key += '\x1f';
-    key += type_str(concrete);
+    key += mangle_type(concrete);   // the identity: `type_str` drops type arguments (`Option`)
     if (auto it = obl_memo_.find(key); it != obl_memo_.end()) return it->second;
     obl::Selection sel = obl::select(table, obl_env_(), q.key(), concrete, {});
     if (!sel.holds() && !q.has_identity)
