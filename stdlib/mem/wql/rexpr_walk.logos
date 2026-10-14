@@ -4075,8 +4075,8 @@ fn bucket_lookup_frag(s: i64, strat: i32, streams: bool, ty: str) -> ExprBlob {
 // A BATCH producer (a Memoria leaf walk) hands out a leaf at a time, and the
 // leaf borrows the walk: it cannot outlive the next `next_batch()`, so it
 // cannot be the cursor across base rows. Its rows are COPIED into the cursor's
-// own buffer `__mb` — pushed in descending order, so `pop()` yields the next
-// row ascending and by value — and `__md` records the end of the walk.
+// own buffer `__mb` — reversed after the leaf is read, so `pop()` yields the
+// next row ascending and by value — and `__md` records the end of the walk.
 fn merge_batch_step(prm: &MacroParams, src: str, streams: bool) -> i64 {
     if !streams { return -1i64; }
     let r: i64 = prm.rel_find_src(src);
@@ -4093,8 +4093,10 @@ fn merge_pull_frag(prm: &MacroParams, s: i64, src: str, ty: str, br: i64) -> Exp
     let s_md: String = nk_str("__md", s);   let n_md: Ident = Ident::new(string_as_str(&s_md));
     let s_ob: String = nk_str("__mob", s);  let n_ob: Ident = Ident::new(string_as_str(&s_ob));
     let s_bb: String = nk_str("__mbb", s);  let n_bb: Ident = Ident::new(string_as_str(&s_bb));
-    let s_bn: String = nk_str("__mbn", s);  let n_bn: Ident = Ident::new(string_as_str(&s_bn));
-    let s_bj: String = nk_str("__mbj", s);  let n_bj: Ident = Ident::new(string_as_str(&s_bj));
+    // the leaf loop is the batch plane's one shape (`__bj`/`__bn`, ascending),
+    // numbered past the nest's levels
+    let s_bn: String = nk_str("__bn", 100i64 + s);  let n_bn: Ident = Ident::new(string_as_str(&s_bn));
+    let s_bj: String = nk_str("__bj", 100i64 + s);  let n_bj: Ident = Ident::new(string_as_str(&s_bj));
     let s_br: String = nk_str("__mbr", s);  let n_br: Ident = Ident::new(string_as_str(&s_br));
     let rowt: ExprBlob = parse_type(ty);
     let mut rowx: String = String::new();
@@ -4112,13 +4114,14 @@ fn merge_pull_frag(prm: &MacroParams, s: i64, src: str, ty: str, br: i64) -> Exp
                     let #n_bb = #n_ob.unwrap();
                     let #n_bn: u64 = #(lene_f);
                     #(hoist_f);
-                    let mut #n_bj: u64 = #n_bn;
-                    while #n_bj > 0u64 {
-                        #n_bj = #n_bj - 1u64;
+                    let mut #n_bj: u64 = 0u64;
+                    while #n_bj < #n_bn {
                         let #n_br: #(rowt) = #(rowe_f);
                         #n_mb.push(#n_br);
+                        #n_bj = #n_bj + 1u64;
                     }
                 }
+                #n_mb.reverse();
             } else { #n_md = true; }
         }
         #n_mc = #n_mb.pop();
