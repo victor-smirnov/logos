@@ -1603,7 +1603,7 @@ const obl::ImplTable& SemaChecker::obl_table_now_() {
             f.source = src++;
             obl_infos_.push_back(&info);
             if (!info.impl_node.empty()) obl_trait_of_node_[info.impl_node] = f.trait;
-            if (info.target_type == "&[u8]") return;   // the `str` alias: the `str` entry's facts cover it
+            if (info.target_type == "&str") return;   // the `str` alias: the `str` entry's facts cover it
             if (!f.self) { ++obl_no_self_; return; }
             f.trait_args = info.trait_type_args;
             for (auto& tp : info.impl_type_params) {
@@ -1683,20 +1683,21 @@ bool SemaChecker::implements_(std::string_view trait, TypeRef self, const std::v
     return obl::select(obl_table_now_(), obl_env_(), defs_.path(impl_trait_id(trait)), self, args).holds();
 }
 
-// Logos's `impl Tr for str` is two facts. Rust's: about `str` (`[u8]`), so
+// Logos's `impl Tr for str` is two facts. Rust's: about the unsized `str`, so
 // `impl<T: Tr + ?Sized> Tr for &T` reaches `&str` through it. Logos's own:
-// about the `&str` value (`&[u8]`, e.g. `impl Copy for str`, `impl Pattern for
-// str`), which answers only when no other impl does (the trait-item resolvers'
-// rule). Copy / Clone need `Sized` in Rust: only the `&[u8]` fact.
+// about the `&str` value (Logos's bare `str` names it: `impl Copy for str`,
+// `impl Pattern for str`), which answers only when no other impl does (the
+// trait-item resolvers' rule). Copy / Clone need `Sized` in Rust: only the
+// `&str` fact.
 void SemaChecker::obl_str_facts_(obl::ImplFact f) {
     const auto& env = obl_env_();
     const bool sized_only = f.trait == env.lang.copy || f.trait == env.lang.clone;
-    f.fallback = true;
     obl::ImplFact by_ref = f;
-    by_ref.self = make_slice_type(u8_t(), false);
+    by_ref.fallback = true;
+    by_ref.self = make_str_type();
     obl_table_.add(std::move(by_ref));
     if (sized_only) return;
-    f.self = make_unsized_slice_type(u8_t());
+    f.self = make_unsized_slice_type(str_unit_t());
     obl_table_.add(std::move(f));
 }
 
@@ -3994,11 +3995,7 @@ void SemaChecker::collect_impl(TinyMapView node) {
         // returns Slice<u8> (Logos's fat-ptr alias). For method-body
         // semantics we want Self = UnsizedSlice<u8> so `&Self` canonicalises
         // to Slice<u8> rather than nesting to `&&[u8]`.
-        if (target == "str") {
-            LogosTypeBuilder us; us.kind = LogosType::Kind::UnsizedSlice;
-            us.elem = u8_t();
-            self_type = pool_->alloc(std::move(us));
-        }
+        if (target == "str") self_type = make_unsized_slice_type(str_unit_t());
         // G149-6: a fn-ptr target binds Self to the resolved FnPtr so `&Self`
         // resolves (codegens as a plain ptr).
         if (!self_type && target_resolved)
@@ -5762,20 +5759,20 @@ void SemaChecker::collect_impl(TinyMapView node) {
                              TypeRef(impl_self_ty).kind() == LogosType::Kind::UnsizedDyn))
             impl_unsized_self_.insert(node_key_(node));
         impl_self_by_node_[node_key_(node)] =
-            target == "str" ? make_unsized_slice_type(u8_t()) : (impl_self_ty ? impl_self_ty : target_resolved);
+            target == "str" ? make_unsized_slice_type(str_unit_t()) : (impl_self_ty ? impl_self_ty : target_resolved);
         impls_[ikey] = info;
         impls_all_[ikey].push_back(info);   // ALL impls (impls_ is last-wins)
         ++impls_gen_;
         if (!cur_from_binary_) user_impl_keys_.insert(ikey);
-        // `str` is a built-in that resolves to Slice<u8>; type_str() produces
-        // "&[u8]" for Slice<u8>, so trait-bound checks look for "Trait::&[u8]".
-        // Register an alias entry so satisfaction checks find the impl.
+        // Logos's bare `str` names the `&str` value too (type_str: "&str"), so
+        // the name-keyed probes look for "Trait::&str". Register an alias entry
+        // so satisfaction checks find the impl.
         if (target == "str") {
-            SemaImplInfo alias{trait_name, "&[u8]", impl_is_unsafe, impl_is_negative,
+            SemaImplInfo alias{trait_name, "&str", impl_is_unsafe, impl_is_negative,
                                target_resolved, impl_tps,
                                trait_type_args, trait_lt_args, impl_lt_params,
                                impl_lt_outlives, impl_doc, {}};
-            const ImplKey akey{ikey.trait_def, "&[u8]"};
+            const ImplKey akey{ikey.trait_def, "&str"};
             impls_[akey] = alias;
             impls_all_[akey].push_back(alias);
             ++impls_gen_;
@@ -7611,7 +7608,7 @@ void SemaChecker::check_orphan_rule_() {
     for (auto& [k, infos] : impls_all_)
         for (auto& info : infos) {
             if (info.from_binary || info.impl_node.empty() || !seen.insert(info.impl_node).second) continue;
-            if (info.target_type == "&[u8]") continue;   // the `str` alias of an impl checked as itself
+            if (info.target_type == "&str") continue;   // the `str` alias of an impl checked as itself
             const SemaTraitInfo* ti = trait_info(info.trait_def);
             if (!ti || module_of(ti->package) == info.module_id) continue;
             auto is_param = [&](TypeRef t) {

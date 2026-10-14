@@ -36,8 +36,8 @@ pub struct Item {
 pub struct Type {
     /// Numeric `LogosType::Kind` discriminant (Void=0, I32=1, ...).
     pub kind: u32,
-    /// Type name bytes (rodata-backed; empty on values decoded by `type_from_anyval`).
-    pub name: &'static [u8],
+    /// Type name (rodata-backed; empty on values decoded by `type_from_anyval`).
+    pub name: &'static str,
     /// Size of the type in bytes.
     pub size: i64,
     /// Alignment of the type in bytes.
@@ -494,7 +494,7 @@ impl OView {
     }
 
     /// Returns the first MODULE item whose NAME matches `name` byte-for-byte; null `WAny` if none.
-    pub fn find_template_decl(self: &OView, name: &[u8]) -> WAny {
+    pub fn find_template_decl(self: &OView, name: &str) -> WAny {
         let root: WAny = self.root();
         let items: WAny = self.tiny_map_get(root, 2 as u8);  // ITEMS
         if items.is_null() { return WAny::null(); }

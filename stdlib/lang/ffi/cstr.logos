@@ -42,12 +42,12 @@ impl CStr {
 
     /// The bytes, excluding the terminator (Rust `CStr::to_bytes`).
     pub fn to_bytes(&self) -> &[u8] {
-        unsafe { return str_from_raw(self.as_ptr(), self.count_bytes()); }
+        unsafe { return slice_from_raw(self.as_ptr(), self.count_bytes()); }
     }
 
     /// The bytes including the terminator (Rust `CStr::to_bytes_with_nul`).
     pub fn to_bytes_with_nul(&self) -> &[u8] {
-        unsafe { return str_from_raw(self.as_ptr(), self.count_bytes() + 1); }
+        unsafe { return slice_from_raw(self.as_ptr(), self.count_bytes() + 1); }
     }
 
     /// The bytes as a `&str` if they are valid UTF-8 (Rust `CStr::to_str`).

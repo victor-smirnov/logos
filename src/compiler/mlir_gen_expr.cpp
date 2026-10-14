@@ -4193,7 +4193,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::ECastView v, TypeRef type) {
     // both the alloca ptr (fat struct) and *const u8 are !llvm.ptr in LLVM 17.
     if (TypeRef ot(op_ty);
         ot && ot.kind() == LogosType::Kind::Slice &&
-        ot.elem() && ot.elem().kind() == LogosType::Kind::U8 &&
+        ot.elem() && (ot.elem().kind() == LogosType::Kind::U8 || ot.elem().kind() == LogosType::Kind::Str) &&
         type && TypeRef(type).kind() == LogosType::Kind::Ptr &&
         TypeRef(type).pointee() && TypeRef(type).pointee().kind() == LogosType::Kind::U8) {
         auto stype = slice_llvm_type();
@@ -6194,7 +6194,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
         K tk = TypeRef(t).kind();
         if (tk == K::F64 || tk == K::F32 || tk == K::FloatLit) return true;
         if (tk == K::Ptr) return true;  // *const u8 → C-string varchar
-        if (tk == K::Slice && TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) return true; // str → varchar
+        if (tk == K::Slice && TypeRef(t).elem() && (TypeRef(t).elem().kind() == K::U8 || TypeRef(t).elem().kind() == K::Str)) return true; // str → varchar
         if (tk == K::Struct && is_stdlib_string_view(t)) return true;
         return false;
     };
@@ -6306,7 +6306,7 @@ mlir::Value MLIRGenImpl::gen_expr_kind(lir_view::EWritLitView v, TypeRef ret_typ
                     auto r = builder_.create<mlir::func::CallOp>(
                         loc_, alloc_cstr_fn, mlir::ValueRange{ctr_alloca, cap_val});
                     raw_u32 = r.getNumResults() > 0 ? r.getResult(0) : nullptr;
-                } else if (ctk == K::Slice && TypeRef(ct).elem() && TypeRef(ct).elem().kind() == K::U8
+                } else if (ctk == K::Slice && TypeRef(ct).elem() && (TypeRef(ct).elem().kind() == K::U8 || TypeRef(ct).elem().kind() == K::Str)
                            && alloc_str_fn) {
                     // str (&[u8]) fat pointer — load ptr+len fields from the alloca.
                     auto stype = slice_llvm_type();

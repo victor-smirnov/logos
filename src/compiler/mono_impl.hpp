@@ -1241,6 +1241,7 @@ private:
         // check below would report a false mismatch against the concrete arg.
         if (p.kind() == LogosType::Kind::TypeVar ||
             p.kind() == LogosType::Kind::ConstVar) {
+            if (c.kind() == LogosType::Kind::Str) return false;   // `str` is not `[T]`
             auto tvn = p.type_var_name();
             auto it = bindings.find(tvn);
             if (it != bindings.end())
@@ -1292,6 +1293,7 @@ private:
         // check below would report a false mismatch against the concrete arg.
         if (p.kind() == LogosType::Kind::TypeVar ||
             p.kind() == LogosType::Kind::ConstVar) {
+            if (c.kind() == LogosType::Kind::Str) return false;   // `str` is not `[T]`
             auto tvn = p.type_var_name();
             auto it = bindings.find(tvn);
             if (it != bindings.end())

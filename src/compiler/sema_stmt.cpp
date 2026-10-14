@@ -4849,8 +4849,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
             st = TypeRef(st).pointee();
         const bool unknown = !st || TypeRef(st).kind() == LogosType::Kind::Error ||
                              TypeRef(st).kind() == LogosType::Kind::TypeVar;
-        const bool is_str = st && TypeRef(st).kind() == LogosType::Kind::Slice && TypeRef(st).elem() &&
-                            TypeRef(TypeRef(st).elem()).kind() == LogosType::Kind::U8;
+        const bool is_str = st && TypeRef(st).kind() == LogosType::Kind::Slice && is_str_type(st);
         if (!unknown && !is_str)
             error(std::format("mismatched types: a string literal pattern matches a `&str`, "
                               "found `{}` (E0308)", type_str(scrut_type)));
@@ -5890,8 +5889,7 @@ lir::Pattern SemaChecker::build_pattern_impl(TinyMapView pnode, TypeRef scrut_ty
                         st = TypeRef(st).pointee();
                     const bool unknown = !st || TypeRef(st).kind() == LogosType::Kind::Error ||
                                          TypeRef(st).kind() == LogosType::Kind::TypeVar;
-                    const bool is_str = st && TypeRef(st).kind() == LogosType::Kind::Slice && TypeRef(st).elem() &&
-                                        TypeRef(TypeRef(st).elem()).kind() == LogosType::Kind::U8;
+                    const bool is_str = st && TypeRef(st).kind() == LogosType::Kind::Slice && is_str_type(st);
                     if (!unknown && !is_str)
                         error(std::format("mismatched types: const '{}' is a `&str`, the scrutinee is '{}' (E0308)",
                                           wname, type_str(scrut_type)));
@@ -5997,7 +5995,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
             want_arity = 2;
             auto sv = str_of(p.get(la::VALUE.code));
             std::string lit(sv);
-            extra_args.push_back(builder().lit_str(std::move(lit), make_slice_type(prim(LogosType::Kind::U8))));
+            extra_args.push_back(builder().lit_str(std::move(lit), make_str_type()));
         }
 
         auto cands = find_func_candidates(helper);
@@ -6169,7 +6167,7 @@ lir::LExprPtr SemaChecker::build_writ_pat_guard(
                     if (code_of(ent) != la::PAT_WRIT_MAP_ENTRY) continue;
                     auto ksv = str_of(ent.get(la::KEY.code));
                     std::vector<lir::LExprPtr> xargs;
-                    xargs.push_back(builder().lit_str(std::string(ksv), make_slice_type(prim(LogosType::Kind::U8))));
+                    xargs.push_back(builder().lit_str(std::string(ksv), make_str_type()));
                     std::string child = emit_child_let(
                         "writ_pat_map_slot", sv, std::move(xargs), 2);
                     if (child.empty()) {

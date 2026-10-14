@@ -261,7 +261,7 @@ private:
 
     // prims_[int(Kind)] for primitive kinds.  TypeVar is not a primitive.
     // Size covers every Kind value (uses the LAST enumerator).
-    std::array<TypeRef, int(LogosType::Kind::InferredType) + 1> prims_{};
+    std::array<TypeRef, int(LogosType::Kind::Str) + 1> prims_{};
 
     void init_primitives();
 
@@ -270,6 +270,28 @@ private:
     TypeRef i32_t()     { return prim(LogosType::Kind::I32); }
     TypeRef bool_t()    { return prim(LogosType::Kind::Bool); }
     TypeRef u8_t()      { return prim(LogosType::Kind::U8); }
+    TypeRef str_unit_t(){ return prim(LogosType::Kind::Str); }   // the element of `str`
+    // `&str` (`&'lt str`): the string slice, its own type — not `&[u8]`.
+    TypeRef make_str_type(std::string lt = {}) {
+        return make_slice_type(str_unit_t(), false, TypeRef::OwningKind::Borrow, std::move(lt));
+    }
+    // Two byte-unit slices of ONE identity — both `&str` or both `&[u8]` —
+    // whose `==` / `<` lower to the byte-wise str_eq / str_cmp.
+    static bool bytes_slice_pair_(TypeRef a, TypeRef b) {
+        auto unit = [](TypeRef t) -> int {
+            if (!t || TypeRef(t).kind() != LogosType::Kind::Slice || !TypeRef(t).elem()) return 0;
+            auto k = TypeRef(TypeRef(t).elem()).kind();
+            return k == LogosType::Kind::Str ? 1 : k == LogosType::Kind::U8 ? 2 : 0;
+        };
+        return unit(a) != 0 && unit(a) == unit(b);
+    }
+    // `t` is a string slice: `&str` / `&mut str` / `*const str`, or bare unsized `str`.
+    static bool is_str_type(TypeRef t) {
+        if (!t) return false;
+        TypeRef tr(t);
+        if (tr.kind() != LogosType::Kind::Slice && tr.kind() != LogosType::Kind::UnsizedSlice) return false;
+        return tr.elem() && TypeRef(tr.elem()).kind() == LogosType::Kind::Str;
+    }
     TypeRef usize_t()   { return prim(LogosType::Kind::Usize); }
     TypeRef isize_t()   { return prim(LogosType::Kind::Isize); }
     TypeRef intlit_t()  { return prim(LogosType::Kind::IntLit); }

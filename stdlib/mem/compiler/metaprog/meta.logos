@@ -18,7 +18,7 @@ package logos.std.compiler.metaprog;
 // printable string. Mirrors `LogosType::Kind` enum order from
 // `include/logos/compiler/sema.hpp`. Unknown tags → "?".
 /// Returns a short printable name for a `Type` kind tag; unknown tags yield `"?"`.
-pub fn kind_name(k: u32) -> &[u8] {
+pub fn kind_name(k: u32) -> &str {
     if k == (0 as u32)  { return "Void"; }
     if k == (1 as u32)  { return "i32"; }
     if k == (2 as u32)  { return "i64"; }
@@ -51,8 +51,8 @@ pub fn kind_name(k: u32) -> &[u8] {
 //
 // Stand-alone so callers don't pull a heavier dep just for "is this
 // field named X". Bound to the specific shape (`a == b` byte-wise).
-/// Returns `true` iff byte slices `a` and `b` have equal length and contents.
-pub fn name_eq(a: &[u8], b: &[u8]) -> bool {
+/// Returns `true` iff names `a` and `b` have equal length and contents.
+pub fn name_eq(a: &str, b: &str) -> bool {
     let na = a.len();
     let nb = b.len();
     if na != nb { return false; }

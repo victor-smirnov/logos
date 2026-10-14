@@ -189,7 +189,7 @@ struct LogosType {
                                   // resolved by surrounding context at use
                                   // sites. Appended last to keep kind IDs
                                   // stable across the schema.
-        FnItem                    // logos-core 1.4: a fn-item type per
+        FnItem,                   // logos-core 1.4: a fn-item type per
                                   // instantiation. Distinct from FnPtr —
                                   // `foo::<i32>` and `foo::<u32>` get
                                   // DIFFERENT FnItem TypeUIDs even when the
@@ -207,6 +207,12 @@ struct LogosType {
                                   // Every Kind::FnPtr check in sema/mono/
                                   // mlir-gen also accepts Kind::FnItem so
                                   // the source-site swap stays transparent.
+        Str,                      // the element of `str`: Rust's string slice is its own
+                                  // type, not `[u8]`. `&str` is Slice{elem: Str}, bare
+                                  // unsized `str` is UnsizedSlice{elem: Str} — the layout
+                                  // of `&[u8]` (a byte per unit), a different identity.
+                                  // A type variable never binds Str, so `&[T]` and
+                                  // `impl<T> … for [T]` do not take a `str`.
     };
     // logos-core 1.4: every site that asks "is this a fn-pointer-like value?"
     // accepts BOTH the bare-FnPtr and the FnItem-distinct shapes — sema/mono/
@@ -303,7 +309,7 @@ struct LogosType {
         // align_of(T), which IS knowable, so it needs `elem()`.)
         case Kind::UnsizedDyn:                           return {0, 8};
         case Kind::Bool:                                 return int_layout(1);
-        case Kind::I8:   case Kind::U8:                  return int_layout(8);
+        case Kind::I8:   case Kind::U8: case Kind::Str:  return int_layout(8);
         case Kind::I16:  case Kind::U16:                 return int_layout(16);
         case Kind::I24:  case Kind::U24:                 return int_layout(24);
         case Kind::I32:  case Kind::U32: case Kind::F32:

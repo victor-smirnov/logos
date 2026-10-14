@@ -1340,7 +1340,7 @@ lir::LExprPtr SemaChecker::make_metacall_placeholder_expr(TypeRef ty) {
     if (k == K::Bool) return builder().lit_bool(false, ty);
     if (k == K::F32 || k == K::F64 || k == K::FloatLit)
         return builder().lit_float(0.0, ty);
-    if (k == K::Slice && ty.elem() && ty.elem().kind() == K::U8)
+    if (k == K::Slice && ty.elem() && (ty.elem().kind() == K::U8 || ty.elem().kind() == K::Str))
         return builder().lit_str("", ty);
     // All integer kinds (and IntLit) accept lit_int.
     return builder().lit_int(0, ty);

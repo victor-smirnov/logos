@@ -72,6 +72,7 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
         }
     }
     if ((p.kind() == K::TypeVar || p.kind() == K::ConstVar) && is_generic(generics, p.type_var_name())) {
+        if (c.kind() == K::Str) return false;   // `str` is not `[T]`: no T is its element
         std::string n(p.type_var_name());
         if (auto it = s.find(n); it != s.end()) return same_type(c, it->second) || unify(c, it->second, {}, s);
         s.emplace(std::move(n), c);
@@ -509,6 +510,7 @@ int pattern_specificity(TypeRef t) {
 static bool spec_match(TypeRef c, TypeRef p, Subst& s) {
     if (!c || !p) return false;
     if (p.kind() == K::TypeVar || p.kind() == K::ConstVar) {
+        if (c.kind() == K::Str) return false;   // `str` is not `[T]`
         std::string n(p.type_var_name());
         if (auto it = s.find(n); it != s.end()) return same_type(c, it->second);
         s.emplace(std::move(n), c);

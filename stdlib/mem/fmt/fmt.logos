@@ -848,6 +848,16 @@ impl<T: Debug, const N: usize> Debug for [T; N] {
     }
 }
 
+// Rust's `impl<T: Debug> Debug for [T]`: `[1, 2, 3]`. A `str` is not a `[T]`.
+impl<T: Debug> Debug for [T] {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        let mut l: DebugList = f.debug_list();
+        let mut i: i64 = 0;
+        while i < self.len() { let _ = l.entry(&self[i]); i = i + 1; }
+        return l.finish();
+    }
+}
+
 // Smart pointers format as their pointee (Rust: `impl<T: ?Sized + Display> Display for Box<T>` / `Rc<T>`).
 impl<T: Debug> Debug for Box<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> { return (**self).fmt(f); }
