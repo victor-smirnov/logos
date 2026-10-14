@@ -3,7 +3,9 @@
 // `BTreeMap` and the local `Runs` both declare `order entry = key` over an
 // `OrderedBy` walk, so an equi-join on the two key columns walks both in step
 // (the plan facts gate pins `merge join` on the admitted queries and
-// `merge declined` / a hash join on the twins). `Runs` holds DUPLICATE keys, so
+// `merge declined` / a hash join on the twin). Under `order by` (`mj_order`)
+// the step still merges and pins the written nest (`WG_MERGE`); the sort runs
+// after it. `Runs` holds DUPLICATE keys, so
 // a base key repeats (the run is replayed) and a step key repeats (the run
 // holds several rows). Every expectation is derived by hand from the data
 // below, in the nest's sequence: base order, then step order.
@@ -80,7 +82,11 @@ pub deem mj_drained(r: &Runs, s: &Runs, xs: &[Bag]) {
 // ── declined: the hash join answers ─────────────────────────────────────────
 pub deem hj_val(a: &BTreeMap<i64, i64>, b: &BTreeMap<i64, i64>) {
     from a x join b y on x.val * 10 == y.val select (x.key, x.val, y.val) }
-pub deem hj_order(r: &Runs, s: &Runs) {
+// `order by` the base's order column: the merge already emits that sequence
+// (ties base-then-step, the sort's own tiebreak), so the sort is elided
+pub deem mj_sorted(r: &Runs, s: &Runs) {
+    from r x join s y on x.key == y.key select (x.key, x.val, y.val) order by x.key }
+pub deem mj_order(r: &Runs, s: &Runs) {
     from r x join s y on x.key == y.key select (x.key, x.val, y.val) order by y.val }
 
 fn rows_are(v: &Vec<(i64, i64, i64)>, want: &[(i64, i64, i64)]) -> bool {
@@ -134,6 +140,7 @@ fn main() -> i32 {
         (4i64, 3i64, 8i64), (4i64, 3i64, 9i64), (4i64, 4i64, 8i64), (4i64, 4i64, 9i64),
         (4i64, 5i64, 8i64), (4i64, 5i64, 9i64)];
     if !rows_are(&mj_both_runs(&r, &s).unwrap(), &w_rs[..]) { return 8i32; }
+    if !rows_are(&mj_sorted(&r, &s).unwrap(), &w_rs[..]) { return 13i32; }
     if !rows_are(&mj_drained(&r, &s, &xs[..]).unwrap(), &w_rs[..]) { return 9i32; }
     // grouped: key 2 → 2 rows, sum 14; key 4 → 6 rows, sum 3·(8+9) = 51.
     let w_g: [(i64, i64, i64); 2] = [(2i64, 2i64, 14i64), (4i64, 6i64, 51i64)];
@@ -144,6 +151,6 @@ fn main() -> i32 {
     let w_o: [(i64, i64, i64); 8] = [(2i64, 1i64, 7i64), (2i64, 2i64, 7i64),
         (4i64, 3i64, 8i64), (4i64, 4i64, 8i64), (4i64, 5i64, 8i64),
         (4i64, 3i64, 9i64), (4i64, 4i64, 9i64), (4i64, 5i64, 9i64)];
-    if !rows_are(&hj_order(&r, &s).unwrap(), &w_o[..]) { return 12i32; }
+    if !rows_are(&mj_order(&r, &s).unwrap(), &w_o[..]) { return 12i32; }
     return 0i32;
 }

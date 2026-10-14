@@ -148,6 +148,7 @@ pub fn WG_REFUSED() -> i32      { return 21i32; }
 pub fn WG_ADMITTED() -> i32     { return 22i32; }
 pub fn WG_DEFERRED() -> i32     { return 23i32; }
 pub fn WG_OUTER() -> i32        { return 24i32; }   // the chain has an outer join
+pub fn WG_MERGE() -> i32        { return 25i32; }   // a step merges with the base
 
 // ⚠ `why_axis_of(g)` USED TO LIVE HERE AND IS DELIBERATELY GONE. There is no
 // function from a ground to a state, because there is no such function to write:
@@ -362,6 +363,9 @@ pub fn wg_words(g: i32) -> str {
     if g == WG_OUTER() {
         return "the chain has an outer join: which side keeps its unmatched rows is fixed by the written order, so no other order answers the same question";
     }
+    if g == WG_MERGE() {
+        return "a step merges with the base on their ordered keys: the merge walks both sources once, in the written order, which is cheaper than any build a second nest would need — so the written nest is the plan";
+    }
     if g == WG_NO_SORT() {
         return "the row order of a join IS the nest's, and this query names no other one — without `order by` there is no sequence to restore, so driving the other side would return the same rows in a different order";
     }
@@ -396,6 +400,9 @@ pub fn wg_remedy(g: i32) -> str {
     }
     if g == WG_OUTER() {
         return "there is no repair on this axis — an outer join's kept side is what the query asked for; joining the inner steps first, in a rel, leaves a chain the axis can reorder";
+    }
+    if g == WG_MERGE() {
+        return "none needed — the merge already reads each source once; a key that is not both sides' order column leaves the step a hash join, and the axis free";
     }
     if g == WG_ANTI_FIRST() {
         return "there is no repair on this axis — an anti join's asymmetry is what the query ASKED for, and transposing it would answer a different question. Moving the anti join off the first step (a classic join first) leaves a pair the axis can reason about";

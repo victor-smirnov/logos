@@ -5255,6 +5255,12 @@ pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: str, params_text: st
             if !check_limit_param(&mods, prm) { return false; }
             let pred: WRef<SExpr> = if ds.pred.is_null() { null_sref() } else { WRef::<SExpr>::from_any(ds.pred) };
             let ch: DNest = plan_nest(&prm.plan_core.entry.clause);
+            // the merge's elision (`plan_prove_once`): the base ascends on the
+            // sort key and the nest is pinned, so the rows are already in order
+            if mods.has_sort && prm.rel_src_ord_noop(ch.base_src) {
+                mods.has_sort = false;
+                plan_trace(ch.base_src, "sort elided", ch.base_var, "the base ascends on the `order by` column and a merge step pins the written nest, so the join already emits its rows in the sort's sequence (ties in base-then-step order, the sort's own tiebreak)");
+            }
             return emit_join_chain(ch, jp, pred, !ds.pred.is_null(), sel, mods, fn_name, params_text, prm,
                                    result_ty, has_result_ty, sel_mode == SELM_FIRST(), prelude, h);
         }
