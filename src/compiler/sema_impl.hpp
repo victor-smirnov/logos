@@ -9489,6 +9489,39 @@ private:
     // them). Returns true when something new was solved.
     bool infer_unify_(TypeRef a, TypeRef b);
     bool infer_unify_rec_(TypeRef a, TypeRef b, int d);
+    // Concrete but for open inference variables: a later use may still solve them.
+    bool concrete_but_infer_(TypeRef t, int d = 0) const {
+        if (!t || d > 12) return true;
+        TypeRef tr(t);
+        if (tr.kind() == LogosType::Kind::TypeVar) return is_infer_var_name_(tr.type_var_name());
+        if (tr.kind() == LogosType::Kind::AssocType || tr.kind() == LogosType::Kind::Error ||
+            tr.kind() == LogosType::Kind::InferredType) return false;
+        if (tr.pointee() && !concrete_but_infer_(tr.pointee(), d + 1)) return false;
+        if (tr.elem() && !concrete_but_infer_(tr.elem(), d + 1)) return false;
+        for (auto a : tr.type_args()) if (!concrete_but_infer_(a, d + 1)) return false;
+        for (auto e : tr.tuple_elems()) if (!concrete_but_infer_(e, d + 1)) return false;
+        return true;
+    }
+    // Solve `want`'s open variables only where `have` is concrete at the same
+    // position: an impl's own (rigid) parameter in `have` solves nothing
+    // (`Result<i32, ?E>` against `Result<A, String>` gives ?E = String).
+    bool infer_solve_from_concrete_(TypeRef want, TypeRef have, int d = 0) {
+        want = zonk_(want);
+        if (!want || !have || d > 24 || !has_infer_var_(want)) return false;
+        if (type_is_concrete(have)) return infer_unify_(want, have);
+        TypeRef w(want), h(have);
+        if (w.kind() != h.kind()) return false;
+        bool solved = false;
+        if (w.pointee() && h.pointee()) solved |= infer_solve_from_concrete_(w.pointee(), h.pointee(), d + 1);
+        if (w.elem() && h.elem()) solved |= infer_solve_from_concrete_(w.elem(), h.elem(), d + 1);
+        auto xa = w.type_args(), xb = h.type_args();
+        if (xa.size() == xb.size())
+            for (size_t i = 0; i < xa.size(); ++i) solved |= infer_solve_from_concrete_(xa[i], xb[i], d + 1);
+        auto ea = w.tuple_elems(), eb = h.tuple_elems();
+        if (ea.size() == eb.size())
+            for (size_t i = 0; i < ea.size(); ++i) solved |= infer_solve_from_concrete_(ea[i], eb[i], d + 1);
+        return solved;
+    }
     lir::LExprPtr lower_typed_const_(sema_detail::TinyMapView ast, TypeRef declared);
     // `&[E; N]` payload under a hint that pins the parameter to `&[E]`: the
     // payload is coerced (unsized) to the hint; true when it was.

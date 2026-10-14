@@ -111,7 +111,12 @@
 # (three tests, plus the `"Some"` that picks Option over Result). Taken only when NO fn and NO local of
 # that name exists (find_func_candidates(callee).empty() && !lookup(callee)) — the same condition under
 # which the later CP-cm-03 path already routes these; a user `fn Some` is never intercepted.
-#GUARD sema_expr_callee_eq_unguarded 16
+# 2026-10-14: unguarded 16 -> 2 — the prelude-variant routes (lower_call's early route and the
+# three CP-cm-03 ladders) ask ONE table, `prelude_variant_enum_(name)` (sema_expr.cpp), for the enum a
+# bare `None`/`Some`/`Ok`/`Err` belongs to, instead of each spelling its own `callee == "…"` ladder. The
+# four comparisons now live in that table and are counted by FACT 4; the shadowing condition at each
+# route is unchanged (no fn / local of that name).
+#GUARD sema_expr_callee_eq_unguarded 2
 
 # ── FACT 4: THE SCAN-BY-NAME POPULATION, PER FILE, WITH A ROSTER DIGEST ─────
 # FACT 3 pins the two guards in sema_expr.cpp STRUCTURALLY. That is necessary
@@ -474,7 +479,11 @@
 # 2026-10-10, cmp hierarchy to Rust's shape (`Eq: PartialEq`): 145 -> 144, roster d48540bf -> c047584d —
 #   `oi.lang == "partial_eq"` (lower_op_by_trait_ retried `==` under the `eq` lang item because Logos's
 #   `Eq` declared its own `eq`) left: `Eq` is a marker, `eq` is PartialEq's alone.
-#SCAN sema_expr.cpp 144 c047584d
+# 2026-10-14, prelude-variant table: 144 -> 134, roster c047584d -> f83b8bbd — seventeen `callee ==` /
+#   `name ==` tests of `Some`/`Ok`/`Err`/`None` over five routes (lower_call's early route, the three
+#   CP-cm-03 ladders, and the bare-constructor-as-fn-value lowering `map(Some)`) became the four of
+#   `prelude_variant_enum_`, the one place the prelude's variant names are spelled.
+#SCAN sema_expr.cpp 134 f83b8bbd
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
 # against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
 # the predicate that answers "is this callable consumed by its call?":
@@ -790,9 +799,8 @@ sema_impl.hpp	current_type_bounds_	D	1	std::string(TypeRef(tv).type_var_name())
 #   the HIR names Try / FromResidual by their lang items.
 #ARGSCAN implements_ 1 fae8a925
 #ARGSCAN string 2 d2bde611
-#ARGSCAN try_prelude 3 80fa0975
-#ARGSCAN try_prelude_variant 3 80fa0975
-#ARGSCAN try_variant 4 c4d77dbf
+# 2026-10-14: RETIRED — try_prelude (3), try_prelude_variant (3), try_variant (4) take the enum from
+#   `prelude_variant_enum_` and the variant as the callee spelled it; no literal argument left.
 # 2026-09-27, ADR 0030 R0: s_static (2: "String", "Formatter") and s_type (3: "String",
 # "Formatter", "_") are the format-family / vec! expansions now BUILT as AST instead of
 # rendered as text (sema_expr.cpp::synth_format_expansion_, lower_builtin_macro). The

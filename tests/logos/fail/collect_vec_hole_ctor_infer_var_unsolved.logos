@@ -1,0 +1,8 @@
+package collect_vec_hole_ctor_infer_var_unsolved;
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+fn main() {
+    let z = vec![1, 2].into_iter().map(Ok).collect::<Vec<_>>();
+    println!("{}", z.len());
+}
