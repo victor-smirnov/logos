@@ -1,0 +1,37 @@
+package try_into_inferred_from_use;
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.convert;
+use logos.lang.num.error;
+fn try_into_part() {
+    let x: i32 = 100;
+    let c: i8 = x.try_into().unwrap();
+    println!("{}", c);
+    let big: i64 = 300;
+    let r: Result<u8, _> = big.try_into();
+    println!("{:?}", r);
+    let u: u16 = 7u8.into();
+    println!("{}", u);
+    let mut acc: Vec<u8> = Vec::new();
+    for v in [1i32, 2, 300] {
+        match v.try_into() { Ok(b) => acc.push(b), Err(e) => println!("{}", e) }
+    }
+    println!("{:?}", acc);
+    let s: usize = 5u32.try_into().unwrap_or(0);
+    println!("{}", s);
+}
+fn take(v: i64) -> i64 { v * 2 }
+fn into_part() {
+    let a: i32 = 21;
+    let b = a.into();
+    println!("{}", take(b));
+    let mut w: Vec<u64> = Vec::new();
+    let q = 9u8.into();
+    w.push(q);
+    println!("{:?}", w);
+}
+fn main() {
+    try_into_part();
+    into_part();
+}

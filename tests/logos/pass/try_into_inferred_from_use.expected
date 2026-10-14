@@ -1,0 +1,8 @@
+100
+Err(TryFromIntError(PosOverflow))
+7
+out of range integral type conversion attempted
+[1, 2]
+5
+42
+[9]

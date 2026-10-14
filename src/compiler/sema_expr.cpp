@@ -9985,15 +9985,20 @@ lir::LExprPtr SemaChecker::try_blanket_method_dispatch(
             auto it = tv_bind.find(tp.name);
             TypeRef ta = it != tv_bind.end() ? it->second
                          : (tp.name == bi.target_typevar ? recv_inner : error_t());
+            // Not fixed by the receiver, the arguments or a hint, but named by
+            // the result: an inference variable a later use solves
+            // (`let c: i8 = x.try_into().unwrap()`); unsolved at the end of the
+            // function it is E0282, as rustc.
+            if ((!ta || TypeRef(ta).kind() == LogosType::Kind::Error) && fn_body_depth_ > 0 &&
+                mfi->ret_type && type_mentions_var_(mfi->ret_type, tp.name))
+                ta = mint_infer_var_(std::format("the type argument `{}` of method `{}` — annotate the result",
+                                                 tp.name, std::string(method_name)));
             if (!ta || TypeRef(ta).kind() == LogosType::Kind::Error) any_unbound = true;
             type_args.push_back(ta);
         }
-        // A blanket param that couldn't be inferred (e.g. the destination of
-        // `x.into()` / `x.try_into()` with no annotated expected type at the
-        // call site) must NOT dispatch — emitting the call with an `<error>`
-        // type-arg lowers to `<error>__method` and crashes mlir-gen. Bail so
-        // the normal "cannot resolve" diagnostic fires instead. Rust requires
-        // the annotation here too ("type annotations needed").
+        // A blanket param that nothing names in the result and nothing fixed
+        // must NOT dispatch — emitting the call with an `<error>` type-arg
+        // lowers to `<error>__method` and crashes mlir-gen.
         if (any_unbound) continue;
         std::vector<lir::LExprPtr> pargs;
         pargs.push_back(std::move(recv));
