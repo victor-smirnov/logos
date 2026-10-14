@@ -1,0 +1,20 @@
+    f6 al=true an=true up=false lo=true nu=false ws=false cc=false
+   416 al=true an=true up=true lo=false nu=false ws=false cc=false
+    e9 al=true an=true up=false lo=true nu=false ws=false cc=false
+    61 al=true an=true up=false lo=true nu=false ws=false cc=false
+    37 al=false an=true up=false lo=false nu=true ws=false cc=false
+    df al=true an=true up=false lo=true nu=false ws=false cc=false
+   1c5 al=true an=true up=false lo=false nu=false ws=false cc=false
+   663 al=false an=true up=false lo=false nu=true ws=false cc=false
+    bd al=false an=true up=false lo=false nu=true ws=false cc=false
+  216b al=true an=true up=true lo=false nu=true ws=false cc=false
+  3000 al=false an=false up=false lo=false nu=false ws=true cc=false
+    85 al=false an=false up=false lo=false nu=false ws=true cc=true
+     b al=false an=false up=false lo=false nu=false ws=true cc=true
+  2135 al=true an=true up=false lo=false nu=false ws=false cc=false
+ 1d504 al=true an=true up=true lo=false nu=false ws=false cc=false
+  4e2d al=true an=true up=false lo=false nu=false ws=false cc=false
+    5f al=false an=false up=false lo=false nu=false ws=false cc=false
+  2028 al=false an=false up=false lo=false nu=false ws=true cc=false
+unicode 17.0.0
+10

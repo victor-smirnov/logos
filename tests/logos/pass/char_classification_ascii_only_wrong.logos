@@ -1,0 +1,12 @@
+// Closed squeue char_classification_ascii_only_wrong (#655): char's Unicode predicates read the generated Unicode 17 property tables (stdlib/lang/char/tables.logos).
+package char_classification_ascii_only_wrong;
+fn main() -> i32 {
+    let e = 'é';
+    let zh = 'Ж';
+    if !e.is_alphabetic() { return 3; }
+    if !e.is_alphanumeric() { return 4; }
+    if !e.is_lowercase() { return 5; }
+    if !zh.is_uppercase() { return 6; }
+    if 'ß'.is_uppercase() { return 7; }
+    return 0;
+}
