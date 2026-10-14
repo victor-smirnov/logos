@@ -24437,7 +24437,8 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     // include_str!("path") — read file at compile time. Path is resolved
     // relative to the file containing the include_str! call (mirrors
     // Rust). Errors out if the file can't be read.
-    if (callee_name == "include_str" || callee_name == "include_bytes") {
+    const bool include_bytes = callee_name == "include_bytes";
+    if (callee_name == "include_str" || include_bytes) {
         std::string raw;
         if (node.has_key(la::RAW_TEXT))
             raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
@@ -24462,7 +24463,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         std::string contents((std::istreambuf_iterator<char>(in)),
                              std::istreambuf_iterator<char>());
         // include_bytes! is bytes (Rust `&[u8; N]`, here `&[u8]`), include_str! a `&str`.
-        TypeRef lit_t = callee_name == "include_bytes" ? make_slice_type(prim(LogosType::Kind::U8)) : make_str_type();
+        TypeRef lit_t = include_bytes ? make_slice_type(prim(LogosType::Kind::U8)) : make_str_type();
         return builder().lit_str(std::move(contents), lit_t);
     }
 

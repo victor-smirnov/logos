@@ -103,7 +103,9 @@
 #GUARD sema_expr_callee_eq_in_lower_call_guard 14
 # 2026-09-29, ADR 0030 S4.5: 66 -> 68 — `slice_from_raw_mut` (intercept + flag), inside the
 #   type-intrinsic guard beside `slice_from_raw`.
-#GUARD sema_expr_callee_eq_in_lower_type_intrinsic 68
+# 2026-10-14, #745: 68 -> 65 — the three `slice_from_raw`/`slice_from_raw_mut` tests left for
+#   `slice_from_raw_intrinsic_`, which lower_call's plain-call route consults too.
+#GUARD sema_expr_callee_eq_in_lower_type_intrinsic 65
 # 2026-09-24: unguarded 11 -> 12 — lower_call's `callee == "Self"`, the KEYWORD at
 # callee position (`Self(x)`), resolved through the impl's `Self` binding. Not an
 # intrinsic name: no user fn can be named `Self`, so it cannot hijack one.
@@ -483,7 +485,11 @@
 #   `name ==` tests of `Some`/`Ok`/`Err`/`None` over five routes (lower_call's early route, the three
 #   CP-cm-03 ladders, and the bare-constructor-as-fn-value lowering `map(Some)`) became the four of
 #   `prelude_variant_enum_`, the one place the prelude's variant names are spelled.
-#SCAN sema_expr.cpp 134 f83b8bbd
+# 2026-10-14, #745 slice_from_raw intercept: 134 -> 133, roster f83b8bbd -> 7a6475a2 — the plain-call
+#   `callee == "slice_from_raw" / "slice_from_raw_mut"` tests (three, dead since Q1 prelude resolution)
+#   became the two of `slice_from_raw_intrinsic_`, shared by lower_call and lower_type_intrinsic;
+#   include_bytes!'s literal type reads the one `include_bytes` test its route already makes.
+#SCAN sema_expr.cpp 133 7a6475a2
 # sema_impl.hpp 29 -> 32, 2026-09-07s. THREE new comparisons of a trait name
 # against a literal, all inside `typevar_only_fn_once` / `callable_is_fn_once`,
 # the predicate that answers "is this callable consumed by its call?":

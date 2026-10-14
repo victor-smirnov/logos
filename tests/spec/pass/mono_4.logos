@@ -56,11 +56,11 @@ fn main() -> i64 {
     // type_of::<T>().name is the canonical type_str(T) string. For a primitive
     // it round-trips its spelling; distinct types yield distinct names.
     {
-        let ni: &[u8] = type_of::<i32>().name;
-        let nu: &[u8] = type_of::<u64>().name;
+        let ni: &[u8] = type_of::<i32>().name.as_bytes();
+        let nu: &[u8] = type_of::<u64>().name.as_bytes();
         if ni.len() == 0 { return 7; }       // non-empty for a concrete type
         if ni.len() == nu.len() && eq_bytes(ni, nu) { return 8; } // i32 != u64
-        if !eq_bytes(ni, "i32") { return 9; }                     // canonical
+        if !eq_bytes(ni, "i32".as_bytes()) { return 9; }                     // canonical
     }
 
     // @rule mono.intrinsic.type-uid-of
