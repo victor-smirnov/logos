@@ -1,0 +1,34 @@
+// wql_join_literal_key_e2e — a join step whose chosen key is a column against a
+// LITERAL (`w.val == 20u64`). The key sides are emitted in the index's key type,
+// as beside a comparison; the literal was printed `20i64` into
+// `let __pk1: u64 = …` and the generated fn did not compile.
+//   (a) u64, the literal on the probe side; (b) written the other way round;
+//   (c) an i32 column (a narrower key type).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+
+struct R { pub key: u64, pub val: u64 }
+struct S { pub k: i32, pub v: i32 }
+
+// (a)
+pub deem qa(a: &[R], c: &[R]) { from a x join c w on w.val == 20u64 && w.key == x.key + 1u64 select w.val }
+// (b)
+pub deem qb(a: &[R], c: &[R]) { from a x join c w on 20u64 == w.val && x.key + 1u64 == w.key select x.val }
+// (c)
+pub deem qc(a: &[S], c: &[S]) { from a x join c w on w.v == 7i32 && w.k == x.k select x.v }
+
+fn main() -> i32 {
+    let a: [R; 2] = [ R { key: 1u64, val: 10u64 }, R { key: 5u64, val: 50u64 } ];
+    let c: [R; 3] = [ R { key: 2u64, val: 20u64 }, R { key: 6u64, val: 21u64 }, R { key: 9u64, val: 20u64 } ];
+    let va: Vec<u64> = qa(&a[..], &c[..]).unwrap();
+    if va.len() != 1i64 || va.get(0i64) != 20u64 { return 1i32; }
+    let vb: Vec<u64> = qb(&a[..], &c[..]).unwrap();
+    if vb.len() != 1i64 || vb.get(0i64) != 10u64 { return 2i32; }
+    let sa: [S; 2] = [ S { k: 1i32, v: 3i32 }, S { k: 2i32, v: 4i32 } ];
+    let sc: [S; 2] = [ S { k: 2i32, v: 7i32 }, S { k: 1i32, v: 8i32 } ];
+    let vc: Vec<i32> = qc(&sa[..], &sc[..]).unwrap();
+    if vc.len() != 1i64 || vc.get(0i64) != 4i32 { return 3i32; }
+    return 0i32;
+}
