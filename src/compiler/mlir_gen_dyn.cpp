@@ -5,6 +5,7 @@
 #include "mlir_gen_impl.hpp"
 #include "mangled_name.hpp"
 #include "mono_impl.hpp"
+#include <logos/compiler/const_promote.hpp>
 #include <algorithm>
 #include <cstdio>
 #include <map>
@@ -678,6 +679,15 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
 
     auto set_end = [&]{ builder_.setInsertionPointToEnd(mod.getBody()); };
 
+    // An immutable static whose initializer is a constant (a literal, or an
+    // array / tuple / struct of them — const_promote::is_const_value, the
+    // predicate rvalue promotion shares) is DATA, as rustc places it in
+    // .rodata: defined with its value in every module that sees it, linkonce_odr
+    // so the copies fold, and never written at startup. A library therefore
+    // carries its own tables — code that runs without the executable's `main`
+    // (the metaprog JIT calling `char::is_alphabetic`) reads them initialised.
+    std::unordered_set<std::string> const_data;
+
     // Pass A: emit the globals (skip if already present — stdlib precompiled +
     // current TU can both see a `pub static`).
     for (auto& c : prog.consts) {
@@ -707,6 +717,22 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
         if (!llty) llty = logos_to_mlir(c_ty);
         if (!llty) llty = builder_.getI32Type();
         set_end();
+        if (!c.is_extern() && !c.is_mut() && c.value() &&
+            logos::compiler::const_promote::is_const_value(
+                c.value(), pool_impl(), [](TypeRef) { return false; })) {
+            auto g = builder_.create<mlir::LLVM::GlobalOp>(
+                loc_, llty, /*isConstant=*/true, mlir::LLVM::Linkage::LinkonceODR,
+                c_sym, mlir::Attribute{}, /*alignment=*/0);
+            auto* blk = builder_.createBlock(&g.getInitializerRegion());
+            builder_.setInsertionPointToStart(blk);
+            if (mlir::Value v = build_promoted_value_(c.value(), c_ty, llty)) {
+                builder_.create<mlir::LLVM::ReturnOp>(loc_, mlir::ValueRange{v});
+                const_data.insert(c_sym);
+                continue;
+            }
+            g.erase();   // a shape the promoter cannot build: the runtime path below
+            set_end();
+        }
         if (c.is_extern() || is_library) {
             // External declaration — defined in another object (FFI, or — for a
             // library build — the final executable that links it).
@@ -735,7 +761,8 @@ void MLIRGenImpl::emit_static_globals(mlir::ModuleOp mod, const LProgram& prog) 
     if (is_library) return;
     std::vector<lir_view::ConstView> with_init;
     for (auto& c : prog.consts)
-        if (c.is_static() && !c.is_extern() && c.value()) with_init.push_back(c);
+        if (c.is_static() && !c.is_extern() && c.value() && !const_data.count(std::string(c.sym())))
+            with_init.push_back(c);
     if (with_init.empty()) return;
 
     auto void_fn_type = mlir::FunctionType::get(builder_.getContext(), {}, {});

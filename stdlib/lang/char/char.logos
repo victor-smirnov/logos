@@ -1,14 +1,8 @@
 // Logos stdlib — std.lang.char
 //
-// Inherent methods on `char` (Unicode scalar value, u32-typed).
-// ASCII-range queries are exact; Unicode-general queries fall back
-// to the ASCII subset for now — full Unicode tables would need a
-// large compiled-in dataset (deferred).
-//
-// Mirrors the subset of Rust's `impl char` surface covered by
-// coretests/tests/char.rs that doesn't require Unicode property
-// tables: is_ascii, is_ascii_*, to_ascii_lowercase /
-// _uppercase, is_digit, to_digit, len_utf8.
+// Inherent methods on `char` (Unicode scalar value, u32-typed). The
+// Unicode property queries read the generated tables in tables.logos
+// (scripts/gen_char_tables.py).
 
 package logos.lang.char;
 
@@ -111,53 +105,51 @@ impl char {
         return c >= 33u32 && c <= 126u32;
     }
 
-    // ── General-Unicode wrappers (ASCII subset for now) ───────────────────
-    //
-    // Full Unicode property tables are deferred — these return the
-    // ASCII subset, which matches Rust semantics for ASCII inputs.
+    // ── Unicode properties (tables.logos, generated) ──────────────────────
 
-    /// Returns `true` if `self` is whitespace.
-    ///
-    /// Covers ASCII whitespace plus `U+00A0`, `U+2007`, `U+202F` only — not the full Unicode set.
+    /// Returns `true` if `self` has the Unicode `White_Space` property.
     pub fn is_whitespace(self: char) -> bool {
-        // Includes a few Unicode whitespace codepoints that the
-        // Rust coretest exercises explicitly (U+2007 figure space).
-        if self.is_ascii_whitespace() { return true; }
         let c: u32 = self as u32;
-        if c == 0x00A0u32 { return true; }  // NBSP
-        if c == 0x2007u32 { return true; }  // FIGURE SPACE
-        if c == 0x202Fu32 { return true; }  // NARROW NBSP
-        return false;
+        if c < 0x80u32 { return self.is_ascii_whitespace() || c == 0x0Bu32; }
+        return in_ranges(&WHITESPACE, c);
     }
 
-    /// Returns `true` if `self` is alphabetic (ASCII letters only for now; no Unicode tables).
+    /// Returns `true` if `self` has the Unicode `Alphabetic` property.
     pub fn is_alphabetic(self: char) -> bool {
-        return self.is_ascii_alphabetic();
+        let c: u32 = self as u32;
+        if c < 0x80u32 { return self.is_ascii_alphabetic(); }
+        return in_ranges(&ALPHABETIC, c);
     }
 
-    /// Returns `true` if `self` is lowercase (ASCII subset only for now).
+    /// Returns `true` if `self` has the Unicode `Lowercase` property.
     pub fn is_lowercase(self: char) -> bool {
-        return self.is_ascii_lowercase();
+        let c: u32 = self as u32;
+        if c < 0x80u32 { return self.is_ascii_lowercase(); }
+        return in_ranges(&LOWERCASE, c);
     }
 
-    /// Returns `true` if `self` is uppercase (ASCII subset only for now).
+    /// Returns `true` if `self` has the Unicode `Uppercase` property.
     pub fn is_uppercase(self: char) -> bool {
-        return self.is_ascii_uppercase();
+        let c: u32 = self as u32;
+        if c < 0x80u32 { return self.is_ascii_uppercase(); }
+        return in_ranges(&UPPERCASE, c);
     }
 
-    /// Returns `true` if `self` is numeric (ASCII decimal digits only for now).
+    /// Returns `true` if `self` has a numeric general category (`Nd`, `Nl`, `No`).
     pub fn is_numeric(self: char) -> bool {
-        return self.is_ascii_digit();
+        let c: u32 = self as u32;
+        if c < 0x80u32 { return self.is_ascii_digit(); }
+        return in_ranges(&NUMERIC, c);
     }
 
-    /// Returns `true` if `self` is alphanumeric (ASCII subset only for now).
+    /// Returns `true` if `self` is alphabetic or numeric.
     pub fn is_alphanumeric(self: char) -> bool {
-        return self.is_ascii_alphanumeric();
+        return self.is_alphabetic() || self.is_numeric();
     }
 
-    /// Returns `true` if `self` is a control character (ASCII controls only for now).
+    /// Returns `true` if `self` has the general category `Cc`.
     pub fn is_control(self: char) -> bool {
-        return self.is_ascii_control();
+        return in_ranges(&CONTROL, self as u32);
     }
 
     // ── Case conversion (ASCII-only) ──────────────────────────────────────
