@@ -1,0 +1,17 @@
+package collect_solves_ctor_infer_var;
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+fn main() {
+    let z: Vec<Result<i32, i32>> = vec![1, 2].into_iter().map(Ok).collect();
+    let e: Vec<Result<i32, String>> = vec![3].into_iter().map(|v| Err(format!("e{}", v))).collect();
+    let o: Vec<Option<u8>> = vec![1u8].into_iter().map(|_| None).collect();
+    let n: Vec<Result<u8, bool>> = vec![7u8].into_iter().map(Ok).collect::<Vec<_>>();
+    println!("{:?} {:?} {:?} {:?}", z, e, o, n);
+    let r: Result<Vec<i32>, String> = vec![1, 2].into_iter().map(Ok).collect();
+    println!("{:?}", r);
+    let s: Result<Vec<i32>, i32> = vec![1, -2, 3].into_iter().map(|v| if v < 0 { Err(v) } else { Ok(v) }).collect();
+    println!("{:?}", s);
+    let q: Option<Vec<i32>> = vec![4, 5].into_iter().map(Some).collect();
+    println!("{:?}", q);
+}

@@ -6766,7 +6766,8 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                         unify_types(eq, r, bindings);
                 }
         if (TypeRef(actual).kind() != LogosType::Kind::Struct &&
-            TypeRef(actual).kind() != LogosType::Kind::ZonedStruct)
+            TypeRef(actual).kind() != LogosType::Kind::ZonedStruct &&
+            TypeRef(actual).kind() != LogosType::Kind::Enum)
             continue;
         for (auto& b : tp.bounds) {
             if (b.is_fn_family || b.type_args.empty()) continue;
@@ -6790,8 +6791,15 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                                 k < imp.trait_type_args.size(); ++k) {
                 auto ta = imp.trait_type_args[k];
                 if (ta && !impl_bind.empty()) ta = subst_type_sema(ta, impl_bind);
-                if (b.type_args[k] && ta)
+                if (b.type_args[k] && ta) {
                     unify_types(b.type_args[k], ta, bindings);
+                    // An open inference variable in the bound's argument
+                    // (`Self::Item = Result<i32, ?E>` from `map(Ok)`) is solved
+                    // by the selected impl's argument, as rustc's obligation
+                    // `Vec<Result<i32, i32>>: FromIterator<Result<i32, ?E>>`.
+                    infer_solve_from_concrete_(
+                        subst_type_sema(b.type_args[k], SemaSubst(bindings.begin(), bindings.end())), ta);
+                }
             }
             // A binding with HOLES (`collect::<Vec<_>>()`) is completed the
             // other way: the bound's known arguments fix the impl's params
@@ -6802,10 +6810,10 @@ bool SemaChecker::infer_type_args(const SemaFuncInfo& fi,
                     if (b.type_args[k] && imp.trait_type_args[k]) {
                         TypeRef want = subst_type_sema(b.type_args[k],
                                                        SemaSubst(bindings.begin(), bindings.end()));
-                        if (type_is_concrete(want)) unify_types(imp.trait_type_args[k], want, impl_bind);
+                        if (concrete_but_infer_(want)) unify_types(imp.trait_type_args[k], want, impl_bind);
                     }
                 TypeRef filled = subst_type_sema(imp.target_typeref, SemaSubst(impl_bind.begin(), impl_bind.end()));
-                if (filled && type_is_concrete(filled)) tbit->second = filled;
+                if (filled && concrete_but_infer_(filled)) tbit->second = filled;
             }
         }
     }
