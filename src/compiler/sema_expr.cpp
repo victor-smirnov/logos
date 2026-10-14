@@ -66,6 +66,16 @@ struct MetacallSiteStage {
 // (ast index, byte offset) instead is unique per site and identical across
 // rounds, so names never collide and re-emission dedups cleanly. It is also the
 // macro_arg_blobs key (a sparse object map), so large/sparse ids are fine.
+// The Rust prelude's variant names and the enum each belongs to (`None` /
+// `Some` of Option, `Ok` / `Err` of Result), or null. ONE table: every bare
+// prelude-variant route reads it, and each is taken only when no fn or local
+// of that name shadows it.
+static const char* prelude_variant_enum_(std::string_view name) {
+    if (name == "None" || name == "Some") return "Option";
+    if (name == "Ok" || name == "Err") return "Result";
+    return nullptr;
+}
+
 static inline uint64_t metacall_site_id(size_t ast_idx, uint32_t expr_offset) {
     return (static_cast<uint64_t>(static_cast<uint32_t>(ast_idx)) << 32)
          | static_cast<uint64_t>(expr_offset);
@@ -1275,8 +1285,10 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                     for (auto& f : tsi->fields) pts.push_back(f.type);
                     fn_shape = make_fn_ptr_type(pts, make_struct_type(name, tpkg));
                 }
-            } else if (name == "Some" || name == "Ok" || name == "Err") {
-                arity = 1;
+            } else if (const char* pen = prelude_variant_enum_(name)) {
+                if (auto [ppkg, pesi] = find_enum_by_name(pen); pesi)
+                    for (auto& v : pesi->variants)
+                        if (v.name == std::string(name)) arity = v.payload_types.size();
             } else if (auto vit = cur_imports_.variant_aliases.find(std::string(name));
                        vit != cur_imports_.variant_aliases.end()) {
                 if (auto [epkg, esi] = find_enum_by_name(vit->second); esi)
@@ -5092,9 +5104,9 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // lowering first had no hint (`Some([])`: "element type unknown", and an
     // orphaned inference variable).
     if (call_pkg_qualifier_.empty() && !antiquot_callee &&
-        (callee == "Some" || callee == "Ok" || callee == "Err") &&
+        prelude_variant_enum_(callee) &&
         find_func_candidates(std::string(callee)).empty() && !lookup(callee)) {
-        const char* en = callee == "Some" ? "Option" : "Result";
+        const char* en = prelude_variant_enum_(callee);
         auto [pkg, esi] = find_enum_by_name(en);
         if (esi)
             for (auto& v : esi->variants)
@@ -5884,7 +5896,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         // re-lowers from the AST node; the second lowering is cheap
         // (we caught the same args above only to test fn-arity
         // candidates).
-        auto try_prelude = [&](const char* en, const char* vn)
+        auto try_prelude = [&](const char* en, std::string_view vn)
             -> lir::LExprPtr {
             auto [pkg, esi] = find_enum_by_name(en);
             if (!esi) return nullptr;
@@ -5893,9 +5905,8 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                     return lower_enum_lit_data_from_static(node, en, vn);
             return nullptr;
         };
-        if      (callee == "Some") { if (auto e = try_prelude("Option", "Some")) return e; }
-        else if (callee == "Ok")   { if (auto e = try_prelude("Result", "Ok")) return e; }
-        else if (callee == "Err")  { if (auto e = try_prelude("Result", "Err")) return e; }
+        if (const char* pen = prelude_variant_enum_(callee))
+            if (auto e = try_prelude(pen, callee)) return e;
         // No-turbofish compiler intrinsics (e.g. `dyn_data(a)`) — most type
         // intrinsics arrive via lower_generic_call (turbofish), but a value-only
         // one is a plain CALL and lands here. Only matches reserved intrinsic
@@ -9484,7 +9495,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
         // → type_args [i32, i32], not [i32, TypeVar(E)]) works correctly.
         // Only fires when the matching enum is in scope; user-defined
         // fn `Some(x)` still wins (fi_ptr lookup ran above).
-        auto try_prelude_variant = [&](const char* enum_name, const char* var_name)
+        auto try_prelude_variant = [&](const char* enum_name, std::string_view var_name)
             -> lir::LExprPtr {
             auto [pkg, esi] = find_enum_by_name(enum_name);
             if (!esi) return nullptr;
@@ -9493,13 +9504,8 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                     return lower_enum_lit_data_from_static(node, enum_name, var_name);
             return nullptr;
         };
-        if (callee == "Some") {
-            if (auto e = try_prelude_variant("Option", "Some")) return e;
-        } else if (callee == "Ok") {
-            if (auto e = try_prelude_variant("Result", "Ok")) return e;
-        } else if (callee == "Err") {
-            if (auto e = try_prelude_variant("Result", "Err")) return e;
-        }
+        if (const char* pen = prelude_variant_enum_(callee))
+            if (auto e = try_prelude_variant(pen, callee)) return e;
         // CP-cm-02: bare-variant ctor via `use Type.{V1, …};` alias map.
         // Routes through the same lower_enum_lit_data_from_static path used
         // by prelude shorthand so enum_shape_() + payload typing work.
@@ -9668,10 +9674,8 @@ lir::LExprPtr SemaChecker::lower_generic_ref(TinyMapView node) {
             shape_ = saved_shape;
             return e;
         };
-        if (callee == "None")      { if (auto e = try_variant("Option", "None")) return e; }
-        else if (callee == "Some") { if (auto e = try_variant("Option", "Some")) return e; }
-        else if (callee == "Ok")   { if (auto e = try_variant("Result", "Ok"))   return e; }
-        else if (callee == "Err")  { if (auto e = try_variant("Result", "Err"))  return e; }
+        if (const char* pen = prelude_variant_enum_(callee))
+            if (auto e = try_variant(pen, std::string(callee))) return e;
         {
             auto vit = cur_imports_.variant_aliases.find(std::string(callee));
             if (vit != cur_imports_.variant_aliases.end())
