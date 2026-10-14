@@ -1,0 +1,48 @@
+// deem_str_concat_e2e — `a + b` over two strings is their concatenation, an
+// owned `String` (`el::wql_cat`), as `upper`/`lower` are; the projection's
+// element type is `String`. Before, the EL typed it `str` and the emitter wrote
+// an infix `+` the host compiler refused inside the generated fn. The oracle
+// exports it as Soufflé's `cat`.
+//   (a) a chain with a literal; (b) in `where`; (c) beside `upper`; (d) over a
+//   `String` column; (e) over a rel's `str` column (an owned String cannot
+//   feed a rel column — the named refusal `upper` already has).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+
+struct P { pub a: str, pub b: str, pub n: i64 }
+struct Q { pub s: String, pub n: i64 }
+
+// (a)
+pub deem joined(ps: &[P]) { from ps x select x.a + "-" + x.b order by x.n }
+// (b)
+pub deem pick(ps: &[P]) { from ps x where x.a + x.b == "abcd" select x.n }
+// (c)
+pub deem shout(ps: &[P]) { from ps x select upper(x.a) + x.b order by x.n }
+// (d)
+pub deem from_owned(qs: &[Q]) { from qs y select y.s + "+" order by y.n }
+// (e)
+pub deem relcat(ps: &[P]) {
+    rel t(n: i64, lbl: str) { from ps x select (x.n, x.b); }
+    from t r join ps x on x.n == r.n where r.n > 1 select r.lbl + x.a order by r.n
+}
+
+fn main() -> i32 {
+    let ps: [P; 3] = [ P { a: "ab", b: "cd", n: 1i64 }, P { a: "x", b: "y", n: 2i64 }, P { a: "", b: "z", n: 3i64 } ];
+    let a: Vec<String> = joined(&ps[..]).unwrap();
+    if a.len() != 3i64 || !str_eq(a.borrow(0i64).as_str(), "ab-cd") || !str_eq(a.borrow(2i64).as_str(), "-z") { return 1i32; }
+    let b: Vec<i64> = pick(&ps[..]).unwrap();
+    if b.len() != 1i64 || b.get(0i64) != 1i64 { return 2i32; }
+    let c: Vec<String> = shout(&ps[..]).unwrap();
+    if c.len() != 3i64 || !str_eq(c.borrow(0i64).as_str(), "ABcd") || !str_eq(c.borrow(1i64).as_str(), "Xy") { return 3i32; }
+    let qs: [Q; 2] = [ Q { s: String::from_str("hi"), n: 2i64 }, Q { s: String::from_str("yo"), n: 1i64 } ];
+    let d: Vec<String> = from_owned(&qs[..]).unwrap();
+    if d.len() != 2i64 || !str_eq(d.borrow(0i64).as_str(), "yo+") || !str_eq(d.borrow(1i64).as_str(), "hi+") { return 4i32; }
+    let e: Vec<String> = relcat(&ps[..]).unwrap();
+    if e.len() != 2i64 || !str_eq(e.borrow(0i64).as_str(), "yx") || !str_eq(e.borrow(1i64).as_str(), "z") { return 5i32; }
+    return 0i32;
+}

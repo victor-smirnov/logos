@@ -1926,6 +1926,16 @@ pub fn emit_sexpr_as(out: &mut String, e: SExpr, t: &ElTypes, var: str, want: st
                 emit_arith_fit_close(out, nt, tw);
                 return;
             }
+            // STRING concatenation `a + b`: an OWNED `String` (`wql_cat`), as
+            // `upper`/`lower` are — `str + str` is no Logos operator
+            if op == OP_ADD() && (lt == EL_TY_STR() || rt == EL_TY_STR()) {
+                out.push_str("logos.std.wql.el::wql_cat(");
+                emit_str_view(out, lhs, t, var);
+                out.push_str(", ");
+                emit_str_view(out, rhs, t, var);
+                out.push_str(")");
+                return;
+            }
             // FLOAT arithmetic is IEEE infix in the NODE's type (`float_node_ty`):
             // `f32` operands stay `f32`, and a float literal beside them is
             // printed `2.5f32` by the same normalization path.
@@ -2725,6 +2735,15 @@ fn emit_push_str_one(out: &mut String, indent: str, target: str,
     out.push_str(");\n");
 }
 
+// `e` as a `str` view: an owned `String` (a builtin's or a concatenation's
+// value, or a `String` column) through `.as_str()`.
+fn emit_str_view(out: &mut String, e: SExpr, t: &ElTypes, var: str) {
+    let own: bool = returns_string(e, t) || str_eq(infer_ty_name(e, t), "String");
+    if own { out.push_str("("); }
+    emit_sexpr(out, e, t, var);
+    if own { out.push_str(").as_str()"); }
+}
+
 // True iff `e`'s root is a call that returns an OWNED `String` — a builtin
 // (`upper`/`lower`) or a String-returning UDF (the reflected table). Such a
 // value is `.as_str()`-borrowed before `push_str` (trama render), or promotes
@@ -2737,6 +2756,7 @@ pub fn returns_string(e: SExpr, t: &ElTypes) -> bool {
             if bfn != BFN_UNKNOWN() { return bfn == BFN_UPPER() || bfn == BFN_LOWER(); }
             return t.udf_returns_string(c.fn_name);
         }
+        SExpr::Bin(b) => { return b.op == OP_ADD() && infer_ty(e, t) == EL_TY_STR(); }
         _ => { return false; }
     }
 }

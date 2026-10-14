@@ -888,7 +888,7 @@ In binary arithmetic where one operand is FLT and the other INT, the result type
 
 ### `el.type.string-concat` — `+` on strings is concatenation
 
-`a + b` where either operand is STR infers STR (concatenation); in a render context it flattens into successive `push_str` calls (no intermediate `String` temporary).
+`a + b` over two strings is their concatenation (a string and a non-string are a named type error). In a render context it flattens into successive `push_str` calls (no intermediate `String` temporary); in a query it is an owned `String` (`el::wql_cat`), as `upper`/`lower` are, so a projection of it has `String` elements, an owned operand is read through `.as_str()`, and — as for `upper` — it cannot feed a rel column. The oracle exports it as Soufflé's `cat` (`tests/logos/pass/deem_str_concat_e2e.logos`).
 
 *Divergence:* EXTENSION — CEL supports string `+`; Deem emits it as Logos string concatenation / push-flattening.
 

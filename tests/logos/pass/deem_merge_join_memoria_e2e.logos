@@ -1,0 +1,88 @@
+// deem_merge_join_memoria_e2e — a merge join whose STEP is a batch producer: a
+// Memoria container's leaf walk (ADR 0026 F9's `batch_step` row, closed). A
+// leaf borrows the walk, so the merge cursor copies each leaf's rows into its
+// own buffer and pops them ascending (`rexpr_walk::merge_pull_frag`).
+//   (a) two maps over thousands of rows (many leaves), keys 2k and 3k: the
+//       matches are the multiples of 6;
+//   (b) a residual on the values;
+//   (c) `limit`;
+//   (d) a step whose keys start below the base's and end before it (the walk
+//       is exhausted while the base still runs; leading rows are skipped).
+// Every answer is checked against point lookups (`find`), not against Deem.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+
+pub container Map<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+// (a)
+pub deem mj(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle) {
+    from a x join b y on x.key == y.key select x.val + y.val
+}
+// (b)
+pub deem mj_resid(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle) {
+    from a x join b y on x.key == y.key && x.val + y.val > 2000u64 select x.key
+}
+// (c)
+pub deem mj_limit(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle) {
+    from a x join b y on x.key == y.key select x.key limit 5
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut la = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 1u64);
+    let mut lb = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 2u64);
+    let mut lc = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 3u64);
+    let mut k: u64 = 0u64;
+    while k < 5000u64 { la.insert(k * 2u64, k); lb.insert(k * 3u64, k + 7u64); k = k + 1u64; }
+    // (d) keys 1..=3001 step 1, values 1: starts below a's min? a's min is 0 —
+    // use keys 0..2000 shifted: c holds 1000..=4000 odd and even alike
+    let mut j: u64 = 1000u64;
+    while j <= 4000u64 { lc.insert(j, 1u64); j = j + 1u64; }
+    // reference by point lookups
+    let mut want_n: i64 = 0i64;
+    let mut want_s: u64 = 0u64;
+    let mut want_r: i64 = 0i64;
+    let mut want_d: i64 = 0i64;
+    let mut q: u64 = 0u64;
+    while q < 5000u64 {
+        let key: u64 = q * 2u64;
+        match lb.find(key) {
+            Option::Some(v) => {
+                want_n = want_n + 1i64; want_s = want_s + q + v;
+                if q + v > 2000u64 { want_r = want_r + 1i64; }
+            }
+            Option::None => { }
+        }
+        match lc.find(key) { Option::Some(_v) => { want_d = want_d + 1i64; } Option::None => { } }
+        q = q + 1u64;
+    }
+    let a: Vec<u64> = mj(&la, &lb).unwrap();
+    if a.len() != want_n { return 1i32; }
+    let mut s: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    while i < a.len() { s = s + a.get(i); i = i + 1i64; }
+    if s != want_s { return 2i32; }
+    let b: Vec<u64> = mj_resid(&la, &lb).unwrap();
+    if b.len() != want_r { return 3i32; }
+    let c: Vec<u64> = mj_limit(&la, &lb).unwrap();
+    if c.len() != 5i64 || c.get(0i64) != 0u64 || c.get(4i64) != 24u64 { return 4i32; }
+    // (d) base a (0..9998 even) against c (1000..4000): the even keys in it
+    let d: Vec<u64> = mj(&la, &lc).unwrap();
+    if d.len() != want_d || want_d != 1501i64 { return 5i32; }
+    return 0i32;
+}

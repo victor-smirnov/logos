@@ -375,6 +375,14 @@ pub fn builtin_ret_ty(bfn: i32) -> i32 {
 // string fns are byte oriented in the MVP). Returned by value (owns its buffer).
 // RUNTIME helpers: the static backends emit qualified calls to these; the
 // dynamic interpreter calls them directly.
+/// `a + b` over two strings — the EL's concatenation, an owned `String`.
+pub fn wql_cat(a: str, b: str) -> String {
+    let mut out: String = String::new();
+    out.push_str(a);
+    out.push_str(b);
+    return out;
+}
+
 pub fn wql_upper(s: str) -> String {
     let mut out: String = String::new();
     let n: i64 = s.len();
