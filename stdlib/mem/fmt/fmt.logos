@@ -27,6 +27,7 @@ use logos.lang.rc;
 use logos.lang.cell;
 use logos.lang.ops;
 use logos.lang.num.error;
+use logos.lang.convert;
 
 // f32/f64 extern decls — same symbols mem.string uses for legacy
 // Display. The forward decls live up here so they precede the impl
@@ -1083,8 +1084,8 @@ impl Debug for Ordering {
 
 // ── Number-parsing errors ───────────────────────────────────────────
 //
-// Text and shape follow `core::num`: Debug prints the struct (opaque
-// `TryFromIntError(())`), Display prints the reason.
+// Text and shape follow `core::num`: Debug prints the struct
+// (`TryFromIntError(PosOverflow)`), Display prints the reason.
 
 impl Debug for IntErrorKind {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
@@ -1117,12 +1118,34 @@ impl Display for ParseIntError {
 }
 impl Debug for TryFromIntError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
-        return f.write_str("TryFromIntError(())");
+        let mut dt: DebugTuple = f.debug_tuple("TryFromIntError");
+        dt.field(&self.kind);
+        return dt.finish();
     }
 }
 impl Display for TryFromIntError {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         return f.pad("out of range integral type conversion attempted", "");
+    }
+}
+impl Debug for CharTryFromError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.write_str("CharTryFromError(())");
+    }
+}
+impl Display for CharTryFromError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.pad("converted integer out of range for `char`", "");
+    }
+}
+impl Debug for TryFromCharError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.write_str("TryFromCharError(())");
+    }
+}
+impl Display for TryFromCharError {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        return f.pad("unicode code point out of range", "");
     }
 }
 impl Debug for FloatErrorKind {

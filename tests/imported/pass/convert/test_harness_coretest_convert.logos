@@ -36,6 +36,7 @@ use logos.std.fmt;
 use logos.lang.panic;
 use logos.lang.option;
 use logos.lang.result;
+use logos.lang.num.error;
 use logos.lang.convert;
 
 // Mirrors convert.rs::into_as_try_into — a user-defined `impl Into<B> for A`.
@@ -57,10 +58,12 @@ fn test_into_user_impl() {
 // Explicit TryInto impl on a user type — Result<Ok> path.
 struct Celsius { deg: i32 }
 struct Kelvin  { deg: i32 }
+struct BelowAbsoluteZero {}
 
 impl TryInto<Kelvin> for Celsius {
-    fn try_into(self: Celsius) -> Result<Kelvin, ConvertError> {
-        if self.deg < -273i32 { return Result::Err(ConvertError {}); }
+    type Error = BelowAbsoluteZero;
+    fn try_into(self: Celsius) -> Result<Kelvin, BelowAbsoluteZero> {
+        if self.deg < -273i32 { return Result::Err(BelowAbsoluteZero {}); }
         return Result::Ok(Kelvin { deg: self.deg + 273i32 });
     }
 }
@@ -106,12 +109,12 @@ fn test_into_primitive_blanket() {
 // `.try_into()` on primitives via the TryFrom→TryInto blanket. Ok + Err paths.
 #[test]
 fn test_try_into_primitive_blanket() {
-    let ok: Result<i16, ConvertError> = (300i32).try_into();
+    let ok: Result<i16, TryFromIntError> = (300i32).try_into();
     match ok {
         Result::Ok(v)  => { assert!(v == 300i16); }
         Result::Err(_) => { panic("try_into 300→i16 should be Ok"); }
     }
-    let bad: Result<i8, ConvertError> = (5000i32).try_into();
+    let bad: Result<i8, TryFromIntError> = (5000i32).try_into();
     match bad {
         Result::Ok(_)  => { panic("try_into 5000→i8 should be Err (out of range)"); }
         Result::Err(_) => {}

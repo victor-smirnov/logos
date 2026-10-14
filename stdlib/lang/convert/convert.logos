@@ -2,8 +2,8 @@
 //
 // Mirrors Rust's core::convert: From / Into / TryFrom / TryInto. We
 // supply primitive widening conversions (lossless integer/char ↔
-// integer) as From; lossy/range-checked conversions as TryFrom returning
-// Result<T, ConvertError>. String / &str / Box / Vec conversions live in
+// integer) as From; lossy/range-checked conversions as TryFrom with an
+// associated `Error` (`TryFromIntError`, `CharTryFromError`, ...). String / &str / Box / Vec conversions live in
 // their respective modules (text.logos / vec.logos) where the receiver
 // types are defined.
 
@@ -11,6 +11,7 @@ package logos.lang.convert;
 
 use logos.lang.option;
 use logos.lang.result;
+use logos.lang.num.error;
 
 /// Converts a value of type `T` into `Self`; infallible and value-consuming.
 ///
@@ -29,25 +30,29 @@ pub trait Into<T> {
     fn into(self: Self) -> T;
 }
 
-/// Converts a value of type `T` into `Self`, failing with `ConvertError` when out of range.
-pub trait TryFrom<T> {
-    /// Performs the conversion, returning `Err(ConvertError)` on failure.
-    fn try_from(val: T) -> Result<Self, ConvertError>;
+/// Converts a value of type `T` into `Self`, failing with `Self::Error`.
+pub trait TryFrom<T>: Sized {
+    /// The error returned when the conversion fails.
+    type Error;
+    /// Performs the conversion, returning `Err(Self::Error)` on failure.
+    fn try_from(value: T) -> Result<Self, Self::Error>;
 }
 
-/// Converts `self` into a value of type `T`, failing with `ConvertError` when out of range.
+/// Converts `self` into a value of type `T`, failing with `Self::Error`.
 ///
 /// Do not implement directly: blanket-derived from every `TryFrom<S> for T` impl.
 pub trait TryInto<T> {
-    /// Performs the conversion, consuming `self`; returns `Err(ConvertError)` on failure.
-    fn try_into(self: Self) -> Result<T, ConvertError>;
+    /// The error returned when the conversion fails.
+    type Error;
+    /// Performs the conversion, consuming `self`; returns `Err(Self::Error)` on failure.
+    fn try_into(self: Self) -> Result<T, Self::Error>;
 }
 
-/// Reports a failed `TryFrom`/`TryInto` conversion.
-///
-/// Empty marker payload: these conversions only fail in one way (out-of-range),
-/// so the error value is information-free.
-pub struct ConvertError {}
+/// Reports a failed `u32` → `char` conversion: not a Unicode scalar value.
+pub struct CharTryFromError {}
+
+/// Reports a failed `char` → `u8`/`u16` conversion: the code point does not fit.
+pub struct TryFromCharError {}
 
 // ─── Into / TryInto derived from From / TryFrom (blanket impls) ─────────
 //
@@ -72,38 +77,528 @@ impl<S, T: From<S>> Into<T> for S {
 }
 
 impl<S, T: TryFrom<S>> TryInto<T> for S {
-    fn try_into(self: S) -> Result<T, ConvertError> { return T::try_from(self); }
+    type Error = T::Error;
+    fn try_into(self: S) -> Result<T, T::Error> { return T::try_from(self); }
 }
 
 // ─── Lossless widening ─────────────────────────────────────────────────
-// Mirrors Rust's `impl From<u8> for u32` family (every narrow primitive
-// widens losslessly to every wider primitive of the same signedness, and
-// to any signed type strictly wider).
+// Rust's portable `From` set between integers (core::convert::num, 128-bit
+// types omitted): every pair whose source range fits the target on every
+// target width. `usize`/`isize` count as at least 16 bits wide here, as in Rust.
 
-impl From<i8>  for i16 { fn from(val: i8)  -> i16 { return val as i16; } }
-impl From<i8>  for i32 { fn from(val: i8)  -> i32 { return val as i32; } }
-impl From<i8>  for i64 { fn from(val: i8)  -> i64 { return val as i64; } }
+impl From<i8> for i16 { fn from(val: i8) -> i16 { return val as i16; } }
+impl From<i8> for i32 { fn from(val: i8) -> i32 { return val as i32; } }
+impl From<i8> for i64 { fn from(val: i8) -> i64 { return val as i64; } }
+impl From<i8> for isize { fn from(val: i8) -> isize { return val as isize; } }
 impl From<i16> for i32 { fn from(val: i16) -> i32 { return val as i32; } }
 impl From<i16> for i64 { fn from(val: i16) -> i64 { return val as i64; } }
+impl From<i16> for isize { fn from(val: i16) -> isize { return val as isize; } }
 impl From<i32> for i64 { fn from(val: i32) -> i64 { return val as i64; } }
-
-impl From<u8>  for u16 { fn from(val: u8)  -> u16 { return val as u16; } }
-impl From<u8>  for u32 { fn from(val: u8)  -> u32 { return val as u32; } }
-impl From<u8>  for u64 { fn from(val: u8)  -> u64 { return val as u64; } }
+impl From<u8> for u16 { fn from(val: u8) -> u16 { return val as u16; } }
+impl From<u8> for u32 { fn from(val: u8) -> u32 { return val as u32; } }
+impl From<u8> for u64 { fn from(val: u8) -> u64 { return val as u64; } }
+impl From<u8> for usize { fn from(val: u8) -> usize { return val as usize; } }
+impl From<u8> for i16 { fn from(val: u8) -> i16 { return val as i16; } }
+impl From<u8> for i32 { fn from(val: u8) -> i32 { return val as i32; } }
+impl From<u8> for i64 { fn from(val: u8) -> i64 { return val as i64; } }
+impl From<u8> for isize { fn from(val: u8) -> isize { return val as isize; } }
 impl From<u16> for u32 { fn from(val: u16) -> u32 { return val as u32; } }
 impl From<u16> for u64 { fn from(val: u16) -> u64 { return val as u64; } }
-impl From<u32> for u64 { fn from(val: u32) -> u64 { return val as u64; } }
-
-// Unsigned → signed widening (always lossless when target is strictly wider).
-impl From<u8>  for i16 { fn from(val: u8)  -> i16 { return val as i16; } }
-impl From<u8>  for i32 { fn from(val: u8)  -> i32 { return val as i32; } }
-impl From<u8>  for i64 { fn from(val: u8)  -> i64 { return val as i64; } }
+impl From<u16> for usize { fn from(val: u16) -> usize { return val as usize; } }
 impl From<u16> for i32 { fn from(val: u16) -> i32 { return val as i32; } }
 impl From<u16> for i64 { fn from(val: u16) -> i64 { return val as i64; } }
+impl From<u32> for u64 { fn from(val: u32) -> u64 { return val as u64; } }
 impl From<u32> for i64 { fn from(val: u32) -> i64 { return val as i64; } }
 
-// char ↔ u32 (lossless one-way: char → u32 always; u32 → char via TryFrom).
+// ─── TryFrom — range-checked integer conversions ────────────────────────
+// Every ordered pair outside the `From` set, failing with `TryFromIntError`.
+// The checks assume a 64-bit `usize`/`isize`.
+
+impl TryFrom<i8> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: i8) -> Result<u8, TryFromIntError> {
+        if val < 0i8 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<i8> for u16 {
+    type Error = TryFromIntError;
+    fn try_from(val: i8) -> Result<u16, TryFromIntError> {
+        if val < 0i8 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<i8> for u32 {
+    type Error = TryFromIntError;
+    fn try_from(val: i8) -> Result<u32, TryFromIntError> {
+        if val < 0i8 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u32);
+    }
+}
+impl TryFrom<i8> for u64 {
+    type Error = TryFromIntError;
+    fn try_from(val: i8) -> Result<u64, TryFromIntError> {
+        if val < 0i8 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u64);
+    }
+}
+impl TryFrom<i8> for usize {
+    type Error = TryFromIntError;
+    fn try_from(val: i8) -> Result<usize, TryFromIntError> {
+        if val < 0i8 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as usize);
+    }
+}
+impl TryFrom<i16> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: i16) -> Result<i8, TryFromIntError> {
+        if val < -128i16 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 127i16 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<i16> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: i16) -> Result<u8, TryFromIntError> {
+        if val < 0i16 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 255i16 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<i16> for u16 {
+    type Error = TryFromIntError;
+    fn try_from(val: i16) -> Result<u16, TryFromIntError> {
+        if val < 0i16 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<i16> for u32 {
+    type Error = TryFromIntError;
+    fn try_from(val: i16) -> Result<u32, TryFromIntError> {
+        if val < 0i16 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u32);
+    }
+}
+impl TryFrom<i16> for u64 {
+    type Error = TryFromIntError;
+    fn try_from(val: i16) -> Result<u64, TryFromIntError> {
+        if val < 0i16 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u64);
+    }
+}
+impl TryFrom<i16> for usize {
+    type Error = TryFromIntError;
+    fn try_from(val: i16) -> Result<usize, TryFromIntError> {
+        if val < 0i16 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as usize);
+    }
+}
+impl TryFrom<i32> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: i32) -> Result<i8, TryFromIntError> {
+        if val < -128i32 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 127i32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<i32> for i16 {
+    type Error = TryFromIntError;
+    fn try_from(val: i32) -> Result<i16, TryFromIntError> {
+        if val < -32768i32 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 32767i32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i16);
+    }
+}
+impl TryFrom<i32> for isize {
+    type Error = TryFromIntError;
+    fn try_from(val: i32) -> Result<isize, TryFromIntError> {
+        return Result::Ok(val as isize);
+    }
+}
+impl TryFrom<i32> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: i32) -> Result<u8, TryFromIntError> {
+        if val < 0i32 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 255i32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<i32> for u16 {
+    type Error = TryFromIntError;
+    fn try_from(val: i32) -> Result<u16, TryFromIntError> {
+        if val < 0i32 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 65535i32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<i32> for u32 {
+    type Error = TryFromIntError;
+    fn try_from(val: i32) -> Result<u32, TryFromIntError> {
+        if val < 0i32 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u32);
+    }
+}
+impl TryFrom<i32> for u64 {
+    type Error = TryFromIntError;
+    fn try_from(val: i32) -> Result<u64, TryFromIntError> {
+        if val < 0i32 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u64);
+    }
+}
+impl TryFrom<i32> for usize {
+    type Error = TryFromIntError;
+    fn try_from(val: i32) -> Result<usize, TryFromIntError> {
+        if val < 0i32 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as usize);
+    }
+}
+impl TryFrom<i64> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<i8, TryFromIntError> {
+        if val < -128i64 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 127i64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<i64> for i16 {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<i16, TryFromIntError> {
+        if val < -32768i64 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 32767i64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i16);
+    }
+}
+impl TryFrom<i64> for i32 {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<i32, TryFromIntError> {
+        if val < -2147483648i64 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 2147483647i64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i32);
+    }
+}
+impl TryFrom<i64> for isize {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<isize, TryFromIntError> {
+        return Result::Ok(val as isize);
+    }
+}
+impl TryFrom<i64> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<u8, TryFromIntError> {
+        if val < 0i64 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 255i64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<i64> for u16 {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<u16, TryFromIntError> {
+        if val < 0i64 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 65535i64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<i64> for u32 {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<u32, TryFromIntError> {
+        if val < 0i64 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 4294967295i64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u32);
+    }
+}
+impl TryFrom<i64> for u64 {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<u64, TryFromIntError> {
+        if val < 0i64 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u64);
+    }
+}
+impl TryFrom<i64> for usize {
+    type Error = TryFromIntError;
+    fn try_from(val: i64) -> Result<usize, TryFromIntError> {
+        if val < 0i64 { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as usize);
+    }
+}
+impl TryFrom<isize> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<i8, TryFromIntError> {
+        if val < -128isize { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 127isize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<isize> for i16 {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<i16, TryFromIntError> {
+        if val < -32768isize { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 32767isize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i16);
+    }
+}
+impl TryFrom<isize> for i32 {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<i32, TryFromIntError> {
+        if val < -2147483648isize { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 2147483647isize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i32);
+    }
+}
+impl TryFrom<isize> for i64 {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<i64, TryFromIntError> {
+        return Result::Ok(val as i64);
+    }
+}
+impl TryFrom<isize> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<u8, TryFromIntError> {
+        if val < 0isize { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 255isize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<isize> for u16 {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<u16, TryFromIntError> {
+        if val < 0isize { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 65535isize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<isize> for u32 {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<u32, TryFromIntError> {
+        if val < 0isize { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        if val > 4294967295isize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u32);
+    }
+}
+impl TryFrom<isize> for u64 {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<u64, TryFromIntError> {
+        if val < 0isize { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as u64);
+    }
+}
+impl TryFrom<isize> for usize {
+    type Error = TryFromIntError;
+    fn try_from(val: isize) -> Result<usize, TryFromIntError> {
+        if val < 0isize { return Result::Err(TryFromIntError::new(IntErrorKind::NegOverflow)); }
+        return Result::Ok(val as usize);
+    }
+}
+impl TryFrom<u8> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: u8) -> Result<i8, TryFromIntError> {
+        if val > 127u8 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<u16> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: u16) -> Result<i8, TryFromIntError> {
+        if val > 127u16 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<u16> for i16 {
+    type Error = TryFromIntError;
+    fn try_from(val: u16) -> Result<i16, TryFromIntError> {
+        if val > 32767u16 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i16);
+    }
+}
+impl TryFrom<u16> for isize {
+    type Error = TryFromIntError;
+    fn try_from(val: u16) -> Result<isize, TryFromIntError> {
+        return Result::Ok(val as isize);
+    }
+}
+impl TryFrom<u16> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: u16) -> Result<u8, TryFromIntError> {
+        if val > 255u16 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<u32> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: u32) -> Result<i8, TryFromIntError> {
+        if val > 127u32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<u32> for i16 {
+    type Error = TryFromIntError;
+    fn try_from(val: u32) -> Result<i16, TryFromIntError> {
+        if val > 32767u32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i16);
+    }
+}
+impl TryFrom<u32> for i32 {
+    type Error = TryFromIntError;
+    fn try_from(val: u32) -> Result<i32, TryFromIntError> {
+        if val > 2147483647u32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i32);
+    }
+}
+impl TryFrom<u32> for isize {
+    type Error = TryFromIntError;
+    fn try_from(val: u32) -> Result<isize, TryFromIntError> {
+        return Result::Ok(val as isize);
+    }
+}
+impl TryFrom<u32> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: u32) -> Result<u8, TryFromIntError> {
+        if val > 255u32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<u32> for u16 {
+    type Error = TryFromIntError;
+    fn try_from(val: u32) -> Result<u16, TryFromIntError> {
+        if val > 65535u32 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<u32> for usize {
+    type Error = TryFromIntError;
+    fn try_from(val: u32) -> Result<usize, TryFromIntError> {
+        return Result::Ok(val as usize);
+    }
+}
+impl TryFrom<u64> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<i8, TryFromIntError> {
+        if val > 127u64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<u64> for i16 {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<i16, TryFromIntError> {
+        if val > 32767u64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i16);
+    }
+}
+impl TryFrom<u64> for i32 {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<i32, TryFromIntError> {
+        if val > 2147483647u64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i32);
+    }
+}
+impl TryFrom<u64> for i64 {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<i64, TryFromIntError> {
+        if val > 9223372036854775807u64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i64);
+    }
+}
+impl TryFrom<u64> for isize {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<isize, TryFromIntError> {
+        if val > 9223372036854775807u64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as isize);
+    }
+}
+impl TryFrom<u64> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<u8, TryFromIntError> {
+        if val > 255u64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<u64> for u16 {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<u16, TryFromIntError> {
+        if val > 65535u64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<u64> for u32 {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<u32, TryFromIntError> {
+        if val > 4294967295u64 { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u32);
+    }
+}
+impl TryFrom<u64> for usize {
+    type Error = TryFromIntError;
+    fn try_from(val: u64) -> Result<usize, TryFromIntError> {
+        return Result::Ok(val as usize);
+    }
+}
+impl TryFrom<usize> for i8 {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<i8, TryFromIntError> {
+        if val > 127usize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i8);
+    }
+}
+impl TryFrom<usize> for i16 {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<i16, TryFromIntError> {
+        if val > 32767usize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i16);
+    }
+}
+impl TryFrom<usize> for i32 {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<i32, TryFromIntError> {
+        if val > 2147483647usize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i32);
+    }
+}
+impl TryFrom<usize> for i64 {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<i64, TryFromIntError> {
+        if val > 9223372036854775807usize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as i64);
+    }
+}
+impl TryFrom<usize> for isize {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<isize, TryFromIntError> {
+        if val > 9223372036854775807usize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as isize);
+    }
+}
+impl TryFrom<usize> for u8 {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<u8, TryFromIntError> {
+        if val > 255usize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<usize> for u16 {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<u16, TryFromIntError> {
+        if val > 65535usize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u16);
+    }
+}
+impl TryFrom<usize> for u32 {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<u32, TryFromIntError> {
+        if val > 4294967295usize { return Result::Err(TryFromIntError::new(IntErrorKind::PosOverflow)); }
+        return Result::Ok(val as u32);
+    }
+}
+impl TryFrom<usize> for u64 {
+    type Error = TryFromIntError;
+    fn try_from(val: usize) -> Result<u64, TryFromIntError> {
+        return Result::Ok(val as u64);
+    }
+}
+
+// char ↔ integers: char widens to u32/u64, u8 widens to char; the
+// narrowing directions are TryFrom.
 impl From<char> for u32 { fn from(val: char) -> u32 { return val as u32; } }
+impl From<char> for u64 { fn from(val: char) -> u64 { return val as u64; } }
+impl From<u8> for char { fn from(val: u8) -> char { return val as char; } }
 
 // bool → integer widening — matches Rust's `From<bool> for {i,u}*`.
 impl From<bool> for i32 { fn from(val: bool) -> i32 { if val { return 1i32; } return 0i32; } }
@@ -111,94 +606,37 @@ impl From<bool> for i64 { fn from(val: bool) -> i64 { if val { return 1i64; } re
 impl From<bool> for u32 { fn from(val: bool) -> u32 { if val { return 1u32; } return 0u32; } }
 impl From<bool> for u64 { fn from(val: bool) -> u64 { if val { return 1u64; } return 0u64; } }
 impl From<bool> for u8  { fn from(val: bool) -> u8  { if val { return 1u8;  } return 0u8;  } }
-
-// ─── TryFrom — range-checked narrowing ─────────────────────────────────
-
-impl TryFrom<i32> for i8 {
-    fn try_from(val: i32) -> Result<i8, ConvertError> {
-        if val < -128i32 || val > 127i32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as i8);
-    }
-}
-impl TryFrom<i32> for i16 {
-    fn try_from(val: i32) -> Result<i16, ConvertError> {
-        if val < -32768i32 || val > 32767i32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as i16);
-    }
-}
-impl TryFrom<i32> for u8 {
-    fn try_from(val: i32) -> Result<u8, ConvertError> {
-        if val < 0i32 || val > 255i32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as u8);
-    }
-}
-impl TryFrom<i32> for u16 {
-    fn try_from(val: i32) -> Result<u16, ConvertError> {
-        if val < 0i32 || val > 65535i32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as u16);
-    }
-}
-impl TryFrom<i32> for u32 {
-    fn try_from(val: i32) -> Result<u32, ConvertError> {
-        if val < 0i32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as u32);
-    }
-}
-
-impl TryFrom<i64> for i32 {
-    fn try_from(val: i64) -> Result<i32, ConvertError> {
-        if val < -2147483648i64 || val > 2147483647i64 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as i32);
-    }
-}
-impl TryFrom<i64> for u64 {
-    fn try_from(val: i64) -> Result<u64, ConvertError> {
-        if val < 0i64 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as u64);
-    }
-}
-
-impl TryFrom<u32> for i32 {
-    fn try_from(val: u32) -> Result<i32, ConvertError> {
-        if val > 2147483647u32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as i32);
-    }
-}
-impl TryFrom<u32> for u16 {
-    fn try_from(val: u32) -> Result<u16, ConvertError> {
-        if val > 65535u32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as u16);
-    }
-}
-impl TryFrom<u32> for u8 {
-    fn try_from(val: u32) -> Result<u8, ConvertError> {
-        if val > 255u32 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as u8);
-    }
-}
-
-impl TryFrom<u64> for u32 {
-    fn try_from(val: u64) -> Result<u32, ConvertError> {
-        if val > 4294967295u64 { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as u32);
-    }
-}
-impl TryFrom<u64> for i64 {
-    fn try_from(val: u64) -> Result<i64, ConvertError> {
-        if val > (0x7FFFFFFFFFFFFFFFu64) { return Result::Err(ConvertError{}); }
-        return Result::Ok(val as i64);
-    }
-}
+impl From<bool> for i8 { fn from(val: bool) -> i8 { if val { return 1i8; } return 0i8; } }
+impl From<bool> for i16 { fn from(val: bool) -> i16 { if val { return 1i16; } return 0i16; } }
+impl From<bool> for isize { fn from(val: bool) -> isize { if val { return 1isize; } return 0isize; } }
+impl From<bool> for u16 { fn from(val: bool) -> u16 { if val { return 1u16; } return 0u16; } }
+impl From<bool> for usize { fn from(val: bool) -> usize { if val { return 1usize; } return 0usize; } }
 
 // u32 → char — succeeds iff val is a valid Unicode scalar value
 // (< 0x110000 and not in the surrogate range 0xD800..=0xDFFF).
 impl TryFrom<u32> for char {
-    fn try_from(val: u32) -> Result<char, ConvertError> {
-        if val >= 0x110000u32 { return Result::Err(ConvertError{}); }
-        if val >= 0xD800u32 && val <= 0xDFFFu32 { return Result::Err(ConvertError{}); }
+    type Error = CharTryFromError;
+    fn try_from(val: u32) -> Result<char, CharTryFromError> {
+        if val >= 0x110000u32 { return Result::Err(CharTryFromError{}); }
+        if val >= 0xD800u32 && val <= 0xDFFFu32 { return Result::Err(CharTryFromError{}); }
         return Result::Ok(unsafe { char::from_u32_unchecked(val) });
     }
 }
+impl TryFrom<char> for u8 {
+    type Error = TryFromCharError;
+    fn try_from(val: char) -> Result<u8, TryFromCharError> {
+        if (val as u32) > 0xFFu32 { return Result::Err(TryFromCharError{}); }
+        return Result::Ok(val as u8);
+    }
+}
+impl TryFrom<char> for u16 {
+    type Error = TryFromCharError;
+    fn try_from(val: char) -> Result<u16, TryFromCharError> {
+        if (val as u32) > 0xFFFFu32 { return Result::Err(TryFromCharError{}); }
+        return Result::Ok(val as u16);
+    }
+}
+
 
 // ─── Borrow / BorrowMut ────────────────────────────────────────────────
 //

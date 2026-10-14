@@ -1,0 +1,10 @@
+Err(TryFromIntError(PosOverflow)) Ok(-128) Err(TryFromIntError(NegOverflow))
+Err(TryFromIntError(PosOverflow)) Ok(4294967295)
+Err(TryFromIntError(NegOverflow)) Err(TryFromIntError(PosOverflow)) Ok(5)
+Err(TryFromIntError(PosOverflow)) Err(TryFromIntError(PosOverflow))
+Err(CharTryFromError(())) Ok('A') Ok(233)
+Err(TryFromCharError(())) Err(TryFromCharError(()))
+out of range integral type conversion attempted | converted integer out of range for `char`
+unicode code point out of range
+Ok(300) 1 200 a
+97 -3
