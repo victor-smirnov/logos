@@ -1,0 +1,1 @@
+cannot construct 'TupSecret' from package 'tuple_ctor_private_cross_pkg': field '0' is private

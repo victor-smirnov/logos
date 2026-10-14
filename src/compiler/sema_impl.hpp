@@ -9053,6 +9053,7 @@ private:
         std::vector<std::pair<std::string, const SemaTraitMethodInfo*>>& method_order,
         std::vector<std::string>& upcast_supers);
     std::string read_package_name(writ::TinyMapView mod);
+    void check_ctor_fields_pub_(const SemaStructInfo& si, std::string_view sname);
     void check_pub_access(bool is_pub, const std::string& def_package,
                           std::string_view item_name,
                           bool is_module_only = false,
