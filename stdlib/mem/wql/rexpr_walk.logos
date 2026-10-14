@@ -3441,8 +3441,10 @@ fn emit_step_texts(on_ref: WRef<SExpr>, new_var: str, sel: i64, ktn: str,
     let sd: EquiSides = equi_term_sides(sexpr_of_word(tl.w[sel]), new_var);
     let mut b0: String = String::new();
     let mut p0: String = String::new();
-    emit_sexpr(&mut b0, sexpr_of_word(sd.bw), t, var0);
-    emit_sexpr(&mut p0, sexpr_of_word(sd.pw), t, var0);
+    // a literal side takes the key's type, as beside a comparison
+    // (`w.val == 20u64` keyed on u64 printed `20i64` into `let __pk: u64`)
+    emit_sexpr_as(&mut b0, sexpr_of_word(sd.bw), t, var0, ktn);
+    emit_sexpr_as(&mut p0, sexpr_of_word(sd.pw), t, var0, ktn);
     let bn: String = key_norm_body(string_as_str(&b0),
                                    infer_ty_name(sexpr_of_word(sd.bw), t), ktn);
     let pn: String = key_norm_body(string_as_str(&p0),

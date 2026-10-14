@@ -2098,6 +2098,22 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
         out.push_str(" })");
         return;
     }
+    if bfn == BFN_SUBSTR() {
+        out.push_str("logos.std.wql.el::wql_substr(");
+        emit_str_view(out, args.arg_at(0i64), t, var);
+        out.push_str(", ((");
+        emit_sexpr_as(out, args.arg_at(1i64), t, var, "i64");
+        out.push_str(") as i64), ((");
+        emit_sexpr_as(out, args.arg_at(2i64), t, var, "i64");
+        out.push_str(") as i64))");
+        return;
+    }
+    if bfn == BFN_TO_STRING() {
+        out.push_str("logos.std.wql.el::wql_to_string(((");
+        emit_sexpr_as(out, args.arg_at(0i64), t, var, "i64");
+        out.push_str(") as i64))");
+        return;
+    }
     if bfn == BFN_UPPER() || bfn == BFN_LOWER() {
         if bfn == BFN_UPPER() { out.push_str("logos.std.wql.el::wql_upper("); }
         else                  { out.push_str("logos.std.wql.el::wql_lower("); }
@@ -2337,6 +2353,31 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                         mm.push_str(minmax_ty(args, t));
                         mm.push_str("`");
                         ty_error(t, e, string_as_str(&mm));
+                        return false;
+                    }
+                }
+                if (bfn == BFN_SUBSTR() && argc == 3i64) || (bfn == BFN_TO_STRING() && argc == 1i64) {
+                    // integers that hold in i64; substr's first argument a string
+                    let mut bad: str = "";
+                    let mut ai: i64 = 0i64;
+                    while ai < argc {
+                        let an: str = infer_ty_name(args.arg_at(ai), t);
+                        let ac: i32 = t.class_of_name(an);
+                        let want_str: bool = bfn == BFN_SUBSTR() && ai == 0i64;
+                        if want_str && ac != EL_TY_STR() { bad = an; }
+                        if !want_str && (ac != EL_TY_INT() || !el_int_fits_i64(an)) { bad = an; }
+                        ai = ai + 1i64;
+                    }
+                    if bad.len() > 0i64 {
+                        let mut ms: String = String::new();
+                        ms.push_str(ctx);
+                        ms.push_str(": builtin '");
+                        ms.push_str(name);
+                        ms.push_str(if bfn == BFN_SUBSTR() { "' takes a string and two integers that hold in i64 (Soufflé's `substr`), and an argument is `" }
+                                    else { "' takes an integer that holds in i64 (Soufflé's `to_string`), and its argument is `" });
+                        ms.push_str(bad);
+                        ms.push_str("`");
+                        ty_error(t, e, string_as_str(&ms));
                         return false;
                     }
                 }
@@ -2753,7 +2794,7 @@ pub fn returns_string(e: SExpr, t: &ElTypes) -> bool {
     match e {
         SExpr::Call(c) => {
             let bfn: i32 = builtin_of_name(c.fn_name);
-            if bfn != BFN_UNKNOWN() { return bfn == BFN_UPPER() || bfn == BFN_LOWER(); }
+            if bfn != BFN_UNKNOWN() { return bfn == BFN_UPPER() || bfn == BFN_LOWER() || bfn == BFN_SUBSTR() || bfn == BFN_TO_STRING(); }
             return t.udf_returns_string(c.fn_name);
         }
         SExpr::Bin(b) => { return b.op == OP_ADD() && infer_ty(e, t) == EL_TY_STR(); }

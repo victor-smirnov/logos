@@ -1,0 +1,34 @@
+// wql_domain_layer_blob_str_plus_e2e — `s.x + s.x` over a `str` column is the
+// EL's string concatenation (spec `el.type.string-concat`), an owned `String`.
+//
+// HISTORY. This file was `fail/wql_domain_layer_blob_str_plus_fail` and pinned
+// a DEFECT on purpose (measured 2026-08-03): the static tier had no front-end
+// rule for `str + str`, so the expression fell through to the host compiler
+// type-checking the generated blob — `<metaprog-blob-subst>:1: error [fn q_run]:
+// operator '+': left must be numeric, got &[u8]` — while the dynamic tier,
+// running the same shape through the interpreter, accepted it and answered.
+// Its header said: when this is fixed the file goes red and must be rewritten,
+// not deleted. b90b2b02f (2026-10-13) fixed it the way the spec and the dynamic
+// tier read it: the query emitter writes `el::wql_cat(a, b) -> String`. So the
+// file is the PASS it was waiting to become; a string and a non-string under
+// `+` are still a named Deem error (`deem_str_concat_e2e`'s sibling message).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+
+struct S { pub x: str, pub id: i64 }
+
+pub deem q(ss: &[S]) { from ss s select s.x + s.x }
+
+fn main() -> i32 {
+    let ss: [S; 2] = [ S { x: "ab", id: 1i64 }, S { x: "", id: 2i64 } ];
+    let v: Vec<String> = q(&ss[..]).unwrap();
+    if v.len() != 2i64 { return 1i32; }
+    if !str_eq(v.borrow(0i64).as_str(), "abab") { return 2i32; }
+    if !str_eq(v.borrow(1i64).as_str(), "") { return 3i32; }
+    return 0i32;
+}

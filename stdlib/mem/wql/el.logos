@@ -331,7 +331,10 @@ pub fn BFN_UNWRAP_OR()   -> i32 { return 8i32; }
 // `min(a, b)` / `max(a, b)` over two integers of one type — Soufflé's functors;
 // the value is that type (codegen `minmax_ty`)
 pub fn BFN_MIN()         -> i32 { return 9i32; }
-pub fn BFN_MAX()         -> i32 { return 10i32; }   // its value is T (codegen)
+pub fn BFN_MAX()         -> i32 { return 10i32; }
+// `substr(s, i, n)` / `to_string(x)` — Soufflé's string functors, an owned String
+pub fn BFN_SUBSTR()      -> i32 { return 11i32; }
+pub fn BFN_TO_STRING()   -> i32 { return 12i32; }   // its value is T (codegen)
 
 // Resolve a call name → builtin id (BFN_*). Unknown ⇒ BFN_UNKNOWN.
 pub fn builtin_of_name(name: str) -> i32 {
@@ -345,6 +348,8 @@ pub fn builtin_of_name(name: str) -> i32 {
     if str_eq(name, "unwrap_or")   { return BFN_UNWRAP_OR(); }
     if str_eq(name, "min")         { return BFN_MIN(); }
     if str_eq(name, "max")         { return BFN_MAX(); }
+    if str_eq(name, "substr")      { return BFN_SUBSTR(); }
+    if str_eq(name, "to_string")   { return BFN_TO_STRING(); }
     return BFN_UNKNOWN();
 }
 
@@ -355,6 +360,8 @@ pub fn builtin_arity(bfn: i32) -> i64 {
     if bfn == BFN_IS_SOME() || bfn == BFN_IS_NONE()                { return 1i64; }
     if bfn == BFN_UNWRAP_OR()                                      { return 2i64; }
     if bfn == BFN_MIN() || bfn == BFN_MAX()                        { return 2i64; }
+    if bfn == BFN_SUBSTR()                                         { return 3i64; }
+    if bfn == BFN_TO_STRING()                                      { return 1i64; }
     return 0i64;
 }
 
@@ -362,6 +369,8 @@ pub fn builtin_arity(bfn: i32) -> i64 {
 pub fn builtin_ret_ty(bfn: i32) -> i32 {
     if bfn == BFN_LEN()         { return EL_TY_INT(); }
     if bfn == BFN_UPPER()       { return EL_TY_STR(); }
+    if bfn == BFN_SUBSTR()      { return EL_TY_STR(); }
+    if bfn == BFN_TO_STRING()   { return EL_TY_STR(); }
     if bfn == BFN_LOWER()       { return EL_TY_STR(); }
     if bfn == BFN_CONTAINS()    { return EL_TY_BOOL(); }
     if bfn == BFN_STARTS_WITH() { return EL_TY_BOOL(); }
@@ -375,6 +384,27 @@ pub fn builtin_ret_ty(bfn: i32) -> i32 {
 // string fns are byte oriented in the MVP). Returned by value (owns its buffer).
 // RUNTIME helpers: the static backends emit qualified calls to these; the
 // dynamic interpreter calls them directly.
+/// `substr(s, i, n)` as Soufflé's (`std::string::substr` over bytes): an index
+/// outside `[0, len]` gives the empty string, a negative or overlong `n` runs
+/// to the end.
+pub fn wql_substr(s: str, i: i64, n: i64) -> String {
+    let mut out: String = String::new();
+    let len: i64 = s.len();
+    if i < 0i64 || i > len { return out; }
+    let mut end: i64 = len;
+    if n >= 0i64 && n < len - i { end = i + n; }
+    let mut k: i64 = i;
+    while k < end { out.push_u8(str_byte_at(s, k)); k = k + 1i64; }
+    return out;
+}
+
+/// `to_string(x)` — the integer in decimal.
+pub fn wql_to_string(x: i64) -> String {
+    let mut out: String = String::new();
+    out.push_i64(x);
+    return out;
+}
+
 /// `a + b` over two strings — the EL's concatenation, an owned `String`.
 pub fn wql_cat(a: str, b: str) -> String {
     let mut out: String = String::new();

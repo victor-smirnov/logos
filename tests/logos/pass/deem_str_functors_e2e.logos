@@ -1,0 +1,48 @@
+// deem_str_functors_e2e — the EL builtins `substr(s, i, n)` and `to_string(x)`,
+// Soufflé's string functors, each an owned `String`. `substr` is Soufflé's
+// (`std::string::substr` over bytes): an index outside `[0, len]` is the empty
+// string, a negative or overlong length runs to the end. The oracle exports
+// both as Soufflé's own functors.
+//   (a) substr inside the string, at its end, past it, with a negative index,
+//       a negative length and an overlong one;
+//   (b) to_string over i64 and i32, negative values included;
+//   (c) both under `where` and joined with `+`.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.mem.string;
+use logos.lang.str;
+
+struct W { pub s: str, pub i: i64, pub n: i64, pub id: i64 }
+struct N { pub a: i64, pub b: i32 }
+
+// (a)
+pub deem cut(ws: &[W]) { from ws w select substr(w.s, w.i, w.n) order by w.id }
+// (b)
+pub deem nums(ns: &[N]) { from ns x select to_string(x.a) + "/" + to_string(x.b) order by x.a }
+// (c)
+pub deem pre(ws: &[W]) { from ws w where substr(w.s, 0, 2) == "he" select w.id + 0 order by w.id }
+
+fn main() -> i32 {
+    let ws: [W; 7] = [
+        W { s: "hello", i: 1i64, n: 3i64, id: 1i64 },   // "ell"
+        W { s: "hello", i: 5i64, n: 2i64, id: 2i64 },   // "" (at the end)
+        W { s: "hello", i: 6i64, n: 1i64, id: 3i64 },   // "" (past it)
+        W { s: "hello", i: -1i64, n: 2i64, id: 4i64 },  // "" (negative index)
+        W { s: "hello", i: 2i64, n: -1i64, id: 5i64 },  // "llo" (negative length: to the end)
+        W { s: "help", i: 0i64, n: 99i64, id: 6i64 },   // "help" (overlong)
+        W { s: "", i: 0i64, n: 0i64, id: 7i64 },        // ""
+    ];
+    let a: Vec<String> = cut(&ws[..]).unwrap();
+    if a.len() != 7i64 { return 1i32; }
+    if !str_eq(a.borrow(0i64).as_str(), "ell") || !str_eq(a.borrow(1i64).as_str(), "") || !str_eq(a.borrow(2i64).as_str(), "") { return 2i32; }
+    if !str_eq(a.borrow(3i64).as_str(), "") || !str_eq(a.borrow(4i64).as_str(), "llo") || !str_eq(a.borrow(5i64).as_str(), "help") { return 3i32; }
+    let ns: [N; 2] = [ N { a: -12i64, b: 7i32 }, N { a: 30i64, b: -4i32 } ];
+    let b: Vec<String> = nums(&ns[..]).unwrap();
+    if b.len() != 2i64 || !str_eq(b.borrow(0i64).as_str(), "-12/7") || !str_eq(b.borrow(1i64).as_str(), "30/-4") { return 4i32; }
+    let c: Vec<i64> = pre(&ws[..]).unwrap();
+    if c.len() != 6i64 || c.get(0i64) != 1i64 || c.get(5i64) != 6i64 { return 5i32; }
+    return 0i32;
+}
