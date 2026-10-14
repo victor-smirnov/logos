@@ -1260,6 +1260,52 @@ lir::LExprPtr SemaChecker::lower_var_ref(TinyMapView expr) {
                 }
             }
         }
+        // A tuple constructor named bare — a tuple struct `W`, the prelude's
+        // `Some` / `Ok` / `Err`, an imported payload variant — used as a
+        // function value (`map(W)`, `map(Some)`) lowers as the closure
+        // `|a0, …| W(a0, …)`, as the qualified `E::V` form does.
+        {
+            size_t arity = 0;
+            TypeRef fn_shape = nullptr;
+            auto [tpkg, tsi] = find_struct_by_name(std::string(name));
+            if (tsi && tsi->is_tuple_struct && !tsi->fields.empty()) {
+                arity = tsi->fields.size();
+                if (tsi->type_params.empty()) {
+                    std::vector<TypeRef> pts;
+                    for (auto& f : tsi->fields) pts.push_back(f.type);
+                    fn_shape = make_fn_ptr_type(pts, make_struct_type(name, tpkg));
+                }
+            } else if (name == "Some" || name == "Ok" || name == "Err") {
+                arity = 1;
+            } else if (auto vit = cur_imports_.variant_aliases.find(std::string(name));
+                       vit != cur_imports_.variant_aliases.end()) {
+                if (auto [epkg, esi] = find_enum_by_name(vit->second); esi)
+                    for (auto& v : esi->variants)
+                        if (v.name == std::string(name) && !v.is_struct_shape && !v.is_variadic)
+                            arity = v.payload_types.size();
+            }
+            if (arity > 0) {
+                const uint32_t ln = node_line_;
+                std::vector<writ::AnyVal> params, args;
+                for (size_t i = 0; i < arity; ++i) {
+                    auto nm = synth_str(std::format("__ctor_a{}", i));
+                    params.push_back(synth_node(la::PARAM.code, ln, {{la::NAME.code, nm}}));
+                    args.push_back(synth_node(la::VAR_REF.code, ln, {{la::NAME.code, nm}}));
+                }
+                auto call = expr.has_key(la::RES)
+                    ? synth_node(la::CALL.code, ln, {{la::CALLEE.code, expr.get(la::NAME.code)},
+                                                     {la::ARGS.code, synth_array(args)},
+                                                     {la::RES.code, expr.get(la::RES.code)}})
+                    : synth_node(la::CALL.code, ln, {{la::CALLEE.code, expr.get(la::NAME.code)},
+                                                     {la::ARGS.code, synth_array(args)}});
+                auto clo = synth_node(la::CLOSURE_EXPR.code, ln,
+                                      {{la::PARAMS.code, synth_node(la::BLOCK.code, ln, {{la::ITEMS.code, synth_array(params)}})},
+                                       {la::VALUE.code, call}});
+                TypeRef clo_shape = closure_shape_();
+                if (!clo_shape) clo_shape = fn_shape;
+                return lower_expr_expecting(map_of(clo), nullptr, clo_shape);   // the closure IS this node
+            }
+        }
         // Unit struct used as a value: `let m = Marker;` constructs the
         // zero-field struct (Rust parity for `struct Marker;`). Only fires for a
         // KNOWN struct with no fields — a fielded struct still needs `S { … }`.

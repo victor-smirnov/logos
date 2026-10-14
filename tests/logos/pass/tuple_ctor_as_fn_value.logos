@@ -1,0 +1,40 @@
+package tuple_ctor_as_fn_value;
+use logos.std.fmt;
+use logos.lang.option;
+use logos.lang.result;
+struct W(i32);
+struct P(i32, u8);
+enum E { A(i32), B }
+fn ap<F: Fn(i32) -> W>(f: F) -> W { f(3) }
+struct G<T>(T);
+fn twice(f: fn(i32) -> W, x: i32) -> i32 { f(x).0 * 2 }
+fn neighbours() {
+    let g = Some(4u8).map(G);
+    println!("{}", g.unwrap().0);
+    let f: fn(i32) -> W = W;
+    println!("{}", f(5).0);
+    println!("{}", twice(W, 6));
+    let h = G;
+    println!("{}", h("s").0);
+    let v: Vec<Option<i32>> = vec![1, 2].into_iter().map(Some).collect();
+    println!("{:?}", v);
+}
+fn main() {
+    neighbours();
+    let x = Some(5).map(W);
+    println!("{}", x.unwrap().0);
+    let y: Option<Option<i32>> = Some(6).map(Some);
+    println!("{:?}", y);
+    let r: Result<i32, String> = Some(7).ok_or(String::from("e")).map(|v| v + 1);
+    println!("{:?}", r);
+    let e: Option<Result<i32, i32>> = Some(3).map(Err);
+    println!("{:?}", e);
+    let k: Option<Result<i32, i32>> = Some(9).map(Ok);
+    println!("{:?}", k);
+    println!("{}", ap(W).0);
+    let f = P;
+    let p = f(1, 2);
+    println!("{} {}", p.0, p.1);
+    let v: Vec<E> = vec![4, 5].into_iter().map(E::A).collect();
+    for i in v { match i { E::A(n) => println!("A{}", n), E::B => println!("B") } }
+}
