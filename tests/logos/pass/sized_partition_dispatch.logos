@@ -13,8 +13,6 @@
 //       the ADDRESS of its {data, meta} pair, so the null receiver is a
 //       zeroed stack pair (casting a raw 0 yields a null PAIR ADDRESS and
 //       any receiver copy would fault).
-// `str` is Slice<u8> by language design (sema resolve_type), so the str
-// arm dispatches to the [E] impl with E = u8.
 package test;
 
 pub trait PkdElem {
@@ -48,6 +46,5 @@ fn main() -> i32 {
     if stride_of::<(u32, u32)>() != 8i64 { return 5i32; }    // (a) tuple
     if stride_of::<[u8]>() != 0i64 - 1i64 { return 6i32; }   // (b) slice, E=u8
     if stride_of::<[u64]>() != 0i64 - 8i64 { return 7i32; }  // (b) slice, E=u64
-    if stride_of::<str>() != 0i64 - 1i64 { return 8i32; }    // str ≡ [u8]
     return 0i32;
 }

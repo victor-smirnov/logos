@@ -4679,7 +4679,7 @@ When the `Ordering` argument of an `_ord` atomic is not a compile-time `Ordering
 
 ### `intrinsic.metaprog.type-apply` — type_apply / apply_generic instantiate a type-level template
 
-`type_apply(name: &[u8], args: [Type; N]) -> Type` and `apply_generic(g: Type, args: [Type; N]) -> Type` each take exactly 2 arguments and lower to the `__type_apply__` / `__apply_generic__` mono intercepts, which recover concrete TypeRefs from each element and emit a fresh `Type` struct literal for `Name<T0,...>`. Wrong arity is an error.
+`type_apply(name: &str, args: [Type; N]) -> Type` and `apply_generic(g: Type, args: [Type; N]) -> Type` each take exactly 2 arguments and lower to the `__type_apply__` / `__apply_generic__` mono intercepts, which recover concrete TypeRefs from each element and emit a fresh `Type` struct literal for `Name<T0,...>`. Wrong arity is an error.
 
 *Divergence:* Logos addition: type-level composition metaprogramming intrinsics.
 

@@ -10109,6 +10109,7 @@ private:
     // lower_generic_call (is_same, type_of, has_trait, typelist_*, tuple_*, …).
     // Returns the lowered call when `callee` is such an intrinsic; nullopt to
     // fall through to lower_generic_call's general generic-resolution path.
+    lir::LExprPtr lower_slice_from_raw_(std::vector<TypeRef> ts, std::vector<lir::LExprPtr> args, bool raw_mut);
     std::optional<lir::LExprPtr> lower_type_intrinsic(
         writ::TinyMapView node, std::string_view callee);
     // Helpers shared by the type-intrinsic handlers (promoted from lambdas).

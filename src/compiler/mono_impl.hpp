@@ -1376,7 +1376,7 @@ private:
         default:
             // A primitive scalar IS its kind: two `i32` nodes are one type,
             // whichever pool (or none, for a static primitive) carries them.
-            if (is_primitive_scalar_kind(p.kind())) return true;
+            if (is_kind_identity_leaf(p.kind())) return true;
             return types_equal(c, p);
         }
     }

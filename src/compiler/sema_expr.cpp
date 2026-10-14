@@ -76,6 +76,15 @@ static const char* prelude_variant_enum_(std::string_view name) {
     return nullptr;
 }
 
+// The raw-slice constructor intrinsics (`slice_from_raw` → `&[T]`,
+// `slice_from_raw_mut` → `&mut [T]`): 0 when `name` is neither, else 1 / 2.
+// ONE table: the plain-call and the turbofish routes both read it.
+static int slice_from_raw_intrinsic_(std::string_view name) {
+    if (name == "slice_from_raw") return 1;
+    if (name == "slice_from_raw_mut") return 2;
+    return 0;
+}
+
 static inline uint64_t metacall_site_id(size_t ast_idx, uint32_t expr_offset) {
     return (static_cast<uint64_t>(static_cast<uint32_t>(ast_idx)) << 32)
          | static_cast<uint64_t>(expr_offset);
@@ -5666,6 +5675,11 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call_v(std::move(ec), str_t);
     }
 
+    // A plain call reaches the real (stdlib) function's resolution before
+    // lower_type_intrinsic: intercept here, with the arguments in hand.
+    if (int sfr = slice_from_raw_intrinsic_(callee))
+        return lower_slice_from_raw_(collect_type_args(node), std::move(arg_exprs), sfr == 2);
+
     // `zone_of(r: &mut T) -> *mut u8` — recover the Writ zone (allocator)
     // carried by a fat `&mut T`: the metadata half of the fat pair (slice_len),
     // reinterpreted as a pointer. The dual of zone_mut_ref. (No type arg → handled
@@ -5693,7 +5707,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call("__reify_type__", {}, std::move(rargs), type_t);
     }
 
-    // apply(name: &[u8], args: [Type; N]) -> Type — instantiates a struct
+    // apply(name: &str, args: [Type; N]) -> Type — instantiates a struct
     // template by name with concrete TypeRefs recovered from each element's
     // uid. Mono's __apply__ intercept walks the array literal, recovers each
     // TypeRef using the same uid-source shapes reify_type handles, builds a
@@ -5702,7 +5716,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // composition like `apply("Pair", [type_of::<i32>(), type_of::<bool>()])`.
     if (callee == "type_apply") {
         if (n_args != 2) {
-            error("type_apply(name: &[u8], args: [Type; N]) requires exactly 2 arguments");
+            error("type_apply(name: &str, args: [Type; N]) requires exactly 2 arguments");
             return error_expr();
         }
         auto type_t = make_synth_struct("Type");
@@ -8507,6 +8521,36 @@ lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
     return builder().enum_lit_data("Option", "Some", some_disc, std::move(payload), result_type);
 }
 
+// `slice_from_raw[_mut]::<T>(ptr, len)`: a Slice fat pointer, built by the
+// `str_from_raw` codegen (the layout is uniform across element types).
+lir::LExprPtr SemaChecker::lower_slice_from_raw_(std::vector<TypeRef> ts, std::vector<lir::LExprPtr> args,
+                                                bool raw_mut) {
+    if (args.size() != 2) {
+        error("slice_from_raw requires exactly 2 args: (ptr: *const T, len: i64)");
+        return error_expr();
+    }
+    // No turbofish: infer T from the ptr arg's pointee. A turbofish-less
+    // call inside a generic body used to FALL PAST this intercept into
+    // the ordinary generic-call path — and link the placeholder body
+    // (`&[]`), a silent empty-slice miscompile.
+    if (ts.empty()) {
+        TypeRef pt = expr_type(args[0]);
+        if (pt && TypeRef(pt).kind() == LogosType::Kind::Ptr &&
+            TypeRef(pt).pointee())
+            ts.push_back(TypeRef(pt).pointee());
+    }
+    if (ts.size() != 1 || !ts[0]) {
+        error("slice_from_raw::<T>(ptr, len): cannot determine T "
+              "(pass the turbofish)");
+        return error_expr();
+    }
+    auto slice_t = make_slice_type(ts[0], raw_mut);
+    lir::ECall ec;
+    ec.callee = str_from_raw_symbol_();  // shared codegen — uniform fat-ptr layout
+    for (auto& a : args) ec.args.push_back(std::move(a));
+    return builder().call_v(std::move(ec), slice_t);
+}
+
 std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node, std::string_view callee) {
     // ── A BUILTIN NAME IS NOT AN IDENTITY ─────────────────────────────────
     // Every arm below is `callee == "<bare name>"`. The turbofish entry
@@ -8536,9 +8580,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // codegen at mlir-gen.
     // `slice_from_raw_mut` is the `*mut T` -> `&mut [T]` twin (no `&[T] as
     // &mut [T]` cast: rustc refuses it, E0606).
-    if (callee == "slice_from_raw" || callee == "slice_from_raw_mut") {
-        const bool raw_mut = callee == "slice_from_raw_mut";
-        auto ts = collect_type_args(node);
+    if (int sfr = slice_from_raw_intrinsic_(callee)) {
         std::vector<lir::LExprPtr> args;
         if (node.has_key(la::ARGS)) {
             auto args_av = node.get(la::ARGS.code);
@@ -8549,30 +8591,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                     args.push_back(lower_expr(map_of(items.get(i))));
             }
         }
-        if (args.size() != 2) {
-            error("slice_from_raw requires exactly 2 args: (ptr: *const T, len: i64)");
-            return error_expr();
-        }
-        // No turbofish: infer T from the ptr arg's pointee. A turbofish-less
-        // call inside a generic body used to FALL PAST this intercept into
-        // the ordinary generic-call path — and link the placeholder body
-        // (`&[]`), a silent empty-slice miscompile.
-        if (ts.empty()) {
-            TypeRef pt = expr_type(args[0]);
-            if (pt && TypeRef(pt).kind() == LogosType::Kind::Ptr &&
-                TypeRef(pt).pointee())
-                ts.push_back(TypeRef(pt).pointee());
-        }
-        if (ts.size() != 1 || !ts[0]) {
-            error("slice_from_raw::<T>(ptr, len): cannot determine T "
-                  "(pass the turbofish)");
-            return error_expr();
-        }
-        auto slice_t = make_slice_type(ts[0], raw_mut);
-        lir::ECall ec;
-        ec.callee = str_from_raw_symbol_();  // shared codegen — uniform fat-ptr layout
-        for (auto& a : args) ec.args.push_back(std::move(a));
-        return builder().call_v(std::move(ec), slice_t);
+        return lower_slice_from_raw_(collect_type_args(node), std::move(args), sfr == 2);
     }
 
     // wstatic_hash_of::<CFG>() — byte-hash identity of a WritStatic value

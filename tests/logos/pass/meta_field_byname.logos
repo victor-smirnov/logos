@@ -16,7 +16,7 @@ unsafe fn main() -> i32 {
     let types = field_types_of::<Record>();
 
     // Find "count" by linear scan.
-    let target: &[u8] = "count";
+    let target: &str = "count";
     let mut found: i64 = -1 as i64;
     let mut i: i64 = 0;
     while i < n {
@@ -30,7 +30,7 @@ unsafe fn main() -> i32 {
     if types[found].size != (4 as i64) { return 72; }
 
     // Negative case.
-    let bogus: &[u8] = "missing";
+    let bogus: &str = "missing";
     let mut hit = false;
     let mut j: i64 = 0;
     while j < n {

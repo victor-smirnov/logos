@@ -1,1 +1,1 @@
-associated constant 'AC' has type 'Option<&'c [u8]>', which is not compatible with the trait's 'Option<&'b [u8]>' (lifetime mismatch)
+associated constant 'AC' has type 'Option<&'c str>', which is not compatible with the trait's 'Option<&'b str>' (lifetime mismatch)

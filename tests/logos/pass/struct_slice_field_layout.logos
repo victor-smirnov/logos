@@ -8,7 +8,7 @@ struct WithSlice<'a> { tag: i32, name: &'a [u8], n: i64 }
 fn main() -> i32 {
     // tag@0 (4), pad, name@8 (16 inline {ptr,len}), n@24 (i64) → size 32, align 8.
     if sizeof::<WithSlice>() != 32i64 { return 1i32; }
-    let a: WithSlice = WithSlice { tag: 3, name: "hi", n: 7i64 };
+    let a: WithSlice = WithSlice { tag: 3, name: "hi".as_bytes(), n: 7i64 };
     // `let b = a` triggers the struct value-copy memcpy: size must be 32 (the
     // padded layout, slice inline). A stale memcpy would corrupt `n` or the
     // slice length.

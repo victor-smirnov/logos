@@ -1318,6 +1318,12 @@ inline bool is_primitive_scalar_kind(LogosType::Kind k) noexcept {
     }
 }
 
+// A type that IS its kind — a primitive scalar, or `str`'s element: two nodes
+// of the kind are one type, whichever pool (or none) carries them.
+inline bool is_kind_identity_leaf(LogosType::Kind k) noexcept {
+    return is_primitive_scalar_kind(k) || k == LogosType::Kind::Str;
+}
+
 inline bool is_stdlib_box_type(TypeRef t) noexcept {
     if (!t) return false;
     auto k = t.kind();

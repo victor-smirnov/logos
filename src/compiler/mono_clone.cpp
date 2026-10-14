@@ -1971,7 +1971,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 mp_ = sl.addr();
                 break;
             }
-            // apply(name: &[u8], args: [Type; N]) -> Type — instantiate a
+            // apply(name: &str, args: [Type; N]) -> Type — instantiate a
             // struct template by name with TypeRefs recovered from each
             // array-literal element via the same uid-source shapes
             // __reify_type__ accepts. First MP5 piece — gives users runtime

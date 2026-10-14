@@ -57,7 +57,7 @@ struct EnvScope {
 // One type: a primitive scalar IS its kind, whichever pool (or none) carries it.
 static bool same_type(TypeRef a, TypeRef b) {
     if (!a || !b) return !a && !b;
-    if (is_primitive_scalar_kind(a.kind()) || is_primitive_scalar_kind(b.kind())) return a.kind() == b.kind();
+    if (is_kind_identity_leaf(a.kind()) || is_kind_identity_leaf(b.kind())) return a.kind() == b.kind();
     return types_equal(a, b);
 }
 
@@ -144,7 +144,7 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
         return true;
     }
     default:
-        if (is_primitive_scalar_kind(p.kind())) return true;
+        if (is_kind_identity_leaf(p.kind())) return true;
         return types_equal(c, p);
     }
 }
@@ -213,7 +213,7 @@ bool heads_unify(TypeRef a, TypeRef b, const std::vector<std::string>& vars, Sub
         if (!a.closure_ret() || !b.closure_ret()) return !a.closure_ret() && !b.closure_ret();
         return heads_unify(a.closure_ret(), b.closure_ret(), vars, s);
     default:
-        if (is_primitive_scalar_kind(a.kind())) return true;
+        if (is_kind_identity_leaf(a.kind())) return true;
         return types_equal(a, b);
     }
 }
