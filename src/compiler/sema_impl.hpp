@@ -9449,6 +9449,18 @@ private:
         if (tr.closure_ret() && has_infer_var_(tr.closure_ret(), d + 1)) return true;
         return false;
     }
+    // `t` names the type variable `name` anywhere (an assoc projection's base included).
+    static bool type_mentions_var_(TypeRef t, std::string_view name, int d = 0) {
+        if (!t || d > 24) return false;
+        TypeRef tr(t);
+        if (tr.kind() == LogosType::Kind::TypeVar) return tr.type_var_name() == name;
+        if (tr.kind() == LogosType::Kind::AssocType && type_mentions_var_(tr.assoc_base(), name, d + 1)) return true;
+        if (tr.pointee() && type_mentions_var_(tr.pointee(), name, d + 1)) return true;
+        if (tr.elem() && type_mentions_var_(tr.elem(), name, d + 1)) return true;
+        for (auto a : tr.type_args()) if (type_mentions_var_(a, name, d + 1)) return true;
+        for (auto e : tr.tuple_elems()) if (type_mentions_var_(e, name, d + 1)) return true;
+        return false;
+    }
     TypeRef mint_infer_var_(std::string origin) {
         std::string n = "?i" + std::to_string(infer_counter_++);
         infer_solved_[n] = nullptr;

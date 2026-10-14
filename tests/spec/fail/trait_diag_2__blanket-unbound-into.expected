@@ -1,1 +1,1 @@
-has no method 'into'
+cannot infer the type argument `T` of method `into`

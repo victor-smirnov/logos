@@ -6963,9 +6963,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12267 -> 12269 (+2), NOIMPORTED 7708 -> 7710 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-14: +pass/deem_str_functors_e2e (glob), +fail/deem_str_functors_ty_fail.
 #                ALL 12269 -> 12272 (+3), NOIMPORTED 7710 -> 7713 (+3), TIERCOMMIT 165 -> 165 (+0) — 2026-10-14: merge deem onto main (+2 nonglob, +3 registry: collect + tuple_ctor fixtures).
 #                ALL 12272 -> 12274 (+2), NOIMPORTED 7713 -> 7715 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-14: merge of main 04b72a374 into deem — +pass/deem_bitwise_e2e (glob), +fail/deem_bitwise_ty_fail.
-#                ALL 12274 -> 12275 (+1), NOIMPORTED 7715 -> 7716 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-14: +pass/deem_full_join_stream_e2e (glob).
-REGISTRY-ALL         12275
-REGISTRY-NOIMPORTED  7716
+#                ALL 12274 -> 12276 (+2), NOIMPORTED 7715 -> 7717 (+2), TIERCOMMIT 165 -> 165 (+0) — 2026-10-14: merge deem 57977b076 (+1 glob, +2 registry) onto main (+1 nonglob, +2 registry: try_into fixtures).
+#                ALL 12276 -> 12277 (+1), NOIMPORTED 7717 -> 7718 (+1), TIERCOMMIT 165 -> 165 (+0) — 2026-10-14: merge of main 8a824187a into deem — +pass/deem_full_join_stream_e2e (glob).
+REGISTRY-ALL         12277
+REGISTRY-NOIMPORTED  7718
 REGISTRY-TIERCOMMIT  165
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
