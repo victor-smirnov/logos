@@ -2314,6 +2314,22 @@ fn plan_entry_order(pc: &CProgram, prm: &MacroParams, h: &Writ) -> JoinPlan {
     return join_plan_none();
 }
 
+/// The outer kind of step `k` of a clause (0 for an inner step or a traversal).
+fn core_step_outer(cl: &CClause, k: i64) -> i32 {
+    let bs: &[CLit] = cl.body.as_slice();
+    let mut src: i64 = 0i64;
+    let mut i: i64 = 0i64;
+    while i < cl.body.len() {
+        match &bs[i] {
+            CLit::Atom(a) => { if src == k + 1i64 { return a.outer; } src = src + 1i64; }
+            CLit::Trav(_t) => { if src == k + 1i64 { return 0i32; } src = src + 1i64; }
+            CLit::Cond(_c) => { }
+        }
+        i = i + 1i64;
+    }
+    return 0i32;
+}
+
 /// The strategy the planner decided for step `k` of a clause (the `k+1`-th
 /// source literal); `JS_NONE` for a traversal or a step never decided.
 fn core_step_strat(cl: &CClause, k: i64) -> i32 {
@@ -2656,6 +2672,9 @@ fn plan_prove_once(prm: &MacroParams, pc: &CProgram, ap: &mut AccessPlan) -> Vec
                 } else if has_order {
                     ap_drain(ap, prm, si, MG_ORDER_BY(),
                         "materialized: `order by` re-binds joined rows by index after collecting the matches");
+                } else if core_step_outer(&pc.entry.clause, k) == OUTER_FULL() {
+                    ap_drain(ap, prm, si, MG_FULL_PASS(),
+                        "materialized: a `full join` reads its step a second time, for the rows nothing matched");
                 } else if core_step_strat(&pc.entry.clause, k) == JS_NONE() {
                     ap_drain(ap, prm, si, MG_UNDECIDED(),
                         "materialized: no strategy was decided for this step — a traversal earlier in the chain binds a var the plan cannot type yet");

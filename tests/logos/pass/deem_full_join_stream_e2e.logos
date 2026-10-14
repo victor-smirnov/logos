@@ -1,0 +1,64 @@
+// deem_full_join_stream_e2e — a `full join` whose second source STREAMS (a
+// Memoria container's leaf walk). Its unmatched step rows are read in a second
+// pass, so the plan materializes the step (a Drain, ground `rescan`) instead of
+// refusing the query ("a `full join` whose second source streams is not
+// supported" was the answer before).
+//   (a) both keys, absent sides as 0 — counted by kind;
+//   (b) the left-only and right-only rows' keys, summed;
+// Every count is checked against point lookups (`find`), not against Deem.
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+use logos.lang.result;
+use logos.lang.option;
+
+pub container Map<K, V> {
+    kind ordered_map;
+    entry { key: K, val: V }
+    measure max(key);
+}
+
+// (a)
+pub deem fj(a: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle, b: &<typeof(Map::<u64, u64>) as CtrFamily>::Handle) {
+    from a x full join b y on x.key == y.key select (unwrap_or(x.key, 0u64), unwrap_or(y.key, 0u64))
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let snap: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut la = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 1u64);
+    let mut lb = create_ctr::<typeof(Map::<u64, u64>)>(&snap, 2u64);
+    let mut k: u64 = 1u64;
+    while k <= 3000u64 { la.insert(k * 2u64, k); lb.insert(k * 3u64, k); k = k + 1u64; }
+    // reference
+    let mut both: i64 = 0i64; let mut aonly: i64 = 0i64; let mut bonly: i64 = 0i64;
+    let mut sa: u64 = 0u64; let mut sb: u64 = 0u64;
+    let mut q: u64 = 1u64;
+    while q <= 3000u64 {
+        match lb.find(q * 2u64) { Option::Some(_v) => { both = both + 1i64; } Option::None => { aonly = aonly + 1i64; sa = sa + q * 2u64; } }
+        match la.find(q * 3u64) { Option::Some(_v) => { } Option::None => { bonly = bonly + 1i64; sb = sb + q * 3u64; } }
+        q = q + 1u64;
+    }
+    let v: Vec<(u64, u64)> = fj(&la, &lb).unwrap();
+    let mut gb: i64 = 0i64; let mut ga: i64 = 0i64; let mut gbo: i64 = 0i64;
+    let mut gsa: u64 = 0u64; let mut gsb: u64 = 0u64;
+    let mut i: i64 = 0i64;
+    while i < v.len() {
+        let r: (u64, u64) = v.get(i);
+        if r.0 != 0u64 && r.1 != 0u64 { if r.0 != r.1 { return 1i32; } gb = gb + 1i64; }
+        else if r.1 == 0u64 { ga = ga + 1i64; gsa = gsa + r.0; }
+        else { gbo = gbo + 1i64; gsb = gsb + r.1; }
+        i = i + 1i64;
+    }
+    if gb != both || ga != aonly || gbo != bonly { return 2i32; }
+    if gsa != sa || gsb != sb { return 3i32; }
+    if both != 1000i64 { return 4i32; }
+    return 0i32;
+}

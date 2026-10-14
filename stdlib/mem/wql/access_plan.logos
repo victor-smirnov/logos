@@ -252,6 +252,9 @@ pub fn MG_SECOND_USE() -> str { return "drained: second use"; }
 pub fn MG_ORDER_BY() -> str   { return "order by"; }
 pub fn MG_REL_BLOCK() -> str  { return "rel block"; }
 pub fn MG_RESCAN() -> str     { return "rescanned: nested loop"; }
+/// A `full join`'s step is read a SECOND time, for the rows nothing matched —
+/// two passes, not one per bound row, so not `MG_RESCAN`.
+pub fn MG_FULL_PASS() -> str  { return "second pass: full join"; }
 pub fn MG_UNDECIDED() -> str  { return "undecided: no join strategy"; }
 pub fn MG_REGROUP() -> str    { return "regrouped: aggregate"; }
 // ⚠ `MG_GPATH` ("lowered: graph path") WAS HERE AND IS DELETED (ADR 0025 §4,
