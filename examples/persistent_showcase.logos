@@ -54,7 +54,7 @@ pub const TagsCfg:   WritStatic = @{ "key": <type:u64>, "value": <type:u64>, "fa
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-fn section(label: &[u8]) {
+fn section(label: &str) {
     unsafe { printf("\n=== %s ===\n" as *const u8, label.as_ptr()); }
 }
 

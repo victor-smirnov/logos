@@ -59,6 +59,7 @@ mlir::Type MLIRGenImpl::logos_to_mlir(TypeRef tv) {
     case LogosType::Kind::F32:    return cache_ret(builder_.getF32Type());
     case LogosType::Kind::Bool:   return cache_ret(builder_.getI1Type());
     case LogosType::Kind::U8:     return cache_ret(builder_.getIntegerType(8));
+    case LogosType::Kind::Str:    return cache_ret(builder_.getIntegerType(8));   // a str's byte unit
     case LogosType::Kind::I8:     return cache_ret(builder_.getIntegerType(8));
     case LogosType::Kind::I16:    return cache_ret(builder_.getIntegerType(16));
     case LogosType::Kind::U16:    return cache_ret(builder_.getIntegerType(16));

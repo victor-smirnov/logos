@@ -148,11 +148,11 @@ A char literal whose body is a single multibyte character is decoded as exactly 
 
 ## Strings / str (`expr.str`)
 
-### `expr.str.as-bytes-identity` — &str.as_bytes() is a representation identity
+### `expr.str.as-bytes-identity` — &str.as_bytes() retypes the fat pointer to &[u8]
 
-`&str` is modeled as `Slice<u8>` — the same fat-pointer ABI as `&[u8]`. Calling `.as_bytes()` on a receiver whose slice element kind is `U8` lowers to the receiver expression unchanged (no conversion emitted).
+`.as_bytes()` on `&str` is the one road to `&[u8]`: it retypes the receiver's fat pointer (same data pointer and length) to `&[u8]` without copying. It is defined on `str` only; a `&[u8]` receiver has no `as_bytes`.
 
-*Divergence:* Logos models &str as Slice&lt;u8&gt;; .as_bytes() is a no-op identity conversion by construction.
+*Divergence:* Rust-conformant (str::as_bytes; squeue #745)
 
 *Source:* `src/compiler/sema_expr.cpp#L6505-L6514`
 
@@ -4679,7 +4679,7 @@ When the `Ordering` argument of an `_ord` atomic is not a compile-time `Ordering
 
 ### `intrinsic.metaprog.type-apply` — type_apply / apply_generic instantiate a type-level template
 
-`type_apply(name: &[u8], args: [Type; N]) -> Type` and `apply_generic(g: Type, args: [Type; N]) -> Type` each take exactly 2 arguments and lower to the `__type_apply__` / `__apply_generic__` mono intercepts, which recover concrete TypeRefs from each element and emit a fresh `Type` struct literal for `Name<T0,...>`. Wrong arity is an error.
+`type_apply(name: &str, args: [Type; N]) -> Type` and `apply_generic(g: Type, args: [Type; N]) -> Type` each take exactly 2 arguments and lower to the `__type_apply__` / `__apply_generic__` mono intercepts, which recover concrete TypeRefs from each element and emit a fresh `Type` struct literal for `Name<T0,...>`. Wrong arity is an error.
 
 *Divergence:* Logos addition: type-level composition metaprogramming intrinsics.
 
@@ -4811,9 +4811,9 @@ A callee not matching any recognized type-intrinsic name yields no lowering here
 
 ### `intrinsic.include-str.macro` — include_str! / include_bytes! embed file contents
 
-`include_str!("path")` and `include_bytes!("path")` read the file at compile time (path relative to the including file) and yield its contents as a `&str` (`Slice<u8>`) literal; both forms collapse to the same representation since `str` is `Slice<u8>`. Unreadable files are a compile error.
+`include_str!("path")` and `include_bytes!("path")` read the file at compile time (path relative to the including file) and yield its contents as a literal: a `&str` for include_str!, a `&[u8]` for include_bytes!. Unreadable files are a compile error.
 
-*Divergence:* Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are Slice&lt;u8&gt;.
+*Divergence:* Rust's include_bytes! has type &[u8; N]; Logos gives &[u8] (no array-typed byte literal reference).
 
 *Source:* `src/compiler/sema_expr.cpp#L18252-L18282`
 

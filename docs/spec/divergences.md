@@ -2,7 +2,7 @@
 
 Cross-cutting view over the extracted rule corpus (`tools/spec-extract/rules/**`): every spec rule whose `divergence` field is non-empty, grouped by divergence tag/kind. This register is *derived from compiler evidence*; the policy source of truth is [`docs/DIVERGENCES.md`](../DIVERGENCES.md) — a tag here that matches a §A/§B row there is registered; anything without a matching row is flagged **unregistered — needs triage** per the "no silent divergence" rule.
 
-**495 divergence-carrying rules** — §A blessed: 165 · §B catch-up refs: 18 · baghunt G156-1: 3 · Logos-specific additions: 203 · unregistered (triage): 69 · conformance notes: 37.
+**495 divergence-carrying rules** — §A blessed: 165 · §B catch-up refs: 18 · baghunt G156-1: 3 · Logos-specific additions: 203 · unregistered (triage): 67 · conformance notes: 39.
 
 ---
 
@@ -2032,7 +2032,7 @@ Untagged divergence notes whose text marks a Logos-only capability (Writ fabric,
 
 ## Unregistered — needs triage
 
-Untagged behavioral differences from Rust that are neither marked as additions nor tied to any `docs/DIVERGENCES.md` row. Per the register's rule, each must be triaged into a §A blessed row (with a tag) or a §B catch-up TODO — none may remain a silent divergence. Notable clusters: implicit integer widening, structural auto-`Copy`, free-fn signature overloading, `str` = `Slice<u8>`, `i64` where Rust uses `usize`, lifetimes not structurally tracked. 69 rule(s).
+Untagged behavioral differences from Rust that are neither marked as additions nor tied to any `docs/DIVERGENCES.md` row. Per the register's rule, each must be triaged into a §A blessed row (with a tag) or a §B catch-up TODO — none may remain a silent divergence. Notable clusters: implicit integer widening, structural auto-`Copy`, free-fn signature overloading, `i64` where Rust uses `usize`, lifetimes not structurally tracked. 67 rule(s).
 
 ### `borrow.closure.capture-by-ref-loan` — Non-move closure captures register field-path (RFC-2229) borrows
 - **Divergence**: RFC-2229 disjoint closure capture: field-path precision, but a whole-var SHARED capture is a liveness check only (not a recorded shared borrow) to avoid blocking sibling mutation
@@ -2127,11 +2127,6 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: On a `Ptr` receiver, `.is_null()` does not require unsafe context: it lowers to `(recv as i64) == 0` and takes 0 arguments. If the pointee is a `Struct`/`ZonedStruct`/`Enum` that declares an inherent `<Pointee>__is_null` function, that user-defined method is dispatched instead (resolution falls through, `nullopt`) rather than the built-in null check.
 - **Source**: `src/compiler/sema_expr.cpp#L6694-L6726`
 
-### `expr.str.as-bytes-identity` — &str.as_bytes() is a representation identity
-- **Divergence**: Logos models &str as Slice&lt;u8&gt;; .as_bytes() is a no-op identity conversion by construction.
-- **Rule**: `&str` is modeled as `Slice<u8>` — the same fat-pointer ABI as `&[u8]`. Calling `.as_bytes()` on a receiver whose slice element kind is `U8` lowers to the receiver expression unchanged (no conversion emitted).
-- **Source**: `src/compiler/sema_expr.cpp#L6505-L6514`
-
 ### `generic.bound.lifetime-arg-not-structural` — Lifetime args in trait bounds are recorded but not dispatched on
 - **Divergence**: Logos does not track regions structurally for bound dispatch; lifetime bound-args carry no dispatch significance.
 - **Rule**: A lifetime argument at a trait bound's type-argument position (e.g. `Foo<'a>`) is captured for record only; regions are not tracked structurally for bound dispatch.
@@ -2168,8 +2163,8 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Source**: `src/compiler/sema_expr.cpp#L18289-L18316`
 
 ### `intrinsic.include-str.macro` — include_str! / include_bytes! embed file contents
-- **Divergence**: Rust's include_bytes! has type &[u8;N] distinct from &str; in Logos both are Slice&lt;u8&gt;.
-- **Rule**: `include_str!("path")` and `include_bytes!("path")` read the file at compile time (path relative to the including file) and yield its contents as a `&str` (`Slice<u8>`) literal; both forms collapse to the same representation since `str` is `Slice<u8>`. Unreadable files are a compile error.
+- **Divergence**: Rust's include_bytes! has type &[u8; N]; Logos gives &[u8] (no array-typed byte literal reference).
+- **Rule**: `include_str!("path")` and `include_bytes!("path")` read the file at compile time (path relative to the including file) and yield its contents as a literal: a `&str` for include_str!, a `&[u8]` for include_bytes!. Unreadable files are a compile error.
 - **Source**: `src/compiler/sema_expr.cpp#L18252-L18282`
 
 ### `intrinsic.include.expr-only` — include! splices a file as an expression
@@ -2367,14 +2362,19 @@ Untagged behavioral differences from Rust that are neither marked as additions n
 - **Rule**: A function parameter may not have the unit type `()`; a unit-typed parameter carries no information and is ill-formed.
 - **Source**: `src/compiler/sema_decl.cpp#L303-L308`
 
-### `type.str.slice-alias` — str is an alias for Slice&lt;u8&gt;; impls aliased to &[u8]
-- **Divergence**: Logos models `str` as Slice&lt;u8&gt;; Rust `str` is a distinct DST.
-- **Rule**: `str` is a built-in that resolves to Slice&lt;u8&gt; (printed `&[u8]`); a trait impl whose target is `str` is also registered under target `&[u8]` so trait-satisfaction checks keyed on the printed slice type find the impl.
-- **Source**: `src/compiler/sema_collect.cpp#L3777-L3787`
-
 ## Conformance notes (no divergence)
 
-Rules whose `divergence` field carries a Rust-conformance or spec-citation note ("Rust-conformant", RFC/`logos-core` references, resolved §B rows) rather than an actual divergence. Listed for audit completeness; nothing to register. 37 rule(s).
+Rules whose `divergence` field carries a Rust-conformance or spec-citation note ("Rust-conformant", RFC/`logos-core` references, resolved §B rows) rather than an actual divergence. Listed for audit completeness; nothing to register. 39 rule(s).
+
+### `expr.str.as-bytes-identity` — &str.as_bytes() retypes the fat pointer to &[u8]
+- **Divergence**: Rust-conformant (str::as_bytes; squeue #745)
+- **Rule**: `.as_bytes()` on `&str` is the one road to `&[u8]`: it retypes the receiver's fat pointer (same data pointer and length) to `&[u8]` without copying. It is defined on `str` only; a `&[u8]` receiver has no `as_bytes`.
+- **Source**: `src/compiler/sema_expr.cpp#L6505-L6514`
+
+### `type.str.slice-alias` — str is its own unsized type, distinct from [u8]
+- **Divergence**: Rust-conformant (str is a distinct DST; squeue #745)
+- **Rule**: `str` is a built-in unsized type, distinct from `[u8]` (Rust's `str` DST): its element is the primitive `str` unit (`LogosType::Kind::Str`), so `&str` is `Slice<str>` and unsized `str` is `UnsizedSlice<str>` — the fat-pointer ABI of `&[u8]`, not its type. A trait impl whose target is `str` is a primary fact at the unsized `str`, with a fallback twin at `&str` that answers only when no impl names `&str` itself; no `[T]` or `&[u8]` impl applies to `str`, and no type variable binds the `str` unit.
+- **Source**: `src/compiler/sema_collect.cpp#L3777-L3787`
 
 ### `borrow.assign.static-mut-unsafe` — static mut write requires unsafe; immutable static not writable
 - **Divergence**: Rust-conformant (items.static.mut.safety)

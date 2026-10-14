@@ -3128,11 +3128,8 @@ void SemaChecker::lower_impl_block(TinyMapView node, lir::LProgram& prog) {
     // sets target="str" but doesn't set target_resolved. For the unsized
     // Self semantics ( so `&Self` canonicalises to Slice<u8> at lowering),
     // seed Self with UnsizedSlice<u8>.
-    if (target == "str" && !current_type_params_.count("Self")) {
-        LogosTypeBuilder us; us.kind = LogosType::Kind::UnsizedSlice;
-        us.elem = u8_t();
-        current_type_params_["Self"] = pool_->alloc(std::move(us));
-    }
+    if (target == "str" && !current_type_params_.count("Self"))
+        current_type_params_["Self"] = make_unsized_slice_type(str_unit_t());
     // Seed `Self` for impl-target shapes whose mangled `struct_ctx` name is NOT
     // resolvable by lower_fn's name-lookup path (which only handles bare
     // struct/datatype/primitive names). Without this, `self: Self` / `&Self` /

@@ -76,6 +76,15 @@ static const char* prelude_variant_enum_(std::string_view name) {
     return nullptr;
 }
 
+// The raw-slice constructor intrinsics (`slice_from_raw` → `&[T]`,
+// `slice_from_raw_mut` → `&mut [T]`): 0 when `name` is neither, else 1 / 2.
+// ONE table: the plain-call and the turbofish routes both read it.
+static int slice_from_raw_intrinsic_(std::string_view name) {
+    if (name == "slice_from_raw") return 1;
+    if (name == "slice_from_raw_mut") return 2;
+    return 0;
+}
+
 static inline uint64_t metacall_site_id(size_t ast_idx, uint32_t expr_offset) {
     return (static_cast<uint64_t>(static_cast<uint32_t>(ast_idx)) << 32)
          | static_cast<uint64_t>(expr_offset);
@@ -1043,7 +1052,7 @@ lir::LExprPtr SemaChecker::lower_cstr_lit(std::string_view sv) {
     const SemaFuncInfo& fi = *cands[0];
     std::vector<lir::LExprPtr> args;
     args.push_back(builder().lit_str(std::string(body),
-        make_slice_type(u8_t(), false, TypeRef::OwningKind::Borrow, "'static")));
+        make_str_type("'static")));
     return builder().call(fi.symbol_name.empty() ? std::string("__cstr_from_lit") : fi.symbol_name,
                           {}, std::move(args), fi.ret_type);
 }
@@ -1862,9 +1871,7 @@ lir::LExprPtr SemaChecker::lower_cast(TinyMapView expr) {
         }
         // str (Slice<u8>) -> *mut u8 is unsound: str points to rodata.
         TypeRef innt2(expr_type(inner));
-        bool src_is_str = innt2.kind() == LogosType::Kind::Slice &&
-                          innt2.elem() &&
-                          innt2.elem().kind() == LogosType::Kind::U8;
+        bool src_is_str = innt2.kind() == LogosType::Kind::Slice && is_str_type(innt2);
         bool tgt_is_mut_ptr = TypeRef(target).kind() == LogosType::Kind::Ptr &&
                               TypeRef(target).mut_ptr() &&
                               TypeRef(target).pointee() &&
@@ -2053,7 +2060,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
         const bool cstr = sv.size() > 1 && sv[0] == 'c' &&
                           (sv[1] == '"' || (sv[1] == 'r' && sv.size() > 2 && (sv[2] == '"' || sv[2] == '#')));
         if (cstr) return lower_cstr_lit(sv);
-        return builder().lit_str(std::string(sv), make_slice_type(u8_t(), false, TypeRef::OwningKind::Borrow, "'static"));
+        return builder().lit_str(std::string(sv), make_str_type("'static"));
     }
 
     case la::LIT_BYTES: return lower_bytes_lit(expr);
@@ -2961,7 +2968,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
                 while (e && e.kind() == K::Array) e = e.elem();
                 return prim(e);
             }
-            if (p.kind() == K::Slice) return p.elem() && p.elem().kind() == K::U8;
+            if (p.kind() == K::Slice) return p.elem() && (p.elem().kind() == K::U8 || p.elem().kind() == K::Str);
             if (p.kind() != K::Tuple || p.tuple_elems().empty()) return false;
             for (auto e : p.tuple_elems())
                 if (!prim(e)) return false;
@@ -3063,11 +3070,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     // View the `String` operand as a `str` via `.as_str()` and fall through to
     // the `str_eq` path below. Mirrors Rust's `impl PartialEq<str> for String`.
     if (op == "==" || op == "!=") {
-        auto is_str_slice = [](TypeRef t) {
-            return t && TypeRef(t).kind() == LogosType::Kind::Slice &&
-                   TypeRef(t).elem() &&
-                   TypeRef(t).elem().kind() == LogosType::Kind::U8;
-        };
+        auto is_str_slice = [](TypeRef t) { return t && TypeRef(t).kind() == LogosType::Kind::Slice && is_str_type(t); };
         auto view_as_str = [&](TinyMapView child, lir::LExprPtr e,
                                TypeRef vty) -> lir::LExprPtr {
             auto recv = take_operand_ref(child, std::move(e), vty);  // &String
@@ -3079,7 +3082,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
             mc.vtable_index = -1;
             mc.resolved_type = "";
             return method_call_resolved_(
-                std::move(mc), make_slice_type(prim(LogosType::Kind::U8)));
+                std::move(mc), make_str_type());
         };
         if (is_named_struct(lt, "String") && is_str_slice(rt)) {
             lhs = view_as_str(map_of(node.get(la::LHS.code)), std::move(lhs), lt);
@@ -3944,9 +3947,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     if ((op == "==" || op == "!=") &&
         TypeRef(lt).kind() == LogosType::Kind::Slice &&
         TypeRef(rt).kind() == LogosType::Kind::Slice &&
-        TypeRef(lt).elem() && TypeRef(rt).elem() &&
-        TypeRef(lt).elem().kind() == LogosType::Kind::U8 &&
-        TypeRef(rt).elem().kind() == LogosType::Kind::U8) {
+        bytes_slice_pair_(lt, rt)) {
         auto cands = lang_fn_candidates_("str_eq");
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -3973,9 +3974,7 @@ lir::LExprPtr SemaChecker::lower_binop(TinyMapView node) {
     if ((op == "<" || op == "<=" || op == ">" || op == ">=") &&
         TypeRef(lt).kind() == LogosType::Kind::Slice &&
         TypeRef(rt).kind() == LogosType::Kind::Slice &&
-        TypeRef(lt).elem() && TypeRef(rt).elem() &&
-        TypeRef(lt).elem().kind() == LogosType::Kind::U8 &&
-        TypeRef(rt).elem().kind() == LogosType::Kind::U8) {
+        bytes_slice_pair_(lt, rt)) {
         auto cands = lang_fn_candidates_("str_cmp");
         const SemaFuncInfo* fi = nullptr;
         for (auto* c : cands)
@@ -5641,8 +5640,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             // A Writ map's key is a `str` (the WMap<WString, _> root).
             if (TypeRef kt = is_map ? expr_type(arg_exprs[1]) : TypeRef(nullptr);
                 kt && TypeRef(kt).kind() != LogosType::Kind::Error &&
-                !(TypeRef(kt).kind() == LogosType::Kind::Slice && TypeRef(kt).elem() &&
-                  TypeRef(TypeRef(kt).elem()).kind() == LogosType::Kind::U8)) {
+                !(TypeRef(kt).kind() == LogosType::Kind::Slice && is_str_type(kt))) {
                 error(std::format("writ map comprehension: key expression must be str (got {})", type_str(kt)));
                 return error_expr();
             }
@@ -5670,12 +5668,17 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     if (callee == "str_from_raw") {
         if (n_args != 2)
             error("str_from_raw requires exactly 2 arguments: (ptr: *const u8, len: i64)");
-        auto str_t = make_slice_type(u8_t());
+        auto str_t = make_str_type();
         lir::ECall ec;
         ec.callee = str_from_raw_symbol_();
         for (auto& a : arg_exprs) ec.args.push_back(std::move(a));
         return builder().call_v(std::move(ec), str_t);
     }
+
+    // A plain call reaches the real (stdlib) function's resolution before
+    // lower_type_intrinsic: intercept here, with the arguments in hand.
+    if (int sfr = slice_from_raw_intrinsic_(callee))
+        return lower_slice_from_raw_(collect_type_args(node), std::move(arg_exprs), sfr == 2);
 
     // `zone_of(r: &mut T) -> *mut u8` — recover the Writ zone (allocator)
     // carried by a fat `&mut T`: the metadata half of the fat pair (slice_len),
@@ -5704,7 +5707,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         return builder().call("__reify_type__", {}, std::move(rargs), type_t);
     }
 
-    // apply(name: &[u8], args: [Type; N]) -> Type — instantiates a struct
+    // apply(name: &str, args: [Type; N]) -> Type — instantiates a struct
     // template by name with concrete TypeRefs recovered from each element's
     // uid. Mono's __apply__ intercept walks the array literal, recovers each
     // TypeRef using the same uid-source shapes reify_type handles, builds a
@@ -5713,7 +5716,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
     // composition like `apply("Pair", [type_of::<i32>(), type_of::<bool>()])`.
     if (callee == "type_apply") {
         if (n_args != 2) {
-            error("type_apply(name: &[u8], args: [Type; N]) requires exactly 2 arguments");
+            error("type_apply(name: &str, args: [Type; N]) requires exactly 2 arguments");
             return error_expr();
         }
         auto type_t = make_synth_struct("Type");
@@ -6109,6 +6112,9 @@ void SemaChecker::unify_types(TypeRef formal, TypeRef actual,
 
     if (formal.kind() == LogosType::Kind::TypeVar ||
         formal.kind() == LogosType::Kind::ConstVar) {
+        // `str` is not `[T]`: no type parameter is a str's element, so `&[T]`
+        // and `impl<T> … for [T]` never take a `&str`.
+        if (actual_norm.kind() == LogosType::Kind::Str) return;
         // Const-generic params (e.g. `<const CFG: WritStatic>`) appear at
         // type-arg position as ConstVar with the same type_var_name slot.
         // Bind from the actual's WStaticLit / scalar value just like for
@@ -7897,13 +7903,9 @@ lir::LExprPtr SemaChecker::lower_intrinsic_has_trait_of(TinyMapView node) {
         error("has_trait_of::<Trait>(t) requires exactly one Type argument");
         return error_expr();
     }
-    LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-    TypeRef u8_t = pool_->alloc(std::move(u8_b));
-    LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-    sl_b.elem = u8_t;
-    TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+    TypeRef str_slice_t = make_str_type();
     std::vector<lir::LExprPtr> all_args;
-    all_args.push_back(builder().lit_str(std::move(trait_name), slice_u8_t));
+    all_args.push_back(builder().lit_str(std::move(trait_name), str_slice_t));
     all_args.push_back(std::move(rargs[0]));
     return builder().call("__has_trait_of__",
                           {}, std::move(all_args),
@@ -8063,7 +8065,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_generic_of(TinyMapView node) {
     f.emplace_back("kind", builder().lit_int(
         (int64_t)LogosType::Kind::Generic, prim(LogosType::Kind::U32)));
     f.emplace_back("name", builder().lit_str(
-        sname, make_slice_type(u8_t())));
+        sname, make_str_type()));
     f.emplace_back("size", builder().lit_int(
         arity, prim(LogosType::Kind::I64)));
     f.emplace_back("align", builder().lit_int(
@@ -8472,7 +8474,7 @@ lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
         case K::Int:   return builder().lit_int(av.i(), expected ? expected : prim(LogosType::Kind::I64));
         case K::Float: return builder().lit_float(av.f(), expected ? expected : prim(LogosType::Kind::F64));
         case K::Bool:  return builder().lit_int(av.i(), prim(LogosType::Kind::Bool));
-        case K::Str:   return builder().lit_str(std::string(av.s()), make_slice_type(u8_t()));
+        case K::Str:   return builder().lit_str(std::string(av.s()), make_str_type());
         case K::Enum:  {
             // Emit as enum literal: av.enum_name::av.enum_variant
             std::string en(av.enum_name()), ev(av.enum_variant());
@@ -8515,6 +8517,36 @@ lir::LExprPtr SemaChecker::lower_intrinsic_get_annotation(TinyMapView node) {
     return builder().enum_lit_data("Option", "Some", some_disc, std::move(payload), result_type);
 }
 
+// `slice_from_raw[_mut]::<T>(ptr, len)`: a Slice fat pointer, built by the
+// `str_from_raw` codegen (the layout is uniform across element types).
+lir::LExprPtr SemaChecker::lower_slice_from_raw_(std::vector<TypeRef> ts, std::vector<lir::LExprPtr> args,
+                                                bool raw_mut) {
+    if (args.size() != 2) {
+        error("slice_from_raw requires exactly 2 args: (ptr: *const T, len: i64)");
+        return error_expr();
+    }
+    // No turbofish: infer T from the ptr arg's pointee. A turbofish-less
+    // call inside a generic body used to FALL PAST this intercept into
+    // the ordinary generic-call path — and link the placeholder body
+    // (`&[]`), a silent empty-slice miscompile.
+    if (ts.empty()) {
+        TypeRef pt = expr_type(args[0]);
+        if (pt && TypeRef(pt).kind() == LogosType::Kind::Ptr &&
+            TypeRef(pt).pointee())
+            ts.push_back(TypeRef(pt).pointee());
+    }
+    if (ts.size() != 1 || !ts[0]) {
+        error("slice_from_raw::<T>(ptr, len): cannot determine T "
+              "(pass the turbofish)");
+        return error_expr();
+    }
+    auto slice_t = make_slice_type(ts[0], raw_mut);
+    lir::ECall ec;
+    ec.callee = str_from_raw_symbol_();  // shared codegen — uniform fat-ptr layout
+    for (auto& a : args) ec.args.push_back(std::move(a));
+    return builder().call_v(std::move(ec), slice_t);
+}
+
 std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node, std::string_view callee) {
     // ── A BUILTIN NAME IS NOT AN IDENTITY ─────────────────────────────────
     // Every arm below is `callee == "<bare name>"`. The turbofish entry
@@ -8544,9 +8576,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
     // codegen at mlir-gen.
     // `slice_from_raw_mut` is the `*mut T` -> `&mut [T]` twin (no `&[T] as
     // &mut [T]` cast: rustc refuses it, E0606).
-    if (callee == "slice_from_raw" || callee == "slice_from_raw_mut") {
-        const bool raw_mut = callee == "slice_from_raw_mut";
-        auto ts = collect_type_args(node);
+    if (int sfr = slice_from_raw_intrinsic_(callee)) {
         std::vector<lir::LExprPtr> args;
         if (node.has_key(la::ARGS)) {
             auto args_av = node.get(la::ARGS.code);
@@ -8557,30 +8587,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                     args.push_back(lower_expr(map_of(items.get(i))));
             }
         }
-        if (args.size() != 2) {
-            error("slice_from_raw requires exactly 2 args: (ptr: *const T, len: i64)");
-            return error_expr();
-        }
-        // No turbofish: infer T from the ptr arg's pointee. A turbofish-less
-        // call inside a generic body used to FALL PAST this intercept into
-        // the ordinary generic-call path — and link the placeholder body
-        // (`&[]`), a silent empty-slice miscompile.
-        if (ts.empty()) {
-            TypeRef pt = expr_type(args[0]);
-            if (pt && TypeRef(pt).kind() == LogosType::Kind::Ptr &&
-                TypeRef(pt).pointee())
-                ts.push_back(TypeRef(pt).pointee());
-        }
-        if (ts.size() != 1 || !ts[0]) {
-            error("slice_from_raw::<T>(ptr, len): cannot determine T "
-                  "(pass the turbofish)");
-            return error_expr();
-        }
-        auto slice_t = make_slice_type(ts[0], raw_mut);
-        lir::ECall ec;
-        ec.callee = str_from_raw_symbol_();  // shared codegen — uniform fat-ptr layout
-        for (auto& a : args) ec.args.push_back(std::move(a));
-        return builder().call_v(std::move(ec), slice_t);
+        return lower_slice_from_raw_(collect_type_args(node), std::move(args), sfr == 2);
     }
 
     // wstatic_hash_of::<CFG>() — byte-hash identity of a WritStatic value
@@ -8692,7 +8699,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         std::vector<TypeRef> nt_targs; nt_targs.push_back(elem);
         auto name_call = builder().call("__type_name_of__",
                                         std::move(nt_targs), {},
-                                        make_slice_type(u8_t()));
+                                        make_str_type());
         auto size_expr = builder().size_of(elem, prim(LogosType::Kind::I64));
         auto align_expr = builder().align_of(elem, prim(LogosType::Kind::I64));
         std::vector<TypeRef> ut_targs; ut_targs.push_back(elem);
@@ -8793,12 +8800,8 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         }
         std::vector<TypeRef> targs; targs.push_back(elem);
         std::vector<lir::LExprPtr> rargs;
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = u8_t;
-        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
-        rargs.push_back(builder().lit_str(std::move(trait_name), slice_u8_t));
+        TypeRef str_slice_t = make_str_type();
+        rargs.push_back(builder().lit_str(std::move(trait_name), str_slice_t));
         return builder().call("__has_trait__",
                               std::move(targs), std::move(rargs),
                               prim(LogosType::Kind::Bool));
@@ -8841,7 +8844,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         std::vector<TypeRef> targs; targs.push_back(elem);
         std::vector<lir::LExprPtr> rargs;
         rargs.push_back(builder().lit_str(std::move(trait_name),
-                                          make_slice_type(u8_t())));
+                                          make_str_type()));
         return builder().call("__vtable_of__", std::move(targs), std::move(rargs),
                               make_ptr(false, u8_t(), false));
     }
@@ -8895,7 +8898,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
         check_trait_object_safe(trait_name);
         std::vector<lir::LExprPtr> rargs;
         rargs.push_back(builder().lit_str(std::string(trait_name),
-                                          make_slice_type(u8_t())));
+                                          make_str_type()));
         if (node.has_key(la::ARGS)) {
             AnyVal av = node.get(la::ARGS.code);
             if (!av.is_null()) {
@@ -9159,7 +9162,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
             return error_expr();
         }
         bool names = (callee == "field_names_of");
-        TypeRef arr_elem_t = names ? make_slice_type(u8_t())
+        TypeRef arr_elem_t = names ? make_str_type()
                                    : make_synth_struct("Type");
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
         arr_b.elem = arr_elem_t;
@@ -9211,7 +9214,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                                   std::move(targs), {}, prim(LogosType::Kind::I64));
         }
         TypeRef arr_elem_t;
-        if (callee == "variant_names_of")           arr_elem_t = make_slice_type(u8_t());
+        if (callee == "variant_names_of")           arr_elem_t = make_str_type();
         else if (callee == "variant_payload_counts_of") arr_elem_t = prim(LogosType::Kind::I64);
         else                                         arr_elem_t = make_synth_struct("Type");
         LogosTypeBuilder arr_b; arr_b.kind = LogosType::Kind::Array;
@@ -10136,24 +10139,22 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_slice(
     // `<[T]>::as_ptr` is `*const T` (`as_mut_ptr` over `&mut [T]`: `*mut T`).
     if (method_name == "as_ptr" || (method_name == "as_mut_ptr" && TypeRef(expr_type(recv)).mut_ptr())) {
         TypeRef elem = TypeRef(expr_type(recv)).elem();
-        return builder().slice_ptr(std::move(recv), make_ptr(method_name == "as_mut_ptr", elem ? elem : u8_t()));
+        if (!elem || TypeRef(elem).kind() == LogosType::Kind::Str) elem = u8_t();   // `str::as_ptr` is `*const u8`
+        return builder().slice_ptr(std::move(recv), make_ptr(method_name == "as_mut_ptr", elem));
     }
-    // §6 Wave 9 (h19) — `&str.as_bytes()` returns the bytes of the
-    // string slice. Because Logos models `&str` as `Slice<u8>` (= the
-    // exact same fat-pointer ABI as `&[u8]`), `.as_bytes()` is
-    // identity: forward the receiver verbatim. Same shape as
-    // `.iter()`-as-identity tricks in iterator wrappers.
-    if (method_name == "as_bytes" &&
-        TypeRef(expr_type(recv)).elem() &&
-        TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8) {
+    // `str::as_bytes(&self) -> &[u8]`: the same fat pointer under the byte
+    // slice's type — `&str` and `&[u8]` share a layout, not an identity.
+    if (method_name == "as_bytes" && is_str_type(expr_type(recv))) {
+        TypeRef st(expr_type(recv));
+        builder().retype_expr(recv, make_slice_type(u8_t(), st.mut_ptr(), TypeRef::OwningKind::Borrow,
+                                                    std::string(st.lifetime())));
         return std::move(recv);
     }
     // Logos-only `&str` methods forwarded to stdlib free fns (no Rust
     // method of the name; `cmp` is `Ord::cmp`). The Rust surface (find /
     // contains / starts_with / trim / split / chars ...) is a real `impl str`
     // in logos.lang.str, selected by the probe.
-    if (TypeRef(expr_type(recv)).elem() &&
-        TypeRef(TypeRef(expr_type(recv)).elem()).kind() == LogosType::Kind::U8) {
+    if (is_str_type(expr_type(recv))) {
         const std::pair<std::string_view, std::string_view> forwards[] = {
             {"eq_str",       "str_eq"},
             {"index_of",     "str_index_of"},
@@ -12960,7 +12961,7 @@ std::string SemaChecker::writfield_type_name(TypeRef t) {
         case K::I64:   return "i64";  case K::U64:   return "u64";
         case K::Isize: return "isize"; case K::Usize: return "usize";
         case K::F32:   return "f32";  case K::F64:   return "f64";
-        case K::Slice: return "str";  // str field (Slice<u8>)
+        case K::Slice: return is_str_type(t) ? "str" : std::string();  // a str field; no other slice is a WritField
         case K::Struct:
         case K::ZonedStruct: {
             // A user struct field type (e.g. WQL `WRef<S>`) is a WritField iff it
@@ -15021,6 +15022,9 @@ lir::LExprPtr SemaChecker::lower_index_read(TinyMapView node) {
     // Slice indexing: s[i] → ESliceIndex
     if (TypeRef(arr_type).kind() == LogosType::Kind::Slice) {
         auto elem = TypeRef(arr_type).elem() ? TypeRef(arr_type).elem() : error_t();
+        // Logos reads a `str`'s byte by integer index (`s[i]`: u8) — Rust
+        // spells it `s.as_bytes()[i]`.
+        if (TypeRef(elem).kind() == LogosType::Kind::Str) elem = u8_t();
         return builder().slice_index(std::move(recv), std::move(idx), elem);
     }
 
@@ -15360,7 +15364,7 @@ lir::LExprPtr SemaChecker::coerce_to_writ_anyval(
         // them via i32 would silently truncate high bits.  User must cast
         // explicitly (e.g. `x as i32`) or wrap with WAny::from.
         case K::Slice:
-            if (TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8) {
+            if (TypeRef(t).elem() && (TypeRef(t).elem().kind() == K::U8 || TypeRef(t).elem().kind() == K::Str)) {
                 helper = "writ_coerce_str";
                 needs_ctr = true;
             }
@@ -21553,9 +21557,9 @@ lir::WritValPtr SemaChecker::lower_writ_val(TinyMapView node) {
                 // *const u8 / *mut u8 captured as C-string varchar — C5.
                 case K::Ptr:
                     return TypeRef(t).pointee() && TypeRef(t).pointee().kind() == K::U8;
-                // str (&[u8] slice) captured as varchar — same as *const u8 but with length.
+                // `&str` (or a `&[u8]` byte run) captured as varchar — same as *const u8 but with length.
                 case K::Slice:
-                    return TypeRef(t).elem() && TypeRef(t).elem().kind() == K::U8;
+                    return TypeRef(t).elem() && (TypeRef(t).elem().kind() == K::U8 || TypeRef(t).elem().kind() == K::Str);
                 default:
                     return false;
             }
@@ -22482,7 +22486,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
                                         prim(LogosType::Kind::U32));
         auto name_call = builder().call("__type_name_of__",
                                         std::vector<TypeRef>{arg_t}, {},
-                                        make_slice_type(u8_t()));
+                                        make_str_type());
         auto size_e    = builder().size_of(arg_t, prim(LogosType::Kind::I64));
         auto align_e   = builder().align_of(arg_t, prim(LogosType::Kind::I64));
         auto uid_call  = builder().call("__type_uid_of__",
@@ -22577,7 +22581,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
             TypeRef arr_t = pool_->alloc(std::move(ab));
             auto var = builder().var_ref(vname, arr_t);
             std::vector<lir::LExprPtr> rargs;
-            rargs.push_back(builder().lit_str(name, make_slice_type(u8_t())));
+            rargs.push_back(builder().lit_str(name, make_str_type()));
             rargs.push_back(std::move(var));
             return builder().call("__type_apply__", {}, std::move(rargs), type_t);
         }
@@ -22625,7 +22629,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
                                                     prim(LogosType::Kind::U32));
                     auto name_call = builder().call("__type_name_of__",
                                                     std::vector<TypeRef>{arg_t}, {},
-                                                    make_slice_type(u8_t()));
+                                                    make_str_type());
                     auto size_e    = builder().size_of(arg_t, prim(LogosType::Kind::I64));
                     auto align_e   = builder().align_of(arg_t, prim(LogosType::Kind::I64));
                     auto uid_call  = builder().call("__type_uid_of__",
@@ -22645,7 +22649,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
             TypeRef arr_t = pool_->alloc(std::move(ab));
             auto arr = builder().arr_lit(std::move(elems), arr_t);
             std::vector<lir::LExprPtr> rargs;
-            rargs.push_back(builder().lit_str(name, make_slice_type(u8_t())));
+            rargs.push_back(builder().lit_str(name, make_str_type()));
             rargs.push_back(std::move(arr));
             return builder().call("__type_apply__", {}, std::move(rargs), type_t);
         }
@@ -22662,7 +22666,7 @@ lir::LExprPtr SemaChecker::lower_quote_ty(TinyMapView node) {
     std::vector<TypeRef> nt_targs; nt_targs.push_back(elem);
     auto name_call = builder().call("__type_name_of__",
                                     std::move(nt_targs), {},
-                                    make_slice_type(u8_t()));
+                                    make_str_type());
     auto size_expr = builder().size_of(elem, prim(LogosType::Kind::I64));
     auto align_expr = builder().align_of(elem, prim(LogosType::Kind::I64));
     std::vector<TypeRef> ut_targs; ut_targs.push_back(elem);
@@ -23702,8 +23706,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
         rk == LogosType::Kind::IntLit ||
         rk == LogosType::Kind::FloatLit ||
         // &str / Slice<u8>
-        (rk == LogosType::Kind::Slice && TypeRef(rt).elem() &&
-         TypeRef(rt).elem().kind() == LogosType::Kind::U8);
+        (rk == LogosType::Kind::Slice && is_str_type(rt));
     bool ok_ret = prim_ok || rt_is_writ_static || rt_is_writ || is_expr_blob;
     if (rt && !ok_ret)
         error("metacall: ret type must be primitive scalar, WritStatic, Writ, or ExprBlob");
@@ -23806,9 +23809,7 @@ lir::LExprPtr SemaChecker::lower_metacall(TinyMapView node) {
             // Print the return-type text. type_str on primitives gives the
             // surface name (i64/u64/...); for &str / Slice<u8> we hand-roll.
             std::string ret_text;
-            if (TypeRef(rt).kind() == LogosType::Kind::Slice
-                && TypeRef(rt).elem()
-                && TypeRef(rt).elem().kind() == LogosType::Kind::U8) {
+            if (TypeRef(rt).kind() == LogosType::Kind::Slice && is_str_type(rt)) {
                 ret_text = "&str";
             } else if (TypeRef(rt).kind() == LogosType::Kind::IntLit) {
                 ret_text = "i64";
@@ -24157,12 +24158,8 @@ lir::LExprPtr SemaChecker::lower_macro_concat(TinyMapView node) {
         error(std::format("concat!: unsupported arg '{}' (string/int/bool literals only)", p));
         return error_expr();
     }
-    LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-    TypeRef u8_t = pool_->alloc(std::move(u8_b));
-    LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-    sl_b.elem = u8_t;
-    TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
-    return builder().lit_str(std::move(out), slice_u8_t);
+    TypeRef str_slice_t = make_str_type();
+    return builder().lit_str(std::move(out), str_slice_t);
 }
 
 lir::LExprPtr SemaChecker::lower_macro_concat_bytes(TinyMapView node) {
@@ -24424,13 +24421,9 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         return builder().lit_int(0LL, prim(LogosType::Kind::U32));
     }
     if (callee_name == "file" || callee_name == "module_path") {
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = u8_t;
-        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        TypeRef str_slice_t = make_str_type();
         std::string val = callee_name == "file" ? file_ : cur_package_;
-        return builder().lit_str(std::move(val), slice_u8_t);
+        return builder().lit_str(std::move(val), str_slice_t);
     }
 
     // include!("path") — read file at compile time and re-parse its
@@ -24444,10 +24437,8 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
     // include_str!("path") — read file at compile time. Path is resolved
     // relative to the file containing the include_str! call (mirrors
     // Rust). Errors out if the file can't be read.
-    // include_bytes! is a thin alias — Rust's `&[u8; N]` and `&str` differ
-    // in type, but Logos's `str` IS `Slice<u8>` so both forms collapse to
-    // the same representation; users distinguish by intent only.
-    if (callee_name == "include_str" || callee_name == "include_bytes") {
+    const bool include_bytes = callee_name == "include_bytes";
+    if (callee_name == "include_str" || include_bytes) {
         std::string raw;
         if (node.has_key(la::RAW_TEXT))
             raw = std::string(str_of(node.get(la::RAW_TEXT.code)));
@@ -24471,12 +24462,9 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         }
         std::string contents((std::istreambuf_iterator<char>(in)),
                              std::istreambuf_iterator<char>());
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = u8_t;
-        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
-        return builder().lit_str(std::move(contents), slice_u8_t);
+        // include_bytes! is bytes (Rust `&[u8; N]`, here `&[u8]`), include_str! a `&str`.
+        TypeRef lit_t = include_bytes ? make_slice_type(prim(LogosType::Kind::U8)) : make_str_type();
+        return builder().lit_str(std::move(contents), lit_t);
     }
 
     // env!("VAR") / option_env!("VAR") — read environment at compile time.
@@ -24495,11 +24483,7 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         if (raw.size() >= 2 && raw.front() == '"' && raw.back() == '"')
             raw = raw.substr(1, raw.size() - 2);
         const char* val = std::getenv(raw.c_str());
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = u8_t;
-        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
+        TypeRef str_slice_t = make_str_type();
         if (!val) {
             if (callee_name == "env") {
                 error(std::format("env!: environment variable '{}' not set", raw));
@@ -24508,9 +24492,9 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
             // option_env!: return empty str as a tombstone — Option<&str>
             // wiring is deferred until a coretest port actually needs the
             // None branch.
-            return builder().lit_str(std::string{}, slice_u8_t);
+            return builder().lit_str(std::string{}, str_slice_t);
         }
-        return builder().lit_str(std::string{val}, slice_u8_t);
+        return builder().lit_str(std::string{val}, str_slice_t);
     }
 
     // concat!(s1, s2, ...) — compile-time string-literal concat. Supports
@@ -24535,12 +24519,8 @@ std::optional<lir::LExprPtr> SemaChecker::lower_builtin_macro(TinyMapView node, 
         std::string text;
         if (node.has_key(la::RAW_TEXT))
             text = std::string(str_of(node.get(la::RAW_TEXT.code)));
-        LogosTypeBuilder u8_b; u8_b.kind = LogosType::Kind::U8;
-        TypeRef u8_t = pool_->alloc(std::move(u8_b));
-        LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
-        sl_b.elem = u8_t;
-        TypeRef slice_u8_t = pool_->alloc(std::move(sl_b));
-        return builder().lit_str(std::move(text), slice_u8_t);
+        TypeRef str_slice_t = make_str_type();
+        return builder().lit_str(std::move(text), str_slice_t);
     }
 
     // ADR 0030: unreachable!/todo!/unimplemented!, matches! and dbg! are
@@ -24630,11 +24610,6 @@ lir::LExprPtr SemaChecker::lower_fn_macro_call(writ::TinyMapView node) {
         if (!is_stdlib_vec(t)) return false;
         auto args = TypeRef(t).type_args();
         return args.size() == 1 && is_exprblob(args[0]);
-    };
-    auto is_str_type = [](TypeRef t) -> bool {
-        return TypeRef(t).kind() == LogosType::Kind::Slice
-            && TypeRef(t).elem()
-            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
     };
     bool sig_single = macro_info->is_fn_macro
                    && macro_info->param_types.size() == 1
@@ -26097,11 +26072,6 @@ void SemaChecker::lower_mapping_def(writ::TinyMapView node,
             "add `use logos.std.wql.mapping_item;` to this module", mname));
         return;
     }
-    auto is_str_type = [](TypeRef t) -> bool {
-        return TypeRef(t).kind() == LogosType::Kind::Slice
-            && TypeRef(t).elem()
-            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
-    };
     auto is_const_u8_ptr = [](TypeRef t) -> bool {
         return TypeRef(t).kind() == LogosType::Kind::Ptr
             && TypeRef(t).pointee()
@@ -26594,11 +26564,6 @@ void SemaChecker::lower_container_def(writ::TinyMapView node,
             cname));
         return;
     }
-    auto is_str_type = [](TypeRef t) -> bool {
-        return TypeRef(t).kind() == LogosType::Kind::Slice
-            && TypeRef(t).elem()
-            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
-    };
     bool rt_is_il = is_item_list(macro_info->ret_type);
     if ((!rt_is_il && !is_quote_item_blob(macro_info->ret_type))
             || macro_info->param_types.size() != 2
@@ -26972,11 +26937,6 @@ void SemaChecker::lower_deem_def(writ::TinyMapView node, lir::LProgram& prog, st
             }
         }
     }
-    auto is_str_type = [](TypeRef t) -> bool {
-        return TypeRef(t).kind() == LogosType::Kind::Slice
-            && TypeRef(t).elem()
-            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
-    };
     auto is_const_u8_ptr = [](TypeRef t) -> bool {
         return TypeRef(t).kind() == LogosType::Kind::Ptr
             && TypeRef(t).pointee()
@@ -27377,11 +27337,6 @@ void SemaChecker::lower_fn_macro_call_item(writ::TinyMapView node,
     //     - (str) -> ItemList|QuoteItemBlob             — full RAW_TEXT bytes
     //                                                      handed over verbatim;
     //                                                      content NOT re-parsed
-    auto is_str_type = [](TypeRef t) -> bool {
-        return TypeRef(t).kind() == LogosType::Kind::Slice
-            && TypeRef(t).elem()
-            && TypeRef(t).elem().kind() == LogosType::Kind::U8;
-    };
     bool sig_str = macro_info->is_token_macro
         && macro_info->param_types.size() == 1
         && is_str_type(macro_info->param_types[0]);
@@ -28067,7 +28022,8 @@ bool SemaChecker::infer_unify_rec_(TypeRef a, TypeRef b, int d) {
     };
     auto bind = [&](TypeRef v, TypeRef t) {
         auto k = TypeRef(t).kind();
-        if (k == LogosType::Kind::InferredType || k == LogosType::Kind::Error) return false;
+        if (k == LogosType::Kind::InferredType || k == LogosType::Kind::Error ||
+            k == LogosType::Kind::Str) return false;   // `str` is not `[T]`
         if (open(t) && TypeRef(t).type_var_name() == TypeRef(v).type_var_name()) return false;
         std::string n(TypeRef(v).type_var_name());
         // An unsuffixed literal fixes the argument to an INTEGER variable

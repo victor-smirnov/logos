@@ -1,0 +1,14 @@
+// SOUNDNESS QUEUE row blanket_impl_implicit_sized_unenforced_admitted (tier 2, `admits`). Found 2026-10-14 by squeue #745 (str as its own type): the fixture sized_partition_dispatch called `stride_of::<str>()` and got the `[E]` arm through `str ≡ [u8]`; once `str` stopped being `[u8]` the call still compiled, through the blanket arm.
+// Logos: an impl's type parameter carries no implicit `Sized` bound: `impl<T> Tr for T` applies to `[u8]` and `str`, so `T: Tr + ?Sized` holds at `T = [u8]` with no `impl Tr for [E]`, and the blanket method runs with `sizeof::<[u8]>()`.
+// rustc: rustc 1.98.1 rejects with E0277 ("the trait bound `[u8]: Tr` is not satisfied … the trait `Sized` is not implemented for `[u8]`").
+// fix hint: C-OBL: a blanket impl's generic without `?Sized` holds only at a Sized type.
+package blanket_impl_implicit_sized_unenforced_admitted;
+
+pub trait Tr { fn k(self: *const Self) -> i64; }
+impl<T> Tr for T { fn k(self: *const T) -> i64 { return 1; } }
+
+fn ask<T: Tr + ?Sized>() -> i64 { return 0; }
+
+fn main() -> i32 {
+    return ask::<[u8]>() as i32;
+}

@@ -292,6 +292,7 @@ mlir::LLVM::DITypeAttr MLIRGenImpl::di_type(TypeRef t) {
         case K::I128: result = basic("i128", 128, DW_ATE_signed);   break;
         case K::Isize:result = basic("isize",64,  DW_ATE_signed);   break;
         case K::U8:   result = basic("u8",   8,   DW_ATE_unsigned); break;
+        case K::Str:  result = basic("u8",   8,   DW_ATE_unsigned); break;
         case K::U16:  result = basic("u16",  16,  DW_ATE_unsigned); break;
         case K::U24:  result = basic("u24",  24,  DW_ATE_unsigned); break;
         case K::U32:  result = basic("u32",  32,  DW_ATE_unsigned); break;

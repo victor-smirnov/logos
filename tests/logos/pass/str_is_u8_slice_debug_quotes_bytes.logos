@@ -1,0 +1,11 @@
+// Closed squeue str_is_u8_slice_debug_quotes_bytes (#745): `str` is its own type (LogosType::Kind::Str is its element): `&str` reaches `&[u8]` only through `as_bytes`, and `{:?}` on `&[u8]` is the slice's.
+package str_is_u8_slice_debug_quotes_bytes;
+use logos.std.fmt;
+use logos.mem.string;
+fn main() -> i32 {
+    let b: &[u8] = &[104u8, 105u8];
+    let s: String = format!("{:?}", b);
+    println!("{}", s);
+    if s == String::from("[104, 105]") { return 0; }
+    return 3;
+}

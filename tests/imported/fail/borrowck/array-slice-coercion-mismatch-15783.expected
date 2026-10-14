@@ -1,1 +1,1 @@
-call to 'foo' arg 1: expected Option<&[&[u8]]>, got Option<&[&[u8]; 1]>
+call to 'foo' arg 1: expected Option<&[&str]>, got Option<&[&str; 1]>

@@ -57,7 +57,7 @@ struct EnvScope {
 // One type: a primitive scalar IS its kind, whichever pool (or none) carries it.
 static bool same_type(TypeRef a, TypeRef b) {
     if (!a || !b) return !a && !b;
-    if (is_primitive_scalar_kind(a.kind()) || is_primitive_scalar_kind(b.kind())) return a.kind() == b.kind();
+    if (is_kind_identity_leaf(a.kind()) || is_kind_identity_leaf(b.kind())) return a.kind() == b.kind();
     return types_equal(a, b);
 }
 
@@ -72,6 +72,7 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
         }
     }
     if ((p.kind() == K::TypeVar || p.kind() == K::ConstVar) && is_generic(generics, p.type_var_name())) {
+        if (c.kind() == K::Str) return false;   // `str` is not `[T]`: no T is its element
         std::string n(p.type_var_name());
         if (auto it = s.find(n); it != s.end()) return same_type(c, it->second) || unify(c, it->second, {}, s);
         s.emplace(std::move(n), c);
@@ -143,7 +144,7 @@ bool unify(TypeRef c, TypeRef p, const std::vector<std::string>& generics, Subst
         return true;
     }
     default:
-        if (is_primitive_scalar_kind(p.kind())) return true;
+        if (is_kind_identity_leaf(p.kind())) return true;
         return types_equal(c, p);
     }
 }
@@ -212,7 +213,7 @@ bool heads_unify(TypeRef a, TypeRef b, const std::vector<std::string>& vars, Sub
         if (!a.closure_ret() || !b.closure_ret()) return !a.closure_ret() && !b.closure_ret();
         return heads_unify(a.closure_ret(), b.closure_ret(), vars, s);
     default:
-        if (is_primitive_scalar_kind(a.kind())) return true;
+        if (is_kind_identity_leaf(a.kind())) return true;
         return types_equal(a, b);
     }
 }
@@ -509,6 +510,7 @@ int pattern_specificity(TypeRef t) {
 static bool spec_match(TypeRef c, TypeRef p, Subst& s) {
     if (!c || !p) return false;
     if (p.kind() == K::TypeVar || p.kind() == K::ConstVar) {
+        if (c.kind() == K::Str) return false;   // `str` is not `[T]`
         std::string n(p.type_var_name());
         if (auto it = s.find(n); it != s.end()) return same_type(c, it->second);
         s.emplace(std::move(n), c);

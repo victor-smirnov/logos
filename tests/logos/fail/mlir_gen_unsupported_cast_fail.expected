@@ -1,1 +1,1 @@
-casting `&[u8]` as `f64` is invalid (E0606)
+casting `&str` as `f64` is invalid (E0606)

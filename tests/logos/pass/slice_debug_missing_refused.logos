@@ -1,0 +1,9 @@
+// Closed squeue slice_debug_missing_refused (#687): stdlib logos.mem.fmt has `impl<T: Debug> Debug for [T]`, which `str` as its own type (#745) no longer takes.
+package slice_debug_missing_refused;
+use logos.std.fmt;
+fn main() -> i32 {
+    let a = [1i64, 2, 3];
+    let s: &[i64] = &a[1..];
+    println!("{:?}", s);
+    return 0;
+}

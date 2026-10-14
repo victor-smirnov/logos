@@ -2687,11 +2687,12 @@ static std::set<std::string> g_metaprog_value_names;
 // consumer that has to spell the value elsewhere (the Soufflé exporter dumps a
 // const a query reads as a one-row relation, and has to type it).
 static std::map<std::string, std::string> g_metaprog_value_types;
-// A type in the spelling a metaprogram reads: source form, with Logos's `str`
-// (which IS `&[u8]`, Slice<u8>) named `str` wherever it occurs (`Vec<str>`).
+// A type in the spelling a metaprogram reads: source form, with the `&str`
+// value named by Logos's bare `str` wherever it occurs (`Vec<str>`).
 static std::string metaprog_type_spelling(logos::compiler::TypeRef t) {
     std::string s = logos::compiler::type_str(t, true);
-    for (size_t at = 0; (at = s.find("&[u8]", at)) != std::string::npos;) { s.replace(at, 5, "str"); at += 3; }
+    for (size_t at = 0; (at = s.find("&str", at)) != std::string::npos;) { s.replace(at, 4, "str"); at += 3; }
+    for (size_t at = 0; (at = s.find("&'static str", at)) != std::string::npos;) { s.replace(at, 12, "str"); at += 3; }
     return s;
 }
 // Name-keyed STRUCT query for metaprog code (ADR 0031 R4.5): every lowered

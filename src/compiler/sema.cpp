@@ -2821,6 +2821,7 @@ std::string type_str(TypeRef t, bool source_form) {
     case LogosType::Kind::F32:    return "f32";
     case LogosType::Kind::Bool:   return "bool";
     case LogosType::Kind::U8:     return "u8";
+    case LogosType::Kind::Str:    return "str";
     case LogosType::Kind::I8:     return "i8";
     case LogosType::Kind::I16:    return "i16";
     case LogosType::Kind::U16:    return "u16";
@@ -2905,17 +2906,22 @@ std::string type_str(TypeRef t, bool source_form) {
         }
         return r + ")"; }
     case LogosType::Kind::Slice: {
+        const bool str_ = TypeRef(t).elem() && TypeRef(TypeRef(t).elem()).kind() == LogosType::Kind::Str;
         if (TypeRef(t).raw_fat())   // ADR 0028
-            return std::format("*{} [{}]", TypeRef(t).mut_ptr() ? "mut" : "const",
-                               type_str(TypeRef(t).elem(), source_form));
+            return str_ ? std::format("*{} str", TypeRef(t).mut_ptr() ? "mut" : "const")
+                        : std::format("*{} [{}]", TypeRef(t).mut_ptr() ? "mut" : "const",
+                                      type_str(TypeRef(t).elem(), source_form));
         // Source form names a borrowed slice's region, as the Ref arm does. PROBES.md 2026-09-13f-declarrivalland.
         std::string l_ = lt_written(TypeRef(t).lifetime());
         const bool named_ = source_form && !l_.empty() && !lt_is_minted(l_) &&
                             TypeRef(t).slice_owning_kind() == TypeRef::OwningKind::Borrow;
-        return std::format("&{}{}[{}]", named_ ? (lt_is_impl_anon(l_) ? std::string("'_ ") : l_ + " ") : std::string(),
+        const std::string region_ = named_ ? (lt_is_impl_anon(l_) ? std::string("'_ ") : l_ + " ") : std::string();
+        if (str_) return std::format("&{}{}str", region_, TypeRef(t).mut_ptr() ? "mut " : "");
+        return std::format("&{}{}[{}]", region_,
                            TypeRef(t).mut_ptr() ? "mut " : "", type_str(TypeRef(t).elem(), source_form));
     }
     case LogosType::Kind::UnsizedSlice:
+        if (TypeRef(t).elem() && TypeRef(TypeRef(t).elem()).kind() == LogosType::Kind::Str) return "str";
         return std::format("[{}]", type_str(TypeRef(t).elem(), source_form));
     case LogosType::Kind::UnsizedDyn:
         return std::format("dyn {}", TypeRef(t).trait_name());
@@ -3422,6 +3428,7 @@ void SemaChecker::init_primitives() {
     ap(LogosType::Kind::U128);
     ap(LogosType::Kind::Usize);
     ap(LogosType::Kind::Isize);
+    ap(LogosType::Kind::Str);
     ap(LogosType::Kind::Char);
     ap(LogosType::Kind::IntLit);
     ap(LogosType::Kind::FloatLit);
@@ -3460,8 +3467,8 @@ TypeRef SemaChecker::lookup_type_by_name(std::string_view name) {
         // (e.g. turbofish for a `T: ?Sized` parameter), produce the
         // unsized form so the substitution canonicalisation can route
         // `&T` to the same Slice<u8> ABI without double-wrapping.
-        if (unsized_ok_) return make_unsized_slice_type(u8_t());
-        return make_slice_type(u8_t());
+        if (unsized_ok_) return make_unsized_slice_type(str_unit_t());
+        return make_str_type();
     }
     auto tvit = current_type_params_.find(std::string(name));
     if (tvit != current_type_params_.end()) return tvit->second;
@@ -9734,9 +9741,7 @@ std::string SemaChecker::cfg_str_tag_(TypeRef t) const {
     // UnsizedSlice<u8> (make_unsized_slice_type), sema.cpp:2616. An unsized /
     // VLE value column is the str shape today; either lowering maps to tag
     // "str" — the same token emit_cfg_doc writes on the concrete-decl side.
-    if ((tv.kind() == LogosType::Kind::Slice ||
-         tv.kind() == LogosType::Kind::UnsizedSlice) &&
-        tv.elem() && TypeRef(tv.elem()).kind() == LogosType::Kind::U8)
+    if (is_str_type(tv))
         return "str";
     return "";
 }
@@ -9979,6 +9984,7 @@ static bool match_type_sema(TypeRef c, TypeRef p,
                             StrMap<TypeRef>& bindings) {
     if (!c || !p) return false;
     if (p.kind() == LogosType::Kind::TypeVar) {
+        if (c.kind() == LogosType::Kind::Str) return false;   // `str` is not `[T]`
         auto it = bindings.find(p.type_var_name());
         if (it != bindings.end()) return types_equal(c, TypeRef(it->second));
         bindings[std::string(p.type_var_name())] = c;

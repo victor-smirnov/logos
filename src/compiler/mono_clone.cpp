@@ -75,6 +75,7 @@ static uint64_t th_primitive_code(LogosType::Kind k) noexcept {
         case K::U128: return 0x13;
         case K::F32:  return 0x14;
         case K::F64:  return 0x15;
+        case K::Str:  return 0x16;   // `str` is not `[u8]`
         default:      return 0;
     }
 }
@@ -95,7 +96,7 @@ uint64_t Mono::compute_type_hash(TypeRef t, StrSet& seen) noexcept {
         case K::I24: case K::U24:
         case K::I56: case K::U56:
         case K::I128: case K::U128:
-        case K::F32: case K::F64:
+        case K::F32: case K::F64: case K::Str:
             return th_mix_u64(h, th_primitive_code(k));
         case K::Ptr:
             h = th_mix_u64(h, TH_TAG_PTR);
@@ -217,6 +218,7 @@ bool Mono::is_auto_satisfied(TypeRef tv, std::string_view trait_name, StrSet& vi
 
     switch (tv.kind()) {
     case Kind::Void:
+    case Kind::Str:
     case Kind::Bool:
     case Kind::I8:  case Kind::I16:  case Kind::I32:  case Kind::I64:
     case Kind::U8:  case Kind::U16:  case Kind::U32:  case Kind::U64:
@@ -1841,8 +1843,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
                 TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
                 LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
-                sl_b.elem = u8_t;
-                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return out_.type_pool.alloc(std::move(s_)); }();   // `str`, not `[u8]`
+                TypeRef str_slice_t = out_.type_pool.alloc(std::move(sl_b));
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
@@ -1850,7 +1852,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LirBuilder b(out_);
                 std::vector<std::pair<std::string, lir::LExprPtr>> f;
                 f.emplace_back("kind", b.lit_int((int64_t)ti.kind(), u32_t));
-                f.emplace_back("name", b.lit_str(type_str(ti), slice_u8_t));
+                f.emplace_back("name", b.lit_str(type_str(ti), str_slice_t));
                 f.emplace_back("size", b.size_of(ti, i64_t));
                 f.emplace_back("align", b.align_of(ti, i64_t));
                 {
@@ -1951,8 +1953,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
                 TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
                 LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
-                sl_b.elem = u8_t;
-                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return out_.type_pool.alloc(std::move(s_)); }();   // `str`, not `[u8]`
+                TypeRef str_slice_t = out_.type_pool.alloc(std::move(sl_b));
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
@@ -1960,7 +1962,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LirBuilder b(out_);
                 std::vector<std::pair<std::string, lir::LExprPtr>> f;
                 f.emplace_back("kind", b.lit_int((int64_t)ti.kind(), u32_t));
-                f.emplace_back("name", b.lit_str(type_str(ti), slice_u8_t));
+                f.emplace_back("name", b.lit_str(type_str(ti), str_slice_t));
                 f.emplace_back("size", b.size_of(ti, i64_t));
                 f.emplace_back("align", b.align_of(ti, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
@@ -1969,7 +1971,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 mp_ = sl.addr();
                 break;
             }
-            // apply(name: &[u8], args: [Type; N]) -> Type — instantiate a
+            // apply(name: &str, args: [Type; N]) -> Type — instantiate a
             // struct template by name with TypeRefs recovered from each
             // array-literal element via the same uid-source shapes
             // __reify_type__ accepts. First MP5 piece — gives users runtime
@@ -2066,8 +2068,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
                         LogosTypeBuilder slu8_b;
                         slu8_b.kind = LogosType::Kind::Slice;
-                        slu8_b.elem = u8_t;
-                        TypeRef slice_u8_t =
+                        slu8_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return out_.type_pool.alloc(std::move(s_)); }();   // `str`, not `[u8]`
+                        TypeRef str_slice_t =
                             out_.type_pool.alloc(std::move(slu8_b));
                         LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                         TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
@@ -2076,7 +2078,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         auto kind_e = b.lit_int(
                             (int64_t)inst_t.kind(), u32_t);
                         auto name_e = b.lit_str(
-                            type_str(inst_t), slice_u8_t);
+                            type_str(inst_t), str_slice_t);
                         auto size_e = b.size_of(inst_t, i64_t);
                         auto align_e = b.align_of(inst_t, i64_t);
                         auto uid_e  = b.lit_int(
@@ -2186,8 +2188,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
                 TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
                 LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
-                sl_b.elem = u8_t;
-                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return out_.type_pool.alloc(std::move(s_)); }();   // `str`, not `[u8]`
+                TypeRef str_slice_t = out_.type_pool.alloc(std::move(sl_b));
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
@@ -2195,7 +2197,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LirBuilder b(out_);
                 std::vector<std::pair<std::string, lir::LExprPtr>> f;
                 f.emplace_back("kind", b.lit_int((int64_t)inst_t.kind(), u32_t));
-                f.emplace_back("name", b.lit_str(type_str(inst_t), slice_u8_t));
+                f.emplace_back("name", b.lit_str(type_str(inst_t), str_slice_t));
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
@@ -2335,8 +2337,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
                 TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
                 LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
-                sl_b.elem = u8_t;
-                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return out_.type_pool.alloc(std::move(s_)); }();   // `str`, not `[u8]`
+                TypeRef str_slice_t = out_.type_pool.alloc(std::move(sl_b));
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
@@ -2344,7 +2346,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LirBuilder b(out_);
                 std::vector<std::pair<std::string, lir::LExprPtr>> f;
                 f.emplace_back("kind", b.lit_int((int64_t)inst_t.kind(), u32_t));
-                f.emplace_back("name", b.lit_str(type_str(inst_t), slice_u8_t));
+                f.emplace_back("name", b.lit_str(type_str(inst_t), str_slice_t));
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
@@ -2484,8 +2486,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
                 TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
                 LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
-                sl_b.elem = u8_t;
-                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return out_.type_pool.alloc(std::move(s_)); }();   // `str`, not `[u8]`
+                TypeRef str_slice_t = out_.type_pool.alloc(std::move(sl_b));
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
@@ -2493,7 +2495,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LirBuilder b(out_);
                 std::vector<std::pair<std::string, lir::LExprPtr>> f;
                 f.emplace_back("kind", b.lit_int((int64_t)inst_t.kind(), u32_t));
-                f.emplace_back("name", b.lit_str(type_str(inst_t), slice_u8_t));
+                f.emplace_back("name", b.lit_str(type_str(inst_t), str_slice_t));
                 f.emplace_back("size", b.size_of(inst_t, i64_t));
                 f.emplace_back("align", b.align_of(inst_t, i64_t));
                 f.emplace_back("uid",  b.lit_int((int64_t)uid, u64_t));
@@ -2552,7 +2554,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         TypeRef u8_pt = out_.type_pool.alloc(std::move(u8_b));
                         LogosTypeBuilder sl_b; sl_b.kind = LogosType::Kind::Slice;
                         sl_b.elem = u8_pt;
-                        TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                        TypeRef str_slice_t = out_.type_pool.alloc(std::move(sl_b));
                         LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                         TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                         LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
@@ -2569,7 +2571,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                                 f.emplace_back("kind",
                                     b.lit_int((int64_t)pty.kind(), u32_t));
                                 f.emplace_back("name",
-                                    b.lit_str(type_str(pty), slice_u8_t));
+                                    b.lit_str(type_str(pty), str_slice_t));
                                 f.emplace_back("size",
                                     b.size_of(pty, i64_t));
                                 f.emplace_back("align",
@@ -2808,7 +2810,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                         } else {
                             std::string en = type_str(et);
                             if (et.kind() == LogosType::Kind::Slice &&
-                                et.elem() && et.elem().kind() == LogosType::Kind::U8)
+                                et.elem() && et.elem().kind() == LogosType::Kind::Str)
                                 en = "str";
                             std::string sym = resolve_dbg(en);
                             if (et.kind() != LogosType::Kind::Array && sym != en + "__fmt") {
@@ -3000,8 +3002,8 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                 LogosTypeBuilder u8_b;  u8_b.kind  = LogosType::Kind::U8;
                 TypeRef u8_t  = out_.type_pool.alloc(std::move(u8_b));
                 LogosTypeBuilder sl_b;  sl_b.kind  = LogosType::Kind::Slice;
-                sl_b.elem = u8_t;
-                TypeRef slice_u8_t = out_.type_pool.alloc(std::move(sl_b));
+                sl_b.elem = [&]{ LogosTypeBuilder s_; s_.kind = LogosType::Kind::Str; return out_.type_pool.alloc(std::move(s_)); }();   // `str`, not `[u8]`
+                TypeRef str_slice_t = out_.type_pool.alloc(std::move(sl_b));
                 LogosTypeBuilder i64_b; i64_b.kind = LogosType::Kind::I64;
                 TypeRef i64_t = out_.type_pool.alloc(std::move(i64_b));
                 LogosTypeBuilder u64_b; u64_b.kind = LogosType::Kind::U64;
@@ -3013,7 +3015,7 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
                     f.emplace_back("kind",
                         b.lit_int((int64_t)ti.kind(), u32_t));
                     f.emplace_back("name",
-                        b.lit_str(type_str(ti), slice_u8_t));
+                        b.lit_str(type_str(ti), str_slice_t));
                     f.emplace_back("size",
                         b.size_of(ti, i64_t));
                     f.emplace_back("align",
@@ -4842,14 +4844,15 @@ const obl::ImplTable& Mono::obl_table_now_() {
         impl.each_assoc_type([&](lir_view::AssocEntryView ae) {
             f.assoc_types.push_back({std::string(ae.name()), ae.type(pool), {}});
         });
-        // Logos's `impl Tr for str` (Self `[u8]`): also a fact about `&[u8]`,
-        // which answers only when nothing else does (impl_candidates_); Copy /
-        // Clone need `Sized`, so for them only that one (see sema's obl_str_facts_).
+        // Logos's `impl Tr for str` (Self unsized `str`): also a fact about the
+        // `&str` value, which answers only when nothing else does
+        // (impl_candidates_); Copy / Clone need `Sized`, so for them only that
+        // one (see sema's obl_str_facts_).
         if (f.generics.empty() && TypeRef(f.self).kind() == LogosType::Kind::UnsizedSlice &&
-            TypeRef(f.self).elem() && TypeRef(TypeRef(f.self).elem()).kind() == LogosType::Kind::U8) {
+            TypeRef(f.self).elem() && TypeRef(TypeRef(f.self).elem()).kind() == LogosType::Kind::Str) {
             const auto& env = obl_env_();
-            f.fallback = true;
             obl::ImplFact by_ref = f;
+            by_ref.fallback = true;
             LogosTypeBuilder sl;
             sl.kind = LogosType::Kind::Slice;
             sl.elem = TypeRef(f.self).elem();

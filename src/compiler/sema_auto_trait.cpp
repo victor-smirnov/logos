@@ -98,6 +98,7 @@ bool SemaChecker::is_auto_trait_satisfied(
     switch (tv.kind()) {
     // ── Scalars and fn-ptr: always Send + Sync ─────────────────────────────
     case Kind::Void:
+    case Kind::Str:
     case Kind::Bool:
     case Kind::I8:  case Kind::I16:  case Kind::I32:  case Kind::I64:
     case Kind::U8:  case Kind::U16:  case Kind::U32:  case Kind::U64:
