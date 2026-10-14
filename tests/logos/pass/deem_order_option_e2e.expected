@@ -1,0 +1,6 @@
+exit: 0
+stdout:
+floor 3 2 4 1
+floor desc 1 2 4 3
+w 3 1 2 4
+w desc 2 4 1 3

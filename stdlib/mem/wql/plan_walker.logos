@@ -2320,15 +2320,31 @@ fn plan_entry_order(pc: &CProgram, prm: &MacroParams, h: &Writ) -> JoinPlan {
     return join_plan_none();
 }
 
-/// Does a step of the clause merge with its base (`plan_decide_merge`)?
-fn clause_has_merge(cl: &CClause) -> bool {
+/// Is the clause's nest the written one whatever its `order by` — the join
+/// order refuses to drive another side (`join_order`: a merge step `WG_MERGE`,
+/// an outer step `WG_OUTER`, an anti or traversal first step) — and does it
+/// emit base-major with no second pass? A `full join` emits its step's
+/// unmatched rows after every base row (their base column `None`), so it is
+/// never one.
+fn clause_nest_pinned(cl: &CClause) -> bool {
     let bs: &[CLit] = cl.body.as_slice();
+    let mut pinned: bool = false;
+    let mut src: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < cl.body.len() {
-        match &bs[i] { CLit::Atom(a) => { if a.strat == JS_MERGE() { return true; } } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
+        match &bs[i] {
+            CLit::Atom(a) => {
+                if a.outer == OUTER_FULL() { return false; }
+                if a.strat == JS_MERGE() || a.outer != 0i32 { pinned = true; }
+                if src == 1i64 && a.neg { pinned = true; }
+                src = src + 1i64;
+            }
+            CLit::Trav(_t) => { if src == 1i64 { pinned = true; } src = src + 1i64; }
+            CLit::Cond(_c) => { }
+        }
         i = i + 1i64;
     }
-    return false;
+    return pinned;
 }
 
 /// The outer kind of step `k` of a clause (0 for an inner step or a traversal).
@@ -2662,7 +2678,7 @@ fn plan_prove_once(prm: &MacroParams, pc: &CProgram, ap: &mut AccessPlan) -> Vec
         // tiebreak order (base row, then step rows, as the merge walks them).
         // The sort is a no-op, and nothing is collected for it to rebind.
         let mut ordered: bool = has_order;
-        if has_order && bi >= 0i64 && !ru.env.desc && clause_has_merge(cl) {
+        if has_order && bi >= 0i64 && !ru.env.desc && clause_nest_pinned(cl) {
             let okey: WAny = match &ru.env.order { Option::Some(k) => *k, Option::None => WAny::null() };
             let mut nb: i64 = 0i64;
             let mut zb: i64 = 0i64;
