@@ -160,6 +160,8 @@
     NE       = "!="
     LE       = "<="
     GE       = ">="
+    SHL      = "<<"
+    SHR      = ">>"
 
     // One-char operators / punctuation.
     QUESTION = "?"
@@ -171,6 +173,9 @@
     STAR     = "*"
     SLASH    = "/"
     PERCENT  = "%"
+    AMP      = "&"
+    PIPE     = "|"
+    CARET    = "^"
     BANG     = "!"
     DOT      = "."
     COMMA    = ","
@@ -232,14 +237,24 @@
                 / NE   compare => { CODE: "SBin", op: 4, lhs: $0, rhs: $2 }
                 )*
 
-    // compare := add ( ('<='|'>='|'<'|'>') add )*    → SBin(OP_LT=5..OP_GE=8)
-    // Two-char ops (<=, >=) are distinct tokens and ordered before <, > anyway.
-    compare <- add
-               ( LE add => { CODE: "SBin", op: 6, lhs: $0, rhs: $2 }
-               / GE add => { CODE: "SBin", op: 8, lhs: $0, rhs: $2 }
-               / LT add => { CODE: "SBin", op: 5, lhs: $0, rhs: $2 }
-               / GT add => { CODE: "SBin", op: 7, lhs: $0, rhs: $2 }
+    // compare := bor ( ('<='|'>='|'<'|'>') bor )*    → SBin(OP_LT=5..OP_GE=8)
+    // Two-char ops (<=, >=, <<, >>) are distinct tokens and ordered before <, >.
+    compare <- bor
+               ( LE bor => { CODE: "SBin", op: 6, lhs: $0, rhs: $2 }
+               / GE bor => { CODE: "SBin", op: 8, lhs: $0, rhs: $2 }
+               / LT bor => { CODE: "SBin", op: 5, lhs: $0, rhs: $2 }
+               / GT bor => { CODE: "SBin", op: 7, lhs: $0, rhs: $2 }
                )*
+
+    // The bitwise tiers, at Rust's precedence: `|` < `^` < `&` < shifts < `+`.
+    //   SBin(OP_BOR=15 / OP_BXOR=16 / OP_BAND=14 / OP_SHL=17 / OP_SHR=18)
+    bor <- bxor ( PIPE bxor => { CODE: "SBin", op: 15, lhs: $0, rhs: $2 } )*
+    bxor <- band ( CARET band => { CODE: "SBin", op: 16, lhs: $0, rhs: $2 } )*
+    band <- shift ( AMP shift => { CODE: "SBin", op: 14, lhs: $0, rhs: $2 } )*
+    shift <- add
+             ( SHL add => { CODE: "SBin", op: 17, lhs: $0, rhs: $2 }
+             / SHR add => { CODE: "SBin", op: 18, lhs: $0, rhs: $2 }
+             )*
 
     // add := mul ( ('+'|'-') mul )*           → SBin(OP_ADD=9 / OP_SUB=10)
     add <- mul

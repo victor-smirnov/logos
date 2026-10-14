@@ -226,6 +226,38 @@ fn dx_term_lty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
     }
 }
 
+// The LOGOS integer type a bitwise term computes in: a column's or a
+// parameter's type, the first operand's that names one ("" when none does —
+// literals only, Soufflé's 64-bit word).
+fn dx_bit_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
+    match e {
+        SExpr::Bin(b) => {
+            let l: str = dx_bit_ty(b.lhs.any().view::<SExpr>(), env, cl);
+            if l.len() > 0i64 { return l; }
+            return dx_bit_ty(b.rhs.any().view::<SExpr>(), env, cl);
+        }
+        SExpr::Un(u) => { return dx_bit_ty(u.arg.any().view::<SExpr>(), env, cl); }
+        SExpr::Lit(_l) => { return ""; }
+        _ => { return dx_term_lty(e, env, cl); }
+    }
+}
+
+// `v` reduced to a `w`-bit integer of type `ty`, as Deem's type holds it:
+// `v band (2^w-1)`, sign-extended back for a signed type.
+fn dx_wrap_width(out: &mut String, v: str, ty: str, w: i64) {
+    let mut m: i64 = 1i64;
+    let mut k: i64 = 0i64;
+    while k < w { m = m * 2i64; k = k + 1i64; }
+    let mask: i64 = m - 1i64;
+    if str_byte_at(ty, 0i64) == 117u8 {                                              // 'u'
+        out.push_str("("); out.push_str(v); out.push_str(" band "); out.push_i64(mask); out.push_str(")");
+        return;
+    }
+    let sgn: i64 = m / 2i64;
+    out.push_str("((("); out.push_str(v); out.push_str(" band "); out.push_i64(mask); out.push_str(") bxor ");
+    out.push_i64(sgn); out.push_str(") - "); out.push_i64(sgn); out.push_str(")");
+}
+
 // Is `e` a plain `v.c` over a 128-bit column of a bound row variable?
 fn dx_is_w128_col(e: SExpr, env: &DxEnv, cl: &DxClause) -> bool {
     match e {
@@ -684,6 +716,30 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             let op: i32 = b.op;
             // a comparison or a connective as a VALUE: a bool, 1 / 0
             if dx_is_pred_op(op) { return dx_cond_bind(out, e, e, e, true, env, cl); }
+            if el_is_bit_op(op) {
+                // Soufflé's band / bor / bxor / bshl / bshr (an out-of-width shift
+                // is an ElError on Deem's side, outside the comparison)
+                if dx_mixed_sign(b.lhs.any().view::<SExpr>(), b.rhs.any().view::<SExpr>(), env, cl) {
+                    return dx_no(cl, "operands of different numeric types in one term");
+                }
+                // a `<<` in a type narrower than Soufflé's 64-bit word drops the
+                // bits Deem's type drops: masked (and sign-extended back if signed)
+                let bty: str = dx_bit_ty(e, env, cl);
+                let bw: i64 = if bty.len() == 0i64 { 64i64 } else { dx_int_width(bty) };
+                if bw == 0i64 { return dx_no(cl, "bitwise operator over a value outside the fragment"); }
+                let mut inner: String = String::new();
+                inner.push_str("(");
+                if !dx_term(&mut inner, b.lhs.any().view::<SExpr>(), env, cl) { return false; }
+                if op == OP_BAND() { inner.push_str(" band "); }
+                else if op == OP_BOR() { inner.push_str(" bor "); }
+                else if op == OP_BXOR() { inner.push_str(" bxor "); }
+                else if op == OP_SHL() { inner.push_str(" bshl "); }
+                else { inner.push_str(" bshr "); }
+                if !dx_term(&mut inner, b.rhs.any().view::<SExpr>(), env, cl) { return false; }
+                inner.push_str(")");
+                if op == OP_SHL() && bw < 64i64 { dx_wrap_width(out, dx_view(&inner), bty, bw); } else { out.push_str(dx_view(&inner)); }
+                return true;
+            }
             if op != OP_ADD() && op != OP_SUB() && op != OP_MUL() && op != OP_DIV() && op != OP_MOD() {
                 return dx_no(cl, "operator outside + - * / % in a term");
             }
@@ -711,6 +767,23 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
             return true;
         }
         SExpr::Un(u) => {
+            if u.op == OP_NOT() {
+                // `!` over an integer: Soufflé's bnot (over a bool it is no term)
+                let ak: str = dx_term_kind(u.arg.any().view::<SExpr>(), env, cl);
+                if str_eq(ak, "i") || str_eq(ak, "U") {
+                    let nty: str = dx_bit_ty(u.arg.any().view::<SExpr>(), env, cl);
+                    let nw: i64 = if nty.len() == 0i64 { 64i64 } else { dx_int_width(nty) };
+                    if nw == 0i64 { return dx_no(cl, "bitwise operator over a value outside the fragment"); }
+                    let mut inner: String = String::new();
+                    inner.push_str("(bnot ");
+                    if !dx_term(&mut inner, u.arg.any().view::<SExpr>(), env, cl) { return false; }
+                    inner.push_str(")");
+                    // a narrow UNSIGNED complement keeps only its own bits; a
+                    // signed one is already the sign-extended value
+                    if nw < 64i64 && str_byte_at(nty, 0i64) == 117u8 { dx_wrap_width(out, dx_view(&inner), nty, nw); } else { out.push_str(dx_view(&inner)); }
+                    return true;
+                }
+            }
             if u.op != OP_NEG() { return dx_no(cl, "unary operator other than -"); }
             if str_eq(dx_term_ty(u.arg.any().view::<SExpr>(), env, cl), "unsigned") { return dx_no(cl, "negation of an unsigned value"); }
             out.push_str("(-");

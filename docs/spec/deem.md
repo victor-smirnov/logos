@@ -760,11 +760,11 @@ EL is the CEL-class scalar expression sublanguage embedded by every Deem clause 
 
 ### `el.grammar.precedence` — the CEL precedence chain
 
-EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/>=/</> → +/- → */ /%  → unary !/- → postfix .field → primary`; binary levels are left-associative (fold-mode over the running LHS).
+EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/>=/</> → | → ^ → & → <</>> → +/- → */ /%  → unary !/- → postfix .field → primary`; binary levels are left-associative (fold-mode over the running LHS). The bitwise tiers sit where Rust puts them (`a & b != 0` is `(a & b) != 0`).
 
 *Divergence:* the CEL operator precedence and associativity exactly (`?:` lowest, postfix field access highest).
 
-*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`expr`, `ternary`, `or`, `and`, `equality`, `compare`, `add`, `mul`, `cast`, `unary`, `postfix`, `primary`)
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`expr`, `ternary`, `or`, `and`, `equality`, `compare`, `bor`, `bxor`, `band`, `shift`, `add`, `mul`, `cast`, `unary`, `postfix`, `primary`)
 
 ### `el.op.ternary` — conditional `c ? t : e`
 
@@ -806,9 +806,17 @@ EL parses a fixed CEL-precedence chain: `ternary → || → && → ==/!= → <=/
 
 *Evidence:* `stdlib/mem/wql/grammars/el.peg` (`add`, `mul`); ids `stdlib/mem/wql/el.logos` (`OP_ADD`, `OP_SUB`, `OP_MUL`, `OP_DIV`, `OP_MOD`); emission `stdlib/mem/wql/codegen.logos` (`emit_sexpr_as`, `el_int_op_fn`, `emit_binop`); fold `stdlib/mem/wql/optimize.logos` (`simplify_bin`, `fold_arith_ii`, `fold_arith_ff`)
 
+### `el.op.bitwise` — `& | ^ << >>`
+
+`&`→14, `|`→15, `^`→16, `<<`→17, `>>`→18 (`SBin`) over two integers, typed as the operand that names a type (a literal takes it). `&` `|` `^` are computed in that type and cannot leave it. A shift's amount outside `[0, width)` is an `ElError::Overflow` (`el::el_shamt`), as Rust's `checked_shl` refuses it; the bits shifted out wrap off. A non-integer operand is a named error. The oracle exports Soufflé's `band` / `bor` / `bxor` / `bshl` / `bshr`, a `<<` in a type narrower than 64 bits masked to it (and sign-extended back if signed).
+
+*Divergence:* EXTENSION over CEL — Rust's bitwise operators and precedence.
+
+*Evidence:* `stdlib/mem/wql/grammars/el.peg` (`bor`, `bxor`, `band`, `shift`); ids `stdlib/mem/wql/el.logos` (`OP_BAND`, `OP_SHL`, `el_is_bit_op`, `el_shamt`); emission `stdlib/mem/wql/codegen.logos` (`emit_binop`, `el_int_bits`); export `stdlib/mem/wql/dl_export.logos` (`dx_bit_ty`, `dx_wrap_width`); `tests/logos/pass/deem_bitwise_e2e.logos`, `tests/logos/fail/deem_bitwise_ty_fail.logos`
+
 ### `el.op.unary` — `!` and unary `-`
 
-`!x`→`SUn(OP_NOT=1)` (boolean), `-x`→`SUn(OP_NEG=2)` (preserves the operand's numeric type); `!boollit`/`-intlit`/`-floatlit` const-fold.
+`!x`→`SUn(OP_NOT=1)` (boolean; over an integer, its bitwise complement in the operand's type, as in Rust — Soufflé's `bnot`), `-x`→`SUn(OP_NEG=2)` (preserves the operand's numeric type); `!boollit`/`-intlit`/`-floatlit` const-fold.
 
 *Divergence:* CEL logical-not and numeric negation.
 
