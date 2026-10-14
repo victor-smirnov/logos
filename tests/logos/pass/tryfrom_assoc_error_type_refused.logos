@@ -1,0 +1,24 @@
+// Closed squeue tryfrom_assoc_error_type_refused (#562): TryFrom carries Rust's associated `type Error`;
+// a user impl names its own error, a generic bound reads `T::Error`.
+package tryfrom_assoc_error_type_refused;
+use logos.lang.convert;
+use logos.lang.result;
+use logos.lang.num.error;
+use logos.std.fmt;
+struct Small { v: i32 }
+impl TryFrom<i64> for Small {
+    type Error = str;
+    fn try_from(v: i64) -> Result<Small, str> {
+        if v > 1000 { return Result::Err("too big"); }
+        return Result::Ok(Small { v: v as i32 });
+    }
+}
+fn conv<T: TryFrom<i64>>(x: i64) -> bool where T::Error: Debug {
+    match T::try_from(x) { Ok(_) => true, Err(e) => { println!("err {:?}", e); false } }
+}
+fn main() {
+    let a: Result<Small, str> = 5000i64.try_into();
+    match a { Ok(s) => println!("{}", s.v), Err(e) => println!("{}", e) }
+    match Small::try_from(12) { Ok(s) => println!("{}", s.v), Err(e) => println!("{}", e) }
+    println!("{} {} {}", conv::<u8>(300), conv::<u8>(3), conv::<Small>(2000));
+}

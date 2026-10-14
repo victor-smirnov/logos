@@ -63,8 +63,6 @@ nonunit_expr_statement_admitted 2 tests/soundness/open/nonunit_expr_statement_ad
 
 raw_pointer_matched_as_option_crash 2 tests/soundness/open/raw_pointer_matched_as_option_crash refuses
 
-tryfrom_assoc_error_type_refused 2 tests/soundness/open/tryfrom_assoc_error_type_refused refuses
-
 unary_negation_overflow_not_trapped_wrong 2 tests/soundness/open/unary_negation_overflow_not_trapped_wrong run 0
 
 assoc_const_path_pattern_refused 3 tests/soundness/open/assoc_const_path_pattern_refused refuses
@@ -377,5 +375,5 @@ rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visibl
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 98
-# SYNC-HASH b2b42224727459cbc50d850949f96504
+# TOTAL 97
+# SYNC-HASH 064096c27883ecaf71ee94c7e59d8f33

@@ -1,0 +1,20 @@
+// Integer / char TryFrom across the From gaps: boundaries, error kinds and core::num text vs rustc 1.98.
+package tryfrom_int_matrix_rust_text;
+use logos.lang.convert;
+use logos.lang.result;
+use logos.lang.num.error;
+use logos.std.fmt;
+fn main() {
+    println!("{:?} {:?} {:?}", i8::try_from(300i64), i8::try_from(-128i64), u8::try_from(-1i8));
+    println!("{:?} {:?}", u32::try_from(4294967296u64), u32::try_from(4294967295u64));
+    println!("{:?} {:?} {:?}", usize::try_from(-1isize), i64::try_from(18446744073709551615u64), isize::try_from(5usize));
+    println!("{:?} {:?}", u16::try_from(70000i32), i16::try_from(40000u32));
+    println!("{:?} {:?} {:?}", char::try_from(0xD800u32), char::try_from(65u32), u8::try_from('é'));
+    println!("{:?} {:?}", u8::try_from('\u{100}'), u16::try_from('\u{10000}'));
+    let e = u8::try_from(256i32).unwrap_err();
+    println!("{} | {}", e, char::try_from(0x110000u32).unwrap_err());
+    println!("{}", u8::try_from('\u{100}').unwrap_err());
+    let r: Result<i16, _> = 300i32.try_into();
+    println!("{:?} {} {} {}", r, i64::from(true), usize::from(200u8), char::from(97u8));
+    println!("{} {}", u64::from('a'), isize::from(-3i16));
+}
