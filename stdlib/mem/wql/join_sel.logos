@@ -452,6 +452,16 @@ pub fn sort_key_vector(prm: &MacroParams, src: str, var: str, key_ty: str, nb: i
     plan_trace(node_subject(prm, src, var), "key vector", key_ty, string_as_str(&w));
 }
 
+/// `having` without `order by`: the output phase collects the SURVIVING group
+/// indices into `__ix0` and projects through it. With neither clause the read is
+/// by the frame's own index and nothing is built (ADR 0026 F11); with `order by`
+/// the same vector is the sort's permutation and `key vector` names it.
+pub fn group_survivors(prm: &MacroParams, src: str, var: str) {
+    if !plan_trace_on() { return; }
+    plan_trace(node_subject(prm, src, var), "group survivors", "i64",
+               "`having` gates the group frame's output — the surviving group indices are collected into `__ix0` and projected through it, one i64 per surviving group");
+}
+
 // ── THE GROUP FRAME, RECORDED WHERE IT IS DECLARED (ADR 0025 §8, S4-naming) ───
 //
 // Four columns families, four grounds (`access_plan::AG_*`), four verdict words
