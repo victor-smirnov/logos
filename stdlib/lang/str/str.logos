@@ -24,7 +24,7 @@ package logos.lang.str;
 /// Analogous to Rust's `std::slice::from_raw_parts::<u8>`.
 /// Safety: `ptr` must be valid for `len` bytes and remain alive for the `str` lifetime.
 #[lang = "str_from_raw"]
-pub unsafe fn str_from_raw(ptr: *const u8, len: i64) -> str {
+pub unsafe fn str_from_raw<'a>(ptr: *const u8, len: i64) -> &'a str {
     // Compiler intrinsic: sema intercepts all call sites and emits the
     // fat-pointer {ptr, len} construction directly (mlir_gen_expr.cpp).
     // This body is compiled but never called.
@@ -33,7 +33,7 @@ pub unsafe fn str_from_raw(ptr: *const u8, len: i64) -> str {
 
 /// Constructs a `str` from a null-terminated C string (length via `str_len`).
 /// Safety: `ptr` must be a valid, non-null, null-terminated byte string.
-pub unsafe fn str_from_cstr(ptr: *const u8) -> str {
+pub unsafe fn str_from_cstr<'a>(ptr: *const u8) -> &'a str {
     let n: i64 = str_len(ptr);
     return str_from_raw(ptr, n);
 }
@@ -49,7 +49,7 @@ pub fn str_len(s: *const u8) -> i64 {
 
 /// Returns the `i`-th UTF-8 byte of `s`, or 0 if `i` is out of range.
 /// Safe wrapper over the raw index so byte scans need no `unsafe` at call sites.
-pub fn str_byte_at(s: str, i: i64) -> u8 {
+pub fn str_byte_at(s: &str, i: i64) -> u8 {
     if i < 0 as i64 || i >= s.len() { return 0 as u8; }
     return unsafe { s.as_ptr()[i] };
 }
@@ -74,7 +74,7 @@ pub fn write_i32(buf: *mut u8, off: i64, n: i32) -> i64 {
     // The test must precede the negation: `0 - i32::MIN` traps under the
     // overflow checks, which made the old post-hoc `if m < 0` guard dead code.
     if n == (-2147483647i32) - 1i32 {
-        let s: str = "-2147483648";
+        let s: &str = "-2147483648";
         mem_copy(buf, off, s.as_ptr(), 11);
         return 11;
     }
@@ -111,7 +111,7 @@ pub fn write_i64(buf: *mut u8, off: i64, n: i64) -> i64 {
     // See write_i32: the i64::MIN test must precede the negation, because
     // `0 - i64::MIN` traps before any post-hoc sign check can observe it.
     if n == (-9223372036854775807i64) - 1i64 {
-        let s: str = "-9223372036854775808";
+        let s: &str = "-9223372036854775808";
         mem_copy(buf, off, s.as_ptr(), 20);
         return 20;
     }
@@ -204,7 +204,7 @@ pub fn bytes_arr_eq<const N: i64>(a: [u8; N], b: [u8; N]) -> bool {
 // `__str_<n> == CONST` guard that lowers to a call here.
 /// Returns `true` iff `a` and `b` have the same length and byte content.
 #[lang = "str_eq"]
-pub fn str_eq(a: str, b: str) -> bool {
+pub fn str_eq(a: &str, b: &str) -> bool {
     let n: i64 = a.len();
     if n != b.len() { return false; }
     let mut i: i64 = 0 as i64;
@@ -223,7 +223,7 @@ pub fn str_eq(a: str, b: str) -> bool {
 // (which is `Slice<u8>`) to `str_cmp(a, b) <op> 0`.
 /// Compares `a` and `b` lexicographically by bytes; returns -1, 0, or 1.
 #[lang = "str_cmp"]
-pub fn str_cmp(a: str, b: str) -> i32 {
+pub fn str_cmp(a: &str, b: &str) -> i32 {
     let na: i64 = a.len();
     let nb: i64 = b.len();
     let n: i64 = if na < nb { na } else { nb };
@@ -243,7 +243,7 @@ pub fn str_cmp(a: str, b: str) -> i32 {
 }
 
 /// Returns `true` if `s` begins with the byte sequence `prefix`.
-pub fn str_starts_with(s: str, prefix: str) -> bool {
+pub fn str_starts_with(s: &str, prefix: &str) -> bool {
     if s.len() < prefix.len() { return false; }
     let n: i64 = prefix.len();
     let mut i: i64 = 0 as i64;
@@ -257,7 +257,7 @@ pub fn str_starts_with(s: str, prefix: str) -> bool {
 }
 
 /// Returns `true` if `s` ends with the byte sequence `suffix`.
-pub fn str_ends_with(s: str, suffix: str) -> bool {
+pub fn str_ends_with(s: &str, suffix: &str) -> bool {
     let n: i64 = suffix.len();
     let m: i64 = s.len();
     if n > m { return false; }
@@ -274,7 +274,7 @@ pub fn str_ends_with(s: str, suffix: str) -> bool {
 
 /// Returns the byte offset of the first occurrence of `needle` in `s`, or -1 if not found.
 /// Empty needle returns 0. Naive search.
-pub fn str_index_of(s: str, needle: str) -> i64 {
+pub fn str_index_of(s: &str, needle: &str) -> i64 {
     let n: i64 = needle.len();
     let m: i64 = s.len();
     if n == 0 as i64 { return 0 as i64; }
@@ -301,7 +301,7 @@ pub fn str_index_of(s: str, needle: str) -> i64 {
 }
 
 /// Returns `true` if `needle` occurs in `s` as a byte substring.
-pub fn str_contains(s: str, needle: str) -> bool {
+pub fn str_contains(s: &str, needle: &str) -> bool {
     return str_index_of(s, needle) >= 0 as i64;
 }
 
@@ -317,20 +317,20 @@ pub fn str_contains(s: str, needle: str) -> bool {
 pub trait Pattern {
     /// Returns the byte offset of the leftmost match at or after `from`, or -1 if none.
     /// An empty `str` pattern matches at `from`; otherwise an out-of-range `from` returns -1.
-    fn find_in(self: Self, haystack: str, from: i64) -> i64;
+    fn find_in(self: Self, haystack: &str, from: i64) -> i64;
     /// Returns the byte length of a match of this pattern.
     fn match_len(self: Self) -> i64;
     /// Returns the byte offset of the rightmost match, or -1 if none.
-    fn rfind_in(self: Self, haystack: str) -> i64;
+    fn rfind_in(self: Self, haystack: &str) -> i64;
     /// Returns the length of the match at the start of `haystack`, or -1 if it does not start with one.
-    fn prefix_len(self: Self, haystack: str) -> i64;
+    fn prefix_len(self: Self, haystack: &str) -> i64;
     /// Returns the length of the match at the end of `haystack`, or -1 if it does not end with one.
-    fn suffix_len(self: Self, haystack: str) -> i64;
+    fn suffix_len(self: Self, haystack: &str) -> i64;
 }
 
 impl Pattern for str {
     // Substring search at or after `from`. Empty needle = match at `from`.
-    fn find_in(self: str, haystack: str, from: i64) -> i64 {
+    fn find_in(self: &str, haystack: &str, from: i64) -> i64 {
         let n: i64 = self.len();
         let m: i64 = haystack.len();
         if n == 0i64 { return from; }
@@ -356,9 +356,9 @@ impl Pattern for str {
         }
         return -1i64;
     }
-    fn match_len(self: str) -> i64 { return self.len(); }
+    fn match_len(self: &str) -> i64 { return self.len(); }
     // Rightmost start; an empty needle matches at the end (Rust: `"ab".rfind("") == Some(2)`).
-    fn rfind_in(self: str, haystack: str) -> i64 {
+    fn rfind_in(self: &str, haystack: &str) -> i64 {
         let n: i64 = self.len();
         let m: i64 = haystack.len();
         if n > m { return -1i64; }
@@ -369,12 +369,12 @@ impl Pattern for str {
         }
         return -1i64;
     }
-    fn prefix_len(self: str, haystack: str) -> i64 {
+    fn prefix_len(self: &str, haystack: &str) -> i64 {
         if self.len() > haystack.len() { return -1i64; }
         if bytes_eq_at(haystack, 0i64, self) { return self.len(); }
         return -1i64;
     }
-    fn suffix_len(self: str, haystack: str) -> i64 {
+    fn suffix_len(self: &str, haystack: &str) -> i64 {
         let n: i64 = self.len();
         if n > haystack.len() { return -1i64; }
         if bytes_eq_at(haystack, haystack.len() - n, self) { return n; }
@@ -383,7 +383,7 @@ impl Pattern for str {
 }
 
 // True iff `needle` occurs in `haystack` at byte offset `at` (caller bounds-checks `at + len`).
-fn bytes_eq_at(haystack: str, at: i64, needle: str) -> bool {
+fn bytes_eq_at(haystack: &str, at: i64, needle: &str) -> bool {
     let n: i64 = needle.len();
     let mut j: i64 = 0i64;
     unsafe {
@@ -398,7 +398,7 @@ fn bytes_eq_at(haystack: str, at: i64, needle: str) -> bool {
 impl Pattern for u8 {
     // Single-byte search. Char-as-codepoint port is deferred (would
     // route through UTF-8 decode of the haystack).
-    fn find_in(self: u8, haystack: str, from: i64) -> i64 {
+    fn find_in(self: u8, haystack: &str, from: i64) -> i64 {
         let m: i64 = haystack.len();
         if from < 0i64 || from >= m { return -1i64; }
         let mut i: i64 = from;
@@ -411,7 +411,7 @@ impl Pattern for u8 {
         return -1i64;
     }
     fn match_len(self: u8) -> i64 { return 1i64; }
-    fn rfind_in(self: u8, haystack: str) -> i64 {
+    fn rfind_in(self: u8, haystack: &str) -> i64 {
         let mut i: i64 = haystack.len() - 1i64;
         unsafe {
             while i >= 0i64 {
@@ -421,12 +421,12 @@ impl Pattern for u8 {
         }
         return -1i64;
     }
-    fn prefix_len(self: u8, haystack: str) -> i64 {
+    fn prefix_len(self: u8, haystack: &str) -> i64 {
         if haystack.len() == 0i64 { return -1i64; }
         unsafe { if haystack.as_ptr()[0] == self { return 1i64; } }
         return -1i64;
     }
-    fn suffix_len(self: u8, haystack: str) -> i64 {
+    fn suffix_len(self: u8, haystack: &str) -> i64 {
         let m: i64 = haystack.len();
         if m == 0i64 { return -1i64; }
         unsafe { if haystack.as_ptr()[m - 1i64] == self { return 1i64; } }
@@ -437,15 +437,15 @@ impl Pattern for u8 {
 // Pattern-driven str surface. Free fns wrap the trait so call sites
 // don't need explicit method-call ceremony.
 /// Returns the byte offset of the first match of `pat` in `s`, or -1 if none.
-pub fn str_find_pat<P: Pattern>(s: str, pat: P) -> i64 {
+pub fn str_find_pat<P: Pattern>(s: &str, pat: P) -> i64 {
     return pat.find_in(s, 0i64);
 }
 /// Returns `true` if `pat` matches anywhere in `s`.
-pub fn str_contains_pat<P: Pattern>(s: str, pat: P) -> bool {
+pub fn str_contains_pat<P: Pattern>(s: &str, pat: P) -> bool {
     return pat.find_in(s, 0i64) >= 0i64;
 }
 /// Returns `true` if `pat` matches at the start of `s`.
-pub fn str_starts_with_pat<P: Pattern>(s: str, pat: P) -> bool {
+pub fn str_starts_with_pat<P: Pattern>(s: &str, pat: P) -> bool {
     return pat.find_in(s, 0i64) == 0i64;
 }
 
@@ -456,7 +456,7 @@ fn is_ws_byte(b: u8) -> bool {
 }
 
 /// Trims leading ASCII whitespace, returning a sub-`str` of `s`.
-pub fn str_trim_start(s: str) -> str {
+pub fn str_trim_start(s: &str) -> &str {
     let n: i64 = s.len();
     let mut i: i64 = 0 as i64;
     unsafe {
@@ -469,7 +469,7 @@ pub fn str_trim_start(s: str) -> str {
 }
 
 /// Trims trailing ASCII whitespace, returning a sub-`str` of `s`.
-pub fn str_trim_end(s: str) -> str {
+pub fn str_trim_end(s: &str) -> &str {
     let mut n: i64 = s.len();
     unsafe {
         while n > 0 as i64 && is_ws_byte(s.as_ptr()[n - 1 as i64]) {
@@ -480,6 +480,6 @@ pub fn str_trim_end(s: str) -> str {
 }
 
 /// Trims leading and trailing ASCII whitespace, returning a sub-`str` of `s`.
-pub fn str_trim(s: str) -> str {
+pub fn str_trim(s: &str) -> &str {
     return str_trim_start(str_trim_end(s));
 }

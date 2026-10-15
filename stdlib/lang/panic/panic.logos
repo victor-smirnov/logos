@@ -29,12 +29,12 @@ extern fn logos_panic_last_msg_len() -> i64;
 /// Aborts execution with an unrecoverable error, printing `panic: <msg>` to stderr.
 /// If a recovery handler is installed (`catch_unwind` or the `#[test]` runner), control
 /// longjmps to it instead of aborting the process.
-pub fn panic(msg: str) -> ! {
+pub fn panic(msg: &str) -> ! {
     unsafe {
-        let prefix: str = "panic: ";
+        let prefix: &str = "panic: ";
         write(2, prefix.as_ptr(), 7);
         write(2, msg.as_ptr(), msg.len());
-        let nl: str = "\n";
+        let nl: &str = "\n";
         write(2, nl.as_ptr(), 1);
         logos_panic_maybe_longjmp(msg.as_ptr(), msg.len());
         abort();
@@ -42,7 +42,7 @@ pub fn panic(msg: str) -> ! {
 }
 
 /// Panics with `msg` if `cond` is false.
-pub fn assert(cond: bool, msg: str) {
+pub fn assert(cond: bool, msg: &str) {
     if !cond { panic(msg); }
 }
 
@@ -69,7 +69,7 @@ pub struct Location {
 }
 
 /// Creates a `Location` for the given source position.
-pub fn location(file: str, line: u32, column: u32) -> Location {
+pub fn location(file: &str, line: u32, column: u32) -> Location {
     return Location { file: file, line: line, column: column };
 }
 
@@ -102,15 +102,15 @@ pub struct PanicInfo {
 /// Runs `f` under panic recovery: `Ok(())` on normal return, `Err(msg)` if `f` panicked.
 /// The error is the `str` passed to `panic()`. Diverges from Rust: takes a plain fn-ptr
 /// (no closure captures) and captures the message as `str`, not `Box<dyn Any>`.
-pub fn catch_unwind(f: fn()) -> Result<(), str> {
+pub fn catch_unwind(f: fn()) -> Result<(), &'static str> {
     unsafe {
         let rv: i32 = logos_run_with_recovery(f);
         if rv == 0 {
-            return Result::<(), str>::Ok(());
+            return Result::<(), &'static str>::Ok(());
         }
         let p: *const u8 = logos_panic_last_msg();
         let n: i64       = logos_panic_last_msg_len();
-        return Result::<(), str>::Err(str_from_raw(p, n));
+        return Result::<(), &'static str>::Err(str_from_raw(p, n));
     }
 }
 

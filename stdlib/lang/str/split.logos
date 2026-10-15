@@ -43,7 +43,7 @@ impl<'a> Iterator for Splitter<'a> {
             return Option::Some(self.rest);
         }
         unsafe {
-            let head: str = str_from_raw(self.rest.as_ptr(), idx);
+            let head: &str = str_from_raw(self.rest.as_ptr(), idx);
             let tail_ptr: *const u8 = (self.rest.as_ptr() as i64 + idx + sn) as *const u8;
             let tail_len: i64 = n - idx - sn;
             self.rest = str_from_raw(tail_ptr, tail_len);
@@ -79,7 +79,7 @@ impl<'a> Iterator for ByteSplitter<'a> {
         unsafe {
             while i < n {
                 if (*((sp as i64 + i) as *const u8)) == self.sep {
-                    let head: str = str_from_raw(sp, i);
+                    let head: &str = str_from_raw(sp, i);
                     let tail_ptr: *const u8 = (sp as i64 + i + 1 as i64) as *const u8;
                     self.rest = str_from_raw(tail_ptr, n - i - 1 as i64);
                     return Option::Some(head);

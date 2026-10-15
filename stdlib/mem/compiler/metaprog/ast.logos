@@ -184,7 +184,7 @@ extern fn logos_metaprog_has_impl(trait_ptr: *const u8, trait_len: u64,
 /// `"str"`), not a spelled type. `trait_q` is the trait's qualified identity
 /// (`"logos.lang.hash::Hash"`). Only concrete impls of the programs lowered so far are facts: a type
 /// covered by a blanket impl alone answers false.
-pub fn has_trait_named(trait_q: str, type_name: str) -> bool {
+pub fn has_trait_named(trait_q: &str, type_name: &str) -> bool {
     return unsafe { logos_metaprog_has_impl(trait_q.as_ptr(), trait_q.len() as u64,
                                             type_name.as_ptr(), type_name.len() as u64) } != 0i32;
 }
@@ -198,7 +198,7 @@ extern fn logos_metaprog_value_known(name_ptr: *const u8, name_len: u64) -> i32;
 /// bind: the handler's AST view is one module, and a `where` clause may read an
 /// IMPORTED const. False means the name exists nowhere — a misspelling, not an
 /// import the view cannot see. True does not mean it is in scope here.
-pub fn value_name_known(name: str) -> bool {
+pub fn value_name_known(name: &str) -> bool {
     return unsafe { logos_metaprog_value_known(name.as_ptr(), name.len() as u64) } != 0i32;
 }
 
@@ -207,7 +207,7 @@ extern fn logos_metaprog_value_type(name_ptr: *const u8, name_len: u64, out_len:
 /// The declared type of a const or static `name` (`value_name_known`), in
 /// source spelling (`i64`, `str`), or "" when no module declares it. The bytes
 /// are host-owned and live for the rest of the compilation.
-pub fn value_type_name(name: str) -> str {
+pub fn value_type_name(name: &str) -> &str {
     let mut len: u64 = 0u64;
     let p: *const u8 = unsafe { logos_metaprog_value_type(name.as_ptr(), name.len() as u64, &mut len as *mut u64) };
     return unsafe { str_from_raw(p, len as i64) };
@@ -222,7 +222,7 @@ extern fn logos_metaprog_struct_field_name(ty_ptr: *const u8, ty_len: u64, i: i6
 /// `Name` exactly one package declares), in source spelling (`i64`, `str`,
 /// `Vec<Kid>`), or "" when no such struct has the field. Any lowered module,
 /// imported ones included. The bytes are host-owned for the compilation.
-pub fn field_type_name(type_name: str, field: str) -> &'static str {
+pub fn field_type_name(type_name: &str, field: &str) -> &'static str {
     let mut len: u64 = 0u64;
     let p: *const u8 = unsafe { logos_metaprog_field_type(type_name.as_ptr(), type_name.len() as u64,
                                                           field.as_ptr(), field.len() as u64, &mut len as *mut u64) };
@@ -230,12 +230,12 @@ pub fn field_type_name(type_name: str, field: str) -> &'static str {
 }
 
 /// The number of fields of struct `type_name` (resolved as `field_type_name`), 0 if unknown.
-pub fn struct_field_count(type_name: str) -> i64 {
+pub fn struct_field_count(type_name: &str) -> i64 {
     return unsafe { logos_metaprog_struct_field_count(type_name.as_ptr(), type_name.len() as u64) };
 }
 
 /// The name of field `i` (declaration order) of struct `type_name`, or "".
-pub fn struct_field_name(type_name: str, i: i64) -> str {
+pub fn struct_field_name(type_name: &str, i: i64) -> &str {
     let mut len: u64 = 0u64;
     let p: *const u8 = unsafe { logos_metaprog_struct_field_name(type_name.as_ptr(), type_name.len() as u64,
                                                                  i, &mut len as *mut u64) };
@@ -245,7 +245,7 @@ pub fn struct_field_name(type_name: str, i: i64) -> str {
 /// Returns a fresh hygienic identifier `<prefix>__hyg_<N>`, unique across the whole compile.
 ///
 /// The bytes are host-owned and stay valid for the rest of the compilation.
-pub fn gensym(prefix: str) -> Ident {
+pub fn gensym(prefix: &str) -> Ident {
     let mut len: u64 = 0u64;
     let p: *const u8 = unsafe {
         logos_metaprog_gensym(prefix.as_ptr(), prefix.len() as u64,
@@ -306,7 +306,7 @@ impl Ident {
     /// Borrows `s`'s bytes as an identifier. The caller keeps the backing
     /// storage (a literal, a `String`, …) alive through the splice/emission
     /// that consumes the `Ident`.
-    pub static fn new(s: str) -> Ident {
+    pub static fn new(s: &str) -> Ident {
         return Ident { ptr: s.as_ptr(), len: s.len() as u64 };
     }
 

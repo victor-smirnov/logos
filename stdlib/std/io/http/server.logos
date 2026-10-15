@@ -141,7 +141,7 @@ pub fn serve_connection<S: Service>(stream: TcpStream, svc: &mut S) -> i64 {
                 let vp: *const u8 = (&v).as_ptr();
                 let vn: i64       = (&v).len();
                 if ascii_ieq(vp, vn, "100-continue".as_ptr(), 12 as i64) {
-                    let reply: str = "HTTP/1.1 100 Continue\r\n\r\n";
+                    let reply: &str = "HTTP/1.1 100 Continue\r\n\r\n";
                     let sink: &mut AsyncTcpStream =
                         buf_reader_inner_mut::<AsyncTcpStream>(&mut br);
                     let _: i64 = write_all::<AsyncTcpStream>(

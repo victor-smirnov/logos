@@ -124,13 +124,13 @@ impl DView {
     /// Type-erases a string into a `W_STRING` view over its UTF-8 bytes (borrows `s`).
     /// Dedicated because `str` is unsized (a `{ptr,len}` fat value) and can't ride the generic
     /// `from<T>`; the byte block IS the Writ String content, so it stays in the Writ space.
-    pub static fn from_str(s: str) -> DView {
+    pub static fn from_str(s: &str) -> DView {
         return DView { obj: s.as_ptr(), len: s.len() as u64, tag: W_STRING, meta: 0u64 };
     }
 
     /// Materializes a `str` over the view's bytes; borrows the same bytes the view does
     /// (valid for the view's lifetime). No tag check.
-    pub fn as_str(&self) -> str {
+    pub fn as_str(&self) -> &str {
         return unsafe { str_from_raw(self.obj, self.len as i64) };
     }
 

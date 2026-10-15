@@ -20,7 +20,7 @@ pub trait FromStr {
     /// The error a failed parse returns.
     type Err;
     /// Parses the whole of `s` into `Self`, or returns `Err` on failure.
-    fn from_str(s: str) -> Result<Self, Self::Err>;
+    fn from_str(s: &str) -> Result<Self, Self::Err>;
 }
 
 impl str {
@@ -52,7 +52,7 @@ fn parse_digit(b: u8, radix: i64) -> i64 {
 /// Parses `s` as an `i32` in the given `radix`, mirroring `i32::from_str_radix`.
 /// Accepts a leading `+`/`-`; errors: `Empty`, `InvalidDigit`, `PosOverflow`/`NegOverflow`.
 /// `radix` is unvalidated (no panic outside `2..=36`, unlike Rust); digit set `0-9`, `a-z`/`A-Z`.
-pub fn i32_from_str_radix(s: str, radix: u32) -> Result<i32, ParseIntError> {
+pub fn i32_from_str_radix(s: &str, radix: u32) -> Result<i32, ParseIntError> {
     if s.len() == 0i64 {
         return Result::<i32, ParseIntError>::Err(
             ParseIntError::new(IntErrorKind::Empty));
@@ -96,7 +96,7 @@ pub fn i32_from_str_radix(s: str, radix: u32) -> Result<i32, ParseIntError> {
 /// Accepts a leading `+`/`-`; errors: `Empty`, `InvalidDigit`, `PosOverflow`/`NegOverflow`.
 /// `radix` is not validated (no panic outside `2..=36`, unlike Rust).
 /// Trap: `i64::MIN` itself is rejected as `NegOverflow` (magnitude is capped at `i64::MAX`).
-pub fn i64_from_str_radix(s: str, radix: u32) -> Result<i64, ParseIntError> {
+pub fn i64_from_str_radix(s: &str, radix: u32) -> Result<i64, ParseIntError> {
     if s.len() == 0i64 {
         return Result::<i64, ParseIntError>::Err(
             ParseIntError::new(IntErrorKind::Empty));
@@ -136,7 +136,7 @@ pub fn i64_from_str_radix(s: str, radix: u32) -> Result<i64, ParseIntError> {
 /// Parses `s` as a `u32` in the given `radix`, mirroring `u32::from_str_radix`.
 /// Accepts a leading `+`; a leading `-` is `InvalidDigit`. Errors: `Empty`,
 /// `InvalidDigit`, `PosOverflow`. `radix` is not validated (no panic outside `2..=36`).
-pub fn u32_from_str_radix(s: str, radix: u32) -> Result<u32, ParseIntError> {
+pub fn u32_from_str_radix(s: &str, radix: u32) -> Result<u32, ParseIntError> {
     if s.len() == 0i64 {
         return Result::<u32, ParseIntError>::Err(
             ParseIntError::new(IntErrorKind::Empty));
@@ -174,7 +174,7 @@ pub fn u32_from_str_radix(s: str, radix: u32) -> Result<u32, ParseIntError> {
 /// Parses `s` as a `u64` in the given `radix`, mirroring `u64::from_str_radix`.
 /// Accepts a leading `+`; a leading `-` is `InvalidDigit`. Errors: `Empty`,
 /// `InvalidDigit`, `PosOverflow`. `radix` is not validated (no panic outside `2..=36`).
-pub fn u64_from_str_radix(s: str, radix: u32) -> Result<u64, ParseIntError> {
+pub fn u64_from_str_radix(s: &str, radix: u32) -> Result<u64, ParseIntError> {
     if s.len() == 0i64 {
         return Result::<u64, ParseIntError>::Err(
             ParseIntError::new(IntErrorKind::Empty));
@@ -213,19 +213,19 @@ pub fn u64_from_str_radix(s: str, radix: u32) -> Result<u64, ParseIntError> {
 
 // Decimal convenience helpers — `s.parse::<T>()` lowers here.
 /// Parses `s` as a base-10 `i32`; `s.parse::<i32>()` lowers here.
-pub fn i32_from_str(s: str) -> Result<i32, ParseIntError> {
+pub fn i32_from_str(s: &str) -> Result<i32, ParseIntError> {
     return i32_from_str_radix(s, 10u32);
 }
 /// Parses `s` as a base-10 `i64`; `s.parse::<i64>()` lowers here.
-pub fn i64_from_str(s: str) -> Result<i64, ParseIntError> {
+pub fn i64_from_str(s: &str) -> Result<i64, ParseIntError> {
     return i64_from_str_radix(s, 10u32);
 }
 /// Parses `s` as a base-10 `u32`; `s.parse::<u32>()` lowers here.
-pub fn u32_from_str(s: str) -> Result<u32, ParseIntError> {
+pub fn u32_from_str(s: &str) -> Result<u32, ParseIntError> {
     return u32_from_str_radix(s, 10u32);
 }
 /// Parses `s` as a base-10 `u64`; `s.parse::<u64>()` lowers here.
-pub fn u64_from_str(s: str) -> Result<u64, ParseIntError> {
+pub fn u64_from_str(s: &str) -> Result<u64, ParseIntError> {
     return u64_from_str_radix(s, 10u32);
 }
 
@@ -235,19 +235,19 @@ pub fn u64_from_str(s: str) -> Result<u64, ParseIntError> {
 // stays in one place.
 impl FromStr for i32 {
     type Err = ParseIntError;
-    fn from_str(s: str) -> Result<i32, ParseIntError> { return i32_from_str(s); }
+    fn from_str(s: &str) -> Result<i32, ParseIntError> { return i32_from_str(s); }
 }
 impl FromStr for i64 {
     type Err = ParseIntError;
-    fn from_str(s: str) -> Result<i64, ParseIntError> { return i64_from_str(s); }
+    fn from_str(s: &str) -> Result<i64, ParseIntError> { return i64_from_str(s); }
 }
 impl FromStr for u32 {
     type Err = ParseIntError;
-    fn from_str(s: str) -> Result<u32, ParseIntError> { return u32_from_str(s); }
+    fn from_str(s: &str) -> Result<u32, ParseIntError> { return u32_from_str(s); }
 }
 impl FromStr for u64 {
     type Err = ParseIntError;
-    fn from_str(s: str) -> Result<u64, ParseIntError> { return u64_from_str(s); }
+    fn from_str(s: &str) -> Result<u64, ParseIntError> { return u64_from_str(s); }
 }
 
 // ── Float parsing ────────────────────────────────────────────────────────
@@ -270,7 +270,7 @@ fn ascii_lower(b: u8) -> u8 {
     return b;
 }
 
-fn str_eq_ci(s: str, lit: str) -> bool {
+fn str_eq_ci(s: &str, lit: &str) -> bool {
     if s.len() != lit.len() { return false; }
     let mut i: i64 = 0i64;
     while i < s.len() {
@@ -284,7 +284,7 @@ fn str_eq_ci(s: str, lit: str) -> bool {
 /// Accepts optional `+`/`-`, decimal mantissa with optional fraction, optional
 /// `e`/`E` exponent, and case-insensitive `inf`/`infinity`/`nan`.
 /// Not correctly rounded: accurate to a few ulp (unlike Rust's exact `dec2flt`).
-pub fn f64_from_str(s: str) -> Result<f64, ParseFloatError> {
+pub fn f64_from_str(s: &str) -> Result<f64, ParseFloatError> {
     if s.len() == 0i64 {
         return Result::<f64, ParseFloatError>::Err(
             ParseFloatError::new(FloatErrorKind::Empty));
@@ -309,7 +309,7 @@ pub fn f64_from_str(s: str) -> Result<f64, ParseFloatError> {
             tail_buf[k] = s[i + k];
             k = k + 1i64;
         }
-        let tail: str = unsafe { str_from_raw(&tail_buf[0i64] as *const u8, tail_len) };
+        let tail: &str = unsafe { str_from_raw(&tail_buf[0i64] as *const u8, tail_len) };
         if str_eq_ci(tail, "nan") {
             return Result::<f64, ParseFloatError>::Ok(0.0 / 0.0);
         }
@@ -393,7 +393,7 @@ pub fn f64_from_str(s: str) -> Result<f64, ParseFloatError> {
 
 /// Parses `s` as an `f32` by parsing as `f64` and narrowing (see `f64_from_str`).
 /// Double rounding may differ from a direct `f32` parse by an ulp.
-pub fn f32_from_str(s: str) -> Result<f32, ParseFloatError> {
+pub fn f32_from_str(s: &str) -> Result<f32, ParseFloatError> {
     let r: Result<f64, ParseFloatError> = f64_from_str(s);
     match r {
         Result::Ok(v)  => { return Result::<f32, ParseFloatError>::Ok(v as f32); }
@@ -403,9 +403,9 @@ pub fn f32_from_str(s: str) -> Result<f32, ParseFloatError> {
 
 impl FromStr for f32 {
     type Err = ParseFloatError;
-    fn from_str(s: str) -> Result<f32, ParseFloatError> { return f32_from_str(s); }
+    fn from_str(s: &str) -> Result<f32, ParseFloatError> { return f32_from_str(s); }
 }
 impl FromStr for f64 {
     type Err = ParseFloatError;
-    fn from_str(s: str) -> Result<f64, ParseFloatError> { return f64_from_str(s); }
+    fn from_str(s: &str) -> Result<f64, ParseFloatError> { return f64_from_str(s); }
 }

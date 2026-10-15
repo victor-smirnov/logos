@@ -55,11 +55,11 @@ use logos.lang.writ.anyval;
 use logos.mem.string;
 use logos.lang.str;
 
-fn gs_sv(s: SView) -> str {
+fn gs_sv(s: SView) -> &str {
     return unsafe { str_from_raw(s.ptr, s.len as i64) };
 }
 
-fn gs_is(s: SView, w: str) -> bool {
+fn gs_is(s: SView, w: &str) -> bool {
     return str_eq(gs_sv(s), w);
 }
 
@@ -70,7 +70,7 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
     let item: WAny = view.node_at(target_offset);
     let nm_sv: SView = view.ast_node_name(item);
     if nm_sv.len == (0 as u64) { return; }
-    let nm: str = gs_sv(nm_sv);
+    let nm: &str = gs_sv(nm_sv);
 
     // The two generated fn NAMES. `Ident::new` BORROWS, so the Strings behind
     // them are locals of THIS frame — the frame that builds the quote.
@@ -238,7 +238,7 @@ fn derive_graph_source_hook(target_offset: u32) -> () {
         use logos.mem.collections.vec; use logos.lang.str; use logos.lang.num.float;
         // GraphSource (the trait) + the row alias live with the Writ walker.
         use logos.std.wql.writ_graph; use logos.lang.writ.container;
-        pub fn #wnm(v: &#tnm, parent: i64, key: str, idx: i64, out: &mut Vec<WritEdgeRow>) {
+        pub fn #wnm(v: &#tnm, parent: i64, key: &str, idx: i64, out: &mut Vec<WritEdgeRow>) {
             let id: i64 = (v as *const #tnm) as i64;
             out.push((parent, key, idx, id, "struct", 0i64, 0i64, ""));
             #(fbody);

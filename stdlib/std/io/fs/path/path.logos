@@ -10,13 +10,13 @@ use logos.lang.str;
 // ---- predicates -------------------------------------------------------------
 
 /// Returns `true` if `p` starts with `/`; the empty path is not absolute.
-pub fn is_absolute(p: str) -> bool {
+pub fn is_absolute(p: &str) -> bool {
     if p.len() == 0 as i64 { return false; }
     unsafe { return (p[0 as i64] as i32) == 47; }  // '/'
 }
 
 /// Returns `true` if `p` is not absolute.
-pub fn is_relative(p: str) -> bool {
+pub fn is_relative(p: &str) -> bool {
     return !is_absolute(p);
 }
 
@@ -24,7 +24,7 @@ pub fn is_relative(p: str) -> bool {
 
 /// Returns the last path component as a new `String`, ignoring trailing slashes.
 /// `"a/b/c"` → `"c"`, `"/foo"` → `"foo"`, `"foo/"` → `"foo"`, `"/"` → `"/"`, `""` → `""`.
-pub fn basename(p: str) -> String {
+pub fn basename(p: &str) -> String {
     let n: i64 = p.len();
     if n == 0 as i64 { return String::new(); }
     unsafe {
@@ -48,7 +48,7 @@ pub fn basename(p: str) -> String {
 
 /// Returns the directory portion of `p` as a new `String`, ignoring trailing slashes.
 /// `"a/b/c"` → `"a/b"`, `"/foo/bar"` → `"/foo"`, `"foo"` → `"."`, `"/"` → `"/"`, `""` → `"."`.
-pub fn dirname(p: str) -> String {
+pub fn dirname(p: &str) -> String {
     let n: i64 = p.len();
     let mut s: String = String::new();
     if n == 0 as i64 {
@@ -85,7 +85,7 @@ pub fn dirname(p: str) -> String {
 /// Returns the file extension of the last component including the dot, or `""` if none.
 /// `"foo.txt"` → `".txt"`, `"archive.tar.gz"` → `".gz"`, `"Makefile"` → `""`; dotfiles such as
 /// `".bashrc"` have no extension.
-pub fn extension(p: str) -> String {
+pub fn extension(p: &str) -> String {
     let n: i64 = p.len();
     let mut s: String = String::new();
     if n > 0 as i64 {
@@ -110,7 +110,7 @@ pub fn extension(p: str) -> String {
 
 /// Returns the basename of `p` without its extension.
 /// `"foo.txt"` → `"foo"`, `"archive.tar.gz"` → `"archive.tar"`, `".bashrc"` → `".bashrc"`.
-pub fn stem(p: str) -> String {
+pub fn stem(p: &str) -> String {
     let mut b: String = basename(p);
     let n: i64 = b.len();
     unsafe {
@@ -132,7 +132,7 @@ pub fn stem(p: str) -> String {
 /// Joins two path components with a single `/`, returning a new `String`.
 /// `join("a/b", "c")` → `"a/b/c"`, `join("a/b/", "c")` → `"a/b/c"`.
 /// If `b` is absolute it replaces `a` (POSIX semantics).
-pub fn join(a: str, b: str) -> String {
+pub fn join(a: &str, b: &str) -> String {
     if is_absolute(b) {
         let mut s: String = String::new();
         s.push_str(b);
@@ -152,7 +152,7 @@ pub fn join(a: str, b: str) -> String {
 
 /// Appends `component` to `base` in place, inserting a `/` separator if needed.
 /// If `component` is absolute it replaces `base` entirely (POSIX semantics).
-pub fn join_into(base: &mut String, component: str) {
+pub fn join_into(base: &mut String, component: &str) {
     if is_absolute(component) {
         base.clear();
         base.push_str(component);
@@ -174,7 +174,7 @@ pub fn join_into(base: &mut String, component: str) {
 /// paths but is preserved on relative ones (`"/../a"` → `"/a"`, `"../a/../b"` → `"../b"`);
 /// `""` → `"."`; a trailing `/` is dropped unless the result is exactly `"/"`.
 /// Segment tracking is capped at 256 deep; `..` may mis-resolve beyond that.
-pub fn normalize(p: str) -> String {
+pub fn normalize(p: &str) -> String {
     let n: i64 = p.len();
     let mut out: String = String::new();
     let absolute: bool = is_absolute(p);

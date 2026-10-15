@@ -86,7 +86,7 @@ pub struct Ident {
 impl Ident {
     /// Borrows `s`'s bytes as an identifier (same contract as the metaprog
     /// `Ident::new` — the caller keeps the backing storage alive).
-    pub static fn new(s: str) -> Ident {
+    pub static fn new(s: &str) -> Ident {
         return Ident { ptr: s.as_ptr(), len: s.len() as u64 };
     }
 }

@@ -78,7 +78,7 @@ pub struct IoError {
 }
 
 /// Creates an `IoError` not attributed to any OS error; `raw_os_error()` on it returns `None`.
-pub fn io_error_new(kind: ErrorKind, message: str) -> IoError {
+pub fn io_error_new(kind: ErrorKind, message: &str) -> IoError {
     return IoError { kind: kind, raw_os_error: 0i32 - 1i32, message: message };
 }
 

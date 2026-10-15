@@ -64,7 +64,7 @@ impl<T> Option<T> {
 
     /// Returns the contained `Some` value.
     /// Panics with `msg` if the value is `None`.
-    pub fn expect(self: Option<T>, msg: str) -> T {
+    pub fn expect(self: Option<T>, msg: &str) -> T {
         match self {
             Option::Some(v) => { return v; }
             Option::None    => { panic(msg); }

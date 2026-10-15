@@ -93,7 +93,7 @@ impl WAny {
 /// Parses `"[-]digits[.digits]"` into a decimal in the arena of `h`.
 /// Returns a null `WAny` on: empty digits, more than 19 significant digits (u64 overflow
 /// guard), a second decimal point, junk bytes, or `scale > 4095`.
-pub unsafe fn hdec_from_str(h: &Writ, s: str) -> WAny {
+pub unsafe fn hdec_from_str(h: &Writ, s: &str) -> WAny {
     let n: i64 = s.len();
     let p: *const u8 = s.as_ptr();
     let mut i: i64 = 0;

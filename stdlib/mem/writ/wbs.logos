@@ -62,7 +62,7 @@ unsafe fn put_f64(out: &mut Vec<u8>, x: f64) {
     let mut i: i64 = 0i64;
     while i < 8i64 { out.push(*p.byte_add(i)); i = i + 1i64; }
 }
-unsafe fn put_str(out: &mut Vec<u8>, s: str) {
+unsafe fn put_str(out: &mut Vec<u8>, s: &str) {
     put_vlen(out, s.len() as u64);
     put_bytes(out, s.as_ptr(), s.len());
 }
@@ -216,7 +216,7 @@ unsafe fn rd_f64(data: *const u8, pos: *mut i64, end: i64, err: *mut bool) -> f6
     *pos = *pos + 8i64;
     return tmp;
 }
-unsafe fn rd_str(data: *const u8, pos: *mut i64, end: i64, err: *mut bool) -> str {
+unsafe fn rd_str(data: *const u8, pos: *mut i64, end: i64, err: *mut bool) -> &str {
     let len: i64 = rd_vlen(data, pos, end, err) as i64;
     // A length taken straight from the stream is untrusted: reject negative
     // (from a >i63 vlen) or a payload that overruns the buffer BEFORE building
@@ -249,7 +249,7 @@ unsafe fn read_val(h: &Writ, data: *const u8, pos: *mut i64, end: i64, err: *mut
         return h.float(x);
     }
     if lead == 0x30u8 {
-        let s: str = rd_str(data, pos, end, err);
+        let s: &str = rd_str(data, pos, end, err);
         if *err { return WAny::ref_to(0i64 as *const u8); }
         return WAny::from(h.wstring(s));
     }
@@ -275,7 +275,7 @@ unsafe fn read_val(h: &Writ, data: *const u8, pos: *mut i64, end: i64, err: *mut
         let m: &mut WMap<WString, WAny> = h.map(if cnt < 1i64 { 1i64 } else { cnt });
         let mut i: i64 = 0i64;
         while i < cnt {
-            let key: str = rd_str(data, pos, end, err);
+            let key: &str = rd_str(data, pos, end, err);
             if *err { return WAny::ref_to(0i64 as *const u8); }
             let val: WAny = read_val(h, data, pos, end, err, depth + 1i64);
             if *err { return WAny::ref_to(0i64 as *const u8); }
@@ -353,7 +353,7 @@ unsafe fn read_val(h: &Writ, data: *const u8, pos: *mut i64, end: i64, err: *mut
         return WAny::ref_to(hdr as *const u8);
     }
     if lead == 0x52u8 {                                      // typed value: @Name(params)=init
-        let name: str = rd_str(data, pos, end, err);
+        let name: &str = rd_str(data, pos, end, err);
         if *err { return WAny::ref_to(0i64 as *const u8); }
         let params: WAny = read_val(h, data, pos, end, err, depth + 1i64);
         if *err { return WAny::ref_to(0i64 as *const u8); }

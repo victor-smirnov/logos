@@ -32,7 +32,7 @@ const STRINGIFY_MAX_DEPTH: i64 = 4096i64;
 // Quote + escape a string into `out`, matching the C++ writ::quote()
 // (src/writ/stringify.cpp): wrap in '"', escape " \ \n \t \r, control byte
 // (< 0x20) → \uXXXX (lowercase hex). Keeps output valid + byte-identical to C++.
-unsafe fn quote_into(out: &mut String, s: str) {
+unsafe fn quote_into(out: &mut String, s: &str) {
     out.push_u8(34u8);                                     // "
     let n: i64 = s.len();
     let p: *const u8 = s.as_ptr();

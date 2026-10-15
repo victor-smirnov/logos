@@ -110,7 +110,7 @@ impl<W: Write> BufWriter<W> {
     }
 
     /// Writes the bytes of `s`; returns bytes written, `<0` on error.
-    pub fn write_str(self: &mut BufWriter<W>, s: str) -> i64 {
+    pub fn write_str(self: &mut BufWriter<W>, s: &str) -> i64 {
         unsafe { return self.write_bytes(s.as_ptr(), s.len()); }
     }
 

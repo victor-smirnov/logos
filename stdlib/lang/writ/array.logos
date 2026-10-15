@@ -270,7 +270,7 @@ impl WArray<WAny> {
     // (A `String` caller passes `s.as_str()` — String lives in the `mem` tier, above `lang`.)
     /// Appends a `str` by interning its bytes into this array's zone as a `WString`, pushing a Ref.
     /// The interned copy lives as long as the container.
-    pub fn push(self: &mut WArray<WAny>, v: str) {
+    pub fn push(self: &mut WArray<WAny>, v: &str) {
         unsafe {
             let z: *mut Allocator = zone_of(self) as *mut Allocator;
             let hs: *mut WString = wstring_in_alloc(z, v);

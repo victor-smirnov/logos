@@ -54,7 +54,7 @@ pub fn vec_at_const_u8(v: &Vec<u8>, i: i64) -> *const u8 {
 /// Borrows a `String`'s contents as a `str` (no copy).
 // Borrow a String as str (no copy).  Free function because methods returning
 // `str` currently hit a codegen corner around sret.
-pub fn s2str(s: &String) -> str {
+pub fn s2str(s: &String) -> &str {
     return unsafe { str_from_raw((s).as_ptr(), (s).len()) };
 }
 
@@ -98,7 +98,7 @@ pub struct Method {
     pub name: String,
 }
 
-fn method_with(code: i32, s: str) -> Method {
+fn method_with(code: i32, s: &str) -> Method {
     let mut n: String = String::new();
     n.push_str(s);
     return Method { code: code, name: n };
@@ -121,14 +121,14 @@ impl Method {
     pub static fn patch()   -> Method { return method_with(6, "PATCH");   }
 
     /// Returns `true` if the method token equals `s` exactly (case-sensitive).
-    pub fn eq_str(&self, s: str) -> bool {
+    pub fn eq_str(&self, s: &str) -> bool {
         return self.name.eq_str(s);
     }
 }
 
 /// Parses a method token (ASCII, case-sensitive per RFC 7230).
 /// Unknown tokens return `code == 7` with the original name preserved.
-pub fn method_parse(s: str) -> Method {
+pub fn method_parse(s: &str) -> Method {
     let p: *const u8 = s.as_ptr();
     let n: i64 = s.len();
     if bytes_eq(p, n, "GET"    .as_ptr(), 3) { return Method::get();     }
@@ -198,7 +198,7 @@ impl Headers {
     }
 
     /// Appends a `(name, value)` pair unconditionally (preserves duplicates).
-    pub fn append(&mut self, name: str, value: str) {
+    pub fn append(&mut self, name: &str, value: &str) {
         let name_off: i32 = (&self.buf).len() as i32;
         let name_len: i32 = name.len() as i32;
         self.buf.push_str(name);
@@ -220,7 +220,7 @@ impl Headers {
     }
 
     /// Returns `true` if any header matches `name` (ASCII case-insensitive).
-    pub fn contains(&self, name: str) -> bool {
+    pub fn contains(&self, name: &str) -> bool {
         let nptr: *const u8 = name.as_ptr();
         let nlen: i64 = name.len();
         let total: i64 = (&self.entries).length();
@@ -239,7 +239,7 @@ impl Headers {
     }
 
     /// Returns the value of the first header matching `name`, or `None`.
-    pub fn get(&self, name: str) -> Option<String> {
+    pub fn get(&self, name: &str) -> Option<String> {
         let nptr: *const u8 = name.as_ptr();
         let nlen: i64 = name.len();
         let total: i64 = (&self.entries).length();
@@ -261,7 +261,7 @@ impl Headers {
 
     /// Replaces the first header matching `name` with `value`, or appends if none matches.
     /// Later duplicates of `name` are left in place.
-    pub fn set(&mut self, name: str, value: str) {
+    pub fn set(&mut self, name: &str, value: &str) {
         let nptr: *const u8 = name.as_ptr();
         let nlen: i64 = name.len();
         let total: i64 = (&self.entries).length();
@@ -293,7 +293,7 @@ impl Headers {
     }
 
     /// Removes all headers matching `name`; returns the number removed.
-    pub fn remove(&mut self, name: str) -> i64 {
+    pub fn remove(&mut self, name: &str) -> i64 {
         let nptr: *const u8 = name.as_ptr();
         let nlen: i64 = name.len();
         let mut removed: i64 = 0;
@@ -387,7 +387,7 @@ pub enum HttpError {
 }
 
 /// Returns the standard reason phrase for `status`; unknown codes yield `""`.
-pub fn http_reason_phrase(status: i32) -> str {
+pub fn http_reason_phrase(status: i32) -> &str {
     if status == 200 { return "OK"; }
     if status == 201 { return "Created"; }
     if status == 204 { return "No Content"; }

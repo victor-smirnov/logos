@@ -234,7 +234,7 @@ pub fn body_length(h: &Headers) -> i64 {
         let ep: *mut Vec<Header> =
             &h.entries as *const Vec<Header> as *mut Vec<Header>;
         let bp: *const u8 = (&h.buf).as_ptr();
-        let cl_name: str = "content-length";
+        let cl_name: &str = "content-length";
         let cln: i64 = cl_name.len();
         let clp: *const u8 = cl_name.as_ptr();
         while ei < total {

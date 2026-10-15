@@ -59,12 +59,12 @@ use logos.std.io;
 // at runtime would duplicate the sema-time parser; not worth the
 // complexity until a real use-case surfaces.
 
-unsafe fn fmt_into(pat: str, fi: i64, flen: i64, f: &mut Formatter) {
+unsafe fn fmt_into(pat: &str, fi: i64, flen: i64, f: &mut Formatter) {
     let mut i: i64 = fi;
     while i < flen { unsafe { { let _ = (*f.w).write_char(pat[i]); } } i = i + 1; }
 }
 
-unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
+unsafe fn fmt_into<H: Display + Debug, T...>(pat: &str, fi: i64, flen: i64,
                                                    f: &mut Formatter,
                                                    first: H, rest: T...) {
     let mut i: i64 = fi;
@@ -115,7 +115,7 @@ unsafe fn fmt_into<H: Display + Debug, T...>(pat: str, fi: i64, flen: i64,
 /// Formats `args` into a new `String` per the `{}`/`{:?}` placeholders in `pat`.
 /// Runtime fallback for dynamic (non-literal) patterns; handles only `{}` (Display),
 /// `{:?}` (Debug), and `{{`/`}}` escapes — no format-spec parsing.
-pub fn format_args_str<T...: Display + Debug>(pat: str, args: T...) -> String {
+pub fn format_args_str<T...: Display + Debug>(pat: &str, args: T...) -> String {
     let mut buf: String = String::new();
     let mut f: Formatter = Formatter::new(&mut buf);
     unsafe { fmt_into(pat, 0i64, pat.len(), &mut f, args...); }
@@ -124,7 +124,7 @@ pub fn format_args_str<T...: Display + Debug>(pat: str, args: T...) -> String {
 
 // Back-compat alias. Some pre-macro test code wrote `format::<T...>("...", a, b)`.
 /// Returns `format_args_str(pat, args...)`; back-compat alias for plain fn-call sites.
-pub fn format<T...: Display + Debug>(pat: str, args: T...) -> String {
+pub fn format<T...: Display + Debug>(pat: &str, args: T...) -> String {
     return format_args_str(pat, args...);
 }
 
@@ -150,16 +150,16 @@ pub fn format(args: Vec<ExprBlob>) -> ExprBlob {
 // optimizer collapses the wrapper.
 /// Writes `s` to stdout; `pub` only so `print!` expansions resolve it.
 #[lang = "__fmt_print"]
-pub fn __fmt_print(s: str)    { print(s); }
+pub fn __fmt_print(s: &str)    { print(s); }
 /// Writes `s` and a newline to stdout; `pub` only so `println!` expansions resolve it.
 #[lang = "__fmt_println"]
-pub fn __fmt_println(s: str)  { println(s); }
+pub fn __fmt_println(s: &str)  { println(s); }
 /// Writes `s` to stderr; `pub` only so `eprint!` expansions resolve it.
 #[lang = "__fmt_eprint"]
-pub fn __fmt_eprint(s: str)   { eprint(s); }
+pub fn __fmt_eprint(s: &str)   { eprint(s); }
 /// Writes `s` and a newline to stderr; `pub` only so `eprintln!` expansions resolve it.
 #[lang = "__fmt_eprintln"]
-pub fn __fmt_eprintln(s: str) { eprintln(s); }
+pub fn __fmt_eprintln(s: &str) { eprintln(s); }
 
 /// Implements the `print!` macro: formats and writes to stdout, no trailing newline.
 /// Invocation: `print!("n={}", 42);`.
@@ -251,7 +251,7 @@ pub fn writeln(args: Vec<ExprBlob>) -> ExprBlob {
 // if-arm / let unifiers all key off `is_divergent_call_node`).
 /// Panics with `msg`; `-> !` makes `panic!` expansions type as `!` in expression position.
 #[lang = "__fmt_panic"]
-pub fn __fmt_panic(msg: str) -> ! { panic(msg); }
+pub fn __fmt_panic(msg: &str) -> ! { panic(msg); }
 
 // `panic!(...)` macro — formats per Rust's panic! and aborts.
 // Bodies emit `format!(...)` (not `format_args_str(...)`) so sema's

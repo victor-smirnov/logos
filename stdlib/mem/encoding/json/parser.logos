@@ -77,7 +77,7 @@ pub struct Parser {
     pos: i64,
 }
 
-fn parser_new(s: str) -> Parser {
+fn parser_new(s: &str) -> Parser {
     return Parser { src: s.as_ptr(), len: s.len(), pos: 0 as i64 };
 }
 
@@ -104,7 +104,7 @@ unsafe fn skip_ws(p: &mut Parser) {
     }
 }
 
-fn err_at(pos: i64, msg: str) -> JsonError {
+fn err_at(pos: i64, msg: &str) -> JsonError {
     let mut m: String = String::new();
     m.push_str(msg);
     return JsonError { offset: pos, message: m };
@@ -112,7 +112,7 @@ fn err_at(pos: i64, msg: str) -> JsonError {
 
 // ── Literals: null / true / false ─────────────────────────────────────────
 
-unsafe fn match_literal(p: &mut Parser, lit: str) -> bool {
+unsafe fn match_literal(p: &mut Parser, lit: &str) -> bool {
     let n: i64 = lit.len();
     if p.pos + n > p.len { return false; }
     let mut i: i64 = 0 as i64;
@@ -401,7 +401,7 @@ unsafe fn parse_object(p: &mut Parser) -> Result<Json, JsonError> {
 /// Parses `src` as a single complete JSON document into a `Json` AST.
 /// Errors carry the byte offset of the failure; trailing non-whitespace content is an error.
 /// Strings support ASCII escapes only — `\uXXXX` sequences are rejected as invalid.
-pub fn parse(src: str) -> Result<Json, JsonError> {
+pub fn parse(src: &str) -> Result<Json, JsonError> {
     let mut p: Parser = parser_new(src);
     unsafe {
         match parse_value(&mut p) {
@@ -421,7 +421,7 @@ pub fn parse(src: str) -> Result<Json, JsonError> {
 
 /// Returns the index of the first field whose key equals `key`, or `-1` if absent.
 /// Linear search.
-pub fn json_field_index(fields: &Vec<JsonField>, key: str) -> i64 {
+pub fn json_field_index(fields: &Vec<JsonField>, key: &str) -> i64 {
     let n: i64 = fields.length();
     let mut i: i64 = 0 as i64;
     unsafe {

@@ -124,13 +124,13 @@ extern fn logos_parse_as(s: *const u8, len: u64, rule_id: u32) -> *const u8;
 
 /// Parse a generics header string ("<T: Ord + CanonCol>") into a spliceable
 /// `type_param_list` fragment. Splice at an impl/fn generics position: `#(gp)`.
-pub fn parse_type_params(s: str) -> ExprBlob {
+pub fn parse_type_params(s: &str) -> ExprBlob {
     return ExprBlob { ptr: unsafe { logos_parse_as(s.as_ptr(), s.len() as u64, 0u32) } };
 }
 
 /// Parse a type string ("VecCtr<T>", "i64", "&[u8]") into a spliceable
 /// `type_ref` fragment. Splice at any type position: `#(ty)`.
-pub fn parse_type(s: str) -> ExprBlob {
+pub fn parse_type(s: &str) -> ExprBlob {
     return ExprBlob { ptr: unsafe { logos_parse_as(s.as_ptr(), s.len() as u64, 1u32) } };
 }
 
@@ -138,7 +138,7 @@ pub fn parse_type(s: str) -> ExprBlob {
 /// spliceable `expr` fragment. Splice at any expression position: `#(e)`. Lets
 /// an emitter reify a value known only at metaprog time (e.g. a content-hash
 /// integer literal) as a first-class AST node instead of raw push_text.
-pub fn parse_expr(s: str) -> ExprBlob {
+pub fn parse_expr(s: &str) -> ExprBlob {
     return ExprBlob { ptr: unsafe { logos_parse_as(s.as_ptr(), s.len() as u64, 2u32) } };
 }
 
@@ -148,7 +148,7 @@ pub fn parse_expr(s: str) -> ExprBlob {
 /// it is deliberately absent from `type_ref`; this dedicated entry point reifies
 /// a runtime CFG-doc string verbatim into the type-arg the demanded
 /// `CtrClass<@hs>` instance requires (byte-identical @hs by construction).
-pub fn parse_wstatic(s: str) -> ExprBlob {
+pub fn parse_wstatic(s: &str) -> ExprBlob {
     return ExprBlob { ptr: unsafe { logos_parse_as(s.as_ptr(), s.len() as u64, 3u32) } };
 }
 
@@ -176,7 +176,7 @@ pub fn parse_wstatic(s: str) -> ExprBlob {
 /// ⚠ Do NOT write `fn f() { #(body) }` expecting the body: with no semicolon
 /// that is a tail expression, so the fragment nests a second scope and any
 /// `let` inside it stops being visible to what follows.
-pub fn parse_block(s: str) -> ExprBlob {
+pub fn parse_block(s: &str) -> ExprBlob {
     return ExprBlob { ptr: unsafe { logos_parse_as(s.as_ptr(), s.len() as u64, 4u32) } };
 }
 
@@ -189,7 +189,7 @@ pub fn parse_block(s: str) -> ExprBlob {
 ///
 /// ⚠ An EMPTY list is not expressible — `param_list` requires at least one
 /// param — so a no-argument fn needs a template without the splice.
-pub fn parse_params(s: str) -> ExprBlob {
+pub fn parse_params(s: &str) -> ExprBlob {
     return ExprBlob { ptr: unsafe { logos_parse_as(s.as_ptr(), s.len() as u64, 5u32) } };
 }
 
@@ -197,7 +197,7 @@ pub fn parse_params(s: str) -> ExprBlob {
 /// here, such as a `deem`'s query — into a spliceable fragment for the one
 /// position that holds raw text: `deem #n(#(ps)) #(body)`. The text is what
 /// sits between the braces, without them.
-pub fn parse_raw(s: str) -> ExprBlob {
+pub fn parse_raw(s: &str) -> ExprBlob {
     return ExprBlob { ptr: unsafe { logos_parse_as(s.as_ptr(), s.len() as u64, 6u32) } };
 }
 
@@ -220,7 +220,7 @@ extern fn logos_metaprog_error_located(msg: *const u8) -> ();
 // Allocates a small heap buffer (str isn't NUL-terminated by default).
 /// Reports `msg` as a metaprog-hook error; the host fails compilation after the hook returns.
 /// A hook may report several errors per invocation; all surface together.
-pub fn error(msg: str) {
+pub fn error(msg: &str) {
     let mut buf: String = String::new();
     buf.push_str(msg);
     buf.push_u8(0);
@@ -235,7 +235,7 @@ pub fn error(msg: str) {
 /// For reporters that know their position better than the site does (a query
 /// resolves offsets against its own text); using plain `error` there prints the
 /// location twice, the coarse one first.
-pub fn error_located(msg: str) {
+pub fn error_located(msg: &str) {
     let mut buf: String = String::new();
     buf.push_str(msg);
     buf.push_u8(0);
@@ -244,7 +244,7 @@ pub fn error_located(msg: str) {
 
 /// Reports `msg` like `error`, attributed to the user-AST node at `target_offset`.
 /// The host prefixes the message with `<file>:<line>:` from the node's `SRC_LINE` field.
-pub fn error_at(target_offset: u32, msg: str) {
+pub fn error_at(target_offset: u32, msg: &str) {
     let mut buf: String = String::new();
     buf.push_str(msg);
     buf.push_u8(0);
@@ -266,7 +266,7 @@ impl Emitter {
     }
 
     /// Appends `src` to the buffer followed by a newline.
-    pub fn emit_raw(&mut self, src: str) {
+    pub fn emit_raw(&mut self, src: &str) {
         self.buf.push_str(src);
         self.buf.push_u8(10);
     }
@@ -275,7 +275,7 @@ impl Emitter {
     // the buffer. Caller appends the rest (use decls, item source) and
     // calls commit(). Sugar so hooks don't hard-code `package main;`.
     /// Begins a new chunk by writing `package <pkg>; ` to the buffer.
-    pub fn emit_into(&mut self, pkg: str) {
+    pub fn emit_into(&mut self, pkg: &str) {
         self.buf.push_str("package ");
         self.buf.push_str(pkg);
         self.buf.push_str("; ");
@@ -309,7 +309,7 @@ impl Emitter {
     // Push raw text (str) without trailing newline — the difference from
     // emit_raw which adds one. Useful inside tighter expressions.
     /// Appends `s` to the buffer without a trailing newline (unlike `emit_raw`).
-    pub fn push_text(&mut self, s: str) {
+    pub fn push_text(&mut self, s: &str) {
         self.buf.push_str(s);
     }
 
@@ -341,7 +341,7 @@ impl Emitter {
     // view_of_str() to bind a literal str.
     /// Renders `tmpl` into the buffer, replacing `$k1` with the bytes of `v1`.
     /// `$$` emits a literal `$`; an unmatched `$ident` passes through unchanged.
-    pub fn tpl1(&mut self, tmpl: str, k1: str, v1: SView) {
+    pub fn tpl1(&mut self, tmpl: &str, k1: &str, v1: SView) {
         unsafe {
             tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
@@ -351,9 +351,9 @@ impl Emitter {
     }
 
     /// Renders `tmpl` into the buffer, substituting two `$key` bindings; same rules as `tpl1`.
-    pub fn tpl2(&mut self, tmpl: str,
-                k1: str, v1: SView,
-                k2: str, v2: SView) {
+    pub fn tpl2(&mut self, tmpl: &str,
+                k1: &str, v1: SView,
+                k2: &str, v2: SView) {
         unsafe {
             tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
@@ -363,10 +363,10 @@ impl Emitter {
     }
 
     /// Renders `tmpl` into the buffer, substituting three `$key` bindings; same rules as `tpl1`.
-    pub fn tpl3(&mut self, tmpl: str,
-                k1: str, v1: SView,
-                k2: str, v2: SView,
-                k3: str, v3: SView) {
+    pub fn tpl3(&mut self, tmpl: &str,
+                k1: &str, v1: SView,
+                k2: &str, v2: SView,
+                k3: &str, v3: SView) {
         unsafe {
             tpl_render_into(&mut self.buf, tmpl,
                 k1, v1,
@@ -378,7 +378,7 @@ impl Emitter {
 
 // Wrap a str as a SView for use as a tpl* binding value.
 /// Wraps a `str` as an `SView`, e.g. to bind a literal as a `tpl*` value.
-pub fn view_of_str(s: str) -> SView {
+pub fn view_of_str(s: &str) -> SView {
     return SView { ptr: s.as_ptr(), len: s.len() as u64 };
 }
 
@@ -394,7 +394,7 @@ fn view_empty() -> SView {
     return SView { ptr: 0 as *const u8, len: 0 };
 }
 
-fn str_empty() -> str {
+fn str_empty() -> &str {
     return "";
 }
 
@@ -422,7 +422,7 @@ fn is_ident_cont(c: u8) -> bool {
     return false;
 }
 
-unsafe fn match_key(p: *const u8, n: i64, k: str, v: SView,
+unsafe fn match_key(p: *const u8, n: i64, k: &str, v: SView,
                     out_buf: &mut String) -> bool {
     let kn: i64 = k.len();
     if kn != n { return false; }
@@ -434,10 +434,10 @@ unsafe fn match_key(p: *const u8, n: i64, k: str, v: SView,
 
 // Internal: render `tmpl` into `out`, substituting up to three
 // (key, value) bindings. Empty keys (k.len() == 0) are skipped.
-unsafe fn tpl_render_into(out: &mut String, tmpl: str,
-                          k1: str, v1: SView,
-                          k2: str, v2: SView,
-                          k3: str, v3: SView) {
+unsafe fn tpl_render_into(out: &mut String, tmpl: &str,
+                          k1: &str, v1: SView,
+                          k2: &str, v2: SView,
+                          k3: &str, v3: SView) {
     let p: *const u8 = tmpl.as_ptr();
     let len: i64 = tmpl.len();
     let dollar: u8 = 36u8;   // '$'

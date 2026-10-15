@@ -83,9 +83,9 @@ impl str {
         if i < 0i64 { return Option::None; }
         let m: i64 = pat.match_len();
         unsafe {
-            let head: str = str_from_raw(s.as_ptr(), i);
+            let head: &str = str_from_raw(s.as_ptr(), i);
             let tp: *const u8 = (s.as_ptr() as i64 + i + m) as *const u8;
-            let tail: str = str_from_raw(tp, s.len() - i - m);
+            let tail: &str = str_from_raw(tp, s.len() - i - m);
             return Option::Some((head, tail));
         }
     }
@@ -97,9 +97,9 @@ impl str {
         if i < 0i64 { return Option::None; }
         let m: i64 = pat.match_len();
         unsafe {
-            let head: str = str_from_raw(s.as_ptr(), i);
+            let head: &str = str_from_raw(s.as_ptr(), i);
             let tp: *const u8 = (s.as_ptr() as i64 + i + m) as *const u8;
-            let tail: str = str_from_raw(tp, s.len() - i - m);
+            let tail: &str = str_from_raw(tp, s.len() - i - m);
             return Option::Some((head, tail));
         }
     }
