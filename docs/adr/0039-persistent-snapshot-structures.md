@@ -135,7 +135,7 @@ The vocabulary and the in-memory model are in the `mem` tier (a persistent struc
 | Row | Content | Acceptance |
 |---|---|---|
 | M0 | memory-model description (D1): a declaration form for levels and edges; the x86-host and LCM descriptions written; the two D6 models described in it | the descriptions parse and are readable as data (a fixture queries a level's coherence domain) |
-| M1 | census: every use of `Snapshot` / `Ctr` / `Store` / `store_*` / `create_ctr` / the `MemorySnapshot` downcast / `logos.lcm.deem.data`, mapped to D4 / D7 | ledger file, pinned by a gate |
+| M1 | census: every use of `Snapshot` / `Ctr` / `Store` / `store_*` / `create_ctr` / the `MemorySnapshot` downcast / `logos.lcm.deem.data`, mapped to D4 / D7 | ledger file, pinned by a gate — LANDED 2026-10-15: `logos_00_store_api_census`, ledger `tests/logos/store_api.ledger` (95 rows; uses: mem.bt 1029, deem.data 219, compiler 1; 13 downcast sites, 7 of them in 5 tests). The `Snapshot` trait methods are not counted (shared spelling); M2 prices them with the compiler |
 | M1w | Writ ↔ Memoria (D3): container cells are `WritObjectData` runs (ADR 0027 OPEN-1 completed); reading a cell yields a Writ view; the frame limit stated per container | a container of Writ objects round-trips; a value over the frame limit is refused at INSERT, not truncated |
 | M2 | vocabulary (D4) and laws (D5) in the `mem` tier | trait fixtures; the law suite compiles against a reference model |
 | M2g | write-after-commit refused by `logos.mem.bt` writers (D12); retired by the D4 type split in M3 | a write through a handle on a committed snapshot is refused; fixture pair (refused / admitted on a fork) |
