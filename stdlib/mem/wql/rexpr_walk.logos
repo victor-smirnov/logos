@@ -2601,6 +2601,8 @@ fn MG_FP_NEXT() -> str { return "rows DERIVED this epoch and not yet folded into
 fn MG_FP_NOVELTY_SET() -> str { return "the member's NOVELTY structure, SET semantics — `rel_push_frag`'s gate is `if (*__rsp).insert(row) { __out.push(row) }`, so this HashSet is what decides a derived row is new and the next delta is exactly its accepted inserts; it shadows the accumulated total's membership, one entry per derived row"; }
 fn MG_FP_NOVELTY_LAT() -> str { return "the member's NOVELTY structure, LATTICE semantics — for a recursive min/max member novelty is IMPROVEMENT and not membership, so a best-per-key map replaces the shadow set and the gate is the `__imp` comparison; a row that ties the incumbent is derived and NOT novel, which a set could not express"; }
 fn MG_FP_LAT_KEYS() -> str { return "the lattice map's KEY ROSTER — the best-per-key map has no ordered enumeration surface, so the post-loop argmin/argmax materialization of the total walks this vector instead; it exists for lattice members only and would be deletable the day the map gains an iterator"; }
+fn MG_FP_DOM() -> str { return "the `subsume` DOMINANCE pass's rows — after each round's union the dominance rule runs over the new rows against the total and the total against the new rows, and every row it derives here leaves the total and the round's delta; a landing because the removal reads the whole result after the rule has run"; }
+fn MG_FP_DOM_SET() -> str { return "the `subsume` dominance pass's distinct set — one dominated row reached by many dominating rows is removed once; it is the pass's own novelty gate, as the member's novelty set is the round's"; }
 fn MG_OD_SET() -> str { return "the DRed OVER-DELETION distinct set — `__odn_<m> = __os_<m>.len()` IS the over-deletion count phase 1 checks against `__tot_.len() - __keep_<m>` before mutating anything; it is a SET because phase 1a can reach one row by many derivations and the count must be of ROWS, not of reachings"; }
 
 /// The `_scc` state block's per-member landings. `agg` selects the novelty
@@ -5202,6 +5204,7 @@ fn full_join_pass(ch: &DNest, nest: ExprBlob, body_inner: ExprBlob, fp: &FullPar
     let ysome: ExprBlob = fp.ysome;
     let mut fcond: ExprBlob = quote_expr! { __fj1 < (#(ysrc2)).len() };
     if has_lim_use { fcond = quote_expr! { __fj1 < (#(ysrc2)).len() && __out.len() < (#(lim_f)) }; }
+    plan_trace(ch.var[0i64], "full join matched flags", ch.src[0i64], "one flag per row of the second source, set when a base row matches it — the second pass emits the rows no flag marks, with the base absent; a landing because that pass runs after the nest has read every base row");
     return quote_block! {
         let mut __fm1: Vec<bool> = Vec::<bool>::new();
         let mut __fz1: i64 = 0i64;
@@ -11162,6 +11165,10 @@ fn emit_scc_fn(c: i64, fn_name: str,
         // take, so the node cannot disagree with the artifact about which
         // novelty structure was built (identity (ii)).
         fp_node_member(rn, string_as_str(&prm.rel_rowty[mem[m1]]), prm.rel_is_agg[mem[m1]]);
+        if prm.plan_core.rels.as_slice()[mem[m1]].dom >= 0i64 && !prm.rel_is_agg[mem[m1]] {
+            plan_trace(rn, "dominance removals", string_as_str(&prm.rel_rowty[mem[m1]]), MG_FP_DOM());
+            plan_trace(rn, "dominance removal set", string_as_str(&prm.rel_rowty[mem[m1]]), MG_FP_DOM_SET());
+        }
         if prm.rel_is_agg[mem[m1]] {
             let kts: String = agg_key_ty(prm, mem[m1]);
             let kts_s: str = string_as_str(&kts);
