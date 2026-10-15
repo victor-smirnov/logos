@@ -1,0 +1,87 @@
+// Logos standard library — logos.mem.version.reference
+//
+// The reference model (ADR 0039 row M2): a fork copies the whole state.
+// One container per cut, an ordered u64 -> u64 map held as a sorted Vec.
+// It shares no algorithm with logos.mem.bt, which is what makes it an oracle.
+
+package logos.mem.version.reference;
+
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.collections.vec;
+use logos.mem.version.vocab;
+use logos.mem.version.laws;
+
+pub struct RefLineage { next: u64, heads: Vec<u64> }
+
+pub struct RefSnap { ver: u64, parent: u64, rows: Vec<(u64, u64)> }
+pub struct RefWs { base: u64, lin: Rc<RefCell<RefLineage>>, rows: Vec<(u64, u64)> }
+pub struct RefStore { lin: Rc<RefCell<RefLineage>> }
+
+pub fn ref_lineage_new() -> Rc<RefCell<RefLineage>> {
+    return rc_new::<RefCell<RefLineage>>(RefCell::new(RefLineage { next: 0u64, heads: Vec::new() }));
+}
+
+pub fn ref_store_new() -> RefStore { return RefStore { lin: ref_lineage_new() }; }
+
+/// Advances the lineage by one commit on `base`: the new version replaces
+/// `base` among the heads.
+pub fn ref_lineage_commit(l: &Rc<RefCell<RefLineage>>, base: u64) -> u64 {
+    let mut g = l.borrow_mut();
+    g.next = g.next + 1u64;
+    let v: u64 = g.next;
+    let mut kept: Vec<u64> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < g.heads.len() {
+        if g.heads[i] != base { kept.push(g.heads[i]); }
+        i = i + 1i64;
+    }
+    kept.push(v);
+    g.heads = kept;
+    return v;
+}
+
+pub fn ref_lineage_heads(l: &Rc<RefCell<RefLineage>>) -> Vec<u64> {
+    return law_copy_u64s(&l.borrow().heads);
+}
+
+impl Snapshot for RefSnap {
+    fn version(self: &RefSnap) -> u64 { return self.ver; }
+    fn parents(self: &RefSnap) -> Vec<u64> {
+        let mut p: Vec<u64> = Vec::new();
+        if self.parent != 0u64 { p.push(self.parent); }
+        return p;
+    }
+}
+
+impl Workspace for RefWs {
+    type Snap = RefSnap;
+    fn base(self: &RefWs) -> u64 { return self.base; }
+    fn commit(self: RefWs) -> RefSnap {
+        let v: u64 = ref_lineage_commit(&self.lin, self.base);
+        return RefSnap { ver: v, parent: self.base, rows: self.rows };
+    }
+    fn abort(self: RefWs) { }
+}
+
+impl VersionStore for RefStore {
+    type Snap = RefSnap;
+    type Ws = RefWs;
+    fn root(self: &mut RefStore) -> RefSnap { return RefSnap { ver: 0u64, parent: 0u64, rows: Vec::new() }; }
+    fn fork(self: &mut RefStore, base: &RefSnap) -> RefWs {
+        return RefWs { base: base.ver, lin: self.lin.clone_ref(), rows: law_copy_rows(&base.rows) };
+    }
+    fn heads(self: &RefStore) -> Vec<u64> { return ref_lineage_heads(&self.lin); }
+    fn release(self: &mut RefStore, s: RefSnap) { }
+    fn fork_cost(self: &RefStore) -> u32 { return FORK_COST_STATE(); }
+}
+
+impl MapRead for RefSnap {
+    fn rows(self: &RefSnap) -> Vec<(u64, u64)> { return law_copy_rows(&self.rows); }
+}
+impl MapRead for RefWs {
+    fn rows(self: &RefWs) -> Vec<(u64, u64)> { return law_copy_rows(&self.rows); }
+}
+impl MapWrite for RefWs {
+    fn put(self: &mut RefWs, k: u64, v: u64) { law_put_sorted(&mut self.rows, k, v); }
+}

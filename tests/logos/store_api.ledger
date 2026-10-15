@@ -95,4 +95,6 @@ ContainerRef	deem.data	tests/logos/pass	6	3	M4: Ctr, delete
 DirInsertOutcome	deem.data	stdlib/lcm/deem	8	1	M4: delete
 InsertError	deem.data	stdlib/lcm/deem	4	1	M4: delete
 InsertError	deem.data	tests/logos/pass	2	1	M4: delete
+# not counted (file is outside the stack)	Snap	?	stdlib/mem/version	16
+# not counted (file is outside the stack)	Snap	?	tests/logos/pass	2
 # totals	compiler=1	deem.data=219	mem.bt=1029

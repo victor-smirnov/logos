@@ -1,0 +1,138 @@
+// Logos standard library — logos.mem.version.laws
+//
+// The law suite of ADR 0039 D5, generic over the vocabulary. A model is
+// checked through a law probe: one ordered u64 -> u64 map in a cut.
+// Laws 3-5 (change capture) arrive with `Versioned` (row M5); law 7 holds
+// by construction (`release` consumes) and is pinned by a refusal fixture.
+
+package logos.mem.version.laws;
+
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.version.vocab;
+
+/// Reads the probe map of a cut, in key order.
+pub trait MapRead {
+    fn rows(self: &Self) -> Vec<(u64, u64)>;
+}
+/// Writes the probe map of a workspace.
+pub trait MapWrite {
+    fn put(self: &mut Self, k: u64, v: u64);
+}
+
+pub fn law_copy_rows(src: &Vec<(u64, u64)>) -> Vec<(u64, u64)> {
+    let mut out: Vec<(u64, u64)> = Vec::new();
+    let mut j: i64 = 0i64;
+    while j < src.len() { out.push(src[j]); j = j + 1i64; }
+    return out;
+}
+
+pub fn law_copy_u64s(src: &Vec<u64>) -> Vec<u64> {
+    let mut out: Vec<u64> = Vec::new();
+    let mut i: i64 = 0i64;
+    while i < src.len() { out.push(src[i]); i = i + 1i64; }
+    return out;
+}
+
+pub fn law_put_sorted(rows: &mut Vec<(u64, u64)>, k: u64, v: u64) {
+    let mut j: i64 = 0i64;
+    while j < rows.len() && rows[j].0 < k { j = j + 1i64; }
+    if j < rows.len() && rows[j].0 == k { rows[j] = (k, v); } else { rows.insert(j, (k, v)); }
+}
+
+pub fn law_same_rows(a: &Vec<(u64, u64)>, b: &Vec<(u64, u64)>) -> bool {
+    if a.len() != b.len() { return false; }
+    let mut i: i64 = 0i64;
+    while i < a.len() {
+        if a[i].0 != b[i].0 || a[i].1 != b[i].1 { return false; }
+        i = i + 1i64;
+    }
+    return true;
+}
+
+/// Law 1: a committed snapshot never changes. A fork of it, written and
+/// committed, leaves every read of it as it was.
+pub fn law_committed_immutable<VS: VersionStore>(vs: &mut VS, s: &VS::Snap) -> bool
+    where VS::Snap: MapRead, VS::Ws: MapRead + MapWrite {
+    let before: Vec<(u64, u64)> = s.rows();
+    let mut w = vs.fork(s);
+    w.put(1u64, 999u64);
+    w.put(5u64, 50u64);
+    let s2 = w.commit();
+    let after: Vec<(u64, u64)> = s.rows();
+    let written: Vec<(u64, u64)> = s2.rows();
+    vs.release(s2);
+    return law_same_rows(&after, &before) && !law_same_rows(&written, &before);
+}
+
+/// Law 2: a fork's writes are invisible to its parent and to a sibling fork.
+pub fn law_fork_isolation<VS: VersionStore>(vs: &mut VS, base: &VS::Snap) -> bool
+    where VS::Snap: MapRead, VS::Ws: MapRead + MapWrite {
+    let before: Vec<(u64, u64)> = base.rows();
+    let mut a = vs.fork(base);
+    let b = vs.fork(base);
+    a.put(7u64, 70u64);
+    let parent: Vec<(u64, u64)> = base.rows();
+    let sibling: Vec<(u64, u64)> = b.rows();
+    let own: Vec<(u64, u64)> = a.rows();
+    a.abort();
+    b.abort();
+    return law_same_rows(&parent, &before) && law_same_rows(&sibling, &before) && !law_same_rows(&own, &before);
+}
+
+/// Lineage (D4): an abort leaves the heads as they were; a commit's parent
+/// is its base, and it replaces its base among the heads.
+pub fn law_lineage<VS: VersionStore>(vs: &mut VS, base: &VS::Snap) -> bool {
+    let h0: Vec<u64> = vs.heads();
+    let a = vs.fork(base);
+    a.abort();
+    let h1: Vec<u64> = vs.heads();
+    let w = vs.fork(base);
+    let s = w.commit();
+    let p: Vec<u64> = s.parents();
+    let v: u64 = s.version();
+    let h2: Vec<u64> = vs.heads();
+    vs.release(s);
+    let mut has_new: bool = false;
+    let mut has_base: bool = false;
+    let mut i: i64 = 0i64;
+    while i < h2.len() {
+        if h2[i] == v { has_new = true; }
+        if h2[i] == base.version() { has_base = true; }
+        i = i + 1i64;
+    }
+    return h1.len() == h0.len() && p.len() == 1i64 && p[0] == base.version() && has_new && !has_base;
+}
+
+/// Law 6: the model declares a fork cost class.
+pub fn law_fork_cost_declared<VS: VersionStore>(vs: &VS) -> bool {
+    let c: u32 = vs.fork_cost();
+    return c == FORK_COST_CONSTANT() || c == FORK_COST_STATE();
+}
+
+fn law_line(m: &mut String, name: str, ok: bool) {
+    m.push_str("  ");
+    m.push_str(name);
+    m.push_str(if ok { " ok\n" } else { " VIOLATED\n" });
+}
+
+/// Runs every law against `vs`, one line per law.
+pub fn run_laws<VS: VersionStore>(vs: &mut VS, label: str) -> String
+    where VS::Snap: MapRead, VS::Ws: MapRead + MapWrite {
+    let r = vs.root();
+    let mut w = vs.fork(&r);
+    w.put(1u64, 10u64);
+    w.put(2u64, 20u64);
+    let s1 = w.commit();
+    let mut m: String = String::new();
+    m.push_str(label);
+    m.push_str(":\n");
+    law_line(&mut m, "law 1 committed immutable", law_committed_immutable::<VS>(vs, &s1));
+    law_line(&mut m, "law 2 fork isolation", law_fork_isolation::<VS>(vs, &s1));
+    law_line(&mut m, "law 6 fork cost declared", law_fork_cost_declared::<VS>(vs));
+    law_line(&mut m, "lineage", law_lineage::<VS>(vs, &s1));
+    vs.release(s1);
+    vs.release(r);
+    return m;
+}

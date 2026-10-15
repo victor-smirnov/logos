@@ -1,0 +1,40 @@
+// Logos standard library — logos.mem.version.vocab
+//
+// The logical vocabulary of persistent structures (ADR 0039 D4).
+
+package logos.mem.version.vocab;
+
+use logos.mem.collections.vec;
+
+/// An immutable cut: reads only. `version` identifies it within its lineage;
+/// `parents` are the versions it was committed on (one after a fork, none at a root).
+pub trait Snapshot {
+    fn version(self: &Self) -> u64;
+    fn parents(self: &Self) -> Vec<u64>;
+}
+
+/// A mutable state forked from a snapshot. `commit` publishes it as a new
+/// snapshot of the store's lineage; `abort` discards it. Both consume it.
+pub trait Workspace {
+    type Snap: Snapshot;
+    fn base(self: &Self) -> u64;
+    fn commit(self: Self) -> Self::Snap;
+    fn abort(self: Self);
+}
+
+/// The lineage: forks workspaces off snapshots and keeps the heads.
+/// `release` consumes a snapshot, so a released one cannot be read.
+pub trait VersionStore {
+    type Snap: Snapshot;
+    type Ws: Workspace<Snap = Self::Snap>;
+    fn root(self: &mut Self) -> Self::Snap;
+    fn fork(self: &mut Self, base: &Self::Snap) -> Self::Ws;
+    fn heads(self: &Self) -> Vec<u64>;
+    fn release(self: &mut Self, s: Self::Snap);
+    /// The model's declared fork cost class (law 6): `FORK_COST_CONSTANT()` or `FORK_COST_STATE()`.
+    fn fork_cost(self: &Self) -> u32;
+}
+
+/// Fork cost classes a model declares (ADR 0039 D5 law 6).
+pub fn FORK_COST_CONSTANT() -> u32 { return 1u32; }
+pub fn FORK_COST_STATE() -> u32 { return 2u32; }

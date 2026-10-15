@@ -7,14 +7,17 @@ D4 vocabulary / D7 placement trait, pinned. A row moves only with the ledger.
 Population: stdlib/, tests/, conuco/ (*.logos) and src/compiler (*.cpp, *.hpp),
 `//` comments stripped. A use is a whole-word spelling of a SYMBOL below.
 
-Attribution. Symbols with one definition in the tree are attributed by name.
+Attribution is by the file, not the spelling: a symbol of stack X counts only
+in a file inside X's package or importing it (the D4 vocabulary reuses names
+such as `Snap`). Spellings in other files are listed as `# not counted` rows.
 `create_ctr` / `open_ctr` are defined by BOTH stacks: a file inside a stack's
 package, or importing it, decides; a file importing both, or neither, is
 counted under stack `?` (a pinned row, so a new ambiguous use is visible);
 the compiler's own spellings (sema diagnostics, intrinsics) under `compiler`.
 
 Refusals (exit 2, not a pin diff):
-  * a SYMBOL's definition count is not the one listed — a rename or a new
+  * a SYMBOL's definition count in the stacks' packages (mem/bt, lcm/canon,
+    lcm/deem/data) is not the one listed — a rename or a new
     overload would otherwise zero or merge its rows silently;
   * a `pub fn store_*` in memstore.logos, or a `pub fn|struct|trait` in
     lcm/deem/data/handle.logos or store.logos, that no SYMBOL claims.
@@ -126,11 +129,14 @@ def main():
     files = list(population(repo))
     refuse = []
     stdlib_text = {r: t for r, t in files if r.startswith('stdlib/')}
+    # Definitions are looked up in the two stacks' own packages only; the D4
+    # vocabulary (logos.mem.version) is the migration TARGET and reuses names.
+    stack_text = {r: t for r, t in stdlib_text.items() if r.startswith(PKG[MB] + PKG[DD])}
     for sym, st, _, drx, want in SYMBOLS:
         rx = re.compile(drx if drx else r'^pub fn ' + re.escape(sym) + r'\b', re.M)
-        n = sum(len(rx.findall(t)) for t in stdlib_text.values())
+        n = sum(len(rx.findall(t)) for t in stack_text.values())
         if n != want:
-            refuse.append(f'{sym}: {n} definition(s) in stdlib, ledger expects {want}')
+            refuse.append(f'{sym}: {n} definition(s) in the stacks\' packages, ledger expects {want}')
     claimed = {s for s, *_ in SYMBOLS} | INTERNAL
     for rel, rx in UNCLAIMED:
         for name in re.findall(rx, stdlib_text.get(rel, ''), re.M):
@@ -142,10 +148,11 @@ def main():
             print('  ' + r)
         sys.exit(2)
 
-    uses = defaultdict(int); nfiles = defaultdict(set)
+    uses = defaultdict(int); nfiles = defaultdict(set); stray = defaultdict(int)
     for rel, raw in files:
         code = strip(raw)
         ar = area(rel)
+        fst = stack_of(rel, raw)
         for sym, st, _, _, _ in SYMBOLS:
             if sym == 'MSDOWNCAST':
                 n = len(DOWNCAST.findall(code))
@@ -153,8 +160,11 @@ def main():
                 n = len(re.findall(re.escape(sym).replace(r'\ ', r'\s+') + r'\b', code))
             else:
                 n = len(re.findall(r'(?<![\w.])' + re.escape(sym) + r'\b', code))
+            if n and st and fst not in (st, 'compiler'):
+                stray[(sym, fst, ar)] += n
+                continue
             if n:
-                key = (sym, st if st else stack_of(rel, raw), ar)
+                key = (sym, st if st else fst, ar)
                 uses[key] += n; nfiles[key].add(rel)
     target = {s: t for s, _, t, _, _ in SYMBOLS}
     order = {s: i for i, (s, *_) in enumerate(SYMBOLS)}
@@ -165,6 +175,8 @@ def main():
     tot = defaultdict(int)
     for (s, st, a), n in uses.items():
         tot[st] += n
+    for k in sorted(stray):
+        rows.append('# not counted (file is outside the stack)\t' + '\t'.join([k[0], k[1], k[2], str(stray[k])]))
     rows.append('# totals\t' + '\t'.join(f'{s}={tot[s]}' for s in sorted(tot)))
     text = '\n'.join(rows) + '\n'
     if write:
