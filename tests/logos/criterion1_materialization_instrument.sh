@@ -225,7 +225,7 @@ UD=("$OUT"/*.user)
 RED=0; for s in "${ST[@]}"; do [ "$(cat "$s")" = 0 ] || RED=$((RED+1)); done
 echo "population: ${#FIXTURES[@]} fixtures, ${#UD[@]} with user dumps, $RED non-compiling"
 
-python3 - "$OUT" <<'PY'
+python3 - "$OUT" "$REPO" <<'PY'
 import re, sys, glob, collections, os
 OUT = sys.argv[1]
 
@@ -293,6 +293,19 @@ MAT = {
         '`__keys_<m>` — the lattice map has no ordered enumeration surface',
     'over-deletion set':
         "`__os_<m>` — DRed's |OD|, a set because one row has many derivations",
+    # 2026-10-15 — three heads for collections the emitter gained 2026-10-13/14
+    # without a node (found by this instrument's worklist: `__mr` 23, `__fm` 12,
+    # `__mb` 7, `__dx` 3, `__dxs` 3, none of them owned). `merge join` moved here
+    # from NOMAT: its "no index is built" was true and incomplete — the equal-key
+    # run IS a Vec.
+    'merge join':
+        "`__mr<s>` — the step's run of rows equal to the current key (at most one key's rows); `__mb<s>` a batch step's current batch",
+    'full join matched flags':
+        "`__fm1` — one flag per second-source row; the unmatched pass reads it after the nest",
+    'dominance removals':
+        "`__dx` — the rows a `subsume` dominance pass derived this round, removed from the total",
+    'dominance removal set':
+        "`__dxs` — that pass's distinct set (a row dominated many ways leaves once)",
     # ADR 0025 R-C3 — the one-shot rel's dedup set, `__rds`, 1:1 with `rel
     # result`. A SECOND collection beside the landing, not the landing rescanned
     # — which is what tells it apart from `query output distinct carrier`.
@@ -385,10 +398,14 @@ NOMAT = {
     'not evaluated', 'evaluated though unread', 'demand-driven', 'fully materialized',
     'unique key', 'distinct-value count', 'join selectivity from declared distinct counts',
     'unique index', 'ledger_at', 'ledger_from', 'base filter',
-    # ADR 0026 F9: `merge join` replaces the step's Arrange (no index is built;
-    # the run of equal-key rows is the walk's own cursor state, at most one key's
-    # rows) and `merge declined` names the clause that kept the hash join.
-    'merge join', 'merge declined',
+    # ADR 0026 F9: `merge declined` names the clause that kept the hash join
+    # (`merge join` itself is a MAT head since 2026-10-15: its run is a Vec).
+    'merge declined',
+    # 2026-10-14 `sort elided` (rexpr_walk, an `order by` over a pinned nest
+    # whose base ascends on the key): the `__ks`/`__ix` a `sort` would build is
+    # NOT built — an absence, like `no materialization`. Unclassified here
+    # until 2026-10-15 (G2 red; this instrument is not a registered test).
+    'sort elided',
 }
 def head_of(line):
     m = re.match(r'^\[plan\] (.+?) -> (.*?)(?:   \(|$)', line)
@@ -523,6 +540,11 @@ ACC = {
     '__best':   (('fixpoint novelty lattice',),   'fixpoint novelty lattice (best-per-key improvement map)'),
     '__keys':   (('fixpoint lattice key roster',),'fixpoint lattice key roster (the map\'s enumeration)'),
     '__os':     (('over-deletion set',),          "over-deletion set (DRed's |OD|)"),
+    '__mr':     (('merge join',),                 "merge join's equal-key run"),
+    '__mb':     (('merge join',),                 "merge join's current batch (batch step)"),
+    '__fm':     (('full join matched flags',),    "full join matched flags"),
+    '__dx':     (('dominance removals',),         "subsume dominance removals"),
+    '__dxs':    (('dominance removal set',),      "subsume dominance removal set"),
     # ── ADR 0025 R-C3 — THE SIXTH FIXPOINT KEY, AND THE DEBT R-C2 RECORDED ─
     # R-C2 landed five of its six heads here and REFUSED the sixth in writing:
     # a key `__rs` would also have matched the 45 BARE `__rs` bindings, which
@@ -719,6 +741,7 @@ ACC = {
 BIND = re.compile(r'\blet\s+(?:mut\s+)?([A-Za-z_][A-Za-z_0-9]*?)\d*\s*:\s*(Vec|Buffer|HashMap|HashSet|BTreeMap)\s*<')
 cls = collections.Counter()
 D2 = 0
+derived_mat = collections.Counter()   # ADR 0025 L9: a derive's materializer
 for p in glob.glob(os.path.join(OUT, '*.user')):
     for ln in open(p, errors='replace'):
         m = BIND.search(ln)
@@ -727,6 +750,8 @@ for p in glob.glob(os.path.join(OUT, '*.user')):
         n = m.group(1)
         key = next((a for a in ACC if n == a or n.startswith(a + '_')), None)
         cls[key or n] += 1
+        if key is None and ('= __gs_edges_' in ln or 'Vec<WritEdgeRow>' in ln):
+            derived_mat[n] += 1
 
 # ── G4: A CREDIT IS ONLY A CREDIT IF ITS OWNER FIRED ───────────────────────
 # `witnessed` is decided by THIS sweep's trace channel (`heads`), which the
@@ -756,6 +781,24 @@ if unwitnessed:
 print(f"      UNACCOUNTED — THE CRITERION-1 WORKLIST .................. {D2-acc_n}")
 for k, v in sorted(((k, v) for k, v in cls.items() if k not in OWNED), key=lambda kv: -kv[1])[:20]:
     print(f"        {v:6d}  {k}")
+# ADR 0025 L9 — the `__rel_<r>` admission says "a NATIVE source whose producer
+# returns a container the query compiler did not build". For `__gs_edges_<T>`
+# that is true of the QUERY compiler and false of the COMPILER: the producer is
+# `derive(GraphSource)`'s materializer, emitted in this compilation, and it
+# fills `out: Vec<WritEdgeRow>` row by row. These are the worklist's one
+# compiler-built class outside the plan — admitted by name, and the question
+# that would retire them is L12's (a writ walk with an in-plan producer).
+# The prefix is a spelling, so its premise is checked: ONE emission site.
+import subprocess
+gs_sites = subprocess.run(['grep', '-rl', '"__gs_edges_"', os.path.join(sys.argv[2], 'stdlib')],
+                          capture_output=True, text=True).stdout.split()
+if [os.path.basename(x) for x in gs_sites] != ['derive_graph_source.logos']:
+    print(f"FAIL(2) L9: `__gs_edges_` is emitted from {gs_sites} — the derive-materializer split assumed")
+    print( "            derive_graph_source.logos alone; re-derive which landings it covers.")
+    sys.exit(2)
+print(f"      of which a derive's materializer (`__gs_edges_<T>`, compiler-built outside the plan,")
+print(f"      ADR 0025 L9/L12) .................................... {sum(derived_mat.values())}"
+      f"  ({', '.join(f'{k} {v}' for k, v in sorted(derived_mat.items()))})")
 print()
 print(f"SUMMARY  N1/D1={N1}/{D1}={100.0*N1/D1:.2f}%  T={T}  D2={D2} accounted={acc_n} "
       f"({100.0*acc_n/D2:.2f}%)")
