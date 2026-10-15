@@ -3724,6 +3724,16 @@ TypeRef SemaChecker::normalize_assoc_eq(TypeRef t) const {
             const std::string pa(TypeRef(base).assoc_type_name());
             const std::string an(TypeRef(t).assoc_type_name());
             const std::string tn(TypeRef(t).trait_name());
+            // A where-clause on the base projection (`where X::W: Ws<Snap = X::Snap>`):
+            // its equation is already in this function's namespace.
+            // KEY-IDENTITY: the projection's spelling, as resolve_type writes it.
+            if (auto wit = current_type_bounds_.find(type_str(base)); wit != current_type_bounds_.end())
+                for (auto& b : wit->second) {
+                    if (!tn.empty() && !b.trait_name.empty() && strip_trait_targ_suffix(b.trait_name) != strip_trait_targ_suffix(tn))
+                        continue;
+                    for (auto& [name, ty] : b.assoc_eqs)
+                        if (name == an && ty) return ty;
+                }
             std::vector<std::string> traits;
             if (!TypeRef(base).trait_name().empty())
                 traits.push_back(strip_trait_targ_suffix(TypeRef(base).trait_name()));
@@ -8130,17 +8140,34 @@ TypeRef SemaChecker::resolve_type_assoc_ref(TinyMapView node) {
                 // Iterator<Item>`): bind the trait's parameters to this
                 // projection's trait arguments (`I: IntoIterator<T>` → Item := T).
                 std::vector<TraitBound> bs = at.bounds;
-                if (!trait_args_for_assoc.empty()) {
+                {
+                    // The trait's `Self` is this projection's base (`type Ws: Workspace<Snap =
+                    // Self::Snap>` read at `X::Ws` says `Snap = X::Snap`).
                     SemaSubst ts;
+                    if (base_type) ts["Self"] = base_type;
                     for (size_t i = 0; i < tit->type_params.size() && i < trait_args_for_assoc.size(); ++i)
                         if (trait_args_for_assoc[i]) ts[tit->type_params[i].name] = trait_args_for_assoc[i];
                     if (!ts.empty())
-                        for (auto& b : bs)
+                        for (auto& b : bs) {
                             for (auto& ta : b.type_args)
                                 if (ta) ta = subst_type_sema(ta, ts);
+                            for (auto& [nm, ty] : b.assoc_eqs)
+                                if (ty) ty = subst_type_sema(ty, ts);
+                        }
                 }
                 // KEY-IDENTITY: the projection's own type spelling (see above).
-                current_type_bounds_[type_str(result)] = std::move(bs);
+                // MERGED, not assigned: a where-clause on the same projection
+                // (`where X::Snap: Read`) is already in this entry, and resolving
+                // an annotation `let s2: X::Snap` used to drop it for the rest of
+                // the function.
+                auto& cur = current_type_bounds_[type_str(result)];
+                for (auto& nb : bs) {
+                    bool dup = false;
+                    for (auto& ob : cur)
+                        dup = dup || (ob.trait_name == nb.trait_name && ob.type_args.size() == nb.type_args.size() &&
+                                      ob.assoc_eqs.size() == nb.assoc_eqs.size());
+                    if (!dup) cur.push_back(std::move(nb));
+                }
                 break;
             }
         }

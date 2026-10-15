@@ -1,0 +1,22 @@
+// An annotated `let s2: X::Snap = ..` no longer drops the where-clause bound `X::Snap: Read`
+// for the rest of the function: resolving the projection MERGES its trait-level item bound
+// into the entry instead of overwriting it (rustc 1.98.1 admits; deem's ADR 0039 M2 report (B)).
+package annotated_projection_keeps_where_bound;
+trait Snapshot { fn version(&self) -> u64; }
+trait Read { fn rows(&self, k: u64) -> u64; }
+trait Ws { type Snap: Snapshot; fn commit(self) -> Self::Snap; }
+trait Vs { type Snap: Snapshot; type W: Ws<Snap = Self::Snap>; fn fork(&mut self) -> Self::W; }
+struct S { n: u64 }
+impl Snapshot for S { fn version(&self) -> u64 { 0 } }
+impl Read for S { fn rows(&self, k: u64) -> u64 { self.n + k } }
+struct W { n: u64 }
+impl Ws for W { type Snap = S; fn commit(self) -> S { S { n: self.n } } }
+struct V { n: u64 }
+impl Vs for V { type Snap = S; type W = W; fn fork(&mut self) -> W { W { n: self.n } } }
+fn law<X: Vs>(vs: &mut X, s: &X::Snap) -> u64 where X::Snap: Read {
+    let before = s.rows(1u64);
+    let w = vs.fork();
+    let s2: X::Snap = w.commit();
+    before + s.rows(1u64) + s2.version()
+}
+fn main() -> i32 { let mut v = V { n: 2 }; let s = S { n: 1 }; return (law(&mut v, &s) - 4) as i32; }
