@@ -84,8 +84,10 @@ fn run_all() -> i32 {
     }
 
     // ── remove a container's entry at scale; its other entry survives ────
+    // (in a fork of v2: a committed snapshot never changes, ADR 0039 law 1)
+    let s3: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     {
-        let mut c = open_ctr::<typeof(Ledger)>(&s2, 1500u64);
+        let mut c = open_ctr::<typeof(Ledger)>(&s3, 1500u64);
         if !c.remove(1500u64) { return 9i32; }
         if c.get_or(1500u64, 0xDEADu64) != 0xDEADu64 { return 10i32; }
         if c.get_or(1001500u64, 0u64) != 1500u64 { return 11i32; }  // id+1000000, survives
@@ -95,14 +97,14 @@ fn run_all() -> i32 {
     // the DIRECTORY tree is well-formed after all the churn (check() at scale —
     // separators, ordering, levels, snap monotonicity across 2000 entries)
     {
-        let msr: &MemorySnapshot = unsafe { &*(dyn_data(&*s2) as *const MemorySnapshot) };
+        let msr: &MemorySnapshot = unsafe { &*(dyn_data(&*s3) as *const MemorySnapshot) };
         if msr.check_dir_count() != 0u64 {
             eprintln_string(&msr.check_dir());
             return 13i32;
         }
     }
 
-    // Everything (both snapshots' whole 2000-container populations) is released
+    // Everything (every snapshot's whole 2000-container populations) is released
     // by the store's Drop at scope end — ONE tree_release(dir_root) cascade per
     // snapshot. valgrind pins zero leaks / zero double-frees.
     return 0i32;

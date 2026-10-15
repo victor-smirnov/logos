@@ -1,0 +1,12 @@
+exit: 0
+stdout:
+reference:
+  law 1 committed immutable ok
+  law 2 fork isolation ok
+  law 6 fork cost declared ok
+  lineage ok
+canary shared-rows:
+  law 1 committed immutable VIOLATED
+  law 2 fork isolation VIOLATED
+  law 6 fork cost declared ok
+  lineage ok

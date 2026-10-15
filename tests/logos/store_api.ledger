@@ -1,0 +1,100 @@
+# ADR 0039 M1 — store API census. Regenerate: tests/logos/store_api_census.py . tests/logos/store_api.ledger --write
+# symbol	stack	area	uses	files	target
+MemoryStore	mem.bt	stdlib/mem/bt	86	1	VersionStore (in-memory model, D10)
+MemoryStore	mem.bt	tests/logos/fail	12	12	VersionStore (in-memory model, D10)
+MemoryStore	mem.bt	tests/logos/pass	91	76	VersionStore (in-memory model, D10)
+MemorySnapshot	mem.bt	stdlib/lcm/canon	12	1	Snapshot + Workspace instance; NodeStore (D7)
+MemorySnapshot	mem.bt	stdlib/mem/bt	109	4	Snapshot + Workspace instance; NodeStore (D7)
+MemorySnapshot	mem.bt	tests/logos/pass	42	9	Snapshot + Workspace instance; NodeStore (D7)
+dyn Snapshot	mem.bt	stdlib/lcm/canon	19	2	Snapshot (read) / Workspace (write) — split at M2
+dyn Snapshot	mem.bt	stdlib/mem/bt	11	1	Snapshot (read) / Workspace (write) — split at M2
+dyn Snapshot	mem.bt	tests/logos/fail	11	11	Snapshot (read) / Workspace (write) — split at M2
+dyn Snapshot	mem.bt	tests/logos/pass	118	75	Snapshot (read) / Workspace (write) — split at M2
+MSDOWNCAST	mem.bt	stdlib/lcm/canon	6	1	NodeStore (D7) replaces the dyn_data downcast
+MSDOWNCAST	mem.bt	tests/logos/pass	7	5	NodeStore (D7) replaces the dyn_data downcast
+store_new	mem.bt	stdlib/mem/bt	3	1	VersionStore construction (model)
+store_new	mem.bt	tests/logos/fail	12	12	VersionStore construction (model)
+store_new	mem.bt	tests/logos/pass	86	76	VersionStore construction (model)
+store_fork	mem.bt	stdlib/mem/bt	3	1	VersionStore::fork -> Workspace
+store_fork	mem.bt	tests/logos/pass	5	1	VersionStore::fork -> Workspace
+store_fork_arc	mem.bt	stdlib/mem/bt	1	1	VersionStore::fork -> Workspace
+store_fork_arc	mem.bt	tests/logos/fail	12	12	VersionStore::fork -> Workspace
+store_fork_arc	mem.bt	tests/logos/pass	102	75	VersionStore::fork -> Workspace
+store_fork_branch	mem.bt	stdlib/mem/bt	1	1	VersionStore::fork(branch head) -> Workspace
+store_fork_branch	mem.bt	tests/logos/pass	1	1	VersionStore::fork(branch head) -> Workspace
+store_fork_from	mem.bt	stdlib/mem/bt	1	1	VersionStore::fork(&Snapshot) -> Workspace
+store_fork_from	mem.bt	tests/logos/pass	2	1	VersionStore::fork(&Snapshot) -> Workspace
+store_find	mem.bt	stdlib/mem/bt	2	1	VersionStore: open a committed Snapshot
+store_find	mem.bt	tests/logos/pass	5	3	VersionStore: open a committed Snapshot
+store_find_branch	mem.bt	stdlib/mem/bt	2	1	VersionStore branches
+store_find_branch	mem.bt	tests/logos/pass	3	1	VersionStore branches
+store_master	mem.bt	stdlib/mem/bt	1	1	VersionStore branches
+store_master	mem.bt	tests/logos/pass	2	1	VersionStore branches
+store_set_branch	mem.bt	stdlib/mem/bt	4	1	VersionStore branches
+store_set_branch	mem.bt	tests/logos/pass	1	1	VersionStore branches
+store_set_master	mem.bt	stdlib/mem/bt	1	1	VersionStore branches
+store_set_master	mem.bt	tests/logos/pass	2	1	VersionStore branches
+store_remove_branch	mem.bt	stdlib/mem/bt	1	1	VersionStore branches
+store_remove_branch	mem.bt	tests/logos/pass	2	1	VersionStore branches
+store_branches	mem.bt	stdlib/mem/bt	1	1	VersionStore branches
+store_branches	mem.bt	tests/logos/pass	4	1	VersionStore branches
+store_branch_head	mem.bt	stdlib/mem/bt	1	1	VersionStore heads
+store_branch_head	mem.bt	tests/logos/pass	12	2	VersionStore heads
+store_branch_heads	mem.bt	stdlib/mem/bt	1	1	VersionStore heads
+store_branch_heads	mem.bt	tests/logos/pass	1	1	VersionStore heads
+store_heads	mem.bt	stdlib/mem/bt	1	1	VersionStore heads
+store_heads	mem.bt	tests/logos/pass	1	1	VersionStore heads
+store_root_id	mem.bt	stdlib/mem/bt	1	1	VersionStore log
+store_root_id	mem.bt	tests/logos/pass	2	1	VersionStore log
+store_snapshot_parent	mem.bt	stdlib/mem/bt	1	1	Snapshot::parents
+store_snapshot_parent	mem.bt	tests/logos/pass	5	2	Snapshot::parents
+store_children_of	mem.bt	stdlib/mem/bt	1	1	VersionStore log
+store_children_of	mem.bt	tests/logos/pass	2	1	VersionStore log
+store_linear_history	mem.bt	stdlib/mem/bt	1	1	VersionStore log
+store_linear_history	mem.bt	tests/logos/pass	3	1	VersionStore log
+store_snapshot_status	mem.bt	stdlib/mem/bt	1	1	VersionStore log
+store_snapshot_status	mem.bt	tests/logos/pass	4	2	VersionStore log
+store_active_snapshots	mem.bt	stdlib/mem/bt	1	1	VersionStore log
+store_active_snapshots	mem.bt	tests/logos/pass	3	1	VersionStore log
+store_drop	mem.bt	stdlib/mem/bt	3	1	VersionStore release
+store_drop	mem.bt	tests/logos/pass	1	1	VersionStore release
+store_pack	mem.bt	stdlib/mem/bt	1	1	VersionStore release
+store_pack	mem.bt	tests/logos/pass	2	1	VersionStore release
+store_save	mem.bt	stdlib/mem/bt	3	1	model durability (D6), not vocabulary
+store_save	mem.bt	tests/logos/pass	3	2	model durability (D6), not vocabulary
+store_load	mem.bt	stdlib/mem/bt	3	1	model durability (D6), not vocabulary
+store_load	mem.bt	tests/logos/pass	3	2	model durability (D6), not vocabulary
+create_ctr	compiler	src/compiler	1	1	Ctr: create in a Workspace
+create_ctr	deem.data	stdlib/lcm/deem	1	1	Ctr: create in a Workspace
+create_ctr	deem.data	tests/logos/fail	1	1	Ctr: create in a Workspace
+create_ctr	deem.data	tests/logos/pass	33	24	Ctr: create in a Workspace
+create_ctr	mem.bt	stdlib/lcm/canon	1	1	Ctr: create in a Workspace
+create_ctr	mem.bt	tests/logos/fail	11	11	Ctr: create in a Workspace
+create_ctr	mem.bt	tests/logos/pass	110	72	Ctr: create in a Workspace
+open_ctr	deem.data	stdlib/lcm/deem	1	1	Ctr: open in a Snapshot / Workspace
+open_ctr	deem.data	tests/logos/pass	35	11	Ctr: open in a Snapshot / Workspace
+open_ctr	mem.bt	stdlib/lcm/canon	1	1	Ctr: open in a Snapshot / Workspace
+open_ctr	mem.bt	tests/logos/pass	55	18	Ctr: open in a Snapshot / Workspace
+create_ctr_rc	mem.bt	stdlib/lcm/canon	1	1	Ctr: create in a Workspace
+create_ctr_rc	mem.bt	tests/logos/pass	3	3	Ctr: create in a Workspace
+open_ctr_rc	mem.bt	stdlib/lcm/canon	1	1	Ctr: open in a Snapshot / Workspace
+open_ctr_rc	mem.bt	tests/logos/pass	1	1	Ctr: open in a Snapshot / Workspace
+store_open	deem.data	stdlib/lcm/deem	1	1	M4: port to VersionStore, delete
+store_open	deem.data	tests/logos/fail	1	1	M4: port to VersionStore, delete
+store_open	deem.data	tests/logos/pass	24	24	M4: port to VersionStore, delete
+snap_fork	deem.data	stdlib/lcm/deem	2	1	M4: port to VersionStore::fork, delete
+Snap	deem.data	stdlib/lcm/deem	9	1	M4: Workspace (commit(self) consumes), delete
+SnapCtx	deem.data	stdlib/lcm/deem	8	1	M4: delete
+MutSnapshot	deem.data	stdlib/lcm/deem	1	1	M4: delete
+LockingStore	deem.data	stdlib/lcm/deem	54	2	M4: port merge/labels to VersionStore, delete
+locking_store_new	deem.data	stdlib/lcm/deem	2	2	M4: delete
+IStore	deem.data	stdlib/lcm/deem	2	1	M4: VersionStore, delete
+CommitEntry	deem.data	stdlib/lcm/deem	16	2	M4: VersionStore log entry, delete
+ContainerRef	deem.data	stdlib/lcm/deem	8	1	M4: Ctr, delete
+ContainerRef	deem.data	tests/logos/pass	6	3	M4: Ctr, delete
+DirInsertOutcome	deem.data	stdlib/lcm/deem	8	1	M4: delete
+InsertError	deem.data	stdlib/lcm/deem	4	1	M4: delete
+InsertError	deem.data	tests/logos/pass	2	1	M4: delete
+# not counted (file is outside the stack)	Snap	?	stdlib/mem/version	16
+# not counted (file is outside the stack)	Snap	?	tests/logos/pass	2
+# totals	compiler=1	deem.data=219	mem.bt=1029

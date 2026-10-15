@@ -3181,6 +3181,7 @@ fn emit_btvec_family(name: str, vty: str, mexpr: ExprBlob, cfg_src: str) {
                 return #(vconv);
             }
             pub fn set(self: &#nm, pos: u64, v: #(vt)) {
+                self.ms().assert_writable();
                 let t: Btvec<#nd> = self.tree();
                 btvec_set::<#nd>(self.ms(), &t, pos, v as u64);
             }

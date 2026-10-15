@@ -66,7 +66,7 @@ Recursive min/max (lattice rels, any `Ord` value since 2026-10-09) under mainten
 Sources declare their delta interface beside their relations:
 
 ```
-trait DeltaSource {
+trait Versioned {   // ADR 0039 D4 (named there, O2); per snapshot (O4)
     type Row: Eq + Hash;
     type Version;
     fn delta_since(&self, v: &Self::Version) -> Delta<Self::Row>;
@@ -106,7 +106,7 @@ The compiled tier (`emit_incremental`, `_apply` / `_epoch` / `_retract` / `_snap
 | I5 | delete the compiled tier (D10) | ≈4 700 lines gone; refusal fixtures re-derived |
 | I6 | DRed and RECOMPUTE as alternative SCC translations with grounds | planner choice traced; measured against I4 |
 | I7 | lattice recursion with support sets (D4) | SSSP under edge deletion vs independent Bellman-Ford |
-| I8 | change capture: `DeltaSource`, Memoria snapshot diff, `mem` wrapper (D6) | Memoria-backed circuit fixture: checkpoint, fork, replay |
+| I8 | change capture: `Versioned`, Memoria snapshot diff, `mem` wrapper (D6) | Memoria-backed circuit fixture: checkpoint, fork, replay |
 | I9 | provenance witness and `explain` (D8) | chain, diamond, cycle, retract-and-rewitness fixtures |
 
 ## Open

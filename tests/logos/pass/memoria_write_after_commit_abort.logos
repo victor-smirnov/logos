@@ -1,0 +1,38 @@
+// ADR 0039 law 1 (row M2g): a committed snapshot never changes. Before the
+// guard, `commit` only flipped a status and the generated writer, finding
+// its own stamp on every node, wrote IN PLACE into the committed version.
+// Now the write through a handle on the committed snapshot aborts; the line
+// printed first shows the abort is the write's, not the setup's.
+// Twin: memoria_write_after_commit_fork_admit (the same change on a fork).
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.io;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+container Series {
+    kind vector;
+    entry { val: u64 }
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut l = create_ctr::<typeof(Ledger)>(&s1, 1u64);
+    l.insert(1u64, 10u64);
+    s1.commit();
+    { let mut m: String = String::new(); m.push_str("committed"); println_string(&m); }
+    l.insert(1u64, 99u64);
+    return 0i32;
+}

@@ -1,0 +1,22 @@
+// ADR 0039 D5 law 1, by construction: a snapshot has no write surface. A
+// write needs a Workspace (fork the snapshot, write, commit).
+package test;
+
+use logos.lang.str;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.version.vocab;
+use logos.mem.version.laws;
+use logos.mem.version.reference;
+use logos.std.io;
+
+fn main() -> i32 {
+    let mut st: RefStore = ref_store_new();
+    let r = st.root();
+    let w = st.fork(&r);
+    let mut s = w.commit();
+    s.put(1u64, 10u64);
+    return 0i32;
+}

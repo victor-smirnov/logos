@@ -1,0 +1,63 @@
+// ADR 0039 row M2: the D5 law suite against the reference model (full copy
+// on fork) and against a canary model whose forks SHARE their parent's rows
+// (the defect row M3v names in logos.mem.bt's vector family). The reference
+// holds every law; the canary must violate laws 1 and 2, or the suite is blind.
+package test;
+
+use logos.lang.str;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.mem.string;
+use logos.mem.collections.vec;
+use logos.mem.version.vocab;
+use logos.mem.version.laws;
+use logos.mem.version.reference;
+use logos.std.io;
+
+pub struct LeakSnap { ver: u64, parent: u64, rows: Rc<RefCell<Vec<(u64, u64)>>> }
+pub struct LeakWs { base: u64, lin: Rc<RefCell<RefLineage>>, rows: Rc<RefCell<Vec<(u64, u64)>>> }
+pub struct LeakStore { lin: Rc<RefCell<RefLineage>> }
+
+impl Snapshot for LeakSnap {
+    fn version(self: &LeakSnap) -> u64 { return self.ver; }
+    fn parents(self: &LeakSnap) -> Vec<u64> {
+        let mut p: Vec<u64> = Vec::new();
+        if self.parent != 0u64 { p.push(self.parent); }
+        return p;
+    }
+}
+impl Workspace for LeakWs {
+    type Snap = LeakSnap;
+    fn base(self: &LeakWs) -> u64 { return self.base; }
+    fn commit(self: LeakWs) -> LeakSnap {
+        let v: u64 = ref_lineage_commit(&self.lin, self.base);
+        return LeakSnap { ver: v, parent: self.base, rows: self.rows };
+    }
+    fn abort(self: LeakWs) { }
+}
+impl VersionStore for LeakStore {
+    type Snap = LeakSnap;
+    type Ws = LeakWs;
+    fn root(self: &mut LeakStore) -> LeakSnap {
+        return LeakSnap { ver: 0u64, parent: 0u64, rows: rc_new::<RefCell<Vec<(u64, u64)>>>(RefCell::new(Vec::new())) };
+    }
+    fn fork(self: &mut LeakStore, base: &LeakSnap) -> LeakWs {
+        return LeakWs { base: base.ver, lin: self.lin.clone_ref(), rows: base.rows.clone_ref() };
+    }
+    fn heads(self: &LeakStore) -> Vec<u64> { return ref_lineage_heads(&self.lin); }
+    fn release(self: &mut LeakStore, s: LeakSnap) { }
+    fn fork_cost(self: &LeakStore) -> u32 { return FORK_COST_CONSTANT(); }
+}
+impl MapRead for LeakSnap { fn rows(self: &LeakSnap) -> Vec<(u64, u64)> { return law_copy_rows(&self.rows.borrow()); } }
+impl MapRead for LeakWs { fn rows(self: &LeakWs) -> Vec<(u64, u64)> { return law_copy_rows(&self.rows.borrow()); } }
+impl MapWrite for LeakWs { fn put(self: &mut LeakWs, k: u64, v: u64) { law_put_sorted(&mut self.rows.borrow_mut(), k, v); } }
+
+fn main() -> i32 {
+    let mut rs: RefStore = ref_store_new();
+    let a: String = run_laws::<RefStore>(&mut rs, "reference");
+    print_string(&a);
+    let mut ls: LeakStore = LeakStore { lin: ref_lineage_new() };
+    let b: String = run_laws::<LeakStore>(&mut ls, "canary shared-rows");
+    print_string(&b);
+    return 0i32;
+}

@@ -184,6 +184,10 @@ SINGLETONS = {
         T('logos_00_ast_key_census',
           ['{python3}', '{tsrc}/ast_key_census.py', '{src}/tools/peg_gen_cpp/grammars/logos.peg'],
           'logos;lint;suite_lint;tier_commit', timeout=60),
+        # ADR 0039 M1 — STORE API CENSUS: both persistent stacks' surface mapped to D4/D7, pinned
+        T('logos_00_store_api_census',
+          ['{python3}', '{tsrc}/store_api_census.py', '{src}', '{tsrc}/store_api.ledger'],
+          'logos;lint;suite_lint;tier_commit', timeout=60),
         # ONE SCHEDULER: A REGISTERED TEST MAY NOT FAN OUT ITS OWN
         T('logos_00_one_scheduler_lint',
           ['{tsrc}/one_scheduler_lint.sh', '{src}'],

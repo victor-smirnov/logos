@@ -6974,10 +6974,13 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12287 -> 12290 (+3), NOIMPORTED 7728 -> 7731 (+3), TIERCOMMIT 163 -> 164 (+1) — 2026-10-15: merge deem a72add361 (+1 glob deem_to_number_e2e, +1 registry) onto main (+1 nonglob box_dyn_double_deref_mut_reborrow, +3 registry incl. unsized_deref_by_value_e0277, squeue str_by_value_admitted tier +1).
 #                ALL 12290 -> 12292 (+2), NOIMPORTED 7731 -> 7733 (+2), TIERCOMMIT 164 -> 164 (+0) — 2026-10-15: +pass/deem_pow_e2e (glob), +fail/deem_pow_str_arg_fail.
 #                ALL 12292 -> 12293 (+1), NOIMPORTED 7733 -> 7734 (+1), TIERCOMMIT 164 -> 163 (-1) — 2026-10-15: merge deem 8e4b8d5a4 (+1 glob deem_pow_e2e, +2 registry) onto main 46d0d7fd7 (4819 = 272 + 4547, 12291/7732/163).
-#                ALL 12293 -> 12296 (+3), NOIMPORTED 7734 -> 7737 (+3), TIERCOMMIT 163 -> 163 (+0) — 2026-10-15: pass/where_eq_normalizes_projection_of_projection, annotated_projection_keeps_where_bound, nested_handle_call_in_method_arg.
-REGISTRY-ALL         12296
-REGISTRY-NOIMPORTED  7737
-REGISTRY-TIERCOMMIT  163
+#                ALL 12293 -> 12296 (+3), NOIMPORTED 7734 -> 7737 (+3), TIERCOMMIT 163 -> 163 (+0) — 2026-10-15: +pass/memoria_write_after_commit_{abort,vec_set_abort,fork_admit} (ADR 0039 M2g).
+#                ALL 12296 -> 12297 (+1), NOIMPORTED 7737 -> 7738 (+1), TIERCOMMIT 163 -> 164 (+1) — 2026-10-15: +logos_00_store_api_census (ADR 0039 M1, tier_commit lint).
+#                ALL 12297 -> 12300 (+3), NOIMPORTED 7738 -> 7741 (+3), TIERCOMMIT 164 -> 164 (+0) — 2026-10-15: +pass/version_laws_reference, +fail/version_read_after_release_refuse, +fail/version_snapshot_write_refused (ADR 0039 M2).
+#                ALL 12300 -> 12303 (+3), NOIMPORTED 7741 -> 7744 (+3), TIERCOMMIT 164 -> 164 (+0) — 2026-10-15: merge deem 74a671e24 (+4 nonglob, +7 registry, tier +1: ADR 0039 M2g/M1/M2) onto main 1d495dae2 (+3 nonglob, +3 registry).
+REGISTRY-ALL         12303
+REGISTRY-NOIMPORTED  7744
+REGISTRY-TIERCOMMIT  164
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
 RENAMED-FIXTURE  tests/imported/admit/nll/trait-associated-constant.logos  tests/imported/fail/nll/trait-associated-constant.logos  2026-09-13f: the bc_admits row it carried (nllmoves.R18) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning an associated const's regions against the trait's
