@@ -114,8 +114,8 @@ fn main() -> i64 {
         let n: i64 = 99i64;
         // @rule grammar.trait.relaxed-bound-sized-only
         let pn: *const u8 = first_byte::<i64>(&n);   // sized T
-        let s: &str = "hi";
-        let ps: *const u8 = first_byte::<&str>(s);    // unsized T behind &
+        let s: str = "hi";
+        let ps: *const u8 = first_byte::<str>(s);    // unsized T behind &
         if pn == (0 as *const u8) { return 13; }
         if ps == (0 as *const u8) { return 14; }
     }

@@ -29,7 +29,7 @@ use logos.lang.str;
 // Zero fields: legal, and the one shape that makes `"fields"` an EMPTY array.
 pub schema Nil : code(0x0A02_0000_0000_0001) { }
 pub schema One : code(0x0A02_0000_0000_0002) { a: i64 = 0, }
-pub schema Two : code(0x0A02_0000_0000_0003) { b: &str = 0, }
+pub schema Two : code(0x0A02_0000_0000_0003) { b: str = 0, }
 pub schema Tri : code(0x0A02_0000_0000_0004) { c: f64 = 7, }
 // An edge is the one field that carries a THIRD key (`"target"`), so it is the
 // field most sensitive to the separator — put it last, after four neighbours.

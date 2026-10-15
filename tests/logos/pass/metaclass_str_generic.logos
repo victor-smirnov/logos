@@ -28,7 +28,7 @@ use logos.lang.writ.wstatic;
 // Concrete str-map: emit_cfg_doc records the value column as the "str" tag.
 container Journal {
     kind ordered_map;
-    entry { key: u64, val: &str }
+    entry { key: u64, val: str }
     measure max(key);
 }
 
@@ -39,7 +39,7 @@ pub type PMap<K, V> = CtrClass<PMapCfg<K, V>>;
 
 const JOURNAL: u64 = 7u64;
 
-fn beq(b: &[u8], want: &str) -> bool {
+fn beq(b: &[u8], want: str) -> bool {
     if b.len() != want.len() { return false; }
     let mut i: i64 = 0i64;
     while i < b.len() {
@@ -68,7 +68,7 @@ fn main() -> i32 {
     // ── read through the GENERIC alias PMap<u64, str> ──
     // Resolves to the SAME @hs family (C1 unification), so it opens the very
     // container the concrete decl created — NOT a fresh/foreign one.
-    let mut jg = open_ctr::<PMap<u64, &str>>(&mut s1, JOURNAL);
+    let mut jg = open_ctr::<PMap<u64, str>>(&mut s1, JOURNAL);
     if jg.size() != 302u64 { return 2i32; }
     if !beq(jg.get_or(1u64), "opened") { return 3i32; }
     if !beq(jg.get_or(2u64), "funded") { return 4i32; }
