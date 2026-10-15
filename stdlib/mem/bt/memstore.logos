@@ -242,6 +242,15 @@ impl MemorySnapshot {
         unsafe { tree_release(bp.ptr(), level); }
     }
 
+    /// ADR 0039 law 1 (row M2g): a committed or dropped snapshot never changes.
+    /// Every write path reaches the directory through `root_of_mut` / `set_root`
+    /// (the vector family's in-place `set` calls this itself), so the refusal
+    /// lives here; the D4 `Workspace` split makes it a type error later.
+    pub fn assert_writable(self: &MemorySnapshot) {
+        assert(unsafe { (*self.d()).status } == SNAP_ACTIVE,
+               "memoria: write into a committed or dropped snapshot — fork a new one to change it (ADR 0039 law 1)");
+    }
+
     /// True iff `h` is shared with a frozen snapshot (its stamped id differs)
     /// and must be `cow_clone`d before an in-place write.
     pub fn cow_needed(self: &MemorySnapshot, h: *mut u8) -> bool {
@@ -274,6 +283,7 @@ impl MemorySnapshot {
     /// own release of the old root is balanced by the ownership acquired here;
     /// the following `set_root` then only repoints the (now private) slot.
     pub fn root_of_mut(self: &MemorySnapshot, ctr_id: u64) -> DirEntry {
+        self.assert_writable();
         unsafe {
             let cur: u64 = (*self.d()).id;
             let p: DirPriv = dir_privatize::<MemBlocks>(&self.blocks(), (*self.d()).dir_root,
@@ -294,6 +304,7 @@ impl MemorySnapshot {
     /// root); a root reused inside the NEW root's subtree is inc_rc'd by the
     /// caller's graft (see the generated handles).
     pub fn set_root(self: &MemorySnapshot, ctr_id: u64, root: *mut u8, level: u32) {
+        self.assert_writable();
         unsafe {
             node_set_level(root, level);
             let cur: u64 = (*self.d()).id;

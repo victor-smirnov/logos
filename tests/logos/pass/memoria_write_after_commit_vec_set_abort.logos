@@ -1,0 +1,35 @@
+// ADR 0039 law 1 (row M2g), the vector family's `set`: it writes a cell in
+// place through `&self` and reaches neither `root_of_mut` nor `set_root`,
+// so it carries the guard itself. A `set` on a committed snapshot aborts.
+package test;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.str;
+use logos.mem.string;
+use logos.std.io;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+container Series {
+    kind vector;
+    entry { val: u64 }
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut v = create_ctr::<typeof(Series)>(&s1, 1u64);
+    v.append(5u64);
+    s1.commit();
+    { let mut m: String = String::new(); m.push_str("committed"); println_string(&m); }
+    v.set(0u64, 6u64);
+    return 0i32;
+}

@@ -145,6 +145,10 @@ fn run_all() -> i32 {
     let m2 = open_ctr::<typeof(Map::<u64, u64>)>(&snap, 1u64);
     if m2.size() != n + 1u64 { return 8i32; }
     if m2.get_or(4u64, 0u64) != 12u64 { return 9i32; }
+    // The committed snapshot never changes (ADR 0039 law 1): the sections
+    // below write into a FORK of it, which shares its trees.
+    let snap2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    m = open_ctr_rc::<typeof(Map::<u64, u64>)>(&snap2, 1u64);
 
     // ── §4 the dyn plane in action ──────────────────────────────────────────
     if report_via(&*m.borrow()) != n + 1u64 { return 10i32; }
