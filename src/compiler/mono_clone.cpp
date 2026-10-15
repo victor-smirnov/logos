@@ -1077,6 +1077,17 @@ lir_view::ExprRef Mono::subst_expr(lir_view::ExprRef eref, const SubstMap& s,
             if (LogosType::is_fn_value_kind(k)) {
                 mp_ = lir_mirror_emit_fn_ptr_call(
                     out_, rt_, callee, args);
+            } else if (is_stdlib_box_type(ct) && ct.type_args().size() == 1 && ct.type_args()[0] &&
+                       TypeRef(ct.type_args()[0]).kind() == LogosType::Kind::Closure) {
+                // F = `Box<dyn Fn*(..)>` (Rust's `impl<F: Fn + ?Sized> Fn for Box<F>`): the
+                // shape sema gives a direct `b(x)` — the Box's heap pointer to the
+                // {fn, env} pair, dereferenced to the closure it holds.
+                TypeRef clo = ct.type_args()[0];
+                LogosTypeBuilder pb; pb.kind = LogosType::Kind::Ptr;
+                pb.mut_ptr = true; pb.pointee = clo;
+                LirBuilder lb(out_);
+                lb.retype_expr(callee, out_.type_pool.alloc(std::move(pb)));
+                mp_ = lir_mirror_emit_closure_call(out_, rt_, lb.deref(callee, clo), args, v.call_mode());
             } else if (k == LogosType::Kind::Struct ||
                        k == LogosType::Kind::ZonedStruct) {
                 // Deferred-2: F was bound by Fn / FnMut / FnOnce and

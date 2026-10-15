@@ -287,6 +287,9 @@ struct Solver {
             if (k == K::Ref && self.pointee()) return select(l.fn, self.pointee(), args).holds();
             if (k == K::MutRef && self.pointee() && !fn)
                 return select(l.fn_mut, self.pointee(), args).holds();
+            // `Box<F>: Fn*` when `F: Fn*` (Rust's `impl<F: Fn + ?Sized> Fn for Box<F>`).
+            if (is_stdlib_box_type(self) && !self.type_args().empty() && self.type_args()[0])
+                return select(trait, self.type_args()[0], args).holds();
             return std::nullopt;
         }
         if (env.auto_trait)
