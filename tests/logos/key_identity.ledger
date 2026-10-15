@@ -651,6 +651,9 @@ sema_auto_trait.cpp	current_type_bounds_	D	1	std::string(tv.type_var_name())
 sema_collect.cpp	closure_kind_	D	1	type_str(c)
 sema.cpp	current_type_bounds_	D	2	std::string(TypeRef(base).type_var_name())
 sema.cpp	current_type_bounds_	D	2	std::string(TypeRef(x).type_var_name())
+# 2026-10-15, where-equation on a projection base (normalize_assoc_eq): the READ of the entry
+#   resolve_type writes under type_str(result) — the same projection spelling, same cell D.
+sema.cpp	current_type_bounds_	D	1	type_str(base)
 sema.cpp	current_type_bounds_	D	1	type_str(result)
 sema.cpp	current_type_bounds_	D	1	type_str(x)
 sema_expr.cpp	closure_kind_	B#90	2	type_str(ctype)
