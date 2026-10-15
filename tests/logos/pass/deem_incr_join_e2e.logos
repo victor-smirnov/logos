@@ -554,6 +554,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { return 53i32; }
                 ElError::Overflow   => { return 54i32; }
                 ElError::DivByZero  => { return 55i32; }
+                ElError::Parse      => { return 55i32; }
                 ElError::SrcUnknown => { return 56i32; }
             }
         }
@@ -577,6 +578,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { return 84i32; }
                 ElError::Overflow   => { return 85i32; }
                 ElError::DivByZero  => { return 86i32; }
+                ElError::Parse      => { return 86i32; }
                 ElError::SrcUnknown => { return 87i32; }
             }
         }
@@ -595,6 +597,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { return 59i32; }
                 ElError::Overflow   => { return 31i32; }
                 ElError::DivByZero  => { return 70i32; }
+                ElError::Parse      => { return 70i32; }
             }
         }
     }
@@ -608,6 +611,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { return 73i32; }
                 ElError::Overflow   => { return 74i32; }
                 ElError::DivByZero  => { return 75i32; }
+                ElError::Parse      => { return 75i32; }
             }
         }
     }

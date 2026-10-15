@@ -118,7 +118,7 @@ pub fn OP_NEG() -> i32 { return 2i32; }   // unary -
 /// `deem_incr_diff_harness`, `deem_incr_join_e2e`,
 /// `deem_incr_static_retract_e2e`), i.e. it charged every CALLER a new arm for a
 /// condition no caller can cause. This enum is the caller's error surface.
-pub enum ElError { Overflow, DivByZero, Underflow, RetractAbsent, SrcUnknown }
+pub enum ElError { Overflow, DivByZero, Underflow, RetractAbsent, SrcUnknown, Parse }
 
 // i64 checked arithmetic returning ElError. `checked_add/sub/mul/div/rem/neg`
 // (Option<i64>) already exist in logos.lang.cmp.ord. The generated static
@@ -352,6 +352,9 @@ pub fn BFN_MAX()         -> i32 { return 10i32; }
 // `substr(s, i, n)` / `to_string(x)` — Soufflé's string functors, an owned String
 pub fn BFN_SUBSTR()      -> i32 { return 11i32; }
 pub fn BFN_TO_STRING()   -> i32 { return 12i32; }   // its value is T (codegen)
+// `to_number(s)` — Soufflé's string-to-number functor, parsed as Rust's
+// `str::parse::<i64>` (a fault is `ElError::Parse` / `Overflow`)
+pub fn BFN_TO_NUMBER()   -> i32 { return 13i32; }
 
 // Resolve a call name → builtin id (BFN_*). Unknown ⇒ BFN_UNKNOWN.
 pub fn builtin_of_name(name: str) -> i32 {
@@ -367,6 +370,7 @@ pub fn builtin_of_name(name: str) -> i32 {
     if str_eq(name, "max")         { return BFN_MAX(); }
     if str_eq(name, "substr")      { return BFN_SUBSTR(); }
     if str_eq(name, "to_string")   { return BFN_TO_STRING(); }
+    if str_eq(name, "to_number")   { return BFN_TO_NUMBER(); }
     return BFN_UNKNOWN();
 }
 
@@ -378,7 +382,7 @@ pub fn builtin_arity(bfn: i32) -> i64 {
     if bfn == BFN_UNWRAP_OR()                                      { return 2i64; }
     if bfn == BFN_MIN() || bfn == BFN_MAX()                        { return 2i64; }
     if bfn == BFN_SUBSTR()                                         { return 3i64; }
-    if bfn == BFN_TO_STRING()                                      { return 1i64; }
+    if bfn == BFN_TO_STRING() || bfn == BFN_TO_NUMBER()            { return 1i64; }
     return 0i64;
 }
 
@@ -420,6 +424,37 @@ pub fn wql_to_string(x: i64) -> String {
     let mut out: String = String::new();
     out.push_i64(x);
     return out;
+}
+
+/// `to_number(s)` — `s` in decimal as Rust's `str::parse::<i64>` reads it: an
+/// optional sign, then one or more ASCII digits and nothing else. Soufflé's
+/// functor is C's `stoll` (leading blanks, `0x`/`0b`, trailing text ignored)
+/// and aborts the program on what it cannot read; here that is an `Err`.
+pub fn wql_to_number(s: str) -> Result<i64, ElError> {
+    let n: i64 = s.len();
+    let mut k: i64 = 0i64;
+    let mut neg: bool = false;
+    if n > 0i64 && (str_byte_at(s, 0i64) == 43u8 || str_byte_at(s, 0i64) == 45u8) {
+        neg = str_byte_at(s, 0i64) == 45u8;
+        k = 1i64;
+    }
+    if k >= n { return Result::Err(ElError::Parse); }
+    let mut v: i64 = 0i64;
+    while k < n {
+        let b: u8 = str_byte_at(s, k);
+        if b < 48u8 || b > 57u8 { return Result::Err(ElError::Parse); }
+        let d: i64 = (b - 48u8) as i64;
+        // accumulate negatively so i64::MIN reads without overflow
+        match v.checked_mul(10i64) {
+            Option::Some(m) => {
+                match m.checked_sub(d) { Option::Some(w) => { v = w; } Option::None => { return Result::Err(ElError::Overflow); } }
+            }
+            Option::None => { return Result::Err(ElError::Overflow); }
+        }
+        k = k + 1i64;
+    }
+    if neg { return Result::Ok(v); }
+    match v.checked_neg() { Option::Some(p) => { return Result::Ok(p); } Option::None => { return Result::Err(ElError::Overflow); } }
 }
 
 /// `a + b` over two strings — the EL's concatenation, an owned `String`.

@@ -595,6 +595,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { println!("F1 WRONG ARM: Underflow — the count guard was removed and `el_subu` caught the same call instead"); return 78i32; }
                 ElError::Overflow   => { println!("F1 WRONG ARM: Overflow"); return 78i32; }
                 ElError::DivByZero  => { println!("F1 WRONG ARM: DivByZero"); return 78i32; }
+                ElError::Parse      => { println!("F1 WRONG ARM: Parse"); return 78i32; }
                 // ⚠ `SrcUnknown` IS THIS BLOCK'S PLUMBING, NOT A NEW ASSERTION,
                 // AND THAT IS WHY IT REUSES CODE 6 RATHER THAN TAKING A NEW ONE.
                 // The tag reaching `<q>_apply` here is the LITERAL `0i32` the
@@ -657,6 +658,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow => { println!("F2 WRONG ARM: Underflow — the footprint sensor is gone and el_subu caught the same call"); return 82i32; }
                 ElError::Overflow      => { println!("F2 WRONG ARM: Overflow"); return 82i32; }
                 ElError::DivByZero     => { println!("F2 WRONG ARM: DivByZero"); return 82i32; }
+                ElError::Parse         => { println!("F2 WRONG ARM: Parse"); return 82i32; }
                 ElError::SrcUnknown    => { return 6i32; }   // plumbing — see F1
             }
         }
@@ -708,6 +710,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { println!("F3 WRONG ARM: Underflow — the group-count guard answered before the map's"); return 86i32; }
                 ElError::Overflow   => { println!("F3 WRONG ARM: Overflow"); return 86i32; }
                 ElError::DivByZero  => { println!("F3 WRONG ARM: DivByZero"); return 86i32; }
+                ElError::Parse      => { println!("F3 WRONG ARM: Parse"); return 86i32; }
                 ElError::SrcUnknown => { return 6i32; }   // plumbing — see F1
             }
         }
@@ -726,6 +729,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { println!("F4 WRONG ARM: Underflow — an absent GROUP was reported as an arithmetic borrow"); return 90i32; }
                 ElError::Overflow   => { println!("F4 WRONG ARM: Overflow"); return 90i32; }
                 ElError::DivByZero  => { println!("F4 WRONG ARM: DivByZero"); return 90i32; }
+                ElError::Parse      => { println!("F4 WRONG ARM: Parse"); return 90i32; }
                 ElError::SrcUnknown => { return 6i32; }   // plumbing — see F1
             }
         }
@@ -774,6 +778,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { println!("F5 WRONG ARM: Underflow"); return 96i32; }
                 ElError::Overflow   => { println!("F5 WRONG ARM: Overflow"); return 96i32; }
                 ElError::DivByZero  => { println!("F5 WRONG ARM: DivByZero"); return 96i32; }
+                ElError::Parse      => { println!("F5 WRONG ARM: Parse"); return 96i32; }
                 ElError::SrcUnknown => { return 7i32; }   // plumbing — see F1 (F5's code)
             }
         }
@@ -808,6 +813,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow     => { println!("G WRONG ARM: Underflow"); return 8i32; }
                 ElError::Overflow      => { println!("G WRONG ARM: Overflow"); return 8i32; }
                 ElError::DivByZero     => { println!("G WRONG ARM: DivByZero"); return 8i32; }
+                ElError::Parse         => { println!("G WRONG ARM: Parse"); return 8i32; }
             }
         }
     }

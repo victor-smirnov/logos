@@ -707,6 +707,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow => { println!("E WRONG ARM: Underflow — the footprint sensor is gone and el_subu caught the same call"); return 66i32; }
                 ElError::Overflow  => { println!("E WRONG ARM: Overflow");  return 66i32; }
                 ElError::DivByZero => { println!("E WRONG ARM: DivByZero"); return 66i32; }
+                ElError::Parse     => { println!("E WRONG ARM: Parse"); return 66i32; }
                 // ⚠ REACHED ONLY IF THE DISPATCH STOPS READING ITS OWN TAG. This
                 // call goes through `<q>_retract`, which writes the LITERAL
                 // `0i32`, so a `SrcUnknown` here says the emitted `__src` arm
@@ -724,6 +725,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::RetractAbsent => { println!("E2 WRONG ARM: RetractAbsent"); return 68i32; }
                 ElError::Overflow      => { println!("E2 WRONG ARM: Overflow");      return 68i32; }
                 ElError::DivByZero     => { println!("E2 WRONG ARM: DivByZero");     return 68i32; }
+                ElError::Parse         => { println!("E2 WRONG ARM: Parse");     return 68i32; }
                 ElError::SrcUnknown    => { println!("E2 WRONG ARM: SrcUnknown");    return 68i32; }
             }
         }
@@ -746,6 +748,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { return 70i32; }
                 ElError::Overflow   => { return 71i32; }
                 ElError::DivByZero  => { return 72i32; }
+                ElError::Parse      => { return 72i32; }
                 ElError::SrcUnknown => { return 119i32; }
             }
         }
@@ -764,6 +767,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { return 74i32; }
                 ElError::Overflow   => { return 75i32; }
                 ElError::DivByZero  => { return 76i32; }
+                ElError::Parse      => { return 76i32; }
                 ElError::SrcUnknown => { return 120i32; }
             }
         }
@@ -800,6 +804,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { return 78i32; }
                 ElError::Overflow   => { return 79i32; }
                 ElError::DivByZero  => { return 80i32; }
+                ElError::Parse      => { return 80i32; }
                 ElError::SrcUnknown => { return 121i32; }
             }
         }
@@ -877,6 +882,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { println!("G3 WRONG ARM: Underflow");  return 123i32; }
                 ElError::Overflow   => { println!("G3 WRONG ARM: Overflow");   return 123i32; }
                 ElError::DivByZero  => { println!("G3 WRONG ARM: DivByZero");  return 123i32; }
+                ElError::Parse      => { println!("G3 WRONG ARM: Parse");  return 123i32; }
                 ElError::SrcUnknown => { println!("G3 WRONG ARM: SrcUnknown"); return 123i32; }
             }
         }
@@ -904,6 +910,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { println!("G3b WRONG ARM: Underflow");  return 123i32; }
                 ElError::Overflow   => { println!("G3b WRONG ARM: Overflow");   return 123i32; }
                 ElError::DivByZero  => { println!("G3b WRONG ARM: DivByZero");  return 123i32; }
+                ElError::Parse      => { println!("G3b WRONG ARM: Parse");  return 123i32; }
                 ElError::SrcUnknown => { println!("G3b WRONG ARM: SrcUnknown"); return 123i32; }
             }
         }

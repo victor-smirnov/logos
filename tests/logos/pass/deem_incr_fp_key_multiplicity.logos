@@ -210,6 +210,7 @@ fn assertions(t: &mut Tally) -> i32 {
                 ElError::Underflow  => { println!("A WRONG ARM: Underflow - a count went below zero instead of the map refusing"); return 17i32; }
                 ElError::Overflow   => { println!("A WRONG ARM: Overflow");   return 17i32; }
                 ElError::DivByZero  => { println!("A WRONG ARM: DivByZero");  return 17i32; }
+                ElError::Parse      => { println!("A WRONG ARM: Parse");  return 17i32; }
                 ElError::SrcUnknown => { println!("A WRONG ARM: SrcUnknown"); return 17i32; }
             }
         }

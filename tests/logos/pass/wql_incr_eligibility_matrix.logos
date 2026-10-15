@@ -461,6 +461,7 @@ fn main() -> i32 {
                 ElError::Underflow  => { return 68i32; }
                 ElError::Overflow   => { return 69i32; }
                 ElError::DivByZero  => { return 70i32; }
+                ElError::Parse      => { return 70i32; }
             }
         }
     }
