@@ -1,0 +1,13 @@
+// SOUNDNESS QUEUE row str_by_value_admitted (tier 3, `admits`). Found 2026-10-15 by the E0277 unsized-rvalue check (matrix 9_29): narrowing it off `str` was forced by the stdlib, which uses `str` BY VALUE as its fat-string currency in ~1200 signatures (`fn str_eq(a: str, b: str)`, `fn str_trim(s: str) -> str`, lcm/wql/canon alike) and ~640 test sites.
+// Logos: `str` is its own type since #745, but a `str` parameter, return or `let` binding is accepted, `*s` over `&str` taken by value is the same fat pair, and a `&str` argument passes to a `str` parameter.
+// rustc: rustc 1.98.1 rejects each with E0277 ("the size for values of type `str` cannot be known at compilation time").
+// fix hint: migrate stdlib + tests to `&str` (mechanical, with deem for lcm/wql), then drop the `is_str_type` exemption in refuse_unsized_rvalue_ and refuse unsized `str` params/returns as `[T]` already is.
+package str_by_value_admitted;
+
+fn len_of(s: str) -> i64 { return s.len(); }
+
+fn main() -> i32 {
+    let r: &str = "hey";
+    let v: str = *r;
+    return (len_of(v) - 3) as i32;
+}

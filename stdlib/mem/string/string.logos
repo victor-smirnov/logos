@@ -491,7 +491,7 @@ impl str {
     /// A copy with every non-overlapping match of `from` replaced by `to` (Rust `str::replace`).
     /// An empty pattern matches before every char and at the end.
     pub fn replace<P: Pattern + Copy>(&self, from: P, to: &str) -> String {
-        let s: str = *self;
+        let s: &str = self;
         let m: i64 = s.len();
         let mut out: String = String::with_capacity(m);
         let mlen: i64 = from.match_len();
@@ -523,7 +523,7 @@ impl str {
 
     /// `self` concatenated `n` times (Rust `str::repeat`).
     pub fn repeat(&self, n: i64) -> String {
-        let s: str = *self;
+        let s: &str = self;
         let mut out: String = String::with_capacity(s.len() * n);
         let mut i: i64 = 0;
         while i < n { out.push_str(s); i = i + 1; }
@@ -532,7 +532,7 @@ impl str {
 
     /// ASCII letters upper-cased; other bytes copied (Rust `str::to_ascii_uppercase`).
     pub fn to_ascii_uppercase(&self) -> String {
-        let s: str = *self;
+        let s: &str = self;
         let mut out: String = String::with_capacity(s.len());
         let mut i: i64 = 0;
         unsafe {
@@ -547,7 +547,7 @@ impl str {
 
     /// ASCII letters lower-cased; other bytes copied (Rust `str::to_ascii_lowercase`).
     pub fn to_ascii_lowercase(&self) -> String {
-        let s: str = *self;
+        let s: &str = self;
         let mut out: String = String::with_capacity(s.len());
         let mut i: i64 = 0;
         unsafe {

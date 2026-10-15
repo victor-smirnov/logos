@@ -19,7 +19,7 @@ impl str {
 
     /// Returns `true` if byte offset `i` is the start of a codepoint (or `i == len`).
     pub fn is_char_boundary(&self, i: i64) -> bool {
-        let s: str = *self;
+        let s: &str = self;
         if i == 0i64 || i == s.len() { return true; }
         if i < 0i64 || i > s.len() { return false; }
         unsafe {
@@ -59,7 +59,7 @@ impl str {
 
     /// `self` without the prefix `pat`, or `None` if it does not start with it.
     pub fn strip_prefix<P: Pattern>(&self, pat: P) -> Option<&str> {
-        let s: str = *self;
+        let s: &str = self;
         let n: i64 = pat.prefix_len(s);
         if n < 0i64 { return Option::None; }
         unsafe {
@@ -70,7 +70,7 @@ impl str {
 
     /// `self` without the suffix `pat`, or `None` if it does not end with it.
     pub fn strip_suffix<P: Pattern>(&self, pat: P) -> Option<&str> {
-        let s: str = *self;
+        let s: &str = self;
         let n: i64 = pat.suffix_len(s);
         if n < 0i64 { return Option::None; }
         unsafe { return Option::Some(str_from_raw(s.as_ptr(), s.len() - n)); }
@@ -78,7 +78,7 @@ impl str {
 
     /// Splits at the first match of `pat` into (before, after); `None` if no match.
     pub fn split_once<P: Pattern + Copy>(&self, pat: P) -> Option<(&str, &str)> {
-        let s: str = *self;
+        let s: &str = self;
         let i: i64 = pat.find_in(s, 0i64);
         if i < 0i64 { return Option::None; }
         let m: i64 = pat.match_len();
@@ -92,7 +92,7 @@ impl str {
 
     /// Splits at the last match of `pat` into (before, after); `None` if no match.
     pub fn rsplit_once<P: Pattern + Copy>(&self, pat: P) -> Option<(&str, &str)> {
-        let s: str = *self;
+        let s: &str = self;
         let i: i64 = pat.rfind_in(s);
         if i < 0i64 { return Option::None; }
         let m: i64 = pat.match_len();
@@ -113,8 +113,8 @@ impl str {
 
     /// `true` if both are equal ignoring ASCII case.
     pub fn eq_ignore_ascii_case(&self, other: &str) -> bool {
-        let a: str = *self;
-        let b: str = *other;
+        let a: &str = self;
+        let b: &str = other;
         if a.len() != b.len() { return false; }
         let mut i: i64 = 0i64;
         unsafe {

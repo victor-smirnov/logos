@@ -3049,6 +3049,9 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
 bool SemaChecker::refuse_unsized_rvalue_(TinyMapView n, const lir::LExprPtr& e) {
     if (!(e && code_of(unwrap_paren_node(n)) == la::DEREF && deref_yielded_unsized_)) return false;
     deref_yielded_unsized_ = false;
+    // `str` by value is still the stdlib's fat-string currency (`fn str_eq(a: str, b: str)`,
+    // ~1200 sites): squeue row str_by_value_admitted. `dyn Tr` and `[T]` have no such use.
+    if (is_str_type(expr_type(e))) return false;
     error(std::format("the size for values of type `{}` cannot be known at compilation time (E0277)",
                       unsized_place_name_(expr_type(e))));
     return true;

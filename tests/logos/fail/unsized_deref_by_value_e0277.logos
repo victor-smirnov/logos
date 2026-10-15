@@ -1,4 +1,4 @@
-// rustc E0277: `*b` over a `Box<dyn Tr>` / `&[T]` / `&str` is an unsized place; taking
+// rustc E0277: `*b` over a `Box<dyn Tr>` / `&[T]` is an unsized place; taking
 // it BY VALUE (a `let` initializer, an argument) has no size. The
 // owning trait object's deref is its own representation, so `let d = *b;` was a
 // silent move of `b`. Borrowing the place (`&*b`, `let ref d = *b`, `(*b).m()`) is
@@ -12,7 +12,7 @@ fn take<T>(t: T) -> i64 { 0 }
 fn main() -> i32 {
     let b: Box<dyn Shape> = Box::new(Ci { r: 2 });
     let d = *b;
-    let s: &str = "hi";
-    let n = take(*s);
+    let v: &[i64] = &[1, 2];
+    let n = take(*v);
     return 0;
 }
