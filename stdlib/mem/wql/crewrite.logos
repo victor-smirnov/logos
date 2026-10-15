@@ -245,7 +245,9 @@ pub fn sexpr_fallible(w: WRef<SExpr>) -> bool {
     match e {
         SExpr::Bin(b) => {
             let op: i32 = b.op;
-            if op == OP_ADD() || op == OP_SUB() || op == OP_MUL() || op == OP_DIV() || op == OP_MOD() {
+            // a shift's amount is checked against the width (`el_shamt(..)?`)
+            if op == OP_ADD() || op == OP_SUB() || op == OP_MUL() || op == OP_DIV() || op == OP_MOD()
+               || op == OP_SHL() || op == OP_SHR() {
                 return true;
             }
             return sexpr_fallible(b.lhs) || sexpr_fallible(b.rhs);
@@ -255,7 +257,10 @@ pub fn sexpr_fallible(w: WRef<SExpr>) -> bool {
             return sexpr_fallible(u.arg);
         }
         SExpr::Field(f) => { return sexpr_fallible(f.base); }
-        SExpr::Call(c) => { return sexpr_arr_fallible(c.args); }
+        SExpr::Call(c) => {
+            if builtin_of_name(c.fn_name) == BFN_TO_NUMBER() { return true; }   // `wql_to_number(..)?`
+            return sexpr_arr_fallible(c.args);
+        }
         SExpr::Tuple(t) => { return sexpr_arr_fallible(t.items); }
         SExpr::Cond(c) => { return sexpr_fallible(c.c) || sexpr_fallible(c.t) || sexpr_fallible(c.e); }
         SExpr::Cast(c) => { return sexpr_fallible(c.arg); }

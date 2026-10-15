@@ -95,6 +95,7 @@ fn absent(t: &mut Tally, e: ElError) -> bool {
         ElError::Underflow  => { println!("WRONG ARM: Underflow");  return false; }
         ElError::Overflow   => { println!("WRONG ARM: Overflow");   return false; }
         ElError::DivByZero  => { println!("WRONG ARM: DivByZero");  return false; }
+        ElError::Parse      => { println!("WRONG ARM: Parse");  return false; }
         ElError::SrcUnknown => { println!("WRONG ARM: SrcUnknown"); return false; }
     }
 }

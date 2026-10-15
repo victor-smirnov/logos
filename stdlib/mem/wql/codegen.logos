@@ -2156,6 +2156,12 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
         out.push_str(") as i64))");
         return;
     }
+    if bfn == BFN_TO_NUMBER() {
+        out.push_str("logos.std.wql.el::wql_to_number(");
+        emit_str_view(out, args.arg_at(0i64), t, var);
+        out.push_str(")?");
+        return;
+    }
     if bfn == BFN_TO_STRING() {
         out.push_str("logos.std.wql.el::wql_to_string(((");
         emit_sexpr_as(out, args.arg_at(0i64), t, var, "i64");
@@ -2404,14 +2410,15 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                         return false;
                     }
                 }
-                if (bfn == BFN_SUBSTR() && argc == 3i64) || (bfn == BFN_TO_STRING() && argc == 1i64) {
+                if (bfn == BFN_SUBSTR() && argc == 3i64) || (bfn == BFN_TO_STRING() && argc == 1i64)
+                   || (bfn == BFN_TO_NUMBER() && argc == 1i64) {
                     // integers that hold in i64; substr's first argument a string
                     let mut bad: str = "";
                     let mut ai: i64 = 0i64;
                     while ai < argc {
                         let an: str = infer_ty_name(args.arg_at(ai), t);
                         let ac: i32 = t.class_of_name(an);
-                        let want_str: bool = bfn == BFN_SUBSTR() && ai == 0i64;
+                        let want_str: bool = (bfn == BFN_SUBSTR() || bfn == BFN_TO_NUMBER()) && ai == 0i64;
                         if want_str && ac != EL_TY_STR() { bad = an; }
                         if !want_str && (ac != EL_TY_INT() || !el_int_fits_i64(an)) { bad = an; }
                         ai = ai + 1i64;
@@ -2422,6 +2429,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                         ms.push_str(": builtin '");
                         ms.push_str(name);
                         ms.push_str(if bfn == BFN_SUBSTR() { "' takes a string and two integers that hold in i64 (Soufflé's `substr`), and an argument is `" }
+                                    else if bfn == BFN_TO_NUMBER() { "' takes a string (Soufflé's `to_number`), and its argument is `" }
                                     else { "' takes an integer that holds in i64 (Soufflé's `to_string`), and its argument is `" });
                         ms.push_str(bad);
                         ms.push_str("`");
