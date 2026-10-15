@@ -5143,8 +5143,10 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
             std::vector<lir::LExprPtr> arg_exprs;
             if (node.has_key(la::ARGS)) {
                 auto args = args_array();   // an antiquot `#S(args)` wraps them
-                for (uint64_t i = 0; i < args.size(); ++i)
+                for (uint64_t i = 0; i < args.size(); ++i) {
                     arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+                    refuse_unsized_rvalue_(map_of(args.get(i)), arg_exprs.back());
+                }
             }
             if (arg_exprs.size() != tsinfo->fields.size()) {
                 error(std::format(
@@ -5333,8 +5335,10 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
         std::vector<lir::LExprPtr> arg_exprs;
         if (node.has_key(la::ARGS)) {
             auto args = args_array();
-            for (uint64_t i = 0; i < args.size(); ++i)
+            for (uint64_t i = 0; i < args.size(); ++i) {
                 arg_exprs.push_back(lower_expr(map_of(args.get(i))));
+                refuse_unsized_rvalue_(map_of(args.get(i)), arg_exprs.back());
+            }
         }
         uint64_t n_args = arg_exprs.size();
         uint64_t n_params = TypeRef(callee_type).closure_params().size();
@@ -5575,6 +5579,7 @@ lir::LExprPtr SemaChecker::lower_call(TinyMapView node) {
                 }
             }
             arg_exprs.push_back(lower_expr_expecting(map_of(args.get(i)), arg_expect, arg_shape));
+            refuse_unsized_rvalue_(map_of(args.get(i)), arg_exprs.back());
             range_item_hint_ = nullptr;
             if (hint_fi && i < hint_fi->param_types.size() && hint_fi->param_types[i] && arg_exprs.back() &&
                 expr_type(arg_exprs.back())) {
@@ -7921,8 +7926,10 @@ lir::LExprPtr SemaChecker::lower_intrinsic_tuple_all_eq(TinyMapView node) {
             auto args_map = map_of(av);
             if (args_map.has_key(la::ITEMS)) {
                 auto items = arr_of(args_map.get(la::ITEMS.code));
-                for (uint64_t i = 0; i < items.size(); ++i)
+                for (uint64_t i = 0; i < items.size(); ++i) {
                     arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                    refuse_unsized_rvalue_(map_of(items.get(i)), arg_exprs.back());
+                }
             }
         }
     }
@@ -9042,8 +9049,10 @@ std::optional<lir::LExprPtr> SemaChecker::lower_type_intrinsic(TinyMapView node,
                 auto args_map = map_of(av);
                 if (args_map.has_key(la::ITEMS)) {
                     auto items = arr_of(args_map.get(la::ITEMS.code));
-                    for (uint64_t i = 0; i < items.size(); ++i)
+                    for (uint64_t i = 0; i < items.size(); ++i) {
                         arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                        refuse_unsized_rvalue_(map_of(items.get(i)), arg_exprs.back());
+                    }
                 }
             }
         }
@@ -9442,8 +9451,10 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                     auto al = map_of(av);
                     if (al.has_key(la::ITEMS)) {
                         auto items = arr_of(al.get(la::ITEMS.code));
-                        for (uint64_t i = 0; i < items.size(); ++i)
+                        for (uint64_t i = 0; i < items.size(); ++i) {
                             arg_exprs.push_back(lower_expr(map_of(items.get(i))));
+                            refuse_unsized_rvalue_(map_of(items.get(i)), arg_exprs.back());
+                        }
                     }
                 }
             }
@@ -9593,6 +9604,7 @@ lir::LExprPtr SemaChecker::lower_generic_call(TinyMapView node) {
                         : TypeRef(nullptr);
                     arg_exprs.push_back(lower_expr_expecting(map_of(items.get(i)),
                                                              shape && type_is_concrete(shape) ? shape : TypeRef(nullptr), shape));
+                    refuse_unsized_rvalue_(map_of(items.get(i)), arg_exprs.back());
                 }
             }
         }
