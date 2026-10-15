@@ -858,6 +858,16 @@ fn dx_term(out: &mut String, e: SExpr, env: &DxEnv, cl: &mut DxClause) -> bool {
                 out.push_str(")");
                 return true;
             }
+            if bm == BFN_POW() && c.args_arr().len() == 2i64 {
+                // Soufflé's exponent functor `**`, spelled `^` in source (`bxor` is its
+                // xor); in range it agrees, outside Deem's `Err` has no Soufflé twin
+                out.push_str("(");
+                if !dx_term(out, c.args_arr().arg_at(0i64), env, cl) { return false; }
+                out.push_str(" ^ ");
+                if !dx_term(out, c.args_arr().arg_at(1i64), env, cl) { return false; }
+                out.push_str(")");
+                return true;
+            }
             if (bm == BFN_SUBSTR() && c.args_arr().len() == 3i64) || (bm == BFN_TO_STRING() && c.args_arr().len() == 1i64)
                || (bm == BFN_TO_NUMBER() && c.args_arr().len() == 1i64) {
                 // Soufflé's own `substr` / `to_string` / `to_number` functors
@@ -2597,7 +2607,7 @@ fn dx_term_ty<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             if dx_is_strlen(e, env, cl) { return "number"; }
             let bm: i32 = builtin_of_name(c.fn_name);
             if bm == BFN_SUBSTR() || bm == BFN_TO_STRING() { return "symbol"; }
-            if bm == BFN_TO_NUMBER() { return "number"; }
+            if bm == BFN_TO_NUMBER() || bm == BFN_POW() { return "number"; }
             if (bm == BFN_MIN() || bm == BFN_MAX()) && c.args_arr().len() == 2i64 {
                 let t0: str = dx_term_ty(c.args_arr().arg_at(0i64), env, cl);
                 let t1: str = dx_term_ty(c.args_arr().arg_at(1i64), env, cl);
@@ -2684,7 +2694,7 @@ fn dx_term_kind<'a>(e: SExpr, env: &'a DxEnv, cl: &DxClause) -> &'a str {
             if dx_is_strlen(e, env, cl) { return "i"; }
             let bm: i32 = builtin_of_name(c.fn_name);
             if bm == BFN_SUBSTR() || bm == BFN_TO_STRING() { return "S"; }   // an owned String
-            if bm == BFN_TO_NUMBER() { return "i"; }
+            if bm == BFN_TO_NUMBER() || bm == BFN_POW() { return "i"; }
             if (bm == BFN_MIN() || bm == BFN_MAX()) && c.args_arr().len() == 2i64 {
                 // the kind of the argument that names the type (a literal names none)
                 let a0: SExpr = c.args_arr().arg_at(0i64);

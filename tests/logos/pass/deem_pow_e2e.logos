@@ -1,0 +1,85 @@
+// deem_pow_e2e — the EL builtin `pow(b, e)`, Soufflé's `**` (`b ^ e`), computed as
+// Rust's `i64::checked_pow(e as u32)`: an exponent outside `u32` or a result
+// outside `i64` is `ElError::Overflow`. Soufflé computes `**` in `double` and
+// truncates; in range the two agree.
+//   (a) values: zero and one exponents, odd and even powers of a negative
+//       base, both ends of i64 (2^62, (-2)^63), a u32::MAX exponent of -1;
+//   (b) each fault, one row per call: a result one past i64 (2^63), a negative
+//       exponent, an exponent past u32 (even of 1);
+//   (c) `pow` in a `where` and as a join key;
+//   (d) a rel nobody reads still faults (the call counts as fallible).
+// Exit 0 iff every assertion holds; a nonzero code names the first failure.
+package test;
+
+use logos.std.wql.wql;
+use logos.std.wql.el;       // ElError — the fault is asserted by name
+use logos.mem.collections.vec;
+use logos.lang.result;
+
+struct T { pub b: i64, pub e: i64, pub id: i64 }
+struct K { pub k: i64, pub v: i64 }
+
+// (a) (b)
+pub deem pows(ts: &[T]) { from ts t select pow(t.b, t.e) order by t.id }
+// (c)
+pub deem big(ts: &[T]) { from ts t where pow(t.b, t.e) > 50 select t.id order by t.id }
+pub deem joined(ts: &[T], ks: &[K]) { from ts t join ks y on pow(t.b, t.e) == y.k select y.v order by y.v }
+// (d)
+pub deem pow_dead(ts: &[T], ks: &[K]) {
+    rel junk(n: i64) {
+        from ts t select pow(t.b, t.e);
+    }
+    from ks y select y.v order by y.v }
+
+// 0 = Ok, 2 = Overflow, 3 = another error
+fn fault_of(b: i64, e: i64) -> i32 {
+    let one: [T; 1] = [T { b: b, e: e, id: 1i64 }];
+    match pows(&one[..]) {
+        Result::Ok(_v) => { return 0i32; }
+        Result::Err(e) => {
+            match e {
+                ElError::Overflow      => { return 2i32; }
+                ElError::Parse         => { return 3i32; }
+                ElError::DivByZero     => { return 3i32; }
+                ElError::Underflow     => { return 3i32; }
+                ElError::RetractAbsent => { return 3i32; }
+                ElError::SrcUnknown    => { return 3i32; }
+            }
+        }
+    }
+}
+
+fn main() -> i32 {
+    // (a)
+    let ts: [T; 8] = [
+        T { b: 2i64, e: 10i64, id: 1i64 }, T { b: -3i64, e: 3i64, id: 2i64 }, T { b: -3i64, e: 4i64, id: 3i64 },
+        T { b: 0i64, e: 0i64, id: 4i64 }, T { b: 7i64, e: 1i64, id: 5i64 },
+        T { b: 2i64, e: 62i64, id: 6i64 }, T { b: -2i64, e: 63i64, id: 7i64 },
+        T { b: -1i64, e: 4294967295i64, id: 8i64 },
+    ];
+    let a: Vec<i64> = pows(&ts[..]).unwrap();
+    if a.len() != 8i64 { return 1i32; }
+    if a.get(0i64) != 1024i64 || a.get(1i64) != -27i64 || a.get(2i64) != 81i64 { return 2i32; }
+    if a.get(3i64) != 1i64 || a.get(4i64) != 7i64 { return 3i32; }
+    if a.get(5i64) != 4611686018427387904i64 || a.get(6i64) != (-9223372036854775807i64 - 1i64) { return 4i32; }
+    if a.get(7i64) != -1i64 { return 5i32; }
+    // (b)
+    if fault_of(2i64, 63i64) != 2i32 { return 6i32; }
+    if fault_of(2i64, -1i64) != 2i32 { return 7i32; }
+    if fault_of(1i64, 4294967296i64) != 2i32 { return 8i32; }
+    if fault_of(3i64, 40i64) != 2i32 { return 9i32; }
+    // (c) over the first five rows: 1024 and 81 exceed 50
+    let c: Vec<i64> = big(&ts[0..5]).unwrap();
+    if c.len() != 2i64 || c.get(0i64) != 1i64 || c.get(1i64) != 3i64 { return 10i32; }
+    let ks: [K; 3] = [K { k: 81i64, v: 30i64 }, K { k: 1024i64, v: 420i64 }, K { k: 5i64, v: 50i64 }];
+    let j: Vec<i64> = joined(&ts[0..5], &ks[..]).unwrap();
+    if j.len() != 2i64 || j.get(0i64) != 30i64 || j.get(1i64) != 420i64 { return 11i32; }
+    // (d) the clean twin answers; the faulting one returns the fault
+    if pow_dead(&ts[0..5], &ks[..]).unwrap().len() != 3i64 { return 12i32; }
+    let bad: [T; 2] = [T { b: 2i64, e: 3i64, id: 1i64 }, T { b: 10i64, e: 19i64, id: 2i64 }];
+    match pow_dead(&bad[..], &ks[..]) {
+        Result::Ok(_v) => { return 13i32; }
+        Result::Err(e) => { match e { ElError::Overflow => { } _ => { return 14i32; } } }
+    }
+    return 0i32;
+}

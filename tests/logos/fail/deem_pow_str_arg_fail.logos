@@ -1,0 +1,8 @@
+// `pow(b, e)` over a string base: Soufflé's `**` takes numbers, and so does
+// the EL builtin — refused at the call.
+package test;
+use logos.std.wql.wql;
+use logos.mem.collections.vec;
+struct P { pub s: str, pub e: i64 }
+pub deem q(ps: &[P]) { from ps x select pow(x.s, x.e) }
+fn main() -> i32 { return 0i32; }

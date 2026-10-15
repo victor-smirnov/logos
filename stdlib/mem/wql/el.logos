@@ -355,6 +355,9 @@ pub fn BFN_TO_STRING()   -> i32 { return 12i32; }   // its value is T (codegen)
 // `to_number(s)` — Soufflé's string-to-number functor, parsed as Rust's
 // `str::parse::<i64>` (a fault is `ElError::Parse` / `Overflow`)
 pub fn BFN_TO_NUMBER()   -> i32 { return 13i32; }
+// `pow(b, e)` — Soufflé's `**`, checked as Rust's `i64::checked_pow` (an
+// exponent outside u32 or a result outside i64 is `ElError::Overflow`)
+pub fn BFN_POW()         -> i32 { return 14i32; }
 
 // Resolve a call name → builtin id (BFN_*). Unknown ⇒ BFN_UNKNOWN.
 pub fn builtin_of_name(name: str) -> i32 {
@@ -371,6 +374,7 @@ pub fn builtin_of_name(name: str) -> i32 {
     if str_eq(name, "substr")      { return BFN_SUBSTR(); }
     if str_eq(name, "to_string")   { return BFN_TO_STRING(); }
     if str_eq(name, "to_number")   { return BFN_TO_NUMBER(); }
+    if str_eq(name, "pow")         { return BFN_POW(); }
     return BFN_UNKNOWN();
 }
 
@@ -380,7 +384,7 @@ pub fn builtin_arity(bfn: i32) -> i64 {
     if bfn == BFN_CONTAINS() || bfn == BFN_STARTS_WITH()           { return 2i64; }
     if bfn == BFN_IS_SOME() || bfn == BFN_IS_NONE()                { return 1i64; }
     if bfn == BFN_UNWRAP_OR()                                      { return 2i64; }
-    if bfn == BFN_MIN() || bfn == BFN_MAX()                        { return 2i64; }
+    if bfn == BFN_MIN() || bfn == BFN_MAX() || bfn == BFN_POW()    { return 2i64; }
     if bfn == BFN_SUBSTR()                                         { return 3i64; }
     if bfn == BFN_TO_STRING() || bfn == BFN_TO_NUMBER()            { return 1i64; }
     return 0i64;
@@ -430,6 +434,26 @@ pub fn wql_to_string(x: i64) -> String {
 /// optional sign, then one or more ASCII digits and nothing else. Soufflé's
 /// functor is C's `stoll` (leading blanks, `0x`/`0b`, trailing text ignored)
 /// and aborts the program on what it cannot read; here that is an `Err`.
+/// `pow(b, e)` — `b` to the `e`, as Rust's `i64::checked_pow(e as u32)`: an
+/// exponent outside `u32` (Rust's parameter type) or a result outside `i64` is
+/// an `Err`. Soufflé's `**` computes in `double` and truncates.
+pub fn wql_pow(b: i64, e: i64) -> Result<i64, ElError> {
+    if e < 0i64 || e > 4294967295i64 { return Result::Err(ElError::Overflow); }
+    let mut acc: i64 = 1i64;
+    let mut base: i64 = b;
+    let mut k: i64 = e;
+    while k > 0i64 {
+        if k % 2i64 == 1i64 {
+            match acc.checked_mul(base) { Option::Some(m) => { acc = m; } Option::None => { return Result::Err(ElError::Overflow); } }
+        }
+        k = k / 2i64;
+        if k > 0i64 {
+            match base.checked_mul(base) { Option::Some(m) => { base = m; } Option::None => { return Result::Err(ElError::Overflow); } }
+        }
+    }
+    return Result::Ok(acc);
+}
+
 pub fn wql_to_number(s: str) -> Result<i64, ElError> {
     let n: i64 = s.len();
     let mut k: i64 = 0i64;

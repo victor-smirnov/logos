@@ -2156,6 +2156,14 @@ pub fn emit_call(out: &mut String, c: SCall, t: &ElTypes, var: str) {
         out.push_str(") as i64))");
         return;
     }
+    if bfn == BFN_POW() {
+        out.push_str("logos.std.wql.el::wql_pow(((");
+        emit_sexpr_as(out, args.arg_at(0i64), t, var, "i64");
+        out.push_str(") as i64), ((");
+        emit_sexpr_as(out, args.arg_at(1i64), t, var, "i64");
+        out.push_str(") as i64))?");
+        return;
+    }
     if bfn == BFN_TO_NUMBER() {
         out.push_str("logos.std.wql.el::wql_to_number(");
         emit_str_view(out, args.arg_at(0i64), t, var);
@@ -2411,7 +2419,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                     }
                 }
                 if (bfn == BFN_SUBSTR() && argc == 3i64) || (bfn == BFN_TO_STRING() && argc == 1i64)
-                   || (bfn == BFN_TO_NUMBER() && argc == 1i64) {
+                   || (bfn == BFN_TO_NUMBER() && argc == 1i64) || (bfn == BFN_POW() && argc == 2i64) {
                     // integers that hold in i64; substr's first argument a string
                     let mut bad: str = "";
                     let mut ai: i64 = 0i64;
@@ -2430,6 +2438,7 @@ pub fn check_calls(e: SExpr, t: &ElTypes, ctx: str) -> bool {
                         ms.push_str(name);
                         ms.push_str(if bfn == BFN_SUBSTR() { "' takes a string and two integers that hold in i64 (Soufflé's `substr`), and an argument is `" }
                                     else if bfn == BFN_TO_NUMBER() { "' takes a string (Soufflé's `to_number`), and its argument is `" }
+                                    else if bfn == BFN_POW() { "' takes two integers that hold in i64 (Soufflé's `**`), and an argument is `" }
                                     else { "' takes an integer that holds in i64 (Soufflé's `to_string`), and its argument is `" });
                         ms.push_str(bad);
                         ms.push_str("`");

@@ -6972,9 +6972,10 @@ GONE-FILE  stdlib/lcm/deem/facthistory.logos  deleted at P5: FactHistory, the ep
 #                ALL 12283 -> 12286 (+3), NOIMPORTED 7724 -> 7727 (+3), TIERCOMMIT 163 -> 163 (+0) — 2026-10-15: pass/box_dyn_as_ref_as_mut (nonglob); fail/box_dyn_as_mut_needs_mut_e0596, fail/box_dyn_as_ref_then_move_e0505 (registry).
 #                ALL 12286 -> 12287 (+1), NOIMPORTED 7727 -> 7728 (+1), TIERCOMMIT 163 -> 163 (+0) — 2026-10-15: +pass/deem_to_number_e2e (glob).
 #                ALL 12287 -> 12290 (+3), NOIMPORTED 7728 -> 7731 (+3), TIERCOMMIT 163 -> 164 (+1) — 2026-10-15: merge deem a72add361 (+1 glob deem_to_number_e2e, +1 registry) onto main (+1 nonglob box_dyn_double_deref_mut_reborrow, +3 registry incl. unsized_deref_by_value_e0277, squeue str_by_value_admitted tier +1).
-#                ALL 12290 -> 12291 (+1), NOIMPORTED 7731 -> 7732 (+1), TIERCOMMIT 164 -> 163 (-1) — 2026-10-15: pass/box_dyn_fn_through_fn_bound; squeue #664 box_dyn_fn_not_fn_refused closed into pass (tier -1).
-REGISTRY-ALL         12291
-REGISTRY-NOIMPORTED  7732
+#                ALL 12290 -> 12292 (+2), NOIMPORTED 7731 -> 7733 (+2), TIERCOMMIT 164 -> 164 (+0) — 2026-10-15: +pass/deem_pow_e2e (glob), +fail/deem_pow_str_arg_fail.
+#                ALL 12292 -> 12293 (+1), NOIMPORTED 7733 -> 7734 (+1), TIERCOMMIT 164 -> 163 (-1) — 2026-10-15: merge deem 8e4b8d5a4 (+1 glob deem_pow_e2e, +2 registry) onto main 46d0d7fd7 (4819 = 272 + 4547, 12291/7732/163).
+REGISTRY-ALL         12293
+REGISTRY-NOIMPORTED  7734
 REGISTRY-TIERCOMMIT  163
 RENAMED-FIXTURE  tests/imported/admit/regions/outlives-with-missing.logos  tests/imported/fail/regions/outlives-with-missing.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning the undeclared where SUBJECT refused as an unknown type
 RENAMED-FIXTURE  tests/imported/admit/lifetimes/constructor-lifetime-early-binding-error.logos  tests/imported/fail/lifetimes/constructor-lifetime-early-binding-error.logos  2026-09-13f: the bc_admits row it carried (lifereg.R17) was CLOSED, so the program leaves the admit shelf and becomes an ordinary fail fixture pinning a constructor turbofish's lifetime-argument count
