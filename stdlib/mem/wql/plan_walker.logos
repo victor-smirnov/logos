@@ -2259,7 +2259,7 @@ fn merge_decide_step(prm: &MacroParams, pc: &mut CProgram, ap: &AccessPlan, h: &
         return;
     }
     match &mut pc.entry.clause.body[i] { CLit::Atom(a) => { a.strat = JS_MERGE(); } CLit::Trav(_t) => { } CLit::Cond(_c) => { } }
-    plan_trace(svar, "merge join", ktn, "both sources ascend on the key (their declared order columns, offered by the chosen producers) — the step's walk advances to each base key and keeps the run equal to it");
+    plan_trace(svar, "merge join", ktn, "both sources ascend on the key (their declared order columns, offered by the chosen producers) — the step's walk advances to each base key and keeps the run equal to it in `__mr` (at most one key's step rows); a batch step also holds its current batch in `__mb`");
 }
 
 fn merge_sexpr(w: i64) -> SExpr { return unsafe { WAny::ref_to(w as *const u8) }.view::<SExpr>(); }
