@@ -1,0 +1,14 @@
+// rustc E0596: `b.as_mut()` / `&mut *b` over an owning `Box<dyn Tr>` borrows the
+// place `*b`, which `b` owns, so `b` must be declared `mut`. Both spellings were
+// admitted: the borrow checker read the owning trait object's deref as a reference's.
+package box_dyn_as_mut_needs_mut_e0596;
+use logos.std.fmt;
+use logos.mem.boxed;
+use logos.lang.convert;
+use logos.lang.ops;
+trait A { fn a(&self) -> i64; fn inc(&mut self); }
+struct S(i64);
+impl A for S { fn a(&self) -> i64 { self.0 } fn inc(&mut self) { self.0 += 1; } }
+fn show(x: &dyn A) -> i64 { x.a() }
+fn bump(x: &mut dyn A) { x.inc(); }
+fn main() { let b: Box<dyn A> = Box::new(S(3)); bump(b.as_mut()); bump(&mut *b); }

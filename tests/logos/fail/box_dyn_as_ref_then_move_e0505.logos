@@ -1,0 +1,14 @@
+// rustc E0505: `b.as_ref()` over an owning `Box<dyn Tr>` borrows `*b`; moving `b`
+// while the borrow is live was admitted (the borrow was a retype of `b`, no loan) and
+// read freed memory.
+package box_dyn_as_ref_then_move_e0505;
+use logos.std.fmt;
+use logos.mem.boxed;
+use logos.lang.convert;
+use logos.lang.ops;
+trait A { fn a(&self) -> i64; fn inc(&mut self); }
+struct S(i64);
+impl A for S { fn a(&self) -> i64 { self.0 } fn inc(&mut self) { self.0 += 1; } }
+fn show(x: &dyn A) -> i64 { x.a() }
+fn bump(x: &mut dyn A) { x.inc(); }
+fn main() { let b: Box<dyn A> = Box::new(S(3)); let r = b.as_ref(); drop(b); println!("{}", r.a()); }

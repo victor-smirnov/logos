@@ -2224,15 +2224,7 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             if (!mut_inner_is_deref &&
                 TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
                 TypeRef(op_t).owning_trait_object()) {
-                auto a = TypeRef(op_t).type_args();
-                builder().retype_expr(operand,
-                    dyn_mut_(make_trait_object(TypeRef(op_t).trait_name(),
-                                               std::vector<TypeRef>(a.begin(), a.end()),
-                                               TraitOwningKind::Borrow,
-                                               TypeRef(op_t).trait_requires_send(),
-                                               TypeRef(op_t).trait_requires_sync(), {},
-                                               TypeRef(op_t).pkg_name()), true));   // `&mut *b`
-                return operand;
+                return borrow_owning_dyn_(std::move(operand), true);   // `&mut *b`
             }
             // `&mut *m` over a borrowed `&mut dyn Tr` / `&mut [T]`: a REBORROW of
             // the place `*m`, of m's own fat type. It fell to the address-of at
@@ -4720,17 +4712,8 @@ lir::LExprPtr SemaChecker::lower_unary(TinyMapView node) {
                 }
                 if (!operand_unsized &&
                     TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
-                    TypeRef(op_t).owning_trait_object()) {
-                    auto a = TypeRef(op_t).type_args();
-                    builder().retype_expr(operand,
-                        make_trait_object(TypeRef(op_t).trait_name(),
-                                          std::vector<TypeRef>(a.begin(), a.end()),
-                                          TraitOwningKind::Borrow,
-                                          TypeRef(op_t).trait_requires_send(),
-                                          TypeRef(op_t).trait_requires_sync(), {},
-                                          TypeRef(op_t).pkg_name()));
-                    return operand;
-                }
+                    TypeRef(op_t).owning_trait_object())
+                    return borrow_owning_dyn_(std::move(operand), false);
                 if (TypeRef(op_t).kind() == LogosType::Kind::Ptr ||
                     TypeRef(op_t).kind() == LogosType::Kind::MutRef ||
                     TypeRef(op_t).kind() == LogosType::Kind::Ref) {
@@ -10327,6 +10310,21 @@ void SemaChecker::reborrow_dst_place_(lir::LExprPtr& recv, TypeRef self_formal) 
 // methods (mangled `$dyn$Foo__method`), then falls back to vtable dispatch
 // against the trait's declared methods. nullopt only when the receiver is not
 // a TraitObject; a trait object with no matching method errors.
+// The borrow of the place `*b` (the owning trait object's pointee), typed as the
+// borrowed fat pair. `AddrOfTemp(Deref(b))` is the reborrow shape: the borrow
+// checker sees a loan of `b` (and a `&mut` needs `b` mutable), mlir-gen emits
+// `b`'s pair. A retype of `b` itself read as a copy of the pair and recorded none.
+lir::LExprPtr SemaChecker::borrow_owning_dyn_(lir::LExprPtr b, bool is_mut) {
+    TypeRef op_t(expr_type(b));
+    auto a = op_t.type_args();
+    TypeRef bt = make_trait_object(op_t.trait_name(), std::vector<TypeRef>(a.begin(), a.end()),
+                                   TraitOwningKind::Borrow, op_t.trait_requires_send(),
+                                   op_t.trait_requires_sync(), {}, op_t.pkg_name());
+    if (is_mut) bt = dyn_mut_(bt, true);
+    auto d = builder().deref(std::move(b), op_t);
+    return builder().addr_of_temp(std::move(d), is_mut, bt, BorrowOrigin::Explicit);
+}
+
 std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
         TinyMapView node, lir::LExprPtr& recv, std::string_view method_name) {
     TypeRef rt(expr_type(recv));
@@ -10380,6 +10378,28 @@ std::optional<lir::LExprPtr> SemaChecker::try_method_on_dyn(
                                   {}, std::move(pargs), c->ret_type);
         }
     }
+    // `b.as_ref()` / `b.deref()` / `b.as_mut()` over an owning `Box<dyn Tr>`: Box's own
+    // impls (`impl<E: ?Sized> AsRef<E> for Box<E>`) precede the deref to `dyn Tr` in
+    // rustc's probe. Their bodies cannot instantiate at a `dyn` pointee (an owning
+    // trait object is not a `Box` struct), but what they share is a property, not a
+    // name: `fn(&Box<E>) -> &E` / `fn(&mut Box<E>) -> &mut E`, the pointee's borrow,
+    // which is `&*b` / `&mut *b` (lower_addr_of's owning-trait-object arms).
+    if (rt.kind() == LogosType::Kind::TraitObject && rt.owning_trait_object() && !recv_is_deref())
+        if (const LangItem* bx = lang_item("owned_box"))
+            for (auto* c : methods_of_id_(OwnerId{type_id(bx->package, bx->name), 0, {}}, method_name)) {
+                if (!c || c->param_types.size() != 1 || !c->param_types[0] || !c->ret_type) continue;
+                TypeRef p0(c->param_types[0]), r(c->ret_type);
+                const bool mut_ = r.kind() == LogosType::Kind::MutRef;
+                if (!(mut_ || r.kind() == LogosType::Kind::Ref) || p0.kind() != r.kind()) continue;
+                TypeRef self_t = p0.pointee(), pe = r.pointee();
+                if (!self_t || !pe || pe.kind() != LogosType::Kind::TypeVar) continue;
+                auto sa = self_t.type_args();
+                if (sa.size() != 1 || !sa[0] || TypeRef(sa[0]).kind() != LogosType::Kind::TypeVar ||
+                    TypeRef(sa[0]).type_var_name() != pe.type_var_name())
+                    continue;
+                if (!lower_call_args(node).empty()) continue;
+                return borrow_owning_dyn_(std::move(recv), mut_);
+            }
     {
         std::string dyn_key = "$dyn$" + tname + "__" + std::string(method_name);
         std::vector<lir::LExprPtr> d_args = lower_call_args(node);

@@ -5018,6 +5018,17 @@ private:
     // The stdlib `Box<T>`. Its built-in `*b` is an OWNING step (ADR 0028): a
     // place under it is part of `b` for moves, initialisation and writes.
     static bool is_std_box(TypeRef t) { return is_stdlib_box_type(t); }
+    // An owning fat pointer (`Box<dyn Tr>`, `Box<[T]>`, a boxed DST) owns its
+    // pointee as a `Box` does: `&mut *b` needs `mut b` (E0596).
+    static bool is_owning_fat(TypeRef t) {
+        if (!t) return false;
+        switch (t.kind()) {
+            case LogosType::Kind::TraitObject: return t.owning_trait_object();
+            case LogosType::Kind::Slice:       return t.owning_slice();
+            case LogosType::Kind::DstRef:      return t.owning_dst();
+            default:                           return false;
+        }
+    }
     // Does the place go through a deref that does not own its target (a
     // reference or a raw pointer), as opposed to only through boxes?
     // The references a place is reached through, read off its types: bit 0 a
@@ -5100,7 +5111,7 @@ private:
         bool synth = b_.locals[p.local].synth_ref;
         for (auto& pj : p.proj) {
             if (pj.k == bir::Proj::K::Deref) {
-                if (synth || !is_std_box(t)) return true;
+                if (synth || !(is_std_box(t) || is_owning_fat(t))) return true;
                 t = pj.ty ? pj.ty : (t.type_args().empty() ? TypeRef{} : t.type_args()[0]);
             } else if (pj.k == bir::Proj::K::Field) {
                 t = pj.ty ? pj.ty : field_type_(t, pj.field);

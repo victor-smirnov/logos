@@ -10110,6 +10110,8 @@ private:
     // Returns the lowered call when `callee` is such an intrinsic; nullopt to
     // fall through to lower_generic_call's general generic-resolution path.
     lir::LExprPtr lower_slice_from_raw_(std::vector<TypeRef> ts, std::vector<lir::LExprPtr> args, bool raw_mut);
+    // `&*b` / `&mut *b` over an owning `Box<dyn Tr>`: a borrow of the place `*b`.
+    lir::LExprPtr borrow_owning_dyn_(lir::LExprPtr b, bool is_mut);
     std::optional<lir::LExprPtr> lower_type_intrinsic(
         writ::TinyMapView node, std::string_view callee);
     // Helpers shared by the type-intrinsic handlers (promoted from lambdas).

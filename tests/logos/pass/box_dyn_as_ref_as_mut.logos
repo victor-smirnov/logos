@@ -1,0 +1,14 @@
+// Rust's `impl<E: ?Sized> AsRef<E> for Box<E>` (and AsMut, Deref) over an owning
+// `Box<dyn Tr>`: Box's own impls precede the deref to `dyn Tr`; the result is the
+// pointee's borrow, `&*b` / `&mut *b`. Output checked against rustc 1.98.1.
+package box_dyn_as_ref_as_mut;
+use logos.std.fmt;
+use logos.mem.boxed;
+use logos.lang.convert;
+use logos.lang.ops;
+trait A { fn a(&self) -> i64; fn inc(&mut self); }
+struct S(i64);
+impl A for S { fn a(&self) -> i64 { self.0 } fn inc(&mut self) { self.0 += 1; } }
+fn show(x: &dyn A) -> i64 { x.a() }
+fn bump(x: &mut dyn A) { x.inc(); }
+fn main() { let mut b: Box<dyn A> = Box::new(S(3)); bump(b.as_mut()); println!("{} {} {}", show(b.as_ref()), b.deref().a(), b.a()); b.as_mut().inc(); println!("{}", b.as_ref().a()); }
