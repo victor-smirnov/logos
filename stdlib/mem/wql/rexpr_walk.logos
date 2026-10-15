@@ -4149,6 +4149,7 @@ fn merge_cursor_frag(prm: &MacroParams, s: i64, ktn: str, src: str, ty: str, str
         let br: i64 = merge_batch_step(prm, src, streams);
         let pull: ExprBlob = merge_pull_frag(prm, s, src, ty, br);
         if br >= 0i64 {
+            plan_trace(src, "merge batch buffer", ty, "the merge step's producer hands out a leaf at a time and the leaf cannot outlive the next pull, so the cursor copies its rows into `__mb` — at most one leaf");
             let s_mb: String = nk_str("__mb", s);   let n_mb: Ident = Ident::new(string_as_str(&s_mb));
             let s_md: String = nk_str("__md", s);   let n_md: Ident = Ident::new(string_as_str(&s_md));
             let rowt2: ExprBlob = parse_type(ty);
@@ -6301,6 +6302,7 @@ fn emit_aggregate(ch0: DNest, key_ref: WRef<SExpr>, aggs: RAggArr,
     if has_having {
         let hav_f: ExprBlob = parse_expr(string_as_str(&having_body));
         collect = quote_block! { if (#(hav_f)) #(collect) };
+        if !mods.has_sort { group_survivors(prm, ch.base_src, ch.base_var); }
     }
     // The group columns are bound in the collect loop only when something there
     // READS them — the `having` predicate or the `order by` key. With neither,
