@@ -832,6 +832,7 @@ bool MLIRGenImpl::type_is_freeze(TypeRef t,
     case K::I128: case K::U128:
     case K::F32: case K::F64: case K::IntLit: case K::FloatLit:
     case K::Usize: case K::Isize:
+    case K::Str:                                  // a str's bytes: no interior mutability
         return true;
     // Pointers/references STOP the recursion: interior mutability behind an
     // indirection does NOT infect the container (Arc/Rc/&Cell stay Freeze).

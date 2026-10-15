@@ -3605,9 +3605,16 @@ private:
     // "parse the args and lower them" idiom (no per-arg type hint).
     std::vector<lir::LExprPtr> lower_call_args(writ::TinyMapView node) {
         std::vector<lir::LExprPtr> args;
-        for (auto an : collect_arg_asts(node)) args.push_back(lower_expr(an));
+        for (auto an : collect_arg_asts(node)) {
+            args.push_back(lower_expr(an));
+            refuse_unsized_rvalue_(an, args.back());
+        }
         return args;
     }
+    // A `*x` that yielded an unsized place (`dyn Tr`, `[T]`, `str`) taken BY VALUE
+    // (a `let` initializer, an argument, a returned value): rustc E0277. The flag
+    // is the deref's own when `n` is that deref (lower_deref resets it first).
+    bool refuse_unsized_rvalue_(writ::TinyMapView n, const lir::LExprPtr& e);
 
     // ── Diagnostics ──────────────────────────────────────────────
 

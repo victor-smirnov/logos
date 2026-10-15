@@ -21,7 +21,7 @@
 # it exactly, so a Kind cannot arrive without somebody deciding which arm it
 # belongs to.
 KINDS_TOTAL
-50
+51
 #
 # ── SECTION `DEFAULTED` ──────────────────────────────────────────────────────
 # The Kinds with no `case` label, which reach `default: return false`. That
@@ -77,6 +77,7 @@ Never	3
 Ptr	4
 Ref	4
 Slice	4
+Str	3
 Struct	8
 TaggedPtr	4
 TraitObject	4

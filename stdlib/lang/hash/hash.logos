@@ -247,7 +247,7 @@ impl<A: Hash, B: Hash, C: Hash, D: Hash, E: Hash, F: Hash, G: Hash, I: Hash, J: 
 impl Hash for str {
     /// Hashes by content: FNV-1a pre-mix of the bytes as one `u64`, then the byte length.
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let s: str = *self;
+        let s: &str = self;
         state.write_u64(unsafe { fnv1a_bytes(s.as_ptr(), s.len() as u64) });
         state.write_u64(s.len() as u64);
     }

@@ -2007,6 +2007,7 @@ lir_view::StmtRef SemaChecker::lower_let(TinyMapView node) {
         if (!rhs)
             rhs = lower_expr_expecting(rhs_node, let_expect,
                                        ann && TypeRef(ann).kind() != LogosType::Kind::Error ? ann : TypeRef(nullptr));
+        if (!is_ref_bind) refuse_unsized_rvalue_(rhs_node, rhs);
         rhs_type = expr_type(rhs);
         if (is_ref_bind) {
             // Wrap the lowered RHS in an addr-of-temp so it produces
@@ -3045,6 +3046,17 @@ lir_view::StmtRef SemaChecker::lower_assign_to(std::string_view name, TinyMapVie
 // variance, E0507, literal fit, MOVES, statement temporaries). The tail used to
 // build its own `stmt_return` and skipped the move marking, so
 // `fn f(t: String) -> String { t }` dropped `t` at scope exit AND returned it.
+bool SemaChecker::refuse_unsized_rvalue_(TinyMapView n, const lir::LExprPtr& e) {
+    if (!(e && code_of(unwrap_paren_node(n)) == la::DEREF && deref_yielded_unsized_)) return false;
+    deref_yielded_unsized_ = false;
+    // `str` by value is still the stdlib's fat-string currency (`fn str_eq(a: str, b: str)`,
+    // ~1200 sites): squeue row str_by_value_admitted. `dyn Tr` and `[T]` have no such use.
+    if (is_str_type(expr_type(e))) return false;
+    error(std::format("the size for values of type `{}` cannot be known at compilation time (E0277)",
+                      unsized_place_name_(expr_type(e))));
+    return true;
+}
+
 lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     lir::LExprPtr val = nullptr;
     // G151-3: when the return type is a fn-ptr/closure, hint it so an
@@ -3071,6 +3083,7 @@ lir::LExprPtr SemaChecker::lower_return_operand_(TinyMapView vnode) {
     if (ret_shape && ret_shape == ret_shape_of_ && ret_shape_) ret_shape = ret_shape_;
     if (!val)
         val = lower_expr_expecting(vnode, ret_expects ? ret_type_ : TypeRef(nullptr), ret_shape);
+    if (val) refuse_unsized_rvalue_(vnode, val);
     return val;
 }
 

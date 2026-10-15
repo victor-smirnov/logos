@@ -19,33 +19,29 @@ impl Drop for Dog { fn drop(&mut self) { println!("drop dog{}", self.id); } }
 fn main() {
     {
         let mut dq: VecDeque<Box<dyn Animal>> = VecDeque::new();
-    let pd: *mut VecDeque<Box<dyn Animal>> = &mut dq;
-    unsafe { pd.push_back(Box::new(Dog { id: 1 })); }
+    unsafe { dq.push_back(Box::new(Dog { id: 1 })); }
 
-    let x = unsafe { pd.pop_front() };
+    let x = unsafe { dq.pop_front() };
 
         if let Some(a) = x { println!("popped {}", a.legs()); }
     }
     println!("--");
     {
         let mut dq: VecDeque<Box<dyn Animal>> = VecDeque::new();
-    let pd: *mut VecDeque<Box<dyn Animal>> = &mut dq;
-    unsafe { pd.push_back(Box::new(Dog { id: 2 })); }
+    unsafe { dq.push_back(Box::new(Dog { id: 2 })); }
 
     }
     println!("--");
     {
         let mut m: BTreeMap<i64, Rc<dyn Animal>> = BTreeMap::new();
-    let pm: *mut BTreeMap<i64, Rc<dyn Animal>> = &mut m;
-    unsafe { pm.insert(1, Rc::new(Dog { id: 3 })); }
+    m.insert(1, Rc::new(Dog { id: 3 }));
 
     }
     println!("--");
     {
         let mut m: HashMap<i64, Box<dyn Animal>> = HashMap::new();
-    let pm: *mut HashMap<i64, Box<dyn Animal>> = &mut m;
-    unsafe { pm.insert(1, Box::new(Dog { id: 4 })); }
-    let old = unsafe { pm.insert(1, Box::new(Dog { id: 5 })) };
+    m.insert(1, Box::new(Dog { id: 4 }));
+    let old = m.insert(1, Box::new(Dog { id: 5 }));
 
 
         println!("old some {}", old.is_some());
