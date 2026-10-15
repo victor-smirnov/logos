@@ -1,3 +1,4 @@
+// Closed squeue box_dyn_fn_not_fn_refused (#664): Box<dyn Fn> satisfies an F: Fn bound (C-OBL builtin Box<F>: Fn* when F: Fn*; mono calls through the box), 04735d171.
 // SOUNDNESS QUEUE row box_dyn_fn_not_fn_refused (tier 3, `refuses`). Feature-interaction audit 2026-09-26, cluster box-dyn-fn-not-fn: no blanket `impl<F: Fn + ?Sized> Fn for Box<F>`, so Box<dyn Fn> does not satisfy an F: Fn bound
 // Logos: error [fn main]: 'apply': type 'Box<|i64| -> i64>' does not implement trait 'Fn' required by parameter 'F'
 // rustc: compiles, apply(b, 21) returns 42, exit 0 (reproduced)

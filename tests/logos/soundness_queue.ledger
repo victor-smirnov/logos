@@ -173,8 +173,6 @@ recursive_type_via_option_payload_crash 2 tests/soundness/open/recursive_type_vi
 
 assoc_type_projection_expr_path_refused 3 tests/soundness/open/assoc_type_projection_expr_path_refused refuses
 
-box_dyn_fn_not_fn_refused 3 tests/soundness/open/box_dyn_fn_not_fn_refused refuses
-
 dyn_assoc_binding_refused 3 tests/soundness/open/dyn_assoc_binding_refused refuses
 
 qualified_path_generic_self_type_refused 3 tests/soundness/open/qualified_path_generic_self_type_refused refuses
@@ -374,5 +372,5 @@ rpit_hidden_type_visible_admitted 4 tests/soundness/open/rpit_hidden_type_visibl
 # 2026-09-14 owner ruling on A6 (a list comprehension's element type is the VALUE's type): re-filed from
 # listcomp_nonscalar_elem_internal_verifier_diag (tier 4 diag) as a legal program refused; re-measured on 0230e503bd682184 43.
 
-# TOTAL 96
-# SYNC-HASH 82505db5e4e4c6b8406ec2389e9b2ccd
+# TOTAL 95
+# SYNC-HASH 88960132d60474bea47464401fef23a7
