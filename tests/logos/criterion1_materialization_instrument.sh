@@ -136,6 +136,8 @@
 #       a node kind MUST come here and say which side it is on, instead of
 #       silently landing in "not a materialization";
 #   G3  no probe was lost: one rc file per fixture, count asserted.
+#   G5  the sweep is not blind: at least one user dump, one [plan] line and one
+#       collection binding, so no percentage is printed over an empty denominator.
 #   G4  every ACC credit is WITNESSED: the owning head fired at least once in
 #       THIS sweep's trace. See the block below — this one was added because a
 #       control proved the credit was previously unfalsifiable.
@@ -171,7 +173,7 @@
 # The numbers still print in full before the exit, so a control remains readable.
 #
 # EXIT 0 measured (values on stdout) · 2 the instrument could not measure, or
-# G1/G2/G3/G4 failed.
+# G1/G2/G3/G4/G5 failed.
 set -uo pipefail
 OUT="${1:?outdir}"
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -221,7 +223,10 @@ ST=("$OUT"/_st/*)
 if [ "${#ST[@]}" -ne "${#FIXTURES[@]}" ]; then
     echo "FAIL(2) G3: ${#ST[@]} rc files for ${#FIXTURES[@]} probes — probes were lost."; exit 2
 fi
-UD=("$OUT"/*.user)
+UD=(); for x in "$OUT"/*.user; do [ -f "$x" ] && UD+=("$x"); done
+if [ "${#UD[@]}" -eq 0 ]; then
+    echo "FAIL(2) G5: ${#FIXTURES[@]} probes produced no user dumps — the sweep is blind (no --gen-dir output)"; exit 2
+fi
 RED=0; for s in "${ST[@]}"; do [ "$(cat "$s")" = 0 ] || RED=$((RED+1)); done
 echo "population: ${#FIXTURES[@]} fixtures, ${#UD[@]} with user dumps, $RED non-compiling"
 
@@ -442,6 +447,9 @@ for ln in plan_lines:
     else: unknown[h] += 1
 
 D1 = len(plan_lines)
+if D1 == 0:
+    print("FAIL(2) G5: no [plan] lines on the trace channel — LOGOS_TRACE_PLAN produced nothing to measure")
+    sys.exit(2)
 T  = len(mat_txt_lines)
 tcomp = collections.Counter(head_of(l) or '<unparsed>' for l in mat_txt_lines)
 
@@ -752,6 +760,9 @@ for p in glob.glob(os.path.join(OUT, '*.user')):
         cls[key or n] += 1
         if key is None and ('= __gs_edges_' in ln or 'Vec<WritEdgeRow>' in ln):
             derived_mat[n] += 1
+if D2 == 0:
+    print("FAIL(2) G5: no collection bindings in the user dumps — the artifact channel is blind")
+    sys.exit(2)
 
 # ── G4: A CREDIT IS ONLY A CREDIT IF ITS OWNER FIRED ───────────────────────
 # `witnessed` is decided by THIS sweep's trace channel (`heads`), which the
