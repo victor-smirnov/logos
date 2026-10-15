@@ -258,7 +258,8 @@ pub fn sexpr_fallible(w: WRef<SExpr>) -> bool {
         }
         SExpr::Field(f) => { return sexpr_fallible(f.base); }
         SExpr::Call(c) => {
-            if builtin_of_name(c.fn_name) == BFN_TO_NUMBER() { return true; }   // `wql_to_number(..)?`
+            let cb: i32 = builtin_of_name(c.fn_name);
+            if cb == BFN_TO_NUMBER() || cb == BFN_POW() { return true; }   // `wql_to_number(..)?` / `wql_pow(..)?`
             return sexpr_arr_fallible(c.args);
         }
         SExpr::Tuple(t) => { return sexpr_arr_fallible(t.items); }
