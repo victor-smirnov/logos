@@ -1,9 +1,12 @@
 // `order by` an outer join's optional column: the key is an `Option<T>` and
 // orders as Rust's `Option` — `None` before every `Some`, two `Some`s by the
-// payload (an f64 payload by its data key). `desc` reverses it, so `None`
-// lands last; ties keep the row-index tiebreak in both directions.
+// payload (an f64 payload by its data key, so a NaN sorts after every number,
+// as FP-as-data orders it; `Option<f64>`'s own `<` is IEEE-partial and would
+// leave the NaN row where the insertion sort met it — first). `desc` reverses
+// it, so `None` lands last; ties keep the row-index tiebreak in both directions.
 // Rows: hand-derived from the data below.
-//   es: 1→10 2→20 3→30 4→20      ds: 10→(floor 5, w -1.5) 20→(floor 2, w 0.5)
+//   es: 5→40 1→10 2→20 3→30 4→20
+//   ds: 10→(floor 5, w -1.5) 20→(floor 2, w 0.5) 40→(floor 9, w NaN)
 //   e3 matches nothing (None); e2 and e4 tie on every key.
 package test;
 use logos.std.wql.wql;
@@ -11,6 +14,7 @@ use logos.mem.collections.vec;
 use logos.lang.result;
 use logos.lang.option;
 use logos.std.fmt;
+use logos.lang.num.float;     // f64_from_bits
 struct Emp { pub id: i64, pub dept: i64 }
 struct Dept { pub id: i64, pub floor: i64, pub w: f64 }
 pub deem by_floor(es: &[Emp], ds: &[Dept]) {
@@ -28,8 +32,9 @@ fn show(tag: str, r: &Vec<i64>) {
     println!("");
 }
 fn main() -> i32 {
-    let es: [Emp; 4] = [ Emp { id: 1, dept: 10 }, Emp { id: 2, dept: 20 }, Emp { id: 3, dept: 30 }, Emp { id: 4, dept: 20 } ];
-    let ds: [Dept; 2] = [ Dept { id: 10, floor: 5, w: -1.5 }, Dept { id: 20, floor: 2, w: 0.5 } ];
+    let es: [Emp; 5] = [ Emp { id: 5, dept: 40 }, Emp { id: 1, dept: 10 }, Emp { id: 2, dept: 20 }, Emp { id: 3, dept: 30 }, Emp { id: 4, dept: 20 } ];
+    let nan: f64 = f64_from_bits(0x7FF8000000000000u64);
+    let ds: [Dept; 3] = [ Dept { id: 10, floor: 5, w: -1.5 }, Dept { id: 20, floor: 2, w: 0.5 }, Dept { id: 40, floor: 9, w: nan } ];
     show("floor", &by_floor(&es[..], &ds[..]).unwrap());
     show("floor desc", &by_floor_desc(&es[..], &ds[..]).unwrap());
     show("w", &by_w(&es[..], &ds[..]).unwrap());
