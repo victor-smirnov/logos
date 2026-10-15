@@ -25,7 +25,7 @@ unsafe fn expect_null(h: &Writ, bad: &Vec<u8>) -> bool {
 }
 
 // valid value -> wbs_write -> wbs_read must reconstruct an equal value.
-unsafe fn roundtrip(h: &Writ, text: str) -> bool {
+unsafe fn roundtrip(h: &Writ, text: &str) -> bool {
     let v1: WAny = parse(h, text);
     let bytes: Vec<u8> = wbs_write(v1);
     let bs: &[u8] = bytes.as_slice();

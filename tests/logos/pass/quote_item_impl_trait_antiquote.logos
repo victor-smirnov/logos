@@ -18,9 +18,9 @@ struct Box<T> { v: T }
 
 #[metaprog_handler("gen_trait_impl")]
 fn gen_trait_impl_hook(target_offset: u32) -> () {
-    let gn: str = "Show";
+    let gn: &str = "Show";
     let gid: Ident = Ident::new(gn);
-    let pn: str = "T";
+    let pn: &str = "T";
     let pid: Ident = Ident::new(pn);
     let blob: QuoteItemBlob = quote_item! {
         trait #gid { fn label(self: &Self) -> i64; }

@@ -13,7 +13,7 @@
 // reference"); a shared ref can hand out no `&mut` at all.
 package bc_d6_mut_field_capture_through_mutref_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct Foo { x: i64, y: i64 }
 fn main() -> i32 {
     let mut f: Foo = Foo { x: 1i64, y: 2i64 };

@@ -2,14 +2,14 @@ package string;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
 
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
-fn str_len(s: str) -> i64 {
+fn str_len(s: &str) -> i64 {
     return s.len();
 }
 
 unsafe fn main() -> i32 {
-    let s: str = "hello, logos!";
+    let s: &str = "hello, logos!";
     let n: i64 = str_len(s);
     printi("len = %d\n", n as i32);
     return n as i32;

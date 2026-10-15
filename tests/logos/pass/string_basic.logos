@@ -39,7 +39,7 @@ unsafe fn main() -> i32 {
     }
 
     // push_bytes via as_ptr + len
-    let lit: str = "42";
+    let lit: &str = "42";
     s.push_bytes(lit.as_ptr(), 2);
     if s.len() != 2 {
         return 6;

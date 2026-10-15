@@ -8,7 +8,7 @@
 // which breaks this program (MEASURED, both crude probes).
 package bc_dropck_loan_nodrop_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct Wrap<'a> { p: &'a mut i64 }
 fn main() -> i32 {
     let mut x: i64 = 0i64;

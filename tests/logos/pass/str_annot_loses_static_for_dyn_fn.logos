@@ -4,7 +4,7 @@ package str_annot_loses_static_for_dyn_fn;
 use logos.mem.boxed;
 
 fn mk() -> Box<dyn Fn() -> i64> {
-    let s: str = "abc";
+    let s: &str = "abc";
     return Box::new(move || -> i64 { return s.len() as i64; });
 }
 

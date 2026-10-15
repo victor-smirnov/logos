@@ -36,8 +36,8 @@ use logos.mem.collections.vec;
 
 #[test]
 fn test_unwrap_or() {
-    let ok: Result<isize, str> = Ok(100isize);
-    let err: Result<isize, str> = Err("Err");
+    let ok: Result<isize, &str> = Ok(100isize);
+    let err: Result<isize, &str> = Err("Err");
 
     assert_eq!(ok.unwrap_or(50isize), 100isize);
     assert_eq!(err.unwrap_or(50isize), 50isize);
@@ -45,11 +45,11 @@ fn test_unwrap_or() {
 
 #[test]
 fn test_is_ok_is_err() {
-    let ok: Result<isize, str> = Ok(7isize);
+    let ok: Result<isize, &str> = Ok(7isize);
     assert!(ok.is_ok());
     assert!(!ok.is_err());
 
-    let err: Result<isize, str> = Err("nope");
+    let err: Result<isize, &str> = Err("nope");
     assert!(!err.is_ok());
     assert!(err.is_err());
 }
@@ -58,28 +58,28 @@ fn test_is_ok_is_err() {
 fn test_unwrap_err() {
     // CP-cm-11 closed (2026-05-14): `str == str` now routes to stdlib
     // `str_eq`, so the upstream str form works.
-    let err: Result<isize, str> = Err("sadface");
+    let err: Result<isize, &str> = Err("sadface");
     assert_eq!(err.unwrap_err(), "sadface");
 }
 
 #[test]
 #[should_panic]
 fn test_expect_panic() {
-    let err: Result<isize, str> = Err("boom");
+    let err: Result<isize, &str> = Err("boom");
     err.expect("expected ok but got err");
 }
 
 #[test]
 #[should_panic]
 fn test_expect_err_panic() {
-    let ok: Result<isize, str> = Ok(1isize);
+    let ok: Result<isize, &str> = Ok(1isize);
     ok.expect_err("expected err but got ok");
 }
 
 #[test]
 #[should_panic]
 fn test_unwrap_panic() {
-    let err: Result<isize, str> = Err("kaboom");
+    let err: Result<isize, &str> = Err("kaboom");
     err.unwrap();
 }
 
@@ -174,8 +174,8 @@ fn test_or_else() {
 // surfaced by stdlib's `.take()` chains and emitted wrong-arity calls.
 #[test]
 fn test_fmt_default() {
-    let ok:  Result<isize, str> = Ok(100isize);
-    let err: Result<isize, str> = Err("Err");
+    let ok:  Result<isize, &str> = Ok(100isize);
+    let err: Result<isize, &str> = Err("Err");
 
     let s1: String = format!("{:?}", ok);
     assert_eq!(s1.as_str(), "Ok(100)");

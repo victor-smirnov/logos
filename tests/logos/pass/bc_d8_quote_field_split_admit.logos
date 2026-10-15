@@ -81,7 +81,7 @@ pub fn plain_open(r: &Rows) -> PlainDx {
 
 // ── channel B: the quote_item! SPLICE, same text ────────────────────────────
 #[token_macro]
-pub fn gen_quote(s: str) -> ItemList {
+pub fn gen_quote(s: &str) -> ItemList {
     let dnm: Ident = Ident::new("QuoteDx");
     let q: QuoteItemBlob = quote_item! {
         use logos.mem.collections.vec;

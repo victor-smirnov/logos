@@ -30,9 +30,9 @@ fn main() -> i32 {
     if b.unwrap() != 99i64 { return fail(13); }
 
     // Option::<Result<T, E>>::transpose
-    let or_ok: Option<Result<i32, str>> = Option::<Result<i32, str>>::Some(
-        Result::<i32, str>::Ok(5));
-    let trans: Result<Option<i32>, str> = or_ok.transpose();
+    let or_ok: Option<Result<i32, &str>> = Option::<Result<i32, &str>>::Some(
+        Result::<i32, &str>::Ok(5));
+    let trans: Result<Option<i32>, &str> = or_ok.transpose();
     match trans {
         Result::Ok(o)  => {
             if !o.is_some() { return fail(20); }
@@ -42,18 +42,18 @@ fn main() -> i32 {
     }
 
     // Result::<Result<T, E>, E>::flatten
-    let rr: Result<Result<i32, str>, str> = Result::<Result<i32, str>, str>::Ok(
-        Result::<i32, str>::Ok(11));
-    let rf: Result<i32, str> = rr.flatten();
+    let rr: Result<Result<i32, &str>, &str> = Result::<Result<i32, &str>, &str>::Ok(
+        Result::<i32, &str>::Ok(11));
+    let rf: Result<i32, &str> = rr.flatten();
     match rf {
         Result::Ok(v)  => { if v != 11 { return fail(30); } }
         Result::Err(_) => { return fail(31); }
     }
 
     // Result::<Option<T>, E>::transpose
-    let ro: Result<Option<i32>, str> = Result::<Option<i32>, str>::Ok(
+    let ro: Result<Option<i32>, &str> = Result::<Option<i32>, &str>::Ok(
         Option::<i32>::Some(13));
-    let rt: Option<Result<i32, str>> = ro.transpose();
+    let rt: Option<Result<i32, &str>> = ro.transpose();
     if !rt.is_some() { return fail(40); }
     match rt.unwrap() {
         Result::Ok(v)  => { if v != 13 { return fail(41); } }

@@ -15,7 +15,7 @@ use logos.mem.string;
 
 pub struct W { pub v: str }
 
-pub fn mk(s: str) -> W { return W { v: s }; }
+pub fn mk(s: &str) -> W { return W { v: s }; }
 
 pub fn bad() -> W {
     let o: String = String::from("hello");

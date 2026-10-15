@@ -13,7 +13,7 @@ use logos.lang.str;
 use logos.std.io;
 use logos.std.wql.ward;
 
-fn expect(label: str, got: bool, want: bool) -> i32 {
+fn expect(label: &str, got: bool, want: bool) -> i32 {
     if got == want {
         print("ok   ");
         println(label);

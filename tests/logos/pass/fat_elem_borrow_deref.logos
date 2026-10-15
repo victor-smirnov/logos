@@ -12,20 +12,20 @@ struct Box1 { pub skills: Vec<str> }
 
 fn main() -> i32 {
     // (1) LOCAL vec: borrow + deref of &str
-    let mut z: Vec<str> = Vec::<str>::new();
+    let mut z: Vec<&str> = Vec::<&str>::new();
     z.push("go");
-    let r1: str = *(z.borrow(0i64));
+    let r1: &str = *(z.borrow(0i64));
     if !str_eq(r1, "go") { return 1i32; }
     // (2) LOCAL vec: index op (Index-trait desugar `*v.index(i)`)
-    let s2: str = z[0i64];
+    let s2: &str = z[0i64];
     if !str_eq(s2, "go") { return 2i32; }
     // (3) hoisted &Vec from field: index through deref
-    let b: Box1 = Box1 { skills: { let mut w: Vec<str> = Vec::<str>::new(); w.push("c"); w } };
-    let vr: &Vec<str> = &b.skills;
-    let s3: str = (*vr)[0i64];
+    let b: Box1 = Box1 { skills: { let mut w: Vec<&str> = Vec::<&str>::new(); w.push("c"); w } };
+    let vr: &Vec<&str> = &b.skills;
+    let s3: &str = (*vr)[0i64];
     if !str_eq(s3, "c") { return 3i32; }
     // (4) field receiver borrow+deref
-    let s4: str = *((b.skills).borrow(0i64));
+    let s4: &str = *((b.skills).borrow(0i64));
     if !str_eq(s4, "c") { return 4i32; }
     return 0i32;
 }

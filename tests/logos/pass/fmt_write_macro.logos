@@ -14,7 +14,7 @@ impl Display for Point {
 // Custom Write sink — must impl FmtWrite (like Rust's `impl Write`).
 struct Collector { buf: String }
 impl FmtWrite for Collector {
-    fn write_str(&mut self, s: str) -> Result<(), Error> { self.buf.push_str(s); return Result::<(), Error>::Ok(()); }
+    fn write_str(&mut self, s: &str) -> Result<(), Error> { self.buf.push_str(s); return Result::<(), Error>::Ok(()); }
     fn write_char(&mut self, c: u8) -> Result<(), Error> { self.buf.push_u8(c); return Result::<(), Error>::Ok(()); }
 }
 

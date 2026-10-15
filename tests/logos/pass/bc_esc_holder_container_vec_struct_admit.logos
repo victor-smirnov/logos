@@ -6,7 +6,7 @@ use logos.mem.string;
 
 pub struct H { pub v: str }
 
-pub fn ok(s: str) -> Vec<H> {
+pub fn ok(s: &str) -> Vec<H> {
     let mut v: Vec<H> = Vec::<H>::new();
     v.push(H { v: s });
     return v;

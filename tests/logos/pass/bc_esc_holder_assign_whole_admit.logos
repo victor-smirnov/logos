@@ -6,7 +6,7 @@ use logos.mem.string;
 
 pub struct W { pub v: str }
 
-pub fn ok(s: str) -> W {
+pub fn ok(s: &str) -> W {
     let mut w: W = W { v: "" };
     w = W { v: s };
     return w;

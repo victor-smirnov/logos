@@ -37,7 +37,7 @@
 package meta_trait_query_homonym_trait_name;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 pub trait Hash { fn utterly_unrelated_method(&self) -> i64; }
 

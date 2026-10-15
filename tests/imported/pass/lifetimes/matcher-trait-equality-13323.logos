@@ -18,10 +18,10 @@ struct StrWrap {
 }
 
 impl StrWrap {
-    fn new(s: str) -> StrWrap {
+    fn new(s: &str) -> StrWrap {
         return StrWrap { s: s };
     }
-    fn get_s(&self) -> str {
+    fn get_s(&self) -> &str {
         return self.s;
     }
 }
@@ -31,7 +31,7 @@ struct MyStruct {
 }
 
 impl MyStruct {
-    fn new(s: str) -> MyStruct {
+    fn new(s: &str) -> MyStruct {
         return MyStruct { s: StrWrap::new(s) };
     }
     fn get_str_wrap(&self) -> &StrWrap {
@@ -44,12 +44,12 @@ struct EqualTo {
 }
 
 impl EqualTo {
-    fn matches(&self, actual: str) -> bool {
+    fn matches(&self, actual: &str) -> bool {
         return self.expected == actual;
     }
 }
 
-fn assert_that(actual: str, matcher: &EqualTo) {
+fn assert_that(actual: &str, matcher: &EqualTo) {
     assert!(matcher.matches(actual));
 }
 

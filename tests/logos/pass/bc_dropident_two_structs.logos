@@ -2,7 +2,7 @@
 // declaration orders. Each destructor runs once, in scope order.
 package bc_dropident_two_structs;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+fn say(s: &str) { unsafe { printf(s.as_ptr()); } }
 struct A { id: i32 }
 struct B { id: i32 }
 impl A {

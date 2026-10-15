@@ -25,7 +25,7 @@ struct Item { pub name: str, pub dept: i64 }
 // #[token_macro] handler: emits, via the raw-source splice path, a function
 //   pub fn pick(ws: &[Item]) -> i64 { sum of .dept over the slice }
 #[token_macro]
-pub fn gen_pick(s: str) -> ItemList {
+pub fn gen_pick(s: &str) -> ItemList {
     let mut em: Emitter = Emitter::new();
     em.buf.push_str("package test; ");
     em.buf.push_str("use logos.lang.str; ");

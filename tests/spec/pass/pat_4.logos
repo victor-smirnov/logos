@@ -110,7 +110,7 @@ fn li_int(x: i64) -> i64 { match x { 42i64 => 1i64, -7i64 => 2i64, _ => 0i64 } }
 fn rc_char(c: char) -> i64 { match c { 'a' => 1i64, 'b'..='d' => 2i64, _ => 0i64 } }
 
 // ── pat.lit.string ───────────────────────────────────────────────────────────
-fn ls_str(s: str) -> i64 { match s { "foo" => 1i64, "bar" => 2i64, _ => 0i64 } }
+fn ls_str(s: &str) -> i64 { match s { "foo" => 1i64, "bar" => 2i64, _ => 0i64 } }
 
 // ── pat.lit.bool ─────────────────────────────────────────────────────────────
 fn lb_bool(b: bool) -> i64 { match b { true => 1i64, false => 2i64 } }

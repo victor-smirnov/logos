@@ -15,10 +15,10 @@ package tuple_eq_str_field;
 use logos.lang.cmp;
 
 fn main() -> i32 {
-    let a: (str, i32) = ("foo", 1i32);
-    let b: (str, i32) = ("foo", 1i32);
-    let c: (str, i32) = ("bar", 1i32);
-    let d: (str, i32) = ("foo", 2i32);
+    let a: (&str, i32) = ("foo", 1i32);
+    let b: (&str, i32) = ("foo", 1i32);
+    let c: (&str, i32) = ("bar", 1i32);
+    let d: (&str, i32) = ("foo", 2i32);
 
     if !(a == b) { return 1i32; }
     if a == c    { return 2i32; }
@@ -27,9 +27,9 @@ fn main() -> i32 {
     if a != b    { return 5i32; }
 
     // 3-arity with str in different positions.
-    let t1: (i32, str, i32) = (1i32, "hi", 2i32);
-    let t2: (i32, str, i32) = (1i32, "hi", 2i32);
-    let t3: (i32, str, i32) = (1i32, "ho", 2i32);
+    let t1: (i32, &str, i32) = (1i32, "hi", 2i32);
+    let t2: (i32, &str, i32) = (1i32, "hi", 2i32);
+    let t3: (i32, &str, i32) = (1i32, "ho", 2i32);
     if !(t1 == t2) { return 6i32; }
     if t1 == t3    { return 7i32; }
 

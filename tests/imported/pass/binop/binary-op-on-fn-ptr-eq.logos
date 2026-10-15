@@ -6,10 +6,10 @@
 // equality comparison compiles — is preserved.
 package bo_binary_op_on_fn_ptr_eq;
 
-fn foo(_a: str) { }
+fn foo(_a: &str) { }
 
 fn main() -> i32 {
-    let x: fn(str) = foo;
-    let _ = (x as i64) == (foo as fn(str) as i64);
+    let x: fn(&str) = foo;
+    let _ = (x as i64) == (foo as fn(&str) as i64);
     return 0i32;
 }

@@ -2,8 +2,8 @@
 package drop_nested_scope;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn print(s: str) { unsafe { printf(s.as_ptr()); } }
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn print(s: &str) { unsafe { printf(s.as_ptr()); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 struct Resource {
     id: i32,

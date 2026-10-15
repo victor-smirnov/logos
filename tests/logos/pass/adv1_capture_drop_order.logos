@@ -6,7 +6,7 @@
 // ADR 0030 S10 row 4; the oracle says otherwise.
 package adv1_capture_drop_order;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 struct R { id: i32 }
 impl Drop for R { fn drop(self: &mut Self) { printi("d%d ", self.id); } }
 unsafe fn main() -> i32 {

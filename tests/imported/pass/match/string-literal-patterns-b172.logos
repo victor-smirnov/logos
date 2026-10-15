@@ -11,7 +11,7 @@
 //  test are tracked separately as G172-1b — not yet supported.)
 package string_literal_patterns_b172;
 
-fn classify(s: str) -> i32 {
+fn classify(s: &str) -> i32 {
     match s {
         "yes" => { return 1i32; }
         "no" => { return 2i32; }
@@ -28,7 +28,7 @@ fn main() -> i32 {
     if classify("other") != 0i32 { return 5i32; }
 
     // Expression-position str match.
-    let s: str = "b";
+    let s: &str = "b";
     let x: i32 = match s { "a" => 10i32, "b" => 20i32, _ => 99i32 };
     if x != 20i32 { return 6i32; }
 

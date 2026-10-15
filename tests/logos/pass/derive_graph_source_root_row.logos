@@ -111,7 +111,7 @@ fn addr_of(v: &Cfg) -> i64 {
 // surviving entry point; the columns keep their names, so the queries below
 // are the same queries over the same walk.
 pub deem d_parent(edges: &[DynEdge]) { from edges e select e.parent }
-pub deem d_key(edges: &[DynEdge])    { from edges e select e.key : str }
+pub deem d_key(edges: &[DynEdge])    { from edges e select e.key : &str }
 pub deem d_idx(edges: &[DynEdge])    { from edges e select e.idx }
 
 fn main() -> i32 {
@@ -169,7 +169,7 @@ fn main() -> i32 {
     if cp.len() != 1i64 { return 97i32; }
     if cp.get(0i64) != 0i64 { return 30i32; }
 
-    let ck: Vec<str> = match d_key(dyr.as_slice()) { Result::Ok(v) => { v } Result::Err(_c2) => { return 97i32; } };
+    let ck: Vec<&str> = match d_key(dyr.as_slice()) { Result::Ok(v) => { v } Result::Err(_c2) => { return 97i32; } };
     if ck.len() != 1i64 { return 97i32; }
     if !str_eq(ck.get(0i64), "") { return 31i32; }
 

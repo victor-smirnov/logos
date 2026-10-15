@@ -13,8 +13,8 @@ use logos.lang.str;
 struct Holder { pub s: str }
 
 fn split(a: &mut [str; 2]) {
-    let acc: str = "Acc";
-    let mut ret: str = acc;   // must COPY, not alias
+    let acc: &str = "Acc";
+    let mut ret: &str = acc;   // must COPY, not alias
     ret = "i64";
     a[0] = acc;               // still "Acc"
     a[1] = ret;               // "i64"
@@ -29,15 +29,15 @@ fn main() -> i32 {
 
     // Mut source: a binding taken BEFORE the source is reassigned keeps the
     // old value (independent slot, not a view of the source).
-    let mut m: str = "one";
-    let snap: str = m;
+    let mut m: &str = "one";
+    let snap: &str = m;
     m = "two";
     if !str_eq(snap, "one") { return 3i32; }
     if !str_eq(m, "two") { return 4i32; }
 
     // Field source: `let mut y = h.s; y = …` must not rewrite the field.
     let h: Holder = Holder { s: "field" };
-    let mut y: str = h.s;
+    let mut y: &str = h.s;
     y = "changed";
     if !str_eq(h.s, "field") { return 5i32; }
     if !str_eq(y, "changed") { return 6i32; }

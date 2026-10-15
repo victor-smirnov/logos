@@ -8,9 +8,9 @@
 package bc_esc_holder_assign_tuple_dangle;
 use logos.mem.string;
 
-pub fn bad() -> str {
+pub fn bad() -> &str {
     let o: String = String::from("hello");
-    let mut t: (str, i64) = ("", 0i64);
+    let mut t: (&str, i64) = ("", 0i64);
     t.0 = o.as_str();
     return t.0;
 }

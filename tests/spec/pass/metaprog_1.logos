@@ -30,7 +30,7 @@ pub fn arr3(elems: Vec<ExprBlob>) -> ExprBlob { return quote_expr! { [#(#elems),
 #[fn_macro]
 pub fn emit_marker() -> ItemList {
     let mut out: ItemList = item_list_new();
-    let s: str = "FmMarker";
+    let s: &str = "FmMarker";
     let id: Ident = Ident::new(s);
     let b: QuoteItemBlob = quote_item! { struct #id { v: i32 } };
     out.blobs.push(b);

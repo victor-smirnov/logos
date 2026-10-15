@@ -50,7 +50,7 @@ impl Pair { pub fn as_any(self: &Pair) -> WAny { return unsafe { WAny::ref_to((s
 
 resource cat = schema_catalog!{ Pair };
 
-fn str_view(s: &String) -> str {
+fn str_view(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 

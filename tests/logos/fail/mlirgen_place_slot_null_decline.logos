@@ -39,7 +39,7 @@
 package mlirgen_place_slot_null_decline;
 
 unsafe fn main() -> i32 {
-    let __slotnull_canary_v: str;
+    let __slotnull_canary_v: &str;
     __slotnull_canary_v = "abcde";
     if __slotnull_canary_v.len() != 5i64 { return 1; }
     return 0;

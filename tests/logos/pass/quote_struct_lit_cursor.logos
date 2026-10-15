@@ -13,15 +13,15 @@ use logos.lang.writ.wstatic;
 
 #[metaprog_handler("struct_lit_cursor_inject")]
 fn struct_lit_cursor_inject_hook(target_offset: u32) -> () {
-    let s_a: str = "a";
-    let s_b: str = "b";
+    let s_a: &str = "a";
+    let s_b: &str = "b";
     let f_a: Ident = Ident::new(s_a);
     let f_b: Ident = Ident::new(s_b);
     let fnames: [Ident; 2] = [f_a, f_b];
 
-    let s_build: str = "build_pair";
+    let s_build: &str = "build_pair";
     let id_build: Ident = Ident::new(s_build);
-    let s_read: str = "read_a";
+    let s_read: &str = "read_a";
     let id_read: Ident = Ident::new(s_read);
 
     let body_build: ExprBlob = quote_expr! {

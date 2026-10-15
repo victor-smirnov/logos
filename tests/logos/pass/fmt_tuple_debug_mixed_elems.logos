@@ -16,9 +16,9 @@ use logos.lang.str;
 use logos.mem.string;
 use logos.mem.fmt;
 fn main() -> i32 {
-    if !str_eq(fmt_debug_to_string::<(i64,str,i64)>(&(1i64,"ab",2i64)).as_str(), "(1, \"ab\", 2)") { return 1i32; }
-    if !str_eq(fmt_debug_to_string::<(str,usize)>(&("q",3usize)).as_str(), "(\"q\", 3)") { return 2i32; }
+    if !str_eq(fmt_debug_to_string::<(i64,&str,i64)>(&(1i64,"ab",2i64)).as_str(), "(1, \"ab\", 2)") { return 1i32; }
+    if !str_eq(fmt_debug_to_string::<(&str,usize)>(&("q",3usize)).as_str(), "(\"q\", 3)") { return 2i32; }
     if !str_eq(fmt_debug_to_string::<(usize,isize)>(&(4usize,5isize)).as_str(), "(4, 5)") { return 3i32; }
-    if !str_eq(fmt_debug_to_string::<(str,)>(&("z",)).as_str(), "(\"z\",)") { return 4i32; }
+    if !str_eq(fmt_debug_to_string::<(&str,)>(&("z",)).as_str(), "(\"z\",)") { return 4i32; }
     return 0i32;
 }

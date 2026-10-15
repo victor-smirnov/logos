@@ -40,13 +40,13 @@ use logos.mem.string;               // i64::to_string
 use logos.lang.str;                 // str_eq
 use logos.std.io;                   // print / println / println_string
 
-fn section(t: str) { println(""); print("== "); println(t); }
-fn say(label: str, n: i64) {
+fn section(t: &str) { println(""); print("== "); println(t); }
+fn say(label: &str, n: i64) {
     print("   "); print(label); print(" = ");
     let s: String = n.to_string();    // bind so the temporary String drops (frees its buffer)
     println_string(&s);
 }
-fn yn(label: str, b: bool) {
+fn yn(label: &str, b: bool) {
     print("   "); print(label); print(" -> "); println(if b { "yes" } else { "no" });
 }
 
@@ -179,7 +179,7 @@ fn main() -> i32 {
     //      fresh arena, and structurally compare — all dispatching on type_code.
     section("8. Document model — parse / stringify / HBS / compactify / equal");
     let tiny: Writ = writ_new(32i64);                 // tiny segs → multi-segment doc
-    let src: str = r#"{
+    let src: &str = r#"{
         "name": "Ada", 
         "age": 36, 
         "pi": 3.14, 

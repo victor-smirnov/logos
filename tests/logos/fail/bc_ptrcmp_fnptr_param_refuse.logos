@@ -1,6 +1,6 @@
 package bc_ptrcmp_fnptr_param_refuse;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn bump(x: &mut &i64) { }
 fn same<'a, 'b, 'c, 'd>(f: fn(&'c mut &'a i64), g: fn(&'d mut &'b i64)) -> bool {
     return f == g;

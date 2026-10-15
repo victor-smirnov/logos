@@ -17,7 +17,7 @@ package token_macro_item_params_resource;
 use logos.std.compiler.metaprog;   // Emitter, item_list_new, ItemList
 
 #[token_macro]
-pub fn build_fn(name: str, params: str, body: str) -> ItemList {
+pub fn build_fn(name: &str, params: &str, body: &str) -> ItemList {
     let out: ItemList = item_list_new();
 
     // Emit `pub fn <name>(<params>) -> i64 { <body> }`. The params text is

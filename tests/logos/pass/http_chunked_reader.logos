@@ -14,8 +14,8 @@ use logos.lang.str;
 
 fn main() -> i32 {
     let mut enc: Vec<u8> = Vec::<u8>::new();
-    let part1: str = "Hello, ";
-    let part2: str = "World!";
+    let part1: &str = "Hello, ";
+    let part2: &str = "World!";
     unsafe {
         chunked_write_chunk(part1.as_ptr(), part1.len(), &mut enc);
         chunked_write_chunk(part2.as_ptr(), part2.len(), &mut enc);
@@ -52,7 +52,7 @@ fn main() -> i32 {
         }
         if total != 13 as i64 { return 3; }
 
-        let expected: str = "Hello, World!";
+        let expected: &str = "Hello, World!";
         let exp_ptr: *const u8 = expected.as_ptr();
         let mut i: i64 = 0 as i64;
         while i < 13 as i64 {

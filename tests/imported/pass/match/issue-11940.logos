@@ -9,10 +9,10 @@ package issue_11940;
 use logos.mem.string;
 use logos.lang.str;
 
-const TEST_STR: str = "abcd";
+const TEST_STR: &str = "abcd";
 
 fn main() -> i32 {
-    let s: str = "abcd";
+    let s: &str = "abcd";
     match s {
         TEST_STR => { return 0; }
         _ => { return 1; }

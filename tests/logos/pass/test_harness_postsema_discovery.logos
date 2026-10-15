@@ -26,8 +26,8 @@ use logos.lang.writ.wstatic;
 #[fn_macro]
 pub fn emit_count_ones_test(args: Vec<ExprBlob>) -> ItemList {
     let mut out: ItemList = item_list_new();
-    let s_fn: str = "test_count_ones_synth";
-    let s_ty: str = "i32";
+    let s_fn: &str = "test_count_ones_synth";
+    let s_ty: &str = "i32";
     let fn_id: Ident = Ident::new(s_fn);
     let ty_id: Ident = Ident::new(s_ty);
     let b: QuoteItemBlob = quote_item! {

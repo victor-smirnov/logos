@@ -4,7 +4,7 @@
 // fix for the first is a silent removal of every destructor in the tree.
 package drop_ident_trait_is_a_destructor;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 static mut I: i64 = 0i64;
 struct S { k: i64 }
 impl Drop for S { fn drop(self: &mut Self) { unsafe { I = I + 1i64; } } }

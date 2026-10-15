@@ -28,7 +28,7 @@ use logos.lang.str;
 use logos.std.io;
 
 pub mapping Net(g: &Writ) {
-    pub rel engine(owner: i64, name: str) {
+    pub rel engine(owner: i64, name: &str) {
         from g ** .engine e select (e.parent, e.vs);
     }
 }
@@ -37,7 +37,7 @@ pub deem s_engines(w: Net) {
     from engine e select e.name
 }
 
-fn has(v: &Vec<str>, s: str) -> bool {
+fn has(v: &Vec<&str>, s: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < v.len() { if str_eq(v.get(i), s) { return true; } i = i + 1i64; }
     return false;
@@ -46,7 +46,7 @@ fn has(v: &Vec<str>, s: str) -> bool {
 fn main() -> i32 {
     let doc: Writ = parse_writ(r#"{ db: { engine: "pg" }, cache: { engine: "redis" } }"#);
 
-    let st: Vec<str> = match s_engines(&doc)
+    let st: Vec<&str> = match s_engines(&doc)
     { Result::Ok(v) => { v } Result::Err(_e) => { return 1i32; } };
 
     if st.len() != 2i64 { return 4i32; }

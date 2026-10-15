@@ -4,7 +4,7 @@
 package str_static_literal_test;
 
 fn main() -> i32 {
-    let x: str = "foo";
+    let x: &str = "foo";
     let _ = x;
     return 0;
 }

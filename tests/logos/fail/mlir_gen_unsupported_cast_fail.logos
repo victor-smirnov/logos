@@ -44,7 +44,7 @@
 package test;
 
 fn main() -> i32 {
-    let s: str = "x";
+    let s: &str = "x";
     let mut a: f64 = 1.0f64;
     a = s as f64;
     if a > 0.0f64 { return 1i32; }

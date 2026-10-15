@@ -9,7 +9,7 @@
 // and that is the token the pair separates.
 package bc_dropident_diffsig_arity_rettype;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+fn say(s: &str) { unsafe { printf(s.as_ptr()); } }
 struct R { id: i32 }
 impl R {
     fn drop(self: &mut Self, k: i32) -> i32 { say("I"); return k; }

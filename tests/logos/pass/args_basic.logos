@@ -20,7 +20,7 @@ fn main() -> i32 {
     }
 
     if positional_count() != 0 { return 5; }
-    let p: str = positional(0);
+    let p: &str = positional(0);
     if p.len() != 0 as i64 { return 6; }
 
     // program_name should be non-empty (the test harness invokes the binary

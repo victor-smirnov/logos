@@ -42,7 +42,7 @@ unsafe fn slot_uid<const W: WritStatic>() -> u64 {
 // CTFE round-trip targets (value rendered via render_ctfe_lit, then re-parsed).
 fn id_i64(x: i64) -> i64 { return x; }
 fn id_u32(x: u32) -> u32 { return x; }
-fn id_str(x: str) -> str { return x; }
+fn id_str(x: &str) -> &str { return x; }
 
 fn main() -> i64 {
     // @rule const.assoc.inherent-and-trait-assoc-const-access
@@ -87,7 +87,7 @@ fn main() -> i64 {
         // @rule const.literal.string-escapes
         // A rendered string constant escapes \\ \" \n \r \t and emits other
         // bytes verbatim, so it round-trips through render + re-parse byte-exact.
-        let s: str = metacall id_str("x\r\\\"z\n\t");
+        let s: &str = metacall id_str("x\r\\\"z\n\t");
         let sb = s.as_bytes();
         if s.len() != 7i64 { return 14; }
         if sb[0] != 120u8 { return 15; }   // x verbatim

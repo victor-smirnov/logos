@@ -20,7 +20,7 @@ use logos.std.compiler.metaprog;
 
 pub struct Pair<A, B> { pub a: A, pub b: B, }
 
-fn nm() -> str { return "Pair"; }
+fn nm() -> &str { return "Pair"; }
 
 unsafe fn main() -> i32 {
     let t = type_apply(nm(), [type_of::<i32>(), type_of::<bool>()]);

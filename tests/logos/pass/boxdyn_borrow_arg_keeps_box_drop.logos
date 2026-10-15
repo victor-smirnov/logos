@@ -22,7 +22,7 @@
 package boxdyn_borrow_arg_keeps_box_drop;
 use logos.mem.boxed;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+fn say(s: &str) { unsafe { printf(s.as_ptr()); } }
 
 trait Sp { fn v(&self) -> i64; }
 struct A { x: i64 }

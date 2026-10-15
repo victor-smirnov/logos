@@ -14,7 +14,7 @@ package m_guards_parenthesized_and;
 use logos.lang.option;
 use logos.lang.panic;
 
-fn eq_str(a: str, b: str) -> bool {
+fn eq_str(a: &str, b: &str) -> bool {
     let alen: i64 = a.len();
     let blen: i64 = b.len();
     if alen != blen { return false; }
@@ -28,7 +28,7 @@ fn eq_str(a: str, b: str) -> bool {
 
 fn main() -> i32 {
     let c: i32 = 1i32;
-    let w: str = "T";
+    let w: &str = "T";
     match Option::None::<i32> {
         Option::None if c == 1i32 && (!eq_str(w, "Y") && !eq_str(w, "E")) => { }
         _ => { panic("guard should have matched"); }

@@ -6,7 +6,7 @@ use logos.mem.collections.vec;
 use logos.lang.str;
 
 fn main() -> i32 {
-    let mut v: Vec<str> = Vec::<str>::new();
+    let mut v: Vec<&str> = Vec::<&str>::new();
     v.push("mm");
     let m: i32 = match *(v.borrow(0i64)) {
         "mm" => 0i32,

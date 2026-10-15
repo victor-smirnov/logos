@@ -19,7 +19,7 @@ struct Box<T> { v: T }
 fn parse_gen_hook(target_offset: u32) -> () {
     let gp: ExprBlob = parse_type_params("<T: Bound>");
     let bk: ExprBlob = parse_type("Box<T>");
-    let gn: str = "Show";
+    let gn: &str = "Show";
     let gid: Ident = Ident::new(gn);
     let blob: QuoteItemBlob = quote_item! {
         impl #(gp) #gid for #(bk) {

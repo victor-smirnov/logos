@@ -1,6 +1,6 @@
 package bc_meet_enumlit_refuse;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 enum E<'a> { N, Two(&'a i64, &'a i64) }
 fn mk<'a, 'b>(x: &'a i64, y: &'b i64) -> E<'a> {
     return E::Two(x, y);

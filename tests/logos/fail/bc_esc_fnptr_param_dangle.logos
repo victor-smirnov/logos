@@ -24,10 +24,10 @@ package bc_esc_fnptr_param_dangle;
 
 use logos.mem.string;
 
-pub fn keep1(s: str) -> str { return s; }
+pub fn keep1(s: &str) -> &str { return s; }
 
-pub fn run(f: fn(str) -> str) -> i64 {
-    let mut v: str = "";
+pub fn run(f: fn(&str) -> &str) -> i64 {
+    let mut v: &str = "";
     {
         let owner: String = String::from("hello");
         v = f(owner.as_str());

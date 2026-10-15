@@ -19,10 +19,10 @@
 package bc_fatret_nested_call_sig_fail;
 use logos.mem.string;
 
-pub fn my_as_str3(s: &str) -> str { return "abcde"; }
+pub fn my_as_str3(s: &str) -> &str { return "abcde"; }
 
 fn main() -> i32 {
-    let v: str;
+    let v: &str;
     {
         let owner: String = String::from("hello");
         v = my_as_str3(owner.as_str());

@@ -6,9 +6,9 @@
 package const_patterns_structural;
 const K: [u8; 3] = [102u8, 111u8, 111u8];
 const B: [u8; 3] = b"bar";
-const S: str = "a\"b\n";
+const S: &str = "a\"b\n";
 fn c(x: [u8; 3]) -> i32 { match x { K => { return 1; } B => { return 2; } _ => { return 0; } } }
-fn d(s: str) -> i32 { match s { S => { return 1; } "zz" => { return 2; } _ => { return 0; } } }
+fn d(s: &str) -> i32 { match s { S => { return 1; } "zz" => { return 2; } _ => { return 0; } } }
 fn main() -> i32 {
     if c([102u8, 111u8, 111u8]) != 1 { return 1; }
     if c([98u8, 97u8, 114u8]) != 2 { return 2; }

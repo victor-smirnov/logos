@@ -14,15 +14,15 @@ use logos.mem.string;
 
 pub struct W<'a> { pub v: &'a str }
 
-pub trait Tr { fn wrap(&self, s: str) -> W; }
+pub trait Tr { fn wrap(&self, s: &str) -> W; }
 
 pub struct K { pub z: i64 }
 
 impl Tr for K {
-    fn wrap(&self, s: str) -> W { return W { v: s }; }
+    fn wrap(&self, s: &str) -> W { return W { v: s }; }
 }
 
-pub fn bad<T: Tr>(t: &T) -> str {
+pub fn bad<T: Tr>(t: &T) -> &str {
     let o: String = String::from("hello");
     let w: W = t.wrap(o.as_str());
     return w.v;

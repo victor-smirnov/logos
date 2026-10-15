@@ -7,7 +7,7 @@ use logos.mem.writ.stringify;     // stringify
 use logos.mem.string;
 use logos.lang.str;
 
-unsafe fn check_view(v: WView2, expected: str, err_code: i32) -> i32 {
+unsafe fn check_view(v: WView2, expected: &str, err_code: i32) -> i32 {
     let text: String = stringify(v.root());
     if !text.eq_str(expected) { return err_code; }
     return 0;

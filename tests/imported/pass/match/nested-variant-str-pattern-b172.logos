@@ -3,7 +3,7 @@
 // the arm with `str_eq(payload, "foo")`. (Tuple-element str like `("foo", _)`
 // is a clean compile error — see fail/match/tuple-str-pattern-unsupported.)
 package nested_variant_str_pattern_b172;
-fn f(o: Option<str>) -> i32 {
+fn f(o: Option<&str>) -> i32 {
     match o {
         Some("foo") => { return 1i32; }
         Some(_) => { return 2i32; }

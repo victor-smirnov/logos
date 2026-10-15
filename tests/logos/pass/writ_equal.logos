@@ -11,7 +11,7 @@ use logos.lang.writ.compactify;
 use logos.mem.writ.parser;
 fn main() -> i32 {
     let h: Writ = writ_new(4096i64);
-    let src: str = "[1, \"x\", [2, 3], {\"k\": true}, 9000000000000000000, 3.14]";
+    let src: &str = "[1, \"x\", [2, 3], {\"k\": true}, 9000000000000000000, 3.14]";
     let a1: WAny = parse(&h, src);
     let a2: WAny = parse(&h, src);
     if !equal(a1, a2) { return 1; }                       // equal, distinct objects

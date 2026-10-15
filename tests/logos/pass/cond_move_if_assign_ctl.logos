@@ -1,8 +1,8 @@
 package cond_move_if_assign_ctl;
 extern fn printf(fmt: *const u8, ...) -> i32;
 extern fn fflush(f: *mut u8) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
-fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: &str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
 
 /// HEAP-OWNING payload. The `Vec` is what makes the oracle bite: a second
 /// destructor call on the same value is a genuine double free (glibc aborts),

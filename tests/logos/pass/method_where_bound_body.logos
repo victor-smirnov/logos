@@ -27,7 +27,7 @@ impl<T: ?Sized> Holder<T> {
 }
 
 fn main() -> i32 {
-    let mut hs: Holder<str> = Holder::<str> { total: 0i64 };
+    let mut hs: Holder<&str> = Holder::<&str> { total: 0i64 };
     if hs.add("hello") != 5i64 { return 1i32; }
     if hs.add("ab") != 7i64 { return 2i32; }
     if hs.total() != 7i64 { return 3i32; }

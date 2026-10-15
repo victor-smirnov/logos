@@ -7,9 +7,9 @@ use logos.mem.string;
 
 pub struct W { pub v: str }
 
-pub fn mk(s: str) -> W { return W { v: s }; }
+pub fn mk(s: &str) -> W { return W { v: s }; }
 
-pub fn ok(s: str) -> W {
+pub fn ok(s: &str) -> W {
     return mk(s);
 }
 

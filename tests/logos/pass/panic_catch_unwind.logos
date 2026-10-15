@@ -16,13 +16,13 @@ fn bad() {
 }
 
 fn main() -> i32 {
-    let r1: Result<(), str> = catch_unwind(good);
+    let r1: Result<(), &str> = catch_unwind(good);
     match r1 {
         Ok(_)  => {}
         Err(_) => { return 1; }
     }
 
-    let r2: Result<(), str> = catch_unwind(bad);
+    let r2: Result<(), &str> = catch_unwind(bad);
     match r2 {
         Ok(_)    => { return 2; }
         Err(msg) => {

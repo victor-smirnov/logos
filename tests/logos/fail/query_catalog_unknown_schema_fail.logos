@@ -7,7 +7,7 @@ package test;
 use logos.std.wql.catalog_macro;
 use logos.mem.deem;
 
-pub schema Emp : code(0x0A05_0000_0000_0001) { name: str = 0 }
+pub schema Emp : code(0x0A05_0000_0000_0001) { name: &str = 0 }
 
 resource cat = schema_catalog!{ Emp, Nope };
 

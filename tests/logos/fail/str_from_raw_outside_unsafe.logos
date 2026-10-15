@@ -6,6 +6,6 @@
 package str_from_raw_outside_unsafe;
 fn main() -> i32 {
     let b: [u8; 3] = [97u8, 98u8, 99u8];
-    let s: str = str_from_raw(&b[0] as *const u8, 3i64);
+    let s: &str = str_from_raw(&b[0] as *const u8, 3i64);
     return s.len() as i32;
 }

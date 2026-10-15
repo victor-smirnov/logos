@@ -7,7 +7,7 @@
 // before the filing change, because an enum's `Drop` had never been qualified.
 package bc_dropident_diffsig_enum;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+fn say(s: &str) { unsafe { printf(s.as_ptr()); } }
 enum E { A(i64), B }
 impl E {
     fn drop(self: &Self) -> i64 { say("I"); return 1i64; }

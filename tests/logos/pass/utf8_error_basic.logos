@@ -26,7 +26,7 @@ fn main() -> i32 {
     }
 
     // ── Utf8Error: valid input ──
-    let s: str = "hello";
+    let s: &str = "hello";
     let p: *const u8 = s.as_ptr();
     let r1: Result<(), Utf8Error> = unsafe { utf8_validate(p, s.len()) };
     match r1 {

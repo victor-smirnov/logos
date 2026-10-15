@@ -19,7 +19,7 @@ unsafe fn bytes_eq(a: *const u8, b: *const u8, n: u64) -> bool {
     return true;
 }
 
-unsafe fn sv(s: str, n: u64) -> StringView {
+unsafe fn sv(s: &str, n: u64) -> StringView {
     return StringView { ptr: s.as_ptr(), len: n };
 }
 

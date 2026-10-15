@@ -24,7 +24,7 @@ use logos.lang.writ.wstatic;
 use logos.lang.rc;
 use logos.std.fmt;
 unsafe fn main() -> i32 {
-    let s: str = "hello";
+    let s: &str = "hello";
     let sv: StringView = StringView { ptr: s.as_ptr(), len: 5u64 };
     let doc: Rc<Writ> = @{"s": $sv};
     let h: &Writ = doc.deref();

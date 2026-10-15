@@ -13,7 +13,7 @@ struct StringBuffer {
 }
 
 impl StringBuffer {
-    fn append(self: &mut StringBuffer, v: str) {
+    fn append(self: &mut StringBuffer, v: &str) {
         self.s.push_str(v);
     }
 }

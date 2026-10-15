@@ -6,7 +6,7 @@
 package str_len_byte_index_b165;
 
 fn main() -> i32 {
-    let s: str = "hello";
+    let s: &str = "hello";
     if s.len() != 5i64 { return 1i32; }
     if s[0u64] != 104u64 { return 2i32; }   // 'h'
     if s[4u64] != 111u64 { return 3i32; }   // 'o'

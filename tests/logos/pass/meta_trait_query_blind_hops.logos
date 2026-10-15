@@ -49,7 +49,7 @@ use logos.lang.clone;
 use logos.std.compiler.metaprog;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 pub struct Marked { pub a: i32, }
 impl Clone for Marked { fn clone(&self) -> Marked { return Marked { a: self.a }; } }

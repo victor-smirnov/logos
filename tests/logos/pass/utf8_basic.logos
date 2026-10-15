@@ -36,10 +36,10 @@ fn check_encode_decode() -> i32 {
 
 fn check_valid() -> i32 {
     unsafe {
-        let ascii: str = "hello";
+        let ascii: &str = "hello";
         if !is_valid(ascii.as_ptr(), ascii.len()) { return 13; }
 
-        let empty: str = "";
+        let empty: &str = "";
         if !is_valid(empty.as_ptr(), empty.len()) { return 14; }
 
         // Produce valid UTF-8 via encode(), then validate the result.
@@ -57,7 +57,7 @@ fn check_valid() -> i32 {
 
 fn check_char_count() -> i32 {
     unsafe {
-        let ascii: str = "hello";
+        let ascii: &str = "hello";
         if char_count(ascii.as_ptr(), ascii.len()) != 5 { return 17; }
 
         // encode two 'é' (U+00E9, 2 bytes each) → 4 bytes total, 2 chars

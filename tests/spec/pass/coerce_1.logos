@@ -150,7 +150,7 @@ fn main() -> i64 {
     // pointer (field 0 of the {ptr,len} fat pair); the byte at that ptr is the
     // first content byte.
     {
-        let s: str = "Az";
+        let s: &str = "Az";
         let p: *const u8 = s as *const u8;                     // extract data ptr
         unsafe { if (*p as i64) != 65i64 { return 17; } }      // 'A' = 65
     }

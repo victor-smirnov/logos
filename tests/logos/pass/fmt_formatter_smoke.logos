@@ -22,7 +22,7 @@ fn main() -> i32 {
     let r3: Result<(), Error> = f.write_str("orld");
     match r3 { Ok(_) => {} Err(_) => { return 3; } }
 
-    let out: str = buf.as_str();
+    let out: &str = buf.as_str();
     if !str_eq(out, "hello world") { return 4; }
 
     return 42;

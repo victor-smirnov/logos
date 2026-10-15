@@ -30,17 +30,17 @@ package bc_esc_generic_uninst_dangle;
 
 use logos.mem.string;
 
-pub trait Tr { fn thru(&self, s: str) -> str; }
+pub trait Tr { fn thru(&self, s: &str) -> &str; }
 
 pub struct K { pub z: i64 }
 
 impl Tr for K {
-    fn thru(&self, s: str) -> str { return s; }
+    fn thru(&self, s: &str) -> &str { return s; }
 }
 
 pub struct H<T> { pub t: T }
 
-pub fn bad<T: Tr>(h: &H<T>) -> str {
+pub fn bad<T: Tr>(h: &H<T>) -> &str {
     let o: String = String::from("hello");
     return h.t.thru(o.as_str());
 }

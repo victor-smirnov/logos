@@ -18,7 +18,7 @@
 // the same way. Both were measured; both are why the walk is bare-block-only.
 package bc_d3_loop_bare_block_release_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn f(p: &mut [i64; 4]) -> i64 {
     let mut s: i64 = 0i64;
     while s < 2i64 {

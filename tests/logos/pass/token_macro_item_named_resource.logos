@@ -14,7 +14,7 @@ use logos.mem.collections.vec;
 use logos.lang.str;
 
 #[token_macro]
-pub fn make_query(name: str, body: str) -> ItemList {
+pub fn make_query(name: &str, body: &str) -> ItemList {
     let out: ItemList = item_list_new();
 
     // The value the generated fn returns is DRIVEN by the raw block body,

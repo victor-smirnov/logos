@@ -17,7 +17,7 @@
 // exemption has been narrowed and the stdlib does not build.
 package bc_write_thru_shared_raw_ptr_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct S { p: *mut i64 }
 fn a(s: &S) -> i32 { unsafe { *s.p = 7i64; } return 0i32; }
 fn main() -> i32 {

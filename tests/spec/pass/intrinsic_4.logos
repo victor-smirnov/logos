@@ -41,11 +41,11 @@ unsafe fn main() -> i64 {
     // concat!() folds string / suffix-stripped int / bool literals into one
     // &str at compile time; escapes are decoded.
     {
-        let a: str = concat!("answer: ", 42, ", ok: ", true, ", no: ", false);
+        let a: &str = concat!("answer: ", 42, ", ok: ", true, ", no: ", false);
         if !str_eq(a, "answer: 42, ok: true, no: false") { return 1; }
-        let e: str = concat!("with\nescape");   // \n decoded -> 1 byte
+        let e: &str = concat!("with\nescape");   // \n decoded -> 1 byte
         if e.len() != 11i64 { return 2; }
-        let z: str = concat!();
+        let z: &str = concat!();
         if z.len() != 0i64 { return 3; }
     }
 
@@ -65,7 +65,7 @@ unsafe fn main() -> i64 {
     // stringify!() yields the raw source text between the parens as a &str,
     // unexpanded.
     {
-        let s: str = stringify!(a + b);
+        let s: &str = stringify!(a + b);
         if s.len() < 3i64 { return 9; }   // non-empty source text
     }
 

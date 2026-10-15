@@ -1,8 +1,8 @@
 package impl_generic_result;
 // impl<T, E> on two-parameter generic enum — methods on GRes<T, E>-style enums.
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn print(s: str) { unsafe { printf(s.as_ptr()); } }
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn print(s: &str) { unsafe { printf(s.as_ptr()); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 enum GRes<T, E> { Ok(T), Err(E) }
 

@@ -21,7 +21,7 @@ impl<'a> W<'a> {
     pub fn get(self: &W<'a>) -> &'a str { return self.v; }
 }
 
-pub fn bad() -> str {
+pub fn bad() -> &str {
     let o: String = String::from("hello");
     let w: W = W { v: o.as_str() };
     return w.get();

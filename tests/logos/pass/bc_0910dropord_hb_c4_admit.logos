@@ -3,7 +3,7 @@
 // harvested 2026-09-14h from snapshot hand-harvest-2026-09-14/25aa8421-fce1-4a11-8a89-5d2ba5981c88/dropord/cex/c4.logos
 package bc_0910dropord_hb_c4_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn p(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn p(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 struct O { id: i32 }
 impl Drop for O { fn drop(self: &mut O) { p("%d", self.id); } }
 struct U { a: O, b: O }

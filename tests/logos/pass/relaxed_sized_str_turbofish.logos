@@ -10,7 +10,7 @@ fn unsized_id<T: ?Sized>(x: &T) -> i32 {
 }
 
 unsafe fn main() -> i32 {
-    let s: str = "hello";
-    let r: i32 = unsized_id::<str>(s);
+    let s: &str = "hello";
+    let r: i32 = unsized_id::<&str>(s);
     return r - 11;
 }

@@ -41,7 +41,7 @@ use logos.lang.writ.static_view;
 use logos.lang.writ.anyval;
 
 pub trait HasId    { fn id()    -> i64; }
-pub trait HasName  { fn name()  -> str; }
+pub trait HasName  { fn name()  -> &str; }
 pub trait HasCount { fn count() -> i64; }
 
 pub struct PartA {}
@@ -53,7 +53,7 @@ impl HasName  for PartB { fn name()  -> str { return "beta-b"; } }
 impl HasCount for PartB { fn count() -> i64 { return 7i64; } }
 
 fn dele_id<P:    HasId>()    -> i64 { return P::id(); }
-fn dele_name<P:  HasName>()  -> str { return P::name(); }
+fn dele_name<P:  HasName>()  -> &str { return P::name(); }
 fn dele_count<P: HasCount>() -> i64 { return P::count(); }
 
 fn assemble<const CFG: WritStatic>() -> QuoteItemBlob {
@@ -117,7 +117,7 @@ fn assemble<const CFG: WritStatic>() -> QuoteItemBlob {
             pub struct Assembled {}
             impl Assembled {
                 pub fn id()    -> i64 { return dele_id::<#id_part>(); }
-                pub fn name()  -> str { return dele_name::<#name_part>(); }
+                pub fn name()  -> &str { return dele_name::<#name_part>(); }
                 pub fn count() -> i64 { return dele_count::<#count_part>(); }
             }
         };
@@ -134,7 +134,7 @@ metacall assemble::<@{
 unsafe fn main() -> i32 {
     if Assembled::id()    != 1i64 { return 1; }   // from PartA
     if Assembled::count() != 7i64 { return 2; }   // from PartB
-    let nm: str = Assembled::name();              // last-wins: PartB → "beta-b"
+    let nm: &str = Assembled::name();              // last-wins: PartB → "beta-b"
     if nm.len() != 6i64 { return 3; }
     return 0;
 }

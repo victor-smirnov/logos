@@ -18,9 +18,9 @@ package str_eq_method;
 use logos.lang.cmp;
 
 fn main() -> i32 {
-    let a: str = "foo";
-    let b: str = "foo";
-    let c: str = "bar";
+    let a: &str = "foo";
+    let b: &str = "foo";
+    let c: &str = "bar";
 
     if !a.eq(&b) { return 1i32; }
     if a.eq(&c)  { return 2i32; }

@@ -15,7 +15,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 pub schema Emp : code(0x0B14_0000_0000_0001) {
-    name: str = 0,
+    name: &str = 0,
     age:  i64 = 1,
 }
 
@@ -34,7 +34,7 @@ fn upper(args: &[RtVal]) -> RtVal {
     return RtVal::I(-1i64);
 }
 
-fn sview(s: &String) -> str {
+fn sview(s: &String) -> &str {
     return unsafe { str_from_raw(s.as_ptr(), s.len()) };
 }
 

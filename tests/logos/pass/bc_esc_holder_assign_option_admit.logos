@@ -4,15 +4,15 @@ package bc_esc_holder_assign_option_admit;
 use logos.lang.option;
 use logos.mem.string;
 
-pub fn ok(s: str) -> Option<str> {
-    let mut op: Option<str> = Option::<str>::None;
-    op = Option::<str>::Some(s);
+pub fn ok(s: &str) -> Option<&str> {
+    let mut op: Option<&str> = Option::<&str>::None;
+    op = Option::<&str>::Some(s);
     return op;
 }
 
-pub fn ok_static() -> Option<str> {
-    let mut op: Option<str> = Option::<str>::None;
-    op = Option::<str>::Some("abcde");
+pub fn ok_static() -> Option<&str> {
+    let mut op: Option<&str> = Option::<&str>::None;
+    op = Option::<&str>::Some("abcde");
     return op;
 }
 

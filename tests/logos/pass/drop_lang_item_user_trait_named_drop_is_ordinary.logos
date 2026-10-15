@@ -20,7 +20,7 @@
 // leak reads 0 and a double free 2, so the count is printed and asserted.
 package drop_lang_item_user_trait_named_drop_is_ordinary;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 static mut N: i64 = 0i64;
 
 trait Drop { fn drop(self: &mut Self); }

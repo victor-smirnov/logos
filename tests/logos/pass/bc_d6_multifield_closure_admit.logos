@@ -19,7 +19,7 @@
 // `fail/bc_d6_mut_field_capture_conflict_refuse` pins.
 package bc_d6_multifield_closure_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
 struct S { a: i64, b: i64, c: i64 }
 

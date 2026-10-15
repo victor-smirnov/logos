@@ -1,6 +1,6 @@
 package bc_meet_self_field_store_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct P<'a> { x: &'a i64, y: &'a i64 }
 struct H<'a> { p: P<'a>, n: i64 }
 impl<'a> H<'a> {

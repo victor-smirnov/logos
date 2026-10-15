@@ -31,7 +31,7 @@ fn t_panic_formatted_int() {
 #[should_panic(expected = "a=1 b=two")]
 fn t_panic_multiple_args() {
     let a: i32 = 1;
-    let b: str = "two";
+    let b: &str = "two";
     panic!("a={} b={}", a, b);
 }
 

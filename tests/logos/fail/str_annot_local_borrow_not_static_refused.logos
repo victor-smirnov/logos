@@ -5,7 +5,7 @@ use logos.mem.boxed;
 use logos.mem.string;
 fn mk() -> Box<dyn Fn() -> i64> {
     let owned: String = String::from("abc");
-    let s: str = owned.as_str();
+    let s: &str = owned.as_str();
     return Box::new(move || -> i64 { return s.len() as i64; });
 }
 fn main() -> i32 { return 0; }

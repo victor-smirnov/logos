@@ -200,7 +200,7 @@ fn main() -> i64 {
     // @rule type.str.default-fat-slice
     // `str` is the fat-pointer Slice<u8>: it carries a length (the &[u8] shape).
     {
-        let s: str = "abcd";
+        let s: &str = "abcd";
         if s.len() != 4i64 { return 20; }
     }
 

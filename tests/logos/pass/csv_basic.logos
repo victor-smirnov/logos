@@ -35,7 +35,7 @@ fn main() -> i32 {
     //                              (quoted field spans a newline)
     // Row 2: three
     unsafe {
-        let src: str = "\"hi\",\",\",\"line\nend\"\nthree";
+        let src: &str = "\"hi\",\",\",\"line\nend\"\nthree";
         let mut r: CsvReader = CsvReader::new(src);
         let mut f: String = String::new();
         let mut end: bool = false;

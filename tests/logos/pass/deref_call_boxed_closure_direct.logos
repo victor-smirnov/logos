@@ -4,7 +4,7 @@
 // load IS right. Both arms of the discriminator are pinned, or half of it rots.
 package deref_call_boxed_closure_direct;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 fn main() -> i32 {
     let b: Box<dyn Fn() -> i64> = Box::new(|| { return 21i64; });
     let got: i64 = b();

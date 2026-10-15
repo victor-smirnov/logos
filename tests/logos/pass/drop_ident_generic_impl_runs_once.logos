@@ -4,7 +4,7 @@
 // every one of those loops, and this is the one that would go silent first.
 package drop_ident_generic_impl_runs_once;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 static mut N: i64 = 0i64;
 struct Foo<T> { v: T }
 impl<T> Drop for Foo<T> { fn drop(self: &mut Self) { unsafe { N = N + 1i64; } } }

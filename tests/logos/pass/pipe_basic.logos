@@ -10,7 +10,7 @@ fn main() -> i32 {
     if !p.is_valid() { return 1; }
 
     // Write "hello" (5 bytes)
-    let msg: str = "hello";
+    let msg: &str = "hello";
     unsafe {
         let nw: i64 = p.write(msg.as_ptr(), 5);
         if nw != 5 { p.close(); return 2; }

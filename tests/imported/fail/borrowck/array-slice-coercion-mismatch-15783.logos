@@ -4,7 +4,7 @@
 package array_slice_coercion_mismatch_15783;
 fn foo(params: Option<&[str]>) -> i64 { return 3i64; }
 fn main() -> i32 {
-    let name: str = "Foo";
+    let name: &str = "Foo";
     let arr: [str; 1] = [name];
     let x: Option<&[str; 1]> = Option::Some(&arr);
     let msg: i64 = foo(x);

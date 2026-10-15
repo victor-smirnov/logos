@@ -8,8 +8,8 @@ use logos.lang.writ.wmap;
 use logos.lang.str;
 
 schema Person : code(0x0004000000000000) {
-    name: str = 0,
-    note: str = 1,
+    name: &str = 0,
+    note: &str = 1,
 }
 
 fn main() -> i32 {

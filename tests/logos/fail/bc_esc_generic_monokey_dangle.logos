@@ -53,7 +53,7 @@ pub fn bad<'a, T: Tr<'a>>(t: &T) -> &'a str {
 
 fn main() -> i32 {
     let k: K = K { z: 1i64 };
-    let r: str = bad::<K>(&k);
+    let r: &str = bad::<K>(&k);
     if r.len() == 5i64 { return 0i32; }
     return 1i32;
 }

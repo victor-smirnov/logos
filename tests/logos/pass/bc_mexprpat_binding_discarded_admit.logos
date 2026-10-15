@@ -19,7 +19,7 @@
 // so nothing is recorded).
 package bc_mexprpat_binding_discarded_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct Y { f0: i64, f1: i64 }
 fn mk() -> Y { return Y { f0: 4i64, f1: 5i64 }; }
 fn main() -> i32 {

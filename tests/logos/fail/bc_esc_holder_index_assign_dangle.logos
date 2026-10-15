@@ -21,9 +21,9 @@
 package bc_esc_holder_index_assign_dangle;
 use logos.mem.string;
 
-pub fn bad() -> Vec<str> {
+pub fn bad() -> Vec<&str> {
     let o: String = String::from("hello");
-    let mut v: Vec<str> = Vec::<str>::new();
+    let mut v: Vec<&str> = Vec::<&str>::new();
     v.push("x");
     v[0i64] = o.as_str();
     return v;

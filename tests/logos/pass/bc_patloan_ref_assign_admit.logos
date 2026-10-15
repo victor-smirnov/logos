@@ -8,7 +8,7 @@
 // payload extraction pays for the `ref` rule.
 package bc_patloan_ref_assign_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 enum Opt { None, Some(i64) }
 fn main() -> i32 {
     let mut x: Opt = Opt::Some(7i64);

@@ -27,7 +27,7 @@ impl<T: ?Sized> W<T> {
     }
 }
 fn main() -> i32 {
-    let mut w: W<str> = W::<str> { b: B { x: 1u32, tail: [] } };
+    let mut w: W<&str> = W::<&str> { b: B { x: 1u32, tail: [] } };
     if w.poke() != 2u32 { return 1i32; }
     return 0i32;
 }

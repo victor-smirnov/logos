@@ -3,7 +3,7 @@
 // this was fixed this spelling was refused outright ("duplicate function").
 package bc_dropident_impl_first;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+fn say(s: &str) { unsafe { printf(s.as_ptr()); } }
 struct R { id: i32 }
 impl Drop for R {
     fn drop(self: &mut Self) { say("T"); }

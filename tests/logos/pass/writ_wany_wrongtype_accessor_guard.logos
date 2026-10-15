@@ -16,13 +16,13 @@ use logos.lang.writ.wstring;
 use logos.lang.str;
 
 schema Mismatch : code(0x0044000000000101) {
-    s: str = 0,
+    s: &str = 0,
     f: f32 = 1,
     d: f64 = 2,
 }
 
 schema HasStr : code(0x0044000000000102) {
-    s: str = 0,
+    s: &str = 0,
 }
 
 fn main() -> i32 {
@@ -38,7 +38,7 @@ fn main() -> i32 {
     let v: Mismatch = (&*m).view::<Mismatch>();
 
     // No crash: each wrong-type read returns the safe absent-key default.
-    let s: str = v.s;                     // was: wild *WString deref → SIGSEGV
+    let s: &str = v.s;                     // was: wild *WString deref → SIGSEGV
     if s.len() != 0i64 { return 1i32; }   // wrong-type str → empty
     if v.f != 0.0f32   { return 2i32; }   // wrong-type f32 → 0.0
     if v.d != 0.0f64   { return 3i32; }   // wrong-type f64 → 0.0
@@ -50,7 +50,7 @@ fn main() -> i32 {
     let ws: &WString = h.wstring("héllo");
     g.set(0u8, WAny::from(ws));
     let hv: HasStr = (&*g).view::<HasStr>();
-    let gs: str = hv.s;
+    let gs: &str = hv.s;
     if gs.len() != 6i64 { return 4i32; }  // "héllo" = 6 UTF-8 bytes
     if !str_eq(gs, "héllo") { return 5i32; }
 

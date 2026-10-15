@@ -10,10 +10,10 @@ use logos.lang.str;
 struct Box1 { pub skills: Vec<str> }
 
 fn main() -> i32 {
-    let b: Box1 = Box1 { skills: { let mut z: Vec<str> = Vec::<str>::new(); z.push("c"); z } };
-    let g1: str = (b.skills).get(0i64);
+    let b: Box1 = Box1 { skills: { let mut z: Vec<&str> = Vec::<&str>::new(); z.push("c"); z } };
+    let g1: &str = (b.skills).get(0i64);
     if !str_eq(g1, "c") { return 1i32; }
-    let s1: str = (b.skills)[0i64];
+    let s1: &str = (b.skills)[0i64];
     if !str_eq(s1, "c") { return 2i32; }
     return 0i32;
 }

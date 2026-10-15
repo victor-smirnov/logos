@@ -1,10 +1,10 @@
 package r;
 use logos.lang.option;
 
-unsafe fn make_some() -> Option<str> { return Option::Some("hello"); }
+unsafe fn make_some() -> Option<&str> { return Option::Some("hello"); }
 
 fn main() -> i32 {
-    let o: Option<str> = unsafe { make_some() };
+    let o: Option<&str> = unsafe { make_some() };
     match o {
         Option::Some(v) => {
             if v.len() != 5 as i64 { return 1; }

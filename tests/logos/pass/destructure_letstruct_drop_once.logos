@@ -2,7 +2,7 @@
 // destructure at `let` position. Green before and after.
 package destructure_letstruct_drop_once;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct Owner { i: *mut i64 }
 impl Drop for Owner { fn drop(self: &mut Self) { unsafe { *self.i += 1i64; } } }
 struct P { o: Owner, n: i64 }

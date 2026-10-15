@@ -13,7 +13,7 @@ use logos.lang.writ.wstatic;
 #[fn_macro]
 pub fn emit_gamma(args: Vec<ExprBlob>) -> ItemList {
     let mut o: ItemList = item_list_new();
-    let s: str = "Gamma";
+    let s: &str = "Gamma";
     let id: Ident = Ident::new(s);
     let bb: QuoteItemBlob = quote_item! { pub struct #id { pub g: i32 } };
     o.blobs.push(bb);

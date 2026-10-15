@@ -8,7 +8,7 @@
 // and the program must compile and print 7 then 5.
 package bc_field_borrow_disjoint_assign;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
 struct Foo { f: i64, g: i64 }
 

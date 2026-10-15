@@ -125,8 +125,8 @@ unsafe fn main() -> i64 {
     // str_from_raw builds {data,len}; len controls the slice.
     // @rule intrinsic.str.from-raw-fatptr
     {
-        let src: str = "hello world";
-        let s: str = str_from_raw(src.as_ptr(), 5i64);
+        let src: &str = "hello world";
+        let s: &str = str_from_raw(src.as_ptr(), 5i64);
         if s.len() != 5i64 { return 16i64; }
     }
 

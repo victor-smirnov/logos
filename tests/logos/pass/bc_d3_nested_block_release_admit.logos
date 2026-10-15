@@ -16,7 +16,7 @@
 // fail/bc_d3_holder_used_after_block_refuse.
 package bc_d3_nested_block_release_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn with_block() -> i64 {
     let mut n: i64 = 0i64;
     let r = &mut n;

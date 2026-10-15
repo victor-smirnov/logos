@@ -78,10 +78,10 @@ pub deem sd(a: &[SA]) { from a x select distinct x.a1 : i64 }
 // ── the four STRING shapes, one per compare fold ──────────────────────────────
 // `q: str` is a TYPED PARAM (the `wql_typed_params_e2e` spelling), so the fuzzed
 // string LITERAL stays a fuzzed dimension without one `deem` item per pool entry.
-pub deem ss_lt(a: &[SS], q: str) { from a x where x.s < q select x.n : i64 }
+pub deem ss_lt(a: &[SS], q: &str) { from a x where x.s < q select x.n : i64 }
 pub deem ss_join(a: &[SS], b: &[ST]) { from a x join b y on x.s == y.t select x.n * 100 + y.m : i64 }
 pub deem ss_grp(a: &[SS]) { from a x group by x.s aggregate c = count() select (key, c) }
-pub deem ss_ord(a: &[SS]) { from a x select x.s order by x.s : str }
+pub deem ss_ord(a: &[SS]) { from a x select x.s order by x.s : &str }
 
 // ── RNG (wrapping — plain */+ trap on u64 overflow) ──────────────────────────
 struct Rng { s: u64 }
@@ -150,7 +150,7 @@ fn eq2(a: &mut Vec<i64>, b: &mut Vec<i64>) -> bool {
 // Chosen as in `query_diff_str_adv`: the EMPTY string, a prefix chain a/aa/aaa,
 // "B"(66) vs "a"(97) so byte order and case order disagree, plus duplicates via
 // the per-iteration span — forcing empty keys, prefix boundaries and collisions.
-fn pool(i: i64) -> str {
+fn pool(i: i64) -> &str {
     if i == 0i64 { return ""; }
     if i == 1i64 { return "a"; }
     if i == 2i64 { return "aa"; }
@@ -164,7 +164,7 @@ fn POOLN() -> i64 { return 8i64; }
 
 // ── the INDEPENDENT str comparator: a byte loop, NOT `str_cmp`/`str_eq` ───────
 // `str_byte_at` is a byte ACCESSOR; the ordering decision is made here.
-fn b_cmp(a: str, b: str) -> i64 {
+fn b_cmp(a: &str, b: &str) -> i64 {
     let na: i64 = a.len(); let nb: i64 = b.len();
     let mut i: i64 = 0i64;
     while i < na {
@@ -178,52 +178,52 @@ fn b_cmp(a: str, b: str) -> i64 {
     if nb > na { return -1i64; }
     return 0i64;
 }
-fn b_eq(a: str, b: str) -> bool { return b_cmp(a, b) == 0i64; }
-fn b_lt(a: str, b: str) -> bool { return b_cmp(a, b) < 0i64; }
+fn b_eq(a: &str, b: &str) -> bool { return b_cmp(a, b) == 0i64; }
+fn b_lt(a: &str, b: &str) -> bool { return b_cmp(a, b) < 0i64; }
 
-fn strv_sort(v: &mut Vec<str>) {
+fn strv_sort(v: &mut Vec<&str>) {
     let n: i64 = v.len();
     let mut i: i64 = 0i64;
     while i < n {
         let mut m: i64 = i; let mut j: i64 = i + 1i64;
         while j < n { if b_lt(v.get(j), v.get(m)) { m = j; } j = j + 1i64; }
-        if m != i { let t: str = v.get(i); v.set(i, v.get(m)); v.set(m, t); }
+        if m != i { let t: &str = v.get(i); v.set(i, v.get(m)); v.set(m, t); }
         i = i + 1i64;
     }
 }
 // ORDER-sensitive (order by): element-wise, no sort of the engine's side.
-fn strv_seq_eq(a: &Vec<str>, b: &Vec<str>) -> bool {
+fn strv_seq_eq(a: &Vec<&str>, b: &Vec<&str>) -> bool {
     if a.len() != b.len() { return false; }
     let mut i: i64 = 0i64;
     while i < a.len() { if !b_eq(a.get(i), b.get(i)) { return false; } i = i + 1i64; }
     return true;
 }
-fn contains_str(v: &Vec<str>, x: str) -> bool {
+fn contains_str(v: &Vec<&str>, x: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < v.len() { if b_eq(v.get(i), x) { return true; } i = i + 1i64; }
     return false;
 }
 // (str,i64) multiset — the group-by(str key) result
-fn pair_lt(ka: str, na: i64, kb: str, nb: i64) -> bool {
+fn pair_lt(ka: &str, na: i64, kb: &str, nb: i64) -> bool {
     let c: i64 = b_cmp(ka, kb);
     if c < 0i64 { return true; }
     if c > 0i64 { return false; }
     return na < nb;
 }
-fn pair_sort(k: &mut Vec<str>, n: &mut Vec<i64>) {
+fn pair_sort(k: &mut Vec<&str>, n: &mut Vec<i64>) {
     let cnt: i64 = k.len();
     let mut i: i64 = 0i64;
     while i < cnt {
         let mut m: i64 = i; let mut j: i64 = i + 1i64;
         while j < cnt { if pair_lt(k.get(j), n.get(j), k.get(m), n.get(m)) { m = j; } j = j + 1i64; }
         if m != i {
-            let ts: str = k.get(i); k.set(i, k.get(m)); k.set(m, ts);
+            let ts: &str = k.get(i); k.set(i, k.get(m)); k.set(m, ts);
             let ti: i64 = n.get(i); n.set(i, n.get(m)); n.set(m, ti);
         }
         i = i + 1i64;
     }
 }
-fn pair_ms_eq(ak: &mut Vec<str>, an: &mut Vec<i64>, bk: &mut Vec<str>, bn: &mut Vec<i64>) -> bool {
+fn pair_ms_eq(ak: &mut Vec<&str>, an: &mut Vec<i64>, bk: &mut Vec<&str>, bn: &mut Vec<i64>) -> bool {
     if ak.len() != bk.len() { return false; }
     pair_sort(ak, an); pair_sort(bk, bn);
     let mut i: i64 = 0i64;
@@ -282,7 +282,7 @@ fn main() -> i32 {
 
         if sshape == 0i64 {
             // FOLD `emit_binop`: ordered compare on a str column vs a str PARAM.
-            let q: str = pool(rng.upto(span));
+            let q: &str = pool(rng.upto(span));
             let mut stat: Vec<i64> = ss_lt(sls.as_slice(), q).unwrap();
             let mut want: Vec<i64> = vec_new::<i64>();
             let mut r: i64 = 0i64;
@@ -304,17 +304,17 @@ fn main() -> i32 {
             if !eq2(&mut stat, &mut want) { return 47i32; }
         } else if sshape == 2i64 {
             // FOLD the group-key hash: `group by` a str key.
-            let g: Vec<(str, i64)> = ss_grp(sls.as_slice()).unwrap();
-            let mut gk: Vec<str> = vec_new::<str>(); let mut gc: Vec<i64> = vec_new::<i64>();
+            let g: Vec<(&str, i64)> = ss_grp(sls.as_slice()).unwrap();
+            let mut gk: Vec<&str> = vec_new::<&str>(); let mut gc: Vec<i64> = vec_new::<i64>();
             let mut i: i64 = 0i64;
             while i < g.len() { gk.push(g.get(i).0); gc.push(g.get(i).1); i = i + 1i64; }
-            let mut keys: Vec<str> = vec_new::<str>();
+            let mut keys: Vec<&str> = vec_new::<&str>();
             let mut r: i64 = 0i64;
-            while r < ns { let k: str = pool(si.get(r)); if !contains_str(&keys, k) { keys.push(k); } r = r + 1i64; }
-            let mut wk: Vec<str> = vec_new::<str>(); let mut wc: Vec<i64> = vec_new::<i64>();
+            while r < ns { let k: &str = pool(si.get(r)); if !contains_str(&keys, k) { keys.push(k); } r = r + 1i64; }
+            let mut wk: Vec<&str> = vec_new::<&str>(); let mut wc: Vec<i64> = vec_new::<i64>();
             let mut ki: i64 = 0i64;
             while ki < keys.len() {
-                let k: str = keys.get(ki); let mut cnt: i64 = 0i64; let mut r2: i64 = 0i64;
+                let k: &str = keys.get(ki); let mut cnt: i64 = 0i64; let mut r2: i64 = 0i64;
                 while r2 < ns { if b_eq(pool(si.get(r2)), k) { cnt = cnt + 1i64; } r2 = r2 + 1i64; }
                 wk.push(k); wc.push(cnt); ki = ki + 1i64;
             }
@@ -323,8 +323,8 @@ fn main() -> i32 {
             // FOLD `sort_perm_frag`/`key_ord_frag`: `order by` a str key.
             // ORDER-SENSITIVE — the engine's sequence is compared position by
             // position against a byte-lexicographic sort written here.
-            let got: Vec<str> = ss_ord(sls.as_slice()).unwrap();
-            let mut want: Vec<str> = vec_new::<str>();
+            let got: Vec<&str> = ss_ord(sls.as_slice()).unwrap();
+            let mut want: Vec<&str> = vec_new::<&str>();
             let mut r: i64 = 0i64;
             while r < ns { want.push(pool(si.get(r))); r = r + 1i64; }
             strv_sort(&mut want);

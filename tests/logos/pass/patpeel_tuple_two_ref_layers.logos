@@ -10,7 +10,7 @@
 // fail/patpeel_tuple_two_ref_layers_arity.logos (`(a, b)` -> `(a, b, c)`).
 package patpeel_tuple_two_ref_layers;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn print2(fmt: str, a: i64, b: i64) { unsafe { printf(fmt.as_ptr(), a, b); } }
+fn print2(fmt: &str, a: i64, b: i64) { unsafe { printf(fmt.as_ptr(), a, b); } }
 fn main() -> i32 {
     let t: (i64, i64) = (3i64, 4i64);
     match &t {

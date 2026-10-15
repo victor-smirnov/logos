@@ -4,7 +4,7 @@
 // Exactly one "T".
 package bc_dropident_generic_struct;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+fn say(s: &str) { unsafe { printf(s.as_ptr()); } }
 struct G<T> { v: T }
 impl<T> G<T> {
     fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }

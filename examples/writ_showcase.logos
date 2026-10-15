@@ -24,7 +24,7 @@ use logos.mem.string;
 use logos.lang.str;
 use logos.std.io;
 
-unsafe fn show(label: str, root: WAny) {
+unsafe fn show(label: &str, root: WAny) {
     let s: String = stringify(root);
     let mut line: String = String::new();
     line.push_str(label);
@@ -41,7 +41,7 @@ unsafe fn root_of(hs: &WritStatic) -> WAny {
     return unsafe { WAny::ref_to((base as i64 + w) as *const u8) };
 }
 
-unsafe fn classify(d: &WritStatic) -> str {
+unsafe fn classify(d: &WritStatic) -> &str {
     match d {
         @[a, b, ..] => "array(2+)",
         @[..]       => "array",
@@ -58,7 +58,7 @@ unsafe fn main() -> i32 {
 
     // ── 2-4. Captures: scalars, strings, expressions ──────────────────────
     let id: i32 = 42;
-    let label: str = "item";
+    let label: &str = "item";
     let doc: Rc<Writ> = @{"id": $id, "label": $label, "sum": ${id + 1}};
     let h: &Writ = doc.deref();
     show("captures", h.root());

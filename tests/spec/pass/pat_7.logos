@@ -277,7 +277,7 @@ fn main() -> i64 {
     // @rule pat.match.string-literal-pattern
     // a top-level string-literal arm matches by content equality.
     {
-        let s: str = "foo";
+        let s: &str = "foo";
         let got: i64 = match s {
             "bar" => 2i64,
             "foo" => 1i64,           // str_eq(scrut, "foo")
@@ -303,7 +303,7 @@ fn main() -> i64 {
     // the scrutinee is evaluated exactly once (hoisted), observable via a
     // side-effecting scrutinee expression read by multiple arms.
     {
-        let got: i64 = match { let s: str = "hi"; s } {
+        let got: i64 = match { let s: &str = "hi"; s } {
             "hi" => 1i64,            // string scrutinee hoisted, evaluated once
             "lo" => 2i64,
             _    => 0i64,

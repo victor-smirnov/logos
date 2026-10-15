@@ -10,7 +10,7 @@ use logos.lang.result;
 
 fn main() -> i32 {
     // ── Direct codec round-trip ──────────────────────────────────────────
-    let payload: str = "Hello, chunked world! This is a slightly longer body.";
+    let payload: &str = "Hello, chunked world! This is a slightly longer body.";
     let mut enc: Vec<u8> = Vec::<u8>::new();
     chunked_encode(payload.as_ptr(), payload.len(), &mut enc);
 
@@ -52,14 +52,14 @@ fn main() -> i32 {
     }
 
     // ── Multi-chunk decode (hand-crafted) ────────────────────────────────
-    let multi: str = "5\r\nHello\r\n7\r\n, world\r\n0\r\n\r\n";
+    let multi: &str = "5\r\nHello\r\n7\r\n, world\r\n0\r\n\r\n";
     let mut dec2: Vec<u8> = Vec::<u8>::new();
     let c2: i64 = chunked_decode(multi.as_ptr(), multi.len(), &mut dec2);
     if c2 != multi.len() { return 20; }
     unsafe {
         let dp: *mut Vec<u8> = &dec2 as *const Vec<u8> as *mut Vec<u8>;
         if (*dp).length() != 12 as i64 { return 21; }
-        let expected: str = "Hello, world";
+        let expected: &str = "Hello, world";
         let mut i: i64 = 0;
         while i < 12 as i64 {
             if (*dp).get(i) != expected.as_ptr()[i] { return 22; }
@@ -68,13 +68,13 @@ fn main() -> i32 {
     }
 
     // ── Malformed: missing terminator ────────────────────────────────────
-    let bad: str = "5\r\nHello\r\n";    // no 0-length chunk
+    let bad: &str = "5\r\nHello\r\n";    // no 0-length chunk
     let mut bad_out: Vec<u8> = Vec::<u8>::new();
     let br: i64 = chunked_decode(bad.as_ptr(), bad.len(), &mut bad_out);
     if br >= 0 { return 30; }
 
     // ── Parser integration: chunked request body ─────────────────────────
-    let req_text: str =
+    let req_text: &str =
         "POST /u HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n0\r\n\r\n";
     match parse_request_buf(req_text.as_ptr(), req_text.len()) {
         Result::Ok(req) => {

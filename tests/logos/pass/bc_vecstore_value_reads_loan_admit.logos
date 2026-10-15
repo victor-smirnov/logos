@@ -1,6 +1,6 @@
 package bc_vecstore_value_reads_loan_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn main() -> i32 {
     let mut v: Vec<i64> = Vec::new();
     v.push(1i64); v.push(2i64);

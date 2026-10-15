@@ -21,15 +21,15 @@ package bc_esc_ret_temp_name;
 
 use logos.mem.string;
 
-pub fn thru2(s: str) -> str { return s; }
+pub fn thru2(s: &str) -> &str { return s; }
 
-pub fn bad() -> str {
+pub fn bad() -> &str {
     let o: String = String::from("hello");
     return thru2(o.as_str());
 }
 
 fn main() -> i32 {
-    let r: str = bad();
+    let r: &str = bad();
     if r.len() == 5i64 { return 0i32; }
     return 1i32;
 }

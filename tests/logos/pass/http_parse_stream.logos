@@ -21,7 +21,7 @@ fn check_request() -> i32 {
         let mut p: Pipe = pipe_new();
         if !p.is_valid() { return 1; }
 
-        let msg: str =
+        let msg: &str =
             "POST /api/items?x=1 HTTP/1.1\r\nHost: example.com\r\nContent-Length: 5\r\n\r\nhello";
         let mut fw: FdWriter = fd_writer(p.write_fd);
         let n: i64 = write_all::<FdWriter>(&mut fw, msg.as_ptr(), msg.len());
@@ -63,7 +63,7 @@ fn check_request() -> i32 {
             total = total + got;
         }
         if total != 5 as i64 { return 11; }
-        let want: str = "hello";
+        let want: &str = "hello";
         let wp: *const u8 = want.as_ptr();
         let mut i: i64 = 0 as i64;
         while i < 5 as i64 {
@@ -81,7 +81,7 @@ fn check_response() -> i32 {
         let mut p: Pipe = pipe_new();
         if !p.is_valid() { return 20; }
 
-        let msg: str =
+        let msg: &str =
             "HTTP/1.1 404 Not Found\r\nServer: t\r\nContent-Length: 3\r\n\r\nno!";
         let mut fw: FdWriter = fd_writer(p.write_fd);
         let n: i64 = write_all::<FdWriter>(&mut fw, msg.as_ptr(), msg.len());

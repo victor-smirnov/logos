@@ -11,10 +11,10 @@
 package bc_fatret_nested_call_dangle;
 use logos.mem.string;
 
-pub fn my_as_str2(s: &str) -> str { return s; }
+pub fn my_as_str2(s: &str) -> &str { return s; }
 
 fn main() -> i32 {
-    let v: str;
+    let v: &str;
     {
         let owner: String = String::from("hello");
         v = my_as_str2(owner.as_str());

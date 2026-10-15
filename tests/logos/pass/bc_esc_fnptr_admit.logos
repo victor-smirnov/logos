@@ -20,13 +20,13 @@ use logos.mem.string;
 // `v` borrow `owner`, and reading `v` after the block is error[E0597] in rustc
 // 1.98.1 (MEASURED 2026-09-21). This fixture exists to pin that the result does
 // NOT come from the argument — so the signature has to SAY it.
-pub fn keep0(s: str) -> &'static str { return "abcde"; }
+pub fn keep0(s: &str) -> &'static str { return "abcde"; }
 
 fn main() -> i32 {
-    let mut v: str = "";
+    let mut v: &str = "";
     {
         let owner: String = String::from("hello");
-        let f: fn(str) -> &'static str = keep0;
+        let f: fn(&str) -> &'static str = keep0;
         v = f(owner.as_str());
     }
     if v.len() == 5i64 { return 0i32; }

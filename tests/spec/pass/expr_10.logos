@@ -221,7 +221,7 @@ fn main() -> i64 {
             let v0: WView2 = WView2 { base: 0 as *const u8 };
             let n: i32 = 42;
             let flag: bool = true;
-            let s: str = "hi";
+            let s: &str = "hi";
             let doc: Rc<Writ> = @{"n": $n, "f": $flag, "s": $s};
             let h: &Writ = doc.deref();
             let r: WAny = h.root();

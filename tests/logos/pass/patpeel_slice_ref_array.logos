@@ -15,7 +15,7 @@
 // Twin one token apart: fail/patpeel_slice_ref_nonarray.logos (`arr` -> `v`).
 package patpeel_slice_ref_array;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn print1(fmt: str, a: i64) { unsafe { printf(fmt.as_ptr(), a); } }
+fn print1(fmt: &str, a: i64) { unsafe { printf(fmt.as_ptr(), a); } }
 static mut DROPS: i64 = 0i64;
 struct D { v: i64 }
 impl Drop for D {

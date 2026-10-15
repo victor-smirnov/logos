@@ -1,6 +1,6 @@
 package bc_ptrcmp_self_field_refuse;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct S<'a> { p: *mut &'a i64 }
 impl<'a> S<'a> {
     fn same<'b>(&self, o: *mut &'b i64) -> bool {

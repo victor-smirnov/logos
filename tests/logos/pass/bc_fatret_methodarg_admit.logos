@@ -13,12 +13,12 @@ impl Keeper {
     // caller's value borrows the argument and reading it after the owner dies is
     // error[E0597] in rustc 1.98.1. This method returns a literal and the fixture
     // exists to pin that the result does NOT come from the argument — so it says so.
-    pub fn keep(self: Keeper, s: str) -> &'static str { return "abcde"; }
+    pub fn keep(self: Keeper, s: &str) -> &'static str { return "abcde"; }
 }
 
 fn main() -> i32 {
     let k: Keeper = Keeper { n: 1i64 };
-    let v: str;
+    let v: &str;
     {
         let owner: String = String::from("hello");
         v = k.keep(owner.as_str());

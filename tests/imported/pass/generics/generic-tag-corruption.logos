@@ -8,6 +8,6 @@ package g_generic_tag_corruption;
 enum thing<K> { some(K) }
 
 fn main() -> i32 {
-    let _x: thing<str> = thing::some::<str>("hi");
+    let _x: thing<&str> = thing::some::<&str>("hi");
     return 0i32;
 }

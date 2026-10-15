@@ -7,7 +7,7 @@
 // widening was silently losing.
 package bc_captuple_elem_disjoint;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn main() -> i32 {
     let mut t: (i64, i64) = (1i64, 2i64);
     let f = || -> i64 { return t.0; };

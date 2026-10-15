@@ -45,15 +45,15 @@ pub const StoreCfg: WritStatic = @{
 // One CFG, used for BOTH maps below — the container is runtime-typed via DView.
 pub const DvCfg: WritStatic = @{ "key": <type:DView>, "value": <type:DView>, "fanout": 8 };
 
-fn section(label: str) {
+fn section(label: &str) {
     unsafe { printf("\n=== %.*s ===\n" as *const u8, label.len() as i32, label.as_ptr()); }
 }
 
-fn put_count(cr: &mut ContainerRef<StoreCfg, DvCfg>, w: str, n: u64) {
+fn put_count(cr: &mut ContainerRef<StoreCfg, DvCfg>, w: &str, n: u64) {
     let nn: u64 = n;                                  // live for the capture
     cr.insert(DView::from_str(w), DView::from(&nn));
 }
-fn put_name(cr: &mut ContainerRef<StoreCfg, DvCfg>, id: i64, name: str) {
+fn put_name(cr: &mut ContainerRef<StoreCfg, DvCfg>, id: i64, name: &str) {
     let i: i64 = id;
     let s: String = String::from(name);              // heap String; captured by content
     cr.insert(DView::from(&i), DView::from(&s));
@@ -76,7 +76,7 @@ fn main() -> i32 {
             while i < n {
                 match cr.get_at(i) {
                     Option::Some(kv) => {
-                        let k: str = kv.0.as_str();
+                        let k: &str = kv.0.as_str();
                         unsafe { printf("  %.*s -> %lu\n" as *const u8, k.len() as i32, k.as_ptr(), kv.1.to::<u64>()); }
                     }
                     Option::None => {}

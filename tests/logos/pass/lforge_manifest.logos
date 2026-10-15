@@ -23,13 +23,13 @@ pub struct ManifestError {
     pub message: String,
 }
 
-unsafe fn err_msg(msg: str) -> ManifestError {
+unsafe fn err_msg(msg: &str) -> ManifestError {
     let mut s: String = String::new();
     s.push_str(msg);
     return ManifestError { message: s };
 }
 
-unsafe fn read_str_field(m: &WMap<WString, WAny>, key: str) -> Result<String, ManifestError> {
+unsafe fn read_str_field(m: &WMap<WString, WAny>, key: &str) -> Result<String, ManifestError> {
     let v: WAny = m.get(key);
     if v.is_null() {
         let mut e: String = String::new();
@@ -51,7 +51,7 @@ unsafe fn read_str_field(m: &WMap<WString, WAny>, key: str) -> Result<String, Ma
     return Result::Ok(out);
 }
 
-pub unsafe fn parse_manifest(h: &Writ, text: str) -> Result<Manifest, ManifestError> {
+pub unsafe fn parse_manifest(h: &Writ, text: &str) -> Result<Manifest, ManifestError> {
     let root: WAny = parse(h, text);
     if !root.is_map() {
         return Result::Err(err_msg("manifest: top-level value must be a map"));
@@ -86,7 +86,7 @@ unsafe fn main() -> i32 {
     let h: &Writ = rc.deref();
 
     // 1. Well-formed manifest.
-    let s1: str = "{ name: \"my-project\", version: \"0.1.0\", src: \"src\", entry: \"main\" }";
+    let s1: &str = "{ name: \"my-project\", version: \"0.1.0\", src: \"src\", entry: \"main\" }";
     match parse_manifest(h, s1) {
         Result::Err(_) => { return 1; }
         Result::Ok(m) => {
@@ -98,7 +98,7 @@ unsafe fn main() -> i32 {
     }
 
     // 2. Unknown fields are ignored (forward compatibility).
-    let s2: str = "{ name: \"p\", version: \"v\", src: \"s\", entry: \"e\", future: 42 }";
+    let s2: &str = "{ name: \"p\", version: \"v\", src: \"s\", entry: \"e\", future: 42 }";
     match parse_manifest(h, s2) {
         Result::Err(_) => { return 10; }
         Result::Ok(m) => {
@@ -107,14 +107,14 @@ unsafe fn main() -> i32 {
     }
 
     // 3. Missing required field → error.
-    let s3: str = "{ name: \"p\", src: \"s\", entry: \"e\" }";
+    let s3: &str = "{ name: \"p\", src: \"s\", entry: \"e\" }";
     match parse_manifest(h, s3) {
         Result::Ok(_) => { return 20; }
         Result::Err(_) => {}
     }
 
     // 4. Wrong field type → error.
-    let s4: str = "{ name: 7, version: \"v\", src: \"s\", entry: \"e\" }";
+    let s4: &str = "{ name: 7, version: \"v\", src: \"s\", entry: \"e\" }";
     match parse_manifest(h, s4) {
         Result::Ok(_) => { return 30; }
         Result::Err(_) => {}

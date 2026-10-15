@@ -125,9 +125,9 @@ fn main() -> i64 {
     // @rule expr.binop.str-eq-by-content
     // == / != between two str operands desugar to str_eq (content comparison).
     {
-        let se_a: str = "abc";
-        let se_b: str = "abc";
-        let se_c: str = "abd";
+        let se_a: &str = "abc";
+        let se_b: &str = "abc";
+        let se_c: &str = "abd";
         if !(se_a == se_b) { return 27; }
         if !(se_a != se_c) { return 28; }
     }
@@ -135,8 +135,8 @@ fn main() -> i64 {
     // @rule expr.binop.str-relational-cmp
     // relational on str desugar to str_cmp(lhs,rhs) OP 0 (lexicographic).
     {
-        let scmp_a: str = "abc";
-        let scmp_b: str = "abd";
+        let scmp_a: &str = "abc";
+        let scmp_b: &str = "abd";
         if !(scmp_a < scmp_b) { return 29; }
         if !(scmp_b > scmp_a) { return 30; }
         if !(scmp_a <= scmp_a) { return 31; }

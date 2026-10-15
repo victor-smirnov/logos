@@ -18,7 +18,7 @@
 package bc_dropck_shadowed_name_admit;
 use logos.lang.drop;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
 // ⚠ THE STDLIB LANG ITEM, NOT A LOCAL `trait Drop`. The rule this pair is
 // about — B87 dropck — is ABOUT the `Drop` lang item, and a locally declared

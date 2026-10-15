@@ -6,8 +6,8 @@ use logos.mem.boxed;
 use logos.lang.str;
 
 fn main() -> i32 {
-    let b = box_new::<str>("bx");
-    let s: str = *b;
+    let b = box_new::<&str>("bx");
+    let s: &str = *b;
     if !str_eq(s, "bx") { return 1i32; }
     return 0i32;
 }

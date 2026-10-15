@@ -226,8 +226,8 @@ fn main() -> i64 {
     // str value (a FatSlice) round-tripped through a binding preserves both the
     // data pointer (content intact) and the length half.
     {
-        let s: str = "hello";
-        let rs: str = s;                       // fat 16-byte store
+        let s: &str = "hello";
+        let rs: &str = s;                       // fat 16-byte store
         if rs.len() != 5i64 { return 36; }     // length half intact
         if rs != "hello" { return 37; }        // data half intact (content compare)
     }

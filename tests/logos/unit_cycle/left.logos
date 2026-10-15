@@ -13,7 +13,7 @@ use unit_cycle.right;
 #[fn_macro]
 pub fn emit_left(args: Vec<ExprBlob>) -> ItemList {
     let mut o: ItemList = item_list_new();
-    let s: str = "LeftOut";
+    let s: &str = "LeftOut";
     let id: Ident = Ident::new(s);
     let bb: QuoteItemBlob = quote_item! { pub struct #id { pub l: i32 } };
     o.blobs.push(bb);

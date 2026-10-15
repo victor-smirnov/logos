@@ -61,7 +61,7 @@ pub fn assert(cond: bool, msg: &str) {
 /// there is no compiler-injected `caller()` yet.
 pub struct Location {
     /// Source file path.
-    pub file:   str,
+    pub file:   &'static str,
     /// Line number within `file`.
     pub line:   u32,
     /// Column number within `line`.
@@ -69,7 +69,7 @@ pub struct Location {
 }
 
 /// Creates a `Location` for the given source position.
-pub fn location(file: &str, line: u32, column: u32) -> Location {
+pub fn location(file: &'static str, line: u32, column: u32) -> Location {
     return Location { file: file, line: line, column: column };
 }
 
@@ -83,7 +83,7 @@ pub fn location(file: &str, line: u32, column: u32) -> Location {
 /// Carries a panic's message plus its optional origin; mirror of `core::panic::PanicInfo`.
 pub struct PanicInfo {
     /// The `str` that was passed to `panic()`.
-    pub message:  str,
+    pub message:  &'static str,
     /// Panic origin; currently always `None` — the hook does not capture call-site location.
     pub location: Option<Location>,
 }

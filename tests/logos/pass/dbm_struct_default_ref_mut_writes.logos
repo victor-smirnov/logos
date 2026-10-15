@@ -3,7 +3,7 @@
 // struct_copy_field_no_default_mut_ref. Spec pat.binding.default-by-ref-mode.
 package dbm_struct_default_ref_mut_writes;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct S { x: i64, y: i64 }
 fn main() -> i32 {
     let mut s: S = S { x: 3i64, y: 4i64 };

@@ -43,22 +43,22 @@ package bc_esc_generic_recv_dangle;
 
 use logos.mem.string;
 
-pub trait Tr { fn thru(&self, s: str) -> str; }
+pub trait Tr { fn thru(&self, s: &str) -> &str; }
 
 pub struct K { pub z: i64 }
 
 impl Tr for K {
-    fn thru(&self, s: str) -> str { return s; }
+    fn thru(&self, s: &str) -> &str { return s; }
 }
 
-pub fn bad<T: Tr>(t: &T) -> str {
+pub fn bad<T: Tr>(t: &T) -> &str {
     let o: String = String::from("hello");
     return t.thru(o.as_str());
 }
 
 fn main() -> i32 {
     let k: K = K { z: 1i64 };
-    let r: str = bad::<K>(&k);
+    let r: &str = bad::<K>(&k);
     if r.len() == 5i64 { return 0i32; }
     return 1i32;
 }

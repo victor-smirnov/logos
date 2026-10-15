@@ -4,7 +4,7 @@
 // method as its destructor.
 package bc_dropident_diffsig_nested_field;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+fn say(s: &str) { unsafe { printf(s.as_ptr()); } }
 struct Inner { id: i32 }
 impl Inner {
     fn drop(self: &Self) -> i32 { say("I"); return 0i32; }

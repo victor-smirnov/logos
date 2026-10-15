@@ -8,7 +8,7 @@ use logos.lang.str;
 use logos.mem.string;
 use logos.mem.fmt;
 
-fn check(got: String, want: str, code: i32) -> i32 {
+fn check(got: String, want: &str, code: i32) -> i32 {
     if !str_eq(got.as_str(), want) { return code; }
     return 0;
 }
@@ -34,8 +34,8 @@ fn main() -> i32 {
     let r: i32 = check(fmt_debug_to_string::<bool>(&false),  "false",  12); if r != 0 { return r; }
 
     // ── str ─────────────────────────────────────────────────
-    let r: i32 = check(fmt_display_to_string::<str>(&"hello"), "hello",   13); if r != 0 { return r; }
-    let r: i32 = check(fmt_debug_to_string::<str>(&"hi"),      "\"hi\"",  14); if r != 0 { return r; }
+    let r: i32 = check(fmt_display_to_string::<&str>(&"hello"), "hello",   13); if r != 0 { return r; }
+    let r: i32 = check(fmt_debug_to_string::<&str>(&"hi"),      "\"hi\"",  14); if r != 0 { return r; }
 
     // ── unit `()` ───────────────────────────────────────────
 

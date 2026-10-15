@@ -38,7 +38,7 @@ use logos.lang.cmp;
 use logos.lang.bool;
 
 fn dbl(x: i32) -> i32 { return x + x; }
-fn to_str_err(e: i32) -> str {
+fn to_str_err(e: i32) -> &str {
     if e == 1i32 { return "one"; }
     if e == 2i32 { return "two"; }
     return "other";
@@ -81,8 +81,8 @@ fn test_take() {
 
 #[test]
 fn test_is_ok_is_err() {
-    let ok: Result<i32, str>  = Ok(7i32);
-    let err: Result<i32, str> = Err("oops");
+    let ok: Result<i32, &str>  = Ok(7i32);
+    let err: Result<i32, &str> = Err("oops");
     assert_eq!(ok.is_ok(),  true);
     assert_eq!(ok.is_err(), false);
     assert_eq!(err.is_ok(),  false);
@@ -91,12 +91,12 @@ fn test_is_ok_is_err() {
 
 #[test]
 fn test_result_ok_smoke() {
-    let ok: Result<i32, str> = Ok(11i32);
+    let ok: Result<i32, &str> = Ok(11i32);
     match ok.ok() {
         Option::Some(v) => { assert_eq!(v, 11i32); }
         Option::None    => { assert_eq!(true, false); }
     }
-    let err: Result<i32, str> = Err("e");
+    let err: Result<i32, &str> = Err("e");
     match err.ok() {
         Option::Some(_) => { assert_eq!(true, false); }
         Option::None    => { }
@@ -105,12 +105,12 @@ fn test_result_ok_smoke() {
 
 #[test]
 fn test_result_err_smoke() {
-    let ok: Result<i32, str> = Ok(11i32);
+    let ok: Result<i32, &str> = Ok(11i32);
     match ok.err() {
         Option::Some(_) => { assert_eq!(true, false); }
         Option::None    => { }
     }
-    let err: Result<i32, str> = Err("oops");
+    let err: Result<i32, &str> = Err("oops");
     match err.err() {
         Option::Some(_) => { }
         Option::None    => { assert_eq!(true, false); }

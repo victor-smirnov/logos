@@ -30,7 +30,7 @@ use logos.lang.rc;
 
 pub struct E { pub h: Rc<i64>, pub v: str }
 
-pub fn bad() -> str {
+pub fn bad() -> &str {
     let o: String = String::from("hello");
     let e: E = E { h: rc_new::<i64>(1i64), v: o.as_str() };
     return e.v;

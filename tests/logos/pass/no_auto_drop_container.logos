@@ -4,8 +4,8 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 extern fn fflush(f: *mut u8) -> i32;
 extern fn malloc(n: u64) -> *mut u8;
 extern fn free(p: *mut u8);
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
-fn ps(s: str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); fflush(0 as *mut u8); } }
+fn ps(s: &str) { unsafe { printf(s.as_ptr()); fflush(0 as *mut u8); } }
 
 /// #123 — `#[no_auto_drop]` MEANS THE SAME THING AT EVERY STORAGE SITE.
 ///

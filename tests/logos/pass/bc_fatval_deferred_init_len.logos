@@ -39,25 +39,25 @@ pub struct W { pub s: str, pub n: i64 }
 
 #[zone_mut] struct Box2 { v: i64 }
 
-pub fn mk() -> str { return "abcde"; }
+pub fn mk() -> &str { return "abcde"; }
 
 unsafe fn main() -> i32 {
     // ── 1-6: the SHAPE axis, repr held at `str`, the answer is 5 everywhere ──
-    let v1: str;
+    let v1: &str;
     v1 = "abcde";
     if v1.len() != 5i64 { return 1; }
 
-    let v2: str;
+    let v2: &str;
     {
         v2 = "abcde";
     }
     if v2.len() != 5i64 { return 2; }
 
-    let v3: str;
+    let v3: &str;
     if v1.len() == 5i64 { v3 = "abcde"; } else { v3 = "ab"; }
     if v3.len() != 5i64 { return 3; }
 
-    let v4: str;
+    let v4: &str;
     let sel: i64 = 1i64;
     match sel {
         1i64 => { v4 = "abcde"; }
@@ -65,13 +65,13 @@ unsafe fn main() -> i32 {
     }
     if v4.len() != 5i64 { return 4; }
 
-    let mut v5: str;
+    let mut v5: &str;
     v5 = "abcde";
     if v5.len() != 5i64 { return 5; }
 
     // The value arriving through a CALL rather than a literal (the second
     // spelling in the report: it answered 3).
-    let v6: str;
+    let v6: &str;
     v6 = mk();
     if v6.len() != 5i64 { return 6; }
 
@@ -119,7 +119,7 @@ unsafe fn main() -> i32 {
     // ── 18-21: THE OVERWRITE. The cells a read-path-only fix does not prove. ─
     // Three live locals declared AFTER the fat one and BEFORE its assignment:
     // the 16-byte copy into the 8-byte slot landed on the first of them.
-    let v7: str;
+    let v7: &str;
     let n1: i64 = 111i64;
     let n2: i64 = 222i64;
     let n3: i64 = 333i64;
@@ -130,7 +130,7 @@ unsafe fn main() -> i32 {
     if n3 != 333i64 { return 21; }
 
     // ── 22-30: THE CONTROLS — same bodies, initialiser ON the declaration ────
-    let c1: str = "abcde";
+    let c1: &str = "abcde";
     if c1.len() != 5i64 { return 22; }
     let c2: &[i64] = &a[0..3];
     if c2.len() != 3i64 { return 23; }

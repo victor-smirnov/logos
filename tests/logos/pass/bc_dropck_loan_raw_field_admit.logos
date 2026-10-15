@@ -14,7 +14,7 @@
 // `unsafe` a raw write costs by Rust's own rule: `*mut i64` vs `&mut i64`.
 package bc_dropck_loan_raw_field_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct C { slot: *mut i64 }
 impl Drop for C { fn drop(self: &mut C) { unsafe { *self.slot = *self.slot + 1i64; } } }
 fn g() -> i64 {

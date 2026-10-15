@@ -16,7 +16,7 @@ use logos.lang.str;
 fn main() -> i32 {
     let h: Writ = writ_new(4096i64);
     // array — order-deterministic exact round-trip
-    let src: str = "[1, 2, [10, 20], \"hi\", true, false, null, -7]";
+    let src: &str = "[1, 2, [10, 20], \"hi\", true, false, null, -7]";
     let d: WAny = parse(&h, src);
     if !str_eq(stringify(d).as_str(), src) { return 1; }
 

@@ -13,14 +13,14 @@ use logos.mem.deem;               // SchemaCatalog — the public surface
 use logos.lang.str;
 
 pub schema Emp : code(0x0A01_0000_0000_0001) {
-    name:   str  = 0,
+    name:   &str  = 0,
     age:    i64  = 1,
     rating: f64  = 2,
     active: bool = 3,
 }
 
 pub schema Team : code(0x0A01_0000_0000_0002) {
-    title: str       = 0,
+    title: &str       = 0,
     emps:  WRef<Emp> = 5,     // edge — a Writ ARRAY of Emp objects
 }
 

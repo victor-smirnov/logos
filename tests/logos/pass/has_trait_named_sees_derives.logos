@@ -12,7 +12,7 @@ use logos.lang.writ.anyval;
 use logos.mem.string;
 use logos.lang.str;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn prints(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn prints(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 #[metaprog_handler("htn")]
 fn htn_hook(target_offset: u32) -> () {
@@ -21,7 +21,7 @@ fn htn_hook(target_offset: u32) -> () {
     let item: WAny = view.node_at(target_offset);
     let name: SView = view.ast_node_name(item);
     if name.len == (0 as u64) { return; }
-    let nm: str = unsafe { str_from_raw(name.ptr, name.len as i64) };
+    let nm: &str = unsafe { str_from_raw(name.ptr, name.len as i64) };
     let mut em: Emitter = Emitter::new();
     em.emit_target_pkg(&view);
     em.buf.push_str("pub fn caps_");

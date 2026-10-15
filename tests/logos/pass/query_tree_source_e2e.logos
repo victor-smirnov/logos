@@ -93,8 +93,8 @@ pub deem s_maps(e: &[DynEdge]) { from e x where x.kind == "map" select x.child }
 // (a typed str column takes the `: str` annotation, which is a projection
 // annotation and cannot be followed by `order by`; the two values are asserted
 // as a SET below instead of by position)
-pub deem w_eng(g: &Writ)      { from g x where x.key == "engine" select x.vs : str }
-pub deem s_eng(e: &[DynEdge]) { from e x where x.key == "engine" select x.vs : str }
+pub deem w_eng(g: &Writ)      { from g x where x.key == "engine" select x.vs : &str }
+pub deem s_eng(e: &[DynEdge]) { from e x where x.key == "engine" select x.vs : &str }
 
 // (b) scalar harvest over the total `vi` column
 pub deem w_ints(g: &Writ)      { from g x where x.vi >= 2 select x.vi order by x.vi }
@@ -234,13 +234,13 @@ fn eq_i64(a: &Vec<i64>, b: &Vec<i64>) -> bool {
     return true;
 }
 
-fn has_str(a: &Vec<str>, s: str) -> bool {
+fn has_str(a: &Vec<&str>, s: &str) -> bool {
     let mut i: i64 = 0i64;
     while i < a.len() { if str_eq(a.get(i), s) { return true; } i = i + 1i64; }
     return false;
 }
 
-fn eq_str(a: &Vec<str>, b: &Vec<str>) -> bool {
+fn eq_str(a: &Vec<&str>, b: &Vec<&str>) -> bool {
     if a.len() != b.len() { return false; }
     let mut i: i64 = 0i64;
     while i < a.len() { if !str_eq(a.get(i), b.get(i)) { return false; } i = i + 1i64; }
@@ -280,8 +280,8 @@ fn main() -> i32 {
     if sm.len() != 4i64 { return 6i32; }
 
     // key filter over the TYPED str column — hand-derived values, ordered
-    let we: Vec<str> = match w_eng(h)             { Result::Ok(v) => { v } Result::Err(_j) => { return 7i32; } };
-    let se: Vec<str> = match s_eng(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_k) => { return 7i32; } };
+    let we: Vec<&str> = match w_eng(h)             { Result::Ok(v) => { v } Result::Err(_j) => { return 7i32; } };
+    let se: Vec<&str> = match s_eng(dy.as_slice()) { Result::Ok(v) => { v } Result::Err(_k) => { return 7i32; } };
     if we.len() != 2i64 { return 8i32; }
     if !has_str(&we, "pg") { return 9i32; }
     if !has_str(&we, "redis") { return 10i32; }

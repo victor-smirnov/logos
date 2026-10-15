@@ -22,7 +22,7 @@ use logos.mem.string;
 
 pub struct W { pub v: str }
 
-pub fn bad() -> str {
+pub fn bad() -> &str {
     let o: String = String::from("hello");
     let mut w: W = W { v: "" };
     let r: &mut W = &mut w;

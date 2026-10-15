@@ -12,7 +12,7 @@
 // does not, which is why this fixture stood without it.
 package bc_capaddrmut_two_sequential;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn bump(p: &mut i64) { *p = *p + 1i64; }
 fn main() -> i32 {
     let mut x: i64 = 1i64;

@@ -8,7 +8,7 @@
 package deref_bound_lang_item_autoderef;
 use logos.lang.ops;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 struct C { n: i32 }
 impl C { fn get(&self) -> i32 { return self.n; } }
 struct W { c: C }

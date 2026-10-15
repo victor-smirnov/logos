@@ -7,12 +7,12 @@ package test;
 struct Cursor { rest: str, done: bool }
 impl Cursor {
     // Advance past the first `,`, yielding the head segment; sets done at end.
-    fn step(self: &mut Cursor) -> Option<str> {
+    fn step(self: &mut Cursor) -> Option<&str> {
         if self.done { return Option::None; }
         let idx: i64 = str_index_of(self.rest, ",");
         if idx < 0i64 { self.done = true; return Option::Some(self.rest); }
         unsafe {
-            let head: str = str_from_raw(self.rest.as_ptr(), idx);
+            let head: &str = str_from_raw(self.rest.as_ptr(), idx);
             let tp: *const u8 = (self.rest.as_ptr() as i64 + idx + 1i64) as *const u8;
             // Reassign the inline slice field: both ptr AND len must update.
             self.rest = str_from_raw(tp, self.rest.len() - idx - 1i64);

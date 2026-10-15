@@ -12,7 +12,7 @@
 // fail/bc_d6_mut_field_capture_conflict_refuse).
 package bc_d6_mut_field_capture_disjoint_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct S { a: i64, b: i64 }
 fn main() -> i32 {
     let mut s: S = S { a: 1i64, b: 2i64 };

@@ -30,15 +30,15 @@ fn main() -> i32 {
     if str_contains("hello", "xyz")             { return 31; }
 
     // trim variants — return sub-str views
-    let t1: str = str_trim("  hello  ");
+    let t1: &str = str_trim("  hello  ");
     if t1.len() != 5 as i64                     { return 40; }
-    let t2: str = str_trim_start("\t  hi");
+    let t2: &str = str_trim_start("\t  hi");
     if t2.len() != 2 as i64                     { return 41; }
-    let t3: str = str_trim_end("hi  \n");
+    let t3: &str = str_trim_end("hi  \n");
     if t3.len() != 2 as i64                     { return 42; }
-    let t4: str = str_trim("");
+    let t4: &str = str_trim("");
     if t4.len() != 0 as i64                     { return 43; }
-    let t5: str = str_trim("   ");
+    let t5: &str = str_trim("   ");
     if t5.len() != 0 as i64                     { return 44; }
 
     // split
