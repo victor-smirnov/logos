@@ -2218,10 +2218,9 @@ lir::LExprPtr SemaChecker::lower_expr_inner(TinyMapView expr) {
             // `&mut *b` over an owning `Box<dyn Trait>` — the mutable twin of
             // the shared arm below; same root, same repair (queue row
             // boxdyn_mut_explicit_deref_arg_no_vtable, tier 3 `refuses`).
-            // ONE `*` ONLY — see the shared arm for why the guard is syntactic.
-            bool mut_inner_is_deref =
-                code_of(map_of(child.get(la::VALUE.code))) == la::DEREF;
-            if (!mut_inner_is_deref &&
+            // `&mut **b` (b: Box<dyn>) is the unsized place, refused above (E0614);
+            // `&mut **rb` (rb: &mut Box<dyn>) reaches here with the owning object.
+            if (!operand_unsized &&
                 TypeRef(op_t).kind() == LogosType::Kind::TraitObject &&
                 TypeRef(op_t).owning_trait_object()) {
                 return borrow_owning_dyn_(std::move(operand), true);   // `&mut *b`

@@ -1,0 +1,32 @@
+// `&mut **rb` with `rb: &mut Box<dyn Tr>`: the inner `*rb` is the owning Box (sized), the
+// outer borrow takes its pointee as `&mut dyn Tr`. The owning-object arm of `&mut *x`
+// was keyed on ONE syntactic `*` and refused it (E0277 from the unsize). Matrix 1_17;
+// rustc 1.98.1 prints the same.
+package box_dyn_double_deref_mut_reborrow;
+use logos.mem.collections.vec;
+use logos.mem.collections.hashmap;
+use logos.mem.collections.btree;
+use logos.mem.collections.set;
+use logos.mem.collections.deque;
+use logos.mem.string;
+use logos.mem.boxed;
+use logos.lang.str;
+use logos.lang.option;
+use logos.lang.result;
+use logos.lang.iter;
+use logos.lang.rc;
+use logos.lang.cell;
+use logos.lang.ops;
+use logos.lang.cmp;
+use logos.lang.clone;
+use logos.std.fmt;
+trait Counter { fn bump(&mut self) -> i64; }
+struct ByOne { n: i64 }
+impl Counter for ByOne { fn bump(&mut self) -> i64 { self.n += 1; self.n } }
+fn drive(c: &mut dyn Counter) -> i64 { c.bump() }
+fn main() {
+    let mut b: Box<dyn Counter> = Box::new(ByOne { n: 10 });
+    let rb = &mut b;
+    let x = drive(&mut **rb);
+    println!("{}", x);
+}
