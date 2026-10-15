@@ -82,7 +82,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Returns the contained `Ok` value; panics with `msg` if the result is `Err`.
-    pub fn expect(self: Result<T, E>, msg: str) -> T {
+    pub fn expect(self: Result<T, E>, msg: &str) -> T {
         match self {
             Result::Ok(v)  => { return v; }
             Result::Err(_) => { panic(msg); }
@@ -90,7 +90,7 @@ impl<T, E> Result<T, E> {
     }
 
     /// Returns the contained `Err` value; panics with `msg` if the result is `Ok`.
-    pub fn expect_err(self: Result<T, E>, msg: str) -> E {
+    pub fn expect_err(self: Result<T, E>, msg: &str) -> E {
         match self {
             Result::Ok(_)  => { panic(msg); }
             Result::Err(e) => { return e; }

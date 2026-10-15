@@ -5,7 +5,7 @@ use logos.std.compiler.metaprog;
 
 pub struct Pair<A, B> { pub a: A, pub b: B, }
 
-fn get_name(s: str) -> str { return s; }
+fn get_name(s: &str) -> &str { return s; }
 
 unsafe fn main() -> i32 {
     let t = type_apply(get_name("Pair"), [type_of::<i32>(), type_of::<bool>()]);

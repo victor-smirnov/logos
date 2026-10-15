@@ -34,7 +34,7 @@ fn server_fiber(arg: i64) {
 // Scan `buf[0..n]` for the byte sequence "HTTP/1.1 200"; return number
 // of non-overlapping occurrences.
 fn count_200(buf: *const u8, n: i64) -> i64 {
-    let needle: str = "HTTP/1.1 200";
+    let needle: &str = "HTTP/1.1 200";
     let nlen: i64 = needle.len();
     let np: *const u8 = needle.as_ptr();
     let mut i: i64 = 0 as i64;
@@ -60,7 +60,7 @@ fn client_fiber(arg: i64) {
     if !(&s).is_valid() { unsafe { *rp = 1; } return; }
 
     // Request 1 — bare GET, expects keep-alive (HTTP/1.1 default).
-    let r1: str = "GET /one HTTP/1.1\r\nHost: x\r\n\r\n";
+    let r1: &str = "GET /one HTTP/1.1\r\nHost: x\r\n\r\n";
     let _: i64 = (&s).async_send(r1.as_ptr(), r1.len());
 
     // Read response 1 — known size: "HTTP/1.1 200 OK\r\n..." ending after
@@ -91,7 +91,7 @@ fn client_fiber(arg: i64) {
     if hits1 != 1 as i64 { unsafe { *rp = 4; } s.close(); return; }
 
     // Request 2 — Connection: close, server should answer then close.
-    let r2: str = "GET /two HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
+    let r2: &str = "GET /two HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n";
     let _: i64 = (&s).async_send(r2.as_ptr(), r2.len());
 
     // Read remainder until EOF.

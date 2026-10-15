@@ -9,7 +9,7 @@ extern fn printf(fmt: *const u8, ...) -> i32;
 extern fn logos_pdep_u64_soft(x: u64, mask: u64) -> u64;
 extern fn logos_pext_u64_soft(x: u64, mask: u64) -> u64;
 
-fn print_s(s: str) {
+fn print_s(s: &str) {
     unsafe {
         printf(s.as_ptr());
     }

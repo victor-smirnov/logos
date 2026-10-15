@@ -5,7 +5,7 @@
 package format_named_and_captured_args_refused;
 use logos.std.fmt;
 fn main() -> i32 {
-    let name: str = "bob";
+    let name: &str = "bob";
     println!("hi {name}");
     return 0;
 }

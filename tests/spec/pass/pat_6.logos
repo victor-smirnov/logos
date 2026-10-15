@@ -69,8 +69,8 @@ fn main() -> i64 {
     // A string-literal tuple element lowers to a str_eq guard (NOT a pointer ==).
     // Observable: it matches a structurally-equal but distinct string instance.
     {
-        let key: str = "alpha";
-        let t: (str, i64) = (key, 9i64);
+        let key: &str = "alpha";
+        let t: (&str, i64) = (key, 9i64);
         let got: i64 = match t {
             ("alpha", n) => n,   // would fail under pointer-compare against the literal
             (_, _) => -1i64,
@@ -209,7 +209,7 @@ fn main() -> i64 {
     // @rule pat.ident.const-str-guard
     // A str-literal pattern lowers to a str_eq guard against the scrutinee.
     {
-        let s: str = "foo";
+        let s: &str = "foo";
         let got: i64 = match s {
             "foo" => 1i64,   // str_eq("foo")
             "bar" => 2i64,

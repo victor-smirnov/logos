@@ -20,7 +20,7 @@ unsafe fn root_of(hs: &WritStatic) -> WAny {
     return unsafe { WAny::ref_to((base as i64 + w) as *const u8) };
 }
 
-unsafe fn check(hs: &WritStatic, expected: str, err: i32) -> i32 {
+unsafe fn check(hs: &WritStatic, expected: &str, err: i32) -> i32 {
     let s: String = stringify(root_of(hs));
     if !s.eq_str(expected) { return err; }
     return 42;

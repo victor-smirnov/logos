@@ -120,7 +120,7 @@ fn main() -> i64 {
     // @rule layout.slice.fat-pointer-pair
     // str = Slice<u8> also has the 16-byte fat-pointer representation, and a
     // function returning a slice returns the { data, len } pair by value.
-    if sizeof::<str>() != 16i64 { return 12; }
+    if sizeof::<&str>() != 16i64 { return 12; }
     {
         let arr: [i64; 3] = [1i64, 2i64, 3i64];
         let sl: &[i64] = ret_slice(&arr);     // returned by value
@@ -170,7 +170,7 @@ fn main() -> i64 {
     // A string literal is a fat {ptr,len}; the backing storage has a trailing
     // NUL but len is the content byte length, EXCLUDING the NUL terminator.
     {
-        let lit: str = "abc";
+        let lit: &str = "abc";
         if lit.len() != 3i64 { return 24; }              // len excludes NUL
         if str_byte_at(lit, 2i64) != 99u8 { return 25; } // last byte is 'c', not 0
     }

@@ -11,7 +11,7 @@ use logos.lang.str;
 
 unsafe fn main() -> i32 {
     // Capture a string into a map.
-    let s: str = "hello";
+    let s: &str = "hello";
     let doc: Rc<Writ> = @{"msg": $s};
     let h: &Writ = doc.deref();
     let root: WAny = h.root();
@@ -21,7 +21,7 @@ unsafe fn main() -> i32 {
     if !t1.eq_str("{\"msg\": \"hello\"}") { return 2; }
 
     // Capture strings in an array.
-    let key: str = "world";
+    let key: &str = "world";
     let arr_doc: Rc<Writ> = @[$key, $s];
     let ah: &Writ = arr_doc.deref();
     let arr_root: WAny = ah.root();
@@ -31,7 +31,7 @@ unsafe fn main() -> i32 {
 
     // Mix: scalar + string capture in same literal.
     let id: i32 = 7;
-    let label: str = "item";
+    let label: &str = "item";
     let mix: Rc<Writ> = @{"id": $id, "label": $label};
     let mh: &Writ = mix.deref();
     let mix_root: WAny = mh.root();

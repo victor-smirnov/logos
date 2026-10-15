@@ -10,7 +10,7 @@ package m_issue_26251;
 
 use logos.lang.panic;
 
-fn pick(x: char) -> str {
+fn pick(x: char) -> &str {
     return match x {
         'a'..='b' if false => { "one"   }
         'a'                => { "two"   }
@@ -20,6 +20,6 @@ fn pick(x: char) -> str {
 }
 
 fn main() -> i32 {
-    let _y: str = pick('a');
+    let _y: &str = pick('a');
     return 0;
 }

@@ -9,10 +9,10 @@ package bc_esc_holder_assign_option_dangle;
 use logos.lang.option;
 use logos.mem.string;
 
-pub fn bad() -> Option<str> {
+pub fn bad() -> Option<&str> {
     let o: String = String::from("hello");
-    let mut op: Option<str> = Option::<str>::None;
-    op = Option::<str>::Some(o.as_str());
+    let mut op: Option<&str> = Option::<&str>::None;
+    op = Option::<&str>::Some(o.as_str());
     return op;
 }
 

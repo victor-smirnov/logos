@@ -40,7 +40,7 @@ use logos.lang.mem;
 // AnyVal or null if not found. The walk is bounded — we stop on the
 // first non-ANNOTATION item before the target so we don't pick up an
 // earlier struct's annotations.
-unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> WAny {
+unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: &str) -> WAny {
     let root: WAny = view.root();
     let items: WAny = view.tiny_map_get(root, 2 as u8);
     if items.is_null() { return WAny::null(); }
@@ -90,7 +90,7 @@ unsafe fn find_my_annotation(view: &OView, target_offset: u32, trigger: str) -> 
 
 // In an ANNOTATION's ARGS list, find the ANNOT_KV with NAME=`key`
 // and return its VALUE AnyVal. Null if no such entry.
-unsafe fn annot_kv_value(view: &OView, ann: WAny, key: str) -> WAny {
+unsafe fn annot_kv_value(view: &OView, ann: WAny, key: &str) -> WAny {
     let args: WAny = view.tiny_map_get(ann, 15 as u8);          // ARGS
     if args.is_null() { return WAny::null(); }
     let items: WAny = view.tiny_map_get(args, 2 as u8);         // ITEMS
@@ -126,7 +126,7 @@ unsafe fn annot_kv_value(view: &OView, ann: WAny, key: str) -> WAny {
 // In a WRIT_MAP node (AST shape: { CODE: WRIT_MAP, ITEMS: [WRIT_ENTRY{KEY,VALUE},...] }),
 // find the entry whose KEY matches `key` byte-for-byte and return its
 // VALUE AnyVal. KEY is a STRING token captured with surrounding quotes.
-fn writ_map_get(view: &OView, wmap: WAny, key: str) -> WAny {
+fn writ_map_get(view: &OView, wmap: WAny, key: &str) -> WAny {
     let items: WAny = view.tiny_map_get(wmap, 2 as u8);          // ITEMS
     if items.is_null() { return WAny::null(); }
     let n: u64 = view.array_len(items);
@@ -202,7 +202,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
             branch_name_len = sv.len;
         }
     }
-    let ops_name: str = if ops_name_len > (0 as u64) {
+    let ops_name: &str = if ops_name_len > (0 as u64) {
         unsafe { str_from_raw(ops_name_ptr, ops_name_len as i64) }
     } else {
         "BRANCH_OPS"
@@ -210,7 +210,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
     let branch_id: Ident = if branch_name_len > (0 as u64) {
         Ident { ptr: branch_name_ptr, len: branch_name_len }
     } else {
-        let s: str = "BranchNodeMP";
+        let s: &str = "BranchNodeMP";
         Ident::new(s)
     };
 
@@ -344,7 +344,7 @@ fn derive_branch_node_hook(target_offset: u32) -> () {
 // owning Ident view into the local would dangle. The leak's lifetime
 // is one metafn invocation; cleanup later via a host-side gensym-
 // equivalent that rents bytes for the metafn lifetime.
-unsafe fn leak_str_bytes(s: str) -> *const u8 {
+unsafe fn leak_str_bytes(s: &str) -> *const u8 {
     let n: i64 = s.len();
     let p: *mut u8 = alloc(n);
     let mut i: i64 = 0i64;

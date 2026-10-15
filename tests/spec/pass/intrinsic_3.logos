@@ -38,7 +38,7 @@ struct HasMarker { v: i32 }
 impl Marker for HasMarker { fn m(self: &Self) -> i32 { return self.v; } }
 struct NoMarker { v: i32 }
 
-unsafe fn check_str(got: String, want: str, code: i32) -> i32 {
+unsafe fn check_str(got: String, want: &str, code: i32) -> i32 {
     if !str_eq(got.as_str(), want) { return code; }
     return 0;
 }
@@ -187,15 +187,15 @@ unsafe fn main() -> i32 {
 
     // @rule intrinsic.file.macro
     // file!() => current file path (&str, nonempty); module_path!() => package name.
-    let fp: str = file!();
+    let fp: &str = file!();
     if fp.len() == 0i64 { return 16; }
-    let mp: str = module_path!();
+    let mp: &str = module_path!();
     if !str_eq(mp, "intrinsic_3") { return 16; }
 
     // @rule intrinsic.include-str.macro
     // include_str!/include_bytes! read a file at compile time (path relative to
     // the including file) and yield its contents as a &str / &[u8] literal.
-    let inc: str = include_str!("intrinsic_3_data/inc.txt");
+    let inc: &str = include_str!("intrinsic_3_data/inc.txt");
     if inc.len() != 23i64 { return 17; }
     let incb: &[u8] = include_bytes!("intrinsic_3_data/inc.txt");
     if incb.len() != 23i64 { return 17; }

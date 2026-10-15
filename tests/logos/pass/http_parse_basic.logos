@@ -11,7 +11,7 @@ use logos.mem.collections.vec;
 
 fn main() -> i32 {
     // ── Request parsing ──────────────────────────────────────────────────────
-    let req_text: str =
+    let req_text: &str =
         "POST /submit?x=1 HTTP/1.1\r\nHost: example.com\r\nContent-Length: 5\r\nContent-Type: text/plain\r\n\r\nhello";
 
     match parse_request_buf(req_text.as_ptr(), req_text.len()) {
@@ -37,7 +37,7 @@ fn main() -> i32 {
     }
 
     // ── Response parsing ─────────────────────────────────────────────────────
-    let resp_text: str =
+    let resp_text: &str =
         "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nContent-Type: application/json\r\n\r\nok";
 
     match parse_response_buf(resp_text.as_ptr(), resp_text.len()) {
@@ -84,13 +84,13 @@ fn main() -> i32 {
     }
 
     // ── Malformed inputs ─────────────────────────────────────────────────────
-    let bad1: str = "GET /\r\n\r\n";
+    let bad1: &str = "GET /\r\n\r\n";
     match parse_request_buf(bad1.as_ptr(), bad1.len()) {
         Result::Ok(_)  => { return 30; }
         Result::Err(_) => {}
     }
 
-    let bad2: str = "HTTP/1.1 OK\r\n\r\n";
+    let bad2: &str = "HTTP/1.1 OK\r\n\r\n";
     match parse_response_buf(bad2.as_ptr(), bad2.len()) {
         Result::Ok(_)  => { return 31; }
         Result::Err(_) => {}

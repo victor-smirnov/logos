@@ -55,7 +55,7 @@ pub unsafe fn writ_pat_eq_i24(node: *const WAny, v: i32) -> bool {
     return n.is_int() && n.as_i64() == (v as i64);
 }
 /// Returns `true` if the slot holds a string equal to `s`.
-pub unsafe fn writ_pat_eq_str(node: *const WAny, s: str) -> bool {
+pub unsafe fn writ_pat_eq_str(node: *const WAny, s: &str) -> bool {
     let n: WAny = *node;
     if !n.is_string() { return false; }
     let hs: &WString = &*(n.resolve() as *const WString);
@@ -74,7 +74,7 @@ pub unsafe fn writ_pat_is_map(node: *const WAny) -> bool {
 }
 /// Returns the child `WAny` at `key` in the slot's map, or the null sentinel
 /// if the slot is absent or not a map.
-pub unsafe fn writ_pat_map_slot(node: *const WAny, key: str) -> WAny {
+pub unsafe fn writ_pat_map_slot(node: *const WAny, key: &str) -> WAny {
     let n: WAny = *node;
     if !n.is_map() { return null_wany(); }
     return (&*(n.resolve() as *const WMap<WString, WAny>)).get(key);

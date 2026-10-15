@@ -124,7 +124,7 @@ pub fn read_to_string(path: *const u8) -> Result<String, i32> {
 }
 
 /// Reads the entire file into a `String`; safe `str` overload that null-terminates `path`.
-pub fn read_to_string(path: str) -> Result<String, i32> {
+pub fn read_to_string(path: &str) -> Result<String, i32> {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);
     return read_to_string(c.as_ptr());
@@ -149,7 +149,7 @@ pub fn write_string(path: *const u8, s: &String) -> Result<i32, i32> {
 }
 
 /// Overwrites the file with `s`; safe `str` overload that null-terminates `path`.
-pub fn write_string(path: str, s: &String) -> Result<i32, i32> {
+pub fn write_string(path: &str, s: &String) -> Result<i32, i32> {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);
     return write_string(c.as_ptr(), s);

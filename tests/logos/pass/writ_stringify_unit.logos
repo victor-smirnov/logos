@@ -11,7 +11,7 @@ use logos.lang.writ.wstring;
 use logos.mem.writ.stringify;
 use logos.mem.string;
 use logos.lang.str;
-fn eq(v: WAny, want: str) -> bool { let s: String = stringify(v); return str_eq(s.as_str(), want); }
+fn eq(v: WAny, want: &str) -> bool { let s: String = stringify(v); return str_eq(s.as_str(), want); }
 fn main() -> i32 {
     if !eq(WAny::from(42i56), "42") { return 1; }
     if !eq(WAny::from(true), "true") { return 2; }

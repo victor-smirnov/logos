@@ -25,16 +25,16 @@ package bc_esc_generic_outparam_dangle;
 
 use logos.mem.string;
 
-pub trait Tr { fn stash(&self, s: str, out: &mut str); }
+pub trait Tr { fn stash(&self, s: &str, out: &mut str); }
 
 pub struct K { pub z: i64 }
 
 impl Tr for K {
-    fn stash(&self, s: str, out: &mut str) { *out = s; }
+    fn stash(&self, s: &str, out: &mut str) { *out = s; }
 }
 
-pub fn bad<T: Tr>(t: &T) -> str {
-    let mut v: str = "";
+pub fn bad<T: Tr>(t: &T) -> &str {
+    let mut v: &str = "";
     {
         let o: String = String::from("hello");
         t.stash(o.as_str(), &mut v);
@@ -44,7 +44,7 @@ pub fn bad<T: Tr>(t: &T) -> str {
 
 fn main() -> i32 {
     let k: K = K { z: 1i64 };
-    let r: str = bad::<K>(&k);
+    let r: &str = bad::<K>(&k);
     if r.len() == 5i64 { return 0i32; }
     return 1i32;
 }

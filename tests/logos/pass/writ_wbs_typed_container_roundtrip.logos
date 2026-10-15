@@ -24,7 +24,7 @@ use logos.lang.rc;
 use logos.lang.str;
 
 // parse(text) -> wbs_write -> wbs_read must reconstruct a writ_equal value.
-unsafe fn rt(h: &Writ, text: str) -> bool {
+unsafe fn rt(h: &Writ, text: &str) -> bool {
     let v1: WAny = parse(h, text);
     let bytes: Vec<u8> = wbs_write(v1);
     let bs: &[u8] = bytes.as_slice();

@@ -13,11 +13,11 @@ impl<T> GBox<T> {
 fn ident<T>(x: &T) -> &T { return x; }
 
 fn main() -> i32 {
-    let g: GBox<str> = GBox { item: "gg" };
-    let s: str = *(g.br());
+    let g: GBox<&str> = GBox { item: "gg" };
+    let s: &str = *(g.br());
     if !str_eq(s, "gg") { return 1i32; }
-    let a: str = "ii";
-    let t: str = *(ident::<str>(&a));
+    let a: &str = "ii";
+    let t: &str = *(ident::<&str>(&a));
     if !str_eq(t, "ii") { return 2i32; }
     return 0i32;
 }

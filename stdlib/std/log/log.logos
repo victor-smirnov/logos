@@ -37,7 +37,7 @@ unsafe fn write_all(buf: *const u8, n: i64) {
     }
 }
 
-unsafe fn cstr_eq_ci(p: *const u8, expected: str) -> bool {
+unsafe fn cstr_eq_ci(p: *const u8, expected: &str) -> bool {
     let mut i: i64 = 0 as i64;
     let n: i64 = expected.len();
     let exp: *const u8 = expected.as_ptr();
@@ -85,7 +85,7 @@ fn level_prefix(level: i32, out: &mut String) {
 /// Writes `msg` to stderr as one line prefixed with the level name.
 /// Silently dropped when `level` is below `threshold()`. Short writes are retried;
 /// write errors are ignored.
-pub fn emit(level: i32, msg: str) {
+pub fn emit(level: i32, msg: &str) {
     if level < threshold() { return; }
     let mut buf: String = String::new();
     level_prefix(level, &mut buf);
@@ -96,7 +96,7 @@ pub fn emit(level: i32, msg: str) {
 
 /// Writes `msg` followed by a ` key=value` pair (integer) to stderr as one line.
 /// Silently dropped when `level` is below `threshold()`.
-pub fn log_kv_i64(level: i32, msg: str, key: str, value: i64) {
+pub fn log_kv_i64(level: i32, msg: &str, key: &str, value: i64) {
     if level < threshold() { return; }
     let mut buf: String = String::new();
     level_prefix(level, &mut buf);
@@ -112,7 +112,7 @@ pub fn log_kv_i64(level: i32, msg: str, key: str, value: i64) {
 /// Writes `msg` followed by a ` key="value"` pair to stderr as one line.
 /// Silently dropped when `level` is below `threshold()`. `value` is quoted but
 /// NOT escaped — embedded `"` or newlines pass through verbatim.
-pub fn log_kv_str(level: i32, msg: str, key: str, value: str) {
+pub fn log_kv_str(level: i32, msg: &str, key: &str, value: &str) {
     if level < threshold() { return; }
     let mut buf: String = String::new();
     level_prefix(level, &mut buf);
@@ -128,12 +128,12 @@ pub fn log_kv_str(level: i32, msg: str, key: str, value: str) {
 }
 
 /// Logs `msg` at the `TRACE` level.
-pub fn trace(msg: str) { emit(TRACE(), msg); }
+pub fn trace(msg: &str) { emit(TRACE(), msg); }
 /// Logs `msg` at the `DEBUG` level.
-pub fn debug(msg: str) { emit(DEBUG(), msg); }
+pub fn debug(msg: &str) { emit(DEBUG(), msg); }
 /// Logs `msg` at the `INFO` level.
-pub fn info(msg: str)  { emit(INFO(),  msg); }
+pub fn info(msg: &str)  { emit(INFO(),  msg); }
 /// Logs `msg` at the `WARN` level.
-pub fn warn(msg: str)  { emit(WARN(),  msg); }
+pub fn warn(msg: &str)  { emit(WARN(),  msg); }
 /// Logs `msg` at the `ERROR` level.
-pub fn error(msg: str) { emit(ERROR(), msg); }
+pub fn error(msg: &str) { emit(ERROR(), msg); }

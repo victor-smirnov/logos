@@ -28,7 +28,7 @@ use alpha;
 use beta;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
 fn main() -> i32 {
     let a: i64 = alpha_dyn_mark(5i64);

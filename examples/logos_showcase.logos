@@ -80,7 +80,7 @@ fn derive_show_struct_hook(target_offset: u32) -> () {
     while i < nf {
         let fld:   WAny     = view.ast_struct_field(item, i);
         let fname: SView = view.ast_field_name(fld);
-        let lead:  str        = if i == 0 { " " } else { ", " };
+        let lead:  &str        = if i == 0 { " " } else { ", " };
         em.tpl2(
             "let _ = __f.write_str(\"$LEAD$F: \"); let _ = fmt_debug(&self.$F, __f); ",
             "LEAD", view_of_str(lead),
@@ -189,7 +189,7 @@ enum Shape { Circle(i32), Rect(i32, i32), Empty }
 
 // ── runtime: exercise every synthesised item ──────────────────────────────
 
-unsafe fn show<T: Debug>(label: str, v: &T) {
+unsafe fn show<T: Debug>(label: &str, v: &T) {
     let mut s: String = String::new();
     s.push_str(label);
     s.push_str(" = ");

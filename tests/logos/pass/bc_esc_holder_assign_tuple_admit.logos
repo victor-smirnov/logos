@@ -4,14 +4,14 @@
 package bc_esc_holder_assign_tuple_admit;
 use logos.mem.string;
 
-pub fn ok(s: str) -> str {
-    let mut t: (str, i64) = ("", 0i64);
+pub fn ok(s: &str) -> &str {
+    let mut t: (&str, i64) = ("", 0i64);
     t.0 = s;
     return t.0;
 }
 
-pub fn ok_static() -> str {
-    let mut t: (str, i64) = ("", 0i64);
+pub fn ok_static() -> &str {
+    let mut t: (&str, i64) = ("", 0i64);
     t.0 = "abcde";
     return t.0;
 }

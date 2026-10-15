@@ -16,7 +16,7 @@
 // scoped to the closure body, not to the function.
 package bc_capbody_closure_return_refuse;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn foo(x: &i64) -> &i64 {
     let f = |y: &i64| -> &i64 { return y; };
     return x;

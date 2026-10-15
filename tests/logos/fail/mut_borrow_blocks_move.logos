@@ -1,7 +1,7 @@
 package mut_borrow_blocks_move;
 // Phase 2: cannot move while borrowed
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 struct Buf { data: i32, }
 impl Drop for Buf { fn drop(self: &mut Self) { printi("%d\n", self.data); } }
 fn consume(b: Buf) -> i32 { return b.data; }

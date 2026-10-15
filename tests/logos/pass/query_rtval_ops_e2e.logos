@@ -20,7 +20,7 @@ pub schema Dummy : code(0x0A04_0000_0000_0001) { v: i64 = 0 }
 
 resource cat = schema_catalog!{ Dummy };
 
-fn render_ok(text: str, c: &SchemaCatalog, env: &QEnv) -> String {
+fn render_ok(text: &str, c: &SchemaCatalog, env: &QEnv) -> String {
     match Tpl::compile(text, c) {
         Result::Ok(t) => {
             match t.render(env) {
@@ -44,9 +44,9 @@ fn render_ok(text: str, c: &SchemaCatalog, env: &QEnv) -> String {
     }
 }
 
-fn check(text: str, c: &SchemaCatalog, env: &QEnv, want: str) -> bool {
+fn check(text: &str, c: &SchemaCatalog, env: &QEnv, want: &str) -> bool {
     let s: String = render_ok(text, c, env);
-    let sv: str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
+    let sv: &str = unsafe { str_from_raw(s.as_ptr(), s.len()) };
     return str_eq(sv, want);
 }
 

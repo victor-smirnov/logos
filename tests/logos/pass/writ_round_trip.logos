@@ -10,7 +10,7 @@ use logos.lang.rc;
 use logos.mem.string;
 use logos.lang.str;
 
-unsafe fn roundtrip(h: &Writ, text: str) -> bool {
+unsafe fn roundtrip(h: &Writ, text: &str) -> bool {
     let v1: WAny = parse(h, text);
     let s1: String = stringify(v1);
     let v2: WAny = parse(h, s1.as_str());

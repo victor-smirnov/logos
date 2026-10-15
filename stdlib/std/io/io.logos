@@ -10,17 +10,17 @@ extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 /// Writes `s` to standard output, without a trailing newline.
 ///
 /// Unbuffered; write errors are silently ignored.
-pub fn print(s: str) {
+pub fn print(s: &str) {
     unsafe { write(1, s.as_ptr(), s.len()); }
 }
 
 /// Writes `s` followed by a newline to standard output.
 ///
 /// Unbuffered; write errors are silently ignored.
-pub fn println(s: str) {
+pub fn println(s: &str) {
     unsafe {
         write(1, s.as_ptr(), s.len());
-        let nl: str = "\n";
+        let nl: &str = "\n";
         write(1, nl.as_ptr(), 1);
     }
 }
@@ -28,17 +28,17 @@ pub fn println(s: str) {
 /// Writes `s` to standard error, without a trailing newline.
 ///
 /// Unbuffered; write errors are silently ignored.
-pub fn eprint(s: str) {
+pub fn eprint(s: &str) {
     unsafe { write(2, s.as_ptr(), s.len()); }
 }
 
 /// Writes `s` followed by a newline to standard error.
 ///
 /// Unbuffered; write errors are silently ignored.
-pub fn eprintln(s: str) {
+pub fn eprintln(s: &str) {
     unsafe {
         write(2, s.as_ptr(), s.len());
-        let nl: str = "\n";
+        let nl: &str = "\n";
         write(2, nl.as_ptr(), 1);
     }
 }
@@ -56,7 +56,7 @@ pub fn print_string(s: &String) {
 pub fn println_string(s: &String) {
     unsafe {
         write(1, s.as_ptr(), s.len());
-        let nl: str = "\n";
+        let nl: &str = "\n";
         write(1, nl.as_ptr(), 1);
     }
 }
@@ -74,7 +74,7 @@ pub fn eprint_string(s: &String) {
 pub fn eprintln_string(s: &String) {
     unsafe {
         write(2, s.as_ptr(), s.len());
-        let nl: str = "\n";
+        let nl: &str = "\n";
         write(2, nl.as_ptr(), 1);
     }
 }

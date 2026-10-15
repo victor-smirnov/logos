@@ -10,7 +10,7 @@ use logos.lang.str;
 use logos.lang.option;
 use logos.lang.iter;
 
-unsafe fn cstr(s: str) -> *const u8 {
+unsafe fn cstr(s: &str) -> *const u8 {
     let len: i64 = s.len();
     let h: *mut u8 = alloc(len + 1 as i64);
     let mut i: i64 = 0 as i64;

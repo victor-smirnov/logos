@@ -12,7 +12,7 @@ use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 
-fn eq_str(a: str, b: str) -> bool {
+fn eq_str(a: &str, b: &str) -> bool {
     let alen: i64 = a.len();
     let blen: i64 = b.len();
     if alen != blen { return false; }
@@ -25,7 +25,7 @@ fn eq_str(a: str, b: str) -> bool {
 }
 
 fn main() -> i32 {
-    let s: str = "hej";
+    let s: &str = "hej";
     while !eq_str(s, "") {
         return 0i32;
     }

@@ -1,6 +1,6 @@
 package bc_vecstore_closure_beside_loan_refuse;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn takes_imm<F: FnOnce()>(r: &i64, f: F) -> i64 {
     f();
     return *r;

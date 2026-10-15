@@ -32,7 +32,7 @@ use logos.lang.writ.wstatic;
 struct IdentSpan { pub k: i64 }
 
 fn build_expr() -> ExprBlob {
-    let s: str = "y";
+    let s: &str = "y";
     let foo: Ident = Ident::new(s);
     return quote_expr! { #foo };
 }

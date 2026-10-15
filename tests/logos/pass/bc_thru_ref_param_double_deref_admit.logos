@@ -4,7 +4,7 @@
 // decides is `t0`'s own type, which is what the rule reads.
 package bc_thru_ref_param_double_deref_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
 fn foo4(t0: &mut &mut i64) { let x: &mut i64 = &mut **t0; *x += 1i64; }
 

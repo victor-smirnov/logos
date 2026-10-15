@@ -52,7 +52,7 @@ pub deem bag_flags(g: &Bag) {
 }
 
 // Rows whose `kind` column is `k`.
-fn n_kind(rows: &Vec<WritEdgeRow>, k: str) -> i64 {
+fn n_kind(rows: &Vec<WritEdgeRow>, k: &str) -> i64 {
     let mut c: i64 = 0i64;
     let mut i: i64 = 0i64;
     while i < rows.len() {
@@ -64,7 +64,7 @@ fn n_kind(rows: &Vec<WritEdgeRow>, k: str) -> i64 {
 }
 
 // `vi` of the first row keyed `key` (the leaf fields are uniquely keyed).
-fn vi_of(rows: &Vec<WritEdgeRow>, key: str) -> i64 {
+fn vi_of(rows: &Vec<WritEdgeRow>, key: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < rows.len() {
         let r: WritEdgeRow = rows.get(i);
@@ -75,7 +75,7 @@ fn vi_of(rows: &Vec<WritEdgeRow>, key: str) -> i64 {
 }
 
 // The node id of the "arr" row keyed `key` — a Vec field's own node.
-fn arr_id(rows: &Vec<WritEdgeRow>, key: str) -> i64 {
+fn arr_id(rows: &Vec<WritEdgeRow>, key: &str) -> i64 {
     let mut i: i64 = 0i64;
     while i < rows.len() {
         let r: WritEdgeRow = rows.get(i);
@@ -88,7 +88,7 @@ fn arr_id(rows: &Vec<WritEdgeRow>, key: str) -> i64 {
 // `vs` of the row of kind `k` at position `idx` under parent `par`.
 // The result is a CELL of a stored row, so its region is the cells' (`'a`), not
 // the `k` we searched by. Two region inputs and an elided output is E0106.
-fn vs_at<'a>(rows: &Vec<(i64, &'a str, i64, i64, &'a str, i64, i64, &'a str)>, par: i64, k: str, idx: i64) -> &'a str {
+fn vs_at<'a>(rows: &Vec<(i64, &'a str, i64, i64, &'a str, i64, i64, &'a str)>, par: i64, k: &str, idx: i64) -> &'a str {
     let mut i: i64 = 0i64;
     while i < rows.len() {
         let r: WritEdgeRow = rows.get(i);
@@ -99,7 +99,7 @@ fn vs_at<'a>(rows: &Vec<(i64, &'a str, i64, i64, &'a str, i64, i64, &'a str)>, p
 }
 
 fn main() -> i32 {
-    let mut tags: Vec<str> = vec_new::<str>();
+    let mut tags: Vec<&str> = vec_new::<&str>();
     tags.push("alpha");
     tags.push("beta");
     let mut nums: Vec<i64> = vec_new::<i64>();

@@ -30,7 +30,7 @@ pub enum MyAny { Ref(*const u8), Pod(u64) }
 
 // The faithful tv_build shape: fat `str` BY VALUE in, borrow-carrying result
 // out — but this body does not retain the argument (Pod arm).
-unsafe fn tvb(tag: i64, s: str) -> MyAny {
+unsafe fn tvb(tag: i64, s: &str) -> MyAny {
     return MyAny::Pod((tag + s.len() as i64) as u64);
 }
 

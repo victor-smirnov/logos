@@ -67,7 +67,7 @@ fn main() -> i64 {
     // String literals support \\ \" \n \r \t \0 and \xHH (control bytes < 0x20);
     // other bytes appear verbatim. Verify the decoded bytes.
     {
-        let s: str = "a\\b\"c\n\r\t\0\x1Fz";
+        let s: &str = "a\\b\"c\n\r\t\0\x1Fz";
         if s.len() != 11i64 { return 29; }
         let p: *const u8 = s.as_ptr();
         unsafe {

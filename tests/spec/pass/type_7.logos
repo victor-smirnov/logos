@@ -43,7 +43,7 @@ fn main() -> i64 {
     // @rule type.str.slice-alias
     // `str` is its own type; a trait impl on `str` answers a str value.
     {
-        let s: str = "hi";
+        let s: &str = "hi";
         if s.three() != 3i64 { return 1; }
     }
 
@@ -51,7 +51,7 @@ fn main() -> i64 {
     // For an impl whose target is an unsized slice, Self is seeded so `self: &Self`
     // resolves and the method body type-checks/runs.
     {
-        let s: str = "Az";
+        let s: &str = "Az";
         // str is not [u8]: the [u8] impl method applies to its bytes
         if s.as_bytes().fb() != 65i64 { return 2; }   // 'A' = 65
     }

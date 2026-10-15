@@ -57,7 +57,7 @@ fn main() -> i64 {
     // A string-literal pattern compares string CONTENTS (str_eq), not pointers.
     {
         // Two distinct String buffers with equal contents must both match.
-        let s1: str = "abc";
+        let s1: &str = "abc";
         let got1: i64 = match s1 { "abc" => 1i64, _ => 0i64 };
         if got1 != 1i64 { return 8; }
         let got2: i64 = match s1 { "abd" => 1i64, _ => 0i64 };

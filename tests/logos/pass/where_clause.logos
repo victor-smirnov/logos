@@ -1,7 +1,7 @@
 package where_clause;
 // where T: Trait — alternative syntax for trait bounds
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 trait Show { fn show(&self) -> i32; }
 trait Double { fn double(&self) -> i32; }

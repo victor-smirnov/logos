@@ -8,7 +8,7 @@ pub struct H { pub v: str }
 
 pub fn stash(v: &mut Vec<H>, h: H) { v.push(h); }
 
-pub fn ok(s: str) -> Vec<H> {
+pub fn ok(s: &str) -> Vec<H> {
     let mut v: Vec<H> = Vec::<H>::new();
     stash(&mut v, H { v: s });
     return v;

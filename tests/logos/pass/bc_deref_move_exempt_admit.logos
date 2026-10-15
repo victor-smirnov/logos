@@ -41,7 +41,7 @@
 //     residual is on the ledger as nll/move-errors--d.
 package bc_deref_move_exempt_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 
 trait NumCast { fn from_i32(i: i32) -> Self; }
 trait NumExt: NumCast + PartialOrd { }

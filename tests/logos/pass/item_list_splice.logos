@@ -12,7 +12,7 @@ use logos.std.compiler.metaprog;
 
 #[metaprog_handler("inject_pair")]
 fn inject_pair_hook(target_offset: u32) -> () {
-    let src: str = "package main; struct InjectedFoo { x: i32 } struct InjectedBar { y: i32 }";
+    let src: &str = "package main; struct InjectedFoo { x: i32 } struct InjectedBar { y: i32 }";
     let mut data: *const u8 = 0 as *const u8;
     let mut size: u64 = 0 as u64;
     unsafe {

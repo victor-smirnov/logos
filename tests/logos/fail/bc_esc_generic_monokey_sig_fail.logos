@@ -20,27 +20,27 @@ package bc_esc_generic_monokey_sig_fail;
 
 use logos.mem.string;
 
-pub trait Tr { fn thru(&self, s: str) -> str; }
+pub trait Tr { fn thru(&self, s: &str) -> &str; }
 
 pub struct K { pub z: i64 }
 pub struct M { pub s: str }
 
 impl Tr for K {
-    fn thru(&self, s: str) -> str { return s; }
+    fn thru(&self, s: &str) -> &str { return s; }
 }
 
 impl Tr for M {
-    fn thru(&self, s: str) -> str { return self.s; }
+    fn thru(&self, s: &str) -> &str { return self.s; }
 }
 
-pub fn ok<T: Tr>(t: &T) -> str {
+pub fn ok<T: Tr>(t: &T) -> &str {
     let o: String = String::from("hello");
     return t.thru(o.as_str());
 }
 
 fn main() -> i32 {
     let m: M = M { s: "abcd" };
-    let r: str = ok::<M>(&m);
+    let r: &str = ok::<M>(&m);
     if r.len() == 4i64 { return 0i32; }
     return 1i32;
 }

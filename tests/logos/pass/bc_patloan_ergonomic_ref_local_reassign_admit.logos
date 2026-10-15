@@ -17,7 +17,7 @@
 package bc_patloan_ergonomic_ref_local_reassign_admit;
 use logos.mem.boxed;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 enum List { Cons(i64, Box<List>), Nil }
 fn main() -> i32 {
     let lst: List = List::Cons(1i64, box_new(List::Cons(2i64, box_new(List::Nil))));

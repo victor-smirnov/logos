@@ -18,13 +18,13 @@ use logos.lang.writ.wstatic;
 
 #[metaprog_handler("vis_gen")]
 fn vis_gen_hook(target_offset: u32) -> () {
-    let s_priv: str = "";
-    let s_pub: str = "pub";
-    let s_mod: str = "module";
+    let s_priv: &str = "";
+    let s_pub: &str = "pub";
+    let s_mod: &str = "module";
     let vpriv: Ident = Ident::new(s_priv);
     let vpub: Ident = Ident::new(s_pub);
     let vmod: Ident = Ident::new(s_mod);
-    let sn: str = "VisGen";
+    let sn: &str = "VisGen";
     let snid: Ident = Ident::new(sn);
     let blob: QuoteItemBlob = quote_item! {
         pub(#vpriv) fn vis_f_priv() -> i64 { return 1i64; }

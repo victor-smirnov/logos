@@ -6,7 +6,7 @@
 // function, with a wildcard fallthrough.
 package match_string_fn;
 
-fn compare(x: str, y: str) -> bool {
+fn compare(x: &str, y: &str) -> bool {
     match x {
         "foo" => { return y == "foo"; }
         _ => { return y == "bar"; }

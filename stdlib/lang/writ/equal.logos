@@ -70,7 +70,7 @@ fn equal_d(a: WAny, b: WAny, depth: i64) -> bool {
         while i < ma.slots() {
             let k: WAny = ma.key_at(i);
             if !k.is_null() {
-                let ks: str = unsafe { (&*(k.resolve() as *const WString)).as_str() };
+                let ks: &str = unsafe { (&*(k.resolve() as *const WString)).as_str() };
                 if !mb.contains(ks) { return false; }
                 if !equal_d(ma.val_at(i), mb.get(ks), depth + 1i64) { return false; }
             }

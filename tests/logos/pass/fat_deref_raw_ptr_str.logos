@@ -5,10 +5,10 @@ package test;
 use logos.lang.str;
 
 fn main() -> i32 {
-    let a: str = "raw";
+    let a: &str = "raw";
     let p: *const str = &a;
     unsafe {
-        let b: str = *p;
+        let b: &str = *p;
         if !str_eq(b, "raw") { return 1i32; }
     }
     return 0i32;

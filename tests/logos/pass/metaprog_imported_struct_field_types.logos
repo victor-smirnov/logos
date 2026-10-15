@@ -3,7 +3,7 @@ package metaprog_imported_struct_field_types;
 use logos.std.compiler.metaprog;
 use logos.mem.deem;
 
-pub const TAGX: str = "a";
+pub const TAGX: &str = "a";
 
 fn probe() -> i64 {
     let mut code: i64 = 0;

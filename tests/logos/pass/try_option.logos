@@ -5,7 +5,7 @@ package test;
 
 use logos.lang.option;
 
-fn first_digit(s: str) -> Option<i32> {
+fn first_digit(s: &str) -> Option<i32> {
     let b: *const u8 = s.as_ptr();
     let n: i64 = s.len() as i64;
     if n <= 0 as i64 { return Option::None; }
@@ -16,7 +16,7 @@ fn first_digit(s: str) -> Option<i32> {
     }
 }
 
-fn sum_two(a: str, b: str) -> Option<i32> {
+fn sum_two(a: &str, b: &str) -> Option<i32> {
     let x: i32 = first_digit(a)?;
     let y: i32 = first_digit(b)?;
     return Option::Some(x + y);

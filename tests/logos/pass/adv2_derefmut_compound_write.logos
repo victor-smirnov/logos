@@ -4,7 +4,7 @@
 package adv2_derefmut_compound_write;
 use logos.lang.ops;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 struct R { id: i32 }
 impl Drop for R { fn drop(self: &mut Self) { printi("d%d ", self.id); } }
 struct W<T> { inner: T, tag: R }

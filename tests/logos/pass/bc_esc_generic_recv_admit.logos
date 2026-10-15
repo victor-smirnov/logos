@@ -33,27 +33,27 @@ package bc_esc_generic_recv_admit;
 use logos.mem.string;
 
 pub trait Tr {
-    fn thru(&self, s: str) -> str;
-    fn pick(&self, probe: str) -> str;
+    fn thru(&self, s: &str) -> &str;
+    fn pick(&self, probe: &str) -> &str;
     fn keep(&self, s: String) -> i64;
     fn n(&self) -> i64;
-    fn stash(&self, s: str, out: &mut str);
+    fn stash(&self, s: &str, out: &mut str);
 }
 
 pub struct K { pub z: i64, pub s: str }
 
 impl Tr for K {
-    fn thru(&self, s: str) -> str { return self.s; }   // `return s` is E0621-class under elision rule 3 (#461)
-    fn pick(&self, probe: str) -> str { return self.s; }
+    fn thru(&self, s: &str) -> &str { return self.s; }   // `return s` is E0621-class under elision rule 3 (#461)
+    fn pick(&self, probe: &str) -> &str { return self.s; }
     fn keep(&self, s: String) -> i64 { return s.len(); }
     fn n(&self) -> i64 { return self.z; }
-    fn stash(&self, s: str, out: &mut str) { *out = s; }
+    fn stash(&self, s: &str, out: &mut str) { *out = s; }
 }
 
 // The result comes from `self`, and the frame-local borrow handed in as the
 // argument is NOT retained. A conservative route refuses this; the summary
 // admits it.
-pub fn self_sourced<T: Tr>(t: &T) -> str {
+pub fn self_sourced<T: Tr>(t: &T) -> &str {
     let o: String = String::from("hello");
     return t.pick(o.as_str());
 }
@@ -63,7 +63,7 @@ pub fn owned_arg<T: Tr>(t: &T) -> i64 {
     return t.keep(o);
 }
 
-pub fn recv_outlives<T: Tr>(t: &T) -> str { return t.pick("probe"); }
+pub fn recv_outlives<T: Tr>(t: &T) -> &str { return t.pick("probe"); }
 
 
 pub fn scalar<T: Tr>(t: &T) -> i64 {
@@ -73,7 +73,7 @@ pub fn scalar<T: Tr>(t: &T) -> i64 {
 
 
 pub fn outparam_ok<'a, T: Tr>(t: &T, p: &'a str) -> &'a str {
-    let mut v: str = "";
+    let mut v: &str = "";
     t.stash(p, &mut v);
     return v;
 }

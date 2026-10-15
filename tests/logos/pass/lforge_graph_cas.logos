@@ -49,7 +49,7 @@ pub struct ActionKey {
 
 // ── FileNode construction ─────────────────────────────────────────────────
 
-unsafe fn cstr_of(s: str) -> *mut u8 {
+unsafe fn cstr_of(s: &str) -> *mut u8 {
     let n: i64 = s.len();
     let h: *mut u8 = alloc(n + 1 as i64);
     let mut i: i64 = 0 as i64;
@@ -58,7 +58,7 @@ unsafe fn cstr_of(s: str) -> *mut u8 {
     return h;
 }
 
-pub unsafe fn file_node_of(path: str) -> Result<FileNode, i32> {
+pub unsafe fn file_node_of(path: &str) -> Result<FileNode, i32> {
     let cs: *const u8 = cstr_of(path) as *const u8;
     let size: i64 = match file_size(cs) {
         Result::Err(e) => { dealloc(cs as *mut u8); return Result::Err(e); }
@@ -121,7 +121,7 @@ pub unsafe fn make_action_key(inputs: &Vec<FileNode>, args: &Vec<String>) -> Act
 
 // Compute the cache path for a given action key, sharded by first two hex
 // chars: `<root>/<aa>/<rest>`. Caller is responsible for mkdir_p of root.
-pub fn cas_path(root: str, key: &ActionKey) -> String {
+pub fn cas_path(root: &str, key: &ActionKey) -> String {
     let mut out: String = String::new();
     out.push_str(root);
     let n: i64 = out.len();
@@ -141,7 +141,7 @@ pub fn cas_path(root: str, key: &ActionKey) -> String {
 }
 
 // True if the cache already has an entry for this action key.
-pub unsafe fn cas_has(root: str, key: &ActionKey) -> bool {
+pub unsafe fn cas_has(root: &str, key: &ActionKey) -> bool {
     let p: String = cas_path(root, key);
     let cs: *mut u8 = cstr_of(unsafe { str_from_raw(p.as_ptr(), p.len()) });
     let r: bool = exists(cs as *const u8);
@@ -151,7 +151,7 @@ pub unsafe fn cas_has(root: str, key: &ActionKey) -> bool {
 
 // Store `src_path` into the CAS under `key`. Creates the shard dir.
 // Returns the canonical CAS path, or Err(-errno).
-pub unsafe fn cas_put(root: str, key: &ActionKey, src_path: str) -> Result<String, i32> {
+pub unsafe fn cas_put(root: &str, key: &ActionKey, src_path: &str) -> Result<String, i32> {
     // mkdir_p root + first-two-hex shard dir
     let mut shard: String = String::new();
     shard.push_str(root);
@@ -160,7 +160,7 @@ pub unsafe fn cas_put(root: str, key: &ActionKey, src_path: str) -> Result<Strin
         shard.push_u8(47 as u8);
     }
     shard.push_bytes(key.hex.as_ptr(), 2 as i64);
-    let shard_view: str = str_from_raw(shard.as_ptr(), shard.len());
+    let shard_view: &str = str_from_raw(shard.as_ptr(), shard.len());
     match mkdir_p(shard_view) {
         Result::Err(e) => { return Result::Err(e); }
         Result::Ok(_)  => { }
@@ -185,7 +185,7 @@ pub unsafe fn cas_put(root: str, key: &ActionKey, src_path: str) -> Result<Strin
 
 // ── Test ──────────────────────────────────────────────────────────────────
 
-unsafe fn write_text(path: str, body: str) {
+unsafe fn write_text(path: &str, body: &str) {
     let p_cs: *mut u8 = cstr_of(path);
     let mut s: String = String::new();
     s.push_str(body);
@@ -235,7 +235,7 @@ unsafe fn main() -> i32 {
     if key1.hex.len() != 64 as i64 { return 12; }
 
     // 3. CAS put + has.
-    let cache_root: str = "/tmp/__lf_b04__/cache";
+    let cache_root: &str = "/tmp/__lf_b04__/cache";
     if cas_has(cache_root, &key1) { return 20; }    // not yet
     write_text("/tmp/__lf_b04__/out.txt", "compiled output");
     match cas_put(cache_root, &key1, "/tmp/__lf_b04__/out.txt") {

@@ -50,7 +50,7 @@ impl SelfDescribing for WString {
 /// one arena chunk, writes the vlen length prefix, then copies the payload after it.
 /// Taking `*mut Allocator` (not the whole `Writ`) lets a container that holds only its
 /// allocator back-pointer — e.g. `WArray<WAny>` — intern strings without the full handle.
-pub unsafe fn wstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut WString {
+pub unsafe fn wstring_in_alloc(alloc: *mut Allocator, s: &str) -> *mut WString {
     let n: u64 = s.len() as u64;
     let total: i64 = (vlen_encode_size(n) as i64) + (n as i64);
     let raw: *mut u8 = alloc_tagged(alloc, total, W_STRING);   // in-band Ref tag
@@ -59,14 +59,14 @@ pub unsafe fn wstring_in_alloc(alloc: *mut Allocator, s: str) -> *mut WString {
     return raw as *mut WString;
 }
 
-unsafe fn wstring_new(h: *mut Writ, s: str) -> *mut WString {
+unsafe fn wstring_new(h: *mut Writ, s: &str) -> *mut WString {
     return wstring_in_alloc(h.allocator.get(), s);
 }
 
 impl Writ {
     /// Interns `s` into the arena; returns a borrowed `&WString` into never-move storage,
     /// valid for the container's lifetime. Read it back with `as_str`.
-    pub fn wstring<'a>(self: &'a Writ, s: str) -> &'a WString {
+    pub fn wstring<'a>(self: &'a Writ, s: &str) -> &'a WString {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
             return &*wstring_new(h, s);

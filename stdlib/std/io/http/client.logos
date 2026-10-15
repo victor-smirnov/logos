@@ -14,7 +14,7 @@ use logos.std.io.net.url;
 use logos.std.io.net;
 
 // Parse a dotted-quad IPv4 string into host-order u32.
-fn parse_ipv4(s: str) -> Option<u32> {
+fn parse_ipv4(s: &str) -> Option<u32> {
     let p: *const u8 = s.as_ptr();
     let n: i64 = s.len();
     let mut octets: [u32; 4] = [0 as u32; 4];
@@ -85,7 +85,7 @@ pub fn http_send(host_ip: u32, port: u16, req: &Request) -> Result<Response, Htt
 
 /// Issues a GET for `path` against `host_ip:port`, building a minimal `Request`
 /// with a `Host` header set to `host_hdr`.
-pub fn http_get_at(host_ip: u32, port: u16, host_hdr: str, path: str) -> Result<Response, HttpError> {
+pub fn http_get_at(host_ip: u32, port: u16, host_hdr: &str, path: &str) -> Result<Response, HttpError> {
     let mut path_s: String = String::new();
     path_s.push_str(path);
     let u: Url = Url {
@@ -103,7 +103,7 @@ pub fn http_get_at(host_ip: u32, port: u16, host_hdr: str, path: str) -> Result<
 /// Parses `url_str` as an absolute HTTP URL (`http://host[:port]/path[?query]`)
 /// and issues a GET.  Only numeric IPv4 hosts are supported; a hostname or a
 /// non-`http` scheme yields `HttpError::BadUrl`.
-pub fn http_get(url_str: str) -> Result<Response, HttpError> {
+pub fn http_get(url_str: &str) -> Result<Response, HttpError> {
     let u: Url = match url_parse(url_str) {
         Option::Some(x) => x,
         Option::None    => { return Result::Err(HttpError::BadUrl); }

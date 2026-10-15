@@ -31,7 +31,7 @@ pub struct Regex {
 }
 
 /// Compiles pattern `p` into a `Regex` that borrows `p`'s bytes; `p` must outlive it.
-pub fn compile(p: str) -> Regex {
+pub fn compile(p: &str) -> Regex {
     unsafe { return Regex { pat: p.as_ptr(), plen: p.len() }; }
 }
 
@@ -225,7 +225,7 @@ unsafe fn match_star(pat: *const u8, plen: i64, atom_pi: i64, alen: i64,
 // ── Public API ────────────────────────────────────────────────────────────
 
 /// Returns `true` if `re` matches anywhere in `s`; `^` anchors to start, `$` to end.
-pub fn is_match(re: &Regex, s: str) -> bool {
+pub fn is_match(re: &Regex, s: &str) -> bool {
     unsafe {
         let slen: i64 = s.len();
         let sp:   *const u8 = s.as_ptr();
@@ -242,7 +242,7 @@ pub fn is_match(re: &Regex, s: str) -> bool {
 }
 
 /// Returns the byte index of the first match in `s`, or `-1` if none.
-pub fn find(re: &Regex, s: str) -> i64 {
+pub fn find(re: &Regex, s: &str) -> i64 {
     unsafe {
         let slen: i64 = s.len();
         let sp:   *const u8 = s.as_ptr();

@@ -16,7 +16,7 @@ use logos.mem.string;
 
 pub struct W { pub v: str }
 
-pub fn ok(s: str, out: &mut W) { out.v = s; }
+pub fn ok(s: &str, out: &mut W) { out.v = s; }
 
 fn main() -> i32 {
     let o: String = String::from("hello");

@@ -14,7 +14,7 @@ package lex_1;
 use logos.lang.str;
 
 // Read the i-th raw byte of a `str` (lets us inspect decoded literal bytes).
-fn byte_at(s: str, i: i64) -> u8 {
+fn byte_at(s: &str, i: i64) -> u8 {
     unsafe { return *((s.as_ptr() as i64 + i) as *const u8); }
 }
 
@@ -36,7 +36,7 @@ fn main() -> i64 {
     // `"#`; escapes are NOT processed (backslash + n stay two literal bytes),
     // and an interior `"` is allowed because the closing needs the `#`.
     {
-        let raw: str = r#"a"b\nc"#;          // a " b \ n c  -> 6 raw bytes
+        let raw: &str = r#"a"b\nc"#;          // a " b \ n c  -> 6 raw bytes
         if raw.len() != 6i64 { return 1; }
         if byte_at(raw, 0i64) != 97u8 { return 2; }   // a
         if byte_at(raw, 1i64) != 34u8 { return 3; }   // "  (interior quote kept)
@@ -53,7 +53,7 @@ fn main() -> i64 {
     // \xNN = exactly two hex digits -> one byte; \u{H..} -> UTF-8 of codepoint
     // (1-4 bytes); an unknown escape is left literal (backslash retained).
     {
-        let s: str = "n\nt\tr\rb\\z\0q\"a\'h\x41";
+        let s: &str = "n\nt\tr\rb\\z\0q\"a\'h\x41";
         // bytes: n LF t TAB r CR b \ z NUL q " a ' h A
         if s.len() != 16i64 { return 8; }
         if byte_at(s, 1i64) != 10u8 { return 9; }    // \n -> LF
@@ -68,7 +68,7 @@ fn main() -> i64 {
         if "\u{41}".len() != 1i64 { return 17; }
         if "\u{2764}".len() != 3i64 { return 18; }
         // unknown escape \q keeps the backslash literally.
-        let u: str = "\q";
+        let u: &str = "\q";
         if u.len() != 2i64 { return 19; }
         if byte_at(u, 0i64) != 92u8 { return 20; }   // backslash kept
         if byte_at(u, 1i64) != 113u8 { return 21; }  // q kept

@@ -7,7 +7,7 @@
 // `Fn` bound (rustc E0596), which is a fail fixture as of this round.
 package bc_capaddrmut_fnmut_bound;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn take_fnmut<F: FnMut()>(mut f: F) { f(); }
 fn set(x: &mut i64) { *x = 5i64; }
 fn main() -> i32 {

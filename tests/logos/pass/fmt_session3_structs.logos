@@ -18,7 +18,7 @@ use logos.mem.string;
 use logos.mem.fmt;
 use logos.mem.collections.vec;
 
-fn check(got: String, want: str, code: i32) -> i32 {
+fn check(got: String, want: &str, code: i32) -> i32 {
     if !str_eq(got.as_str(), want) { return code; }
     return 0;
 }

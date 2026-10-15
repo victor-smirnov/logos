@@ -8,13 +8,13 @@
 package bc_esc_holder_return_tuple_dangle;
 use logos.mem.string;
 
-pub fn bad() -> (str, i64) {
+pub fn bad() -> (&str, i64) {
     let o: String = String::from("hello");
     return (o.as_str(), 1i64);
 }
 
 fn main() -> i32 {
-    let t: (str, i64) = bad();
+    let t: (&str, i64) = bad();
     if t.1 == 1i64 { return 0i32; }
     return 1i32;
 }

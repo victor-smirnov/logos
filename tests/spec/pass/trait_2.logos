@@ -73,7 +73,7 @@ fn main() -> i64 {
     // An impl registered for `str` applies to a concrete str value (str is the
     // canonical &[u8] wire form for impl lookup).
     {
-        let s: str = "hello";
+        let s: &str = "hello";
         if s.yell() != 5i64 { return 3; }
     }
 

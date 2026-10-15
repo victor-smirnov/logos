@@ -1,6 +1,6 @@
 package bc_thruref_assign_struct_ref_field_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct P { a: i64, b: i64 }
 struct H<'x> { r: &'x P, o: P }
 fn main() -> i32 {

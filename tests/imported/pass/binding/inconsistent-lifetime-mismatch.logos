@@ -8,7 +8,7 @@ package b_inconsistent_lifetime_mismatch;
 
 fn foo(s: &[str]) { let _ = s; }
 
-fn good(a: str, b: str) {
+fn good(a: &str, b: &str) {
     let arr: [str; 2] = [a, b];
     foo(&arr);
 }

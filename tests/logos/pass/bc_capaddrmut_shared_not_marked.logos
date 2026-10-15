@@ -6,7 +6,7 @@
 // below is what proves both closures really read the same `x`.
 package bc_capaddrmut_shared_not_marked;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn peek(p: &i64) -> i64 { return *p; }
 fn main() -> i32 {
     let x: i64 = 3i64;

@@ -56,7 +56,7 @@ impl<'a> Walk<'a> {
 pub fn walk_of(r: &Rows) -> Walk { return Walk { r: r, at: 0u64 }; }
 
 #[token_macro]
-pub fn gen_quote(s: str) -> ItemList {
+pub fn gen_quote(s: &str) -> ItemList {
     let dnm: Ident = Ident::new("QuoteDx");
     let q: QuoteItemBlob = quote_item! {
         use logos.mem.collections.vec;

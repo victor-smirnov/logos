@@ -8,7 +8,7 @@ use logos.lang.{option, result};
 
 fn main() -> i32 {
     let o: Option<i32> = Option::Some(42i32);
-    let r: Result<i32, str> = Result::Ok(0i32);
+    let r: Result<i32, &str> = Result::Ok(0i32);
 
     match o {
         Option::Some(v) => {

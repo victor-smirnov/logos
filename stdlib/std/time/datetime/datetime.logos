@@ -183,7 +183,7 @@ pub fn format_time(ct: &CivilTime, out: &mut String) {
 }
 
 /// Returns the full English weekday name for `w` (`0` = `"Sunday"` … `6` = `"Saturday"`), or `""`.
-pub fn weekday_name(w: i32) -> str {
+pub fn weekday_name(w: i32) -> &str {
     if w == 0 { return "Sunday"; }
     if w == 1 { return "Monday"; }
     if w == 2 { return "Tuesday"; }
@@ -195,7 +195,7 @@ pub fn weekday_name(w: i32) -> str {
 }
 
 /// Returns the full English month name for `m` in `1..=12`, or `""` otherwise.
-pub fn month_name(m: i32) -> str {
+pub fn month_name(m: i32) -> &str {
     if m == 1  { return "January"; }
     if m == 2  { return "February"; }
     if m == 3  { return "March"; }

@@ -25,7 +25,7 @@ fn gen_nested_hook(target_offset: u32) -> () {
     let item: WAny = view.node_at(target_offset);
     if view.ast_node_name(item).len == (0 as u64) { return; }
 
-    let sx: str = "x"; let sy: str = "y"; let sz: str = "z";
+    let sx: &str = "x"; let sy: &str = "y"; let sz: &str = "z";
     let mut inner: Vec<Vec<Ident>> = Vec::<Vec<Ident>>::new();
     let mut in0: Vec<Ident> = Vec::<Ident>::new();
     let mut in1: Vec<Ident> = Vec::<Ident>::new();

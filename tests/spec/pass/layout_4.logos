@@ -46,7 +46,7 @@ fn main() -> i64 {
     // @rule layout.fat-ptr.sixteen-byte
     // slice (&[T], str), trait object (&dyn) are two-word fat pairs: 16 bytes.
     if sizeof::<&[i64]>() != 16i64 { return 6i64; }
-    if sizeof::<str>() != 16i64 { return 7i64; }
+    if sizeof::<&str>() != 16i64 { return 7i64; }
     if sizeof::<&dyn Tr>() != 16i64 { return 8i64; }
 
     // @rule layout.array.element-stride

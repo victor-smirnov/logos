@@ -67,7 +67,7 @@ impl WView2 {
 
     /// Reads a string-keyed ObjectMap field: `node` (Ref to `WMap<WString,WAny>`) by `key`.
     /// A null/non-ref `node`, or an absent key, yields a null `WAny`.
-    pub fn map_get(self: WView2, node: WAny, key: str) -> WAny {
+    pub fn map_get(self: WView2, node: WAny, key: &str) -> WAny {
         if !node.is_ref() { return WAny::null(); }
         let p: *const u8 = node.resolve();
         if p == (0 as *const u8) { return WAny::null(); }
@@ -107,7 +107,7 @@ impl WView2 {
         if !v.is_ref() { return SView2 { ptr: 0 as *const u8, len: 0 as u64 }; }
         let p: *const u8 = v.resolve();
         if p == (0 as *const u8) { return SView2 { ptr: 0 as *const u8, len: 0 as u64 }; }
-        let s: str = unsafe { (&*(p as *const WString)).as_str() };
+        let s: &str = unsafe { (&*(p as *const WString)).as_str() };
         return SView2 { ptr: s.as_ptr(), len: s.len() as u64 };
     }
 

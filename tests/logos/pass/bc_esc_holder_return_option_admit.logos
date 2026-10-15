@@ -6,8 +6,8 @@ package bc_esc_holder_return_option_admit;
 use logos.lang.option;
 use logos.mem.string;
 
-pub fn ok(s: str) -> Option<str> {
-    return Option::<str>::Some(s);
+pub fn ok(s: &str) -> Option<&str> {
+    return Option::<&str>::Some(s);
 }
 
 fn main() -> i32 {

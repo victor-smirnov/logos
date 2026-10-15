@@ -51,7 +51,7 @@ fn ret_ref_thin(r: &i64) -> &i64 { return r; }
 fn arr_sum(a: [i64; 3]) -> i64 { return a[0i64] + a[1i64] + a[2i64]; }
 
 // Return a slice by value (16-byte {data,len} fat pair).
-fn ret_slice(s: str) -> str { return s; }
+fn ret_slice(s: &str) -> &str { return s; }
 
 // Scalar return coerced to declared numeric return type (narrow i64 arg -> i32).
 fn ret_narrow(n: i64) -> i32 { return n as i32; }
@@ -197,7 +197,7 @@ fn main() -> i64 {
     // A str return is the 16-byte {data,len} fat pair returned by value (no heap
     // copy); both halves survive (len + content).
     {
-        let s: str = ret_slice("hello");
+        let s: &str = ret_slice("hello");
         if s.len() != 5i64 { return 30; }
         if s != "hello" { return 31; }
     }

@@ -47,7 +47,7 @@ pub fn writ_hash(v: WAny) -> u64 {
     if v.is_string() {
         unsafe {
             let hs: &WString = &*(v.resolve() as *const WString);
-            let s: str = hs.as_str();
+            let s: &str = hs.as_str();
             let mut h: u64 = fnv_mix_u64(fnv_init(), 5u64);
             h = fnv_mix_u64(h, s.len() as u64);
             let mut i: i64 = 0;

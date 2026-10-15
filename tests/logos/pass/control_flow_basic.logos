@@ -4,7 +4,7 @@ package test;
 use logos.lang.ops;
 
 fn main() -> i32 {
-    let c: ControlFlow<str, i32> = ControlFlow::<str, i32>::Continue(7i32);
+    let c: ControlFlow<&str, i32> = ControlFlow::<&str, i32>::Continue(7i32);
     if !c.is_continue() { return 1; }
     if  c.is_break()    { return 2; }
     match c {
@@ -12,7 +12,7 @@ fn main() -> i32 {
         ControlFlow::Break(_)    => { return 4; }
     }
 
-    let b: ControlFlow<str, i32> = ControlFlow::<str, i32>::Break("stop");
+    let b: ControlFlow<&str, i32> = ControlFlow::<&str, i32>::Break("stop");
     if  b.is_continue() { return 5; }
     if !b.is_break()    { return 6; }
     match b {

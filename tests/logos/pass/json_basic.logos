@@ -24,7 +24,7 @@ fn main() -> i32 {
     // Unescape \uXXXX (BMP).
     unsafe {
         let mut out: String = String::new();
-        let src: str = "\"\\u00e9\"";
+        let src: &str = "\"\\u00e9\"";
         let n: i64 = json_unescape_string(src.as_ptr(), src.len(), &mut out);
         if n != src.len() { return 4; }
         // U+00E9 → UTF-8 0xC3 0xA9
@@ -35,7 +35,7 @@ fn main() -> i32 {
 
     // Validate a well-formed document.
     unsafe {
-        let doc: str = "  { \"a\": [1, -2.5e3, null, true, \"x\\n\"], \"b\": {} } ";
+        let doc: &str = "  { \"a\": [1, -2.5e3, null, true, \"x\\n\"], \"b\": {} } ";
         let n: i64 = json_validate_str(doc);
         if n <= 0 as i64 { return 8; }
     }

@@ -66,7 +66,7 @@ use trait_ident_chain.hmid;
 use logos.lang.hash;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 fn main() -> i32 {
     // ROW 1 — the one that was predicted to answer 1 and does not. `Hash` here is

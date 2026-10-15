@@ -1,6 +1,6 @@
 package bc_ptrcoerce_unique_to_mut_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 static G: i64 = 7i64;
 fn raw<'a>(x: &mut &'a i64) -> *mut &'a i64 {
     return x;

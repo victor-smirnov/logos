@@ -29,7 +29,7 @@ fn main() -> i32 {
     // dies at the end of the statement, which rustc 1.98.1 refuses with
     // error[E0716] "temporary value dropped while borrowed" (MEASURED 2026-09-21).
     let dv: DView = b.get(1u64);
-    let a: str = dv.as_str();
+    let a: &str = dv.as_str();
     if a.len() != 5i64 { return 5; }                       // "apple"
     if unsafe { *(a.as_ptr()) } != 97u8 { return 6; }      // 'a'
 

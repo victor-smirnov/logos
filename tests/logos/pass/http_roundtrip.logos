@@ -19,7 +19,7 @@ let TEST_PORT: u16 = 48271 as u16;
 fn handler(req: &Request) -> Response {
     let mut resp: Response = Response::new(200 as i32);
     (&mut resp.headers).append("Content-Length", "5");
-    let body: str = "hello";
+    let body: &str = "hello";
     unsafe {
         let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
         let mut i: i64 = 0;
@@ -38,7 +38,7 @@ fn client_fiber(arg: i64) {
     match http_get_at(ip, TEST_PORT, "localhost", "/") {
         Result::Ok(resp) => {
             if resp.status != 200 as i32 { unsafe { *rp = 10; } return; }
-            let expected: str = "hello";
+            let expected: &str = "hello";
             unsafe {
                 let bp: *mut Vec<u8> = &resp.body as *const Vec<u8> as *mut Vec<u8>;
                 if (*bp).length() != expected.len() { *rp = 11; return; }

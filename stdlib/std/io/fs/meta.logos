@@ -61,19 +61,19 @@ pub fn is_file(path: *const u8) -> bool {
 
 // ── Safe ergonomic overloads: take a `str`, encapsulate the C interop. ──────
 /// Returns `true` iff `path` exists; safe `str` form (errors read as `false`).
-pub fn exists(path: str) -> bool {
+pub fn exists(path: &str) -> bool {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);
     return unsafe { logos_path_exists(c.as_ptr()) } == 1;
 }
 /// Returns `true` iff `path` is a directory; safe `str` form (errors read as `false`).
-pub fn is_dir(path: str) -> bool {
+pub fn is_dir(path: &str) -> bool {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);
     return unsafe { logos_path_is_dir(c.as_ptr()) } == 1;
 }
 /// Returns `true` iff `path` is a regular file; safe `str` form (errors read as `false`).
-pub fn is_file(path: str) -> bool {
+pub fn is_file(path: &str) -> bool {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);
     return unsafe { logos_path_is_file(c.as_ptr()) } == 1;
@@ -94,7 +94,7 @@ pub fn mtime_ns(path: *const u8) -> Result<i64, i32> {
 }
 
 /// Returns the modification time in nanoseconds since epoch, or `Err(-errno)`; safe `str` form.
-pub fn mtime_ns(path: str) -> Result<i64, i32> {
+pub fn mtime_ns(path: &str) -> Result<i64, i32> {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);
     let r: i64 = unsafe { logos_path_mtime_ns(c.as_ptr()) };
@@ -105,7 +105,7 @@ pub fn mtime_ns(path: str) -> Result<i64, i32> {
 // The byte scan is the only unsafe and it's encapsulated here, so callers get a safe dirname.
 /// Returns the directory part of `path`: everything before the last `'/'`.
 /// Borrowed slice into `path` (no copy); `""` if `path` has no `'/'`.
-pub fn parent(path: str) -> str {
+pub fn parent(path: &str) -> &str {
     let n: i64 = path.len();
     let mut slash: i64 = 0 as i64 - 1 as i64;
     let mut i: i64 = 0 as i64;
@@ -131,7 +131,7 @@ pub fn mkdir(path: *const u8, mode: i32) -> Result<i32, i32> {
 /// Creates `path` and each missing directory along it with mode 0o755 (`mkdir -p`).
 /// Existing directories are not an error; a non-directory non-leaf component yields
 /// `Err(-ENOTDIR)`.
-pub fn mkdir_p(path: str) -> Result<i32, i32> {
+pub fn mkdir_p(path: &str) -> Result<i32, i32> {
     let n: i64 = path.len();
     if n == 0 as i64 { return Result::Ok(0); }
     let mut buf: String = String::new();
@@ -195,7 +195,7 @@ pub fn unlink(path: *const u8) -> Result<i32, i32> {
 }
 
 /// Removes (unlinks) the file at `path`, or returns `Err(-errno)`; safe `str` form.
-pub fn unlink(path: str) -> Result<i32, i32> {
+pub fn unlink(path: &str) -> Result<i32, i32> {
     let mut c: String = String::new();
     c.push_str(path); c.push_u8(0 as u8);
     let r: i32 = unsafe { logos_unlink(c.as_ptr()) };
@@ -206,7 +206,7 @@ pub fn unlink(path: str) -> Result<i32, i32> {
 /// Removes `path` and everything under it (`rm -rf` semantics); returns the first error hit.
 /// A non-existent path is not an error. The directory check follows symlinks, so a symlink
 /// to a directory is traversed and the target's contents are removed.
-pub fn rm_rf(path: str) -> Result<i32, i32> {
+pub fn rm_rf(path: &str) -> Result<i32, i32> {
     let mut buf: String = String::new();
     buf.push_str(path);
     buf.push_u8(0 as u8);   // C-string boundary: as_ptr feeds stat/unlink/opendir/rmdir
@@ -240,7 +240,7 @@ pub fn rm_rf(path: str) -> Result<i32, i32> {
                 child.push_cstr(nb_ptr as *const u8);
                 child.push_u8(0 as u8);   // str_from_cstr scans to NUL
             }
-            let cs: str = unsafe { str_from_cstr(child.as_ptr()) };
+            let cs: &str = unsafe { str_from_cstr(child.as_ptr()) };
             match rm_rf(cs) {
                 Result::Err(e) => { err = e; }
                 Result::Ok(_)  => { }
@@ -320,13 +320,13 @@ pub fn read_dir(path: *const u8) -> Result<ReadDir, i32> {
 /// The first entry is `path` itself; each entry's `name` holds the full path, directly
 /// usable in FS ops. Skips `"."`/`".."`. Directory checks are `stat`-based, so symlinks
 /// to directories are traversed.
-pub fn walk_dir(path: str) -> Vec<DirEntry> {
+pub fn walk_dir(path: &str) -> Vec<DirEntry> {
     let mut out: Vec<DirEntry> = vec_new::<DirEntry>();
     walk_dir_into(path, &mut out);
     return out;
 }
 
-fn walk_dir_into(path: str, out: *mut Vec<DirEntry>) {
+fn walk_dir_into(path: &str, out: *mut Vec<DirEntry>) {
     unsafe {
         let mut path_buf: String = String::new();
         path_buf.push_str(path);
@@ -358,7 +358,7 @@ fn walk_dir_into(path: str, out: *mut Vec<DirEntry>) {
                     if (last as i32) != 47 { child.push_u8(47 as u8); }
                 }
                 child.push_cstr(nb_ptr as *const u8);
-                let cv: str = str_from_raw(child.as_ptr(), child.len());
+                let cv: &str = str_from_raw(child.as_ptr(), child.len());
                 walk_dir_into(cv, out);
             }
         }

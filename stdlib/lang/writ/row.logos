@@ -328,7 +328,7 @@ impl WRowBuilder {
     /// Sets column `col` to an `f64`, boxed into the row's arena.
     pub fn set(self: &mut WRowBuilder, col: i64, v: f64) { unsafe { let z: *mut Allocator = self.alloc; self.set(col, box_f64(z, v)); } }
     /// Sets column `col` to a string, interned into the row's arena.
-    pub fn set(self: &mut WRowBuilder, col: i64, v: str) {
+    pub fn set(self: &mut WRowBuilder, col: i64, v: &str) {
         unsafe { let z: *mut Allocator = self.alloc; self.set(col, WAny::ref_to(wstring_in_alloc(z, v) as *const u8)); }
     }
 

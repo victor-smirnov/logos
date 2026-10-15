@@ -4,7 +4,7 @@
 // case split on the source and not a change to the loop alone.
 package destruct_field_rest_through_deref;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 static mut N: i64 = 0i64;
 struct Owner { k: i64 }
 impl Drop for Owner { fn drop(self: &mut Owner) { unsafe { N = N + 1i64; } } }

@@ -61,7 +61,7 @@ impl WTypedValue {
     pub fn init(self: &WTypedValue)      -> WAny { return unsafe { *(tv_slot_c(self as *const WTypedValue, 16i64)) }; }
 
     /// Returns the type name as a string view (resolves the `Ref` to the interned `WString`).
-    pub fn type_name_str(self: &WTypedValue) -> str {
+    pub fn type_name_str(self: &WTypedValue) -> &str {
         return unsafe { (&*(self.type_name().resolve() as *const WString)).as_str() };
     }
     /// Returns `true` if params are present (non-null).
@@ -71,7 +71,7 @@ impl WTypedValue {
 impl Writ {
     /// Builds a typed value `@type_name(params?) = init` in this arena, returning a `Ref` to it.
     /// The type name is interned as a `WString`; pass a null `WAny` for `params` when none.
-    pub fn typed_value(self: &Writ, type_name: str, params: WAny, init: WAny) -> WAny {
+    pub fn typed_value(self: &Writ, type_name: &str, params: WAny, init: WAny) -> WAny {
         unsafe {
             let h: *mut Writ = self as *const Writ as *mut Writ;
             let hs: *mut WString = wstring_in_alloc(h.allocator.get(), type_name);

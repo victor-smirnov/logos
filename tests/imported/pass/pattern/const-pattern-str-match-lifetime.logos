@@ -10,7 +10,7 @@ use logos.std.fmt;
 use logos.mem.string;
 use logos.lang.str;
 
-fn test(s: str) -> bool {
+fn test(s: &str) -> bool {
     let xpat = "12345";
     if s == xpat { return true; }
     return false;

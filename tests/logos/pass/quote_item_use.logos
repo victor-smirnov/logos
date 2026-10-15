@@ -11,7 +11,7 @@ use logos.lang.writ.wstatic;
 
 #[metaprog_handler("use_inject")]
 fn use_inject_hook(target_offset: u32) -> () {
-    let s: str = "Gen";
+    let s: &str = "Gen";
     let id: Ident = Ident::new(s);
     let blob: QuoteItemBlob = quote_item! {
         use logos.mem.collections.vec;

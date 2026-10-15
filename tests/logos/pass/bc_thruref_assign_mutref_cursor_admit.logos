@@ -1,6 +1,6 @@
 package bc_thruref_assign_mutref_cursor_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct P { a: i64, b: i64 }
 fn main() -> i32 {
     let mut s1: P = P { a: 1i64, b: 2i64 };

@@ -23,16 +23,16 @@ fn count() -> i32 {
     return c - 1;
 }
 
-fn get(i: i32) -> str {
+fn get(i: i32) -> &'static str {
     return arg(i + 1);
 }
 
-fn is_flag_like(s: str) -> bool {
+fn is_flag_like(s: &str) -> bool {
     if s.len() < 2 as i64 { return false; }
     unsafe { return s.as_ptr()[0 as i64] == 45 as u8; }   // '-'
 }
 
-fn is_long(s: str) -> bool {
+fn is_long(s: &str) -> bool {
     if s.len() < 3 as i64 { return false; }
     unsafe {
         return s.as_ptr()[0 as i64] == 45 as u8
@@ -41,7 +41,7 @@ fn is_long(s: str) -> bool {
 }
 
 // "--" exactly
-fn is_dash_dash(s: str) -> bool {
+fn is_dash_dash(s: &str) -> bool {
     if s.len() != 2 as i64 { return false; }
     unsafe {
         return s.as_ptr()[0 as i64] == 45 as u8
@@ -50,7 +50,7 @@ fn is_dash_dash(s: str) -> bool {
 }
 
 // Prefix-compare: does str `s` start with str `prefix`?
-fn starts_with(s: str, prefix: str) -> bool {
+fn starts_with(s: &str, prefix: &str) -> bool {
     if s.len() < prefix.len() { return false; }
     let n: i64 = prefix.len();
     let mut i: i64 = 0 as i64;
@@ -64,7 +64,7 @@ fn starts_with(s: str, prefix: str) -> bool {
 }
 
 // Return substring (fat pointer) of `s` starting at byte offset `off`.
-unsafe fn slice_from(s: str, off: i64) -> str {
+unsafe fn slice_from(s: &str, off: i64) -> &str {
     let p: *const u8 = (s.as_ptr() as i64 + off) as *const u8;
     let n: i64 = s.len() - off;
     return str_from_raw(p, n);
@@ -74,18 +74,18 @@ unsafe fn slice_from(s: str, off: i64) -> str {
 
 /// Returns true if `--long_name` or `-short_name` appears as a bare flag in argv.
 /// Stops scanning at the `--` terminator; `short_name` may be `""` to disable short-flag matching.
-pub fn has_flag(long_name: str, short_name: str) -> bool {
+pub fn has_flag(long_name: &str, short_name: &str) -> bool {
     let n: i32 = count();
     let mut i: i32 = 0;
     while i < n {
-        let a: str = get(i);
+        let a: &str = get(i);
         if is_dash_dash(a) { return false; }
         if is_long(a) {
-            let body: str = unsafe { slice_from(a, 2 as i64) };
+            let body: &str = unsafe { slice_from(a, 2 as i64) };
             if str_eq(body, long_name) { return true; }
         } else if is_flag_like(a) && short_name.len() > 0 as i64 {
             // -x or clustered -xyz.  Accept if short_name char appears.
-            let body: str = unsafe { slice_from(a, 1 as i64) };
+            let body: &str = unsafe { slice_from(a, 1 as i64) };
             let mut j: i64 = 0 as i64;
             unsafe {
                 while j < body.len() {
@@ -105,15 +105,15 @@ pub fn has_flag(long_name: str, short_name: str) -> bool {
 /// Looks up an option value: `--long=VALUE`, `--long VALUE`, or `-s VALUE` (short form
 /// only when `short_name.len() == 1`).
 /// Returns `Option::None` if not found, or if scanning reaches the `--` terminator first.
-pub fn get_option(long_name: str, short_name: str) -> Option<str> {
+pub fn get_option(long_name: &str, short_name: &str) -> Option<&'static str> {
     let n: i32 = count();
     let mut i: i32 = 0;
     while i < n {
-        let a: str = get(i);
+        let a: &str = get(i);
         if is_dash_dash(a) { return Option::None; }
         if is_long(a) {
             // Try --long=VAL first.
-            let body: str = unsafe { slice_from(a, 2 as i64) };
+            let body: &str = unsafe { slice_from(a, 2 as i64) };
             // Find '='.
             let mut eq: i64 = 0 - 1 as i64;
             let mut j: i64 = 0 as i64;
@@ -124,9 +124,9 @@ pub fn get_option(long_name: str, short_name: str) -> Option<str> {
                 }
             }
             if eq >= 0 as i64 {
-                let key: str = unsafe { str_from_raw(body.as_ptr(), eq) };
+                let key: &str = unsafe { str_from_raw(body.as_ptr(), eq) };
                 if str_eq(key, long_name) {
-                    let val: str = unsafe { slice_from(body, eq + 1 as i64) };
+                    let val: &str = unsafe { slice_from(body, eq + 1 as i64) };
                     return Option::Some(val);
                 }
             } else if str_eq(body, long_name) {
@@ -136,7 +136,7 @@ pub fn get_option(long_name: str, short_name: str) -> Option<str> {
                 return Option::None;
             }
         } else if is_flag_like(a) && short_name.len() == 1 as i64 {
-            let body: str = unsafe { slice_from(a, 1 as i64) };
+            let body: &str = unsafe { slice_from(a, 1 as i64) };
             if body.len() == 1 as i64
                && unsafe { body.as_ptr()[0 as i64] == short_name.as_ptr()[0 as i64] } {
                 if (i + 1) < n {
@@ -157,7 +157,7 @@ pub fn positional_count() -> i32 {
     let mut seen_dd: bool = false;
     let mut count_p: i32 = 0;
     while i < n {
-        let a: str = get(i);
+        let a: &str = get(i);
         if seen_dd {
             count_p = count_p + 1;
         } else if is_dash_dash(a) {
@@ -171,13 +171,13 @@ pub fn positional_count() -> i32 {
 }
 
 /// Returns the `idx`-th positional argument (0-indexed), or `""` if out of range.
-pub fn positional(idx: i32) -> str {
+pub fn positional(idx: i32) -> &'static str {
     let n: i32 = count();
     let mut i: i32 = 0;
     let mut seen_dd: bool = false;
     let mut cur: i32 = 0;
     while i < n {
-        let a: str = get(i);
+        let a: &str = get(i);
         if seen_dd {
             if cur == idx { return a; }
             cur = cur + 1;
@@ -193,6 +193,6 @@ pub fn positional(idx: i32) -> str {
 }
 
 /// Returns the program name (`argv[0]`); useful for usage messages.
-pub fn program_name() -> str {
+pub fn program_name() -> &'static str {
     return arg(0);
 }

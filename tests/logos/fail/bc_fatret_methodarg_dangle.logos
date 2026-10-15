@@ -12,12 +12,12 @@ use logos.mem.string;
 pub struct Keeper { pub n: i64 }
 
 impl Keeper {
-    pub fn keep(self: Keeper, s: str) -> str { return s; }
+    pub fn keep(self: Keeper, s: &str) -> &str { return s; }
 }
 
 fn main() -> i32 {
     let k: Keeper = Keeper { n: 1i64 };
-    let v: str;
+    let v: &str;
     {
         let owner: String = String::from("hello");
         v = k.keep(owner.as_str());

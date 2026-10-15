@@ -9,7 +9,7 @@
 // rather than quietly converted: see PROBES.md 2026-09-16d-landrulings.
 package bc_ptrcoerce_array_decay_refuse2;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 static G: i64 = 7i64;
 fn first<'a>(x: &[&'a i64; 2]) -> *const &'a i64 {
     return x;

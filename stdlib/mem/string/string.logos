@@ -70,7 +70,7 @@ impl String {
     /// buffer a `str` views needs, and there was no one-expression way to say
     /// it — `String::new()` followed by `push_str` is two statements and does
     /// not compose inside a field initialiser or a call argument.
-    pub static fn from_str(s: str) -> String {
+    pub static fn from_str(s: &str) -> String {
         let mut r: String = String::with_capacity(s.len());
         r.push_str(s);
         return r;
@@ -104,7 +104,7 @@ impl String {
     }
 
     /// Creates a `String` by copying a `str` slice (Rust-style `String::from("...")`).
-    pub static fn from(s: str) -> String {
+    pub static fn from(s: &str) -> String {
         unsafe { return String::from_bytes(s.as_ptr(), s.len()); }
     }
 
@@ -165,7 +165,7 @@ impl String {
     }
 
     /// Appends a `str` slice.
-    pub fn push_str(&mut self, s: str) {
+    pub fn push_str(&mut self, s: &str) {
         self.push_bytes(s.as_ptr(), s.len());
     }
 
@@ -177,7 +177,7 @@ impl String {
     /// Returns a read-only `str` view of the content bytes.
     // Safe wrapper over `str_from_raw(self.as_ptr(), self.len())` — the raw ptr is
     // guaranteed valid because it came from this String.
-    pub fn as_str(&self) -> str {
+    pub fn as_str(&self) -> &str {
         unsafe { return str_from_raw(self.data as *const u8, self.nbytes); }
     }
 
@@ -268,7 +268,7 @@ impl String {
     }
 
     /// Returns `true` if the content equals the `str` slice `s`.
-    pub fn eq_str(&self, s: str) -> bool {
+    pub fn eq_str(&self, s: &str) -> bool {
         let n: i64 = s.len();
         if self.nbytes != n { return false; }
         let sp: *const u8 = s.as_ptr();
@@ -362,7 +362,7 @@ impl Hash for String {
 }
 
 impl ToString for str {
-    fn to_string(self: str) -> String {
+    fn to_string(self: &str) -> String {
         let mut s: String = String::new();
         s.push_str(self);
         return s;

@@ -9,7 +9,7 @@ use logos.mem.string;
 use logos.lang.str;
 
 #[token_macro]
-pub fn raw_demo(s: str) -> ExprBlob {
+pub fn raw_demo(s: &str) -> ExprBlob {
     // Pin the result on s.len() so the test exercises the str arg path:
     // we splice in a constant ExprBlob whose value depends only on the
     // first byte of the raw text — proving the bytes survived the

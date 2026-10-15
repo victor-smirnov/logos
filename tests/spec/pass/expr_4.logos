@@ -117,7 +117,7 @@ fn main() -> i64 {
         let li: i64 = 42i64;            if li != 42i64 { return 7; }
         let lf: f64 = 1.5f64;           if lf != 1.5f64 { return 7; }
         let lc: char = 'A';             if (lc as i64) != 65i64 { return 7; }
-        let lstr: str = "hi";           if lstr.len() != 2i64 { return 7; }
+        let lstr: &str = "hi";           if lstr.len() != 2i64 { return 7; }
         let lbool: bool = true;         if lbool != true { return 7; }
         // byte string -> [u8; N]
         let bs: [u8; 3] = b"a\nb";      // 'a', newline, 'b'

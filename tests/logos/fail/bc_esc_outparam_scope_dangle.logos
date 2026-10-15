@@ -21,7 +21,7 @@ use logos.mem.string;
 
 pub struct K { pub f: str }
 
-pub fn set2(k: &mut K, s: str) { k.f = s; }
+pub fn set2(k: &mut K, s: &str) { k.f = s; }
 
 fn main() -> i32 {
     let mut k: K = K { f: "" };

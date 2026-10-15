@@ -106,7 +106,7 @@ unsafe fn om_new(h: *mut Writ, cap: i64) -> *mut WMap<WString, WAny> {
 }
 
 // The byte view of an interned WString key (for hashing / comparison).
-unsafe fn key_str(stored: WAny) -> str { return (&*(stored.resolve() as *const WString)).as_str(); }
+unsafe fn key_str<'a>(stored: WAny) -> &'a str { return (&*(stored.resolve() as *const WString)).as_str(); }
 
 // Grow to 2× capacity, rehashing every live entry into the fresh buffer (no key
 // compare — all existing keys are distinct).
@@ -124,7 +124,7 @@ unsafe fn om_grow(m: *mut WMap<WString, WAny>, alloc: *mut Allocator) {
         if ent_key_raw(oep as *const WMapEntry) != 0i64 {
             let key: WAny = *(ent_key(oep));
             let val: WAny = *(ent_val(oep));
-            let s: str = key_str(key);
+            let s: &str = key_str(key);
             let hh: u64 = fnv1a_bytes(s.as_ptr(), s.len() as u64);
             let mut slot: u64 = hh & (ncap_u - 1u64);
             loop {
@@ -144,7 +144,7 @@ unsafe fn om_grow(m: *mut WMap<WString, WAny>, alloc: *mut Allocator) {
 }
 
 // Insert or update. On a NEW key the str is interned into THIS map's arena.
-unsafe fn om_set(m: *mut WMap<WString, WAny>, alloc: *mut Allocator, key: str, val: WAny) {
+unsafe fn om_set(m: *mut WMap<WString, WAny>, alloc: *mut Allocator, key: &str, val: WAny) {
     if (m.count + 1i64) * 4i64 > m.cap * 3i64 { om_grow(m, alloc); }   // load > 0.75
     let cap_u: u64 = m.cap as u64;
     let hh: u64 = fnv1a_bytes(key.as_ptr(), key.len() as u64);
@@ -168,7 +168,7 @@ unsafe fn om_set(m: *mut WMap<WString, WAny>, alloc: *mut Allocator, key: str, v
     }
 }
 
-unsafe fn om_get(m: *const WMap<WString, WAny>, key: str) -> WAny {
+unsafe fn om_get(m: *const WMap<WString, WAny>, key: &str) -> WAny {
     let cap_u: u64 = m.cap as u64;
     let hh: u64 = fnv1a_bytes(key.as_ptr(), key.len() as u64);
     let buf: *const WMapEntry = om_buf(m);
@@ -190,7 +190,7 @@ unsafe fn om_get(m: *const WMap<WString, WAny>, key: str) -> WAny {
 // Find the value SLOT for `key` (for `get_mut`) — the `*zoned mut WAny` to read /
 // replace / descend in place. Returns a null pointer if the key is absent (the
 // cursor is then invalid; callers ensure the key exists, mirroring `get_mut`).
-unsafe fn om_get_slot(m: *mut WMap<WString, WAny>, key: str) -> *zoned mut WAny {
+unsafe fn om_get_slot(m: *mut WMap<WString, WAny>, key: &str) -> *zoned mut WAny {
     let cap_u: u64 = m.cap as u64;
     let hh: u64 = fnv1a_bytes(key.as_ptr(), key.len() as u64);
     let buf: *mut WMapEntry = om_buf_mut(m);
@@ -232,13 +232,13 @@ impl WMap<WString, WAny> {
     // consumes the fat ref) is self's last use in the om_set call.
     /// Inserts or updates `key → val`; a new key's `str` is interned into this map's arena.
     /// Grows (2×, rehash) when load would exceed 0.75.
-    pub fn set(self: &mut WMap<WString, WAny>, key: str, val: WAny) {
+    pub fn set(self: &mut WMap<WString, WAny>, key: &str, val: WAny) {
         unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; om_set(self as *mut WMap<WString, WAny>, z, key, val); }
     }
     /// Returns the value at `key`, or a null `WAny` if absent.
-    pub fn get(self: &WMap<WString, WAny>, key: str) -> WAny { return unsafe { om_get(self as *const WMap<WString, WAny>, key) }; }
+    pub fn get(self: &WMap<WString, WAny>, key: &str) -> WAny { return unsafe { om_get(self as *const WMap<WString, WAny>, key) }; }
     /// Returns `true` if `key` is present.
-    pub fn contains(self: &WMap<WString, WAny>, key: str) -> bool { return !self.get(key).is_null(); }
+    pub fn contains(self: &WMap<WString, WAny>, key: &str) -> bool { return !self.get(key).is_null(); }
     /// Returns the number of entries.
     pub fn len(self: &WMap<WString, WAny>) -> i64 { return self.count; }
 
@@ -247,7 +247,7 @@ impl WMap<WString, WAny> {
     // Bind the zone FIRST (no move); `self as *const` is self's last use.
     /// Returns a mutable cursor onto the value at `key`, carrying this map's zone.
     /// The cursor's slot is null when `key` is absent — callers must ensure the key exists.
-    pub fn get_mut(self: &mut WMap<WString, WAny>, key: str) -> WAnyMut {
+    pub fn get_mut(self: &mut WMap<WString, WAny>, key: &str) -> WAnyMut {
         unsafe {
             let z: *mut u8 = zone_of(self);
             let slot: *zoned mut WAny = om_get_slot(self as *mut WMap<WString, WAny>, key);
@@ -280,19 +280,19 @@ impl WMap<WString, WAny> {
     // Overloaded set for the common value types (no manual WAny::from), mirroring
     // WArray<WAny>::push. A `str` VALUE is interned into the same arena as a Ref.
     /// Inserts or updates `key` with an integer value (inline i56 Pod, boxed when wider).
-    pub fn set(self: &mut WMap<WString, WAny>, key: str, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, make_int(z, v)); } }
+    pub fn set(self: &mut WMap<WString, WAny>, key: &str, v: i64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, make_int(z, v)); } }
     /// Inserts or updates `key` with an `f64` value (boxed into this map's arena).
-    pub fn set(self: &mut WMap<WString, WAny>, key: str, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, box_f64(z, v)); } }
+    pub fn set(self: &mut WMap<WString, WAny>, key: &str, v: f64)  { unsafe { let z: *mut Allocator = zone_of(self) as *mut Allocator; self.set(key, box_f64(z, v)); } }
     /// Inserts or updates `key` with a `bool` value.
-    pub fn set(self: &mut WMap<WString, WAny>, key: str, v: bool) { self.set(key, WAny::from(v)); }
+    pub fn set(self: &mut WMap<WString, WAny>, key: &str, v: bool) { self.set(key, WAny::from(v)); }
     /// Inserts or updates `key` with a Ref to an existing `WString`.
-    pub fn set(self: &mut WMap<WString, WAny>, key: str, v: &WString) { self.set(key, WAny::from(v)); }
+    pub fn set(self: &mut WMap<WString, WAny>, key: &str, v: &WString) { self.set(key, WAny::from(v)); }
     /// Inserts or updates `key` with a Ref to a nested `WArray<WAny>`.
-    pub fn set(self: &mut WMap<WString, WAny>, key: str, v: &WArray<WAny>) { self.set(key, WAny::from(v)); }
+    pub fn set(self: &mut WMap<WString, WAny>, key: &str, v: &WArray<WAny>) { self.set(key, WAny::from(v)); }
     /// Inserts or updates `key` with a Ref to a nested map.
-    pub fn set(self: &mut WMap<WString, WAny>, key: str, v: &WMap<WString, WAny>) { self.set(key, WAny::from(v)); }
+    pub fn set(self: &mut WMap<WString, WAny>, key: &str, v: &WMap<WString, WAny>) { self.set(key, WAny::from(v)); }
     /// Inserts or updates `key` with a `str` value, interning it into this map's arena.
-    pub fn set(self: &mut WMap<WString, WAny>, key: str, v: str) {
+    pub fn set(self: &mut WMap<WString, WAny>, key: &str, v: &str) {
         unsafe {
             let z: *mut Allocator = zone_of(self) as *mut Allocator;
             let hs: *mut WString = wstring_in_alloc(z, v);
@@ -506,7 +506,7 @@ impl WritField for i64 {
 }
 impl WritField for str {
     fn from_wany(v: WAny) -> str { return v.as_wstr(); }
-    fn to_wany(self: str, z: *mut Allocator) -> WAny {
+    fn to_wany(self: &str, z: *mut Allocator) -> WAny {
         return unsafe { WAny::ref_to(wstring_in_alloc(z, self) as *const u8) };
     }
 }

@@ -9,12 +9,12 @@ fn private_helper_with_a_long_mangled_name(
     d: &AnUnusuallyLongStructureNameForTheMangledSymbolLengthCanary,
     e: &AnUnusuallyLongStructureNameForTheMangledSymbolLengthCanary,
     f: &AnUnusuallyLongStructureNameForTheMangledSymbolLengthCanary,
-    names: &Vec<str>,
+    names: &Vec<&str>,
 ) -> i64 {
     return a.v + b.v + c.v + d.v + e.v + f.v + (names.len() as i64);
 }
 
-pub fn run<T>(x: T, names: &Vec<str>) -> i64 {
+pub fn run<T>(x: T, names: &Vec<&str>) -> i64 {
     let s = AnUnusuallyLongStructureNameForTheMangledSymbolLengthCanary { v: 7 };
     return private_helper_with_a_long_mangled_name(&s, &s, &s, &s, &s, &s, names);
 }

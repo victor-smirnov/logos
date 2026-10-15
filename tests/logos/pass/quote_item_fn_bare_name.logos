@@ -11,9 +11,9 @@ static mut SIDE: i64 = 0i64;
 
 #[metaprog_handler("bare_gen")]
 fn bare_gen_hook(target_offset: u32) -> () {
-    let n1: str = "bare_ret";
-    let n2: str = "bare_noret";
-    let n3: str = "bare_unsafe";
+    let n1: &str = "bare_ret";
+    let n2: &str = "bare_noret";
+    let n3: &str = "bare_unsafe";
     let f1: Ident = Ident::new(n1);
     let f2: Ident = Ident::new(n2);
     let f3: Ident = Ident::new(n3);

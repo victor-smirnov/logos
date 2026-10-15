@@ -20,13 +20,13 @@
 package bc_esc_fnptr_dangle;
 use logos.mem.string;
 
-pub fn keep1(s: str) -> str { return s; }
+pub fn keep1(s: &str) -> &str { return s; }
 
 fn main() -> i32 {
-    let mut v: str = "";
+    let mut v: &str = "";
     {
         let owner: String = String::from("hello");
-        let f: fn(str) -> str = keep1;
+        let f: fn(&str) -> &str = keep1;
         v = f(owner.as_str());
     }
     if v.len() >= 0i64 { return 0i32; }

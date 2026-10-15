@@ -16,7 +16,7 @@ use logos.mem.collections.vec;
 use logos.mem.string;
 use logos.lang.str;
 fn main() -> i32 {
-    let src: str = "{\"a\": [1, 2, 3], \"b\": {\"c\": \"deep\", \"d\": [true, false, null]}, \"n\": -42}";
+    let src: &str = "{\"a\": [1, 2, 3], \"b\": {\"c\": \"deep\", \"d\": [true, false, null]}, \"n\": -42}";
     // parse into a TINY-segment arena → the doc spans many never-move segments
     let small: Writ = writ_new(32i64);
     let doc: WAny = parse(&small, src);

@@ -9,7 +9,7 @@
 // was measured against a ledger that no longer exists; a ceiling decays.
 package bc_capbody_move_body_not_walked_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 fn main() -> i32 {
     let mut counter: i64 = 0i64;
     let mut tick = move || -> i64 { counter = counter + 1i64; return counter; };

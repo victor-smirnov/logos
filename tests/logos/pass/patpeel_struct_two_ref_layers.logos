@@ -14,8 +14,8 @@
 // fail/patpeel_struct_two_ref_layers_unknown.logos (`P` -> `Zed`).
 package patpeel_struct_two_ref_layers;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn print2(fmt: str, a: i64, b: i64) { unsafe { printf(fmt.as_ptr(), a, b); } }
-fn print1(fmt: str, a: i64) { unsafe { printf(fmt.as_ptr(), a); } }
+fn print2(fmt: &str, a: i64, b: i64) { unsafe { printf(fmt.as_ptr(), a, b); } }
+fn print1(fmt: &str, a: i64) { unsafe { printf(fmt.as_ptr(), a); } }
 static mut DROPS: i64 = 0i64;
 struct D { v: i64 }
 impl Drop for D {

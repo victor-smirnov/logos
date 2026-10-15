@@ -16,7 +16,7 @@ fn main() -> i32 {
         if !p.is_valid() { return 1; }
 
         // Push encoded chunked bytes via the pipe writer.
-        let enc: str = "5\r\nHello\r\n6\r\nWorld!\r\n0\r\n\r\n";
+        let enc: &str = "5\r\nHello\r\n6\r\nWorld!\r\n0\r\n\r\n";
         let wfd: i32 = p.write_fd;
         let rfd: i32 = p.read_fd;
         let _: i64 = write(wfd, enc.as_ptr(), enc.len());
@@ -30,7 +30,7 @@ fn main() -> i32 {
         if n != 11 as i64 { return (10 + n) as i32; }
         if vec_len_u8(&out) != 11 as i64 { return 3; }
 
-        let expected: str = "HelloWorld!";
+        let expected: &str = "HelloWorld!";
         let mut i: i64 = 0 as i64;
         while i < 11 as i64 {
             if vec_get_u8(&out, i) != expected.as_ptr()[i] { return 4; }

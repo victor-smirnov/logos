@@ -13,9 +13,9 @@
 package slice_payload_and_struct_field;
 use logos.lang.option;
 
-fn pass_str(s: str) -> i64 { return s.len() as i64; }
-fn ret_str() -> str { return "hello"; }
-fn opt_str_some() -> Option<str> { return Option::Some("world"); }
+fn pass_str(s: &str) -> i64 { return s.len() as i64; }
+fn ret_str() -> &str { return "hello"; }
+fn opt_str_some() -> Option<&str> { return Option::Some("world"); }
 
 struct Holder { name: str, count: i32 }
 fn make() -> Holder { return Holder { name: "abcdef", count: 7 }; }

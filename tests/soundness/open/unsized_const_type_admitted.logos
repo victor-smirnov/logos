@@ -5,7 +5,7 @@
 // fix hint: sema: const types must be Sized.
 package unsized_const_type_admitted;
 
-const S: str = "hi";
+const S: &str = "hi";
 
 fn main() -> i32 {
     return S.len() as i32;

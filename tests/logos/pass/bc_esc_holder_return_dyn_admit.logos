@@ -8,12 +8,12 @@ use logos.mem.string;
 
 pub struct W { pub v: str }
 
-pub trait Tr { fn wrap(&self, s: str) -> W; }
+pub trait Tr { fn wrap(&self, s: &str) -> W; }
 
 pub struct K { pub z: i64 }
 
 impl Tr for K {
-    fn wrap(&self, s: str) -> W { return W { v: s }; }
+    fn wrap(&self, s: &str) -> W { return W { v: s }; }
 }
 
 pub fn ok<'a>(t: &dyn Tr, s: &'a str) -> &'a str {

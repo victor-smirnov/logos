@@ -4,7 +4,7 @@
 // byte slice to check the boundary — the fix needs str to be its own type or the slice site to know the source was str.
 package str_slice_char_boundary_unchecked;
 fn main() -> i32 {
-    let s: str = "héllo";
-    let sub: str = &s[0i64..2i64];
+    let s: &str = "héllo";
+    let sub: &str = &s[0i64..2i64];
     return (sub.len() - 2) as i32;
 }

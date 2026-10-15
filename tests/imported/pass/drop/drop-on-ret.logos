@@ -8,7 +8,7 @@ package d_drop_on_ret;
 
 fn f() -> i64 {
     if true {
-        let _s: str = "should not leak";
+        let _s: &str = "should not leak";
         return 1i64;
     }
     return 0i64;

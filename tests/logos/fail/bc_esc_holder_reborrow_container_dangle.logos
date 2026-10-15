@@ -16,10 +16,10 @@
 package bc_esc_holder_reborrow_container_dangle;
 use logos.mem.string;
 
-pub fn bad() -> Vec<str> {
+pub fn bad() -> Vec<&str> {
     let o: String = String::from("hello");
-    let mut v: Vec<str> = Vec::<str>::new();
-    let r: &mut Vec<str> = &mut v;
+    let mut v: Vec<&str> = Vec::<&str>::new();
+    let r: &mut Vec<&str> = &mut v;
     r.push(o.as_str());
     return v;
 }

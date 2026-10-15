@@ -17,12 +17,12 @@ use logos.mem.string;
 
 pub struct W { pub v: str }
 
-pub fn ok(s: str) -> str {
+pub fn ok(s: &str) -> &str {
     let w: W = W { v: s };
     return w.v;
 }
 
-pub fn ok_static() -> str {
+pub fn ok_static() -> &str {
     let w: W = W { v: "abcde" };
     return w.v;
 }

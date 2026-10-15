@@ -11,7 +11,7 @@
 // is not. If this ever reds, the Drop gate has been dropped.
 package bc_dropck_reverse_order_nodrop_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct P<'a> { r: &'a i64 }
 fn main() -> i32 {
     let p: P;

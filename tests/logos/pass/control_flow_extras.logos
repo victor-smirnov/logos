@@ -6,8 +6,8 @@ use logos.lang.ops;
 use logos.lang.option;
 
 fn main() -> i32 {
-    let c: ControlFlow<str, i32> = ControlFlow::<str, i32>::Continue(7i32);
-    let b: ControlFlow<str, i32> = ControlFlow::<str, i32>::Break("stop");
+    let c: ControlFlow<&str, i32> = ControlFlow::<&str, i32>::Continue(7i32);
+    let b: ControlFlow<&str, i32> = ControlFlow::<&str, i32>::Break("stop");
 
     // continue_value: Some on Continue, None on Break.
     let cv1: Option<i32> = c.continue_value();
@@ -22,14 +22,14 @@ fn main() -> i32 {
     }
 
     // break_value: Some on Break, None on Continue.
-    let c2: ControlFlow<str, i32> = ControlFlow::<str, i32>::Continue(0i32);
-    let b2: ControlFlow<str, i32> = ControlFlow::<str, i32>::Break("x");
-    let bv1: Option<str> = c2.break_value();
+    let c2: ControlFlow<&str, i32> = ControlFlow::<&str, i32>::Continue(0i32);
+    let b2: ControlFlow<&str, i32> = ControlFlow::<&str, i32>::Break("x");
+    let bv1: Option<&str> = c2.break_value();
     match bv1 {
         Option::Some(_) => { return 4; }
         Option::None    => { }
     }
-    let bv2: Option<str> = b2.break_value();
+    let bv2: Option<&str> = b2.break_value();
     match bv2 {
         Option::Some(m) => { if !str_eq(m, "x") { return 5; } }
         Option::None    => { return 6; }

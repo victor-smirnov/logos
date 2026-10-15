@@ -15,11 +15,11 @@ package bc_esc_fnptr_param_admit;
 
 use logos.mem.string;
 
-pub fn keep1(s: str) -> str { return s; }
+pub fn keep1(s: &str) -> &str { return s; }
 
-pub fn run(f: fn(str) -> str) -> i64 {
+pub fn run(f: fn(&str) -> &str) -> i64 {
     let owner: String = String::from("hello");
-    let v: str = f(owner.as_str());
+    let v: &str = f(owner.as_str());
     return v.len();
 }
 
@@ -31,10 +31,10 @@ pub fn run(f: fn(str) -> str) -> i64 {
 // read it conservatively (every input reaches the result) and the block-local
 // `a` then outlives its borrow. Saying which input the result comes from is
 // what makes the program mean what its name claims.
-pub fn pick2<'a>(a: str, b: &'a str) -> &'a str { return b; }
+pub fn pick2<'a>(a: &str, b: &'a str) -> &'a str { return b; }
 
 pub fn resolved<'a>(p: &'a str) -> i64 {
-    let g: fn(str, &'a str) -> &'a str = pick2;
+    let g: fn(&str, &'a str) -> &'a str = pick2;
     let mut v: &'a str = "";
     {
         let a: String = String::from("zz");

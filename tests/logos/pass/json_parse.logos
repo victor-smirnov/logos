@@ -30,7 +30,7 @@ fn check_int(j: &Json, want: i64) -> bool {
     }
 }
 
-fn check_str_arm(j: &Json, want: str) -> bool {
+fn check_str_arm(j: &Json, want: &str) -> bool {
     match j {
         Json::Str(s) => { return s.eq_str(want); }
         _            => { return false; }

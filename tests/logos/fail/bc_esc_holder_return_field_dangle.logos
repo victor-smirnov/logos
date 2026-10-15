@@ -19,7 +19,7 @@ use logos.mem.string;
 
 pub struct W { pub v: str }
 
-pub fn bad() -> str {
+pub fn bad() -> &str {
     let o: String = String::from("hello");
     let w: W = W { v: o.as_str() };
     return w.v;

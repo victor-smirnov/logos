@@ -13,15 +13,15 @@ impl Tok {
     // error[E0597] (MEASURED 2026-09-21). `Tok` is two scalars, so by value is
     // free, and it leaves `src` as the sole input region, which is what the name
     // of this fixture claims.
-    pub fn text(self: Tok, src: str) -> str {
+    pub fn text(self: Tok, src: &str) -> &str {
         return unsafe {
             str_from_raw((src.as_ptr() as i64 + self.start) as *const u8, self.len)
         };
     }
 }
 fn main() -> i32 {
-    let src: str = "hello world";
-    let mut name: str = "";
+    let src: &str = "hello world";
+    let mut name: &str = "";
     {
         let t: Tok = Tok { start: 6i64, len: 5i64 };
         name = t.text(src);

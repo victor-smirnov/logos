@@ -83,7 +83,7 @@ pub fn bytes_from_string(s: &String) -> Bytes {
 }
 
 /// Creates a `Bytes` by copying the contents of `s`.
-pub fn bytes_from_str(s: str) -> Bytes {
+pub fn bytes_from_str(s: &str) -> Bytes {
     unsafe { return bytes_from_slice(s.as_ptr(), s.len()); }
 }
 
@@ -222,7 +222,7 @@ impl BytesMut {
     }
 
     /// Appends the contents of `s`.
-    pub unsafe fn extend_from_str(&mut self, s: str) {
+    pub unsafe fn extend_from_str(&mut self, s: &str) {
         self.extend_from_slice(s.as_ptr(), s.len());
     }
 

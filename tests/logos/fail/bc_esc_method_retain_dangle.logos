@@ -33,14 +33,14 @@ impl K {
     pub fn thru<'a>(self: &K, s: &'a str) -> &'a str { return s; }
 }
 
-pub fn bad(k: &K) -> str {
+pub fn bad(k: &K) -> &str {
     let o: String = String::from("hello");
     return k.thru(o.as_str());
 }
 
 fn main() -> i32 {
     let k: K = K { z: 1i64 };
-    let r: str = bad(&k);
+    let r: &str = bad(&k);
     if r.len() == 5i64 { return 0i32; }
     return 1i32;
 }

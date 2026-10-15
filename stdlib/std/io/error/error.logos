@@ -74,11 +74,11 @@ pub struct IoError {
     /// Raw OS `errno`; `-1` when the error is not OS-derived.
     pub raw_os_error:  i32,
     /// Static human-readable message; `""` when absent.
-    pub message:       str,
+    pub message:       &'static str,
 }
 
 /// Creates an `IoError` not attributed to any OS error; `raw_os_error()` on it returns `None`.
-pub fn io_error_new(kind: ErrorKind, message: str) -> IoError {
+pub fn io_error_new(kind: ErrorKind, message: &'static str) -> IoError {
     return IoError { kind: kind, raw_os_error: 0i32 - 1i32, message: message };
 }
 

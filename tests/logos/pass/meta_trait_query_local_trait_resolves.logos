@@ -22,7 +22,7 @@
 package meta_trait_query_local_trait_resolves;
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn printi(fmt: str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
+fn printi(fmt: &str, v: i32) { unsafe { printf(fmt.as_ptr(), v); } }
 
 // A name deliberately spelled so that nothing in the stdlib collides with it.
 pub trait LocalMarkT25 { fn mark_t25(&self) -> i32; }

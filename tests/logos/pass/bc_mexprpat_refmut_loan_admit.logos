@@ -11,7 +11,7 @@
 // AddrOfTemp.
 package bc_mexprpat_refmut_loan_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct Y { f0: i64, f1: i64 }
 fn main() -> i32 {
     let mut y: Y = Y { f0: 1i64, f1: 2i64 };

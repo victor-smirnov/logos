@@ -9,7 +9,7 @@
 //  separate niche — Logos's `str` is a slice, not a reference, so a `&` pattern
 //  has no reference to peel.)
 package tuple_str_element_pattern_b172;
-fn f(t: (str, i64, str)) -> i32 {
+fn f(t: (&str, i64, &str)) -> i32 {
     match t {
         ("foo", 0i64, "bar") => { return 1i32; }
         ("foo", _, "bar") => { return 2i32; }

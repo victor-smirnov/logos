@@ -12,7 +12,7 @@ use logos.lang.str;
 
 extern fn write(fd: i32, buf: *const u8, n: i64) -> i64;
 
-unsafe fn emit(msg: str) {
+unsafe fn emit(msg: &str) {
     let mut off: i64 = 0 as i64;
     while off < msg.len() {
         let w: i64 = write(2 as i32,
@@ -51,7 +51,7 @@ impl TestCtx {
     pub fn failed(&self) -> i32 { return self.failed; }
 
     /// Starts a named test case; `name` is included in failure messages until the next `begin`.
-    pub fn begin(&mut self, name: str) {
+    pub fn begin(&mut self, name: &str) {
         self.current.clear();
         self.current.push_str(name);
     }
@@ -60,7 +60,7 @@ impl TestCtx {
         self.passed = self.passed + 1;
     }
 
-    fn record_fail(&mut self, kind: str, detail: str) {
+    fn record_fail(&mut self, kind: &str, detail: &str) {
         self.failed = self.failed + 1;
         let mut buf: String = String::new();
         buf.push_str("FAIL");
@@ -102,7 +102,7 @@ impl TestCtx {
         d.push_str(" expected=");
         d.push_i64(expected);
         unsafe {
-            let ds: str = str_from_raw(d.as_ptr(), d.len());
+            let ds: &str = str_from_raw(d.as_ptr(), d.len());
             self.record_fail("assert_eq_i64", ds);
         }
     }
@@ -113,7 +113,7 @@ impl TestCtx {
     }
 
     /// Asserts `actual` and `expected` are byte-for-byte equal.
-    pub fn assert_eq_str(&mut self, actual: str, expected: str) {
+    pub fn assert_eq_str(&mut self, actual: &str, expected: &str) {
         if actual.len() != expected.len() {
             self.record_fail("assert_eq_str", "length mismatch");
             return;
@@ -133,7 +133,7 @@ impl TestCtx {
     }
 
     /// Records an unconditional failure with `reason` in the diagnostic.
-    pub fn fail(&mut self, reason: str) {
+    pub fn fail(&mut self, reason: &str) {
         self.record_fail("fail", reason);
     }
 

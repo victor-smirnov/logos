@@ -15,20 +15,20 @@ package bc_esc_generic_uninst_admit;
 use logos.mem.string;
 
 pub trait Tr {
-    fn pick(&self, probe: str) -> str;
+    fn pick(&self, probe: &str) -> &str;
     fn keep(&self, s: String) -> i64;
 }
 
 pub struct K { pub s: str }
 
 impl Tr for K {
-    fn pick(&self, probe: str) -> str { return self.s; }
+    fn pick(&self, probe: &str) -> &str { return self.s; }
     fn keep(&self, s: String) -> i64 { return s.len(); }
 }
 
 pub struct H<T> { pub t: T }
 
-pub fn field_self_sourced<T: Tr>(h: &H<T>) -> str {
+pub fn field_self_sourced<T: Tr>(h: &H<T>) -> &str {
     let o: String = String::from("hello");
     return h.t.pick(o.as_str());
 }

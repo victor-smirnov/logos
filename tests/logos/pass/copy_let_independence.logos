@@ -5,7 +5,7 @@ use logos.lang.clone;
 // Regression for the codegen bug where gen_let aliased struct allocas.
 
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(s: str) { unsafe { printf(s.as_ptr()); } }
+fn pr(s: &str) { unsafe { printf(s.as_ptr()); } }
 
 // ⚠ THIS FILE USED TO DECLARE ITS OWN `trait Copy {}` HERE. `Copy` is a LANG
 // ITEM (`logos.lang.clone::Copy`) and a local declaration shadows the prelude's

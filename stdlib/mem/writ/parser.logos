@@ -88,7 +88,7 @@ unsafe fn parse_str_raw(p: *mut P) -> String {
 // (Escaped QUOTED strings still need `parse_str_raw`: those bytes do not exist in
 // the input, so the OBJECT-KEY site below keeps `parse_ident_raw`: its two branches
 // must unify at one type and the quoted branch has to own its decoded bytes.)
-unsafe fn parse_ident_span(p: *mut P) -> str {
+unsafe fn parse_ident_span(p: *mut P) -> &str {
     let start: i64 = (*p).pos;
     let mut c: u8 = peek(p);
     while (c >= 97u8 && c <= 122u8) || (c >= 65u8 && c <= 90u8)
@@ -103,7 +103,7 @@ unsafe fn parse_ident_span(p: *mut P) -> str {
 // Used at the object-KEY site alone, where the alternative branch (`parse_str_raw`)
 // has to own its escape-decoded bytes and the two branches must unify at one type.
 unsafe fn parse_ident_raw(p: *mut P) -> String {
-    let sp: str = parse_ident_span(p);
+    let sp: &str = parse_ident_span(p);
     let mut s: String = String::new();
     s.push_str(sp);
     return s;
@@ -146,14 +146,14 @@ unsafe fn parse_number(h: &Writ, p: *mut P) -> WAny {
             let sg: u8 = peek(p); if sg == 43u8 || sg == 45u8 { advance(p); }
             while is_digit(peek(p)) { advance(p); }
         }
-        let tok: str = str_from_raw((*p).data.byte_add(start), (*p).pos - start);
+        let tok: &str = str_from_raw((*p).data.byte_add(start), (*p).pos - start);
         return h.float(f64_from_str(tok).unwrap_or(0.0f64));
     }
     return h.int(if neg { 0i64 - iv } else { iv });
 }
 
 // Match a keyword at the cursor; advances past it when it matches.
-unsafe fn kw(p: *mut P, s: str) -> bool {
+unsafe fn kw(p: *mut P, s: &str) -> bool {
     let n: i64 = s.len();
     if (*p).pos + n > (*p).len { return false; }
     let mut i: i64 = 0i64;
@@ -314,7 +314,7 @@ unsafe fn parse_typed(h: &Writ, p: *mut P, depth: i64) -> WAny {
 // forms (trailing comma, >32 params, @Decimal rule violations).
 unsafe fn parse_tv_prefix(h: &Writ, p: *mut P, depth: i64) -> WAny {
     advance(p);                                   // '@'
-    let name: str = parse_ident_span(p);
+    let name: &str = parse_ident_span(p);
     if name.len() == 0i64 { return WAny::ref_to(0i64 as *const u8); }
     skip_ws(p);
     let mut params: WAny = WAny::ref_to(0i64 as *const u8);
@@ -351,7 +351,7 @@ unsafe fn parse_tv_prefix(h: &Writ, p: *mut P, depth: i64) -> WAny {
 }
 
 // Build + validate the WTypedValue (shared by prefix and postfix forms).
-unsafe fn tv_build(h: &Writ, name: str, params_arr: [i64; 32], n_params: i64,
+unsafe fn tv_build(h: &Writ, name: &str, params_arr: [i64; 32], n_params: i64,
                    had_parens: bool, init: WAny) -> WAny {
     // @Decimal(P,S): exactly two canonical ints, S <= P, string init that
     // parses as a decimal with digits <= P and scale <= S.
@@ -444,7 +444,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P, depth: i64) -> WAny {
         skip_ws(p);
         if peek(p) == 64u8 {                     // "init"@Type(params) postfix
             advance(p);
-            let name: str = parse_ident_span(p);
+            let name: &str = parse_ident_span(p);
             if name.len() == 0i64 { return WAny::ref_to(0i64 as *const u8); }
             skip_ws(p);
             let mut n_params: i64 = 0i64;
@@ -483,7 +483,7 @@ unsafe fn parse_value(h: &Writ, p: *mut P, depth: i64) -> WAny {
 }
 
 /// Parses JSON-ish `text` into a fresh document rooted in `h`.
-pub fn parse(h: &Writ, text: str) -> WAny {
+pub fn parse(h: &Writ, text: &str) -> WAny {
     unsafe {
         let mut p: P = P { data: text.as_ptr(), len: text.len(), pos: 0i64 };
         return parse_value(h, &mut p as *mut P, 0i64);
@@ -494,7 +494,7 @@ pub fn parse(h: &Writ, text: str) -> WAny {
 /// One-call form of `writ_new` + `parse` + `set_root`; the returned `Writ` owns the
 /// document (RAII-freed on drop) — navigate from `h.root()` directly.
 /// On a parse error the root is null: check `h.root().is_null()`.
-pub fn parse_writ(text: str) -> Writ {
+pub fn parse_writ(text: &str) -> Writ {
     let h: Writ = writ_new(4096i64);
     let root: WAny = parse(&h, text);
     h.set_root(root);

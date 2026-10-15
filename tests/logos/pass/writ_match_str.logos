@@ -8,7 +8,7 @@ use logos.lang.writ.container;
 use logos.lang.writ.wstring;
 use logos.lang.rc;
 
-unsafe fn mk_str(s: str) -> Rc<Writ> {
+unsafe fn mk_str(s: &str) -> Rc<Writ> {
     let rc: Rc<Writ> = writ_rc(1024);
     let h: &Writ = rc.deref();
     let hs: &WString = h.wstring(s);

@@ -23,7 +23,7 @@
 package mlirgen_slot_fits_sensor;
 
 unsafe fn main() -> i32 {
-    let __slotfit_canary_v: str;
+    let __slotfit_canary_v: &str;
     let n1: i64 = 111i64;
     __slotfit_canary_v = "abcde";
     if n1 != 111i64 { return 1; }

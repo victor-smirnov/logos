@@ -2,6 +2,6 @@
 package env_unset;
 
 fn main() -> i32 {
-    let s: str = env!("LOGOS_DEFINITELY_UNSET_VAR_XYZ_12345");
+    let s: &str = env!("LOGOS_DEFINITELY_UNSET_VAR_XYZ_12345");
     return 0;
 }

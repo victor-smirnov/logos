@@ -35,7 +35,7 @@ fn gen() -> QuoteItemBlob {
         let r: &#(t2) = &n;
         let mut v: Vec<#(t3)> = Vec::<#(t4)>::new();
         v.push(*r);
-        let s: str = ##lit;
+        let s: &str = ##lit;
         return v.get(0i64) + (s.len());
     };
     return quote_item! {

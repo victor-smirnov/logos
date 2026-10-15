@@ -9,7 +9,7 @@
 package drop_lang_item_stdlib_drop_runs_at_scope_exit;
 use logos.lang.drop;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn pr(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn pr(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 static mut N: i64 = 0i64;
 
 struct S { k: i64 }

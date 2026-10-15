@@ -20,7 +20,7 @@ use logos.lang.str;
 // NOTE: `resource` is a reserved keyword (ADR 0012 §6 named-resource form);
 // the handler for the ANONYMOUS 1-arg `(body: str)` path is named `res_query`.
 #[token_macro]
-pub fn res_query(s: str) -> ItemList {
+pub fn res_query(s: &str) -> ItemList {
     let mut out: ItemList = item_list_new();
 
     // Inspect the opaque block text. Real WQL/Trama would parse it into

@@ -21,10 +21,10 @@ fn derive_struct_with_cols_hook(target_offset: u32) -> () {
     let item: WAny = view.node_at(target_offset);
     if view.ast_node_name(item).len == (0 as u64) { return; }
 
-    let s_a:   str = "a";
-    let s_b:   str = "b";
-    let s_u64: str = "u64";
-    let s_i64: str = "i64";
+    let s_a:   &str = "a";
+    let s_b:   &str = "b";
+    let s_u64: &str = "u64";
+    let s_i64: &str = "i64";
     let mut col_names: Vec<Ident> = Vec::<Ident>::new();
     let mut col_types: Vec<Ident> = Vec::<Ident>::new();
     col_names.push(Ident::new(s_a));

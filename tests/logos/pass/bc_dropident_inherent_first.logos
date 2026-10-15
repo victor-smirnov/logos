@@ -3,7 +3,7 @@
 // Here the inherent impl block is declared FIRST. Exactly one "T".
 package bc_dropident_inherent_first;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn say(s: str) { unsafe { printf(s.as_ptr()); } }
+fn say(s: &str) { unsafe { printf(s.as_ptr()); } }
 struct R { id: i32 }
 impl R {
     fn drop(self: &mut Self) -> i32 { say("I"); return 0i32; }

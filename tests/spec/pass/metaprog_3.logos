@@ -53,7 +53,7 @@ fn plat() -> i32 { return 20i32; }
 // Single QuoteItemBlob return -> one top-level item.
 #[metaprog_handler("emit_single")]
 fn emit_single_hook(_target_offset: u32) -> () {
-    let s_fn: str = "handler_single_marker";
+    let s_fn: &str = "handler_single_marker";
     let id_fn: Ident = Ident::new(s_fn);
     let blob: QuoteItemBlob = quote_item! {
         fn #(id_fn)() -> i32 { return 33i32; }
@@ -69,11 +69,11 @@ struct SingleTarget {}
 #[fn_macro]
 pub fn emit_pair(args: Vec<ExprBlob>) -> ItemList {
     let mut out: ItemList = item_list_new();
-    let s_a: str = "il_alpha";
+    let s_a: &str = "il_alpha";
     let id_a: Ident = Ident::new(s_a);
     let b1: QuoteItemBlob = quote_item! { fn #(id_a)() -> i32 { return 4i32; } };
     out.blobs.push(b1);
-    let s_b: str = "il_beta";
+    let s_b: &str = "il_beta";
     let id_b: Ident = Ident::new(s_b);
     let b2: QuoteItemBlob = quote_item! { fn #(id_b)() -> i32 { return 5i32; } };
     out.blobs.push(b2);
@@ -100,7 +100,7 @@ pub fn always_42(args: Vec<ExprBlob>) -> ExprBlob {
 // bypassing expression parsing (metaprog.token-macro.raw-text-as-str).
 // ------------------------------------------------------------------
 #[token_macro]
-pub fn raw_demo(s: str) -> ExprBlob {
+pub fn raw_demo(s: &str) -> ExprBlob {
     return quote_expr! { 88i32 };
 }
 
@@ -117,7 +117,7 @@ fn quoted_binop() -> ExprBlob {
 // (metaprog.quote-expr.subst-runtime,
 //  metaprog.quote-expr.antiquot-carrier-positions: VAR_REF carrier).
 fn quoted_var() -> ExprBlob {
-    let s: str = "yy";
+    let s: &str = "yy";
     let foo: Ident = Ident::new(s);
     return quote_expr! { #foo };
 }

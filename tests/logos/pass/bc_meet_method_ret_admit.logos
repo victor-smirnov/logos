@@ -1,6 +1,6 @@
 package bc_meet_method_ret_admit;
 extern fn printf(fmt: *const u8, ...) -> i32;
-fn show(fmt: str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
+fn show(fmt: &str, v: i64) { unsafe { printf(fmt.as_ptr(), v); } }
 struct P<'a> { x: &'a i64, y: &'a i64 }
 impl<'a> P<'a> {
     fn second(self: &P<'a>) -> &'a i64 { return self.y; }

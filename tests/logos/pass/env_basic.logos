@@ -11,11 +11,11 @@ fn main() -> i32 {
     if argc < 0 { return 1; }
 
     // arg(negative) → ""
-    let neg: str = arg(0 - 1);
+    let neg: &str = arg(0 - 1);
     if neg.len() != 0 { return 2; }
 
     // arg(argc) is out of range → ""
-    let oob: str = arg(argc);
+    let oob: &str = arg(argc);
     if oob.len() != 0 { return 3; }
 
     // getenv for a name that's definitely not set
@@ -24,7 +24,7 @@ fn main() -> i32 {
             76, 79, 71, 79, 83, 95, 78, 79, 95, 83, 85, 67, 72, 95, 86, 65, 82, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
         ];
-        let v: Option<str> = var(&absent[0]);
+        let v: Option<&str> = var(&absent[0]);
         match v {
             Option::Some(_) => { return 4; }  // should not be set
             Option::None    => { }

@@ -22,9 +22,9 @@ fn main() -> i32 {
         let mut cw: ChunkedWriter<BufWriter<FdWriter>> =
             chunked_writer_wrap::<BufWriter<FdWriter>>(bw);
 
-        let a: str = "Alpha";
-        let b: str = "Bravo";
-        let c: str = "Charlie!";
+        let a: &str = "Alpha";
+        let b: &str = "Bravo";
+        let c: &str = "Charlie!";
         if cw.write(a.as_ptr(), a.len()) < 0 as i64 { return 2; }
         if cw.write(b.as_ptr(), b.len()) < 0 as i64 { return 3; }
         if cw.write(c.as_ptr(), c.len()) < 0 as i64 { return 4; }
@@ -48,7 +48,7 @@ fn main() -> i32 {
         }
         // Expect "AlphaBravoCharlie!" (5 + 5 + 8 = 18 bytes).
         if total != 18 as i64 { return 7; }
-        let expected: str = "AlphaBravoCharlie!";
+        let expected: &str = "AlphaBravoCharlie!";
         let ep: *const u8 = expected.as_ptr();
         let mut i: i64 = 0 as i64;
         while i < 18 as i64 {
@@ -66,7 +66,7 @@ fn main() -> i32 {
         // Push "Hello, there!" (13 bytes) then close write end.
         let mut w: BufWriter<FdWriter> =
             buf_writer_wrap::<FdWriter>(fd_writer(p.write_fd), 32 as i64);
-        let payload: str = "Hello, there!";
+        let payload: &str = "Hello, there!";
         w.write_str(payload);
         w.flush();
         w.close();
@@ -89,7 +89,7 @@ fn main() -> i32 {
         }
         if total != 5 as i64 { return 12; }
 
-        let want: str = "Hello";
+        let want: &str = "Hello";
         let wp: *const u8 = want.as_ptr();
         let mut i: i64 = 0 as i64;
         while i < 5 as i64 {
