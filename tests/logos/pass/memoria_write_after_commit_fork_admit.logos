@@ -11,16 +11,13 @@ use logos.mem.bt.memstore;
 use logos.mem.sync;
 use logos.lang.str;
 use logos.mem.string;
+use logos.mem.fmt;
 use logos.std.io;
 
 container Ledger {
     kind ordered_map;
     entry { key: u64, val: u64 }
     measure max(key);
-}
-container Series {
-    kind vector;
-    entry { val: u64 }
 }
 
 fn main() -> i32 {
@@ -32,8 +29,12 @@ fn main() -> i32 {
     let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
     let mut l2 = open_ctr::<typeof(Ledger)>(&s2, 1u64);
     l2.insert(1u64, 99u64);
-    if l2.get_or(1u64, 0u64) != 99u64 { return 1i32; }
     let l1 = open_ctr::<typeof(Ledger)>(&s1, 1u64);
-    if l1.get_or(1u64, 0u64) != 10u64 { return 2i32; }
+    let fork_val: u64 = l2.get_or(1u64, 0u64);
+    let committed_val: u64 = l1.get_or(1u64, 0u64);
+    let mut m: String = String::new();
+    m.push_str("fork "); m.push_str(fork_val.to_string().as_str());
+    m.push_str(" committed "); m.push_str(committed_val.to_string().as_str());
+    println_string(&m);
     return 0i32;
 }

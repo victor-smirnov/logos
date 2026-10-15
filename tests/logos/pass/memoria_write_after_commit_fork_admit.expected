@@ -1,1 +1,3 @@
 exit: 0
+stdout:
+fork 99 committed 10
