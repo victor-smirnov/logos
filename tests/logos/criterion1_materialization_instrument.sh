@@ -138,6 +138,9 @@
 #   G3  no probe was lost: one rc file per fixture, count asserted.
 #   G5  the sweep is not blind: at least one user dump, one [plan] line and one
 #       collection binding, so no percentage is printed over an empty denominator.
+#   G6  site for site: for the classes whose plan line states its own count
+#       (arrange, key vector, group frame, merge join), per fixture, the
+#       bindings equal the units the plan states (ADR 0025 L10).
 #   G4  every ACC credit is WITNESSED: the owning head fired at least once in
 #       THIS sweep's trace. See the block below — this one was added because a
 #       control proved the credit was previously unfalsifiable.
@@ -173,7 +176,7 @@
 # The numbers still print in full before the exit, so a control remains readable.
 #
 # EXIT 0 measured (values on stdout) · 2 the instrument could not measure, or
-# G1/G2/G3/G4/G5 failed.
+# G1/G2/G3/G4/G5/G6 failed.
 set -uo pipefail
 OUT="${1:?outdir}"
 REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
@@ -240,6 +243,8 @@ MAT = {
     'materialize':        'the producer returns a container, not an iterator',
     'arrange':            'the join builds a keyed index over the build side',
     'key vector':         "the sort's `__ks` + the index vectors it permutes",
+    'group survivors':    "`having` without `order by`: the surviving group indices in `__ix0`",
+    'merge batch buffer': "a batch merge step's copy of its current leaf (`__mb`)",
     'group frame':        'one row per distinct group key',
     'accumulator':        'one cell per group per aggregate',
     'group count':        "avg's denominator, bumped per folded row",
@@ -490,7 +495,7 @@ if unknown:
 ACC = {
     '__hm':     (('arrange',),              'arrange (the keyed index)'),
     '__ks':     (('key vector',),           'key vector (the sort keys)'),
-    '__ix':     (('key vector',),           'key vector (the permuted index vectors)'),
+    '__ix':     (('key vector', 'group survivors'), 'key vector (the permuted index vectors) / group survivors'),
     '__g_key':  (('group frame',),          'group frame (the group key column)'),
     '__g_idx':  (('group frame',),          'group frame (its key index past 16 groups, ADR 0026 F10; the line says so)'),
     '__ga':     (('accumulator',),          'accumulator (per-group accumulator columns)'),
@@ -549,7 +554,7 @@ ACC = {
     '__keys':   (('fixpoint lattice key roster',),'fixpoint lattice key roster (the map\'s enumeration)'),
     '__os':     (('over-deletion set',),          "over-deletion set (DRed's |OD|)"),
     '__mr':     (('merge join',),                 "merge join's equal-key run"),
-    '__mb':     (('merge join',),                 "merge join's current batch (batch step)"),
+    '__mb':     (('merge batch buffer',),         "merge batch buffer (a batch step's current leaf)"),
     '__fm':     (('full join matched flags',),    "full join matched flags"),
     '__dx':     (('dominance removals',),         "subsume dominance removals"),
     '__dxs':    (('dominance removal set',),      "subsume dominance removal set"),
@@ -830,6 +835,56 @@ if unwitnessed:
     print( "            tree, or the entry was never true.")
     for k in sorted(unwitnessed):
         print(f"            {k:<10s} {cls.get(k,0):5d} binding(s), owner(s) {', '.join(unwitnessed[k])}")
+    sys.exit(2)
+
+# ── G6 (ADR 0025 L10): SITE FOR SITE, PER FIXTURE ──────────────────────────
+# G4 proves an owner fired somewhere; it does not prove that the plan states
+# every binding it owns. For the classes below the plan line states its own
+# count, and the check is per fixture: the bindings a fixture's dump holds equal
+# the units its own [plan] lines state. `key vector` states how many index
+# vectors it permutes; `group frame` names `__g_idx` when the index is built.
+def units(L, head, per=None):
+    n = 0
+    for ln in L:
+        if head_of(ln) != head: continue
+        if per is None: n += 1
+        else: n += per(ln)
+    return n
+def ix_per(ln):
+    m = re.search(r'permutes (\d+) index vector', ln)
+    if not m: raise SystemExit(f"FAIL(2) G6: a `key vector` line states no index-vector count: {ln}")
+    return int(m.group(1))
+SITE = [
+    (('__hm', '__hs'), lambda L: units(L, 'arrange')),
+    (('__ks',),        lambda L: units(L, 'key vector')),
+    (('__ix',),        lambda L: units(L, 'key vector', ix_per) + units(L, 'group survivors')),
+    (('__g_key',),     lambda L: units(L, 'group frame')),
+    (('__g_idx',),     lambda L: units(L, 'group frame', lambda ln: int('`__g_idx' in ln))),
+    (('__mr',),        lambda L: units(L, 'merge join')),
+    (('__mb',),        lambda L: units(L, 'merge batch buffer')),
+]
+site_bad = []
+site_tot = collections.Counter()
+for e in sorted(glob.glob(os.path.join(OUT, '*.err'))):
+    b = os.path.basename(e)[:-4]
+    L = [ln.rstrip('\n') for ln in open(e, errors='replace') if ln.startswith('[plan]')]
+    bc = collections.Counter()
+    u = os.path.join(OUT, b + '.user')
+    if os.path.exists(u):
+        for ln in open(u, errors='replace'):
+            m = BIND.search(ln)
+            if m: bc[m.group(1)] += 1
+    for ks, f in SITE:
+        nb = sum(v for n, v in bc.items() for k in ks if n == k or n.startswith(k + '_'))
+        np_ = f(L)
+        site_tot[ks] += nb
+        if nb != np_: site_bad.append((b, '+'.join(ks), np_, nb))
+print()
+print("── G6 SITE FOR SITE (per fixture: bindings == units the plan states) ──")
+for ks, _ in SITE: print(f"  {'+'.join(ks):<10s} {site_tot[ks]:5d}")
+if site_bad:
+    print(f"FAIL(2) G6: {len(site_bad)} fixture/class pair(s) where the plan states a different count:")
+    for b, k, np_, nb in site_bad[:20]: print(f"            {b}: {k} plan {np_}, bindings {nb}")
     sys.exit(2)
 PY
 rc=$?
