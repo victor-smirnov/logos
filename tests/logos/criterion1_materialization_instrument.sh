@@ -138,9 +138,9 @@
 #   G3  no probe was lost: one rc file per fixture, count asserted.
 #   G5  the sweep is not blind: at least one user dump, one [plan] line and one
 #       collection binding, so no percentage is printed over an empty denominator.
-#   G6  site for site: for the classes whose plan line states its own count
-#       (arrange, key vector, group frame, merge join), per fixture, the
-#       bindings equal the units the plan states (ADR 0025 L10).
+#   G6  site for site: for every ACC class, per fixture, the bindings equal the
+#       units the fixture's own plan lines state — one per owner line, or the
+#       count the line states (arrange, key vector, group frame) (ADR 0025 L10).
 #   G4  every ACC credit is WITNESSED: the owning head fired at least once in
 #       THIS sweep's trace. See the block below — this one was added because a
 #       control proved the credit was previously unfalsifiable.
@@ -839,10 +839,10 @@ if unwitnessed:
 
 # ── G6 (ADR 0025 L10): SITE FOR SITE, PER FIXTURE ──────────────────────────
 # G4 proves an owner fired somewhere; it does not prove that the plan states
-# every binding it owns. For the classes below the plan line states its own
-# count, and the check is per fixture: the bindings a fixture's dump holds equal
-# the units its own [plan] lines state. `key vector` states how many index
-# vectors it permutes; `group frame` names `__g_idx` when the index is built.
+# every binding it owns. G6 checks per fixture: the bindings of an ACC class in
+# a fixture's dump equal the units its own [plan] lines state. `key vector`
+# states how many index vectors it permutes; `group frame` names `__g_idx` when
+# the index is built; `arrange` owns `__hm` and `__hs` together.
 def units(L, head, per=None):
     n = 0
     for ln in L:
@@ -854,15 +854,19 @@ def ix_per(ln):
     m = re.search(r'permutes (\d+) index vector', ln)
     if not m: raise SystemExit(f"FAIL(2) G6: a `key vector` line states no index-vector count: {ln}")
     return int(m.group(1))
-SITE = [
-    (('__hm', '__hs'), lambda L: units(L, 'arrange')),
-    (('__ks',),        lambda L: units(L, 'key vector')),
-    (('__ix',),        lambda L: units(L, 'key vector', ix_per) + units(L, 'group survivors')),
-    (('__g_key',),     lambda L: units(L, 'group frame')),
-    (('__g_idx',),     lambda L: units(L, 'group frame', lambda ln: int('`__g_idx' in ln))),
-    (('__mr',),        lambda L: units(L, 'merge join')),
-    (('__mb',),        lambda L: units(L, 'merge batch buffer')),
-]
+# Every ACC class is checked. A class owned by heads that state no count is
+# one binding per owner line; the overrides are the classes whose lines state
+# their own unit.
+SITE_UNIT = {
+    ('__hm', '__hs'): lambda L: units(L, 'arrange'),
+    ('__ix',):        lambda L: units(L, 'key vector', ix_per) + units(L, 'group survivors'),
+    ('__g_idx',):     lambda L: units(L, 'group frame', lambda ln: int('`__g_idx' in ln)),
+}
+_over = {k for ks in SITE_UNIT for k in ks}
+assert _over <= set(ACC), sorted(_over - set(ACC))
+SITE = list(SITE_UNIT.items()) + [
+    ((k,), (lambda hs: lambda L: sum(units(L, h) for h in hs))(hs))
+    for k, (hs, _) in ACC.items() if k not in _over]
 site_bad = []
 site_tot = collections.Counter()
 for e in sorted(glob.glob(os.path.join(OUT, '*.err'))):
@@ -873,15 +877,19 @@ for e in sorted(glob.glob(os.path.join(OUT, '*.err'))):
     if os.path.exists(u):
         for ln in open(u, errors='replace'):
             m = BIND.search(ln)
-            if m: bc[m.group(1)] += 1
+            if not m: continue
+            n = m.group(1)
+            k = next((a for a in ACC if n == a or n.startswith(a + '_')), None)
+            if k: bc[k] += 1
     for ks, f in SITE:
-        nb = sum(v for n, v in bc.items() for k in ks if n == k or n.startswith(k + '_'))
+        nb = sum(bc[k] for k in ks)
         np_ = f(L)
         site_tot[ks] += nb
         if nb != np_: site_bad.append((b, '+'.join(ks), np_, nb))
 print()
 print("── G6 SITE FOR SITE (per fixture: bindings == units the plan states) ──")
-for ks, _ in SITE: print(f"  {'+'.join(ks):<10s} {site_tot[ks]:5d}")
+print(f"  {len(SITE)} classes, {sum(site_tot.values())} bindings, every one stated by its fixture's plan")
+for ks in SITE_UNIT: print(f"  {'+'.join(ks):<10s} {site_tot[ks]:5d}  (unit stated on the line)")
 if site_bad:
     print(f"FAIL(2) G6: {len(site_bad)} fixture/class pair(s) where the plan states a different count:")
     for b, k, np_, nb in site_bad[:20]: print(f"            {b}: {k} plan {np_}, bindings {nb}")
