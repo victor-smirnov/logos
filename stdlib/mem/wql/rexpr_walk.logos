@@ -1793,6 +1793,43 @@ fn key_ord_frag(key_ty: str, e: ExprBlob) -> ExprBlob {
     return e;
 }
 
+// `a < b` in the key's order. An `Option` key (a column of an outer join's
+// optional side) orders as Rust's `Option`: `None` before every `Some`, two
+// `Some`s by their payload's key. It is spelled as a match because the
+// language refuses `<` on a payload enum.
+fn key_lt_frag(key_ty: str, a: ExprBlob, b: ExprBlob) -> ExprBlob {
+    let inner: &str = el_option_inner(key_ty);
+    if inner.len() == 0i64 {
+        let ka: ExprBlob = key_ord_frag(key_ty, a);
+        let kb: ExprBlob = key_ord_frag(key_ty, b);
+        return quote_expr! { (#(ka)) < (#(kb)) };
+    }
+    let kp: ExprBlob = key_ord_frag(inner, quote_expr! { __op });
+    let kq: ExprBlob = key_ord_frag(inner, quote_expr! { __oq });
+    return quote_expr! { match (#(a), #(b)) {
+        (Option::Some(__op), Option::Some(__oq)) => (#(kp)) < (#(kq)),
+        (Option::None, Option::Some(_)) => true,
+        _ => false,
+    } };
+}
+
+// `a == b` in the key's order (`None` equals only `None`).
+fn key_eq_frag(key_ty: str, a: ExprBlob, b: ExprBlob) -> ExprBlob {
+    let inner: &str = el_option_inner(key_ty);
+    if inner.len() == 0i64 {
+        let ka: ExprBlob = key_ord_frag(key_ty, a);
+        let kb: ExprBlob = key_ord_frag(key_ty, b);
+        return quote_expr! { (#(ka)) == (#(kb)) };
+    }
+    let kp: ExprBlob = key_ord_frag(inner, quote_expr! { __op });
+    let kq: ExprBlob = key_ord_frag(inner, quote_expr! { __oq });
+    return quote_expr! { match (#(a), #(b)) {
+        (Option::Some(__op), Option::Some(__oq)) => (#(kp)) == (#(kq)),
+        (Option::None, Option::None) => true,
+        _ => false,
+    } };
+}
+
 fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
     let mut saves: Vec<ExprBlob>  = vec_new::<ExprBlob>();
     let mut shifts: Vec<ExprBlob> = vec_new::<ExprBlob>();
@@ -1810,38 +1847,19 @@ fn sort_perm_frag(key_ty: str, desc: bool, nidx: i64) -> ExprBlob {
     }
     let kt: ExprBlob = parse_type(key_ty);
     let tie: ExprBlob = ix_lex_gt_frag(0i64, nidx);
-    // Four fragments, not two reused: a spliced blob is consumed by its splice.
-    let pa: ExprBlob = key_ord_frag(key_ty, quote_expr! { __ks.get(__b - 1i64) });
-    let ca: ExprBlob = key_ord_frag(key_ty, quote_expr! { __kv });
-    let pe: ExprBlob = key_ord_frag(key_ty, quote_expr! { __ks.get(__b - 1i64) });
-    let ce: ExprBlob = key_ord_frag(key_ty, quote_expr! { __kv });
-    if desc {
-        return quote_block! {
-            let mut __a: i64 = 1i64;
-            while __a < __ks.len() {
-                let __kv: #(kt) = __ks.get(__a);
-                #( #saves; )*
-                let mut __b: i64 = __a;
-                while __b > 0i64 && ((#(pa)) < (#(ca))
-                                     || ((#(pe)) == (#(ce)) && (#(tie)))) {
-                    __ks.set(__b, __ks.get(__b - 1i64));
-                    #( #shifts; )*
-                    __b = __b - 1i64;
-                }
-                __ks.set(__b, __kv);
-                #( #lands; )*
-                __a = __a + 1i64;
-            }
-        };
-    }
+    // Ascending moves the earlier key past the current one while it is greater;
+    // descending while it is less. The four keys are four fragments, not two
+    // reused: a spliced blob is consumed by its splice.
+    let mut mv: ExprBlob = key_lt_frag(key_ty, quote_expr! { __kv }, quote_expr! { __ks.get(__b - 1i64) });
+    if desc { mv = key_lt_frag(key_ty, quote_expr! { __ks.get(__b - 1i64) }, quote_expr! { __kv }); }
+    let eq: ExprBlob = key_eq_frag(key_ty, quote_expr! { __ks.get(__b - 1i64) }, quote_expr! { __kv });
     return quote_block! {
         let mut __a: i64 = 1i64;
         while __a < __ks.len() {
             let __kv: #(kt) = __ks.get(__a);
             #( #saves; )*
             let mut __b: i64 = __a;
-            while __b > 0i64 && ((#(pa)) > (#(ca))
-                                 || ((#(pe)) == (#(ce)) && (#(tie)))) {
+            while __b > 0i64 && ((#(mv)) || ((#(eq)) && (#(tie)))) {
                 __ks.set(__b, __ks.get(__b - 1i64));
                 #( #shifts; )*
                 __b = __b - 1i64;
@@ -5272,7 +5290,7 @@ pub fn emit_entry_join(ds: &DSimple, jp: JoinPlan, fn_name: str, params_text: st
             // sort key and the nest is pinned, so the rows are already in order
             if mods.has_sort && prm.rel_src_ord_noop(ch.base_src) {
                 mods.has_sort = false;
-                plan_trace(ch.base_src, "sort elided", ch.base_var, "the base ascends on the `order by` column and a merge step pins the written nest, so the join already emits its rows in the sort's sequence (ties in base-then-step order, the sort's own tiebreak)");
+                plan_trace(ch.base_src, "sort elided", ch.base_var, "the base ascends on the `order by` column and the written nest is pinned (a merge, outer or anti step), so the join already emits its rows in the sort's sequence (ties in base-then-step order, the sort's own tiebreak)");
             }
             return emit_join_chain(ch, jp, pred, !ds.pred.is_null(), sel, mods, fn_name, params_text, prm,
                                    result_ty, has_result_ty, sel_mode == SELM_FIRST(), prelude, h);

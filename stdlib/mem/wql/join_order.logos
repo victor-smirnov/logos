@@ -1053,9 +1053,12 @@ pub fn plan_join_order(cl: &CClause, scan: bool, sort_key: WAny, prm: &MacroPara
     let mut jp: JoinPlan = join_plan_none();
     if !scan { return jp; }
     let view: OView = oview_module_ast();
-    let ty: ElTypes = type_clause(&view, prm, cl, false);
+    let mut ty: ElTypes = type_clause(&view, prm, cl, false);
     let has_sort: bool = !sort_key.is_null();
     if has_sort {
+        // an outer join's optional column read only by the `order by` is an
+        // `Option<T>` key too (`typecheck` types the rule the same way)
+        type_outer(&mut ty, cl, sort_key);
         let key_opt: SExpr = simplify_sexpr(sort_key.view::<SExpr>(), h).any().view::<SExpr>();
         jp.key_tn = String::from_str(infer_ty_name(key_opt, &ty));
         jp.key_kv = String::from_str(infer_emit_ty(key_opt, &ty));
