@@ -16615,6 +16615,8 @@ sym	logos_lang..logos.lang.writ.typed_value.WTypedValue$M87faad2bdf4d03ed__param
 sym	logos_lang..logos.lang.writ.typed_value.WTypedValue$M87faad2bdf4d03ed__type_name__f__ref_WTypedValue$M87faad2bdf4d03ed
 sym	logos_lang..logos.lang.writ.typed_value.WTypedValue$M87faad2bdf4d03ed__type_name_str__f__ref_WTypedValue$M87faad2bdf4d03ed
 sym	logos_lang..logos.lang.writ.typed_value.Writ$M50d537c7332380e0__typed_value__f__ref_Writ$M50d537c7332380e0__slice_str__WAny$Mbca990539d695b8c__WAny$Mbca990539d695b8c
+sym	logos_lang..logos.lang.writ.wmap.$slice$str__from_wany__f__WAny$Mbca990539d695b8c
+sym	logos_lang..logos.lang.writ.wmap.$slice$str__to_wany__f__slice_str__pmut_Allocator$M043b025249fdbcba
 sym	logos_lang..logos.lang.writ.wmap.WAnyMut$Mbca990539d695b8c__as_map_mut__f__WAnyMut$Mbca990539d695b8c
 sym	logos_lang..logos.lang.writ.wmap.WAny__as_map__f__WAny$Mbca990539d695b8c
 sym	logos_lang..logos.lang.writ.wmap.WAny__from_wany__f__WAny$Mbca990539d695b8c
@@ -16645,8 +16647,6 @@ sym	logos_lang..logos.lang.writ.wmap.i8__from_wany__f__WAny$Mbca990539d695b8c
 sym	logos_lang..logos.lang.writ.wmap.i8__to_wany__f__i8__pmut_Allocator$M043b025249fdbcba
 sym	logos_lang..logos.lang.writ.wmap.isize__from_wany__f__WAny$Mbca990539d695b8c
 sym	logos_lang..logos.lang.writ.wmap.isize__to_wany__f__isize__pmut_Allocator$M043b025249fdbcba
-sym	logos_lang..logos.lang.writ.wmap.str__from_wany__f__WAny$Mbca990539d695b8c
-sym	logos_lang..logos.lang.writ.wmap.str__to_wany__f__slice_str__pmut_Allocator$M043b025249fdbcba
 sym	logos_lang..logos.lang.writ.wmap.u16__from_wany__f__WAny$Mbca990539d695b8c
 sym	logos_lang..logos.lang.writ.wmap.u16__to_wany__f__u16__pmut_Allocator$M043b025249fdbcba
 sym	logos_lang..logos.lang.writ.wmap.u24__from_wany__f__WAny$Mbca990539d695b8c
