@@ -1,0 +1,41 @@
+// A container-handle call nested at depth >= 2 inside a method-call argument
+// (`m.push_str((l2.get_or(..) + 0u64).to_string().as_str())`) was refused with a spurious
+// "'String' has no method 'push_str'" from a dispatch pass whose argument had not resolved yet.
+// A failed argument no longer adds the outer call's "has no method" (deem's ADR 0039 report (1)/(2)).
+package nested_handle_call_in_method_arg;
+
+use logos.lcm.canon.container_item;
+use logos.lcm.canon.metaclass;
+use logos.mem.pkd;
+use logos.mem.bt.map;
+use logos.mem.bt.memstore;
+use logos.mem.sync;
+use logos.lang.str;
+use logos.mem.string;
+use logos.mem.fmt;
+use logos.std.io;
+
+container Ledger {
+    kind ordered_map;
+    entry { key: u64, val: u64 }
+    measure max(key);
+}
+
+fn main() -> i32 {
+    let mut store: Arc<MemoryStore> = store_new();
+    let s1: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut l = create_ctr::<typeof(Ledger)>(&s1, 1u64);
+    l.insert(1u64, 10u64);
+    s1.commit();
+    let s2: Arc<dyn Snapshot> = store_fork_arc(&mut store);
+    let mut l2 = open_ctr::<typeof(Ledger)>(&s2, 1u64);
+    l2.insert(1u64, 99u64);
+    let l1 = open_ctr::<typeof(Ledger)>(&s1, 1u64);
+    let fork_val: u64 = l2.get_or(1u64, 0u64);
+    let committed_val: u64 = l1.get_or(1u64, 0u64);
+    let mut m: String = String::new();
+    m.push_str("fork "); let y: u64 = l2.get_or(1u64, 0u64) + 0u64; m.push_str((l2.get_or(1u64, 0u64) + 0u64).to_string().as_str());
+    m.push_str(" committed "); m.push_str(committed_val.to_string().as_str());
+    println_string(&m);
+    return 0i32;
+}

@@ -12387,7 +12387,12 @@ lir::LExprPtr SemaChecker::lower_method_call(TinyMapView node) {
                                       CoercePos::MethodArg,
                                       std::format("method '{}' arg {}:", mangled, mwhy_argi_));
         }
-        if (!mwhy_said_)
+        // An argument that already failed (its own diagnostic said why) rejects every
+        // candidate; the call's "has no method" would only be a cascade masking it.
+        bool arg_failed_ = false;
+        for (auto& a_ : arg_exprs)
+            if (a_ && expr_type(a_) && TypeRef(expr_type(a_)).kind() == LogosType::Kind::Error) arg_failed_ = true;
+        if (!mwhy_said_ && !arg_failed_)
             error(std::format("method call: '{}' has no method '{}'", sname, method_name));
         return builder().method_call(std::move(recv), std::string(method_name), "", {}, std::move(arg_exprs), -1, error_t());
     }

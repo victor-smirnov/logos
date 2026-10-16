@@ -1,0 +1,11 @@
+// A recursive call inside an `impl Trait`-returning fn returns the fn's own opaque
+// type, which IS the hidden type: it fixes nothing and conflicts with nothing
+// (rustc 1.98.1 admits; matrix recursive-rpit-refused 5_19). Two concrete hidden
+// types still refuse, and a recursion with no base return cannot infer one.
+package recursive_rpit_own_opaque;
+use logos.std.fmt;
+trait Metric { fn m(&self) -> i64; }
+impl Metric for i64 { fn m(&self) -> i64 { return *self; } }
+fn down(n: i64) -> impl Metric { if n == 0 { return 5i64; } return down(n - 1); }
+fn up(n: i64) -> impl Metric { if n > 0 { return up(n - 1); } return 7i64; }
+fn main() { println!("{} {}", down(3).m(), up(2).m()); }

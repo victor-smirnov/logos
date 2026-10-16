@@ -3051,7 +3051,8 @@ bool SemaChecker::refuse_unsized_rvalue_(TinyMapView n, const lir::LExprPtr& e) 
     deref_yielded_unsized_ = false;
     // `str` by value is still the stdlib's fat-string currency (`fn str_eq(a: str, b: str)`,
     // ~1200 sites): squeue row str_by_value_admitted. `dyn Tr` and `[T]` have no such use.
-    if (is_str_type(expr_type(e))) return false;
+    static const bool str_unsized = [] { const char* v = std::getenv("LOGOS_STR_UNSIZED"); return v && *v == '1'; }();
+    if (!str_unsized && is_str_type(expr_type(e))) return false;
     error(std::format("the size for values of type `{}` cannot be known at compilation time (E0277)",
                       unsized_place_name_(expr_type(e))));
     return true;
@@ -3124,9 +3125,11 @@ lir_view::StmtRef SemaChecker::finish_return_(lir::LExprPtr val, TinyMapView vno
             vt = pool_->alloc(std::move(b));
             builder().retype_expr(val, vt);
         }
-        // A diverging value (`!`) fixes no hidden type.
+        // A diverging value (`!`) fixes no hidden type; nor does this function's own
+        // opaque type (a recursive call, `return f(n - 1)`): it IS the hidden type.
         if (TypeRef(vt).kind() != LogosType::Kind::Error &&
-            TypeRef(vt).kind() != LogosType::Kind::Never) {
+            TypeRef(vt).kind() != LogosType::Kind::Never &&
+            !(TypeRef(vt).kind() == LogosType::Kind::ImplTrait && types_equal(vt, ret_type_))) {
             if (!impl_ret_type_inferred_)
                 impl_ret_type_inferred_ = vt;
             else if (!types_equal(vt, impl_ret_type_inferred_))

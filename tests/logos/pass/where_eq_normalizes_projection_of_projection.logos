@@ -1,0 +1,17 @@
+// A where-clause equation on a projection base normalizes a projection of it:
+// `where X::W: Ws<Snap = X::Snap>` makes `X::W::Snap` be `X::Snap` (rustc 1.98.1 admits;
+// deem's ADR 0039 M2 report (A)).
+package where_eq_normalizes_projection_of_projection;
+trait Ws { type Snap; fn commit(self) -> Self::Snap; }
+trait Vs { type Snap; type W: Ws; fn fork(&mut self) -> Self::W; }
+struct S { n: u64 }
+struct W { n: u64 }
+impl Ws for W { type Snap = S; fn commit(self) -> S { S { n: self.n } } }
+struct V { n: u64 }
+impl Vs for V { type Snap = S; type W = W; fn fork(&mut self) -> W { W { n: self.n } } }
+fn law<X: Vs>(vs: &mut X) -> X::Snap where X::W: Ws<Snap = X::Snap> {
+    let w = vs.fork();
+    let s2: X::Snap = w.commit();
+    s2
+}
+fn main() -> i32 { let mut v = V { n: 2 }; let s = law(&mut v); return (s.n - 2) as i32; }
