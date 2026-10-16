@@ -71,18 +71,18 @@ pub fn cf_next_comma(s: &str, from: i64, end: i64) -> i64 {
 }
 
 /// One parsed container spec — string fields borrow the spec line.
-pub struct ContainerSpec {
+pub struct ContainerSpec<'d> {
     pub is_pub:      bool,
-    pub generics:    str,   // "<T>" verbatim (bounds included), "" = concrete
-    pub gnames:      str,   // "T" / "K,V"
-    pub backing:     str,   // "VecCtr<T>" (syntactic)
-    pub backing_pkg: str,   // defining package of the backing base type, or ""
-    pub kind:        str,   // "vector" | "ordered_map" | "node" | "branch" | "multimap"
-    pub entry:       str,   // raw "name:ty:p,…"; stream-qualified "keys.key:K:1,…" for a multistream decl
-    pub measures:    str,   // raw "count,max(key)"; stream-qualified "keys.max(key),values.count"
-    pub pkg:         str,   // declaring package (ADR 0021 CFG-doc emission), "" if absent
-    pub streams:     str,   // BTFL 8b: "keys,values" in declaration order; "" = BTSS sugar (one anonymous stream)
-    pub ops:         str,   // BTFL 8b: "keys.seek(max(key)),keys.insert,values.scan(val),…"; unqualified for BTSS sugar; "" = none
+    pub generics:    &'d str,   // "<T>" verbatim (bounds included), "" = concrete
+    pub gnames:      &'d str,   // "T" / "K,V"
+    pub backing:     &'d str,   // "VecCtr<T>" (syntactic)
+    pub backing_pkg: &'d str,   // defining package of the backing base type, or ""
+    pub kind:        &'d str,   // "vector" | "ordered_map" | "node" | "branch" | "multimap"
+    pub entry:       &'d str,   // raw "name:ty:p,…"; stream-qualified "keys.key:K:1,…" for a multistream decl
+    pub measures:    &'d str,   // raw "count,max(key)"; stream-qualified "keys.max(key),values.count"
+    pub pkg:         &'d str,   // declaring package (ADR 0021 CFG-doc emission), "" if absent
+    pub streams:     &'d str,   // BTFL 8b: "keys,values" in declaration order; "" = BTSS sugar (one anonymous stream)
+    pub ops:         &'d str,   // BTFL 8b: "keys.seek(max(key)),keys.insert,values.scan(val),…"; unqualified for BTSS sugar; "" = none
 }
 
 pub fn container_spec_new() -> ContainerSpec {

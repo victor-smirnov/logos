@@ -72,7 +72,7 @@ fn param_name_of(params: &str) -> &str {
 /// One comparison found in a predicate: the hub column it tests and how.
 /// `col` empty = no usable comparison, and `why` says which shape it was —
 /// the trace prints it, and slice 3.3 will want the same distinction.
-pub struct PlanCmp { pub col: str, pub op: i32, pub why: str,
+pub struct PlanCmp<'d> { pub col: &'d str, pub op: i32, pub why: &'d str,
                     pub has_lit: bool, pub lit: i64,
                     /// The comparison as READ FROM THE COLUMN: `42 > e.key` is
                     /// `key < 42`. Without this a reversed literal narrows the
